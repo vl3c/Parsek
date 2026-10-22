@@ -253,6 +253,8 @@ namespace Parsek
                 case GameActionType.StrategyScienceCredit:
                 // Science lab credit: credits the pool like a ScienceEarning.
                 case GameActionType.ScienceLabEarning:
+                // The drawdown guard's adjustment: moves one pool by its amount.
+                case GameActionType.StockPoolAdjustment:
                 case GameActionType.ReputationEarning:
                 case GameActionType.ReputationPenalty:
                     return true;

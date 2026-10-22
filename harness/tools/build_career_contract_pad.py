@@ -183,27 +183,28 @@ CONTRACT_B_SEQ = "2"
 CONTRACT_A_DEADLINE_UT = "9201600"
 CONTRACT_B_DEADLINE_UT = "100"
 
-# The penalty pack the synthetic fail applies. `FundsModule` and the reputation
-# module subtract these from the RECONSTRUCTION - and that is where they stop.
+# The penalty pack the synthetic fail carries. `ContractsModule` retires B with it;
+# no pool pays it.
 #
-# MEASURED, run `2026-08-20_2240`: the walk really does spend the pack
-# (`running=527558` against `live=536558` for funds, `running=0.99999749660491943`
-# against `live=1.9999988079071045` for reputation), and `KspStatePatcher`'s
-# guarded drawdown then refused to write either pool back, so NEITHER LIVE POOL
-# MOVED in this fixture's shape. Since the committed-value rule's phase 2
-# (2026-10-22) the guard reads the stock pool reference instead, finds live where
-# Parsek left it, and the 9000 / 1 debit IS written (L5 now pins the write). That is the guard working as designed here: this
-# save's stock `CONTRACTS` node is EMPTY by construction, so stock never debited
-# the pools for B and the recalc reaches the patcher as a bare drawdown with no
-# time-travel context. An earlier revision of this comment predicted the opposite
-# ("these two numbers MOVE TWO REAL POOLS"); the flight refuted it. Full finding:
-# SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD in
-# `docs/dev/todo-and-known-bugs.md`.
+# MEASURED, run `2026-08-20_2240`: the walk then spent the pack on the
+# RECONSTRUCTION (`running=527558` against `live=536558` for funds,
+# `running=0.99999749660491943` against `live=1.9999988079071045` for reputation),
+# and `KspStatePatcher`'s guarded drawdown refused to write either pool back, so
+# NEITHER LIVE POOL MOVED in this fixture's shape. Since the committed-value rule's
+# phase 2 (revision 6, 2026-10-22) the walk withholds a row it injected from the
+# funds / science / reputation modules: the synthetic fail moves contract state
+# only, the reconstruction no longer spends the pack either, and L5 pins the
+# withheld line. That
+# matches stock here: this save's stock `CONTRACTS` node is EMPTY by construction,
+# so stock never debited the pools for B. An earlier revision of this comment
+# predicted the opposite ("these two numbers MOVE TWO REAL POOLS"); the flight
+# refuted it. Full finding: SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD
+# in `docs/dev/todo-and-known-bugs.md`.
 #
-# SIZED TO KEEP BOTH POOLS POSITIVE ON A YOUNG CAREER - a live constraint again
-# since phase 2 writes the debit. The sizing holds against a future change of
-# guard POLICY: if the drawdown guard is ever taught to let a contract penalty
-# through, this fixture must not be the run that first drives a pool negative.
+# SIZED TO KEEP BOTH POOLS POSITIVE ON A YOUNG CAREER. No pool pays the pack today;
+# the sizing holds against a future change of policy: if a synthetic fail's penalty
+# is ever let through to a pool, this fixture must not be the run that first drives
+# a pool negative.
 # The funds figure is a real generated PartTest's `values[4]` (`FundsFailure`) off
 # `375b4446-c861-4b4d-bf97-ef38407246a4` in
 # `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`, and 9000 against a career that
@@ -211,8 +212,8 @@ CONTRACT_B_DEADLINE_UT = "100"
 # figure is NOT that contract's `values[7]` of 4: this career ends the flight at
 # reputation 2, and a 4-point penalty would AIM the pool NEGATIVE - a state stock
 # supports but that no committed run has ever exercised, which would put an
-# unrelated first on the same flight as this one. 1 keeps the sizing safe and
-# still moves the reconstruction, which is what the gate needs.
+# unrelated first on the same flight as this one. 1 keeps the sizing safe; the gate
+# reads the pack off the injection, fail and withheld lines.
 CONTRACT_FUNDS_PENALTY = "9000"
 CONTRACT_A_REP_PENALTY = "4"
 CONTRACT_B_REP_PENALTY = "1"

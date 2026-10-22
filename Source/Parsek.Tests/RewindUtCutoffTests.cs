@@ -1266,8 +1266,10 @@ namespace Parsek.Tests
             // Expected balances:
             //   seed   10000
             //   +advance  +200 (ContractAccept at UT=100)
-            //   -penalty  -500 (synthetic ContractFail at deadlineUT=300)
-            //           = 9700
+            //   the synthetic ContractFail at deadlineUT=300 moves contract state only: a row
+            //   the walk injected never reaches a pool module (committed-value rule plan
+            //   section 2.4, revision 6), so its 500 penalty is withheld
+            //           = 10200
             AddAll(
                 FundsSeed(10000f),
                 ContractAcceptWithDeadline(100.0, "c-late-fail",
@@ -1276,7 +1278,11 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.RecalculateAndPatch(400.0);
 
-            Assert.Equal(9700.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Equal(10200.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecalcEngine]")
+                && l.Contains("Walk withheld 1 injected row(s)")
+                && l.Contains("contractId='c-late-fail'"));
 
             // Slot released — active contract count should be 0.
             Assert.Equal(0, LedgerOrchestrator.Contracts.GetActiveContractCount());
@@ -1391,7 +1397,8 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.RecalculateAndPatch(double.MaxValue, deadlineClockUT: 400.0);
 
-            Assert.Equal(9700.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            // The synthetic fail retires the contract and withholds its penalty from funds.
+            Assert.Equal(10200.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
             Assert.Equal(0, LedgerOrchestrator.Contracts.GetActiveContractCount());
             Assert.Contains(logLines, l =>
                 l.Contains("[Contracts]")
@@ -1415,8 +1422,9 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.RecalculateAndPatch();
 
-            // seed + advance + milestone funds - penalty = 10000 + 200 + 50 - 500 = 9750
-            Assert.Equal(9750.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            // seed + advance + milestone funds = 10000 + 200 + 50 = 10250 (the synthetic
+            // fail's penalty is withheld from funds; it moves contract state only)
+            Assert.Equal(10250.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
             Assert.Equal(0, LedgerOrchestrator.Contracts.GetActiveContractCount());
 
             // Log should show the heuristic source, not the cutoff source.

@@ -1000,7 +1000,7 @@ namespace Parsek.Tests
 
             // The basis is computed ONCE, first: the pending-adjusted running balance (the
             // stock pool reference's pending step) folds it, and only then is the target
-            // built (it needs the reference's kept leak) and adjusted by the two siblings and
+            // built (it needs the reference's measurement) and adjusted by the two siblings and
             // the strategy adjuster that consumes the same basis.
             Assert.True(basisAt < discriminatorAt,
                 "the basis must be computed before the pending-adjusted running fold.");

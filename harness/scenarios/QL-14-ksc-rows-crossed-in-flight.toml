@@ -53,8 +53,9 @@ tier = "nightly"
 # them, with or without the cursor's record. `GUARDED (UPLIFT|DRAWDOWN) clamped` now logs
 # only when that reference measures a leak (the live pool moved by something no ledger row
 # accounts for), so the forbid below keeps its reading: nothing on this route moves a pool
-# behind the ledger's back. The fixture carries no saved reference, so its first patch takes
-# the older build's gap as the kept leak silently (no GUARDED line). Not re-flown on phase 2.
+# behind the ledger's back. The fixture carries no saved reference, so its first patch files
+# the older build's gap as one StockPoolAdjustment ledger row silently (no GUARDED line). Not
+# re-flown on phase 2.
 #
 # STATUS: AUTHORED 2026-10-21 (branch `claude/project-thread-hvhou8`). LIVE-PROVEN 2026-10-21
 # `2026-10-21_1703` PASS attempt 1 (PR #2164, build 411ccc1): crossed=13, the hire promoted, no

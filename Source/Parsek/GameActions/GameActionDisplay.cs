@@ -165,6 +165,14 @@ namespace Parsek
                 case GameActionType.StrategyDeactivate:
                     return "Deactivate: " + (action.StrategyId ?? "unknown");
 
+                case GameActionType.StockPoolAdjustment:
+                    return string.Format(IC, "Pool adjustment ({0}) {1}{2}",
+                        action.AdjustmentPool,
+                        action.AdjustmentAmount >= 0 ? "+" : "",
+                        action.AdjustmentPool == StockPool.Funds
+                            ? action.AdjustmentAmount.ToString("0", IC)
+                            : action.AdjustmentAmount.ToString("0.#", IC));
+
                 default:
                     return action.Type.ToString();
             }

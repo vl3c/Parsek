@@ -68,7 +68,7 @@ Flights and launches are never blocked for their risk; a launch is refused only 
 - `CanAffordFundsSpending` has no production caller; `CanAffordScienceSpending` guards tech through
   `TechResearchPatch.IsScienceShort` and `CommittedActionDialog.ShowBlocked`.
 
-## 2. Design (revision 5, after four clean reviews)
+## 2. Design (revision 6, after five clean reviews)
 
 The first draft held every reservation in the stock pool and let the drawdown guard read a
 remembered reserve. Its review found the flaw that shaped this revision: stock pays a fail penalty
@@ -82,7 +82,10 @@ ordinary play (a committed row crossing the clock outside the KSC cursor, stock'
 any other move, the reputation curve at a different value, science's pending adjusters) and that
 settling a cost row lets a kept leak pay for purchases without limit. Revision 3 makes the
 reference incremental (2.4: the last written pool plus what stock itself applied since) and never
-settles a cost row (2.3).
+settles a cost row (2.3). Revision 6 (after the clean review of the shippable phase 2) turns a
+measured leak into a ledger row, so the walk's running value is the pool's value, steps each row by
+its effect in the visible walk instead of re-simulating stock, and keeps a row the walk injected out
+of every pool (2.4).
 
 ### 2.1 Rule 1: refuse an early end of a contract with a committed outcome (phase 1, built)
 
@@ -120,9 +123,10 @@ the walk's input list out of the reserve (`CountsInReserve`, membership by refer
 logs `Projection reserve for <module>: ... excludedSyntheticRows=N excludedSyntheticDelta=D`.
 `ContractsModule` is unchanged and still injects the row into the projection walk. A committed
 ledger `ContractFail` stays reserved. A synthetic fail whose deadline is already PAST is a visible
-walk row, not a reserve, and still charges (L5's shape). Until phase 4 adds the click predicates, an
-open penalty is protected by nothing: a player may spend the money a later fail needs, and stock's
-0 clamp then forgives the rest of that fail (below).
+walk row, and since revision 6 it moves contract state only, never a pool (2.4, L5's shape): stock
+files its own fail row when it charges one. Until phase 4 adds the click predicates, an open penalty
+is protected by nothing: a player may spend the money a later fail needs, and stock's 0 clamp then
+forgives the rest of that fail (below).
 
 **Ruled by V (decision card, 2026-10-22):** open penalties are reserved only while a committed
 purchase or strategy cost lies ahead (`openRes` counts only when `costAhead`). Normal play, where no
@@ -201,80 +205,107 @@ saved.
 The drawdown guard asks one question per pool: did the live pool move by anything other than what
 stock applied for rows the ledger holds? Revision 2 answered it from the whole timeline (`raw`, the
 debt-free running value at now, minus a saved adjust) and its review found five ways ordinary play
-breaks that (B1-B5 in the review record below). Revision 3 answers it incrementally:
+breaks that (B1-B5 in the review record below). Revision 3 answers it incrementally; revision 6
+(below) changes where a measured leak lives and how a row is stepped.
 
 - `lastWritten`: the pool value Parsek left at its last patch of that pool (a no-op patch counts,
-  it re-reads the live value). Saved per pool in the PARSEK node with `cumLeak`, never re-read from
-  the live pool at a load: a save made mid-flight holds a pool that already includes awards whose
-  rows do not exist yet (#466 deferral), and re-reading it would count them twice.
-- `counted`: per row id and pool, the amount the reference has already stepped for that row, saved
-  in the PARSEK node next to `lastWritten` (only nonzero entries), not on the ledger row: the
+  it re-reads the live value). Saved per pool in the PARSEK node, never re-read from the live pool
+  at a load: a save made mid-flight holds a pool that already includes awards whose rows do not
+  exist yet (#466 deferral), and re-reading it would count them twice.
+- `counted`: per row id and pool, the row's effect in the walk the reference last committed
+  (`Effect`, NaN for a row seen but not walked: a committed future row) and the part of it the
+  reference stepped (`Stepped`), saved in the PARSEK node next to `lastWritten` as `id effect
+  stepped` (a row whose effect and step are both 0 is not written), not on the ledger row: the
   ledger file is one per save folder and outlives any one `.sfs`, while the pool, `lastWritten` and
   `counted` must come from the same `.sfs` (an F5 taken before a merge would otherwise read a row
-  counted by a later patch as already in its pool). A row is stepped by `delta - counted`, not by
-  "id not seen before": `EnrichPendingMilestoneRewards` puts a reward onto a milestone row that is
-  already in the ledger, and stepping by the difference counts it once. A row in `counted` that is
-  no longer in the ledger is stepped by `-counted` and dropped (`RepairDuplicateRolloutActions`,
-  `DeduplicateAgainstLedger` and the revert strategy-row prune remove rows between patches),
-  except rows a load removed because stock itself went back past them (a revert, a rewind), which
-  the load-kind cell decides. **Built:** a removed row is stepped back by the part the reference
-  STEPPED for it (`CountedRow.Stepped`), not by its whole counted amount: a row counted without a
-  step (a committed future cost, reserved through the target) was never in `expected`, and stepping
-  it back would hold a released reservation out of the pool for good.
+  counted by a later patch as already in its pool). A row in `counted` that is no longer in the
+  ledger is stepped back by its `Stepped` part and dropped (`RepairDuplicateRolloutActions`,
+  `DeduplicateAgainstLedger` and the revert strategy-row prune remove rows between patches); a row
+  counted without a step (a committed future cost, reserved through the target) was never in
+  `expected`, and stepping it back would hold a released reservation out of the pool for good.
 - `expected` = `lastWritten`, then for every ledger row with UT at or before now that stock applied
-  (below) and whose `counted` differs from its delta, in ledger order, stock's own step: funds and
-  science `expected = max(0, expected + (delta - counted))` when `AllowNegativeCurrency` is off
-  (`Funding.AddFunds`, `ResearchAndDevelopment.AddScience`); reputation curves a nominal amount at
-  `expected` (`Reputation.AddReputation` applies the curve at the live value, so the reference does
-  too), and takes the stored value as is for the sources `ReputationModule` already stores
-  post-curve (`KerbalDeath`, bailout, decline, strategy), which stock does not curve again.
-  Science adds the change in the three pending adjusters since `lastWritten`
-  (`ComputePendingAdjustedRunningScience`): a stock tech unlock the ledger does not hold yet is
-  something stock applied.
-- `leak = live - expected`; `cumLeak += leak` when it is beyond epsilon.
-- Write `max(0, unflooredTarget + cumLeak)` for funds and science (the target before today's 0
-  floor in `GetAvailableFunds` / `ResolveNegativeCurrencyPatchTarget`: flooring first and adding the
-  leak after creates the difference on every purchase that spends a kept leak), reputation
-  `target + cumLeak`; then `lastWritten` = the written value and every row's `counted` = its delta.
+  (below) and that the visible walk dispatched, its step: the row's EFFECT in that walk (the walk's
+  running value after the row minus before it, as the walk applied it, the 0 clamp and the
+  reputation curve included) minus `counted.Effect`. A row not counted steps by its whole effect; a
+  row counted with no effect (NaN: a committed row crossing the clock) steps 0. Science adds the
+  change in the three pending adjusters since `lastWritten` (`ComputePendingAdjustedRunningScience`):
+  a stock tech unlock the ledger does not hold yet is something stock applied. There is no separate
+  re-simulation of stock's step: the review of the shippable phase 2 showed one re-stepped through
+  the clamp next to a pending change leaves a permanent leak (R4, R5).
+- `leak = live - expected`. Beyond epsilon, the patch files it as a ledger row: an additive
+  `GameActionType.StockPoolAdjustment` (id 39; `adjustPool` names the pool, `adjustAmount` the
+  amount, untagged, at the patch's UT, reputation stored post-curve like `KerbalDeath`), written by
+  `KspStatePatcher.FileStockPoolAdjustment` (a classified stock-applied writer: it records something
+  stock applied that no other row holds). `Commit` counts it at creation (`Effect = Stepped =
+  amount`), so a later walk's dispatch of it steps nothing. The walk carries it from then on:
+  `FundsModule` / `ScienceModule` add it to the running value (clamp-exempt), `ReputationModule`
+  adds it uncurved. So the walk's running value IS the pool's value, and the walk's own 0 clamp and
+  reputation curve run where stock's do (R1-R3: a running value that differs from the pool by a
+  kept leak clamps and curves at the wrong value).
+- Write `max(0, unflooredTarget + adjustment)` for funds and science (this patch's adjustment only;
+  earlier ones are in the target through the walk), reputation `target + adjustment`; then
+  `lastWritten` = the written value and every row's `counted` = its walk effect.
 
-Why this holds: a committed row crossing the clock (B1) is not new, so `expected` does not move,
-and the target moves by exactly what the reservation released and the row charged (0 for a
-reserved cost). Stock's 0 clamp (B2) is applied row by row where stock applied it, so a fail
-forgiven by the clamp is forgiven in the reference too (the walk's floor and debt decide the target;
-the guard only keeps what the ledger does not model). The reputation curve (B4) is evaluated where
-stock evaluated it. A pending tech unlock (B5) is in `expected`. A kept leak (`cumLeak`) is part of
-every later write, so spending it is an ordinary new row and the reference stays exact (B3).
+Why this holds: a committed row crossing the clock (B1) is counted with no effect, so `expected`
+does not move, and the target moves by exactly what the reservation released and the row charged
+(0 for a reserved cost). Stock's 0 clamp (B2) and the reputation curve (B4) are the walk's own, at
+the pool's value. A pending tech unlock (B5) is in `expected`. A kept leak is a row of the walk, so
+spending it is an ordinary new row and the reference stays exact (B3).
+
+A row the walk injected is not a row stock applied. `RecalculationEngine` records the walk's input
+rows before the pre-pass and withholds every other row from the stock pool modules
+(`IStockPoolModule`: funds, science, reputation), in their dispatch and their pre-pass alike, and
+logs `Walk withheld N injected row(s) from the stock pool modules (contract state only, no pool
+moves): [...]` once per walk. Today that is `ContractsModule`'s synthetic deadline fail: it retires
+the contract (slot, terminal outcome) and moves no pool. Stock files its own fail row when it
+charges one; a stock fail made before its row lands reads as a leak, files an adjustment, and the
+row taken in later cancels it (R5). `ContractsModule.PrePass`, `CheckDeadlines` and
+`ResolveDeadlineClockUT` are untouched. A contract stock ends Active -> OfferExpired files no
+terminal row, so the walk's synthetic fail there now charges nothing, as stock did not
+(STOCK-OFFER-EXPIRED-ACTIVE-CONTRACT-NO-TERMINAL-ROW).
 
 Which rows stock applied: every row converted from a stock game-state event (the flight's and the
-KSC's), the rollout row, recovery rows, and the rows an ordinary Discard keeps
+KSC's), the rollout row, recovery rows, the rows an ordinary Discard keeps
 (`PreserveIrreversibleLiveGameplayOnDiscard` turns into rows awards stock already paid during the
-discarded flight; that Discard is not authoritative). Rows Parsek authors without a stock
-application (a load migration's rows, the reconciliation bundle's rows) are not in `expected`; they
-arrive through a load or a recalculation that is authoritative today (a Re-Fly merge or discard),
-and an authoritative patch writes the target plus `cumLeak` and marks every row counted. Phase 2 audits the 35
-`Ledger.AddAction` / `AddActions` call sites (35 at plan time, in-game tests included) and pins the
-classification in a source gate, so a new writer has to choose. **Built:** 31 call sites, every one
-`LedgerRowWriter.StockApplied` (`LedgerRowWriterClassificationTests`). The load migration and the
-broken-ledger recovery are stock-applied, not Parsek-authored: their rows convert stock events the
-pool already holds, so a Parsek-authored stamp next to a saved reference that already kept them as a
-leak would pay them twice. The reconciliation bundle does not add rows: it restores the bundle's own
-rows through `Ledger.RestoreActions`, which keeps each row's flag. No production writer is
-Parsek-authored today.
+discarded flight; that Discard is not authoritative), and the adjustment rows. Rows Parsek authors
+without a stock application (a load migration's rows, the reconciliation bundle's rows) are not in
+`expected`; they arrive through a load or a recalculation that is authoritative today (a Re-Fly
+merge or discard). An authoritative patch writes the target, carries the stepped part of the rows
+it removed as one adjustment row (`carried-removed`, so a leak kept before the patch stays kept),
+and marks every row counted. Phase 2 audits the `Ledger.AddAction` / `AddActions` call sites and
+pins the classification in a source gate, so a new writer has to choose. **Built:** 32 call sites,
+every one `LedgerRowWriter.StockApplied` (`LedgerRowWriterClassificationTests`). The load migration
+and the broken-ledger recovery are stock-applied, not Parsek-authored: their rows convert stock
+events the pool already holds, so a Parsek-authored stamp next to a saved reference would pay them
+twice. The reconciliation bundle does not add rows: it restores the bundle's own rows through
+`Ledger.RestoreActions`, which keeps each row's flag. No production writer is Parsek-authored today.
 
-`cumLeak`, `lastWritten` and `counted` are saved in the PARSEK scenario node and always come from
-the same `.sfs` as the live pool. For an in-session load,
-where the ledger stays in memory, the rows the save does not hold are pruned or kept by the load
-kind, so the reference is a new state category in `LoadReconcilePolicy` with a decided cell per load
-kind (cold, plain rewind, Re-Fly start, Discard Re-fly, stock revert, quickload) and a test per
-cell. A save without the values starts from `lastWritten` = the live pool and every row counted,
-which is today's behaviour for that save. **Built:** "today's behaviour" read literally: a measured
-first patch takes the gap between live and its leak-free unfloored target (science: plus its pending
-adjusters) as `cumLeak` and writes nothing, so an older save keeps the pool its build left (whatever
-the old guard was keeping) and logs it at Info, never as a GUARDED clamp; an authoritative first
-patch (a rewind, a Re-Fly merge) writes the target, as it always has. With no reservation and no leak this is exactly
-today's guard, so every existing `DrawdownGuardTests` cell stands; `ComputeEffectiveAffordable`
-(BUG-G) adds `cumLeak` the same way. It also fixes the latent release bug of section 1: a
+The adjustment row is ledger state like any other: it serializes with the ledger, a cold
+`Ledger.Reconcile` keeps it (it is an earning type), the Timeline hides it (it has no event to
+show; `GameActionDisplay` still names it `Pool adjustment (<pool>)`), it is never tombstone-eligible
+and never strict-blocks a supersede, and `LedgerOrchestrator`'s budget probes read it per pool.
+
+`lastWritten` and `counted` are saved in the PARSEK scenario node and always come from the same
+`.sfs` as the live pool. For an in-session load, where the ledger stays in memory, the rows the
+save does not hold are pruned or kept by the load kind, so the reference is a state category in
+`LoadReconcilePolicy` with a decided cell per load kind. A save without the values starts from
+`lastWritten` = the live pool and every row counted. **Built:** "today's behaviour" read literally: a
+measured first patch files the gap between live and its leak-free unfloored target (science: plus
+its pending adjusters) as one adjustment row (`adopted-gap`) and writes the live pool, so an older
+save keeps the pool its build left (whatever the old guard was keeping) and logs it at Info, never as
+a GUARDED clamp; an authoritative first patch (a rewind, a Re-Fly merge) writes the target, as it
+always has. With no reservation and no leak this is exactly today's guard, so every existing
+`DrawdownGuardTests` cell stands; `ComputeEffectiveAffordable` (BUG-G) floors the probe's minimum,
+which already carries the adjustment rows. It also fixes the latent release bug of section 1: a
 reservation that releases moves the target, and nothing in `expected` fights it.
+
+Known limits of revision 6: with a reservation the walk's running value is the pool plus the
+reserve, so the walk's 0 clamp still runs above the pool by the reserve (phase 3's floor and debt
+replace that clamp where a cost lies ahead). A transient leak (a stock change made before its row
+lands) files a pair of opposite adjustment rows; a row back-dated before an earlier patch corrects
+through a new adjustment row. After a rewind or a quickload to before its UT, an adjustment row is an
+untagged row ahead of the clock, the same semantics as an untagged earning row; a Re-Fly attempt can
+add untagged adjustment rows.
 
 ### 2.5 Rule 3: clicks
 
@@ -314,9 +345,10 @@ reason).
 
 1. **Contract early-end refusal** (2.1). Built on a local branch; lands after PR #2172.
 2. **Guard reads an incremental stock reference** (2.4), the row-writer classification gate and the
-   saved `cumLeak`. Fixes the latent release bug. Built, and widened so it ships alone: stock's 0
-   clamp in the walk (2.3, no cost ahead), open deadline penalties out of the pool reserve (2.2), and
-   an older save's gap kept as `cumLeak` (2.4).
+   `StockPoolAdjustment` row. Fixes the latent release bug. Built, and widened so it ships alone:
+   stock's 0 clamp in the walk (2.3, no cost ahead), open deadline penalties out of the pool reserve
+   (2.2), an injected row kept out of every pool (2.4), and an older save's gap filed as one
+   adjustment row (2.4).
 3. **Floor and debt** (2.3): `ReservedFloorPlan`, the settle step, the single pipeline, the Debt
    tooltip line; replaces phase 2's plain 0 clamp where a cost lies ahead.
 4. **Clicks and open reservations** (2.5): predicates, the launch mark and backstop, the Mission
@@ -334,8 +366,8 @@ cost ahead unchanged); the guard, red-first on each review case (a committed cos
 in a plain recalculation; a fail clamped at 0 followed by a recovery in flight; a fail with no cost
 ahead clamped at 0 followed by an earning; a kept leak then repeated purchases; a reputation gain far
 from the walk's value; a pending tech unlock), plus the no-reservation identity over every existing
-cell, a reserve release, load with and without saved `cumLeak`, and the row-writer classification
-gate; the predicates
+cell, a reserve release, load with and without a saved reference, the review's five sequences
+against the `cumLeak` model (R1-R5), and the row-writer classification gate; the predicates
 and each patch decision; the single pipeline (`ProbeModuleAtCutoff`, `WalkBalancesOnClones` and
 `Recalculate` agree).
 
@@ -350,12 +382,15 @@ Flown on V's PC.
 
 ## 5. Risks
 
-- Phase 2's GUARDED WARN now means a measured leak. A deadline fail stock applies in flight while a
-  cutoff walk already injects its synthetic fail (the deadline passed, the captured fail row not
-  filed until commit) reads as a leak and is charged twice until the row lands; seen in code only.
+- Phase 2's GUARDED WARN now means a measured leak, and every measured leak is a ledger row. A
+  deadline fail stock applies in flight while a cutoff walk already injects its synthetic fail reads
+  as a leak (the injected row moves no pool), files an adjustment, and the captured row cancels it
+  when it lands: a pair of rows, no double charge (R5).
 - Phase 2 touches the guard every patch passes through; the no-reservation identity keeps today's
-  behaviour wherever no reservation exists, and the saved `cumLeak` is a new PARSEK key (check the
-  load-reconcile gates when adding it). The row-writer classification is the part most likely to
+  behaviour wherever no reservation exists. The reference is new PARSEK state and
+  `StockPoolAdjustment` a new ledger row type (additive, no schema bump: an older build warns
+  `Unknown action type id '39'` at load and reads the row as a payload-less default row that moves
+  no pool, so its own guard holds the pool as before). The row-writer classification is the part most likely to
   rot; the source gate is what keeps it honest.
 - Phase 3 runs the debt-free full walk on every recalculation (today only on cutoff walks): about
   twice the walk cost, well under a millisecond at 500 rows (design 15.3).
@@ -391,3 +426,13 @@ Flown on V's PC.
   phase 2 alone took back a gain after a stock-clamped fail (B2) and wrote an older save's gap at its
   first load. The coordinator moved stock's 0 clamp (2.3) and the open-penalty exclusion (2.2) into
   phase 2 and ruled the older-save gap kept as `cumLeak`; the B2 cells now pin the kept gain.
+- Revision 5 as built (fifth clean review, of a075d07): the walk clamped and curved at its running
+  value while stock clamps and curves at the pool (running plus `cumLeak`): R1 a -500 leak, a 300
+  fail stock clamped, then a 1000 earning wrote 800; R2 a +40k leak and a 30k fail the walk clamped
+  wrote 40k (20k created); R3 a reputation gain curved at 0 instead of 500. `Measure` re-simulated
+  stock's step apart from the walk: R4 a 25-cost tech pending at science 30 left a -20 leak for good.
+  A synthetic deadline fail stock never charged reached the pool (L5), and R5 a stock fail plus the
+  synthetic fail in one measured patch left -100 for good. Revision 6: a leak is a
+  `StockPoolAdjustment` ledger row (no `cumLeak`), a row steps by its walk effect, and an injected
+  row moves no pool. The R1-R5 cells read red against a075d07 (800, 40000, 550 for 535.6, 0 for 5,
+  0 for 50) and green now.

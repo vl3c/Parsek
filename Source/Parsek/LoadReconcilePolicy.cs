@@ -80,7 +80,8 @@ namespace Parsek
         /// <summary><c>VesselNameStore</c>: the player's vessel name decisions (design-vessel-and-mission-names.md 7.6).</summary>
         VesselNames,
         /// <summary><c>StockPoolReference</c>: the drawdown guard's per-pool last written value,
-        /// kept leak and counted rows (committed-value rule plan 2.4), saved in the PARSEK node.</summary>
+        /// counted rows (committed-value rule plan 2.4), saved in the PARSEK node; kept leaks are
+        /// <c>StockPoolAdjustment</c> ledger rows.</summary>
         StockPoolReference,
     }
 
@@ -1009,7 +1010,8 @@ namespace Parsek
             + "(the live pool with every row counted)";
         private const string StockPoolReferenceAuthoritative =
             "; the first patch after this load is authoritative (a time-travel signal), so it writes the target "
-            + "plus the kept leak and re-baselines, stepping back only counted rows the ledger no longer holds";
+            + "(earlier kept leaks are StockPoolAdjustment rows of the walk) and re-baselines, carrying the stepped "
+            + "part of counted rows the ledger no longer holds as one adjustment row";
 
         // Committed-value rule plan 2.4: the reference and the live pool always come from the
         // same .sfs, so every kind installs the save's copy. Rows the in-memory ledger keeps

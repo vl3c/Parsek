@@ -257,8 +257,8 @@ namespace Parsek
             double pendingAdjustNow = runningScience - science.GetRunningScience();
 
             StockPoolMeasurement measurement = MeasureStockPool(
-                StockPool.Science, "Science", currentScience, pendingAdjustNow,
-                allowNegativeCurrency, authoritativeReduction, 0.001,
+                StockPool.Science, "Science", science, currentScience, pendingAdjustNow,
+                authoritativeReduction, 0.001,
                 science.GetProjectionMinBalance() + pendingAdjustNow, out List<StockPoolRow> referenceRows);
 
             double targetWithoutLeak = StockPoolReference.ResolveCurrencyWriteTarget(
@@ -266,7 +266,7 @@ namespace Parsek
                 allowNegativeCurrency, 0.0);
             double targetScience = StockPoolReference.ResolveCurrencyWriteTarget(
                 science.GetProjectionMinBalance(), science.GetRunningScience(), currentScience,
-                allowNegativeCurrency, measurement.CumLeakAfter);
+                allowNegativeCurrency, measurement.Adjustment);
             targetScience = AdjustSciencePatchTargetForPendingRecentTechResearch(
                 targetScience, currentScience);
             targetScience = AdjustSciencePatchTargetForPendingRecentScienceEarning(
@@ -276,8 +276,9 @@ namespace Parsek
             if (measurement.GapAdopted)
                 targetScience = currentScience;
 
-            // The guard is the reference: the target already carries the kept leak, so the
-            // pure core runs with its running-vs-live clamp bypassed.
+            // The guard is the reference: the target already carries this patch's adjustment
+            // (later walks carry its row), so the pure core runs with its running-vs-live
+            // clamp bypassed.
             SciencePoolPatchDecision decision = ResolveSciencePoolPatch(
                 currentScience, targetScience, runningScience, authoritativeReduction: true);
             EmitStockPoolLeak("Science", measurement, runningScience, targetWithoutLeak,
@@ -2162,18 +2163,19 @@ namespace Parsek
             double runningFunds = funds.GetRunningBalance();
 
             // The drawdown guard reads the stock pool reference (committed-value rule plan
-            // section 2.4): anything stock applied that the ledger holds no row for is kept
-            // as a leak and added to the target BEFORE the 0 floor, so a reservation that
-            // releases comes back and an untracked earning or spend stays as stock left it.
+            // section 2.4): anything stock applied that the ledger holds no row for is filed
+            // as a StockPoolAdjustment row and added to this write BEFORE the 0 floor (later
+            // walks carry the row), so a reservation that releases comes back and an
+            // untracked earning or spend stays as stock left it.
             StockPoolMeasurement measurement = MeasureStockPool(
-                StockPool.Funds, "Funds", currentFunds, 0.0,
-                allowNegativeCurrency, authoritativeReduction, 0.01,
+                StockPool.Funds, "Funds", funds, currentFunds, 0.0,
+                authoritativeReduction, 0.01,
                 funds.GetProjectionMinBalance(), out List<StockPoolRow> referenceRows);
             double targetWithoutLeak = StockPoolReference.ResolveCurrencyWriteTarget(
                 funds.GetProjectionMinBalance(), runningFunds, currentFunds, allowNegativeCurrency, 0.0);
             double targetFunds = StockPoolReference.ResolveCurrencyWriteTarget(
                 funds.GetProjectionMinBalance(), runningFunds, currentFunds, allowNegativeCurrency,
-                measurement.CumLeakAfter);
+                measurement.Adjustment);
             if (measurement.GapAdopted)
                 targetFunds = currentFunds;
 
@@ -2324,16 +2326,16 @@ namespace Parsek
             float currentRep = Reputation.Instance.reputation;
             float runningRep = reputation.GetRunningRep();
 
-            // Reputation has no reservation: the target is the running value plus the kept
-            // leak. The reference steps a nominal row through stock's curve at its own value
-            // and a post-curve row as stored.
+            // Reputation has no reservation: the target is the running value plus this
+            // patch's adjustment. The reference steps each row by its effect in the walk,
+            // whose curve runs at the pool's own value (adjustment rows included).
             StockPoolMeasurement measurement = MeasureStockPool(
-                StockPool.Reputation, "Reputation", currentRep, 0.0,
-                allowNegativeCurrency: false, authoritativeReduction, 0.01,
+                StockPool.Reputation, "Reputation", reputation, currentRep, 0.0,
+                authoritativeReduction, 0.01,
                 runningRep, out List<StockPoolRow> referenceRows);
             float targetRep = measurement.GapAdopted
                 ? currentRep
-                : (float)StockPoolReference.ResolveReputationWriteTarget(runningRep, measurement.CumLeakAfter);
+                : (float)StockPoolReference.ResolveReputationWriteTarget(runningRep, measurement.Adjustment);
             ReputationPatchDecision decision = ResolveReputationPatch(
                 currentRep, targetRep, authoritativeReduction: true);
             EmitStockPoolLeak("Reputation", measurement, runningRep, runningRep,
@@ -4568,15 +4570,15 @@ namespace Parsek
         /// Logs a fresh baseline at Info and every measurement once per change.
         /// </summary>
         private static StockPoolMeasurement MeasureStockPool(
-            StockPool pool, string resource, double live, double pendingAdjustNow,
-            bool allowNegativeCurrency, bool authoritativeReduction, double epsilon,
+            StockPool pool, string resource, IStockPoolModule module, double live, double pendingAdjustNow,
+            bool authoritativeReduction, double epsilon,
             double freshBaselineTarget, out List<StockPoolRow> rows)
         {
             IReadOnlyList<GameAction> actions = stockReferenceActions ?? EffectiveState.ComputeELS();
             double nowUT = !double.IsNaN(stockReferenceNowUT)
                 ? stockReferenceNowUT
                 : CommittedFutureIndexCache.CurrentUT();
-            rows = StockPoolReference.BuildRows(pool, actions);
+            rows = StockPoolReference.BuildRows(pool, actions, module?.GetRowEffects());
 
             StockPoolReferenceState state = StockPoolReference.For(pool);
             bool clockCrossingApplies = ResolveClockCrossingAuthorization(
@@ -4584,14 +4586,16 @@ namespace Parsek
             bool authoritative = authoritativeReduction || clockCrossingApplies;
 
             StockPoolMeasurement m = StockPoolReference.Measure(
-                state, rows, nowUT, live, pendingAdjustNow, allowNegativeCurrency,
+                state, rows, nowUT, live, pendingAdjustNow,
                 authoritative, epsilon, freshBaselineTarget);
+            if (m.Adjustment != 0.0)
+                m.AdjustmentRow = FileStockPoolAdjustment(pool, resource, m, nowUT);
 
             string summary = StockPoolReference.FormatMeasurement(m);
             if (m.FreshBaseline)
             {
                 string adoption = m.GapAdopted
-                    ? "the gap to the target kept as the leak, pool left as it is (gap="
+                    ? "the gap to the target filed as an adjustment row, pool left as it is (gap="
                       + m.AdoptedGap.ToString("R", IC) + " target="
                       + freshBaselineTarget.ToString("R", IC) + ")"
                     : "authoritative, the target is written";
@@ -4599,7 +4603,7 @@ namespace Parsek
                     $"Patch{resource}: no saved reference - baseline from the live pool with every row " +
                     $"counted, {adoption} (rows={rows.Count.ToString(IC)} now={nowUT.ToString("R", IC)}): {summary}");
             }
-            else if (m.RemovedRows > 0 || m.LeakKept)
+            else if (m.RemovedRows > 0 || m.LeakKept || m.Adjustment != 0.0)
             {
                 ParsekLog.Info(StockPoolReference.Tag,
                     $"Patch{resource}: {summary} now={nowUT.ToString("R", IC)} " +
@@ -4612,6 +4616,36 @@ namespace Parsek
                     $"authoritative={authoritativeReduction} clockCrossing={clockCrossingApplies}");
             }
             return m;
+        }
+
+        /// <summary>
+        /// xUnit / in-game seam: when set, a patch's adjustment row goes here instead of the
+        /// live ledger (an in-game test that drives the Patch* methods on the player's own
+        /// career must not leave rows in its ledger). Reset by <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static Action<GameAction> StockPoolAdjustmentSinkForTesting;
+
+        /// <summary>
+        /// Files a patch's adjustment as a <see cref="GameActionType.StockPoolAdjustment"/> row
+        /// (untagged, at the patch's now, stock-applied: it is something stock applied to the
+        /// pool that no other row holds). <see cref="StockPoolReference.Commit"/> counts it at
+        /// creation, so the next walk's dispatch of it steps nothing.
+        /// </summary>
+        private static GameAction FileStockPoolAdjustment(
+            StockPool pool, string resource, StockPoolMeasurement m, double nowUT)
+        {
+            GameAction row = StockPoolReference.BuildAdjustmentRow(pool, m.Adjustment, nowUT);
+            string reason = m.GapAdopted ? "adopted-gap" : m.LeakKept ? "leak" : "carried-removed";
+            var sink = StockPoolAdjustmentSinkForTesting;
+            if (sink != null)
+                sink(row);
+            else
+                Ledger.AddAction(row, LedgerRowWriter.StockApplied);
+            ParsekLog.Info(StockPoolReference.Tag,
+                $"Patch{resource}: filed StockPoolAdjustment amount={m.Adjustment.ToString("R", IC)} " +
+                $"reason={reason} ut={nowUT.ToString("R", IC)} id={row.ActionId}" +
+                (sink != null ? " (test sink)" : ""));
+            return row;
         }
 
         /// <summary>
@@ -5057,6 +5091,7 @@ namespace Parsek
             ActiveClockCrossing = null;
             stockReferenceActions = null;
             stockReferenceNowUT = double.NaN;
+            StockPoolAdjustmentSinkForTesting = null;
             StockPoolReference.ResetForTesting();
             PartPurchaseLiveUtProviderForTesting = null;
             ResourceScanLiveUtProviderForTesting = null;

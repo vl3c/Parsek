@@ -425,7 +425,7 @@ namespace Parsek.Tests
         [Fact]
         public void StockPoolReferenceCells_InstallTheSavesCopyOnEveryKind()
         {
-            // Committed-value rule plan 2.4: lastWritten, the kept leak and the counted rows
+            // Committed-value rule plan 2.4: lastWritten and the counted rows
             // must describe the live pool of the same .sfs, so every load kind installs the
             // loaded node's copy. One cell per kind.
             foreach (LoadKind kind in AllKinds())

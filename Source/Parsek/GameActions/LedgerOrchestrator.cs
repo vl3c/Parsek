@@ -3612,6 +3612,8 @@ namespace Parsek
                     return action.HireCost != 0f;
                 case GameActionType.StrategyActivate:
                     return action.SetupCost != 0f;
+                case GameActionType.StockPoolAdjustment:
+                    return action.AdjustmentPool == StockPool.Funds && action.AdjustmentAmount != 0.0;
                 default:
                     return false;
             }
@@ -3690,6 +3692,8 @@ namespace Parsek
                     return action.MilestoneScienceAwarded != 0f;
                 case GameActionType.StrategyActivate:
                     return action.SetupScienceCost != 0f;
+                case GameActionType.StockPoolAdjustment:
+                    return action.AdjustmentPool == StockPool.Science && action.AdjustmentAmount != 0.0;
                 default:
                     return false;
             }
@@ -3716,6 +3720,8 @@ namespace Parsek
                     return action.MilestoneRepAwarded != 0f;
                 case GameActionType.StrategyActivate:
                     return action.SetupReputationCost != 0f;
+                case GameActionType.StockPoolAdjustment:
+                    return action.AdjustmentPool == StockPool.Reputation && action.AdjustmentAmount != 0.0;
                 default:
                     return false;
             }
@@ -8901,19 +8907,16 @@ namespace Parsek
 
         /// <summary>
         /// Pure affordability reconciliation (BUG-G): the spendable amount is what the pool
-        /// patch writes, the reservation-aware target plus the stock pool reference's kept
-        /// leak (<see cref="StockPoolReference.CumLeakOf"/>), added BEFORE the 0 floor exactly
-        /// as <see cref="StockPoolReference.ResolveCurrencyWriteTarget"/> does. An earning the
-        /// ledger does not model stays spendable; a genuine reservation still lowers the
-        /// amount, so reserved future costs stay protected. With no leak this is the
-        /// module's floored available value.
+        /// patch writes, the reservation-aware target floored at 0. Anything stock applied
+        /// that no other row holds is a <see cref="GameActionType.StockPoolAdjustment"/> row
+        /// the probe's walk already carries, so an earning the ledger does not model stays
+        /// spendable and a genuine reservation still lowers the amount.
         /// </summary>
         /// <param name="unflooredAvailable">The probe's projected minimum balance
         /// (<c>GetProjectionMinBalance</c>), before the 0 floor.</param>
-        internal static double ComputeEffectiveAffordable(double unflooredAvailable, double cumLeak)
+        internal static double ComputeEffectiveAffordable(double unflooredAvailable)
         {
-            double shifted = unflooredAvailable + cumLeak;
-            return shifted > 0.0 ? shifted : 0.0;
+            return unflooredAvailable > 0.0 ? unflooredAvailable : 0.0;
         }
 
         /// <summary>
@@ -8969,17 +8972,15 @@ namespace Parsek
 
             double available = probe.GetAvailableScience();
 
-            // BUG-G: the spendable amount is the patch's own write: the available value
-            // plus the kept leak of the stock pool reference (0 when nothing leaked, which
-            // keeps the pure-ledger contract). Stock's CurrencyModifierQuery still backstops
-            // live affordability after the gate allows.
-            double cumLeak = StockPoolReference.CumLeakOf(StockPool.Science);
-            effectiveAvailable = ComputeEffectiveAffordable(probe.GetProjectionMinBalance(), cumLeak);
+            // BUG-G: the spendable amount is the patch's own write (the probe's walk carries
+            // the stock pool reference's adjustment rows). Stock's CurrencyModifierQuery
+            // still backstops live affordability after the gate allows.
+            effectiveAvailable = ComputeEffectiveAffordable(probe.GetProjectionMinBalance());
 
             bool affordable = effectiveAvailable >= (double)cost;
 
             ParsekLog.Verbose(Tag,
-                $"CanAffordScienceSpending: cost={cost:F1}, available={available:F1}, cumLeak={cumLeak:R}, " +
+                $"CanAffordScienceSpending: cost={cost:F1}, available={available:F1}, " +
                 $"effectiveAvailable={effectiveAvailable:F1}, affordable={affordable}, cutoffUT={nowUT:R}");
 
             return affordable;
@@ -9025,13 +9026,12 @@ namespace Parsek
             double available = probe.GetAvailableFunds();
 
             // BUG-G: same rule as CanAffordScienceSpending.
-            double cumLeak = StockPoolReference.CumLeakOf(StockPool.Funds);
-            effectiveAvailable = ComputeEffectiveAffordable(probe.GetProjectionMinBalance(), cumLeak);
+            effectiveAvailable = ComputeEffectiveAffordable(probe.GetProjectionMinBalance());
 
             bool affordable = effectiveAvailable >= (double)cost;
 
             ParsekLog.Verbose(Tag,
-                $"CanAffordFundsSpending: cost={cost:F1}, available={available:F1}, cumLeak={cumLeak:R}, " +
+                $"CanAffordFundsSpending: cost={cost:F1}, available={available:F1}, " +
                 $"effectiveAvailable={effectiveAvailable:F1}, affordable={affordable}, cutoffUT={nowUT:R}");
 
             return affordable;

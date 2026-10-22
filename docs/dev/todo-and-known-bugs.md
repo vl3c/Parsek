@@ -49,6 +49,24 @@ neither did the origin-target fallback. Neither file changed in that range, so t
 supersede rows reaching it did. A player sees the second half of a split close as crashed and lose
 its re-fly. Next: bisect 2b5cd9b..9dbf9c2 with RF-11.
 
+## STOCK-OFFER-EXPIRED-ACTIVE-CONTRACT-NO-TERMINAL-ROW: an Active contract stock ends as OfferExpired files no terminal ledger row [FILED 2026-10-22 from the clean review of committed-value plan phase 2 (a075d07), code read, not reproduced. OPEN, low. product]
+
+Stock's `Contract.Update()` ends an Active contract whose requirements no longer hold with
+`SetState(State.OfferExpired)`, which charges no penalty (`SetState` penalizes only `Failed` and
+`DeadlineExpired`). `GameStateRecorder` subscribes to `Contract.onCompleted` / `onFailed` /
+`onCancelled` / `onDeclined` only, so no terminal row is filed: the ledger still holds the contract
+as accepted. If it has a deadline, the walk's `ContractsModule.PrePass` later injects a synthetic
+`ContractFail` at that deadline. Since plan phase 2 (section 2.4 revision 6) that synthetic row moves
+contract state only and charges no pool, so the pools stay right; what is wrong is the contract
+state: the walk keeps the contract Active (a Mission Control slot held) until its deadline and
+then records it as failed, where stock ended it at once, unpenalized. Without a deadline it stays
+Active in the walk for good. What `KspStatePatcher.PatchContracts` then does with a contract the
+walk holds Active and stock ended was not checked. `Patches/ContractEarlyFailPatch.cs` refuses this end only while a
+committed outcome lies ahead. Fix direction (not designed): capture the Active -> OfferExpired
+transition as a terminal row with no penalty (a ContractCancel-like row carrying zero penalties,
+or a dedicated outcome), checked against `ContractsModule.PrePass`'s suppression of the synthetic
+fail.
+
 ## QL-2-RECOVER-REFUSED-WHILE-SLIDING: QL-2's Recover can be refused while the landed Flea still slides, and the refusal reads as a Parsek failure [FILED 2026-10-22 from QL-2 `2026-10-21_2220` and `2026-10-22_0001` (both PARSEK-FAIL, expectations), flown for PR #2170. Half fixed in PR #2170, merged (the verb waits); the classification gap is OPEN, low. harness]
 
 The mission reported MISSION-OK, but seam step 0067 `Recover` was refused
@@ -524,30 +542,41 @@ and logistics design section 10.6).**
   the earning or penalty they divert), killing a kerbal a committed flight uses (crew reservation).
 - O7: the funds check is no longer advisory: purchases and launch costs are greyed when they eat
   into reserved money (rule 3; closes the P15 half of GUI-P15-D7-TWO-SAFETY-GATES-THAT-EXIST-AND-ARE-NEVER-ARMED).
-- **Plan phase 2 BUILT 2026-10-22** (branch `o6-phase2-local`): the drawdown guard reads an
-  incremental stock pool reference per pool (`GameActions/StockPoolReference.cs`: `lastWritten`,
-  `cumLeak`, the counted amount per row id), saved in the PARSEK node as `STOCK_POOL_REFERENCE`
-  (`LoadReconcilePolicy` category `StockPoolReference`, Save on every load kind). The patch writes
-  `max(0, unflooredTarget + cumLeak)` for funds and science and `target + cumLeak` for
-  reputation; Re-Fly merge / discard and a rewind re-baseline. Every `Ledger.AddAction(s)` call site
-  names a `LedgerRowWriter`, pinned by `LedgerRowWriterClassificationTests`; the bundle restore
-  keeps each row's flag (`Ledger.RestoreActions`). Tests: `StockPoolReferenceTests` (B1-B5, N1-N3,
-  M1, M2, the release bug, save / load), `SpendingGateConsistencyTests`. Deviations from the plan:
-  a removed row steps back only what was stepped (`-counted` would never release a reserved cost);
-  load-migration and broken-ledger-recovery rows are stock-applied (they convert stock events the
-  pool already holds). Widened the same day so phase 2 ships alone (no pool lower in normal
-  play): stock's 0 clamp in the walk (plan 2.3, no cost ahead: a funds or science row that is not a
-  cost row stops at 0, the rest forgiven; `StockCurrencyClamp`, the B2 cells now pin the kept gain),
-  open deadline penalties out of the pool reserve (plan 2.2: the projection's synthetic fail is left
-  out by membership, `ContractsModule` untouched; `RewindUtCutoffTests` repinned from probed 300 to
-  1000), and an older save's gap kept as `cumLeak` at its first measured patch (nothing written).
-  Tests: `StockZeroClampAndOpenPenaltyTests`. Science's exchange debit is a cost row (it can sort
-  ahead of its earning; forgiving it would create science). Harness, predicted from code and not
-  re-flown: the GUARDED WARN fires only on a measured leak; L5 now requires the written 9000 debit
-  (`delta=-9000.0`) and forbids the clamp; the L3 strategy, LAB-12 and QL-14 forbids keep their
-  reading (spec comments say why). Open risk, seen in code only: a deadline fail stock applies in
-  flight while a cutoff walk already injects its synthetic fail is charged twice until the captured
-  row lands at commit.
+- **Plan phase 2 BUILT 2026-10-22** (branch `o6-phase2-local`; plan section 2.4 revision 6): the
+  drawdown guard reads an incremental stock pool reference per pool
+  (`GameActions/StockPoolReference.cs`: `lastWritten` and, per row id, the row's walk effect and the
+  part stepped), saved in the PARSEK node as `STOCK_POOL_REFERENCE` (`LoadReconcilePolicy` category
+  `StockPoolReference`, Save on every load kind). A row steps by its effect in the visible walk
+  (running after minus before, clamp and curve included) minus its counted effect; science adds its
+  pending adjusters. A measured leak is filed as a `StockPoolAdjustment` ledger row (type 39, per
+  pool, untagged, at the patch UT, reputation post-curve; `KspStatePatcher.FileStockPoolAdjustment`,
+  counted at creation) and the walk carries it, so the walk's running value is the pool and its 0
+  clamp and curve run there. The patch writes `max(0, unflooredTarget + adjustment)` for funds and
+  science and `target + adjustment` for reputation; an authoritative patch (Re-Fly merge / discard,
+  rewind) writes the target and carries the removed rows' stepped part as one adjustment row. A row
+  the walk injected (`ContractsModule`'s synthetic deadline fail) goes to no funds / science /
+  reputation module (`IStockPoolModule`, dispatch and pre-pass; one `Walk withheld N injected
+  row(s)` Info line per walk): it moves contract state only, and the projection keeps it out of the
+  pool reserve. Every `Ledger.AddAction(s)` call site names a `LedgerRowWriter` (32, all
+  stock-applied), pinned by `LedgerRowWriterClassificationTests`; the bundle restore keeps each
+  row's flag (`Ledger.RestoreActions`). Stock's 0 clamp runs in the walk (plan 2.3, no cost ahead:
+  a funds or science row that is not a cost row stops at 0; `StockCurrencyClamp`); science's
+  exchange debit is a cost row. An older save's first measured patch files its gap as one
+  adjustment row and writes nothing. Tests: `StockPoolReferenceTests` (B1-B5, N1-N3, M1, M2, the
+  review's R1-R5, L5's shape, the release bug, save / load, cold reconcile),
+  `StockZeroClampAndOpenPenaltyTests`, `SpendingGateConsistencyTests`; R1-R5 read red against
+  a075d07's `cumLeak` model (800 for 1000, 40000 for 20000, 550 for 535.6, 0 for 5, 0 for 50).
+  Deviations: a removed row steps back only what was stepped; load-migration and
+  broken-ledger-recovery rows are stock-applied; adjustment rows are hidden from the Timeline.
+  Known limits: with a reservation the walk clamps at running, above the pool by the reserve (phase
+  3); a transient leak files a pair of opposite rows. **Open question:** the in-game
+  `LedgerGroundTruthHarness` recon reads the modules' running values, which now carry the
+  adjustment rows, so a measured leak no longer shows as a hard divergence there (LAB-12's seed
+  DEFECT 1, 400 / 25, would pass); a recon that leaves the adjustment rows out (or reports them
+  per pool) would restore the signal; not done. Harness, predicted from code and not re-flown:
+  the GUARDED WARN fires only on a measured leak; L5 requires the withheld line for B's synthetic
+  fail and forbids both the clamp and a 9000 debit; the L3 strategy, LAB-12 and QL-14 forbids keep
+  their reading.
 - O2: a stock revert removes only the rows the reverted flight wrote; every committed row stays
   (matches D2). **FIXED 2026-10-22** (branch `claude/project-thread-6f7rhy`): Parsek remembers
   the ledger's row ids where stock captures its revert targets (every non-revert flight entry for
@@ -14109,19 +14138,18 @@ armed where it can never fire.
 
 ## BEHAVIOR PIN — SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD: the guarded-drawdown protection correctly refuses a synthetic `ContractFail` penalty that stock never debited [MEASURED 2026-08-20 by `L5-career-contract-complete`'s green flight (run `2026-08-20_2240`), the FIRST run ever to drive `ContractsModule.PrePass`'s injection under a gate. **RECLASSIFIED 2026-08-28 (branch `ledger-followups`) from open defect to a DOCUMENTED, MEASURED BEHAVIOR PIN.** REPORT-ONLY and GATED AS MEASURED: no product change is proposed, and the clamp is pinned so a change of behaviour has to be taken deliberately]
 
-**Pin changed with committed-value plan phase 2 (2026-10-22, LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY).**
-The guard now reads a stock pool reference instead of running vs live: a drop in the ledger's
-target with the live pool where Parsek left it is not a leak, so this synthetic penalty is WRITTEN
-(the ledger is authoritative for a fail stock never applied) and `GUARDED DRAWDOWN clamped` no longer
-fires. B's deadline is PAST at the commit walk, so this is the visible walk's fail; phase 2's rule
-that keeps an OPEN contract's synthetic deadline fail out of the pool reserve (plan 2.2) does not
-apply. L5 now requires `PatchFunds: ... (delta=-9000.0, ` and forbids the GUARDED clamp
-(`test_career_contract_pad` repinned); predicted from code, not yet flown. Open risk, seen in code
-only: in a real career stock applies a deadline fail itself; if a cutoff walk injects the synthetic
-fail at a past deadline before the flight's captured fail row is filed at commit, the reference reads
-stock's debit as a leak while the walk charges the synthetic too, so the pool is charged twice until
-the row lands (the next patch steps the row and gives it back). The old guard read the same window
-through running vs live.
+**Pin changed with committed-value plan phase 2 (2026-10-22, LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY;
+plan 2.4 revision 6).** The walk no longer charges a row it injected: the synthetic fail goes to the
+contracts module only (B retires, its slot frees) and to no funds, science or reputation module, so
+the reconstruction and the live pool both keep the 9000 / 1, and no guard has anything to refuse.
+The pool this lane ends with is the one run `2026-08-20_2240` measured; what changed is that the
+walk agrees with it. L5 now requires `Walk withheld N injected row(s) from the stock pool modules
+... ContractFail contractId='c47d0a91-...' ut=100 fundsPenalty=9000 repPenalty=1` and forbids both
+`GUARDED (UPLIFT|DRAWDOWN) clamped resource=Funds` and `PatchFunds: ... (delta=-9000.0, `
+(`test_career_contract_pad` repinned); predicted from code, not yet flown. In a real career stock
+files its own fail row when it charges a deadline penalty; a stock fail made before that row lands
+reads as a leak, files an adjustment row, and the row cancels it when it lands (no double charge).
+The one stock path that charges nothing and files nothing is STOCK-OFFER-EXPIRED-ACTIVE-CONTRACT-NO-TERMINAL-ROW.
 
 **Not a defect — a pin. Read this paragraph before the evidence below.** The guard is
 behaving CORRECTLY here, and the shape it clamps CANNOT OCCUR IN A REAL CAREER. The

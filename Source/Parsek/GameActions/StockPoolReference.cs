@@ -1,12 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 
 namespace Parsek
 {
     /// <summary>One of the three stock pools the ledger patches.</summary>
-    internal enum StockPool
+    public enum StockPool
     {
         Funds,
         Science,
@@ -15,29 +14,31 @@ namespace Parsek
 
     /// <summary>
     /// One ledger row as the stock pool reference reads it: its id, its UT, whether stock
-    /// itself applied it (<see cref="LedgerRowWriter.StockApplied"/>), and the amount it moves
-    /// the pool by. Funds and science: the walk's delta for the row. Reputation: the amount
-    /// stock applied, nominal (curved at the live value) unless <see cref="PostCurve"/>.
+    /// itself applied it (<see cref="LedgerRowWriter.StockApplied"/>), and what the visible
+    /// walk's dispatch of it moved the pool's running value by (<see cref="Effect"/>: stock's
+    /// 0 clamp and the reputation curve included, as the walk applied them; NaN when the walk
+    /// did not dispatch it, a row past a cutoff walk's now).
     /// </summary>
     internal struct StockPoolRow
     {
         internal string ActionId;
         internal double UT;
         internal bool StockApplied;
-        internal double Amount;
-        internal bool PostCurve;
+        internal double Effect;
     }
 
     /// <summary>
-    /// What the reference has already accounted for one row: <see cref="Amount"/>, the
-    /// row's amount at the last patch, and <see cref="Stepped"/>, the part of it the
-    /// reference stepped into its expected pool as something stock applied. A row counted
-    /// any other way (a future row, a Parsek-authored row, a re-baseline) carries
-    /// <see cref="Stepped"/> 0: its effect is in the pool through the patch's write.
+    /// What the reference has already accounted for one row: <see cref="Effect"/>, the row's
+    /// walk effect at the last patch (NaN: seen but not walked, a committed future row), and
+    /// <see cref="Stepped"/>, the part of it the reference stepped into its expected pool as
+    /// something stock applied. A row counted any other way (a future row, a Parsek-authored
+    /// row, a re-baseline) carries <see cref="Stepped"/> 0: its effect is in the pool through
+    /// the patch's write. An adjustment row is counted at creation with both equal to its
+    /// amount: the live pool already holds it.
     /// </summary>
     internal struct CountedRow
     {
-        internal double Amount;
+        internal double Effect;
         internal double Stepped;
     }
 
@@ -50,8 +51,6 @@ namespace Parsek
         internal bool Initialized;
         /// <summary>The pool value Parsek left at its last patch (a no-op patch re-reads live).</summary>
         internal double LastWritten;
-        /// <summary>Everything stock applied that the ledger holds no row for, kept on every write.</summary>
-        internal double CumLeak;
         /// <summary>Science only: the three pending adjusters at <see cref="LastWritten"/>.</summary>
         internal double PendingAdjust;
         internal readonly Dictionary<string, CountedRow> Counted =
@@ -66,7 +65,6 @@ namespace Parsek
         {
             Initialized = false;
             LastWritten = 0.0;
-            CumLeak = 0.0;
             PendingAdjust = 0.0;
             Counted.Clear();
         }
@@ -84,8 +82,6 @@ namespace Parsek
         /// <summary>live - expected when beyond epsilon on a measured patch, else 0.</summary>
         internal double Leak;
         internal bool LeakKept;
-        internal double CumLeakBefore;
-        internal double CumLeakAfter;
         internal int SteppedRows;
         internal double SteppedTotal;
         internal int RemovedRows;
@@ -95,11 +91,24 @@ namespace Parsek
         internal double PendingStep;
         /// <summary>
         /// A measured fresh baseline (a save with no saved reference): the gap between the
-        /// live pool and the leak-free target is taken as the kept leak, so the first patch
-        /// leaves the pool as the older build left it (<see cref="AdoptedGap"/>).
+        /// live pool and the leak-free target is filed as one adjustment row, so the first
+        /// patch leaves the pool as the older build left it (<see cref="AdoptedGap"/>).
         /// </summary>
         internal bool GapAdopted;
         internal double AdoptedGap;
+        /// <summary>
+        /// An authoritative patch that dropped rows the reference had stepped: their stepped
+        /// part stays in the pool (stock applied it), filed as one adjustment row.
+        /// </summary>
+        internal double CarriedRemoved;
+        /// <summary>
+        /// The amount this patch files as a <see cref="GameActionType.StockPoolAdjustment"/>
+        /// row (the leak, the adopted gap or the carried removed rows; 0 when none) and adds
+        /// to its write once. Later walks carry the row.
+        /// </summary>
+        internal double Adjustment;
+        /// <summary>The adjustment row the patch filed, counted at creation by <see cref="StockPoolReference.Commit"/>.</summary>
+        internal GameAction AdjustmentRow;
         internal readonly Dictionary<string, double> NewStepped =
             new Dictionary<string, double>(StringComparer.Ordinal);
     }
@@ -109,22 +118,24 @@ namespace Parsek
     /// 2.4, phase 2). Per pool it answers one question at every patch: did the live pool move
     /// by anything other than what stock applied for rows the ledger holds? Starting from
     /// the value Parsek last wrote, it steps every row stock applied since (a row at or
-    /// before now, written by a <see cref="LedgerRowWriter.StockApplied"/> writer, whose
-    /// counted amount differs from its amount) the way stock applies it: funds and science
-    /// clamped at 0 unless <c>AllowNegativeCurrency</c>, reputation through stock's curve at
-    /// the reference's own value unless the row is stored post-curve. Science also takes the
-    /// change in its pending adjusters. A row the reference stepped that has left the ledger
-    /// is stepped back. Whatever is left between live and that expectation is a leak, kept
-    /// for good in <see cref="StockPoolReferenceState.CumLeak"/> and added to every later
-    /// write, so an earning or spend the ledger does not model stays as stock left it, and a
-    /// reservation that releases comes back (nothing in the expectation fights it).
+    /// before now, written by a <see cref="LedgerRowWriter.StockApplied"/> writer) by the
+    /// change in its effect in the visible walk (the walk's running value after the row
+    /// minus before it, stock's 0 clamp and the reputation curve included, as the walk
+    /// applied them, minus what was counted). Science also takes the change in its pending
+    /// adjusters. A row the reference stepped that has left the ledger is stepped back.
+    /// Whatever is left between live and that expectation is a leak, filed as a
+    /// <see cref="GameActionType.StockPoolAdjustment"/> ledger row (counted at creation, so it
+    /// never steps) and added to this patch's write once; every later walk carries it, so
+    /// the walk's running value is the pool's own value and its 0 clamp and curve run where
+    /// stock's do. An earning or spend the ledger does not model stays as stock left it, and
+    /// a reservation that releases comes back (nothing in the expectation fights it).
     ///
     /// <para>An authoritative patch (a time-travel signal, a Re-Fly merge or discard, a
     /// clock-cursor crossing that found the pool where the last patch left it) measures no
-    /// leak: it writes the target plus the kept leak and re-baselines. A pool with no saved
-    /// reference starts from the live pool with every row counted, and a measured first
-    /// patch takes the gap between live and its leak-free target as the kept leak, so the
-    /// pool stays where the older build left it.</para>
+    /// leak: it writes the target (plus the stepped part of any row it dropped) and
+    /// re-baselines. A pool with no saved reference starts from the live pool with every
+    /// row counted, and a measured first patch files the gap between live and its leak-free
+    /// target as one adjustment row, so the pool stays where the older build left it.</para>
     ///
     /// <para>Pure core plus the three static states the patcher reads and the scenario
     /// saves. No KSP singletons.</para>
@@ -137,7 +148,6 @@ namespace Parsek
         internal const string ScienceNodeName = "SCIENCE";
         internal const string ReputationNodeName = "REPUTATION";
         internal const string LastWrittenKey = "lastWritten";
-        internal const string CumLeakKey = "cumLeak";
         internal const string PendingAdjustKey = "pendingAdjust";
         internal const string RowKey = "row";
 
@@ -159,12 +169,6 @@ namespace Parsek
             throw new ArgumentOutOfRangeException(nameof(pool), pool, "unknown StockPool");
         }
 
-        /// <summary>The kept leak of a pool (0 before its first patch).</summary>
-        internal static double CumLeakOf(StockPool pool)
-        {
-            return For(pool).CumLeak;
-        }
-
         internal static void ResetForTesting()
         {
             Funds.Clear();
@@ -176,107 +180,97 @@ namespace Parsek
         // Rows
         // ------------------------------------------------------------------
 
-        /// <summary>
-        /// The row of <paramref name="action"/> for <paramref name="pool"/>, or false when the
-        /// action's type never moves that pool (the reference does not track it at all). An
-        /// ineffective row of a pool type is a row with amount 0. Seeds are not rows: the
-        /// seed is the walk's starting value, read off the live pool.
-        /// </summary>
-        internal static bool TryBuildRow(StockPool pool, GameAction action, out StockPoolRow row)
+        /// <summary>True when <paramref name="action"/> is a row of <paramref name="pool"/>.
+        /// Seeds are not rows: the seed is the walk's starting value, read off the live pool.</summary>
+        internal static bool IsPoolRow(StockPool pool, GameAction action)
         {
-            row = default(StockPoolRow);
             if (action == null || RecalculationEngine.IsSeedType(action.Type))
                 return false;
-
-            double amount;
-            bool postCurve = false;
+            if (action.Type == GameActionType.StockPoolAdjustment)
+                return action.AdjustmentPool == pool;
             switch (pool)
             {
-                case StockPool.Funds:
-                    if (!FundsModule.AffectsFunds(action.Type))
-                        return false;
-                    if (!FundsModule.TryGetRowDelta(action, out amount))
-                        amount = 0.0;
-                    break;
-                case StockPool.Science:
-                    if (!ScienceModule.AffectsScience(action.Type))
-                        return false;
-                    if (!ScienceModule.TryGetRowDelta(action, out amount))
-                        amount = 0.0;
-                    break;
-                case StockPool.Reputation:
-                    if (!ReputationModule.TryGetStockReferenceAmount(action, out amount, out postCurve))
-                        return false;
-                    break;
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(pool), pool, "unknown StockPool");
+                case StockPool.Funds: return FundsModule.AffectsFunds(action.Type);
+                case StockPool.Science: return ScienceModule.AffectsScience(action.Type);
+                case StockPool.Reputation: return ReputationModule.AffectsReputation(action.Type);
             }
+            throw new ArgumentOutOfRangeException(nameof(pool), pool, "unknown StockPool");
+        }
 
-            if (double.IsNaN(amount) || double.IsInfinity(amount))
-                amount = 0.0;
+        /// <summary>
+        /// The row of <paramref name="action"/> for <paramref name="pool"/>, or false when the
+        /// action's type never moves that pool. <paramref name="effects"/> is the visible walk's
+        /// per-row effect (<see cref="IStockPoolModule.GetRowEffects"/>); a row it does not hold
+        /// was not dispatched (NaN).
+        /// </summary>
+        internal static bool TryBuildRow(
+            StockPool pool, GameAction action, IReadOnlyDictionary<string, double> effects,
+            out StockPoolRow row)
+        {
+            row = default(StockPoolRow);
+            if (!IsPoolRow(pool, action))
+                return false;
+
+            double effect = double.NaN;
+            double found;
+            if (effects != null && !string.IsNullOrEmpty(action.ActionId)
+                && effects.TryGetValue(action.ActionId, out found)
+                && !double.IsNaN(found) && !double.IsInfinity(found))
+                effect = found;
 
             row = new StockPoolRow
             {
                 ActionId = action.ActionId,
                 UT = action.UT,
                 StockApplied = !action.ParsekAuthored,
-                Amount = amount,
-                PostCurve = postCurve,
+                Effect = effect,
             };
             return true;
         }
 
-        /// <summary>
-        /// Every row of <paramref name="pool"/> in <paramref name="actions"/>, in the walk's
-        /// own order (UT, earnings before spendings, then sequence), so stock's 0 clamp and
-        /// reputation curve are stepped in the order stock met them.
-        /// </summary>
-        internal static List<StockPoolRow> BuildRows(StockPool pool, IEnumerable<GameAction> actions)
+        /// <summary>Every row of <paramref name="pool"/> in <paramref name="actions"/>.</summary>
+        internal static List<StockPoolRow> BuildRows(
+            StockPool pool, IEnumerable<GameAction> actions, IReadOnlyDictionary<string, double> effects)
         {
             var rows = new List<StockPoolRow>();
             if (actions == null)
                 return rows;
-            var ordered = actions
-                .Where(a => a != null)
-                .OrderBy(a => a.UT)
-                .ThenBy(a => RecalculationEngine.IsEarningType(a.Type) ? 0 : 1)
-                .ThenBy(a => a.Sequence);
-            foreach (var action in ordered)
+            foreach (var action in actions)
             {
                 StockPoolRow row;
-                if (TryBuildRow(pool, action, out row))
+                if (TryBuildRow(pool, action, effects, out row))
                     rows.Add(row);
             }
             return rows;
         }
 
-        // ------------------------------------------------------------------
-        // Stock's own step
-        // ------------------------------------------------------------------
-
         /// <summary>
-        /// Applies <paramref name="amount"/> to <paramref name="value"/> the way stock applies
-        /// it to its pool: funds and science through <c>Funding.AddFunds</c> /
-        /// <c>ResearchAndDevelopment.AddScience</c>, clamped at 0 unless
-        /// <paramref name="allowNegativeCurrency"/>; reputation through
-        /// <c>Reputation.AddReputation</c>'s curve at <paramref name="value"/>, or as stored
-        /// when <paramref name="postCurve"/>.
+        /// The <see cref="GameActionType.StockPoolAdjustment"/> row for <paramref name="amount"/>
+        /// of <paramref name="pool"/> at <paramref name="ut"/>: untagged, with a fresh id.
         /// </summary>
-        internal static double StockStep(
-            StockPool pool, double value, double amount, bool postCurve, bool allowNegativeCurrency)
+        internal static GameAction BuildAdjustmentRow(StockPool pool, double amount, double ut)
         {
-            if (pool == StockPool.Reputation)
+            return new GameAction
             {
-                if (postCurve)
-                    return value + amount;
-                var curved = ReputationModule.ApplyReputationCurve((float)amount, (float)value);
-                return value + curved.actualDelta;
-            }
+                Type = GameActionType.StockPoolAdjustment,
+                UT = ut,
+                AdjustmentPool = pool,
+                AdjustmentAmount = amount,
+            };
+        }
 
-            double next = value + amount;
-            if (!allowNegativeCurrency && next < 0.0)
-                next = 0.0;
-            return next;
+        /// <summary>The sum of the adjustment rows of <paramref name="pool"/> in <paramref name="actions"/>.</summary>
+        internal static double SumAdjustments(StockPool pool, IEnumerable<GameAction> actions)
+        {
+            double sum = 0.0;
+            if (actions == null)
+                return sum;
+            foreach (var a in actions)
+            {
+                if (a != null && a.Type == GameActionType.StockPoolAdjustment && a.AdjustmentPool == pool)
+                    sum += a.AdjustmentAmount;
+            }
+            return sum;
         }
 
         // ------------------------------------------------------------------
@@ -285,21 +279,22 @@ namespace Parsek
 
         /// <summary>
         /// Measures one patch of <paramref name="state"/>'s pool. Does not change the state:
-        /// the caller writes the pool from <see cref="StockPoolMeasurement.CumLeakAfter"/> and
-        /// then calls <see cref="Commit"/> with the value the pool holds afterwards.
+        /// the caller files <see cref="StockPoolMeasurement.Adjustment"/> as an adjustment row
+        /// (when nonzero), writes the pool, and then calls <see cref="Commit"/> with the value
+        /// the pool holds afterwards.
         /// </summary>
-        /// <param name="rows">Every row of the pool in the walk's order (<see cref="BuildRows"/>).</param>
+        /// <param name="rows">Every row of the pool (<see cref="BuildRows"/>).</param>
         /// <param name="nowUT">The patch's now: rows after it have not been applied by stock yet.</param>
         /// <param name="live">The live pool before the write.</param>
         /// <param name="pendingAdjustNow">Science: the pending adjusters now; 0 for the others.</param>
-        /// <param name="freshBaselineTarget">The value the patch would write with no kept leak,
+        /// <param name="freshBaselineTarget">The value the patch would write with no adjustment,
         /// before the 0 floor (funds and science: the projected minimum, science plus its
         /// pending adjusters; reputation: the running value). Read only when the state has no
-        /// reference: a measured patch adopts <c>live - freshBaselineTarget</c> as the kept
-        /// leak. NaN adopts nothing.</param>
+        /// reference: a measured patch adopts <c>live - freshBaselineTarget</c> as an
+        /// adjustment. NaN adopts nothing.</param>
         internal static StockPoolMeasurement Measure(
             StockPoolReferenceState state, IList<StockPoolRow> rows, double nowUT, double live,
-            double pendingAdjustNow, bool allowNegativeCurrency, bool authoritative, double epsilon,
+            double pendingAdjustNow, bool authoritative, double epsilon,
             double freshBaselineTarget = double.NaN)
         {
             if (state == null) throw new ArgumentNullException(nameof(state));
@@ -309,8 +304,6 @@ namespace Parsek
                 Live = live,
                 Authoritative = authoritative,
                 LastWritten = state.LastWritten,
-                CumLeakBefore = state.CumLeak,
-                CumLeakAfter = state.CumLeak,
                 Expected = live,
             };
 
@@ -330,9 +323,9 @@ namespace Parsek
             {
                 // No saved reference: the live pool is the starting point and every row is
                 // taken as already in it. A measured patch keeps the pool where the older
-                // build left it: the gap to the leak-free target becomes the kept leak (what
-                // the old guard kept by clamping on every patch). An authoritative one writes
-                // the target, as it always has.
+                // build left it: the gap to the leak-free target becomes one adjustment row
+                // (what the old guard kept by clamping on every patch). An authoritative one
+                // writes the target, as it always has.
                 m.FreshBaseline = true;
                 m.LastWritten = live;
                 if (!authoritative && !double.IsNaN(freshBaselineTarget)
@@ -340,14 +333,16 @@ namespace Parsek
                 {
                     m.GapAdopted = true;
                     m.AdoptedGap = live - freshBaselineTarget;
-                    m.CumLeakAfter = m.AdoptedGap;
+                    if (Math.Abs(m.AdoptedGap) > epsilon)
+                        m.Adjustment = m.AdoptedGap;
                 }
                 return m;
             }
 
-            // Rows the reference stepped that have left the ledger: step them back, in a
-            // stable order, so their part of the kept leak goes with them.
+            // Rows the reference stepped that have left the ledger: step them back, so the
+            // part stock applied for them reads as unexplained (it stays in the pool).
             double expected = state.LastWritten;
+            double removedStepped = 0.0;
             var removedIds = new List<string>();
             foreach (var kv in state.Counted)
             {
@@ -361,19 +356,22 @@ namespace Parsek
                 CountedRow counted = state.Counted[removedIds[i]];
                 if (Math.Abs(counted.Stepped) <= AmountTolerance)
                     continue;
-                double before = expected;
-                expected = StockStep(state.Pool, expected, -counted.Stepped,
-                    postCurve: false, allowNegativeCurrency: allowNegativeCurrency);
+                expected -= counted.Stepped;
+                removedStepped += counted.Stepped;
                 m.ReversedRows++;
-                m.ReversedTotal += expected - before;
+                m.ReversedTotal -= counted.Stepped;
             }
 
             if (authoritative)
             {
-                // The write is the target plus the kept leak; a reversed row takes its share
-                // of that leak back with it.
-                m.CumLeakAfter = state.CumLeak - m.ReversedTotal;
-                m.Expected = expected + 0.0;
+                // The write is the target; a dropped row's stepped part stays in the pool
+                // (stock applied it), filed as an adjustment.
+                m.Expected = expected;
+                if (Math.Abs(removedStepped) > epsilon)
+                {
+                    m.CarriedRemoved = removedStepped;
+                    m.Adjustment = removedStepped;
+                }
                 return m;
             }
 
@@ -385,28 +383,29 @@ namespace Parsek
                     StockPoolRow row = rows[i];
                     if (string.IsNullOrEmpty(row.ActionId) || !seen.Add(row.ActionId))
                         continue;
-                    if (!row.StockApplied || row.UT > nowUT)
+                    if (!row.StockApplied || row.UT > nowUT || double.IsNaN(row.Effect))
                         continue;
                     CountedRow counted;
-                    state.Counted.TryGetValue(row.ActionId, out counted);
-                    double diff = row.Amount - counted.Amount;
-                    if (Math.Abs(diff) <= AmountTolerance)
+                    bool wasCounted = state.Counted.TryGetValue(row.ActionId, out counted);
+                    // A row counted while the walk did not dispatch it (a committed future row)
+                    // crossing the clock: stock did not apply it, the write does.
+                    if (wasCounted && double.IsNaN(counted.Effect))
                         continue;
-                    double before = expected;
-                    expected = StockStep(state.Pool, expected, diff, row.PostCurve, allowNegativeCurrency);
+                    double step = wasCounted ? row.Effect - counted.Effect : row.Effect;
+                    if (Math.Abs(step) <= AmountTolerance)
+                        continue;
+                    expected += step;
                     m.SteppedRows++;
-                    m.SteppedTotal += expected - before;
-                    m.NewStepped[row.ActionId] = counted.Stepped + diff;
+                    m.SteppedTotal += step;
+                    m.NewStepped[row.ActionId] = (wasCounted ? counted.Stepped : 0.0) + step;
                 }
             }
 
             double pendingStep = pendingAdjustNow - state.PendingAdjust;
             if (Math.Abs(pendingStep) > AmountTolerance)
             {
-                double before = expected;
-                expected = StockStep(state.Pool, expected, pendingStep, postCurve: true,
-                    allowNegativeCurrency: allowNegativeCurrency);
-                m.PendingStep = expected - before;
+                expected += pendingStep;
+                m.PendingStep = pendingStep;
             }
 
             m.Expected = expected;
@@ -415,18 +414,19 @@ namespace Parsek
             {
                 m.Leak = leak;
                 m.LeakKept = true;
-                m.CumLeakAfter = state.CumLeak + leak;
+                m.Adjustment = leak;
             }
             return m;
         }
 
         /// <summary>
         /// Records a finished patch: <paramref name="poolAfter"/> (the pool read back after
-        /// the write, or the live pool of a no-op) becomes the last written value, the kept
-        /// leak becomes the measurement's, and every row is counted at its amount. A row
-        /// keeps what the reference stepped for it (plus this patch's steps); a row new to the
-        /// reference that was not stepped counts with nothing stepped. Rows that left the
-        /// ledger are dropped.
+        /// the write, or the live pool of a no-op) becomes the last written value and every
+        /// row is counted at its walk effect. A row keeps what the reference stepped for it
+        /// (plus this patch's steps); a row new to the reference that was not stepped counts
+        /// with nothing stepped. The patch's adjustment row (when it filed one) is counted at
+        /// its amount, stepped in full, so the next walk's dispatch of it steps nothing. Rows
+        /// that left the ledger are dropped.
         /// </summary>
         internal static void Commit(
             StockPoolReferenceState state, IList<StockPoolRow> rows, StockPoolMeasurement m,
@@ -451,15 +451,24 @@ namespace Parsek
                             ? previous.Stepped
                             : 0.0;
                     }
-                    next[row.ActionId] = new CountedRow { Amount = row.Amount, Stepped = stepped };
+                    next[row.ActionId] = new CountedRow { Effect = row.Effect, Stepped = stepped };
                 }
+            }
+
+            GameAction adjustment = m.AdjustmentRow;
+            if (adjustment != null && !string.IsNullOrEmpty(adjustment.ActionId))
+            {
+                next[adjustment.ActionId] = new CountedRow
+                {
+                    Effect = adjustment.AdjustmentAmount,
+                    Stepped = adjustment.AdjustmentAmount,
+                };
             }
 
             state.Counted.Clear();
             foreach (var kv in next)
                 state.Counted[kv.Key] = kv.Value;
             state.LastWritten = poolAfter;
-            state.CumLeak = m.CumLeakAfter;
             state.PendingAdjust = state.Pool == StockPool.Science ? pendingAdjustNow : 0.0;
             state.Initialized = true;
         }
@@ -469,29 +478,30 @@ namespace Parsek
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// The funds or science value a patch writes: the kept leak added to the target
-        /// BEFORE stock's 0 floor (adding it after the floor would create the difference on
-        /// every purchase that spends a kept leak). With <c>AllowNegativeCurrency</c> on, the
-        /// existing-deficit rule of
+        /// The funds or science value a patch writes: this patch's adjustment added to the
+        /// target BEFORE stock's 0 floor (adding it after the floor would create the
+        /// difference on every purchase that spends it). With <c>AllowNegativeCurrency</c>
+        /// on, the existing-deficit rule of
         /// <see cref="KspStatePatcher.ResolveNegativeCurrencyPatchTarget(double, double, double, double, bool)"/>
-        /// applies to the leak-shifted values. With no leak this is exactly today's target.
+        /// applies to the shifted values. With no adjustment this is exactly today's target.
+        /// The next walk carries the adjustment row, so its target holds it on its own.
         /// </summary>
         internal static double ResolveCurrencyWriteTarget(
             double unflooredTarget, double runningBalanceNow, double currentLive,
-            bool allowNegativeCurrency, double cumLeak)
+            bool allowNegativeCurrency, double adjustment)
         {
-            double shifted = unflooredTarget + cumLeak;
+            double shifted = unflooredTarget + adjustment;
             double floored = shifted > 0.0 ? shifted : 0.0;
             if (!allowNegativeCurrency)
                 return floored;
             return KspStatePatcher.ResolveNegativeCurrencyPatchTarget(
-                floored, shifted, runningBalanceNow + cumLeak, currentLive, true);
+                floored, shifted, runningBalanceNow + adjustment, currentLive, true);
         }
 
-        /// <summary>The reputation a patch writes: the running value plus the kept leak.</summary>
-        internal static double ResolveReputationWriteTarget(double runningRep, double cumLeak)
+        /// <summary>The reputation a patch writes: the running value plus this patch's adjustment.</summary>
+        internal static double ResolveReputationWriteTarget(double runningRep, double adjustment)
         {
-            return runningRep + cumLeak;
+            return runningRep + adjustment;
         }
 
         // ------------------------------------------------------------------
@@ -512,8 +522,9 @@ namespace Parsek
         /// <summary>
         /// Writes the three references under <see cref="NodeName"/> (replacing any older
         /// copy). A pool that was never patched writes no child, so its load starts afresh.
-        /// Only counted rows with a nonzero amount or step are written: a missing row reads
-        /// as counted 0.
+        /// A counted row whose effect and step are both 0 is not written (a missing row reads
+        /// as new, which steps it by its effect, 0); a row seen but not walked is written with
+        /// its NaN effect, so it still crosses the clock unstepped after a load.
         /// </summary>
         internal static void SaveTo(ConfigNode parent)
         {
@@ -529,7 +540,6 @@ namespace Parsek
                     continue;
                 var child = root.AddNode(NodeNameFor(state.Pool));
                 child.AddValue(LastWrittenKey, state.LastWritten.ToString("R", IC));
-                child.AddValue(CumLeakKey, state.CumLeak.ToString("R", IC));
                 if (state.Pool == StockPool.Science)
                     child.AddValue(PendingAdjustKey, state.PendingAdjust.ToString("R", IC));
                 var ids = new List<string>(state.Counted.Keys);
@@ -537,10 +547,11 @@ namespace Parsek
                 for (int i = 0; i < ids.Count; i++)
                 {
                     CountedRow c = state.Counted[ids[i]];
-                    if (Math.Abs(c.Amount) <= AmountTolerance && Math.Abs(c.Stepped) <= AmountTolerance)
+                    if (!double.IsNaN(c.Effect) && Math.Abs(c.Effect) <= AmountTolerance
+                        && Math.Abs(c.Stepped) <= AmountTolerance)
                         continue;
                     child.AddValue(RowKey,
-                        ids[i] + " " + c.Amount.ToString("R", IC) + " " + c.Stepped.ToString("R", IC));
+                        ids[i] + " " + c.Effect.ToString("R", IC) + " " + c.Stepped.ToString("R", IC));
                     savedRows++;
                 }
                 pools++;
@@ -568,17 +579,15 @@ namespace Parsek
                 ConfigNode child = root?.GetNode(NodeNameFor(state.Pool));
                 if (child == null)
                     continue;
-                double lastWritten, cumLeak;
-                if (!TryParse(child.GetValue(LastWrittenKey), out lastWritten)
-                    || !TryParse(child.GetValue(CumLeakKey), out cumLeak))
+                double lastWritten;
+                if (!TryParse(child.GetValue(LastWrittenKey), out lastWritten))
                 {
                     ParsekLog.Warn(Tag,
-                        $"Load: {state.Pool} reference unreadable (lastWritten='{child.GetValue(LastWrittenKey) ?? "<none>"}' " +
-                        $"cumLeak='{child.GetValue(CumLeakKey) ?? "<none>"}'): starting afresh at the first patch");
+                        $"Load: {state.Pool} reference unreadable (lastWritten='{child.GetValue(LastWrittenKey) ?? "<none>"}'): " +
+                        "starting afresh at the first patch");
                     continue;
                 }
                 state.LastWritten = lastWritten;
-                state.CumLeak = cumLeak;
                 double pending;
                 if (state.Pool == StockPool.Science && TryParse(child.GetValue(PendingAdjustKey), out pending))
                     state.PendingAdjust = pending;
@@ -586,13 +595,13 @@ namespace Parsek
                 for (int i = 0; i < values.Length; i++)
                 {
                     string[] parts = (values[i] ?? "").Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                    double amount, stepped;
-                    if (parts.Length != 3 || !TryParse(parts[1], out amount) || !TryParse(parts[2], out stepped))
+                    double effect, stepped;
+                    if (parts.Length != 3 || !TryParseEffect(parts[1], out effect) || !TryParse(parts[2], out stepped))
                     {
                         rowsBad++;
                         continue;
                     }
-                    state.Counted[parts[0]] = new CountedRow { Amount = amount, Stepped = stepped };
+                    state.Counted[parts[0]] = new CountedRow { Effect = effect, Stepped = stepped };
                     rowsRead++;
                 }
                 state.Initialized = true;
@@ -620,6 +629,15 @@ namespace Parsek
             return !double.IsNaN(value) && !double.IsInfinity(value);
         }
 
+        /// <summary>A counted effect: a finite number, or NaN (seen but not walked).</summary>
+        private static bool TryParseEffect(string s, out double value)
+        {
+            value = double.NaN;
+            if (string.Equals(s, "NaN", StringComparison.Ordinal))
+                return true;
+            return TryParse(s, out value);
+        }
+
         // ------------------------------------------------------------------
         // Log text
         // ------------------------------------------------------------------
@@ -629,7 +647,6 @@ namespace Parsek
             if (state == null || !state.Initialized)
                 return "unset";
             return "lastWritten=" + state.LastWritten.ToString("R", IC)
-                + "/cumLeak=" + state.CumLeak.ToString("R", IC)
                 + "/rows=" + state.Counted.Count.ToString(IC);
         }
 
@@ -649,8 +666,9 @@ namespace Parsek
                 + " reversed=" + m.ReversedRows.ToString(IC) + "(" + m.ReversedTotal.ToString("R", IC) + ")"
                 + " pendingStep=" + m.PendingStep.ToString("R", IC)
                 + " leak=" + m.Leak.ToString("R", IC)
-                + " cumLeak=" + m.CumLeakBefore.ToString("R", IC) + "->" + m.CumLeakAfter.ToString("R", IC)
+                + " adjustment=" + m.Adjustment.ToString("R", IC)
                 + (m.GapAdopted ? " adoptedGap=" + m.AdoptedGap.ToString("R", IC) : "")
+                + (m.CarriedRemoved != 0.0 ? " carriedRemoved=" + m.CarriedRemoved.ToString("R", IC) : "")
                 + (m.RowsWithoutId > 0 ? " rowsWithoutId=" + m.RowsWithoutId.ToString(IC) : "");
         }
     }

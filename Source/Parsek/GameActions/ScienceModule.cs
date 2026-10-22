@@ -19,7 +19,7 @@ namespace Parsek
     ///
     /// Pure computation — no KSP state access.
     /// </summary>
-    internal class ScienceModule : IResourceModule, ICashflowProjectionModule
+    internal class ScienceModule : IResourceModule, ICashflowProjectionModule, IStockPoolModule
     {
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
@@ -74,6 +74,11 @@ namespace Parsek
         /// <summary>The part of the walk's non-cost losses below 0 stock forgives (see FundsModule).</summary>
         private double forgivenBelowZero;
 
+        /// <summary>Per row id, what the walk's dispatch moved the running science by
+        /// (<see cref="IStockPoolModule.GetRowEffects"/>).</summary>
+        private readonly Dictionary<string, double> rowEffects =
+            new Dictionary<string, double>(StringComparer.Ordinal);
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -94,6 +99,7 @@ namespace Parsek
             projectedMinBalance = 0.0;
             hasInitialSeed = false;
             forgivenBelowZero = 0.0;
+            rowEffects.Clear();
             allowNegativeCurrency = StockCurrencyClamp.ReadAllowNegativeCurrency();
 
             ParsekLog.Verbose("ScienceModule",
@@ -130,6 +136,18 @@ namespace Parsek
             double before = runningScience;
             DispatchAction(action);
             ApplyStockZeroClamp(action, before);
+            if (!string.IsNullOrEmpty(action.ActionId))
+            {
+                double prior;
+                rowEffects.TryGetValue(action.ActionId, out prior);
+                rowEffects[action.ActionId] = prior + (runningScience - before);
+            }
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyDictionary<string, double> GetRowEffects()
+        {
+            return rowEffects;
         }
 
         /// <summary>
@@ -154,7 +172,9 @@ namespace Parsek
         private void ApplyStockZeroClamp(GameAction action, double before)
         {
             double forgiven = StockCurrencyClamp.ForgivenBelowZero(
-                before, runningScience, IsScienceCostRow(action.Type), allowNegativeCurrency);
+                before, runningScience,
+                IsScienceCostRow(action.Type) || action.Type == GameActionType.StockPoolAdjustment,
+                allowNegativeCurrency);
             if (forgiven <= 0.0)
                 return;
 
@@ -199,6 +219,9 @@ namespace Parsek
                     break;
                 case GameActionType.ScienceInitial:
                     ProcessScienceInitial(action);
+                    break;
+                case GameActionType.StockPoolAdjustment:
+                    ProcessStockPoolAdjustment(action);
                     break;
                 // All other action types: ignore silently
             }
@@ -640,6 +663,23 @@ namespace Parsek
                 $"totalEffectiveEarnings={totalEffectiveEarnings.ToString("R", IC)}");
         }
 
+        /// <summary>
+        /// Processes a science <see cref="GameActionType.StockPoolAdjustment"/>: the amount stock
+        /// already applied to the pool, as stored and never clamped. Counted with the
+        /// earnings (signed), so the no-projection availability carries it.
+        /// </summary>
+        private void ProcessStockPoolAdjustment(GameAction action)
+        {
+            if (action.AdjustmentPool != StockPool.Science)
+                return;
+            double amount = action.AdjustmentAmount;
+            runningScience += amount;
+            totalEffectiveEarnings += amount;
+            ParsekLog.Verbose("ScienceModule",
+                $"StockPoolAdjustment: {amount.ToString("R", IC)} id={action.ActionId ?? "(none)"} " +
+                $"ut={action.UT.ToString("R", IC)} runningScience={runningScience.ToString("R", IC)}");
+        }
+
         // ================================================================
         // Query methods
         // ================================================================
@@ -759,6 +799,10 @@ namespace Parsek
                     return true;
                 case GameActionType.StrategyActivate:
                     delta = -(double)action.SetupScienceCost;
+                    return true;
+                case GameActionType.StockPoolAdjustment:
+                    if (action.AdjustmentPool != StockPool.Science) return false;
+                    delta = action.AdjustmentAmount;
                     return true;
                 default:
                     return false;

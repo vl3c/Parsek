@@ -10,7 +10,7 @@ namespace Parsek.Tests
     {
         // Keep this count in sync with CreateAction's switch below so a new
         // GameActionType cannot land without an explicit fuzzer payload.
-        private const int ExpectedGameActionTypeCount = 39;
+        private const int ExpectedGameActionTypeCount = 40;
         private readonly bool priorSuppressLogging;
 
         public RecalculationFuzzerTests()
@@ -384,6 +384,10 @@ namespace Parsek.Tests
                             new KerbalCareerLogEntry(iteration % 4, "Orbit", "Kerbin"),
                             new KerbalCareerLogEntry(iteration % 4, "Recover", ""),
                         });
+                    break;
+                case GameActionType.StockPoolAdjustment:
+                    action.AdjustmentPool = (StockPool)(iteration % 3);
+                    action.AdjustmentAmount = (iteration % 2 == 0 ? 1.0 : -1.0) * (iteration % 7);
                     break;
             }
 

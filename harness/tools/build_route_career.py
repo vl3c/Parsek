@@ -172,7 +172,7 @@ REFUSED_POOL_TYPES = {0: "ScienceEarning", 1: "ScienceSpending", 2: "FundsEarnin
                       10: "ReputationPenalty", 12: "KerbalHire", 15: "FacilityUpgrade",
                       17: "FacilityRepair", 18: "StrategyActivate",
                       32: "StrategyScienceDebit", 33: "StrategyScienceCredit",
-                      38: "ScienceLabEarning"}
+                      38: "ScienceLabEarning", 39: "StockPoolAdjustment"}
 
 
 def target_name(source: str) -> str:

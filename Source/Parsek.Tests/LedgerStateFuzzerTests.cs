@@ -45,8 +45,8 @@ namespace Parsek.Tests
     /// the default <c>Sequence = 0</c>; those are still deterministic because the pre-pass
     /// walks the already-SORTED list, so its injection order is a function of the sort, not
     /// of the caller's input order. <see cref="SyntheticContractFail_CollidingDeadlines_ResolveDeterministically"/>
-    /// pins that property directly, because reputation (unlike funds) is applied through a
-    /// state-dependent curve and would otherwise be order-sensitive.
+    /// pins that property directly. Injected rows reach no pool module (they move contract
+    /// state only), so the state-dependent reputation curve never sees them.
     /// </para>
     ///
     /// <para>
@@ -622,16 +622,17 @@ namespace Parsek.Tests
             float repBFirst = reputation.GetRunningRep();
             var terminalBFirst = contracts.GetTerminalContractIds().OrderBy(x => x, StringComparer.Ordinal).ToList();
 
-            // Both deadline-expired contracts fail either way, and the funds outcome is
-            // commutative (penalties are summed).
+            // Both deadline-expired contracts fail either way.
             Assert.Equal(new[] { "collide-a", "collide-b" }, terminalAFirst.ToArray());
             Assert.Equal(terminalAFirst, terminalBFirst);
-            Assert.Equal(fundsAFirst, fundsBFirst, 6);
 
-            // The load-bearing assertion: reputation is applied through a state-dependent
-            // curve, so an order-sensitive tie-break would show up here and nowhere else.
-            Assert.True(repAFirst < 500f,
-                "expected a net reputation loss, got " + repAFirst.ToString("R", IC));
+            // A synthetic fail moves contract state only (committed-value rule plan section
+            // 2.4, revision 6): neither pool pays either penalty, in either order. This is
+            // also what keeps the reputation curve out of the tie-break: an injected row
+            // never reaches it.
+            Assert.Equal(10001.0, fundsAFirst, 6);
+            Assert.Equal(fundsAFirst, fundsBFirst, 6);
+            Assert.Equal(500.0, (double)repAFirst, 3);
             Assert.Equal((double)repAFirst, (double)repBFirst, 6);
         }
 
@@ -1078,6 +1079,10 @@ namespace Parsek.Tests
                     break;
                 case GameActionType.StrategyDeactivate:
                     action.StrategyId = "strategy-" + rng.Next(0, 4).ToString(IC);
+                    break;
+                case GameActionType.StockPoolAdjustment:
+                    action.AdjustmentPool = (StockPool)rng.Next(0, 3);
+                    action.AdjustmentAmount = Amount(rng, -500f, 500f);
                     break;
             }
 

@@ -212,7 +212,22 @@ namespace Parsek
         /// supersede. Explicitly numbered and append-only; an older build reads it as an
         /// unknown type (Warn) and loses only the credit there.
         /// </summary>
-        ScienceLabEarning = 38
+        ScienceLabEarning = 38,
+
+        /// <summary>
+        /// Something stock applied to one pool that the ledger holds no other row for: the
+        /// drawdown guard's measured leak (committed-value rule plan section 2.4), or an
+        /// older save's gap between its pool and the leak-free target, adopted once. Carries
+        /// <see cref="GameAction.AdjustmentPool"/> and <see cref="GameAction.AdjustmentAmount"/>
+        /// (reputation stored post-curve, applied as stored). Untagged, at the patch's now,
+        /// written by <see cref="StockPoolReference"/>'s patch through
+        /// <see cref="LedgerRowWriter.StockApplied"/> and counted at creation, so the reference
+        /// never steps it. Exempt from stock's 0 clamp in the walk (the amount is what the
+        /// live pool already shows). An earning for ordering and pruning, so a cold load's
+        /// reconcile keeps it. Explicitly numbered and append-only; an older build reads it
+        /// as an unknown type (Warn) and loses the adjustment there.
+        /// </summary>
+        StockPoolAdjustment = 39
     }
 
     /// <summary>
@@ -512,6 +527,13 @@ namespace Parsek
 
         /// <summary>How the science was collected.</summary>
         public ScienceMethod Method;
+
+        /// <summary><see cref="GameActionType.StockPoolAdjustment"/>: the pool the row moves.</summary>
+        public StockPool AdjustmentPool;
+
+        /// <summary><see cref="GameActionType.StockPoolAdjustment"/>: the signed amount it moves
+        /// the pool by (reputation post-curve).</summary>
+        public double AdjustmentAmount;
 
         /// <summary>Transmission efficiency for the experiment (0.0 to 1.0).</summary>
         public float TransmitScalar;
@@ -1058,6 +1080,9 @@ namespace Parsek
                 case GameActionType.ScienceLabEarning:
                     SerializeScienceLabEarning(node);
                     break;
+                case GameActionType.StockPoolAdjustment:
+                    SerializeStockPoolAdjustment(node);
+                    break;
                 case GameActionType.FacilityUpgrade:
                     SerializeFacilityUpgrade(node);
                     break;
@@ -1205,6 +1230,9 @@ namespace Parsek
                     break;
                 case GameActionType.ScienceLabEarning:
                     DeserializeScienceLabEarning(node, a);
+                    break;
+                case GameActionType.StockPoolAdjustment:
+                    DeserializeStockPoolAdjustment(node, a);
                     break;
                 case GameActionType.FacilityUpgrade:
                     DeserializeFacilityUpgrade(node, a);
@@ -1723,6 +1751,23 @@ namespace Parsek
         {
             TryParseFloat(n, "scienceAwarded", out a.ScienceAwarded);
             TryParseEnum(n, "method", out a.Method);
+        }
+
+        // StockPoolAdjustment: the pool and the signed amount.
+        private void SerializeStockPoolAdjustment(ConfigNode n)
+        {
+            n.AddValue("adjustPool", ((int)AdjustmentPool).ToString(IC));
+            n.AddValue("adjustAmount", AdjustmentAmount.ToString("R", IC));
+        }
+
+        private static void DeserializeStockPoolAdjustment(ConfigNode n, GameAction a)
+        {
+            TryParseEnum(n, "adjustPool", out a.AdjustmentPool);
+            string amount = n.GetValue("adjustAmount");
+            double parsed;
+            if (amount != null && double.TryParse(amount, NS, IC, out parsed)
+                && !double.IsNaN(parsed) && !double.IsInfinity(parsed))
+                a.AdjustmentAmount = parsed;
         }
 
         private void SerializeFacilityUpgrade(ConfigNode n)

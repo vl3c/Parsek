@@ -1666,6 +1666,8 @@ namespace Parsek.InGameTests
             // The player's own stock pool reference: put back after the test.
             var referenceSnapshot = new ConfigNode("STOCK_POOL_REFERENCE_SNAPSHOT");
             StockPoolReference.SaveTo(referenceSnapshot);
+            // The adjustment rows the patches file go to this list, never the player's ledger.
+            var filedAdjustments = new System.Collections.Generic.List<GameAction>();
 
             // Module running balances (the ledger's view) and a live value an unmodelled
             // earning moved the pool to (the BUG-A signature: running below live).
@@ -1677,6 +1679,7 @@ namespace Parsek.InGameTests
             const float RunningRep = 10f;
 
             KspStatePatcher.ResetForTesting();
+            KspStatePatcher.StockPoolAdjustmentSinkForTesting = filedAdjustments.Add;
             try
             {
                 // ---- Case 1: NO time-travel signal -> the unmodelled change is kept ----
@@ -1707,14 +1710,17 @@ namespace Parsek.InGameTests
                 Parsek.InGameTests.InGameAssert.IsTrue(
                     System.Math.Abs(Reputation.Instance.reputation - LiveRep) < 0.5f,
                     $"Reputation must keep the unmodelled earning (expected {LiveRep}, got {Reputation.Instance.reputation})");
+                double fundsAdjusted = StockPoolReference.SumAdjustments(StockPool.Funds, filedAdjustments);
                 Parsek.InGameTests.InGameAssert.IsTrue(
-                    System.Math.Abs(StockPoolReference.CumLeakOf(StockPool.Funds) - (LiveFunds - RunningFunds)) < 0.5,
-                    $"The funds reference must keep the leak (cumLeak={StockPoolReference.CumLeakOf(StockPool.Funds)})");
+                    System.Math.Abs(fundsAdjusted - (LiveFunds - RunningFunds)) < 0.5,
+                    $"The funds reference must file the leak as an adjustment row (filed={fundsAdjusted})");
 
                 // ---- Case 2: an authoritative signal -> no leak is measured ----
                 // A fresh reference again, the same unmodelled move, then an authorized patch:
                 // the patch writes the target and re-baselines instead of keeping the move.
                 KspStatePatcher.ResetForTesting();
+                filedAdjustments.Clear();
+                KspStatePatcher.StockPoolAdjustmentSinkForTesting = filedAdjustments.Add;
                 Funding.Instance.SetFunds(RunningFunds, TransactionReasons.None);
                 ResearchAndDevelopment.Instance.SetScience(RunningScience, TransactionReasons.None);
                 Reputation.Instance.SetReputation(RunningRep, TransactionReasons.None);
@@ -1749,9 +1755,10 @@ namespace Parsek.InGameTests
                     Parsek.InGameTests.InGameAssert.IsTrue(
                         System.Math.Abs(Reputation.Instance.reputation - RunningRep) < 0.5f,
                         $"Authorized patch must apply rep target (expected {RunningRep}, got {Reputation.Instance.reputation})");
+                    double authorizedAdjusted = StockPoolReference.SumAdjustments(StockPool.Funds, filedAdjustments);
                     Parsek.InGameTests.InGameAssert.IsTrue(
-                        System.Math.Abs(StockPoolReference.CumLeakOf(StockPool.Funds)) < 0.5,
-                        $"An authorized patch measures no leak (cumLeak={StockPoolReference.CumLeakOf(StockPool.Funds)})");
+                        System.Math.Abs(authorizedAdjusted) < 0.5,
+                        $"An authorized patch measures no leak (filed={authorizedAdjusted})");
                 }
                 finally
                 {
@@ -2122,19 +2129,20 @@ namespace Parsek.InGameTests
             GameObject go = null;
             try
             {
-                // ---- Bug 1: the gate adds the stock pool reference's kept leak ----
+                // ---- Bug 1: the gate reads the walk that carries the kept leak ----
                 // A simulated leaked ledger (available 1.0) with live science 500 the
-                // reference kept as a leak of 499: the purchase must be affordable.
+                // reference kept as a 499 adjustment row: the probe's projected minimum
+                // carries the row, so the purchase must be affordable.
                 const float LiveScience = 500f;
                 ResearchAndDevelopment.Instance.SetScience(LiveScience, TransactionReasons.None);
 
                 double effLeak = LedgerOrchestrator.ComputeEffectiveAffordable(
-                    1.0, ResearchAndDevelopment.Instance.Science - 1.0);
+                    1.0 + (ResearchAndDevelopment.Instance.Science - 1.0));
                 Parsek.InGameTests.InGameAssert.IsTrue(effLeak >= 45.0,
                     $"Gate must respect a kept leak above a leaked ledger (eff={effLeak}, live={ResearchAndDevelopment.Instance.Science})");
 
                 // A reservation deeper than the kept leak still gates (floored at 0).
-                double effReserved = LedgerOrchestrator.ComputeEffectiveAffordable(-600.0, 499.0);
+                double effReserved = LedgerOrchestrator.ComputeEffectiveAffordable(-600.0 + 499.0);
                 Parsek.InGameTests.InGameAssert.IsTrue(effReserved < 45.0,
                     $"A reservation beyond the kept leak must gate on the ledger value, not live (eff={effReserved})");
 

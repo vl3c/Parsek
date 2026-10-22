@@ -24,7 +24,7 @@ namespace Parsek
     /// Second-tier: reads Effective flags set by first-tier modules (Milestones, Contracts).
     /// Pure computation — no KSP state access.
     /// </summary>
-    internal class FundsModule : IResourceModule, ICashflowProjectionModule
+    internal class FundsModule : IResourceModule, ICashflowProjectionModule, IStockPoolModule
     {
         private const string Tag = "Funds";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
@@ -91,6 +91,11 @@ namespace Parsek
         /// </summary>
         private double forgivenBelowZero;
 
+        /// <summary>Per row id, what the walk's dispatch moved the running balance by
+        /// (<see cref="IStockPoolModule.GetRowEffects"/>).</summary>
+        private readonly Dictionary<string, double> rowEffects =
+            new Dictionary<string, double>(StringComparer.Ordinal);
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -116,6 +121,7 @@ namespace Parsek
             hasInitialSeed = false;
             buildingDestroyedInWalk.Clear();
             forgivenBelowZero = 0.0;
+            rowEffects.Clear();
             allowNegativeCurrency = StockCurrencyClamp.ReadAllowNegativeCurrency();
 
             ParsekLog.Verbose(Tag,
@@ -163,6 +169,18 @@ namespace Parsek
             double before = runningBalance;
             DispatchAction(action);
             ApplyStockZeroClamp(action, before);
+            if (!string.IsNullOrEmpty(action.ActionId))
+            {
+                double prior;
+                rowEffects.TryGetValue(action.ActionId, out prior);
+                rowEffects[action.ActionId] = prior + (runningBalance - before);
+            }
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyDictionary<string, double> GetRowEffects()
+        {
+            return rowEffects;
         }
 
         private void DispatchAction(GameAction action)
@@ -208,6 +226,9 @@ namespace Parsek
                 case GameActionType.StrategyActivate:
                     ProcessStrategySetupCost(action);
                     break;
+                case GameActionType.StockPoolAdjustment:
+                    ProcessStockPoolAdjustment(action);
+                    break;
                 // Supply-route rows are NOT cased here: supply routes carry no money
                 // (todo LOGISTICS-WITHOUT-MONEY), so every route row falls through and
                 // moves no funds. Do NOT add a case: a funds mutation here would be a
@@ -246,7 +267,9 @@ namespace Parsek
         private void ApplyStockZeroClamp(GameAction action, double before)
         {
             double forgiven = StockCurrencyClamp.ForgivenBelowZero(
-                before, runningBalance, IsFundsCostRow(action.Type), allowNegativeCurrency);
+                before, runningBalance,
+                IsFundsCostRow(action.Type) || action.Type == GameActionType.StockPoolAdjustment,
+                allowNegativeCurrency);
             if (forgiven <= 0.0)
                 return;
 
@@ -680,6 +703,23 @@ namespace Parsek
                 $"runningBalance={runningBalance.ToString("R", IC)}");
         }
 
+        /// <summary>
+        /// Processes a funds <see cref="GameActionType.StockPoolAdjustment"/>: the amount stock
+        /// already applied to the pool, as stored and never clamped (the live pool shows it).
+        /// Counted with the earnings (signed), so the no-projection availability carries it.
+        /// </summary>
+        private void ProcessStockPoolAdjustment(GameAction action)
+        {
+            if (action.AdjustmentPool != StockPool.Funds)
+                return;
+            double amount = action.AdjustmentAmount;
+            runningBalance += amount;
+            totalEarnings += amount;
+            ParsekLog.Verbose(Tag,
+                $"StockPoolAdjustment: {amount.ToString("R", IC)} id={action.ActionId ?? "(none)"} " +
+                $"ut={action.UT.ToString("R", IC)} runningBalance={runningBalance.ToString("R", IC)}");
+        }
+
         // ================================================================
         // Query methods
         // ================================================================
@@ -818,6 +858,10 @@ namespace Parsek
                     return true;
                 case GameActionType.StrategyActivate:
                     delta = -(double)action.SetupCost;
+                    return true;
+                case GameActionType.StockPoolAdjustment:
+                    if (action.AdjustmentPool != StockPool.Funds) return false;
+                    delta = action.AdjustmentAmount;
                     return true;
                 default:
                     return false;

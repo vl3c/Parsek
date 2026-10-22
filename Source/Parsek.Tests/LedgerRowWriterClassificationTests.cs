@@ -56,13 +56,15 @@ namespace Parsek.Tests
                 // A retired Re-Fly provisional's awards: "the walk would patch the career below
                 // what KSP already paid".
                 ["GameActions/LedgerOrchestrator.cs::FileRetiredReFlyProvisionalRows"] = new[] { Stock },
+                // The measured stock pool leak: a change stock already made to the pool.
+                ["GameActions/KspStatePatcher.cs::FileStockPoolAdjustment"] = new[] { Stock },
                 // The rollout charge stock made at launch.
                 ["GameActions/LedgerRolloutAdoption.cs::RecordVesselRolloutSpending"] = new[] { Stock },
                 // The recovery funds stock paid, paired to its recording.
                 ["GameActions/LedgerRecoveryFundsPairing.cs::TryAddVesselRecoveryFundsAction"] = new[] { Stock },
                 // Old-save and broken-ledger recovery convert stock events the pool already
                 // holds (stock applied them; a ParsekAuthored stamp would count them twice
-                // against a kept leak, see the todo entry's phase 2 note).
+                // next to a saved reference, see the todo entry's phase 2 note).
                 ["GameActions/LedgerLoadMigration.cs::MigrateOldSaveEvents"] = new[] { Stock },
                 ["GameActions/LedgerLoadMigration.cs::TryRecoverBrokenLedgerOnLoad"] = new[] { Stock, Stock },
                 // In-game tests.
