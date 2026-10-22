@@ -246,6 +246,7 @@ namespace Parsek.Tests
             "Parsek.Patches.ContractConfiguratorCanAcceptPatch.Postfix",
             "Parsek.Patches.CanAffordLaunchTestPatch.Postfix",
             "Parsek.Patches.EditorLaunchMark.Apply",
+            "Parsek.Patches.LaunchSiteButtonsMark.Apply",
             "Parsek.Patches.VesselSpawnDialogLaunchButtonPatch.Postfix",
             "Parsek.Patches.ContractConfiguratorContractTitlePatch.Postfix",
             "Parsek.Patches.ContractConfiguratorListRebuildPatch.Postfix",

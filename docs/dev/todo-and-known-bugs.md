@@ -756,6 +756,19 @@ and logistics design section 10.6).**
   flown: every greyed control and its stock tooltip text, the `VesselSpawnDialog` patch binding its
   `object` parameter, the `EditorLogic.UpdateUI` postfix order, and the live `Contract`, `Funding`
   and `Reputation` reads.
+  Review of c86c5b9 (follow-up commit): BLOCKER fixed red-first, a strategy's reputation setup was
+  compared raw against a post-curve spendable (stock charges it through `AddReputation`), so an
+  allowed setup could leave reputation under the need (repro: rep 600, a committed 300 setup, a 294
+  setup allowed, charged 299.2, 4.0 under; a grid read 16 breaches): `EvaluatePurchase` now compares
+  `CurvedLoss(cost, live)` for reputation and the reason names it, the stock-first check stays raw.
+  Also: the snapshot fails open (Warn once, inert) on any exception; Mission Control's reserve layer
+  is stock-first (no Parsek block or text on a click stock refuses: the contract limit,
+  `CanBeDeclined`, `CanBeCancelled`); the launch-site flyout's per-site Launch buttons are greyed
+  with the same decision (`LaunchSiteButtonsMark`, flyout pointer-enter postfix); the editor mark
+  prices the crew dialog's manifest, as `launchVessel` does before the test. Tests: 7 more
+  `ClickReservationTests` cells; mutations read red (raw comparison: 3 cells; stock-first and the
+  fail-open guard: 1 each). Harness, not flown: the flyout pointer-enter binding and that
+  `FindObjectsOfType<UILaunchsiteController>` sees the flyout while it is open.
 - O2: a stock revert removes only the rows the reverted flight wrote; every committed row stays
   (matches D2). **FIXED 2026-10-22** (branch `claude/project-thread-6f7rhy`): Parsek remembers
   the ledger's row ids where stock captures its revert targets (every non-revert flight entry for
@@ -776,6 +789,23 @@ and logistics design section 10.6).**
 - O5: moot once PR #2155 merges: the rule acts only on an in-flight `ResumeFromQuicksave` detach
   during an in-session load, which #2155 makes a Cold save-file load that drops the handoff
   (design-load-restores-the-save section 8 lists it as unreached).
+
+## PART-UPGRADE-PURCHASE-UNRESERVED: buying a part upgrade spends funds with no ledger row, no mark and no backstop [FILED 2026-10-22 by the review of committed-value rule phase 4 (c86c5b9); predates that commit. OPEN, not built. product]
+
+Stock's part-upgrade purchase (KSP 1.12.5, decompiled: `PartListTooltipController.onPurchaseUpgrade`
+-> `onPurchaseUpgradeProceed` -> `PartUpgradeHandler.SetUnlocked` + `GameEvents.OnPartUpgradePurchased`
+-> `Funding.onUpgradePurchased`, which charges `upgrade.entryCost` as `TransactionReasons.RnDPartPurchase`
+unless `BypassEntryPurchaseAfterResearch`) has no counterpart in Parsek: no handler on
+`OnPartUpgradePurchased`, no ledger row type for it, no committed-future block, and no click
+reservation (phase 4 covers part purchases through `StockUiPartPurchase`, which reads
+`AvailablePart.entryCost` only). So an upgrade bought after a rewind can spend money a committed cost
+or an open contract's penalty needs, and a committed flight's upgrade purchase is not replayed as a
+cost. Expected today (from phase 2's design, not measured): the debit reaches the walk only as a
+measured leak, one `StockPoolAdjustment` row at the next patch. Fix shape when taken: capture the
+purchase as a cost row (its own type or the part-purchase row with the upgrade name), add it to
+`ReservedFloorPlan.IsAnyPoolCostRow`, and grey the upgrade tooltip's purchase button with the same
+`ClickReservationGate.EvaluatePurchaseNow(StockPool.Funds, entryCost, ...)` decision its backstop (a
+prefix on `onPurchaseUpgradeProceed` or `Funding.onUpgradePurchased`) reads.
 
 ## ~~LOGISTICS-WITHOUT-MONEY: supply routes still charge and credit funds and write ledger rows, so the funds history depends on choices made after a rewind~~ [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4, first as ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES, then ROUTE-MONEY-COST-ONLY. FIXED 2026-10-21: phase 1 (no route money) on branch `logistics-no-money-p1`, phase 2 (route events out of the ledger) on branch `logistics-no-money-p2`. Harness re-flight of the Logistics lanes pending. product]
 

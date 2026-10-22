@@ -90,6 +90,9 @@ namespace Parsek
         internal bool Refused;
         internal StockPool Pool;
         internal double Cost;
+        /// <summary>What the click takes from the pool: the cost for funds and science; for
+        /// reputation the cost through stock's curve at the live reputation.</summary>
+        internal double Charged;
         internal double Spendable;
     }
 
@@ -200,19 +203,40 @@ namespace Parsek
 
         /// <summary>
         /// The purchase predicate: refused when a cost of the pool lies ahead, stock itself
-        /// would allow (<c>live &gt;= cost</c>; a plain shortage stays stock's), and the cost
-        /// is above what is spendable.
+        /// would allow (<c>live &gt;= cost</c>, raw, as stock's own checks compare; a plain
+        /// shortage stays stock's), and what the click takes from the pool is above what is
+        /// spendable. For reputation that is the cost through stock's curve at the live
+        /// reputation (<see cref="ChargedBy"/>): stock charges it through
+        /// <c>Reputation.AddReputation</c>, and the need it is compared with is post-curve.
         /// </summary>
         internal static PurchaseRefusal EvaluatePurchase(ClickReservationSnapshot snapshot, StockPool pool, double cost)
         {
-            var result = new PurchaseRefusal { Pool = pool, Cost = cost };
+            var result = new PurchaseRefusal { Pool = pool, Cost = cost, Charged = cost };
             if (snapshot == null || !(cost > 0.0)) return result;
             ClickPoolReserve r = snapshot.Get(pool);
             result.Spendable = r.Spendable;
             if (!r.CostAhead) return result;
             if (!double.IsNaN(r.Live) && r.Live < cost) return result;
-            result.Refused = cost > r.Spendable + Epsilon;
+            result.Charged = ChargedBy(r, cost);
+            result.Refused = result.Charged > r.Spendable + Epsilon;
             return result;
+        }
+
+        /// <summary>
+        /// What a purchase of <paramref name="cost"/> takes from the pool: the cost itself for
+        /// funds and science; for reputation the post-curve loss at the live reputation (the
+        /// running value when the live one is unknown).
+        /// </summary>
+        internal static double ChargedBy(ClickPoolReserve r, double cost)
+        {
+            if (!(cost > 0.0)) return 0.0;
+            if (r.Pool != StockPool.Reputation) return cost;
+            // The curve steps once per unit of loss; a cost beyond the whole reputation span
+            // (stock clamps the pool to +-1000) is refused either way, so it is read raw.
+            if (cost > 2.0 * ReputationModule.RepRange) return cost;
+            double at = !double.IsNaN(r.Live) ? r.Live : r.Target;
+            if (double.IsNaN(at) || double.IsInfinity(at)) at = 0.0;
+            return CurvedLoss(cost, at);
         }
 
         /// <summary>A purchase over several pools (a strategy's setup): the first pool that refuses.</summary>
@@ -368,12 +392,50 @@ namespace Parsek
         /// <summary>The snapshot at the committed-future clock's now.</summary>
         internal static ClickReservationSnapshot Current()
         {
-            return SnapshotAt(CommittedFutureIndexCache.CurrentUT());
+            double now;
+            try
+            {
+                now = CommittedFutureIndexCache.CurrentUT();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.WarnRateLimited(Tag, "click-reserve-clock-failed",
+                    "Click reservation clock read failed (" + ex.GetType().Name + ": " + ex.Message
+                    + ") - failing open: no click is refused for the reservation");
+                return ClickReservationSnapshot.Inert(double.NaN);
+            }
+            return SnapshotAt(now);
         }
 
-        /// <summary>The snapshot at <paramref name="now"/>.</summary>
+        /// <summary>
+        /// The snapshot at <paramref name="now"/>. Runs inside stock click prefixes
+        /// (<c>Contract.Accept</c> / <c>Decline</c> / <c>Cancel</c>, <c>OnClickAccept</c>), the
+        /// launch test and the funds tooltip, so it fails OPEN: any exception logs one
+        /// rate-limited Warn and returns the inert snapshot, which refuses nothing. A Parsek
+        /// bug never breaks a stock click.
+        /// </summary>
         internal static ClickReservationSnapshot SnapshotAt(double now)
         {
+            try
+            {
+                return SnapshotAtCore(now);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.WarnRateLimited(Tag, "click-reserve-snapshot-failed",
+                    "Click reservation snapshot failed at ut=" + now.ToString("R", IC) + " ("
+                    + ex.GetType().Name + ": " + ex.Message + ") - failing open: no click is refused for the reservation");
+                return ClickReservationSnapshot.Inert(now);
+            }
+        }
+
+        /// <summary>Test seam: throws inside the snapshot (the fail-open path).</summary>
+        internal static Action SnapshotFaultForTesting;
+
+        private static ClickReservationSnapshot SnapshotAtCore(double now)
+        {
+            var fault = SnapshotFaultForTesting;
+            if (fault != null) fault();
             IReadOnlyList<GameAction> els = EffectiveState.ComputeELS();
             if (!HasCostRowAfter(els, now))
                 return ClickReservationSnapshot.Inert(now);
@@ -522,6 +584,7 @@ namespace Parsek
         {
             if (!snapshot.AnyCostAhead) return;
             string line = (what ?? "purchase") + " pool=" + r.Pool + " cost=" + r.Cost.ToString("R", IC)
+                + " charged=" + r.Charged.ToString("R", IC)
                 + " spendable=" + r.Spendable.ToString("R", IC) + " refused=" + (r.Refused ? "true" : "false");
             if (r.Refused)
                 ParsekLog.InfoRateLimited(Tag, "purchase-refused|" + (what ?? ""),
@@ -549,7 +612,7 @@ namespace Parsek
         {
             CommittedActionDialog.ShowBlocked(dialogTitle ?? "Cannot buy",
                 ReservationExplanation.ClickReserve().Body,
-                ReservationExplanation.ClickReservePurchaseDetail(r.Pool, r.Cost, r.Spendable));
+                ReservationExplanation.ClickReservePurchaseDetail(r.Pool, ChargedOf(r), r.Spendable));
         }
 
         /// <summary>
@@ -582,7 +645,14 @@ namespace Parsek
         internal static string PurchaseReason(PurchaseRefusal r)
         {
             return ReservationExplanation.ClickReserve().Body + " "
-                + ReservationExplanation.ClickReservePurchaseDetail(r.Pool, r.Cost, r.Spendable);
+                + ReservationExplanation.ClickReservePurchaseDetail(r.Pool, ChargedOf(r), r.Spendable);
+        }
+
+        /// <summary>The amount a refusal names: what the click would take (post-curve for
+        /// reputation), the cost when a caller built the refusal without it.</summary>
+        internal static double ChargedOf(PurchaseRefusal r)
+        {
+            return r.Charged > 0.0 ? r.Charged : r.Cost;
         }
 
         /// <summary>The reason for a refused Mission Control click.</summary>
@@ -597,7 +667,41 @@ namespace Parsek
         internal static ContractReserveInput InputFor(Contract contract, ClickReservationSnapshot snapshot)
         {
             if (contract == null || snapshot == null || !snapshot.AnyCostAhead) return null;
-            return InputFor(MoneyOf(contract), snapshot, RepLossDeclined());
+            ContractReserveInput input = InputFor(MoneyOf(contract), snapshot, RepLossDeclined());
+            bool accept, decline, cancel;
+            StockAllows(contract, out accept, out decline, out cancel);
+            input.StockAllowsAccept = accept;
+            input.StockAllowsDecline = decline;
+            input.StockAllowsCancel = cancel;
+            return input;
+        }
+
+        /// <summary>
+        /// Stock's own verdict on the three Mission Control clicks (KSP 1.12.5, decompiled
+        /// <c>MissionControl</c>): Accept while <c>GetActiveContractCount()</c> is under
+        /// <c>GetActiveContractsLimit</c> at the Mission Control level (<c>RefreshUIControls</c>),
+        /// Decline <c>CanBeDeclined()</c>, Cancel <c>CanBeCancelled()</c>. Contract
+        /// Configurator's <c>CanAccept</c> is NOT read here (Parsek postfixes it with this same
+        /// decision). An unreadable verdict counts as allowed, so the reservation still applies.
+        /// </summary>
+        private static void StockAllows(Contract contract, out bool accept, out bool decline, out bool cancel)
+        {
+            accept = decline = cancel = true;
+            try { accept = ReadStockAcceptAllowedCore(); }
+            catch (Exception) { accept = true; }
+            try { decline = contract.CanBeDeclined(); }
+            catch (Exception) { decline = true; }
+            try { cancel = contract.CanBeCancelled(); }
+            catch (Exception) { cancel = true; }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool ReadStockAcceptAllowedCore()
+        {
+            if (GameVariables.Instance == null || ContractSystem.Instance == null) return true;
+            int limit = GameVariables.Instance.GetActiveContractsLimit(
+                ScenarioUpgradeableFacilities.GetFacilityLevel(SpaceCenterFacility.MissionControl));
+            return ContractSystem.Instance.GetActiveContractCount() < limit;
         }
 
         /// <summary>Pure form of <see cref="InputFor(Contract, ClickReservationSnapshot)"/>.</summary>
@@ -708,6 +812,7 @@ namespace Parsek
             LivePoolProviderForTesting = null;
             OpenContractsProviderForTesting = null;
             RepLossDeclinedProviderForTesting = null;
+            SnapshotFaultForTesting = null;
             Invalidate();
             lock (syncRoot)
             {

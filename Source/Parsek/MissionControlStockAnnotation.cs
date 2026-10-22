@@ -145,9 +145,11 @@ namespace Parsek
         /// are refused when, in a pool with a committed cost ahead, the click would leave the
         /// spendable amount below <c>min(0, spendable)</c> (<see cref="ClickReservation"/>). A
         /// committed accept or resolution keeps precedence (its block already covers the
-        /// buttons); a slot block keeps its kind and gains a refused Decline. Blocked, never
-        /// marked: the detail-panel reason is the annotation. A null or inert reserve input
-        /// changes nothing.
+        /// buttons); a slot block keeps its kind and gains a refused Decline. Stock first, as
+        /// for purchases: a click stock itself refuses (Accept at the active-contract limit,
+        /// a contract that cannot be declined or cancelled) is left to stock, with no Parsek
+        /// heading or reason. Blocked, never marked: the detail-panel reason is the
+        /// annotation. A null or inert reserve input changes nothing.
         /// </summary>
         internal static StockUiDecoration ApplyClickReserve(StockUiDecoration d, string contractKey,
             Contract.State state, double currentUT, ContractReserveInput reserve)
@@ -161,10 +163,14 @@ namespace Parsek
             double rep = reserve.CurrentReputation;
             if (state == Contract.State.Offered)
             {
-                var accept = ClickReservation.EvaluateContractClick(reserve.Snapshot, ClickReservation.EffectOf(
-                    ContractClick.Accept, reserve.Money, currentUT, reserve.RepLossDeclined, rep, false));
-                var decline = ClickReservation.EvaluateContractClick(reserve.Snapshot, ClickReservation.EffectOf(
-                    ContractClick.Decline, reserve.Money, currentUT, reserve.RepLossDeclined, rep, false));
+                var accept = reserve.StockAllowsAccept
+                    ? ClickReservation.EvaluateContractClick(reserve.Snapshot, ClickReservation.EffectOf(
+                        ContractClick.Accept, reserve.Money, currentUT, reserve.RepLossDeclined, rep, false))
+                    : default(ContractClickRefusal);
+                var decline = reserve.StockAllowsDecline
+                    ? ClickReservation.EvaluateContractClick(reserve.Snapshot, ClickReservation.EffectOf(
+                        ContractClick.Decline, reserve.Money, currentUT, reserve.RepLossDeclined, rep, false))
+                    : default(ContractClickRefusal);
                 if (d.Blocked && d.Kind == StockUiDecorationKind.ContractSlot)
                 {
                     if (!decline.Refused) return d;
@@ -180,6 +186,7 @@ namespace Parsek
             }
             if (state == Contract.State.Active)
             {
+                if (!reserve.StockAllowsCancel) return d;
                 bool counted = !string.IsNullOrEmpty(contractKey) && reserve.Snapshot.CountedContractKeys.Contains(contractKey);
                 var cancel = ClickReservation.EvaluateContractClick(reserve.Snapshot, ClickReservation.EffectOf(
                     ContractClick.Cancel, reserve.Money, currentUT, reserve.RepLossDeclined, rep, counted));
@@ -407,5 +414,13 @@ namespace Parsek
         internal ContractMoney Money;
         internal double RepLossDeclined;
         internal double CurrentReputation;
+        /// <summary>Stock itself allows Accept now (<c>MissionControl.RefreshUIControls</c>: the
+        /// active-contract count is under the limit). Stock first: the reservation refuses only
+        /// a click stock would allow.</summary>
+        internal bool StockAllowsAccept = true;
+        /// <summary>Stock's <c>Contract.CanBeDeclined()</c>.</summary>
+        internal bool StockAllowsDecline = true;
+        /// <summary>Stock's <c>Contract.CanBeCancelled()</c>.</summary>
+        internal bool StockAllowsCancel = true;
     }
 }

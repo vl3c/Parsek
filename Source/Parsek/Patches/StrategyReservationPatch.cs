@@ -118,6 +118,7 @@ namespace Parsek.Patches
             ParsekLog.VerboseRateLimited(Tag, "activation-refused-reserve|" + strategyId,
                 "activation refused strategy=" + strategyId + " - reserved for later costs pool=" + r.Pool
                 + " cost=" + r.Cost.ToString("R", CultureInfo.InvariantCulture)
+                + " charged=" + r.Charged.ToString("R", CultureInfo.InvariantCulture)
                 + " spendable=" + r.Spendable.ToString("R", CultureInfo.InvariantCulture));
             return true;
         }

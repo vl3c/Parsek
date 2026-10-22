@@ -498,6 +498,30 @@ namespace Parsek.Tests
             }
         }
 
+        // Review of c86c5b9 (obs 3): the snapshot runs inside stock click prefixes and the funds
+        // tooltip, so a Parsek fault fails OPEN to the inert snapshot with one Warn.
+        [Fact]
+        public void Gate_AFaultFailsOpenToTheInertSnapshot_AndWarns()
+        {
+            L12Ledger();
+            open.Add(new OpenContractPenalty { Key = "y", Funds = 50000 });
+            Assert.True(ClickReservationGate.EvaluatePurchaseNow(StockPool.Funds, 10000, "before").Refused);
+            ClickReservationGate.SnapshotFaultForTesting = () => { throw new InvalidOperationException("boom"); };
+            var snap = ClickReservationGate.Current();
+            Assert.False(snap.AnyCostAhead);
+            Assert.False(ClickReservationGate.EvaluatePurchaseNow(StockPool.Funds, 10000, "during").Refused);
+            Assert.False(LaunchReservation.EvaluateLaunchNow(15000).Refused);
+            // The Mission Control backstops read the same snapshot: no refusal, no dialog.
+            dialogCount = 0;
+            Assert.Null(ClickReservationGate.InputFor(new ContractMoney { FundsFailure = 1e9 }, snap, 1.0).Snapshot.AnyCostAhead
+                ? (object)"refusing" : null);
+            Assert.Equal(0, dialogCount);
+            Assert.Contains(logLines, l => l.Contains("[ClickReserve]") && l.Contains("[WARN]")
+                && l.Contains("failing open") && l.Contains("boom"));
+            ClickReservationGate.SnapshotFaultForTesting = null;
+            Assert.True(ClickReservationGate.EvaluatePurchaseNow(StockPool.Funds, 10000, "after").Refused);
+        }
+
         // ------------------------------------------------------------------ Mission Control
 
         private static CommittedFutureIndex EmptyIndex() =>
@@ -538,6 +562,48 @@ namespace Parsek.Tests
                     Assert.Equal(StockUiReserveButtons.None, d.ReserveButtons);
                 }
             }
+        }
+
+        // Review of c86c5b9 (obs 2): stock first, as for purchases. A click stock itself
+        // refuses gets no Parsek heading or reason, and its backstop leaves it to stock.
+        [Fact]
+        public void McDecide_AClickStockRefusesIsLeftToStock()
+        {
+            var money = new ContractMoney { FundsAdvance = 5000, FundsFailure = 30000, ReputationFailure = 10,
+                DateAccepted = 0, DateDeadline = 4000 };
+            var stockRefusesAccept = Input(Snap(20000, true, 0.5, true), money);
+            stockRefusesAccept.StockAllowsAccept = false;
+            var d = MissionControlStockAnnotation.Decide(EmptyIndex(), Now, "k", Contract.State.Offered,
+                ReservationExplanation.DefaultDateFormatter, null, false, double.PositiveInfinity, stockRefusesAccept);
+            Assert.False(MissionControlStockAnnotation.BlocksAccept(d));
+            Assert.True(MissionControlStockAnnotation.BlocksDecline(d)); // stock allows Decline: still refused
+            Assert.True(ContractAcceptPatch.ShouldAllowAccept("k", "K", Contract.State.Offered, false, false,
+                double.PositiveInfinity, stockRefusesAccept));
+
+            var stockRefusesBoth = Input(Snap(20000, true, 0.5, true), money);
+            stockRefusesBoth.StockAllowsAccept = false;
+            stockRefusesBoth.StockAllowsDecline = false;
+            d = MissionControlStockAnnotation.Decide(EmptyIndex(), Now, "k", Contract.State.Offered,
+                ReservationExplanation.DefaultDateFormatter, null, false, double.PositiveInfinity, stockRefusesBoth);
+            Assert.False(d.Blocked);
+            Assert.Equal(StockUiDecorationKind.None, d.Kind);
+            Assert.Equal("stock text", MissionControlStockAnnotation.ComposeDetailText("stock text", d));
+            dialogCount = 0;
+            Assert.True(ContractDeclinePatch.ShouldAllowDecline("k", "K", stockRefusesBoth));
+            Assert.Equal(0, dialogCount);
+
+            var stockRefusesCancel = Input(Snap(5000, true), money);
+            stockRefusesCancel.StockAllowsCancel = false;
+            d = MissionControlStockAnnotation.Decide(EmptyIndex(), Now, "k", Contract.State.Active,
+                ReservationExplanation.DefaultDateFormatter, null, false, double.PositiveInfinity, stockRefusesCancel);
+            Assert.False(MissionControlStockAnnotation.BlocksCancel(d));
+            Assert.True(ContractCancelPatch.ShouldAllowCancel("k", "K", stockRefusesCancel));
+            // The same inputs with stock allowing are refused (the cells above are not vacuous).
+            var allowed = Input(Snap(5000, true), money);
+            Assert.True(MissionControlStockAnnotation.BlocksCancel(MissionControlStockAnnotation.Decide(EmptyIndex(), Now, "k",
+                Contract.State.Active, ReservationExplanation.DefaultDateFormatter, null, false, double.PositiveInfinity, allowed)));
+            Assert.True(MissionControlStockAnnotation.BlocksAccept(MissionControlStockAnnotation.Decide(EmptyIndex(), Now, "k",
+                Contract.State.Offered, ReservationExplanation.DefaultDateFormatter, null, false, double.PositiveInfinity, allowed)));
         }
 
         [Fact]
@@ -780,6 +846,75 @@ namespace Parsek.Tests
             Assert.False(StrategyReservationGate.TryRefuseActivation("big", false, out text));
         }
 
+        // Review of c86c5b9 (blocker): stock charges a strategy's reputation setup through its
+        // curve (Strategy.Activate -> Reputation.AddReputation), and the walk curves the
+        // committed cost the need is made of, so the click compares the CURVED charge.
+        [Fact]
+        public void Gate_AStrategyReputationCostIsComparedAfterStocksCurve()
+        {
+            Ledger.AddAction(RepSeed(600));
+            Ledger.AddAction(Strategy("c", 5000, 300));
+            liveRep = 600;
+            var snap = ClickReservationGate.Current();
+            Assert.True(snap.Reputation.CostAhead);
+            double raw = Math.Floor(snap.Reputation.Spendable) - 1.0;
+            double charged = ClickReservation.CurvedLoss(raw, liveRep);
+            Assert.True(charged > snap.Reputation.Spendable, "the repro needs a raw cost whose curved charge digs in");
+            var r = ClickReservationGate.EvaluatePurchaseNow(0, 0, raw, "strategy");
+            Assert.True(r.Refused);
+            Assert.Equal(StockPool.Reputation, r.Pool);
+            Assert.Equal(charged, r.Charged, 6);
+            // A raw cost whose curved charge fits is allowed, and leaves the need.
+            double fits = raw;
+            while (ClickReservation.CurvedLoss(fits, liveRep) > snap.Reputation.Spendable) fits -= 1.0;
+            Assert.False(ClickReservationGate.EvaluatePurchaseNow(0, 0, fits, "strategy").Refused);
+            Assert.True(liveRep - ClickReservation.CurvedLoss(fits, liveRep) >= snap.Reputation.Need - 1e-3);
+        }
+
+        [Fact]
+        public void EvaluatePurchase_AnAllowedReputationCostNeverLeavesLessThanTheNeed_OverAGrid()
+        {
+            int cases = 0, breaches = 0, refusals = 0;
+            foreach (double rep in new[] { 50.0, 100.0, 200.0, 400.0, 600.0, 800.0, 900.0, 990.0 })
+            foreach (double committed in new[] { 5.0, 10.0, 25.0, 50.0, 100.0, 200.0, 400.0 })
+            {
+                double need = ClickReservation.CurvedLoss(committed, rep);
+                var snap = ClickReservationSnapshot.Inert(Now);
+                snap.Reputation = ClickReservation.Compose(StockPool.Reputation, true, rep, need, rep, 0);
+                // Coarse below the boundary, every unit across it (where the raw and the
+                // curved comparison disagree); the curve costs one step per unit of loss.
+                double top = Math.Floor(snap.Reputation.Spendable);
+                for (double x = 1; x <= rep; x += (x < top - 40 ? 25 : 1))
+                {
+                    cases++;
+                    var r = ClickReservation.EvaluatePurchase(snap, StockPool.Reputation, x);
+                    if (r.Refused) { refusals++; continue; }
+                    double after = rep - ClickReservation.CurvedLoss(x, rep);
+                    if (after - ClickReservation.CurvedLoss(committed, after) < -0.01) breaches++;
+                }
+            }
+            Assert.True(refusals > 0);
+            Assert.Equal(0, breaches);
+            Assert.True(cases > 500);
+        }
+
+        [Fact]
+        public void StrategySetup_TheReasonNamesTheCurvedReputation()
+        {
+            Ledger.AddAction(RepSeed(600));
+            Ledger.AddAction(Strategy("committed", 5000, 300));
+            liveRep = 600;
+            double raw = Math.Floor(ClickReservationGate.Current().Reputation.Spendable) - 1.0;
+            StrategyReservationGate.ActiveStrategyIdsProviderForTesting = () => new List<string>();
+            StrategyReservationGate.SlotLimitProviderForTesting = () => 5;
+            StrategyReservationGate.StockCanBeActivatedProviderForTesting = id => true;
+            StrategyReservationGate.SetupCostsProviderForTesting = id => new double[] { 0, 0, raw };
+            ReservationText text;
+            Assert.True(StrategyReservationGate.TryRefuseActivation("big", true, out text));
+            string curved = ClickReservation.FormatAmount(StockPool.Reputation, ClickReservation.CurvedLoss(raw, liveRep));
+            Assert.Contains("Needs " + curved + " reputation", text.Body);
+        }
+
         [Fact]
         public void StrategySetup_IsNotRefusedWithNoCostAhead()
         {
@@ -831,6 +966,30 @@ namespace Parsek.Tests
             var ok = LaunchReservation.EvaluateLaunchNow(15000);
             Assert.False(ok.Refused);
             Assert.True(LaunchReservation.LaunchTestResult(true, ok));
+        }
+
+        // Review of c86c5b9 (obs 1): the flyout's per-site Launch buttons, which stock never
+        // greys, carry the same decision; Parsek gives back only what it greyed.
+        [Fact]
+        public void Launch_TheFlyoutSiteButtons_FollowTheDecision_AndAreGivenBackOnlyByParsek()
+        {
+            Assert.False(LaunchReservation.SiteButtonInteractable(true, false).Value);
+            Assert.False(LaunchReservation.SiteButtonInteractable(true, true).Value);
+            Assert.True(LaunchReservation.SiteButtonInteractable(false, true).Value);
+            Assert.Null(LaunchReservation.SiteButtonInteractable(false, false));
+            L12Ledger();
+            open.Add(new OpenContractPenalty { Key = "y", Funds = 50000 });
+            var r = LaunchReservation.EvaluateLaunchNow(15000);
+            Assert.Equal(!LaunchReservation.LaunchTestResult(true, r), !LaunchReservation.SiteButtonInteractable(r.Refused, false).GetValueOrDefault(true));
+        }
+
+        // Review of c86c5b9 (obs 4): the mark prices the crew the backstop prices (the crew
+        // dialog's manifest that launchVessel installs), the ship manifest only without one.
+        [Fact]
+        public void Launch_TheMarkPicksTheBackstopsManifest()
+        {
+            Assert.Equal("dialog", LaunchReservation.PickManifest("dialog", "ship"));
+            Assert.Equal("ship", LaunchReservation.PickManifest<string>(null, "ship"));
         }
 
         // ------------------------------------------------------------------ tooltip

@@ -58,6 +58,7 @@ namespace Parsek.Tests
         [InlineData("ResourceScanUnlockBiomePatch", "resource scan recording")]
         [InlineData("CanAffordLaunchTestPatch", "launch cost reservations")]
         [InlineData("VesselSpawnDialogLaunchButtonPatch", "launch cost reservations")]
+        [InlineData("LaunchSiteFlyoutPointerEnterPatch", "launch cost reservations")]
         [InlineData("ScienceLabTransmissionCreditPatch", "science and milestone rewards")]
         [InlineData("ScienceLabRecoveryCreditPatch", "science and milestone rewards")]
         [InlineData("DisplayPatch", null)]

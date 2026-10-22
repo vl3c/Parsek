@@ -435,7 +435,12 @@ cost (a plain shortage stays stock's own refusal and wording). Every refusal rea
 `ReservationExplanation.ClickReserve` ("Reserved for later costs and contract penalties, blocked by
 timeline.") with one detail line ("Needs X funds, Y free." / "Short by X funds."), logs
 `[ClickReserve]`, is bypassed during replay (`GameStateRecorder.IsReplayingActions`) and is inert
-outside career (`ParsekGameModeGate`). Entry points, each greyed control and its backstop reading one
+outside career (`ParsekGameModeGate`). A reputation cost is compared after stock's curve
+(`ClickReservation.ChargedBy`: `CurvedLoss(cost, live)`; stock's `Strategy.Activate` charges the
+setup through `Reputation.AddReputation`, and the need is post-curve), while the stock-first check
+stays raw as stock's `CanBeActivated` compares; the reason names the curved amount
+(`PurchaseRefusal.Charged`). The snapshot fails open: an exception logs one rate-limited Warn and
+returns the inert snapshot, so a Parsek fault never breaks a stock click (review of c86c5b9). Entry points, each greyed control and its backstop reading one
 decision (stock members from the KSP 1.12.5 decompile):
 
 - Launch: `CanAffordLaunchTest` is constructed only by `EditorLogic.GetStockPreFlightCheck` (editor
@@ -444,7 +449,14 @@ decision (stock members from the KSP 1.12.5 decompile):
   editor `launchBtn` (its `interactable` is set only in `EditorLogic.UpdateUI`; a postfix there plus
   the `EditorLaunchMark` addon polling on ship change) and the picker's `buttonLaunch`
   (`VesselSpawnDialog.UpdateVesselInfoPanel`, which reads `isValid`; its double-click calls
-  `ButtonLaunch` directly and lands on the same pre-flight test).
+  `ButtonLaunch` directly and lands on the same pre-flight test). The launch-site flyout's per-site
+  Launch buttons (`EditorLaunchPadItem.buttonLaunch`, to `launchVessel(siteName)` /
+  `VesselSpawnDialog.ButtonLaunch()`; stock never writes their `interactable`) carry the same
+  decision (`LaunchSiteButtonsMark`: applied by both marks and on the flyout's pointer-enter,
+  `UILaunchsiteController.launchSitesSelectable_onPointerEnter`). The editor mark prices the crew
+  `launchVessel` installs before the test (`CrewAssignmentDialog.Instance.GetManifest()`), falling
+  back to `ShipConstruction.ShipManifest` only when the dialog has none (stock then calls
+  `DefaultCrewForVessel`, which can hire, so the mark does not).
 - Facility upgrade, rebuild (stock's `DowngradeFacility`) and repair: the facility menu marks layer
   the reserve (`StockUiFacilityDecoration.Layer{Upgrade,Rebuild,Repair}Reserve`); backstops in
   `FacilityUpgradeSpendPatch`, `FacilityDowngradeSpendPatch` and `FacilityRepairScopePatch` over
@@ -462,13 +474,18 @@ decision (stock members from the KSP 1.12.5 decompile):
   `ContractReserve` with a `StockUiReserveButtons` set (Accept, Decline, Cancel); a committed accept or
   resolution block wins, a slot block adds the Decline flag. Effects transcribed from stock
   `Contract`: Cancel's `t` is the clamped fraction of `DateAccepted` to `DateDeadline`. Auto-accepted
-  contracts skip the layer.
+  contracts skip the layer. Stock first, as for purchases: a click stock refuses (Accept at the
+  active-contract limit from `MissionControl.RefreshUIControls`, `CanBeDeclined()`,
+  `CanBeCancelled()`, carried on `ContractReserveInput.StockAllows*`) gets no reserve block, heading
+  or backstop refusal.
 
 Deviations from the text above: "a committed cost lies ahead" is judged here by UT (a cost row after
 now), not by capture order: a click is captured after every row, so the capture-order test reduces to
 UT. Stock's auto-hire of a launch's empty seats (`HireApplicant` from crew assignment) is not refused;
 only the Astronaut Complex Hire is. Cost modifiers (strategies, `CurrencyModifierQuery`) are not
-modelled: each predicate reads the raw cost stock shows.
+modelled: each predicate reads the raw cost stock shows. A part UPGRADE purchase
+(`Funding.onUpgradePurchased`) has no row, mark or backstop at all (predates phase 4; todo
+PART-UPGRADE-PURCHASE-UNRESERVED).
 
 ### 2.6 Tooltips
 
