@@ -423,6 +423,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void StockPoolReferenceCells_InstallTheSavesCopyOnEveryKind()
+        {
+            // Committed-value rule plan 2.4: lastWritten, the kept leak and the counted rows
+            // must describe the live pool of the same .sfs, so every load kind installs the
+            // loaded node's copy. One cell per kind.
+            foreach (LoadKind kind in AllKinds())
+            {
+                var d = LoadReconcilePolicy.Decide(kind, LoadStateCategory.StockPoolReference);
+                Assert.Equal(LoadReconcileAction.Save, d.Action);
+                Assert.False(d.IsKnownGap, kind + " x StockPoolReference");
+                Assert.Contains("StockPoolReference.LoadFrom", d.Reason);
+            }
+            // The time-travel kinds name their authoritative re-baseline.
+            foreach (LoadKind kind in new[] { LoadKind.PlainRewind, LoadKind.ReFlyStart, LoadKind.DiscardReFly })
+                Assert.Contains("authoritative", LoadReconcilePolicy.Decide(kind, LoadStateCategory.StockPoolReference).Reason);
+            Assert.Contains("DiscardReFlyHandler",
+                LoadReconcilePolicy.Decide(LoadKind.DiscardReFly, LoadStateCategory.StockPoolReference).Reason);
+            // Consumed early: the refined in-session kinds share one decision.
+            Assert.True(LoadReconcilePolicy.IsConsumedEarly(LoadStateCategory.StockPoolReference));
+            Assert.Equal(LoadReconcileAction.Save,
+                LoadReconcilePolicy.DecideEarly(EarlyLoadKind.InSession, LoadStateCategory.StockPoolReference).Action);
+            foreach (EarlyLoadKind early in new[]
+                { EarlyLoadKind.Cold, EarlyLoadKind.PlainRewind, EarlyLoadKind.ReFlyStart, EarlyLoadKind.DiscardReFly })
+            {
+                Assert.Equal(LoadReconcileAction.Save,
+                    LoadReconcilePolicy.DecideEarly(early, LoadStateCategory.StockPoolReference).Action);
+            }
+        }
+
+        [Fact]
         public void QuickloadFlightColumn_IsDocumentedAsUnreachedByStockF9()
         {
             // Plan Phase 2 step 6: stock F9 is a save-file load and classifies Cold, so every

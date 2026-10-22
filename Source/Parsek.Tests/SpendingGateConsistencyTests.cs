@@ -4,128 +4,73 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// BUG-G: the affordability gate (CanAffordScienceSpending / CanAffordFundsSpending)
-    /// must be consistent with the "Keep what you earned" drawdown guard
-    /// (docs/dev/plans/recalc-patch-drawdown-guard.md). The guard preserves the LIVE pool
-    /// when the running balance has leaked below it with no time-travel context, so the
-    /// gate must respect that preserved value (or it blocks a purchase the player can make
-    /// AND — pre-fix — the stock deduction already consumed the resource).
+    /// must agree with what the pool patch writes. Since the drawdown guard reads the stock
+    /// pool reference (committed-value rule plan section 2.4), the patch writes the
+    /// reservation-aware target plus the kept leak, added before the 0 floor, so the gate
+    /// spends exactly that: an earning the ledger does not model stays spendable, and a
+    /// genuine reservation still gates.
     ///
-    /// These cover the pure reconciliation helper LedgerOrchestrator.ComputeEffectiveAffordable.
-    /// The live wrappers' singleton reconciliation is exercised in
-    /// RuntimeTests (in-game, real ResearchAndDevelopment/Funding singletons); the
-    /// reservation/cutoff contract of the wrappers themselves stays covered by
-    /// RewindUtCutoffTests (null-singleton fallback to the pure-ledger available).
+    /// These cover the pure helper LedgerOrchestrator.ComputeEffectiveAffordable. The live
+    /// wrappers are exercised in-game (IncompleteBallisticRuntimeTests); the
+    /// reservation/cutoff contract of the wrappers stays covered by RewindUtCutoffTests.
     /// </summary>
     public class SpendingGateConsistencyTests
     {
-        // ----------------------------------------------------------------
-        // Leak case (BUG-G): running has fallen below live, no reservation.
-        // The guard preserves live, so the gate must too.
-        // ----------------------------------------------------------------
-
         [Fact]
-        public void LeakNoReservation_AddsBackTheFullLeakGap_ReturnsLive()
+        public void KeptLeakNoReservation_IsSpendable()
         {
-            // available == running (no reservation) == 1.004, live == 124.768 (guard-preserved).
+            // Ledger available 1.004, the reference kept a leak of 123.764 (live 124.768).
             double eff = LedgerOrchestrator.ComputeEffectiveAffordable(
-                available: 1.004, runningBalance: 1.004, liveValue: 124.768,
-                authoritativeReduction: false);
+                unflooredAvailable: 1.004, cumLeak: 123.764);
 
             Assert.Equal(124.768, eff, 3);
         }
 
-        // ----------------------------------------------------------------
-        // Reservation case: running is INTACT (>= live), available < running.
-        // The reservation must still be respected — this is NOT max(available, live).
-        // ----------------------------------------------------------------
-
         [Fact]
         public void ReservationNoLeak_RespectsReservation_ReturnsAvailable()
         {
-            // running 100 == live 100 (no leak), available 20 (reservation of 80).
+            // Running 100, a committed cost of 80 ahead: projected minimum 20.
             double eff = LedgerOrchestrator.ComputeEffectiveAffordable(
-                available: 20.0, runningBalance: 100.0, liveValue: 100.0,
-                authoritativeReduction: false);
+                unflooredAvailable: 20.0, cumLeak: 0.0);
 
             Assert.Equal(20.0, eff, 6);
         }
 
         [Fact]
-        public void LeakAndReservation_SubtractsReservationFromLeakCorrectedBase()
+        public void KeptLeakAndReservation_SubtractsReservationFromTheLeak()
         {
-            // Leak (running 70 < live 100) AND reservation (available 20, reserved 50).
-            // Effective = available + (live - running) = 20 + 30 = 50 == live - reserved.
+            // Running 70 with a reserve of 50 (minimum 20), a kept leak of 30: 50, the same
+            // value the patch writes for that pool.
             double eff = LedgerOrchestrator.ComputeEffectiveAffordable(
-                available: 20.0, runningBalance: 70.0, liveValue: 100.0,
-                authoritativeReduction: false);
+                unflooredAvailable: 20.0, cumLeak: 30.0);
 
             Assert.Equal(50.0, eff, 6);
+            Assert.Equal(StockPoolReference.ResolveCurrencyWriteTarget(20.0, 70.0, 100.0, false, 30.0),
+                eff, 6);
         }
-
-        // ----------------------------------------------------------------
-        // No leak, no reservation: gate is unchanged from the pure-ledger value.
-        // ----------------------------------------------------------------
 
         [Fact]
         public void NoLeakNoReservation_ReturnsAvailableUnchanged()
         {
-            double eff = LedgerOrchestrator.ComputeEffectiveAffordable(
-                available: 100.0, runningBalance: 100.0, liveValue: 100.0,
-                authoritativeReduction: false);
-
-            Assert.Equal(100.0, eff, 6);
+            Assert.Equal(100.0, LedgerOrchestrator.ComputeEffectiveAffordable(100.0, 0.0), 6);
         }
 
         [Fact]
-        public void RunningAboveLive_DoesNotReduceBelowAvailable()
+        public void NegativeLeak_LowersTheSpendableAmount()
         {
-            // Transient where a recent debit hit live but not the ledger (running > live).
-            // The guard clamps UP-only, so the gate must never reduce below available.
-            double eff = LedgerOrchestrator.ComputeEffectiveAffordable(
-                available: 100.0, runningBalance: 120.0, liveValue: 110.0,
-                authoritativeReduction: false);
-
-            Assert.Equal(100.0, eff, 6);
-        }
-
-        // ----------------------------------------------------------------
-        // Authoritative (time-travel) reduction: the guard does NOT preserve live, so the
-        // reservation-aware available is ground truth and is returned unchanged even when
-        // running < live (Blocker-1 plain-rewind path symmetry).
-        // ----------------------------------------------------------------
-
-        [Fact]
-        public void AuthoritativeReduction_IgnoresLeakGap_ReturnsAvailable()
-        {
-            double eff = LedgerOrchestrator.ComputeEffectiveAffordable(
-                available: 10.0, runningBalance: 10.0, liveValue: 124.768,
-                authoritativeReduction: true);
-
-            Assert.Equal(10.0, eff, 6);
+            // A spend the ledger does not model (an untracked purchase) is held, so the gate
+            // cannot spend it a second time.
+            Assert.Equal(90.0, LedgerOrchestrator.ComputeEffectiveAffordable(100.0, -10.0), 6);
         }
 
         [Fact]
-        public void AuthoritativeReduction_StillRespectsReservation()
+        public void LeakIsAddedBeforeTheFloor_NotAfter()
         {
-            double eff = LedgerOrchestrator.ComputeEffectiveAffordable(
-                available: 20.0, runningBalance: 100.0, liveValue: 100.0,
-                authoritativeReduction: true);
-
-            Assert.Equal(20.0, eff, 6);
-        }
-
-        // ----------------------------------------------------------------
-        // Boundary: live exactly equals running → no gap, returns available.
-        // ----------------------------------------------------------------
-
-        [Fact]
-        public void LiveEqualsRunning_ReturnsAvailable()
-        {
-            double eff = LedgerOrchestrator.ComputeEffectiveAffordable(
-                available: 42.0, runningBalance: 50.0, liveValue: 50.0,
-                authoritativeReduction: false);
-
-            Assert.Equal(42.0, eff, 6);
+            // An overcommitted timeline (minimum -40) with a kept leak of 30: the floor
+            // applies to the sum (0), never 0 + 30, which would let a kept leak pay for a
+            // reserved cost twice (review case B3).
+            Assert.Equal(0.0, LedgerOrchestrator.ComputeEffectiveAffordable(-40.0, 30.0), 6);
+            Assert.Equal(10.0, LedgerOrchestrator.ComputeEffectiveAffordable(-20.0, 30.0), 6);
         }
     }
 }

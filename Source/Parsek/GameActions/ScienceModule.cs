@@ -641,6 +641,41 @@ namespace Parsek
 
         public bool TryGetProjectionDelta(GameAction action, out double delta)
         {
+            return TryGetRowDelta(action, out delta);
+        }
+
+        /// <summary>
+        /// True for every action type this module moves the science pool for, whatever the
+        /// row's derived fields say. <see cref="TryGetRowDelta"/> answers false for an
+        /// ineffective row of such a type; the stock pool reference
+        /// (<see cref="StockPoolReference"/>) still counts that row, at 0.
+        /// </summary>
+        internal static bool AffectsScience(GameActionType type)
+        {
+            switch (type)
+            {
+                case GameActionType.ScienceEarning:
+                case GameActionType.MilestoneAchievement:
+                case GameActionType.ContractComplete:
+                case GameActionType.ScienceSpending:
+                case GameActionType.StrategyScienceDebit:
+                case GameActionType.StrategyScienceCredit:
+                case GameActionType.ScienceLabEarning:
+                case GameActionType.StrategyActivate:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// The science a row moves the pool by after a walk populated its derived fields
+        /// (<see cref="GameAction.EffectiveScience"/>, <see cref="GameAction.Effective"/>,
+        /// <see cref="GameAction.TransformedScienceReward"/>). Pure: reads only the row.
+        /// Shared by the projection and the stock pool reference.
+        /// </summary>
+        internal static bool TryGetRowDelta(GameAction action, out double delta)
+        {
             delta = 0.0;
             if (action == null)
                 return false;

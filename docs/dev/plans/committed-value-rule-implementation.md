@@ -1,6 +1,15 @@
 # Committed-value rule (O6 / O7): implementation plan
 
-Status: plan, 2026-10-22. Authority for the rule: game-actions design section 3.13 (owner rulings
+Status: plan, 2026-10-22. Rule 1 built 2026-10-22. Phase 2 (section 2.4, the stock pool
+reference) BUILT 2026-10-22 on branch `o6-phase2-local`, with three deviations recorded in the todo
+entry: a removed row steps back only what was stepped, not `-counted` (otherwise a released
+reserved cost never comes back); load-migration and broken-ledger-recovery rows are classified
+stock-applied, not Parsek-authored (they convert stock events the pool already holds, so a
+Parsek-authored stamp would pay them twice once a kept leak holds them); the bundle restore keeps
+each row's own flag. Found while building: phase 2 alone takes back a gain after a stock-clamped
+fail (B2), so it ships only together with phase 3; and a save with no saved reference baselines
+from the live pool, which writes an older save's running-vs-live gap once instead of keeping it.
+Phases 3 and 4 open. Authority for the rule: game-actions design section 3.13 (owner rulings
 2026-10-21, record `decisions/open-decisions.md` L1.1-L1.6). Todo:
 `LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY` (O6, O7) and the P15 half of
 `GUI-P15-D7-TWO-SAFETY-GATES-THAT-EXIST-AND-ARE-NEVER-ARMED`. O2 and O3 shipped separately (PR #2172).

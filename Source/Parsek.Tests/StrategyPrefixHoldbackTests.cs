@@ -996,23 +996,38 @@ namespace Parsek.Tests
             Assert.True(basisAt >= 0, "PatchScience no longer computes the pre-strategy basis.");
             Assert.True(techAt >= 0 && earningAt >= 0, "a sibling pending adjuster went missing.");
             Assert.True(strategyAt >= 0, "the strategy target adjuster went missing.");
-            Assert.True(discriminatorAt >= 0, "the guard discriminator fold went missing.");
+            Assert.True(discriminatorAt >= 0, "the pending-adjusted running fold went missing.");
 
-            // The basis must be taken AFTER both siblings have adjusted the target (it folds
-            // their pending amounts in) and BEFORE the strategy adjuster that consumes it.
-            Assert.True(basisAt > techAt && basisAt > earningAt,
-                "the basis must be computed after both sibling adjusters, not above them.");
-            Assert.True(basisAt < strategyAt,
-                "the basis must be computed before the strategy target adjuster consumes it.");
-            Assert.True(strategyAt < discriminatorAt,
-                "the guard discriminator must be folded after the target adjuster.");
+            // The basis is computed ONCE, first: the pending-adjusted running balance (the
+            // stock pool reference's pending step) folds it, and only then is the target
+            // built (it needs the reference's kept leak) and adjusted by the two siblings and
+            // the strategy adjuster that consumes the same basis.
+            Assert.True(basisAt < discriminatorAt,
+                "the basis must be computed before the pending-adjusted running fold.");
+            Assert.True(discriminatorAt < techAt && discriminatorAt < earningAt,
+                "the running fold feeds the reference, which the target adjusters follow.");
+            Assert.True(techAt < strategyAt && earningAt < strategyAt,
+                "the strategy target adjuster runs after both siblings.");
 
             // ...and BOTH consumers must be handed that same local, not re-derive it.
-            string strategyCall = region.Substring(strategyAt, discriminatorAt - strategyAt);
-            Assert.Contains("preStrategyRunning", strategyCall);
-            string discriminatorCall = region.Substring(discriminatorAt);
+            string discriminatorCall = region.Substring(discriminatorAt, techAt - discriminatorAt);
             Assert.Contains("preStrategyRunning", discriminatorCall);
             Assert.DoesNotContain("ComputePendingAdjustedRunningScience(science", discriminatorCall);
+            string strategyCall = region.Substring(strategyAt);
+            Assert.Contains("preStrategyRunning", strategyCall);
+            Assert.Equal(1, CountOccurrences(region, "ComputePreStrategyPendingAdjustedRunningScience("));
+        }
+
+        private static int CountOccurrences(string text, string needle)
+        {
+            int count = 0;
+            int at = 0;
+            while ((at = text.IndexOf(needle, at, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                at += needle.Length;
+            }
+            return count;
         }
 
         [Fact]

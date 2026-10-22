@@ -151,7 +151,7 @@ namespace Parsek
 
             if (actions.Count > 0)
             {
-                Ledger.AddActions(actions);
+                Ledger.AddActions(actions, LedgerRowWriter.StockApplied);
                 // Records that this load actually synthesized old-save reward actions.
                 // Set only on actual synthesis so an empty MigrateOldSaveEvents leaves
                 // the flag unchanged.
@@ -911,7 +911,7 @@ namespace Parsek
                 var action = GameStateEventConverter.ConvertEvent(evt, null);
                 if (action == null) continue;
 
-                Ledger.AddAction(action);
+                Ledger.AddAction(action, LedgerRowWriter.StockApplied);
                 if (evt.eventType == GameStateEventType.PartPurchased)
                     recoveredFundsParts++;
                 else
@@ -953,7 +953,7 @@ namespace Parsek
                         ScienceAwarded = missingScience,
                         SubjectMaxValue = sci + 10f  // generous cap so walk doesn't clip
                     };
-                    Ledger.AddAction(action);
+                    Ledger.AddAction(action, LedgerRowWriter.StockApplied);
                     recoveredScience++;
 
                     ParsekLog.Verbose(LedgerOrchestrator.Tag,

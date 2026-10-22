@@ -129,7 +129,7 @@ namespace Parsek
                 Sequence = sequence
             };
 
-            Ledger.AddAction(action);
+            Ledger.AddAction(action, LedgerRowWriter.StockApplied);
 
             ParsekLog.Info(Tag,
                 $"VesselRollout spending recorded: cost={cost:F0}, UT={ut:F1}, dedupKey={action.DedupKey}, " +

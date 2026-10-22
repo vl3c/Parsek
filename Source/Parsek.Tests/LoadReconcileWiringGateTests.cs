@@ -159,6 +159,35 @@ namespace Parsek.Tests
                 + "utWentBackwards)", flat);
         }
 
+        // ---- the stock pool reference (committed-value rule plan 2.4) ----
+
+        [Fact]
+        public void OnLoadInstallsTheStockPoolReferenceInThePrologue_AndOnSaveWritesIt()
+        {
+            string body = PreparedMethodBody(ScenarioPath, "public override void OnLoad(ConfigNode node)");
+            Assert.Equal(1, Occurrences(body, "LoadStockPoolReference(node, earlyLoadKind);"));
+
+            int early = IndexOrFail(body, "LoadReconcilePolicy.ClassifyEarly(");
+            int staging = IndexOrFail(body, "LoadRewindStagingState(node);");
+            int reference = IndexOrFail(body, "LoadStockPoolReference(node, earlyLoadKind);");
+            int revert = IndexOrFail(body, "RevertDetector.Consume(");
+            Assert.True(early < reference && staging < reference && reference < revert,
+                "load-reconcile gate: the stock pool reference is consumed in the prologue (after "
+                + "ClassifyEarly and the staging load, before the revert detector), as its early cell says");
+            Assert.True(LoadReconcilePolicy.IsConsumedEarly(LoadStateCategory.StockPoolReference));
+
+            // The loader reads its own cell, and installs the save's copy through the one reader.
+            string loader = Collapse(PreparedMethodBody(ScenarioPath,
+                "private static void LoadStockPoolReference(ConfigNode node, EarlyLoadKind earlyLoadKind)"));
+            Assert.Contains("LoadReconcilePolicy.DecideEarly( earlyLoadKind, LoadStateCategory.StockPoolReference)", loader);
+            Assert.Contains("if (decision.Action == LoadReconcileAction.Save)", loader);
+            Assert.Contains("StockPoolReference.LoadFrom(node,", loader);
+
+            // The save writes it into the same node, once.
+            string save = PreparedMethodBody(ScenarioPath, "public override void OnSave(ConfigNode node)");
+            Assert.Equal(1, Occurrences(save, "StockPoolReference.SaveTo(node);"));
+        }
+
         // ---- the save-file load (design-load-restores-the-save.md 4.1) ----
 
         [Fact]

@@ -334,6 +334,59 @@ namespace Parsek
         }
 
         // ================================================================
+        // Stock pool reference (committed-value rule plan section 2.4)
+        // ================================================================
+
+        /// <summary>
+        /// What stock applied to its reputation pool for a row, in the units stock applies it:
+        /// <paramref name="postCurve"/> false means a NOMINAL amount stock ran through its
+        /// curve at the live value (<c>Reputation.AddReputation</c>); true means the stored
+        /// amount is already what stock applied (the three pre-curved penalty sources this
+        /// module takes as stored: <see cref="ReputationPenaltySource.Strategy"/> (the
+        /// bail-out exchange), <see cref="ReputationPenaltySource.KerbalDeath"/> and
+        /// <see cref="ReputationPenaltySource.ContractDecline"/>). Returns false for a type
+        /// that never moves reputation. An ineffective row of a reputation type answers true
+        /// with 0. A row inside the reputation seed keeps its amount: the seed was read off a
+        /// pool that had already taken it, so stock did apply it. Pure: reads only the row.
+        /// </summary>
+        internal static bool TryGetStockReferenceAmount(
+            GameAction action, out double amount, out bool postCurve)
+        {
+            amount = 0.0;
+            postCurve = false;
+            if (action == null)
+                return false;
+
+            switch (action.Type)
+            {
+                case GameActionType.ReputationEarning:
+                    amount = action.NominalRep;
+                    return true;
+                case GameActionType.ReputationPenalty:
+                    postCurve = action.RepPenaltySource == ReputationPenaltySource.Strategy
+                        || action.RepPenaltySource == ReputationPenaltySource.KerbalDeath
+                        || action.RepPenaltySource == ReputationPenaltySource.ContractDecline;
+                    amount = -action.NominalPenalty;
+                    return true;
+                case GameActionType.MilestoneAchievement:
+                    amount = action.Effective ? action.MilestoneRepAwarded : 0f;
+                    return true;
+                case GameActionType.ContractComplete:
+                    amount = action.Effective ? action.TransformedRepReward : 0f;
+                    return true;
+                case GameActionType.ContractFail:
+                case GameActionType.ContractCancel:
+                    amount = action.Effective ? -action.RepPenalty : 0f;
+                    return true;
+                case GameActionType.StrategyActivate:
+                    amount = -action.SetupReputationCost;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        // ================================================================
         // Public query
         // ================================================================
 

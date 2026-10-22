@@ -467,7 +467,7 @@ Fix (the first direction above): when the cold load restores no active tree, no 
 Fix, the trajectory (owner ruling 2026-10-21, "Switch to versioned files", after a first cut that always resumed in a new segment was reverted: it added a segment to every in-flight commit's re-take, about 40 lane counts, and armed a switch-segment session on every resume, so a later ordinary switch popped the Merge / Discard dialog): the overlap skip is gone. `PlanActiveTreeSidecarSaves` writes a restore-attempt member that shares its id with the committed copy like any other (counted as `committedRestoreOverlap`, Verbose `writing restore-attempt recording`). The write replaces the shared head and keeps the committed bytes as their hashed version under `_versions/` (#2155). The committed copy keeps naming that hash, and `EnsureRecordingFilesCurrentForSave` treats a committed-tree recording whose head moved on as current when every named hash resolves and one resolves to a retained version (`RecordingStore.AreRecordingFilesCurrentThroughNamedVersions`, Verbose `is current through its named sidecar version(s)`), so it is never rewritten and its sidecar epoch does not move before a merge. One save then names two versions of the id; a cold load reads each copy from its own bytes without promoting (`reason=multiple-owners owners=2`) and re-arms the attempt. Discard leaves the head holding the clone's bytes and the committed copy current through its version; the next lone load promotes it back. A lazy vessel-snapshot re-hydration now reads the bytes its recording names whenever a retained version holds them (`ResolveLazyVesselSnapshotPath`), so an in-session committed copy never picks up the clone's snapshot. Because the clone starts at the committed copy's epoch, an attempt member's save also checks that the head holds the hash it names (`TrajectoryHeadHoldsNamedBytes`, `reason=head-holds-other-bytes`), so a committed rewrite at the same epoch is not read as the clone's bytes. Now that every save holds the attempt's active node, an in-session load of one (the save stock makes before leaving flight) keeps the committed original committed and skips the splice while the attempt is armed for that tree (`kept the committed copy ... the live restore attempt's clone`), as the cold re-arm does: otherwise the scene-exit merge of the clone ran as a first commit and a Discard found nothing committed (found in review). The ATTEMPT_EVENTS hold above stays as the fallback for a save written without the active tree. Cells: `InPlaceResumeSidecarVersionTests` (save, cold load, discard over real hashed sidecars; red with the skip restored, with the version rule off, with the old lazy-hydration rule, with the head-hash check off, and with the live-attempt keep or splice skip removed), `SaveActiveTreeSidecarBothOrNeitherTests`, the `ColdLoadRestoreAttemptRearmTests` wiring cell. Residual, not changed: `SavePendingTreeIfAny` still skips a dirty pending-tree member that shares a committed id, so a pending tree written at the Space Center with unsaved resumed flying is left out of that save. Lane QL-13.
 
 
-## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. RULED 2026-10-21 (owner interview, every path); O2 and O3 FIXED 2026-10-22; OPEN for O6 / O7; same invariant as section 2.12]
+## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. RULED 2026-10-21 (owner interview, every path); O2 and O3 FIXED 2026-10-22; plan phase 2 BUILT 2026-10-22; OPEN for O6 / O7; same invariant as section 2.12]
 
 Each breaks "the committed timeline pays for every committed spend at every UT" without Re-Fly:
 (O1, ruled 2026-10-19: a quickload undoes Space Center rows after the save, fixed with
@@ -524,6 +524,24 @@ and logistics design section 10.6).**
   the earning or penalty they divert), killing a kerbal a committed flight uses (crew reservation).
 - O7: the funds check is no longer advisory: purchases and launch costs are greyed when they eat
   into reserved money (rule 3; closes the P15 half of GUI-P15-D7-TWO-SAFETY-GATES-THAT-EXIST-AND-ARE-NEVER-ARMED).
+- **Plan phase 2 BUILT 2026-10-22** (branch `o6-phase2-local`): the drawdown guard reads an
+  incremental stock pool reference per pool (`GameActions/StockPoolReference.cs`: `lastWritten`,
+  `cumLeak`, the counted amount per row id), saved in the PARSEK node as `STOCK_POOL_REFERENCE`
+  (`LoadReconcilePolicy` category `StockPoolReference`, Save on every load kind). The patch writes
+  `max(0, unflooredTarget + cumLeak)` for funds and science and `target + cumLeak` for
+  reputation; Re-Fly merge / discard and a rewind re-baseline. Every `Ledger.AddAction(s)` call site
+  names a `LedgerRowWriter`, pinned by `LedgerRowWriterClassificationTests`; the bundle restore
+  keeps each row's flag (`Ledger.RestoreActions`). Tests: `StockPoolReferenceTests` (B1-B5, N1-N3,
+  M1, M2, the release bug, save / load), `SpendingGateConsistencyTests`. Deviations from the plan:
+  a removed row steps back only what was stepped (`-counted` would never release a reserved cost);
+  load-migration and broken-ledger-recovery rows are stock-applied (they convert stock events the
+  pool already holds). **Phase 2 must not ship without phase 3:** with the walk unfloored, a gain
+  after a stock-clamped fail is taken back where the old guard kept it (B2 cells pin both). A save
+  with no saved reference baselines from the live pool, so a running-vs-live gap the old guard kept
+  is written once at the first patch. Harness: the `GUARDED DRAWDOWN` token now fires only on a
+  measured leak, so L5's required `PatchFunds: GUARDED DRAWDOWN clamped resource=Funds` (the
+  synthetic deadline fail is now written) and the L3 / LAB-12 / QL-14 GUARDED pins need a re-read
+  flight before merge.
 - O2: a stock revert removes only the rows the reverted flight wrote; every committed row stays
   (matches D2). **FIXED 2026-10-22** (branch `claude/project-thread-6f7rhy`): Parsek remembers
   the ledger's row ids where stock captures its revert targets (every non-revert flight entry for
@@ -14084,6 +14102,12 @@ independently — the fix consumes the tree at fidelity, it does not stop the di
 armed where it can never fire.
 
 ## BEHAVIOR PIN — SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD: the guarded-drawdown protection correctly refuses a synthetic `ContractFail` penalty that stock never debited [MEASURED 2026-08-20 by `L5-career-contract-complete`'s green flight (run `2026-08-20_2240`), the FIRST run ever to drive `ContractsModule.PrePass`'s injection under a gate. **RECLASSIFIED 2026-08-28 (branch `ledger-followups`) from open defect to a DOCUMENTED, MEASURED BEHAVIOR PIN.** REPORT-ONLY and GATED AS MEASURED: no product change is proposed, and the clamp is pinned so a change of behaviour has to be taken deliberately]
+
+**Pin changes with committed-value plan phase 2 (2026-10-22, LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY).**
+The guard now reads a stock pool reference instead of the last written value: a drop in the
+ledger's target with the live pool where Parsek left it is not a leak, so the synthetic penalty is
+WRITTEN and `PatchFunds: GUARDED DRAWDOWN clamped` no longer fires on this lane. L5's required
+token has to be re-read by a flight before phase 2 merges.
 
 **Not a defect — a pin. Read this paragraph before the evidence below.** The guard is
 behaving CORRECTLY here, and the shape it clamps CANNOT OCCUR IN A REAL CAREER. The

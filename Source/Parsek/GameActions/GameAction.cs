@@ -634,6 +634,22 @@ namespace Parsek
         /// </summary>
         internal const string InsideReputationSeedKey = "insideRepSeed";
 
+        /// <summary>
+        /// True when the row was written by a <see cref="LedgerRowWriter.ParsekAuthored"/>
+        /// writer: Parsek authored it without stock applying it to the live pool (a load
+        /// migration's or broken-ledger recovery's rows, the reconciliation bundle's restored
+        /// rows). The drawdown guard's stock reference (<see cref="StockPoolReference"/>)
+        /// steps only rows stock applied, so such a row never reads as already in the pool.
+        /// Stamped by <see cref="Ledger.AddAction(GameAction, LedgerRowWriter)"/> /
+        /// <see cref="Ledger.AddActions(System.Collections.Generic.IEnumerable{GameAction}, LedgerRowWriter)"/>.
+        /// Written only when true; absent means stock-applied. Additive key, no schema
+        /// generation bump.
+        /// </summary>
+        public bool ParsekAuthored;
+
+        /// <summary>ConfigNode key for <see cref="ParsekAuthored"/>, written only when true.</summary>
+        internal const string ParsekAuthoredKey = "parsekAuthored";
+
         // ---- Milestone fields ----
 
         /// <summary>Milestone identifier, e.g. "FirstOrbitKerbin".</summary>
@@ -971,6 +987,8 @@ namespace Parsek
             // what a pre-field save carries and what every row outside the seed is.
             if (InsideReputationSeed)
                 node.AddValue(InsideReputationSeedKey, InsideReputationSeed.ToString());
+            if (ParsekAuthored)
+                node.AddValue(ParsekAuthoredKey, ParsekAuthored.ToString());
 
             switch (Type)
             {
@@ -1116,6 +1134,9 @@ namespace Parsek
             string insideSeedStr = node.GetValue(InsideReputationSeedKey);
             if (insideSeedStr != null)
                 bool.TryParse(insideSeedStr, out a.InsideReputationSeed);
+            string parsekAuthoredStr = node.GetValue(ParsekAuthoredKey);
+            if (parsekAuthoredStr != null)
+                bool.TryParse(parsekAuthoredStr, out a.ParsekAuthored);
 
             switch (a.Type)
             {

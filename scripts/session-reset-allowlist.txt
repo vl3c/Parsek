@@ -55,6 +55,8 @@ KspStatePatcher.PartPurchaseLiveUtProviderForTesting test seam
 KspStatePatcher.protoTechNodesReflectionWarnEmitted once-per-process latch of a reflection-failure Warn
 KspStatePatcher.ResourceScanLiveUtProviderForTesting test seam
 KspStatePatcher.scienceSubjectsReflectionWarnEmitted once-per-process latch of a reflection-failure Warn
+KspStatePatcher.stockReferenceActions scoped: set around one PatchAll pool pass (try/finally), restored to the previous value after
+KspStatePatcher.stockReferenceNowUT scoped: set around one PatchAll pool pass (try/finally), restored to the previous value after
 KspStatePatcher.SuppressUnityCallsForTesting test seam
 ParsekScenario.CrashReconcileInProgress batch crash-reconcile marker that spans the cold load it triggers
 ParsekScenario.cachedAutoMerge settings cache

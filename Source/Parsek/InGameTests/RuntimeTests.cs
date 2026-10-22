@@ -17635,7 +17635,7 @@ namespace Parsek.InGameTests
                         Type = GameActionType.StrategyScienceCredit,
                         RecordingId = null,
                         ScienceAwarded = TopUpScience
-                    });
+                    }, LedgerRowWriter.StockApplied);
                     ParsekLog.Info("TestRunner",
                         $"CurrencyConverterStrategy: ledger-visible science top-up " +
                         $"{TopUpScience.ToString("R", CultureInfo.InvariantCulture)} written as a " +
@@ -18173,7 +18173,7 @@ namespace Parsek.InGameTests
                 RecordingId = null,
                 FundsAwarded = (float)amount,
                 FundsSource = FundsEarningSource.Strategy
-            });
+            }, LedgerRowWriter.StockApplied);
             ParsekLog.Info("TestRunner",
                 $"StrategyLifecycle: ledger-visible funds row " +
                 $"{amount.ToString("R", CultureInfo.InvariantCulture)} written as a " +
@@ -18223,7 +18223,7 @@ namespace Parsek.InGameTests
                 RecordingId = null,
                 NominalRep = nominalRep,
                 RepSource = ReputationSource.Other
-            });
+            }, LedgerRowWriter.StockApplied);
             ParsekLog.Info("TestRunner",
                 $"StrategyLifecycle: ledger-visible reputation row nominal=" +
                 $"{nominalRep.ToString("R", CultureInfo.InvariantCulture)} written as a " +
@@ -18254,7 +18254,7 @@ namespace Parsek.InGameTests
                 Type = GameActionType.StrategyScienceCredit,
                 RecordingId = null,
                 ScienceAwarded = amount
-            });
+            }, LedgerRowWriter.StockApplied);
             ParsekLog.Info("TestRunner",
                 $"StrategyLifecycle: ledger-visible science top-up " +
                 $"{amount.ToString("R", CultureInfo.InvariantCulture)} written as a " +
@@ -21369,7 +21369,7 @@ namespace Parsek.InGameTests
                 FundsAwarded = 123.45f,
                 FundsSource = FundsEarningSource.Other,
                 Effective = true
-            });
+            }, LedgerRowWriter.StockApplied);
             Ledger.AddAction(new GameAction
             {
                 Type = GameActionType.ScienceEarning,
@@ -21385,7 +21385,7 @@ namespace Parsek.InGameTests
                 TransmitScalar = 1f,
                 SubjectMaxValue = 1000f,
                 Effective = true
-            });
+            }, LedgerRowWriter.StockApplied);
             Ledger.AddAction(new GameAction
             {
                 Type = GameActionType.ReputationEarning,
@@ -21394,7 +21394,7 @@ namespace Parsek.InGameTests
                 NominalRep = 7f,
                 RepSource = ReputationSource.Other,
                 Effective = true
-            });
+            }, LedgerRowWriter.StockApplied);
             Ledger.AddAction(new GameAction
             {
                 Type = GameActionType.ReputationPenalty,
@@ -21403,7 +21403,7 @@ namespace Parsek.InGameTests
                 NominalPenalty = 3f,
                 RepPenaltySource = ReputationPenaltySource.Other,
                 Effective = true
-            });
+            }, LedgerRowWriter.StockApplied);
         }
 
         private static void AssertDoubleNear(double actual, double expected, double tolerance, string message)
@@ -21572,7 +21572,7 @@ namespace Parsek.InGameTests
             // converted the way a commit converts a captured event.
             GameAction action = GameStateEventConverter.ConvertEvent(evt, recordingId);
             if (action != null)
-                Ledger.AddAction(action);
+                Ledger.AddAction(action, LedgerRowWriter.StockApplied);
             else
                 ParsekLog.Warn("TestRunner",
                     $"Phase 5 overlay fixture: event type {eventType} produced no ledger row");

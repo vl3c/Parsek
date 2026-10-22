@@ -301,11 +301,11 @@ namespace Parsek.InGameTests
                 KerbalCareerEntries = BundleCareerEntries,
             };
 
-            Ledger.AddAction(controlScience);
-            Ledger.AddAction(recoveryCrew);
-            Ledger.AddAction(recoveryScience);
-            Ledger.AddAction(recoveryXp);
-            Ledger.AddAction(recoveryFunds);
+            Ledger.AddAction(controlScience, LedgerRowWriter.StockApplied);
+            Ledger.AddAction(recoveryCrew, LedgerRowWriter.StockApplied);
+            Ledger.AddAction(recoveryScience, LedgerRowWriter.StockApplied);
+            Ledger.AddAction(recoveryXp, LedgerRowWriter.StockApplied);
+            Ledger.AddAction(recoveryFunds, LedgerRowWriter.StockApplied);
 
             var bundleIds = new List<string>
             {
