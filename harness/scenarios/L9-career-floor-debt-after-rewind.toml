@@ -89,14 +89,13 @@ tier = "nightly"
 #   A DLL without phase 3 reds: no `cseq=` on the AddEvent / Added action lines, no plan, no
 #   `Floor settle`, and PatchFunds keeps the -4882.0 (AllowNegativeCurrency keeps a deficit).
 #
-# PHASE 4 WILL RE-PIN THIS LANE. Phase 4 (plan 2.5) greys a Cancel whose penalty digs into a
-# reservation: this cancel (9000 against a pool of about 4118) then becomes a refused step
-# (`kscaction refused action=cancel-contract reason=blocked-committed`), and the lane needs a
-# loss the player cannot be blocked from. None is cheap on a committed host today: the only
-# non-cost funds losses are contract fails and cancels, neither PartTest here can fail in
-# flight short of its deadline (millions of seconds out), and the reputation floor needs a
-# committed strategy reputation cost the host's reputation (2) cannot afford (the cheapest
-# is 14.5).
+# PHASE 4 LEAVES THIS CANCEL ALLOWED. Phase 4 (plan 2.5, ClickReservation.EvaluateContractClick)
+# refuses a Mission Control click when spendable + delta - addedReserve < min(0, spendable) in a
+# pool with a cost ahead. Here both Active contracts count in openRes (07c8e34d 27225 + 8a2b7d40
+# 9000 = 36225), spendable = 4117.97 - 36225 = -32107.03; the cancel charges Lerp(9000, 9000, t)
+# = 9000 and releases its own counted 9000 reserve, so after = spendable, not below it: allowed
+# (`allowing cancel ... no committed resolution after now` still prints). Reputation has no cost
+# ahead (the strategies' setupRep is 0). L10 pins the clicks phase 4 does refuse beside this one.
 #
 # NOT COVERED: the `Debt:` tooltip line itself (stock's currency widget has no seam hover; it
 # is pinned by `CurrencyReservationOverlayTests`), and no ledger oracle block (the oracle
@@ -189,7 +188,7 @@ steps = [
   { cmd = "MissionMark",    args = { label = "l9-rewound" },                               expect = "OK" },
 
   # ---- the loss: captured after the purchases, dated before them ----
-  # Phase 4 turns this step into expect = "REJECTED" (header).
+  # Phase 4 leaves it allowed: the cancel releases its own reserve (header).
   { cmd = "KscAction",      args = { action = "cancel-contract", contract = "8a2b7d40-4ee9-4f98-8290-7052ca24afd0" }, expect = "OK", budget = 60 },
   { cmd = "MissionMark",    args = { label = "l9-cancelled" },                             expect = "OK" },
 
