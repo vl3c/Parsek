@@ -1451,7 +1451,7 @@ the target, packed state and warp at frames +0/+1/+10/+60/+240 after every watch
 frame the camera is under the terrain; if the brown view recurs in normal play, collect-logs and
 read those lines.
 
-## ~~SPLIT-OF-A-CREWED-COMMANDLESS-PART-READS-AS-DEBRIS: a crewed part with no command module that separates is treated as debris, so its kerbal reads as lost~~ [FILED 2026-10-17 from the crew-across-vessels code trace, branch `claude/crew-across-vessels-db6ycy`. FIXED 2026-10-22 (xUnit), branch `claude/project-thread-csk4ho`; lane CX-2 not flown yet. product]
+## ~~SPLIT-OF-A-CREWED-COMMANDLESS-PART-READS-AS-DEBRIS: a crewed part with no command module that separates is treated as debris, so its kerbal reads as lost~~ [FILED 2026-10-17 from the crew-across-vessels code trace, branch `claude/crew-across-vessels-db6ycy`. FIXED 2026-10-22 (xUnit), branch `claude/project-thread-csk4ho`. LIVE-PROVEN 2026-10-22: CX-2 `2026-10-22_2154` PASS attempt 1 (red on main `2026-10-22_2144`). product]
 
 `ParsekFlight.IsTrackableVessel` counts a vessel as its own branch only when it is an EVA kerbal,
 a space object, or carries a `ModuleCommand`. A crew cabin with no command module (a Hitchhiker

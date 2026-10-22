@@ -3,7 +3,7 @@ id = "CX-2-hitchhiker-decouple-crew"
 # =====================================================================================
 # CX-2: A CREWED CABIN WITH NO COMMAND MODULE LEAVES THE RECORDED VESSEL
 # (todo SPLIT-OF-A-CREWED-COMMANDLESS-PART-READS-AS-DEBRIS; queue item 4 of 2026-10-22).
-# NOT FLOWN. Pins the fix: the cabin records as its own branch (not debris, no Re-Fly slot) and
+# LIVE-PROVEN 2026-10-22: 2026-10-22_2154 PASS attempt 1 (main read the bug: 2026-10-22_2144). Pins the fix: the cabin records as its own branch (not debris, no Re-Fly slot) and
 # Bob is handed to it at the decouple instead of reading Dead on the pod's recording.
 #
 # THE HOST is `hitchhiker-pad` (built by `harness/tools/build_hitchhiker_pad.py`): an empty
@@ -32,7 +32,7 @@ tier = "nightly"
 description = "Crew in a commandless cabin (todo SPLIT-OF-A-CREWED-COMMANDLESS-PART-READS-AS-DEBRIS): on hitchhiker-pad a VAB launch of HH1 Hitchhiker Drop (Mk1-3 pod / TD-25 / PPD-10 Hitchhiker), a stock crew transfer moves Bob into the Hitchhiker, recording on the pad, the TD-25 decouples the cabin with Bob inside, a warp past the debris lifetime, a commit and a Rewind-to-Launch. Pins that the crewed cabin records as its own branch and that Bob is handed to it, never read as dead."
 instanceProfile = "stock-minimal"
 tags = ["CX-2", "crew", "crew-transfer", "decouple", "commandless", "hitchhiker",
-        "debris", "rewind", "kerbin", "sandbox", "pending-flight"]
+        "debris", "rewind", "kerbin", "sandbox"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/hitchhiker-pad"
@@ -88,8 +88,8 @@ D14 = ["kerbin", "sandbox", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The pod's recording and the cabin's own branch; a window until the first flight pins it.
-count = { min = 2, max = 6 }
+# The pod's recording and the cabin's own branch (2 on 2026-10-22_2154, and 2 on main).
+count = { min = 2, max = 2 }
 
 [expectations.logContracts]
 required = [
