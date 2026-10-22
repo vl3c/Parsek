@@ -28,7 +28,8 @@ for the craft to come to rest, and a post-mission driver-gate refusal (hlib maps
 `driver-gate`, a retryable INVALID) is not what classified the run, so it read PARSEK-FAIL with no
 retry. Fix (first gap): `Recover` re-samples a locked or not-clear-to-save button every frame for up
 to 15 s (`TestCommandRecover.UnlockWaitSeconds`, line `recover unlock-wait cleared`) and presses the
-frame it unlocks, refusing with the same reason only if it never does. Still open: classify a refused
+frame it unlocks, refusing with the same reason only if it never does. QL-2 `2026-10-22_0021` PASS
+on it, with QL-14, ZF-1 and CI-6; no flight has hit the wait path yet. Still open: classify a refused
 required post-mission step as INVALID.
 
 ## ROUTE-CAREER-FIXTURES-EARN-STOCK-EVENTS-AT-LOAD: two of the career route copies earn stock career rewards at their first load, so the ledger logs drawdown-guard clamps [FILED 2026-10-21 from H76 `2026-10-21_2019` and H78 `2026-10-21_2022` (both PASS, no gate failed), branch `career-route-lanes`. OPEN, low. harness]
