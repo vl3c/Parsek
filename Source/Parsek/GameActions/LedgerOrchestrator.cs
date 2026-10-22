@@ -484,7 +484,8 @@ namespace Parsek
             IReadOnlyList<GameStateEvent> events,
             IReadOnlyList<PendingScienceSubject> pendingScience,
             IReadOnlyList<GameAction> ledgerActions,
-            ReputationSeedOrigin repSeedOrigin)
+            ReputationSeedOrigin repSeedOrigin,
+            RecordingTree ownerTree = null)
         {
             var build = new RecordingCommitRowBuild { RecordingId = recordingId };
 
@@ -516,7 +517,7 @@ namespace Parsek
             if (NeedsCrewEndStatePopulation(rec))
             {
                 crewSource = Recording.DeepClone(rec);
-                KerbalsModule.PopulateCrewEndStates(crewSource);
+                KerbalsModule.PopulateCrewEndStates(crewSource, ownerTree);
             }
             build.CrewSource = crewSource;
 
@@ -610,7 +611,7 @@ namespace Parsek
 
                     RecordingCommitRowBuild build = BuildRecordingCommitRows(
                         rec, rec.RecordingId, startUT, endUT, events, perRecordingPending,
-                        ledger, repSeedOrigin);
+                        ledger, repSeedOrigin, tree);
                     preview.CrewSources[rec.RecordingId] = build.CrewSource ?? rec;
                     preview.BuiltCount += build.Actions.Count;
                     var kept = DeduplicateAgainst(seen, build.Actions);

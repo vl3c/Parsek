@@ -1380,7 +1380,9 @@ as its own branch` Info line). Rewind Points and Re-Fly slots still read `IsTrac
 side: `KerbalsModule.ApplySplitDeparture` turns a Dead inference into Unknown for a kerbal a split child of the
 recording carried away (`CollectCrewCarriedAwayBySplit`), and the walk ends that row's hold at the child's start
 (`ResolveMidFlightSplitHandoffUT`, `Reservation bounded by mid-flight split handoff` Verbose line), so the
-child's end state decides his fate. Game rule: game-actions design 9.3 note of 2026-10-22, flight-recorder
+child's end state decides his fate. Both read the splits of the recording's earlier chain segments too (an
+optimizer cut after the decouple leaves the split on the head while the tail takes the end), and the merge
+dialog's commit preview passes its own uncommitted tree (`PopulateCrewEndStates(rec, ownerTree)`). Game rule: game-actions design 9.3 note of 2026-10-22, flight-recorder
 design section on debris. Tests: `CrewedCommandlessSplitTests`.
 
 ## ~~FOREIGN-BOARD-LEAVES-NO-GHOST-CLAIM: boarding a vessel from another mission does not claim it for ghost playback~~ [FILED 2026-10-17 from the crew-across-vessels code trace, branch `claude/crew-across-vessels-db6ycy`. FIXED 2026-10-22 (xUnit), branch `claude/project-thread-stn7at`; no lane boards a foreign vessel yet. product]

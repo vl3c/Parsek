@@ -286,6 +286,110 @@ namespace Parsek.Tests
             Assert.False(ParsekFlight.ShouldRecordAsOwnBranch(trackable: false, crewCount: 0));
         }
 
+        private const string Chain = "chain-hh-pod";
+        private const string PodTail = "rec-hh-pod-tail";
+        private const double CutUT = 200.0;
+
+        // The parent split by the optimizer AFTER the decouple: the split stays on the head
+        // segment (it is before the cut), the tail takes the start ghost snapshot (Bob still in
+        // the cabin) and the end snapshot and terminal (Bob gone). Head ends at an internal
+        // chain handoff (no end snapshot, no terminal).
+        private static RecordingTree BuildChainSplitPod(bool commit)
+        {
+            var head = new Recording
+            {
+                RecordingId = Parent, VesselName = "HH1 Hitchhiker Drop", TreeId = Tree,
+                ChainId = Chain, ChainIndex = 0, ChainBranch = 0,
+                GhostVisualSnapshot = CrewSnapshot(Jeb, Bob), VesselSnapshot = null,
+                ExplicitStartUT = StartUT, ExplicitEndUT = CutUT,
+            };
+            var tail = new Recording
+            {
+                RecordingId = PodTail, VesselName = "HH1 Hitchhiker Drop", TreeId = Tree,
+                ChainId = Chain, ChainIndex = 1, ChainBranch = 0,
+                GhostVisualSnapshot = CrewSnapshot(Jeb, Bob), VesselSnapshot = CrewSnapshot(Jeb),
+                ExplicitStartUT = CutUT, ExplicitEndUT = EndUT,
+                ChildBranchPointId = Bp, TerminalStateValue = TerminalState.Landed,
+            };
+            var cabin = new Recording
+            {
+                RecordingId = Cabin, VesselName = "HH1 Hitchhiker Drop Debris", TreeId = Tree,
+                ParentBranchPointId = Bp, IsDebris = false,
+                GhostVisualSnapshot = CrewSnapshot(Bob), VesselSnapshot = null,
+                ExplicitStartUT = SplitUT, ExplicitEndUT = 250.0,
+                TerminalStateValue = TerminalState.Recovered,
+            };
+            var tree = new RecordingTree
+            {
+                Id = Tree, TreeName = "HH1 Hitchhiker Drop",
+                RootRecordingId = Parent, ActiveRecordingId = PodTail,
+            };
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = Bp, UT = SplitUT, Type = BranchPointType.JointBreak, SplitCause = "DECOUPLE",
+                ParentRecordingIds = new List<string> { Parent },
+                ChildRecordingIds = new List<string> { Cabin },
+            });
+            foreach (var rec in new[] { head, tail, cabin })
+            {
+                tree.AddOrReplaceRecording(rec);
+                if (commit) RecordingStore.AddRecordingWithTreeForTesting(rec);
+            }
+            if (commit)
+            {
+                RecordingStore.AddCommittedTreeForTesting(tree);
+                LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
+            }
+            return tree;
+        }
+
+        // catches: the fix reading only splits parented to the recording itself, so a parent the
+        // optimizer cut after the decouple reads Bob Dead on its tail segment (the original bug).
+        [Fact]
+        public void OptimizerSplitAfterTheDecouple_TailSegment_DoesNotKillTheKerbal()
+        {
+            BuildChainSplitPod(commit: true);
+            Walk();
+
+            Assert.Equal(KerbalEndState.Unknown, Row(PodTail, Bob).KerbalEndStateField);
+            Assert.Equal(KerbalEndState.Aboard, Row(PodTail, Jeb).KerbalEndStateField);
+            var r = LedgerOrchestrator.Kerbals.Reservations[Bob];
+            Assert.False(r.IsPermanent);
+            Assert.Equal(250.0, r.ReservedUntilUT);
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("Reservation bounded by mid-flight split handoff: 'Bob Kerman' recording '"
+                    + PodTail + "'"));
+        }
+
+        [Fact]
+        public void IsEarlierChainSegment_Cases()
+        {
+            var a = new Recording { ChainId = "c", ChainIndex = 0, ChainBranch = 0 };
+            var b = new Recording { ChainId = "c", ChainIndex = 1, ChainBranch = 0 };
+            Assert.True(KerbalsModule.IsEarlierChainSegment(a, b));
+            Assert.False(KerbalsModule.IsEarlierChainSegment(b, a));
+            Assert.False(KerbalsModule.IsEarlierChainSegment(a, a));
+            Assert.False(KerbalsModule.IsEarlierChainSegment(
+                a, new Recording { ChainId = "c", ChainIndex = 1, ChainBranch = 1 }));
+            Assert.False(KerbalsModule.IsEarlierChainSegment(
+                a, new Recording { ChainId = "d", ChainIndex = 1 }));
+            Assert.False(KerbalsModule.IsEarlierChainSegment(
+                new Recording { ChainIndex = 0 }, new Recording { ChainIndex = 1 }));
+        }
+
+        // catches: the merge dialog's commit preview (an uncommitted tree) reading the split
+        // from the committed store only, so it predicts a death row the commit never files.
+        [Fact]
+        public void CommitPreview_OfAnUncommittedTree_ReadsItsOwnSplits()
+        {
+            RecordingTree tree = BuildChainSplitPod(commit: false);
+            var preview = LedgerOrchestrator.BuildTreeCommitRowsPreview(tree);
+
+            Assert.Equal(KerbalEndState.Unknown, preview.CrewSources[PodTail].CrewEndStates[Bob]);
+            Assert.DoesNotContain(preview.Rows, a => a.Type == GameActionType.KerbalAssignment
+                && a.KerbalName == Bob && a.KerbalEndStateField == KerbalEndState.Dead);
+        }
+
         private static void Walk()
         {
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(1e6, "hitchhiker-test");
