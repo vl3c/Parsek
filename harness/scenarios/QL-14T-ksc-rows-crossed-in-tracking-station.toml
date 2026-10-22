@@ -1,0 +1,225 @@
+schema = 1
+id = "QL-14T-ksc-rows-crossed-in-tracking-station"
+tier = "nightly"
+# QL-14T: COMMITTED SPACE CENTER ROWS THE CLOCK REACHES IN THE TRACKING STATION. The live
+# proof of todo TRACKING-STATION-LEDGER-CUTOFF-ALIGN (FIXED 2026-10-15, headless only): the
+# Tracking Station takes the current-UT ledger cutoff like FLIGHT and the Space Center
+# (`ParsekScenario.IsCurrentUtCutoffSupportedScene` accepts TRACKSTATION), and it runs its
+# own clock cursor (`CareerLedgerClockCursor("ts")`, recalculation reasons `ts-clock` /
+# `ts-clock-backward`, driven from `ParsekTrackingStation.Update`) so a committed Space
+# Center action applies once when TS warp reaches its UT. Every Tracking Station lane before
+# this one is sandbox, so nothing had flown a career ledger through that scene.
+#
+# THE ROUTE (QL-14's prefix verbatim on career-pad-craft, then the Tracking Station):
+#   flight A   warp the pad to 60, record the Flea, warp to 1000 in flight, stop, CommitTree,
+#              Recover (L8's first flight).
+#   KSC        at ~1000: upgrade the Tracking Station, research basicRocketry, hire Verhat
+#              Kerman.
+#   rewind     Rewind-to-Launch A: lands at the Space Center at clock ~45 with the three rows
+#              committed future (ruling D2; L8 / QL-14 measured it).
+#   save       SaveGame ql14t-rewound at the Space Center: a save whose ledger holds rows
+#              ahead of its own clock.
+#   TS (b1)    LoadGame ql14t-rewound scene=trackstation WITHOUT playerLoad: an IN-SESSION
+#              load (the R12 route writes the loaded game to persistent.sfs and lets
+#              SpaceTracking re-read it, the same OnLoad a player's KSC -> TS click runs).
+#              Gate: the in-session decision takes the cutoff in TRACKSTATION. Before the
+#              fix it walked the whole ledger and charged the 1000 rows at 45.
+#   TS (a)     LoadGame ql14t-rewound scene=trackstation playerLoad=true: the player's
+#              load of a save file, a COLD load (`coldReason=save-file`), into the
+#              Tracking Station. Gate: `OnKspLoad` keeps the future rows and cuts off at
+#              the clock. Before the fix the reconcile pruned the three future spendings
+#              (`Pruned spending: type=... > maxUT=...`), destroying them for good.
+#   TS (b2)    WarpToUT 1100 in the Tracking Station (rails, maxRate 100; TC-1 made the verb
+#              scene-agnostic): the `ts` cursor crosses the rows. Gate: a `ts-clock`
+#              recalculation, then `Clock-crossing reached committed-future rows`, the hire
+#              promoted, no guard clamp. Before the fix the TS had no cursor.
+#   end        save persistent at ~1100 in the Tracking Station and quit.
+#
+# WHY BOTH TS LOADS. The fix names three entry paths: the cold TS load, the in-session TS
+# load and the deferred seed. The in-session hop costs one scene load and is the only way
+# this seam enters the Tracking Station in-session (no verb clicks the KSC building). The
+# cold load must come second: it is the one the warp runs on, and the deferred seed it
+# schedules is what leaves the committed-future snapshot the cursor's crossing reads.
+#
+# THE GATES (the fixed behavior):
+#   - in-session TS load: `post-rewind current-UT cutoff decision useCurrentUtCutoff=True
+#     ... loadedScene=TRACKSTATION loadedSceneSupportsCurrentUtCutoff=True`;
+#   - cold TS load: `Load classified: early=Cold refined=Cold scene=TRACKSTATION ...
+#     coldReason=save-file saveFileLoad=true`, then `OnKspLoad recalc decision:
+#     useCurrentUtCutoff=True ... featureSupportsCutoff=True currentUtReady=True
+#     hasFutureActions=True`, and no `Pruned spending: ... > maxUT=` after the rewind;
+#   - TS warp: `reason=ts-clock` (Verbose `Live-event recalc decision` on every cursor
+#     fire, Info `Current-UT ledger recalculation` when rows remain ahead), then the
+#     crossing line with crossed >= 1, then `PromoteReachedCommittedHires: rows=1
+#     promoted=1`; no `GUARDED (UPLIFT|DRAWDOWN) clamped` and no `Clock-crossing hire(s)
+#     not made` anywhere;
+#   - the rewind-aware ledger oracle: every row is past at the end clock, so funds are the
+#     seed plus the recovery minus the upgrade and the hire, science minus basicRocketry,
+#     each charged once.
+#
+# PRE-REGISTERED READINGS (never flown; the first flight is a READING run on the owner's PC):
+#   - `warptout refused reason=warp-locked ... holders=intro_TS`: stock's first-visit
+#     Tracking Station intro lock. No career fixture carries a `ScenarioNewGameIntro` node
+#     (the 51 sandbox fixtures that hold `tsComplete = False` do), so it is not expected;
+#     if it appears, WarpToUT needs the TrackingStationRecover verb's intro press, a seam
+#     change, not a Parsek defect.
+#   - the crossing line present but `GUARDED DRAWDOWN clamped` after it: the cold TS path
+#     left live pools different from the last patch (`IsLiveUnchangedSinceLastPatch`), a
+#     defect in the fix; file it.
+#   - no `ts-clock` line at all after the cold load and the oracle short by the purchases:
+#     the cursor never fired (a deferred patch, a stuck `RewindUTAdjustmentPending`); file it.
+#   - `Pruned spending` after the rewind: the cold TS load still prunes; file it.
+#   - `reject cmd=LoadGame reason=recording-active`: a recorder armed at the Space Center
+#     after the rewind (V5's race shape); add a StopRecording before the save.
+#   - the crossing may split over several cursor fires (recording A's rows before 1000, the
+#     purchases ~1000-1010); `crossed=` is pinned only as >= 1 and the hire as one row.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse a flight: CONSIDERED, NOT APPLIED. QL-14 is the only host with this state and its
+#     subject is the crossing outside any cursor scene (flight B); its flight B and its end
+#     clock past every row leave nothing for a Tracking Station step to prove, and folding
+#     the TS loads in before flight B would change the scene QL-14's crossing happens in.
+#   2 no idle waits: APPLIED. The only game-time wait is one WarpToUT with an explicit UT.
+#   3 minimal dwells: APPLIED. No dwell; the end clock 1100 is QL-14's margin past the rows.
+#   4 burns at 1x / 5 b5 coasts / 6 fail fast: NOT APPLICABLE (seam-only, no burn, no
+#     mission).
+#   7 tight count windows: APPLIED where derivable (recordings 1, the hire rows=1); crossed=
+#     stays >= 1 until the reading run measures how the warp splits the crossing.
+#   8 tier by measured cost / 9 flight_efficiency: OWED after the first flight (nightly like
+#     QL-14 until a p50 exists).
+#
+# STATUS: AUTHORED 2026-10-22, NEVER FLOWN.
+description = "QL-14T: on career-pad-craft, record and recover a flight, buy a facility upgrade, a tech and a hire at the Space Center at UT ~1000, rewind to that flight's launch (the rows stay committed future at ~45) and save, then enter the Tracking Station twice: an in-session load (the cutoff decision takes TRACKSTATION) and a player's cold load of that save (OnKspLoad keeps the future rows and cuts off at the clock). Warp to 1100 in the Tracking Station: the ts clock cursor applies the rows once (ts-clock, the clock-crossing line, the hire promoted, no guard clamp) and the rewind-aware ledger oracle is exact."
+instanceProfile = "stock-minimal"
+tags = ["QL-14T", "career", "ledger", "rewind", "timeline-ops", "action-blocking",
+        "tracking-station", "cold-load", "scene-change", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-pad-craft"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+
+  # ---- flight A: QL-14's / L8's first flight (record on the pad, commit, recover) ----
+  { cmd = "WarpToUT",       args = { ut = "60" },                                          expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "1000" },                                        expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "2905720181" },                                 expect = "OK", budget = 120 },
+
+  # ---- the Space Center purchases at ~1000 ----
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/TrackingStation" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",      args = { action = "research-node", node = "basicRocketry" },   expect = "OK", budget = 60 },
+  { cmd = "KscAction",      args = { action = "hire-kerbal", kerbal = "Verhat Kerman" },   expect = "OK", budget = 60 },
+
+  # ---- the rewind: back at the Space Center at ~45, the three rows committed future ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "ql14t-rewound" },                            expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "ql14t-rewound" },                             expect = "OK", budget = 120 },
+
+  # ---- (b1) the in-session Tracking Station load ----
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "ql14t-rewound", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "ql14t-ts-in-session" },                      expect = "OK" },
+
+  # ---- (a) the player's cold load of the same save into the Tracking Station ----
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "ql14t-rewound", scene = "trackstation", playerLoad = "true" }, expect = "OK", budget = 300 },
+  # The cold load re-reads the settings from the save; re-assert the one the ts-clock pin needs.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ql14t-ts-cold" },                            expect = "OK" },
+
+  # ---- (b2) Tracking Station warp past every row ----
+  { cmd = "WarpToUT",       args = { ut = "1100", maxRate = "100" },                       expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "ql14t-ts-warped" },                          expect = "OK" },
+
+  { cmd = "SaveGame",       args = { name = "persistent" },                                expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "science", "kerbals", "facilities", "recalc-engine", "ksp-state-patcher", "action-blocking"]
+D14 = ["career", "scene-ksc", "scene-flight", "scene-ts"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Flight A only.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  "kscaction action=upgrade-facility target=SpaceCenter/TrackingStation applied=true",
+  "kscaction action=research-node target=basicRocketry applied=true",
+  "kscaction action=hire-kerbal target=Verhat Kerman applied=true",
+  "\\[Rewind\\] Rewind-to-Launch initiated to UT ",
+  # (b1) The in-session Tracking Station load takes the current-UT cutoff.
+  "MISSIONMARK label=ql14t-rewound [\\s\\S]*OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff=True loadedUT=\\S+ planetariumUT=\\S+ isRevert=False loadedScene=TRACKSTATION loadedSceneSupportsCurrentUtCutoff=True ",
+  # (a) The player's load is a Cold save-file load into the Tracking Station ...
+  "MISSIONMARK label=ql14t-ts-in-session [\\s\\S]*Load classified: early=Cold refined=Cold scene=TRACKSTATION [^\\n]*coldReason=save-file saveFileLoad=true ",
+  # ... whose reconcile keeps the future rows and cuts off at the clock.
+  "MISSIONMARK label=ql14t-ts-in-session [\\s\\S]*OnKspLoad recalc decision: useCurrentUtCutoff=True maxUT=\\S+ featureSupportsCutoff=True currentUtReady=True hasFutureActions=True",
+  # (b2) The Tracking Station cursor fires and the reached rows apply once.
+  "MISSIONMARK label=ql14t-ts-cold [\\s\\S]*(Live-event recalc decision|Current-UT ledger recalculation): reason=ts-clock [\\s\\S]*Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* ",
+  "MISSIONMARK label=ql14t-ts-cold [\\s\\S]*PromoteReachedCommittedHires: rows=1 promoted=1 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  "invokerewindtolaunch refused",
+  "Clock-crossing hire\\(s\\) not made",
+  # The pre-fix cold Tracking Station load pruned the committed-future spendings.
+  "MISSIONMARK label=ql14t-rewound [\\s\\S]*Pruned spending: type=\\S+, UT=\\S+ > maxUT=",
+]
+
+# The rewind-aware ledger oracle. The end clock (~1100) is past every row.
+[expectations.ledger]
+seedFrom     = "template"
+tolerances   = "default"
+timeline     = "rewind-aware"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [1000.0, 1010.0]
+  kind       = "vessel-recovery"
+  # Flight A's pad recovery of the Jumping Flea (L2's measured payout, QL-14).
+  funds      = 4182.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [1000.0, 1010.0]
+  kind       = "facility-upgrade"
+  # Tracking Station 0 -> 1 (L1-upgrade-facility-career, QL-1, L8, QL-14).
+  funds      = -150000.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [1000.0, 1010.0]
+  kind       = "tech-unlock"
+  # basicRocketry (L1-research-node-career, L8, QL-14).
+  science    = -5.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [1000.0, 1010.0]
+  kind       = "kerbal-hire"
+  # L8's measured recruit cost on this roster (QL-14).
+  funds      = -62113.0
+  provenance = "seam-declared"
+
+[runtime]
+# QL-14's ceiling: its flight B is gone, two Tracking Station loads (300 s budget each)
+# came in. Unmeasured; resize after the first flight.
+budgetSeconds = 3000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
