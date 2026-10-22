@@ -28,6 +28,9 @@ Source/Parsek/ParsekScenario.RevertLedgerSnapshot.cs
 Source/Parsek/GameActions/Ledger.cs
 Source/Parsek/GameActions/LedgerOrchestrator.cs
 Source/Parsek/GameActions/LedgerLoadMigration.cs
+# [ERS-exempt] the capture-order allocator takes the next value above every row the ledger
+# physically holds (tombstoned and superseded rows included), so no number is ever reissued.
+Source/Parsek/GameActions/CaptureSequence.cs
 # LedgerRolloutAdoption is the rollout-adoption + revert double-rollout dedup
 # helper extracted from LedgerOrchestrator. Reads Ledger.Actions to find
 # unadopted rollout candidates and to gate near-duplicate writes against the

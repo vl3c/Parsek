@@ -2114,7 +2114,8 @@ namespace Parsek
                 RecordingId = recordingId,
                 RepPenaltySource = ReputationPenaltySource.KerbalDeath,
                 NominalPenalty = decision.Magnitude,
-                InsideReputationSeed = insideSeed
+                InsideReputationSeed = insideSeed,
+                CaptureSequence = decision.CaptureSequence
             });
 
             // A CANDIDATE, not a decision: this producer runs on every commit of the

@@ -15,6 +15,11 @@ _(unreleased - entries accumulate here per commit)_
   0 is kept, a missed deadline never charges twice, a Re-Fly never brings back a penalty a merge
   removed, and money another mod gave you stays. Older saves keep their balances.
   (LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY)
+- **After a rewind, a loss stops at what committed purchases need.** A contract fail or a crew
+  death in a new flight takes funds, science or reputation only down to what later committed
+  purchases and strategies still need; the rest is a debt, repaid from later gains before the pool
+  rises again. The funds and science tooltips show it. A career that never rewinds plays as stock.
+  (LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY)
 - **A flight can no longer fail a contract the timeline already settles later.** When a later
   committed flight completes, fails or cancels a contract, a new flight after a rewind cannot fail
   it first: the contract stays active until its committed outcome, so the rewards that paid for

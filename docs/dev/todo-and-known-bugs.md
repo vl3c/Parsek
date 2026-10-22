@@ -550,7 +550,7 @@ Fix (the first direction above): when the cold load restores no active tree, no 
 Fix, the trajectory (owner ruling 2026-10-21, "Switch to versioned files", after a first cut that always resumed in a new segment was reverted: it added a segment to every in-flight commit's re-take, about 40 lane counts, and armed a switch-segment session on every resume, so a later ordinary switch popped the Merge / Discard dialog): the overlap skip is gone. `PlanActiveTreeSidecarSaves` writes a restore-attempt member that shares its id with the committed copy like any other (counted as `committedRestoreOverlap`, Verbose `writing restore-attempt recording`). The write replaces the shared head and keeps the committed bytes as their hashed version under `_versions/` (#2155). The committed copy keeps naming that hash, and `EnsureRecordingFilesCurrentForSave` treats a committed-tree recording whose head moved on as current when every named hash resolves and one resolves to a retained version (`RecordingStore.AreRecordingFilesCurrentThroughNamedVersions`, Verbose `is current through its named sidecar version(s)`), so it is never rewritten and its sidecar epoch does not move before a merge. One save then names two versions of the id; a cold load reads each copy from its own bytes without promoting (`reason=multiple-owners owners=2`) and re-arms the attempt. Discard leaves the head holding the clone's bytes and the committed copy current through its version; the next lone load promotes it back. A lazy vessel-snapshot re-hydration now reads the bytes its recording names whenever a retained version holds them (`ResolveLazyVesselSnapshotPath`), so an in-session committed copy never picks up the clone's snapshot. Because the clone starts at the committed copy's epoch, an attempt member's save also checks that the head holds the hash it names (`TrajectoryHeadHoldsNamedBytes`, `reason=head-holds-other-bytes`), so a committed rewrite at the same epoch is not read as the clone's bytes. Now that every save holds the attempt's active node, an in-session load of one (the save stock makes before leaving flight) keeps the committed original committed and skips the splice while the attempt is armed for that tree (`kept the committed copy ... the live restore attempt's clone`), as the cold re-arm does: otherwise the scene-exit merge of the clone ran as a first commit and a Discard found nothing committed (found in review). The ATTEMPT_EVENTS hold above stays as the fallback for a save written without the active tree. Cells: `InPlaceResumeSidecarVersionTests` (save, cold load, discard over real hashed sidecars; red with the skip restored, with the version rule off, with the old lazy-hydration rule, with the head-hash check off, and with the live-attempt keep or splice skip removed), `SaveActiveTreeSidecarBothOrNeitherTests`, the `ColdLoadRestoreAttemptRearmTests` wiring cell. Residual, not changed: `SavePendingTreeIfAny` still skips a dirty pending-tree member that shares a committed id, so a pending tree written at the Space Center with unsaved resumed flying is left out of that save. Lane QL-13.
 
 
-## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. RULED 2026-10-21 (owner interview, every path); O2 and O3 FIXED 2026-10-22; plan phase 2 BUILT 2026-10-22; OPEN for O6 / O7; same invariant as section 2.12]
+## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. RULED 2026-10-21 (owner interview, every path); O2 and O3 FIXED 2026-10-22; plan phases 2 and 3 BUILT 2026-10-22; OPEN for O6 / O7 (phase 4, the clicks); same invariant as section 2.12]
 
 Each breaks "the committed timeline pays for every committed spend at every UT" without Re-Fly:
 (O1, ruled 2026-10-19: a quickload undoes Space Center rows after the save, fixed with
@@ -657,6 +657,31 @@ and logistics design section 10.6).**
   a leak; the replay starts from `lastWritten` minus stepped-back removed rows, not the live pool, so
   a deduped earning removed in the same patch as a loss near 0 can absorb part of a real leak; ledger
   order out of UT order plus an untracked earning in one window can be forgiven.
+- **Plan phase 3 BUILT 2026-10-22** (branch `o6-phase3-local`, on phase 2; plan section 2.3, rule 4):
+  after a rewind a loss stops at the reserved floor and the rest is a debt the walk charges from
+  later room. "A committed cost lies ahead of a loss" is judged by capture order (coordinator ruling,
+  after row order floored a never-rewound career: a purchase made after a fail read as ahead of it):
+  a cost row with a later UT captured before the loss. `GameActions/CaptureSequence.cs` stamps a
+  per-save sequence (`cseq`, additive key on `GAME_STATE` events and ledger rows, no schema bump) at
+  event capture, carried by the converter, at write for direct rows; a row without one gets no floor.
+  `GameActions/ReservedFloorPlan.cs` builds the per-pool floor from the debt-free projection walk,
+  only when some cost was captured before a later-UT loss, so a career that never rewinds walks as in
+  phase 2; `FundsModule`, `ScienceModule`, `ReputationModule` settle a non-cost loss below the floor
+  and charge the debt from the room above the need of the costs captured before it; the three walks
+  (`Recalculate`, `ProbeModuleAtCutoff`, `WalkBalancesOnClones`) install the same plans. The stock
+  pool reference steps rows by their pre-settle effect, so the debt is never filed as a leak and
+  revision 7's clamp replay is not double counted (L1.2: pool 0, walk 100k, debt 30k, no row; a 10k
+  earning is stepped as stock applied it, the patch writes 0 and the debt is 20k). The funds and science tooltips gain a `Debt:`
+  line. Tests: `ReservedFloorTests` (the counterexample reads exactly stock for funds and
+  reputation, its reverse order floors and debts, L1.2 / L1.4 through `Recalculate` and the patch
+  harness, cost rows never settled, an overcommitted timeline, the charge above `max(floor, 0)`, the
+  three walks agreeing, a 60-trial no-rewind identity fuzz, capture sequence plumbing),
+  `CurrencyReservationOverlayTests`. Mutations read red: plans not installed (9 cells), capture order
+  ignored in the plan and its pre-check (6), the reference stepping the settle (3). Deviations: adjustment rows
+  are never settled; batch writes are stamped in UT order; science has no non-cost loss so its settle
+  is inert; the projection reserve stays debt-free; reputation's floor uses the debt-free curve (a
+  few tenths short, documented). Harness, predicted and not re-flown: only lanes with a loss after a
+  rewind that lies before a committed cost move.
 - O2: a stock revert removes only the rows the reverted flight wrote; every committed row stays
   (matches D2). **FIXED 2026-10-22** (branch `claude/project-thread-6f7rhy`): Parsek remembers
   the ledger's row ids where stock captures its revert targets (every non-revert flight entry for

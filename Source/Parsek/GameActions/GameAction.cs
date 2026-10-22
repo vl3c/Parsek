@@ -479,6 +479,15 @@ namespace Parsek
         /// <summary>Ordering within the same UT for spending actions. 0 for earnings.</summary>
         public int Sequence;
 
+        /// <summary>
+        /// Real-time capture order (<see cref="Parsek.CaptureSequence"/>): the source event's
+        /// value for a row converted from a game-state event, else stamped when the ledger
+        /// takes the row. 0 for a row from an older save (no capture order: nothing is ahead
+        /// of it and it is ahead of nothing). Read by <see cref="ReservedFloorPlan"/>: a
+        /// committed cost lies ahead of a loss only when it was captured before the loss.
+        /// </summary>
+        public long CaptureSequence;
+
         // ---- Derived fields (recalculated, NOT serialized) ----
 
         /// <summary>
@@ -998,6 +1007,8 @@ namespace Parsek
                 node.AddValue("recordingId", RecordingId);
             if (Sequence != 0)
                 node.AddValue("seq", Sequence.ToString(IC));
+            if (CaptureSequence > 0)
+                node.AddValue(Parsek.CaptureSequence.Key, CaptureSequence.ToString(IC));
 
             // TYPE-AGNOSTIC ON PURPOSE. The flag applies to every reputation-affecting row
             // (ReputationSeedMembership.IsReputationAffectingRow), not to one source of one
@@ -1140,6 +1151,7 @@ namespace Parsek
             string seqStr = node.GetValue("seq");
             if (seqStr != null)
                 int.TryParse(seqStr, NumberStyles.Integer, IC, out a.Sequence);
+            a.CaptureSequence = Parsek.CaptureSequence.Parse(node.GetValue(Parsek.CaptureSequence.Key));
 
             // Rewind-to-Staging (design section 5.6 + 9). Legacy actions without
             // `actionId` get a deterministic hash-based id so tombstones remain

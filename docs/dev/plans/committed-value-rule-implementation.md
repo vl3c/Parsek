@@ -4,7 +4,9 @@ Status: plan, 2026-10-22. Phase 1 (rule 1) built 2026-10-22. Phase 2 BUILT 2026-
 `o6-phase2-local`, shippable alone: the stock pool reference (2.4), stock's 0 clamp in the walk (the
 no-cost-ahead half of 2.3) and open penalties out of the pool reserve (2.2) moved into it, so no
 pool goes lower in normal play. Deviations from this text are marked "Built:" where they apply
-(2.2, 2.3, 2.4). Phases 3 and 4 open. Authority for the rule: game-actions design section 3.13 (owner rulings
+(2.2, 2.3, 2.4). Phase 3 BUILT 2026-10-22 on branch `o6-phase3-local`: the floor and the debt
+(2.3), with "a committed cost lies ahead" judged by capture order (coordinator ruling, 2.3), and the
+`Debt:` tooltip line (2.6). Phase 4 open. Authority for the rule: game-actions design section 3.13 (owner rulings
 2026-10-21, record `decisions/open-decisions.md` L1.1-L1.6). Todo:
 `LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY` (O6, O7) and the P15 half of
 `GUI-P15-D7-TWO-SAFETY-GATES-THAT-EXIST-AND-ARE-NEVER-ARMED`. O2 and O3 shipped separately (PR #2172).
@@ -151,8 +153,20 @@ deadline fails are told apart from ledger rows by membership in the input list, 
   moment the destruction lands, and anything it cannot cover becomes debt (L1.5).
 - **Floor-limited losses** (never reserved for): reputation penalties with source `KerbalDeath` or
   `Other`. Nothing in funds or science today.
-- **Per position i**: `costAhead_i` (a cost row lies after i); `need_i = max(0, -min over k in
-  (i, lastCost_i] of sum_{j=i+1..k} d'(j))`, where `d'` drops floor-limited losses and open-contract
+- **Cost ahead, by capture order** (coordinator ruling 2026-10-22, after the phase 3 build showed
+  row order wrong): a committed cost lies ahead of loss `l` when a cost row has `UT > l.UT` and was
+  already on the timeline when stock applied `l`, judged by real-time capture order, not ledger
+  insertion order. In a career that never rewinds a purchase is captured after every loss before it
+  in time, so nothing is ahead of any loss and the career stays stock (row order would floor a
+  pre-rewind fail at a purchase made after it, and a later earning would repay a debt stock never
+  had). Mechanism: a monotonic capture sequence per save (`cseq`), stamped when `GameStateStore`
+  captures an event and carried onto every converted `GameAction`; a row written directly stamps at
+  write; next = max over the ledger and the pending events + 1. Additive keys on the event and the
+  row, written only when set, no schema bump. A row without a sequence gets no floor and is ahead of
+  nothing. `costAhead` and the need window range only over cost rows with `UT > l.UT` and
+  `sequence < l.sequence`.
+- **Per position i**: `costAhead_i` (a cost row captured before i lies after i); `need_i = max(0, -min over k in
+  (i, lastCost_i] of sum_{j=i+1..k} d'(j))` (lastCost_i the last cost row captured before i), where `d'` drops floor-limited losses and open-contract
   synthetic fails (one backward pass). The window ends at the last cost row: a dip after the last
   committed cost leaves nothing unpaid. `floor_i = need_i` when `costAhead_i`, else none.
 
@@ -200,6 +214,44 @@ day 50, Y fails day 20): 100k after the fail, debt 30k, the upgrade paid, the de
 one planned walk. A new `IReservedFloorModule` (funds, science, reputation) receives the plan; the
 engine keeps knowing no module type. The plan is derived from the rows on every walk; no debt is
 saved.
+
+**Built in phase 3 (2026-10-22):** `GameActions/ReservedFloorPlan.cs` (the plan: prefix sums of
+`d'`, cost rows sorted by capture sequence with their furthest walk position, a range-min table, so
+a floor is one lookup; `ReservedFloorSettle` and `ReservedFloorWalkState` hold the settle and the
+charge), `GameActions/CaptureSequence.cs` (the allocator), the settle and the charge in
+`FundsModule`, `ScienceModule` and `ReputationModule` through `IReservedFloorModule`, and
+`RecalculationEngine.BuildReservedFloorPlans`, installed after the module reset by all three walks.
+Logged: one `Reserved floor plans built` line when a plan is built, one `Floor walk: pool=...`
+summary per walk and pool (rows settled and charged, debt), per-row `Floor settle:` / `Debt charge:`
+lines rate-limited. Deviations from the text above:
+- The plan is built only when some cost row was captured before a loss with an earlier UT
+  (`ReservedFloorPlan.HasCostCapturedAheadOfALaterLoss`, one sort and one pass); otherwise no plan is
+  built and no extra walk runs, so a career that never rewinds walks exactly as in phase 2 (a 60-trial
+  fuzz pins it). The debt-free walk is the existing projection walk, run when a plan is needed.
+- The debt is charged from the room above the need of the cost rows captured before the charging
+  row or the debt, whichever is later (`max(row sequence, debt sequence)`), so a committed gain
+  captured before the purchase cannot repay the debt below what that purchase needs.
+- A `StockPoolAdjustment` row is never settled (it is applied in full, as it is exempt from the 0
+  clamp); an intact-facility repair (cost 0) is not a cost row.
+- The stock pool reference (2.4) steps each row by its effect before the settle and before any
+  charge, which is what stock applied; the clamp-forgiveness replay of revision 7 then absorbs stock's
+  own 0 clamp, so the settle's debt and stock's forgiveness are not counted twice (cells
+  `L12_TheFailAndTheEarningInOneMeasuredPatch_GiveTheSameNumbers`, `..._NoAdjustmentRows`).
+- The projection reserve (`ProjectAvailability`) stays on the debt-free deltas: within the window
+  both give the same target.
+- Science has no non-cost loss row today, so its settle is wired and inert.
+- Rows reach the ledger stamped: `Ledger.AddAction` stamps an unstamped row, `AddActions` stamps a
+  batch's unstamped rows in UT order (a batch has no capture order of its own), the crew-death
+  reputation row carries its winning event's sequence. An event converted from an older save's
+  store is stamped when its row is written.
+- Reputation: the floor comes from the debt-free walk's curve, so L1.4 holds a few tenths above 40
+  with a debt a few tenths above 10, and the strategy can leave reputation that shortfall below
+  0 (`L14_...` pins ranges).
+Tests: `ReservedFloorTests` (the plan, the settle and the charge, L1.2 and L1.4 end to end through
+`Recalculate` and through the patch harness including the earning after the debt, the
+counterexample and its reverse order for funds and reputation, cost rows never settled, an
+overcommitted timeline, the charge above `max(floor, 0)`, the three walks agreeing, the capture
+sequence plumbing and round trips), `CurrencyReservationOverlayTests` (the `Debt:` line).
 
 ### 2.4 The guard reads an incremental stock reference
 
@@ -362,6 +414,12 @@ while a debt is outstanding, and their Reserved amount includes `openRes` (budge
 `TooltipEchoBudgetTests`). Reputation gets no tooltip (none exists; the greyed controls carry the
 reason).
 
+**Built in phase 3:** the `Debt:` line, last, in the pool's own format, only when the walk's debt
+rounds above 0 (`CurrencyReservationOverlay.AppendDebtLine`). `TooltipEchoBudgetTests` budgets the
+hover-help strip of Parsek's own windows; the currency tooltip is the stock widget's and is not in its
+scope, so the line is pinned by `CurrencyReservationOverlayTests` instead. Reserved including
+`openRes` stays with phase 4.
+
 ## 3. Phases (one PR each, in this order)
 
 1. **Contract early-end refusal** (2.1). Built on a local branch; lands after PR #2172.
@@ -371,7 +429,8 @@ reason).
    (2.2), an injected row kept out of every pool (2.4), and an older save's gap filed as one
    adjustment row (2.4).
 3. **Floor and debt** (2.3): `ReservedFloorPlan`, the settle step, the single pipeline, the Debt
-   tooltip line; replaces phase 2's plain 0 clamp where a cost lies ahead.
+   tooltip line; replaces phase 2's plain 0 clamp where a cost lies ahead. Built, with the capture
+   sequence that decides "ahead" (2.3).
 4. **Clicks and open reservations** (2.5): predicates, the launch mark and backstop, the Mission
    Control kind, Reserved including `openRes` (the open penalties left the pool reserve in phase 2).
 
@@ -467,3 +526,10 @@ Flown on V's PC.
   flight landed after a patch had already filed it as a transient leak (cell T2e reds under it), so
   the forgiveness is replayed only over rows stock applied since the last patch (`lastPatchUT`).
   T1, T1b, T2 and T2c read red before the fix; M2 stays green.
+- Build of phase 3 (2026-10-22): defining "a committed cost lies ahead" by row order floored a
+  career that never rewinds: a fail past 0 at day 10, an earning, then a purchase at day 30 made
+  after both read the purchase as ahead of the fail, so the walk held back the fail and a later
+  earning repaid a debt stock never had, leaving the pool below stock. The build stopped there; the coordinator ruled
+  capture order (2.3), with a capture sequence per save. The counterexample is a cell that must read
+  exactly stock (stock's numbers, no debt, no adjustment row, no floor line), next to the same rows with the
+  purchase captured before the fail (floor and debt), for funds and reputation.

@@ -89,9 +89,13 @@ namespace Parsek
                 }
             }
 
+            // The capture order (committed-value rule plan section 2.3): stamped here, where
+            // stock's change is captured, and carried onto every row converted from it.
+            if (e.captureSequence <= 0)
+                e.captureSequence = CaptureSequence.Next();
             events.Add(e);
             ParsekLog.Verbose("GameStateStore",
-                $"AddEvent: {e.eventType} key='{e.key}' tag='{e.recordingId ?? ""}' ut={e.ut:F1} (total={events.Count})");
+                $"AddEvent: {e.eventType} key='{e.key}' tag='{e.recordingId ?? ""}' ut={e.ut:F1} cseq={e.captureSequence} (total={events.Count})");
         }
 
         internal static bool IsEventVisibleToCurrentTimeline(GameStateEvent e)

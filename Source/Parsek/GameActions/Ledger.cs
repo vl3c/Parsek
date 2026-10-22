@@ -204,11 +204,14 @@ namespace Parsek
             }
 
             action.ParsekAuthored = writer == LedgerRowWriter.ParsekAuthored;
+            // A row written directly is captured now; a converted row keeps its event's value.
+            CaptureSequence.StampIfMissing(action);
             actions.Add(action);
             BumpStateVersion();
             ParsekLog.Verbose("Ledger",
                 $"Added action: type={action.Type}, ut={action.UT.ToString("R", CultureInfo.InvariantCulture)}, " +
-                $"recordingId={action.RecordingId ?? "(none)"}, writer={writer}, total={actions.Count}");
+                $"recordingId={action.RecordingId ?? "(none)"}, writer={writer}, " +
+                $"cseq={action.CaptureSequence.ToString(CultureInfo.InvariantCulture)}, total={actions.Count}");
         }
 
         /// <summary>
@@ -233,7 +236,9 @@ namespace Parsek
 
             int before = actions.Count;
             bool parsekAuthored = writer == LedgerRowWriter.ParsekAuthored;
-            foreach (var action in newActions)
+            var batch = new List<GameAction>(newActions);
+            CaptureSequence.StampBatchIfMissing(batch);
+            foreach (var action in batch)
             {
                 if (action != null)
                 {
@@ -1463,6 +1468,7 @@ namespace Parsek
             BumpStateVersion();
             ResetLegacyActionIdMigrationForTesting();
             ResetContractDeadlineMigrationTally();
+            CaptureSequence.ResetForTesting();
             // Test isolation: route events and the retired route cargo stash lived in the
             // ledger before route events left it, so every test that resets the ledger also
             // starts with an empty route event log and stash.
