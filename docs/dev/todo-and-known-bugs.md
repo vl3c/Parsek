@@ -853,7 +853,11 @@ rewind (`RecordingStore.WillReplayAfterRewind`, the strip and spawn gates' predi
 bring the vessel back, so it holds nothing (`chainsNotReplayed=` / `fliesNotReplayed=` in the summary)
 and the vessel stays live as before. Tests: `RewindVesselHoldTests`.
 Not covered: a Discard Re-fly lands in the rewind point's world with no hold (the Re-Fly start
-cleared the plain rewind's, and the discard computes none).
+cleared the plain rewind's, and the discard computes none). And a vessel another tree spawned and
+this tree adopted by inventory transfer (EVA-9's capsule) is taken by the rewind's spawn strip
+(`superseding-continuation-replays`) before the hold runs, so a flight near it shows nothing of it
+until its transfer member's ghost starts (`ForeignInventoryTransfer.FindAdoptedForeignVesselMember`
+matches same-tree holders only).
 
 ## ~~REMAINING-RECORDED-VELOCITY-SEEDS: state-vector map ghosts, the spawner's state-vector seeds and the scene-exit finalizer's reseeds read a recorded velocity as inertial and in this session's axes~~ [FILED AND FIXED 2026-10-20 from the TERMINAL-SPAWN-TAIL-ORBIT-SURFACE-VELOCITY audit (its "Still open" item 1) and harness lanes EVA-4 (run `2026-10-11_1458`), GS-7 (run `2026-10-12_1856`) and LAB-10 (run `2026-10-18_0104`, the control), branch `claude/remaining-velocity-seeds`. xUnit; re-flown green: EVA-4, GS-7, LAB-10, LAB-7, V20M, V20T on the first build (`2026-10-20_1812`..`_1842`), EVA-4 `2026-10-20_1850` and LAB-10b `2026-10-20_1857` on the review build (`FromLatLonAltAndSameSessionRecordedVelocity: site=predicted-tail-reseed ... source=pair-resolved ... velFrame=rotating`; `State-vector seed velocity: site=create ... source=pair-resolved ... velFrame=inertial ... residual=0.000`, the map ghost still `sma=700213`). product]
 
