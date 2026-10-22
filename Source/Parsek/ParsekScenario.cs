@@ -6507,6 +6507,22 @@ namespace Parsek
                 && tree.Recordings.ContainsKey(marker.ActiveReFlyRecordingId);
         }
 
+        /// <summary>
+        /// Pure: true when an active-tree restore keeps the committed copy of its tree committed
+        /// (and skips the splice) because a live committed-tree restore attempt is armed for
+        /// that tree. Never after a save-attempt re-arm (that branch already keeps it) and
+        /// never on a Re-Fly start, whose rewind-point load abandons the attempt's flight.
+        /// </summary>
+        internal static bool ShouldLiveAttemptKeepCommittedCopy(
+            bool saveAttemptRearmed,
+            EarlyLoadKind earlyLoadKind,
+            bool attemptArmedForTree)
+        {
+            return !saveAttemptRearmed
+                && earlyLoadKind != EarlyLoadKind.ReFlyStart
+                && attemptArmedForTree;
+        }
+
         internal static bool TryRestoreActiveTreeNode(
             ConfigNode node,
             EarlyLoadKind earlyLoadKind = EarlyLoadKind.InSession,
@@ -6651,8 +6667,14 @@ namespace Parsek
                 // original committed (the scene-exit merge must replace it, a Discard must find
                 // it) and skips the splice (its same-id refresh would put the committed trajectory
                 // over a recording resumed in place).
-                bool liveAttemptKeepsCommittedCopy = !saveAttemptRearmed
-                    && RecordingStore.IsCommittedTreeRestoreAttemptTree(tree.Id);
+                // Not on a Re-Fly start: the rewind point's load abandons the pre-rewind flight
+                // whose attempt this is (ConsumePostLoad discards it), so the session tree takes
+                // the splice and the detach like any other restore, or the merge never sees the
+                // post-rewind-point recordings of the slot it re-flies.
+                bool liveAttemptKeepsCommittedCopy = ShouldLiveAttemptKeepCommittedCopy(
+                    saveAttemptRearmed,
+                    earlyLoadKind,
+                    RecordingStore.IsCommittedTreeRestoreAttemptTree(tree.Id));
                 int splicedFromCommitted = saveAttemptRearmed || liveAttemptKeepsCommittedCopy
                     ? 0
                     : SpliceMissingCommittedRecordingsIntoLoadedTree(tree, tree.ActiveRecordingId);

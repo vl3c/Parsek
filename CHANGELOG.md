@@ -61,6 +61,14 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A booster still under its parachute when you leave the flight is no longer saved as crashed.**
+  It stays a flight still in the air, so it keeps its Unfinished Flight and can be re-flown to a
+  landing. A vessel falling with no open parachute is still read as the crash it is heading for.
+  (SCENE-EXIT-FINALIZER-CRASHES-A-CHUTE-DESCENT)
+- **Re-flying the second half of a split after the first no longer closes it as crashed.** After a
+  load, the Re-Fly of the other half now keeps every flight recorded after the separation, so its
+  merge finds its slot and the rewind point stays open until both halves are done.
+  (REFLY-SECOND-SLOT-MERGE-LOSES-ITS-SLOT)
 - **A Re-Fly holds back every vessel a later flight uses, and keeps holding it after a reload.**
   A station or rover a recorded later flight docks with or boards is now held back too, so the
   re-fly can't change it, and an F9 or a scene reload during the Re-Fly redraws the held vessels

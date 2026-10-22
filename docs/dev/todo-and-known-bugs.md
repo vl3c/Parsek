@@ -16,7 +16,19 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## SCENE-EXIT-FINALIZER-CRASHES-A-CHUTE-DESCENT: leaving the flight finalizes a booster still descending under its parachute as Destroyed [FILED 2026-10-22 from RF-L2 `2026-10-22_0734` (PARSEK-FAIL, expectations), flown for PR #2173, and the same on plain main 9dbf9c2 (`2026-10-22_0817`). OPEN, medium; a main regression since 2b5cd9b, likely exposed by PR #2154 (REMAINING-RECORDED-VELOCITY-SEEDS), not bisected. product]
+## SCENE-EXIT-RECOVERY-READS-A-ZERO-ALTITUDE-SEED-AS-ORBITING: an early finalizer pass on a just-decoupled booster extrapolates a recorded point at altitude 0.0 into an Orbiting terminal [FILED 2026-10-22 from RF-L2 `2026-10-22_1026` (PASS), flown for PR #2176. OPEN, low; no verdict or saved terminal affected so far. product]
+
+On the booster's first background finalizer pass after the decouple, before its chutes opened, the
+recorded-point recovery used a parent-anchored body-fixed sample with `recordedAlt=0.0` (the booster
+was about 350 m up) and logged `recovered sub-surface live-orbit fallback ... (pointUT=31.120,
+recordedAlt=0.0) -> terminal=Orbiting terminalUT=1576800031.1`. Later passes replaced it and the
+commit read SubOrbital, so nothing kept the wrong value. The red main run `2026-10-22_0817` read the
+same kind of point (`pointUT=30.860, recordedAlt=0.0`) as Destroyed. Two questions: why the first
+`bodyFixedFrames` / `Points` sample of a controlled-decoupled child carries altitude 0.0, and whether
+the recovery should refuse a seed at or below the surface instead of extrapolating it. Next: read
+the booster's first sidecar samples from the RF-L2 save.
+
+## ~~SCENE-EXIT-FINALIZER-CRASHES-A-CHUTE-DESCENT: leaving the flight finalizes a booster still descending under its parachute as Destroyed~~ [FILED 2026-10-22 from RF-L2 `2026-10-22_0734` (PARSEK-FAIL, expectations), flown for PR #2173, and the same on plain main 9dbf9c2 (`2026-10-22_0817`). FIXED 2026-10-22 in PR #2176 (RF-L2 `2026-10-22_1026` PASS attempt 1), exposed by PR #2154 (REMAINING-RECORDED-VELOCITY-SEEDS). product]
 
 RF-L2's first flight exits to the Space Center at UT 124.4 while the booster probe hangs under its
 chute at about 330 m. The scene-exit finalizer's sub-surface fallback rebuilt a start state from the
@@ -33,7 +45,21 @@ always reads as an impact. Next: bisect 2b5cd9b..9dbf9c2 (the finalizer commits 
 ef64c1e0c first), then decide whether the fallback should decline a recorded point whose descent is far below ballistic (deployed chute)
 rather than extrapolate it.
 
-## REFLY-SECOND-SLOT-MERGE-LOSES-ITS-SLOT: after both halves of one split are re-flown in turn, the second merge cannot find its slot [FILED 2026-10-22 from RF-11 `2026-10-22_0804` / `_0805_a2` (INVALID, driver-arg, both attempts), flown for PR #2173, and the same on plain main 9dbf9c2 (`2026-10-22_0814` / `_0816_a2`). OPEN, medium; a main regression since 2b5cd9b (RF-11's last green, `2026-10-20_1650`), not bisected. product]
+Fix: the recorded-point recovery in `IncompleteBallisticSceneExitFinalizer.TryFinalizeRecording`
+now declines (`reason=open-parachute pid=<chute pid>`) when the recording's own part events leave a
+parachute open at the recorded point's UT (`TryFindOpenParachuteAtUT`: the latest
+`ParachuteDeployed` / `ParachuteSemiDeployed` per part, closed again by `ParachuteCut`,
+`ParachuteDestroyed`, `ParachuteRepacked`, the part's `Destroyed`, or a `Decoupled` keyed to the
+chute, i.e. a chute that tore off as the root of the departing piece). A chute that leaves on a
+piece rooted elsewhere still reads open (the recorder writes no event for it), so that rare
+vessel keeps the pre-#2154 SubOrbital. The decline falls through to
+the existing suppression, which keeps the recorder's SubOrbital verdict, the pre-#2154 outcome for
+this population. A recorded point with no open chute (a cut chute included) still recovers through
+the extrapolator, so #2154's frame fix stands for a real ballistic fall. Unit cells in
+`SceneExitFinalizationIntegrationTests` (`..._OpenParachuteSkipsRecoveryAndKeepsSuppression`, the
+cut-chute mirror, the per-part state reader).
+
+## ~~REFLY-SECOND-SLOT-MERGE-LOSES-ITS-SLOT: after both halves of one split are re-flown in turn, the second merge cannot find its slot~~ [FILED 2026-10-22 from RF-11 `2026-10-22_0804` / `_0805_a2` (INVALID, driver-arg, both attempts), flown for PR #2173, and the same on plain main 9dbf9c2 (`2026-10-22_0814` / `_0816_a2`). FIXED 2026-10-22 in PR #2176 (RF-11 `2026-10-22_1034` PASS attempt 1); regression from e46a9ef in PR #2169 (the live-attempt keep). product]
 
 RF-11 re-flies slot 0 of `rp_404ea488...` and merges (`qualifies=True slot=0`), then re-flies slot 1
 and merges. That second merge logs `[Supersede][ERROR] Site B-1 slot lookup failed for
@@ -48,6 +74,20 @@ is `SupersedeCommit.TryResolveSlotByMarkerTarget`: the rewind point matched by b
 neither did the origin-target fallback. Neither file changed in that range, so the slot list or the
 supersede rows reaching it did. A player sees the second half of a split close as crashed and lose
 its re-fly. Next: bisect 2b5cd9b..9dbf9c2 with RF-11.
+
+Cause (read from the red and green logs): RF-11's in-session `LoadGame` before the slot-1 invoke
+arms a committed-tree restore attempt for the tree (`TryTakeCommittedTreeForSpawnedVesselRestore`).
+Since e46a9ef, `TryRestoreActiveTreeNode` keeps the committed copy and skips the splice whenever an
+attempt is armed for the restored tree, and the rewind point's own load is such a restore: the
+session tree came back with the rewind point's 8 members instead of the spliced 12 (`kept the
+committed copy ... live restore attempt's clone`), `ConsumePostLoad` then discarded the attempt,
+the merge unioned a 9-recording tree, re-finalized the stale pre-rewind copy of the slot's origin
+`490f0f52` as Destroyed, and the supersede closure wrote only `99ae6e58 -> fork` (green: both
+`99ae6e58` and `490f0f52`), so neither slot walk reached the fork. Fix: the live-attempt keep
+(`ParsekScenario.ShouldLiveAttemptKeepCommittedCopy`) no longer applies on an `EarlyLoadKind.ReFlyStart`
+load, whose rewind point abandons the attempt's flight; that load splices and detaches as before
+e46a9ef. Unit cells in `InPlaceResumeSidecarVersionTests` (the Re-Fly start splice + detach, and the
+predicate's truth table).
 
 ## ~~QL-2-RECOVER-REFUSED-WHILE-SLIDING: QL-2's Recover can be refused while the landed Flea still slides, and the refusal reads as a Parsek failure~~ [FILED 2026-10-22 from QL-2 `2026-10-21_2220` and `2026-10-22_0001` (both PARSEK-FAIL, expectations), flown for PR #2170. Half fixed in PR #2170, merged (the verb waits); the classification half FIXED 2026-10-22 in PR #2175 (harness unit cells; QL-2 `2026-10-22_0833` PASS attempt 1 did not hit a refusal). harness]
 

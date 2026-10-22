@@ -319,6 +319,9 @@ it is never rewritten and its epoch does not move before a merge (the attempt me
 starts at the same epoch, also checks that the head holds the hash it names). An in-session load
 of such a save while the attempt is armed for that tree (the save stock makes before leaving
 flight) keeps the committed original committed and skips the splice, as the cold re-arm does.
+A Re-Fly start's load is the exception: the rewind point abandons the attempt's flight (the
+attempt is discarded right after the load), so its tree takes the splice and the detach like any
+other restore, and the session sees every recording committed after the rewind point.
 Such a save names two versions
 of the id; the cold load reads each copy from its own bytes (two owners, no promote) and re-arms
 the attempt as above. A Discard leaves the committed copy current through its version, and the
