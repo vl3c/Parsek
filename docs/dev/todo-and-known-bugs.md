@@ -16,6 +16,39 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## SCENE-EXIT-FINALIZER-CRASHES-A-CHUTE-DESCENT: leaving the flight finalizes a booster still descending under its parachute as Destroyed [FILED 2026-10-22 from RF-L2 `2026-10-22_0734` (PARSEK-FAIL, expectations), flown for PR #2173, and the same on plain main 9dbf9c2 (`2026-10-22_0817`). OPEN, medium; a main regression since 2b5cd9b, likely exposed by PR #2154 (REMAINING-RECORDED-VELOCITY-SEEDS), not bisected. product]
+
+RF-L2's first flight exits to the Space Center at UT 124.4 while the booster probe hangs under its
+chute at about 330 m. The scene-exit finalizer's sub-surface fallback rebuilt a start state from the
+last recorded point (`recovered sub-surface live-orbit fallback ... pointUT=123.140,
+source=TrackSection[1].frames, recordedAlt=331.7 -> terminal=Destroyed terminalUT=130.3`, the
+extrapolator `Terminal reason=cutoff ... alt=64.4`), so the slot qualified as `reason=crashed`
+instead of `reason=stableLeafUnconcluded terminal=SubOrbital` and RF-L2's two required lines never
+printed; the Re-Fly itself still ran and landed. The last green RF-L2 (`2026-10-20_1642`, 2b5cd9b,
+before PR #2154) finalized the same booster SubOrbital with no extrapolation. PR #2154 changed that
+fallback's velocity to `OrbitReseed.FromLatLonAltAndSameSessionRecordedVelocity`, which plausibly
+turned a reseed that used to collapse sub-surface (and fall through to suppression) into one that
+succeeds. The ballistic extrapolator has no parachute model, so a slow chute descent near the ground
+always reads as an impact. Next: bisect 2b5cd9b..9dbf9c2 (the finalizer commits 46d2779f9 /
+ef64c1e0c first), then decide whether the fallback should decline a recorded point whose descent is far below ballistic (deployed chute)
+rather than extrapolate it.
+
+## REFLY-SECOND-SLOT-MERGE-LOSES-ITS-SLOT: after both halves of one split are re-flown in turn, the second merge cannot find its slot [FILED 2026-10-22 from RF-11 `2026-10-22_0804` / `_0805_a2` (INVALID, driver-arg, both attempts), flown for PR #2173, and the same on plain main 9dbf9c2 (`2026-10-22_0814` / `_0816_a2`). OPEN, medium; a main regression since 2b5cd9b (RF-11's last green, `2026-10-20_1650`), not bisected. product]
+
+RF-11 re-flies slot 0 of `rp_404ea488...` and merges (`qualifies=True slot=0`), then re-flies slot 1
+and merges. That second merge logs `[Supersede][ERROR] Site B-1 slot lookup failed for
+provisional=<rec> markerOrigin=490f0f52... markerTarget=99ae6e58... rp=rp_404ea488...
+reason=noMatchingMarkerTargetSlot; terminal=Destroyed; falling back to v0.9 terminalKind
+classifier`, then `qualifies=False slot=<none> rp=<none> classifierReason=fallback:Crashed`, so
+slot 1 closes. Sealing slot 0 next makes the point fully sealed and reaps it (`Reaped
+rp=rp_404ea488... slots=2`), and the lane's `SealSlot slot=1` is refused `unknown-rp`. On 2b5cd9b the
+same merge read `qualifies=True slot=1 ... focusSlotOverride=1 classifierReason=crashed`. The lookup
+is `SupersedeCommit.TryResolveSlotByMarkerTarget`: the rewind point matched by branch point but
+`EffectiveState.ResolveRewindPointSlotIndexForRecording` found no slot for the marker target, and
+neither did the origin-target fallback. Neither file changed in that range, so the slot list or the
+supersede rows reaching it did. A player sees the second half of a split close as crashed and lose
+its re-fly. Next: bisect 2b5cd9b..9dbf9c2 with RF-11.
+
 ## QL-2-RECOVER-REFUSED-WHILE-SLIDING: QL-2's Recover can be refused while the landed Flea still slides, and the refusal reads as a Parsek failure [FILED 2026-10-22 from QL-2 `2026-10-21_2220` and `2026-10-22_0001` (both PARSEK-FAIL, expectations), flown for PR #2170. Half fixed in PR #2170, merged (the verb waits); the classification gap is OPEN, low. harness]
 
 The mission reported MISSION-OK, but seam step 0067 `Recover` was refused
@@ -203,7 +236,7 @@ quickload also undoes Space Center purchases made after the quicksave". Fix: the
 resume retires untagged Space Center rows after the save UT (the QL-R2 cell flips); rewinds keep
 ruling D2. This also closes O1 of LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY.
 
-## ~~REFLY-WALK-DEADLINE-EXPIRES-CONTRACT-WITHOUT-PENALTY: a committed-future row past an active contract's deadline ends the contract in the walk with no penalty~~ [FILED 2026-10-20, deferred by the section 2.12 phase agents. FIXED on branch claude/project-thread-7ifqcx]
+## ~~REFLY-WALK-DEADLINE-EXPIRES-CONTRACT-WITHOUT-PENALTY: a committed-future row past an active contract's deadline ends the contract in the walk with no penalty~~ [FILED 2026-10-20, deferred by the section 2.12 phase agents. FIXED on branch claude/project-thread-7ifqcx (PR #2173); xUnit, Re-Fly regression lanes green on 457220c]
 
 Section 2.12 Rule 3 judges deadlines at the session clock (`ContractsModule.PrePass`), but
 `ContractsModule.ProcessAction` also runs `CheckDeadlines(action.UT)` on every walked row. When a
@@ -223,7 +256,7 @@ are clock-less, so the invoke walk alone would keep the contract active and the 
 fail it. Cells: `ContractsModuleTests.PrePass_SessionClockBeforeDeadline_CommittedRowPastIt_*`,
 `RewindUtCutoffTests.ReFlyInvokeWalk_DeadlineAheadOfClockButBehindACommittedRow_ChargesThePenalty`.
 
-## ~~REFLY-INVOKE-HOLDS-NOT-REDRAWN-AFTER-RELOAD: the vessels a Re-Fly invoke holds back for the committed future are held in memory only~~ [FILED 2026-10-20, deferred by the section 2.12 phase agents. FIXED on branch claude/project-thread-7ifqcx]
+## ~~REFLY-INVOKE-HOLDS-NOT-REDRAWN-AFTER-RELOAD: the vessels a Re-Fly invoke holds back for the committed future are held in memory only~~ [FILED 2026-10-20, deferred by the section 2.12 phase agents. FIXED on branch claude/project-thread-7ifqcx (PR #2173); lane RB-3 LIVE-PROVEN `2026-10-22_0710`]
 
 The invoke hands a vessel the committed future flies or recovers to the claimed-vessel hold, but
 the hold set lives in memory, so after a scene reload inside the session (F9, a scene change) the
@@ -240,7 +273,7 @@ rewind-save shape. Skipped while an invoke is in flight. Log: `[ClaimedHoldGhost
 holds restored after reload: ...`. Pure cells in `ReFlyInvokeHoldGapsTests`; the live redraw needs
 an in-game lane (a Re-Fly with a held vessel, F5, F9, hold ghost shown again).
 
-## ~~REFLY-HOLD-FEED-MISSES-DOCK-AND-BOARD: a vessel the committed future only changes (docks with, boards) is not held back at invoke~~ [FILED 2026-10-20, deferred by the section 2.12 phase agents. FIXED on branch claude/project-thread-7ifqcx]
+## ~~REFLY-HOLD-FEED-MISSES-DOCK-AND-BOARD: a vessel the committed future only changes (docks with, boards) is not held back at invoke~~ [FILED 2026-10-20, deferred by the section 2.12 phase agents. FIXED on branch claude/project-thread-7ifqcx (PR #2173); xUnit, Re-Fly regression lanes green on 457220c]
 
 Section 2.12 Rule 3 holds a vessel a committed recording "flies, changes or recovers" after the
 rewind UT. The invoke's claimed-hold feed covers flies and recovers; a dock or board onto the
@@ -256,7 +289,7 @@ reads every Dock / Board branch point after the rewind UT (claimant = first pare
 session suppresses; `Classify` holds a positively identified survivor with evidence `changes` until
 the claim UT. Undock / EVA / JointBreak targets stay with the chain feed.
 
-## ~~REFLY-COLD-LOAD-ZOMBIE-KEEPS-ATTEMPT-POOLS: a cold load that sweeps a zombie Re-Fly attempt can keep what the attempt earned in the stock pools~~ [FILED 2026-10-20 from the section 2.12 review fix-up, code read. FIXED on branch claude/project-thread-7ifqcx]
+## ~~REFLY-COLD-LOAD-ZOMBIE-KEEPS-ATTEMPT-POOLS: a cold load that sweeps a zombie Re-Fly attempt can keep what the attempt earned in the stock pools~~ [FILED 2026-10-20 from the section 2.12 review fix-up, code read. FIXED on branch claude/project-thread-7ifqcx (PR #2173); xUnit, Re-Fly regression lanes green on 457220c]
 
 The merge-dialog Discard and the in-session load's second walk after the zombie sweep now patch
 the pools back as an authoritative reduction (`reFlyDiscard`). Two zombie cases still run a

@@ -2,7 +2,7 @@ schema = 1
 id = "RB-3-refly-hold-redrawn-after-reload"
 # =====================================================================================
 # A RE-FLY'S HELD VESSEL IS HELD AGAIN AFTER AN F5 / F9 INSIDE THE SESSION (todo
-# REFLY-INVOKE-HOLDS-NOT-REDRAWN-AFTER-RELOAD, design section 2.12 Rule 3). NOT YET FLOWN.
+# REFLY-INVOKE-HOLDS-NOT-REDRAWN-AFTER-RELOAD, design section 2.12 Rule 3). LIVE-PROVEN 2026-10-22, `2026-10-22_0710` PASS attempt 1.
 #
 # THE DEFECT, DERIVED FROM SOURCE. The invoke hands a survivor a committed recording flies
 # later to the claimed-vessel hold (RewindInvoker.HoldResurrectedVesselsWithCommittedFuture ->
@@ -32,7 +32,7 @@ id = "RB-3-refly-hold-redrawn-after-reload"
 tier = "operator"
 description = "Re-Fly hold after reload (design 2.12 Rule 3): the Flea a later committed flight flies is held at the invoke; an F5 / F9 inside the session holds it again from the rewind point's save and redraws its hold ghost."
 instanceProfile = "stock-minimal"
-tags = ["RB-3", "rewind", "refly", "claimed-hold", "quickload", "career", "pending-flight"]
+tags = ["RB-3", "rewind", "refly", "claimed-hold", "quickload", "career"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/career-science-pad"
