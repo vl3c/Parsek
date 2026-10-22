@@ -548,7 +548,7 @@ cost needs the money (phase 4); a reserve released by a contract completion come
 Flown on V's PC. Phase 3's funds side: `L9-career-floor-debt-after-rewind` (LIVE-PROVEN
 2026-10-22, `2026-10-22_1342`) cancels a contract after a rewind, before the committed costs, and
 pins the settle and the Debt charge; under phase 4 that cancel stays allowed (it releases its own
-reserve). Phase 4's lane is `L10-career-click-reserve-after-rewind` (authored, never flown): L9's
+reserve). Phase 4's lane is `L10-career-click-reserve-after-rewind` (live-proven 2026-10-22, `2026-10-22_1932`, once PR #2181 made the rewind land in its own world): L9's
 host and committed purchases, then after the rewind a Tracking Station repair the live pool covers is
 greyed and refused for the open penalties, the Cancel that releases its own penalty is allowed, and a
 Mission Control Accept whose penalty exceeds its advance is greyed and refused while one whose advance

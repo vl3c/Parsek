@@ -108,6 +108,9 @@ tier = "nightly"
 # (`kscaction refused action=accept-contract reason=blocked-committed`). Re-fly once #2181 is
 # on main; no token changes from this reading.
 #
+# SECOND READING `2026-10-22_1932` PASS attempt 1 on main + #2181 (head cd4e684): every token matched
+# as written, so the lane is live-proven with no token change.
+#
 # STATUS: AUTHORED 2026-10-22. Every token below is derived from the source and the
 # fixture, not from a log. THE READING RUN MUST SETTLE:
 #   - The two snapshot lines (openContracts=2 / =1, openRes 36225 / 27225) and the probe's
