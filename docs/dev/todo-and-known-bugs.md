@@ -441,7 +441,9 @@ and logistics design section 10.6).**
   the Cancel button to in-flight fails); **rule 1 BUILT 2026-10-22** (`Patches/ContractEarlyFailPatch.cs`: a
   prefix on stock's fail funnel `Contract.SetState(State.Failed)` reads the Cancel block's
   `CommittedContractResolutionAfter`; tests `ContractEarlyFailPatchTests`; plan
-  `docs/dev/plans/committed-value-rule-implementation.md`); an open contract's fail penalty is reserved (rule 2);
+  `docs/dev/plans/committed-value-rule-implementation.md`; known gap: the refusal is strict-future
+  and the flight scene has no clock cursor, so once a flight's clock passes the committed outcome's UT
+  a fail goes through until the next recalculation applies the outcome); an open contract's fail penalty is reserved (rule 2);
   Mission Control Accept / Cancel / Decline are greyed when their penalty or the reservation they
   add would leave a later committed purchase or strategy cost unpaid (rule 3); a death or
   vessel-loss reputation hit stops at the reputation reserved for committed costs, the rest is a

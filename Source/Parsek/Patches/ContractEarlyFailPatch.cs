@@ -11,12 +11,18 @@ namespace Parsek.Patches
     /// L1.1, rule 1 of the committed-value rule, game-actions design section 3.13). A new
     /// flight after a rewind would otherwise charge the fail penalty before a committed
     /// completion, which then pays nothing, and leave the committed purchases that completion
-    /// paid for unpaid. A committed fail or cancel moves earlier the same way. Completing such
-    /// a contract earlier stays allowed: it only moves the reward earlier.
+    /// paid for unpaid. A committed fail or cancel moves earlier the same way. A completion is
+    /// not intercepted: it only moves the reward earlier. A refused fail freezes the contract
+    /// where stock left it (stock's <c>Update()</c> returns after its <c>SetState</c> call, so
+    /// per-frame parameters stop updating while its requirements are unmet, and a refused failed
+    /// parameter stays Failed), which the committed outcome resolves.
     /// <para>Stock funnel (decompiled, KSP 1.12.5): <c>Fail()</c> and a failed non-optional
     /// parameter (<c>ParameterStateUpdate</c>) both reach <c>SetState(State.Failed)</c>, which
     /// runs <c>PenalizeFailure()</c>; refusing it leaves the contract Active, and the state
-    /// patch applies the committed outcome when the clock reaches it. <c>DeadlineExpired</c>
+    /// patch applies the committed outcome at the next recalculation past its UT. The refusal
+    /// is strict-future: the flight scene has no clock cursor, so between that UT and the next
+    /// recalculation a fail goes through (known gap, todo LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY).
+    /// Stock's <c>Fail()</c> ignores <c>SetState</c>'s outcome and returns true when refused. <c>DeadlineExpired</c>
     /// is not intercepted: the committed timeline holds the same expiry at the same UT
     /// (design 3.13, cases that need no rule). <c>OfferExpired</c> on an Active contract
     /// (stock's <c>Update()</c>, requirements no longer met) is refused too. <c>Fail()</c> and
