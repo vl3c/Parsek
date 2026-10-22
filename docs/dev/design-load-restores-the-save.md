@@ -2,7 +2,7 @@
 
 *Design specification for making every load of a save file (F9, the pause-menu Load, the main-menu Load) put Parsek back exactly as that save holds it.*
 
-**Status:** DESIGN, pre-implementation (2026-10-20). Todo `QUICKLOAD-RESTORES-THE-SAVE-EXACTLY`.
+**Status:** IMPLEMENTED (2026-10-22): Phases 1 and 2 PR #2155, follow-ups PR #2164 and PR #2169, Phase 3 PR #2170, all merged; the `QL-*` lanes are live-proven. Todo `QUICKLOAD-RESTORES-THE-SAVE-EXACTLY` (closed).
 Implementation plan: `docs/dev/plans/load-restores-the-save-implementation.md`.
 
 **Owner rulings implemented (V, 2026-10-19):**
