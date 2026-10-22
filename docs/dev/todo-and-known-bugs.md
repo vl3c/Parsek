@@ -584,7 +584,7 @@ Fix (the first direction above): when the cold load restores no active tree, no 
 Fix, the trajectory (owner ruling 2026-10-21, "Switch to versioned files", after a first cut that always resumed in a new segment was reverted: it added a segment to every in-flight commit's re-take, about 40 lane counts, and armed a switch-segment session on every resume, so a later ordinary switch popped the Merge / Discard dialog): the overlap skip is gone. `PlanActiveTreeSidecarSaves` writes a restore-attempt member that shares its id with the committed copy like any other (counted as `committedRestoreOverlap`, Verbose `writing restore-attempt recording`). The write replaces the shared head and keeps the committed bytes as their hashed version under `_versions/` (#2155). The committed copy keeps naming that hash, and `EnsureRecordingFilesCurrentForSave` treats a committed-tree recording whose head moved on as current when every named hash resolves and one resolves to a retained version (`RecordingStore.AreRecordingFilesCurrentThroughNamedVersions`, Verbose `is current through its named sidecar version(s)`), so it is never rewritten and its sidecar epoch does not move before a merge. One save then names two versions of the id; a cold load reads each copy from its own bytes without promoting (`reason=multiple-owners owners=2`) and re-arms the attempt. Discard leaves the head holding the clone's bytes and the committed copy current through its version; the next lone load promotes it back. A lazy vessel-snapshot re-hydration now reads the bytes its recording names whenever a retained version holds them (`ResolveLazyVesselSnapshotPath`), so an in-session committed copy never picks up the clone's snapshot. Because the clone starts at the committed copy's epoch, an attempt member's save also checks that the head holds the hash it names (`TrajectoryHeadHoldsNamedBytes`, `reason=head-holds-other-bytes`), so a committed rewrite at the same epoch is not read as the clone's bytes. Now that every save holds the attempt's active node, an in-session load of one (the save stock makes before leaving flight) keeps the committed original committed and skips the splice while the attempt is armed for that tree (`kept the committed copy ... the live restore attempt's clone`), as the cold re-arm does: otherwise the scene-exit merge of the clone ran as a first commit and a Discard found nothing committed (found in review). The ATTEMPT_EVENTS hold above stays as the fallback for a save written without the active tree. Cells: `InPlaceResumeSidecarVersionTests` (save, cold load, discard over real hashed sidecars; red with the skip restored, with the version rule off, with the old lazy-hydration rule, with the head-hash check off, and with the live-attempt keep or splice skip removed), `SaveActiveTreeSidecarBothOrNeitherTests`, the `ColdLoadRestoreAttemptRearmTests` wiring cell. Residual, not changed: `SavePendingTreeIfAny` still skips a dirty pending-tree member that shares a committed id, so a pending tree written at the Space Center with unsaved resumed flying is left out of that save. Lane QL-13.
 
 
-## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. RULED 2026-10-21 (owner interview, every path); O2 and O3 FIXED 2026-10-22; plan phases 2 and 3 BUILT 2026-10-22; OPEN for O6 / O7 (phase 4, the clicks); same invariant as section 2.12]
+## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. RULED 2026-10-21 (owner interview, every path); O2 and O3 FIXED 2026-10-22; plan phases 2, 3 and 4 BUILT 2026-10-22 (phase 4, the clicks, on branch `o6-phase4-local`); OPEN until the phases land and the career lanes fly; same invariant as section 2.12]
 
 Each breaks "the committed timeline pays for every committed spend at every UT" without Re-Fly:
 (O1, ruled 2026-10-19: a quickload undoes Space Center rows after the save, fixed with
@@ -721,8 +721,41 @@ and logistics design section 10.6).**
   is inert; the projection reserve stays debt-free; reputation's floor uses the debt-free curve (a
   few tenths short, documented). Harness, predicted and not re-flown: only lanes with a loss after a
   rewind that lies before a committed cost move. New lane `L9-career-floor-debt-after-rewind`
-  (authored 2026-10-22, never flown): a contract cancel after a rewind settles at the funds floor and
-  a later accept pays the Debt; phase 4 makes its cancel a refused step and re-pins it.
+  (LIVE-PROVEN 2026-10-22, `2026-10-22_1342`): a contract cancel after a rewind settles at the funds floor and
+  a later accept pays the Debt; under phase 4 its cancel stays allowed (it releases its own reserve).
+- **Plan phase 4 BUILT 2026-10-22** (branch `o6-phase4-local`, on phase 3; plan section 2.5, rule 3;
+  closes O7 and the P15 half of GUI-P15-D7-TWO-SAFETY-GATES-THAT-EXIST-AND-ARE-NEVER-ARMED): a click
+  that would spend money, science or reputation reserved for a committed cost ahead or for an open
+  contract's fail penalty is greyed with the reason and refused by its backstop. One snapshot per
+  now (`GameActions/ClickReservation.cs`, `ClickReservationGate.Current()`): with no committed cost
+  row after now it is inert and walks nothing; otherwise one cached probe walk to now
+  (`RecalculationEngine.ProbeClickReservationAtCutoff`) gives per pool the target, the need of the
+  cost rows after now (`ReservedFloorPlan.NeedOfRowsAfter`) and the live value; `openRes` sums the
+  Active contracts' fail penalties with no committed resolution after now, only in a pool with a
+  cost ahead (reputation through the curve at the current reputation). Funds and science
+  `spendable = min(max(target, 0), live) - openRes`; reputation `min(running, live) - need - openRes`.
+  A purchase is refused when the live pool covers the cost and the cost is above spendable (a plain
+  shortage stays stock's). Controls: editor Launch and the Space Center craft picker
+  (`Patches/LaunchReservationPatches.cs`: `CanAffordLaunchTest.Test` / `GetWarningDescription`
+  postfixes, `EditorLogic.UpdateUI`, `EditorLaunchMark`, `VesselSpawnDialog.UpdateVesselInfoPanel`),
+  facility upgrade / rebuild / repair (menu marks plus the three spend patches), Astronaut Complex
+  Hire, part purchase, strategy setup (all three pools), and Mission Control Accept / Decline /
+  Cancel (new `StockUiDecorationKind.ContractReserve` with a `StockUiReserveButtons` set, refused
+  when `spendable + delta - addedReserve < min(0, spendable)` in a pool with a cost ahead; the GUI
+  mirror lists it block-only). One sentence, `ReservationExplanation.ClickReserve`. The funds
+  tooltip's Reserved includes `openRes`. Tests: `ClickReservationTests` (50 cells: the model and the
+  no-cost-ahead identity, L1.2, the gate's inert fast path and cache, replay bypass, the Mission
+  Control decide and its 15-cell pairing grid with the backstops, every purchase backstop and its
+  inert case, the launch helpers, the tooltip), `test_gui_mirror`. Mutation: dropping the two
+  cost-ahead checks reads 9 cells red. Deviations: cost ahead is judged by UT (a click is captured
+  after every row); tech needs no new predicate (science has no open penalties). Known limits: stock
+  auto-hiring crew into a launch's empty seats (`CrewRoster.HireApplicant` outside the Astronaut
+  Complex) is not refused; a contract accepted later on the timeline but not open now is not in
+  `openRes` (its penalty is a ledger row); the reputation penalty is curved at today's reputation;
+  strategy and `CurrencyModifierQuery` cost modifiers are not modelled (raw cost). Harness, not
+  flown: every greyed control and its stock tooltip text, the `VesselSpawnDialog` patch binding its
+  `object` parameter, the `EditorLogic.UpdateUI` postfix order, and the live `Contract`, `Funding`
+  and `Reputation` reads.
 - O2: a stock revert removes only the rows the reverted flight wrote; every committed row stays
   (matches D2). **FIXED 2026-10-22** (branch `claude/project-thread-6f7rhy`): Parsek remembers
   the ledger's row ids where stock captures its revert targets (every non-revert flight entry for
@@ -9568,6 +9601,11 @@ reason in its hover echo, so the advice lands somewhere real.
 **P15 ruled 2026-10-21 (V, ledger rulings interview, O7 of LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY):**
 the funds check is enforced, not advisory: a funds purchase or launch cost that eats into reserved
 money is greyed with the reason, as science already is. The fix ships with that entry's general rule.
+**P15 BUILT 2026-10-22** with plan phase 4 of LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY (branch
+`o6-phase4-local`): funds purchases and launches are refused, and their stock controls greyed, when
+they would eat into money reserved for a committed cost ahead or an open contract's penalty
+(`GameActions/ClickReservation.cs`); the Reserved readout includes the open penalties. Closes when
+that branch lands.
 
 **Evidence.**
 
@@ -9593,7 +9631,7 @@ money is greyed with the reason, as science already is. The fix ships with that 
   authoritative rewind) and names the two legitimate causes; the abort branch survives only
   under `RewindReadbackGuard.ForceAbortForTesting`.
 
-**Decision:** P15 remains open - arm the funds gate, or delete it and say in the tooltip that
+**Decision:** (superseded by the 2026-10-21 ruling and the phase 4 build above) P15 remains open - arm the funds gate, or delete it and say in the tooltip that
 the check is advisory. A named, unarmed safety gate is worse than none, because the next
 reader assumes it fires. D7 is closed above.
 

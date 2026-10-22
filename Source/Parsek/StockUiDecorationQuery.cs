@@ -52,7 +52,14 @@ namespace Parsek
         /// <summary>A facility a committed row changes level later, or whose current
         /// destruction a committed row repairs later: the facility menu's greyed
         /// "Rebuild lvl N" button and the rebuild refusal (owner ruling 2026-10-07).</summary>
-        FacilityRebuild
+        FacilityRebuild,
+        /// <summary>A click that would spend what a committed cost after now, or an open
+        /// contract's fail penalty while such a cost lies ahead, needs (committed-value rule,
+        /// design 3.13 rule 3; <see cref="ClickReservation"/>): Mission Control's Accept,
+        /// Decline or Cancel (blocked, never marked: the detail-panel reason is the
+        /// annotation), and the purchase controls (the facility menu, the Astronaut
+        /// Complex hire), where the greyed control's reason is the mark.</summary>
+        ContractReserve
     }
 
     /// <summary>One stock item as the screen lists it: a stable id and the tab it sits in.</summary>
@@ -89,6 +96,20 @@ namespace Parsek
         internal string Title;
         /// <summary>The committed row's UT the mark comes from, or NaN.</summary>
         internal double UT;
+        /// <summary>Mission Control buttons the click reservation refuses
+        /// (<see cref="StockUiDecorationKind.ContractReserve"/>, also merged into a
+        /// <see cref="StockUiDecorationKind.ContractSlot"/> decision's Decline).</summary>
+        internal StockUiReserveButtons ReserveButtons;
+    }
+
+    /// <summary>The Mission Control buttons the click reservation refuses.</summary>
+    [Flags]
+    internal enum StockUiReserveButtons
+    {
+        None = 0,
+        Accept = 1,
+        Decline = 2,
+        Cancel = 4,
     }
 
     /// <summary>

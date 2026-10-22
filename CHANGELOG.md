@@ -15,6 +15,11 @@ _(unreleased - entries accumulate here per commit)_
   0 is kept, a missed deadline never charges twice, a Re-Fly never brings back a penalty a merge
   removed, and money another mod gave you stays. Older saves keep their balances.
   (LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY)
+- **Money later flights need cannot be spent first.** While a committed flight still has a
+  purchase or strategy ahead, a launch, building upgrade or repair, hire, part, strategy or
+  Mission Control Accept, Decline or Cancel that would take money it or an open contract's penalty
+  needs is greyed with the reason, and the funds tooltip counts it as Reserved. A career with no
+  committed purchase ahead plays as stock. (LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY)
 - **After a rewind, a loss stops at what committed purchases need.** A contract fail or a crew
   death in a new flight takes funds, science or reputation only down to what later committed
   purchases and strategies still need; the rest is a debt, repaid from later gains before the pool

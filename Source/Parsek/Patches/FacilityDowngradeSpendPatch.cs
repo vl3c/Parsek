@@ -38,9 +38,12 @@ namespace Parsek.Patches
             List<FacilityRepairCapture.BuildingRepairInput> buildings;
             bool fundsCharged;
             double fundsAtOpen = double.NaN;
+            double rebuildCost = 0.0;
             try
             {
                 facility = __instance.Facility != null ? __instance.Facility.id : __instance.facilityName;
+                if (deduceFunds && __instance.Facility != null)
+                    rebuildCost = Math.Abs(__instance.Facility.GetDowngradeCost());
                 buildings = FacilityRepairCapturePatchHelpers.ReadBuildings(__instance);
                 fundsCharged = deduceFunds && Funding.Instance != null;
                 if (fundsCharged)
@@ -54,7 +57,7 @@ namespace Parsek.Patches
                 return true;
             }
 
-            return BlockOrOpenScope(facility, buildings, fundsCharged, fundsAtOpen, out __state);
+            return BlockOrOpenScope(facility, buildings, fundsCharged, fundsAtOpen, out __state, rebuildCost);
         }
 
         /// <summary>
@@ -65,13 +68,18 @@ namespace Parsek.Patches
         /// </summary>
         internal static bool BlockOrOpenScope(string facility,
             IList<FacilityRepairCapture.BuildingRepairInput> buildings,
-            bool fundsCharged, double fundsAtOpen, out bool scopeOpened)
+            bool fundsCharged, double fundsAtOpen, out bool scopeOpened, double fundsCost = 0.0)
         {
             scopeOpened = false;
             bool blocked = false;
             try
             {
                 blocked = FacilityRebuildBlock.TryBlockFacilityRebuildFor(facility, buildings);
+                // The click reservation (committed-value rule 3): the decision the greyed
+                // Rebuild reads.
+                if (!blocked && fundsCharged && fundsCost > 0.0 && !string.IsNullOrEmpty(facility))
+                    blocked = ClickReservationGate.TryRefusePurchase(StockPool.Funds, fundsCost,
+                        "facility rebuild " + facility, FacilityRebuildBlock.BlockedDialogTitle(facility));
             }
             catch (Exception ex)
             {

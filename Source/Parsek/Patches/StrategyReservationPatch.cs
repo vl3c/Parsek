@@ -81,7 +81,8 @@ namespace Parsek.Patches
             var decision = StrategyReservationPredicates.EvaluateActivation(
                 index, strategyId, nowUT, ActiveStrategyIds(), SlotLimit(),
                 stockStrategies: StockStrategies());
-            if (!decision.Blocked) return false;
+            if (!decision.Blocked)
+                return TryRefuseActivationForReserve(strategyId, out text);
 
             text = StrategyReservationPredicates.ExplainActivation(
                 decision, StrategyTitle, ReservationExplanation.DefaultDateFormatter);
@@ -90,6 +91,63 @@ namespace Parsek.Patches
                 + StrategyReservationPredicates.DescribeActivation(decision)
                 + " nowUT=" + nowUT.ToString("F0", CultureInfo.InvariantCulture));
             return true;
+        }
+
+        /// <summary>Test seam: a strategy's setup costs (funds, science, reputation).</summary>
+        internal static Func<string, double[]> SetupCostsProviderForTesting;
+
+        /// <summary>
+        /// The click reservation of a strategy's setup (committed-value rule 3): refused when
+        /// its funds, science or reputation setup cost is above what that pool can spend now
+        /// (<see cref="ClickReservationGate.EvaluatePurchaseNow(double, double, double, string)"/>).
+        /// Runs after the committed-row decision, inside the one activation decision.
+        /// </summary>
+        internal static bool TryRefuseActivationForReserve(string strategyId, out ReservationText text)
+        {
+            text = new ReservationText();
+            double[] costs = SetupCosts(strategyId);
+            if (costs == null) return false;
+            PurchaseRefusal r = ClickReservationGate.EvaluatePurchaseNow(costs[0], costs[1], costs[2],
+                "strategy setup " + strategyId);
+            if (!r.Refused) return false;
+            text = new ReservationText
+            {
+                Title = ReservationExplanation.ClickReserve().Title,
+                Fact = ClickReservationGate.PurchaseReason(r),
+            };
+            ParsekLog.VerboseRateLimited(Tag, "activation-refused-reserve|" + strategyId,
+                "activation refused strategy=" + strategyId + " - reserved for later costs pool=" + r.Pool
+                + " cost=" + r.Cost.ToString("R", CultureInfo.InvariantCulture)
+                + " spendable=" + r.Spendable.ToString("R", CultureInfo.InvariantCulture));
+            return true;
+        }
+
+        private static double[] SetupCosts(string strategyId)
+        {
+            var seam = SetupCostsProviderForTesting;
+            if (seam != null) return seam(strategyId);
+            try
+            {
+                return ReadSetupCostsCore(strategyId);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static double[] ReadSetupCostsCore(string strategyId)
+        {
+            var system = Strategies.StrategySystem.Instance;
+            if (system == null || system.Strategies == null || string.IsNullOrEmpty(strategyId)) return null;
+            for (int i = 0; i < system.Strategies.Count; i++)
+            {
+                var s = system.Strategies[i];
+                if (s?.Config == null || s.Config.Name != strategyId) continue;
+                return new double[] { s.InitialCostFunds, s.InitialCostScience, s.InitialCostReputation };
+            }
+            return null;
         }
 
         /// <summary>
@@ -368,6 +426,7 @@ namespace Parsek.Patches
             StockStrategiesProviderForTesting = null;
             StockCanBeActivatedProviderForTesting = null;
             StockCanBeDeactivatedProviderForTesting = null;
+            SetupCostsProviderForTesting = null;
             stockProbeDepth = 0;
         }
     }

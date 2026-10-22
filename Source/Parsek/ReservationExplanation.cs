@@ -613,6 +613,36 @@ namespace Parsek
             return "Needs " + cost.ToString("F1", ic) + " science, " + free.ToString("F1", ic) + " free.";
         }
 
+        /// <summary>
+        /// The click-reservation refusal (committed-value rule, design 3.13 rule 3): the
+        /// click would spend what a later cost on the timeline, or an open contract's fail
+        /// penalty while such a cost lies ahead, needs. One sentence for every purchase and
+        /// every Mission Control button it greys, shown by the greyed control and by the
+        /// refused-click dialog alike. No date: the whole timeline holds the pool, not one row.
+        /// </summary>
+        internal static ReservationText ClickReserve()
+        {
+            return new ReservationText
+            {
+                Title = "Reserved for later costs",
+                Fact = "Reserved for later costs and contract penalties" + BlockedEnd
+            };
+        }
+
+        /// <summary>A refused purchase's numbers: <c>Needs 100,000 funds, 70,000 free.</c></summary>
+        internal static string ClickReservePurchaseDetail(StockPool pool, double cost, double free)
+        {
+            if (double.IsNaN(free) || free < 0.0) free = 0.0;
+            return "Needs " + ClickReservation.FormatAmount(pool, cost) + " " + ClickReservation.UnitOf(pool) + ", "
+                + ClickReservation.FormatAmount(pool, free) + " free.";
+        }
+
+        /// <summary>A refused Mission Control click's numbers: <c>Short by 12,000 funds.</c></summary>
+        internal static string ClickReserveShortDetail(StockPool pool, double shortfall)
+        {
+            return "Short by " + ClickReservation.FormatAmount(pool, shortfall) + " " + ClickReservation.UnitOf(pool) + ".";
+        }
+
         private static bool IsFinite(double ut)
         {
             return !double.IsNaN(ut) && !double.IsInfinity(ut);

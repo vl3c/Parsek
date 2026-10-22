@@ -73,13 +73,36 @@ namespace Parsek
         {
             if (ap == null || string.IsNullOrEmpty(ap.name))
                 return new Decision { UT = double.NaN };
-            return Decide(
+            bool bypass = GameStateRecorder.IsBypassEntryPurchaseAfterResearch();
+            bool purchased = IsPurchasedInStock(ap);
+            var d = Decide(
                 CommittedFutureIndexCache.Current,
                 ap.name,
                 CommittedFutureIndexCache.CurrentUT(),
-                GameStateRecorder.IsBypassEntryPurchaseAfterResearch(),
-                IsPurchasedInStock(ap),
+                bypass,
+                purchased,
                 ReservationExplanation.DefaultDateFormatter);
+            if (d.Blocked || bypass || purchased || !(ap.entryCost > 0))
+                return d;
+            return LayerReserve(d, ClickReservationGate.EvaluatePurchaseNow(StockPool.Funds, ap.entryCost,
+                "part purchase " + ap.name));
+        }
+
+        /// <summary>
+        /// Pure: the click-reservation layer of a part decision (committed-value rule 3): a
+        /// part no committed purchase blocks is refused when buying it now would spend funds
+        /// a later cost on the timeline, or an open contract's penalty while such a cost lies
+        /// ahead, needs. The tooltip, the editor and R&amp;D backstops and purchase-all all
+        /// read the decision, so the greyed set and the refused set stay one.
+        /// </summary>
+        internal static Decision LayerReserve(Decision d, PurchaseRefusal r)
+        {
+            if (d.Blocked || !r.Refused) return d;
+            d.Blocked = true;
+            d.Why = ClickReservationGate.PurchaseReason(r);
+            d.Title = ReservationExplanation.ClickReserve().Title;
+            d.UT = double.NaN;
+            return d;
         }
 
         private static string TitleOf(AvailablePart ap)
@@ -110,7 +133,7 @@ namespace Parsek
             var ic = CultureInfo.InvariantCulture;
             ParsekLog.Info(Tag,
                 "Blocking part purchase: '" + ap.name + "' (" + TitleOf(ap) + ") source=" + source
-                + " - committed future purchase ut=" + d.UT.ToString("F0", ic)
+                + (double.IsNaN(d.UT) ? " - reserved for later costs" : " - committed future purchase ut=" + d.UT.ToString("F0", ic))
                 + " nowUT=" + CommittedFutureIndexCache.CurrentUT().ToString("F0", ic)
                 + " dialog=" + (showDialog ? "yes" : "no"));
             if (showDialog)
@@ -159,8 +182,9 @@ namespace Parsek
             {
                 disabledTooltips.Add(id);
                 ParsekLog.InfoRateLimited(Tag, "part-tooltip-greyed-" + d.PartName,
-                    "Part tooltip purchase button disabled for '" + d.PartName + "' - committed future purchase ut="
-                    + d.UT.ToString("F0", CultureInfo.InvariantCulture) + " why=\"" + d.Why + "\"");
+                    "Part tooltip purchase button disabled for '" + d.PartName + "' - "
+                    + (double.IsNaN(d.UT) ? "reserved for later costs" : "committed future purchase ut="
+                        + d.UT.ToString("F0", CultureInfo.InvariantCulture)) + " why=\"" + d.Why + "\"");
             }
         }
 
@@ -280,8 +304,10 @@ namespace Parsek
                 var ap = decisions[i].Key;
                 names.Add(ap.name);
                 skipped.Add(new KeyValuePair<string, ReservationText>(TitleOf(ap),
-                    StockUiReservationPredicates.ExplainPartPurchase(index, ap.name, now,
-                        ReservationExplanation.DefaultDateFormatter)));
+                    double.IsNaN(decisions[i].Value.UT)
+                        ? new ReservationText { Title = decisions[i].Value.Title, Fact = decisions[i].Value.Why }
+                        : StockUiReservationPredicates.ExplainPartPurchase(index, ap.name, now,
+                            ReservationExplanation.DefaultDateFormatter)));
             }
             var ic = CultureInfo.InvariantCulture;
             ParsekLog.Info(Tag,

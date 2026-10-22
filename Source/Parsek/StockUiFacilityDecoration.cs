@@ -440,6 +440,45 @@ namespace Parsek
             return null;
         }
 
+        // ---------------- the click reservation (committed-value rule 3) ----------------
+
+        /// <summary>
+        /// The Upgrade decoration with the click reservation layered on: a facility no
+        /// committed row blocks is refused while its upgrade cost is above the spendable
+        /// funds (<see cref="ClickReservationGate.LayerPurchase(StockUiDecoration, StockPool, double, string)"/>),
+        /// the decision the <c>UpgradeFacility</c> backstop reads over the same cost.
+        /// </summary>
+        internal static StockUiDecoration LayerUpgradeReserve(StockUiDecoration d, SpaceCenterBuilding host)
+        {
+            if (host == null || host.Facility == null || string.IsNullOrEmpty(d.Id)) return d;
+            return ClickReservationGate.LayerPurchase(d, StockPool.Funds, host.Facility.GetUpgradeCost(),
+                "facility upgrade " + d.Id);
+        }
+
+        /// <summary>The Rebuild decoration with the click reservation layered on (the
+        /// <c>DowngradeFacility</c> backstop's decision over <c>GetDowngradeCost</c>).</summary>
+        internal static StockUiDecoration LayerRebuildReserve(StockUiDecoration d, SpaceCenterBuilding host)
+        {
+            if (host == null || host.Facility == null || string.IsNullOrEmpty(d.Id)) return d;
+            return ClickReservationGate.LayerPurchase(d, StockPool.Funds, host.Facility.GetDowngradeCost(),
+                "facility rebuild " + d.Id);
+        }
+
+        /// <summary>The Repair decoration with the click reservation layered on (the
+        /// <c>RepairFacility</c> backstop's decision over <c>GetRepairsCost</c>), for a facility
+        /// with a destroyed building.</summary>
+        internal static StockUiDecoration LayerRepairReserve(StockUiDecoration d, SpaceCenterBuilding host)
+        {
+            if (host == null || string.IsNullOrEmpty(d.Id)) return d;
+            var buildings = Patches.FacilityRepairCapturePatchHelpers.ReadBuildings(host);
+            bool anyDestroyed = false;
+            for (int i = 0; i < buildings.Count; i++)
+                if (buildings[i].IsDestroyed) anyDestroyed = true;
+            if (!anyDestroyed) return d;
+            return ClickReservationGate.LayerPurchase(d, StockPool.Funds, Math.Abs(host.GetRepairsCost()),
+                "facility repair " + d.Id);
+        }
+
         // ---------------- live applicator (Harmony postfix body) ----------------
 
         /// <summary>
@@ -480,6 +519,7 @@ namespace Parsek
             var snapshot = StockUiLiveSnapshot.Current;
             var d = StockUiDecorationQuery.ForFacilityMenu(snapshot.Index, snapshot.UT, facilityId, buildings,
                 replaying, ReservationExplanation.DefaultDateFormatter);
+            d = LayerUpgradeReserve(d, hostRef(menu));
             StockUiDecorationQuery.LogFacilityMenu(d, replaying, reason);
 
             var decision = Decide(d);
@@ -521,6 +561,7 @@ namespace Parsek
             var snapshot = StockUiLiveSnapshot.Current;
             var d = StockUiDecorationQuery.ForFacilityMenuRebuild(snapshot.Index, snapshot.UT, facilityId, buildings,
                 replaying, ReservationExplanation.DefaultDateFormatter);
+            d = LayerRebuildReserve(d, host);
             StockUiDecorationQuery.LogFacilityMenuRebuild(d, replaying, reason);
 
             Button rebuild = RebuildButtonOf(menu);
@@ -563,6 +604,7 @@ namespace Parsek
             var snapshot = StockUiLiveSnapshot.Current;
             var d = StockUiDecorationQuery.ForFacilityMenuRepair(snapshot.Index, snapshot.UT, facilityId, buildings,
                 replaying, ReservationExplanation.DefaultDateFormatter);
+            d = LayerRepairReserve(d, host);
             StockUiDecorationQuery.LogFacilityMenuRepair(d, replaying, anyDestroyed, reason);
 
             var decision = Decide(d);

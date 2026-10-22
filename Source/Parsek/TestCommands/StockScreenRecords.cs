@@ -435,14 +435,15 @@ namespace Parsek.TestCommands
             {
                 string id = StockUiFacilityDecoration.FacilityIdOf(menu);
                 var buildings = Patches.FacilityRepairCapturePatchHelpers.ReadBuildings(StockUiFacilityDecoration.HostOf(menu));
-                var d = StockUiDecorationQuery.ForFacilityMenu(index, now, id, buildings,
-                    GameStateRecorder.IsReplayingActions, ReservationExplanation.DefaultDateFormatter);
+                var host = StockUiFacilityDecoration.HostOf(menu);
+                var d = StockUiFacilityDecoration.LayerUpgradeReserve(StockUiDecorationQuery.ForFacilityMenu(index, now, id,
+                    buildings, GameStateRecorder.IsReplayingActions, ReservationExplanation.DefaultDateFormatter), host);
                 records.Add(StockScreenRecord.From(d));
-                var repair = StockUiDecorationQuery.ForFacilityMenuRepair(index, now, id, buildings,
-                    GameStateRecorder.IsReplayingActions, ReservationExplanation.DefaultDateFormatter);
+                var repair = StockUiFacilityDecoration.LayerRepairReserve(StockUiDecorationQuery.ForFacilityMenuRepair(index,
+                    now, id, buildings, GameStateRecorder.IsReplayingActions, ReservationExplanation.DefaultDateFormatter), host);
                 records.Add(StockScreenRecord.From(repair));
-                var rebuild = StockUiDecorationQuery.ForFacilityMenuRebuild(index, now, id, buildings,
-                    GameStateRecorder.IsReplayingActions, ReservationExplanation.DefaultDateFormatter);
+                var rebuild = StockUiFacilityDecoration.LayerRebuildReserve(StockUiDecorationQuery.ForFacilityMenuRebuild(index,
+                    now, id, buildings, GameStateRecorder.IsReplayingActions, ReservationExplanation.DefaultDateFormatter), host);
                 records.Add(StockScreenRecord.From(rebuild));
             }
         }
