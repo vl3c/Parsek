@@ -228,12 +228,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveDeadlineClockUT_UsesTheSessionClock_ElseTheLatestRowOfBothLists()
+        public void ResolveDeadlineClockUT_TheLaterOfTheSessionClockAndTheLatestRowOfBothLists()
         {
             var l = new List<GameAction> { new GameAction { UT = 300.0 } };
             var a = new List<GameAction> { new GameAction { UT = 500.0 } };
 
-            Assert.Equal(350.0, ReFlyMergeDominance.ResolveDeadlineClockUT(350.0, l, a));
+            Assert.Equal(600.0, ReFlyMergeDominance.ResolveDeadlineClockUT(600.0, l, a));
+            Assert.Equal(500.0, ReFlyMergeDominance.ResolveDeadlineClockUT(350.0, l, a));
             Assert.Equal(500.0, ReFlyMergeDominance.ResolveDeadlineClockUT(double.NaN, l, a));
             Assert.Equal(500.0, ReFlyMergeDominance.ResolveDeadlineClockUT(double.MaxValue, l, a));
         }

@@ -10,6 +10,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **A flight can no longer fail a contract the timeline already settles later.** When a later
+  committed flight completes, fails or cancels a contract, a new flight after a rewind cannot fail
+  it first: the contract stays active until its committed outcome, so the rewards that paid for
+  later purchases stay. Completing it earlier still works. (LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY)
 - **Loading a save puts Parsek back exactly as that save was.** F9 and the Load menu now restore
   the save's committed flights, career ledger, Re-Fly merges, Unfinished Flights, names, groups and
   missions. Flights committed after the save are gone, and a flight in progress at the save resumes
@@ -57,6 +61,24 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A Re-Fly holds back every vessel a later flight uses, and keeps holding it after a reload.**
+  A station or rover a recorded later flight docks with or boards is now held back too, so the
+  re-fly can't change it, and an F9 or a scene reload during the Re-Fly redraws the held vessels
+  instead of leaving them out of the world. (REFLY-HOLD-FEED-MISSES-DOCK-AND-BOARD)
+- **A Re-Fly no longer drops a contract's deadline penalty.** A contract whose deadline a later
+  recorded flight passes now shows its failure penalty during the Re-Fly too, instead of ending
+  with no penalty until the next update. (REFLY-WALK-DEADLINE-EXPIRES-CONTRACT-WITHOUT-PENALTY)
+- **Loading a save made during an abandoned Re-Fly gives back nothing it earned.** When a load
+  drops a Re-Fly attempt that was never merged, the funds, science and reputation it earned leave
+  the career too. (REFLY-COLD-LOAD-ZOMBIE-KEEPS-ATTEMPT-POOLS)
+- **Reverting a flight after a rewind no longer deletes your later committed career.** Revert to
+  Launch or to the editor removed every Space Center purchase and kept credit dated after the
+  launch, even ones your committed future had already made. A revert now removes only what the
+  reverted flight did. (LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O2)
+- **A flight whose files fail to load keeps what it earned.** When a committed recording could not
+  load (missing or broken files), its ghost was gone and so were its funds, science and
+  reputation. It still loses its ghost, but its earnings stay in the career.
+  (LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O3)
 - **F5 and F9 during a flight that continues a committed vessel keep the path you flew.** Flying a
   committed vessel again extends its recording; a quicksave now holds that new flying beside the
   committed copy, so a quickload resumes it with no gap, and Discard still leaves the committed

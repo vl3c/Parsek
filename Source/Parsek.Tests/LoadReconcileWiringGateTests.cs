@@ -134,7 +134,7 @@ namespace Parsek.Tests
             int isRevert = IndexOrFail(body, "ComputeIsRevertOnLoad(");
             int refined = IndexOrFail(body, "LoadReconcilePolicy.ClassifyRefined(");
             int quickloadDiscard = IndexOrFail(body, "DiscardStashedOnQuickload(");
-            int revertPrune = IndexOrFail(body, "Ledger.PruneOrphanActionsAfterUT(");
+            int revertPrune = IndexOrFail(body, "PruneRevertedFlightLedgerRows(");
 
             Assert.True(detect < consume && consume < early,
                 "load-reconcile gate: the early classification reads initialLoadDone after "
@@ -323,7 +323,7 @@ namespace Parsek.Tests
             string body = PreparedMethodBody(ScenarioPath, "public override void OnLoad(ConfigNode node)");
             int recalc = IndexOrFail(body, "RecalculateLedgerForInSessionLoad(");
             int sweep = IndexOrFail(body, "LoadTimeSweep.Run();");
-            int check = IndexOrFail(body, "LoadTimeSweep.LedgerRowsRemovedByLastRun > 0");
+            int check = IndexOrFail(body, "LoadTimeSweep.SweepDiscardedAnAttempt(");
             int again = body.IndexOf("RecalculateLedgerForInSessionLoad(", recalc + 1, StringComparison.Ordinal);
             int next = IndexOrFail(body, "RunTestBatchCrashReconcile();");
             Assert.True(recalc < sweep && sweep < check && check < again && again < next,
@@ -332,6 +332,21 @@ namespace Parsek.Tests
 
             string sweepBody = Collapse(ReadParsekSourcePrepared("LoadTimeSweep.cs"));
             Assert.Equal(1, Occurrences(sweepBody, "Ledger.RemoveActionsForRecordings("));
+        }
+
+        // catches REFLY-COLD-LOAD-ZOMBIE-KEEPS-ATTEMPT-POOLS: the cold load's first walk after the
+        // sweep is the deferred seed, so it must walk as a Re-Fly discard when the sweep dropped
+        // an attempt, or the drawdown guard keeps what the attempt earned into the saved pools.
+        [Fact]
+        public void ColdLoadDeferredSeedWalksAsAReFlyDiscardAfterTheSweepDroppedAnAttempt()
+        {
+            string seed = PreparedMethodBody(ScenarioPath, "private IEnumerator DeferredSeedAndRecalculate()");
+            int check = IndexOrFail(seed, "LoadTimeSweep.SweepDiscardedAnAttempt(");
+            int cutoffWalk = IndexOrFail(seed, "RecalculateAndPatchForCurrentTimelineIfFutureActions(");
+            int plainWalk = IndexOrFail(seed, "LedgerOrchestrator.RecalculateAndPatch(reFlyDiscard: reFlyDiscard)");
+            Assert.True(check < cutoffWalk && check < plainWalk,
+                "load-reconcile gate: the deferred seed reads the sweep's discard before it walks");
+            Assert.Contains("reFlyDiscard)", Collapse(seed.Substring(cutoffWalk, plainWalk - cutoffWalk)));
         }
 
         [Fact]

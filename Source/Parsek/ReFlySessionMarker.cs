@@ -122,6 +122,24 @@ namespace Parsek
         /// </summary>
         public List<string> PreSessionBranchPointIds;
 
+        /// <summary>
+        /// The vessels this session's invoke held back for the committed future (design
+        /// section 2.12 Rule 3, <see cref="ReFlyInvokeHold"/>). The hold despawns them, so a
+        /// save written during the session no longer holds them; the flight scene redraws
+        /// their hold ghosts from this list after every reload
+        /// (<c>ParsekFlight.RestoreReFlyInvokeHoldsFromMarker</c>). Stored as
+        /// <see cref="ReFlyInvokeHold.EntryNodeName"/> children; empty when nothing was held.
+        /// </summary>
+        internal List<ReFlyInvokeHold.Entry> InvokeHolds = new List<ReFlyInvokeHold.Entry>();
+
+        /// <summary>
+        /// True only on a marker read back by <see cref="LoadFrom"/>; never saved. The invoke
+        /// scene's marker is built in memory, so this tells the hold restore apart on the
+        /// invoke scene (where the deferred invoke can finish before flight-ready) and after
+        /// a load of a save written during the session.
+        /// </summary>
+        internal bool LoadedFromSave;
+
         internal const string NodeName = "REFLY_SESSION_MARKER";
 
         /// <summary>
@@ -176,6 +194,11 @@ namespace Parsek
                         node.AddValue("preSessionBranchPointId", id);
                 }
             }
+            if (InvokeHolds != null)
+            {
+                for (int i = 0; i < InvokeHolds.Count; i++)
+                    ReFlyInvokeHold.SaveEntry(node, InvokeHolds[i]);
+            }
         }
 
         /// <summary>Loads from a single <see cref="NodeName"/> node (caller supplies the node directly).</summary>
@@ -183,7 +206,7 @@ namespace Parsek
         {
             if (node == null) throw new ArgumentNullException(nameof(node));
             var ic = CultureInfo.InvariantCulture;
-            var m = new ReFlySessionMarker();
+            var m = new ReFlySessionMarker { LoadedFromSave = true };
 
             string sid = node.GetValue("sessionId");
             m.SessionId = string.IsNullOrEmpty(sid) ? null : sid;
@@ -246,6 +269,17 @@ namespace Parsek
                         if (!string.IsNullOrEmpty(ids[i]))
                             m.PreSessionBranchPointIds.Add(ids[i]);
                     }
+                }
+            }
+
+            ConfigNode[] holds = node.GetNodes(ReFlyInvokeHold.EntryNodeName);
+            if (holds != null)
+            {
+                for (int i = 0; i < holds.Length; i++)
+                {
+                    ReFlyInvokeHold.Entry entry = ReFlyInvokeHold.LoadEntry(holds[i]);
+                    if (entry != null)
+                        m.InvokeHolds.Add(entry);
                 }
             }
 

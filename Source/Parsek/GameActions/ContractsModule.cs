@@ -248,8 +248,10 @@ namespace Parsek
         /// when finite, is the instant a deadline is judged against, independent of the
         /// walk's cutoff: the Re-Fly invoke walk passes <c>double.MaxValue</c> as its cutoff
         /// (walk the whole committed career) and the live UT as the clock, so a contract
-        /// whose deadline is still ahead of the session is not failed by the horizon
-        /// (design section 2.12 Rule 3).
+        /// whose deadline is still ahead of the session and of every committed row is not
+        /// failed by the horizon (design section 2.12 Rule 3). A deadline the committed rows
+        /// already walk past is failed with its penalty, as every other walk of the same
+        /// ledger fails it (<see cref="ResolveDeadlineClockUT"/>).
         /// </summary>
         internal bool PrePass(List<GameAction> actions, double? walkNowUT, double? deadlineClockUT)
         {
@@ -371,10 +373,18 @@ namespace Parsek
 
         /// <summary>
         /// Pure: the instant the pre-pass judges deadlines against, and its source label.
-        /// A finite <paramref name="deadlineClockUT"/> wins (<c>clock</c>); else a finite
-        /// cutoff that is not a "walk everything" sentinel (<c>cutoff</c>); else the last
-        /// surviving action's UT (<c>lastActionUT</c>). A sentinel cutoff is a horizon,
+        /// A finite <paramref name="deadlineClockUT"/> is used with the last surviving
+        /// action's UT, whichever is later (<c>clock</c> or <c>lastActionUT</c>); else a
+        /// finite cutoff that is not a "walk everything" sentinel (<c>cutoff</c>); else the
+        /// last surviving action's UT (<c>lastActionUT</c>). A sentinel cutoff is a horizon,
         /// never a clock: judging deadlines against it would fail every deadline contract.
+        /// The clock never moves the judgement before the last walked row:
+        /// <see cref="ProcessAction"/> runs <see cref="CheckDeadlines"/> at every row's UT, so
+        /// a contract whose deadline a later committed row walks past leaves the active set
+        /// there, and only a fail row (recorded, or synthesized here) charges its penalty.
+        /// Judged at the clock alone, that contract ended with no penalty, and the next walk
+        /// of the same ledger without a clock charged it (todo
+        /// REFLY-WALK-DEADLINE-EXPIRES-CONTRACT-WITHOUT-PENALTY).
         /// </summary>
         internal static double ResolveDeadlineClockUT(
             double? walkNowUT, double? deadlineClockUT, double lastActionUT, out string source)
@@ -384,6 +394,11 @@ namespace Parsek
                 && !double.IsInfinity(deadlineClockUT.Value)
                 && !KerbalsModule.IsNoTimeFilterCutoff(deadlineClockUT.Value))
             {
+                if (lastActionUT > deadlineClockUT.Value)
+                {
+                    source = "lastActionUT";
+                    return lastActionUT;
+                }
                 source = "clock";
                 return deadlineClockUT.Value;
             }

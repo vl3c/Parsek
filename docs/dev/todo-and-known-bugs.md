@@ -16,6 +16,39 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## SCENE-EXIT-FINALIZER-CRASHES-A-CHUTE-DESCENT: leaving the flight finalizes a booster still descending under its parachute as Destroyed [FILED 2026-10-22 from RF-L2 `2026-10-22_0734` (PARSEK-FAIL, expectations), flown for PR #2173, and the same on plain main 9dbf9c2 (`2026-10-22_0817`). OPEN, medium; a main regression since 2b5cd9b, likely exposed by PR #2154 (REMAINING-RECORDED-VELOCITY-SEEDS), not bisected. product]
+
+RF-L2's first flight exits to the Space Center at UT 124.4 while the booster probe hangs under its
+chute at about 330 m. The scene-exit finalizer's sub-surface fallback rebuilt a start state from the
+last recorded point (`recovered sub-surface live-orbit fallback ... pointUT=123.140,
+source=TrackSection[1].frames, recordedAlt=331.7 -> terminal=Destroyed terminalUT=130.3`, the
+extrapolator `Terminal reason=cutoff ... alt=64.4`), so the slot qualified as `reason=crashed`
+instead of `reason=stableLeafUnconcluded terminal=SubOrbital` and RF-L2's two required lines never
+printed; the Re-Fly itself still ran and landed. The last green RF-L2 (`2026-10-20_1642`, 2b5cd9b,
+before PR #2154) finalized the same booster SubOrbital with no extrapolation. PR #2154 changed that
+fallback's velocity to `OrbitReseed.FromLatLonAltAndSameSessionRecordedVelocity`, which plausibly
+turned a reseed that used to collapse sub-surface (and fall through to suppression) into one that
+succeeds. The ballistic extrapolator has no parachute model, so a slow chute descent near the ground
+always reads as an impact. Next: bisect 2b5cd9b..9dbf9c2 (the finalizer commits 46d2779f9 /
+ef64c1e0c first), then decide whether the fallback should decline a recorded point whose descent is far below ballistic (deployed chute)
+rather than extrapolate it.
+
+## REFLY-SECOND-SLOT-MERGE-LOSES-ITS-SLOT: after both halves of one split are re-flown in turn, the second merge cannot find its slot [FILED 2026-10-22 from RF-11 `2026-10-22_0804` / `_0805_a2` (INVALID, driver-arg, both attempts), flown for PR #2173, and the same on plain main 9dbf9c2 (`2026-10-22_0814` / `_0816_a2`). OPEN, medium; a main regression since 2b5cd9b (RF-11's last green, `2026-10-20_1650`), not bisected. product]
+
+RF-11 re-flies slot 0 of `rp_404ea488...` and merges (`qualifies=True slot=0`), then re-flies slot 1
+and merges. That second merge logs `[Supersede][ERROR] Site B-1 slot lookup failed for
+provisional=<rec> markerOrigin=490f0f52... markerTarget=99ae6e58... rp=rp_404ea488...
+reason=noMatchingMarkerTargetSlot; terminal=Destroyed; falling back to v0.9 terminalKind
+classifier`, then `qualifies=False slot=<none> rp=<none> classifierReason=fallback:Crashed`, so
+slot 1 closes. Sealing slot 0 next makes the point fully sealed and reaps it (`Reaped
+rp=rp_404ea488... slots=2`), and the lane's `SealSlot slot=1` is refused `unknown-rp`. On 2b5cd9b the
+same merge read `qualifies=True slot=1 ... focusSlotOverride=1 classifierReason=crashed`. The lookup
+is `SupersedeCommit.TryResolveSlotByMarkerTarget`: the rewind point matched by branch point but
+`EffectiveState.ResolveRewindPointSlotIndexForRecording` found no slot for the marker target, and
+neither did the origin-target fallback. Neither file changed in that range, so the slot list or the
+supersede rows reaching it did. A player sees the second half of a split close as crashed and lose
+its re-fly. Next: bisect 2b5cd9b..9dbf9c2 with RF-11.
+
 ## ~~QL-2-RECOVER-REFUSED-WHILE-SLIDING: QL-2's Recover can be refused while the landed Flea still slides, and the refusal reads as a Parsek failure~~ [FILED 2026-10-22 from QL-2 `2026-10-21_2220` and `2026-10-22_0001` (both PARSEK-FAIL, expectations), flown for PR #2170. Half fixed in PR #2170, merged (the verb waits); the classification half FIXED 2026-10-22 in PR #2175 (harness unit cells; QL-2 `2026-10-22_0833` PASS attempt 1 did not hit a refusal). harness]
 
 The mission reported MISSION-OK, but seam step 0067 `Recover` was refused
@@ -216,7 +249,7 @@ quickload also undoes Space Center purchases made after the quicksave". Fix: the
 resume retires untagged Space Center rows after the save UT (the QL-R2 cell flips); rewinds keep
 ruling D2. This also closes O1 of LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY.
 
-## REFLY-WALK-DEADLINE-EXPIRES-CONTRACT-WITHOUT-PENALTY: a committed-future row past an active contract's deadline ends the contract in the walk with no penalty [FILED 2026-10-20, deferred by the section 2.12 phase agents, not re-verified. OPEN, medium]
+## ~~REFLY-WALK-DEADLINE-EXPIRES-CONTRACT-WITHOUT-PENALTY: a committed-future row past an active contract's deadline ends the contract in the walk with no penalty~~ [FILED 2026-10-20, deferred by the section 2.12 phase agents. FIXED on branch claude/project-thread-7ifqcx (PR #2173); xUnit, Re-Fly regression lanes green on 457220c]
 
 Section 2.12 Rule 3 judges deadlines at the session clock (`ContractsModule.PrePass`), but
 `ContractsModule.ProcessAction` also runs `CheckDeadlines(action.UT)` on every walked row. When a
@@ -226,14 +259,34 @@ charged and the contract leaves the walk's active set early. Same shape in the d
 (both sides alike, so no false refuse). Fix: judge the walk-time expiry against the same deadline
 clock, or synthesize the penalty with it. Red-first unit cell first.
 
-## REFLY-INVOKE-HOLDS-NOT-REDRAWN-AFTER-RELOAD: the vessels a Re-Fly invoke holds back for the committed future are held in memory only [FILED 2026-10-20, deferred by the section 2.12 phase agents, not re-verified. OPEN, medium]
+Fix: the penalty is synthesized. `ContractsModule.ResolveDeadlineClockUT` judges deadlines at the
+later of the session clock and the last walked row, so a deadline a committed row walks past gets
+its synthetic `ContractFail` (with penalty) exactly as the clock-less walk of the same ledger does,
+and a deadline past both stays open (design 7.84). `ReFlyMergeDominance.ResolveDeadlineClockUT`
+takes the later of the clock and the latest row of both lists, so `L` and `L'` judge alike.
+Judging the walk-time expiry at the clock instead was rejected: the other walks during a session
+are clock-less, so the invoke walk alone would keep the contract active and the next walk would
+fail it. Cells: `ContractsModuleTests.PrePass_SessionClockBeforeDeadline_CommittedRowPastIt_*`,
+`RewindUtCutoffTests.ReFlyInvokeWalk_DeadlineAheadOfClockButBehindACommittedRow_ChargesThePenalty`.
+
+## ~~REFLY-INVOKE-HOLDS-NOT-REDRAWN-AFTER-RELOAD: the vessels a Re-Fly invoke holds back for the committed future are held in memory only~~ [FILED 2026-10-20, deferred by the section 2.12 phase agents. FIXED on branch claude/project-thread-7ifqcx (PR #2173); lane RB-3 LIVE-PROVEN `2026-10-22_0710`]
 
 The invoke hands a vessel the committed future flies or recovers to the claimed-vessel hold, but
 the hold set lives in memory, so after a scene reload inside the session (F9, a scene change) the
 hold ghosts are not redrawn. Fix: persist the session's invoke holds with the marker, or re-derive
 them on load from the rewind point and the committed recordings.
 
-## REFLY-HOLD-FEED-MISSES-DOCK-AND-BOARD: a vessel the committed future only changes (docks with, boards) is not held back at invoke [FILED 2026-10-20, deferred by the section 2.12 phase agents, not re-verified. OPEN, medium]
+Fix: persisted. The invoke saves its held entries on the marker (`ReFlySessionMarker.InvokeHolds`,
+`INVOKE_HOLD` children; the hold moved after `AtomicMarkerWrite` so the marker exists), and
+`ParsekFlight.RestoreReFlyInvokeHoldsFromMarker` runs on every flight-ready after the chain feed:
+a held vessel the chain holds is left to it, a live one is despawned again, and a gone one (the
+normal case: the hold despawned it before any save) is tracked from the rewind point quicksave's
+own VESSEL node (`VesselGhoster.TrackHeldVesselWithoutLiveVessel`), so its hold ghost draws in the
+rewind-save shape. Skipped while an invoke is in flight. Log: `[ClaimedHoldGhost] Re-Fly invoke
+holds restored after reload: ...`. Pure cells in `ReFlyInvokeHoldGapsTests`; the live redraw needs
+an in-game lane (a Re-Fly with a held vessel, F5, F9, hold ghost shown again).
+
+## ~~REFLY-HOLD-FEED-MISSES-DOCK-AND-BOARD: a vessel the committed future only changes (docks with, boards) is not held back at invoke~~ [FILED 2026-10-20, deferred by the section 2.12 phase agents. FIXED on branch claude/project-thread-7ifqcx (PR #2173); xUnit, Re-Fly regression lanes green on 457220c]
 
 Section 2.12 Rule 3 holds a vessel a committed recording "flies, changes or recovers" after the
 rewind UT. The invoke's claimed-hold feed covers flies and recovers; a dock or board onto the
@@ -241,7 +294,15 @@ vessel is covered only where the existing ghost-chain claim already claims it. A
 committed flight docks with can stay live during the session, so the attempt can change it.
 Fix: feed the dock / board targets of committed recordings after the rewind UT into the hold.
 
-## REFLY-COLD-LOAD-ZOMBIE-KEEPS-ATTEMPT-POOLS: a cold load that sweeps a zombie Re-Fly attempt can keep what the attempt earned in the stock pools [FILED 2026-10-20 from the section 2.12 review fix-up, code read. OPEN, low]
+Verified gap: `GhostChainWalker` skips every claim of a fully-terminated tree and
+`FilterAndGhostChains` skips a terminated chain, so a station a committed flight docks with before
+that flight is destroyed or recovered stayed live. Fix: `ReFlyInvokeHold.CollectChangeClaims`
+reads every Dock / Board branch point after the rewind UT (claimant = first parent, launch =
+`MissionCrossTreeDock.ResolveClaimLaunchGuid`), dropping claimants a supersede row hides or the
+session suppresses; `Classify` holds a positively identified survivor with evidence `changes` until
+the claim UT. Undock / EVA / JointBreak targets stay with the chain feed.
+
+## ~~REFLY-COLD-LOAD-ZOMBIE-KEEPS-ATTEMPT-POOLS: a cold load that sweeps a zombie Re-Fly attempt can keep what the attempt earned in the stock pools~~ [FILED 2026-10-20 from the section 2.12 review fix-up, code read. FIXED on branch claude/project-thread-7ifqcx (PR #2173); xUnit, Re-Fly regression lanes green on 457220c]
 
 The merge-dialog Discard and the in-session load's second walk after the zombie sweep now patch
 the pools back as an authoritative reduction (`reFlyDiscard`). Two zombie cases still run a
@@ -251,6 +312,12 @@ marker), and an in-session load whose zombie filed no ledger rows (the second wa
 earnings in its pools, so the drawdown guard keeps them. Both need an invalid or missing marker
 next to a live attempt, which normal play rarely produces. Fix: carry a "zombie attempt discarded"
 signal from the sweep into the next walk.
+
+Fix: `LoadTimeSweep.ZombiesDiscardedByLastRun` counts the discarded zombies, and
+`SweepDiscardedAnAttempt(rows, zombies)` gates both walks: the in-session second walk now also runs
+when the zombie filed no rows, and the cold load's `DeferredSeedAndRecalculate` (its first walk
+after the sweep) passes `reFlyDiscard`. Gates: `LoadTimeSweepTests`,
+`LoadReconcileWiringGateTests.ColdLoadDeferredSeedWalksAsAReFlyDiscardAfterTheSweepDroppedAnAttempt`.
 
 ## ~~REFLY-RETRY-LEAVES-ATTEMPT-SIDECARS: a Re-Fly Retry left the abandoned attempt's sidecar files in the save~~ [FILED 2026-10-20 from the RF-L4 flight on V's PC. FIXED on branch claude/project-thread-vy0m14]
 
@@ -413,7 +480,7 @@ Fix (the first direction above): when the cold load restores no active tree, no 
 Fix, the trajectory (owner ruling 2026-10-21, "Switch to versioned files", after a first cut that always resumed in a new segment was reverted: it added a segment to every in-flight commit's re-take, about 40 lane counts, and armed a switch-segment session on every resume, so a later ordinary switch popped the Merge / Discard dialog): the overlap skip is gone. `PlanActiveTreeSidecarSaves` writes a restore-attempt member that shares its id with the committed copy like any other (counted as `committedRestoreOverlap`, Verbose `writing restore-attempt recording`). The write replaces the shared head and keeps the committed bytes as their hashed version under `_versions/` (#2155). The committed copy keeps naming that hash, and `EnsureRecordingFilesCurrentForSave` treats a committed-tree recording whose head moved on as current when every named hash resolves and one resolves to a retained version (`RecordingStore.AreRecordingFilesCurrentThroughNamedVersions`, Verbose `is current through its named sidecar version(s)`), so it is never rewritten and its sidecar epoch does not move before a merge. One save then names two versions of the id; a cold load reads each copy from its own bytes without promoting (`reason=multiple-owners owners=2`) and re-arms the attempt. Discard leaves the head holding the clone's bytes and the committed copy current through its version; the next lone load promotes it back. A lazy vessel-snapshot re-hydration now reads the bytes its recording names whenever a retained version holds them (`ResolveLazyVesselSnapshotPath`), so an in-session committed copy never picks up the clone's snapshot. Because the clone starts at the committed copy's epoch, an attempt member's save also checks that the head holds the hash it names (`TrajectoryHeadHoldsNamedBytes`, `reason=head-holds-other-bytes`), so a committed rewrite at the same epoch is not read as the clone's bytes. Now that every save holds the attempt's active node, an in-session load of one (the save stock makes before leaving flight) keeps the committed original committed and skips the splice while the attempt is armed for that tree (`kept the committed copy ... the live restore attempt's clone`), as the cold re-arm does: otherwise the scene-exit merge of the clone ran as a first commit and a Discard found nothing committed (found in review). The ATTEMPT_EVENTS hold above stays as the fallback for a save written without the active tree. Cells: `InPlaceResumeSidecarVersionTests` (save, cold load, discard over real hashed sidecars; red with the skip restored, with the version rule off, with the old lazy-hydration rule, with the head-hash check off, and with the live-attempt keep or splice skip removed), `SaveActiveTreeSidecarBothOrNeitherTests`, the `ColdLoadRestoreAttemptRearmTests` wiring cell. Residual, not changed: `SavePendingTreeIfAny` still skips a dirty pending-tree member that shares a committed id, so a pending tree written at the Space Center with unsaved resumed flying is left out of that save. Lane QL-13.
 
 
-## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. RULED 2026-10-21 (owner interview, every path); OPEN for the fixes; same invariant as section 2.12]
+## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. RULED 2026-10-21 (owner interview, every path); O2 and O3 FIXED 2026-10-22; OPEN for O6 / O7; same invariant as section 2.12]
 
 Each breaks "the committed timeline pays for every committed spend at every UT" without Re-Fly:
 (O1, ruled 2026-10-19: a quickload undoes Space Center rows after the save, fixed with
@@ -449,9 +516,17 @@ and logistics design section 10.6).**
   later gains). Derived in the walk from existing rows, no new saved state. V: "we need a way to let
   the player make decisions about risks of rewinding and doing new launches, so I pick debt".
   Flights and launches are never blocked ("of course we should not block flights of launches").
+  **Scope ruled 2026-10-22 (V, decision card):** open-contract penalties are reserved only while a
+  committed purchase or strategy cost lies ahead, so a career that never rewinds plays exactly like
+  stock; with no cost ahead a loss applies as stock applies it. Rules restated in design 3.13.
 - O6, case by case: a new flight cannot fail a contract whose complete / fail / cancel is already
   committed (stock's fail refused and logged; completing it earlier stays allowed; extends D7 from
-  the Cancel button to in-flight fails); an open contract's fail penalty is reserved (rule 2);
+  the Cancel button to in-flight fails); **rule 1 BUILT 2026-10-22** (`Patches/ContractEarlyFailPatch.cs`: a
+  prefix on stock's fail funnel `Contract.SetState(State.Failed)` reads the Cancel block's
+  `CommittedContractResolutionAfter`; tests `ContractEarlyFailPatchTests`; plan
+  `docs/dev/plans/committed-value-rule-implementation.md`; known gap: the refusal is strict-future
+  and the flight scene has no clock cursor, so once a flight's clock passes the committed outcome's UT
+  a fail goes through until the next recalculation applies the outcome); an open contract's fail penalty is reserved (rule 2);
   Mission Control Accept / Cancel / Decline are greyed when their penalty or the reservation they
   add would leave a later committed purchase or strategy cost unpaid (rule 3); a death or
   vessel-loss reputation hit stops at the reputation reserved for committed costs, the rest is a
@@ -463,9 +538,18 @@ and logistics design section 10.6).**
 - O7: the funds check is no longer advisory: purchases and launch costs are greyed when they eat
   into reserved money (rule 3; closes the P15 half of GUI-P15-D7-TWO-SAFETY-GATES-THAT-EXIST-AND-ARE-NEVER-ARMED).
 - O2: a stock revert removes only the rows the reverted flight wrote; every committed row stays
-  (matches D2).
+  (matches D2). **FIXED 2026-10-22** (branch `claude/project-thread-6f7rhy`): Parsek remembers
+  the ledger's row ids where stock captures its revert targets (every non-revert flight entry for
+  Revert-to-Launch's `PostInitState`; only a fresh launch for Revert-to-editor's `PreLaunchState`,
+  which stock still offers after a resume on the pad); `ParsekScenario.PruneRevertedFlightLedgerRows`
+  keeps the target's rows. Tests: `LedgerRetirementPathsTests`.
 - O3: a recording that fails to load, for any reason, keeps its ledger rows; it loses its ghost and
   playback, never its rows (extends the GC-3 ruling from schema rejects to every load failure).
+  **FIXED 2026-10-22** (same branch): `LoadRecordingTrees` notes the committed recordings the save
+  names but did not load; `LedgerOrchestrator.KeepRowsOfRecordingsThatFailedToLoad` clears their
+  rows' tag before the cold reconcile, since the next save no longer names them. Inert trees keep
+  their tagged rows; NotCommitted provisionals stay with the load sweep. Tests:
+  `LedgerRetirementPathsTests`.
 - O4: supply routes are a real-time system and carry no money; route cycles stop touching the
   ledger, and Space Center routes are free in every mode (Model H, refund rows and a cost-only
   credit were ruled and replaced the same day; research

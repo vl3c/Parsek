@@ -76,17 +76,7 @@ namespace Parsek
                     notLive++;
                     continue;
                 }
-                reFlyInvokeHolds[entry.Pid] = new ChainClaimedVessel
-                {
-                    Pid = entry.Pid,
-                    LaunchGuid = entry.LaunchGuid,
-                    FirstClaimUT = entry.FirstClaimUT,
-                };
-                for (int r = 0; r < entry.FlyingRecordingIds.Count; r++)
-                {
-                    Recording rec = FindTipRecordingById(entry.FlyingRecordingIds[r]);
-                    VesselGhoster.ReleaseTipSpawnClaimOnGhostedVessel(rec, entry.Pid, "refly-invoke-hold");
-                }
+                AddReFlyInvokeHold(entry, "refly-invoke-hold");
                 held.Add(entry);
             }
 
@@ -94,6 +84,143 @@ namespace Parsek
                 GhostPlaybackLogic.SetIsGhostedOverride(
                     pid => vesselGhoster != null && vesselGhoster.IsGhosted(pid));
             return held;
+        }
+
+        private void AddReFlyInvokeHold(ReFlyInvokeHold.Entry entry, string logContext)
+        {
+            reFlyInvokeHolds[entry.Pid] = new ChainClaimedVessel
+            {
+                Pid = entry.Pid,
+                LaunchGuid = entry.LaunchGuid,
+                FirstClaimUT = entry.FirstClaimUT,
+            };
+            for (int r = 0; r < entry.FlyingRecordingIds.Count; r++)
+            {
+                Recording rec = FindTipRecordingById(entry.FlyingRecordingIds[r]);
+                VesselGhoster.ReleaseTipSpawnClaimOnGhostedVessel(rec, entry.Pid, logContext);
+            }
+        }
+
+        /// <summary>
+        /// Design section 2.12 Rule 3 after a reload during a Re-Fly session (F9, a cold load
+        /// of a save written mid-session, a scene reload): the invoke's holds live in memory
+        /// and the held vessels were despawned before any save, so the reload left them out of
+        /// the world with nothing drawing them. Re-takes every hold the session marker saved
+        /// (<see cref="ReFlySessionMarker.InvokeHolds"/>): a vessel the chain feed holds is left
+        /// to it, a live one is despawned as the invoke did, and a gone one is tracked with the
+        /// rewind point's own copy of it as the hold ghost's shape. Skipped while a Re-Fly
+        /// invoke is in flight (it takes its own holds). Logs one summary.
+        /// </summary>
+        private void RestoreReFlyInvokeHoldsFromMarker(double currentUT)
+        {
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario)) return;
+            ReFlySessionMarker marker = scenario.ActiveReFlySessionMarker;
+            if (marker == null || marker.InvokeHolds == null || marker.InvokeHolds.Count == 0)
+                return;
+            if (RewindInvokeContext.Pending)
+            {
+                ParsekLog.Verbose(ClaimedVesselHoldGhost.Tag,
+                    $"Re-Fly invoke holds not restored: an invoke is in flight sess={marker.SessionId ?? "<no-id>"}");
+                return;
+            }
+            if (vesselGhoster == null)
+                vesselGhoster = new VesselGhoster();
+
+            ConfigNode rpFlightState = null;
+            bool rpFlightStateRead = false;
+            int restored = 0, heldLive = 0, alreadyHeld = 0, claimPassed = 0, noSnapshot = 0, otherLaunch = 0;
+            for (int i = 0; i < marker.InvokeHolds.Count; i++)
+            {
+                ReFlyInvokeHold.Entry entry = marker.InvokeHolds[i];
+                if (entry == null || entry.Pid == 0u) continue;
+                Vessel live = FlightRecorder.FindVesselByPid(entry.Pid);
+                string liveGuid = live != null && live.id != Guid.Empty ? live.id.ToString("N") : null;
+                ConfigNode copy = null;
+                if (live == null && currentUT < entry.FirstClaimUT && !vesselGhoster.IsGhosted(entry.Pid))
+                {
+                    if (!rpFlightStateRead)
+                    {
+                        rpFlightState = ReadRewindPointFlightState(scenario, marker.RewindPointId);
+                        rpFlightStateRead = true;
+                    }
+                    copy = ReFlyInvokeHold.FindHeldVesselNode(rpFlightState, entry.Pid, entry.LaunchGuid);
+                }
+                string action = ReFlyInvokeHold.DecideReloadAction(
+                    entry, currentUT, vesselGhoster.IsGhosted(entry.Pid), live != null, liveGuid, copy != null);
+                switch (action)
+                {
+                    case "claim-passed": claimPassed++; continue;
+                    case "already-held": alreadyHeld++; continue;
+                    case "other-launch": otherLaunch++; continue;
+                    case "no-snapshot": noSnapshot++; continue;
+                    case "hold-live":
+                        if (!vesselGhoster.GhostVessel(entry.Pid)) { noSnapshot++; continue; }
+                        heldLive++;
+                        break;
+                    case "restore":
+                        if (!vesselGhoster.TrackHeldVesselWithoutLiveVessel(
+                                entry.Pid, copy.GetValue("name"), copy.CreateCopy()))
+                        {
+                            alreadyHeld++;
+                            continue;
+                        }
+                        restored++;
+                        break;
+                    default:
+                        continue;
+                }
+                AddReFlyInvokeHold(entry, "refly-invoke-hold-reload");
+            }
+
+            if (restored + heldLive > 0)
+                GhostPlaybackLogic.SetIsGhostedOverride(
+                    pid => vesselGhoster != null && vesselGhoster.IsGhosted(pid));
+
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            ParsekLog.Info(ClaimedVesselHoldGhost.Tag,
+                $"Re-Fly invoke holds restored after reload: sess={marker.SessionId ?? "<no-id>"} " +
+                $"saved={marker.InvokeHolds.Count.ToString(ic)} restored={restored.ToString(ic)} " +
+                $"heldLive={heldLive.ToString(ic)} alreadyHeld={alreadyHeld.ToString(ic)} " +
+                $"claimPassed={claimPassed.ToString(ic)} otherLaunch={otherLaunch.ToString(ic)} " +
+                $"noSnapshot={noSnapshot.ToString(ic)} UT={currentUT.ToString("F1", ic)} " +
+                $"marker={(marker.LoadedFromSave ? "save" : "memory")}");
+        }
+
+        /// <summary>The FLIGHTSTATE of the rewind point's quicksave, or null when it cannot be read.</summary>
+        private static ConfigNode ReadRewindPointFlightState(ParsekScenario scenario, string rewindPointId)
+        {
+            if (scenario.RewindPoints == null || string.IsNullOrEmpty(rewindPointId)) return null;
+            RewindPoint rp = null;
+            for (int i = 0; i < scenario.RewindPoints.Count; i++)
+            {
+                if (scenario.RewindPoints[i] != null && scenario.RewindPoints[i].RewindPointId == rewindPointId)
+                {
+                    rp = scenario.RewindPoints[i];
+                    break;
+                }
+            }
+            string path = RewindInvoker.ResolveAbsoluteQuicksavePath(rp);
+            if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path))
+            {
+                ParsekLog.Warn(ClaimedVesselHoldGhost.Tag,
+                    $"Re-Fly invoke hold reload: rewind point save unreadable rp={rewindPointId} " +
+                    $"path='{path ?? "<none>"}'");
+                return null;
+            }
+            try
+            {
+                ConfigNode root = ConfigNode.Load(path);
+                if (root == null) return null;
+                ConfigNode game = root.HasNode("GAME") ? root.GetNode("GAME") : root;
+                return game?.GetNode("FLIGHTSTATE");
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(ClaimedVesselHoldGhost.Tag,
+                    $"Re-Fly invoke hold reload: reading rp={rewindPointId} threw {ex.GetType().Name}: {ex.Message}");
+                return null;
+            }
         }
 
         /// <summary>In-game test seam: number of held-back vessels drawn from their despawn snapshot.</summary>
