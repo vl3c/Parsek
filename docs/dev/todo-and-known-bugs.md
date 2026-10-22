@@ -49,6 +49,18 @@ neither did the origin-target fallback. Neither file changed in that range, so t
 supersede rows reaching it did. A player sees the second half of a split close as crashed and lose
 its re-fly. Next: bisect 2b5cd9b..9dbf9c2 with RF-11.
 
+## QUICKLOAD-REPUTATION-WALK-TWICE-LIVE: after a quickload the walk's reputation reads exactly twice the live pool [FILED 2026-10-22 from QL-2 `2026-10-22_1146` and QL-2b `2026-10-22_1153` (both PASS), flown for PR #2177. OPEN, low, not reproduced in xUnit. product]
+
+On a save with no stored pool reference, the first reputation patch after the quickload found the
+walk's target at exactly twice the live reputation: QL-2 `target=4.0` vs `live=2.0`, QL-2b
+`target=2.0` vs `live=1.0` at two separate loads. Committed-value phase 2 files such a gap as one
+negative `StockPoolAdjustment` row (`reason=adopted-gap`) and leaves the pool as stock holds it,
+so the player sees no change (before phase 2 the drawdown guard held the same gap). The exact
+factor 2 suggests the walk counts one reputation award twice on the quickload path (a row and its
+re-capture, or a seed plus the award). Next: read QL-2's collected KSP.log around the first
+post-load recalculation for the reputation rows the walk processed, and compare with the
+quicksave's ledger.
+
 ## STOCK-OFFER-EXPIRED-ACTIVE-CONTRACT-NO-TERMINAL-ROW: an Active contract stock ends as OfferExpired files no terminal ledger row [FILED 2026-10-22 from the clean review of committed-value plan phase 2 (a075d07), code read, not reproduced. OPEN, low. product]
 
 Stock's `Contract.Update()` ends an Active contract whose requirements no longer hold with
@@ -593,8 +605,8 @@ and logistics design section 10.6).**
   a transient leak files a pair of opposite rows. The ledger ground-truth harness leaves the
   walked adjustment rows out of its pool facets (Layer A `LedgerGroundTruthDiff`, Layer B fills
   them per pool from the ELS and logs one `stock pool adjustments left out of the comparison:
-  pool=...` line per pool), so a measured leak still reads as a divergence (LAB-12's seed DEFECT 1
-  stays red); reputation is left out post-curve, a later row's curve at the adjusted value is not
+  pool=...` line per pool), so a measured leak still reads as a divergence (LAB-12's seed DEFECT 1,
+  since fixed on main, would read red again); reputation is left out post-curve, a later row's curve at the adjusted value is not
   re-evaluated. Tests: `LedgerGroundTruthDiffTests`. Harness, predicted from code and not re-flown:
   the GUARDED WARN fires only on a measured leak; L5 requires the withheld line for B's synthetic
   fail and forbids both the clamp and a 9000 debit; the L3 strategy, LAB-12 and QL-14 forbids keep
