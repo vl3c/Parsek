@@ -1,6 +1,6 @@
 # Load restores the save: implementation plan
 
-Status: Phase 1 implemented 2026-10-20 (xUnit only); Phase 2 next. Branch `claude/project-thread-hvhou8`.
+Status: DONE 2026-10-22. Phases 1 and 2 merged as PR #2155, Phase 3 as PR #2170 (follow-ups PR #2164, PR #2169); the `QL-*` lanes are live-proven. Branch `claude/project-thread-hvhou8`.
 Design authority: `docs/dev/design-load-restores-the-save.md` (wins over this plan where they
 disagree; fix the plan, not the code, when they do). Todo: `QUICKLOAD-RESTORES-THE-SAVE-EXACTLY`;
 also closes `COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE`.
