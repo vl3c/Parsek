@@ -115,6 +115,9 @@ namespace Parsek.Tests
         [InlineData(GameActionType.ResourceScanUnlocked, false)]
         // ScienceLabEarning (LAB-SCIENCE-NEVER-LEDGERED): credits the science pool.
         [InlineData(GameActionType.ScienceLabEarning,    true)]
+        // StockPoolAdjustment (committed-value rule phase 2): the drawdown guard's
+        // measured leak, moves one pool by its amount.
+        [InlineData(GameActionType.StockPoolAdjustment,  true)]
         public void IsResourceImpactingAction_Theory(GameActionType type, bool expected)
         {
             Assert.Equal(expected, LedgerOrchestrator.IsResourceImpactingAction(type));

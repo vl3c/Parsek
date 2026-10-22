@@ -380,7 +380,7 @@ namespace Parsek
             int dedupRemoved = beforeDedup - actions.Count;
 
             // 5. Add to ledger
-            Ledger.AddActions(actions);
+            Ledger.AddActions(actions, LedgerRowWriter.StockApplied);
             if (scienceActions.Count > 0)
             {
                 // Mirror only after all pre-ledger work succeeded and the resulting
@@ -2517,7 +2517,6 @@ namespace Parsek
             }
             committedFutureActionIdsAtLastPatch.Clear();
             committedFutureSnapshotValid = false;
-            KspStatePatcher.ForgetLastPoolPatches();
         }
 
         /// <summary>
@@ -2575,8 +2574,8 @@ namespace Parsek
         /// <summary>
         /// For a clock-advance recalc: the committed-future rows (at the last applied patch)
         /// this advance reaches, or null when it reaches none (the guard then runs
-        /// unchanged). The pool patches let such a crossing past the drawdown guard only
-        /// when live still holds what the last patch left
+        /// unchanged). The pool patches treat such a crossing as authoritative only when live
+        /// still holds what the stock pool reference last wrote
         /// (<see cref="KspStatePatcher.IsLiveUnchangedSinceLastPatch"/>).
         /// </summary>
         private static KspStatePatcher.ClockCrossing ComputeClockCrossing(
@@ -3613,6 +3612,8 @@ namespace Parsek
                     return action.HireCost != 0f;
                 case GameActionType.StrategyActivate:
                     return action.SetupCost != 0f;
+                case GameActionType.StockPoolAdjustment:
+                    return action.AdjustmentPool == StockPool.Funds && action.AdjustmentAmount != 0.0;
                 default:
                     return false;
             }
@@ -3691,6 +3692,8 @@ namespace Parsek
                     return action.MilestoneScienceAwarded != 0f;
                 case GameActionType.StrategyActivate:
                     return action.SetupScienceCost != 0f;
+                case GameActionType.StockPoolAdjustment:
+                    return action.AdjustmentPool == StockPool.Science && action.AdjustmentAmount != 0.0;
                 default:
                     return false;
             }
@@ -3717,6 +3720,8 @@ namespace Parsek
                     return action.MilestoneRepAwarded != 0f;
                 case GameActionType.StrategyActivate:
                     return action.SetupReputationCost != 0f;
+                case GameActionType.StockPoolAdjustment:
+                    return action.AdjustmentPool == StockPool.Reputation && action.AdjustmentAmount != 0.0;
                 default:
                     return false;
             }
@@ -5598,7 +5603,7 @@ namespace Parsek
             // facility, hire) are not stamped at all.
             StampLiveWriteRowAgainstSeed(action, "ksc " + action.Type);
 
-            Ledger.AddAction(action);
+            Ledger.AddAction(action, LedgerRowWriter.StockApplied);
 
             ParsekLog.Info(Tag,
                 $"KSC spending recorded: type={action.Type}, UT={evt.ut:F1}, " +
@@ -5830,7 +5835,7 @@ namespace Parsek
                 // Same contract as the OnKscSpending door: stamp only, never seed. See
                 // StampLiveWriteRowAgainstSeed for the event-ordering reason.
                 StampLiveWriteRowAgainstSeed(action, "strategy conversion " + action.Type);
-                Ledger.AddAction(action);
+                Ledger.AddAction(action, LedgerRowWriter.StockApplied);
                 written++;
 
                 ParsekLog.Info(Tag,
@@ -6313,7 +6318,7 @@ namespace Parsek
             int deduped = beforeDedup - rehomed.Count;
             for (int i = 0; i < rehomed.Count; i++)
                 rehomed[i].Sequence = AllocateKscSequence();
-            Ledger.AddActions(rehomed);
+            Ledger.AddActions(rehomed, LedgerRowWriter.StockApplied);
 
             // Mirror the committed-science cache for any surviving re-homed ScienceEarning
             // action so the direct science is treated as committed (subjectId-deduped,
@@ -6554,7 +6559,7 @@ namespace Parsek
             for (int i = 0; i < scienceActions.Count; i++)
                 scienceActions[i].Sequence = AllocateKscSequence();
 
-            Ledger.AddActions(scienceActions);
+            Ledger.AddActions(scienceActions, LedgerRowWriter.StockApplied);
             GameStateStore.CommitScienceActions(scienceActions);
 
             // Verbose: paired Info "Science subject captured" already fires per subject; this row carries the direct-path detail without amplifying multi-subject recoveries.
@@ -6711,7 +6716,7 @@ namespace Parsek
             for (int i = 0; i < actions.Count; i++)
                 actions[i].Sequence = AllocateKscSequence();
 
-            Ledger.AddActions(actions);
+            Ledger.AddActions(actions, LedgerRowWriter.StockApplied);
 
             var names = new List<string>(actions.Count);
             for (int i = 0; i < actions.Count; i++)
@@ -6816,7 +6821,7 @@ namespace Parsek
                 }
 
                 row.Action.Sequence = AllocateKscSequence();
-                Ledger.AddAction(row.Action);
+                Ledger.AddAction(row.Action, LedgerRowWriter.StockApplied);
                 written++;
                 ParsekLog.Info(Tag,
                     $"Crew reservation closed by recovery: '{row.Action.KerbalName}' " +
@@ -6926,7 +6931,7 @@ namespace Parsek
                 }
 
                 row.Sequence = AllocateKscSequence();
-                Ledger.AddAction(row);
+                Ledger.AddAction(row, LedgerRowWriter.StockApplied);
                 written++;
                 ParsekLog.Info(Tag,
                     $"Vessel recovered recorded: vessel='{vesselText}' pid={vesselPid.ToString(ic)} " +
@@ -8901,52 +8906,35 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure affordability reconciliation (BUG-G, the missing other half of the
-        /// "Keep what you earned" drawdown guard, see
-        /// <c>docs/dev/plans/recalc-patch-drawdown-guard.md</c>).
-        ///
-        /// The drawdown guard (<see cref="KspStatePatcher.ApplyDrawdownGuard"/>)
-        /// PRESERVES the live KSP pool whenever the running balance has fallen below it
-        /// (a missing-earning-channel leak) and NO time-travel context authorizes the
-        /// reduction. So in that case the player genuinely still has the live value, and
-        /// an affordability gate that reads only the leaked ledger <paramref name="available"/>
-        /// contradicts the guard and blocks a purchase the player can actually make.
-        ///
-        /// This helper adds the guard-preserved "leak gap" (<c>live - running</c>) back
-        /// into the spendable amount, mirroring the guard's <c>max(target, live)</c>
-        /// clamp. A GENUINE reservation (committed future costs lower
-        /// <paramref name="available"/> below <paramref name="runningBalance"/>) still
-        /// reduces the spendable amount below the leak-corrected base, so overspend of
-        /// reserved future tech/funds stays prevented. That is why this is NOT a plain
-        /// <c>max(available, live)</c> (which would defeat the reservation). When a
-        /// time-travel context is active (<paramref name="authoritativeReduction"/>) the
-        /// guard does NOT preserve live, so the reservation-aware
-        /// <paramref name="available"/> is ground truth and is returned unchanged.
+        /// Every action id the ledger itself holds, effective or not (physical identity, not
+        /// ERS / ELS: the stock pool reference asks whether a counted row is GONE from the
+        /// ledger or only outside the effective ledger, committed-value rule plan 2.4).
         /// </summary>
-        internal static double ComputeEffectiveAffordable(
-            double available, double runningBalance, double liveValue,
-            bool authoritativeReduction)
+        internal static HashSet<string> CollectLedgerActionIds()
         {
-            if (authoritativeReduction)
-                return available;
-
-            double leakGap = liveValue - runningBalance;
-            return leakGap > 0.0 ? available + leakGap : available;
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                string id = actions[i]?.ActionId;
+                if (!string.IsNullOrEmpty(id))
+                    ids.Add(id);
+            }
+            return ids;
         }
 
         /// <summary>
-        /// Live reading of the five drawdown-guard time-travel signals for an
-        /// affordability probe (NOT a recalc patch, so the tombstone-path signal is
-        /// false here). Mirrors the computation in <see cref="RecalculateAndPatchCore"/>.
+        /// Pure affordability reconciliation (BUG-G): the spendable amount is what the pool
+        /// patch writes, the reservation-aware target floored at 0. Anything stock applied
+        /// that no other row holds is a <see cref="GameActionType.StockPoolAdjustment"/> row
+        /// the probe's walk already carries, so an earning the ledger does not model stays
+        /// spendable and a genuine reservation still lowers the amount.
         /// </summary>
-        private static bool IsAuthoritativeReductionForAffordability()
+        /// <param name="unflooredAvailable">The probe's projected minimum balance
+        /// (<c>GetProjectionMinBalance</c>), before the 0 floor.</param>
+        internal static double ComputeEffectiveAffordable(double unflooredAvailable)
         {
-            return IsAuthoritativeReduction(
-                RewindContext.IsRewinding,
-                ParsekScenario.Instance?.ActiveReFlySessionMarker != null,
-                ParsekScenario.Instance?.ActiveMergeJournal != null,
-                tombstonePath: false,
-                RewindContext.RewindResourceAdjustmentInProgress);
+            return unflooredAvailable > 0.0 ? unflooredAvailable : 0.0;
         }
 
         /// <summary>
@@ -9002,33 +8990,10 @@ namespace Parsek
 
             double available = probe.GetAvailableScience();
 
-            // BUG-G: reconcile the ledger spendable with the drawdown-guard-preserved live
-            // value. Only when the live singleton exists (real KSP); xUnit keeps the
-            // pure-ledger contract so the reservation/cutoff tests stay authoritative.
-            //
-            // INTENTIONAL: this uses the RAW GetRunningScience(), NOT the pending-adjusted
-            // running balance that the guard's PatchScience clamp uses (KspStatePatcher.cs
-            // GetRunningScience() + pendingKscCredit - pendingTechDebit). The gate fires
-            // PRE-deduction (the RDTech.ResearchTech prefix runs before stock AddScience),
-            // so there is no in-flight debit from THIS purchase to fold in. For a prior
-            // in-flight tech debit (live transiently below raw running) raw stays the
-            // conservative choice (live - running <= 0, no gap added); for an in-flight KSC
-            // credit (live above raw running) adding the raw gap correctly lets the player
-            // spend science already in the live pool. Either way stock's CurrencyModifierQuery
-            // still backstops live affordability after the gate allows, so the raw value
-            // cannot cause an overspend. Do NOT "consistency-fix" this to the pending-adjusted
-            // form: that would make the gate more permissive (add a spurious gap) on a prior
-            // in-flight debit.
-            effectiveAvailable = available;
-            var rnd = ResearchAndDevelopment.Instance;
-            if (rnd != null)
-            {
-                effectiveAvailable = ComputeEffectiveAffordable(
-                    available,
-                    probe.GetRunningScience(),
-                    rnd.Science,
-                    IsAuthoritativeReductionForAffordability());
-            }
+            // BUG-G: the spendable amount is the patch's own write (the probe's walk carries
+            // the stock pool reference's adjustment rows). Stock's CurrencyModifierQuery
+            // still backstops live affordability after the gate allows.
+            effectiveAvailable = ComputeEffectiveAffordable(probe.GetProjectionMinBalance());
 
             bool affordable = effectiveAvailable >= (double)cost;
 
@@ -9078,19 +9043,8 @@ namespace Parsek
 
             double available = probe.GetAvailableFunds();
 
-            // BUG-G: reconcile the ledger spendable with the drawdown-guard-preserved live
-            // funds (same rule as CanAffordScienceSpending). Live-only; xUnit keeps the
-            // pure-ledger contract.
-            effectiveAvailable = available;
-            var funding = Funding.Instance;
-            if (funding != null)
-            {
-                effectiveAvailable = ComputeEffectiveAffordable(
-                    available,
-                    probe.GetRunningBalance(),
-                    funding.Funds,
-                    IsAuthoritativeReductionForAffordability());
-            }
+            // BUG-G: same rule as CanAffordScienceSpending.
+            effectiveAvailable = ComputeEffectiveAffordable(probe.GetProjectionMinBalance());
 
             bool affordable = effectiveAvailable >= (double)cost;
 
@@ -10068,7 +10022,7 @@ namespace Parsek
             actions = DeduplicateAgainstLedger(actions);
             for (int i = 0; i < actions.Count; i++)
                 actions[i].Sequence = AllocateKscSequence();
-            Ledger.AddActions(actions);
+            Ledger.AddActions(actions, LedgerRowWriter.StockApplied);
 
             if (scienceActions != null)
             {

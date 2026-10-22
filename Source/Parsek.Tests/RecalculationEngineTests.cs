@@ -738,10 +738,12 @@ namespace Parsek.Tests
             RecalculationEngine.Recalculate(actions);
 
             Assert.False(complete.Effective);
-            Assert.Equal(9600.0, funds.GetRunningBalance(), 1);
+            // The synthetic fail retires the contract and moves no pool (committed-value
+            // rule plan section 2.4, revision 6): only the advance stays.
+            Assert.Equal(10100.0, funds.GetRunningBalance(), 1);
             Assert.Equal(0.0, science.GetRunningScience(), 3);
             Assert.Equal(0f, complete.EffectiveRep);
-            Assert.True(reputation.GetRunningRep() < 0f);
+            Assert.Equal(0f, reputation.GetRunningRep());
             Assert.Equal(0, contracts.GetActiveContractCount());
             Assert.Contains(logLines, l =>
                 l.Contains("[Contracts]") &&
@@ -778,10 +780,12 @@ namespace Parsek.Tests
             RecalculationEngine.Recalculate(actions);
 
             Assert.False(complete.Effective);
-            Assert.Equal(9600.0, funds.GetRunningBalance(), 1);
+            // The synthetic fail retires the contract and moves no pool (committed-value
+            // rule plan section 2.4, revision 6): only the advance stays.
+            Assert.Equal(10100.0, funds.GetRunningBalance(), 1);
             Assert.Equal(0.0, science.GetRunningScience(), 3);
             Assert.Equal(0f, complete.EffectiveRep);
-            Assert.True(reputation.GetRunningRep() < 0f);
+            Assert.Equal(0f, reputation.GetRunningRep());
             Assert.Equal(0, contracts.GetActiveContractCount());
             Assert.Contains(logLines, l =>
                 l.Contains("[Contracts]") &&

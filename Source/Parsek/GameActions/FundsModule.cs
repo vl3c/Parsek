@@ -24,7 +24,7 @@ namespace Parsek
     /// Second-tier: reads Effective flags set by first-tier modules (Milestones, Contracts).
     /// Pure computation — no KSP state access.
     /// </summary>
-    internal class FundsModule : IResourceModule, ICashflowProjectionModule
+    internal class FundsModule : IResourceModule, ICashflowProjectionModule, IStockPoolModule
     {
         private const string Tag = "Funds";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
@@ -77,6 +77,25 @@ namespace Parsek
         private readonly Dictionary<string, bool> buildingDestroyedInWalk =
             new Dictionary<string, bool>(StringComparer.Ordinal);
 
+        /// <summary>
+        /// Stock's <c>AdvancedParams.AllowNegativeCurrency</c>, read once per walk in
+        /// <see cref="Reset"/>. Off: a loss that is not a cost row stops at 0, as
+        /// <c>Funding.AddFunds</c> stops it.
+        /// </summary>
+        private bool allowNegativeCurrency;
+
+        /// <summary>
+        /// The part of the walk's non-cost losses below 0 that stock forgives (its 0 clamp),
+        /// summed over the walk. Added back in the no-projection availability so it stays the
+        /// running balance.
+        /// </summary>
+        private double forgivenBelowZero;
+
+        /// <summary>Per row id, what the walk's dispatch moved the running balance by
+        /// (<see cref="IStockPoolModule.GetRowEffects"/>).</summary>
+        private readonly Dictionary<string, double> rowEffects =
+            new Dictionary<string, double>(StringComparer.Ordinal);
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -101,6 +120,9 @@ namespace Parsek
             projectedMinBalance = 0.0;
             hasInitialSeed = false;
             buildingDestroyedInWalk.Clear();
+            forgivenBelowZero = 0.0;
+            rowEffects.Clear();
+            allowNegativeCurrency = StockCurrencyClamp.ReadAllowNegativeCurrency();
 
             ParsekLog.Verbose(Tag,
                 $"Reset: prevSeed={prevSeed.ToString("R", IC)}, " +
@@ -144,6 +166,25 @@ namespace Parsek
             if (action == null)
                 return;
 
+            double before = runningBalance;
+            DispatchAction(action);
+            ApplyStockZeroClamp(action, before);
+            if (!string.IsNullOrEmpty(action.ActionId))
+            {
+                double prior;
+                rowEffects.TryGetValue(action.ActionId, out prior);
+                rowEffects[action.ActionId] = prior + (runningBalance - before);
+            }
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyDictionary<string, double> GetRowEffects()
+        {
+            return rowEffects;
+        }
+
+        private void DispatchAction(GameAction action)
+        {
             switch (action.Type)
             {
                 case GameActionType.FundsInitial:
@@ -185,12 +226,62 @@ namespace Parsek
                 case GameActionType.StrategyActivate:
                     ProcessStrategySetupCost(action);
                     break;
+                case GameActionType.StockPoolAdjustment:
+                    ProcessStockPoolAdjustment(action);
+                    break;
                 // Supply-route rows are NOT cased here: supply routes carry no money
                 // (todo LOGISTICS-WITHOUT-MONEY), so every route row falls through and
                 // moves no funds. Do NOT add a case: a funds mutation here would be a
                 // phantom charge.
                 // All other action types: ignore silently
             }
+        }
+
+        /// <summary>
+        /// A cost row: a purchase or strategy setup the player chose (committed-value rule
+        /// plan section 2.3). Never forgiven at 0: a purchase is paid in full or refused.
+        /// </summary>
+        internal static bool IsFundsCostRow(GameActionType type)
+        {
+            switch (type)
+            {
+                case GameActionType.FundsSpending:
+                case GameActionType.FacilityUpgrade:
+                case GameActionType.FacilityRepair:
+                case GameActionType.KerbalHire:
+                case GameActionType.StrategyActivate:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Stock's 0 clamp, applied in the walk (committed-value rule plan section 2.3, the
+        /// no-cost-ahead case, built ahead of the floor and the debt): a row that is not a
+        /// cost row and takes the running balance below 0 stops at 0 and the rest is
+        /// forgiven, as <c>Funding.AddFunds</c> does with <c>AllowNegativeCurrency</c> off.
+        /// A row that starts below 0 (a cost row already overdrew the walk) is forgiven in
+        /// full, never raised.
+        /// </summary>
+        private void ApplyStockZeroClamp(GameAction action, double before)
+        {
+            double forgiven = StockCurrencyClamp.ForgivenBelowZero(
+                before, runningBalance,
+                IsFundsCostRow(action.Type) || action.Type == GameActionType.StockPoolAdjustment,
+                allowNegativeCurrency);
+            if (forgiven <= 0.0)
+                return;
+
+            runningBalance += forgiven;
+            forgivenBelowZero += forgiven;
+            ParsekLog.VerboseRateLimited(Tag,
+                "zero-clamp-" + (action.ActionId ?? action.Type.ToString()),
+                $"Zero clamp: {action.Type} id={action.ActionId ?? "(none)"} " +
+                $"ut={action.UT.ToString("R", IC)} before={before.ToString("R", IC)} " +
+                $"forgiven={forgiven.ToString("R", IC)} " +
+                $"runningBalance={runningBalance.ToString("R", IC)} " +
+                $"forgivenTotal={forgivenBelowZero.ToString("R", IC)} (stock stops this loss at 0)");
         }
 
         // ================================================================
@@ -612,6 +703,23 @@ namespace Parsek
                 $"runningBalance={runningBalance.ToString("R", IC)}");
         }
 
+        /// <summary>
+        /// Processes a funds <see cref="GameActionType.StockPoolAdjustment"/>: the amount stock
+        /// already applied to the pool, as stored and never clamped (the live pool shows it).
+        /// Counted with the earnings (signed), so the no-projection availability carries it.
+        /// </summary>
+        private void ProcessStockPoolAdjustment(GameAction action)
+        {
+            if (action.AdjustmentPool != StockPool.Funds)
+                return;
+            double amount = action.AdjustmentAmount;
+            runningBalance += amount;
+            totalEarnings += amount;
+            ParsekLog.Verbose(Tag,
+                $"StockPoolAdjustment: {amount.ToString("R", IC)} id={action.ActionId ?? "(none)"} " +
+                $"ut={action.UT.ToString("R", IC)} runningBalance={runningBalance.ToString("R", IC)}");
+        }
+
         // ================================================================
         // Query methods
         // ================================================================
@@ -620,6 +728,12 @@ namespace Parsek
         internal double GetRunningBalance()
         {
             return runningBalance;
+        }
+
+        /// <summary>What the walk forgave below 0 so far (stock's 0 clamp on non-cost losses).</summary>
+        internal double GetForgivenBelowZero()
+        {
+            return forgivenBelowZero;
         }
 
         /// <summary>
@@ -638,7 +752,8 @@ namespace Parsek
             if (hasProjectedAvailableFunds)
                 return projectedAvailableFunds;
 
-            double available = initialFunds + totalEarnings - totalCommittedSpendings;
+            double available = initialFunds + totalEarnings - totalCommittedSpendings
+                + forgivenBelowZero;
             return available > 0.0 ? available : 0.0;
         }
 
@@ -660,10 +775,47 @@ namespace Parsek
         {
             if (hasProjectedAvailableFunds)
                 return projectedMinBalance;
-            return initialFunds + totalEarnings - totalCommittedSpendings;
+            return initialFunds + totalEarnings - totalCommittedSpendings + forgivenBelowZero;
         }
 
         public bool TryGetProjectionDelta(GameAction action, out double delta)
+        {
+            return TryGetRowDelta(action, out delta);
+        }
+
+        /// <summary>
+        /// True for every action type this module moves the funds pool for, whatever the
+        /// row's derived fields say. <see cref="TryGetRowDelta"/> answers false for an
+        /// ineffective row of such a type; the stock pool reference
+        /// (<see cref="StockPoolReference"/>) still counts that row, at 0.
+        /// </summary>
+        internal static bool AffectsFunds(GameActionType type)
+        {
+            switch (type)
+            {
+                case GameActionType.FundsEarning:
+                case GameActionType.MilestoneAchievement:
+                case GameActionType.ContractAccept:
+                case GameActionType.ContractComplete:
+                case GameActionType.FundsSpending:
+                case GameActionType.ContractFail:
+                case GameActionType.ContractCancel:
+                case GameActionType.FacilityUpgrade:
+                case GameActionType.FacilityRepair:
+                case GameActionType.KerbalHire:
+                case GameActionType.StrategyActivate:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// The funds a row moves the pool by after a walk populated its derived fields
+        /// (<see cref="GameAction.Effective"/>, <see cref="GameAction.TransformedFundsReward"/>).
+        /// Pure: reads only the row. Shared by the projection and the stock pool reference.
+        /// </summary>
+        internal static bool TryGetRowDelta(GameAction action, out double delta)
         {
             delta = 0.0;
             if (action == null)
@@ -706,6 +858,10 @@ namespace Parsek
                     return true;
                 case GameActionType.StrategyActivate:
                     delta = -(double)action.SetupCost;
+                    return true;
+                case GameActionType.StockPoolAdjustment:
+                    if (action.AdjustmentPool != StockPool.Funds) return false;
+                    delta = action.AdjustmentAmount;
                     return true;
                 default:
                     return false;

@@ -74,6 +74,22 @@ namespace Parsek
     }
 
     /// <summary>
+    /// Marker for a module that moves one of the stock pools (funds, science, reputation).
+    /// The engine dispatches it, and runs its PrePass over, only the rows of the walk's own
+    /// input list, never a row a module's PrePass injected (today only
+    /// <c>ContractsModule</c>'s synthetic deadline fail, which moves contract state only;
+    /// committed-value rule plan section 2.2). Such a module also records each row's effect
+    /// on its running value, which the drawdown guard's stock pool reference steps by.
+    /// </summary>
+    internal interface IStockPoolModule
+    {
+        /// <summary>Per row id, what the last walk's dispatch of that row moved the running
+        /// value by (after stock's 0 clamp and the reputation curve). Rows the walk did not
+        /// dispatch are absent.</summary>
+        IReadOnlyDictionary<string, double> GetRowEffects();
+    }
+
+    /// <summary>
     /// Optional extension for modules that need to carry static configuration into
     /// the isolated projection walk.
     /// </summary>

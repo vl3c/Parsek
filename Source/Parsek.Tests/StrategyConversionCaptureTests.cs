@@ -976,7 +976,7 @@ namespace Parsek.Tests
             // decision. A refactor that moved the rows behind the defer would put every
             // captured conversion at the mercy of a coroutine that may never resume.
             // Both scans start at the door's OWN body. LedgerOrchestrator.cs holds a second,
-            // unrelated "Ledger.AddAction(action);" in OnKscSpending that sits EARLIER in the
+            // unrelated "Ledger.AddAction(action, ...)" in OnKscSpending that sits EARLIER in the
             // file, so a file-wide IndexOf was satisfied by that call instead and the very
             // refactor this cell names - moving the door's write behind the defer - left it
             // green.
@@ -985,7 +985,8 @@ namespace Parsek.Tests
                 "internal static void OnStrategyCurrencyConversion", StringComparison.Ordinal);
             Assert.True(doorIdx > 0, "OnStrategyCurrencyConversion not found in LedgerOrchestrator");
 
-            int addIdx = src.IndexOf("Ledger.AddAction(action);", doorIdx, StringComparison.Ordinal);
+            int addIdx = src.IndexOf(
+                "Ledger.AddAction(action, LedgerRowWriter.StockApplied);", doorIdx, StringComparison.Ordinal);
             int dispatchIdx = src.IndexOf(
                 "StrategyConversionCapture.DecideRecalcDispatch(", doorIdx, StringComparison.Ordinal);
             Assert.True(addIdx > 0, "Ledger.AddAction call not found in OnStrategyCurrencyConversion");

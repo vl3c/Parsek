@@ -63,6 +63,10 @@ namespace Parsek
                 case GameActionType.FundsInitial:
                 case GameActionType.ScienceInitial:
                 case GameActionType.ReputationInitial:
+                // A measured stock pool adjustment is filed untagged (the RecordingId guard
+                // above already answers), listed so a stray tagged copy stays a
+                // pool-baseline row like the seeds: no flight owns it.
+                case GameActionType.StockPoolAdjustment:
                     return false;
 
                 case GameActionType.ScienceEarning:

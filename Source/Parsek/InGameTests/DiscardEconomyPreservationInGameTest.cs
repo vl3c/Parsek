@@ -171,7 +171,7 @@ namespace Parsek.InGameTests
                     ContractId = contractId,
                     UT = 100.0,
                     DeadlineUT = double.NaN,
-                });
+                }, LedgerRowWriter.StockApplied);
 
                 // Completed during the recorded flight: tagged to the pending recording id.
                 var complete = new GameStateEvent

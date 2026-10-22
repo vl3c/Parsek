@@ -281,6 +281,16 @@ namespace Parsek
                                      "reason-keyed event exists for the query family"
                     };
 
+                case GameActionType.StockPoolAdjustment:
+                    // The drawdown guard's measured leak: by construction the part of the
+                    // live pool no other row and no paired event explains, so there is no
+                    // event to pair it against.
+                    return new KscActionExpectation
+                    {
+                        Class = KscReconcileClass.Transformed,
+                        SkipReason = "stock pool adjustment -- the measured leak itself, no event to pair"
+                    };
+
                 case GameActionType.ScienceLabEarning:
                     // The science lab's subject-less credit, built FROM the very pool delta
                     // a reconcile leg would pair against (the lab's AddScience under

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace Parsek
@@ -21,7 +22,7 @@ namespace Parsek
     /// Design doc: section 6 (Reputation Module).
     /// Curve keyframes: docs/dev/plans/game-actions-spike-findings.md (Spike A).
     /// </summary>
-    internal class ReputationModule : IResourceModule
+    internal class ReputationModule : IResourceModule, IStockPoolModule
     {
         private const string Tag = "Reputation";
         private const float RepRange = 1000f;
@@ -35,6 +36,11 @@ namespace Parsek
         /// </summary>
         private bool hasInitialSeed;
 
+        /// <summary>Per row id, what the walk's dispatch moved the running reputation by,
+        /// curve included (<see cref="IStockPoolModule.GetRowEffects"/>).</summary>
+        private readonly Dictionary<string, double> rowEffects =
+            new Dictionary<string, double>(StringComparer.Ordinal);
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -45,6 +51,7 @@ namespace Parsek
             float previousRep = runningRep;
             runningRep = 0f;
             hasInitialSeed = false;
+            rowEffects.Clear();
             ParsekLog.Verbose(Tag, $"Reset: runningRep {previousRep.ToString("F2", IC)} -> 0");
         }
 
@@ -57,6 +64,26 @@ namespace Parsek
 
         /// <inheritdoc/>
         public void ProcessAction(GameAction action)
+        {
+            if (action == null)
+                return;
+            float before = runningRep;
+            Dispatch(action);
+            if (!string.IsNullOrEmpty(action.ActionId))
+            {
+                double prior;
+                rowEffects.TryGetValue(action.ActionId, out prior);
+                rowEffects[action.ActionId] = prior + ((double)runningRep - (double)before);
+            }
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyDictionary<string, double> GetRowEffects()
+        {
+            return rowEffects;
+        }
+
+        private void Dispatch(GameAction action)
         {
             // THE SEED SKIP, and it is a ROW-SET question rather than a per-type one. The
             // ReputationInitial seed is a single absolute figure; when it was read off the
@@ -110,6 +137,10 @@ namespace Parsek
 
                 case GameActionType.StrategyActivate:
                     ProcessStrategySetupReputation(action);
+                    break;
+
+                case GameActionType.StockPoolAdjustment:
+                    ProcessStockPoolAdjustment(action);
                     break;
 
                 default:
@@ -331,6 +362,50 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"ReputationInitial: seed={initial.ToString("R", IC)}, " +
                 $"runningRep={runningRep.ToString("R", IC)}");
+        }
+
+        // ================================================================
+        // Stock pool reference (committed-value rule plan section 2.4)
+        // ================================================================
+
+        /// <summary>
+        /// True for every action type this module moves the reputation pool for (the stock pool
+        /// reference tracks these rows, at their walk effect). A
+        /// <see cref="GameActionType.StockPoolAdjustment"/> is tracked per pool by the reference
+        /// itself and is not listed here.
+        /// </summary>
+        internal static bool AffectsReputation(GameActionType type)
+        {
+            switch (type)
+            {
+                case GameActionType.ReputationEarning:
+                case GameActionType.ReputationPenalty:
+                case GameActionType.MilestoneAchievement:
+                case GameActionType.ContractComplete:
+                case GameActionType.ContractFail:
+                case GameActionType.ContractCancel:
+                case GameActionType.StrategyActivate:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Processes a reputation <see cref="GameActionType.StockPoolAdjustment"/>: the amount
+        /// stock already applied to the pool, stored post-curve and applied as stored (as a
+        /// <see cref="ReputationPenaltySource.KerbalDeath"/> penalty is).
+        /// </summary>
+        private void ProcessStockPoolAdjustment(GameAction action)
+        {
+            if (action.AdjustmentPool != StockPool.Reputation)
+                return;
+            float amount = (float)action.AdjustmentAmount;
+            action.EffectiveRep = amount;
+            runningRep += amount;
+            ParsekLog.Verbose(Tag,
+                $"StockPoolAdjustment: {amount.ToString("R", IC)} (post-curve) id={action.ActionId ?? "(none)"} " +
+                $"ut={action.UT.ToString("R", IC)} runningRep={runningRep.ToString("R", IC)}");
         }
 
         // ================================================================

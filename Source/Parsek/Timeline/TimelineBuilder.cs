@@ -725,6 +725,7 @@ namespace Parsek
             int count = 0;
             int evaReassignSkipped = 0;
             int spawnEvidenceSkipped = 0;
+            int poolAdjustmentSkipped = 0;
             int modeSeedSkipped = 0;
             int hireCostSuffixSuppressed = 0;
             int noopSpendSkipped = 0;
@@ -756,6 +757,15 @@ namespace Parsek
                 if (IsSpawnEvidenceOnlyActionType(action.Type))
                 {
                     spawnEvidenceSkipped++;
+                    continue;
+                }
+
+                // A stock pool adjustment is the drawdown guard's bookkeeping for something
+                // stock already showed the player (an earning or spend the ledger has no
+                // other row for); it is not an event of the career.
+                if (action.Type == GameActionType.StockPoolAdjustment)
+                {
+                    poolAdjustmentSkipped++;
                     continue;
                 }
 
@@ -870,6 +880,10 @@ namespace Parsek
             if (spawnEvidenceSkipped > 0)
                 ParsekLog.Verbose("Timeline",
                     $"Filtered {spawnEvidenceSkipped} vessel-recovered action(s) (spawn evidence, no timeline entry by design)");
+
+            if (poolAdjustmentSkipped > 0)
+                ParsekLog.Verbose("Timeline",
+                    $"Filtered {poolAdjustmentSkipped} stock pool adjustment action(s) (bookkeeping, no timeline entry by design)");
 
             if (modeSeedSkipped > 0)
                 ParsekLog.Verbose("Timeline",

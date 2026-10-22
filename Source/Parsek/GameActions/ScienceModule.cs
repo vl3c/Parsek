@@ -19,7 +19,7 @@ namespace Parsek
     ///
     /// Pure computation — no KSP state access.
     /// </summary>
-    internal class ScienceModule : IResourceModule, ICashflowProjectionModule
+    internal class ScienceModule : IResourceModule, ICashflowProjectionModule, IStockPoolModule
     {
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
@@ -68,6 +68,17 @@ namespace Parsek
         /// </summary>
         private bool hasInitialSeed;
 
+        /// <summary>Stock's <c>AllowNegativeCurrency</c>, read once per walk in <see cref="Reset"/>.</summary>
+        private bool allowNegativeCurrency;
+
+        /// <summary>The part of the walk's non-cost losses below 0 stock forgives (see FundsModule).</summary>
+        private double forgivenBelowZero;
+
+        /// <summary>Per row id, what the walk's dispatch moved the running science by
+        /// (<see cref="IStockPoolModule.GetRowEffects"/>).</summary>
+        private readonly Dictionary<string, double> rowEffects =
+            new Dictionary<string, double>(StringComparer.Ordinal);
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -87,6 +98,9 @@ namespace Parsek
             projectedAvailableScience = 0.0;
             projectedMinBalance = 0.0;
             hasInitialSeed = false;
+            forgivenBelowZero = 0.0;
+            rowEffects.Clear();
+            allowNegativeCurrency = StockCurrencyClamp.ReadAllowNegativeCurrency();
 
             ParsekLog.Verbose("ScienceModule",
                 $"Reset: cleared {subjectCount} subjects, runningScience=0, " +
@@ -119,6 +133,64 @@ namespace Parsek
             if (action == null)
                 return;
 
+            double before = runningScience;
+            DispatchAction(action);
+            ApplyStockZeroClamp(action, before);
+            if (!string.IsNullOrEmpty(action.ActionId))
+            {
+                double prior;
+                rowEffects.TryGetValue(action.ActionId, out prior);
+                rowEffects[action.ActionId] = prior + (runningScience - before);
+            }
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyDictionary<string, double> GetRowEffects()
+        {
+            return rowEffects;
+        }
+
+        /// <summary>
+        /// A cost row (committed-value rule plan section 2.3): a tech purchase or a strategy
+        /// setup, plus the exchange debit, which is the science half of a currency conversion
+        /// as the funds half (a <c>FundsSpending</c> row) is a cost row in funds.
+        /// </summary>
+        internal static bool IsScienceCostRow(GameActionType type)
+        {
+            switch (type)
+            {
+                case GameActionType.ScienceSpending:
+                case GameActionType.StrategyActivate:
+                case GameActionType.StrategyScienceDebit:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>Stock's 0 clamp on a non-cost science loss (see FundsModule.ApplyStockZeroClamp).</summary>
+        private void ApplyStockZeroClamp(GameAction action, double before)
+        {
+            double forgiven = StockCurrencyClamp.ForgivenBelowZero(
+                before, runningScience,
+                IsScienceCostRow(action.Type) || action.Type == GameActionType.StockPoolAdjustment,
+                allowNegativeCurrency);
+            if (forgiven <= 0.0)
+                return;
+
+            runningScience += forgiven;
+            forgivenBelowZero += forgiven;
+            ParsekLog.VerboseRateLimited("ScienceModule",
+                "zero-clamp-" + (action.ActionId ?? action.Type.ToString()),
+                $"Zero clamp: {action.Type} id={action.ActionId ?? "(none)"} " +
+                $"ut={action.UT.ToString("R", IC)} before={before.ToString("R", IC)} " +
+                $"forgiven={forgiven.ToString("R", IC)} " +
+                $"runningScience={runningScience.ToString("R", IC)} " +
+                $"forgivenTotal={forgivenBelowZero.ToString("R", IC)} (stock stops this loss at 0)");
+        }
+
+        private void DispatchAction(GameAction action)
+        {
             switch (action.Type)
             {
                 case GameActionType.ScienceEarning:
@@ -147,6 +219,9 @@ namespace Parsek
                     break;
                 case GameActionType.ScienceInitial:
                     ProcessScienceInitial(action);
+                    break;
+                case GameActionType.StockPoolAdjustment:
+                    ProcessStockPoolAdjustment(action);
                     break;
                 // All other action types: ignore silently
             }
@@ -588,6 +663,23 @@ namespace Parsek
                 $"totalEffectiveEarnings={totalEffectiveEarnings.ToString("R", IC)}");
         }
 
+        /// <summary>
+        /// Processes a science <see cref="GameActionType.StockPoolAdjustment"/>: the amount stock
+        /// already applied to the pool, as stored and never clamped. Counted with the
+        /// earnings (signed), so the no-projection availability carries it.
+        /// </summary>
+        private void ProcessStockPoolAdjustment(GameAction action)
+        {
+            if (action.AdjustmentPool != StockPool.Science)
+                return;
+            double amount = action.AdjustmentAmount;
+            runningScience += amount;
+            totalEffectiveEarnings += amount;
+            ParsekLog.Verbose("ScienceModule",
+                $"StockPoolAdjustment: {amount.ToString("R", IC)} id={action.ActionId ?? "(none)"} " +
+                $"ut={action.UT.ToString("R", IC)} runningScience={runningScience.ToString("R", IC)}");
+        }
+
         // ================================================================
         // Query methods
         // ================================================================
@@ -614,7 +706,7 @@ namespace Parsek
             if (hasProjectedAvailableScience)
                 return projectedAvailableScience;
 
-            double available = totalEffectiveEarnings - totalCommittedSpendings;
+            double available = totalEffectiveEarnings - totalCommittedSpendings + forgivenBelowZero;
             return available > 0.0 ? available : 0.0;
         }
 
@@ -636,10 +728,45 @@ namespace Parsek
         {
             if (hasProjectedAvailableScience)
                 return projectedMinBalance;
-            return totalEffectiveEarnings - totalCommittedSpendings;
+            return totalEffectiveEarnings - totalCommittedSpendings + forgivenBelowZero;
         }
 
         public bool TryGetProjectionDelta(GameAction action, out double delta)
+        {
+            return TryGetRowDelta(action, out delta);
+        }
+
+        /// <summary>
+        /// True for every action type this module moves the science pool for, whatever the
+        /// row's derived fields say. <see cref="TryGetRowDelta"/> answers false for an
+        /// ineffective row of such a type; the stock pool reference
+        /// (<see cref="StockPoolReference"/>) still counts that row, at 0.
+        /// </summary>
+        internal static bool AffectsScience(GameActionType type)
+        {
+            switch (type)
+            {
+                case GameActionType.ScienceEarning:
+                case GameActionType.MilestoneAchievement:
+                case GameActionType.ContractComplete:
+                case GameActionType.ScienceSpending:
+                case GameActionType.StrategyScienceDebit:
+                case GameActionType.StrategyScienceCredit:
+                case GameActionType.ScienceLabEarning:
+                case GameActionType.StrategyActivate:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// The science a row moves the pool by after a walk populated its derived fields
+        /// (<see cref="GameAction.EffectiveScience"/>, <see cref="GameAction.Effective"/>,
+        /// <see cref="GameAction.TransformedScienceReward"/>). Pure: reads only the row.
+        /// Shared by the projection and the stock pool reference.
+        /// </summary>
+        internal static bool TryGetRowDelta(GameAction action, out double delta)
         {
             delta = 0.0;
             if (action == null)
@@ -672,6 +799,10 @@ namespace Parsek
                     return true;
                 case GameActionType.StrategyActivate:
                     delta = -(double)action.SetupScienceCost;
+                    return true;
+                case GameActionType.StockPoolAdjustment:
+                    if (action.AdjustmentPool != StockPool.Science) return false;
+                    delta = action.AdjustmentAmount;
                     return true;
                 default:
                     return false;

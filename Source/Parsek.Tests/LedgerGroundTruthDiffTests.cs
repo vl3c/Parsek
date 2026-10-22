@@ -1152,5 +1152,97 @@ namespace Parsek.Tests
             int lineCount = formatted.Split('\n').Length;
             Assert.Equal(report.All.Count + 1, lineCount);
         }
+
+        // ================================================================
+        // StockPoolAdjustment rows are left out of the pool comparison
+        // ================================================================
+
+        [Fact]
+        public void Diff_ScienceSeedDefectHiddenByAnAdjustmentRow_StillHardFails()
+        {
+            // LAB-12's DEFECT 1 shape: the walk seeded science 0 where the save had 400, the
+            // stock pool reference filed the 400 gap as an adjustment row, and the walk
+            // carries it, so the running value matches the save. Left out, the ledger's own
+            // rows reconstruct -251.375 against the save's 148.625: a hard divergence.
+            var save = HealthySave();
+            save.SciencePool = 148.625;
+            var recon = HealthyRecon();
+            recon.SciencePool = 148.625;
+            recon.ScienceAdjustment = 400.0;
+            recon.ScienceAdjustmentRows = 1;
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            var hard = report.HardFailures(strict: false);
+            var science = Assert.Single(hard, d => d.Facet == DivergenceFacet.SciencePool);
+            Assert.Equal(-251.375, science.Reconstructed, 6);
+            Assert.Contains("adjustmentsLeftOut=400", science.Detail);
+        }
+
+        [Fact]
+        public void Diff_ReputationAndFundsAdjustments_AreLeftOutToo()
+        {
+            var save = HealthySave();
+            var recon = HealthyRecon();
+            recon.ReputationAdjustment = 25.0;
+            recon.ReputationAdjustmentRows = 1;
+            recon.FundsAdjustment = -500.0;
+            recon.FundsAdjustmentRows = 2;
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            var hard = report.HardFailures(strict: false);
+            var rep = Assert.Single(hard, d => d.Facet == DivergenceFacet.Reputation);
+            Assert.Equal(50.0, rep.Reconstructed, 6);
+            // Funds left out read ABOVE the save (an unmodelled spend kept): the existing
+            // uplift demotion makes it report-only, not hard.
+            Assert.DoesNotContain(hard, d => d.Facet == DivergenceFacet.Funds);
+            Assert.Contains(report.All, d => d.Facet == DivergenceFacet.Funds
+                && d.Kind == DivergenceKind.UpliftClampedExpected && d.Reconstructed == 50500.0);
+        }
+
+        [Fact]
+        public void Diff_NoAdjustmentRows_ComparesTheRunningValues()
+        {
+            var report = LedgerGroundTruthDiff.Compare(
+                HealthySave(), HealthyRecon(), FacetTolerances.Default, NoMaxLevels());
+            Assert.Empty(report.All);
+        }
+
+        [Fact]
+        public void SumWalkedStockPoolAdjustments_CountsOnlyWalkedRowsOfThePool()
+        {
+            var walkedScience = StockPoolReference.BuildAdjustmentRow(StockPool.Science, 400.0, 10.0);
+            var unwalkedScience = StockPoolReference.BuildAdjustmentRow(StockPool.Science, 7.0, 99.0);
+            var funds = StockPoolReference.BuildAdjustmentRow(StockPool.Funds, 3.0, 10.0);
+            var earning = new GameAction { ActionId = "e", Type = GameActionType.ScienceEarning, EffectiveScience = 5f };
+            var actions = new List<GameAction> { walkedScience, unwalkedScience, funds, earning, null };
+            var effects = new Dictionary<string, double>
+            {
+                [walkedScience.ActionId] = 400.0,
+                [funds.ActionId] = 3.0,
+                ["e"] = 5.0,
+            };
+
+            double total = LedgerGroundTruthDiff.SumWalkedStockPoolAdjustments(
+                StockPool.Science, actions, effects, out int rows);
+            Assert.Equal(1, rows);
+            Assert.Equal(400.0, total, 6);
+
+            Assert.Equal(0.0, LedgerGroundTruthDiff.SumWalkedStockPoolAdjustments(
+                StockPool.Science, actions, null, out rows), 6);
+            Assert.Equal(0, rows);
+        }
+
+        [Fact]
+        public void FormatStockPoolAdjustmentLine_NamesPoolRowsTotalAndBothValues()
+        {
+            string line = LedgerGroundTruthDiff.FormatStockPoolAdjustmentLine(
+                "Science", 1, 400.0, 148.625, -251.375);
+            Assert.Equal("stock pool adjustments left out of the comparison: pool=Science rows=1 "
+                + "total=400 reconWithAdjustments=148.625 reconCompared=-251.375", line);
+        }
     }
 }

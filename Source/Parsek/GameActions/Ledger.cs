@@ -7,6 +7,24 @@ using System.Linq;
 namespace Parsek
 {
     /// <summary>
+    /// Who wrote a ledger row, as the drawdown guard's stock reference
+    /// (<see cref="StockPoolReference"/>) needs to know it.
+    /// <list type="bullet">
+    /// <item><see cref="StockApplied"/>: stock applied the row's effect to the live pool
+    /// itself (a row converted from a stock game-state event, the rollout row, recovery rows,
+    /// the rows an ordinary Discard keeps). The reference steps it into its expected pool.</item>
+    /// <item><see cref="ParsekAuthored"/>: Parsek authored the row without a stock
+    /// application (a load migration's rows, a broken-ledger recovery, the reconciliation
+    /// bundle's restore). Never stepped: it reaches the pool through an authoritative write.</item>
+    /// </list>
+    /// </summary>
+    internal enum LedgerRowWriter
+    {
+        StockApplied,
+        ParsekAuthored,
+    }
+
+    /// <summary>
     /// In-memory ledger of all game actions, with file persistence.
     /// Single source of truth for recalculation — loaded from a dedicated
     /// sidecar file under saves/&lt;save&gt;/Parsek/GameState/ledger.pgld.
@@ -171,8 +189,13 @@ namespace Parsek
                 ParsekLog.Verbose("Ledger", line);
         }
 
-        /// <summary>Appends a single action to the in-memory ledger.</summary>
-        internal static void AddAction(GameAction action)
+        /// <summary>
+        /// Appends a single action to the in-memory ledger, stamping who wrote it
+        /// (<see cref="LedgerRowWriter"/>): the drawdown guard's stock reference steps only
+        /// rows stock itself applied. Every production call names its writer; the source
+        /// gate <c>LedgerRowWriterClassificationTests</c> pins each call site's choice.
+        /// </summary>
+        internal static void AddAction(GameAction action, LedgerRowWriter writer)
         {
             if (action == null)
             {
@@ -180,15 +203,27 @@ namespace Parsek
                 return;
             }
 
+            action.ParsekAuthored = writer == LedgerRowWriter.ParsekAuthored;
             actions.Add(action);
             BumpStateVersion();
             ParsekLog.Verbose("Ledger",
                 $"Added action: type={action.Type}, ut={action.UT.ToString("R", CultureInfo.InvariantCulture)}, " +
-                $"recordingId={action.RecordingId ?? "(none)"}, total={actions.Count}");
+                $"recordingId={action.RecordingId ?? "(none)"}, writer={writer}, total={actions.Count}");
         }
 
-        /// <summary>Batch-appends multiple actions to the in-memory ledger.</summary>
-        internal static void AddActions(IEnumerable<GameAction> newActions)
+        /// <summary>
+        /// xUnit seam: <see cref="AddAction(GameAction, LedgerRowWriter)"/> as a stock-applied
+        /// row (the shape every ledger row had before the writer existed). Production code
+        /// must name its writer; <c>LedgerRowWriterClassificationTests</c> fails the suite on
+        /// any call of this overload under <c>Source/Parsek</c>.
+        /// </summary>
+        internal static void AddAction(GameAction action)
+        {
+            AddAction(action, LedgerRowWriter.StockApplied);
+        }
+
+        /// <summary>Batch-appends multiple actions to the in-memory ledger, stamping the writer.</summary>
+        internal static void AddActions(IEnumerable<GameAction> newActions, LedgerRowWriter writer)
         {
             if (newActions == null)
             {
@@ -197,15 +232,60 @@ namespace Parsek
             }
 
             int before = actions.Count;
+            bool parsekAuthored = writer == LedgerRowWriter.ParsekAuthored;
             foreach (var action in newActions)
             {
                 if (action != null)
+                {
+                    action.ParsekAuthored = parsekAuthored;
                     actions.Add(action);
+                }
             }
             int added = actions.Count - before;
             if (added > 0)
                 BumpStateVersion();
-            ParsekLog.Verbose("Ledger", $"AddActions batch: added={added}, total={actions.Count}");
+            ParsekLog.Verbose("Ledger", $"AddActions batch: added={added}, writer={writer}, total={actions.Count}");
+        }
+
+        /// <summary>
+        /// xUnit seam: <see cref="AddActions(IEnumerable{GameAction}, LedgerRowWriter)"/> as
+        /// stock-applied rows. Refused under <c>Source/Parsek</c> by the source gate.
+        /// </summary>
+        internal static void AddActions(IEnumerable<GameAction> newActions)
+        {
+            AddActions(newActions, LedgerRowWriter.StockApplied);
+        }
+
+        /// <summary>
+        /// Re-installs rows that were already in the ledger (the reconciliation bundle's
+        /// restore after a failed rewind load). Not a writer: each row keeps the
+        /// <see cref="GameAction.ParsekAuthored"/> stamp it got when it was first added, so a
+        /// restore never turns a stock-applied row into a Parsek-authored one (the bundle
+        /// holds the very row objects, and the flag is saved with them).
+        /// </summary>
+        internal static void RestoreActions(IEnumerable<GameAction> restoredActions)
+        {
+            if (restoredActions == null)
+            {
+                ParsekLog.Warn("Ledger", "RestoreActions called with null collection, skipping");
+                return;
+            }
+
+            int before = actions.Count;
+            int parsekAuthored = 0;
+            foreach (var action in restoredActions)
+            {
+                if (action == null)
+                    continue;
+                if (action.ParsekAuthored)
+                    parsekAuthored++;
+                actions.Add(action);
+            }
+            int added = actions.Count - before;
+            if (added > 0)
+                BumpStateVersion();
+            ParsekLog.Verbose("Ledger",
+                $"RestoreActions batch: restored={added}, parsekAuthored={parsekAuthored}, total={actions.Count}");
         }
 
         /// <summary>
