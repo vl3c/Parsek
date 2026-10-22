@@ -354,7 +354,7 @@ save load, including a `LoadGame`.
 Reserving the phase-3 names now means the envelope (id/cmd/args, percent-encoding,
 journal, verdicts) is designed once and the later commands slot in without a format break.
 
-The table today is **47 implemented / 4 reserved**. `TestCommandVerbs.cs` is the authority
+The table today is **54 implemented / 4 reserved**. `TestCommandVerbs.cs` is the authority
 (`hlib.IMPLEMENTED_SEAM_VERBS` mirrors it as an ordered list, and a cell pins both lengths);
 the updates below record how each verb arrived.
 
@@ -606,6 +606,14 @@ the updates below record how each verb arrived.
 > F9 and Load paths do, so the next `OnLoad` classifies a save-file load. Without it nothing
 > changes. New refusal `player-load-arg-invalid`. Contract below
 > (`#### LoadGame playerLoad=true`).
+
+> Update (CycleVessel, 2026-10-22): one ADDITIVE verb, taking the table to **54 implemented / 4
+> reserved**, to live-prove GC-4 (PR #2156: inside physics range a ghost map marker is a LOADED
+> vessel, and stock's `[` / `]` vessel cycle switched to it with `ForceSetActiveVessel`).
+> `CycleVessel direction=next|prev [forceGhost=true]` is one press of the cycle keys, run through
+> the cycle Prefix's own body after its key read (`VesselCycleReFlySwitchPatch.RunCycle`); the
+> optional `forceGhost=true` then calls `ForceSetActiveVessel` on a ghost marker to witness the
+> backstop. Full contract below (`#### CycleVessel`); lane `GC-4-vessel-cycle-skips-ghost-marker`.
 
 > Update (ReadVesselResources, 2026-10-16): one ADDITIVE verb, taking the table to **52 implemented /
 > 4 reserved**, the first read of what is really in a vessel's tanks (todo
@@ -4789,6 +4797,47 @@ that key order. Otherwise ERROR `crewtransfer-timeout`. `ClearTwoPhase` dismisse
 which holds a control lock. Pure half `TestCommandCrewTransfer`, applier
 `ParsekTestCommandAddon.CrewTransfer.cs`, mirrored by `CrewTransferSourceSyncTests`.
 
+#### CycleVessel (additive; GC-4, the stock vessel cycle and a loaded ghost marker)
+
+**Why.** Inside physics range a ghost's map marker (a `GhostMapPresence` ProtoVessel) is a LOADED
+vessel of the recorded type, and decompiled `VesselSwitching.Update` (the only reader of
+`FOCUS_PREV_VESSEL` / `FOCUS_NEXT_VESSEL`) collects every loaded vessel that is not the active one,
+not a `DeployedSciencePart` and not `vesselType <= SpaceObject`, then switches with
+`ForceSetActiveVessel`. GC-4 (PR #2156) fronts it with `VesselCycleReFlySwitchPatch` and backs it
+with `GhostVesselForceSwitchPatch`; no seam can press a key, so neither was ever flown.
+
+**Grammar.** `cmd=CycleVessel direction=next|prev [forceGhost=true|false]`, issued in FLIGHT.
+`direction=` is REQUIRED and exact (`next` is `]`, `prev` is `[`; `cyclevessel-direction-arg-missing`
+/ `-direction-arg-invalid`, deterministic); `forceGhost=` is `true` / `false` (case-insensitive,
+`cyclevessel-forceghost-arg-invalid`, deterministic), absent means false.
+
+**Behavior.** Refuses with no active vessel (`cyclevessel-no-active-vessel`, gate-class). Otherwise
+logs `cyclevessel press direction= active= vessel= forceGhost=`, runs the game-mode gate and then
+`VesselCycleReFlySwitchPatch.RunCycle(previous, report)`, the Prefix's own body after its key read:
+the Prefix itself is now `key read -> CheckInert -> RunCycle(prev, null)`, and the report (null on
+the key path) is the only difference. A press the Prefix handles (a ghost marker or a
+Re-Fly-refused candidate dropped) switches exactly as a key press does, logging the Prefix's own
+lines (`Vessel cycle skipped N ghost marker(s) ...` Verbose, `Vessel cycle found only ghost map
+markers (N) - no switch` Info). A press the Prefix leaves to stock (nothing dropped, an empty
+candidate list, or one of stock's early returns: `map-view`, `switch-locked`, `paused`, `no-game`,
+`not-flight`, `switch-near-off`) moves nothing under the seam, because stock's Update finds no key
+down; `stockWouldPick=` names what stock's final step would take from the unfiltered list. With
+`forceGhost=true` the verb then calls `FlightGlobals.ForceSetActiveVessel` on the first ghost
+marker among the press's candidates and logs `cyclevessel forceGhost: ForceSetActiveVessel(ghost
+pid= vessel=) returned= activeBefore= activeAfter= result=`; the backstop answers with its own
+`Refused ForceSetActiveVessel to ghost map vessel '..' pid=..` Info line.
+
+**Phases.** SINGLE-PHASE (decompiled `FlightGlobals.setActiveVessel` sets `activeVessel` inside the
+call for a loaded target), `RequiresFlight`, default 60 s budget, world-mutating tail role,
+`recording` post-mission role. OK payload in this order: `direction outcome detail before after
+switched candidates candidatePids ghostPids ghostsDropped refusedDropped leftToStock picked
+stockWouldPick stockWouldPickGhost forceGhost forceGhostPid`; `outcome` is one of `stock-early-return
+no-active-vessel no-candidates left-to-stock only-ghosts only-refused switched set-active-fallback
+inert`, `forceGhost` one of `skipped no-ghost refused switched unexpected`, pid lists comma-joined
+in stock's candidate order (`none` when empty). Line `cyclevessel result` plus the payload as
+`key=value`. Pure half `TestCommandCycleVessel`, applier `ParsekTestCommandAddon.CycleVessel.cs`,
+mirrored by `CycleVesselSourceSyncTests`.
+
 ### Addon lifecycle
 
 `ParsekTestCommandAddon` mirrors `TestRunnerShortcut`: `[KSPAddon(KSPAddon.Startup.Instantly, true)]`
@@ -4915,6 +4964,7 @@ wall-clock. Some verbs need a different bound and override the default:
 | `RevertToLaunch` | 180 s | TWO-PHASE, the `LaunchFromEditor` size: stock's flight reload from the post-init state plus LoadGame's flight-ready wait; no save is parsed off disk, so NOT a `DEFERRED_SEAM_VERB` |
 | `DriveVessel` | (default) 60 s | TWO-PHASE, at most 30 game seconds of drive; the completion ends ERROR `drivevessel-timeout` rather than letting the pump convert it |
 | `CrewTransfer` | (default) 60 s | TWO-PHASE: stock moves the kerbal synchronously and dismisses one frame later; the completion ends ERROR `crewtransfer-timeout` rather than letting the pump convert it |
+| `CycleVessel` | (default) 60 s | SINGLE-PHASE: the press and a switch between loaded vessels run inside the call; the budget only bounds the not-in-flight dispatch defer |
 | `ReFlyRevert` | 300 s | TWO-PHASE, the `InvokeRewind` / `InvokeRewindToLaunch` size: the resume settle (up to 30 s) and the stock menus, then Discard's quicksave `LoadGame` plus the Space Center / editor load or Retry's flight reload; a `DEFERRED_SEAM_VERB` |
 | `AnswerMergeDialog` | 60 s | MEASURED 2026-10-06 over 859 collected runs (2026-09-10 to 2026-10-05): OK n=65, p50 3.3 s, p99 6.6 s, max 7.2 s. 4x the OK max is 29 s; the floor is twice `TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds` (30 s), which the re-fly fallback spends before the driven exit (unit-guarded). Was 120 s; all 6 non-OK outcomes (4 `no-refly-dialog` TIMEOUT, 2 `answer-timeout` ERROR) waited the full 120 s and none was a slow success |
 | `EvaGroundScience` | 60 s | MEASURED 2026-10-06 over the same corpus: OK n=412, p50 0.9 s, p99 5.5 s, max 5.5 s (step 3.3, take 0.5, place 3.6, pickup 5.5). Each action is its own command, so the budget bounds one action. 4x the OK max is only 22 s, but the place ladder counts frames (about 1,000 worst case), so 60 s keeps it inside the budget down to about 17 fps. Was 120 s (the EvaExit size); all 37 timeouts (27 `step-timeout`, 5 `placement-timeout`, 3 `place-gate-timeout`, 2 `pickup-timeout`) waited the full 120 s, 4,440 s in all |

@@ -214,5 +214,53 @@ namespace Parsek.Tests
                 "ReFlyResumeSettleBudgetSeconds must leave at least half the " +
                 "AnswerMergeDialog budget for the driven exit and scene settle");
         }
+
+        // REFLY-DIALOG-READS-UNFINALIZED-ATTEMPT-AS-UNFLOWN seam half: a merge answer against
+        // the refused-merge dialog (Discard only) must not press button 0 (Discard) and
+        // report a commit.
+        [Fact]
+        public void IsMergeNotOffered_DiscardOnlyDialog_RefusesAMergeAnswer()
+        {
+            var discardOnly = new List<string> { "Discard" };
+            Assert.True(TestCommandMergeAnswer.IsMergeNotOffered(MergeAnswerChoice.Merge, discardOnly));
+            Assert.False(TestCommandMergeAnswer.IsMergeNotOffered(MergeAnswerChoice.Discard, discardOnly));
+            Assert.False(TestCommandMergeAnswer.IsMergeNotOffered(MergeAnswerChoice.Seal, discardOnly));
+        }
+
+        [Fact]
+        public void IsMergeNotOffered_OfferedOrForcedMerge_PressesAsBefore()
+        {
+            Assert.False(TestCommandMergeAnswer.IsMergeNotOffered(
+                MergeAnswerChoice.Merge, new List<string> { "Merge to Timeline", "Discard" }));
+            Assert.False(TestCommandMergeAnswer.IsMergeNotOffered(
+                MergeAnswerChoice.Merge, new List<string> { "Commit (don't seal)", "Merge & Seal", "Discard" }));
+            // The merge-journal-active dialog carries one forced MERGE button.
+            Assert.False(TestCommandMergeAnswer.IsMergeNotOffered(
+                MergeAnswerChoice.Merge, new List<string> { "Merge to Timeline" }));
+            Assert.False(TestCommandMergeAnswer.IsMergeNotOffered(MergeAnswerChoice.Merge, null));
+            Assert.False(TestCommandMergeAnswer.IsMergeNotOffered(MergeAnswerChoice.Merge, new List<string>()));
+        }
+
+        [Theory]
+        [InlineData("Merge", 0, 1, true)]
+        [InlineData("Seal", 2, 3, true)]
+        [InlineData("Merge", 1, 1, false)]
+        [InlineData("Discard", 0, 1, false)]
+        public void WasMergeRefusedAtClick_ReadsTheRefusalCounter(
+            string choiceName, int before, int after, bool expected)
+        {
+            var choice = (MergeAnswerChoice)System.Enum.Parse(typeof(MergeAnswerChoice), choiceName);
+            Assert.Equal(expected, TestCommandMergeAnswer.WasMergeRefusedAtClick(choice, before, after));
+        }
+
+        [Fact]
+        public void IsMergeRefusalReason_OnlyTheTwoRefusals()
+        {
+            Assert.True(TestCommandMergeAnswer.IsMergeRefusalReason(TestCommandMergeAnswer.MergeNotOfferedReason));
+            Assert.True(TestCommandMergeAnswer.IsMergeRefusalReason(TestCommandMergeAnswer.MergeRefusedAtClickReason));
+            Assert.False(TestCommandMergeAnswer.IsMergeRefusalReason("choice-unavailable"));
+            Assert.False(TestCommandMergeAnswer.IsMergeRefusalReason("no-live-dialog"));
+            Assert.False(TestCommandMergeAnswer.IsMergeRefusalReason(null));
+        }
     }
 }

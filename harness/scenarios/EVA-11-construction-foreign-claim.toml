@@ -1,5 +1,10 @@
 schema = 1
 id = "EVA-11-construction-foreign-claim"
+# 2026-10-22 (branch `claude/project-thread-77b92l`): also the live proof of GC-2 (PR #2156,
+# never flown): after the Rewind-to-Launch the claimed rover is real at the Space Center, and
+# its KSC-marker Recover and Tracking Station Recover / Delete must be greyed and refused (two
+# REJECTED presses after the eva11-rewound save; the TS press leaves the run in the Tracking
+# Station, from where the LoadGame below boots the flight as before). Re-flown green with these pins `2026-10-22_1214`.
 # NIGHTLY (seam lane on a derived fixture). LIVE-PROVEN 2026-10-15 `2026-10-15_2343` (PASS attempt 1,
 # wall 86 s) after two red flights on product defects, both fixed. Live proof of the fix for todo
 # EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED, and the fixture lane roadmap RC-6 asked for.
@@ -71,7 +76,7 @@ id = "EVA-11-construction-foreign-claim"
 tier = "nightly"
 description = "EVA construction on a foreign vessel is claimed and replayed: on eva-construct-pad Bill Kerman (Engineer) steps out of the pad Kerbal X to a crewless rover 153 m away, a recording on him attaches a Z-200 battery to the rover's free docking-port node and detaches two OX-STAT panels into his inventory through stock's own construction input, the rover joins his tree as a member carrying all three changes, and after commit, Rewind-to-Launch and a flight reload the chain walker ghosts the 16-part rover and spawns its chain tip with 15 parts."
 instanceProfile = "stock-minimal"
-tags = ["eva", "construction", "inventory", "foreign-vessel", "ghost-chain", "rewind-to-launch", "EVA-11"]
+tags = ["eva", "construction", "inventory", "foreign-vessel", "ghost-chain", "rewind-to-launch", "EVA-11", "GC-2", "tracking-station", "recover"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/eva-construct-pad"
@@ -116,6 +121,13 @@ steps = [
   # a Space Center save reloaded into FLIGHT on the pad Kerbal X.
   { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
   { cmd = "SaveGame",   args = { name = "eva11-rewound" },                   expect = "OK", budget = 120 },
+  # GC-2 (PR #2156, first flown here): at the Space Center the rewind lands in, the rover is a
+  # REAL vessel a committed future flight (the member) still claims. Stock's KSC-marker Recover
+  # and the Tracking Station's Recover / Delete are greyed for it, so both presses are refused
+  # as a locked button, and nothing is recovered (the ghost and the tip spawn below still find
+  # the rover). After the save, so the reload below reads the same save as before.
+  { cmd = "KscMarkerRecover",       args = { pid = "1871615455" },             expect = "REJECTED", budget = 120 },
+  { cmd = "TrackingStationRecover", args = { pid = "1871615455" },             expect = "REJECTED", budget = 120 },
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "eva11-rewound" }, expect = "OK", budget = 300 },
   { cmd = "StopRecording",                                                   expect = "OK" },
   { cmd = "DiscardTree",                                                     expect = "OK" },
@@ -135,7 +147,7 @@ steps = [
 
 [dimensionsCovered]
 D9  = ["rewind-to-launch"]
-D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "scene-ts"]
 D18 = ["background-event-claims"]
 
 [expectations]
@@ -183,6 +195,11 @@ required = [
   # ACT 3: the rewind, the reloaded chain, the ghost and the tip spawn in its built shape.
   "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=1",
   "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # GC-2: the claimed rover's Recover buttons are greyed by the claim and the presses refused.
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[ClaimedVessel\\] Blocked KSC marker Recover \\(greyed\\) of claimed vessel 'rover fuel 0' pid=1871615455 chainTip=[0-9a-f]+ ",
+  "invokerewindtolaunch complete [\\s\\S]*kscrecover rejected reason=kscrecover-button-locked pid=1871615455",
+  "invokerewindtolaunch complete [\\s\\S]*\\[ClaimedVessel\\] Blocked Tracking Station Recover/Delete \\(greyed\\) of claimed vessel 'rover fuel 0' pid=1871615455 chainTip=[0-9a-f]+ ",
+  "invokerewindtolaunch complete [\\s\\S]*tsrecover rejected reason=tsrecover-button-locked pid=1871615455",
   "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*invokerewindtolaunch complete [\\s\\S]*listhandles chain index=[0-9]+ pid=1871615455 links=1 trees=1 treeIds=[0-9a-f]{32} tip=\\1",
   "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva11-reloaded-chains-[1-9][^\\r\\n]*-\\1-false-",
   "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Vessel ghosted: pid=1871615455 name=rover fuel 0[\\s\\S]*\\[Ghoster\\] Chain tip spawn: pid=1871615455 vessel=rover fuel 0 preserveIdentity=true [^\\r\\n]*parts=15",
@@ -214,6 +231,9 @@ forbidden = [
   # A detach is a part change on the rover, never a split of it.
   "Background vessel split detected: parentPid=1871615455 ",
   "invokerewindtolaunch refused",
+  # GC-2: the claimed rover is never recovered.
+  "tsrecover complete pid=1871615455",
+  "kscrecover complete pid=1871615455",
   "Stripping orphaned spawned vessel 'rover fuel 0'",
   "Chain tip spawn blocked by collision: #[0-9]+ \"rover fuel 0\"",
   "Chain tip spawn failed: #[0-9]+ \"rover fuel 0\"",
@@ -226,7 +246,7 @@ forbidden = [
 ]
 
 [runtime]
-budgetSeconds = 1500
+budgetSeconds = 1800
 
 [retry]
 policy = "once"

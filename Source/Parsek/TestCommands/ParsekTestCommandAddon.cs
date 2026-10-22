@@ -1676,6 +1676,10 @@ namespace Parsek.TestCommands
         // CrewTransfer: body + two-phase completion in ParsekTestCommandAddon.CrewTransfer.cs.
         void ITestCommandExecutor.CrewTransfer(ParsedCommand cmd) => CrewTransferImpl(cmd);
 
+        // CycleVessel: body in ParsekTestCommandAddon.CycleVessel.cs. Single-phase (the press and
+        // the switch run synchronously), so no TryComplete*.
+        void ITestCommandExecutor.CycleVessel(ParsedCommand cmd) => CycleVesselImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             // Batch-baseline latch clear (finding 1). Any verb that can change state a
@@ -1748,6 +1752,7 @@ namespace Parsek.TestCommands
                 case "DriveVessel": exec.DriveVessel(cmd); break;
                 case "ReadVesselResources": exec.ReadVesselResources(cmd); break;
                 case "CrewTransfer": exec.CrewTransfer(cmd); break;
+                case "CycleVessel": exec.CycleVessel(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");
@@ -2909,6 +2914,12 @@ namespace Parsek.TestCommands
             {
                 if (!TryInvokeMergeButton(popup, choice, out string invokeError))
                 {
+                    if (TestCommandMergeAnswer.IsMergeRefusalReason(invokeError))
+                    {
+                        ParsekLog.Warn(Tag, $"answermergedialog refused reason={invokeError} choice={ChoiceWire(choice)}");
+                        SetExecResult("REJECTED", null, invokeError);
+                        return;
+                    }
                     ParsekLog.Warn(Tag, $"answermergedialog failed reason={invokeError}");
                     SetExecResult("ERROR", null, invokeError);
                     return;
@@ -3027,6 +3038,12 @@ namespace Parsek.TestCommands
                         {
                             string did = completionId; long dseq = completionSeq; string dverb = completionVerb;
                             ClearTwoPhase();
+                            if (TestCommandMergeAnswer.IsMergeRefusalReason(driveInvokeError))
+                            {
+                                ParsekLog.Warn(Tag, $"answermergedialog refused reason={driveInvokeError} choice={ChoiceWire(mergeAnswerChoice)}");
+                                EmitExecutedTerminal(did, dseq, dverb, "REJECTED", null, driveInvokeError, dequeueHead: true);
+                                return;
+                            }
                             ParsekLog.Warn(Tag, $"answermergedialog failed reason={driveInvokeError}");
                             EmitExecutedTerminal(did, dseq, dverb, "ERROR", null, driveInvokeError, dequeueHead: true);
                             return;
@@ -3052,6 +3069,15 @@ namespace Parsek.TestCommands
                         mergeAnswerApplied = true;
                         mergeAnswerResult = TestCommandMergeAnswer.ResultLabel(mergeAnswerChoice);
                         ParsekLog.Info(Tag, $"answermergedialog deferred-dialog answered result={mergeAnswerResult}");
+                    }
+                    else if (TestCommandMergeAnswer.IsMergeRefusalReason(invokeError))
+                    {
+                        string rid = completionId; long rseq = completionSeq; string rverb = completionVerb;
+                        MergeAnswerChoice rch = mergeAnswerChoice;
+                        ClearTwoPhase();
+                        ParsekLog.Warn(Tag, $"answermergedialog refused reason={invokeError} choice={ChoiceWire(rch)}");
+                        EmitExecutedTerminal(rid, rseq, rverb, "REJECTED", null, invokeError, dequeueHead: true);
+                        return;
                     }
                     else if (invokeError == "choice-unavailable")
                     {
@@ -3178,6 +3204,16 @@ namespace Parsek.TestCommands
             switch (choice)
             {
                 case MergeAnswerChoice.Merge:
+                    var labels = new List<string>(buttons.Count);
+                    for (int i = 0; i < buttons.Count; i++)
+                        labels.Add(buttons[i]?.OptionText);
+                    if (TestCommandMergeAnswer.IsMergeNotOffered(choice, labels))
+                    {
+                        // The refused-merge dialog (Discard only): button 0 is Discard, so a
+                        // by-order press would discard while the seam reported a commit.
+                        error = TestCommandMergeAnswer.MergeNotOfferedReason;
+                        return false;
+                    }
                     target = buttons[0];
                     break;
                 case MergeAnswerChoice.Discard:
@@ -3195,7 +3231,14 @@ namespace Parsek.TestCommands
             // The button lambda runs its action INSIDE the callback (MergeCommit / MergeDiscard
             // / RunPreTransitionAction), synchronously in this frame - honoring the
             // deferred-field PopupDialog callback trap.
+            int refusalsBefore = MergeDialog.MergeDominanceRefusalCount;
             DialogGuiButtonOptionSelectedMethod.Invoke(target, null);
+            if (TestCommandMergeAnswer.WasMergeRefusedAtClick(
+                    choice, refusalsBefore, MergeDialog.MergeDominanceRefusalCount))
+            {
+                error = TestCommandMergeAnswer.MergeRefusedAtClickReason;
+                return false;
+            }
             return true;
         }
 

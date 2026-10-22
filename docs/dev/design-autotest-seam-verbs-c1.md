@@ -624,6 +624,13 @@ step 1), noted here for completeness.
   no Merge-and-Seal button -> `ERROR msg=choice-unavailable`. If the popup was dismissed
   between the dispatch sample and the execute (no live "ParsekMerge" popup and no re-fly
   marker to re-surface one) -> `ERROR msg=no-live-dialog`.
+- A `merge` choice the dialog does not offer, or that the merge refuses, is never reported as
+  `committed` (2026-10-22): a dialog whose only button is Discard (the Re-Fly dominance check
+  refused the merge at open) -> `REJECTED msg=merge-not-offered`, nothing pressed; a Merge or
+  Merge-and-Seal press under which `MergeCommit`'s dominance refusal fired
+  (`MergeDialog.MergeDominanceRefusalCount` moved) -> `REJECTED msg=merge-refused-at-click`.
+  Both log `answermergedialog refused reason=<reason> choice=<choice>`; neither has a
+  `_SEAM_REFUSAL_SUBKINDS` row, so both classify `driver-verdict-mismatch` (retry-once INVALID).
 
 **Payload.** `OK choice=<choice> result=<committed|discarded|sealed>`.
 
@@ -997,6 +1004,7 @@ PARSEK-FAIL):
 | `InvokeRewind ERROR msg=rewind-failed / rewind-timeout` | INVALID(driver-rewind), retry-once |
 | `AnswerMergeDialog TIMEOUT msg=no-refly-dialog` | INVALID(driver-dialog), retry-once |
 | `AnswerMergeDialog ERROR msg=choice-unavailable / no-live-dialog / answer-timeout` | INVALID(driver-dialog), retry-once |
+| `AnswerMergeDialog REJECTED msg=merge-not-offered / merge-refused-at-click` | INVALID(driver-verdict-mismatch), retry-once |
 | `TimeJump REJECTED msg=backward-jump / missing-jump-target` | INVALID(driver-arg), retry-once |
 | `KscAction REJECTED msg=insufficient-* / unknown-* / *-already-* / blocked-committed / kerbal-parsek-managed / not-at-space-center` | INVALID(driver-career), retry-once |
 | any verb `OK` but the verifier chain reds the produced save | PARSEK-FAIL (orthogonal) |

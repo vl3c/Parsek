@@ -1118,7 +1118,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # tanks of live vessels, the resource-conservation read (roadmap TC-1).
         # 53 / 4 after CrewTransfer, an ADDITION by one: a player's stock crew transfer
         # between two crewed parts of the active vessel (the crew-across-vessels lanes).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 53)
+        # 54 / 4 after CycleVessel, an ADDITION by one: one press of stock's [ / ] vessel
+        # cycle through the cycle Prefix's own body (GC-4, a ghost marker in range).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 54)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -10200,6 +10202,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # THE GC-3 INERT-TREE LANE, 2026-10-22.
+        "GC-3-other-generation-tree-kept-inert.toml": "tier=operator by the calibration discipline, NOT debt: the live proof of GC-3 (PR #2158, todo GC3-SCHEMA-REJECTED-TREES-LOSE-EARNED-VALUE) on the derived `career-earned-pad-oldgen` fixture (tree-level generation 3): the tree is set aside inert on a cold boot, written back verbatim by a SaveGame, and set aside again by a cold save-file reload, with its tagged ledger rows kept. AUTHORED 2026-10-22, LIVE-PROVEN on its first flight `2026-10-22_1226`; every pinned count is derived from source and the fixture bytes (kept equal by test_career_earned_pad_oldgen.GC3SpecFixtureSyncTests)",
         # THE REWIND READ-BACK GUARD PAIR, 2026-09-27.
         "RB-1-rewind-readback-divergence.toml": "tier=operator on the calibration-discipline shape, NOT debt: flew the first live FLAGGED DIVERGENCE (a Step-3b resurrected-recovery retirement after a post-RP hire, on the rewind-readback preset over career-science-pad with the L3 Flea flight); RESHAPED 2026-10-20 for design 2.12 Rule 3 (Step 3b replaced by the claimed-vessel hold, the guard now reads within-expected-range), NOT RE-FLOWN. Owed: the re-flight, then the ordinary promotion call",
         "RB-2-rewind-readback-within-range.toml": "tier=operator on the calibration-discipline shape, NOT debt: RB-1's control (the same flight with no post-RP spend, so the guard must read within-expected-range); RESHAPED 2026-10-20 for design 2.12 Rule 3 (the resurrected Flea is held, not retired), NOT RE-FLOWN. Owed: the re-flight, then the ordinary promotion call",
@@ -11330,6 +11334,15 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
         bad["expectations"]["rewind"] = {"gating": "yes"}
         v = hlib.validate_spec(bad, reg)
         self.assertFalse(v.ok)
+
+    def test_validate_spec_reports_a_non_table_step_instead_of_crashing(self):
+        spec = copy.deepcopy(load_spec("S4.1-rewind-merge.toml"))
+        reg = load_registry()
+        spec["driver"]["steps"].insert(0, "ArmCommittedTreeRestoreAttempt: replacing stale context")
+        v = hlib.validate_spec(spec, reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any(e.startswith("driver.steps[0]: must be a table") for e in v.errors),
+                        v.errors)
 
     def test_validate_spec_rejects_malformed_structure_block(self):
         spec = copy.deepcopy(load_spec("S4.1-rewind-merge.toml"))
@@ -17612,6 +17625,70 @@ class CrewTransferSourceSyncTests(unittest.TestCase):
         self.assertIn("crewtransfer-kerbal-arg-missing", v(0, {"part": "mk1-3pod"})[0])
         self.assertIn("crewtransfer-part-arg-missing", v(0, {"kerbal": "Val", "part": " "})[0])
         errs = v(0, {"kerbal": "Val", "part": "mk1-3pod", "pid": "1"})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("silently ignored", errs[0])
+
+
+class CycleVesselSourceSyncTests(unittest.TestCase):
+    """`CycleVessel`. Reads OUTSIDE harness/: the verb, the two arg keys, the two directions,
+    the refusal reasons and the outcome tokens (IN ORDER) of the comment-stripped
+    TestCommands/TestCommandCycleVessel.cs, and the seam's hook into the cycle Prefix's own
+    body, so the pre-launch validator and a spec's pinned outcome cannot drift from what the
+    seam answers."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# CycleVessel tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_keys_reasons_and_outcomes_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandCycleVessel.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.CYCLEVESSEL_VERB, text)
+        self.assertIn('internal const string DirectionKey = "%s";' % hlib.CYCLEVESSEL_DIRECTION_KEY, text)
+        self.assertIn('internal const string ForceGhostKey = "%s";' % hlib.CYCLEVESSEL_FORCE_GHOST_KEY, text)
+        self.assertIn('internal const string DirectionNext = "%s";' % hlib.CYCLEVESSEL_DIRECTIONS[0], text)
+        self.assertIn('internal const string DirectionPrev = "%s";' % hlib.CYCLEVESSEL_DIRECTIONS[1], text)
+        self.assertEqual(list(hlib.CYCLEVESSEL_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        self.assertEqual(list(hlib.CYCLEVESSEL_OUTCOMES),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Outcomes"))
+        for reason in hlib.CYCLEVESSEL_REASONS:
+            self.assertIn(hlib._SEAM_REFUSAL_SUBKINDS.get(reason), ("driver-arg", "driver-gate"), reason)
+            if "-arg-" in reason:
+                self.assertIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+            else:
+                self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+
+    def test_the_seam_runs_the_prefixs_own_body(self):
+        patch = self._source("Patches", "VesselCycleReFlySwitchPatch.cs")
+        prefix = patch[patch.index("static bool Prefix()"):patch.index("internal static bool RunCycle(")]
+        self.assertIn("return RunCycle(prev, null);", prefix)
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.CycleVessel.cs")
+        self.assertIn("VesselCycleReFlySwitchPatch.RunCycle(previous, report);", applier)
+        self.assertIn("FlightGlobals.ForceSetActiveVessel(ghost)", applier)
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.CYCLEVESSEL_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(60.0, hlib.dispatch_deferral_budget(verb))
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertFalse(hlib.post_mission_step_gates(verb))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_cycle_vessel_step
+        self.assertEqual([], v(0, {"direction": "prev"}))
+        self.assertEqual([], v(0, {"direction": "next", "forceGhost": "true"}))
+        self.assertEqual([], v(0, {"direction": "next", "forceGhost": False}))
+        self.assertIn("cyclevessel-direction-arg-missing", v(0, {})[0])
+        self.assertIn("cyclevessel-direction-arg-invalid", v(0, {"direction": "Next"})[0])
+        self.assertIn("cyclevessel-forceghost-arg-invalid",
+                      v(0, {"direction": "next", "forceGhost": "yes"})[0])
+        errs = v(0, {"direction": "next", "pid": "1"})
         self.assertEqual(1, len(errs), errs)
         self.assertIn("silently ignored", errs[0])
 

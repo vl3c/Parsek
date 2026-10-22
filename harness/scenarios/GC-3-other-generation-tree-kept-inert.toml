@@ -1,0 +1,164 @@
+schema = 1
+id = "GC-3-other-generation-tree-kept-inert"
+# =====================================================================================
+# A COMMITTED TREE FROM ANOTHER RECORDING SCHEMA GENERATION IS KEPT INERT, AND THE LEDGER
+# KEEPS WHAT IT EARNED (todo GC3-SCHEMA-REJECTED-TREES-LOSE-EARNED-VALUE, PR #2158, owner
+# rulings 2026-10-21). LIVE-PROVEN 2026-10-22 on its first flight (`2026-10-22_1226`, PASS attempt 1). Before it, every literal below is derived from source and the
+# fixture bytes; that flight matched them all.
+#
+# THE DEFECT. The load gate rejects a tree of another generation (by design, no migration),
+# but the rejection spread: the next save dropped the tree from the .sfs for good, the
+# ledger reconcile pruned every earning row tagged to its recordings (funds, science,
+# reputation, milestones), and the milestone patch cleared stock progress flags. A ledger
+# stamped with another generation was also refused whole.
+#
+# THE FIX. `InertRecordingTrees`: a committed tree the gate rejects whole is held as a
+# deep copy and written back node-verbatim on every save; its recording ids count as known
+# to the ledger reconcile, the load sweeps, the rewind-point reaper and the file collector,
+# and never feed the old-save migration. The ledger loads when its own `version` matches.
+#
+# THE HOST. `career-earned-pad-oldgen` (harness/tools/build_career_earned_pad_oldgen.py):
+# career-earned-pad with the TREE-level `recordingSchemaGeneration` 4 -> 3 and the
+# ledger.pgld header generation 4 -> 3, nothing else. Tree 5eb172ab... "Jumping Flea", two
+# recordings, 16 ledger rows of which 11 are tagged to those two recordings (four
+# milestones with their funds / reputation awards, three science subjects, the 4558
+# recovery funds row, two KerbalAssignment rows, one KerbalExperience row). No rewind
+# point: no committed career fixture carries both a rewind point and earned tagged rows,
+# so the reaper half of GC-3 is not on this lane.
+#
+# THE SEQUENCE. Cold boot into FLIGHT on the pad craft; read the committed list (empty:
+# nothing plays the inert tree); SaveGame persistent (the save the bug dropped the tree
+# from); a COLD reload of that save through `playerLoad=true` (coldReason=save-file, so
+# memory is reset and the tree can only come from the file); read the list again; quit.
+# Each load must set the same tree aside with the same counts and prune no ledger row.
+#
+# DERIVED READINGS (pre-registered, every one unmeasured):
+#   - `validRecordingIds=2` on both reconciles: no recording loads, so the two known ids
+#     are exactly the inert tree's (RecordingStore.BuildKnownRecordingIds).
+#   - `before=16, kept=16` with every pruned counter 0: the 16 rows load; seeds, the
+#     untagged FirstCrewToSurvive milestone and the untagged ContractAccept (UT 360, below
+#     the 408.72 clock) survive any branch, and the 11 tagged rows survive only because
+#     their ids are known. Without the fix: validRecordingIds=0, prunedEarnings=8, prunedOther=3.
+#   - `ledgerRows=16` on the reload: no row is added in a session that flies nothing.
+#   - `moduleCredited=5`: the five MilestoneAchievement rows (4 tagged + FirstCrewToSurvive);
+#     the recalc reads ELS, which filters tombstones only. Without the fix: 1.
+#   - `unreached=0` (forbidden otherwise): nothing the stock save completed is cleared.
+#   - recordings count 2 (the two .prec files), structure trees=1 / committedTrees=1 /
+#     recordings=2 / Landed=1 on the PRODUCED save: nothing is committed live, so the one
+#     tree in the produced save can only be the re-emitted inert node.
+#   - ledger oracle, empty manifest: the produced save's funds / science / reputation equal
+#     the template's (536558 / 111.599998 / 1.99999881).
+# The offline analyzer reads each RECORDING's own stamp and ignores the tree-level one, so
+# it sees career-earned-pad's healthy recordings (why the fixture leaves those stamps at 4).
+#
+# FAST-LANE CHECKLIST (harness/README.md). (1) No host flies this fixture: it is new and
+# the subject is the load itself. (2) No idle waits: every step is a seam verb that
+# completes on its own condition. (3)-(6) Not applicable: no dwell, burn, coast or mission.
+# (7) Windows are the derived values above; re-pin to the measurement after the first
+# flight. (8) Tier `operator` until measured. (9) Run flight_efficiency.py on the first
+# green flight. Retry `once` (the subject is deterministic, but the two cold scene loads
+# are the usual boot exposure).
+# =====================================================================================
+tier = "operator"
+description = "GC-3: a committed tree of another recording schema generation (career-earned-pad-oldgen, tree generation 3) is kept inert across a save and a cold save-file reload: set aside with the same counts on both loads, written back verbatim, its 11 tagged ledger rows kept (no prune, milestones still credited, no milestone cleared, no drawdown clamp), and the generation-3 ledger loaded on its version."
+instanceProfile = "stock-minimal"
+tags = ["GC-3", "schema-gate", "inert-trees", "ledger", "career", "save-reload", "cold-load"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/career-earned-pad-oldgen"
+# LOAD-BEARING: the subject is the fixture's own tree and ledger; an injection preset
+# would add committed recordings and move validRecordingIds off 2.
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",    args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  # No recorder may be live at the reload (LoadGame refuses `recording-active`).
+  { cmd = "SetSetting",  args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" },                                expect = "OK" },
+  { cmd = "SaveGame",    args = { name = "persistent" },                               expect = "OK" },
+  # THE ROUND TRIP: a cold save-file load of the save just written.
+  { cmd = "LoadGame",    args = { save = "${runSave}", name = "persistent", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "committed" },                                expect = "OK" },
+  { cmd = "FlushAndQuit",                                                              expect = "OK" },
+]
+
+[dimensionsCovered]
+# Backed by the required tokens below; pending the first flight.
+D14 = ["kerbin", "career", "scene-flight"]
+D16 = ["schema-gate"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 2 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY until a reading run matches (saveparse arming discipline).
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2, max = 2 }
+terminalStates = { Landed = { min = 1, max = 1 } }
+
+[expectations.ledger]
+seedFrom   = "template"   # the staged fixture's own pools are the expected end state.
+tolerances = "default"
+# No manifest: the lane earns and spends nothing, so the expected delta is zero.
+
+[expectations.logContracts]
+required = [
+  # --- LOAD 1 (cold boot) ---
+  # The ledger names generation 3 and loads anyway (GC3-LEDGER-GENERATION-GATE-DROPS-ROWS).
+  "\\[Ledger\\] Ledger file '[^'\\r\\n]*ledger\\.pgld' carries recording schema generation '3' \\(current=4\\); ledger version matches, loaded anyway",
+  "OnLoad game state from files \\(no GAME_STATE node\\)",
+  "\\[RecordingTree\\] Load: skipped tree=5eb172ab29034ccbbac497ce6406c149 due to unsupported schema generation generation=3 expected=4",
+  "LoadRecordingTrees: tree 'Jumping Flea' id=5eb172ab29034ccbbac497ce6406c149 was rejected by the schema gate \\(reason=tree-generation-older\\); kept inert, not loaded",
+  "\\[InertTrees\\] 1 committed tree\\(s\\) from a different recording schema generation kept inert \\(current generation=4, recordings=2\\): 5eb172ab29034ccbbac497ce6406c149\\(generation=3 reason=tree-generation-older\\)\\. Their nodes are written back verbatim and their recording ids count as known; nothing plays or changes them[\\s\\S]*loadgame player-load: firing onGameStatePostLoad",
+  "\\[InertTrees\\] Load notice queued: 1 inert tree\\(s\\)[\\s\\S]*loadgame player-load: firing onGameStatePostLoad",
+  "\\[Ledger\\] Reconcile complete: before=16, kept=16, prunedEarnings=0, prunedSpendings=0, prunedSpendingsByRecordingId=0, prunedContractLifecycle=0, prunedOther=0, maxUT=\\S+, preserveFutureTimelineActions=\\w+, validRecordingIds=2[\\s\\S]*loadgame player-load: firing onGameStatePostLoad",
+  "(?m)listhandles kind=committed count=0 truncated=false$",
+  # --- THE SAVE ---
+  "\\[InertTrees\\] OnSave: re-emitted 1 inert RECORDING_TREE node\\(s\\) verbatim \\(skipped=0\\)[\\s\\S]*savegame name=persistent .*saved=true",
+  "savegame name=persistent .*saved=true",
+  # --- LOAD 2 (cold save-file reload of that save) ---
+  "loadgame start save=\\S+ name=persistent .*playerLoad=true",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=persistent route=Focusable",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=persistent (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=persistent [\\s\\S]*OnLoad game state from save node: ledgerRows=16 ",
+  # THE CHECK the original bug fails: the saved file still holds the tree, at generation 3.
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=persistent [\\s\\S]*\\[InertTrees\\] 1 committed tree\\(s\\) from a different recording schema generation kept inert \\(current generation=4, recordings=2\\): 5eb172ab29034ccbbac497ce6406c149\\(generation=3 reason=tree-generation-older\\)\\.",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=persistent [\\s\\S]*\\[InertTrees\\] Load notice queued: 1 inert tree\\(s\\)",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=persistent [\\s\\S]*\\[Ledger\\] Reconcile complete: before=16, kept=16, prunedEarnings=0, prunedSpendings=0, prunedSpendingsByRecordingId=0, prunedContractLifecycle=0, prunedOther=0, maxUT=\\S+, preserveFutureTimelineActions=\\w+, validRecordingIds=2",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=persistent [\\s\\S]*\\[FileCollector\\] Collection: [^\\r\\n]*headsQuarantined=0 [^\\r\\n]*reason=cold-load",
+  "(?m)loadgame player-load: firing onGameStatePostLoad save=\\S+ name=persistent [\\s\\S]*listhandles kind=committed count=0 truncated=false$",
+  # --- EARNED VALUE ---
+  "\\[KspStatePatcher\\] PatchMilestones: credited=[0-9]+, unreached=0, skipped=[0-9]+, moduleCredited=5",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "Reconcile complete: [^\\r\\n]*pruned(?:Earnings|Spendings|SpendingsByRecordingId|ContractLifecycle|Other)=[1-9]",
+  "PatchMilestones: credited=[0-9]+, unreached=[1-9]",
+  "GUARDED (?:DRAWDOWN|UPLIFT) clamped",
+  "headsQuarantined=[1-9]",
+  "OnSave: skipped inert tree id=",
+  "committed recording\\(s\\) that failed to load \\(O3",
+  "LoadRecordingTrees: skipped tree '",
+  "loadgame player-load: firing [\\s\\S]*Load classified: early=InSession",
+]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): max(step_budget, 600) + 60 per DEFERRED verb (LoadGame x2)
+# and max(step_budget, dispatch + 60) for the rest:
+#   LoadGame x2 1320   SetSetting 120   ListHandles x2 240   SaveGame 120   FlushAndQuit 120
+#                                                                             -> sum 1920
+# 2100 clears it by 180.
+budgetSeconds = 2100
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

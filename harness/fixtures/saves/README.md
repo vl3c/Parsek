@@ -405,6 +405,37 @@ Built and drift-gated by `harness/tools/build_k2_held_kerbal_pad.py` (`--check`)
 `harness/lib/test_k2_held_kerbal_pad.py`; the structural counts by
 `CommittedFixtureSweepTests.RECORDED_FIXTURES`. Host of `KB-5-flight-eva-block-held-kerbal`.
 
+## career-earned-pad-oldgen (GAME Mode = CAREER, 1 VESSEL, 2 recordings in an inert tree, derived from career-earned-pad)
+
+`career-earned-pad` with its one committed tree stamped as a save written by an OLDER
+Parsek build, the GC-3 host (`GC-3-other-generation-tree-kept-inert`, todo
+GC3-SCHEMA-REJECTED-TREES-LOSE-EARNED-VALUE). The product keeps such a tree INERT
+(`InertRecordingTrees`): it is set aside at load, written back node-verbatim on every save,
+and its recording ids count as known, so the 11 ledger rows tagged to its two recordings
+(four milestones with their funds and reputation awards, three science subjects, the 4558
+recovery funds row, kerbal rows) survive the reconcile. Three edits, nothing else:
+
+1. `persistent.sfs`: the TREE-level `recordingSchemaGeneration` (the value directly under
+   `RECORDING_TREE`) `4` -> `3`. That is the minimal edit that makes the WHOLE tree inert:
+   `RecordingTree.Load` checks it before reading any recording and returns an empty tree,
+   and `InertRecordingTrees.ClassifySchemaRejection` answers `tree-generation-older`. The
+   two RECORDING stamps and the sidecars stay at `4` on purpose: the product never reads
+   them for a tree rejected at tree level, while the offline analyzer reads each
+   RECORDING's own stamp and ignores the tree-level one, so restamping them would only add
+   an INV5 analyzer red the product does not share.
+2. `Parsek/GameState/ledger.pgld`: the header `recordingSchemaGeneration` `4` -> `3`, as an
+   older build writes it. The ledger loads on its own `version` (owner ruling,
+   GC3-LEDGER-GENERATION-GATE-DROPS-ROWS); the rows are untouched.
+3. The save `Title`.
+
+No rewind point: no committed career fixture carries both a rewind point and earned rows
+tagged to its recordings, so the reaper half of GC-3 is not covered here. Built and
+drift-gated by `harness/tools/build_career_earned_pad_oldgen.py` (`--check`) and
+`harness/lib/test_career_earned_pad_oldgen.py`, which also keeps the lane's pinned counts
+(tree id, generations, 16 rows, `validRecordingIds=2`, five credited milestones) equal to
+the fixture bytes. Structural counts in `CommittedFixtureSweepTests.RECORDED_FIXTURES`,
+whose `otherGenerationTrees` key names the one deliberately other-generation tree.
+
 ## career-earned-ksc (GAME Mode = CAREER, 0 VESSELS, 2 recordings)
 
 `career-earned-pad`'s career WITHOUT the spliced pad craft: the xUnit base

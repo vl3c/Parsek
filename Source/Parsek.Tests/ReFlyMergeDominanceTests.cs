@@ -888,6 +888,7 @@ namespace Parsek.Tests
             RecordingStore.StashPendingTree(pending);
             string ledgerBefore = LedgerCommitRowBuildTests.CanonicalLedger(Ledger.Actions);
             int committedBefore = RecordingStore.CommittedRecordings.Count;
+            int refusalsBefore = MergeDialog.MergeDominanceRefusalCount;
             RecordingTree reShown = null;
             MergeDialog.ReShowRefusedMergeDialogForTesting = t => reShown = t;
 
@@ -895,6 +896,8 @@ namespace Parsek.Tests
                 refreshQuicksaveAfterCommit: false, reShowDialogOnRefusal: true);
 
             Assert.Same(pending, RecordingStore.PendingTree);
+            // The automation seam reads this counter to report the refusal, not a commit.
+            Assert.Equal(refusalsBefore + 1, MergeDialog.MergeDominanceRefusalCount);
             Assert.Equal(committedBefore, RecordingStore.CommittedRecordings.Count);
             Assert.Equal(ledgerBefore, LedgerCommitRowBuildTests.CanonicalLedger(Ledger.Actions));
             Assert.NotNull(ParsekScenario.Instance.ActiveReFlySessionMarker);
