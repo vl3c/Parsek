@@ -37,7 +37,10 @@ Fix: the recorded-point recovery in `IncompleteBallisticSceneExitFinalizer.TryFi
 now declines (`reason=open-parachute pid=<chute pid>`) when the recording's own part events leave a
 parachute open at the recorded point's UT (`TryFindOpenParachuteAtUT`: the latest
 `ParachuteDeployed` / `ParachuteSemiDeployed` per part, closed again by `ParachuteCut`,
-`ParachuteDestroyed`, `ParachuteRepacked` or the part's `Destroyed`). The decline falls through to
+`ParachuteDestroyed`, `ParachuteRepacked`, the part's `Destroyed`, or a `Decoupled` keyed to the
+chute, i.e. a chute that tore off as the root of the departing piece). A chute that leaves on a
+piece rooted elsewhere still reads open (the recorder writes no event for it), so that rare
+vessel keeps the pre-#2154 SubOrbital. The decline falls through to
 the existing suppression, which keeps the recorder's SubOrbital verdict, the pre-#2154 outcome for
 this population. A recorded point with no open chute (a cut chute included) still recovers through
 the extrapolator, so #2154's frame fix stands for a real ballistic fall. Unit cells in

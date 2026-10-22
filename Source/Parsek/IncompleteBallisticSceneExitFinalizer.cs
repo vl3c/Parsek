@@ -2623,7 +2623,7 @@ namespace Parsek
 
         /// <summary>
         /// Pure: true when the recording's part events leave at least one parachute open
-        /// (deployed or semi-deployed, and not since cut, destroyed or repacked) at
+        /// (deployed or semi-deployed, and not since cut, destroyed, repacked or decoupled) at
         /// <paramref name="ut"/>. Events at exactly <paramref name="ut"/> count. The first
         /// open chute's part pid is returned for the log line.
         /// </summary>
@@ -2653,6 +2653,9 @@ namespace Parsek
                     case PartEventType.ParachuteDestroyed:
                     case PartEventType.ParachuteRepacked:
                     case PartEventType.Destroyed:
+                    // A chute that is the root of a piece that came off no longer slows
+                    // this vessel; the recorder writes no chute event for a departed part.
+                    case PartEventType.Decoupled:
                         state = false;
                         break;
                 }

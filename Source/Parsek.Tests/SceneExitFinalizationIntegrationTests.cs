@@ -2154,6 +2154,13 @@ namespace Parsek.Tests
             rec.PartEvents.Add(ChuteEvent(128.0, PartEventType.ParachuteDeployed, 3u));
             rec.PartEvents.Add(ChuteEvent(129.0, PartEventType.Destroyed, 3u));
             Assert.False(IncompleteBallisticSceneExitFinalizer.TryFindOpenParachuteAtUT(rec, 130.0, out _));
+
+            // A chute that came off as the root of a departing piece no longer counts.
+            rec.PartEvents.Add(ChuteEvent(140.0, PartEventType.ParachuteDeployed, 7u));
+            Assert.True(IncompleteBallisticSceneExitFinalizer.TryFindOpenParachuteAtUT(rec, 140.5, out pid));
+            Assert.Equal(7u, pid);
+            rec.PartEvents.Add(ChuteEvent(141.0, PartEventType.Decoupled, 7u));
+            Assert.False(IncompleteBallisticSceneExitFinalizer.TryFindOpenParachuteAtUT(rec, 150.0, out _));
         }
 
         [Fact]
