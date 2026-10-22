@@ -1,0 +1,301 @@
+schema = 1
+id = "L10-career-click-reserve-after-rewind"
+tier = "nightly"
+# CAREER x REWIND: CLICKS REFUSED FOR MONEY RESERVED FOR LATER COSTS (committed-value rule
+# phase 4, plan docs/dev/plans/committed-value-rule-implementation.md section 2.5 "Built in
+# phase 4" and section 4 "a purchase and a Mission Control Accept greyed while a committed
+# cost needs the money"; design docs/parsek-game-actions-and-resources-recorder-design.md
+# 3.13 rule 3; todo LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY, O7). The live check that, after a
+# rewind, while a committed cost lies after the clock, a stock click that would spend money
+# that cost or an open contract's fail penalty needs is greyed on its stock control and
+# refused at the stock call with one explanation, that a click the reservation can afford is
+# not, and that a Cancel which releases its own penalty is not refused.
+#
+# THE HOST AND THE PREFIX ARE L9's (`L9-career-floor-debt-after-rewind`, flown PASS
+# `2026-10-22_1342`): `career-earned-pad` (funds 536558, AllowNegativeCurrency = True,
+# Mission Control, Administration and Tracking Station at level 0, FundsLossMultiplier 1),
+# accept PartTest 8a2b7d40 (advance 9000, FundsFailure 9000) before the launch, record and
+# recover the pad Flea (X = 4642, measured by L9), then KSC 1: Administration, Tracking
+# Station and Mission Control upgrades (375000) and Appreciation Campaign + Outsourced R&D at
+# factor 0.06640625 (171081.03125), C = 546082.03125. KSC 1 leaves 536558 + 9000 + 4642 - C =
+# 4117.96875 (L9 measured it). One change: flight A warps on the pad to UT 1040 instead of
+# 470, so the recovery and KSC 1 land near UT 1040-1050 and the rewound clock (launch - 15 =
+# ~425) has ~600 s of game time at 1x before the first committed row crosses it. L9's 45 s
+# window would not hold this lane's steps (the demolish alone settles for ~12 s, KB-1). X does
+# not depend on the time on the pad (a landed recovery pays the vessel's value).
+#
+# THE OPEN CONTRACTS AFTER THE REWIND. Two Active contracts, neither with a committed
+# resolution after now, so both count in openRes (`ClickReservationGate.SnapshotAtCore`):
+# 07c8e34d (the fixture's Active PartTest, FundsFailure 27225, advance 0) and 8a2b7d40
+# (FundsFailure 9000). openRes = 36225, not 9000: the fixture's own Active contract counts too.
+# Two Active fill the level-0 Mission Control (limit 2), so stock itself refuses any Accept
+# until the cancel below frees a slot; the Accept steps come after the cancel.
+#
+# THE WALK AND ITS NUMBERS (funds; reputation and science have no cost ahead: the strategies'
+# setupRep and setupSci are 0, and a cost row needs a negative delta in its own pool):
+#   rewind     clock ~425. Probe: Funds ahead=5 (3 upgrades + 2 activations), need = -(X - C)
+#              = 541440.03125 (the recovery is walked before the costs). target = the projected
+#              minimum = 4117.96875, live = 4117.96875 (L9 read stock -4882.03125 after taking
+#              the 9000 cancel from it), openRes = 36225, spendable = min(max(target, 0), live) -
+#              openRes = -32107.03125.
+#   demolish   OuterDish of the Tracking Station (KB-1's target; repair cost 4000 at level 0,
+#              KB-1 measured `cost=4000`). Not a funds row.
+#   repair     REFUSED. Stock first: live 4117.96875 >= 4000, so stock would allow it (and the
+#              seam's own insufficient-funds pre-check passes); 4000 > spendable, so Parsek
+#              refuses (`ClickReservation.EvaluatePurchase`). No committed repair covers the
+#              dish, so the committed-row block allows it first (`Allowing facility repair`) and
+#              the click reservation is what refuses it. Reason "Needs 4,000 funds, 0 free."
+#              (a negative spendable prints as 0 free).
+#   menu       the Tracking Station menu's Repair reads the same decision: kind ContractReserve,
+#              marked and blocked, `interactable=false` (the pairing rule).
+#   cancel     ALLOWED (and greyed nowhere: btnCancel `interactable=true` first). t =
+#              InverseLerp(accepted ~410, deadline ~9.2e6, now) is ~0, so stock charges
+#              Lerp(9000, 9000, t) = 9000 exactly; the contract's own 9000 reserve is released:
+#              after = spendable - 9000 + 9000 = spendable, not below min(0, spendable). Without
+#              the release term it would read 9000 short and be refused, so the step tests it.
+#              Phase 3 then floors the overdraft as in L9 (not re-pinned here).
+#   accept R   7692d51a (advance 21336.2050652504, FundsFailure 27225.000590086) REFUSED. After
+#              the cancel openRes = 27225 (07c8e34d only) and spendable < 0, so the Mission
+#              Control rule `spendable + advance - FundsFailure < min(0, spendable)` reduces to
+#              FundsFailure > advance: short by 27225.000590086 - 21336.2050652504 =
+#              5888.7955248356, "Short by 5,889 funds." whatever the exact spendable is. The
+#              greyed btnAccept and the record read the same decision.
+#   accept A   375b4446 (advance 9000 = FundsFailure 9000) ALLOWED: after = spendable, not
+#              below it. The non-vacuous control: the same snapshot, the same predicate, one
+#              click either side of the line; its btnAccept reads `interactable=true` first.
+# The other offers read the same rule on the Available records: ee6abf2f (advance
+# 7042.25331544876, FundsFailure 7874.99964237213) is refused short by 832.746... ("833");
+# 6e39e38e and 5113c02e (7500 = 7500) are not. 90e4faaf and c69264e8 (short 379 / 300) are
+# refused too and not pinned.
+#
+# WHY NOT A FACILITY UPGRADE OR A PART PURCHASE. Every level-0 upgrade costs far more than the
+# live 4118, so stock refuses it first and Parsek stands aside (stock-first; the seam
+# pre-refuses insufficient-funds). The host has BypassEntryPurchaseAfterResearch = True, so
+# no part waits for a purchase. A hire costs ~62000 (L1). The repair is the one cheap funds
+# purchase the live pool covers.
+#
+# A DLL WITHOUT PHASE 4 REDS: the repair is charged (`BuildingRepaired`, the step reads OK not
+# REJECTED), the 7692d51a Accept goes through, no `[ClickReserve]` line, no ContractReserve
+# record. A phase 4 that dropped the Cancel's release term reds on the cancel step.
+#
+# NOT MERGED INTO L9 (fast-lane item 1): L9 is live-proven on another branch (PR #2180) and its
+# flight A ends at 470, which leaves no room for these steps; the lengthened flight and the
+# allowed Accept would move L9's measured debt walk. Once both land, folding these steps into
+# L9 between its cancel and its warp (with L9's flight A lengthened) is the candidate merge:
+# L9's own accept of 7692d51a after the crossing is then the same click allowed once no cost
+# lies ahead.
+#
+# NOT COVERED: the hover tooltip text (a pointer step; the record and the dialog carry the same
+# sentence), the launch, hire, rebuild and strategy-setup refusals (no cheap one on this host),
+# and the reputation pool (no reputation cost ahead).
+#
+# FAST-LANE CHECKLIST: (1) reuse: see above; (2) explicit-UT warps only; (3)-(5) n/a (no dwell,
+# burn or coast); (6) retry `none`, deterministic; (7) recordings pinned exactly (2 fixture +
+# flight A); (8) nightly, L9-sized; (9) run flight_efficiency.py after the first green flight.
+#
+# FIRST READING `2026-10-22_1814` (build 1eeb1cb, DLL sha256 eaa12416...): INVALID(driver-arg),
+# blocked by todo REWIND-TO-LAUNCH-LANDS-IN-THE-LATEST-PERSISTENT-WORLD (fixed by PR #2181, not
+# yet merged). The rewind's Space Center scene re-reads persistent.sfs, the latest world, so the
+# three facilities upgraded at UT 1040 come up at their upgraded level after the rewind: Parsek
+# sets Administration, Tracking Station and Mission Control 1 -> 0 inside the rewind OnLoad
+# (`PatchFacilities: levels patched=3`), the next pass finds no registered facility
+# (`notFound=3`), the menu at UT 425 reads Tracking Station "Facility Level 2", and only the
+# recalc after the cancel sets it back to 0. The upgraded station has no `OuterDish`, so the
+# demolish refused `unknown-building` and the repair `facility-intact`; the repair refusal is
+# therefore unproven. Everything else read as pinned: the probe `Funds(ahead=5
+# need=541440.03125)`, both snapshot lines (openRes 36225 / 27225, spendable -32107.03125 /
+# -27225), the cancel allowed, and the Accept of 7692d51a refused with `Short by 5,889 funds.`
+# (`kscaction refused action=accept-contract reason=blocked-committed`). Re-fly once #2181 is
+# on main; no token changes from this reading.
+#
+# SECOND READING `2026-10-22_1932` PASS attempt 1 on main + #2181 (head cd4e684): every token matched
+# as written, so the lane is live-proven with no token change.
+#
+# STATUS: AUTHORED 2026-10-22. Every token below is derived from the source and the
+# fixture, not from a log. THE READING RUN MUST SETTLE:
+#   - The two snapshot lines (openContracts=2 / =1, openRes 36225 / 27225) and the probe's
+#     `Funds(ahead=5 need=541440.03125)`: a different need means another row lies after now.
+#   - The Repair refusal: `Purchase refused ... facility repair SpaceCenter/TrackingStation ...
+#     cost=4000`. A `kscaction refused action=repair-facility reason=insufficient-funds` means
+#     live fell under 4000 (read the post-rewind PatchFunds); `Blocking facility repair` means a
+#     committed repair row exists (it must not).
+#   - The facility menu shows Repair over the collapsed dish (KB-2's premise on another host);
+#     a `Repair left to stock ... no destroyed building` line means the menu opened mid-collapse.
+#   - Both Accept offers still Offered after the rewind (7692d51a expires UT 19304, 375b4446
+#     43215); an `unknown-contract` / `contract-not-offered` refusal is a premise miss.
+#   - The cancel stays allowed: a `blocking cancel for guid=8a2b7d40... reserved for later
+#     costs` line is a PRODUCT finding (the release term), file it before re-pinning.
+#   - The control readbacks: btnCancel / btnAccept states as stock leaves them when Parsek
+#     greys nothing (`interactable=true`) and as Parsek greys them (`interactable=false`).
+description = "Career x rewind, clicks refused for money reserved for later costs (committed-value rule phase 4): on career-earned-pad, L9's committed purchases after a pad flight, then a rewind to the launch; a Tracking Station repair the live pool covers is greyed and refused because the open contract penalties take it, the contract whose own penalty is reserved can still be cancelled, and a Mission Control Accept whose fail penalty exceeds its advance is greyed and refused while one whose advance covers its penalty is allowed."
+instanceProfile = "stock-minimal"
+tags = ["L10", "career", "ledger", "rewind", "click-reservation", "action-blocking", "stock-ui",
+        "contracts", "facilities", "recovery", "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-earned-pad"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+
+  # ---- L9's prefix: the contract accepted before the launch ----
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "8a2b7d40-4ee9-4f98-8290-7052ca24afd0" }, expect = "OK", budget = 60 },
+  { cmd = "SaveGame",       args = { name = "persistent" },                                expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+
+  # ---- flight A: L9's, held on the pad to UT 1040 so the rewound clock has room ----
+  { cmd = "WarpToUT",       args = { ut = "440" },                                         expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "1040" },                                        expect = "OK", budget = 180 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "1846203977" },                                 expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "l10-a-committed" },                          expect = "OK" },
+
+  # ---- KSC 1: L9's committed purchases (C = 546082.03125) ----
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/Administration" },   expect = "OK", budget = 60 },
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/TrackingStation" },  expect = "OK", budget = 60 },
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/MissionControl" },   expect = "OK", budget = 60 },
+  { cmd = "KscAction",      args = { action = "activate-strategy", strategy = "AppreciationCampaignCfg", factor = "0.06640625" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",      args = { action = "activate-strategy", strategy = "OutsourcedResearchCfg", factor = "0.06640625" },   expect = "OK", budget = 60 },
+
+  # ---- rewind: A's launch, from the Space Center (clock ~425, every cost ahead) ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "l10-rewound" },                              expect = "OK" },
+
+  # ---- a purchase the live pool covers and the reservation does not: the dish repair ----
+  { cmd = "KscAction",      args = { action = "demolish-building", building = "OuterDish" }, expect = "OK", budget = 60 },
+  # Defers until the collapse settles, then makes the menu's RepairFacility(true) call.
+  { cmd = "KscAction",      args = { action = "repair-facility", facility = "SpaceCenter/TrackingStation" }, expect = "REJECTED", budget = 60 },
+  { cmd = "CaptureScreenshot", args = { label = "l10-repair-refused" },                    expect = "OK" },
+  { cmd = "UiAction",       args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "facilitymenu", act = "open", item = "SpaceCenter/TrackingStation" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "l10-facility-menu" },                     expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "facilitymenu", act = "close" },             expect = "OK" },
+
+  # ---- the Cancel that releases its own reserve: not greyed, not refused ----
+  { cmd = "StockScreen",    args = { screen = "missioncontrol", act = "open", pane = "active" }, expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "missioncontrol", act = "select", item = "8a2b7d40-4ee9-4f98-8290-7052ca24afd0", pane = "active" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "l10-mc-cancel" },                         expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "missioncontrol", act = "close" },           expect = "OK" },
+  { cmd = "KscAction",      args = { action = "cancel-contract", contract = "8a2b7d40-4ee9-4f98-8290-7052ca24afd0" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "l10-cancelled" },                            expect = "OK" },
+
+  # ---- Mission Control Accept: one refused, one allowed, read on the screen first ----
+  { cmd = "StockScreen",    args = { screen = "missioncontrol", act = "open", pane = "available" }, expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "missioncontrol", act = "select", item = "7692d51a-1548-4aaa-8ba2-795cbbc269cf", pane = "available" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "l10-mc-refused" },                        expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "missioncontrol", act = "select", item = "375b4446-c861-4b4d-bf97-ef38407246a4", pane = "available" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "l10-mc-allowed" },                        expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "missioncontrol", act = "close" },           expect = "OK" },
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "7692d51a-1548-4aaa-8ba2-795cbbc269cf" }, expect = "REJECTED", budget = 60 },
+  { cmd = "CaptureScreenshot", args = { label = "l10-accept-refused" },                    expect = "OK" },
+  { cmd = "UiAction",       args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "375b4446-c861-4b4d-bf97-ef38407246a4" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "l10-accepted" },                             expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "contracts", "facilities", "action-blocking"]
+D14 = ["career", "scene-ksc", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's two committed recordings plus flight A; the rewind removes none.
+count = { min = 3, max = 3 }
+
+[expectations.logContracts]
+required = [
+  # ---- L9's prefix, the committed purchases (cost rows ahead after the rewind) ----
+  "kscaction action=accept-contract target=8a2b7d40-4ee9-4f98-8290-7052ca24afd0 applied=true",
+  "kscaction action=upgrade-facility target=SpaceCenter/Administration applied=true",
+  "kscaction action=upgrade-facility target=SpaceCenter/TrackingStation applied=true",
+  "kscaction action=upgrade-facility target=SpaceCenter/MissionControl applied=true",
+  "kscaction action=activate-strategy target=AppreciationCampaignCfg applied=true",
+  "kscaction action=activate-strategy target=OutsourcedResearchCfg applied=true",
+  "\\[Rewind\\] Rewind-to-Launch initiated to UT ",
+
+  # ---- the reservation after the rewind: five funds costs ahead, two open penalties ----
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[ClickReserve\\] Click reservation probe at ut=[0-9.]+ rows=[0-9]+ validUntil=[0-9.]+: [^\\r\\n]*Funds\\(ahead=5 need=541440\\.03[0-9]*\\)",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[ClickReserve\\] Click reservation \\(a committed cost lies ahead\\): ut=[0-9.]+ Funds\\(ahead=1 target=4117\\.9[0-9]* need=0 live=4117\\.9[0-9]* openRes=36225 spendable=-32107\\.0[0-9]*\\) [^\\r\\n]*openContracts=2",
+
+  # ---- the repair: allowed by the committed-row block, refused by the reservation ----
+  "kscaction action=demolish-building target=\\S*/OuterDish applied=true manifestKind=facility-destruction",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[FacilityRepairPatch\\] Allowing facility repair: 'SpaceCenter/TrackingStation' - destroyedBuildings=1, no committed future repair covers the destruction",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[Parsek\\]\\[INFO\\]\\[ClickReserve\\] Purchase refused, reserved for later costs: facility repair SpaceCenter/TrackingStation pool=Funds cost=4000 charged=4000 spendable=-[0-9.]+ refused=true ut=[0-9.]+ Funds\\(ahead=1 [^)]*openRes=36225 ",
+  "\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot repair \"[^\"]+\" - Reserved for later costs and contract penalties, blocked by timeline\\. \\(Needs 4,000 funds, 0 free\\.\\)",
+  "kscaction repair-facility not applied: target=SpaceCenter/TrackingStation destroyedBefore=1 destroyedAfter=1 fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0",
+  "kscaction refused action=repair-facility reason=repair-not-applied target=SpaceCenter/TrackingStation",
+  # The greyed Repair reads the same decision (the pairing rule).
+  "\\[Parsek\\]\\[VERBOSE\\]\\[StockUiOverlay\\] decorate screen=FacilityMenu tab=Repair item=SpaceCenter/TrackingStation kind=ContractReserve marked=true blocked=true why=\"Reserved for later costs and contract penalties, blocked by timeline\\. Needs 4,000 funds, 0 free\\.\"",
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] record label=l10-facility-menu screen=FacilityMenu tab=Repair item=SpaceCenter/TrackingStation kind=ContractReserve marked=true blocked=true why=\"Reserved for later costs and contract penalties, blocked by timeline\\. Needs 4,000 funds, 0 free\\.\"",
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=l10-facility-menu screen=FacilityMenu name=Repair:SpaceCenter/TrackingStation state=- interactable=false visible=true",
+
+  # ---- the Cancel: not greyed, allowed, its own reserve released ----
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=l10-mc-cancel screen=MissionControl name=btnCancel:8a2b7d40-4ee9-4f98-8290-7052ca24afd0 state=- interactable=true visible=true",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*allowing cancel for guid=8a2b7d40-4ee9-4f98-8290-7052ca24afd0 - no committed resolution after now",
+  "kscaction action=cancel-contract target=8a2b7d40-4ee9-4f98-8290-7052ca24afd0 applied=true",
+  "kscaction action=cancel-contract target=8a2b7d40[\\s\\S]*\\[ClickReserve\\] Click reservation \\(a committed cost lies ahead\\): ut=[0-9.]+ Funds\\(ahead=1 [^)]*openRes=27225 spendable=-[0-9.]+\\) [^\\r\\n]*openContracts=1",
+
+  # ---- Mission Control: 7692d51a greyed and refused with the same text ----
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=l10-mc-refused screen=MissionControl name=btnAccept:7692d51a-1548-4aaa-8ba2-795cbbc269cf state=- interactable=false visible=true",
+  "record label=l10-mc-refused screen=MissionControl tab=Available item=7692d51a-1548-4aaa-8ba2-795cbbc269cf kind=ContractReserve marked=false blocked=true why=\"(Reserved for later costs and contract penalties, blocked by timeline\\. Short by 5,889 funds\\.)\"[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot accept \"[^\\r\\n]*?\" - \\1\\r?\\n",
+  "\\[Parsek\\]\\[INFO\\]\\[ContractAcceptPatch\\] blocking accept for guid=7692d51a-1548-4aaa-8ba2-795cbbc269cf - reserved for later costs nowUT=\\d+ ut=[0-9.]+ Funds\\(ahead=1 [^)]*openRes=27225 ",
+  "kscaction accept-contract not applied: target=7692d51a-1548-4aaa-8ba2-795cbbc269cf stateBefore=Offered stateAfter=Offered fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0",
+  "kscaction refused action=accept-contract reason=blocked-committed target=7692d51a-1548-4aaa-8ba2-795cbbc269cf",
+  # A second offer on the same rule: FundsFailure above the advance, short by 832.746...
+  "record label=l10-mc-refused screen=MissionControl tab=Available item=ee6abf2f-73b3-40b6-8f87-92090d53fbf6 kind=ContractReserve marked=false blocked=true why=\"Reserved for later costs and contract penalties, blocked by timeline\\. Short by 833 funds\\.\"",
+
+  # ---- Mission Control: 375b4446 (advance = penalty) not greyed, allowed ----
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=l10-mc-allowed screen=MissionControl name=btnAccept:375b4446-c861-4b4d-bf97-ef38407246a4 state=- interactable=true visible=true",
+  "allowing accept for guid=375b4446-c861-4b4d-bf97-ef38407246a4 - no committed future accept",
+  "kscaction action=accept-contract target=375b4446-c861-4b4d-bf97-ef38407246a4 applied=true",
+
+  # ---- both blocked dialogs were up and were dismissed ----
+  "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false){2}",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The snapshot fails open; a failure would allow every click and read as a pass otherwise.
+  "Click reservation (snapshot failed|clock read failed)",
+  # Nothing repaired or charged for the dish; the committed-row block is not the refuser.
+  "Game state: BuildingRepaired",
+  "Game state: FundsChanged -?[0-9.]+ \\(StructureRepair\\)",
+  "FacilityRepair scope open",
+  "Blocking facility repair: ",
+  # The Cancel releases its own reserve; the allowed Accept stays allowed; the refused one
+  # never goes through.
+  "blocking cancel for guid=8a2b7d40-4ee9-4f98-8290-7052ca24afd0",
+  "blocking accept for guid=375b4446-c861-4b4d-bf97-ef38407246a4",
+  "allowing accept for guid=7692d51a-1548-4aaa-8ba2-795cbbc269cf",
+  "kscaction action=accept-contract target=7692d51a-1548-4aaa-8ba2-795cbbc269cf applied=true",
+  "AddEvent: ContractAccepted key='7692d51a-1548-4aaa-8ba2-795cbbc269cf'",
+  # Offers whose advance equals their penalty are never refused by the reservation.
+  "record label=l10-mc-(refused|allowed) screen=MissionControl tab=Available item=(375b4446-c861-4b4d-bf97-ef38407246a4|6e39e38e-434e-4afc-aeb2-9283a87498b8|5113c02e-9596-4496-916b-452b1f5eccde) [^\\r\\n]*blocked=true",
+  "record label=l10-mc-cancel screen=MissionControl [^\\r\\n]*item=8a2b7d40-4ee9-4f98-8290-7052ca24afd0 [^\\r\\n]*blocked=true",
+  # Only the two refusals the walk names; anything else (a seam pre-check, a stock refusal of
+  # a KSC 1 purchase) is a premise miss.
+  "kscaction refused action=(?!repair-facility reason=repair-not-applied target=SpaceCenter/TrackingStation|accept-contract reason=blocked-committed target=7692d51a-1548-4aaa-8ba2-795cbbc269cf)",
+]
+
+[runtime]
+# L9's 3600: two LoadGames, SaveGame, three WarpToUT, StartRecording, CommitTree, Recover and
+# the rewind are deferred or scene-changing; eleven KscActions add 60 s each; the UI steps
+# are one frame each.
+budgetSeconds = 3600
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

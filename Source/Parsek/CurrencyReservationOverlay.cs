@@ -185,7 +185,7 @@ namespace Parsek
         /// numbers nest, so the line is omitted when it would just repeat the balance).
         /// </summary>
         internal static string BuildReservationTooltip(
-            double total, double available, string format, double minProjected)
+            double total, double available, string format, double minProjected, double openRes = 0.0)
         {
             if (total < 0.0)
             {
@@ -198,6 +198,10 @@ namespace Parsek
             double reserved = total - available;
             if (reserved < 0.0)
                 reserved = 0.0;
+            // Open contracts' fail penalties held while a committed cost lies ahead
+            // (design 3.13 rule 2): reserved too, though stock's pool still holds them.
+            if (openRes > 0.0)
+                reserved += openRes;
 
             string text = "Total: " + total.ToString(format, IC) + "\n"
                 + "Reserved: " + reserved.ToString(format, IC);
@@ -224,7 +228,8 @@ namespace Parsek
                 funds.GetProjectionMinBalance(),
                 Funding.Instance.Funds,
                 "N0",
-                funds.GetOutstandingDebt());
+                funds.GetOutstandingDebt(),
+                ClickReservationGate.Current().Funds.OpenRes);
         }
 
         internal static string GetScienceTooltip()
@@ -254,10 +259,15 @@ namespace Parsek
         /// <para><paramref name="debt"/> is the walk's outstanding debt (design 3.13 rule 4):
         /// the part of a loss below the reserved floor, repaid from later gains before the
         /// pool rises. One <c>Debt:</c> line, only while one is outstanding.</para>
+        ///
+        /// <para><paramref name="openRes"/> is the open contracts' fail penalties the click
+        /// reservation holds (design 3.13 rule 2, counted only while a committed cost lies
+        /// ahead): added to Reserved, the Total unchanged, so Total - Reserved is what a
+        /// purchase can spend.</para>
         /// </summary>
         internal static string BuildTooltipFromLedger(
             double runningBalance, double available, double minProjected, double displayed, string format,
-            double debt = 0.0)
+            double debt = 0.0, double openRes = 0.0)
         {
             string text;
             if (runningBalance < 0.0 && displayed <= 0.0)
@@ -269,7 +279,7 @@ namespace Parsek
                 double reserved = runningBalance - available;
                 if (reserved < 0.0)
                     reserved = 0.0;
-                text = BuildReservationTooltip(displayed + reserved, displayed, format, minProjected);
+                text = BuildReservationTooltip(displayed + reserved, displayed, format, minProjected, openRes);
             }
             return AppendDebtLine(text, debt, format);
         }

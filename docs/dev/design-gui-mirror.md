@@ -1251,8 +1251,9 @@ counted on the panel and badge the capture's rail row and its screen's rail row.
 Two exemptions, typed as `StockUiDecorationKind` member names and held to the C#
 enum by a source-sync cell: the INFORMATIONAL kinds (`KerbalRetire`, `KerbalLost`,
 `KerbalRetiredStandIn` - marks no stock button acts on) may be marked without a
-block, and the BLOCK-ONLY kind (`ContractSlot` - the slot refusal has no per-row
-mark by design) may be blocked without a mark. Each exemption covers its own
+block, and the BLOCK-ONLY kinds (`ContractSlot` - the slot refusal has no per-row
+mark by design - and `ContractReserve`, the Mission Control click reservation, whose
+reason is the detail panel's, not a row mark) may be blocked without a mark. Each exemption covers its own
 direction only. A summary that counts marked or blocked items with no item line
 beside it says so (the item lines are Verbose).
 

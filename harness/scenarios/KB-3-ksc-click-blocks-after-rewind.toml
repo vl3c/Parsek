@@ -41,10 +41,13 @@ id = "KB-3-ksc-click-blocks-after-rewind"
 #       <title> - <body>` must END in exactly the `why` its hover record carried, captured
 #       and backreferenced across the log (`\1`), so the refused click shows the same
 #       ReservationExplanation text as the hover, not merely text of the same shape.
-#   (d) THE LEDGER UNCHANGED. The ledger loads 26 rows and every save of it (the scene
-#       saves on each screen close, and FlushAndQuit's last) still holds 26; no row is
-#       added, no KSC spending recorded, and no game-state event of any kind is recorded
-#       (only the facility cache seed line may read `Game state:`).
+#   (d) THE LEDGER UNCHANGED BY THE CLICKS. The ledger loads 26 rows. The fixture predates
+#       the stock pool reference (committed-value rule phase 2, PR #2177), so the first
+#       patch adopts the pools as they stand: two `StockPoolAdjustment` rows (funds
+#       221437.5, science ~5.0, reason=adopted-gap), 28 rows. Every save after that (the
+#       scene saves on each screen close, and FlushAndQuit's last) still holds 28; no other
+#       row is added, no KSC spending recorded, and no game-state event of any kind is
+#       recorded (only the facility cache seed line may read `Game state:`).
 #
 # A POINTER LANE. The `act=hover` steps move the OS cursor machine-wide (the verb writes
 # `stockscreen pointer moving the OS cursor ...`); a hover capture that looks wrong reads
@@ -186,15 +189,21 @@ required = [
   # ---- each dialog was up and was dismissed (four times) ----
   "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false){4}",
 
-  # ---- (d) the ledger: loaded with 26 rows, saved with 26 after the last refusal ----
+  # ---- (d) the ledger: loaded with 26 rows, the two load-time adoption rows, saved with
+  # 28 after the last refusal ----
   "\\[Parsek\\]\\[VERBOSE\\]\\[Ledger\\] Loaded ledger from '[^']*': version=0, actions=26, parseErrors=0",
-  "kscaction refused action=accept-contract [\\s\\S]*\\[Parsek\\]\\[VERBOSE\\]\\[Ledger\\] Saved ledger to '[^']*': version=0, actions=26\\r?\\n",
+  "\\[StockPoolReference\\] PatchFunds: filed StockPoolAdjustment amount=221437\\.5 reason=adopted-gap ",
+  "\\[StockPoolReference\\] PatchScience: filed StockPoolAdjustment amount=4\\.99999[0-9]* reason=adopted-gap ",
+  "kscaction refused action=accept-contract [\\s\\S]*\\[Parsek\\]\\[VERBOSE\\]\\[Ledger\\] Saved ledger to '[^']*': version=0, actions=28\\r?\\n",
 ]
 forbidden = [
-  # (d) no ledger row added, no save holding any other count, no KSC spending.
-  "\\[Ledger\\] Added action:",
+  # (d) no ledger row added beyond the two adoption rows, no save holding any other
+  # count, no KSC spending.
+  "\\[Ledger\\] Added action: type=(?!StockPoolAdjustment,)",
+  "filed StockPoolAdjustment amount=\\S+ reason=(?!adopted-gap )",
+  "\\A(?:[\\s\\S]*?filed StockPoolAdjustment ){3}",
   "\\[Ledger\\] AddActions batch: added=[1-9]",
-  "\\[Ledger\\] Saved ledger to '[^']*': version=0, actions=(?!26\\r?\\n)",
+  "\\[Ledger\\] Saved ledger to '[^']*': version=0, actions=(?!28\\r?\\n)",
   "KSC spending recorded",
   # No game-state event of any kind (research, upgrade, hire, accept, a funds / science
   # change); the facility cache seed is the one `Game state:` line a KSC boot writes.

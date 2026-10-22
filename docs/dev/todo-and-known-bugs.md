@@ -16,6 +16,38 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## CONTRACT-CANCEL-PENALTY-IGNORES-STOCK-TIME-LERP: a cancelled contract files its full failure penalty, but stock charges less the earlier the cancel [FILED 2026-10-22 from the L9 authoring decompile (KSP 1.12.5), code read, not reproduced. OPEN, medium. product]
+
+Stock `Contract.Cancel()` sets `dateFinished = GameTime`, then `SetState(Cancelled)`, then
+`PenalizeCancellation()`, which charges `Lerp(FundsAdvance, FundsFailure, t)` funds and
+`Lerp(Career.RepLossDeclined, ReputationFailure, t)` reputation with
+`t = InverseLerp(dateAccepted, dateDeadline, dateFinished)`; only `PenalizeFailure` charges the full
+`FundsFailure` / `ReputationFailure`. `GameStateRecorder.OnContractCancelled`
+(`GameStateRecorder.Handlers.cs`, the `fundsPenalty` / `repPenalty` locals) records
+`contract.FundsFailure` and `contract.ReputationFailure` whole, so a cancel early in a long contract
+files a ContractCancel row worth far more than stock took (the career-earned-pad Active contract
+07c8e34d: 27225 filed against about 0.16 charged), and the ledger and stock pools disagree until the
+next patch. Fix: record the penalty stock applies, from the same lerp or from the measured pool
+delta around `onCancelled`. Lane L9 cancels a contract whose advance equals its fail penalty, so its
+funds leg is exact either way; its reputation leg can read this gap (it forbids only the Funds
+GUARDED clamp).
+
+Live-confirmed on L9's reading run `2026-10-22_1332`: the cancel of 8a2b7d40 filed reputation
+`repPenalty=4` (walk -2.0 after the curve) where stock took -1.0, so the guard logged
+`PatchReputation: GUARDED DRAWDOWN clamped` and filed a `StockPoolAdjustment` of +0.99999785
+(reason=leak); funds were exact (advance = fail).
+
+## CONTRACT-CANCEL-ALSO-FILES-A-FAIL-ROW: a Space Center contract cancel files a ContractFail row for the same contract right after the ContractCancel row [FILED 2026-10-22 from L9 `2026-10-22_1332`. OPEN, low; no pool moved. product]
+
+After `kscaction cancel-contract 8a2b7d40` the log holds `AddEvent: ContractCancelled ... cseq=18`,
+`Added action: type=ContractCancel ... cseq=18`, a recalculation, then 6 ms later
+`AddEvent: ContractFailed key='8a2b7d40-...' ... cseq=20` and `Added action: type=ContractFail ...
+cseq=20` at the same UT. The walk gave the second row no effect (the funds `Floor walk` stayed
+`settled=1(4882.03125)` at 541440.03125, reputation unchanged), so no money moved, but one contract
+now carries two outcome rows. Find which stock path fires `onFailed` after `onCancelled` (decompile
+`Contract.Cancel` / `ContractSystem`) and either drop the duplicate at capture or prove it harmless
+in every consumer (ledger ground truth, Missions wording, the committed-future index).
+
 ## MINE-6-PINS-PREDATE-THE-RESUMED-SPAWN-SEGMENT: MINE-6 pins one recording, but flying the respawned rover again now records a new segment [FILED 2026-10-22 from MINE-6 `2026-10-22_1619` (PARSEK-FAIL, expectations), flown for PR #2181; not caused by it. OPEN, low. harness]
 
 **Symptom.** `recordings.count 2 > max 1`: after the end-of-watch respawn (pid 3850340315) the log
@@ -565,7 +597,7 @@ Fix (the first direction above): when the cold load restores no active tree, no 
 Fix, the trajectory (owner ruling 2026-10-21, "Switch to versioned files", after a first cut that always resumed in a new segment was reverted: it added a segment to every in-flight commit's re-take, about 40 lane counts, and armed a switch-segment session on every resume, so a later ordinary switch popped the Merge / Discard dialog): the overlap skip is gone. `PlanActiveTreeSidecarSaves` writes a restore-attempt member that shares its id with the committed copy like any other (counted as `committedRestoreOverlap`, Verbose `writing restore-attempt recording`). The write replaces the shared head and keeps the committed bytes as their hashed version under `_versions/` (#2155). The committed copy keeps naming that hash, and `EnsureRecordingFilesCurrentForSave` treats a committed-tree recording whose head moved on as current when every named hash resolves and one resolves to a retained version (`RecordingStore.AreRecordingFilesCurrentThroughNamedVersions`, Verbose `is current through its named sidecar version(s)`), so it is never rewritten and its sidecar epoch does not move before a merge. One save then names two versions of the id; a cold load reads each copy from its own bytes without promoting (`reason=multiple-owners owners=2`) and re-arms the attempt. Discard leaves the head holding the clone's bytes and the committed copy current through its version; the next lone load promotes it back. A lazy vessel-snapshot re-hydration now reads the bytes its recording names whenever a retained version holds them (`ResolveLazyVesselSnapshotPath`), so an in-session committed copy never picks up the clone's snapshot. Because the clone starts at the committed copy's epoch, an attempt member's save also checks that the head holds the hash it names (`TrajectoryHeadHoldsNamedBytes`, `reason=head-holds-other-bytes`), so a committed rewrite at the same epoch is not read as the clone's bytes. Now that every save holds the attempt's active node, an in-session load of one (the save stock makes before leaving flight) keeps the committed original committed and skips the splice while the attempt is armed for that tree (`kept the committed copy ... the live restore attempt's clone`), as the cold re-arm does: otherwise the scene-exit merge of the clone ran as a first commit and a Discard found nothing committed (found in review). The ATTEMPT_EVENTS hold above stays as the fallback for a save written without the active tree. Cells: `InPlaceResumeSidecarVersionTests` (save, cold load, discard over real hashed sidecars; red with the skip restored, with the version rule off, with the old lazy-hydration rule, with the head-hash check off, and with the live-attempt keep or splice skip removed), `SaveActiveTreeSidecarBothOrNeitherTests`, the `ColdLoadRestoreAttemptRearmTests` wiring cell. Residual, not changed: `SavePendingTreeIfAny` still skips a dirty pending-tree member that shares a committed id, so a pending tree written at the Space Center with unsaved resumed flying is left out of that save. Lane QL-13.
 
 
-## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. RULED 2026-10-21 (owner interview, every path); O2 and O3 FIXED 2026-10-22; plan phases 2 and 3 BUILT 2026-10-22; OPEN for O6 / O7 (phase 4, the clicks); same invariant as section 2.12]
+## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. RULED 2026-10-21 (owner interview, every path); O2 and O3 FIXED 2026-10-22; plan phases 2, 3 and 4 BUILT 2026-10-22 (phase 4, the clicks, on branch `o6-phase4-local`); OPEN until the phases land and the career lanes fly; same invariant as section 2.12]
 
 Each breaks "the committed timeline pays for every committed spend at every UT" without Re-Fly:
 (O1, ruled 2026-10-19: a quickload undoes Space Center rows after the save, fixed with
@@ -701,7 +733,58 @@ and logistics design section 10.6).**
   are never settled; batch writes are stamped in UT order; science has no non-cost loss so its settle
   is inert; the projection reserve stays debt-free; reputation's floor uses the debt-free curve (a
   few tenths short, documented). Harness, predicted and not re-flown: only lanes with a loss after a
-  rewind that lies before a committed cost move.
+  rewind that lies before a committed cost move. New lane `L9-career-floor-debt-after-rewind`
+  (LIVE-PROVEN 2026-10-22, `2026-10-22_1342`): a contract cancel after a rewind settles at the funds floor and
+  a later accept pays the Debt; under phase 4 its cancel stays allowed (it releases its own reserve).
+- **Plan phase 4 BUILT 2026-10-22** (branch `o6-phase4-local`, on phase 3; plan section 2.5, rule 3;
+  closes O7 and the P15 half of GUI-P15-D7-TWO-SAFETY-GATES-THAT-EXIST-AND-ARE-NEVER-ARMED): a click
+  that would spend money, science or reputation reserved for a committed cost ahead or for an open
+  contract's fail penalty is greyed with the reason and refused by its backstop. One snapshot per
+  now (`GameActions/ClickReservation.cs`, `ClickReservationGate.Current()`): with no committed cost
+  row after now it is inert and walks nothing; otherwise one cached probe walk to now
+  (`RecalculationEngine.ProbeClickReservationAtCutoff`) gives per pool the target, the need of the
+  cost rows after now (`ReservedFloorPlan.NeedOfRowsAfter`) and the live value; `openRes` sums the
+  Active contracts' fail penalties with no committed resolution after now, only in a pool with a
+  cost ahead (reputation through the curve at the current reputation). Funds and science
+  `spendable = min(max(target, 0), live) - openRes`; reputation `min(running, live) - need - openRes`.
+  A purchase is refused when the live pool covers the cost and the cost is above spendable (a plain
+  shortage stays stock's). Controls: editor Launch and the Space Center craft picker
+  (`Patches/LaunchReservationPatches.cs`: `CanAffordLaunchTest.Test` / `GetWarningDescription`
+  postfixes, `EditorLogic.UpdateUI`, `EditorLaunchMark`, `VesselSpawnDialog.UpdateVesselInfoPanel`),
+  facility upgrade / rebuild / repair (menu marks plus the three spend patches), Astronaut Complex
+  Hire, part purchase, strategy setup (all three pools), and Mission Control Accept / Decline /
+  Cancel (new `StockUiDecorationKind.ContractReserve` with a `StockUiReserveButtons` set, refused
+  when `spendable + delta - addedReserve < min(0, spendable)` in a pool with a cost ahead; the GUI
+  mirror lists it block-only). One sentence, `ReservationExplanation.ClickReserve`. The funds
+  tooltip's Reserved includes `openRes`. Tests: `ClickReservationTests` (50 cells: the model and the
+  no-cost-ahead identity, L1.2, the gate's inert fast path and cache, replay bypass, the Mission
+  Control decide and its 15-cell pairing grid with the backstops, every purchase backstop and its
+  inert case, the launch helpers, the tooltip), `test_gui_mirror`. Mutation: dropping the two
+  cost-ahead checks reads 9 cells red. Deviations: cost ahead is judged by UT (a click is captured
+  after every row); tech needs no new predicate (science has no open penalties). Known limits: stock
+  auto-hiring crew into a launch's empty seats (`CrewRoster.HireApplicant` outside the Astronaut
+  Complex) is not refused; a contract accepted later on the timeline but not open now is not in
+  `openRes` (its penalty is a ledger row); the reputation penalty is curved at today's reputation;
+  strategy and `CurrencyModifierQuery` cost modifiers are not modelled (raw cost). Harness, not
+  flown: every greyed control and its stock tooltip text, the `VesselSpawnDialog` patch binding its
+  `object` parameter, the `EditorLogic.UpdateUI` postfix order, and the live `Contract`, `Funding`
+  and `Reputation` reads.
+  Lane `L10-career-click-reserve-after-rewind` (authored, never flown) is the live witness for the
+  facility Repair and Mission Control Accept refusals with their greyed controls, an allowed Accept,
+  and the Cancel allowed by the release of its own penalty.
+  Review of c86c5b9 (follow-up commit): BLOCKER fixed red-first, a strategy's reputation setup was
+  compared raw against a post-curve spendable (stock charges it through `AddReputation`), so an
+  allowed setup could leave reputation under the need (repro: rep 600, a committed 300 setup, a 294
+  setup allowed, charged 299.2, 4.0 under; a grid read 16 breaches): `EvaluatePurchase` now compares
+  `CurvedLoss(cost, live)` for reputation and the reason names it, the stock-first check stays raw.
+  Also: the snapshot fails open (Warn once, inert) on any exception; Mission Control's reserve layer
+  is stock-first (no Parsek block or text on a click stock refuses: the contract limit,
+  `CanBeDeclined`, `CanBeCancelled`); the launch-site flyout's per-site Launch buttons are greyed
+  with the same decision (`LaunchSiteButtonsMark`, flyout pointer-enter postfix); the editor mark
+  prices the crew dialog's manifest, as `launchVessel` does before the test. Tests: 7 more
+  `ClickReservationTests` cells; mutations read red (raw comparison: 3 cells; stock-first and the
+  fail-open guard: 1 each). Harness, not flown: the flyout pointer-enter binding and that
+  `FindObjectsOfType<UILaunchsiteController>` sees the flyout while it is open.
 - O2: a stock revert removes only the rows the reverted flight wrote; every committed row stays
   (matches D2). **FIXED 2026-10-22** (branch `claude/project-thread-6f7rhy`): Parsek remembers
   the ledger's row ids where stock captures its revert targets (every non-revert flight entry for
@@ -722,6 +805,23 @@ and logistics design section 10.6).**
 - O5: moot once PR #2155 merges: the rule acts only on an in-flight `ResumeFromQuicksave` detach
   during an in-session load, which #2155 makes a Cold save-file load that drops the handoff
   (design-load-restores-the-save section 8 lists it as unreached).
+
+## PART-UPGRADE-PURCHASE-UNRESERVED: buying a part upgrade spends funds with no ledger row, no mark and no backstop [FILED 2026-10-22 by the review of committed-value rule phase 4 (c86c5b9); predates that commit. OPEN, not built. product]
+
+Stock's part-upgrade purchase (KSP 1.12.5, decompiled: `PartListTooltipController.onPurchaseUpgrade`
+-> `onPurchaseUpgradeProceed` -> `PartUpgradeHandler.SetUnlocked` + `GameEvents.OnPartUpgradePurchased`
+-> `Funding.onUpgradePurchased`, which charges `upgrade.entryCost` as `TransactionReasons.RnDPartPurchase`
+unless `BypassEntryPurchaseAfterResearch`) has no counterpart in Parsek: no handler on
+`OnPartUpgradePurchased`, no ledger row type for it, no committed-future block, and no click
+reservation (phase 4 covers part purchases through `StockUiPartPurchase`, which reads
+`AvailablePart.entryCost` only). So an upgrade bought after a rewind can spend money a committed cost
+or an open contract's penalty needs, and a committed flight's upgrade purchase is not replayed as a
+cost. Expected today (from phase 2's design, not measured): the debit reaches the walk only as a
+measured leak, one `StockPoolAdjustment` row at the next patch. Fix shape when taken: capture the
+purchase as a cost row (its own type or the part-purchase row with the upgrade name), add it to
+`ReservedFloorPlan.IsAnyPoolCostRow`, and grey the upgrade tooltip's purchase button with the same
+`ClickReservationGate.EvaluatePurchaseNow(StockPool.Funds, entryCost, ...)` decision its backstop (a
+prefix on `onPurchaseUpgradeProceed` or `Funding.onUpgradePurchased`) reads.
 
 ## ~~LOGISTICS-WITHOUT-MONEY: supply routes still charge and credit funds and write ledger rows, so the funds history depends on choices made after a rewind~~ [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4, first as ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES, then ROUTE-MONEY-COST-ONLY. FIXED 2026-10-21: phase 1 (no route money) on branch `logistics-no-money-p1`, phase 2 (route events out of the ledger) on branch `logistics-no-money-p2`. Harness re-flight of the Logistics lanes pending. product]
 
@@ -6907,7 +7007,7 @@ Next step if it recurs: have the hover verb pick the part icon's visible centre 
 by the viewport mask) and re-read the tooltip's presence at capture time, so a lost
 tooltip reads INVALID(pointer) instead of a missing product token.
 
-## STOCK-SCREEN-CENSUS-FUNDS-GUARD-CLAMPS: the census career's funds guard clamps both ways, and an allowed upgrade does not move the walk target [FILED 2026-09-28 from KB-4 `2026-09-28_2031`, branch `kb4-block-proof`. OPEN for the load-time drawdown, not gated; the after-upgrade uplift is KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, fixed 2026-10-06, gone live on KB-4 `2026-10-07_0015`]
+## ~~STOCK-SCREEN-CENSUS-FUNDS-GUARD-CLAMPS: the census career's funds guard clamps both ways, and an allowed upgrade does not move the walk target~~ [FILED 2026-09-28 from KB-4 `2026-09-28_2031`, branch `kb4-block-proof`. EXPLAINED AND CLOSED 2026-10-22 (PR #2180): the load-time gap is the committed costs ahead, adopted since phase 2; the after-upgrade uplift is KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO, fixed 2026-10-06, gone live on KB-4 `2026-10-07_0015`]
 
 On `stock-screen-census` the funds patch clamps at load (`PatchFunds: GUARDED DRAWDOWN
 clamped resource=Funds running=244370.5 live=465808 wouldBeTarget=244370.5 clampedTo=465808`,
@@ -6942,6 +7042,17 @@ wouldBeTarget=94370.5 clampedTo=86416.75`. 94370.5 is the boot walk's 244370.5 l
 upgrade now charged, and the 7953.75 still between `running` and `live` is the boot gap between
 that walk (244370.5, refused) and the 236416.75 applied after it, so the open question is still
 the fixture's seed, not the upgrade.
+
+Update 2026-10-22 (KB-3 / KB-4 on PR #2180, build 1eeb1cb): not the seed. The gap, 465808 - 244370.5
+= 221437.5, is exactly what the census's four committed costs after the clock still need (the
+click probe reads `Funds(ahead=4 need=221437.5)`): the walk target is the projected minimum, which
+reserves those costs, and the older guard kept the live pool by clamping. Since the stock pool
+reference (committed-value rule phase 2, PR #2177) a load with no saved reference adopts that
+gap as one `StockPoolAdjustment` row (`PatchFunds: filed StockPoolAdjustment amount=221437.5
+reason=adopted-gap`, plus science ~5.0), so no clamp is left. That keeps the pool where an older
+build left it; on such a pre-reference save it also means the costs ahead are not reserved out
+of the live pool (they settle at the floor when they cross the clock, phase 3). Only saves
+written before the reference carry this; KB-3 / KB-4 re-pinned to the two rows (28 / 29 actions).
 
 ## CHILD-BRANCH-SINGLE-SLOT-OVERWRITE: a second split overwrites a breakup-continuous recording's `ChildBranchPointId` [FILED 2026-09-28 from BREAKUP-CONTINUOUS-LEAF-READERS. OPEN, low; owner ruling 2026-09-28: leave filed until a player-visible defect shows]
 
@@ -9625,6 +9736,11 @@ reason in its hover echo, so the advice lands somewhere real.
 **P15 ruled 2026-10-21 (V, ledger rulings interview, O7 of LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY):**
 the funds check is enforced, not advisory: a funds purchase or launch cost that eats into reserved
 money is greyed with the reason, as science already is. The fix ships with that entry's general rule.
+**P15 BUILT 2026-10-22** with plan phase 4 of LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY (branch
+`o6-phase4-local`): funds purchases and launches are refused, and their stock controls greyed, when
+they would eat into money reserved for a committed cost ahead or an open contract's penalty
+(`GameActions/ClickReservation.cs`); the Reserved readout includes the open penalties. Closes when
+that branch lands.
 
 **Evidence.**
 
@@ -9650,7 +9766,7 @@ money is greyed with the reason, as science already is. The fix ships with that 
   authoritative rewind) and names the two legitimate causes; the abort branch survives only
   under `RewindReadbackGuard.ForceAbortForTesting`.
 
-**Decision:** P15 remains open - arm the funds gate, or delete it and say in the tooltip that
+**Decision:** (superseded by the 2026-10-21 ruling and the phase 4 build above) P15 remains open - arm the funds gate, or delete it and say in the tooltip that
 the check is advisory. A named, unarmed safety gate is worse than none, because the next
 reader assumes it fires. D7 is closed above.
 

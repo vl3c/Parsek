@@ -44,8 +44,10 @@ namespace Parsek.Patches
 
         /// <summary>
         /// The SetLevel backstop's decision (<see cref="TryBlockFacilityUpgradeById"/>).
-        /// Funds affordability is intentionally NOT checked (stock's own
-        /// CurrencyModifierQuery enforces it, and SetLevel does not receive the cost).
+        /// Funds affordability is intentionally NOT checked here (stock's own
+        /// CurrencyModifierQuery enforces it, and SetLevel does not receive the cost); the
+        /// money reserved for later costs is checked by <see cref="FacilityUpgradeSpendPatch"/>,
+        /// which sees the cost.
         /// </summary>
         internal static bool TryBlockFacilityUpgrade(UpgradeableFacility facility)
         {

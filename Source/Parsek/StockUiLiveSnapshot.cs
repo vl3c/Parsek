@@ -112,6 +112,10 @@ namespace Parsek
                 kerbalByName[kerbalName] = d;
             }
             d.Tab = string.IsNullOrEmpty(tab) ? d.Tab : tab;
+            // An applicant's Hire: the click reservation (committed-value rule 3), the same
+            // decision the HireRecruit backstop reads.
+            if (d.Tab == StockUiDecorationQuery.AstronautApplicantsTab && !d.Blocked)
+                d = ClickReservationGate.LayerPurchase(d, Patches.KerbalHirePatch.EvaluateHireReserveNow());
             return d;
         }
     }
