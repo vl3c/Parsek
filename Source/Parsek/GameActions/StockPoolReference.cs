@@ -93,6 +93,13 @@ namespace Parsek
         internal double ReversedTotal;
         internal int RowsWithoutId;
         internal double PendingStep;
+        /// <summary>
+        /// A measured fresh baseline (a save with no saved reference): the gap between the
+        /// live pool and the leak-free target is taken as the kept leak, so the first patch
+        /// leaves the pool as the older build left it (<see cref="AdoptedGap"/>).
+        /// </summary>
+        internal bool GapAdopted;
+        internal double AdoptedGap;
         internal readonly Dictionary<string, double> NewStepped =
             new Dictionary<string, double>(StringComparer.Ordinal);
     }
@@ -115,7 +122,9 @@ namespace Parsek
     /// <para>An authoritative patch (a time-travel signal, a Re-Fly merge or discard, a
     /// clock-cursor crossing that found the pool where the last patch left it) measures no
     /// leak: it writes the target plus the kept leak and re-baselines. A pool with no saved
-    /// reference starts from the live pool with every row counted.</para>
+    /// reference starts from the live pool with every row counted, and a measured first
+    /// patch takes the gap between live and its leak-free target as the kept leak, so the
+    /// pool stays where the older build left it.</para>
     ///
     /// <para>Pure core plus the three static states the patcher reads and the scenario
     /// saves. No KSP singletons.</para>
@@ -283,9 +292,15 @@ namespace Parsek
         /// <param name="nowUT">The patch's now: rows after it have not been applied by stock yet.</param>
         /// <param name="live">The live pool before the write.</param>
         /// <param name="pendingAdjustNow">Science: the pending adjusters now; 0 for the others.</param>
+        /// <param name="freshBaselineTarget">The value the patch would write with no kept leak,
+        /// before the 0 floor (funds and science: the projected minimum, science plus its
+        /// pending adjusters; reputation: the running value). Read only when the state has no
+        /// reference: a measured patch adopts <c>live - freshBaselineTarget</c> as the kept
+        /// leak. NaN adopts nothing.</param>
         internal static StockPoolMeasurement Measure(
             StockPoolReferenceState state, IList<StockPoolRow> rows, double nowUT, double live,
-            double pendingAdjustNow, bool allowNegativeCurrency, bool authoritative, double epsilon)
+            double pendingAdjustNow, bool allowNegativeCurrency, bool authoritative, double epsilon,
+            double freshBaselineTarget = double.NaN)
         {
             if (state == null) throw new ArgumentNullException(nameof(state));
             var m = new StockPoolMeasurement
@@ -314,9 +329,19 @@ namespace Parsek
             if (!state.Initialized)
             {
                 // No saved reference: the live pool is the starting point and every row is
-                // taken as already in it.
+                // taken as already in it. A measured patch keeps the pool where the older
+                // build left it: the gap to the leak-free target becomes the kept leak (what
+                // the old guard kept by clamping on every patch). An authoritative one writes
+                // the target, as it always has.
                 m.FreshBaseline = true;
                 m.LastWritten = live;
+                if (!authoritative && !double.IsNaN(freshBaselineTarget)
+                    && !double.IsInfinity(freshBaselineTarget))
+                {
+                    m.GapAdopted = true;
+                    m.AdoptedGap = live - freshBaselineTarget;
+                    m.CumLeakAfter = m.AdoptedGap;
+                }
                 return m;
             }
 
@@ -625,6 +650,7 @@ namespace Parsek
                 + " pendingStep=" + m.PendingStep.ToString("R", IC)
                 + " leak=" + m.Leak.ToString("R", IC)
                 + " cumLeak=" + m.CumLeakBefore.ToString("R", IC) + "->" + m.CumLeakAfter.ToString("R", IC)
+                + (m.GapAdopted ? " adoptedGap=" + m.AdoptedGap.ToString("R", IC) : "")
                 + (m.RowsWithoutId > 0 ? " rowsWithoutId=" + m.RowsWithoutId.ToString(IC) : "");
         }
     }

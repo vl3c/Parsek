@@ -77,6 +77,20 @@ namespace Parsek
         private readonly Dictionary<string, bool> buildingDestroyedInWalk =
             new Dictionary<string, bool>(StringComparer.Ordinal);
 
+        /// <summary>
+        /// Stock's <c>AdvancedParams.AllowNegativeCurrency</c>, read once per walk in
+        /// <see cref="Reset"/>. Off: a loss that is not a cost row stops at 0, as
+        /// <c>Funding.AddFunds</c> stops it.
+        /// </summary>
+        private bool allowNegativeCurrency;
+
+        /// <summary>
+        /// The part of the walk's non-cost losses below 0 that stock forgives (its 0 clamp),
+        /// summed over the walk. Added back in the no-projection availability so it stays the
+        /// running balance.
+        /// </summary>
+        private double forgivenBelowZero;
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -101,6 +115,8 @@ namespace Parsek
             projectedMinBalance = 0.0;
             hasInitialSeed = false;
             buildingDestroyedInWalk.Clear();
+            forgivenBelowZero = 0.0;
+            allowNegativeCurrency = StockCurrencyClamp.ReadAllowNegativeCurrency();
 
             ParsekLog.Verbose(Tag,
                 $"Reset: prevSeed={prevSeed.ToString("R", IC)}, " +
@@ -144,6 +160,13 @@ namespace Parsek
             if (action == null)
                 return;
 
+            double before = runningBalance;
+            DispatchAction(action);
+            ApplyStockZeroClamp(action, before);
+        }
+
+        private void DispatchAction(GameAction action)
+        {
             switch (action.Type)
             {
                 case GameActionType.FundsInitial:
@@ -191,6 +214,51 @@ namespace Parsek
                 // phantom charge.
                 // All other action types: ignore silently
             }
+        }
+
+        /// <summary>
+        /// A cost row: a purchase or strategy setup the player chose (committed-value rule
+        /// plan section 2.3). Never forgiven at 0: a purchase is paid in full or refused.
+        /// </summary>
+        internal static bool IsFundsCostRow(GameActionType type)
+        {
+            switch (type)
+            {
+                case GameActionType.FundsSpending:
+                case GameActionType.FacilityUpgrade:
+                case GameActionType.FacilityRepair:
+                case GameActionType.KerbalHire:
+                case GameActionType.StrategyActivate:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Stock's 0 clamp, applied in the walk (committed-value rule plan section 2.3, the
+        /// no-cost-ahead case, built ahead of the floor and the debt): a row that is not a
+        /// cost row and takes the running balance below 0 stops at 0 and the rest is
+        /// forgiven, as <c>Funding.AddFunds</c> does with <c>AllowNegativeCurrency</c> off.
+        /// A row that starts below 0 (a cost row already overdrew the walk) is forgiven in
+        /// full, never raised.
+        /// </summary>
+        private void ApplyStockZeroClamp(GameAction action, double before)
+        {
+            double forgiven = StockCurrencyClamp.ForgivenBelowZero(
+                before, runningBalance, IsFundsCostRow(action.Type), allowNegativeCurrency);
+            if (forgiven <= 0.0)
+                return;
+
+            runningBalance += forgiven;
+            forgivenBelowZero += forgiven;
+            ParsekLog.VerboseRateLimited(Tag,
+                "zero-clamp-" + (action.ActionId ?? action.Type.ToString()),
+                $"Zero clamp: {action.Type} id={action.ActionId ?? "(none)"} " +
+                $"ut={action.UT.ToString("R", IC)} before={before.ToString("R", IC)} " +
+                $"forgiven={forgiven.ToString("R", IC)} " +
+                $"runningBalance={runningBalance.ToString("R", IC)} " +
+                $"forgivenTotal={forgivenBelowZero.ToString("R", IC)} (stock stops this loss at 0)");
         }
 
         // ================================================================
@@ -622,6 +690,12 @@ namespace Parsek
             return runningBalance;
         }
 
+        /// <summary>What the walk forgave below 0 so far (stock's 0 clamp on non-cost losses).</summary>
+        internal double GetForgivenBelowZero()
+        {
+            return forgivenBelowZero;
+        }
+
         /// <summary>
         /// Returns the available funds after the reservation system is applied.
         /// This is the amount the player can actually spend at the current point in the walk.
@@ -638,7 +712,8 @@ namespace Parsek
             if (hasProjectedAvailableFunds)
                 return projectedAvailableFunds;
 
-            double available = initialFunds + totalEarnings - totalCommittedSpendings;
+            double available = initialFunds + totalEarnings - totalCommittedSpendings
+                + forgivenBelowZero;
             return available > 0.0 ? available : 0.0;
         }
 
@@ -660,7 +735,7 @@ namespace Parsek
         {
             if (hasProjectedAvailableFunds)
                 return projectedMinBalance;
-            return initialFunds + totalEarnings - totalCommittedSpendings;
+            return initialFunds + totalEarnings - totalCommittedSpendings + forgivenBelowZero;
         }
 
         public bool TryGetProjectionDelta(GameAction action, out double delta)

@@ -55,9 +55,12 @@ namespace Parsek.Tests
         {
             List<StockPoolRow> rows = StockPoolReference.BuildRows(state.Pool, ledger);
             StockPoolMeasurement m = StockPoolReference.Measure(
-                state, rows, now, live, pendingAdjust, allowNegative, authoritative, 0.01);
-            double write = StockPoolReference.ResolveCurrencyWriteTarget(
-                unflooredTarget, running, live, allowNegative, m.CumLeakAfter);
+                state, rows, now, live, pendingAdjust, allowNegative, authoritative, 0.01,
+                unflooredTarget + pendingAdjust);
+            double write = m.GapAdopted
+                ? live
+                : StockPoolReference.ResolveCurrencyWriteTarget(
+                    unflooredTarget, running, live, allowNegative, m.CumLeakAfter);
             StockPoolReference.Commit(state, rows, m, write, pendingAdjust);
             lastMeasurement = m;
             return write;
@@ -69,8 +72,10 @@ namespace Parsek.Tests
         {
             List<StockPoolRow> rows = StockPoolReference.BuildRows(StockPool.Reputation, ledger);
             StockPoolMeasurement m = StockPoolReference.Measure(
-                state, rows, now, live, 0.0, false, authoritative, 0.01);
-            double write = StockPoolReference.ResolveReputationWriteTarget(running, m.CumLeakAfter);
+                state, rows, now, live, 0.0, false, authoritative, 0.01, running);
+            double write = m.GapAdopted
+                ? live
+                : StockPoolReference.ResolveReputationWriteTarget(running, m.CumLeakAfter);
             StockPoolReference.Commit(state, rows, m, write, 0.0);
             lastMeasurement = m;
             return write;
@@ -106,6 +111,29 @@ namespace Parsek.Tests
         {
             ActionId = id, UT = ut, Type = GameActionType.ContractComplete, TransformedFundsReward = funds,
         };
+
+        /// <summary>
+        /// The walk's running balance and no-projection target for <paramref name="ledger"/>
+        /// over a 1000 seed, through a real <see cref="FundsModule"/> (stock's 0 clamp included).
+        /// </summary>
+        private static double WalkFunds(IEnumerable<GameAction> ledger, double seed)
+        {
+            var funds = new FundsModule();
+            funds.Reset();
+            var rows = new List<GameAction>
+            {
+                new GameAction { ActionId = "seed", UT = 0, Type = GameActionType.FundsInitial, InitialFunds = (float)seed },
+            };
+            rows.AddRange(ledger);
+            funds.PrePass(rows);
+            foreach (var a in rows)
+            {
+                a.Effective = true;
+                funds.ProcessAction(a);
+            }
+            Assert.Equal(funds.GetRunningBalance(), funds.GetProjectionMinBalance(), 6);
+            return funds.GetRunningBalance();
+        }
 
         /// <summary>A reference that already patched the pool to <paramref name="pool"/> (no rows).</summary>
         private double Baseline(StockPoolReferenceState state, double pool)
@@ -143,6 +171,7 @@ namespace Parsek.Tests
         public void B1_AReservedCostCrossingTheClock_IsNeitherRefundedNorChargedTwice()
         {
             var state = StockPoolReference.Funds;
+            Baseline(state, 1000);
             var ledger = new List<GameAction> { Spend("c", 200, 300f) };
 
             Assert.Equal(700.0, PatchCurrency(state, ledger, 100, 1000, 700, 1000), 6);
@@ -156,43 +185,45 @@ namespace Parsek.Tests
         // ------------------------------------------------------------------
 
         [Fact]
-        public void B2_FailClampedAtZero_ThenARecoveryInFlight_IsNoLeak()
+        public void B2_FailClampedAtZero_ThenARecoveryInFlight_IsNoLeak_AndTheRecoveryIsKept()
         {
             var state = StockPoolReference.Funds;
             Baseline(state, 1000);
 
             // In flight (patch deferred): a 3000 fail stock clamps at 0, then a 500 recovery.
             var ledger = new List<GameAction> { Fail("f", 10, 3000f), Earn("r", 20, 500f) };
-            double write = PatchCurrency(state, ledger, 30, live: 500, unflooredTarget: -1500, running: -1500);
+            // The walk applies stock's clamp too: 0 after the fail, 500 after the recovery.
+            double walked = WalkFunds(ledger, 1000);
+            Assert.Equal(500.0, walked, 6);
+            double write = PatchCurrency(state, ledger, 30, live: 500, unflooredTarget: walked, running: walked);
 
             Assert.Equal(500.0, lastMeasurement.Expected, 6);
             Assert.False(lastMeasurement.LeakKept);
             Assert.Equal(0.0, state.CumLeak, 6);
-            // PLAN DEPENDENCY: the reference keeps nothing (correctly), so the write is the
-            // walk's own value, max(0, -1500). The walk does not forgive the clamped part of
-            // the fail until phase 3 (plan 2.3, no cost ahead: the rest is forgiven), so phase 2
-            // alone takes the 500 stock left; today's guard keeps it.
-            Assert.Equal(0.0, write, 6);
-            Assert.Equal(500.0, OldGuardFunds(500, 0, -1500), 6);
+            Assert.Equal(500.0, write, 6);
+            // Without the walk's clamp the target was max(0, -1500) = 0: the recovery taken back.
+            Assert.Equal(0.0, StockPoolReference.ResolveCurrencyWriteTarget(-1500, -1500, 500, false, 0.0), 6);
         }
 
         [Fact]
-        public void B2_FailWithNoCostAheadClampedAtZero_ThenAnEarning_IsNoLeak()
+        public void B2_FailWithNoCostAheadClampedAtZero_ThenAnEarning_IsNoLeak_AndTheEarningIsKept()
         {
             var state = StockPoolReference.Funds;
             Baseline(state, 1000);
             var ledger = new List<GameAction> { Fail("f", 10, 3000f) };
 
-            Assert.Equal(0.0, PatchCurrency(state, ledger, 15, live: 0, unflooredTarget: -2000, running: -2000), 6);
+            double walked = WalkFunds(ledger, 1000);
+            Assert.Equal(0.0, walked, 6);
+            Assert.Equal(0.0, PatchCurrency(state, ledger, 15, live: 0, unflooredTarget: walked, running: walked), 6);
             Assert.False(lastMeasurement.LeakKept);
 
             ledger.Add(Earn("e", 20, 5000f));
-            double write = PatchCurrency(state, ledger, 25, live: 5000, unflooredTarget: 3000, running: 3000);
+            walked = WalkFunds(ledger, 1000);
+            Assert.Equal(5000.0, walked, 6);
+            double write = PatchCurrency(state, ledger, 25, live: 5000, unflooredTarget: walked, running: walked);
             Assert.Equal(5000.0, lastMeasurement.Expected, 6);
             Assert.False(lastMeasurement.LeakKept);
-            // Same plan dependency as above: phase 3's walk forgives the 2000 stock clamped.
-            Assert.Equal(3000.0, write, 6);
-            Assert.Equal(5000.0, OldGuardFunds(5000, 3000, 3000), 6);
+            Assert.Equal(5000.0, write, 6);
         }
 
         [Fact]
@@ -217,6 +248,7 @@ namespace Parsek.Tests
         public void B3_KeptLeakThenRepeatedPurchases_CreatesNoMoney_AndKeepsTheReservation()
         {
             var state = StockPoolReference.Funds;
+            Baseline(state, 1000);
             // A committed 500 upgrade ahead: running 1000, minimum 500.
             var ledger = new List<GameAction> { Upgrade("k", 1000, 500f) };
             Assert.Equal(500.0, PatchCurrency(state, ledger, 100, 1000, 500, 1000), 6);
@@ -486,6 +518,7 @@ namespace Parsek.Tests
         public void ReleasedReservation_ComesBack_TodaysGuardKeepsItAway()
         {
             var state = StockPoolReference.Funds;
+            Baseline(state, 1000);
             // A committed 300 cost ahead holds the pool at 700.
             var ledger = new List<GameAction> { Spend("c", 200, 300f) };
             Assert.Equal(700.0, PatchCurrency(state, ledger, 100, 1000, 700, 1000), 6);
@@ -507,6 +540,7 @@ namespace Parsek.Tests
             // pays the completion W: the commit's target is R + W - S and nothing fights it.
             const double R = 10000, S = 2000, P = 1000, W = 3000;
             var state = StockPoolReference.Funds;
+            Baseline(state, R);
             var ledger = new List<GameAction> { Upgrade("s", 500, (float)S) };
             Assert.Equal(R - S - P, PatchCurrency(state, ledger, 100, R, R - S - P, R), 6);
 
@@ -546,19 +580,71 @@ namespace Parsek.Tests
         // ------------------------------------------------------------------
 
         [Fact]
-        public void FreshBaseline_StartsFromLive_WithEveryRowCounted()
+        public void FreshBaseline_StartsFromLive_WithEveryRowCounted_AndKeepsTheOlderBuildsGap()
         {
+            // A save from an older build: the old guard kept the pool at 1234 while the
+            // reservation-aware target is 990. The first patch takes the 244 gap as the kept
+            // leak and leaves the pool where it is, today's behaviour for that save.
             var state = StockPoolReference.Funds;
             var ledger = new List<GameAction> { Earn("a", 5, 100f), Spend("b", 6, 40f), Spend("f", 500, 70f) };
             double write = PatchCurrency(state, ledger, 10, 1234, 990, 1060);
 
             Assert.True(lastMeasurement.FreshBaseline);
+            Assert.True(lastMeasurement.GapAdopted);
             Assert.False(lastMeasurement.LeakKept);
-            Assert.Equal(990.0, write, 6);
+            Assert.Equal(244.0, lastMeasurement.AdoptedGap, 6);
+            Assert.Equal(1234.0, write, 6);
+            Assert.Equal(244.0, state.CumLeak, 6);
             Assert.True(state.Initialized);
             Assert.Equal(3, state.Counted.Count);
             Assert.All(state.Counted.Values, c => Assert.Equal(0.0, c.Stepped, 6));
             Assert.Equal(-70.0, state.Counted["f"].Amount, 6);
+            Assert.Contains("adoptedGap=244", StockPoolReference.FormatMeasurement(lastMeasurement));
+
+            // The next patch with nothing changed writes the same pool: the gap stays kept.
+            Assert.Equal(1234.0, PatchCurrency(state, ledger, 20, 1234, 990, 1060), 6);
+            Assert.False(lastMeasurement.LeakKept);
+
+            // A later committed cost still reserves from that pool (the reservation is not
+            // swallowed by the adopted gap).
+            ledger.Add(Upgrade("u", 900, 200f));
+            Assert.Equal(1034.0, PatchCurrency(state, ledger, 30, 1234, 790, 1060), 6);
+        }
+
+        [Fact]
+        public void FreshBaseline_AnOverdrawnTarget_KeepsThePool_NotZero()
+        {
+            // The leak-free target is below 0 (an older save whose committed future overdraws
+            // the walk); the pool the older build left stays, not max(0, target).
+            var state = StockPoolReference.Funds;
+            double write = PatchCurrency(state, new[] { Spend("c", 900, 500f) }, 10, 300, -200, 300);
+            Assert.True(lastMeasurement.GapAdopted);
+            Assert.Equal(500.0, state.CumLeak, 6);
+            Assert.Equal(300.0, write, 6);
+        }
+
+        [Fact]
+        public void FreshBaseline_Authoritative_WritesTheTarget_AdoptsNoGap()
+        {
+            var state = StockPoolReference.Funds;
+            double write = PatchCurrency(state, new[] { Earn("a", 5, 100f) }, 10, 1234, 990, 990,
+                authoritative: true);
+            Assert.True(lastMeasurement.FreshBaseline);
+            Assert.False(lastMeasurement.GapAdopted);
+            Assert.Equal(990.0, write, 6);
+            Assert.Equal(0.0, state.CumLeak, 6);
+        }
+
+        [Fact]
+        public void FreshBaseline_Reputation_KeepsTheLivePool()
+        {
+            var state = StockPoolReference.Reputation;
+            double write = PatchReputation(state, new GameAction[0], 10, live: 55, running: 50);
+            Assert.True(lastMeasurement.GapAdopted);
+            Assert.Equal(55.0, write, 6);
+            Assert.Equal(5.0, state.CumLeak, 6);
+            // A later gain the ledger holds lands on top of the kept gap.
+            Assert.Equal(60.0, PatchReputation(state, new GameAction[0], 20, live: 55, running: 55), 6);
         }
 
         [Fact]
@@ -676,9 +762,36 @@ namespace Parsek.Tests
             Assert.Equal(0.0, StockPoolReference.CumLeakOf(StockPool.Funds), 6);
             Assert.Contains(logLines, l => l.Contains("[StockPoolReference]") && l.Contains("no saved reference"));
 
-            // The first patch then starts from the live pool.
+            // The first patch then starts from the live pool and keeps the older build's gap.
             double write = PatchCurrency(StockPoolReference.Funds, new[] { Earn("e", 1, 10f) }, 5, 900, 800, 800);
             Assert.True(lastMeasurement.FreshBaseline);
+            Assert.True(lastMeasurement.GapAdopted);
+            Assert.Equal(900.0, write, 6);
+            Assert.Equal(100.0, StockPoolReference.CumLeakOf(StockPool.Funds), 6);
+        }
+
+        [Fact]
+        public void Load_WithSavedValues_MeasuresAgainstThem_AdoptsNoGap()
+        {
+            // The same pool and target as the cell above, but the save carries a reference that
+            // last wrote 900 with nothing kept: the 100 above the target is a released
+            // reservation and the patch writes the target.
+            var source = StockPoolReference.Funds;
+            source.Initialized = true;
+            source.LastWritten = 900;
+            source.CumLeak = 0;
+            source.Counted["e"] = new CountedRow { Amount = 10, Stepped = 0 };
+            var node = new ConfigNode("SCENARIO");
+            StockPoolReference.SaveTo(node);
+            StockPoolReference.ResetForTesting();
+
+            StockPoolReference.LoadFrom(node, "Cold");
+            Assert.True(StockPoolReference.Funds.Initialized);
+
+            double write = PatchCurrency(StockPoolReference.Funds, new[] { Earn("e", 1, 10f) }, 5, 900, 800, 800);
+            Assert.False(lastMeasurement.FreshBaseline);
+            Assert.False(lastMeasurement.GapAdopted);
+            Assert.False(lastMeasurement.LeakKept);
             Assert.Equal(800.0, write, 6);
         }
 

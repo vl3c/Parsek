@@ -265,29 +265,32 @@ count = { min = 2, max = 2 }
 #       so it reads False, and pinning a False that is an artifact of two paths
 #       agreeing would be pinning the wrong thing.
 #
-#   `PatchFunds: GUARDED DRAWDOWN clamped resource=Funds`
-#       WHERE THE DEBIT STOPS, and it is pinned because the first flight of this
-#       shape MEASURED something this spec had predicted wrongly. The
-#       reconstruction really does spend the penalty - run `2026-08-20_2240`
+#   `PatchFunds: <current> -> <after> (delta=-9000.0, `
+#       WHERE THE DEBIT LANDS. Until the committed-value rule's phase 2 this pin was
+#       `PatchFunds: GUARDED DRAWDOWN clamped resource=Funds`: run `2026-08-20_2240`
 #       logged `running=527558 live=536558 wouldBeTarget=527558` for funds and
-#       `running=0.99999749 live=1.9999988` for reputation, i.e. exactly the
-#       9000 and the 1 - but `KspStatePatcher`'s guarded-drawdown protection
-#       REFUSES to write either back, because a pool going DOWN with no
-#       time-travel context is the signature it exists to catch ("earned value
-#       preserved; ledger may be missing an earning channel"). So the live
-#       career keeps 536558 / 1.9999988 and the synthetic fail is a
-#       reconstruction-only debit. That is a real property of the fail path with
-#       no committed statement anywhere else, so it is gated here; it is filed
-#       as SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD in
-#       `docs/dev/todo-and-known-bugs.md`, REPORT-ONLY, with no product change
-#       proposed by this lane.
-#       THE NUMBERS ARE DELIBERATELY NOT IN THE TOKEN. `running=` moves during
-#       the recalc burst (the same run logged an earlier clamp at
-#       `running=522200 live=531200`, before the recovery credit landed), and
-#       `live=` is this flight's total earnings, which `L3-career-science-recover`
-#       owns and this spec has no business re-pinning. What is gated is that the
-#       clamp HAPPENS - so a change that lets the debit through reds here and
-#       forces the decision to be taken deliberately.
+#       `running=0.99999749 live=1.9999988` for reputation, and the old guard refused to
+#       write either back because a pool going DOWN with no time-travel context was its
+#       missing-earning signature. Phase 2 (2026-10-22, todo
+#       LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY) replaced that guess with the stock pool
+#       reference: the guard now compares live against what STOCK applied for the
+#       ledger's own rows, so the synthetic fail, which stock never applied (contract B
+#       is ledger-only, `career-contract-pad` splices nothing into `ContractSystem`),
+#       moves the target and nothing else; the reference finds live exactly where Parsek
+#       left it, measures no leak, and the patch writes the 9000 / 1 debit. The GUARDED
+#       WARN now fires only for a measured leak, so it is forbidden below. The deadline is
+#       PAST at the commit walk (deadlineUT=100 sits below the walk's clock), so this is
+#       the visible walk's fail, not an open contract's reserve: phase 2's rule that keeps
+#       an OPEN contract's synthetic deadline fail out of the pool reserve does not touch
+#       it. Behavior pin SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD in
+#       `docs/dev/todo-and-known-bugs.md` records the change.
+#       PREDICTED FROM CODE, NOT YET FLOWN: the delta is pinned exactly because the debit is
+#       the only change the reference does not explain at that patch (L3's flight totals
+#       matched the ledger to the cent). If a flight shows the debit split across two
+#       patches, or a GUARDED line, read the `[StockPoolReference]` measurement lines
+#       before touching the pin.
+#       THE POOL VALUES ARE DELIBERATELY NOT IN THE TOKEN: `live=` is this flight's total
+#       earnings, which `L3-career-science-recover` owns.
 #
 # NOT PINNED, deliberately: `PatchContracts: no snapshot for contractId=...`.
 # It is expected on this fixture (no `events.pgse`, so no CONTRACT_SNAPSHOT) and
@@ -307,9 +310,12 @@ required = [
   "PrePass: injected synthetic ContractFail for contractId='c47d0a91-6b25-4e83-9f1a-2d60be3c7845' at deadlineUT=100 fundsPenalty=9000 repPenalty=1",
   "DeadlineExpired: contractId='c47d0a91-6b25-4e83-9f1a-2d60be3c7845' deadline passed at currentUT=",
   "Fail: contractId='c47d0a91-6b25-4e83-9f1a-2d60be3c7845' fundsPenalty=9000 repPenalty=1",
-  "PatchFunds: GUARDED DRAWDOWN clamped resource=Funds",
+  "PatchFunds: [0-9.]+ -> [0-9.]+ \\(delta=-9000\\.0, ",
 ]
-forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped resource=Funds",
+]
 
 # NO [expectations.ledger] BLOCK, and the reason is the same one L3 records
 # rather than a different one: the M-B2 oracle has no report-only mode, so an

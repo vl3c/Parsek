@@ -68,6 +68,12 @@ namespace Parsek
         /// </summary>
         private bool hasInitialSeed;
 
+        /// <summary>Stock's <c>AllowNegativeCurrency</c>, read once per walk in <see cref="Reset"/>.</summary>
+        private bool allowNegativeCurrency;
+
+        /// <summary>The part of the walk's non-cost losses below 0 stock forgives (see FundsModule).</summary>
+        private double forgivenBelowZero;
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -87,6 +93,8 @@ namespace Parsek
             projectedAvailableScience = 0.0;
             projectedMinBalance = 0.0;
             hasInitialSeed = false;
+            forgivenBelowZero = 0.0;
+            allowNegativeCurrency = StockCurrencyClamp.ReadAllowNegativeCurrency();
 
             ParsekLog.Verbose("ScienceModule",
                 $"Reset: cleared {subjectCount} subjects, runningScience=0, " +
@@ -119,6 +127,50 @@ namespace Parsek
             if (action == null)
                 return;
 
+            double before = runningScience;
+            DispatchAction(action);
+            ApplyStockZeroClamp(action, before);
+        }
+
+        /// <summary>
+        /// A cost row (committed-value rule plan section 2.3): a tech purchase or a strategy
+        /// setup, plus the exchange debit, which is the science half of a currency conversion
+        /// as the funds half (a <c>FundsSpending</c> row) is a cost row in funds.
+        /// </summary>
+        internal static bool IsScienceCostRow(GameActionType type)
+        {
+            switch (type)
+            {
+                case GameActionType.ScienceSpending:
+                case GameActionType.StrategyActivate:
+                case GameActionType.StrategyScienceDebit:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>Stock's 0 clamp on a non-cost science loss (see FundsModule.ApplyStockZeroClamp).</summary>
+        private void ApplyStockZeroClamp(GameAction action, double before)
+        {
+            double forgiven = StockCurrencyClamp.ForgivenBelowZero(
+                before, runningScience, IsScienceCostRow(action.Type), allowNegativeCurrency);
+            if (forgiven <= 0.0)
+                return;
+
+            runningScience += forgiven;
+            forgivenBelowZero += forgiven;
+            ParsekLog.VerboseRateLimited("ScienceModule",
+                "zero-clamp-" + (action.ActionId ?? action.Type.ToString()),
+                $"Zero clamp: {action.Type} id={action.ActionId ?? "(none)"} " +
+                $"ut={action.UT.ToString("R", IC)} before={before.ToString("R", IC)} " +
+                $"forgiven={forgiven.ToString("R", IC)} " +
+                $"runningScience={runningScience.ToString("R", IC)} " +
+                $"forgivenTotal={forgivenBelowZero.ToString("R", IC)} (stock stops this loss at 0)");
+        }
+
+        private void DispatchAction(GameAction action)
+        {
             switch (action.Type)
             {
                 case GameActionType.ScienceEarning:
@@ -614,7 +666,7 @@ namespace Parsek
             if (hasProjectedAvailableScience)
                 return projectedAvailableScience;
 
-            double available = totalEffectiveEarnings - totalCommittedSpendings;
+            double available = totalEffectiveEarnings - totalCommittedSpendings + forgivenBelowZero;
             return available > 0.0 ? available : 0.0;
         }
 
@@ -636,7 +688,7 @@ namespace Parsek
         {
             if (hasProjectedAvailableScience)
                 return projectedMinBalance;
-            return totalEffectiveEarnings - totalCommittedSpendings;
+            return totalEffectiveEarnings - totalCommittedSpendings + forgivenBelowZero;
         }
 
         public bool TryGetProjectionDelta(GameAction action, out double delta)

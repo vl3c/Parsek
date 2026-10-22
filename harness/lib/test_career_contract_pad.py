@@ -345,26 +345,30 @@ class L5SpecFixtureSyncTests(unittest.TestCase):
         self.assertTrue(any("activeSlots=1/2" in t for t in required))
         self.assertTrue(any("activeSlots=2/2" in t for t in required))
 
-    def test_the_drawdown_clamp_is_pinned_without_the_flights_numbers(self):
-        # MEASURED, and it corrected a prediction this spec had got wrong: the
-        # synthetic fail's penalties reach the RECONSTRUCTION and are then
-        # CLAMPED by `KspStatePatcher`'s guarded-drawdown protection, so the live
-        # career never sees them (SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-
-        # DRAWDOWN-GUARD). Pinning the clamp makes a change in either direction
-        # red here.
+    def test_the_written_debit_is_pinned_without_the_flights_numbers(self):
+        # MEASURED first as a clamp (run `2026-08-20_2240`: the old guarded-drawdown
+        # protection refused the synthetic fail's debit, SYNTHETIC-CONTRACT-FAIL-
+        # PENALTY-CLAMPED-BY-DRAWDOWN-GUARD). Since the committed-value rule's phase 2
+        # the guard reads the stock pool reference, which finds live where Parsek left
+        # it (stock never applied this ledger-only contract's fail), so the debit is
+        # WRITTEN: one patch of exactly -9000, and no GUARDED clamp. Pinning both
+        # makes a change in either direction red here.
         #
-        # THE NUMBERS MUST STAY OUT OF THE TOKEN. `running=` moves during the
-        # recalc burst (run `2026-08-20_2240` logged clamps at both
-        # `running=522200` and `running=527558`, before and after the recovery
-        # credit landed), and `live=` is the flight's total earnings, which
-        # `L3-career-science-recover` owns. A token carrying either would red on
-        # a flight whose earnings moved for reasons this spec does not assert.
-        clamp = [t for t in self._required() if "GUARDED DRAWDOWN" in t]
-        self.assertEqual(1, len(clamp))
-        for forbidden in ("running=", "live=", "wouldBeTarget=", "clampedTo="):
-            self.assertNotIn(forbidden, clamp[0],
-                             "the clamp token pins %r, which moves per run"
-                             % forbidden)
+        # THE POOL VALUES MUST STAY OUT OF THE TOKEN. `live=` is the flight's total
+        # earnings, which `L3-career-science-recover` owns; only the debit is this
+        # spec's.
+        write = [t for t in self._required() if t.startswith("PatchFunds: ")]
+        self.assertEqual(1, len(write))
+        self.assertIn("delta=-9000", write[0])
+        for pinned in ("running=", "live=", "target="):
+            self.assertNotIn(pinned, write[0],
+                             "the write token pins %r, which moves per run" % pinned)
+        self.assertFalse(any("GUARDED" in t for t in self._required()),
+                         "a GUARDED clamp is no longer the expected outcome")
+        forbidden = self.spec["expectations"]["logContracts"]["forbidden"]
+        self.assertTrue(any("GUARDED (UPLIFT|DRAWDOWN) clamped resource=Funds" in t
+                            for t in forbidden),
+                        "the old clamp must be forbidden, or a guard regression passes")
 
     def test_the_d8_contracts_claim_is_gated(self):
         # The claim-vs-gate coupling `test_career_earned_pad.py` asserts for the

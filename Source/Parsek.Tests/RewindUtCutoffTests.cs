@@ -1637,8 +1637,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CanAffordFundsSpending_FutureDeadlinePenaltyAfterLastActionReservesCurrentHeadroom()
+        public void CanAffordFundsSpending_FutureDeadlinePenaltyOfAnOpenContract_IsNotReserved()
         {
+            // Open-contract penalties are not held in the pool (committed-value rule plan
+            // section 2.2, owner ruling): the projection still synthesizes the deadline fail,
+            // but the reserve leaves it out, so the whole 1000 is spendable. Before, the
+            // probe held 700 back (probed 300, refused).
             AddAll(
                 FundsSeed(1000f),
                 ContractAcceptWithDeadline(
@@ -1652,8 +1656,8 @@ namespace Parsek.Tests
 
             bool affordable = LedgerOrchestrator.CanAffordFundsSpending(400f, out double probed);
 
-            Assert.False(affordable);
-            Assert.Equal(300.0, probed, 1);
+            Assert.True(affordable);
+            Assert.Equal(1000.0, probed, 1);
         }
 
         [Fact]

@@ -198,7 +198,7 @@ namespace Parsek
             WalkResult walk = RunWalk(effective, utCutoff, deadlineClockUT);
 
             if (utCutoff.HasValue)
-                ApplyProjectedAvailability(projectedTimeline, utCutoff.Value);
+                ApplyProjectedAvailability(projectedTimeline, utCutoff.Value, LedgerRowSet(actions));
 
             // 4. Log summary
             string cutoffLabel = utCutoff.HasValue
@@ -275,10 +275,11 @@ namespace Parsek
                     var facilities = CreateProjectionModule(facilitiesModule);
                     RunWalk(effective, utCutoff, first, strategy, second, facilities);
 
-                    ApplyProjectedAvailability(first, projected, utCutoff);
-                    if (strategy != null) ApplyProjectedAvailability(strategy, projected, utCutoff);
-                    ApplyProjectedAvailability(second, projected, utCutoff);
-                    if (facilities != null) ApplyProjectedAvailability(facilities, projected, utCutoff);
+                    HashSet<GameAction> ledgerRows = LedgerRowSet(all);
+                    ApplyProjectedAvailability(first, projected, utCutoff, ledgerRows);
+                    if (strategy != null) ApplyProjectedAvailability(strategy, projected, utCutoff, ledgerRows);
+                    ApplyProjectedAvailability(second, projected, utCutoff, ledgerRows);
+                    if (facilities != null) ApplyProjectedAvailability(facilities, projected, utCutoff, ledgerRows);
 
                     return FindModule<T>(first) ?? (strategy as T) ?? FindModule<T>(second) ?? (facilities as T);
                 }
@@ -588,6 +589,38 @@ namespace Parsek
             internal double FinalBalance;
             internal int FutureActions;
             internal int DeltaActions;
+            internal int SyntheticRowsExcluded;
+            internal double SyntheticDeltaExcluded;
+        }
+
+        /// <summary>
+        /// The rows the caller handed the walk, by reference. A row of the projected timeline
+        /// that is not in it was injected by a module's PrePass (today only
+        /// <c>ContractsModule</c>'s synthetic deadline fail of an open contract).
+        /// </summary>
+        private static HashSet<GameAction> LedgerRowSet(List<GameAction> actions)
+        {
+            var set = new HashSet<GameAction>();
+            if (actions == null)
+                return set;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                if (actions[i] != null)
+                    set.Add(actions[i]);
+            }
+            return set;
+        }
+
+        /// <summary>
+        /// Pure: whether the reserve counts this future row. An open contract's fail penalty is
+        /// not held in the pool (committed-value rule plan section 2.2, owner ruling): the
+        /// projection's synthetic deadline fail is told apart from ledger rows by membership in
+        /// the input list and left out of the reserve, while the projection walk itself (and
+        /// <c>ContractsModule</c>'s injection) is unchanged. A null set counts every row.
+        /// </summary>
+        internal static bool CountsInReserve(GameAction action, HashSet<GameAction> ledgerRows)
+        {
+            return ledgerRows == null || ledgerRows.Contains(action);
         }
 
         private static WalkResult RunWalk(
@@ -831,35 +864,38 @@ namespace Parsek
             }
         }
 
-        private static void ApplyProjectedAvailability(List<GameAction> projectedTimeline, double cutoff)
+        private static void ApplyProjectedAvailability(
+            List<GameAction> projectedTimeline, double cutoff, HashSet<GameAction> ledgerRows)
         {
             if (projectedTimeline == null)
                 return;
 
-            ApplyProjectedAvailability(firstTierModules, projectedTimeline, cutoff);
+            ApplyProjectedAvailability(firstTierModules, projectedTimeline, cutoff, ledgerRows);
 
             if (strategyTransform != null)
-                ApplyProjectedAvailability(strategyTransform, projectedTimeline, cutoff);
+                ApplyProjectedAvailability(strategyTransform, projectedTimeline, cutoff, ledgerRows);
 
-            ApplyProjectedAvailability(secondTierModules, projectedTimeline, cutoff);
+            ApplyProjectedAvailability(secondTierModules, projectedTimeline, cutoff, ledgerRows);
 
             if (facilitiesModule != null)
-                ApplyProjectedAvailability(facilitiesModule, projectedTimeline, cutoff);
+                ApplyProjectedAvailability(facilitiesModule, projectedTimeline, cutoff, ledgerRows);
         }
 
         private static void ApplyProjectedAvailability(
             List<IResourceModule> modules,
             List<GameAction> projectedTimeline,
-            double cutoff)
+            double cutoff,
+            HashSet<GameAction> ledgerRows)
         {
             for (int i = 0; i < modules.Count; i++)
-                ApplyProjectedAvailability(modules[i], projectedTimeline, cutoff);
+                ApplyProjectedAvailability(modules[i], projectedTimeline, cutoff, ledgerRows);
         }
 
         private static void ApplyProjectedAvailability(
             IResourceModule module,
             List<GameAction> projectedTimeline,
-            double cutoff)
+            double cutoff,
+            HashSet<GameAction> ledgerRows)
         {
             var projectionModule = module as ICashflowProjectionModule;
             if (projectionModule == null)
@@ -870,7 +906,23 @@ namespace Parsek
                 projectedTimeline,
                 cutoff,
                 currentBalance,
-                projectionModule);
+                projectionModule,
+                ledgerRows);
+            string moduleName = module.GetType().Name;
+            ParsekLog.VerboseOnChange("RecalcEngine",
+                "projection-synthetic-excluded|" + moduleName,
+                string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0}|{1}|{2}",
+                    projection.SyntheticRowsExcluded,
+                    projection.SyntheticDeltaExcluded.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+                    cutoff.ToString("R", System.Globalization.CultureInfo.InvariantCulture)),
+                $"Projection reserve for {moduleName}: cutoff=" +
+                cutoff.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                $" excludedSyntheticRows={projection.SyntheticRowsExcluded}" +
+                " excludedSyntheticDelta=" +
+                projection.SyntheticDeltaExcluded.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                " minBalance=" +
+                projection.MinBalance.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                " (an open contract's synthetic deadline fail is not held in the pool)");
             projectionModule.SetProjectedAvailable(
                 projection.Available,
                 currentBalance,
@@ -884,12 +936,15 @@ namespace Parsek
             List<GameAction> projectedTimeline,
             double cutoff,
             double currentBalance,
-            ICashflowProjectionModule projectionModule)
+            ICashflowProjectionModule projectionModule,
+            HashSet<GameAction> ledgerRows)
         {
             double projected = currentBalance;
             double minProjected = currentBalance;
             int futureActions = 0;
             int deltaActions = 0;
+            int syntheticExcluded = 0;
+            double syntheticDelta = 0.0;
 
             for (int i = 0; i < projectedTimeline.Count; i++)
             {
@@ -902,6 +957,13 @@ namespace Parsek
                 double delta;
                 if (!projectionModule.TryGetProjectionDelta(action, out delta))
                     continue;
+
+                if (!CountsInReserve(action, ledgerRows))
+                {
+                    syntheticExcluded++;
+                    syntheticDelta += delta;
+                    continue;
+                }
 
                 projected += delta;
                 deltaActions++;
@@ -916,7 +978,9 @@ namespace Parsek
                 MinBalance = minProjected,
                 FinalBalance = projected,
                 FutureActions = futureActions,
-                DeltaActions = deltaActions
+                DeltaActions = deltaActions,
+                SyntheticRowsExcluded = syntheticExcluded,
+                SyntheticDeltaExcluded = syntheticDelta
             };
         }
 

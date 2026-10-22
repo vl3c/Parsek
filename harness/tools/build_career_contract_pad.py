@@ -189,8 +189,10 @@ CONTRACT_B_DEADLINE_UT = "100"
 # MEASURED, run `2026-08-20_2240`: the walk really does spend the pack
 # (`running=527558` against `live=536558` for funds, `running=0.99999749660491943`
 # against `live=1.9999988079071045` for reputation), and `KspStatePatcher`'s
-# guarded drawdown then refuses to write either pool back, so NEITHER LIVE POOL
-# MOVES in this fixture's shape. That is the guard working as designed here: this
+# guarded drawdown then refused to write either pool back, so NEITHER LIVE POOL
+# MOVED in this fixture's shape. Since the committed-value rule's phase 2
+# (2026-10-22) the guard reads the stock pool reference instead, finds live where
+# Parsek left it, and the 9000 / 1 debit IS written (L5 now pins the write). That is the guard working as designed here: this
 # save's stock `CONTRACTS` node is EMPTY by construction, so stock never debited
 # the pools for B and the recalc reaches the patcher as a bare drawdown with no
 # time-travel context. An earlier revision of this comment predicted the opposite
@@ -198,9 +200,8 @@ CONTRACT_B_DEADLINE_UT = "100"
 # SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD in
 # `docs/dev/todo-and-known-bugs.md`.
 #
-# SIZED TO KEEP BOTH POOLS POSITIVE ON A YOUNG CAREER - which is now a DEFENSIVE
-# choice rather than a live constraint, since the guard clamps and no live pool
-# reaches these numbers at all today. The sizing holds against a future change of
+# SIZED TO KEEP BOTH POOLS POSITIVE ON A YOUNG CAREER - a live constraint again
+# since phase 2 writes the debit. The sizing holds against a future change of
 # guard POLICY: if the drawdown guard is ever taught to let a contract penalty
 # through, this fixture must not be the run that first drives a pool negative.
 # The funds figure is a real generated PartTest's `values[4]` (`FundsFailure`) off

@@ -535,13 +535,19 @@ and logistics design section 10.6).**
   M1, M2, the release bug, save / load), `SpendingGateConsistencyTests`. Deviations from the plan:
   a removed row steps back only what was stepped (`-counted` would never release a reserved cost);
   load-migration and broken-ledger-recovery rows are stock-applied (they convert stock events the
-  pool already holds). **Phase 2 must not ship without phase 3:** with the walk unfloored, a gain
-  after a stock-clamped fail is taken back where the old guard kept it (B2 cells pin both). A save
-  with no saved reference baselines from the live pool, so a running-vs-live gap the old guard kept
-  is written once at the first patch. Harness: the `GUARDED DRAWDOWN` token now fires only on a
-  measured leak, so L5's required `PatchFunds: GUARDED DRAWDOWN clamped resource=Funds` (the
-  synthetic deadline fail is now written) and the L3 / LAB-12 / QL-14 GUARDED pins need a re-read
-  flight before merge.
+  pool already holds). Widened the same day so phase 2 ships alone (no pool lower in normal
+  play): stock's 0 clamp in the walk (plan 2.3, no cost ahead: a funds or science row that is not a
+  cost row stops at 0, the rest forgiven; `StockCurrencyClamp`, the B2 cells now pin the kept gain),
+  open deadline penalties out of the pool reserve (plan 2.2: the projection's synthetic fail is left
+  out by membership, `ContractsModule` untouched; `RewindUtCutoffTests` repinned from probed 300 to
+  1000), and an older save's gap kept as `cumLeak` at its first measured patch (nothing written).
+  Tests: `StockZeroClampAndOpenPenaltyTests`. Science's exchange debit is a cost row (it can sort
+  ahead of its earning; forgiving it would create science). Harness, predicted from code and not
+  re-flown: the GUARDED WARN fires only on a measured leak; L5 now requires the written 9000 debit
+  (`delta=-9000.0`) and forbids the clamp; the L3 strategy, LAB-12 and QL-14 forbids keep their
+  reading (spec comments say why). Open risk, seen in code only: a deadline fail stock applies in
+  flight while a cutoff walk already injects its synthetic fail is charged twice until the captured
+  row lands at commit.
 - O2: a stock revert removes only the rows the reverted flight wrote; every committed row stays
   (matches D2). **FIXED 2026-10-22** (branch `claude/project-thread-6f7rhy`): Parsek remembers
   the ledger's row ids where stock captures its revert targets (every non-revert flight entry for
@@ -14103,11 +14109,19 @@ armed where it can never fire.
 
 ## BEHAVIOR PIN — SYNTHETIC-CONTRACT-FAIL-PENALTY-CLAMPED-BY-DRAWDOWN-GUARD: the guarded-drawdown protection correctly refuses a synthetic `ContractFail` penalty that stock never debited [MEASURED 2026-08-20 by `L5-career-contract-complete`'s green flight (run `2026-08-20_2240`), the FIRST run ever to drive `ContractsModule.PrePass`'s injection under a gate. **RECLASSIFIED 2026-08-28 (branch `ledger-followups`) from open defect to a DOCUMENTED, MEASURED BEHAVIOR PIN.** REPORT-ONLY and GATED AS MEASURED: no product change is proposed, and the clamp is pinned so a change of behaviour has to be taken deliberately]
 
-**Pin changes with committed-value plan phase 2 (2026-10-22, LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY).**
-The guard now reads a stock pool reference instead of the last written value: a drop in the
-ledger's target with the live pool where Parsek left it is not a leak, so the synthetic penalty is
-WRITTEN and `PatchFunds: GUARDED DRAWDOWN clamped` no longer fires on this lane. L5's required
-token has to be re-read by a flight before phase 2 merges.
+**Pin changed with committed-value plan phase 2 (2026-10-22, LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY).**
+The guard now reads a stock pool reference instead of running vs live: a drop in the ledger's
+target with the live pool where Parsek left it is not a leak, so this synthetic penalty is WRITTEN
+(the ledger is authoritative for a fail stock never applied) and `GUARDED DRAWDOWN clamped` no longer
+fires. B's deadline is PAST at the commit walk, so this is the visible walk's fail; phase 2's rule
+that keeps an OPEN contract's synthetic deadline fail out of the pool reserve (plan 2.2) does not
+apply. L5 now requires `PatchFunds: ... (delta=-9000.0, ` and forbids the GUARDED clamp
+(`test_career_contract_pad` repinned); predicted from code, not yet flown. Open risk, seen in code
+only: in a real career stock applies a deadline fail itself; if a cutoff walk injects the synthetic
+fail at a past deadline before the flight's captured fail row is filed at commit, the reference reads
+stock's debit as a leak while the walk charges the synthetic too, so the pool is charged twice until
+the row lands (the next patch steps the row and gives it back). The old guard read the same window
+through running vs live.
 
 **Not a defect — a pin. Read this paragraph before the evidence below.** The guard is
 behaving CORRECTLY here, and the shape it clamps CANNOT OCCUR IN A REAL CAREER. The

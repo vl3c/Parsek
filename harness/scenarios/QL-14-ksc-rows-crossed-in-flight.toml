@@ -46,6 +46,16 @@ tier = "nightly"
 #   - the crossing line present and pools right: the todo is moot on this route; close it.
 #   - `invokerewindtolaunch refused`: read the reason (L8 flew this exact rewind).
 #
+# SINCE THE COMMITTED-VALUE RULE'S PHASE 2 (2026-10-22, todo LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY)
+# no guard decides a crossing any more: the drawdown guard reads the stock pool reference,
+# which steps only what stock applied for the ledger's rows, so committed rows the clock
+# reaches move the target (the reservation releases, the cost charges) and nothing fights
+# them, with or without the cursor's record. `GUARDED (UPLIFT|DRAWDOWN) clamped` now logs
+# only when that reference measures a leak (the live pool moved by something no ledger row
+# accounts for), so the forbid below keeps its reading: nothing on this route moves a pool
+# behind the ledger's back. The fixture carries no saved reference, so its first patch takes
+# the older build's gap as the kept leak silently (no GUARDED line). Not re-flown on phase 2.
+#
 # STATUS: AUTHORED 2026-10-21 (branch `claude/project-thread-hvhou8`). LIVE-PROVEN 2026-10-21
 # `2026-10-21_1703` PASS attempt 1 (PR #2164, build 411ccc1): crossed=13, the hire promoted, no
 # clamp, the oracle exact. The reading closed the todo as not a defect on this route.

@@ -10,10 +10,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
-- **A released reservation comes back, and earnings Parsek does not track stay yours.** When a
-  committed purchase's reserved money or science is no longer needed, it returns to the pool at
-  once. Money, science or reputation another mod or an unmodelled stock path gave you is no longer
-  taken back on the next update. (LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY)
+- **Your funds are no longer held back or taken back by mistake.** Money reserved for a committed
+  purchase returns as soon as it is no longer needed, an open contract's fail penalty is no longer
+  held out of your funds, a gain after a failure stock stopped at 0 is kept, and money another mod
+  gave you stays. Older saves keep their balances. (LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY)
 - **A flight can no longer fail a contract the timeline already settles later.** When a later
   committed flight completes, fails or cancels a contract, a new flight after a rewind cannot fail
   it first: the contract stays active until its committed outcome, so the rewards that paid for
