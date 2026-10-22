@@ -41,7 +41,7 @@
 # 2026-10-22 (branch `claude/project-thread-77b92l`): also the live proof of todo
 # CHAIN-TIP-SPAWN-SKIPS-ORBIT-SAFETY-GATE (fixed 2026-10-18, never flown): the Station tip's
 # chain-tip spawn must log the terminal-orbit safety decision (idx=-1, the chain path) and
-# never stop on it. Spec changed, not re-flown.
+# never stop on it. Re-flown green with these pins `2026-10-22_1213`.
 schema = 1
 id = "RC-1-docked-transfer-rewind-tanks"
 tier = "operator"

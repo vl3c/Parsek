@@ -88,7 +88,7 @@ tier = "nightly"
 #   8 tier by measured cost / 9 flight_efficiency: OWED after the first flight (nightly like
 #     QL-14 until a p50 exists).
 #
-# STATUS: AUTHORED 2026-10-22, NEVER FLOWN.
+# STATUS: AUTHORED 2026-10-22; LIVE-PROVEN on its first flight `2026-10-22_1218` (PASS attempt 1).
 description = "QL-14T: on career-pad-craft, record and recover a flight, buy a facility upgrade, a tech and a hire at the Space Center at UT ~1000, rewind to that flight's launch (the rows stay committed future at ~45) and save, then enter the Tracking Station twice: an in-session load (the cutoff decision takes TRACKSTATION) and a player's cold load of that save (OnKspLoad keeps the future rows and cuts off at the clock). Warp to 1100 in the Tracking Station: the ts clock cursor applies the rows once (ts-clock, the clock-crossing line, the hire promoted, no guard clamp) and the rewind-aware ledger oracle is exact."
 instanceProfile = "stock-minimal"
 tags = ["QL-14T", "career", "ledger", "rewind", "timeline-ops", "action-blocking",

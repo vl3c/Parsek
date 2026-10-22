@@ -32,7 +32,8 @@ tier = "nightly"
 # hide a timing flake, so `once`; (7) the committed count is pinned exactly; (8) nightly until
 # measured; (9) flight_efficiency.py after the first green flight.
 #
-# STATUS: AUTHORED 2026-10-22 (branch `claude/project-thread-77b92l`), never flown.
+# STATUS: AUTHORED 2026-10-22 (branch `claude/project-thread-77b92l`); LIVE-PROVEN on its first
+# flight `2026-10-22_1212` (PASS attempt 1).
 description = "PAD-1: on gs2-orbital-stack (an orbiting Kerbal X), start a recording and leave FLIGHT for the Space Center in the next step, under autoMerge, so the recording has one trajectory sample: the idle-on-pad check must find no pad evidence (pad evidence=none) and the flight must be committed, not discarded."
 instanceProfile = "stock-minimal"
 tags = ["PAD-1", "idle-on-pad", "scene-exit", "auto-merge", "commit", "orbit", "kerbin", "sandbox"]

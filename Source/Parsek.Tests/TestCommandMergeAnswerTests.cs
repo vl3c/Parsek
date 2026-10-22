@@ -214,7 +214,7 @@ namespace Parsek.Tests
                 "ReFlyResumeSettleBudgetSeconds must leave at least half the " +
                 "AnswerMergeDialog budget for the driven exit and scene settle");
         }
-    
+
         // REFLY-DIALOG-READS-UNFINALIZED-ATTEMPT-AS-UNFLOWN seam half: a merge answer against
         // the refused-merge dialog (Discard only) must not press button 0 (Discard) and
         // report a commit.

@@ -11,7 +11,7 @@ tier = "daily"
 # 2026-10-22 (branch `claude/project-thread-77b92l`): also the live proof of todo
 # SWITCH-SEGMENT-STARTS-WITHOUT-A-START-SNAPSHOT (fixed 2026-10-17, never flown): verbose
 # logging on, and the segment must get its START ghost snapshot forwarded at its recorder
-# start. Spec changed, not re-flown.
+# start. Re-flown green with these pins `2026-10-22_1228`.
 description = "Drive a map-site Switch-To click through SimulateStockSwitchClick onto a co-orbiting loaded vessel: the marker is armed with the patch's own field set, stock switches, and the consume site opens a continuation segment on the live tree."
 instanceProfile = "stock-minimal"
 tags = ["switch-segment", "stock-click", "S0.8", "R12", "D1"]

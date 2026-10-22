@@ -3,8 +3,8 @@ id = "GC-3-other-generation-tree-kept-inert"
 # =====================================================================================
 # A COMMITTED TREE FROM ANOTHER RECORDING SCHEMA GENERATION IS KEPT INERT, AND THE LEDGER
 # KEEPS WHAT IT EARNED (todo GC3-SCHEMA-REJECTED-TREES-LOSE-EARNED-VALUE, PR #2158, owner
-# rulings 2026-10-21). NEVER FLOWN: every literal below is derived from source and the
-# fixture bytes, none is measured yet.
+# rulings 2026-10-21). LIVE-PROVEN 2026-10-22 on its first flight (`2026-10-22_1226`, PASS attempt 1). Before it, every literal below is derived from source and the
+# fixture bytes; that flight matched them all.
 #
 # THE DEFECT. The load gate rejects a tree of another generation (by design, no migration),
 # but the rejection spread: the next save dropped the tree from the .sfs for good, the

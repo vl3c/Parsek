@@ -1,6 +1,6 @@
 # GC-4: stock's [ / ] vessel cycle skips a LOADED ghost map marker and lands on the real
 # vessel (PR #2156, merged 2026-10-21 on unit tests only; todo GAMEPLAY-CASES-UNCOVERED
-# GC-4). NEVER FLOWN: every token below was read off source, none off a flight, and the
+# GC-4). LIVE-PROVEN 2026-10-22 on its first flight (`2026-10-22_1227`, PASS attempt 1). Before it, every token below was read off source, none off a flight, and the
 # windows marked READING are unmeasured.
 #
 # THE HOLE. Inside physics range a ghost's map marker (a GhostMapPresence ProtoVessel, one
