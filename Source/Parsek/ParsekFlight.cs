@@ -4827,6 +4827,50 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// Does a vessel that separated from a recorded vessel get its own recorded branch (a
+        /// child recording with no debris lifetime that spawns at its end), rather than being
+        /// treated as debris? Every trackable vessel does (<see cref="IsTrackableVessel"/>), and so
+        /// does any vessel with a kerbal aboard: a crew cabin with no command module (a
+        /// Hitchhiker, a Mk1 crew cabin) cannot be flown, but its kerbal is alive in a real
+        /// vessel and must not read as lost (SPLIT-OF-A-CREWED-COMMANDLESS-PART-READS-AS-DEBRIS).
+        /// Recording only: Rewind Points and Re-Fly slots still need a controllable vessel and
+        /// keep reading <see cref="IsTrackableVessel"/>.
+        /// </summary>
+        internal static bool ShouldRecordAsOwnBranch(Vessel v)
+        {
+            if (v == null) return false;
+            bool trackable = IsTrackableVessel(v);
+            int crew = trackable ? 0 : SafeCrewCount(v);
+            bool own = ShouldRecordAsOwnBranch(trackable, crew);
+            if (own && !trackable)
+            {
+                ParsekLog.Info("Flight",
+                    $"Separated vessel pid={v.persistentId} name='{v.vesselName ?? "<unnamed>"}' has no " +
+                    $"command module but carries crew={crew.ToString(CultureInfo.InvariantCulture)}: " +
+                    "recorded as its own branch, not debris (no Re-Fly slot)");
+            }
+            return own;
+        }
+
+        /// <summary>Pure half of <see cref="ShouldRecordAsOwnBranch(Vessel)"/>.</summary>
+        internal static bool ShouldRecordAsOwnBranch(bool trackable, int crewCount)
+        {
+            return trackable || crewCount > 0;
+        }
+
+        private static int SafeCrewCount(Vessel v)
+        {
+            try { return v.GetCrewCount(); }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Flight",
+                    $"ShouldRecordAsOwnBranch: crew count unreadable for pid={v.persistentId} " +
+                    $"({ex.GetType().Name}); treating it as crewless");
+                return 0;
+            }
+        }
+
         internal static bool ShouldIncludeVesselInDeferredBreakupScan(Vessel v, out string rejectReason)
         {
             rejectReason = null;
@@ -7653,8 +7697,9 @@ namespace Parsek
                     yield break;
                 }
 
-                // Debris filter
-                if (!IsTrackableVessel(backgroundVessel))
+                // Debris filter: a crewed vessel with no command module still gets its own
+                // branch (ShouldRecordAsOwnBranch); only crewless commandless halves are debris.
+                if (!ShouldRecordAsOwnBranch(backgroundVessel))
                 {
                     ParsekLog.Verbose("Flight",
                         $"DeferredUndockBranch: vessel pid={backgroundPid} is not trackable (debris), resuming recording " +
@@ -7958,7 +8003,7 @@ namespace Parsek
 
                         newVesselPids.Add(v.persistentId);
 
-                        bool hasController = IsTrackableVessel(v);
+                        bool hasController = ShouldRecordAsOwnBranch(v);
                         newVesselHasController[v.persistentId] = hasController;
                         if (hasController)
                         {
@@ -14057,8 +14102,9 @@ namespace Parsek
             decoupleCreatedVessels?.Add(newVessel);
             if (!pendingSplitInProgress && preBreakVesselPids == null)
                 pendingDeferredSplitCheckTrigger = DeferredSplitCheckTrigger.DecoupleCreatedVessel;
-            // Capture controller status NOW — vessel parts may be cleared by the deferred check
-            bool hasController = IsTrackableVessel(newVessel);
+            // Capture controller status NOW — vessel parts may be cleared by the deferred check.
+            // A crewed vessel with no command module counts: it records as its own branch.
+            bool hasController = ShouldRecordAsOwnBranch(newVessel);
             if (decoupleControllerStatus != null)
                 decoupleControllerStatus[newVessel.persistentId] = hasController;
             double splitUT = Planetarium.GetUniversalTime();

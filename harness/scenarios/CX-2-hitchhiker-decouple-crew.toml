@@ -1,0 +1,122 @@
+schema = 1
+id = "CX-2-hitchhiker-decouple-crew"
+# =====================================================================================
+# CX-2: A CREWED CABIN WITH NO COMMAND MODULE LEAVES THE RECORDED VESSEL
+# (todo SPLIT-OF-A-CREWED-COMMANDLESS-PART-READS-AS-DEBRIS; queue item 4 of 2026-10-22).
+# LIVE-PROVEN 2026-10-22: 2026-10-22_2154 PASS attempt 1 (main read the bug: 2026-10-22_2144). Pins the fix: the cabin records as its own branch (not debris, no Re-Fly slot) and
+# Bob is handed to it at the decouple instead of reading Dead on the pod's recording.
+#
+# THE HOST is `hitchhiker-pad` (built by `harness/tools/build_hitchhiker_pad.py`): an empty
+# sandbox pad and, in the VAB, `HH1 Hitchhiker Drop` = a Mk1-3 pod (the root and the only
+# control source) over a TD-25 over a PPD-10 Hitchhiker (four seats, no ModuleCommand).
+#
+# THE FLIGHT, every step a player's:
+#   (a) VAB launch. Stock seats the pod only (DefaultCrewForVessel fills control sources),
+#       so the pod carries three kerbals and the Hitchhiker launches empty.
+#   (b) CrewTransfer: Bob moves from the pod into the Hitchhiker (stock's own transfer).
+#   (c) StartRecording on the pad, then PartAction decouple of the TD-25: the Hitchhiker
+#       leaves under a fresh pid with Bob inside; the pod keeps the root and the focus.
+#   (d) WarpToUT 200 on the pad: past the 0.5 s split coalescing window and past the 60 s
+#       debris lifetime a non-trackable child gets.
+#   (e) Commit, then a save and Rewind-to-Launch, so the produced log shows Bob's crew end
+#       state, his reservation and what the rewound world does with the cabin.
+#
+# BEFORE THE FIX (code read and xUnit, 2026-10-22): the cabin was fed to the coalescer with
+# `childHasController=False`, became a 60 s debris child, and the pod's recording read Bob
+# `dead=1` (in its start crew, missing from the end crew of an intact flight): a permanent loss.
+# AFTER: `has no command module but carries crew=1: recorded as its own branch`, Bob's Dead
+# inference turned Unknown (`left through a split child`), his pod hold ended at the decouple
+# (`mid-flight split handoff`), and no recording in the lane reads a death.
+# =====================================================================================
+tier = "nightly"
+description = "Crew in a commandless cabin (todo SPLIT-OF-A-CREWED-COMMANDLESS-PART-READS-AS-DEBRIS): on hitchhiker-pad a VAB launch of HH1 Hitchhiker Drop (Mk1-3 pod / TD-25 / PPD-10 Hitchhiker), a stock crew transfer moves Bob into the Hitchhiker, recording on the pad, the TD-25 decouples the cabin with Bob inside, a warp past the debris lifetime, a commit and a Rewind-to-Launch. Pins that the crewed cabin records as its own branch and that Bob is handed to it, never read as dead."
+instanceProfile = "stock-minimal"
+tags = ["CX-2", "crew", "crew-transfer", "decouple", "commandless", "hitchhiker",
+        "debris", "rewind", "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/hitchhiker-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  # LOAD-BEARING: the crew end-state, reservation and coalescer lines are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  # (a) The VAB launch.
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "HH1 Hitchhiker Drop" },   expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                             expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  # The launched vessel stays packed for its first physics frames and CrewTransfer refuses a
+  # packed vessel (crewtransfer-vessel-not-ready): let the pad settle first.
+  { cmd = "WarpToUT",       args = { ut = "10" },                                         expect = "OK", budget = 120 },
+  # (b) Bob into the Hitchhiker.
+  { cmd = "CrewTransfer",   args = { kerbal = "Bob Kerman", part = "crewCabin" },         expect = "OK" },
+  # (c) Record, then the decouple.
+  { cmd = "StartRecording", label = "sr",                                                 expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "cx2-decouple-before" },                     expect = "OK" },
+  { cmd = "PartAction",     args = { button = "decouple", part = "Decoupler.2" }, label = "dec", expect = "OK" },
+  # (d) Past the coalescing window and the debris lifetime.
+  { cmd = "WarpToUT",       args = { ut = "200" },                                        expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "cx2-decouple-after" },                      expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "active" }, label = "act",                    expect = "OK" },
+  # (e) Commit, save, rewind.
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "CommitTree",                                                                   expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c0",                  expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "cx2-committed-${c0.count}" },               expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "cx2-committed" },                            expect = "OK", budget = 120 },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                             expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "cx2-rewound" },                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "persistent" },                               expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+[dimensionsCovered]
+# D14 values only, each already covered elsewhere; no D value names a commandless crewed part.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The pod's recording and the cabin's own branch (2 on 2026-10-22_2154, and 2 on main).
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  # (b) Bob is in the Hitchhiker before the recording starts.
+  "crewtransfer applied kerbal='Bob Kerman' pid=[0-9]+ from=mk1-3pod fromId=[0-9]+ to=crewCabin toId=[0-9]+ crewFrom=2 crewTo=1",
+  # (c) The decouple made a new vessel.
+  "partaction applied button=decouple ",
+  # The fix, record side: the crewed commandless cabin is its own branch, not debris.
+  "has no command module but carries crew=1: recorded as its own branch, not debris \\(no Re-Fly slot\\)",
+  # The fix, crew side: Bob left through the split child, so he is not Dead on the pod's recording...
+  "InferCrewEndState: crew='Bob Kerman' recording='[^']+' left through a split child",
+  # ...and his pod hold ends at the decouple, where the cabin's recording takes him over.
+  "Reservation bounded by mid-flight split handoff: 'Bob Kerman' ",
+  "committree committed=true",
+  "\\[Rewind\\] Rewind-to-Launch initiated to UT ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # Nobody dies in this lane: a death on any recording is the bug.
+  "PopulateCrewEndStates: recording='[^']*' \\(id=[^)]+\\) crew=[0-9]+ aboard=[0-9]+ dead=[1-9]",
+]
+
+[runtime]
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

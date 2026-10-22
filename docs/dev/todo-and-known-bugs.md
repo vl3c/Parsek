@@ -1451,7 +1451,7 @@ the target, packed state and warp at frames +0/+1/+10/+60/+240 after every watch
 frame the camera is under the terrain; if the brown view recurs in normal play, collect-logs and
 read those lines.
 
-## SPLIT-OF-A-CREWED-COMMANDLESS-PART-READS-AS-DEBRIS: a crewed part with no command module that separates is treated as debris, so its kerbal reads as lost [FILED 2026-10-17 from the crew-across-vessels code trace, branch `claude/crew-across-vessels-db6ycy`. OPEN, not reproduced live. product]
+## ~~SPLIT-OF-A-CREWED-COMMANDLESS-PART-READS-AS-DEBRIS: a crewed part with no command module that separates is treated as debris, so its kerbal reads as lost~~ [FILED 2026-10-17 from the crew-across-vessels code trace, branch `claude/crew-across-vessels-db6ycy`. FIXED 2026-10-22 (xUnit), branch `claude/project-thread-csk4ho`. LIVE-PROVEN 2026-10-22: CX-2 `2026-10-22_2154` PASS attempt 1 (red on main `2026-10-22_2144`). product]
 
 `ParsekFlight.IsTrackableVessel` counts a vessel as its own branch only when it is an EVA kerbal,
 a space object, or carries a `ModuleCommand`. A crew cabin with no command module (a Hitchhiker
@@ -1462,6 +1462,28 @@ intact terminal. Not fixed here because the predicate also decides Rewind Point 
 Re-Fly slots (a commandless cabin cannot be flown), so a crewed-part rule needs its own split
 between "record it" and "offer it to Re-Fly". Next step: fly a Hitchhiker undock to confirm
 what KSP calls the separated cabin and what Parsek writes.
+
+Reproduction lane (2026-10-22, branch `claude/project-thread-csk4ho`): `CX-2-hitchhiker-decouple-crew`
+on the new derived fixture `hitchhiker-pad` (`fresh-sandbox` plus the authored `HH1 Hitchhiker Drop`
+craft: Mk1-3 pod / TD-25 / PPD-10 Hitchhiker). Bob moves into the Hitchhiker, the TD-25 decouples it on
+the pad, then commit and Rewind-to-Launch. A TD-25 decouple (and a pre-attached port's Undock, which
+calls `Part.decouple`) goes through the crash coalescer and leaves the cabin a 60 s debris child; only an
+undock of ports docked in flight takes `DeferredUndockBranch`, which drops it outright.
+
+Fix (2026-10-22, branch `claude/project-thread-csk4ho`): the split the entry asked for. Recording reads the new
+`ParsekFlight.ShouldRecordAsOwnBranch` (trackable, or crew aboard) at all four sites (the coalescer's
+`hasController` in `OnDecoupleNewVesselDuringSplitCheck` and `DeferredJointBreakCheck`, the
+`DeferredUndockBranch` debris filter, `BackgroundRecorder.CollectNewBackgroundSplitVessels`), so a crewed
+commandless cabin records as a non-debris child with no TTL (`Separated vessel ... carries crew=N: recorded
+as its own branch` Info line). Rewind Points and Re-Fly slots still read `IsTrackableVessel`
+(`SegmentBoundaryLogic.IdentifyControllableChildren`, and the background RP author skips such a child). Crew
+side: `KerbalsModule.ApplySplitDeparture` turns a Dead inference into Unknown for a kerbal a split child of the
+recording carried away (`CollectCrewCarriedAwayBySplit`), and the walk ends that row's hold at the child's start
+(`ResolveMidFlightSplitHandoffUT`, `Reservation bounded by mid-flight split handoff` Verbose line), so the
+child's end state decides his fate. Both read the splits of the recording's earlier chain segments too (an
+optimizer cut after the decouple leaves the split on the head while the tail takes the end), and the merge
+dialog's commit preview passes its own uncommitted tree (`PopulateCrewEndStates(rec, ownerTree)`). Game rule: game-actions design 9.3 note of 2026-10-22, flight-recorder
+design section on debris. Tests: `CrewedCommandlessSplitTests`.
 
 ## ~~FOREIGN-BOARD-LEAVES-NO-GHOST-CLAIM: boarding a vessel from another mission does not claim it for ghost playback~~ [FILED 2026-10-17 from the crew-across-vessels code trace, branch `claude/crew-across-vessels-db6ycy`. FIXED 2026-10-22 (xUnit), branch `claude/project-thread-stn7at`; no lane boards a foreign vessel yet. product]
 

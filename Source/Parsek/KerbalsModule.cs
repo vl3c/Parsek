@@ -138,6 +138,27 @@ namespace Parsek
         private readonly Dictionary<string, HashSet<string>> rowKerbalsByRecording =
             new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
 
+        /// <summary>
+        /// Recording id -> the ids of the SPLIT branch points (Undock, EVA, JointBreak,
+        /// Breakup) that recording is a parent of, from the committed trees. A recording that
+        /// flies on past a split (breakup-continuous) is only ever stamped with its LAST one
+        /// (<c>ChildBranchPointId</c>), so a kerbal a child carried away mid-flight is found
+        /// through this map (<see cref="ResolveMidFlightSplitHandoffUT"/>). Built in
+        /// <see cref="PrePass"/>, cleared in <see cref="Reset"/>.
+        /// </summary>
+        private readonly Dictionary<string, List<string>> splitBranchPointsByParent =
+            new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Recording id -> the start UT of the earliest chain segment whose split branch points
+        /// <see cref="splitBranchPointsByParent"/> lists for it (an optimizer split leaves a
+        /// split on the earlier segment while the later one inherits the kerbal's row), so the
+        /// mid-flight handoff window opens at that segment's start. Absent when only the
+        /// recording's own split branch points are listed.
+        /// </summary>
+        private readonly Dictionary<string, double> splitChainStartByRecording =
+            new Dictionary<string, double>(StringComparer.Ordinal);
+
         internal struct SplitHandoff
         {
             public string ChildRecordingId;
@@ -180,6 +201,66 @@ namespace Parsek
 
             childRecordingId = handoff.ChildRecordingId;
             return holdEndUT;
+        }
+
+        /// <summary>
+        /// A recording that FLEW ON past a split (breakup-continuous: a decoupled Hitchhiker
+        /// left the pod with a kerbal inside) and whose own row for <paramref name="kerbalName"/>
+        /// is open-ended Unknown (he is not in its end snapshot): when a child of one of its
+        /// split branch points (<paramref name="splitBranchPointIds"/>) carries him on and that
+        /// child started inside the recording's span, the hold ends at the earliest such child's
+        /// start and the child's own row decides the rest; else +inf
+        /// (SPLIT-OF-A-CREWED-COMMANDLESS-PART-READS-AS-DEBRIS). Pure.
+        /// </summary>
+        internal static double ResolveMidFlightSplitHandoffUT(
+            IReadOnlyDictionary<string, SplitHandoff> handoffs,
+            string treeId,
+            IReadOnlyList<string> splitBranchPointIds,
+            double holdStartUT,
+            double holdEndUT,
+            string kerbalName,
+            out string childRecordingId,
+            out string branchPointId)
+        {
+            childRecordingId = null;
+            branchPointId = null;
+            if (handoffs == null || splitBranchPointIds == null || string.IsNullOrEmpty(treeId)
+                || string.IsNullOrEmpty(kerbalName))
+                return double.PositiveInfinity;
+            if (double.IsNaN(holdEndUT) || double.IsNaN(holdStartUT))
+                return double.PositiveInfinity;
+
+            double best = double.PositiveInfinity;
+            for (int i = 0; i < splitBranchPointIds.Count; i++)
+            {
+                string bpId = splitBranchPointIds[i];
+                if (string.IsNullOrEmpty(bpId)) continue;
+                SplitHandoff handoff;
+                if (!handoffs.TryGetValue(SplitHandoffKey(treeId, bpId, kerbalName), out handoff))
+                    continue;
+                if (double.IsNaN(handoff.ChildStartUT) || double.IsInfinity(handoff.ChildStartUT))
+                    continue;
+                if (handoff.ChildStartUT < holdStartUT - RecoveryClosureEndToleranceSeconds
+                    || handoff.ChildStartUT > holdEndUT + RecoveryClosureEndToleranceSeconds)
+                    continue;
+                if (handoff.ChildStartUT < best)
+                {
+                    best = handoff.ChildStartUT;
+                    childRecordingId = handoff.ChildRecordingId;
+                    branchPointId = bpId;
+                }
+            }
+            return best;
+        }
+
+        /// <summary>The branch point types that SPLIT a vessel (a child carries part of it, and
+        /// any crew aboard that part, away from its parent).</summary>
+        internal static bool IsSplitBranchPointType(BranchPointType type)
+        {
+            return type == BranchPointType.Undock
+                || type == BranchPointType.EVA
+                || type == BranchPointType.JointBreak
+                || type == BranchPointType.Breakup;
         }
 
         /// <summary>
@@ -971,6 +1052,8 @@ namespace Parsek
             recoveryClosures.Clear();
             kscRetiredRecordingIds.Clear();
             splitHandoffs.Clear();
+            splitBranchPointsByParent.Clear();
+            splitChainStartByRecording.Clear();
             dockClaims.Clear();
             rowKerbalsByRecording.Clear();
         }
@@ -1093,6 +1176,15 @@ namespace Parsek
                     "recorded vessels can end an open-ended hold the claimed vessel carried");
             }
 
+            int splitParents = CollectSplitBranchPointsByParent(RecordingStore.CommittedTrees);
+            if (splitParents > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PrePass: {splitParents.ToString(CultureInfo.InvariantCulture)} recording(s) are " +
+                    "the parent of a split branch point (a kerbal a child carried away mid-flight " +
+                    "ends that recording's hold at the child's start)");
+            }
+
             int handoffs = CollectSplitHandoffs(actions);
             if (handoffs > 0)
             {
@@ -1178,6 +1270,105 @@ namespace Parsek
                 }
             }
             return collected;
+        }
+
+        /// <summary>
+        /// Fills <see cref="splitBranchPointsByParent"/> from the committed trees' split branch
+        /// points. Returns the number of parent recordings collected.
+        /// </summary>
+        private int CollectSplitBranchPointsByParent(IReadOnlyList<RecordingTree> trees)
+        {
+            if (trees == null) return 0;
+            for (int t = 0; t < trees.Count; t++)
+            {
+                RecordingTree tree = trees[t];
+                if (tree?.BranchPoints == null) continue;
+                for (int b = 0; b < tree.BranchPoints.Count; b++)
+                {
+                    BranchPoint bp = tree.BranchPoints[b];
+                    if (bp == null || string.IsNullOrEmpty(bp.Id) || !IsSplitBranchPointType(bp.Type)
+                        || bp.ParentRecordingIds == null)
+                        continue;
+                    for (int p = 0; p < bp.ParentRecordingIds.Count; p++)
+                    {
+                        string parentId = bp.ParentRecordingIds[p];
+                        if (string.IsNullOrEmpty(parentId)) continue;
+                        List<string> list;
+                        if (!splitBranchPointsByParent.TryGetValue(parentId, out list))
+                        {
+                            list = new List<string>();
+                            splitBranchPointsByParent[parentId] = list;
+                        }
+                        if (!list.Contains(bp.Id))
+                            list.Add(bp.Id);
+                    }
+                }
+            }
+
+            // A later chain segment of a split's parent inherits its split branch points: the
+            // optimizer keeps a split before its cut on the earlier segment and moves the end
+            // (and the kerbal's open-ended row) to the later one.
+            int inherited = 0;
+            for (int t = 0; t < trees.Count; t++)
+            {
+                RecordingTree tree = trees[t];
+                if (tree?.Recordings == null) continue;
+                foreach (Recording later in tree.Recordings.Values)
+                {
+                    if (later == null || string.IsNullOrEmpty(later.RecordingId)
+                        || string.IsNullOrEmpty(later.ChainId))
+                        continue;
+                    foreach (Recording earlier in tree.Recordings.Values)
+                    {
+                        if (earlier == null || ReferenceEquals(earlier, later)
+                            || !IsEarlierChainSegment(earlier, later))
+                            continue;
+                        List<string> earlierBps;
+                        if (!splitBranchPointsByParent.TryGetValue(earlier.RecordingId, out earlierBps))
+                            continue;
+                        List<string> list;
+                        if (!splitBranchPointsByParent.TryGetValue(later.RecordingId, out list))
+                        {
+                            list = new List<string>();
+                            splitBranchPointsByParent[later.RecordingId] = list;
+                        }
+                        for (int i = 0; i < earlierBps.Count; i++)
+                        {
+                            if (list.Contains(earlierBps[i])) continue;
+                            list.Add(earlierBps[i]);
+                            inherited++;
+                        }
+                        double start = earlier.StartUT;
+                        double known;
+                        if (!double.IsNaN(start)
+                            && (!splitChainStartByRecording.TryGetValue(later.RecordingId, out known)
+                                || start < known))
+                            splitChainStartByRecording[later.RecordingId] = start;
+                    }
+                }
+            }
+            if (inherited > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PrePass: {inherited.ToString(CultureInfo.InvariantCulture)} split branch " +
+                    "point(s) inherited by later chain segments of their parent");
+            }
+            return splitBranchPointsByParent.Count;
+        }
+
+        /// <summary>
+        /// True when <paramref name="earlier"/> is an earlier segment of the same chain and
+        /// branch as <paramref name="later"/> (same non-empty <c>ChainId</c> and
+        /// <c>ChainBranch</c>, lower <c>ChainIndex</c>). Pure.
+        /// </summary>
+        internal static bool IsEarlierChainSegment(Recording earlier, Recording later)
+        {
+            return earlier != null && later != null
+                && !string.IsNullOrEmpty(later.ChainId)
+                && string.Equals(earlier.ChainId, later.ChainId, StringComparison.Ordinal)
+                && earlier.ChainBranch == later.ChainBranch
+                && earlier.ChainIndex >= 0
+                && earlier.ChainIndex < later.ChainIndex;
         }
 
         /// <summary>
@@ -1348,6 +1539,34 @@ namespace Parsek
                         $"Reservation bounded by split handoff: '{name}' recording '{recordingId}' " +
                         $"({endState}) endUT={handoffUT.ToString("F1", CultureInfo.InvariantCulture)} " +
                         $"bp='{meta.ChildBranchPointId}' child='{handoffChild}'");
+                }
+            }
+
+            // The recording flew on past a split whose child carried the kerbal away (a
+            // decoupled crew cabin): its Unknown row ends at that child's start.
+            if (!permanent && !handedOff && endState == KerbalEndState.Unknown)
+            {
+                List<string> splitBps;
+                if (splitBranchPointsByParent.TryGetValue(recordingId, out splitBps))
+                {
+                    string midChild, midBp;
+                    double windowStartUT = meta.StartUT;
+                    double chainStartUT;
+                    if (splitChainStartByRecording.TryGetValue(recordingId, out chainStartUT)
+                        && (double.IsNaN(windowStartUT) || chainStartUT < windowStartUT))
+                        windowStartUT = chainStartUT;
+                    double midUT = ResolveMidFlightSplitHandoffUT(
+                        splitHandoffs, meta.TreeId, splitBps, windowStartUT, meta.EndUT, name,
+                        out midChild, out midBp);
+                    if (!double.IsPositiveInfinity(midUT))
+                    {
+                        endUT = midUT;
+                        handedOff = true;
+                        ParsekLog.Verbose(Tag,
+                            $"Reservation bounded by mid-flight split handoff: '{name}' recording '{recordingId}' " +
+                            $"({endState}) endUT={midUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                            $"bp='{midBp}' child='{midChild}'");
+                    }
                 }
             }
 
@@ -2042,6 +2261,91 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// The kerbals a child of one of <paramref name="rec"/>'s split branch points carried
+        /// away: each child's start crew (its ghost snapshot, or its EVA kerbal), reverse-mapped
+        /// like the parent's. A decoupled crew cabin with no command module, an undocked half,
+        /// an EVA. Empty when the tree is unknown. Pure given the tree.
+        /// </summary>
+        internal static HashSet<string> CollectCrewCarriedAwayBySplit(
+            Recording rec, RecordingTree tree, IReadOnlyDictionary<string, string> replacements)
+        {
+            var result = new HashSet<string>(StringComparer.Ordinal);
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId)
+                || tree?.BranchPoints == null || tree.Recordings == null)
+                return result;
+
+            // The recording itself and its earlier chain segments: an optimizer split keeps a
+            // split before its cut on the earlier segment and copies the start crew to the later.
+            var parentIds = new HashSet<string>(StringComparer.Ordinal) { rec.RecordingId };
+            if (!string.IsNullOrEmpty(rec.ChainId))
+            {
+                foreach (Recording other in tree.Recordings.Values)
+                {
+                    if (other != null && !string.IsNullOrEmpty(other.RecordingId)
+                        && IsEarlierChainSegment(other, rec))
+                        parentIds.Add(other.RecordingId);
+                }
+            }
+            double recEndUT = rec.EndUT;
+
+            for (int b = 0; b < tree.BranchPoints.Count; b++)
+            {
+                BranchPoint bp = tree.BranchPoints[b];
+                if (bp == null || !IsSplitBranchPointType(bp.Type)
+                    || bp.ParentRecordingIds == null || bp.ChildRecordingIds == null)
+                    continue;
+                bool isParent = false;
+                for (int p = 0; p < bp.ParentRecordingIds.Count && !isParent; p++)
+                    isParent = bp.ParentRecordingIds[p] != null && parentIds.Contains(bp.ParentRecordingIds[p]);
+                if (!isParent)
+                    continue;
+                if (!double.IsNaN(recEndUT) && !double.IsNaN(bp.UT)
+                    && bp.UT > recEndUT + RecoveryClosureEndToleranceSeconds)
+                    continue;
+                for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+                {
+                    string childId = bp.ChildRecordingIds[c];
+                    Recording child;
+                    if (string.IsNullOrEmpty(childId)
+                        || string.Equals(childId, rec.RecordingId, StringComparison.Ordinal)
+                        || !tree.Recordings.TryGetValue(childId, out child) || child == null)
+                        continue;
+                    var crew = CrewReservationManager.ExtractCrewFromSnapshot(child.GhostVisualSnapshot);
+                    if (crew.Count == 0 && !string.IsNullOrEmpty(child.EvaCrewName))
+                        crew.Add(child.EvaCrewName);
+                    ReverseMapCrewNames(crew, replacements, null);
+                    for (int k = 0; k < crew.Count; k++)
+                        result.Add(crew[k]);
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// A kerbal missing from the end of a recording reads as lost (<see cref="InferCrewEndState"/>:
+        /// Dead), unless a split child carried him away first: then he left this vessel alive and
+        /// the child's own row decides the rest, so this recording's answer is Unknown, which the
+        /// walk ends at the split (SPLIT-OF-A-CREWED-COMMANDLESS-PART-READS-AS-DEBRIS). A kerbal
+        /// still in the end snapshot keeps his answer. Pure.
+        /// </summary>
+        internal static KerbalEndState ApplySplitDeparture(
+            string crewName,
+            KerbalEndState inferred,
+            HashSet<string> endCrew,
+            HashSet<string> carriedAway,
+            string recordingIdForLog)
+        {
+            if (inferred != KerbalEndState.Dead || carriedAway == null || string.IsNullOrEmpty(crewName)
+                || !carriedAway.Contains(crewName)
+                || (endCrew != null && endCrew.Contains(crewName)))
+                return inferred;
+            ParsekLog.Verbose(Tag,
+                $"InferCrewEndState: crew='{crewName}' recording='{recordingIdForLog}' left through a " +
+                "split child before the end -> Unknown (not Dead)");
+            return KerbalEndState.Unknown;
+        }
+
         private static List<string> ExtractRawCrewFromRecording(Recording rec)
         {
             var result = new List<string>();
@@ -2336,7 +2640,7 @@ namespace Parsek
         /// ghost visual snapshot (start-of-recording crew roster) and inferring
         /// each crew member's end state.
         /// </summary>
-        internal static void PopulateCrewEndStates(Recording rec)
+        internal static void PopulateCrewEndStates(Recording rec, RecordingTree ownerTree = null)
         {
             if (rec == null)
             {
@@ -2384,6 +2688,10 @@ namespace Parsek
             ReverseMapCrewNames(endCrew, replacements, null);
             var endCrewSet = new HashSet<string>(endCrew);
             bool useGhostOnlyChainHandoffFallback = ShouldUseGhostOnlyChainHandoffEndState(rec);
+            // The tree that owns the recording: a commit preview passes its pending tree, whose
+            // split branch points are not committed yet.
+            HashSet<string> carriedAway = CollectCrewCarriedAwayBySplit(
+                rec, ownerTree ?? RecordingStore.FindCommittedTreeById(rec.TreeId), replacements);
 
             rec.CrewEndStates = new Dictionary<string, KerbalEndState>();
             int aboardCount = 0, deadCount = 0, recoveredCount = 0, unknownCount = 0;
@@ -2394,6 +2702,7 @@ namespace Parsek
                 var state = useGhostOnlyChainHandoffFallback
                     ? InferGhostOnlyChainHandoffEndState(rec.TerminalStateValue)
                     : InferCrewEndState(name, rec.TerminalStateValue, endCrewSet);
+                state = ApplySplitDeparture(name, state, endCrewSet, carriedAway, rec.RecordingId);
                 rec.CrewEndStates[name] = state;
 
                 switch (state)
