@@ -751,6 +751,14 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     once stock dismissed it with the kerbal moved: `kerbal= pid= from= fromId= to= toId=
     #     crewFrom= crewTo=`.
     "CrewTransfer",
+    # ADDITIVE (53 -> 54 implemented, reserved unchanged at 4), the GC-4 host.
+    #   CycleVessel direction=next|prev [forceGhost=true|false], FLIGHT, SINGLE-PHASE,
+    #     default 60 s: one press of stock's ] / [ vessel cycle through the cycle Prefix's own
+    #     body after its key read (VesselCycleReFlySwitchPatch.RunCycle). OK `direction=
+    #     outcome= detail= before= after= switched= candidates= candidatePids= ghostPids=
+    #     ghostsDropped= refusedDropped= leftToStock= picked= stockWouldPick=
+    #     stockWouldPickGhost= forceGhost= forceGhostPid=`.
+    "CycleVessel",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1369,6 +1377,8 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # CrewTransfer moves a kerbal between two parts of a live vessel (stock state a save
     # captures, and the crew each half of a later undock carries).
     "CrewTransfer": TAIL_ROLE_WORLD_MUTATING,
+    # CycleVessel switches the active vessel (stock state a save captures).
+    "CycleVessel": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1578,6 +1588,9 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # CrewTransfer is `recording` for DriveVessel's reason: it sets up the subject the crew
     # claims are about (who sits in which half of a docked pair), never a mission outcome.
     "CrewTransfer": POST_MISSION_ROLE_RECORDING,
+    # CycleVessel is `recording`: its OK is a statement about Parsek's cycle filter (which
+    # candidates it dropped, where the press landed), a Parsek claim, never a kerbal's state.
+    "CycleVessel": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -4034,6 +4047,58 @@ CREWTRANSFER_REASONS: Tuple[str, ...] = (
 CREWTRANSFER_ERROR_REASONS: Tuple[str, ...] = (
     "crewtransfer-threw", "crewtransfer-vetoed", "crewtransfer-timeout",
 )
+
+
+# CycleVessel: mirrored from TestCommands/TestCommandCycleVessel.cs
+# (CycleVesselSourceSyncTests). `direction=` REQUIRED and exact (`next` | `prev`);
+# `forceGhost=` optional, `true` / `false` (case-insensitive).
+CYCLEVESSEL_VERB = "CycleVessel"
+CYCLEVESSEL_DIRECTION_KEY = "direction"
+CYCLEVESSEL_FORCE_GHOST_KEY = "forceGhost"
+CYCLEVESSEL_DIRECTIONS: Tuple[str, ...] = ("next", "prev")
+CYCLEVESSEL_REASONS: Tuple[str, ...] = (
+    "cyclevessel-direction-arg-missing", "cyclevessel-direction-arg-invalid",
+    "cyclevessel-forceghost-arg-invalid", "cyclevessel-no-active-vessel",
+)
+CYCLEVESSEL_OUTCOMES: Tuple[str, ...] = (
+    "stock-early-return", "no-active-vessel", "no-candidates", "left-to-stock",
+    "only-ghosts", "only-refused", "switched", "set-active-fallback", "inert",
+)
+
+
+def validate_cycle_vessel_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``CycleVessel`` step: ``direction=`` REQUIRED and one
+    of ``next`` / ``prev`` exactly, ``forceGhost=`` (when present) ``true`` / ``false``, and
+    no other key (the verb reads none, so it would be sent and silently ignored)."""
+    errors: List[str] = []
+    raw = step_args.get(CYCLEVESSEL_DIRECTION_KEY)
+    if raw is None or str(raw).strip() == "":
+        errors.append(
+            "driver.steps[%d].args.%s: %s REQUIRES it; the seam answers REJECTED "
+            "cyclevessel-direction-arg-missing"
+            % (index, CYCLEVESSEL_DIRECTION_KEY, CYCLEVESSEL_VERB))
+    elif str(raw) not in CYCLEVESSEL_DIRECTIONS:
+        errors.append(
+            "driver.steps[%d].args.%s: %r is not one of %s; the seam answers REJECTED "
+            "cyclevessel-direction-arg-invalid"
+            % (index, CYCLEVESSEL_DIRECTION_KEY, raw, "/".join(CYCLEVESSEL_DIRECTIONS)))
+    if CYCLEVESSEL_FORCE_GHOST_KEY in step_args:
+        force = step_args.get(CYCLEVESSEL_FORCE_GHOST_KEY)
+        if isinstance(force, bool):
+            force = "true" if force else "false"
+        if str(force).lower() not in ("true", "false"):
+            errors.append(
+                "driver.steps[%d].args.%s: %r is not true / false; the seam answers REJECTED "
+                "cyclevessel-forceghost-arg-invalid"
+                % (index, CYCLEVESSEL_FORCE_GHOST_KEY, force))
+    extra = sorted(str(k) for k in step_args
+                   if k not in (CYCLEVESSEL_DIRECTION_KEY, CYCLEVESSEL_FORCE_GHOST_KEY))
+    if extra:
+        errors.append("driver.steps[%d].args: %s reads only %s and %s, so %s would be "
+                      "silently ignored"
+                      % (index, CYCLEVESSEL_VERB, CYCLEVESSEL_DIRECTION_KEY,
+                         CYCLEVESSEL_FORCE_GHOST_KEY, ", ".join(extra)))
+    return errors
 
 
 def validate_crew_transfer_step(index: int, step_args: Dict) -> List[str]:
@@ -7174,6 +7239,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_read_vessel_resources_step(i, step_args))
         elif cmd == CREWTRANSFER_VERB:
             errors.extend(validate_crew_transfer_step(i, step_args))
+        elif cmd == CYCLEVESSEL_VERB:
+            errors.extend(validate_cycle_vessel_step(i, step_args))
         # LoadGame focusPid= (any verb: the validator flags it on a verb that ignores it).
         if LOADGAME_FOCUS_PID_KEY in step_args:
             errors.extend(validate_loadgame_focus_step(i, cmd, step_args))
@@ -11424,6 +11491,12 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "crewtransfer-part-not-found": "driver-arg",
     "crewtransfer-part-ambiguous": "driver-arg",
     "crewtransfer-transfer-unavailable": "driver-gate",
+    # CycleVessel: a missing or misspelled arg is the SPEC's fault; no active vessel is a
+    # live state the press would not act in (CycleVesselSourceSyncTests).
+    "cyclevessel-direction-arg-missing": "driver-arg",
+    "cyclevessel-direction-arg-invalid": "driver-arg",
+    "cyclevessel-forceghost-arg-invalid": "driver-arg",
+    "cyclevessel-no-active-vessel": "driver-gate",
     # SimulateStockSwitchClick, arg half: site / selector spellings and target resolution.
     # target-not-found / -name-ambiguous / -is-ghost are arg-class because each one means
     # the SPEC named the wrong thing, the same call `unknown-target` gets for KscAction.
@@ -12074,6 +12147,8 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "drivevessel-settle-arg-conflict", "drivevessel-settle-arg-invalid",
     "drivevessel-throttle-arg-invalid", "drivevessel-throttle-arg-missing",
     "crewtransfer-kerbal-arg-missing", "crewtransfer-part-arg-missing",
+    "cyclevessel-direction-arg-invalid", "cyclevessel-direction-arg-missing",
+    "cyclevessel-forceghost-arg-invalid",
     "edit-commit-arg-invalid",
     "edit-field-arg-missing", "edit-key-arg-missing", "expand-key-arg-missing",
     "factor-arg-invalid", "find-ctrl-arg-invalid", "find-index-arg-invalid",

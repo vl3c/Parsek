@@ -71,6 +71,7 @@ namespace Parsek.Tests
             public void DriveVessel(ParsedCommand cmd) => Calls.Add("DriveVessel");
             public void ReadVesselResources(ParsedCommand cmd) => Calls.Add("ReadVesselResources");
             public void CrewTransfer(ParsedCommand cmd) => Calls.Add("CrewTransfer");
+            public void CycleVessel(ParsedCommand cmd) => Calls.Add("CycleVessel");
         }
 
         [Fact]
@@ -202,6 +203,8 @@ namespace Parsek.Tests
         [InlineData("ReadVesselResources", "RequiresVesselListScene")]
         // CrewTransfer: a live active vessel's parts, a flight-scene object.
         [InlineData("CrewTransfer", "RequiresFlight")]
+        // CycleVessel: stock's vessel cycle runs only in the flight scene.
+        [InlineData("CycleVessel", "RequiresFlight")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -265,6 +268,7 @@ namespace Parsek.Tests
             fake.DriveVessel(cmd);
             fake.ReadVesselResources(cmd);
             fake.CrewTransfer(cmd);
+            fake.CycleVessel(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

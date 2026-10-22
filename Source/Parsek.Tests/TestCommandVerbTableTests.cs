@@ -66,6 +66,7 @@ namespace Parsek.Tests
         [InlineData("DriveVessel")]
         [InlineData("ReadVesselResources")]
         [InlineData("CrewTransfer")]
+        [InlineData("CycleVessel")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -206,7 +207,9 @@ namespace Parsek.Tests
             // actually in the tanks of live vessels, the resource-conservation read.
             // CrewTransfer is ADDITIVE (52 -> 53; reserved unchanged at 4): a player's stock
             // crew transfer between two crewed parts of the active vessel.
-            Assert.Equal(53, TestCommandVerbs.ImplementedVerbNames.Count);
+            // CycleVessel is ADDITIVE (53 -> 54; reserved unchanged at 4): one press of stock's
+            // [ / ] vessel cycle through the cycle Prefix's own body (GC-4).
+            Assert.Equal(54, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

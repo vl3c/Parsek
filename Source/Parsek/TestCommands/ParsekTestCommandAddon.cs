@@ -1676,6 +1676,10 @@ namespace Parsek.TestCommands
         // CrewTransfer: body + two-phase completion in ParsekTestCommandAddon.CrewTransfer.cs.
         void ITestCommandExecutor.CrewTransfer(ParsedCommand cmd) => CrewTransferImpl(cmd);
 
+        // CycleVessel: body in ParsekTestCommandAddon.CycleVessel.cs. Single-phase (the press and
+        // the switch run synchronously), so no TryComplete*.
+        void ITestCommandExecutor.CycleVessel(ParsedCommand cmd) => CycleVesselImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             // Batch-baseline latch clear (finding 1). Any verb that can change state a
@@ -1748,6 +1752,7 @@ namespace Parsek.TestCommands
                 case "DriveVessel": exec.DriveVessel(cmd); break;
                 case "ReadVesselResources": exec.ReadVesselResources(cmd); break;
                 case "CrewTransfer": exec.CrewTransfer(cmd); break;
+                case "CycleVessel": exec.CycleVessel(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

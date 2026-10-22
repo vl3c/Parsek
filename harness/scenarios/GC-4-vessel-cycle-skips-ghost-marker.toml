@@ -1,0 +1,146 @@
+# GC-4: stock's [ / ] vessel cycle skips a LOADED ghost map marker and lands on the real
+# vessel (PR #2156, merged 2026-10-21 on unit tests only; todo GAMEPLAY-CASES-UNCOVERED
+# GC-4). NEVER FLOWN: every token below was read off source, none off a flight, and the
+# windows marked READING are unmeasured.
+#
+# THE HOLE. Inside physics range a ghost's map marker (a GhostMapPresence ProtoVessel, one
+# sensorBarometer of the recorded vessel type) is a LOADED vessel. Decompiled
+# VesselSwitching.Update (KSP 1.12.5) collects every loaded vessel that is not the active
+# one, not a DeployedSciencePart and not vesselType <= SpaceObject, then switches with
+# FlightGlobals.ForceSetActiveVessel to the first candidate that is unpacked or, when
+# ClearToSave is CLEAR, any (a packed marker included). Parsek blocked only SetActiveVessel.
+# THE FIX: VesselCycleReFlySwitchPatch (Prefix on VesselSwitching.Update) drops ghost
+# markers from stock's candidate list and switches itself; GhostVesselForceSwitchPatch
+# refuses ForceSetActiveVessel to a ghost marker as the backstop.
+#
+# THE SEAM. No seam can press a key, so `CycleVessel direction=` runs the Prefix's own body
+# after its key read (VesselCycleReFlySwitchPatch.RunCycle, the call the Prefix itself now
+# makes after the key read and the game-mode gate), and `forceGhost=true` then calls
+# ForceSetActiveVessel on the first ghost marker among the press's candidates.
+#
+# HOST (from code; CI-9's fixture and preset, CI-9's first 6.8 s): `eva2-lko-crewed` plus the
+# `chain-tip-dock` preset. The save's FlightGlobals.Vessels order is the asteroid (index 0,
+# SpaceObject, never a candidate), the focused Kerbal X (1, pid 3620499050), four landed
+# debris at the pad (2-5, Debris, never loaded at 100 km), and the Kerbal X Probe (6, pid
+# 2614652043, type Probe, ~16 m away, loaded and unpacked). The preset's chain tip
+# `ctd-tip-rec` (claimed pid 3156176881, absent from the save) ends Orbiting, so
+# ParsekFlight.FilterAndGhostChains calls GhostMapPresence.CreateGhostVessel(chain, tip):
+# BuildAndLoadGhostProtoVesselCore adds the marker `Ghost: CTD Target` (type Probe, from the
+# snapshot's `type`) to flightState.protoVessels and pv.Load()s it, which appends it to
+# FlightGlobals.Vessels AFTER the save's vessels. Its orbit is the tip's endpoint seed, the
+# Kerbal X's own orbit led by 2.0e-4 rad, so it sits ~140 m ahead, well inside the orbit
+# load range: KSP loads it (Vessel.Load, GhostVesselLoadedInertPatch's
+# `Ghost vessel made physics-inert on load` line) and GhostVesselLoadPatch keeps it packed.
+# The flight-map timeline pass may add a second marker for the same recording (pins allow
+# one or two). CollectStockCandidates admits only `loaded` vessels, so `ghostPids=` in a
+# press answer is itself the proof that a loaded marker reached stock's list.
+#
+# WHY THE TWO DIRECTIONS. From the Kerbal X, `prev` walks 0 (asteroid, skipped), wraps to
+# the end (the marker(s)), then 6 (the Probe): candidates = [marker(s), Probe], so stock's
+# unfiltered final step takes the packed marker (ClearToSave CLEAR in a 100 km orbit with no
+# thrust): `stockWouldPickGhost=true`, the press stock alone would have sent to the ghost.
+# From the Probe, `next` walks the marker(s) first, wraps past the asteroid to the Kerbal X:
+# the same shape back. Both presses end where the fix says (`after=` the real vessel); the
+# second also probes the backstop. The world ends as it began (the Kerbal X focused).
+# NOT REACHABLE HERE: the Prefix's other branch, `Vessel cycle found only ghost map markers
+# (N) - no switch`, needs a press with no real candidate; two real vessels are always each
+# other's candidate on this host (GhostVesselForceSwitchPatchTests holds it headlessly).
+#
+# TIMELINE. Save UT 421.19; the chain tip spawns at its EndUT 481.2 (CI-9), so every step
+# runs before that (a spawned tip would turn the marker into a real vessel); the forbidden
+# list pins it.
+#
+# FAST-LANE CHECKLIST (harness/README.md). 1 reuse: CI-9 flies this host's first 6.8 s, but
+# it is ARMED and its mission needs the focused Kerbal X untouched before RealSpawn; two
+# vessel switches in front of it would change what it proves, so this is its own boot, seam
+# only, no mission. 2 waits: both are WarpToUT maxRate=1 to explicit UTs (the 1.5 s marker
+# load settle CI-9 measured at +6.2 s; ~4 s for the switched-away vessel to come off the
+# switch's GoOnRails / HoldVesselUnpack). 3, 4, 5 n/a (no dwell, no burn, no coast).
+# 6 retry none: the outcome is deterministic. 7 windows: the marker count is `[12]` until a
+# reading run pins it. 8, 9: after the first flight.
+
+schema = 1
+id = "GC-4-vessel-cycle-skips-ghost-marker"
+tier = "nightly"
+description = "GC-4 live proof, stock's [ / ] vessel cycle and a loaded ghost map marker: over eva2-lko-crewed plus the chain-tip-dock preset (a chain tip whose map marker `Ghost: CTD Target` is loaded ~140 m ahead of the focused Kerbal X, the real Kerbal X Probe ~16 m away), press the cycle twice through the CycleVessel seam verb (the cycle Prefix's own body): prev skips the marker and lands on the Probe, next skips it and lands back on the Kerbal X, then ForceSetActiveVessel on the marker is refused by the backstop."
+instanceProfile = "stock-minimal"
+tags = ["GC-4", "ghost-map-presence", "vessel-cycle", "vessel-switch", "ghost-chain",
+        "injected-recordings", "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "chain-tip-dock"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  # 1x FLIGHT time to UT 428 (~6.8 s after the save UT 421.19): the marker is created at
+  # flight start and loaded once in range.
+  { cmd = "WarpToUT", args = { ut = "428", maxRate = "1" }, expect = "OK", budget = 120 },
+  # Press 1, `[` from the Kerbal X: skips the marker(s), lands on the Kerbal X Probe.
+  { cmd = "CycleVessel", args = { direction = "prev" }, label = "press1", expect = "OK" },
+  # 1x to UT 432: the Kerbal X off the switch's rails hold before it is a candidate again.
+  { cmd = "WarpToUT", args = { ut = "432", maxRate = "1" }, expect = "OK", budget = 120 },
+  # Press 2, `]` from the Probe: skips the marker(s), lands back on the Kerbal X; then the
+  # backstop probe (ForceSetActiveVessel on the first marker) must be refused.
+  { cmd = "CycleVessel", args = { direction = "next", forceGhost = "true" }, label = "press2", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# A second witness of D6 ghost-map-presence (H28 holds it): the marker is a live, loaded
+# stock vessel the cycle sees and Parsek keeps out of the player's reach.
+D6  = ["ghost-map-presence"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+# The two injected recordings; nothing records (both auto-record switches are off).
+[expectations.recordings]
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required  = [
+  # HOST: the chain, its loaded marker. Chain line verbatim from CI-9's flights.
+  "\\[ChainWalker\\] Chain built: vessel=3156176881 links=1 tip=ctd-tip-rec spawnUT=481\\.2 terminated=False",
+  # GhostMapPresence.BuildAndLoadGhostProtoVesselCore's Info line, logContext `chain pid=`.
+  "\\[GhostMap\\] Created ghost vessel 'Ghost: CTD Target' ghostPid=[0-9]+ type=Probe body=Kerbin sma=[0-9]+ for chain pid=3156176881 ",
+  # GhostVesselLoadedInertPatch -> LogGhostVesselMadeInert (Verbose): KSP loaded the marker.
+  "\\[GhostMap\\] Ghost vessel made physics-inert on load: vessel='Ghost: CTD Target' pid=[0-9]+ parts=[0-9]+ collidersDisabled=[0-9]+ for Vessel\\.Load",
+  # PRESS 1. The Prefix's own Verbose line, then the seam's answer: the marker(s) first in
+  # stock's order (stock alone takes them), the Probe picked and active.
+  "cyclevessel press direction=prev active=3620499050 vessel=Kerbal X forceGhost=false",
+  "\\[GhostMap\\] Vessel cycle skipped [12] ghost marker\\(s\\) and 0 refused candidate\\(s\\) sess=<none> next=2614652043 candidates=[23]",
+  "(?m)cyclevessel result direction=prev outcome=switched detail=none before=3620499050 after=2614652043 switched=true candidates=[23] candidatePids=[0-9]+(,[0-9]+)?,2614652043 ghostPids=[0-9]+(,[0-9]+)? ghostsDropped=[12] refusedDropped=0 leftToStock=false picked=2614652043 stockWouldPick=[0-9]+ stockWouldPickGhost=true forceGhost=skipped forceGhostPid=none$",
+  # PRESS 2, back to the Kerbal X, then the backstop: GhostVesselForceSwitchPatch's Info
+  # line and the seam's read of the active vessel (unchanged).
+  "cyclevessel press direction=next active=2614652043 vessel=Kerbal X Probe forceGhost=true",
+  "\\[GhostMap\\] Vessel cycle skipped [12] ghost marker\\(s\\) and 0 refused candidate\\(s\\) sess=<none> next=3620499050 candidates=[23]",
+  "\\[GhostMap\\] Refused ForceSetActiveVessel to ghost map vessel 'Ghost: CTD Target' pid=[0-9]+ \\(stock vessel cycle or another caller\\) - a ghost marker is never the active vessel",
+  "cyclevessel forceGhost: ForceSetActiveVessel\\(ghost pid=[0-9]+ vessel=Ghost: CTD Target\\) returned=false activeBefore=3620499050 activeAfter=3620499050 result=refused",
+  "(?m)cyclevessel result direction=next outcome=switched detail=none before=2614652043 after=3620499050 switched=true candidates=[23] candidatePids=[0-9]+(,[0-9]+)?,3620499050 ghostPids=[0-9]+(,[0-9]+)? ghostsDropped=[12] refusedDropped=0 leftToStock=false picked=3620499050 stockWouldPick=[0-9]+ stockWouldPickGhost=true forceGhost=refused forceGhostPid=[0-9]+$",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "cyclevessel rejected",
+  # A ghost marker never becomes the active vessel, by either path.
+  "forceGhost=switched",
+  "result=switched",
+  # Not this host's branch (see the header): a press here always has a real candidate.
+  "Vessel cycle found only ghost map markers",
+  # The tip must not spawn before the quit (its EndUT is 481.2): the marker would turn real.
+  "Chain tip spawn: pid=3156176881",
+]
+
+[runtime]
+budgetSeconds = 1200
+
+[retry]
+policy = "none"
