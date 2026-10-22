@@ -22,15 +22,31 @@ namespace Parsek.TestCommands
         private double driveMaxSrfSpeed;
         private double drivePathMeters;
         private bool driveBrakesWereOn;
+        // Settle mode: no callback, no control touched; the completion poll samples speed.
+        private bool driveSettle;
+        private double driveSettleBelow;
+        private double driveBelowSinceUT;
 
         private void DriveVesselImpl(ParsedCommand cmd)
         {
             string throttleArg = ArgOrNull(cmd, TestCommandDriveVessel.ThrottleKey);
-            string reason = TestCommandDriveVessel.ValidateThrottle(throttleArg, out float throttle);
+            string settleArg = ArgOrNull(cmd, TestCommandDriveVessel.SettleBelowKey);
+            string reason = TestCommandDriveVessel.ValidateSettle(throttleArg, settleArg,
+                out bool settle, out double settleBelow);
             if (reason != null)
             {
-                RejectDriveVessel(reason, $"{TestCommandDriveVessel.ThrottleKey}={throttleArg ?? string.Empty}");
+                RejectDriveVessel(reason, $"{TestCommandDriveVessel.SettleBelowKey}={settleArg ?? string.Empty}");
                 return;
+            }
+            float throttle = 0f;
+            if (!settle)
+            {
+                reason = TestCommandDriveVessel.ValidateThrottle(throttleArg, out throttle);
+                if (reason != null)
+                {
+                    RejectDriveVessel(reason, $"{TestCommandDriveVessel.ThrottleKey}={throttleArg ?? string.Empty}");
+                    return;
+                }
             }
             string secondsArg = ArgOrNull(cmd, TestCommandDriveVessel.SecondsKey);
             reason = TestCommandDriveVessel.ValidateSeconds(secondsArg, out double seconds);
@@ -57,13 +73,30 @@ namespace Parsek.TestCommands
             }
             // Every refusal is decided before anything is touched, so a refused call has no
             // side effects.
-            reason = TestCommandDriveVessel.DecideGate(hasVessel, unpacked, onSurface, motors);
+            reason = TestCommandDriveVessel.DecideGate(hasVessel, unpacked, onSurface, motors, settle);
             if (reason != null)
             {
                 RejectDriveVessel(reason, hasVessel
                     ? $"vessel={v.vesselName} situation={v.situation} packed={Bool(v.packed)} " +
                       $"loaded={Bool(v.loaded)} wheelMotors={Int(motors)}"
                     : "no active vessel");
+                return;
+            }
+
+            if (settle)
+            {
+                driveSettle = true;
+                driveSettleBelow = settleBelow;
+                driveVessel = v;
+                driveSeconds = seconds;
+                driveStartUT = Planetarium.GetUniversalTime();
+                driveStartSrfSpeed = v.srfSpeed;
+                driveBelowSinceUT = v.srfSpeed < settleBelow ? driveStartUT : -1.0;
+                driveBrakesWereOn = false;
+                ParsekLog.Info(Tag, TestCommandDriveVessel.FormatSettleStartLine(
+                    v.vesselName, v.persistentId, v.situation.ToString(), settleBelow, seconds,
+                    v.ActionGroups[KSPActionGroup.Brakes], driveStartUT, driveStartSrfSpeed));
+                SetExecResult(PendingVerdict, null, null);
                 return;
             }
 
@@ -107,6 +140,11 @@ namespace Parsek.TestCommands
 
         private void TryCompleteDriveVessel(double now)
         {
+            if (driveSettle)
+            {
+                TryCompleteSettleVessel(now);
+                return;
+            }
             Vessel v = driveVessel;
             bool usable = v != null && v.state != Vessel.State.DEAD && v.loaded && !v.packed;
             double gameElapsed = Planetarium.GetUniversalTime() - driveStartUT;
@@ -169,6 +207,72 @@ namespace Parsek.TestCommands
             EmitExecutedTerminal(id, seq, verb, "ERROR", null, error, dequeueHead: true);
         }
 
+        private void TryCompleteSettleVessel(double now)
+        {
+            Vessel v = driveVessel;
+            bool usable = v != null && v.state != Vessel.State.DEAD && v.loaded && !v.packed;
+            double ut = Planetarium.GetUniversalTime();
+            double gameElapsed = ut - driveStartUT;
+            double speed = usable ? v.srfSpeed : 0.0;
+            if (usable)
+            {
+                if (speed >= driveSettleBelow)
+                    driveBelowSinceUT = -1.0;
+                else if (driveBelowSinceUT < 0.0)
+                    driveBelowSinceUT = ut;
+            }
+            double belowFor = driveBelowSinceUT < 0.0 ? -1.0 : ut - driveBelowSinceUT;
+            double wallElapsed = now - completionStartedAt;
+            double budget = DeferralBudget.BudgetSeconds(TestCommandDriveVessel.Verb);
+            TestCommandDriveVessel.DriveCompletion decision = TestCommandDriveVessel.DecideSettleCompletion(
+                usable, gameElapsed, driveSeconds, belowFor, wallElapsed, budget);
+            if (decision == TestCommandDriveVessel.DriveCompletion.StillDriving)
+                return;
+
+            string situation = v != null ? v.situation.ToString() : string.Empty;
+            string vesselName = v != null ? v.vesselName : string.Empty;
+            uint pid = v != null ? v.persistentId : 0u;
+            double startSpeed = driveStartSrfSpeed;
+
+            string id = completionId; long seq = completionSeq; string verb = completionVerb;
+            ClearTwoPhase();
+
+            string outcome;
+            string error = null;
+            switch (decision)
+            {
+                case TestCommandDriveVessel.DriveCompletion.Settled:
+                    outcome = "settled";
+                    break;
+                case TestCommandDriveVessel.DriveCompletion.DidNotSettle:
+                    outcome = "did-not-settle";
+                    error = TestCommandDriveVessel.DidNotSettleReason;
+                    break;
+                case TestCommandDriveVessel.DriveCompletion.VesselLost:
+                    outcome = "vessel-lost";
+                    error = TestCommandDriveVessel.VesselLostReason;
+                    break;
+                default:
+                    outcome = "timeout";
+                    error = TestCommandDriveVessel.TimeoutReason;
+                    TestCommandDiagnostics.Timeout(id, verb, wallElapsed, TestCommandDriveVessel.TimeoutReason);
+                    break;
+            }
+            string endLine = TestCommandDriveVessel.FormatSettleEndLine(outcome, vesselName, pid,
+                gameElapsed, startSpeed, speed, situation);
+            if (error == null)
+            {
+                ParsekLog.Info(Tag, endLine);
+                EmitExecutedTerminal(id, seq, verb, "OK",
+                    TestCommandDriveVessel.BuildSettledPayload(gameElapsed, speed, situation),
+                    null, dequeueHead: true);
+                return;
+            }
+            ParsekLog.Error(Tag, endLine + " reason=" + error
+                + " wallElapsed=" + wallElapsed.ToString("F1", CultureInfo.InvariantCulture) + "s");
+            EmitExecutedTerminal(id, seq, verb, "ERROR", null, error, dequeueHead: true);
+        }
+
         // Idempotent: unsubscribes the drive callback and restores the parking brake the
         // drive released. Called from ClearTwoPhase, so no exit path (completion, timeout, a
         // throwing completion) leaves a vessel driving under a stale callback.
@@ -176,7 +280,9 @@ namespace Parsek.TestCommands
         {
             Vessel v = driveVessel;
             driveVessel = null;
-            if (v == null)
+            bool settle = driveSettle;
+            driveSettle = false;
+            if (v == null || settle)
                 return;
             v.OnFlyByWire -= DriveVesselFlyByWire;
             if (driveBrakesWereOn)

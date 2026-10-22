@@ -99,12 +99,23 @@ kind = "seam"
 #
 # StopRecording + DiscardTree after the drive is S0.5's teardown: the drive's tree is not
 # committed, so the produced save's committed corpus is the fixture's own.
+#
+# THE SETTLE (todo RVR-21-START-SPEED-ABOVE-STATIONARY): `DriveVessel settleBelow=0.05`
+# waits, touching no control, until the parked rover's srfSpeed has stayed under 0.05 m/s
+# for 0.5 game s, BEFORE StartRecording. EnvironmentDetector classifies a landed vessel
+# above 0.1 m/s as SurfaceMobile, and two flights (`2026-10-21_1626`, the PR #2167 flight)
+# booted the rover drifting at 0.12 / 0.15 m/s, so the recorder initialized SurfaceMobile
+# and the claimed Stationary -> Mobile transition never printed. A rover still moving at
+# the 20 s bound ends ERROR drivevessel-did-not-settle (fail fast, a driver fault).
+# FLOWN 2026-10-22 (PR #2175, DLL 02ad43bd): `2026-10-22_0831` PASS attempt 1, settled in
+# 0.58 game s from 0.088 m/s, `initial=SurfaceStationary`, the one transition at UT=984.94.
 steps = [
   { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
   { cmd = "StopRecording",                                                                expect = "OK" },
   { cmd = "DiscardTree",                                                                  expect = "OK" },
   { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
   { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" },       expect = "OK" },
+  { cmd = "DriveVessel",    args = { settleBelow = "0.05", seconds = "20" },              expect = "OK" },
   { cmd = "StartRecording",                                                               expect = "OK", budget = 180 },
   { cmd = "DriveVessel",    args = { wheelThrottle = "1", seconds = "8" },                expect = "OK" },
   { cmd = "StopRecording",                                                                expect = "OK" },
@@ -136,7 +147,9 @@ allowedAnomalies = []
 count = { min = 5, max = 5 }
 
 [expectations.logContracts]
-# THREE REQUIRED LINES.
+# FOUR REQUIRED LINES (the settle line first).
+#   0. `drivevessel settle end: outcome=settled ...` - the rover was still before the
+#      recording started (see the steps' header).
 #   1. `drivevessel start: ...` - the drive started on the fixture's rover with its four
 #      wheel motors and its parking brake on (both read off the committed bytes; see the
 #      header).
@@ -145,6 +158,7 @@ count = { min = 5, max = 5 }
 #   3. THE CLAIM TOKEN, RF-1's pattern verbatim (UT regexed, debounce literal): the
 #      recorder confirmed SurfaceStationary -> SurfaceMobile after the 3.0 s debounce.
 required  = [
+  "drivevessel settle end: outcome=settled vessel=B pid=313889796 ",
   "drivevessel start: vessel=B pid=313889796 situation=LANDED wheelThrottle=1\\.00 seconds=8\\.0 wheelMotors=4 brakesWereOn=true",
   "drivevessel end: outcome=moved vessel=B pid=313889796 gameSeconds=[0-9.]+ startSrfSpeed=[0-9.]+ endSrfSpeed=[0-9.]+ maxSrfSpeed=[0-9.]+ pathMeters=[0-9.]+ displacementMeters=[0-9.]+ situation=LANDED",
   "Environment transition: SurfaceStationary -> SurfaceMobile at UT=[0-9.]+ \\(debounce=3\\.0s\\)",

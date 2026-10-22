@@ -196,6 +196,123 @@ namespace Parsek.Tests
             }
         }
 
+        [Theory]
+        // Neither arg: the drive mode, whose throttle validator names the missing arg.
+        [InlineData(null, null, null, false, 0.0)]
+        [InlineData("1", null, null, false, 0.0)]
+        // settleBelow alone: settle mode, in (0, 0.1].
+        [InlineData(null, "0.05", null, true, 0.05)]
+        [InlineData(null, "0.1", null, true, 0.1)]
+        // Both: a conflict.
+        [InlineData("1", "0.05", "drivevessel-settle-arg-conflict", false, 0.0)]
+        // Out of range or malformed.
+        [InlineData(null, "0", "drivevessel-settle-arg-invalid", false, 0.0)]
+        [InlineData(null, "-0.05", "drivevessel-settle-arg-invalid", false, 0.0)]
+        [InlineData(null, "0.11", "drivevessel-settle-arg-invalid", false, 0.0)]
+        [InlineData(null, "NaN", "drivevessel-settle-arg-invalid", false, 0.0)]
+        [InlineData(null, "slow", "drivevessel-settle-arg-invalid", false, 0.0)]
+        [InlineData(null, "", "drivevessel-settle-arg-invalid", false, 0.0)]
+        public void ValidateSettle_PicksTheModeAndBounds(string throttle, string settleRaw,
+            string reason, bool settle, double settleBelow)
+        {
+            Assert.Equal(reason, TestCommandDriveVessel.ValidateSettle(throttle, settleRaw,
+                out bool gotSettle, out double gotBelow));
+            Assert.Equal(settle, gotSettle);
+            Assert.Equal(settleBelow, gotBelow, 9);
+        }
+
+        [Fact]
+        public void ValidateSettle_IsInvariantCulture()
+        {
+            CultureInfo saved = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                Assert.Null(TestCommandDriveVessel.ValidateSettle(null, "0.05",
+                    out bool settle, out double below));
+                Assert.True(settle);
+                Assert.Equal(0.05, below, 9);
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
+
+        [Fact]
+        public void SettleBound_IsTheSurfaceStationaryThreshold()
+        {
+            // A vessel settled at the bound must classify SurfaceStationary, the state the
+            // recorder's hysteresis has to start in (RVR-21-START-SPEED-ABOVE-STATIONARY).
+            Assert.Equal(SegmentEnvironment.SurfaceStationary,
+                EnvironmentDetector.Classify(hasAtmosphere: true, altitude: 70.0,
+                    atmosphereDepth: 70000.0, situation: 1 /* LANDED */,
+                    srfSpeed: TestCommandDriveVessel.MaxSettleBelow, hasActiveThrust: false));
+            Assert.True(TestCommandDriveVessel.SettleHoldSeconds > 0.0);
+            Assert.Contains(TestCommandDriveVessel.DidNotSettleReason, TestCommandDriveVessel.ErrorReasons);
+        }
+
+        [Fact]
+        public void DecideGate_SettleModeNeedsNoWheelMotor()
+        {
+            Assert.Null(TestCommandDriveVessel.DecideGate(true, true, true, 0, settle: true));
+            Assert.Equal("drivevessel-not-on-surface",
+                TestCommandDriveVessel.DecideGate(true, true, false, 0, settle: true));
+            Assert.Equal("drivevessel-no-wheel-motor",
+                TestCommandDriveVessel.DecideGate(true, true, true, 0, settle: false));
+        }
+
+        [Theory]
+        // Below the threshold for the hold: settled, even on the span's last frame.
+        [InlineData(true, 2.0, 20.0, 0.5, 3.0, 60.0, "Settled")]
+        [InlineData(true, 20.0, 20.0, 0.6, 21.0, 60.0, "Settled")]
+        // Below, but not yet for the hold; or still above it (negative).
+        [InlineData(true, 2.0, 20.0, 0.49, 3.0, 60.0, "StillDriving")]
+        [InlineData(true, 2.0, 20.0, -1.0, 3.0, 60.0, "StillDriving")]
+        // The span ran out with the vessel still moving.
+        [InlineData(true, 20.0, 20.0, -1.0, 21.0, 60.0, "DidNotSettle")]
+        [InlineData(true, 20.0, 20.0, 0.2, 21.0, 60.0, "DidNotSettle")]
+        // A lost vessel ends it at once; a paused clock times out.
+        [InlineData(false, 2.0, 20.0, 0.6, 3.0, 60.0, "VesselLost")]
+        [InlineData(true, 0.0, 20.0, -1.0, 60.0, 60.0, "Timeout")]
+        public void DecideSettleCompletion(bool usable, double gameElapsed, double requested,
+            double belowFor, double wallElapsed, double budget, string expected)
+        {
+            Assert.Equal(expected, TestCommandDriveVessel.DecideSettleCompletion(
+                usable, gameElapsed, requested, belowFor, wallElapsed, budget).ToString());
+        }
+
+        [Fact]
+        public void SettleLinesAndPayload_AreInvariantAndGrepStable()
+        {
+            CultureInfo saved = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                Assert.Equal(
+                    "drivevessel settle start: vessel=B pid=313889796 situation=LANDED "
+                    + "settleBelow=0.050 seconds=20.0 brakesOn=true startUT=980.12 srfSpeed=0.120",
+                    TestCommandDriveVessel.FormatSettleStartLine("B", 313889796u, "LANDED", 0.05,
+                        20.0, true, 980.123, 0.1201));
+                Assert.Equal(
+                    "drivevessel settle end: outcome=settled vessel=B pid=313889796 "
+                    + "gameSeconds=2.53 startSrfSpeed=0.120 endSrfSpeed=0.004 situation=LANDED",
+                    TestCommandDriveVessel.FormatSettleEndLine("settled", "B", 313889796u, 2.531,
+                        0.1201, 0.0041, "LANDED"));
+                List<KeyValuePair<string, string>> payload =
+                    TestCommandDriveVessel.BuildSettledPayload(2.531, 0.0041, "LANDED");
+                Assert.Equal(new[] { "settled", "gameSeconds", "srfSpeed", "situation" },
+                    payload.ConvertAll(kv => kv.Key).ToArray());
+                Assert.Equal("true", payload[0].Value);
+                Assert.Equal("2.53", payload[1].Value);
+                Assert.Equal("0.004", payload[2].Value);
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
+
         [Fact]
         public void CompletePayload_IsInWireOrder()
         {

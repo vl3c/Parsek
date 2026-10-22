@@ -73,12 +73,28 @@ career donor, read, never modified):
   6. `persistent.loadmeta`: `gameMode`, `funds`, `science`, `reputationPercent` and
      `ongoingContracts` from `fresh-career`'s; vessel count, UT and timestamp stay the
      source's.
+  7. Stock career earnings the sandbox flights never triggered, which a first career
+     load would otherwise pay with no ledger row (todo
+     ROUTE-CAREER-FIXTURES-EARN-STOCK-EVENTS-AT-LOAD; the ledger's drawdown guard then
+     logs a clamp on every recalc):
+       a. FLIGHTSTATE loses every `type = Debris` vessel LANDED at the KSC, a launch pad
+          or a runway (`landedAt` holding `KSC`, `LaunchPad` or `Runway`, stock's
+          `Vessel.LandedInKSC`). Stock marks such debris auto-clean at the next save
+          (`FlightState`, DECLUTTER_KSC) and recovers it at the load after, paying its
+          value in career. `activeVessel` is re-indexed past the removed nodes; no
+          Parsek node names these vessels, and loadmeta's `vesselCount` counts no
+          debris. depot-route-recorded: 1 (+624 funds), bdock-recorded: 4 (+914).
+       b. ProgressTracking gains the milestones in PROGRESS_SEEDS, which the recorded
+          vessels already meet but the sandbox never stored: depot-route-recorded's
+          Depot and Transporter sit in rendezvous, so stock awarded Kerbin/Rendezvous
+          (+12000 funds, +1 science, +2 rep) once they loaded. Seeded `completed = 0`,
+          the source's own convention for its Orbit and Landing nodes.
 
-WHAT IS NOT TOUCHED: FLIGHTSTATE (every vessel), ROSTER, the ParsekScenario node (trees,
-routes, rewind points), ProgressTracking, every recording sidecar, every other GameState
-sidecar (baselines, milestones, events), RewindPoints quicksaves (they stay SANDBOX
-saves: a Re-Fly into one of bdock-recorded's rewind points would load a sandbox game, and
-no lane built on these copies invokes one), AddOns and Ships. Each file keeps its own
+WHAT IS NOT TOUCHED: FLIGHTSTATE (every vessel but 7a's debris), ROSTER, the ParsekScenario
+node (trees, routes, rewind points), ProgressTracking (but 7b's seeds), every recording
+sidecar, every other GameState sidecar (baselines, milestones, events), RewindPoints
+quicksaves (they stay SANDBOX saves: a Re-Fly into one of bdock-recorded's rewind points
+would load a sandbox game, and no lane built on these copies invokes one), AddOns and Ships. Each file keeps its own
 line endings (the sources mix LF and CRLF).
 
 NOT FIT FOR LEDGER GROUND TRUTH. The sources were flown in SANDBOX, so they carry no
@@ -153,6 +169,22 @@ CAREER_SCENARIOS = (
 
 LOADMETA_FROM_BASE = ("gameMode", "funds", "science", "reputationPercent",
                       "ongoingContracts")
+
+# Edit 7a: stock's `Vessel.LandedInKSC` substrings, and the vessel type it cleans.
+KSC_CLUTTER_MARKERS = ("KSC", "LaunchPad", "Runway")
+DEBRIS_TYPE = "Debris"
+# Edit 7b: source -> ((body, milestone), ...) seeded `completed = 0` into ProgressTracking.
+PROGRESS_SEEDS = {
+    "depot-route-recorded": (("Kerbin", "Rendezvous"),),
+}
+# What 7a removes per source (measured off the committed source bytes, 2026-10-22).
+EXPECTED_KSC_DEBRIS = {
+    "rover-relay-c-recorded": 0,
+    "depot-route-recorded": 1,
+    "gloops-airshow": 0,
+    "bdock-recorded": 4,
+    "rover-route-recorded": 0,
+}
 
 # GameActionType ids (Source/Parsek/GameActions/GameAction.cs).
 SEED_TYPES = {20: "FundsInitial", 21: "ScienceInitial", 22: "ReputationInitial"}
@@ -275,7 +307,80 @@ def build_sfs(source: str, src: List[str], base: List[str]) -> List[str]:
         elif name == "ScenarioUpgradeableFacilities":
             block = _top_facilities(block)
         _insert_scenario(out, block, anchor, where)
+
+    # 7. Stock earnings the sandbox never triggered.
+    removed = strip_ksc_debris(out)
+    if removed != EXPECTED_KSC_DEBRIS.get(source):
+        raise SystemExit("%s: removed %d KSC debris vessel(s), expected %r"
+                         % (source, removed, EXPECTED_KSC_DEBRIS.get(source)))
+    for body, milestone in PROGRESS_SEEDS.get(source, ()):
+        seed_progress(out, body, milestone)
     return out
+
+
+def ksc_debris_vessels(lines: List[str]) -> List[Tuple[int, int]]:
+    """FLIGHTSTATE's direct VESSEL children that stock would auto-clean as KSC clutter
+    (edit 7a), in file order."""
+    flight = _top_node(lines, "FLIGHTSTATE")
+    if flight is None:
+        raise SystemExit("no FLIGHTSTATE node")
+    out = []
+    for node in _recipe.child_nodes(lines, flight, "VESSEL"):
+        landed_at = _recipe.get_value(lines, node, "landedAt") or ""
+        if (_recipe.get_value(lines, node, "type") == DEBRIS_TYPE
+                and _recipe.get_value(lines, node, "sit") == "LANDED"
+                and any(m in landed_at for m in KSC_CLUTTER_MARKERS)):
+            out.append(node)
+    return out
+
+
+def strip_ksc_debris(lines: List[str]) -> int:
+    """Edit 7a in place: drop the KSC debris vessels and re-index `activeVessel`.
+    Returns how many were removed. Refuses when the active vessel is one of them."""
+    flight = _top_node(lines, "FLIGHTSTATE")
+    vessels = _recipe.child_nodes(lines, flight, "VESSEL")
+    doomed = ksc_debris_vessels(lines)
+    if not doomed:
+        return 0
+    raw = _recipe.get_value(lines, flight, "activeVessel")
+    try:
+        active = int(raw)
+    except (TypeError, ValueError):
+        raise SystemExit("FLIGHTSTATE activeVessel is %r" % raw)
+    indices = [vessels.index(n) for n in doomed]
+    if active in indices:
+        raise SystemExit("the active vessel (index %d) is KSC debris" % active)
+    new_active = active - sum(1 for i in indices if i < active)
+    for node in sorted(doomed, reverse=True):
+        del lines[node[0]:node[1]]
+    flight = _top_node(lines, "FLIGHTSTATE")
+    for i in range(flight[0], flight[1]):
+        if lines[i] == "		activeVessel = %d" % active:
+            lines[i] = "		activeVessel = %d" % new_active
+            break
+    else:
+        raise SystemExit("no FLIGHTSTATE activeVessel line to re-index")
+    return len(doomed)
+
+
+def seed_progress(lines: List[str], body: str, milestone: str) -> None:
+    """Edit 7b in place: add `<milestone> { completed = 0 }` as the last child of
+    ProgressTracking's Progress/<body> node. Refuses one that is already there."""
+    pt = _recipe._scenario_node(lines, "ProgressTracking")
+    if pt is None:
+        raise SystemExit("no ProgressTracking SCENARIO")
+    progress = _recipe.child_nodes(lines, pt, "Progress")
+    if len(progress) != 1:
+        raise SystemExit("ProgressTracking has %d Progress nodes" % len(progress))
+    bodies = _recipe.child_nodes(lines, progress[0], body)
+    if len(bodies) != 1:
+        raise SystemExit("Progress has %d %s nodes" % (len(bodies), body))
+    if _recipe.child_nodes(lines, bodies[0], milestone):
+        raise SystemExit("Progress/%s already has %s" % (body, milestone))
+    indent = lines[bodies[0][0]][:len(lines[bodies[0][0]]) - len(lines[bodies[0][0]].lstrip("\t"))]
+    inner = indent + "\t"
+    lines[bodies[0][1] - 1:bodies[0][1] - 1] = [
+        inner + milestone, inner + "{", inner + "\tcompleted = 0", inner + "}"]
 
 
 def _grant_tech(block: List[str]) -> List[str]:
@@ -482,6 +587,9 @@ def verify_sfs(lines: List[str]) -> List[str]:
             problems.append("R&D Tech ids %r != %r" % (ids, want_ids))
     if _recipe._scenario_node(lines, "ParsekScenario") is None:
         problems.append("no ParsekScenario SCENARIO")
+    leftover = ksc_debris_vessels(lines)
+    if leftover:
+        problems.append("%d KSC debris vessel(s) left for stock to recover" % len(leftover))
     return problems
 
 
