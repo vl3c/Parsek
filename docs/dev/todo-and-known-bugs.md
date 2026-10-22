@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## QL-2-RECOVER-REFUSED-WHILE-SLIDING: QL-2's Recover can be refused while the landed Flea still slides, and the refusal reads as a Parsek failure [FILED 2026-10-22 from QL-2 `2026-10-21_2220` and `2026-10-22_0001` (both PARSEK-FAIL, expectations), flown for PR #2170. Half fixed on branch `claude/project-thread-hvhou8` (the verb waits); the classification gap is OPEN, low. harness]
+## QL-2-RECOVER-REFUSED-WHILE-SLIDING: QL-2's Recover can be refused while the landed Flea still slides, and the refusal reads as a Parsek failure [FILED 2026-10-22 from QL-2 `2026-10-21_2220` and `2026-10-22_0001` (both PARSEK-FAIL, expectations), flown for PR #2170. Half fixed in PR #2170, merged (the verb waits); the classification gap is OPEN, low. harness]
 
 The mission reported MISSION-OK, but seam step 0067 `Recover` was refused
 `recover-not-clear-to-save ... situation=LANDED hSrfSpeed=0.30 clearToSave=NOT_WHILE_MOVING_OVER_SURFACE`:
@@ -70,7 +70,7 @@ required post-mission step as INVALID.
 
 **Phase 2 flight (PR #2167).** Same class: one after-quit stock NRE, this time from `CrewHatchController.get_CrewHatchTooltip`, with no Parsek frame. The ledger oracle passed (funds 500000, science 100, reputation 0). So the stock signatures vary, which favours excluding frameless after-quit exceptions over allowlisting one signature.
 
-## ~~REFLY-STARTED-FROM-A-RESUMED-VESSEL-IS-NEVER-SAVED: an F5 during a Re-Fly started while flying a resumed committed vessel does not save the Re-Fly~~ [FILED 2026-10-20 from harness lane CI-3 on V's PC (PR #2155 head 1abd1b4). Was open, high: with save-file loads cold (PR #2155) the F9 cleared the Re-Fly marker. FIXED 2026-10-21 on branch `claude/project-thread-hvhou8` (PR #2155): the session survives the F9 and keeps its committed original. xUnit; CI-3 re-fly pending. product]
+## ~~REFLY-STARTED-FROM-A-RESUMED-VESSEL-IS-NEVER-SAVED: an F5 during a Re-Fly started while flying a resumed committed vessel does not save the Re-Fly~~ [FILED 2026-10-20 from harness lane CI-3 on V's PC (PR #2155 head 1abd1b4). Was open, high: with save-file loads cold (PR #2155) the F9 cleared the Re-Fly marker. FIXED 2026-10-21 on branch `claude/project-thread-hvhou8` (PR #2155): the session survives the F9 and keeps its committed original. CI-3 LIVE-PROVEN on the merged head bcf1d8e and again on PR #2170 (`2026-10-21_2345`). product]
 
 Flying a committed vessel Parsek spawned resumes its tree as a copy-on-write clone and arms a
 committed-tree restore attempt (`TryTakeCommittedTreeForSpawnedVesselRestore`). Starting a Re-Fly
@@ -93,7 +93,7 @@ resume (a session merged after the save), whose copy still detaches for step B's
 ghosted count before the F5 is 0 because PR #2151's Re-Fly start holds the claimed vessels
 (`HoldResurrectedVesselsWithCommittedFuture`); the lane now pins the chain count only.
 
-## ~~REFLY-DIALOG-READS-UNFINALIZED-ATTEMPT-AS-UNFLOWN: the leaving-flight Re-Fly dialog refuses Merge for an attempt that lost value~~ [FILED 2026-10-20 from harness lane QL-3 on V's PC (PR #2155 head c6f80ab). Was open, high; regression from PR #2151, never shipped. FIXED 2026-10-20 on branch `claude/project-thread-hvhou8` (PR #2155). xUnit; QL-3 re-fly pending; the seam half is open. product]
+## ~~REFLY-DIALOG-READS-UNFINALIZED-ATTEMPT-AS-UNFLOWN: the leaving-flight Re-Fly dialog refuses Merge for an attempt that lost value~~ [FILED 2026-10-20 from harness lane QL-3 on V's PC (PR #2155 head c6f80ab). Was open, high; regression from PR #2151, never shipped. FIXED 2026-10-20 on branch `claude/project-thread-hvhou8` (PR #2155). QL-3 LIVE-PROVEN on the merged head bcf1d8e and again on PR #2170 (`2026-10-21_2236`); the seam half is open. product]
 
 The "Re-Fly attempt - leaving flight" dialog runs the dominance check on the live tree before
 the scene exit finalizes it, so the provisional still has no terminal state.
@@ -113,7 +113,7 @@ Harness gap found on the same run: `AnswerMergeDialog choice=merge` answered `re
 although the dominance check refused the merge and the dialog fell back to Discard, so the drive
 read every step as met. The seam should report the refusal (open).
 
-## ~~REFLY-MERGE-RETIRES-VALUE-LATER-SPENDING-USED: a Re-Fly merge takes back the replaced flight's earnings after the timeline already spent them~~ [FILED 2026-10-19 from the "Re-Fly ledger paradox analysis" thread, code read on main 4503a53. Was open, critical (owner rulings: never lower the ledger, no time-travel paradox); designed in `parsek-rewind-to-separation-design.md` section 2.12, Option 1 confirmed by the owner 2026-10-19, implementation plan `docs/dev/plans/refly-ledger-safety-implementation.md`. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). xUnit; the reshaped Re-Fly lanes and RF-L1..RF-L4 not flown yet. product]
+## ~~REFLY-MERGE-RETIRES-VALUE-LATER-SPENDING-USED: a Re-Fly merge takes back the replaced flight's earnings after the timeline already spent them~~ [FILED 2026-10-19 from the "Re-Fly ledger paradox analysis" thread, code read on main 4503a53. Was open, critical (owner rulings: never lower the ledger, no time-travel paradox); designed in `parsek-rewind-to-separation-design.md` section 2.12, Option 1 confirmed by the owner 2026-10-19, implementation plan `docs/dev/plans/refly-ledger-safety-implementation.md`. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). Every PR #2151 lane, RF-L1..RF-L4 and the reshaped Re-Fly lanes, flew green 2026-10-20 on 2b5cd9b. product]
 
 **What happens.** Since the 2026-05-06 broad tombstone scope (`f4763de1`, `d66626ba`) a Re-Fly
 merge tombstones every eligible row of the replaced flight after the rewind point, gains
@@ -142,7 +142,7 @@ would lower a balance (it reads the attempt's rows from a pure build step split 
 slots are concluded on load; existing deficits are not repaired. User guide and CHANGELOG move
 with the implementation, not with the design.
 
-## ~~REFLY-START-RETIRES-RECOVERY-OF-RESURRECTED-VESSEL: starting a Re-Fly tombstones the recovery rewards of a vessel the player recovered later, and a Discard keeps them retired~~ [FILED 2026-10-19, code read. Was open, high; fix designed in `parsek-rewind-to-separation-design.md` section 2.12 Rule 3. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). xUnit; the reshaped Re-Fly lanes and RF-L1..RF-L4 not flown yet. product]
+## ~~REFLY-START-RETIRES-RECOVERY-OF-RESURRECTED-VESSEL: starting a Re-Fly tombstones the recovery rewards of a vessel the player recovered later, and a Discard keeps them retired~~ [FILED 2026-10-19, code read. Was open, high; fix designed in `parsek-rewind-to-separation-design.md` section 2.12 Rule 3. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). Every PR #2151 lane, RF-L1..RF-L4 and the reshaped Re-Fly lanes, flew green 2026-10-20 on 2b5cd9b. product]
 
 `RewindInvoker.RetireResurrectedVesselRecoveryRows` ("Step 3b" of `ConsumePostLoad`, around
 RewindInvoker.cs:1357-1384) tombstones the recovery rows of every vessel the rewind point brings
@@ -154,7 +154,7 @@ the player discards. Fix: the strip hands such a vessel to the existing claimed-
 (hold ghost until its first committed recording, then that recording's ghost) and its recovery
 rows stay; delete Step 3b. Red-first unit cell first.
 
-## ~~REFLY-SESSION-FAILS-EVERY-DEADLINE-CONTRACT: during a Re-Fly every contract with a deadline reads as expired~~ [FILED 2026-10-19, code read. Was open, medium; live effect inferred, needs a red-first unit cell. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). xUnit; the reshaped Re-Fly lanes and RF-L1..RF-L4 not flown yet. product]
+## ~~REFLY-SESSION-FAILS-EVERY-DEADLINE-CONTRACT: during a Re-Fly every contract with a deadline reads as expired~~ [FILED 2026-10-19, code read. Was open, medium; live effect inferred, needs a red-first unit cell. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). Every PR #2151 lane, RF-L1..RF-L4 and the reshaped Re-Fly lanes, flew green 2026-10-20 on 2b5cd9b. product]
 
 The invoke walk calls `RecalculateAndPatch(double.MaxValue)` and `ContractsModule.PrePass` uses the
 walk cutoff as the deadline clock (ContractsModule.cs ~310), so every active deadline contract
@@ -162,7 +162,7 @@ gets a synthetic failure in the session's walk: its penalty shows in the session
 contract leaves stock's active list until the merge walk restores it. Fix: keep the MaxValue
 horizon but pass the current UT as the deadline clock (section 2.12 Rule 3).
 
-## ~~REFLY-SESSION-SWITCH-ESCAPES-THE-ATTEMPT: switching vessels during a Re-Fly files gains outside the attempt, and a far Switch-To can commit the Re-Fly tree as a plain flight~~ [FILED 2026-10-19, code read. Was open, high; owner ruling 2026-10-19: block switching. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). xUnit; the reshaped Re-Fly lanes and RF-L1..RF-L4 not flown yet. product]
+## ~~REFLY-SESSION-SWITCH-ESCAPES-THE-ATTEMPT: switching vessels during a Re-Fly files gains outside the attempt, and a far Switch-To can commit the Re-Fly tree as a plain flight~~ [FILED 2026-10-19, code read. Was open, high; owner ruling 2026-10-19: block switching. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). Every PR #2151 lane, RF-L1..RF-L4 and the reshaped Re-Fly lanes, flew green 2026-10-20 on 2b5cd9b. product]
 
 Nothing blocks a switch during a session. `[` / `]` attaches the vessel switched to under a
 `Launch` branch point (attempt-owned); a map Switch-To creates a parentless segment (not
@@ -177,7 +177,7 @@ set; end state inferred). Also: design section 6.11 claimed session-born childre
 `CreatingSessionId`; only the provisional does (RewindInvoker.cs:2690), doc fixed. Fix: section
 2.12 Rule 3 (only the re-flown vessel and its own EVA crew can be flown; awards filed by cause).
 
-## ~~REFLY-DISCARD-KEEPS-ATTEMPT-ROWS: a discarded Re-Fly attempt keeps the ledger rows it filed, with their career effect~~ [FILED 2026-10-19, code read. Was open, high; fix designed in section 2.12 Rule 3. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). xUnit; the reshaped Re-Fly lanes and RF-L1..RF-L4 not flown yet. product]
+## ~~REFLY-DISCARD-KEEPS-ATTEMPT-ROWS: a discarded Re-Fly attempt keeps the ledger rows it filed, with their career effect~~ [FILED 2026-10-19, code read. Was open, high; fix designed in section 2.12 Rule 3. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). Every PR #2151 lane, RF-L1..RF-L4 and the reshaped Re-Fly lanes, flew green 2026-10-20 on 2b5cd9b. product]
 
 Every Re-Fly discard path untags the attempt's rows (`Ledger.ClearRecordingTagForRecordings`,
 MergeDialog.ReFlyDiscard.cs ~612-648) and keeps them, so a discarded attempt still pays out, and
@@ -189,7 +189,7 @@ Discard is never refused (owner ruling 2026-10-19). An attempt a quickload resum
 merge (OQ-1) is unmerged again and follows the same rule; the one open dependency is in
 REFLY-RESUMED-MERGED-DISCARD-RESTORES-LOSSES.
 
-## ~~REFLY-RESUMED-MERGED-DISCARD-RESTORES-LOSSES: discarding a Re-Fly that a quickload resumed after its merge can leave a later Space Center purchase unpaid~~ [FILED 2026-10-19 from the design review. Was open, ruled 2026-10-19, ships with section 2.12. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). xUnit; the reshaped Re-Fly lanes and RF-L1..RF-L4 not flown yet. product]
+## ~~REFLY-RESUMED-MERGED-DISCARD-RESTORES-LOSSES: discarding a Re-Fly that a quickload resumed after its merge can leave a later Space Center purchase unpaid~~ [FILED 2026-10-19 from the design review. Was open, ruled 2026-10-19, ships with section 2.12. FIXED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #2151, design 2.12 phases 1-4 plus review fixes). Every PR #2151 lane, RF-L1..RF-L4 and the reshaped Re-Fly lanes, flew green 2026-10-20 on 2b5cd9b. product]
 
 Owner rulings 2026-10-19: Discard is never refused, and a quickload takes the whole game state back,
 so an attempt a quickload resumed after its merge is unmerged again. Its discard removes its rows
@@ -313,7 +313,7 @@ promotion builds the tree's pending rows once (`BuildTreeCommitRowsPreview`) and
 through `SupersedeCommit.UsePendingCommitRows` (uncached). A failed build falls back to the ledger
 alone with a Warn. Test: `TreeCommitTests.CommitTree_DestroyedChildWhosePendingRowsSeal_IsNotPromoted`.
 
-## QUICKLOAD-RESTORES-THE-SAVE-EXACTLY: an in-session load keeps Parsek state from after the save that the save itself does not have [FILED 2026-10-19 from the owner ruling and a code audit at 2f9256d. OPEN, DESIGNED 2026-10-20 (`docs/dev/design-load-restores-the-save.md`, plan `docs/dev/plans/load-restores-the-save-implementation.md`); scope ruled 2026-10-19: drop everything after the save]
+## ~~QUICKLOAD-RESTORES-THE-SAVE-EXACTLY: an in-session load keeps Parsek state from after the save that the save itself does not have~~ [FILED 2026-10-19 from the owner ruling and a code audit at 2f9256d. Was open, DESIGNED 2026-10-20 (`docs/dev/design-load-restores-the-save.md`, plan `docs/dev/plans/load-restores-the-save-implementation.md`); scope ruled 2026-10-19: drop everything after the save. DONE 2026-10-22: Phases 1 and 2 PR #2155, leftovers PR #2164, versioned files PR #2169, Phase 3 PR #2170, all merged; QL-1..QL-14 LIVE-PROVEN, the latest round on the PR #2170 head 21732ce]
 
 Owner ruling (V, 2026-10-19): "a quick/load should work exactly as a quickload - restoring the
 state of the game exactly to what it was at the moment of the quicksave / save". Today an F9 or a
@@ -406,6 +406,11 @@ stock revert after a cold resume and an in-flight discard; the `QuickloadFlight`
 column, still produced by the harness `LoadGame` verb without `playerLoad=true` and the in-game
 QuickloadResume tests (`QuickloadResumeHelpers.TriggerQuickload`), where folding it into
 `InSessionOther` would change `DiscardStashedOnQuickload` and the route reconcile.
+
+Closed 2026-10-22: every phase merged (#2155, #2164, #2169, #2170 at 1f11432), and the `QL-*`
+lanes, CI-3, RF-14, RF-15, RF-L4, LAB-9a, LAB-10b and the regression set flew green on the PR #2170
+head (`docs/dev/autotest-status.md`, 2026-10-21 entry). Residue filed separately:
+QL-2-RECOVER-REFUSED-WHILE-SLIDING (harness classification, low).
 
 ## ~~ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE: F5 inside a committed-tree restore attempt that resumed its recording in place loses the attempt's held-back earnings on F9~~ [FILED 2026-10-20 while closing design-load-restores-the-save.md open question 3. Was open. FIXED 2026-10-21 (the held-back earnings, PR #2164; the trajectory, owner ruling 2026-10-21) on branch `claude/project-thread-hvhou8`. xUnit; lane QL-13 LIVE-PROVEN `2026-10-21_2058`]
 
