@@ -86,7 +86,7 @@ namespace Parsek
             // Rule 4 (committed-value rule plan section 2.3): a loss with a committed cost
             // captured ahead of it stops at the reserved floor, the rest is a debt (post-curve
             // units). With none, reputation may go negative, as stock lets it.
-            bool exempt = IsReputationCostRow(action.Type) || action.Type == GameActionType.StockPoolAdjustment;
+            bool exempt = IsReputationCostRow(action) || action.Type == GameActionType.StockPoolAdjustment;
             double floor;
             if (!exempt && floorState.TryGetLossFloor(action, out floor))
             {
@@ -120,9 +120,24 @@ namespace Parsek
         // ================================================================
 
         /// <summary>A reputation cost row: a strategy's setup reputation.</summary>
-        internal static bool IsReputationCostRow(GameActionType type)
+        /// <summary>
+        /// A reputation cost row (plan 2.3): a strategy's setup reputation, and the reputation
+        /// INPUT leg of a strategy exchange (<see cref="ReputationPenaltySource.Strategy"/>,
+        /// Bail-Out Grant; <see cref="ReputationPenaltySource.StrategyConverter"/>,
+        /// Fundraising / Unpaid Research / the scaling operations), whose paired funds or
+        /// science credit is paid in full: settling the leg would create value (review of
+        /// 2deaaa3, blocker 2). Like the funds and science halves, never settled and counted
+        /// in a need.
+        /// </summary>
+        internal static bool IsReputationCostRow(GameAction action)
         {
-            return type == GameActionType.StrategyActivate;
+            if (action == null)
+                return false;
+            if (action.Type == GameActionType.StrategyActivate)
+                return true;
+            return action.Type == GameActionType.ReputationPenalty
+                && (action.RepPenaltySource == ReputationPenaltySource.Strategy
+                    || action.RepPenaltySource == ReputationPenaltySource.StrategyConverter);
         }
 
         /// <summary>A loss nobody reserves for (plan 2.3): crew-death and "other" penalties.</summary>
@@ -145,7 +160,7 @@ namespace Parsek
                     || (action.Type == GameActionType.StockPoolAdjustment
                         && action.AdjustmentPool == StockPool.Reputation)))
                 delta = action.EffectiveRep;
-            isCost = action != null && IsReputationCostRow(action.Type) && delta < 0.0;
+            isCost = IsReputationCostRow(action) && delta < 0.0;
             floorLimited = IsFloorLimitedLoss(action);
         }
 

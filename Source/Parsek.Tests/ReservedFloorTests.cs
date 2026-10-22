@@ -708,6 +708,125 @@ namespace Parsek.Tests
         }
 
         // ------------------------------------------------------------------
+        // Review of 2deaaa3: an older save's events, and the strategy exchange legs
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void OlderSave_UnsequencedFlightEvents_MergedAfterAPurchase_GetNoFloor_IsExactlyStock()
+        {
+            // An older save with a pending flight: its events carry no capture number. After
+            // the load the player buys a facility (stamped at write); the merge converts the
+            // flight's fail and earning. They were captured before the purchase, so they must
+            // not read as captured after it: stock 10k - 30k (clamped at 0) + 50k - 5k = 45k.
+            Ledger.RestoreActions(new[] { S(FundsSeed(10000), 0) });
+            Ledger.AddAction(Upgrade("fac", 1010, 5000f, 0), LedgerRowWriter.StockApplied);
+            Assert.True(Ledger.Actions.Single(a => a.ActionId == "fac").CaptureSequence > 0);
+
+            var fail = new GameStateEvent
+            {
+                ut = 900, eventType = GameStateEventType.ContractFailed, key = "cY",
+                detail = "title=Y;fundsPenalty=30000;repPenalty=0",
+            };
+            var done = new GameStateEvent
+            {
+                ut = 960, eventType = GameStateEventType.ContractCompleted, key = "cZ",
+                detail = "title=Z;fundsReward=50000;repReward=0;sciReward=0",
+            };
+            var rows = new List<GameAction>
+            {
+                GameStateEventConverter.ConvertEvent(fail, "rec"),
+                GameStateEventConverter.ConvertEvent(done, "rec"),
+            };
+            Ledger.AddActions(rows, LedgerRowWriter.StockApplied);
+
+            RecalculationEngine.Recalculate(Ledger.Actions.ToList());
+            Assert.Equal(45000.0, funds.GetRunningBalance(), 6);
+            Assert.All(rows, r => Assert.True(r.CaptureSequence < 0, "an unsequenced event's row stays unsequenced"));
+            Assert.Equal(0.0, funds.GetOutstandingDebt(), 6);
+            Assert.False(AnySettle());
+            Assert.DoesNotContain(logLines, l => l.Contains("Reserved floor plans built"));
+        }
+
+        [Fact]
+        public void UnsequencedRows_AreNeverStamped_AndKeepTheirMarkThroughASave()
+        {
+            var row = S(new GameAction { UT = 5, Type = GameActionType.ContractFail, FundsPenalty = 1f },
+                CaptureSequence.Unsequenced);
+            Ledger.AddAction(row, LedgerRowWriter.StockApplied);
+            Assert.Equal(CaptureSequence.Unsequenced, row.CaptureSequence);
+            var batch = S(new GameAction { UT = 6, Type = GameActionType.FundsEarning, FundsAwarded = 1f },
+                CaptureSequence.Unsequenced);
+            Ledger.AddActions(new[] { batch }, LedgerRowWriter.StockApplied);
+            Assert.Equal(CaptureSequence.Unsequenced, batch.CaptureSequence);
+
+            var parent = new ConfigNode("LEDGER");
+            row.SerializeInto(parent);
+            Assert.Equal(CaptureSequence.Unsequenced, GameAction.DeserializeFrom(parent.GetNode("GAME_ACTION")).CaptureSequence);
+        }
+
+        [Fact]
+        public void KerbalDeathPenalty_FromAnUnsequencedEvent_StaysUnsequenced()
+        {
+            var loss = new GameStateEvent
+            {
+                ut = 50, eventType = GameStateEventType.ReputationChanged,
+                key = KerbalDeathRepPenalty.VesselLossEventKey, valueBefore = 60, valueAfter = 50,
+                recordingId = "rec",
+            };
+            var decision = KerbalDeathRepPenalty.Decide(
+                new[] { KerbalEndState.Dead }, new[] { loss }, "rec", 50);
+            Assert.True(decision.Emit);
+            Assert.Equal(CaptureSequence.Unsequenced, decision.CaptureSequence);
+        }
+
+        private static GameAction RepExchange(string id, double ut, float taken, long seq,
+            ReputationPenaltySource source) => S(new GameAction
+        {
+            ActionId = id, UT = ut, Type = GameActionType.ReputationPenalty,
+            RepPenaltySource = source, NominalPenalty = taken,
+        }, seq);
+
+        [Theory]
+        [InlineData(ReputationPenaltySource.Strategy)]
+        [InlineData(ReputationPenaltySource.StrategyConverter)]
+        public void StrategyExchangeReputationLeg_IsACostRow_NeverSettled(ReputationPenaltySource source)
+        {
+            // Reputation 60, a committed strategy at UT 300 costing 50 (captured first), then a
+            // post-rewind exchange at UT 150 taking 40: its paired funds or science credit pays in
+            // full, so the reputation leg must too (stock 20, no debt).
+            var actions = new List<GameAction>
+            {
+                RepSeed(60), Strategy("st", 300, 50f, 2), RepExchange("x", 150, 40f, 3, source),
+            };
+            RecalculationEngine.Recalculate(actions, 200);
+            Assert.InRange(reputation.GetRunningRep(), 19.0, 21.0);
+            Assert.Equal(0.0, reputation.GetOutstandingDebt(), 6);
+            Assert.False(AnySettle());
+
+            Assert.True(ReputationModule.IsReputationCostRow(actions[2]));
+            double delta; bool isCost, floorLimited;
+            reputation.ClassifyFloorRow(actions[2], out delta, out isCost, out floorLimited);
+            Assert.True(isCost);
+            Assert.False(floorLimited);
+        }
+
+        [Fact]
+        public void StrategyExchangeReputationLeg_CapturedBeforeALoss_CountsInItsNeed()
+        {
+            // The exchange is a committed cost like the activation: a later-captured death
+            // before it stops at what the exchange still needs.
+            var actions = new List<GameAction>
+            {
+                RepSeed(60), RepExchange("x", 300, 30f, 2, ReputationPenaltySource.Strategy),
+                Death("d", 100, 50f, 3),
+            };
+            RecalculationEngine.Recalculate(actions, 200);
+            Assert.InRange(reputation.GetRunningRep(), 29.0, 31.0);
+            Assert.InRange(reputation.GetOutstandingDebt(), 19.0, 21.0);
+            Assert.True(AnySettle());
+        }
+
+        // ------------------------------------------------------------------
         // The capture sequence
         // ------------------------------------------------------------------
 

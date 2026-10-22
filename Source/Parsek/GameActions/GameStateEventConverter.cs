@@ -247,8 +247,8 @@ namespace Parsek
         {
             GameAction action = ConvertEventCore(evt, recordingId);
             // The row was captured when its event was (committed-value rule plan 2.3).
-            if (action != null && action.CaptureSequence <= 0)
-                action.CaptureSequence = evt.captureSequence;
+            if (action != null && action.CaptureSequence == 0)
+                action.CaptureSequence = CaptureSequence.FromEvent(evt.captureSequence);
             return action;
         }
 

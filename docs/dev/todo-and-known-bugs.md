@@ -677,7 +677,12 @@ and logistics design section 10.6).**
   harness, cost rows never settled, an overcommitted timeline, the charge above `max(floor, 0)`, the
   three walks agreeing, a 60-trial no-rewind identity fuzz, capture sequence plumbing),
   `CurrencyReservationOverlayTests`. Mutations read red: plans not installed (9 cells), capture order
-  ignored in the plan and its pre-check (6), the reference stepping the settle (3). Deviations: adjustment rows
+  ignored in the plan and its pre-check (6), the reference stepping the settle (3). Review of 2deaaa3 fixed two
+  blockers red-first: a row converted from an older build's unsequenced event stays unsequenced
+  (`CaptureSequence.Unsequenced`), so an older save's merged flight is not floored by a purchase
+  made after the load (25,000 for stock's 45,000), and a strategy exchange's reputation leg
+  (sources `Strategy`, `StrategyConverter`) is a reputation cost row, never settled (49.99 with a
+  29.99 debt for stock's 20). Deviations: adjustment rows
   are never settled; batch writes are stamped in UT order; science has no non-cost loss so its settle
   is inert; the projection reserve stays debt-free; reputation's floor uses the debt-free curve (a
   few tenths short, documented). Harness, predicted and not re-flown: only lanes with a loss after a

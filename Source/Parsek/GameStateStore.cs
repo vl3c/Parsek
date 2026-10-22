@@ -79,6 +79,9 @@ namespace Parsek
                         // Update the existing event's valueAfter
                         existing.valueAfter = e.valueAfter;
                         events[i] = existing;
+                        // The caller sees the merged event's capture number (a direct
+                        // ledger write of this event carries it).
+                        e.captureSequence = existing.captureSequence;
                         ParsekLog.VerboseRateLimited("GameStateStore", "resource-coalesce",
                             $"Coalesced {e.eventType} event at ut={e.ut:F2} tag='{incomingTag}'");
                         return;

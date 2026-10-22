@@ -176,12 +176,12 @@ namespace Parsek
                 while (end < rows.Count && rows[end].UT == rows[g].UT) end++;
                 for (int k = g; k < end; k++)
                 {
-                    if (!IsAnyPoolCostType(rows[k].Type) && minCostSeqAfter < rows[k].CaptureSequence)
+                    if (!IsAnyPoolCostRow(rows[k]) && minCostSeqAfter < rows[k].CaptureSequence)
                         return true;
                 }
                 for (int k = g; k < end; k++)
                 {
-                    if (IsAnyPoolCostType(rows[k].Type) && rows[k].CaptureSequence < minCostSeqAfter)
+                    if (IsAnyPoolCostRow(rows[k]) && rows[k].CaptureSequence < minCostSeqAfter)
                         minCostSeqAfter = rows[k].CaptureSequence;
                 }
                 g = end;
@@ -190,9 +190,11 @@ namespace Parsek
         }
 
         /// <summary>A cost row of any pool (funds, science or reputation).</summary>
-        internal static bool IsAnyPoolCostType(GameActionType type)
+        internal static bool IsAnyPoolCostRow(GameAction action)
         {
-            return FundsModule.IsFundsCostRow(type) || ScienceModule.IsScienceCostRow(type);
+            return action != null
+                && (FundsModule.IsFundsCostRow(action.Type) || ScienceModule.IsScienceCostRow(action.Type)
+                    || ReputationModule.IsReputationCostRow(action));
         }
 
         internal string Describe()

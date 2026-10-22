@@ -182,7 +182,7 @@ namespace Parsek
             decision.Emit = true;
             decision.Magnitude = (float)(winner.valueBefore - winner.valueAfter);
             decision.UT = winner.ut;
-            decision.CaptureSequence = winner.captureSequence;
+            decision.CaptureSequence = Parsek.CaptureSequence.FromEvent(winner.captureSequence);
             return decision;
         }
     }

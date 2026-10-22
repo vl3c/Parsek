@@ -24,6 +24,10 @@ namespace Parsek
     {
         internal const string Key = "cseq";
 
+        /// <summary>A row known to have no capture number (converted from an event an older
+        /// build captured): never stamped, so it gets no floor and is ahead of nothing.</summary>
+        internal const long Unsequenced = -1;
+
         private static long highWater;
 
         /// <summary>The next capture sequence (always above every value in use).</summary>
@@ -41,10 +45,22 @@ namespace Parsek
                 highWater = inUse;
         }
 
-        /// <summary>Stamps <paramref name="action"/> with the next value when it has none.</summary>
+        /// <summary>
+        /// The capture number a row converted from an event carries: the event's own, or
+        /// <see cref="Unsequenced"/> when an older build captured the event without one. Such a
+        /// row was captured before anything this build stamped, so stamping it at write would
+        /// put it after a purchase made since the load (review of 2deaaa3, blocker 1).
+        /// </summary>
+        internal static long FromEvent(long eventCaptureSequence)
+        {
+            return eventCaptureSequence > 0 ? eventCaptureSequence : Unsequenced;
+        }
+
+        /// <summary>Stamps <paramref name="action"/> with the next value when it has none
+        /// (0); a row marked <see cref="Unsequenced"/> is left as it is.</summary>
         internal static void StampIfMissing(GameAction action)
         {
-            if (action != null && action.CaptureSequence <= 0)
+            if (action != null && action.CaptureSequence == 0)
                 action.CaptureSequence = Next();
         }
 
@@ -60,7 +76,7 @@ namespace Parsek
             for (int i = 0; i < batch.Count; i++)
             {
                 var a = batch[i];
-                if (a != null && a.CaptureSequence <= 0)
+                if (a != null && a.CaptureSequence == 0)
                     missing.Add(new KeyValuePair<int, GameAction>(i, a));
             }
             if (missing.Count == 0)
@@ -95,15 +111,15 @@ namespace Parsek
             return result;
         }
 
-        /// <summary>Parses a saved value; anything unreadable or not positive is "none".</summary>
+        /// <summary>Parses a saved value: a positive number, <see cref="Unsequenced"/> for any
+        /// negative one, 0 ("none yet") when absent or unreadable.</summary>
         internal static long Parse(string value)
         {
             long parsed;
             if (string.IsNullOrEmpty(value)
-                || !long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed)
-                || parsed < 0)
+                || !long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed))
                 return 0;
-            return parsed;
+            return parsed < 0 ? Unsequenced : parsed;
         }
 
         internal static void ResetForTesting()

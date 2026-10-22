@@ -148,9 +148,13 @@ deadline fails are told apart from ledger rows by membership in the input list, 
 - **Cost rows** (what the floor protects; ruling L1.3's "committed purchase or strategy cost"):
   funds `FundsSpending`, `FacilityUpgrade`, `FacilityRepair`, `KerbalHire`, `StrategyActivate`
   setup funds; science `ScienceSpending`, `StrategyActivate` setup science; reputation
-  `StrategyActivate` setup reputation. Repairs are cost rows like any purchase: a repair a new
-  destruction made chargeable is charged in the debt-free walk too, so the reservation grows the
-  moment the destruction lands, and anything it cannot cover becomes debt (L1.5).
+  `StrategyActivate` setup reputation and the reputation input leg of a strategy exchange
+  (`ReputationPenalty` with source `Strategy`, Bail-Out Grant, or `StrategyConverter`, Fundraising /
+  Unpaid Research / the scaling operations), like the funds and science halves of an exchange: its
+  paired credit pays in full, so settling the leg would create value. Repairs are cost rows like
+  any purchase: a repair a new destruction made chargeable is charged in the debt-free walk too, so
+  the reservation grows the moment the destruction lands, and anything it cannot cover becomes debt
+  (L1.5).
 - **Floor-limited losses** (never reserved for): reputation penalties with source `KerbalDeath` or
   `Other`. Nothing in funds or science today.
 - **Cost ahead, by capture order** (coordinator ruling 2026-10-22, after the phase 3 build showed
@@ -242,8 +246,11 @@ lines rate-limited. Deviations from the text above:
 - Science has no non-cost loss row today, so its settle is wired and inert.
 - Rows reach the ledger stamped: `Ledger.AddAction` stamps an unstamped row, `AddActions` stamps a
   batch's unstamped rows in UT order (a batch has no capture order of its own), the crew-death
-  reputation row carries its winning event's sequence. An event converted from an older save's
-  store is stamped when its row is written.
+  reputation row carries its winning event's sequence. A row converted from an event an older
+  build captured (no sequence: an older save's pending flight, its in-flight tree, the old-save
+  migration) is marked `CaptureSequence.Unsequenced` (-1, saved as `cseq = -1`), which no stamper
+  touches, so it gets no floor and is ahead of nothing; only a row with no event behind it is
+  stamped at write. A coalesced resource event hands its merged event's number back to the caller.
 - Reputation: the floor comes from the debt-free walk's curve, so L1.4 holds a few tenths above 40
   with a debt a few tenths above 10, and the strategy can leave reputation that shortfall below
   0 (`L14_...` pins ranges).
@@ -533,3 +540,12 @@ Flown on V's PC.
   capture order (2.3), with a capture sequence per save. The counterexample is a cell that must read
   exactly stock (stock's numbers, no debt, no adjustment row, no floor line), next to the same rows with the
   purchase captured before the fail (floor and debt), for funds and reputation.
+- Review of 2deaaa3 (clean review of the phase 3 build, two blockers, both red-first cells now):
+  (1) an older save's events carry no sequence, and converting them at the merge stamped them at
+  write, after a Space Center purchase made since the load, so the purchase read as ahead of the
+  older flight's loss: 10k, a 30k fail at UT 900 and a 50k earning at 960 from the older flight, a
+  5k facility at 1010 bought after the load gave 25,000 where stock gives 45,000. Fixed: such a row
+  stays unsequenced (2.3 "Built"). (2) the reputation input leg of a strategy exchange was not a
+  cost row, so the walk settled it while its funds or science credit paid in full (reputation 60, a
+  committed 50 strategy at UT 300, a post-rewind exchange of 40 at 150: 49.99 with a debt of 29.99,
+  stock 20). Fixed: those sources are reputation cost rows (2.3 cost rows).

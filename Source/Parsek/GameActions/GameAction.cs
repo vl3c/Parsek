@@ -1007,7 +1007,7 @@ namespace Parsek
                 node.AddValue("recordingId", RecordingId);
             if (Sequence != 0)
                 node.AddValue("seq", Sequence.ToString(IC));
-            if (CaptureSequence > 0)
+            if (CaptureSequence != 0)
                 node.AddValue(Parsek.CaptureSequence.Key, CaptureSequence.ToString(IC));
 
             // TYPE-AGNOSTIC ON PURPOSE. The flag applies to every reputation-affecting row
