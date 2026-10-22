@@ -118,6 +118,9 @@ namespace Parsek
             budgetDeductionApplied = false;
             mergeDialogPending = false;
             currentFlightLaunchUT = double.NaN;
+            flightEntryLedgerActionIds = null;
+            freshLaunchEntryPending = false;
+            lastLoadDroppedRecordingIds = null;
             vesselSwitchPending = false;
             vesselSwitchPendingFrame = -1;
             flightSceneReadyForVesselSwitchFlag = false;
