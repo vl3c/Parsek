@@ -285,7 +285,7 @@ takes the later of the clock and the latest row of both lists, so `L` and `L'` j
 Judging the walk-time expiry at the clock instead was rejected: the other walks during a session
 are clock-less, so the invoke walk alone would keep the contract active and the next walk would
 fail it. Cells: `ContractsModuleTests.PrePass_SessionClockBeforeDeadline_CommittedRowPastIt_*`,
-`RewindUtCutoffTests.ReFlyInvokeWalk_DeadlineAheadOfClockButBehindACommittedRow_ChargesThePenalty`.
+`RewindUtCutoffTests.ReFlyInvokeWalk_DeadlineAheadOfClockButBehindACommittedRow_EndsTheContractInBothWalks` (renamed with committed-value plan phase 2: an injected fail no longer charges a pool, so both walks hold the penalty back).
 
 ## ~~REFLY-INVOKE-HOLDS-NOT-REDRAWN-AFTER-RELOAD: the vessels a Re-Fly invoke holds back for the committed future are held in memory only~~ [FILED 2026-10-20, deferred by the section 2.12 phase agents. FIXED on branch claude/project-thread-7ifqcx (PR #2173); lane RB-3 LIVE-PROVEN `2026-10-22_0710`]
 

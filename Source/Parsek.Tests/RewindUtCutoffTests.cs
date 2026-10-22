@@ -1361,10 +1361,12 @@ namespace Parsek.Tests
 
         // catches REFLY-WALK-DEADLINE-EXPIRES-CONTRACT-WITHOUT-PENALTY: the deadline lies
         // ahead of the session clock but behind a committed row, so the walk ends the
-        // contract at that row; the clock-less walk of the same ledger charges the penalty,
-        // and the invoke walk must too (no transient rise the next walk takes back).
+        // contract at that row, and the invoke walk and the clock-less walk of the same ledger
+        // must agree (no transient move the next walk takes back). Since committed-value plan
+        // phase 2 (design 3.13, plan 2.4) an injected fail moves contract state only and
+        // charges no pool, so both walks hold the penalty back.
         [Fact]
-        public void ReFlyInvokeWalk_DeadlineAheadOfClockButBehindACommittedRow_ChargesThePenalty()
+        public void ReFlyInvokeWalk_DeadlineAheadOfClockButBehindACommittedRow_EndsTheContractInBothWalks()
         {
             AddAll(
                 FundsSeed(10000f),
@@ -1375,7 +1377,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.RecalculateAndPatch(double.MaxValue, deadlineClockUT: 400.0);
             double invokeFunds = LedgerOrchestrator.Funds.GetRunningBalance();
 
-            Assert.Equal(9800.0, invokeFunds, 1);
+            Assert.Equal(10300.0, invokeFunds, 1);
             Assert.Equal(0, LedgerOrchestrator.Contracts.GetActiveContractCount());
             Assert.Contains(logLines, l =>
                 l.Contains("[Contracts]")
