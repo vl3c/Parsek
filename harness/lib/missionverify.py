@@ -166,9 +166,11 @@ def compose_driver_validity(ev: "hlib.ResponseEvaluation", mission: Optional[Dic
     # driver-INVALID (retryable) rather than a PARSEK-FAIL(expectation) read off the
     # tokens the refused step never let print. Being first, it precedes any outcome miss.
     first_post_unmet = hlib.first_unmet_post_mission_step(ev.steps, mission_id)
+    # Only on an otherwise valid pre-mission stage: an unmet pre-mission step keeps
+    # its own subkind.
     recording_refusal_subkind = (
         hlib.classify_post_mission_recording_refusal(first_post_unmet)
-        if mission["met"] else "")
+        if (mission["met"] and pre_met) else "")
     if recording_refusal_subkind:
         driver_valid = False
         stage_subkind = recording_refusal_subkind
@@ -193,12 +195,15 @@ def compose_driver_validity(ev: "hlib.ResponseEvaluation", mission: Optional[Dic
             "msg": outcome_unmet.msg,
             "flightOutcome": is_flight_outcome,
             "driverSubkind": outcome_driver_subkind}),
-        "recordingRefusal": (None if not recording_refusal_subkind else {
+    }
+    # Written only when present, so a row replayed over a run archived before the key
+    # existed stays equal to its archive (mutmission.prepare_baseline compares exactly).
+    if recording_refusal_subkind:
+        detail_outcome["recordingRefusal"] = {
             "id": first_post_unmet.step_id, "cmd": first_post_unmet.cmd,
             "expect": first_post_unmet.expect, "verdict": first_post_unmet.verdict,
             "msg": first_post_unmet.msg,
-            "driverSubkind": recording_refusal_subkind}),
-    }
+            "driverSubkind": recording_refusal_subkind}
     return DriverValidity(driver_valid, stage_subkind, mission_outcome_unmet,
                           detail_mission, detail_outcome, outcome_unmet,
                           is_flight_outcome, outcome_driver_subkind, gating_verbs,

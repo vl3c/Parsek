@@ -12148,8 +12148,10 @@ def blamed_driver_step(result: Dict) -> Optional[Dict]:
         mission row; else an unmet mission row owns it (None - a mission is never a
         seam reply); else a met mission whose post-mission OUTCOME step was a driver
         fault (``verifiers.missionOutcome.firstUnmet`` with a ``driverSubkind``),
-        returned as that row. A non-gating post-mission recording step is never
-        blamed: it does not fail the driver stage.
+        returned as that row. A post-mission recording step is blamed only when the
+        seam REFUSED it as the first post-mission miss
+        (``verifiers.missionOutcome.recordingRefusal``), which precedes any outcome
+        miss; otherwise it does not fail the driver stage.
     The returned dict carries at least ``id`` / ``cmd`` / ``verdict`` / ``msg``."""
     steps = ((result or {}).get("driver") or {}).get("steps") or []
     mission_idx = next((i for i, s in enumerate(steps)
@@ -12163,6 +12165,9 @@ def blamed_driver_step(result: Dict) -> Optional[Dict]:
     if steps[mission_idx].get("met") is not True:
         return None
     outcome = (((result or {}).get("verifiers") or {}).get("missionOutcome") or {})
+    refusal = outcome.get("recordingRefusal")
+    if isinstance(refusal, dict) and refusal.get("driverSubkind"):
+        return refusal
     first = outcome.get("firstUnmet")
     if isinstance(first, dict) and first.get("driverSubkind"):
         return first

@@ -359,7 +359,9 @@ class SharedPathTests(unittest.TestCase):
             ev([("0001", "LoadGame", "OK", ""), ("0003", "Recover", "ERROR", "")]),
             ok_mission, False, False)
         self.assertEqual((True, ""), (errored.driver_valid, errored.stage_subkind))
-        self.assertIsNone(errored.detail_mission_outcome["recordingRefusal"])
+        # The key is written only when present, so a replay over a run archived before it
+        # existed stays byte-equal (prepare_baseline compares the row exactly).
+        self.assertNotIn("recordingRefusal", errored.detail_mission_outcome)
         # An unknown refusal reason is not a known gate: non-gating, as before.
         unknown = missionverify.compose_driver_validity(
             ev([("0001", "LoadGame", "OK", ""), ("0003", "Recover", "REJECTED",
@@ -379,6 +381,17 @@ class SharedPathTests(unittest.TestCase):
              "subkind": "autopilot-flake"}, False, False)
         self.assertEqual("autopilot-flake", unmet.stage_subkind)
         self.assertIsNone(unmet.recording_refusal)
+        pre = missionverify.compose_driver_validity(
+            ev([("0001", "LoadGame", "ERROR", ""), ("0003", "Recover", "REJECTED",
+                 "recover-not-clear-to-save")]), ok_mission, False, False)
+        self.assertEqual((False, "load-failed"), (pre.driver_valid, pre.stage_subkind))
+        self.assertIsNone(pre.recording_refusal)
+        # The retry veto blames the refused step, the cause, ahead of any later miss.
+        blamed = hlib.blamed_driver_step({
+            "driver": {"steps": [{"id": "0001", "cmd": "LoadGame", "met": True},
+                                 {"id": "0002", "phase": "mission", "met": True}]},
+            "verifiers": {"missionOutcome": refused.detail_mission_outcome}})
+        self.assertEqual("Recover", blamed["cmd"])
 
 
 
