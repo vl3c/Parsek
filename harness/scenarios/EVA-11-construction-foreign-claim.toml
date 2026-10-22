@@ -1,5 +1,13 @@
 schema = 1
 id = "EVA-11-construction-foreign-claim"
+# 2026-10-22 (branch `claude/project-thread-stn7at`, todos REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-
+# FUTURE-LIVE / CLAIMED-VESSEL-DESPAWN-AT-REWIND-OUTSIDE-FLIGHT / REWIND-TO-LAUNCH-LANDS-IN-THE-
+# LATEST-PERSISTENT-WORLD): the Rewind-to-Launch now lands in the rewind save's own world and holds
+# the claimed rover back in every scene (`[RewindHold] Rewind held vessel for its committed
+# future`), so at the Space Center the rover is GONE, not real: both Recover presses are refused as
+# `vessel-not-found` (owner ruling 2026-10-22: hidden outside flight until its committed flight's
+# ghost), and the flight reload tracks the absent rover from the hold's copy (`Held vessel tracked
+# without a live vessel`) instead of ghosting a live one. Spec changed, not re-flown.
 # 2026-10-22 (branch `claude/project-thread-77b92l`): also the live proof of GC-2 (PR #2156,
 # never flown): after the Rewind-to-Launch the claimed rover is real at the Space Center, and
 # its KSC-marker Recover and Tracking Station Recover / Delete must be greyed and refused (two
@@ -121,11 +129,11 @@ steps = [
   # a Space Center save reloaded into FLIGHT on the pad Kerbal X.
   { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
   { cmd = "SaveGame",   args = { name = "eva11-rewound" },                   expect = "OK", budget = 120 },
-  # GC-2 (PR #2156, first flown here): at the Space Center the rewind lands in, the rover is a
-  # REAL vessel a committed future flight (the member) still claims. Stock's KSC-marker Recover
-  # and the Tracking Station's Recover / Delete are greyed for it, so both presses are refused
-  # as a locked button, and nothing is recovered (the ghost and the tip spawn below still find
-  # the rover). After the save, so the reload below reads the same save as before.
+  # The rewind held the claimed rover back (rewind vessel hold): at the Space Center it lands
+  # in there is no rover to recover, so both presses are refused as vessel-not-found and
+  # nothing is recovered. After the save, so the reload below reads the same save as before.
+  # (GC-2's greyed buttons, live-proven here 2026-10-22_1214, now apply only to a live claimed
+  # vessel a load outside a rewind still shows.)
   { cmd = "KscMarkerRecover",       args = { pid = "1871615455" },             expect = "REJECTED", budget = 120 },
   { cmd = "TrackingStationRecover", args = { pid = "1871615455" },             expect = "REJECTED", budget = 120 },
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "eva11-rewound" }, expect = "OK", budget = 300 },
@@ -195,17 +203,19 @@ required = [
   # ACT 3: the rewind, the reloaded chain, the ghost and the tip spawn in its built shape.
   "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=1",
   "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
-  # GC-2: the claimed rover's Recover buttons are greyed by the claim and the presses refused.
-  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[ClaimedVessel\\] Blocked KSC marker Recover \\(greyed\\) of claimed vessel 'rover fuel 0' pid=1871615455 chainTip=[0-9a-f]+ ",
-  "invokerewindtolaunch complete [\\s\\S]*kscrecover rejected reason=kscrecover-button-locked pid=1871615455",
-  "invokerewindtolaunch complete [\\s\\S]*\\[ClaimedVessel\\] Blocked Tracking Station Recover/Delete \\(greyed\\) of claimed vessel 'rover fuel 0' pid=1871615455 chainTip=[0-9a-f]+ ",
-  "invokerewindtolaunch complete [\\s\\S]*tsrecover rejected reason=tsrecover-button-locked pid=1871615455",
+  # The rewind lands in the rewind save's world and holds the claimed rover back there.
+  "Rewind-to-Launch initiated to UT [\\s\\S]*Rewind: rewind game written to persistent\\.sfs ",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind held vessel for its committed future: pid=1871615455 name='rover fuel 0' [^\\r\\n]*evidence=chain [^\\r\\n]*snapshot=yes",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind vessel hold: survivors=[0-9]+ held=1 ",
+  "invokerewindtolaunch complete [\\s\\S]*kscrecover rejected reason=kscrecover-vessel-not-found ",
+  "invokerewindtolaunch complete [\\s\\S]*tsrecover rejected reason=tsrecover-vessel-not-found ",
   "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*invokerewindtolaunch complete [\\s\\S]*listhandles chain index=[0-9]+ pid=1871615455 links=1 trees=1 treeIds=[0-9a-f]{32} tip=\\1",
   "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva11-reloaded-chains-[1-9][^\\r\\n]*-\\1-false-",
-  "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Vessel ghosted: pid=1871615455 name=rover fuel 0[\\s\\S]*\\[Ghoster\\] Chain tip spawn: pid=1871615455 vessel=rover fuel 0 preserveIdentity=true [^\\r\\n]*parts=15",
+  "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Held vessel tracked without a live vessel: pid=1871615455 name=rover fuel 0[\\s\\S]*\\[Ghoster\\] Chain tip spawn: pid=1871615455 vessel=rover fuel 0 preserveIdentity=true [^\\r\\n]*parts=15",
+  "invokerewindtolaunch complete [\\s\\S]*\\[ClaimedHoldGhost\\] Rewind vessel holds restored on flight load: saved=1 restored=1 ",
   "invokerewindtolaunch complete [\\s\\S]*Chain tip spawn complete: #[0-9]+ \"rover fuel 0\" pid=1871615455",
   # The despawned rover stays drawn, in its pre-construction shape, until the member's claim.
-  "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Vessel ghosted: pid=1871615455 [\\s\\S]*\\[ClaimedHoldGhost\\] Claimed vessel hold ghost shown: pid=1871615455 name='rover fuel 0' chain=1871615455 source=snapshot-surface body=Kerbin parts=16 firstClaimUT=[0-9.]+ UT=[0-9.]+ from=rewind-save",
+  "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Held vessel tracked without a live vessel: pid=1871615455 [\\s\\S]*\\[ClaimedHoldGhost\\] Claimed vessel hold ghost shown: pid=1871615455 name='rover fuel 0' chain=1871615455 source=snapshot-surface body=Kerbin parts=16 firstClaimUT=[0-9.]+ UT=[0-9.]+ from=rewind-save",
   "Claimed vessel hold ghost shown: pid=1871615455 [\\s\\S]*Claimed vessel hold ghost released: pid=1871615455 name='rover fuel 0' reason=(claimed|covered-by-recording) [\\s\\S]*Chain tip spawn: pid=1871615455 ",
   # Playback applies the first detach's event to the member's ghost (the tally line names
   # the first applied pid of its batch).
@@ -231,7 +241,8 @@ forbidden = [
   # A detach is a part change on the rover, never a split of it.
   "Background vessel split detected: parentPid=1871615455 ",
   "invokerewindtolaunch refused",
-  # GC-2: the claimed rover is never recovered.
+  # The held rover is never recovered, nor ghosted as a live vessel.
+  "\\[Ghoster\\] Vessel ghosted: pid=1871615455 ",
   "tsrecover complete pid=1871615455",
   "kscrecover complete pid=1871615455",
   "Stripping orphaned spawned vessel 'rover fuel 0'",

@@ -555,6 +555,15 @@ namespace Parsek
             if (SafeWritePersistentForTesting != null)
                 return SafeWritePersistentForTesting(destination);
 
+            if (RewindContext.IsRewinding && RewindContext.RewindGameWrittenToPersistent)
+            {
+                // A rewind already wrote its own game to persistent.sfs for the scene start to
+                // reload; saving the scene being left would put the old world back.
+                ParsekLog.Info("SceneExit",
+                    $"SafeWritePersistent: skipped dest={destination} - a rewind wrote its game to persistent.sfs");
+                return true;
+            }
+
             try
             {
                 if (HighLogic.CurrentGame != null)

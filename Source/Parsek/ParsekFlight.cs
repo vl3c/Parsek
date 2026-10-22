@@ -5881,6 +5881,24 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The branch-point partner stamp of a Board merge: the boarded vessel's pid and live
+        /// launch guid when that vessel is outside the tree (another mission's vessel, or one
+        /// no recording carries), so the chain walker and the rewind hold see the boarding as
+        /// a claim on it, as they do a Dock onto it. A board onto a vessel of the same tree
+        /// (its <c>BackgroundMap</c> holds it) is a two-parent merge that already closes that
+        /// vessel's own line, so it stays unstamped. Pure.
+        /// </summary>
+        internal static uint ResolveBoardPartnerStamp(
+            bool targetInTree, uint boardedVesselPid, string boardedVesselGuid, out string partnerGuid)
+        {
+            partnerGuid = null;
+            if (targetInTree || boardedVesselPid == 0u)
+                return 0u;
+            partnerGuid = string.IsNullOrEmpty(boardedVesselGuid) ? null : boardedVesselGuid;
+            return boardedVesselPid;
+        }
+
+        /// <summary>
         /// The launch guid to stamp beside the branch-point partner pid: the live
         /// <c>Vessel.id</c> of whichever couple-event side carries
         /// <paramref name="partnerStampPid"/>, read while both vessels still exist. The pid
@@ -5963,7 +5981,7 @@ namespace Parsek
             BranchPointType branchType, uint branchStampPid, uint mergedVesselPid)
         {
             // Dock-only: boarding does not absorb a separate spawned / adopted committed
-            // leaf, and Board callers stamp no partner anyway.
+            // leaf (a foreign Board's stamp names the vessel that flies on as the merged child).
             if (branchType != BranchPointType.Dock) return 0u;
             // 0 = no resolvable partner; == merged means the partner survived AS the
             // merged vessel, so its terminal spawn is owned by the live continuation.
@@ -13038,6 +13056,7 @@ namespace Parsek
             // Phase 6b: Evaluate ghost chains and ghost claimed vessels
             EvaluateAndApplyGhostChains();
             RestoreReFlyInvokeHoldsFromMarker(Planetarium.GetUniversalTime());
+            RestoreRewindVesselHolds(Planetarium.GetUniversalTime());
 
             // Capture active vessel PID at scene entry for stateless spawn dedup bypass.
             // After revert, the pad vessel shares the same PID as recorded vessels — at
@@ -13667,6 +13686,15 @@ namespace Parsek
             if (pendingBoardingTargetInTree)
                 activeTree.BackgroundMap.TryGetValue(mergedPid, out bgParentId);
 
+            string boardPartnerGuid;
+            uint boardPartnerPid = ResolveBoardPartnerStamp(
+                pendingBoardingTargetInTree, mergedPid,
+                AnchorDetector.TryReadLiveVesselGuid(FlightGlobals.ActiveVessel),
+                out boardPartnerGuid);
+            ParsekLog.Verbose("Flight",
+                $"Board merge partner stamp: targetPid={mergedPid} inTree={pendingBoardingTargetInTree} " +
+                $"partnerPidStamped={boardPartnerPid} partnerGuidStamped={boardPartnerGuid ?? "(none)"}");
+
             // Fix 5: clear ChainToVesselPending before CreateMergeBranch
             recorder.ChainToVesselPending = false;
             var stoppedRecorder = recorder;
@@ -13678,7 +13706,9 @@ namespace Parsek
                 activeParentId,
                 bgParentId,
                 mergeUT,
-                stoppedRecorder);
+                stoppedRecorder,
+                branchPartnerPid: boardPartnerPid,
+                branchPartnerGuid: boardPartnerGuid);
 
             pendingBoardingTargetPid = 0;
             boardingConfirmFrames = 0;

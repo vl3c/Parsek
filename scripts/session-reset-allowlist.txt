@@ -16,6 +16,7 @@ RecordingStore.committedTrees cleared by the cold branch (ClearCommittedInternal
 RecordingStore.CurrentUniversalTimeForRewindRetirementOverrideForTesting test seam
 RecordingStore.LegacyRecordingFileSuffixes constant table
 RecordingStore.RecordingFileSuffixes constant table
+RecordingStore.RewindWritePersistentForTesting test seam
 RecordingStore.SaveGameForTesting test seam
 RecordingStore.SkipSidecarCurrencyCheckForTesting test seam
 RecordingStore.StateVersion monotonic change counter; readers compare it for change, so it never goes back

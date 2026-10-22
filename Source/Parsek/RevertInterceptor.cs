@@ -844,7 +844,7 @@ namespace Parsek
         }
 
         /// <summary>The stored ParsekScenario node of <paramref name="game"/>, or null.</summary>
-        private static ConfigNode FindParsekScenarioProtoNode(Game game)
+        internal static ConfigNode FindParsekScenarioProtoNode(Game game)
         {
             List<ProtoScenarioModule> protos = game?.scenarios;
             if (protos == null)

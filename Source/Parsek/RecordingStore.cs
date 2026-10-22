@@ -5811,6 +5811,10 @@ namespace Parsek
                         rewindSaveOwnUT, game.flightState.universalTime),
                     messageLabel);
 
+                // The Space Center start reloads persistent.sfs, not CurrentGame: put the rewind
+                // game there so the rewind lands in the rewind save's own world.
+                WriteRewindGameAsPersistent(game, messageLabel);
+
                 HighLogic.CurrentGame = game;
                 HighLogic.LoadScene(GameScenes.SPACECENTER);
 
