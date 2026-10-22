@@ -77,7 +77,8 @@ tier = "nightly"
 #           above) was right.
 #           FIX (2026-10-22): build_route_career.py edit 7 strips the KSC debris stock
 #           recovered and seeds the milestone it awarded, so the clamp is now FORBIDDEN
-#           (the seam lanes' token); the next flight is its first reading.
+#           (the seam lanes' token). FLIGHT 2 `2026-10-22_0840` PASS attempt 1 (DLL
+#           02ad43bd, PR #2175): zero clamp lines, zero recoveries, the same 35 / 0 / 12.
 #
 # THE SKIP ROSTER - all 12, H40's verbatim (`Depot` is the active vessel; see H40's
 # header for each full skip string):

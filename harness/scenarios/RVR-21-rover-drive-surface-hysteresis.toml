@@ -107,6 +107,8 @@ kind = "seam"
 # booted the rover drifting at 0.12 / 0.15 m/s, so the recorder initialized SurfaceMobile
 # and the claimed Stationary -> Mobile transition never printed. A rover still moving at
 # the 20 s bound ends ERROR drivevessel-did-not-settle (fail fast, a driver fault).
+# FLOWN 2026-10-22 (PR #2175, DLL 02ad43bd): `2026-10-22_0831` PASS attempt 1, settled in
+# 0.58 game s from 0.088 m/s, `initial=SurfaceStationary`, the one transition at UT=984.94.
 steps = [
   { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
   { cmd = "StopRecording",                                                                expect = "OK" },

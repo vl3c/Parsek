@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~QL-2-RECOVER-REFUSED-WHILE-SLIDING: QL-2's Recover can be refused while the landed Flea still slides, and the refusal reads as a Parsek failure~~ [FILED 2026-10-22 from QL-2 `2026-10-21_2220` and `2026-10-22_0001` (both PARSEK-FAIL, expectations), flown for PR #2170. Half fixed in PR #2170, merged (the verb waits); the classification half FIXED 2026-10-22 on branch `claude/project-thread-mux3tg` (harness unit cells). harness]
+## ~~QL-2-RECOVER-REFUSED-WHILE-SLIDING: QL-2's Recover can be refused while the landed Flea still slides, and the refusal reads as a Parsek failure~~ [FILED 2026-10-22 from QL-2 `2026-10-21_2220` and `2026-10-22_0001` (both PARSEK-FAIL, expectations), flown for PR #2170. Half fixed in PR #2170, merged (the verb waits); the classification half FIXED 2026-10-22 in PR #2175 (harness unit cells; QL-2 `2026-10-22_0833` PASS attempt 1 did not hit a refusal). harness]
 
 The mission reported MISSION-OK, but seam step 0067 `Recover` was refused
 `recover-not-clear-to-save ... situation=LANDED hSrfSpeed=0.30 clearToSave=NOT_WHILE_MOVING_OVER_SURFACE`:
@@ -39,7 +39,7 @@ driver-INVALID (here `driver-gate`, retried once), with the step in the `mission
 from a recording verb stays non-gating (the verb acted), and an earlier non-refusal miss keeps
 its classification. Unit cells in `test_mutmission.py`.
 
-## ~~ROUTE-CAREER-FIXTURES-EARN-STOCK-EVENTS-AT-LOAD: two of the career route copies earn stock career rewards at their first load, so the ledger logs drawdown-guard clamps~~ [FILED 2026-10-21 from H76 `2026-10-21_2019` and H78 `2026-10-21_2022` (both PASS, no gate failed), branch `career-route-lanes`. FIXED 2026-10-22 on branch `claude/project-thread-mux3tg` (fixtures rebuilt; H76 / H78 now forbid the clamp). harness]
+## ~~ROUTE-CAREER-FIXTURES-EARN-STOCK-EVENTS-AT-LOAD: two of the career route copies earn stock career rewards at their first load, so the ledger logs drawdown-guard clamps~~ [FILED 2026-10-21 from H76 `2026-10-21_2019` and H78 `2026-10-21_2022` (both PASS, no gate failed), branch `career-route-lanes`. FIXED 2026-10-22 in PR #2175 (fixtures rebuilt; H76 / H78 now forbid the clamp); LIVE-PROVEN by H76 `2026-10-22_0840` and H78 `2026-10-22_0842`, both PASS attempt 1 with zero clamp lines. harness]
 
 **Symptom.** H76 logs `GUARDED DRAWDOWN clamped ... ledger may be missing an earning channel` 80 times and H78 40 times. No gate failed (neither lane forbids the clamp), the redelivery cell logged `funds unchanged net=0` on both, and the route cycles net 0. H74 / H75 / H77 / H79, which forbid the clamp, logged none.
 
@@ -47,9 +47,9 @@ its classification. Unit cells in `test_mutmission.py`.
 
 **How stock pays.** Decompiled (KSP 1.12.5): `FlightState` marks every `type = Debris` vessel LANDED in the KSC, a launch pad or a runway auto-clean at a save when `DECLUTTER_KSC` is on, and the next load's `ProtoVessel.Clean` fires `onVesselRecovered` for it, which pays in career. Kerbin/Rendezvous completes when two loaded vessels of different missions in orbit close under 50 m/s.
 
-**Fix.** `harness/tools/build_route_career.py` edit 7: strip those debris vessels from FLIGHTSTATE (depot 1, bdock 4; `activeVessel` re-indexed, no Parsek node names them) and seed `Progress/Kerbin/Rendezvous { completed = 0 }` into depot's ProgressTracking (`PROGRESS_SEEDS`). The other three copies needed neither. H76 / H78 now forbid `GUARDED (DRAWDOWN|UPLIFT) clamped resource=`, the seam lanes' token; their next flight is the first reading.
+**Fix.** `harness/tools/build_route_career.py` edit 7: strip those debris vessels from FLIGHTSTATE (depot 1, bdock 4; `activeVessel` re-indexed, no Parsek node names them) and seed `Progress/Kerbin/Rendezvous { completed = 0 }` into depot's ProgressTracking (`PROGRESS_SEEDS`). The other three copies needed neither. H76 / H78 now forbid `GUARDED (DRAWDOWN|UPLIFT) clamped resource=`, the seam lanes' token, and both read zero on their first flight with it.
 
-## ~~MINE-7-RESTORE-PIN-ASSUMES-DRILLS-OFF: MINE-7 pins the spawned-drill restore line to "restored=4 alreadyOn=0", but the drills can come back on by themselves~~ [FILED 2026-10-21 from MINE-7 `2026-10-21_1604` (PARSEK-FAIL, expectations), flown for PR #2163. FIXED 2026-10-22 on branch `claude/project-thread-mux3tg` (the pin takes all five restored / alreadyOn pairs summing to 4). harness]
+## ~~MINE-7-RESTORE-PIN-ASSUMES-DRILLS-OFF: MINE-7 pins the spawned-drill restore line to "restored=4 alreadyOn=0", but the drills can come back on by themselves~~ [FILED 2026-10-21 from MINE-7 `2026-10-21_1604` (PARSEK-FAIL, expectations), flown for PR #2163. FIXED 2026-10-22 in PR #2175 (the pin takes all five restored / alreadyOn pairs summing to 4); MINE-7 `2026-10-22_0827` PASS attempt 1. harness]
 
 **Symptom.** The lane's required line `Spawned harvester restore: vessel=Mining Rover RC pid=[0-9]+ restored=4 alreadyOn=0 missing=0` did not match: KSP.log had `restored=0 alreadyOn=4 missing=0` 2 s after `Unpacking Mining Rover RC` (`restore armed ... harvesters=4` before it). Mining and every resource check passed; every other verifier passed. The green `2026-10-17_1506_a2` run logged `restored=4 alreadyOn=0`.
 
@@ -59,7 +59,7 @@ its classification. Unit cells in `test_mutmission.py`.
 
 **Phase 2 flight (PR #2167 at 70e00ff, `2026-10-21` p2 run).** The pinned line matched (`restored=4 alreadyOn=0 missing=0`), so this flight did not show the race; it went PARSEK-FAIL for environment reasons instead. Attempt 1 died at seam step 0036 on a refused `WarpToUT` (warp-locked by `flightDriver_ApplicationFocus`: the KSP window lost focus). Attempt 2 was a native KSP crash (0xC0000005) during `WarpToUT` step 0012. Neither attempt had a Parsek frame or a Parsek ERROR. The pin fix above still stands.
 
-## ~~RVR-21-START-SPEED-ABOVE-STATIONARY: RVR-21 needs the rover to start recording below 0.1 m/s, and a boot that leaves it drifting at 0.12 m/s starts SurfaceMobile~~ [FILED 2026-10-21 from RVR-21 `2026-10-21_1626` (PARSEK-FAIL, expectations), flown for PR #2163. FIXED 2026-10-22 on branch `claude/project-thread-mux3tg` (a settle step before StartRecording; xUnit + harness cells). harness]
+## ~~RVR-21-START-SPEED-ABOVE-STATIONARY: RVR-21 needs the rover to start recording below 0.1 m/s, and a boot that leaves it drifting at 0.12 m/s starts SurfaceMobile~~ [FILED 2026-10-21 from RVR-21 `2026-10-21_1626` (PARSEK-FAIL, expectations), flown for PR #2163. FIXED 2026-10-22 in PR #2175 (a settle step before StartRecording; xUnit + harness cells); LIVE-PROVEN by RVR-21 `2026-10-22_0831` PASS attempt 1 (settled from 0.088 m/s, initial=SurfaceStationary). harness]
 
 **Symptom.** The required `Environment transition: SurfaceStationary -> SurfaceMobile at UT=... (debounce=3.0s)` line never printed (zero transition lines). `drivevessel start: ... srfSpeed=0.12`, `Hysteresis initialized: initial=SurfaceMobile`. The drive worked (`outcome=moved ... maxSrfSpeed=23.11 pathMeters=109.4`); every other verifier passed. The green `2026-10-15_1539` run and its negative control `_1544` started at 0.10 and 0.05 m/s.
 
@@ -71,7 +71,7 @@ its classification. Unit cells in `test_mutmission.py`.
 
 **Done.** `DriveVessel` gained a settle mode: `settleBelow=<m/s, (0, 0.1]> seconds=<bound>` in place of `wheelThrottle=` waits, touching no control, until srfSpeed stayed below the threshold for 0.5 game s (`drivevessel settle end: outcome=settled`), else ERROR `drivevessel-did-not-settle`. RVR-21 runs `settleBelow=0.05 seconds=20` right before `StartRecording` and requires the settled line.
 
-## ~~L2-AFTER-QUIT-STOCK-NRE: L2-ledger-groundtruth-career's armed `unityExceptions maxTotal = 0` counts two stock NullReferenceExceptions thrown after Parsek's quit~~ [FILED 2026-10-21 from L2 `2026-10-21_1640` (PARSEK-FAIL, unityExceptions), flown for PR #2163. FIXED 2026-10-22 on branch `claude/project-thread-mux3tg` (harness unit cells). harness]
+## ~~L2-AFTER-QUIT-STOCK-NRE: L2-ledger-groundtruth-career's armed `unityExceptions maxTotal = 0` counts two stock NullReferenceExceptions thrown after Parsek's quit~~ [FILED 2026-10-21 from L2 `2026-10-21_1640` (PARSEK-FAIL, unityExceptions), flown for PR #2163. FIXED 2026-10-22 in PR #2175 (harness unit cells); L2 `2026-10-22_0832` PASS attempt 1 (no after-quit exception to exclude that run). harness]
 
 **Symptom.** `unityExceptions status=FAIL gating=True total=2 ... parsekFrames=0 parsekThrowSite=0 parsekCaller=0 afterQuit=2`: both are `Exception handling event onPlanetariumTargetChange in class KnowledgeBase: NullReferenceException at KSP.UI.Screens.KbApp_PlanetResources.ActivateApp ... PlanetariumCamera:OnVesselDestroy / Vessel:OnDestroy()`, after `flushandquit: Application.Quit`. The ledger oracle passed (hardDivergences=0) and every other verifier passed.
 
