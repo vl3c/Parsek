@@ -436,9 +436,17 @@ and logistics design section 10.6).**
   later gains). Derived in the walk from existing rows, no new saved state. V: "we need a way to let
   the player make decisions about risks of rewinding and doing new launches, so I pick debt".
   Flights and launches are never blocked ("of course we should not block flights of launches").
+  **Scope ruled 2026-10-22 (V, decision card):** open-contract penalties are reserved only while a
+  committed purchase or strategy cost lies ahead, so a career that never rewinds plays exactly like
+  stock; with no cost ahead a loss applies as stock applies it. Rules restated in design 3.13.
 - O6, case by case: a new flight cannot fail a contract whose complete / fail / cancel is already
   committed (stock's fail refused and logged; completing it earlier stays allowed; extends D7 from
-  the Cancel button to in-flight fails); an open contract's fail penalty is reserved (rule 2);
+  the Cancel button to in-flight fails); **rule 1 BUILT 2026-10-22** (`Patches/ContractEarlyFailPatch.cs`: a
+  prefix on stock's fail funnel `Contract.SetState(State.Failed)` reads the Cancel block's
+  `CommittedContractResolutionAfter`; tests `ContractEarlyFailPatchTests`; plan
+  `docs/dev/plans/committed-value-rule-implementation.md`; known gap: the refusal is strict-future
+  and the flight scene has no clock cursor, so once a flight's clock passes the committed outcome's UT
+  a fail goes through until the next recalculation applies the outcome); an open contract's fail penalty is reserved (rule 2);
   Mission Control Accept / Cancel / Decline are greyed when their penalty or the reservation they
   add would leave a later committed purchase or strategy cost unpaid (rule 3); a death or
   vessel-loss reputation hit stops at the reputation reserved for committed costs, the rest is a

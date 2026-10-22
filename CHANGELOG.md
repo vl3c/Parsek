@@ -10,6 +10,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **A flight can no longer fail a contract the timeline already settles later.** When a later
+  committed flight completes, fails or cancels a contract, a new flight after a rewind cannot fail
+  it first: the contract stays active until its committed outcome, so the rewards that paid for
+  later purchases stay. Completing it earlier still works. (LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY)
 - **Loading a save puts Parsek back exactly as that save was.** F9 and the Load menu now restore
   the save's committed flights, career ledger, Re-Fly merges, Unfinished Flights, names, groups and
   missions. Flights committed after the save are gone, and a flight in progress at the save resumes

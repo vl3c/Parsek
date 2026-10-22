@@ -339,6 +339,7 @@ Anything your committed timeline does later is reserved on KSP's own screens, so
 - **VAB/SPH crew dialog** - kerbals a committed flight holds are listed greyed with the reason and cannot be seated.
 - **Space Center facility menus** - upgrading a building, or rebuilding it to a lower level (Left Ctrl, "Rebuild lvl N"), while a later level change of it is recorded; and repairing, upgrading or rebuilding a damaged building while a later repair of it is recorded (upgrading and rebuilding repair it for free).
 - **In flight** - the EVA and Transfer buttons for a kerbal a committed flight still needs.
+- **Contracts in flight** - a new flight cannot fail a contract the timeline already completes, fails or cancels later: the fail is refused and the contract stays active until its recorded outcome.
 
 A click that reaches the action some other way (another mod, a different button) is refused with the same text. Where stock already refuses for its own reason (a full strategy slot, for example), its own greyed state and text are left alone.
 
