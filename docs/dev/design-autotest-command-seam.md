@@ -4706,6 +4706,19 @@ OK when the maximum srfSpeed reached 0.5 m/s (`drivevessel end: outcome=moved ..
 throttle held. Pure half `TestCommandDriveVessel`, applier `ParsekTestCommandAddon.DriveVessel.cs`,
 mirrored by `DriveVesselSourceSyncTests`. Lane: `RVR-21-rover-drive-surface-hysteresis`.
 
+**Settle mode (2026-10-22, todo RVR-21-START-SPEED-ABOVE-STATIONARY).** `cmd=DriveVessel
+settleBelow=<m/s> seconds=<s>` in place of `wheelThrottle=`: `settleBelow` is a finite
+invariant-culture float in (0, 0.1], the SurfaceStationary bound (`drivevessel-settle-arg-invalid`),
+and giving it with `wheelThrottle` is `drivevessel-settle-arg-conflict`; both are deterministic.
+The gate is the drive's minus the wheel-motor check. It touches no control (no callback, the
+Brakes as they are), logs `drivevessel settle start: vessel= pid= situation= settleBelow=
+seconds= brakesOn= startUT= srfSpeed=`, and the completion samples srfSpeed every poll: OK once
+it has stayed below `settleBelow` for 0.5 game s (`drivevessel settle end: outcome=settled ...`,
+payload `settled gameSeconds srfSpeed situation`), ERROR `drivevessel-did-not-settle` once the
+game clock covered `seconds` with the vessel still moving, and the drive's vessel-lost / timeout
+terminals otherwise. A lane puts it before `StartRecording` so the recorder's environment
+hysteresis initializes SurfaceStationary.
+
 #### ReadVesselResources (additive; the tank read, roadmap TC-1)
 
 **Why.** Every lane before it checked Parsek's own log lines about resources; none read a tank.

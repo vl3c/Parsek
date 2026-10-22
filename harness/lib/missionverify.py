@@ -100,6 +100,8 @@ class DriverValidity:
     is_flight_outcome: bool = False
     outcome_driver_subkind: str = ""
     gating_verbs: List[str] = field(default_factory=list)
+    recording_refusal: Optional["hlib.StepOutcome"] = None
+    recording_refusal_subkind: str = ""
 
 
 def compose_driver_validity(ev: "hlib.ResponseEvaluation", mission: Optional[Dict],
@@ -158,6 +160,20 @@ def compose_driver_validity(ev: "hlib.ResponseEvaluation", mission: Optional[Dic
     if outcome_driver_subkind:
         driver_valid = False
         stage_subkind = outcome_driver_subkind
+    # The same rule for a post-mission RECORDING step the seam REFUSED, when it is the
+    # FIRST unmet post-mission step (QL-2-RECOVER-REFUSED-WHILE-SLIDING): the refusal is
+    # the cause and every later miss its cascade, so the run is the refusal's
+    # driver-INVALID (retryable) rather than a PARSEK-FAIL(expectation) read off the
+    # tokens the refused step never let print. Being first, it precedes any outcome miss.
+    first_post_unmet = hlib.first_unmet_post_mission_step(ev.steps, mission_id)
+    # Only on an otherwise valid pre-mission stage: an unmet pre-mission step keeps
+    # its own subkind.
+    recording_refusal_subkind = (
+        hlib.classify_post_mission_recording_refusal(first_post_unmet)
+        if (mission["met"] and pre_met) else "")
+    if recording_refusal_subkind:
+        driver_valid = False
+        stage_subkind = recording_refusal_subkind
     if not mission["met"]:
         outcome_status = "SKIPPED"
     elif outcome_unmet is not None:
@@ -180,6 +196,16 @@ def compose_driver_validity(ev: "hlib.ResponseEvaluation", mission: Optional[Dic
             "flightOutcome": is_flight_outcome,
             "driverSubkind": outcome_driver_subkind}),
     }
+    # Written only when present, so a row replayed over a run archived before the key
+    # existed stays equal to its archive (mutmission.prepare_baseline compares exactly).
+    if recording_refusal_subkind:
+        detail_outcome["recordingRefusal"] = {
+            "id": first_post_unmet.step_id, "cmd": first_post_unmet.cmd,
+            "expect": first_post_unmet.expect, "verdict": first_post_unmet.verdict,
+            "msg": first_post_unmet.msg,
+            "driverSubkind": recording_refusal_subkind}
     return DriverValidity(driver_valid, stage_subkind, mission_outcome_unmet,
                           detail_mission, detail_outcome, outcome_unmet,
-                          is_flight_outcome, outcome_driver_subkind, gating_verbs)
+                          is_flight_outcome, outcome_driver_subkind, gating_verbs,
+                          first_post_unmet if recording_refusal_subkind else None,
+                          recording_refusal_subkind)

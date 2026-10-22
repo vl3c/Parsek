@@ -203,10 +203,40 @@ class RouteCareerFixtureDriftTests(unittest.TestCase):
                 src = _read(os.path.join(SAVES, source, "persistent.sfs"))
                 dst = _read(os.path.join(SAVES, self.b.target_name(source),
                                          "persistent.sfs"))
+                # Edit 7 (the KSC debris strip and the ProgressTracking seeds) is the
+                # one change inside the kept surfaces; apply it to the source side.
+                lines = src.split("\n")
+                self.b.strip_ksc_debris(lines)
+                for body, milestone in self.b.PROGRESS_SEEDS.get(source, ()):
+                    self.b.seed_progress(lines, body, milestone)
+                src = "\n".join(lines)
                 self.assertEqual(strip(src, []), strip(dst, inserted))
                 ps = re.compile(r"\n\t\tParsekSettings\n\t\t\{.*?\n\t\t\}\n", re.S)
                 self.assertEqual(ps.findall(src), ps.findall(dst))
                 self.assertEqual(1, len(ps.findall(dst)))
+
+    def test_no_stock_earning_is_left_for_the_first_career_load(self):
+        # ROUTE-CAREER-FIXTURES-EARN-STOCK-EVENTS-AT-LOAD: stock recovers KSC debris
+        # (paying in career) and awards a milestone the recorded vessels already meet.
+        for source in self.b.SOURCES:
+            with self.subTest(source=source):
+                src = _read(os.path.join(SAVES, source, "persistent.sfs")).split("\n")
+                dst = _read(os.path.join(SAVES, self.b.target_name(source),
+                                         "persistent.sfs")).split("\n")
+                self.assertEqual(self.b.EXPECTED_KSC_DEBRIS[source],
+                                 len(self.b.ksc_debris_vessels(src)))
+                self.assertEqual([], self.b.ksc_debris_vessels(dst))
+        self.assertEqual(1, self.b.EXPECTED_KSC_DEBRIS["depot-route-recorded"])
+        self.assertEqual(4, self.b.EXPECTED_KSC_DEBRIS["bdock-recorded"])
+        depot = _read(os.path.join(SAVES, "depot-route-recorded-career", "persistent.sfs"))
+        progress = _scenario_body(depot, "ProgressTracking")
+        self.assertRegex(progress, r"\n\t\t\tKerbin\n\t\t\t\{\n(?:\t\t\t\t[^\n]*\n)*?"
+                                   r"\t\t\t\tRendezvous\n\t\t\t\t\{\n\t\t\t\t\tcompleted = 0\n")
+        # The two batch lanes can now forbid the clamp, like the seam lanes.
+        for name in FUNDS_CELL:
+            with self.subTest(lane=name):
+                self.assertIn("GUARDED (DRAWDOWN|UPLIFT) clamped resource=",
+                              _spec(name)["expectations"]["logContracts"]["forbidden"])
 
     def test_the_tech_grant_is_h73s(self):
         logi = _read(os.path.join(SAVES, "logi-cargo-career", "persistent.sfs"))

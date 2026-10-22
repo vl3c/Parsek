@@ -49,7 +49,7 @@ neither did the origin-target fallback. Neither file changed in that range, so t
 supersede rows reaching it did. A player sees the second half of a split close as crashed and lose
 its re-fly. Next: bisect 2b5cd9b..9dbf9c2 with RF-11.
 
-## QL-2-RECOVER-REFUSED-WHILE-SLIDING: QL-2's Recover can be refused while the landed Flea still slides, and the refusal reads as a Parsek failure [FILED 2026-10-22 from QL-2 `2026-10-21_2220` and `2026-10-22_0001` (both PARSEK-FAIL, expectations), flown for PR #2170. Half fixed in PR #2170, merged (the verb waits); the classification gap is OPEN, low. harness]
+## ~~QL-2-RECOVER-REFUSED-WHILE-SLIDING: QL-2's Recover can be refused while the landed Flea still slides, and the refusal reads as a Parsek failure~~ [FILED 2026-10-22 from QL-2 `2026-10-21_2220` and `2026-10-22_0001` (both PARSEK-FAIL, expectations), flown for PR #2170. Half fixed in PR #2170, merged (the verb waits); the classification half FIXED 2026-10-22 in PR #2175 (harness unit cells; QL-2 `2026-10-22_0833` PASS attempt 1 did not hit a refusal). harness]
 
 The mission reported MISSION-OK, but seam step 0067 `Recover` was refused
 `recover-not-clear-to-save ... situation=LANDED hSrfSpeed=0.30 clearToSave=NOT_WHILE_MOVING_OVER_SURFACE`:
@@ -62,18 +62,27 @@ for the craft to come to rest, and a post-mission driver-gate refusal (hlib maps
 retry. Fix (first gap): `Recover` re-samples a locked or not-clear-to-save button every frame for up
 to 15 s (`TestCommandRecover.UnlockWaitSeconds`, line `recover unlock-wait cleared`) and presses the
 frame it unlocks, refusing with the same reason only if it never does. QL-2 `2026-10-22_0021` PASS
-on it, with QL-14, ZF-1 and CI-6; no flight has hit the wait path yet. Still open: classify a refused
-required post-mission step as INVALID.
+on it, with QL-14, ZF-1 and CI-6; no flight has hit the wait path yet.
 
-## ROUTE-CAREER-FIXTURES-EARN-STOCK-EVENTS-AT-LOAD: two of the career route copies earn stock career rewards at their first load, so the ledger logs drawdown-guard clamps [FILED 2026-10-21 from H76 `2026-10-21_2019` and H78 `2026-10-21_2022` (both PASS, no gate failed), branch `career-route-lanes`. OPEN, low. harness]
+Fix (second gap, 2026-10-22): `missionverify.compose_driver_validity` now reads the FIRST unmet
+post-mission step of any role; when it is a recording verb the seam REFUSED with a reason the
+refusal table knows (`hlib.classify_post_mission_recording_refusal`), the run is that refusal's
+driver-INVALID (here `driver-gate`, retried once), with the step in the `missionOutcome` row's
+`recordingRefusal` and a `verify missionOutcome recordingRefusal=` log line. An ERROR or TIMEOUT
+from a recording verb stays non-gating (the verb acted), and an earlier non-refusal miss keeps
+its classification. Unit cells in `test_mutmission.py`.
+
+## ~~ROUTE-CAREER-FIXTURES-EARN-STOCK-EVENTS-AT-LOAD: two of the career route copies earn stock career rewards at their first load, so the ledger logs drawdown-guard clamps~~ [FILED 2026-10-21 from H76 `2026-10-21_2019` and H78 `2026-10-21_2022` (both PASS, no gate failed), branch `career-route-lanes`. FIXED 2026-10-22 in PR #2175 (fixtures rebuilt; H76 / H78 now forbid the clamp); LIVE-PROVEN by H76 `2026-10-22_0840` and H78 `2026-10-22_0842`, both PASS attempt 1 with zero clamp lines. harness]
 
 **Symptom.** H76 logs `GUARDED DRAWDOWN clamped ... ledger may be missing an earning channel` 80 times and H78 40 times. No gate failed (neither lane forbids the clamp), the redelivery cell logged `funds unchanged net=0` on both, and the route cycles net 0. H74 / H75 / H77 / H79, which forbid the clamp, logged none.
 
 **Cause.** Stock career events fire at the converted save's first load, not routes. `depot-route-recorded-career` (H76): stock awards the Kerbin/Rendezvous milestone (+12000 funds, +1 science, +2 rep), because the copied ProgressTracking (the source's, kept untouched by `build_route_career.py`) has no Kerbin/Rendezvous node while the recorded vessels are already in rendezvous, plus a +624 funds debris recovery. `bdock-recorded-career` (H78): four KSC debris recoveries add 914 funds. The ledger has no row for these earnings, so the guard keeps the live value and logs the clamp.
 
-**Fix.** In `harness/tools/build_route_career.py`: pre-seed ProgressTracking with the milestones the recorded vessels already reached, and clear the debris at the KSC, then re-check the six lanes' logs for zero clamp lines (H76 / H78 could then forbid it too).
+**How stock pays.** Decompiled (KSP 1.12.5): `FlightState` marks every `type = Debris` vessel LANDED in the KSC, a launch pad or a runway auto-clean at a save when `DECLUTTER_KSC` is on, and the next load's `ProtoVessel.Clean` fires `onVesselRecovered` for it, which pays in career. Kerbin/Rendezvous completes when two loaded vessels of different missions in orbit close under 50 m/s.
 
-## MINE-7-RESTORE-PIN-ASSUMES-DRILLS-OFF: MINE-7 pins the spawned-drill restore line to "restored=4 alreadyOn=0", but the drills can come back on by themselves [FILED 2026-10-21 from MINE-7 `2026-10-21_1604` (PARSEK-FAIL, expectations), flown for PR #2163. OPEN, low. harness]
+**Fix.** `harness/tools/build_route_career.py` edit 7: strip those debris vessels from FLIGHTSTATE (depot 1, bdock 4; `activeVessel` re-indexed, no Parsek node names them) and seed `Progress/Kerbin/Rendezvous { completed = 0 }` into depot's ProgressTracking (`PROGRESS_SEEDS`). The other three copies needed neither. H76 / H78 now forbid `GUARDED (DRAWDOWN|UPLIFT) clamped resource=`, the seam lanes' token, and both read zero on their first flight with it.
+
+## ~~MINE-7-RESTORE-PIN-ASSUMES-DRILLS-OFF: MINE-7 pins the spawned-drill restore line to "restored=4 alreadyOn=0", but the drills can come back on by themselves~~ [FILED 2026-10-21 from MINE-7 `2026-10-21_1604` (PARSEK-FAIL, expectations), flown for PR #2163. FIXED 2026-10-22 in PR #2175 (the pin takes all five restored / alreadyOn pairs summing to 4); MINE-7 `2026-10-22_0827` PASS attempt 1. harness]
 
 **Symptom.** The lane's required line `Spawned harvester restore: vessel=Mining Rover RC pid=[0-9]+ restored=4 alreadyOn=0 missing=0` did not match: KSP.log had `restored=0 alreadyOn=4 missing=0` 2 s after `Unpacking Mining Rover RC` (`restore armed ... harvesters=4` before it). Mining and every resource check passed; every other verifier passed. The green `2026-10-17_1506_a2` run logged `restored=4 alreadyOn=0`.
 
@@ -83,7 +92,7 @@ required post-mission step as INVALID.
 
 **Phase 2 flight (PR #2167 at 70e00ff, `2026-10-21` p2 run).** The pinned line matched (`restored=4 alreadyOn=0 missing=0`), so this flight did not show the race; it went PARSEK-FAIL for environment reasons instead. Attempt 1 died at seam step 0036 on a refused `WarpToUT` (warp-locked by `flightDriver_ApplicationFocus`: the KSP window lost focus). Attempt 2 was a native KSP crash (0xC0000005) during `WarpToUT` step 0012. Neither attempt had a Parsek frame or a Parsek ERROR. The pin fix above still stands.
 
-## RVR-21-START-SPEED-ABOVE-STATIONARY: RVR-21 needs the rover to start recording below 0.1 m/s, and a boot that leaves it drifting at 0.12 m/s starts SurfaceMobile [FILED 2026-10-21 from RVR-21 `2026-10-21_1626` (PARSEK-FAIL, expectations), flown for PR #2163. OPEN, low. harness]
+## ~~RVR-21-START-SPEED-ABOVE-STATIONARY: RVR-21 needs the rover to start recording below 0.1 m/s, and a boot that leaves it drifting at 0.12 m/s starts SurfaceMobile~~ [FILED 2026-10-21 from RVR-21 `2026-10-21_1626` (PARSEK-FAIL, expectations), flown for PR #2163. FIXED 2026-10-22 in PR #2175 (a settle step before StartRecording; xUnit + harness cells); LIVE-PROVEN by RVR-21 `2026-10-22_0831` PASS attempt 1 (settled from 0.088 m/s, initial=SurfaceStationary). harness]
 
 **Symptom.** The required `Environment transition: SurfaceStationary -> SurfaceMobile at UT=... (debounce=3.0s)` line never printed (zero transition lines). `drivevessel start: ... srfSpeed=0.12`, `Hysteresis initialized: initial=SurfaceMobile`. The drive worked (`outcome=moved ... maxSrfSpeed=23.11 pathMeters=109.4`); every other verifier passed. The green `2026-10-15_1539` run and its negative control `_1544` started at 0.10 and 0.05 m/s.
 
@@ -93,7 +102,9 @@ required post-mission step as INVALID.
 
 **Phase 2 flight (PR #2167).** Same failure, start speed 0.15 m/s.
 
-## L2-AFTER-QUIT-STOCK-NRE: L2-ledger-groundtruth-career's armed `unityExceptions maxTotal = 0` counts two stock NullReferenceExceptions thrown after Parsek's quit [FILED 2026-10-21 from L2 `2026-10-21_1640` (PARSEK-FAIL, unityExceptions), flown for PR #2163. OPEN, low. harness]
+**Done.** `DriveVessel` gained a settle mode: `settleBelow=<m/s, (0, 0.1]> seconds=<bound>` in place of `wheelThrottle=` waits, touching no control, until srfSpeed stayed below the threshold for 0.5 game s (`drivevessel settle end: outcome=settled`), else ERROR `drivevessel-did-not-settle`. RVR-21 runs `settleBelow=0.05 seconds=20` right before `StartRecording` and requires the settled line.
+
+## ~~L2-AFTER-QUIT-STOCK-NRE: L2-ledger-groundtruth-career's armed `unityExceptions maxTotal = 0` counts two stock NullReferenceExceptions thrown after Parsek's quit~~ [FILED 2026-10-21 from L2 `2026-10-21_1640` (PARSEK-FAIL, unityExceptions), flown for PR #2163. FIXED 2026-10-22 in PR #2175 (harness unit cells); L2 `2026-10-22_0832` PASS attempt 1 (no after-quit exception to exclude that run). harness]
 
 **Symptom.** `unityExceptions status=FAIL gating=True total=2 ... parsekFrames=0 parsekThrowSite=0 parsekCaller=0 afterQuit=2`: both are `Exception handling event onPlanetariumTargetChange in class KnowledgeBase: NullReferenceException at KSP.UI.Screens.KbApp_PlanetResources.ActivateApp ... PlanetariumCamera:OnVesselDestroy / Vessel:OnDestroy()`, after `flushandquit: Application.Quit`. The ledger oracle passed (hardDivergences=0) and every other verifier passed.
 
@@ -102,6 +113,8 @@ required post-mission step as INVALID.
 **Fix.** Decide in `hlib.evaluate_unity_exceptions` whether an armed `maxTotal` counts `afterQuit` exceptions with no Parsek frame (exclude them, or allow this stock signature), with a unit cell for each side.
 
 **Phase 2 flight (PR #2167).** Same class: one after-quit stock NRE, this time from `CrewHatchController.get_CrewHatchTooltip`, with no Parsek frame. The ledger oracle passed (funds 500000, science 100, reputation 0). So the stock signatures vary, which favours excluding frameless after-quit exceptions over allowlisting one signature.
+
+**Done (exclude them, every lane).** `hlib.scan_unity_exception_stacks` counts `after_quit_frameless` (counted-pattern occurrences after the first quit marker whose stack block has no Parsek frame) and `evaluate_unity_exceptions` judges `maxTotal` against `total` less that figure. `total` and the counts still report every line, an after-quit exception with a Parsek frame still counts, a killed log (no quit marker) excludes nothing, and the result JSON / verify line carry `afterQuitFrameless`. This also closes L2-STOCK-CREWHATCH-TEARDOWN-NRE-UNDER-A-ZERO-GATE's shape.
 
 ## ~~REFLY-STARTED-FROM-A-RESUMED-VESSEL-IS-NEVER-SAVED: an F5 during a Re-Fly started while flying a resumed committed vessel does not save the Re-Fly~~ [FILED 2026-10-20 from harness lane CI-3 on V's PC (PR #2155 head 1abd1b4). Was open, high: with save-file loads cold (PR #2155) the F9 cleared the Re-Fly marker. FIXED 2026-10-21 on branch `claude/project-thread-hvhou8` (PR #2155): the session survives the F9 and keeps its committed original. CI-3 LIVE-PROVEN on the merged head bcf1d8e and again on PR #2170 (`2026-10-21_2345`). product]
 
@@ -957,7 +970,7 @@ keep their stamp. Tests: `ChainTipSpawnClaimReleaseTests`.
 
 ---
 
-## REFLY-TAIL-SEED-FRAME: a terminal orbit rebuilt from the recording's last point carries a wrong flight-path angle in any later session [FILED 2026-10-16 from RC-1's first flight (`2026-10-16_2251`), branch `claude/project-thread-81f9wc` (PR #2125). PARTLY FIXED on the same branch (seed priority, LIVE-PROVEN by RC-1 `2026-10-16_2324`); the frame fix is OPEN. product]
+## ~~REFLY-TAIL-SEED-FRAME: a terminal orbit rebuilt from the recording's last point carries a wrong flight-path angle in any later session~~ [FILED 2026-10-16 from RC-1's first flight (`2026-10-16_2251`), branch `claude/project-thread-81f9wc` (PR #2125). PARTLY FIXED on the same branch (seed priority, LIVE-PROVEN by RC-1 `2026-10-16_2324`). The frame fix is DONE in three parts: the spawn tail seed (TERMINAL-SPAWN-TAIL-ORBIT-SURFACE-VELOCITY, 2026-10-18), the map-presence tail seed (MAP-TAIL-SEED-RECORDED-VELOCITY-FRAME, PR #2150) and the other readers (REMAINING-RECORDED-VELOCITY-SEEDS, PR #2154, its item 4); no schema change. product]
 
 After the rewind to rp_72eb both undock tips spawned from `source=trajectory-tail` seeds with
 ecc 0.134 (periapsis 14 km) where the recordings' end snapshots and live-captured terminal orbits
@@ -980,8 +993,9 @@ and the `VesselSpawner` spawn-validation repair.
 
 2026-10-18 (TERMINAL-SPAWN-TAIL-ORBIT-SURFACE-VELOCITY): the SPAWN tail seed now resolves the
 unrecorded yaw (and the surface-relative frame) from the tail and the coast frame before it
-(`RecordedTailVelocityResolver`), no schema change, and declines a tail it cannot resolve. The
-map-presence tail seed and the other readers above are still open.
+(`RecordedTailVelocityResolver`), no schema change, and declines a tail it cannot resolve.
+Closed 2026-10-22: the map-presence tail seed was fixed by MAP-TAIL-SEED-RECORDED-VELOCITY-FRAME
+(PR #2150) and the other readers by REMAINING-RECORDED-VELOCITY-SEEDS (PR #2154).
 
 2026-10-19 (MAP-TAIL-SEED-RECORDED-VELOCITY-FRAME): the map-presence tail seed and the
 `GhostMapPresence.cs` gap glide now resolve the same way (xUnit; not yet re-flown). The

@@ -136,9 +136,12 @@ count = { min = 1, max = 1 }
 
 [expectations.logContracts]
 required = [
-  # Stock switches the spawned drills off while the spawn waits for ground contact;
-  # Parsek turns them back on once it has settled (SpawnedHarvesterRestore.cs).
-  "Spawned harvester restore: vessel=Mining Rover RC pid=[0-9]+ restored=4 alreadyOn=0 missing=0",
+  # Stock may switch the spawned drills off while the spawn waits for ground contact;
+  # Parsek turns back on whichever are off once it has settled (SpawnedHarvesterRestore.cs).
+  # Whether stock got there first is a frame race, so pin the outcome: all four drills
+  # end up on (restored + alreadyOn = 4), none missing. The drills-active resource
+  # assertions below are the proof that they mine.
+  "Spawned harvester restore: vessel=Mining Rover RC pid=[0-9]+ restored=(?:4 alreadyOn=0|3 alreadyOn=1|2 alreadyOn=2|1 alreadyOn=3|0 alreadyOn=4) missing=0",
   # MINE-9's prefix (its live-proven tokens).
   "partaction applied button=deploy pid=110406740 part='MiniDrill' [^\\r\\n]*count=4",
   "partaction applied button=startconverter pid=110406740 part='MiniISRU' [^\\r\\n]*converter='Lf\\+Ox' state='[^'\\r\\n]*Lf\\+Ox:active=1",

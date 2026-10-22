@@ -63,6 +63,10 @@ tier = "nightly"
 #           recovered four KSC debris vessels (+914 funds), earnings the ledger has no
 #           row for. The guard kept the live value and the redelivery cell still netted
 #           0. Not forbidding the clamp here (the header above) was right.
+#           FIX (2026-10-22): build_route_career.py edit 7 strips the four KSC debris
+#           vessels stock recovered, so the clamp is now FORBIDDEN (the seam lanes'
+#           token). FLIGHT 2 `2026-10-22_0842` PASS attempt 1 (DLL 02ad43bd, PR #2175):
+#           zero clamp lines, zero recoveries, the same 34 / 0 / 13.
 #
 # THE SKIP ROSTER - all 13, H39's verbatim (`Kerbal X` is the active vessel; see H39's
 # header for each full skip string):
@@ -160,6 +164,9 @@ forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "RewindRedeliver_InGame: no Funding singleton \\(Sandbox\\)",
   "Built route .* mode=SANDBOX",
+  # ROUTE-CAREER-FIXTURES-EARN-STOCK-EVENTS-AT-LOAD: the fixture no longer leaves stock an
+  # earning the ledger has no row for, so a drawdown-guard clamp is a regression.
+  "GUARDED (DRAWDOWN|UPLIFT) clamped resource=",
 ]
 
 [runtime]
