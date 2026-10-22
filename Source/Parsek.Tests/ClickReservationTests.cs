@@ -983,6 +983,17 @@ namespace Parsek.Tests
             Assert.Equal(!LaunchReservation.LaunchTestResult(true, r), !LaunchReservation.SiteButtonInteractable(r.Refused, false).GetValueOrDefault(true));
         }
 
+        // Re-review of 478da5e (obs 3): with nothing refused and nothing greyed the flyout mark
+        // returns before it scans for flyouts (FindObjectsOfType is a Unity call that throws
+        // headless, so reaching it fails this cell).
+        [Fact]
+        public void Launch_TheFlyoutMark_DoesNoWork_WithNothingRefusedOrGreyed()
+        {
+            Parsek.Patches.LaunchSiteButtonsMark.ResetForTesting();
+            Parsek.Patches.LaunchSiteButtonsMark.Remember(null, false, default(PurchaseRefusal));
+            Parsek.Patches.LaunchSiteButtonsMark.ApplyAll("test");
+        }
+
         // Review of c86c5b9 (obs 4): the mark prices the crew the backstop prices (the crew
         // dialog's manifest that launchVessel installs), the ship manifest only without one.
         [Fact]

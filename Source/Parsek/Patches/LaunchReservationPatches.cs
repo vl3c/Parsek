@@ -346,6 +346,9 @@ namespace Parsek.Patches
         private static readonly ConditionalWeakTable<Button, object> greyedByParsek =
             new ConditionalWeakTable<Button, object>();
         private static readonly object Marker = new object();
+        // Buttons Parsek has greyed and not yet given back. Zero with no refusal means there
+        // is nothing to do, so a career with no cost ahead never scans for flyouts.
+        private static int greyedCount;
 
         /// <summary>The current scene's decision (the editor, or the picker's selected craft).</summary>
         internal static void Remember(UnityEngine.Object decisionOwner, bool isRefused, PurchaseRefusal r)
@@ -365,10 +368,16 @@ namespace Parsek.Patches
         /// <summary>Applies the remembered decision to every live flyout.</summary>
         internal static void ApplyAll(string source)
         {
+            PurchaseRefusal ignored;
+            if (!Current(out ignored) && greyedCount == 0) return;
             UILaunchsiteController[] controllers = UnityEngine.Object.FindObjectsOfType<UILaunchsiteController>();
             if (controllers == null) return;
             for (int i = 0; i < controllers.Length; i++)
                 Apply(controllers[i], source);
+            // Every live flyout was given back above; a tracked button not found was destroyed
+            // with its flyout.
+            if (!Current(out ignored))
+                greyedCount = 0;
         }
 
         /// <summary>Applies the remembered decision to one flyout's per-site Launch buttons.</summary>
@@ -380,6 +389,7 @@ namespace Parsek.Patches
             {
                 PurchaseRefusal r;
                 bool isRefused = Current(out r);
+                if (!isRefused && greyedCount == 0) return;
                 IList items = Traverse.Create(controller).Field("launchPadItems").GetValue<IList>();
                 if (items == null) return;
                 int greyed = 0, given = 0;
@@ -398,8 +408,8 @@ namespace Parsek.Patches
                         button.interactable = write.Value;
                         if (write.Value) given++; else greyed++;
                     }
-                    if (isRefused && !wasGreyed) greyedByParsek.Add(button, Marker);
-                    else if (!isRefused && wasGreyed) greyedByParsek.Remove(button);
+                    if (isRefused && !wasGreyed) { greyedByParsek.Add(button, Marker); greyedCount++; }
+                    else if (!isRefused && wasGreyed) { greyedByParsek.Remove(button); if (greyedCount > 0) greyedCount--; }
                     StockUiReasonTooltip.Sync(button, isRefused, why, controller, "LaunchSiteLaunch");
                 }
                 if (greyed > 0 || given > 0)
@@ -421,6 +431,7 @@ namespace Parsek.Patches
             owner = null;
             refused = false;
             refusal = default(PurchaseRefusal);
+            greyedCount = 0;
         }
     }
 
