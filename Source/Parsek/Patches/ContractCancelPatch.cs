@@ -63,10 +63,17 @@ namespace Parsek.Patches
             }
 
             string key = __instance.ContractGuid.ToString();
-            return ShouldAllowCancel(key, __instance.Title ?? key);
+            return ShouldAllowCancel(key, __instance.Title ?? key,
+                ClickReservationGate.InputFor(__instance, ClickReservationGate.Current()));
         }
 
-        internal static bool ShouldAllowCancel(string keyString, string title)
+        /// <summary>
+        /// The Cancel backstop decision: refused for a committed resolution after now, or
+        /// when the click reservation refuses it (<see cref="MissionControlStockAnnotation.BlocksCancel"/>
+        /// over the decision the greyed Cancel reads; a null <paramref name="reserve"/> checks
+        /// the committed resolution only).
+        /// </summary>
+        internal static bool ShouldAllowCancel(string keyString, string title, ContractReserveInput reserve = null)
         {
             if (string.IsNullOrEmpty(keyString)) return true;
 
@@ -88,6 +95,24 @@ namespace Parsek.Patches
             var resolution = StockUiReservationPredicates.CommittedContractResolutionAfter(index, keyString, nowUT);
             if (resolution == null)
             {
+                if (reserve != null)
+                {
+                    StockUiDecoration d = MissionControlStockAnnotation.Decide(index, nowUT, keyString,
+                        Contracts.Contract.State.Active, ReservationExplanation.DefaultDateFormatter,
+                        null, false, double.PositiveInfinity, reserve);
+                    if (MissionControlStockAnnotation.BlocksCancel(d))
+                    {
+                        ParsekLog.Info(Tag,
+                            "blocking cancel for guid=" + keyString + " - reserved for later costs " +
+                            "nowUT=" + nowUT.ToString("F0", CultureInfo.InvariantCulture) + " " +
+                            (reserve.Snapshot != null ? reserve.Snapshot.Describe() : ""));
+                        CommittedActionDialog.ShowBlocked(
+                            "Cannot cancel \"" + (string.IsNullOrEmpty(title) ? keyString : title) + "\"",
+                            d.Why,
+                            "");
+                        return false;
+                    }
+                }
                 ParsekLog.Verbose(Tag,
                     "allowing cancel for guid=" + keyString + " - no committed resolution after now " +
                     "(nowUT=" + nowUT.ToString("F0", CultureInfo.InvariantCulture) + ")");

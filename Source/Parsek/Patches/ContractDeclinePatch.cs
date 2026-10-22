@@ -52,10 +52,17 @@ namespace Parsek.Patches
             }
 
             string key = __instance.ContractGuid.ToString();
-            return ShouldAllowDecline(key, __instance.Title ?? key);
+            return ShouldAllowDecline(key, __instance.Title ?? key,
+                ClickReservationGate.InputFor(__instance, ClickReservationGate.Current()));
         }
 
-        internal static bool ShouldAllowDecline(string keyString, string title)
+        /// <summary>
+        /// The Decline backstop decision: refused for a committed future accept, or when the
+        /// click reservation refuses it (<see cref="MissionControlStockAnnotation.BlocksDecline"/>
+        /// over the decision the greyed Decline reads; a null <paramref name="reserve"/> checks
+        /// the committed accept only).
+        /// </summary>
+        internal static bool ShouldAllowDecline(string keyString, string title, ContractReserveInput reserve = null)
         {
             if (string.IsNullOrEmpty(keyString)) return true;
 
@@ -69,6 +76,26 @@ namespace Parsek.Patches
             double nowUT = CommittedFutureIndexCache.CurrentUT();
             if (!StockUiReservationPredicates.IsContractAcceptBlocked(index, keyString, nowUT))
             {
+                if (reserve != null)
+                {
+                    StockUiDecoration d = MissionControlStockAnnotation.Decide(index, nowUT, keyString,
+                        Contracts.Contract.State.Offered, ReservationExplanation.DefaultDateFormatter,
+                        null, false, double.PositiveInfinity, reserve);
+                    if (MissionControlStockAnnotation.BlocksDecline(d))
+                    {
+                        ParsekLog.Info(Tag,
+                            "blocking decline for guid=" + keyString + " - reserved for later costs " +
+                            "nowUT=" + nowUT.ToString("F0", CultureInfo.InvariantCulture) + " " +
+                            (reserve.Snapshot != null ? reserve.Snapshot.Describe() : ""));
+                        CommittedActionDialog.ShowBlocked(
+                            "Cannot decline \"" + (string.IsNullOrEmpty(title) ? keyString : title) + "\"",
+                            ClickReservationGate.ContractReason(ClickReservation.EvaluateContractClick(reserve.Snapshot,
+                                ClickReservation.EffectOf(ContractClick.Decline, reserve.Money, nowUT,
+                                    reserve.RepLossDeclined, reserve.CurrentReputation, false))),
+                            "");
+                        return false;
+                    }
+                }
                 ParsekLog.Verbose(Tag,
                     "allowing decline for guid=" + keyString + " - no committed future accept " +
                     "(nowUT=" + nowUT.ToString("F0", CultureInfo.InvariantCulture) + ")");

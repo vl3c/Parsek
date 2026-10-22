@@ -43,9 +43,12 @@ namespace Parsek.Patches
             string facility;
             bool fundsCharged;
             double fundsAtOpen = double.NaN;
+            double upgradeCost = 0.0;
             try
             {
                 buildings = FacilityRepairCapturePatchHelpers.ReadBuildings(__instance);
+                if (deduceFunds && __instance.Facility != null)
+                    upgradeCost = Math.Abs(__instance.Facility.GetUpgradeCost());
                 facility = facilityId ?? __instance.facilityName;
                 fundsCharged = deduceFunds && Funding.Instance != null;
                 if (fundsCharged)
@@ -59,7 +62,7 @@ namespace Parsek.Patches
                 return !FacilityUpgradePatch.TryBlockFacilityUpgradeFor(facilityId, null);
             }
 
-            return BlockOrOpenScope(facilityId, buildings, facility, fundsCharged, fundsAtOpen);
+            return BlockOrOpenScope(facilityId, buildings, facility, fundsCharged, fundsAtOpen, upgradeCost);
         }
 
         /// <summary>
@@ -68,12 +71,19 @@ namespace Parsek.Patches
         /// (<see cref="FacilityUpgradePatch.TryBlockFacilityUpgradeFor"/>) first; a refused
         /// upgrade returns false (stock's method skipped) and opens no scope, an allowed one
         /// opens the upgrade scope for <paramref name="scopeFacility"/> and returns true.
+        /// After the committed-row block, a charged upgrade of <paramref name="fundsCost"/> is
+        /// refused when the click reservation refuses it (committed-value rule 3,
+        /// <see cref="ClickReservationGate.TryRefusePurchase"/>, the decision the greyed
+        /// Upgrade reads).
         /// </summary>
         internal static bool BlockOrOpenScope(string facilityId,
             IList<FacilityRepairCapture.BuildingRepairInput> buildings,
-            string scopeFacility, bool fundsCharged, double fundsAtOpen)
+            string scopeFacility, bool fundsCharged, double fundsAtOpen, double fundsCost = 0.0)
         {
             bool blocked = FacilityUpgradePatch.TryBlockFacilityUpgradeFor(facilityId, buildings);
+            if (!blocked && fundsCharged && fundsCost > 0.0 && !string.IsNullOrEmpty(facilityId))
+                blocked = ClickReservationGate.TryRefusePurchase(StockPool.Funds, fundsCost,
+                    "facility upgrade " + facilityId, FacilityUpgradePatch.BlockedDialogTitle(facilityId));
             return FacilityUpgradeCapture.AllowAndOpenScope(blocked, scopeFacility, fundsCharged, fundsAtOpen);
         }
 

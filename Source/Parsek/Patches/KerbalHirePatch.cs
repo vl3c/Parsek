@@ -68,6 +68,48 @@ namespace Parsek.Patches
 
             return false;
         }
+
+        /// <summary>Test seam: the live hire cost.</summary>
+        internal static Func<double> HireCostProviderForTesting;
+
+        /// <summary>
+        /// The Hire decision of the click reservation at now (committed-value rule 3): stock's
+        /// hire cost for the current active crew against the spendable funds. The disabled
+        /// Hire (<see cref="StockUiLiveSnapshot.Kerbal"/>) and the HireRecruit backstop both
+        /// read this.
+        /// </summary>
+        internal static PurchaseRefusal EvaluateHireReserveNow()
+        {
+            double cost;
+            var seam = HireCostProviderForTesting;
+            if (seam != null) cost = seam();
+            else
+            {
+                try { cost = ReadHireCostCore(); }
+                catch (Exception) { cost = 0.0; }
+            }
+            return ClickReservationGate.EvaluatePurchaseNow(StockPool.Funds, cost, "kerbal hire");
+        }
+
+        /// <summary>The Hire backstop: true (and the refused-click dialog) when refused.</summary>
+        internal static bool TryRefuseHireReserve(string kerbalName)
+        {
+            PurchaseRefusal r = EvaluateHireReserveNow();
+            if (!r.Refused) return false;
+            ParsekLog.Info("KerbalHirePatch", "blocking hire for name=" + kerbalName + " - reserved for later costs cost="
+                + r.Cost.ToString("R", CultureInfo.InvariantCulture) + " spendable="
+                + r.Spendable.ToString("R", CultureInfo.InvariantCulture));
+            ClickReservationGate.ShowRefused(r, "Cannot hire \"" + kerbalName + "\"");
+            return true;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double ReadHireCostCore()
+        {
+            if (GameVariables.Instance == null || HighLogic.CurrentGame == null || HighLogic.CurrentGame.CrewRoster == null)
+                return 0.0;
+            return GameVariables.Instance.GetRecruitHireCost(HighLogic.CurrentGame.CrewRoster.GetActiveCrewCount());
+        }
     }
 
     /// <summary>
@@ -107,7 +149,12 @@ namespace Parsek.Patches
             if (!TryGetApplicant(listItem, out applicant))
                 return true;
 
-            return KerbalHirePatch.ShouldAllowHire(applicant.name);
+            if (!KerbalHirePatch.ShouldAllowHire(applicant.name))
+                return false;
+            // The click reservation (committed-value rule 3): the decision the disabled Hire
+            // reads. Only the player's Astronaut Complex hire: stock auto-hire at launch
+            // (HireApplicant from DefaultCrewForVessel) is part of a launch and is not refused.
+            return !KerbalHirePatch.TryRefuseHireReserve(applicant.name);
         }
 
         private static bool TryGetApplicant(UIListItem listItem, out ProtoCrewMember applicant)

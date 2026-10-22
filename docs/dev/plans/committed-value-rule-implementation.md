@@ -6,7 +6,9 @@ no-cost-ahead half of 2.3) and open penalties out of the pool reserve (2.2) move
 pool goes lower in normal play. Deviations from this text are marked "Built:" where they apply
 (2.2, 2.3, 2.4). Phase 3 BUILT 2026-10-22 on branch `o6-phase3-local`: the floor and the debt
 (2.3), with "a committed cost lies ahead" judged by capture order (coordinator ruling, 2.3), and the
-`Debt:` tooltip line (2.6). Phase 4 open. Authority for the rule: game-actions design section 3.13 (owner rulings
+`Debt:` tooltip line (2.6). Phase 4 BUILT 2026-10-22 on branch `o6-phase4-local`: the click
+predicates, the launch marks and backstops, the `ContractReserve` Mission Control kind and Reserved
+including `openRes` (2.5, 2.6). Authority for the rule: game-actions design section 3.13 (owner rulings
 2026-10-21, record `decisions/open-decisions.md` L1.1-L1.6). Todo:
 `LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY` (O6, O7) and the P15 half of
 `GUI-P15-D7-TWO-SAFETY-GATES-THAT-EXIST-AND-ARE-NEVER-ARMED`. O2 and O3 shipped separately (PR #2172).
@@ -130,6 +132,13 @@ walk row, and since revision 6 it moves contract state only, never a pool (2.4, 
 files its own fail row when it charges one. Until phase 4 adds the click predicates, an open penalty
 is protected by nothing: a player may spend the money a later fail needs, and stock's 0 clamp then
 forgives the rest of that fail (below).
+
+**Built in phase 4:** the open penalties are protected at the click, not in the pool.
+`ClickReservation.OpenReserve` sums, per pool, the fail penalty of every Active contract with no
+committed resolution after now (`CommittedContractResolutionAfter`), and counts it only in a pool
+with a committed cost ahead; reputation penalties go through `ApplyReputationCurve` at the current
+reputation. A contract that is not open now (accepted later on the timeline) is not in `openRes`:
+its penalty is a ledger row, already in the walk.
 
 **Ruled by V (decision card, 2026-10-22):** open penalties are reserved only while a committed
 purchase or strategy cost lies ahead (`openRes` counts only when `costAhead`). Normal play, where no
@@ -414,6 +423,70 @@ with `openRes` the open-contract penalties counted per V's answer to 2.2.
   backstops in `ContractAcceptPatch`, `ContractDeclinePatch`, `ContractCancelPatch`; the harness GUI
   mirror's kind lists (`test_gui_mirror`) learn the new kind.
 
+**Built in phase 4 (2026-10-22, branch `o6-phase4-local`).** One snapshot per now,
+`ClickReservationGate.Current()` (`GameActions/ClickReservation.cs`): when no committed cost row of the
+effective ledger lies after now it returns the inert snapshot without walking anything (normal play
+stays exactly stock); otherwise `RecalculationEngine.ProbeClickReservationAtCutoff` walks once to now
+and reports per pool the target, the need of the cost rows after now (`ReservedFloorPlan.NeedOfRowsAfter`)
+and the live value, cached on the ELS reference, `Ledger.StateVersion` and the UT window up to the
+next row. Funds and science: `spendable = min(max(target, 0), live) - openRes`; reputation:
+`min(running, live) - need - openRes`. Parsek refuses a purchase only when the live pool covers the
+cost (a plain shortage stays stock's own refusal and wording). Every refusal reads
+`ReservationExplanation.ClickReserve` ("Reserved for later costs and contract penalties, blocked by
+timeline.") with one detail line ("Needs X funds, Y free." / "Short by X funds."), logs
+`[ClickReserve]`, is bypassed during replay (`GameStateRecorder.IsReplayingActions`) and is inert
+outside career (`ParsekGameModeGate`). A reputation cost is compared after stock's curve
+(`ClickReservation.ChargedBy`: `CurvedLoss(cost, live)`; stock's `Strategy.Activate` charges the
+setup through `Reputation.AddReputation`, and the need is post-curve), while the stock-first check
+stays raw as stock's `CanBeActivated` compares; the reason names the curved amount
+(`PurchaseRefusal.Charged`). The snapshot fails open: an exception logs one rate-limited Warn and
+returns the inert snapshot, so a Parsek fault never breaks a stock click (review of c86c5b9). Entry points, each greyed control and its backstop reading one
+decision (stock members from the KSP 1.12.5 decompile):
+
+- Launch: `CanAffordLaunchTest` is constructed only by `EditorLogic.GetStockPreFlightCheck` (editor
+  Launch) and `LaunchSiteFacility.launchChecks` (Space Center picker); a postfix on its `Test()` reads
+  the private `launchCost` and fails the check, `GetWarningDescription` gets the reason. Marks: the
+  editor `launchBtn` (its `interactable` is set only in `EditorLogic.UpdateUI`; a postfix there plus
+  the `EditorLaunchMark` addon polling on ship change) and the picker's `buttonLaunch`
+  (`VesselSpawnDialog.UpdateVesselInfoPanel`, which reads `isValid`; its double-click calls
+  `ButtonLaunch` directly and lands on the same pre-flight test). The launch-site flyout's per-site
+  Launch buttons (`EditorLaunchPadItem.buttonLaunch`, to `launchVessel(siteName)` /
+  `VesselSpawnDialog.ButtonLaunch()`; stock never writes their `interactable`) carry the same
+  decision (`LaunchSiteButtonsMark`: applied by both marks and on the flyout's pointer-enter,
+  `UILaunchsiteController.launchSitesSelectable_onPointerEnter`). The editor mark prices the crew
+  `launchVessel` installs before the test (`CrewAssignmentDialog.Instance.GetManifest()`), falling
+  back to `ShipConstruction.ShipManifest` only when the dialog has none (stock then calls
+  `DefaultCrewForVessel`, which can hire, so the mark does not).
+- Facility upgrade, rebuild (stock's `DowngradeFacility`) and repair: the facility menu marks layer
+  the reserve (`StockUiFacilityDecoration.Layer{Upgrade,Rebuild,Repair}Reserve`); backstops in
+  `FacilityUpgradeSpendPatch`, `FacilityDowngradeSpendPatch` and `FacilityRepairScopePatch` over
+  `GetUpgradeCost` / `GetDowngradeCost` / `SpaceCenterBuilding.GetRepairsCost`, when the click
+  charges funds.
+- Hire: the Astronaut Complex applicant mark and `AstronautComplexHireRecruitPatch`, over
+  `GameVariables.GetRecruitHireCost(GetActiveCrewCount())`.
+- Part purchase: `StockUiPartPurchase.DecideLive` layers the reserve over `entryCost` for the R&D
+  and editor purchase prompts.
+- Strategy setup: `StrategyReservationPatch.TryRefuseActivationForReserve`, after the committed-row
+  decision, over `InitialCostFunds` / `InitialCostScience` / `InitialCostReputation`, all three pools.
+- Tech: no new predicate. Science carries no open penalties, so its spendable equals the target the
+  existing R&D check already reads.
+- Mission Control: `MissionControlStockAnnotation.Decide` takes a `ContractReserveInput` and yields
+  `ContractReserve` with a `StockUiReserveButtons` set (Accept, Decline, Cancel); a committed accept or
+  resolution block wins, a slot block adds the Decline flag. Effects transcribed from stock
+  `Contract`: Cancel's `t` is the clamped fraction of `DateAccepted` to `DateDeadline`. Auto-accepted
+  contracts skip the layer. Stock first, as for purchases: a click stock refuses (Accept at the
+  active-contract limit from `MissionControl.RefreshUIControls`, `CanBeDeclined()`,
+  `CanBeCancelled()`, carried on `ContractReserveInput.StockAllows*`) gets no reserve block, heading
+  or backstop refusal.
+
+Deviations from the text above: "a committed cost lies ahead" is judged here by UT (a cost row after
+now), not by capture order: a click is captured after every row, so the capture-order test reduces to
+UT. Stock's auto-hire of a launch's empty seats (`HireApplicant` from crew assignment) is not refused;
+only the Astronaut Complex Hire is. Cost modifiers (strategies, `CurrencyModifierQuery`) are not
+modelled: each predicate reads the raw cost stock shows. A part UPGRADE purchase
+(`Funding.onUpgradePurchased`) has no row, mark or backstop at all (predates phase 4; todo
+PART-UPGRADE-PURCHASE-UNRESERVED).
+
 ### 2.6 Tooltips
 
 The funds and science tooltips (`CurrencyReservationOverlay`) gain one `Debt:` line, shown only
@@ -426,6 +499,12 @@ rounds above 0 (`CurrencyReservationOverlay.AppendDebtLine`). `TooltipEchoBudget
 hover-help strip of Parsek's own windows; the currency tooltip is the stock widget's and is not in its
 scope, so the line is pinned by `CurrencyReservationOverlayTests` instead. Reserved including
 `openRes` stays with phase 4.
+
+**Built in phase 4:** the funds tooltip's Reserved adds `openRes` (`BuildReservationTooltip`'s
+`openRes` argument, from `ClickReservationGate.Current().Funds.OpenRes`), so `Total - Reserved`
+reads the same amount the purchase predicate calls spendable, not the bar's value. Science carries
+no open penalties, so its tooltip is unchanged. With no committed cost ahead `openRes` is 0 and the
+tooltip reads as before.
 
 ## 3. Phases (one PR each, in this order)
 
@@ -440,6 +519,7 @@ scope, so the line is pinned by `CurrencyReservationOverlayTests` instead. Reser
    sequence that decides "ahead" (2.3).
 4. **Clicks and open reservations** (2.5): predicates, the launch mark and backstop, the Mission
    Control kind, Reserved including `openRes` (the open penalties left the pool reserve in phase 2).
+   Built (2.5 "Built in phase 4").
 
 Each phase updates CHANGELOG, the todo entry and design 3.9 / 3.13 / 14.4 in its own commits.
 
@@ -465,7 +545,14 @@ used to drag below 0) and the ledger ground-truth lanes; re-pin only for a ruled
 lanes on the H73-H79 pattern: after a rewind, a flight's crew death before a committed strategy holds
 reputation at the floor (phase 3); a purchase and a Mission Control Accept greyed while a committed
 cost needs the money (phase 4); a reserve released by a contract completion comes back (phase 2).
-Flown on V's PC.
+Flown on V's PC. Phase 3's funds side: `L9-career-floor-debt-after-rewind` (LIVE-PROVEN
+2026-10-22, `2026-10-22_1342`) cancels a contract after a rewind, before the committed costs, and
+pins the settle and the Debt charge; under phase 4 that cancel stays allowed (it releases its own
+reserve). Phase 4's lane is `L10-career-click-reserve-after-rewind` (live-proven 2026-10-22, `2026-10-22_1932`, once PR #2181 made the rewind land in its own world): L9's
+host and committed purchases, then after the rewind a Tracking Station repair the live pool covers is
+greyed and refused for the open penalties, the Cancel that releases its own penalty is allowed, and a
+Mission Control Accept whose penalty exceeds its advance is greyed and refused while one whose advance
+covers its penalty is allowed.
 
 ## 5. Risks
 

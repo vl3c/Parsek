@@ -304,6 +304,143 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// What the committed rows after now ask of one pool, for the click predicates
+        /// (committed-value rule plan section 2.5): whether a committed purchase or strategy
+        /// cost of the pool lies after now, and the need of those costs over the rows after
+        /// now (<see cref="ReservedFloorPlan.NeedOfRowsAfter"/>).
+        /// </summary>
+        internal struct ClickPoolAhead
+        {
+            internal StockPool Pool;
+            internal bool CostAhead;
+            internal int CostRowsAhead;
+            internal double Need;
+        }
+
+        /// <summary>What <see cref="ProbeClickReservationAtCutoff"/> measured.</summary>
+        internal sealed class ClickReservationProbe
+        {
+            internal readonly List<ClickPoolAhead> Pools = new List<ClickPoolAhead>();
+            internal readonly List<IResourceModule> Modules = new List<IResourceModule>();
+
+            internal bool TryGetPool(StockPool pool, out ClickPoolAhead ahead)
+            {
+                for (int i = 0; i < Pools.Count; i++)
+                {
+                    if (Pools[i].Pool == pool)
+                    {
+                        ahead = Pools[i];
+                        return true;
+                    }
+                }
+                ahead = default(ClickPoolAhead);
+                return false;
+            }
+
+            internal T Find<T>() where T : class, IResourceModule
+            {
+                return FindModule<T>(Modules);
+            }
+        }
+
+        /// <summary>
+        /// The click predicates' read-only probe (committed-value rule plan section 2.5): the
+        /// same projection and cutoff walk as <see cref="ProbeModuleAtCutoff{T}"/> over module
+        /// clones, plus, per floor pool, what the committed rows after
+        /// <paramref name="utCutoff"/> still need (<see cref="ClickPoolAhead"/>), read from the
+        /// debt-free projection rows before the cutoff walk resets their derived fields. A
+        /// click is captured after every row on the timeline, so "a cost lies ahead" is any
+        /// committed cost row after now, whatever its capture order. Logs nothing; derived
+        /// fields are restored.
+        /// </summary>
+        internal static ClickReservationProbe ProbeClickReservationAtCutoff(List<GameAction> actions, double utCutoff)
+        {
+            var result = new ClickReservationProbe();
+            if (actions == null) return result;
+            var all = CopyNonNullActions(actions);
+            var effective = new List<GameAction>(all.Count);
+            for (int i = 0; i < all.Count; i++)
+                if (IsSeedType(all[i].Type) || all[i].UT <= utCutoff)
+                    effective.Add(all[i]);
+
+            var saved = SnapshotDerivedFields(all);
+            try
+            {
+                using (ParsekLog.SuppressScope())
+                {
+                    List<GameAction> projected = RunProjectionWalk(
+                        CopyNonNullActions(all), ComputeProjectionHorizon(all)).Sorted;
+                    HashSet<GameAction> ledgerRows = LedgerRowSet(all);
+
+                    var floorModules = new List<IReservedFloorModule>();
+                    CollectFloorModules(firstTierModules, floorModules);
+                    if (strategyTransform is IReservedFloorModule s) floorModules.Add(s);
+                    CollectFloorModules(secondTierModules, floorModules);
+                    if (facilitiesModule is IReservedFloorModule f) floorModules.Add(f);
+                    for (int m = 0; m < floorModules.Count; m++)
+                        result.Pools.Add(MeasureClickPoolAhead(floorModules[m], projected, ledgerRows, utCutoff));
+
+                    List<ReservedFloorPlan> floorPlans =
+                        ReservedFloorPlan.HasCostCapturedAheadOfALaterLoss(all)
+                            ? BuildReservedFloorPlans(projected, ledgerRows, logPlans: false)
+                            : null;
+                    var first = CreateProjectionModules(firstTierModules);
+                    var strategy = CreateProjectionModule(strategyTransform);
+                    var second = CreateProjectionModules(secondTierModules);
+                    var facilities = CreateProjectionModule(facilitiesModule);
+                    RunWalk(effective, utCutoff, first, strategy, second, facilities, plans: floorPlans);
+
+                    ApplyProjectedAvailability(first, projected, utCutoff, ledgerRows);
+                    if (strategy != null) ApplyProjectedAvailability(strategy, projected, utCutoff, ledgerRows);
+                    ApplyProjectedAvailability(second, projected, utCutoff, ledgerRows);
+                    if (facilities != null) ApplyProjectedAvailability(facilities, projected, utCutoff, ledgerRows);
+
+                    result.Modules.AddRange(first);
+                    if (strategy != null) result.Modules.Add(strategy);
+                    result.Modules.AddRange(second);
+                    if (facilities != null) result.Modules.Add(facilities);
+                }
+            }
+            finally
+            {
+                RestoreDerivedFields(saved);
+            }
+            return result;
+        }
+
+        private static ClickPoolAhead MeasureClickPoolAhead(
+            IReservedFloorModule module, List<GameAction> projected, HashSet<GameAction> ledgerRows, double utCutoff)
+        {
+            var rows = new List<ReservedFloorRow>();
+            for (int i = 0; i < projected.Count; i++)
+            {
+                var a = projected[i];
+                if (a == null || !(a.UT > utCutoff)) continue;
+                double delta;
+                bool isCost, floorLimited;
+                module.ClassifyFloorRow(a, out delta, out isCost, out floorLimited);
+                bool synthetic = !CountsInReserve(a, ledgerRows);
+                rows.Add(new ReservedFloorRow
+                {
+                    Action = a,
+                    Delta = synthetic ? 0.0 : delta,
+                    IsCost = isCost && !synthetic,
+                    FloorLimited = floorLimited,
+                    Synthetic = synthetic,
+                });
+            }
+            int costRows;
+            double need = ReservedFloorPlan.NeedOfRowsAfter(rows, out costRows);
+            return new ClickPoolAhead
+            {
+                Pool = module.FloorPool,
+                CostAhead = costRows > 0,
+                CostRowsAhead = costRows,
+                Need = need,
+            };
+        }
+
         /// <summary>One balance sample of <see cref="WalkBalancesOnClones"/>: the running
         /// funds, science and reputation right after the action at <see cref="UT"/>.</summary>
         internal struct LedgerBalanceSample

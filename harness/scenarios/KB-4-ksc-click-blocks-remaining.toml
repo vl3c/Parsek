@@ -34,8 +34,11 @@ id = "KB-4-ksc-click-blocks-remaining"
 # for want of a slot and Parsek stands aside (stock-first precedence, research doc S1).
 # To reach Parsek's own activation refusal the lane first upgrades the Administration
 # (`KscAction upgrade-facility`, a present-day upgrade the committed timeline does not
-# make, so it is allowed and charged): one FacilityUpgrade ledger row, 26 -> 27. Nothing
-# else in the lane may add a row.
+# make, so it is allowed and charged): one FacilityUpgrade ledger row, 28 -> 29. The
+# census fixture predates the stock pool reference (committed-value rule phase 2, PR
+# #2177), so the first patch after the load adopts the pools as they stand: two
+# `StockPoolAdjustment` rows (funds 221437.5, science ~5.0, reason=adopted-gap), 26 -> 28.
+# Nothing else in the lane may add a row.
 #
 # FOR EACH BLOCK, pinned below:
 #   (a) THE CONTROL. The stock screen is opened and the row selected / hovered through
@@ -63,7 +66,8 @@ id = "KB-4-ksc-click-blocks-remaining"
 #       <body>` must END in exactly the `why` its control carried, captured and
 #       backreferenced across the log (`\1`).
 #   (d) NOTHING ELSE CHANGED. No game-state event for any blocked kind, no ledger row
-#       other than the Administration upgrade, and the last ledger save holds 27.
+#       other than the Administration upgrade and the two load-time adoption rows, and
+#       the last ledger save holds 29.
 #
 # THE STRATEGY DEACTIVATION PRIMITIVE IS NOT PRESSED. `Strategy.Deactivate()` is left
 # unpatched by design (KSPCF's auto-expiry calls it; research doc S1), so only the
@@ -256,15 +260,21 @@ required = [
   # ---- every blocked dialog was up and was dismissed (nine times) ----
   "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false){9}",
 
-  # ---- (d) the ledger: 26 rows on load, the one upgrade row, 27 on the last save ----
+  # ---- (d) the ledger: 26 rows on load, the two load-time adoption rows, the one upgrade
+  # row, 29 on the last save ----
   "\\[Parsek\\]\\[VERBOSE\\]\\[Ledger\\] Loaded ledger from '[^']*': version=0, actions=26, parseErrors=0",
+  "\\[StockPoolReference\\] PatchFunds: filed StockPoolAdjustment amount=221437\\.5 reason=adopted-gap ",
+  "\\[StockPoolReference\\] PatchScience: filed StockPoolAdjustment amount=4\\.99999[0-9]* reason=adopted-gap ",
   "\\[Ledger\\] Added action: type=FacilityUpgrade",
-  "kscaction refused action=assign-crew [\\s\\S]*\\[Parsek\\]\\[VERBOSE\\]\\[Ledger\\] Saved ledger to '[^']*': version=0, actions=27\\r?\\n",
+  "kscaction refused action=assign-crew [\\s\\S]*\\[Parsek\\]\\[VERBOSE\\]\\[Ledger\\] Saved ledger to '[^']*': version=0, actions=29\\r?\\n",
 ]
 forbidden = [
-  # (d) no ledger row other than the Administration upgrade; no other save count.
-  "\\[Ledger\\] Added action: type=(?!FacilityUpgrade)",
-  "\\[Ledger\\] Saved ledger to '[^']*': version=0, actions=(?!2[67]\\r?\\n)",
+  # (d) no ledger row other than the Administration upgrade and the two adoption rows;
+  # no other save count.
+  "\\[Ledger\\] Added action: type=(?!FacilityUpgrade,|StockPoolAdjustment,)",
+  "filed StockPoolAdjustment amount=\\S+ reason=(?!adopted-gap )",
+  "\\A(?:[\\s\\S]*?filed StockPoolAdjustment ){3}",
+  "\\[Ledger\\] Saved ledger to '[^']*': version=0, actions=(?!2[89]\\r?\\n)",
   # No game-state event of a blocked kind, no reputation or science move, and no funds
   # move other than the upgrade's construction charge.
   "Game state: (ContractAccepted|ContractDeclined|ContractCancelled|CrewRemoved|StrategyActivated|StrategyDeactivated|PartPurchased|ReputationChanged|ScienceChanged)",

@@ -88,7 +88,9 @@ namespace Parsek
             StockUiDecoration d, string tab, string stockLabel, bool rowActionable, string dismissalRefusal)
         {
             var r = new CrewRowDecision();
-            if (d.Marked && !string.IsNullOrEmpty(d.Title))
+            // A click-reservation refusal is marked by the disabled Hire's caption only: the
+            // applicant's trait line stays stock's.
+            if (d.Marked && !string.IsNullOrEmpty(d.Title) && d.Kind != StockUiDecorationKind.ContractReserve)
             {
                 r.Label = tab == StockUiDecorationQuery.AstronautAssignedTab
                     ? ComposeAssignedLabel(stockLabel, d.Title)
@@ -97,7 +99,8 @@ namespace Parsek
             if (!rowActionable) return r;
 
             if (tab == StockUiDecorationQuery.AstronautApplicantsTab
-                && d.Kind == StockUiDecorationKind.KerbalHire)
+                && (d.Kind == StockUiDecorationKind.KerbalHire
+                    || (d.Kind == StockUiDecorationKind.ContractReserve && d.Blocked)))
             {
                 r.DisableButton = true;
                 r.DisabledTitle = HoverTitle(d.Title);

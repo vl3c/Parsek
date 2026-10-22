@@ -189,6 +189,42 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// The need of the rows after now, for a click (committed-value rule plan 2.5):
+        /// <c>max(0, -min over k up to the last cost row of sum_{j&lt;=k} d'(j))</c> over
+        /// <paramref name="rowsAfterNow"/> in walk order, d' without floor-limited losses and
+        /// injected rows. A click is captured after every row, so every cost row counts,
+        /// whatever its capture sequence. 0 with <paramref name="costRows"/> 0 when no cost
+        /// row is in the list. Pure.
+        /// </summary>
+        internal static double NeedOfRowsAfter(IList<ReservedFloorRow> rowsAfterNow, out int costRows)
+        {
+            costRows = 0;
+            if (rowsAfterNow == null || rowsAfterNow.Count == 0)
+                return 0.0;
+            int last = -1;
+            for (int i = 0; i < rowsAfterNow.Count; i++)
+            {
+                if (rowsAfterNow[i].IsCost && !rowsAfterNow[i].Synthetic)
+                {
+                    costRows++;
+                    last = i;
+                }
+            }
+            if (last < 0)
+                return 0.0;
+            double sum = 0.0, min = 0.0;
+            for (int i = 0; i <= last; i++)
+            {
+                ReservedFloorRow row = rowsAfterNow[i];
+                double dPrime = row.Synthetic || row.FloorLimited || double.IsNaN(row.Delta)
+                    || double.IsInfinity(row.Delta) ? 0.0 : row.Delta;
+                sum += dPrime;
+                if (sum < min) min = sum;
+            }
+            return -min;
+        }
+
         /// <summary>A cost row of any pool (funds, science or reputation).</summary>
         internal static bool IsAnyPoolCostRow(GameAction action)
         {

@@ -115,7 +115,8 @@ namespace Parsek
             Func<double, string> formatDate,
             ContractSlotForecast slots = null,
             bool autoAccept = false,
-            double newContractReleaseUT = double.PositiveInfinity)
+            double newContractReleaseUT = double.PositiveInfinity,
+            ContractReserveInput reserve = null)
         {
             string tab = TabFor(state);
             if (string.IsNullOrEmpty(contractKey))
@@ -133,7 +134,78 @@ namespace Parsek
             List<StockUiDecoration> one = StockUiDecorationQuery.ForMissionControl(
                 index, currentUT, new[] { new StockUiItem(contractKey, tab) }, formatDate,
                 autoAccept ? null : slots, _ => newContractReleaseUT);
-            return one[0];
+            if (autoAccept)
+                return one[0];
+            return ApplyClickReserve(one[0], contractKey, state, currentUT, reserve);
+        }
+
+        /// <summary>
+        /// The click-reservation layer of the decision (committed-value rule, design 3.13 rule
+        /// 3, ruling L1.3): Accept / Decline of an Offered contract and Cancel of an Active one
+        /// are refused when, in a pool with a committed cost ahead, the click would leave the
+        /// spendable amount below <c>min(0, spendable)</c> (<see cref="ClickReservation"/>). A
+        /// committed accept or resolution keeps precedence (its block already covers the
+        /// buttons); a slot block keeps its kind and gains a refused Decline. Stock first, as
+        /// for purchases: a click stock itself refuses (Accept at the active-contract limit,
+        /// a contract that cannot be declined or cancelled) is left to stock, with no Parsek
+        /// heading or reason. Blocked, never marked: the detail-panel reason is the
+        /// annotation. A null or inert reserve input changes nothing.
+        /// </summary>
+        internal static StockUiDecoration ApplyClickReserve(StockUiDecoration d, string contractKey,
+            Contract.State state, double currentUT, ContractReserveInput reserve)
+        {
+            if (reserve == null || reserve.Snapshot == null || !reserve.Snapshot.AnyCostAhead)
+                return d;
+            if (d.Blocked && (d.Kind == StockUiDecorationKind.ContractAccept
+                              || d.Kind == StockUiDecorationKind.ContractResolution))
+                return d;
+
+            double rep = reserve.CurrentReputation;
+            if (state == Contract.State.Offered)
+            {
+                var accept = reserve.StockAllowsAccept
+                    ? ClickReservation.EvaluateContractClick(reserve.Snapshot, ClickReservation.EffectOf(
+                        ContractClick.Accept, reserve.Money, currentUT, reserve.RepLossDeclined, rep, false))
+                    : default(ContractClickRefusal);
+                var decline = reserve.StockAllowsDecline
+                    ? ClickReservation.EvaluateContractClick(reserve.Snapshot, ClickReservation.EffectOf(
+                        ContractClick.Decline, reserve.Money, currentUT, reserve.RepLossDeclined, rep, false))
+                    : default(ContractClickRefusal);
+                if (d.Blocked && d.Kind == StockUiDecorationKind.ContractSlot)
+                {
+                    if (!decline.Refused) return d;
+                    d.ReserveButtons |= StockUiReserveButtons.Decline;
+                    d.Why = (d.Why ?? "") + " " + ClickReservationGate.ContractReason(decline);
+                    return d;
+                }
+                if (!accept.Refused && !decline.Refused) return d;
+                var buttons = StockUiReserveButtons.None;
+                if (accept.Refused) buttons |= StockUiReserveButtons.Accept;
+                if (decline.Refused) buttons |= StockUiReserveButtons.Decline;
+                return ReserveDecoration(d, buttons, ClickReservationGate.ContractReason(accept.Refused ? accept : decline));
+            }
+            if (state == Contract.State.Active)
+            {
+                if (!reserve.StockAllowsCancel) return d;
+                bool counted = !string.IsNullOrEmpty(contractKey) && reserve.Snapshot.CountedContractKeys.Contains(contractKey);
+                var cancel = ClickReservation.EvaluateContractClick(reserve.Snapshot, ClickReservation.EffectOf(
+                    ContractClick.Cancel, reserve.Money, currentUT, reserve.RepLossDeclined, rep, counted));
+                if (!cancel.Refused) return d;
+                return ReserveDecoration(d, StockUiReserveButtons.Cancel, ClickReservationGate.ContractReason(cancel));
+            }
+            return d;
+        }
+
+        private static StockUiDecoration ReserveDecoration(StockUiDecoration d, StockUiReserveButtons buttons, string why)
+        {
+            d.Kind = StockUiDecorationKind.ContractReserve;
+            d.Blocked = true;
+            d.Marked = false;
+            d.ReserveButtons = buttons;
+            d.Why = why;
+            d.Title = ReservationExplanation.ClickReserve().Title;
+            d.UT = double.NaN;
+            return d;
         }
 
         /// <summary>True when the decision greys out Accept and Decline (a committed accept).</summary>
@@ -154,13 +226,26 @@ namespace Parsek
         /// </summary>
         internal static bool BlocksAccept(StockUiDecoration decoration)
         {
-            return BlocksAcceptAndDecline(decoration) || BlocksAcceptForSlot(decoration);
+            return BlocksAcceptAndDecline(decoration) || BlocksAcceptForSlot(decoration)
+                || (decoration.Blocked && (decoration.ReserveButtons & StockUiReserveButtons.Accept) != 0);
         }
 
-        /// <summary>True when the decision greys out Cancel (a committed resolution).</summary>
+        /// <summary>
+        /// True when the decision refuses Decline: a committed accept, or the click
+        /// reservation. The greyed Decline and the <c>Contract.Decline</c> backstop read this.
+        /// </summary>
+        internal static bool BlocksDecline(StockUiDecoration decoration)
+        {
+            return BlocksAcceptAndDecline(decoration)
+                || (decoration.Blocked && (decoration.ReserveButtons & StockUiReserveButtons.Decline) != 0);
+        }
+
+        /// <summary>True when the decision greys out Cancel (a committed resolution, or the
+        /// click reservation).</summary>
         internal static bool BlocksCancel(StockUiDecoration decoration)
         {
-            return decoration.Blocked && decoration.Kind == StockUiDecorationKind.ContractResolution;
+            return decoration.Blocked && (decoration.Kind == StockUiDecorationKind.ContractResolution
+                || (decoration.ReserveButtons & StockUiReserveButtons.Cancel) != 0);
         }
 
         /// <summary>
@@ -172,8 +257,24 @@ namespace Parsek
         internal static void GreyedButtons(StockUiDecoration decoration, out bool accept, out bool decline, out bool cancel)
         {
             accept = BlocksAccept(decoration);
-            decline = BlocksAcceptAndDecline(decoration);
+            decline = BlocksDecline(decoration);
             cancel = BlocksCancel(decoration);
+        }
+
+        /// <summary>The heading of the detail-panel block for a refused Decline alone.</summary>
+        internal const string DeclineDetailHeading = "Decline is unavailable";
+
+        /// <summary>The detail-panel heading naming the buttons a decision greys out, from
+        /// the greyed set itself (<see cref="GreyedButtons"/>).</summary>
+        internal static string DetailHeadingFor(StockUiDecoration decoration)
+        {
+            bool accept, decline, cancel;
+            GreyedButtons(decoration, out accept, out decline, out cancel);
+            if (cancel) return CancelDetailHeading;
+            if (accept && decline) return DetailHeading;
+            if (accept) return SlotDetailHeading;
+            if (decline) return DeclineDetailHeading;
+            return DetailHeadingFor(decoration.Kind);
         }
 
         /// <summary>The detail-panel heading naming the buttons a decision greys out.</summary>
@@ -299,8 +400,27 @@ namespace Parsek
             if (!decoration.Blocked || string.IsNullOrEmpty(decoration.Why))
                 return baseText;
             baseText = StockUiText.ResolveStockKey(baseText, "Mission Control detail text");
-            return baseText + DetailMarker + DetailHeadingFor(decoration.Kind) + "</color></b>\n"
+            return baseText + DetailMarker + DetailHeadingFor(decoration) + "</color></b>\n"
                 + "<color=#" + DetailColor + ">" + decoration.Why + "</color>";
         }
+    }
+
+    /// <summary>What the click-reservation layer of a Mission Control decision reads for
+    /// one contract: the snapshot at now, the contract's stock money, stock's
+    /// <c>RepLossDeclined</c> and the reputation the curve is applied at.</summary>
+    internal sealed class ContractReserveInput
+    {
+        internal ClickReservationSnapshot Snapshot;
+        internal ContractMoney Money;
+        internal double RepLossDeclined;
+        internal double CurrentReputation;
+        /// <summary>Stock itself allows Accept now (<c>MissionControl.RefreshUIControls</c>: the
+        /// active-contract count is under the limit). Stock first: the reservation refuses only
+        /// a click stock would allow.</summary>
+        internal bool StockAllowsAccept = true;
+        /// <summary>Stock's <c>Contract.CanBeDeclined()</c>.</summary>
+        internal bool StockAllowsDecline = true;
+        /// <summary>Stock's <c>Contract.CanBeCancelled()</c>.</summary>
+        internal bool StockAllowsCancel = true;
     }
 }

@@ -29,6 +29,7 @@ namespace Parsek
         private static CommittedFutureIndex passIndex;
         private static double passNow;
         private static ContractSlotForecast passSlots;
+        private static ClickReservationSnapshot passReserve;
         private static readonly List<StockUiDecoration> passDecorations = new List<StockUiDecoration>();
 
         // Keys already logged since Mission Control last opened (the CC CanAccept refusal
@@ -84,7 +85,8 @@ namespace Parsek
                 ReservationExplanation.DefaultDateFormatter,
                 ContractSlotReservation.ForecastNow(index, now),
                 contract != null && contract.AutoAccept,
-                ContractSlotReservation.NewAcceptReleaseUT(contract, now));
+                ContractSlotReservation.NewAcceptReleaseUT(contract, now),
+                ClickReservationGate.InputFor(contract, ClickReservationGate.SnapshotAt(now)));
         }
 
         // ---------------------------------------------------------------- screen lifecycle
@@ -132,6 +134,7 @@ namespace Parsek
             passIndex = CommittedFutureIndexCache.Current;
             passNow = CommittedFutureIndexCache.CurrentUT();
             passSlots = ContractSlotReservation.ForecastNow(passIndex, passNow);
+            passReserve = ClickReservationGate.SnapshotAt(passNow);
             passDecorations.Clear();
             if (passSlots != null && passSlots.BlocksNewAcceptNow)
                 ParsekLog.Verbose(Tag, "MissionControl rebuild pass: committed timeline needs every free slot - "
@@ -151,6 +154,7 @@ namespace Parsek
             passTab = null;
             passIndex = null;
             passSlots = null;
+            passReserve = null;
             passDecorations.Clear();
         }
 
@@ -169,7 +173,8 @@ namespace Parsek
             {
                 d = MissionControlStockAnnotation.Decide(passIndex, passNow, ContractKey(contract),
                     contract.ContractState, ReservationExplanation.DefaultDateFormatter, passSlots, contract.AutoAccept,
-                    ContractSlotReservation.NewAcceptReleaseUT(contract, passNow));
+                    ContractSlotReservation.NewAcceptReleaseUT(contract, passNow),
+                    ClickReservationGate.InputFor(contract, passReserve));
                 passDecorations.Add(d);
             }
             else
@@ -275,19 +280,21 @@ namespace Parsek
                 return d;
             }
 
-            SetInteractable(mc.btnAccept, false);
-            if (MissionControlStockAnnotation.BlocksAcceptForSlot(d))
-            {
-                // Declining an offer the committed timeline does not accept is fine: stock's
-                // Decline state (written by stock just before this postfix) is kept.
-                ParsekLog.Verbose(Tag, "MissionControl detail panel: contract=" + d.Id
-                    + " slot needed by a committed accept - Accept disabled, why appended (" + (source ?? "?")
-                    + ") why=\"" + d.Why + "\"");
-                return d;
-            }
-            SetInteractable(mc.btnDecline, false);
+            bool blockAccept = MissionControlStockAnnotation.BlocksAccept(d);
+            bool blockDecline = MissionControlStockAnnotation.BlocksDecline(d);
+            if (blockAccept)
+                SetInteractable(mc.btnAccept, false);
+            else if (acceptWrite.HasValue)
+                SetInteractable(mc.btnAccept, acceptWrite.Value);
+            // Declining an offer the committed timeline does not accept is fine unless the
+            // click reservation refuses it: stock's Decline state (written by stock just
+            // before this postfix) is kept otherwise.
+            if (blockDecline)
+                SetInteractable(mc.btnDecline, false);
             ParsekLog.Verbose(Tag, "MissionControl detail panel: contract=" + d.Id
-                + " blocked - Accept and Decline disabled, why appended (" + (source ?? "?") + ") why=\"" + d.Why + "\"");
+                + " kind=" + d.Kind + " blocked - accept=" + (blockAccept ? "disabled" : "stock")
+                + " decline=" + (blockDecline ? "disabled" : "stock") + ", why appended (" + (source ?? "?")
+                + ") why=\"" + d.Why + "\"");
             return d;
         }
 
@@ -336,24 +343,17 @@ namespace Parsek
                 return cancelChanged;
             }
 
-            acceptDisabledByParsek = true;
-            if (MissionControlStockAnnotation.BlocksAcceptForSlot(d))
-            {
-                bool acceptChanged = IsInteractable(mc.btnAccept);
-                SetInteractable(mc.btnAccept, false);
-                if (acceptChanged)
-                    ParsekLog.VerboseRateLimited(Tag, "mc-reapply-slot",
-                        "MissionControl " + (source ?? "?") + " re-enabled Accept on contract=" + d.Id
-                        + " while the committed timeline needs every free slot - Accept disabled again");
-                return acceptChanged;
-            }
-            bool changed = IsInteractable(mc.btnAccept) || IsInteractable(mc.btnDecline);
-            SetInteractable(mc.btnAccept, false);
-            SetInteractable(mc.btnDecline, false);
+            bool reAccept = MissionControlStockAnnotation.BlocksAccept(d);
+            bool reDecline = MissionControlStockAnnotation.BlocksDecline(d);
+            acceptDisabledByParsek = reAccept;
+            bool changed = (reAccept && IsInteractable(mc.btnAccept)) || (reDecline && IsInteractable(mc.btnDecline));
+            if (reAccept) SetInteractable(mc.btnAccept, false);
+            if (reDecline) SetInteractable(mc.btnDecline, false);
             if (changed)
-                ParsekLog.VerboseRateLimited(Tag, "mc-reapply-" + d.Id,
-                    "MissionControl " + (source ?? "?") + " re-enabled a button on committed-accept contract="
-                    + d.Id + " - Accept and Decline disabled again");
+                ParsekLog.VerboseRateLimited(Tag, "mc-reapply-" + d.Kind + "-" + d.Id,
+                    "MissionControl " + (source ?? "?") + " re-enabled a button on contract=" + d.Id
+                    + " kind=" + d.Kind + " - accept=" + (reAccept ? "disabled" : "stock")
+                    + " decline=" + (reDecline ? "disabled" : "stock") + " again");
             return changed;
         }
 
@@ -400,25 +400,20 @@ namespace Parsek
                 ParsekLog.Verbose(Tag, "MissionControl refresh: selected contract=" + d.Id + " blocked - Cancel disabled");
                 return;
             }
-            if (MissionControlStockAnnotation.BlocksAcceptForSlot(d))
-            {
-                // Only Accept: Decline goes back to stock's own rule, in case a committed
-                // accept of this contract (which greyed both) is what just went away.
-                bool slotDecline = selected.CanBeDeclined();
-                acceptDisabledByParsek = true;
-                SetInteractable(mc.btnAccept, false);
-                SetInteractable(mc.btnDecline, slotDecline);
-                ParsekLog.Verbose(Tag, "MissionControl refresh: selected contract=" + d.Id
-                    + " slot needed by a committed accept - Accept disabled, stock Decline state decline="
-                    + (slotDecline ? "true" : "false"));
-                return;
-            }
             if (d.Blocked)
             {
-                acceptDisabledByParsek = true;
-                SetInteractable(mc.btnAccept, false);
-                SetInteractable(mc.btnDecline, false);
-                ParsekLog.Verbose(Tag, "MissionControl refresh: selected contract=" + d.Id + " still blocked");
+                // Each button Parsek refuses is greyed; the others go back to stock's own
+                // rule, in case a block that covered them (a committed accept greys both) is
+                // what just went away.
+                bool refAccept = MissionControlStockAnnotation.BlocksAccept(d);
+                bool refDecline = MissionControlStockAnnotation.BlocksDecline(d);
+                bool accept = !refAccept && StockAcceptAllowed(selected);
+                bool decline = !refDecline && selected.CanBeDeclined();
+                acceptDisabledByParsek = refAccept;
+                SetInteractable(mc.btnAccept, accept);
+                SetInteractable(mc.btnDecline, decline);
+                ParsekLog.Verbose(Tag, "MissionControl refresh: selected contract=" + d.Id + " kind=" + d.Kind
+                    + " still blocked - accept=" + (accept ? "true" : "false") + " decline=" + (decline ? "true" : "false"));
                 return;
             }
 

@@ -48,6 +48,7 @@ namespace Parsek
             (new[] { "FlightResultsDialogLog" }, "diagnostic logging"),
             (new[] { "VesselRenameAccept", "PartVesselNamingAccept" }, "vessel names"),
             (new[] { "ResourceScan" }, "resource scan recording"),
+            (new[] { "CanAffordLaunchTest", "EditorLaunchButton", "VesselSpawnDialogLaunch", "LaunchSiteFlyout" }, "launch cost reservations"),
         };
 
         /// <summary>

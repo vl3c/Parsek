@@ -4472,6 +4472,15 @@ class StockPairingTests(unittest.TestCase):
         self.assertTrue(gmi.stock_pairing(gmi.STOCK_BLOCK_ONLY_KINDS[0], True, False)[1])
         self.assertTrue(gmi.stock_pairing(gmi.STOCK_INFORMATIONAL_KINDS[0], False, True)[1])
 
+    def test_the_click_reservation_kind_is_block_only_and_pairs_when_marked(self):
+        # Committed-value rule 3: a refused Mission Control click carries its reason in
+        # the detail panel only (block only); a refused purchase control is greyed with
+        # its reason on the control (marked and blocked).
+        self.assertIn("ContractReserve", gmi.STOCK_BLOCK_ONLY_KINDS)
+        self.assertEqual(gmi.stock_pairing("ContractReserve", False, True), ("block only", False))
+        self.assertEqual(gmi.stock_pairing("ContractReserve", True, True), ("paired", False))
+        self.assertTrue(gmi.stock_pairing("ContractReserve", True, False)[1])
+
     def test_problems_are_counted_and_lead_the_table(self):
         parsed = gmi.parse_stock_log(LOG_STOCK)
         dec = gmi.stock_decoration(parsed, "stk-mc-available-detail", "mc")

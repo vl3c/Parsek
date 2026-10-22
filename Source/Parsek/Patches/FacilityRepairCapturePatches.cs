@@ -29,6 +29,15 @@ namespace Parsek.Patches
             {
                 if (FacilityRepairBlock.TryBlockFacilityRepair(__instance))
                     return false;
+                // The click reservation (committed-value rule 3): the decision the greyed
+                // Repair reads.
+                if (deduceFunds && __instance != null)
+                {
+                    string repairId = __instance.Facility != null ? __instance.Facility.id : __instance.facilityName;
+                    if (ClickReservationGate.TryRefusePurchase(StockPool.Funds, Math.Abs(__instance.GetRepairsCost()),
+                            "facility repair " + repairId, FacilityRepairBlock.BlockedDialogTitle(repairId)))
+                        return false;
+                }
             }
             catch (Exception ex)
             {

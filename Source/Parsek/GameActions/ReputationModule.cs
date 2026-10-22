@@ -25,7 +25,7 @@ namespace Parsek
     internal class ReputationModule : IResourceModule, IStockPoolModule, IReservedFloorModule
     {
         private const string Tag = "Reputation";
-        private const float RepRange = 1000f;
+        internal const float RepRange = 1000f;
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         private float runningRep;
