@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## SCENE-EXIT-FINALIZER-CRASHES-A-CHUTE-DESCENT: leaving the flight finalizes a booster still descending under its parachute as Destroyed [FILED 2026-10-22 from RF-L2 `2026-10-22_0734` (PARSEK-FAIL, expectations), flown for PR #2173, and the same on plain main 9dbf9c2 (`2026-10-22_0817`). OPEN, medium; a main regression since 2b5cd9b, likely exposed by PR #2154 (REMAINING-RECORDED-VELOCITY-SEEDS), not bisected. product]
+## ~~SCENE-EXIT-FINALIZER-CRASHES-A-CHUTE-DESCENT: leaving the flight finalizes a booster still descending under its parachute as Destroyed~~ [FILED 2026-10-22 from RF-L2 `2026-10-22_0734` (PARSEK-FAIL, expectations), flown for PR #2173, and the same on plain main 9dbf9c2 (`2026-10-22_0817`). FIXED 2026-10-22 (branch `claude/project-thread-g75qdw`), exposed by PR #2154 (REMAINING-RECORDED-VELOCITY-SEEDS). product]
 
 RF-L2's first flight exits to the Space Center at UT 124.4 while the booster probe hangs under its
 chute at about 330 m. The scene-exit finalizer's sub-surface fallback rebuilt a start state from the
@@ -32,6 +32,17 @@ succeeds. The ballistic extrapolator has no parachute model, so a slow chute des
 always reads as an impact. Next: bisect 2b5cd9b..9dbf9c2 (the finalizer commits 46d2779f9 /
 ef64c1e0c first), then decide whether the fallback should decline a recorded point whose descent is far below ballistic (deployed chute)
 rather than extrapolate it.
+
+Fix: the recorded-point recovery in `IncompleteBallisticSceneExitFinalizer.TryFinalizeRecording`
+now declines (`reason=open-parachute pid=<chute pid>`) when the recording's own part events leave a
+parachute open at the recorded point's UT (`TryFindOpenParachuteAtUT`: the latest
+`ParachuteDeployed` / `ParachuteSemiDeployed` per part, closed again by `ParachuteCut`,
+`ParachuteDestroyed`, `ParachuteRepacked` or the part's `Destroyed`). The decline falls through to
+the existing suppression, which keeps the recorder's SubOrbital verdict, the pre-#2154 outcome for
+this population. A recorded point with no open chute (a cut chute included) still recovers through
+the extrapolator, so #2154's frame fix stands for a real ballistic fall. Unit cells in
+`SceneExitFinalizationIntegrationTests` (`..._OpenParachuteSkipsRecoveryAndKeepsSuppression`, the
+cut-chute mirror, the per-part state reader).
 
 ## REFLY-SECOND-SLOT-MERGE-LOSES-ITS-SLOT: after both halves of one split are re-flown in turn, the second merge cannot find its slot [FILED 2026-10-22 from RF-11 `2026-10-22_0804` / `_0805_a2` (INVALID, driver-arg, both attempts), flown for PR #2173, and the same on plain main 9dbf9c2 (`2026-10-22_0814` / `_0816_a2`). OPEN, medium; a main regression since 2b5cd9b (RF-11's last green, `2026-10-20_1650`), not bisected. product]
 

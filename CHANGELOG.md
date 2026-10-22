@@ -61,6 +61,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A booster still under its parachute when you leave the flight is no longer saved as crashed.**
+  It stays a flight still in the air, so it keeps its Unfinished Flight and can be re-flown to a
+  landing. A vessel falling with no open parachute is still read as the crash it is heading for.
+  (SCENE-EXIT-FINALIZER-CRASHES-A-CHUTE-DESCENT)
 - **A Re-Fly holds back every vessel a later flight uses, and keeps holding it after a reload.**
   A station or rover a recorded later flight docks with or boards is now held back too, so the
   re-fly can't change it, and an F9 or a scene reload during the Re-Fly redraws the held vessels

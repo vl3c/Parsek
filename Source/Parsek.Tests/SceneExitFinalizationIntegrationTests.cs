@@ -1967,6 +1967,195 @@ namespace Parsek.Tests
                 && l.Contains("scene-exit-null-solver-recovery"));
         }
 
+        private static Recording MakeChuteDescentRecording(string recordingId, params PartEvent[] events)
+        {
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                ExplicitStartUT = 470.0,
+                ExplicitEndUT = 500.0
+            };
+            // A booster hanging under its canopy about 330 m up when the player leaves flight.
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 500.0,
+                bodyName = "Kerbin",
+                latitude = -0.1,
+                longitude = -74.5,
+                altitude = 331.7,
+                velocity = new Vector3(0.0f, -6.0f, 0.0f)
+            });
+            rec.PartEvents.AddRange(events);
+            return rec;
+        }
+
+        private static PartEvent ChuteEvent(double ut, PartEventType type, uint pid = 4242u)
+        {
+            return new PartEvent
+            {
+                ut = ut,
+                partPersistentId = pid,
+                eventType = type,
+                partName = "parachuteSingle"
+            };
+        }
+
+        private bool TryFinalizeNullSolverChuteDescent(
+            Recording rec,
+            out int recoveryAttempts,
+            out IncompleteBallisticFinalizationResult result)
+        {
+            int attempts = 0;
+            IncompleteBallisticSceneExitFinalizer.TryBuildRecoveryStartStateOverrideForTesting =
+                (point, _) =>
+                {
+                    attempts++;
+                    return new BallisticStateVector
+                    {
+                        ut = point.ut,
+                        bodyName = "Kerbin",
+                        position = new Vector3d(600331.7, 0.0, 0.0),
+                        velocity = new Vector3d(-6.0, 174.0, 0.0),
+                        orbitalFrameRotation = Quaternion.identity
+                    };
+                };
+            var snapshot = new PatchedConicSnapshotResult
+            {
+                FailureReason = PatchedConicSnapshotFailureReason.NullSolver,
+                Segments = new List<OrbitSegment>()
+            };
+            int extrapolateCallCount = 0;
+            bool built = IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                rec,
+                snapshot,
+                KerbinBodies(),
+                delegate(out BallisticStateVector startState)
+                {
+                    startState = MakeSubSurfaceKerbinStartState();
+                    return true;
+                },
+                (startState, extrapolationBodies) =>
+                {
+                    extrapolateCallCount++;
+                    if (extrapolateCallCount == 1)
+                    {
+                        return BallisticExtrapolator.Extrapolate(
+                            startState,
+                            extrapolationBodies,
+                            warnOnSubSurfaceStart: false);
+                    }
+                    // A drag-free fall from 330 m: the ballistic answer is an impact.
+                    return new ExtrapolationResult
+                    {
+                        terminalState = TerminalState.Destroyed,
+                        terminalUT = 507.2,
+                        terminalBodyName = "Kerbin",
+                        terminalPosition = new Vector3d(600000.0, 0.0, 0.0),
+                        terminalVelocity = new Vector3d(0.0, 0.0, 0.0),
+                        segments = new List<OrbitSegment>
+                        {
+                            new OrbitSegment
+                            {
+                                startUT = 500.0,
+                                endUT = 507.2,
+                                bodyName = "Kerbin",
+                                eccentricity = 0.99,
+                                semiMajorAxis = 300000.0,
+                                epoch = 500.0,
+                                isPredicted = true
+                            }
+                        },
+                        failureReason = ExtrapolationFailureReason.None
+                    };
+                },
+                out result);
+            recoveryAttempts = attempts;
+            return built;
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_OpenParachuteSkipsRecoveryAndKeepsSuppression()
+        {
+            // SCENE-EXIT-FINALIZER-CRASHES-A-CHUTE-DESCENT (RF-L2): leaving flight while a
+            // booster hangs under its chute must not extrapolate a drag-free fall into a
+            // crash; the suppression keeps the recorder's SubOrbital verdict.
+            Recording rec = MakeChuteDescentRecording(
+                "scene-exit-null-solver-open-chute",
+                ChuteEvent(480.0, PartEventType.ParachuteSemiDeployed),
+                ChuteEvent(482.0, PartEventType.ParachuteDeployed));
+
+            bool built = TryFinalizeNullSolverChuteDescent(
+                rec, out int recoveryAttempts, out IncompleteBallisticFinalizationResult result);
+
+            Assert.False(built);
+            Assert.Equal(0, recoveryAttempts);
+            Assert.Null(result.appendedOrbitSegments);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Extrapolator]")
+                && l.Contains("recorded-point recovery declined")
+                && l.Contains("scene-exit-null-solver-open-chute")
+                && l.Contains("reason=open-parachute pid=4242"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][Extrapolator]")
+                && l.Contains("suppressing sub-surface Destroyed")
+                && l.Contains("scene-exit-null-solver-open-chute"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("recovered sub-surface live-orbit fallback")
+                && l.Contains("scene-exit-null-solver-open-chute"));
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_CutParachuteStillRecovers()
+        {
+            // The mirror: a chute cut before the recorded point no longer slows the fall,
+            // so the recovery still extrapolates it and the impact stands.
+            Recording rec = MakeChuteDescentRecording(
+                "scene-exit-null-solver-cut-chute",
+                ChuteEvent(480.0, PartEventType.ParachuteDeployed),
+                ChuteEvent(485.0, PartEventType.ParachuteCut));
+
+            bool built = TryFinalizeNullSolverChuteDescent(
+                rec, out int recoveryAttempts, out IncompleteBallisticFinalizationResult result);
+
+            Assert.True(built);
+            Assert.Equal(1, recoveryAttempts);
+            Assert.Equal(TerminalState.Destroyed, result.terminalState);
+            Assert.Contains(logLines, l =>
+                l.Contains("recovered sub-surface live-orbit fallback")
+                && l.Contains("scene-exit-null-solver-cut-chute"));
+        }
+
+        [Fact]
+        public void TryFindOpenParachuteAtUT_ReadsTheLatestStatePerPartAtOrBeforeTheUT()
+        {
+            Recording rec = new Recording { RecordingId = "chute-state" };
+            Assert.False(IncompleteBallisticSceneExitFinalizer.TryFindOpenParachuteAtUT(rec, 100.0, out _));
+
+            // Deployed after the UT: not open yet.
+            rec.PartEvents.Add(ChuteEvent(120.0, PartEventType.ParachuteDeployed, 1u));
+            Assert.False(IncompleteBallisticSceneExitFinalizer.TryFindOpenParachuteAtUT(rec, 100.0, out _));
+            // Deployed exactly at the UT counts.
+            Assert.True(IncompleteBallisticSceneExitFinalizer.TryFindOpenParachuteAtUT(rec, 120.0, out uint pid));
+            Assert.Equal(1u, pid);
+
+            // Destroyed chute part: closed.
+            rec.PartEvents.Add(ChuteEvent(125.0, PartEventType.ParachuteDestroyed, 1u));
+            Assert.False(IncompleteBallisticSceneExitFinalizer.TryFindOpenParachuteAtUT(rec, 130.0, out _));
+
+            // A second chute still open; an out-of-order earlier event does not override it.
+            rec.PartEvents.Add(ChuteEvent(126.0, PartEventType.ParachuteSemiDeployed, 2u));
+            rec.PartEvents.Add(ChuteEvent(90.0, PartEventType.ParachuteCut, 2u));
+            Assert.True(IncompleteBallisticSceneExitFinalizer.TryFindOpenParachuteAtUT(rec, 130.0, out pid));
+            Assert.Equal(2u, pid);
+
+            // Repacked (EVA) and whole-part destruction close it too.
+            rec.PartEvents.Add(ChuteEvent(127.0, PartEventType.ParachuteRepacked, 2u));
+            Assert.False(IncompleteBallisticSceneExitFinalizer.TryFindOpenParachuteAtUT(rec, 130.0, out _));
+            rec.PartEvents.Add(ChuteEvent(128.0, PartEventType.ParachuteDeployed, 3u));
+            rec.PartEvents.Add(ChuteEvent(129.0, PartEventType.Destroyed, 3u));
+            Assert.False(IncompleteBallisticSceneExitFinalizer.TryFindOpenParachuteAtUT(rec, 130.0, out _));
+        }
+
         [Fact]
         public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_RecordedPointRecoveryAlsoSubSurfaceFallsThroughToSuppression()
         {
