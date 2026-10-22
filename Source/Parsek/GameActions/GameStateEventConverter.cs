@@ -245,6 +245,15 @@ namespace Parsek
         /// </summary>
         internal static GameAction ConvertEvent(GameStateEvent evt, string recordingId)
         {
+            GameAction action = ConvertEventCore(evt, recordingId);
+            // The row was captured when its event was (committed-value rule plan 2.3).
+            if (action != null && action.CaptureSequence == 0)
+                action.CaptureSequence = CaptureSequence.FromEvent(evt.captureSequence);
+            return action;
+        }
+
+        private static GameAction ConvertEventCore(GameStateEvent evt, string recordingId)
+        {
             switch (evt.eventType)
             {
                 case GameStateEventType.TechResearched:

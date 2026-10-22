@@ -99,8 +99,9 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Every value of every ledger row except the per-construction ActionId, in ledger
-        /// order: the filed ledger as a save would carry it.
+        /// Every value of every ledger row except the per-construction ActionId and capture
+        /// order (<see cref="CaptureSequence"/>, a session counter pinned by
+        /// <c>ReservedFloorTests</c>), in ledger order: the filed ledger as a save would carry it.
         /// </summary>
         internal static string CanonicalLedger(IEnumerable<GameAction> actions)
         {
@@ -113,6 +114,7 @@ namespace Parsek.Tests
                 for (int i = 0; i < node.values.Count; i++)
                 {
                     if (node.values[i].name == "actionId") continue;
+                    if (node.values[i].name == CaptureSequence.Key) continue;
                     sb.Append(node.values[i].name).Append('=').Append(node.values[i].value).Append(';');
                 }
                 sb.Append('\n');

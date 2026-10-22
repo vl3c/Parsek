@@ -65,6 +65,10 @@ namespace Parsek
             /// <summary>UT of the chosen event. Zero when <see cref="Emit"/> is false.</summary>
             public double UT;
 
+            /// <summary>The chosen event's capture order (<see cref="CaptureSequence"/>), carried
+            /// onto the row so it keeps the time stock applied the loss, not the merge's.</summary>
+            public long CaptureSequence;
+
             /// <summary>How many crew members ended <see cref="KerbalEndState.Dead"/>.</summary>
             public int DeadCount;
 
@@ -178,6 +182,7 @@ namespace Parsek
             decision.Emit = true;
             decision.Magnitude = (float)(winner.valueBefore - winner.valueAfter);
             decision.UT = winner.ut;
+            decision.CaptureSequence = Parsek.CaptureSequence.FromEvent(winner.captureSequence);
             return decision;
         }
     }

@@ -24,7 +24,7 @@ namespace Parsek
     /// Second-tier: reads Effective flags set by first-tier modules (Milestones, Contracts).
     /// Pure computation — no KSP state access.
     /// </summary>
-    internal class FundsModule : IResourceModule, ICashflowProjectionModule, IStockPoolModule
+    internal class FundsModule : IResourceModule, ICashflowProjectionModule, IStockPoolModule, IReservedFloorModule
     {
         private const string Tag = "Funds";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
@@ -96,6 +96,9 @@ namespace Parsek
         private readonly Dictionary<string, double> rowEffects =
             new Dictionary<string, double>(StringComparer.Ordinal);
 
+        /// <summary>The reserved floor and the debt (committed-value rule plan section 2.3).</summary>
+        private readonly ReservedFloorWalkState floorState = new ReservedFloorWalkState();
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -122,6 +125,7 @@ namespace Parsek
             buildingDestroyedInWalk.Clear();
             forgivenBelowZero = 0.0;
             rowEffects.Clear();
+            floorState.Reset();
             allowNegativeCurrency = StockCurrencyClamp.ReadAllowNegativeCurrency();
 
             ParsekLog.Verbose(Tag,
@@ -168,13 +172,83 @@ namespace Parsek
 
             double before = runningBalance;
             DispatchAction(action);
-            ApplyStockZeroClamp(action, before);
+
+            // Rule 4 (committed-value rule plan section 2.3): a loss with a committed cost
+            // captured ahead of it stops at the reserved floor and the rest is a debt; with
+            // none, stock's 0 clamp (phase 2). A cost row and an adjustment row are applied
+            // in full either way.
+            bool exempt = IsFundsCostRow(action.Type) || action.Type == GameActionType.StockPoolAdjustment;
+            double floor = 0.0;
+            bool floored = !exempt && floorState.TryGetLossFloor(action, out floor);
+            if (!floored)
+                ApplyStockZeroClamp(action, before);
+
+            // The stock pool reference steps a row by what stock applied: its effect before
+            // the settle and before any debt charge (both are Parsek-side target adjustments).
+            double effect = runningBalance - before;
             if (!string.IsNullOrEmpty(action.ActionId))
             {
                 double prior;
                 rowEffects.TryGetValue(action.ActionId, out prior);
-                rowEffects[action.ActionId] = prior + (runningBalance - before);
+                rowEffects[action.ActionId] = prior + effect;
             }
+
+            if (floored)
+            {
+                double heldBack = floorState.Settle(action, runningBalance, effect, floor);
+                if (heldBack > 0.0)
+                {
+                    runningBalance += heldBack;
+                    ParsekLog.VerboseRateLimited(Tag,
+                        "floor-settle-" + (action.ActionId ?? action.Type.ToString()),
+                        $"Floor settle: {action.Type} id={action.ActionId ?? "(none)"} " +
+                        $"ut={action.UT.ToString("R", IC)} effect={effect.ToString("R", IC)} " +
+                        $"floor={floor.ToString("R", IC)} heldBack={heldBack.ToString("R", IC)} " +
+                        $"debt={floorState.Debt.ToString("R", IC)} " +
+                        $"runningBalance={runningBalance.ToString("R", IC)} " +
+                        "(a committed cost captured before this loss needs the rest)");
+                }
+            }
+
+            double charged = floorState.Charge(action, runningBalance);
+            if (charged > 0.0)
+            {
+                runningBalance -= charged;
+                ParsekLog.VerboseRateLimited(Tag,
+                    "floor-charge-" + (action.ActionId ?? action.Type.ToString()),
+                    $"Debt charge: {action.Type} id={action.ActionId ?? "(none)"} " +
+                    $"ut={action.UT.ToString("R", IC)} charged={charged.ToString("R", IC)} " +
+                    $"debt={floorState.Debt.ToString("R", IC)} " +
+                    $"runningBalance={runningBalance.ToString("R", IC)}");
+            }
+        }
+
+        // ================================================================
+        // IReservedFloorModule (committed-value rule plan section 2.3)
+        // ================================================================
+
+        /// <inheritdoc />
+        public StockPool FloorPool => StockPool.Funds;
+
+        /// <inheritdoc />
+        public void ClassifyFloorRow(GameAction action, out double delta, out bool isCost, out bool floorLimited)
+        {
+            if (!TryGetRowDelta(action, out delta))
+                delta = 0.0;
+            isCost = action != null && IsFundsCostRow(action.Type) && delta < 0.0;
+            floorLimited = false;
+        }
+
+        /// <inheritdoc />
+        public void SetReservedFloorPlan(ReservedFloorPlan plan)
+        {
+            floorState.Plan = plan;
+        }
+
+        /// <inheritdoc />
+        public double GetOutstandingDebt()
+        {
+            return floorState.Debt;
         }
 
         /// <inheritdoc />
@@ -753,7 +827,7 @@ namespace Parsek
                 return projectedAvailableFunds;
 
             double available = initialFunds + totalEarnings - totalCommittedSpendings
-                + forgivenBelowZero;
+                + forgivenBelowZero + floorState.Debt;
             return available > 0.0 ? available : 0.0;
         }
 
@@ -775,7 +849,8 @@ namespace Parsek
         {
             if (hasProjectedAvailableFunds)
                 return projectedMinBalance;
-            return initialFunds + totalEarnings - totalCommittedSpendings + forgivenBelowZero;
+            return initialFunds + totalEarnings - totalCommittedSpendings + forgivenBelowZero
+                + floorState.Debt;
         }
 
         public bool TryGetProjectionDelta(GameAction action, out double delta)
@@ -912,6 +987,14 @@ namespace Parsek
             return totalCommittedSpendings;
         }
 
-        public void PostWalk() { }
+        /// <summary>One summary per walk of the floor and the debt (only when a plan is installed).</summary>
+        public void PostWalk()
+        {
+            if (floorState.Plan == null)
+                return;
+            string summary = floorState.Summary();
+            ParsekLog.VerboseOnChange(Tag, "floor-walk|funds", summary,
+                $"Floor walk: pool=Funds {summary} runningBalance={runningBalance.ToString("R", IC)}");
+        }
     }
 }

@@ -22,7 +22,7 @@ namespace Parsek
     /// Design doc: section 6 (Reputation Module).
     /// Curve keyframes: docs/dev/plans/game-actions-spike-findings.md (Spike A).
     /// </summary>
-    internal class ReputationModule : IResourceModule, IStockPoolModule
+    internal class ReputationModule : IResourceModule, IStockPoolModule, IReservedFloorModule
     {
         private const string Tag = "Reputation";
         private const float RepRange = 1000f;
@@ -41,6 +41,9 @@ namespace Parsek
         private readonly Dictionary<string, double> rowEffects =
             new Dictionary<string, double>(StringComparer.Ordinal);
 
+        /// <summary>The reserved floor and the debt (committed-value rule plan section 2.3).</summary>
+        private readonly ReservedFloorWalkState floorState = new ReservedFloorWalkState();
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -52,6 +55,7 @@ namespace Parsek
             runningRep = 0f;
             hasInitialSeed = false;
             rowEffects.Clear();
+            floorState.Reset();
             ParsekLog.Verbose(Tag, $"Reset: runningRep {previousRep.ToString("F2", IC)} -> 0");
         }
 
@@ -69,12 +73,107 @@ namespace Parsek
                 return;
             float before = runningRep;
             Dispatch(action);
+
+            // The reference's effect: the curve's, before the settle and any debt charge.
+            double effect = (double)runningRep - (double)before;
             if (!string.IsNullOrEmpty(action.ActionId))
             {
                 double prior;
                 rowEffects.TryGetValue(action.ActionId, out prior);
-                rowEffects[action.ActionId] = prior + ((double)runningRep - (double)before);
+                rowEffects[action.ActionId] = prior + effect;
             }
+
+            // Rule 4 (committed-value rule plan section 2.3): a loss with a committed cost
+            // captured ahead of it stops at the reserved floor, the rest is a debt (post-curve
+            // units). With none, reputation may go negative, as stock lets it.
+            bool exempt = IsReputationCostRow(action) || action.Type == GameActionType.StockPoolAdjustment;
+            double floor;
+            if (!exempt && floorState.TryGetLossFloor(action, out floor))
+            {
+                double heldBack = floorState.Settle(action, runningRep, effect, floor);
+                if (heldBack > 0.0)
+                {
+                    runningRep = (float)((double)runningRep + heldBack);
+                    ParsekLog.VerboseRateLimited(Tag,
+                        "floor-settle-" + (action.ActionId ?? action.Type.ToString()),
+                        $"Floor settle: {action.Type} id={action.ActionId ?? "(none)"} " +
+                        $"ut={action.UT.ToString("R", IC)} effect={effect.ToString("R", IC)} " +
+                        $"floor={floor.ToString("R", IC)} heldBack={heldBack.ToString("R", IC)} " +
+                        $"debt={floorState.Debt.ToString("R", IC)} runningRep={runningRep.ToString("R", IC)}");
+                }
+            }
+
+            double charged = floorState.Charge(action, runningRep);
+            if (charged > 0.0)
+            {
+                runningRep = (float)((double)runningRep - charged);
+                ParsekLog.VerboseRateLimited(Tag,
+                    "floor-charge-" + (action.ActionId ?? action.Type.ToString()),
+                    $"Debt charge: {action.Type} id={action.ActionId ?? "(none)"} " +
+                    $"ut={action.UT.ToString("R", IC)} charged={charged.ToString("R", IC)} " +
+                    $"debt={floorState.Debt.ToString("R", IC)} runningRep={runningRep.ToString("R", IC)}");
+            }
+        }
+
+        // ================================================================
+        // IReservedFloorModule (committed-value rule plan section 2.3)
+        // ================================================================
+
+        /// <summary>A reputation cost row: a strategy's setup reputation.</summary>
+        /// <summary>
+        /// A reputation cost row (plan 2.3): a strategy's setup reputation, and the reputation
+        /// INPUT leg of a strategy exchange (<see cref="ReputationPenaltySource.Strategy"/>,
+        /// Bail-Out Grant; <see cref="ReputationPenaltySource.StrategyConverter"/>,
+        /// Fundraising / Unpaid Research / the scaling operations), whose paired funds or
+        /// science credit is paid in full: settling the leg would create value (review of
+        /// 2deaaa3, blocker 2). Like the funds and science halves, never settled and counted
+        /// in a need.
+        /// </summary>
+        internal static bool IsReputationCostRow(GameAction action)
+        {
+            if (action == null)
+                return false;
+            if (action.Type == GameActionType.StrategyActivate)
+                return true;
+            return action.Type == GameActionType.ReputationPenalty
+                && (action.RepPenaltySource == ReputationPenaltySource.Strategy
+                    || action.RepPenaltySource == ReputationPenaltySource.StrategyConverter);
+        }
+
+        /// <summary>A loss nobody reserves for (plan 2.3): crew-death and "other" penalties.</summary>
+        internal static bool IsFloorLimitedLoss(GameAction action)
+        {
+            return action != null && action.Type == GameActionType.ReputationPenalty
+                && (action.RepPenaltySource == ReputationPenaltySource.KerbalDeath
+                    || action.RepPenaltySource == ReputationPenaltySource.Other);
+        }
+
+        /// <inheritdoc />
+        public StockPool FloorPool => StockPool.Reputation;
+
+        /// <inheritdoc />
+        public void ClassifyFloorRow(GameAction action, out double delta, out bool isCost, out bool floorLimited)
+        {
+            delta = 0.0;
+            if (action != null
+                && (AffectsReputation(action.Type)
+                    || (action.Type == GameActionType.StockPoolAdjustment
+                        && action.AdjustmentPool == StockPool.Reputation)))
+                delta = action.EffectiveRep;
+            isCost = IsReputationCostRow(action) && delta < 0.0;
+            floorLimited = IsFloorLimitedLoss(action);
+        }
+
+        /// <inheritdoc />
+        public void SetReservedFloorPlan(ReservedFloorPlan plan)
+        {
+            floorState.Plan = plan;
+        }
+
+        /// <inheritdoc />
+        public double GetOutstandingDebt()
+        {
+            return floorState.Debt;
         }
 
         /// <inheritdoc />
@@ -583,6 +682,14 @@ namespace Parsek
             return h00 * p0 + h10 * m0 + h01 * p1 + h11 * m1;
         }
 
-        public void PostWalk() { }
+        /// <summary>One summary per walk of the floor and the debt (only when a plan is installed).</summary>
+        public void PostWalk()
+        {
+            if (floorState.Plan == null)
+                return;
+            string summary = floorState.Summary();
+            ParsekLog.VerboseOnChange(Tag, "floor-walk|reputation", summary,
+                $"Floor walk: pool=Reputation {summary} runningRep={runningRep.ToString("R", IC)}");
+        }
     }
 }

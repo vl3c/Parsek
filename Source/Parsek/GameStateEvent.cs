@@ -72,6 +72,9 @@ namespace Parsek
         public double valueAfter;
         public uint epoch;       // legacy load-only branch stamp retained for compatibility heuristics
         public string recordingId; // #431: id of the flight recording that captured this event; empty for career-level events
+        /// <summary>Real-time capture order (<see cref="CaptureSequence"/>), stamped by
+        /// <see cref="GameStateStore.AddEvent"/>; 0 for an event from an older save.</summary>
+        public long captureSequence;
 
         public void SerializeInto(ConfigNode node)
         {
@@ -87,6 +90,8 @@ namespace Parsek
                 node.AddValue("valAfter", valueAfter.ToString("R", CultureInfo.InvariantCulture));
             if (!string.IsNullOrEmpty(recordingId))
                 node.AddValue("recordingId", recordingId);
+            if (captureSequence > 0)
+                node.AddValue(CaptureSequence.Key, captureSequence.ToString(CultureInfo.InvariantCulture));
         }
 
         public static GameStateEvent DeserializeFrom(ConfigNode node)
@@ -144,6 +149,8 @@ namespace Parsek
 
             // Pre-#431 saves have no recordingId; treat as untagged career events.
             e.recordingId = node.GetValue("recordingId") ?? "";
+            // Absent on an older save: no capture order (CaptureSequence).
+            e.captureSequence = CaptureSequence.Parse(node.GetValue(CaptureSequence.Key));
 
             return e;
         }

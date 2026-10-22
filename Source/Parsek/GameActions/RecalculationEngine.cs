@@ -180,8 +180,14 @@ namespace Parsek
                 effective = actions;
             }
 
+            // Rule 4's plan (committed-value rule plan section 2.3) needs the debt-free walk
+            // of the full timeline. It is built only when some committed cost was captured
+            // before a row with an earlier UT (only after a rewind); otherwise no row has a
+            // floor and the walk is phase 2's.
+            bool needsFloorPlans = ReservedFloorPlan.HasCostCapturedAheadOfALaterLoss(actions);
+            List<ReservedFloorPlan> floorPlans = null;
             List<GameAction> projectedTimeline = null;
-            if (utCutoff.HasValue)
+            if (utCutoff.HasValue || needsFloorPlans)
             {
                 // A cutoff walk must leave visible game state at the current UT, but funds
                 // and science availability also need full-timeline cashflow to reserve
@@ -193,9 +199,11 @@ namespace Parsek
                 projectedTimeline = RunProjectionWalk(
                     CopyNonNullActions(actions),
                     ComputeProjectionHorizon(actions)).Sorted;
+                if (needsFloorPlans)
+                    floorPlans = BuildReservedFloorPlans(projectedTimeline, LedgerRowSet(actions), logPlans: true);
             }
 
-            WalkResult walk = RunWalk(effective, utCutoff, deadlineClockUT);
+            WalkResult walk = RunWalk(effective, utCutoff, deadlineClockUT, floorPlans);
 
             if (utCutoff.HasValue)
                 ApplyProjectedAvailability(projectedTimeline, utCutoff.Value, LedgerRowSet(actions));
@@ -268,14 +276,20 @@ namespace Parsek
                 {
                     List<GameAction> projected = RunProjectionWalk(
                         CopyNonNullActions(all), ComputeProjectionHorizon(all)).Sorted;
+                    HashSet<GameAction> ledgerRows = LedgerRowSet(all);
+                    // The same planned walk as Recalculate (plan section 2.3).
+                    List<ReservedFloorPlan> floorPlans =
+                        ReservedFloorPlan.HasCostCapturedAheadOfALaterLoss(all)
+                            ? BuildReservedFloorPlans(projected, ledgerRows, logPlans: false)
+                            : null;
 
                     var first = CreateProjectionModules(firstTierModules);
                     var strategy = CreateProjectionModule(strategyTransform);
                     var second = CreateProjectionModules(secondTierModules);
                     var facilities = CreateProjectionModule(facilitiesModule);
-                    RunWalk(effective, utCutoff, first, strategy, second, facilities);
+                    RunWalk(effective, utCutoff, first, strategy, second, facilities,
+                        plans: floorPlans);
 
-                    HashSet<GameAction> ledgerRows = LedgerRowSet(all);
                     ApplyProjectedAvailability(first, projected, utCutoff, ledgerRows);
                     if (strategy != null) ApplyProjectedAvailability(strategy, projected, utCutoff, ledgerRows);
                     ApplyProjectedAvailability(second, projected, utCutoff, ledgerRows);
@@ -333,6 +347,15 @@ namespace Parsek
             {
                 using (ParsekLog.SuppressScope())
                 {
+                    // The same planned walk as Recalculate (plan section 2.3).
+                    List<ReservedFloorPlan> floorPlans = null;
+                    if (ReservedFloorPlan.HasCostCapturedAheadOfALaterLoss(all))
+                    {
+                        List<GameAction> projected = RunProjectionWalk(
+                            CopyNonNullActions(all), ComputeProjectionHorizon(all)).Sorted;
+                        floorPlans = BuildReservedFloorPlans(projected, LedgerRowSet(all), logPlans: false);
+                    }
+
                     var first = CreateProjectionModules(firstTierModules);
                     var strategy = CreateProjectionModule(strategyTransform);
                     var second = CreateProjectionModules(secondTierModules);
@@ -341,7 +364,7 @@ namespace Parsek
                     var science = FindModule<ScienceModule>(first) ?? FindModule<ScienceModule>(second);
                     var reputation = FindModule<ReputationModule>(second) ?? FindModule<ReputationModule>(first);
 
-                    RunWalk(all, null, first, strategy, second, facilities, deadlineClockUT, afterAction: action =>
+                    RunWalk(all, null, first, strategy, second, facilities, deadlineClockUT, plans: floorPlans, afterAction: action =>
                     {
                         result.Samples.Add(new LedgerBalanceSample
                         {
@@ -629,7 +652,8 @@ namespace Parsek
         }
 
         private static WalkResult RunWalk(
-            List<GameAction> actions, double? walkNowUT, double? deadlineClockUT)
+            List<GameAction> actions, double? walkNowUT, double? deadlineClockUT,
+            List<ReservedFloorPlan> plans)
         {
             return RunWalk(
                 actions,
@@ -638,7 +662,104 @@ namespace Parsek
                 strategyTransform,
                 secondTierModules,
                 facilitiesModule,
-                deadlineClockUT);
+                deadlineClockUT,
+                plans: plans);
+        }
+
+        /// <summary>
+        /// Builds one <see cref="ReservedFloorPlan"/> per <see cref="IReservedFloorModule"/>
+        /// from the debt-free projection walk's rows (committed-value rule plan section 2.3),
+        /// reading each row's delta now, before the visible walk resets the derived fields.
+        /// An injected row (not in <paramref name="ledgerRows"/>) is told apart by membership.
+        /// </summary>
+        private static List<ReservedFloorPlan> BuildReservedFloorPlans(
+            List<GameAction> projectedSorted, HashSet<GameAction> ledgerRows, bool logPlans)
+        {
+            var plans = new List<ReservedFloorPlan>();
+            if (projectedSorted == null)
+                return plans;
+            var floorModules = new List<IReservedFloorModule>();
+            CollectFloorModules(firstTierModules, floorModules);
+            if (strategyTransform is IReservedFloorModule s) floorModules.Add(s);
+            CollectFloorModules(secondTierModules, floorModules);
+            if (facilitiesModule is IReservedFloorModule f) floorModules.Add(f);
+
+            for (int m = 0; m < floorModules.Count; m++)
+            {
+                var module = floorModules[m];
+                var rows = new List<ReservedFloorRow>(projectedSorted.Count);
+                for (int i = 0; i < projectedSorted.Count; i++)
+                {
+                    var a = projectedSorted[i];
+                    double delta;
+                    bool isCost, floorLimited;
+                    module.ClassifyFloorRow(a, out delta, out isCost, out floorLimited);
+                    bool synthetic = !CountsInReserve(a, ledgerRows);
+                    rows.Add(new ReservedFloorRow
+                    {
+                        Action = a,
+                        Delta = synthetic ? 0.0 : delta,
+                        IsCost = isCost && !synthetic,
+                        FloorLimited = floorLimited,
+                        Synthetic = synthetic,
+                    });
+                }
+                plans.Add(ReservedFloorPlan.Build(module.FloorPool, rows));
+            }
+
+            if (logPlans)
+            {
+                var parts = new List<string>(plans.Count);
+                for (int i = 0; i < plans.Count; i++)
+                    parts.Add(plans[i].Describe());
+                string state = string.Join("; ", parts.ToArray());
+                ParsekLog.VerboseOnChange("RecalcEngine", "reserved-floor-plans", state,
+                    "Reserved floor plans built (a committed cost was captured before a loss with " +
+                    "an earlier UT): " + state);
+            }
+            return plans;
+        }
+
+        private static void CollectFloorModules(List<IResourceModule> modules, List<IReservedFloorModule> into)
+        {
+            for (int i = 0; i < modules.Count; i++)
+                if (modules[i] is IReservedFloorModule f)
+                    into.Add(f);
+        }
+
+        /// <summary>Installs each floor module's plan (after its reset); null plans clear none.</summary>
+        private static void InstallFloorPlans(
+            List<ReservedFloorPlan> plans,
+            List<IResourceModule> firstTier, IResourceModule strategy,
+            List<IResourceModule> secondTier, IResourceModule facilities)
+        {
+            if (plans == null || plans.Count == 0)
+                return;
+            InstallFloorPlans(plans, firstTier);
+            InstallFloorPlan(plans, strategy);
+            InstallFloorPlans(plans, secondTier);
+            InstallFloorPlan(plans, facilities);
+        }
+
+        private static void InstallFloorPlans(List<ReservedFloorPlan> plans, List<IResourceModule> modules)
+        {
+            for (int i = 0; i < modules.Count; i++)
+                InstallFloorPlan(plans, modules[i]);
+        }
+
+        private static void InstallFloorPlan(List<ReservedFloorPlan> plans, IResourceModule module)
+        {
+            var floorModule = module as IReservedFloorModule;
+            if (floorModule == null)
+                return;
+            for (int i = 0; i < plans.Count; i++)
+            {
+                if (plans[i].Pool == floorModule.FloorPool)
+                {
+                    floorModule.SetReservedFloorPlan(plans[i]);
+                    return;
+                }
+            }
         }
 
         private static WalkResult RunProjectionWalk(List<GameAction> actions, double projectionNowUT)
@@ -668,7 +789,8 @@ namespace Parsek
             List<IResourceModule> secondTier,
             IResourceModule facilities,
             double? deadlineClockUT = null,
-            Action<GameAction> afterAction = null)
+            Action<GameAction> afterAction = null,
+            List<ReservedFloorPlan> plans = null)
         {
             // 1. Sort — stable sort preserving insertion order for equal keys
             var sorted = SortActions(actions);
@@ -682,6 +804,8 @@ namespace Parsek
 
             // 2. Reset all modules and action-derived fields.
             ResetAllModules(firstTier, strategy, secondTier, facilities);
+            // Rule 4's plan goes in after the reset (which clears it): no plan, no floor.
+            InstallFloorPlans(plans, firstTier, strategy, secondTier, facilities);
             ResetDerivedFields(sorted);
 
             // 2b. Pre-pass: let modules compute aggregate data before the walk.

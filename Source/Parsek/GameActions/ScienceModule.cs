@@ -19,7 +19,7 @@ namespace Parsek
     ///
     /// Pure computation — no KSP state access.
     /// </summary>
-    internal class ScienceModule : IResourceModule, ICashflowProjectionModule, IStockPoolModule
+    internal class ScienceModule : IResourceModule, ICashflowProjectionModule, IStockPoolModule, IReservedFloorModule
     {
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
@@ -79,6 +79,9 @@ namespace Parsek
         private readonly Dictionary<string, double> rowEffects =
             new Dictionary<string, double>(StringComparer.Ordinal);
 
+        /// <summary>The reserved floor and the debt (committed-value rule plan section 2.3).</summary>
+        private readonly ReservedFloorWalkState floorState = new ReservedFloorWalkState();
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -100,6 +103,7 @@ namespace Parsek
             hasInitialSeed = false;
             forgivenBelowZero = 0.0;
             rowEffects.Clear();
+            floorState.Reset();
             allowNegativeCurrency = StockCurrencyClamp.ReadAllowNegativeCurrency();
 
             ParsekLog.Verbose("ScienceModule",
@@ -135,13 +139,79 @@ namespace Parsek
 
             double before = runningScience;
             DispatchAction(action);
-            ApplyStockZeroClamp(action, before);
+
+            // Rule 4 (see FundsModule.ProcessAction): the floor and the debt where a committed
+            // cost was captured ahead of the loss, else stock's 0 clamp.
+            bool exempt = IsScienceCostRow(action.Type) || action.Type == GameActionType.StockPoolAdjustment;
+            double floor = 0.0;
+            bool floored = !exempt && floorState.TryGetLossFloor(action, out floor);
+            if (!floored)
+                ApplyStockZeroClamp(action, before);
+
+            // The reference's effect: before the settle and any debt charge.
+            double effect = runningScience - before;
             if (!string.IsNullOrEmpty(action.ActionId))
             {
                 double prior;
                 rowEffects.TryGetValue(action.ActionId, out prior);
-                rowEffects[action.ActionId] = prior + (runningScience - before);
+                rowEffects[action.ActionId] = prior + effect;
             }
+
+            if (floored)
+            {
+                double heldBack = floorState.Settle(action, runningScience, effect, floor);
+                if (heldBack > 0.0)
+                {
+                    runningScience += heldBack;
+                    ParsekLog.VerboseRateLimited("ScienceModule",
+                        "floor-settle-" + (action.ActionId ?? action.Type.ToString()),
+                        $"Floor settle: {action.Type} id={action.ActionId ?? "(none)"} " +
+                        $"ut={action.UT.ToString("R", IC)} effect={effect.ToString("R", IC)} " +
+                        $"floor={floor.ToString("R", IC)} heldBack={heldBack.ToString("R", IC)} " +
+                        $"debt={floorState.Debt.ToString("R", IC)} " +
+                        $"runningScience={runningScience.ToString("R", IC)}");
+                }
+            }
+
+            double charged = floorState.Charge(action, runningScience);
+            if (charged > 0.0)
+            {
+                runningScience -= charged;
+                ParsekLog.VerboseRateLimited("ScienceModule",
+                    "floor-charge-" + (action.ActionId ?? action.Type.ToString()),
+                    $"Debt charge: {action.Type} id={action.ActionId ?? "(none)"} " +
+                    $"ut={action.UT.ToString("R", IC)} charged={charged.ToString("R", IC)} " +
+                    $"debt={floorState.Debt.ToString("R", IC)} " +
+                    $"runningScience={runningScience.ToString("R", IC)}");
+            }
+        }
+
+        // ================================================================
+        // IReservedFloorModule (committed-value rule plan section 2.3)
+        // ================================================================
+
+        /// <inheritdoc />
+        public StockPool FloorPool => StockPool.Science;
+
+        /// <inheritdoc />
+        public void ClassifyFloorRow(GameAction action, out double delta, out bool isCost, out bool floorLimited)
+        {
+            if (!TryGetRowDelta(action, out delta))
+                delta = 0.0;
+            isCost = action != null && IsScienceCostRow(action.Type) && delta < 0.0;
+            floorLimited = false;
+        }
+
+        /// <inheritdoc />
+        public void SetReservedFloorPlan(ReservedFloorPlan plan)
+        {
+            floorState.Plan = plan;
+        }
+
+        /// <inheritdoc />
+        public double GetOutstandingDebt()
+        {
+            return floorState.Debt;
         }
 
         /// <inheritdoc />
@@ -706,7 +776,8 @@ namespace Parsek
             if (hasProjectedAvailableScience)
                 return projectedAvailableScience;
 
-            double available = totalEffectiveEarnings - totalCommittedSpendings + forgivenBelowZero;
+            double available = totalEffectiveEarnings - totalCommittedSpendings + forgivenBelowZero
+                + floorState.Debt;
             return available > 0.0 ? available : 0.0;
         }
 
@@ -728,7 +799,7 @@ namespace Parsek
         {
             if (hasProjectedAvailableScience)
                 return projectedMinBalance;
-            return totalEffectiveEarnings - totalCommittedSpendings + forgivenBelowZero;
+            return totalEffectiveEarnings - totalCommittedSpendings + forgivenBelowZero + floorState.Debt;
         }
 
         public bool TryGetProjectionDelta(GameAction action, out double delta)
@@ -875,6 +946,14 @@ namespace Parsek
             return subjects;
         }
 
-        public void PostWalk() { }
+        /// <summary>One summary per walk of the floor and the debt (only when a plan is installed).</summary>
+        public void PostWalk()
+        {
+            if (floorState.Plan == null)
+                return;
+            string summary = floorState.Summary();
+            ParsekLog.VerboseOnChange("ScienceModule", "floor-walk|science", summary,
+                $"Floor walk: pool=Science {summary} runningScience={runningScience.ToString("R", IC)}");
+        }
     }
 }

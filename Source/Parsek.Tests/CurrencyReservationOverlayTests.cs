@@ -146,5 +146,54 @@ namespace Parsek.Tests
 
             Assert.Equal("Total: 50,000\nReserved: 50,000\nShort by: 12,000", text);
         }
+
+        // Design 3.13 rule 4: a loss below the reserved floor leaves a debt that later gains
+        // repay before the pool rises. The tooltip names it on one extra line, only while
+        // one is outstanding.
+
+        [Fact]
+        public void FromLedger_OutstandingDebt_AddsOneDebtLineAfterTheReservation()
+        {
+            // The worked check: running 100,000, the upgrade's 100,000 reserved, bar 0.
+            string text = CurrencyReservationOverlay.BuildTooltipFromLedger(
+                runningBalance: 100000, available: 0, minProjected: 0, displayed: 0, format: "N0",
+                debt: 30000);
+
+            Assert.Equal("Total: 100,000\nReserved: 100,000\nDebt: 30,000", text);
+        }
+
+        [Fact]
+        public void FromLedger_ScienceDebt_UsesTheScienceFormat()
+        {
+            string text = CurrencyReservationOverlay.BuildTooltipFromLedger(
+                runningBalance: 20.0, available: 0.0, minProjected: 0.0, displayed: 0.0, format: "F1",
+                debt: 12.5);
+
+            Assert.Equal("Total: 20.0\nReserved: 20.0\nDebt: 12.5", text);
+        }
+
+        [Theory]
+        [InlineData(0.0, "N0")]
+        [InlineData(-5.0, "N0")]
+        [InlineData(0.4, "N0")]
+        [InlineData(0.04, "F1")]
+        public void FromLedger_NoDebtOrADebtThatRoundsToZero_AddsNoLine(double debt, string format)
+        {
+            string text = CurrencyReservationOverlay.BuildTooltipFromLedger(
+                runningBalance: 100, available: 70, minProjected: 70, displayed: 70, format: format,
+                debt: debt);
+
+            Assert.DoesNotContain("Debt:", text);
+        }
+
+        [Fact]
+        public void FromLedger_DeficitForm_KeepsTheDebtLineLast()
+        {
+            string text = CurrencyReservationOverlay.BuildTooltipFromLedger(
+                runningBalance: -5000, available: 0, minProjected: -9000, displayed: 0, format: "N0",
+                debt: 2000);
+
+            Assert.Equal("Balance: -5,000\nShort by: 9,000\nDebt: 2,000", text);
+        }
     }
 }

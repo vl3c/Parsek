@@ -223,7 +223,8 @@ namespace Parsek
                 funds.GetAvailableFunds(),
                 funds.GetProjectionMinBalance(),
                 Funding.Instance.Funds,
-                "N0");
+                "N0",
+                funds.GetOutstandingDebt());
         }
 
         internal static string GetScienceTooltip()
@@ -236,7 +237,8 @@ namespace Parsek
                 science.GetAvailableScience(),
                 science.GetProjectionMinBalance(),
                 ResearchAndDevelopment.Instance.Science,
-                "F1");
+                "F1",
+                science.GetOutstandingDebt());
         }
 
         /// <summary>
@@ -248,17 +250,41 @@ namespace Parsek
         /// tooltip must reconcile with the number the player is looking at, so that case
         /// stays on the bar-anchored Total / Reserved form (with its Short by line).
         /// Otherwise Total = displayed + reserved as before.
+        ///
+        /// <para><paramref name="debt"/> is the walk's outstanding debt (design 3.13 rule 4):
+        /// the part of a loss below the reserved floor, repaid from later gains before the
+        /// pool rises. One <c>Debt:</c> line, only while one is outstanding.</para>
         /// </summary>
         internal static string BuildTooltipFromLedger(
-            double runningBalance, double available, double minProjected, double displayed, string format)
+            double runningBalance, double available, double minProjected, double displayed, string format,
+            double debt = 0.0)
         {
+            string text;
             if (runningBalance < 0.0 && displayed <= 0.0)
-                return BuildReservationTooltip(runningBalance, 0.0, format, minProjected);
+            {
+                text = BuildReservationTooltip(runningBalance, 0.0, format, minProjected);
+            }
+            else
+            {
+                double reserved = runningBalance - available;
+                if (reserved < 0.0)
+                    reserved = 0.0;
+                text = BuildReservationTooltip(displayed + reserved, displayed, format, minProjected);
+            }
+            return AppendDebtLine(text, debt, format);
+        }
 
-            double reserved = runningBalance - available;
-            if (reserved < 0.0)
-                reserved = 0.0;
-            return BuildReservationTooltip(displayed + reserved, displayed, format, minProjected);
+        /// <summary>The <c>Debt:</c> line (design 3.13 rule 4), only when a debt rounds to
+        /// something the format shows.</summary>
+        internal static string AppendDebtLine(string text, double debt, string format)
+        {
+            if (!(debt > 0.0))
+                return text;
+            string shown = debt.ToString(format, IC);
+            double parsed;
+            if (double.TryParse(shown, System.Globalization.NumberStyles.Any, IC, out parsed) && parsed <= 0.0)
+                return text;
+            return text + "\nDebt: " + shown;
         }
     }
 }
