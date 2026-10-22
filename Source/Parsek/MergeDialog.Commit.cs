@@ -8,6 +8,11 @@ namespace Parsek
         /// refusal (the real one spawns a PopupDialog).</summary>
         internal static System.Action<RecordingTree> ReShowRefusedMergeDialogForTesting;
 
+        /// <summary>How many merge clicks the click-time dominance check refused this session.
+        /// Read by the automation seam (AnswerMergeDialog), which must report a refused merge
+        /// as refused rather than as a commit.</summary>
+        internal static int MergeDominanceRefusalCount;
+
         // ================================================================
         // Tree commit / discard — extracted from the dialog button lambdas
         // so that unit tests can exercise the post-button work directly
@@ -87,6 +92,7 @@ namespace Parsek
                     $"tree='{tree.TreeName}' pool={dominance.Pool ?? "<none>"} " +
                     $"world={dominance.WorldKind ?? "<none>"}:{dominance.WorldId ?? "<none>"} - " +
                     $"tree stays pending, Discard stays offered (reShow={reShowDialogOnRefusal})");
+                MergeDominanceRefusalCount++;
                 ClearPendingFlag("merge-dominance refused");
                 if (reShowDialogOnRefusal)
                     ReShowRefusedMergeDialog(tree);

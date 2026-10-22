@@ -300,6 +300,9 @@ namespace Parsek.TestCommands
         // ----- CrewTransfer (a player's stock crew transfer between two crewed parts of the
         // active vessel) -----
         void CrewTransfer(ParsedCommand cmd);
+        // ----- CycleVessel (one press of stock's [ / ] vessel cycle, through the cycle
+        // Prefix's own body) -----
+        void CycleVessel(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -682,6 +685,10 @@ namespace Parsek.TestCommands
                 // CrewTransfer. RequiresFlight: stock's crew transfer moves a kerbal between
                 // parts of the live active vessel. Default budget (stock completes in a frame).
                 ["CrewTransfer"] = VerbSceneRequirement.RequiresFlight,
+                // CycleVessel. RequiresFlight: stock's vessel cycle exists only in the flight
+                // scene (VesselSwitching.Update returns outside it). Default budget (the switch
+                // between loaded vessels is synchronous).
+                ["CycleVessel"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>
