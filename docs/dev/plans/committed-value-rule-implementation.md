@@ -545,9 +545,14 @@ used to drag below 0) and the ledger ground-truth lanes; re-pin only for a ruled
 lanes on the H73-H79 pattern: after a rewind, a flight's crew death before a committed strategy holds
 reputation at the floor (phase 3); a purchase and a Mission Control Accept greyed while a committed
 cost needs the money (phase 4); a reserve released by a contract completion comes back (phase 2).
-Flown on V's PC. Phase 3's funds side: `L9-career-floor-debt-after-rewind` (authored 2026-10-22,
-never flown) cancels a contract after a rewind, before the committed costs, and pins the settle and
-the Debt charge; phase 4 refuses that cancel, so it is re-pinned then.
+Flown on V's PC. Phase 3's funds side: `L9-career-floor-debt-after-rewind` (LIVE-PROVEN
+2026-10-22, `2026-10-22_1342`) cancels a contract after a rewind, before the committed costs, and
+pins the settle and the Debt charge; under phase 4 that cancel stays allowed (it releases its own
+reserve). Phase 4's lane is `L10-career-click-reserve-after-rewind` (authored, never flown): L9's
+host and committed purchases, then after the rewind a Tracking Station repair the live pool covers is
+greyed and refused for the open penalties, the Cancel that releases its own penalty is allowed, and a
+Mission Control Accept whose penalty exceeds its advance is greyed and refused while one whose advance
+covers its penalty is allowed.
 
 ## 5. Risks
 

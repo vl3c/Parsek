@@ -756,6 +756,9 @@ and logistics design section 10.6).**
   flown: every greyed control and its stock tooltip text, the `VesselSpawnDialog` patch binding its
   `object` parameter, the `EditorLogic.UpdateUI` postfix order, and the live `Contract`, `Funding`
   and `Reputation` reads.
+  Lane `L10-career-click-reserve-after-rewind` (authored, never flown) is the live witness for the
+  facility Repair and Mission Control Accept refusals with their greyed controls, an allowed Accept,
+  and the Cancel allowed by the release of its own penalty.
   Review of c86c5b9 (follow-up commit): BLOCKER fixed red-first, a strategy's reputation setup was
   compared raw against a post-curve spendable (stock charges it through `AddReputation`), so an
   allowed setup could leave reputation under the need (repro: rep 600, a committed 300 setup, a 294
