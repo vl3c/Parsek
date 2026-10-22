@@ -245,6 +245,19 @@ namespace Parsek.InGameTests
             recon.HasRep = true;
             recon.Reputation = LedgerOrchestrator.Reputation.GetRunningRep();
 
+            // The walked StockPoolAdjustment rows per pool (committed-value rule plan 2.4):
+            // the running values above carry them, and the diff leaves them out so a leak the
+            // stock pool reference measured still shows as a divergence. ELS is the list the
+            // walk read; a row counts only when the module dispatched it.
+            IReadOnlyList<GameAction> els = EffectiveState.ComputeELS();
+            recon.FundsAdjustment = LedgerGroundTruthDiff.SumWalkedStockPoolAdjustments(
+                StockPool.Funds, els, LedgerOrchestrator.Funds.GetRowEffects(), out recon.FundsAdjustmentRows);
+            recon.ScienceAdjustment = LedgerGroundTruthDiff.SumWalkedStockPoolAdjustments(
+                StockPool.Science, els, LedgerOrchestrator.Science.GetRowEffects(), out recon.ScienceAdjustmentRows);
+            recon.ReputationAdjustment = LedgerGroundTruthDiff.SumWalkedStockPoolAdjustments(
+                StockPool.Reputation, els, LedgerOrchestrator.Reputation.GetRowEffects(),
+                out recon.ReputationAdjustmentRows);
+
             // Per-subject science: CreditedTotal per subject.
             var subjects = LedgerOrchestrator.Science.GetAllSubjects();
             if (subjects != null)
@@ -652,25 +665,39 @@ namespace Parsek.InGameTests
         private static void EmitFacetSummaries(
             CareerSaveSnapshot save, LedgerReconstructionSnapshot recon)
         {
+            // The pools are compared with the walk's StockPoolAdjustment rows left out; one
+            // line per pool names what was left out, so a divergence they explain reads as such.
+            ParsekLog.Info(Tag, LedgerGroundTruthDiff.FormatStockPoolAdjustmentLine(
+                "Funds", recon.FundsAdjustmentRows, recon.FundsAdjustment,
+                recon.Funds, LedgerGroundTruthDiff.FundsExcludingAdjustments(recon)));
+            ParsekLog.Info(Tag, LedgerGroundTruthDiff.FormatStockPoolAdjustmentLine(
+                "Science", recon.ScienceAdjustmentRows, recon.ScienceAdjustment,
+                recon.SciencePool, LedgerGroundTruthDiff.ScienceExcludingAdjustments(recon)));
+            ParsekLog.Info(Tag, LedgerGroundTruthDiff.FormatStockPoolAdjustmentLine(
+                "Reputation", recon.ReputationAdjustmentRows, recon.ReputationAdjustment,
+                recon.Reputation, LedgerGroundTruthDiff.ReputationExcludingAdjustments(recon)));
             if (save.HasFunds)
             {
-                double delta = System.Math.Abs(save.Funds - recon.Funds);
+                double reconFunds = LedgerGroundTruthDiff.FundsExcludingAdjustments(recon);
+                double delta = System.Math.Abs(save.Funds - reconFunds);
                 ParsekLog.Info(Tag,
-                    $"funds save={save.Funds.ToString("R", IC)} recon={recon.Funds.ToString("R", IC)} " +
+                    $"funds save={save.Funds.ToString("R", IC)} recon={reconFunds.ToString("R", IC)} " +
                     $"delta={delta.ToString("R", IC)} tol={FacetTolerances.Default.Funds.ToString("R", IC)}");
             }
             if (save.HasScience)
             {
-                double delta = System.Math.Abs(save.SciencePool - recon.SciencePool);
+                double reconScience = LedgerGroundTruthDiff.ScienceExcludingAdjustments(recon);
+                double delta = System.Math.Abs(save.SciencePool - reconScience);
                 ParsekLog.Info(Tag,
-                    $"science save={save.SciencePool.ToString("R", IC)} recon={recon.SciencePool.ToString("R", IC)} " +
+                    $"science save={save.SciencePool.ToString("R", IC)} recon={reconScience.ToString("R", IC)} " +
                     $"delta={delta.ToString("R", IC)} tol={FacetTolerances.Default.SciencePool.ToString("R", IC)}");
             }
             if (save.HasRep)
             {
-                double delta = System.Math.Abs(save.Reputation - recon.Reputation);
+                double reconRep = LedgerGroundTruthDiff.ReputationExcludingAdjustments(recon);
+                double delta = System.Math.Abs(save.Reputation - reconRep);
                 ParsekLog.Info(Tag,
-                    $"reputation save={save.Reputation.ToString("R", IC)} recon={recon.Reputation.ToString("R", IC)} " +
+                    $"reputation save={save.Reputation.ToString("R", IC)} recon={reconRep.ToString("R", IC)} " +
                     $"delta={delta.ToString("R", IC)} tol={FacetTolerances.Default.Reputation.ToString("R", IC)}");
             }
             if (save.HasRoster)

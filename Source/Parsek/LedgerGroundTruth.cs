@@ -205,6 +205,20 @@ namespace Parsek
         public bool HasRep;
         public double Reputation;
 
+        /// <summary>
+        /// The walked <see cref="GameActionType.StockPoolAdjustment"/> rows per pool: their
+        /// summed effect in the walk and their count. The running values above INCLUDE them
+        /// (the walk carries every adjustment row); the diff compares each pool with them
+        /// LEFT OUT, so a leak the stock pool reference measured still shows as a divergence
+        /// (an adjustment row only records that the pool and the ledger disagree).
+        /// </summary>
+        public double FundsAdjustment;
+        public int FundsAdjustmentRows;
+        public double ScienceAdjustment;
+        public int ScienceAdjustmentRows;
+        public double ReputationAdjustment;
+        public int ReputationAdjustmentRows;
+
         /// <summary>subjectId -> CreditedTotal (Science.GetAllSubjects()).</summary>
         public Dictionary<string, double> SubjectScience = new Dictionary<string, double>();
 

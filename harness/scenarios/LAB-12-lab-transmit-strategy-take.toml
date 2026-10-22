@@ -120,11 +120,11 @@ tier = "operator"
 #   StockPoolAdjustment ledger row per pool (Info `no saved reference - baseline ... the gap
 #   to the target filed as an adjustment row ... gap=`), writes nothing, and later patches
 #   measure no leak. The GUARDED forbid below now means "no leak measured after the first
-#   patch". SINCE PLAN 2.4 REVISION 6 THE ADJUSTMENT ROWS ARE IN THE WALK, so the
-#   LedgerGroundTruth recon (the modules' running values) carries the 400 / 25 too and its
-#   `result:` pin no longer sees DEFECT 1: the lane can pass with the seed defect unfixed.
-#   Open question filed with the phase 2 report (todo LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY).
-#   Predicted from code, not re-flown. The FLIGHT-route career lanes (L2, HC-2, ZF-1, L8, L5) never
+#   patch". The adjustment rows are in the walk (plan 2.4 revision 6), and LedgerGroundTruth
+#   LEAVES THEM OUT of its pool facets (logging `stock pool adjustments left out of the
+#   comparison: pool=Science rows=1 total=400 ...`), so DEFECT 1 still reads
+#   `sciencePool save=148.625 recon=-251.375` and the `result:` pin keeps the lane red until
+#   the seed is fixed. Predicted from code, not re-flown. The FLIGHT-route career lanes (L2, HC-2, ZF-1, L8, L5) never
 #   hit it: there the baseline UT is the save's (9), not "initial", and the deferred live read
 #   seeds correctly; L3 never hits it because KSP appends a missing ParsekScenario module after
 #   R&D / Reputation.

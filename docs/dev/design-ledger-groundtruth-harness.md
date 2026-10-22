@@ -138,6 +138,13 @@ internal sealed class LedgerReconstructionSnapshot
     bool   HasFunds;   double Funds;          // LedgerOrchestrator.Funds.GetRunningBalance()
     bool   HasScience; double SciencePool;    // Science.GetRunningScience()
     bool   HasRep;     double Reputation;     // Reputation.GetRunningRep()
+    double FundsAdjustment, ScienceAdjustment, ReputationAdjustment; // + row counts
+    // STOCK POOL ADJUSTMENTS (committed-value rule plan 2.4 revision 6): the running values
+    // carry every walked StockPoolAdjustment row, which records a leak the stock pool
+    // reference measured (the pool and the ledger disagree). The pool facets compare
+    // running MINUS those rows (LedgerGroundTruthDiff.*ExcludingAdjustments), so a leak still
+    // reads as a divergence instead of being explained away by its own record; the harness
+    // logs one `stock pool adjustments left out of the comparison: pool=...` line per pool.
     // READER CHOICE (plan-review correction): use the RAW RUNNING values
     // (GetRunningBalance / GetRunningScience / GetRunningRep), NOT GetAvailableFunds /
     // GetAvailableScience. The save holds KSP's actual current funds/science (a running
@@ -290,7 +297,9 @@ Flow:
    `Science.GetAllSubjects()` (CreditedTotal per subject), `Facilities.GetAllFacilities()`
    (Level per facility), `Contracts.GetActiveContractIds()`, `Milestones.GetCreditedMilestoneIds()`,
    and the recovery-credit scan over `EffectiveState.ComputeELS()` for `FundsEarning` +
-   `FundsEarningSource.Recovery`.
+   `FundsEarningSource.Recovery`; and per pool the walked `StockPoolAdjustment` rows of the ELS
+   (`LedgerGroundTruthDiff.SumWalkedStockPoolAdjustments` over the module's per-row effects),
+   which the pool facets leave out.
 
 7. **Build the facility maxLevel map** from live KSP (`ScenarioUpgradeableFacilities` /
    `Upgradeables[id].MaxLevel`) so the diff can convert save fractions to int levels.

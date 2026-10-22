@@ -569,11 +569,12 @@ and logistics design section 10.6).**
   Deviations: a removed row steps back only what was stepped; load-migration and
   broken-ledger-recovery rows are stock-applied; adjustment rows are hidden from the Timeline.
   Known limits: with a reservation the walk clamps at running, above the pool by the reserve (phase
-  3); a transient leak files a pair of opposite rows. **Open question:** the in-game
-  `LedgerGroundTruthHarness` recon reads the modules' running values, which now carry the
-  adjustment rows, so a measured leak no longer shows as a hard divergence there (LAB-12's seed
-  DEFECT 1, 400 / 25, would pass); a recon that leaves the adjustment rows out (or reports them
-  per pool) would restore the signal; not done. Harness, predicted from code and not re-flown:
+  3); a transient leak files a pair of opposite rows. The ledger ground-truth harness leaves the
+  walked adjustment rows out of its pool facets (Layer A `LedgerGroundTruthDiff`, Layer B fills
+  them per pool from the ELS and logs one `stock pool adjustments left out of the comparison:
+  pool=...` line per pool), so a measured leak still reads as a divergence (LAB-12's seed DEFECT 1
+  stays red); reputation is left out post-curve, a later row's curve at the adjusted value is not
+  re-evaluated. Tests: `LedgerGroundTruthDiffTests`. Harness, predicted from code and not re-flown:
   the GUARDED WARN fires only on a measured leak; L5 requires the withheld line for B's synthetic
   fail and forbids both the clamp and a 9000 debit; the L3 strategy, LAB-12 and QL-14 forbids keep
   their reading.

@@ -283,7 +283,9 @@ twice. The reconciliation bundle does not add rows: it restores the bundle's own
 The adjustment row is ledger state like any other: it serializes with the ledger, a cold
 `Ledger.Reconcile` keeps it (it is an earning type), the Timeline hides it (it has no event to
 show; `GameActionDisplay` still names it `Pool adjustment (<pool>)`), it is never tombstone-eligible
-and never strict-blocks a supersede, and `LedgerOrchestrator`'s budget probes read it per pool.
+and never strict-blocks a supersede, and `LedgerOrchestrator`'s budget probes read it per pool. The ledger
+ground-truth harness leaves the walked adjustment rows out of its pool facets and logs their total
+per pool, so a measured leak stays a divergence there instead of being explained by its own record.
 
 `lastWritten` and `counted` are saved in the PARSEK scenario node and always come from the same
 `.sfs` as the live pool. For an in-session load, where the ledger stays in memory, the rows the
