@@ -203,7 +203,7 @@ quickload also undoes Space Center purchases made after the quicksave". Fix: the
 resume retires untagged Space Center rows after the save UT (the QL-R2 cell flips); rewinds keep
 ruling D2. This also closes O1 of LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY.
 
-## REFLY-WALK-DEADLINE-EXPIRES-CONTRACT-WITHOUT-PENALTY: a committed-future row past an active contract's deadline ends the contract in the walk with no penalty [FILED 2026-10-20, deferred by the section 2.12 phase agents, not re-verified. OPEN, medium]
+## ~~REFLY-WALK-DEADLINE-EXPIRES-CONTRACT-WITHOUT-PENALTY: a committed-future row past an active contract's deadline ends the contract in the walk with no penalty~~ [FILED 2026-10-20, deferred by the section 2.12 phase agents. FIXED on branch claude/project-thread-7ifqcx]
 
 Section 2.12 Rule 3 judges deadlines at the session clock (`ContractsModule.PrePass`), but
 `ContractsModule.ProcessAction` also runs `CheckDeadlines(action.UT)` on every walked row. When a
@@ -213,14 +213,34 @@ charged and the contract leaves the walk's active set early. Same shape in the d
 (both sides alike, so no false refuse). Fix: judge the walk-time expiry against the same deadline
 clock, or synthesize the penalty with it. Red-first unit cell first.
 
-## REFLY-INVOKE-HOLDS-NOT-REDRAWN-AFTER-RELOAD: the vessels a Re-Fly invoke holds back for the committed future are held in memory only [FILED 2026-10-20, deferred by the section 2.12 phase agents, not re-verified. OPEN, medium]
+Fix: the penalty is synthesized. `ContractsModule.ResolveDeadlineClockUT` judges deadlines at the
+later of the session clock and the last walked row, so a deadline a committed row walks past gets
+its synthetic `ContractFail` (with penalty) exactly as the clock-less walk of the same ledger does,
+and a deadline past both stays open (design 7.84). `ReFlyMergeDominance.ResolveDeadlineClockUT`
+takes the later of the clock and the latest row of both lists, so `L` and `L'` judge alike.
+Judging the walk-time expiry at the clock instead was rejected: the other walks during a session
+are clock-less, so the invoke walk alone would keep the contract active and the next walk would
+fail it. Cells: `ContractsModuleTests.PrePass_SessionClockBeforeDeadline_CommittedRowPastIt_*`,
+`RewindUtCutoffTests.ReFlyInvokeWalk_DeadlineAheadOfClockButBehindACommittedRow_ChargesThePenalty`.
+
+## ~~REFLY-INVOKE-HOLDS-NOT-REDRAWN-AFTER-RELOAD: the vessels a Re-Fly invoke holds back for the committed future are held in memory only~~ [FILED 2026-10-20, deferred by the section 2.12 phase agents. FIXED on branch claude/project-thread-7ifqcx]
 
 The invoke hands a vessel the committed future flies or recovers to the claimed-vessel hold, but
 the hold set lives in memory, so after a scene reload inside the session (F9, a scene change) the
 hold ghosts are not redrawn. Fix: persist the session's invoke holds with the marker, or re-derive
 them on load from the rewind point and the committed recordings.
 
-## REFLY-HOLD-FEED-MISSES-DOCK-AND-BOARD: a vessel the committed future only changes (docks with, boards) is not held back at invoke [FILED 2026-10-20, deferred by the section 2.12 phase agents, not re-verified. OPEN, medium]
+Fix: persisted. The invoke saves its held entries on the marker (`ReFlySessionMarker.InvokeHolds`,
+`INVOKE_HOLD` children; the hold moved after `AtomicMarkerWrite` so the marker exists), and
+`ParsekFlight.RestoreReFlyInvokeHoldsFromMarker` runs on every flight-ready after the chain feed:
+a held vessel the chain holds is left to it, a live one is despawned again, and a gone one (the
+normal case: the hold despawned it before any save) is tracked from the rewind point quicksave's
+own VESSEL node (`VesselGhoster.TrackHeldVesselWithoutLiveVessel`), so its hold ghost draws in the
+rewind-save shape. Skipped while an invoke is in flight. Log: `[ClaimedHoldGhost] Re-Fly invoke
+holds restored after reload: ...`. Pure cells in `ReFlyInvokeHoldGapsTests`; the live redraw needs
+an in-game lane (a Re-Fly with a held vessel, F5, F9, hold ghost shown again).
+
+## ~~REFLY-HOLD-FEED-MISSES-DOCK-AND-BOARD: a vessel the committed future only changes (docks with, boards) is not held back at invoke~~ [FILED 2026-10-20, deferred by the section 2.12 phase agents. FIXED on branch claude/project-thread-7ifqcx]
 
 Section 2.12 Rule 3 holds a vessel a committed recording "flies, changes or recovers" after the
 rewind UT. The invoke's claimed-hold feed covers flies and recovers; a dock or board onto the
@@ -228,7 +248,15 @@ vessel is covered only where the existing ghost-chain claim already claims it. A
 committed flight docks with can stay live during the session, so the attempt can change it.
 Fix: feed the dock / board targets of committed recordings after the rewind UT into the hold.
 
-## REFLY-COLD-LOAD-ZOMBIE-KEEPS-ATTEMPT-POOLS: a cold load that sweeps a zombie Re-Fly attempt can keep what the attempt earned in the stock pools [FILED 2026-10-20 from the section 2.12 review fix-up, code read. OPEN, low]
+Verified gap: `GhostChainWalker` skips every claim of a fully-terminated tree and
+`FilterAndGhostChains` skips a terminated chain, so a station a committed flight docks with before
+that flight is destroyed or recovered stayed live. Fix: `ReFlyInvokeHold.CollectChangeClaims`
+reads every Dock / Board branch point after the rewind UT (claimant = first parent, launch =
+`MissionCrossTreeDock.ResolveClaimLaunchGuid`), dropping claimants a supersede row hides or the
+session suppresses; `Classify` holds a positively identified survivor with evidence `changes` until
+the claim UT. Undock / EVA / JointBreak targets stay with the chain feed.
+
+## ~~REFLY-COLD-LOAD-ZOMBIE-KEEPS-ATTEMPT-POOLS: a cold load that sweeps a zombie Re-Fly attempt can keep what the attempt earned in the stock pools~~ [FILED 2026-10-20 from the section 2.12 review fix-up, code read. FIXED on branch claude/project-thread-7ifqcx]
 
 The merge-dialog Discard and the in-session load's second walk after the zombie sweep now patch
 the pools back as an authoritative reduction (`reFlyDiscard`). Two zombie cases still run a
@@ -238,6 +266,12 @@ marker), and an in-session load whose zombie filed no ledger rows (the second wa
 earnings in its pools, so the drawdown guard keeps them. Both need an invalid or missing marker
 next to a live attempt, which normal play rarely produces. Fix: carry a "zombie attempt discarded"
 signal from the sweep into the next walk.
+
+Fix: `LoadTimeSweep.ZombiesDiscardedByLastRun` counts the discarded zombies, and
+`SweepDiscardedAnAttempt(rows, zombies)` gates both walks: the in-session second walk now also runs
+when the zombie filed no rows, and the cold load's `DeferredSeedAndRecalculate` (its first walk
+after the sweep) passes `reFlyDiscard`. Gates: `LoadTimeSweepTests`,
+`LoadReconcileWiringGateTests.ColdLoadDeferredSeedWalksAsAReFlyDiscardAfterTheSweepDroppedAnAttempt`.
 
 ## ~~REFLY-RETRY-LEAVES-ATTEMPT-SIDECARS: a Re-Fly Retry left the abandoned attempt's sidecar files in the save~~ [FILED 2026-10-20 from the RF-L4 flight on V's PC. FIXED on branch claude/project-thread-vy0m14]
 

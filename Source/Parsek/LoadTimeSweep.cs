@@ -53,6 +53,7 @@ namespace Parsek
         public static void Run()
         {
             LedgerRowsRemovedByLastRun = 0;
+            ZombiesDiscardedByLastRun = 0;
             var scenario = ParsekScenario.Instance;
             if (ReferenceEquals(null, scenario))
             {
@@ -1471,9 +1472,28 @@ namespace Parsek
         /// </summary>
         internal static int LedgerRowsRemovedByLastRun { get; private set; }
 
+        /// <summary>
+        /// Zombie Re-Fly attempts the last <see cref="Run"/> discarded. An attempt files its
+        /// rows only at merge, so a zombie usually removes no ledger row, yet a save written
+        /// during its session carries what it earned in the stock pools. Both OnLoad branches
+        /// therefore walk with the Re-Fly discard flag when this is non-zero, so the patch takes
+        /// the pools back to the ledger (todo REFLY-COLD-LOAD-ZOMBIE-KEEPS-ATTEMPT-POOLS).
+        /// </summary>
+        internal static int ZombiesDiscardedByLastRun { get; private set; }
+
+        /// <summary>
+        /// Pure: true when the walk after a sweep must take the pools back to the ledger
+        /// (rewind design section 2.12 Rule 3, Discard restores <c>L</c>).
+        /// </summary>
+        internal static bool SweepDiscardedAnAttempt(int ledgerRowsRemoved, int zombiesDiscarded)
+        {
+            return ledgerRowsRemoved > 0 || zombiesDiscarded > 0;
+        }
+
         private static int RemoveDiscardRecordings(List<Recording> discard)
         {
             LedgerRowsRemovedByLastRun = 0;
+            ZombiesDiscardedByLastRun = 0;
             if (discard == null || discard.Count == 0) return 0;
             int removed = 0;
             int deletedFiles = 0;
@@ -1553,6 +1573,7 @@ namespace Parsek
             // A zombie is an abandoned, never-committed Re-Fly attempt: its ledger rows go with
             // it, like every other Re-Fly discard (rewind design section 2.12 Rule 3).
             LedgerRowsRemovedByLastRun = Ledger.RemoveActionsForRecordings(discardedIds, "LoadTimeSweep:zombie");
+            ZombiesDiscardedByLastRun = removed;
             ParsekLog.Info(RewindTag,
                 $"Zombies discarded={removed.ToString(CultureInfo.InvariantCulture)} " +
                 $"ledgerRowsRemoved={LedgerRowsRemovedByLastRun.ToString(CultureInfo.InvariantCulture)} " +

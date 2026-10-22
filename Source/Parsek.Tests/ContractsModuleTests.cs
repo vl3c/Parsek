@@ -807,12 +807,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void PrePass_SessionClockBeforeDeadline_HorizonPastIt_NoSyntheticFail()
+        public void PrePass_SessionClockBeforeDeadline_HorizonPastIt_NoCommittedRowPastIt_NoSyntheticFail()
         {
             var actions = new List<GameAction>
             {
                 MakeAccept("c1", ut: 100, deadlineUT: 500f),
-                new GameAction { Type = GameActionType.FundsEarning, UT = 900, FundsAwarded = 1000f }
+                new GameAction { Type = GameActionType.FundsEarning, UT = 250, FundsAwarded = 1000f }
             };
             actions[0].FundsPenalty = 8000f;
             actions[0].RepPenalty = 3f;
@@ -824,6 +824,57 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("synthetic ContractFail"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Contracts]") && l.Contains("no expired deadline") && l.Contains("source=clock"));
+        }
+
+        // catches REFLY-WALK-DEADLINE-EXPIRES-CONTRACT-WITHOUT-PENALTY: a committed row past
+        // the deadline ends the contract in the walk (CheckDeadlines), so judged at the clock
+        // alone it ended with no penalty while a clock-less walk of the same ledger charged it.
+        [Fact]
+        public void PrePass_SessionClockBeforeDeadline_CommittedRowPastIt_InjectsFailWithPenalty()
+        {
+            var actions = new List<GameAction>
+            {
+                MakeAccept("c1", ut: 100, deadlineUT: 500f),
+                new GameAction { Type = GameActionType.FundsEarning, UT = 900, FundsAwarded = 1000f }
+            };
+            actions[0].FundsPenalty = 8000f;
+            actions[0].RepPenalty = 3f;
+
+            bool mutated = module.PrePass(actions, double.MaxValue, 300.0);
+
+            Assert.True(mutated);
+            Assert.Equal(3, actions.Count);
+            Assert.Equal(GameActionType.ContractFail, actions[2].Type);
+            Assert.Equal(500.0, actions[2].UT);
+            Assert.Equal(8000f, actions[2].FundsPenalty);
+            Assert.Equal(3f, actions[2].RepPenalty);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("injected synthetic ContractFail")
+                && l.Contains("source=lastActionUT"));
+        }
+
+        [Fact]
+        public void Walk_SessionClockAndClocklessWalk_ChargeTheSameDeadlinePenalty()
+        {
+            Func<double?, List<GameAction>> build = clock =>
+            {
+                var accept = MakeAccept("c1", ut: 100, deadlineUT: 500f);
+                accept.FundsPenalty = 8000f;
+                var list = new List<GameAction>
+                {
+                    accept,
+                    new GameAction { Type = GameActionType.FundsEarning, UT = 900, FundsAwarded = 1000f }
+                };
+                var m = new ContractsModule();
+                m.PrePass(list, double.MaxValue, clock);
+                return list;
+            };
+
+            var withClock = build(300.0);
+            var clockless = build(null);
+
+            Assert.Equal(clockless.Count, withClock.Count);
+            Assert.Contains(withClock, a => a.Type == GameActionType.ContractFail && a.FundsPenalty == 8000f);
         }
 
         [Fact]
@@ -844,13 +895,15 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(400.0, 300.0, 900.0, 300.0, "clock")]
+        [InlineData(400.0, 300.0, 900.0, 900.0, "lastActionUT")]
+        [InlineData(400.0, 950.0, 900.0, 950.0, "clock")]
         [InlineData(400.0, null, 900.0, 400.0, "cutoff")]
         [InlineData(null, null, 900.0, 900.0, "lastActionUT")]
         [InlineData(double.MaxValue, null, 900.0, 900.0, "lastActionUT")]
         [InlineData(double.MaxValue, double.MaxValue, 900.0, 900.0, "lastActionUT")]
         [InlineData(double.PositiveInfinity, double.NaN, 900.0, 900.0, "lastActionUT")]
-        [InlineData(double.MaxValue, 250.0, 900.0, 250.0, "clock")]
+        [InlineData(double.MaxValue, 250.0, 900.0, 900.0, "lastActionUT")]
+        [InlineData(double.MaxValue, 250.0, 200.0, 250.0, "clock")]
         public void ResolveDeadlineClockUT_TruthTable(
             double? walkNowUT, double? clockUT, double lastActionUT, double expectedUT, string expectedSource)
         {

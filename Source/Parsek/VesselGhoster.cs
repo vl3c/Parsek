@@ -174,6 +174,29 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Tracks a held-back vessel that is already gone from the world (a Re-Fly invoke hold
+        /// after a reload: the hold despawned it before the save was written), with
+        /// <paramref name="snapshot"/> as the shape its hold ghost draws. Nothing is despawned.
+        /// Returns false when the pid is zero, the snapshot is missing or the pid is already tracked.
+        /// </summary>
+        internal bool TrackHeldVesselWithoutLiveVessel(uint vesselPid, string vesselName, ConfigNode snapshot)
+        {
+            if (vesselPid == 0u || snapshot == null || ghostedVessels.ContainsKey(vesselPid))
+                return false;
+            ghostedVessels[vesselPid] = new GhostedVesselInfo
+            {
+                vesselPid = vesselPid,
+                vesselName = vesselName ?? "(unnamed)",
+                snapshot = snapshot,
+                ghostGO = null
+            };
+            ParsekLog.Info(Tag,
+                string.Format(ic, "Held vessel tracked without a live vessel: pid={0} name={1}",
+                    vesselPid, vesselName ?? "(unnamed)"));
+            return true;
+        }
+
+        /// <summary>
         /// Is this vessel currently ghosted?
         /// </summary>
         internal bool IsGhosted(uint vesselPid)

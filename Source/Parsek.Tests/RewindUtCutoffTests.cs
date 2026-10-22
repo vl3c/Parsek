@@ -1353,6 +1353,34 @@ namespace Parsek.Tests
                 && l.Contains("c-session-deadline"));
         }
 
+        // catches REFLY-WALK-DEADLINE-EXPIRES-CONTRACT-WITHOUT-PENALTY: the deadline lies
+        // ahead of the session clock but behind a committed row, so the walk ends the
+        // contract at that row; the clock-less walk of the same ledger charges the penalty,
+        // and the invoke walk must too (no transient rise the next walk takes back).
+        [Fact]
+        public void ReFlyInvokeWalk_DeadlineAheadOfClockButBehindACommittedRow_ChargesThePenalty()
+        {
+            AddAll(
+                FundsSeed(10000f),
+                ContractAcceptWithDeadline(100.0, "c-committed-past",
+                    advance: 200f, deadlineUt: 600f, fundsPenalty: 500f),
+                FundsEarning(900.0, 100f));
+
+            LedgerOrchestrator.RecalculateAndPatch(double.MaxValue, deadlineClockUT: 400.0);
+            double invokeFunds = LedgerOrchestrator.Funds.GetRunningBalance();
+
+            Assert.Equal(9800.0, invokeFunds, 1);
+            Assert.Equal(0, LedgerOrchestrator.Contracts.GetActiveContractCount());
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]")
+                && l.Contains("injected synthetic ContractFail")
+                && l.Contains("c-committed-past")
+                && l.Contains("source=lastActionUT"));
+
+            LedgerOrchestrator.RecalculateAndPatch();
+            Assert.Equal(invokeFunds, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+        }
+
         [Fact]
         public void ReFlyInvokeWalk_HorizonCutoffWithSessionClock_DeadlinePassedStillFails()
         {

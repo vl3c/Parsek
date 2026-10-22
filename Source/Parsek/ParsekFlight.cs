@@ -13037,6 +13037,7 @@ namespace Parsek
 
             // Phase 6b: Evaluate ghost chains and ghost claimed vessels
             EvaluateAndApplyGhostChains();
+            RestoreReFlyInvokeHoldsFromMarker(Planetarium.GetUniversalTime());
 
             // Capture active vessel PID at scene entry for stateless spawn dedup bypass.
             // After revert, the pad vessel shares the same PID as recorded vessels — at

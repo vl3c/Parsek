@@ -1,0 +1,108 @@
+schema = 1
+id = "RB-3-refly-hold-redrawn-after-reload"
+# =====================================================================================
+# A RE-FLY'S HELD VESSEL IS HELD AGAIN AFTER AN F5 / F9 INSIDE THE SESSION (todo
+# REFLY-INVOKE-HOLDS-NOT-REDRAWN-AFTER-RELOAD, design section 2.12 Rule 3). NOT YET FLOWN.
+#
+# THE DEFECT, DERIVED FROM SOURCE. The invoke hands a survivor a committed recording flies
+# later to the claimed-vessel hold (RewindInvoker.HoldResurrectedVesselsWithCommittedFuture ->
+# ParsekFlight.HoldReFlyInvokeVessels): VesselGhoster despawns it (the ProtoVessel leaves the
+# flight state too) and the hold ghost draws it until its first claim UT. The hold set
+# (reFlyInvokeHolds) and the ghoster lived in memory only, and ParsekFlight.ResetFlightReadyState
+# clears both on every flight-ready, so after a quickload inside the session the vessel was
+# neither in the world (the F5 was written after the despawn) nor drawn.
+#
+# THE FIX. The invoke saves the held entries on the session marker (INVOKE_HOLD children of
+# REFLY_SESSION_MARKER), and every flight-ready runs RestoreReFlyInvokeHoldsFromMarker after the
+# chain feed: a gone vessel is tracked again from the rewind point quicksave's own VESSEL node
+# (`[Ghoster] Held vessel tracked without a live vessel: pid=<pid> ...`), one summary
+# `[ClaimedHoldGhost] Re-Fly invoke holds restored after reload: sess=<s> saved=<n>
+# restored=<r> heldLive=<l> alreadyHeld=<a> claimPassed=<c> otherLaunch=<o> noSnapshot=<x>
+# UT=<F1>`, and the hold ghost shows again.
+#
+# THE SEQUENCE. RB-2's host and preset (rp_rb_root, the real Jumping Flea re-admitted in the RP
+# quicksave), with one change: the clock jumps 600 s BEFORE the Flea flies, so the Flea's
+# committed recording (its first claim, evidence=flies) starts long after the rewind point and
+# the hold is still wanted at the quickload. Then: fly + recover the Flea (auto-merged), reload,
+# Re-Fly rp_rb_root slot 1 (the Flea is held), wait for the attempt's recorder, F5, F9 with
+# playerLoad (a cold save-file load that keeps the session, as QL-5c), quit.
+# =====================================================================================
+tier = "operator"
+description = "Re-Fly hold after reload (design 2.12 Rule 3): the Flea a later committed flight flies is held at the invoke; an F5 / F9 inside the session holds it again from the rewind point's save and redraws its hold ghost."
+instanceProfile = "stock-minimal"
+tags = ["RB-3", "rewind", "refly", "claimed-hold", "quickload", "career", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/career-science-pad"
+injectedRecordings = "rewind-readback"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "science_bench_recover"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },    expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoMerge",          value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  # The Flea's committed flight must start long after the rewind point, so its hold is still
+  # wanted when the session quickloads.
+  { cmd = "TimeJump",       args = { deltaSeconds = "600.0" },                    expect = "OK", budget = 120 },
+  { phase = "mission",                                                              expect = "MISSION-OK", budget = 1320 },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rb-post-recovery" },                  expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "rb-post-recovery" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "InvokeRewind",   args = { rp = "rp_rb_root", slot = "1" },              expect = "OK", budget = 300 },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                expect = "OK" },
+  # F5, then F9 inside the session.
+  { cmd = "SaveGame",       args = { name = "quicksave" },                         expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", allowLiveRecorder = "refly", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                           expect = "OK" },
+]
+
+[driver.missionParams]
+throttle                 = 1.0
+apoapsisWindowMeters     = { min = 6000, max = 30000 }
+chuteArmMaxRateMps       = 30
+chuteFullDeployAltMeters = 2500
+landedSituations         = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds     = 90
+coastTimeoutSeconds      = 180
+descentTimeoutSeconds    = 360
+collectMinExperiments = 1
+collectTimeoutSeconds = 120
+transmitMinScienceGain = 0.5
+transmitTimeoutSeconds = 120
+recoverMinFundsGain = 1.0
+recoverTimeoutSeconds = 180
+
+[dimensionsCovered]
+D14 = ["kerbin", "career", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.logContracts]
+required = [
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke",
+  "Strip heldForCommittedFuture v=2905720181 rec=\\S+ firstUT=[0-9.]+ evidence=flies sess=\\S+",
+  "Resurrected vessel hold: survivors=[0-9]+ held=[1-9][0-9]* notLive=[0-9]+ alreadyHeld=[0-9]+ matchedWithoutFuture=[0-9]+ cutoffUT=[0-9.]+ changeClaims=[0-9]+ claimsSkipped=[0-9]+ savedOnMarker=True",
+  "Claimed vessel hold ghost shown: pid=2905720181 [^\\r\\n]*chain=0",
+  "Invocation complete",
+  # THE CHECK: after the F9 the Flea is held again from the rewind point's save.
+  "Held vessel tracked without a live vessel: pid=2905720181 name=",
+  "Re-Fly invoke holds restored after reload: sess=\\S+ saved=1 restored=1 heldLive=0 alreadyHeld=0 claimPassed=0 otherLaunch=0 noSnapshot=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "Resurrected-recovery retirement:",
+  "Re-Fly invoke hold reload: rewind point save unreadable",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"

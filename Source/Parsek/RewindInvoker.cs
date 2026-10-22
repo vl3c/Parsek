@@ -1429,25 +1429,6 @@ namespace Parsek
                         $"Post-strip spawn-state reconcile threw (non-fatal): {ex.Message}");
                 }
 
-                // Step 3b (design section 2.12 Rule 3): hand every survivor a committed
-                // recording flies or recovers after the rewind UT to the claimed-vessel hold.
-                // The strip preserved unrelated vessels, so a craft the committed future uses
-                // later (or recovers) is live again; it is despawned and drawn as a hold ghost
-                // until its first committed use, and its committed rows (a later recovery
-                // included) stay. Nothing is tombstoned at invoke: the earlier retirement of
-                // such a vessel's recovery rows ran outside any merge, bypassed the drawdown
-                // guard and outlived a Discard. Runs after the post-strip reconcile, so the
-                // spawn stamps the hold releases are already settled.
-                try
-                {
-                    HoldResurrectedVesselsWithCommittedFuture(stripResult, retireCutoffUT, sessionId);
-                }
-                catch (Exception ex)
-                {
-                    ParsekLog.Warn(InvokeTag,
-                        $"Resurrected vessel hold threw (non-fatal): {ex.Message}");
-                }
-
                 // Step 4: §6.3 step 4 phases 1 + 2 — atomic provisional + marker write.
                 // NO yield, NO await between checkpoints A and B.
                 try
@@ -1460,6 +1441,27 @@ namespace Parsek
                         $"Invocation failed: atomic marker write threw: {ex.Message}");
                     ShowUserError($"Rewind failed: marker write error ({ex.Message})");
                     return;
+                }
+
+                // Step 4b (design section 2.12 Rule 3): hand every survivor a committed
+                // recording flies, docks with, boards or recovers after the rewind UT to the
+                // claimed-vessel hold. The strip preserved unrelated vessels, so a craft the
+                // committed future uses later (or recovers) is live again; it is despawned and
+                // drawn as a hold ghost until its first committed use, and its committed rows
+                // (a later recovery included) stay. Nothing is tombstoned at invoke: the earlier
+                // retirement of such a vessel's recovery rows ran outside any merge, bypassed the
+                // drawdown guard and outlived a Discard. Runs after the post-strip reconcile, so
+                // the spawn stamps the hold releases are already settled, and after the marker
+                // write, so the session's own replaced flight is known (its docks hold nothing)
+                // and the held entries are saved with the marker for a reload to redraw.
+                try
+                {
+                    HoldResurrectedVesselsWithCommittedFuture(stripResult, retireCutoffUT, sessionId);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(InvokeTag,
+                        $"Resurrected vessel hold threw (non-fatal): {ex.Message}");
                 }
 
                 // Phase 2 (ghost rendering pipeline, design doc §6.3 / §17.2 /
@@ -1580,10 +1582,12 @@ namespace Parsek
 
         /// <summary>
         /// Design section 2.12 Rule 3: hands every survivor of the Re-Fly load that a committed
-        /// recording flies or recovers after <paramref name="rewindUT"/> to the claimed-vessel
-        /// hold (<see cref="ReFlyInvokeHold"/>, <c>ParsekFlight.HoldReFlyInvokeVessels</c>).
-        /// The re-flown vessel and the stripped vessels are never held. Logs one line per held
-        /// vessel and one summary.
+        /// recording flies, docks with, boards or recovers after <paramref name="rewindUT"/> to
+        /// the claimed-vessel hold (<see cref="ReFlyInvokeHold"/>,
+        /// <c>ParsekFlight.HoldReFlyInvokeVessels</c>) and saves the held entries on the live
+        /// session marker. The re-flown vessel and the stripped vessels are never held, and a
+        /// dock or board by a recording that no longer plays (superseded, or the session's own
+        /// replaced flight) holds nothing. Logs one line per held vessel and one summary.
         /// </summary>
         internal static void HoldResurrectedVesselsWithCommittedFuture(
             PostLoadStripResult stripResult, double rewindUT, string sessionId)
@@ -1603,13 +1607,23 @@ namespace Parsek
 
             var survivors = ParsekScenario.CollectSurvivingVesselIdentities(flightState.protoVessels);
             var excluded = BuildInvokeHoldExcludedPids(stripResult);
+            var supersededClaimants = GhostChainWalker.BuildSupersededClaimantMap(
+                ParsekScenario.Instance?.RecordingSupersedes);
+            int claimsSkipped;
+            List<ReFlyInvokeHold.ChangeClaim> changeClaims = ReFlyInvokeHold.CollectChangeClaims(
+                RecordingStore.CommittedTrees, rewindUT,
+                id => supersededClaimants.ContainsKey(id) || SessionSuppressionState.IsSuppressed(id),
+                out claimsSkipped);
             int matchedWithoutFuture;
             List<ReFlyInvokeHold.Entry> entries = ReFlyInvokeHold.Classify(
                 survivors, excluded, RecordingStore.CommittedRecordings, Ledger.Actions,
-                rewindUT, out matchedWithoutFuture);
+                changeClaims, rewindUT, out matchedWithoutFuture);
 
             int notLive, alreadyHeld;
             List<ReFlyInvokeHold.Entry> held = flight.HoldReFlyInvokeVessels(entries, out notLive, out alreadyHeld);
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            if (marker != null)
+                marker.InvokeHolds = new List<ReFlyInvokeHold.Entry>(held);
 
             var ic = CultureInfo.InvariantCulture;
             for (int i = 0; i < held.Count; i++)
@@ -1624,7 +1638,9 @@ namespace Parsek
                 $"held={held.Count.ToString(ic)} notLive={notLive.ToString(ic)} " +
                 $"alreadyHeld={alreadyHeld.ToString(ic)} " +
                 $"matchedWithoutFuture={matchedWithoutFuture.ToString(ic)} " +
-                $"cutoffUT={rewindUT.ToString("F1", ic)}");
+                $"cutoffUT={rewindUT.ToString("F1", ic)} " +
+                $"changeClaims={changeClaims.Count.ToString(ic)} claimsSkipped={claimsSkipped.ToString(ic)} " +
+                $"savedOnMarker={(marker != null)}");
         }
 
         /// <summary>Pure: the pids the invoke hold never takes (the re-flown vessel, the stripped vessels).</summary>
