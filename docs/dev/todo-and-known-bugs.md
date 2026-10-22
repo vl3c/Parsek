@@ -44,7 +44,7 @@ the extrapolator, so #2154's frame fix stands for a real ballistic fall. Unit ce
 `SceneExitFinalizationIntegrationTests` (`..._OpenParachuteSkipsRecoveryAndKeepsSuppression`, the
 cut-chute mirror, the per-part state reader).
 
-## REFLY-SECOND-SLOT-MERGE-LOSES-ITS-SLOT: after both halves of one split are re-flown in turn, the second merge cannot find its slot [FILED 2026-10-22 from RF-11 `2026-10-22_0804` / `_0805_a2` (INVALID, driver-arg, both attempts), flown for PR #2173, and the same on plain main 9dbf9c2 (`2026-10-22_0814` / `_0816_a2`). OPEN, medium; a main regression since 2b5cd9b (RF-11's last green, `2026-10-20_1650`), not bisected. product]
+## ~~REFLY-SECOND-SLOT-MERGE-LOSES-ITS-SLOT: after both halves of one split are re-flown in turn, the second merge cannot find its slot~~ [FILED 2026-10-22 from RF-11 `2026-10-22_0804` / `_0805_a2` (INVALID, driver-arg, both attempts), flown for PR #2173, and the same on plain main 9dbf9c2 (`2026-10-22_0814` / `_0816_a2`). FIXED 2026-10-22 (branch `claude/project-thread-g75qdw`); regression from e46a9ef in PR #2169 (the live-attempt keep). product]
 
 RF-11 re-flies slot 0 of `rp_404ea488...` and merges (`qualifies=True slot=0`), then re-flies slot 1
 and merges. That second merge logs `[Supersede][ERROR] Site B-1 slot lookup failed for
@@ -59,6 +59,20 @@ is `SupersedeCommit.TryResolveSlotByMarkerTarget`: the rewind point matched by b
 neither did the origin-target fallback. Neither file changed in that range, so the slot list or the
 supersede rows reaching it did. A player sees the second half of a split close as crashed and lose
 its re-fly. Next: bisect 2b5cd9b..9dbf9c2 with RF-11.
+
+Cause (read from the red and green logs): RF-11's in-session `LoadGame` before the slot-1 invoke
+arms a committed-tree restore attempt for the tree (`TryTakeCommittedTreeForSpawnedVesselRestore`).
+Since e46a9ef, `TryRestoreActiveTreeNode` keeps the committed copy and skips the splice whenever an
+attempt is armed for the restored tree, and the rewind point's own load is such a restore: the
+session tree came back with the rewind point's 8 members instead of the spliced 12 (`kept the
+committed copy ... live restore attempt's clone`), `ConsumePostLoad` then discarded the attempt,
+the merge unioned a 9-recording tree, re-finalized the stale pre-rewind copy of the slot's origin
+`490f0f52` as Destroyed, and the supersede closure wrote only `99ae6e58 -> fork` (green: both
+`99ae6e58` and `490f0f52`), so neither slot walk reached the fork. Fix: the live-attempt keep
+(`ParsekScenario.ShouldLiveAttemptKeepCommittedCopy`) no longer applies on an `EarlyLoadKind.ReFlyStart`
+load, whose rewind point abandons the attempt's flight; that load splices and detaches as before
+e46a9ef. Unit cells in `InPlaceResumeSidecarVersionTests` (the Re-Fly start splice + detach, and the
+predicate's truth table).
 
 ## ~~QL-2-RECOVER-REFUSED-WHILE-SLIDING: QL-2's Recover can be refused while the landed Flea still slides, and the refusal reads as a Parsek failure~~ [FILED 2026-10-22 from QL-2 `2026-10-21_2220` and `2026-10-22_0001` (both PARSEK-FAIL, expectations), flown for PR #2170. Half fixed in PR #2170, merged (the verb waits); the classification half FIXED 2026-10-22 in PR #2175 (harness unit cells; QL-2 `2026-10-22_0833` PASS attempt 1 did not hit a refusal). harness]
 
