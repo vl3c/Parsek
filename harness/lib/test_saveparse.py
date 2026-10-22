@@ -2152,6 +2152,24 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "5436a7e8840b4c5885afcbaedc9dc037"],
             "schemaGeneration": 4,
         },
+        # career-earned-pad-oldgen is career-earned-pad with the TREE-level
+        # recordingSchemaGeneration stamped 3 (harness/tools/
+        # build_career_earned_pad_oldgen.py, the GC-3 host), so the product keeps the
+        # whole tree inert. The parsed structure is the base's; the recordings' own
+        # stamps stay current, and `otherGenerationTrees` names the one tree whose
+        # node carries another generation on purpose.
+        "career-earned-pad-oldgen": {
+            "trees": 1, "committedTrees": 1, "recordings": 2,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Landed": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 8,
+            "recordingIds": ["1d611e7533a64508ae6f3b305a51615e",
+                             "5436a7e8840b4c5885afcbaedc9dc037"],
+            "schemaGeneration": 4,
+            "otherGenerationTrees": {"5eb172ab29034ccbbac497ce6406c149": 3},
+        },
         # k2-held-kerbal-pad is career-earned-pad plus a crewless rover clone on the
         # runway at VESSEL index 0 (harness/tools/build_k2_held_kerbal_pad.py, the KB-5
         # host). No recording changes, so career-earned-pad pins verbatim.
@@ -3727,8 +3745,22 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                 text = _read(path)
                 gens = set(re.findall(
                     r"recordingSchemaGeneration = (\d+)", text))
-                self.assertEqual({str(want["schemaGeneration"])}, gens,
-                                 "%s: schema generations drifted" % name)
+                # A fixture may hold a tree stamped with ANOTHER generation on
+                # purpose (the inert-tree hosts); it names each such tree, and every
+                # other stamp in the file must still be the current generation.
+                other = want.get("otherGenerationTrees", {})
+                self.assertEqual(
+                    {str(want["schemaGeneration"])} | {str(g) for g in other.values()},
+                    gens, "%s: schema generations drifted" % name)
+                tree_gens = {t.tree_id: t.schema_generation for t in snap.trees}
+                for tree_id, gen in sorted(other.items()):
+                    self.assertNotEqual(want["schemaGeneration"], gen, name)
+                    self.assertEqual(gen, tree_gens.get(tree_id),
+                                     "%s: tree %s generation" % (name, tree_id))
+                for tree_id, gen in sorted(tree_gens.items()):
+                    if tree_id not in other:
+                        self.assertEqual(want["schemaGeneration"], gen,
+                                         "%s: tree %s generation" % (name, tree_id))
                 # The numeric constant is defined on RecordingSchema;
                 # RecordingStore only forwards it by name, so the literal
                 # lives in exactly one file and this is it.
