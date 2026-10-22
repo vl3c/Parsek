@@ -1,0 +1,95 @@
+schema = 1
+id = "PAD-1-one-sample-orbit-exit-kept"
+tier = "nightly"
+# PAD-1: A RECORDING STARTED ON AN ORBITING VESSEL AND LEFT AT ONCE IS KEPT, NOT DISCARDED AS
+# IDLE ON THE PAD. The live proof of todo IDLE-ON-PAD-READS-ONE-SAMPLE-ORBITING-RECORDING-AS-IDLE
+# (fixed 2026-10-18 on branch `idle-on-pad-one-sample`, headless only, never flown).
+#
+# THE DEFECT. `ParsekFlight.IsTreeIdleOnPad` / `IsActiveTreeIdleOnPad` read a tree as idle when
+# every recording stays within 30 m of its launch point. A recording with ONE trajectory sample
+# has `MaxDistanceFromLaunch` 0 by construction, so a recording started on an orbiting vessel
+# and taken out of FLIGHT before the recorder's max-interval backstop sample (3 s at Medium
+# density) was discarded at the scene exit whatever the vessel was doing. H67's in-game cell
+# met exactly this shape (todo H67-AUTOMERGE-DWELL-ENDS-BEFORE-BACKSTOP-SAMPLE) before its dwell
+# was lengthened. THE FIX: pad evidence is a tree-level requirement
+# (`TreeHasPadEvidenceForIdle`): a launch site, a Prelaunch / Landed / Splashed start or a
+# surface terminal on at least one recording. An orbiting one-sample flight shows none and is
+# committed.
+#
+# HOST: `gs2-orbital-stack` (H67's): the 41-part Kerbal X ORBITING Kerbin, SANDBOX, no
+# recordings. ROUTE: StartRecording, then ExitToSpaceCenter in the next seam step (one frame
+# since PR #2017, far inside the 3 s backstop), with autoMerge ON so the commit is silent.
+#
+# GATES. `pad evidence=none` is logged only when the distance walk has already read the tree as
+# idle (every recording within 30 m), so that line is the proof the run reached the one-sample
+# shape; then no idle discard, and the committed store holds the one recording. If a second
+# sample lands before the exit the distance walk answers not-idle first, the evidence line never
+# prints and the lane reds on it: read the recording's point count before touching the gate.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) no host flight is a prefix (H67 runs an in-game
+# cell, not a seam route); (2) no waits at all, the shape needs the exit at once; (3) no dwells;
+# (4) / (5) no burns, no coast; (6) seam-only, every refusal is immediate, retry `none` would
+# hide a timing flake, so `once`; (7) the committed count is pinned exactly; (8) nightly until
+# measured; (9) flight_efficiency.py after the first green flight.
+#
+# STATUS: AUTHORED 2026-10-22 (branch `claude/project-thread-77b92l`), never flown.
+description = "PAD-1: on gs2-orbital-stack (an orbiting Kerbal X), start a recording and leave FLIGHT for the Space Center in the next step, under autoMerge, so the recording has one trajectory sample: the idle-on-pad check must find no pad evidence (pad evidence=none) and the flight must be committed, not discarded."
+instanceProfile = "stock-minimal"
+tags = ["PAD-1", "idle-on-pad", "scene-exit", "auto-merge", "commit", "orbit", "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs2-orbital-stack"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  # LOAD-BEARING: the pad-evidence verdict is a Verbose line.
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "StartRecording",                                                             expect = "OK", budget = 180 },
+  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  { cmd = "ListHandles",       args = { kind = "committed" }, label = "c1",             expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "pad1-committed-${c1.count}" },         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  # The distance walk read the tree as idle (one sample), and the tree-level gate found no
+  # pad evidence: ParsekFlight.TreeHasPadEvidenceForIdle.
+  "startrecording recordingId=[0-9a-f]+ already=false[\\s\\S]*(?:IsActiveTreeIdleOnPad|IsTreeIdleOnPad): tree='[^']*' id=[0-9a-f]+ pad evidence=none",
+  "exittospacecenter complete scene=SPACECENTER",
+  "MISSIONMARK label=pad1-committed-1 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "pad evidence=(?!none)",
+  "TryAutoDiscardIdleActiveTree: idle detected",
+  "Idle on pad at scene exit",
+  "startrecording rejected",
+]
+
+[runtime]
+# LoadGame 300, StartRecording 180, ExitToSpaceCenter 120, five default-budget steps at 120,
+# plus boot and quit margin.
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

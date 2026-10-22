@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Parsek.TestCommands
@@ -137,6 +138,50 @@ namespace Parsek.TestCommands
                 default:
                     return MergeAnswerChoice.Unknown;
             }
+        }
+
+        /// <summary>Refusal reason: the dialog offers Discard only (design section 2.12 Rule 5,
+        /// the dominance check refused the merge when the dialog opened), so a merge answer
+        /// presses nothing.</summary>
+        internal const string MergeNotOfferedReason = "merge-not-offered";
+
+        /// <summary>Refusal reason: the merge button was pressed, but the click-time dominance
+        /// check refused the commit; the tree stays pending and the dialog is shown again with
+        /// Discard only.</summary>
+        internal const string MergeRefusedAtClickReason = "merge-refused-at-click";
+
+        /// <summary>The label of the refused-merge dialog's only button (MergeDialog).</summary>
+        internal const string RefusedDialogOnlyButtonLabel = "Discard";
+
+        /// <summary>
+        /// True when a merge answer meets the refused-merge dialog: exactly one button, and it
+        /// is Discard. Pressing button 0 there would discard the attempt while the seam reports
+        /// a commit, so the merge answer is refused instead and nothing is pressed.
+        /// </summary>
+        internal static bool IsMergeNotOffered(MergeAnswerChoice choice, IList<string> buttonLabels)
+        {
+            if (choice != MergeAnswerChoice.Merge || buttonLabels == null || buttonLabels.Count != 1)
+                return false;
+            return string.Equals(buttonLabels[0], RefusedDialogOnlyButtonLabel, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// True when a pressed merge or seal button ended in the click-time dominance refusal:
+        /// <c>MergeDialog.MergeDominanceRefusalCount</c> moved during the press.
+        /// </summary>
+        internal static bool WasMergeRefusedAtClick(
+            MergeAnswerChoice choice, int refusalsBefore, int refusalsAfter)
+        {
+            if (choice != MergeAnswerChoice.Merge && choice != MergeAnswerChoice.Seal)
+                return false;
+            return refusalsAfter > refusalsBefore;
+        }
+
+        /// <summary>True for the two invoke outcomes that are a Parsek refusal of the merge
+        /// (terminal REJECTED), as opposed to a seam failure (terminal ERROR).</summary>
+        internal static bool IsMergeRefusalReason(string reason)
+        {
+            return reason == MergeNotOfferedReason || reason == MergeRefusedAtClickReason;
         }
 
         /// <summary>The <c>result=</c> payload token for an applied choice.</summary>

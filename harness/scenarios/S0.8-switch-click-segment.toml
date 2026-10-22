@@ -8,6 +8,10 @@ tier = "daily"
 # StockActionIntentMarker, reads NoIntent at the consume site, starts no segment - and
 # goes green while MapFocusObjectOnSelectPatch rots. This cell reproduces the CLICK's
 # contract: arm the marker exactly as the map-site patch does, then switch.
+# 2026-10-22 (branch `claude/project-thread-77b92l`): also the live proof of todo
+# SWITCH-SEGMENT-STARTS-WITHOUT-A-START-SNAPSHOT (fixed 2026-10-17, never flown): verbose
+# logging on, and the segment must get its START ghost snapshot forwarded at its recorder
+# start. Spec changed, not re-flown.
 description = "Drive a map-site Switch-To click through SimulateStockSwitchClick onto a co-orbiting loaded vessel: the marker is armed with the patch's own field set, stock switches, and the consume site opens a continuation segment on the live tree."
 instanceProfile = "stock-minimal"
 tags = ["switch-segment", "stock-click", "S0.8", "R12", "D1"]
@@ -61,6 +65,8 @@ kind = "seam"
 steps = [
   { cmd = "LoadGame",                 args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
   { cmd = "SetSetting",               args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # LOAD-BEARING since 2026-10-22: the start-snapshot forward below is a Verbose line.
+  { cmd = "SetSetting",               args = { name = "verboseLogging", value = "true" },      expect = "OK" },
   # LOADGAME RACE (CI-1's header): since PR #2017's 25 ms polls the click lands ~0.3 s
   # after the unpack, while the ship still reads under acceleration, and stock refuses
   # the switch (ClearToSave; run 2026-10-12_1105: G = 0.55, switch-refused-by-stock).
@@ -132,6 +138,11 @@ required  = [
   "\\[SwitchSegment\\] route=standalone intentId=.* focusedPid=2614652043",
   "\\[SwitchIntent\\] cleared: intentId=.* targetPid=2614652043 reason=consumed-into-segment",
   "switchclick complete site=map targetPid=2614652043 targetName=Kerbal X Probe .* activeVesselPid=2614652043 switched=true",
+  # SWITCH-SEGMENT-STARTS-WITHOUT-A-START-SNAPSHOT (fixed 2026-10-17, first flown here): the
+  # segment recording is built before any snapshot exists, so the recorder's start backstop
+  # must forward its start ghost snapshot onto it (FlightRecorder.ApplyStartRecordingTreeBackstop).
+  # Ordered after the segment's creation so the root recording's own start cannot satisfy it.
+  "\\[SwitchSegment\\] created intentId=.* focusedPid=2614652043 [\\s\\S]*StartRecording: forwarded start ghost snapshot to active tree recording '[0-9a-f]+'",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

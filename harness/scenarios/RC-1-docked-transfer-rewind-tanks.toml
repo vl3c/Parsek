@@ -38,6 +38,10 @@
 # OnFlightReady built the ghost chains, so the TimeJump never crosses the tip with no chain.
 # A tip whose vessel did not spawn is `missing=1` on an OK answer (a Parsek outcome, never a
 # driver refusal), and every gating token below is on the read's own `complete` line.
+# 2026-10-22 (branch `claude/project-thread-77b92l`): also the live proof of todo
+# CHAIN-TIP-SPAWN-SKIPS-ORBIT-SAFETY-GATE (fixed 2026-10-18, never flown): the Station tip's
+# chain-tip spawn must log the terminal-orbit safety decision (idx=-1, the chain path) and
+# never stop on it. Spec changed, not re-flown.
 schema = 1
 id = "RC-1-docked-transfer-rewind-tanks"
 tier = "operator"
@@ -101,6 +105,10 @@ required = [
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_72ebafb509b943b6a353fa86eb3a4225 slot=1",
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_f4edbb9721bc43649a6c1727dca67b1e slot=1",
   "Chain tip spawn complete: #[0-9]+ \"Kerbal X\" pid=3620499050",
+  # CHAIN-TIP-SPAWN-SKIPS-ORBIT-SAFETY-GATE (fixed 2026-10-18, first flown here): the Station
+  # tip's chain-tip spawn runs the ordinary path's terminal-orbit safety decision. The chain
+  # path is the only caller that passes idx=-1 (VesselGhoster.RunLiveTerminalOrbitSafety).
+  "Terminal spawn safety decision: rec=37d0dc074351408ba0374230793abb1c idx=-1 vessel=\"Kerbal X\" body=Kerbin decision=SpawnNow ",
   "(?s)exec id=0005 cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=2 missing=0 uidCollisions=0 uidDigest=[0-9a-f]{8} match=true snapshotMatch=true",
   "(?s)exec id=0011 cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=2 missing=0 uidCollisions=0 uidDigest=[0-9a-f]{8} match=true snapshotMatch=true",
   "(?s)exec id=0021 cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=2 missing=0 uidCollisions=0 uidDigest=[0-9a-f]{8} match=true snapshotMatch=true",
@@ -120,6 +128,8 @@ forbidden = [
   "readvesselresources complete .*(missing=[1-9]|uidCollisions=[1-9]|match=false|snapshotMatch=false)",
   "Chain tip spawn blocked by collision",
   "Chain tip spawn failed",
+  "Chain tip spawn stopped by terminal orbit safety",
+  "Chain tip spawn skipped for terminal orbit safety",
   "timejump rejected",
 ]
 
