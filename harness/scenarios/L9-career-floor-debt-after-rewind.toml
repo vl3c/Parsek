@@ -109,7 +109,19 @@ tier = "nightly"
 # deterministic; (7) recordings pinned exactly (2 fixture + flight A); (8) nightly, L8-sized;
 # (9) run flight_efficiency.py after the first green flight.
 #
-# STATUS: AUTHORED 2026-10-22, NEVER FLOWN (reading run). Fly on request.
+# STATUS: AUTHORED 2026-10-22. Reading run `2026-10-22_1332` (automation DLL sha256
+# `d01d3403...`, main 15b2ef2) was PARSEK-FAIL on one spec regex only: the PatchFunds
+# lookahead stopped at the StockPoolReference line, which also reads "PatchFunds: "; every
+# step, verifier and other contract was green. Anchored on `[KspStatePatcher]` since. The
+# product did what the plan says: X = 4642 (`VesselRecovery funds patched ... amount=4642`),
+# KSC 1 left 4117.96875, the cancel took stock to -4882.03125, `Floor settle ... floor=541440.03125
+# heldBack=4882.03125 debt=4882.03125`, PatchFunds -4882.0 -> 0.0, then at the accept stock
+# gave 18502.5 (OutsourcedResearch took 2833.71 of the 21336.2 advance) and `Debt charge ...
+# charged=4882.03125 debt=0` left 13620.458984375. Seen and not gated: the converter's
+# FundsSpending row sorts before the advance it skims (`FundsSpending NOT affordable` x3, a
+# transient walk dip), the cancel's reputation leg (the filed lerp defect: walk -2, live -1,
+# filed as a StockPoolAdjustment), and a ContractFail row filed after the cancel
+# (CONTRACT-CANCEL-ALSO-FILES-A-FAIL-ROW).
 #
 # PRE-REGISTERED READINGS (what to check first if the reading run reds):
 #   - The second LoadGame stays at the Space Center (`route=NoVesselSpaceCenter`) and
@@ -227,7 +239,9 @@ required = [
   "Rewind-to-Launch initiated to UT [\\s\\S]*Floor settle: ContractCancel id=\\S+ ut=[0-9.]+ effect=-9000 floor=[0-9.]+ heldBack=([0-9.]+) debt=\\1 runningBalance=[0-9.]+ \\(a committed cost captured before this loss needs the rest\\)",
   "Floor walk: pool=Funds settled=1\\(([0-9.]+)\\) charged=0\\(0\\) debt=\\1 maxFloor=[0-9.]+ plan=pool=Funds rows=[0-9]+ costRows=5 ",
   # The pool after the cancel: stock's overdraft written back to 0 (the projected minimum).
-  "Floor settle: ContractCancel [^\\r\\n]*\\r?\\n(?:(?!PatchFunds: )[\\s\\S])*PatchFunds: -[0-9]+\\.[0-9] -> -?0\\.0 \\(delta=[0-9]+\\.[0-9], target=-?0\\.0\\)",
+  # Anchored on the patcher's own write: the StockPoolReference line before it also reads
+  # "PatchFunds: " (first flight 2026-10-22_1332).
+  "Floor settle: ContractCancel [^\\r\\n]*\\r?\\n(?:(?!\\[KspStatePatcher\\] PatchFunds: )[\\s\\S])*\\[KspStatePatcher\\] PatchFunds: -[0-9]+\\.[0-9] -> -?0\\.0 \\(delta=[0-9]+\\.[0-9], target=-?0\\.0\\)",
 
   # ---- the purchases cross the clock; the first room after them pays the debt ----
   "Floor settle: ContractCancel [\\s\\S]*Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* ",

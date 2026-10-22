@@ -32,6 +32,22 @@ delta around `onCancelled`. Lane L9 cancels a contract whose advance equals its 
 funds leg is exact either way; its reputation leg can read this gap (it forbids only the Funds
 GUARDED clamp).
 
+Live-confirmed on L9's reading run `2026-10-22_1332`: the cancel of 8a2b7d40 filed reputation
+`repPenalty=4` (walk -2.0 after the curve) where stock took -1.0, so the guard logged
+`PatchReputation: GUARDED DRAWDOWN clamped` and filed a `StockPoolAdjustment` of +0.99999785
+(reason=leak); funds were exact (advance = fail).
+
+## CONTRACT-CANCEL-ALSO-FILES-A-FAIL-ROW: a Space Center contract cancel files a ContractFail row for the same contract right after the ContractCancel row [FILED 2026-10-22 from L9 `2026-10-22_1332`. OPEN, low; no pool moved. product]
+
+After `kscaction cancel-contract 8a2b7d40` the log holds `AddEvent: ContractCancelled ... cseq=18`,
+`Added action: type=ContractCancel ... cseq=18`, a recalculation, then 6 ms later
+`AddEvent: ContractFailed key='8a2b7d40-...' ... cseq=20` and `Added action: type=ContractFail ...
+cseq=20` at the same UT. The walk gave the second row no effect (the funds `Floor walk` stayed
+`settled=1(4882.03125)` at 541440.03125, reputation unchanged), so no money moved, but one contract
+now carries two outcome rows. Find which stock path fires `onFailed` after `onCancelled` (decompile
+`Contract.Cancel` / `ContractSystem`) and either drop the duplicate at capture or prove it harmless
+in every consumer (ledger ground truth, Missions wording, the committed-future index).
+
 ## SCENE-EXIT-RECOVERY-READS-A-ZERO-ALTITUDE-SEED-AS-ORBITING: an early finalizer pass on a just-decoupled booster extrapolates a recorded point at altitude 0.0 into an Orbiting terminal [FILED 2026-10-22 from RF-L2 `2026-10-22_1026` (PASS), flown for PR #2176. OPEN, low; no verdict or saved terminal affected so far. product]
 
 On the booster's first background finalizer pass after the decouple, before its chutes opened, the
