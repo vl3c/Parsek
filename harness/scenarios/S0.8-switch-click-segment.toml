@@ -142,7 +142,8 @@ required  = [
   # segment recording is built before any snapshot exists, so the recorder's start backstop
   # must forward its start ghost snapshot onto it (FlightRecorder.ApplyStartRecordingTreeBackstop).
   # Ordered after the segment's creation so the root recording's own start cannot satisfy it.
-  "\\[SwitchSegment\\] created intentId=.* focusedPid=2614652043 [\\s\\S]*StartRecording: forwarded start ghost snapshot to active tree recording '[0-9a-f]+'",
+  # A switch segment's recording id is a hyphenated Guid (2026-10-22_1213), hence [0-9a-f-].
+  "\\[SwitchSegment\\] created intentId=.* focusedPid=2614652043 [\\s\\S]*StartRecording: forwarded start ghost snapshot to active tree recording '[0-9a-f-]+'",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

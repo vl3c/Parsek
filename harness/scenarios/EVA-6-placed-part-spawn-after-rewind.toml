@@ -1,3 +1,5 @@
+# 2026-10-22 (branch `claude/project-thread-77b92l`): also the live proof of todo
+# RESET-FLIGHT-READY-STATE-LEAVES-RESTORE-ATTEMPT-ARMED, pinned from run 2026-10-22_1216 (PASS).
 schema = 1
 id = "EVA-6-placed-part-spawn-after-rewind"
 # 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): the
@@ -99,6 +101,13 @@ inventory = "evaChute,DeployedSeismicSensor"
 [driver]
 kind = "seam"
 steps = [
+  # A stale restore attempt that outlived its clone would be replaced only at the next arm.
+  "ArmCommittedTreeRestoreAttempt: replacing stale context",
+  # RESET-FLIGHT-READY-STATE-LEAVES-RESTORE-ATTEMPT-ARMED (fixed 2026-10-18, extended to every
+  # drop site of the restore clone): the boot's committed-tree restore clone of 'Kerbal X' is
+  # dropped by the DiscardTree, and its armed restore attempt goes with it. Measured
+  # 2026-10-22_1216 (the auto-discard site; the flight-ready-reset site is not reached here).
+  "ClearCommittedTreeRestoreAttemptForDroppedTree: dropped tree=c05c834c[0-9a-f]* matches the armed restore attempt; clearing it reason=auto-discard dropped the restore clone",
   # ACT 0: boot hygiene. The fixture boots FLIGHT on its committed tip (the landed capsule),
   # which the recorder PROMOTES; stop and discard that continuation (the LF-2 / SE-1 recipe)
   # so the kerbal's recording below is a fresh, non-promotion start.
