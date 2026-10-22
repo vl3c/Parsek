@@ -18,7 +18,9 @@ id = "RB-3-refly-hold-redrawn-after-reload"
 # (`[Ghoster] Held vessel tracked without a live vessel: pid=<pid> ...`), one summary
 # `[ClaimedHoldGhost] Re-Fly invoke holds restored after reload: sess=<s> saved=<n>
 # restored=<r> heldLive=<l> alreadyHeld=<a> claimPassed=<c> otherLaunch=<o> noSnapshot=<x>
-# UT=<F1>`, and the hold ghost shows again.
+# UT=<F1> marker=<save|memory>`, and the hold ghost shows again. The deferred invoke can finish
+# before the invoke scene's own flight-ready, so the restore may also print there with
+# `marker=memory`; only `marker=save` proves the F9 path (the marker read back from the F5).
 #
 # THE SEQUENCE. RB-2's host and preset (rp_rb_root, the real Jumping Flea re-admitted in the RP
 # quicksave), with one change: the clock jumps 600 s BEFORE the Flea flies, so the Flea's
@@ -93,7 +95,7 @@ required = [
   "Invocation complete",
   # THE CHECK: after the F9 the Flea is held again from the rewind point's save.
   "Held vessel tracked without a live vessel: pid=2905720181 name=",
-  "Re-Fly invoke holds restored after reload: sess=\\S+ saved=1 restored=1 heldLive=0 alreadyHeld=0 claimPassed=0 otherLaunch=0 noSnapshot=0 ",
+  "Re-Fly invoke holds restored after reload: sess=\\S+ saved=1 restored=1 heldLive=0 alreadyHeld=0 claimPassed=0 otherLaunch=0 noSnapshot=0 UT=[0-9.]+ marker=save",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

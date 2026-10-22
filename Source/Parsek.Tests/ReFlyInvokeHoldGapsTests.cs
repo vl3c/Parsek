@@ -225,6 +225,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LoadedFromSave_IsSetOnlyByLoadFrom_AndNeverSaved()
+        {
+            var marker = new ReFlySessionMarker { SessionId = "sess_1", InvokedUT = 1000.0 };
+            Assert.False(marker.LoadedFromSave);
+
+            var parent = new ConfigNode("PARSEK");
+            marker.SaveInto(parent);
+            var restored = ReFlySessionMarker.LoadFrom(parent.GetNode(ReFlySessionMarker.NodeName));
+            Assert.True(restored.LoadedFromSave);
+
+            var resaved = new ConfigNode("PARSEK");
+            restored.SaveInto(resaved);
+            string text = resaved.ToString();
+            Assert.DoesNotContain("LoadedFromSave", text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("loadedFrom", text, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
         public void MarkerWithoutHolds_LoadsAnEmptyList()
         {
             var marker = new ReFlySessionMarker { SessionId = "sess_1", InvokedUT = 1000.0 };

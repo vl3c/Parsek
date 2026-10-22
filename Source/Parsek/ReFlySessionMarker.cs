@@ -132,6 +132,14 @@ namespace Parsek
         /// </summary>
         internal List<ReFlyInvokeHold.Entry> InvokeHolds = new List<ReFlyInvokeHold.Entry>();
 
+        /// <summary>
+        /// True only on a marker read back by <see cref="LoadFrom"/>; never saved. The invoke
+        /// scene's marker is built in memory, so this tells the hold restore apart on the
+        /// invoke scene (where the deferred invoke can finish before flight-ready) and after
+        /// a load of a save written during the session.
+        /// </summary>
+        internal bool LoadedFromSave;
+
         internal const string NodeName = "REFLY_SESSION_MARKER";
 
         /// <summary>
@@ -198,7 +206,7 @@ namespace Parsek
         {
             if (node == null) throw new ArgumentNullException(nameof(node));
             var ic = CultureInfo.InvariantCulture;
-            var m = new ReFlySessionMarker();
+            var m = new ReFlySessionMarker { LoadedFromSave = true };
 
             string sid = node.GetValue("sessionId");
             m.SessionId = string.IsNullOrEmpty(sid) ? null : sid;

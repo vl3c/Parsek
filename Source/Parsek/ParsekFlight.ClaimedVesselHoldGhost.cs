@@ -183,7 +183,8 @@ namespace Parsek
                 $"saved={marker.InvokeHolds.Count.ToString(ic)} restored={restored.ToString(ic)} " +
                 $"heldLive={heldLive.ToString(ic)} alreadyHeld={alreadyHeld.ToString(ic)} " +
                 $"claimPassed={claimPassed.ToString(ic)} otherLaunch={otherLaunch.ToString(ic)} " +
-                $"noSnapshot={noSnapshot.ToString(ic)} UT={currentUT.ToString("F1", ic)}");
+                $"noSnapshot={noSnapshot.ToString(ic)} UT={currentUT.ToString("F1", ic)} " +
+                $"marker={(marker.LoadedFromSave ? "save" : "memory")}");
         }
 
         /// <summary>The FLIGHTSTATE of the rewind point's quicksave, or null when it cannot be read.</summary>
