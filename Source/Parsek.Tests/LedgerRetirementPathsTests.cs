@@ -271,6 +271,7 @@ namespace Parsek.Tests
             Ledger.AddAction(earlierKsc);
             Ledger.AddAction(committedFutureCredit);
             Ledger.AddAction(committedFutureTech);
+            ParsekScenario.SetFreshLaunchEntryPendingForTesting(true);
             ParsekScenario.RememberFlightEntryLedgerRows("test");
 
             GameAction rollout = Rollout(100.0, 3000f);
@@ -278,7 +279,7 @@ namespace Parsek.Tests
             Ledger.AddAction(rollout);
             Ledger.AddAction(padScience);
 
-            int removed = ParsekScenario.PruneRevertedFlightLedgerRows(100.0, inclusive: true);
+            int removed = ParsekScenario.PruneRevertedFlightLedgerRows(100.0, inclusive: true, RevertKind.Prelaunch);
 
             Assert.Equal(2, removed);
             Assert.Equal(3, Ledger.Actions.Count);
@@ -297,7 +298,7 @@ namespace Parsek.Tests
             Ledger.AddAction(rollout);
             Ledger.AddAction(Science(140.0, null, 2f));
 
-            int removed = ParsekScenario.PruneRevertedFlightLedgerRows(100.0, inclusive: false);
+            int removed = ParsekScenario.PruneRevertedFlightLedgerRows(100.0, inclusive: false, RevertKind.Launch);
 
             Assert.Equal(1, removed);
             Assert.Contains(rollout, Ledger.Actions);
@@ -310,12 +311,78 @@ namespace Parsek.Tests
             ParsekScenario.SetFlightEntryLedgerActionIdsForTesting(null);
             Ledger.AddAction(TechUnlock(850.0, "survivability", 15f));
 
-            int removed = ParsekScenario.PruneRevertedFlightLedgerRows(100.0, inclusive: false);
+            int removed = ParsekScenario.PruneRevertedFlightLedgerRows(100.0, inclusive: false, RevertKind.Launch);
 
             Assert.Equal(1, removed);
             Assert.Empty(Ledger.Actions);
             Assert.Contains(logLines, l => l.Contains("[WARN]") && l.Contains("[Scenario]")
-                && l.Contains("no flight-entry ledger rows remembered"));
+                && l.Contains("Revert (Launch): no revert-target ledger rows remembered"));
+        }
+
+        // catches: a Revert-to-editor after a resume of the pad vessel (an F9 on the pad, or a
+        // Fly from the Tracking Station) keeping the rollout, because the resume re-took the
+        // remembered rows after the rollout existed. Stock still offers Revert-to-editor there
+        // (PreLaunchState is rebuilt only at a fresh launch), so the prelaunch rows are the
+        // ones taken at the fresh launch.
+        [Fact]
+        public void PruneRevertedFlightLedgerRows_RevertToEditorAfterAResume_StillRefundsTheRollout()
+        {
+            GameAction committedFutureTech = TechUnlock(850.0, "survivability", 15f);
+            Ledger.AddAction(committedFutureTech);
+            ParsekScenario.SetFreshLaunchEntryPendingForTesting(true);
+            ParsekScenario.RememberFlightEntryLedgerRows("fresh-launch");
+            GameAction rollout = Rollout(100.0, 3000f);
+            GameAction padScience = Science(101.0, null, 2f);
+            Ledger.AddAction(rollout);
+            Ledger.AddAction(padScience);
+
+            // The resume: a non-fresh flight entry re-takes the launch rows only.
+            ParsekScenario.RememberFlightEntryLedgerRows("cold");
+            Assert.Contains(rollout.ActionId, ParsekScenario.FlightEntryLedgerActionIdsForTesting);
+            Assert.DoesNotContain(rollout.ActionId, ParsekScenario.PrelaunchEntryLedgerActionIdsForTesting);
+
+            int removed = ParsekScenario.PruneRevertedFlightLedgerRows(100.0, inclusive: true, RevertKind.Prelaunch);
+
+            Assert.Equal(2, removed);
+            Assert.DoesNotContain(rollout, Ledger.Actions);
+            Assert.DoesNotContain(padScience, Ledger.Actions);
+            Assert.Contains(committedFutureTech, Ledger.Actions);
+        }
+
+        [Fact]
+        public void RememberFlightEntryLedgerRows_TakesThePrelaunchRowsOnlyAtAFreshLaunch()
+        {
+            ParsekScenario.SetPrelaunchEntryLedgerActionIdsForTesting(null);
+            GameAction first = TechUnlock(10.0, "start", 0f);
+            Ledger.AddAction(first);
+
+            ParsekScenario.RememberFlightEntryLedgerRows("scene-change");
+            Assert.Null(ParsekScenario.PrelaunchEntryLedgerActionIdsForTesting);
+
+            ParsekScenario.SetFreshLaunchEntryPendingForTesting(true);
+            ParsekScenario.RememberFlightEntryLedgerRows("fresh-launch");
+            Assert.Contains(first.ActionId, ParsekScenario.PrelaunchEntryLedgerActionIdsForTesting);
+
+            GameAction later = Rollout(100.0, 3000f);
+            Ledger.AddAction(later);
+            ParsekScenario.RememberFlightEntryLedgerRows("resume");
+
+            Assert.DoesNotContain(later.ActionId, ParsekScenario.PrelaunchEntryLedgerActionIdsForTesting);
+            Assert.Contains(later.ActionId, ParsekScenario.FlightEntryLedgerActionIdsForTesting);
+            Assert.Contains(logLines, l => l.Contains("[Scenario]") && l.Contains("freshLaunch=True"));
+        }
+
+        [Fact]
+        public void PruneRevertedFlightLedgerRows_NoPrelaunchEntry_FallsBackWithAWarn()
+        {
+            ParsekScenario.SetPrelaunchEntryLedgerActionIdsForTesting(null);
+            ParsekScenario.SetFlightEntryLedgerActionIdsForTesting(new System.Collections.Generic.HashSet<string>());
+            Ledger.AddAction(Rollout(100.0, 3000f));
+
+            int removed = ParsekScenario.PruneRevertedFlightLedgerRows(100.0, inclusive: true, RevertKind.Prelaunch);
+
+            Assert.Equal(1, removed);
+            Assert.Contains(logLines, l => l.Contains("[WARN]") && l.Contains("Revert (Prelaunch): no revert-target ledger rows remembered"));
         }
 
         [Fact]

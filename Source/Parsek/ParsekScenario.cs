@@ -381,6 +381,8 @@ namespace Parsek
             CurrentTimelineUTProviderForTesting = null;
             currentFlightLaunchUT = double.NaN;
             flightEntryLedgerActionIds = null;
+            prelaunchEntryLedgerActionIds = null;
+            freshLaunchEntryPending = false;
             lastLoadDroppedRecordingIds = null;
             pendingFreshRecordingAfterDiscard = null;
         }
@@ -4231,11 +4233,13 @@ namespace Parsek
                     {
                         case FreshLaunchUtAction.Capture:
                             currentFlightLaunchUT = loadedUT;
+                            freshLaunchEntryPending = true;
                             ParsekLog.Info("Scenario",
                                 $"Captured fresh-launch UT {loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
                                 "for the Revert-to-editor orphan-prune boundary");
                             break;
                         case FreshLaunchUtAction.Clear:
+                            freshLaunchEntryPending = false;
                             if (!double.IsNaN(currentFlightLaunchUT))
                             {
                                 currentFlightLaunchUT = double.NaN;
@@ -4516,7 +4520,7 @@ namespace Parsek
                         // retires the reverted flight's route events at this cutoff (raised to the
                         // revert save's route state floor).
                         int prunedOrphans = PruneRevertedFlightLedgerRows(
-                            pruneCutoffUT, pruneInclusive);
+                            pruneCutoffUT, pruneInclusive, revertKind);
                         revertPruneCutoffUTForRoutes = pruneCutoffUT;
                         if (prunedOrphans > 0)
                             ParsekLog.Info("Scenario",

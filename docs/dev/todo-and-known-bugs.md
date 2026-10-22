@@ -445,10 +445,11 @@ and logistics design section 10.6).**
 - O7: the funds check is no longer advisory: purchases and launch costs are greyed when they eat
   into reserved money (rule 3; closes the P15 half of GUI-P15-D7-TWO-SAFETY-GATES-THAT-EXIST-AND-ARE-NEVER-ARMED).
 - O2: a stock revert removes only the rows the reverted flight wrote; every committed row stays
-  (matches D2). **FIXED 2026-10-22** (branch `claude/project-thread-6f7rhy`): each non-revert
-  flight-scene OnLoad remembers the ledger's row ids (stock's revert target is rebuilt at every
-  flight start; a revert never crosses a cold load); `ParsekScenario.PruneRevertedFlightLedgerRows`
-  keeps those rows. Tests: `LedgerRetirementPathsTests`.
+  (matches D2). **FIXED 2026-10-22** (branch `claude/project-thread-6f7rhy`): Parsek remembers
+  the ledger's row ids where stock captures its revert targets (every non-revert flight entry for
+  Revert-to-Launch's `PostInitState`; only a fresh launch for Revert-to-editor's `PreLaunchState`,
+  which stock still offers after a resume on the pad); `ParsekScenario.PruneRevertedFlightLedgerRows`
+  keeps the target's rows. Tests: `LedgerRetirementPathsTests`.
 - O3: a recording that fails to load, for any reason, keeps its ledger rows; it loses its ghost and
   playback, never its rows (extends the GC-3 ruling from schema rejects to every load failure).
   **FIXED 2026-10-22** (same branch): `LoadRecordingTrees` notes the committed recordings the save
