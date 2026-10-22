@@ -16,6 +16,19 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MINE-6-PINS-PREDATE-THE-RESUMED-SPAWN-SEGMENT: MINE-6 pins one recording, but flying the respawned rover again now records a new segment [FILED 2026-10-22 from MINE-6 `2026-10-22_1619` (PARSEK-FAIL, expectations), flown for PR #2181; not caused by it. OPEN, low. harness]
+
+**Symptom.** `recordings.count 2 > max 1`: after the end-of-watch respawn (pid 3850340315) the log
+prints `Resumed spawn continues in a new segment: rec=fdb7cde8 segment=fc1a4789`, so the rover gets
+a second recording. That is main's 14eafccf6 ("Flying a Parsek-spawned vessel again records a new
+segment", 2026-10-17); MINE-6's last PASS (`2026-10-17_1431`) predates it. The same run also missed
+the `mine6-lfox-off-before ... ConverterDeactivated 'MiniISRU' ... mine6-lfox-off-after` window:
+the event logged 13 ms after the off-after mark, a sampling-order race between the seam step and
+the part-event poll.
+
+**Fix.** Re-pin the count to the new-segment rule (measure first) and widen the converter window to
+accept the event landing just after the closing mark (or anchor it on the next step instead).
+
 ## SCENE-EXIT-RECOVERY-READS-A-ZERO-ALTITUDE-SEED-AS-ORBITING: an early finalizer pass on a just-decoupled booster extrapolates a recorded point at altitude 0.0 into an Orbiting terminal [FILED 2026-10-22 from RF-L2 `2026-10-22_1026` (PASS), flown for PR #2176. OPEN, low; no verdict or saved terminal affected so far. product]
 
 On the booster's first background finalizer pass after the decouple, before its chutes opened, the
