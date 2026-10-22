@@ -723,6 +723,9 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     "RevertToLaunch",
     # ADDITIVE (50 -> 51 implemented, reserved unchanged at 4), the D4 `hysteresis` host.
     #   DriveVessel wheelThrottle=<-1..1, not 0> seconds=<game s, (0, 30]>, FLIGHT, TWO-PHASE,
+    #     (or settleBelow=<m/s, (0, 0.1]> in place of wheelThrottle: wait, touching no
+    #     control, until srfSpeed stayed below it for 0.5 game s; OK `settled=true
+    #     gameSeconds= srfSpeed= situation=`, else ERROR drivevessel-did-not-settle),
     #     default 60 s: drives the active LANDED / SPLASHED vessel on its own wheel motors (a
     #     Vessel.OnFlyByWire wheelThrottle, Brakes released for the drive and restored after)
     #     until the game clock covered the span. OK only when the vessel really moved (max
@@ -1648,6 +1651,41 @@ def first_unmet_post_mission_outcome(
         if post_mission_step_gates(outcome.cmd):
             return outcome
     return None
+
+
+def first_unmet_post_mission_step(
+    steps: Sequence["StepOutcome"], mission_step_id: Optional[str]
+) -> Optional["StepOutcome"]:
+    """The first UNMET post-mission step of ANY role, or None.
+
+    Same post-mission rule as ``first_unmet_post_mission_outcome`` (a strictly greater
+    step id; None for a seam-only driver). The caller reads it for a refused RECORDING
+    step: a verb that declined in a live state it would not act in (Recover refused
+    while the landed craft still slides) is the same driver fault it is pre-mission,
+    and everything after it in the tail only shows the cascade."""
+    if mission_step_id is None:
+        return None
+    mid = str(mission_step_id)
+    for outcome in steps:
+        if str(outcome.step_id) <= mid:
+            continue
+        if not outcome.met:
+            return outcome
+    return None
+
+
+def classify_post_mission_recording_refusal(step: Optional["StepOutcome"]) -> str:
+    """The driver subkind of an unmet post-mission RECORDING step that the seam REFUSED
+    with a reason the M-C1 refusal table knows, else "".
+
+    Only a known refusal qualifies: a refusal has no side effect and names a live gate
+    or a spec fault, so a retry may clear it, exactly as pre-mission. An ERROR or a
+    TIMEOUT from a recording step stays non-gating here (the verb acted, and the run's
+    own verifiers judge what Parsek recorded). OUTCOME steps are not read here;
+    ``classify_post_mission_outcome_miss`` owns them."""
+    if step is None or step.met or post_mission_step_gates(step.cmd):
+        return ""
+    return classify_seam_refusal_subkind(getattr(step, "msg", ""))
 
 
 # The spec-level opt-out, read off [driver]. DEFAULT TRUE = the safe behaviour (skip
@@ -3773,20 +3811,26 @@ def validate_revert_to_launch_step(index: int, step_args: Dict) -> List[str]:
 
 
 # DriveVessel: mirrored from TestCommands/TestCommandDriveVessel.cs
-# (DriveVesselSourceSyncTests). Both args REQUIRED: `wheelThrottle=` a finite value in
-# [-1, 1] other than 0, `seconds=` a finite span of game seconds in (0, 30].
+# (DriveVesselSourceSyncTests). Drive mode: `wheelThrottle=` a finite value in [-1, 1]
+# other than 0 and `seconds=` a finite span of game seconds in (0, 30], both REQUIRED.
+# Settle mode: `settleBelow=` (m/s, finite, in (0, 0.1]) in place of `wheelThrottle=`,
+# with the same `seconds=` as its bound; giving both is refused.
 DRIVEVESSEL_VERB = "DriveVessel"
 DRIVEVESSEL_THROTTLE_KEY = "wheelThrottle"
 DRIVEVESSEL_SECONDS_KEY = "seconds"
+DRIVEVESSEL_SETTLE_KEY = "settleBelow"
 DRIVEVESSEL_MAX_SECONDS = 30.0
+DRIVEVESSEL_MAX_SETTLE_BELOW = 0.1
 DRIVEVESSEL_REASONS: Tuple[str, ...] = (
     "drivevessel-throttle-arg-missing", "drivevessel-throttle-arg-invalid",
+    "drivevessel-settle-arg-conflict", "drivevessel-settle-arg-invalid",
     "drivevessel-seconds-arg-missing", "drivevessel-seconds-arg-invalid",
     "drivevessel-no-active-vessel", "drivevessel-vessel-packed",
     "drivevessel-not-on-surface", "drivevessel-no-wheel-motor",
 )
 DRIVEVESSEL_ERROR_REASONS: Tuple[str, ...] = (
     "drivevessel-vessel-lost", "drivevessel-did-not-move", "drivevessel-timeout",
+    "drivevessel-did-not-settle",
 )
 
 
@@ -3918,12 +3962,27 @@ def validate_read_vessel_resources_step(index: int, step_args: Dict) -> List[str
 
 
 def validate_drive_vessel_step(index: int, step_args: Dict) -> List[str]:
-    """Pre-launch shape check for one ``DriveVessel`` step: ``wheelThrottle=`` and
-    ``seconds=`` REQUIRED and in range (the C# validators' bounds), and no other key (the
-    verb reads none, so it would be sent and silently ignored)."""
+    """Pre-launch shape check for one ``DriveVessel`` step: ``wheelThrottle=`` (drive) or
+    ``settleBelow=`` (settle), never both, plus ``seconds=``, each REQUIRED and in range
+    (the C# validators' bounds), and no other key (the verb reads none, so it would be
+    sent and silently ignored)."""
     errors: List[str] = []
     raw = step_args.get(DRIVEVESSEL_THROTTLE_KEY)
-    if raw is None or str(raw) == "":
+    settle = step_args.get(DRIVEVESSEL_SETTLE_KEY)
+    if settle is not None:
+        if raw is not None:
+            errors.append(
+                "driver.steps[%d].args: %s takes %s or %s, not both; the seam answers "
+                "REJECTED drivevessel-settle-arg-conflict"
+                % (index, DRIVEVESSEL_VERB, DRIVEVESSEL_THROTTLE_KEY, DRIVEVESSEL_SETTLE_KEY))
+        else:
+            value = _finite_float_or_none(settle)
+            if value is None or not 0.0 < value <= DRIVEVESSEL_MAX_SETTLE_BELOW:
+                errors.append(
+                    "driver.steps[%d].args.%s: %r is not a speed in (0, %g] m/s; the seam "
+                    "answers REJECTED drivevessel-settle-arg-invalid"
+                    % (index, DRIVEVESSEL_SETTLE_KEY, settle, DRIVEVESSEL_MAX_SETTLE_BELOW))
+    elif raw is None or str(raw) == "":
         errors.append(
             "driver.steps[%d].args.%s: %s REQUIRES it; the seam answers REJECTED "
             "drivevessel-throttle-arg-missing"
@@ -3949,12 +4008,13 @@ def validate_drive_vessel_step(index: int, step_args: Dict) -> List[str]:
                 "seam answers REJECTED drivevessel-seconds-arg-invalid"
                 % (index, DRIVEVESSEL_SECONDS_KEY, raw, DRIVEVESSEL_MAX_SECONDS))
     extra = sorted(str(k) for k in step_args
-                   if k not in (DRIVEVESSEL_THROTTLE_KEY, DRIVEVESSEL_SECONDS_KEY))
+                   if k not in (DRIVEVESSEL_THROTTLE_KEY, DRIVEVESSEL_SECONDS_KEY,
+                                DRIVEVESSEL_SETTLE_KEY))
     if extra:
-        errors.append("driver.steps[%d].args: %s reads only %s and %s, so %s would be "
+        errors.append("driver.steps[%d].args: %s reads only %s, %s and %s, so %s would be "
                       "silently ignored"
                       % (index, DRIVEVESSEL_VERB, DRIVEVESSEL_THROTTLE_KEY,
-                         DRIVEVESSEL_SECONDS_KEY, ", ".join(extra)))
+                         DRIVEVESSEL_SETTLE_KEY, DRIVEVESSEL_SECONDS_KEY, ", ".join(extra)))
     return errors
 
 
@@ -9216,7 +9276,10 @@ class UnityStackScan:
     non-transparent frame line, ``UNITY_STACK_FRAME``) is itself a Parsek frame, and
     ``parsek_caller`` the rest (a Parsek frame present but not the throw site), so the
     two always sum to ``parsek_frames``. ``parsek_throw_site_sites`` keys the
-    throw-site subset by that frame.
+    throw-site subset by that frame. ``after_quit_frameless`` is the part of ``counts``
+    (counted patterns only, never a frames-only opener) logged after the first quit
+    marker in a block with no Parsek frame: stock or third-party scene teardown after
+    Parsek asked to quit, which an armed ``maxTotal`` does not count.
     """
     counts: Dict[str, int]
     parsek_frames: int = 0
@@ -9227,6 +9290,7 @@ class UnityStackScan:
     parsek_throw_site: int = 0
     parsek_caller: int = 0
     parsek_throw_site_sites: Dict[str, int] = field(default_factory=dict)
+    after_quit_frameless: int = 0
 
 
 @dataclass(frozen=True)
@@ -9253,6 +9317,7 @@ class UnityExceptionResult:
     parsek_caller: Optional[int] = None
     max_parsek_throw_site: Optional[int] = None
     parsek_throw_site_sites: Dict[str, int] = field(default_factory=dict)
+    after_quit_frameless: Optional[int] = None
 
 
 def _normalize_parsek_frame(raw: str) -> str:
@@ -9290,16 +9355,22 @@ def scan_unity_exception_stacks(log_text: Optional[str]) -> UnityStackScan:
     parsek_frames = 0
     parsek_throw_site = 0
     after_quit = 0
+    after_quit_frameless = 0
     quit_seen = False
     uncounted = 0
     open_weight = 0          # pattern hits (1 for frames-only) of the open block
+    open_counted = False     # the open block's hits are counted patterns (in ``counts``)
+    open_after_quit = False  # the open block was opened after the quit marker
     open_site: Optional[str] = None
     open_throw_seen = False  # the block's throw-site frame line has been read
     open_throw_site: Optional[str] = None   # that frame, when it is a Parsek frame
 
     def close_block() -> None:
         nonlocal parsek_frames, parsek_throw_site, open_weight, open_site
-        nonlocal open_throw_seen, open_throw_site
+        nonlocal open_throw_seen, open_throw_site, after_quit_frameless
+        nonlocal open_counted, open_after_quit
+        if open_weight and open_site is None and open_counted and open_after_quit:
+            after_quit_frameless += open_weight
         if open_weight and open_site is not None:
             parsek_frames += open_weight
             sites[open_site] = sites.get(open_site, 0) + open_weight
@@ -9310,6 +9381,8 @@ def scan_unity_exception_stacks(log_text: Optional[str]) -> UnityStackScan:
         open_site = None
         open_throw_seen = False
         open_throw_site = None
+        open_counted = False
+        open_after_quit = False
 
     for line in (log_text or "").splitlines():
         if "[Parsek]" in line:
@@ -9322,6 +9395,7 @@ def scan_unity_exception_stacks(log_text: Optional[str]) -> UnityStackScan:
             if pat.search(line) is not None:
                 counts[name] += 1
                 hits += 1
+        counted = hits > 0
         if not hits and (UNITY_EXC_RECORD.match(line) is not None
                          or UNITY_EVENT_HANDLER_EXCEPTION.search(line) is not None):
             uncounted += 1
@@ -9329,6 +9403,8 @@ def scan_unity_exception_stacks(log_text: Optional[str]) -> UnityStackScan:
         if hits:
             close_block()
             open_weight = hits
+            open_counted = counted
+            open_after_quit = quit_seen
             if quit_seen:
                 after_quit += hits
             continue
@@ -9349,7 +9425,8 @@ def scan_unity_exception_stacks(log_text: Optional[str]) -> UnityStackScan:
                     open_throw_site = _normalize_parsek_frame(m.group(1))
     close_block()
     return UnityStackScan(counts, parsek_frames, after_quit, quit_seen, sites, uncounted,
-                          parsek_throw_site, parsek_frames - parsek_throw_site, throw_sites)
+                          parsek_throw_site, parsek_frames - parsek_throw_site, throw_sites,
+                          after_quit_frameless)
 
 
 def scan_unity_exceptions(log_text: Optional[str]) -> Dict[str, int]:
@@ -9386,6 +9463,13 @@ def evaluate_unity_exceptions(counts: Optional[Dict[str, int]],
     ``maxParsekThrowSite`` gates the same way on ``parsekThrowSite`` (the subset whose
     throw site is a Parsek frame), naming the throw-site frames.
 
+    ``maxTotal`` judges ``total`` LESS ``stacks.after_quit_frameless``: an exception
+    logged after Parsek's quit marker with no Parsek frame on its stack is scene
+    teardown by stock or another mod (KnowledgeBase, CrewHatchController, MechJeb
+    ``OnDestroy``; todo L2-AFTER-QUIT-STOCK-NRE), so a zero ceiling stays a zero for the
+    flight. ``total`` and ``counts`` still report every line, and an after-quit
+    exception WITH a Parsek frame still counts (and feeds ``maxParsekFrames``).
+
     ``maxParsekFrames`` or ``maxParsekThrowSite`` armed with no ``stacks`` passed is
     FAIL-CLOSED ("unmeasured"): a ceiling that silently read as PASS because nobody
     looked is the fail-open this block exists to close. run.py always passes the
@@ -9399,6 +9483,8 @@ def evaluate_unity_exceptions(counts: Optional[Dict[str, int]],
     pts = stacks.parsek_throw_site if stacks is not None else None
     pc = stacks.parsek_caller if stacks is not None else None
     ts_sites = dict(stacks.parsek_throw_site_sites) if stacks is not None else {}
+    aqf = stacks.after_quit_frameless if stacks is not None else None
+    gated_total = total - (aqf or 0)
 
     def _armed(key: str) -> Optional[int]:
         raw = block.get(key) if isinstance(block, dict) else None
@@ -9412,13 +9498,14 @@ def evaluate_unity_exceptions(counts: Optional[Dict[str, int]],
     if max_total is None and max_pf is None and max_pts is None:
         return UnityExceptionResult(UNITY_EXCEPTIONS_STATUS_REPORT, False, total, counts,
                                     None, tuple(), pf, aq, None, sites, pts, pc, None,
-                                    ts_sites)
+                                    ts_sites, aqf)
     mismatches: List[str] = []
-    if max_total is not None and total > max_total:
+    if max_total is not None and gated_total > max_total:
         breakdown = ", ".join("%s=%d" % (n, counts.get(n, 0))
                               for n, _ in UNITY_EXCEPTION_PATTERNS if counts.get(n, 0))
-        mismatches.append("unityExceptions.total %d > maxTotal %d (%s)"
-                          % (total, max_total, breakdown))
+        excluded = (" less %d frameless after quit" % aqf) if aqf else ""
+        mismatches.append("unityExceptions.total %d%s > maxTotal %d (%s)"
+                          % (gated_total, excluded, max_total, breakdown))
     if max_pf is not None:
         if pf is None:
             mismatches.append("unityExceptions.parsekFrames unmeasured (no stack scan) "
@@ -9437,7 +9524,7 @@ def evaluate_unity_exceptions(counts: Optional[Dict[str, int]],
                               % (pts, max_pts, where))
     return UnityExceptionResult("FAIL" if mismatches else "PASS", True, total, counts,
                                 max_total, tuple(mismatches), pf, aq, max_pf, sites,
-                                pts, pc, max_pts, ts_sites)
+                                pts, pc, max_pts, ts_sites, aqf)
 
 
 def validate_unity_exception_expectations(block: Optional[Dict]) -> List[str]:
@@ -11299,6 +11386,8 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # would not act in (DriveVesselSourceSyncTests).
     "drivevessel-throttle-arg-missing": "driver-arg",
     "drivevessel-throttle-arg-invalid": "driver-arg",
+    "drivevessel-settle-arg-conflict": "driver-arg",
+    "drivevessel-settle-arg-invalid": "driver-arg",
     "drivevessel-seconds-arg-missing": "driver-arg",
     "drivevessel-seconds-arg-invalid": "driver-arg",
     "drivevessel-no-active-vessel": "driver-gate",
@@ -11982,6 +12071,7 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "cadence-arg-invalid", "cadence-arg-missing",
     "category-arg-empty", "dialog-arg-invalid",
     "drivevessel-seconds-arg-invalid", "drivevessel-seconds-arg-missing",
+    "drivevessel-settle-arg-conflict", "drivevessel-settle-arg-invalid",
     "drivevessel-throttle-arg-invalid", "drivevessel-throttle-arg-missing",
     "crewtransfer-kerbal-arg-missing", "crewtransfer-part-arg-missing",
     "edit-commit-arg-invalid",

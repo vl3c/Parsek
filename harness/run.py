@@ -2693,6 +2693,12 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                                outcome_unmet.verdict, outcome_unmet.msg or "-",
                                "mission-outcome" if dv.is_flight_outcome
                                else "driver:%s" % dv.outcome_driver_subkind)))
+        if dv.recording_refusal is not None:
+            logger.info("Verify", "verify missionOutcome recordingRefusal=%s(%s) verdict=%s "
+                                  "msg=%s -> driver:%s"
+                        % (dv.recording_refusal.cmd, dv.recording_refusal.step_id,
+                           dv.recording_refusal.verdict, dv.recording_refusal.msg or "-",
+                           dv.recording_refusal_subkind))
     # R10: an unresolved ${step.field} always invalidates the driver stage, but it
     # OWNS the subkind only when it is the FIRST thing that went wrong.
     #   no-such-field: the producer answered OK and simply emits no such key. Its own
@@ -2863,6 +2869,7 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                                      "maxTotal": None, "mismatches": [],
                                      "parsekFrames": killed_ue.parsek_frames,
                                      "afterQuit": killed_ue.after_quit,
+                                     "afterQuitFrameless": killed_ue.after_quit_frameless,
                                      "quitMarkerSeen": killed_stacks.quit_marker_seen,
                                      "uncountedExceptions": killed_stacks.uncounted,
                                      "parsekFrameSites": dict(killed_ue.parsek_frame_sites),
@@ -3123,6 +3130,7 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                                      "mismatches": list(ue.mismatches),
                                      "parsekFrames": ue.parsek_frames,
                                      "afterQuit": ue.after_quit,
+                                     "afterQuitFrameless": ue.after_quit_frameless,
                                      "quitMarkerSeen": ue_stacks.quit_marker_seen,
                                      "uncountedExceptions": ue_stacks.uncounted,
                                      "parsekFrameSites": dict(ue.parsek_frame_sites),
@@ -3134,9 +3142,11 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         if ue.status == "FAIL":
             short_circuited = True
         logger.info("Verify", "verify unityExceptions status=%s gating=%s total=%d counts=%s "
-                              "parsekFrames=%d parsekThrowSite=%d parsekCaller=%d afterQuit=%d"
+                              "parsekFrames=%d parsekThrowSite=%d parsekCaller=%d afterQuit=%d "
+                              "afterQuitFrameless=%d"
                     % (ue.status, ue.gating, ue.total, dict(ue.counts), ue.parsek_frames,
-                       ue.parsek_throw_site, ue.parsek_caller, ue.after_quit))
+                       ue.parsek_throw_site, ue.parsek_caller, ue.after_quit,
+                       ue.after_quit_frameless or 0))
         if ue.total and ue.max_total is None:
             logger.warn("Verify", "unityExceptions saw %d raw Unity exception line(s) "
                                   "(REPORT-ONLY, not gating; arm with "

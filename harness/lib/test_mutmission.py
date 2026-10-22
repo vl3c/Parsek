@@ -334,6 +334,53 @@ class SharedPathTests(unittest.TestCase):
                          (unmet.driver_valid, unmet.stage_subkind,
                           unmet.detail_mission_outcome["status"]))
 
+    def test_a_refused_post_mission_recording_step_is_its_driver_invalid(self):
+        # QL-2-RECOVER-REFUSED-WHILE-SLIDING: a MISSION-OK run whose first post-mission
+        # miss is a recording verb's REFUSAL is that refusal's driver-INVALID (retryable),
+        # not a run left for the expectations row to red off the cascade.
+        def ev(rows):
+            lines = ["id=%s cmd=%s verdict=%s%s" % (i, c, v, (" msg=" + m) if m else "")
+                     for i, c, v, m in rows if v]
+            return hlib.evaluate_response_stream(lines, [{"id": i, "cmd": c, "expect": "OK"}
+                                                         for i, c, _v, _m in rows])
+        ok_mission = {"id": "0002", "met": True, "missionVerdict": "MISSION-OK", "subkind": ""}
+        refused = missionverify.compose_driver_validity(
+            ev([("0001", "LoadGame", "OK", ""), ("0003", "Recover", "REJECTED",
+                 "recover-not-clear-to-save"), ("0004", "LoadGame", "REJECTED",
+                 "recording-active")]), ok_mission, False, False)
+        self.assertEqual((False, "driver-gate", False),
+                         (refused.driver_valid, refused.stage_subkind,
+                          refused.mission_outcome_unmet))
+        self.assertEqual("Recover", refused.recording_refusal.cmd)
+        self.assertEqual("driver-gate",
+                         refused.detail_mission_outcome["recordingRefusal"]["driverSubkind"])
+        # An ERROR from a recording verb acted, so it stays non-gating (unchanged).
+        errored = missionverify.compose_driver_validity(
+            ev([("0001", "LoadGame", "OK", ""), ("0003", "Recover", "ERROR", "")]),
+            ok_mission, False, False)
+        self.assertEqual((True, ""), (errored.driver_valid, errored.stage_subkind))
+        self.assertIsNone(errored.detail_mission_outcome["recordingRefusal"])
+        # An unknown refusal reason is not a known gate: non-gating, as before.
+        unknown = missionverify.compose_driver_validity(
+            ev([("0001", "LoadGame", "OK", ""), ("0003", "Recover", "REJECTED",
+                 "no-such-reason")]), ok_mission, False, False)
+        self.assertTrue(unknown.driver_valid)
+        # Only the FIRST post-mission miss is read: an ERROR before a refusal is the cause.
+        later = missionverify.compose_driver_validity(
+            ev([("0001", "LoadGame", "OK", ""), ("0003", "CommitTree", "ERROR", ""),
+                ("0004", "Recover", "REJECTED", "recover-not-clear-to-save")]),
+            ok_mission, False, False)
+        self.assertTrue(later.driver_valid)
+        # A pre-mission or an unmet mission keeps its own subkind.
+        unmet = missionverify.compose_driver_validity(
+            ev([("0001", "LoadGame", "OK", ""), ("0003", "Recover", "REJECTED",
+                 "recover-not-clear-to-save")]),
+            {"id": "0002", "met": False, "missionVerdict": "MISSION-FLAKE",
+             "subkind": "autopilot-flake"}, False, False)
+        self.assertEqual("autopilot-flake", unmet.stage_subkind)
+        self.assertIsNone(unmet.recording_refusal)
+
+
 
 class ReportTests(unittest.TestCase):
 

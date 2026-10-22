@@ -9512,6 +9512,32 @@ class UnityStackScanTests(unittest.TestCase):
         r = self._eval(self.STOCK_EXC * 5, {"maxParsekFrames": 0})
         self.assertEqual(("PASS", 5, 0), (r.status, r.total, r.parsek_frames))
 
+    def test_max_total_does_not_count_frameless_exceptions_after_the_quit(self):
+        # L2-AFTER-QUIT-STOCK-NRE: stock / third-party scene teardown after Parsek's quit
+        # marker, with no Parsek frame, is not the flight's; the zero stays a zero for it.
+        st = hlib.scan_unity_exception_stacks(self.QUIT + self.STOCK_EXC + self.STOCK_EXC)
+        self.assertEqual((2, 2), (st.after_quit, st.after_quit_frameless))
+        r = self._eval(self.QUIT + self.STOCK_EXC + self.STOCK_EXC, {"maxTotal": 0})
+        self.assertEqual(("PASS", True, 2, 2), (r.status, r.gating, r.total,
+                                                r.after_quit_frameless))
+        # The same stock exception BEFORE the quit still counts.
+        r = self._eval(self.STOCK_EXC + self.QUIT + self.STOCK_EXC, {"maxTotal": 0})
+        self.assertEqual("FAIL", r.status)
+        self.assertEqual(("unityExceptions.total 1 less 1 frameless after quit > maxTotal 0 "
+                          "(NullReferenceException=2)",), r.mismatches)
+        # An after-quit exception WITH a Parsek frame still counts toward maxTotal.
+        r = self._eval(self.QUIT + self.PARSEK_EXC, {"maxTotal": 0})
+        self.assertEqual(("FAIL", 0), (r.status, r.after_quit_frameless))
+        # A killed log (no quit marker) excludes nothing.
+        r = self._eval(self.STOCK_EXC, {"maxTotal": 0})
+        self.assertEqual(("FAIL", 0), (r.status, r.after_quit_frameless))
+
+    def test_frames_only_openers_after_the_quit_are_not_subtracted(self):
+        # A frames-only block never fed ``counts``, so it must not shrink the total.
+        exc = "[EXC 22:17:49.001] InvalidOperationException: Collection was modified\n"
+        st = hlib.scan_unity_exception_stacks(self.QUIT + exc)
+        self.assertEqual((1, 1, 0), (st.uncounted, st.after_quit, st.after_quit_frameless))
+
     def test_both_ceilings_over_report_both_mismatches(self):
         r = self._eval(self.PARSEK_EXC + self.STOCK_EXC, {"maxTotal": 1, "maxParsekFrames": 0})
         self.assertEqual("FAIL", r.status)
@@ -17610,6 +17636,10 @@ class DriveVesselSourceSyncTests(unittest.TestCase):
         self.assertIn('internal const string ThrottleKey = "%s";' % hlib.DRIVEVESSEL_THROTTLE_KEY, text)
         self.assertIn('internal const string SecondsKey = "%s";' % hlib.DRIVEVESSEL_SECONDS_KEY, text)
         self.assertIn("internal const double MaxSeconds = %.1f;" % hlib.DRIVEVESSEL_MAX_SECONDS, text)
+        self.assertIn('internal const string SettleBelowKey = "%s";' % hlib.DRIVEVESSEL_SETTLE_KEY, text)
+        self.assertIn("internal const double MaxSettleBelow = %.1f;"
+                      % hlib.DRIVEVESSEL_MAX_SETTLE_BELOW, text)
+        self.assertIn("parsed <= 0.0 || parsed > MaxSettleBelow", text)
         self.assertIn("parsed == 0f || parsed < -1f || parsed > 1f", text)
         self.assertEqual(list(hlib.DRIVEVESSEL_REASONS),
                          StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
@@ -17667,10 +17697,23 @@ class DriveVesselSourceSyncTests(unittest.TestCase):
         errs = v(2, {"wheelThrottle": "1", "seconds": "8", "brakes": "false"})
         self.assertEqual(1, len(errs), errs)
         self.assertIn("silently ignored", errs[0])
+        # Settle mode: settleBelow in place of wheelThrottle, never both.
+        self.assertEqual([], v(0, {"settleBelow": "0.05", "seconds": "20"}))
+        self.assertEqual([], v(0, {"settleBelow": "0.1", "seconds": "30"}))
+        errs = v(0, {"settleBelow": "0.05", "wheelThrottle": "1", "seconds": "8"})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("drivevessel-settle-arg-conflict", errs[0])
+        for bad in ("0", "-0.05", "0.11", "nan", "slow"):
+            with self.subTest(settleBelow=bad):
+                errs = v(0, {"settleBelow": bad, "seconds": "20"})
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("drivevessel-settle-arg-invalid", errs[0])
+        self.assertIn("drivevessel-seconds-arg-missing", v(0, {"settleBelow": "0.05"})[0])
 
     def test_validate_spec_runs_the_step_validator(self):
         spec = copy.deepcopy(load_spec(self.SPEC))
-        drives = [s for s in spec["driver"]["steps"] if s.get("cmd") == hlib.DRIVEVESSEL_VERB]
+        drives = [s for s in spec["driver"]["steps"] if s.get("cmd") == hlib.DRIVEVESSEL_VERB
+                  and "wheelThrottle" in s.get("args", {})]
         self.assertEqual(1, len(drives))
         self.assertEqual([], list(hlib.validate_spec(spec, load_registry()).errors))
         drives[0]["args"] = {"wheelThrottle": "1"}
@@ -17683,12 +17726,21 @@ class DriveVesselSourceSyncTests(unittest.TestCase):
         # outlast that debounce with margin, and must sit between StartRecording and
         # StopRecording, or the claim's token cannot print.
         spec = load_spec(self.SPEC)
-        cmds = [s.get("cmd") for s in spec["driver"]["steps"]]
+        steps = spec["driver"]["steps"]
+        cmds = [s.get("cmd") for s in steps]
         start = cmds.index("StartRecording")
-        drive = cmds.index(hlib.DRIVEVESSEL_VERB)
+        drive = next(i for i, s in enumerate(steps) if s.get("cmd") == hlib.DRIVEVESSEL_VERB
+                     and "wheelThrottle" in s.get("args", {}))
         stop = cmds.index("StopRecording", drive)
         self.assertLess(start, drive)
         self.assertLess(drive, stop)
+        # RVR-21-START-SPEED-ABOVE-STATIONARY: the rover is settled below the 0.1 m/s
+        # SurfaceMobile threshold BEFORE the recording starts, so its hysteresis
+        # initializes SurfaceStationary.
+        settle = [i for i, s in enumerate(steps) if s.get("cmd") == hlib.DRIVEVESSEL_VERB
+                  and "settleBelow" in s.get("args", {})]
+        self.assertEqual([start - 1], settle)
+        self.assertLess(float(steps[settle[0]]["args"]["settleBelow"]), 0.1)
         seconds = float(spec["driver"]["steps"][drive]["args"]["seconds"])
         self.assertGreaterEqual(seconds, 2 * 3.0)
         self.assertIn("hysteresis", spec["dimensionsCovered"]["D4"])

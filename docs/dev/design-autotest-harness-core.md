@@ -369,8 +369,10 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 #   statuses / connectionKinds / origin+destinationBodies / ids /
 #   destinationVesselPids (M-C2/R9, the ROUTES node)                          -> ACTIVE (verifier 7b, report-only until gating = true)
 # [expectations.unityExceptions] maxTotal / maxParsekFrames / maxParsekThrowSite
-#   (raw Unity exception count; Parsek frame anywhere on the stack; Parsek frame at
-#   the throw site - status doc known-gate 11)                               -> ACTIVE (verifier 6b, report-only until a key is armed)
+#   (raw Unity exception count, less the frameless ones logged after Parsek's quit
+#   marker - stock / mod scene teardown, todo L2-AFTER-QUIT-STOCK-NRE; Parsek frame
+#   anywhere on the stack; Parsek frame at the throw site - status doc
+#   known-gate 11)                                                           -> ACTIVE (verifier 6b, report-only until a key is armed)
 # [expectations.loop]   LoopStartUT / LoopEndUT / first-play floor (M-C2)     -> reserved (zero declarers)
 # [expectations.route]  hold-reason strings (M-D1)  NOTE: SINGULAR, and a
 #   DIFFERENT name from the plural `routes` block above                       -> reserved (zero declarers; validate_spec WARNs on it)
@@ -1904,6 +1906,14 @@ runs sequentially and each script builds for itself.
    ledger, because those see the downstream symptoms of a dead subject and this row
    names the cause. Reads `SKIPPED` (never `PASS`) when the scenario has no gating
    verb, so a blank check cannot be mistaken for a cleared one.
+   REFUSED RECORDING STEP (2026-10-22, todo QL-2-RECOVER-REFUSED-WHILE-SLIDING): the
+   recording verbs stay non-gating on what they RECORD, but when the FIRST unmet
+   post-mission step is a recording verb the seam REFUSED with a reason the refusal
+   table knows (`hlib.classify_post_mission_recording_refusal`), the run is that
+   refusal's driver-INVALID, retried by the policy: the verb never acted, so nothing
+   after it is evidence about Parsek (QL-2's refused `Recover` turned 17 tokens red).
+   The row's `recordingRefusal` names the step. An ERROR or TIMEOUT from a recording
+   verb, or an earlier non-refusal miss, keeps the carve-out above.
 
 REVISION (post-first-live-run, 2026-07-12): the recording-rules suppression key
 is NOT `expectations.recordings.count.max == 0` as originally written. The
