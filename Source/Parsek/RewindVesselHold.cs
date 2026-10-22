@@ -100,6 +100,21 @@ namespace Parsek
         internal static List<ReFlyInvokeHold.Entry> CollectChainHolds(
             Dictionary<uint, GhostChain> chains, double rewindUT, Func<uint, string> liveGuidOf)
         {
+            int tipNotReplayed;
+            return CollectChainHolds(chains, rewindUT, liveGuidOf, null, out tipNotReplayed);
+        }
+
+        /// <summary>
+        /// <see cref="CollectChainHolds(Dictionary{uint, GhostChain}, double, Func{uint, string})"/>
+        /// with a replay filter: a chain whose tip recording <paramref name="tipReplays"/> rejects
+        /// holds nothing (it will not play after the rewind, so no tip spawn would bring the
+        /// vessel back) and is counted in <paramref name="tipNotReplayed"/>.
+        /// </summary>
+        internal static List<ReFlyInvokeHold.Entry> CollectChainHolds(
+            Dictionary<uint, GhostChain> chains, double rewindUT, Func<uint, string> liveGuidOf,
+            Func<string, bool> tipReplays, out int tipNotReplayed)
+        {
+            tipNotReplayed = 0;
             var result = new List<ReFlyInvokeHold.Entry>();
             if (chains == null || double.IsNaN(rewindUT) || double.IsInfinity(rewindUT))
                 return result;
@@ -109,6 +124,11 @@ namespace Parsek
                 GhostChain chain = kv.Value;
                 if (chain == null || chain.IsTerminated || !GhostChainWalker.ShouldGhostChainAtUT(chain, rewindUT))
                     continue;
+                if (tipReplays != null && !tipReplays(chain.TipRecordingId))
+                {
+                    tipNotReplayed++;
+                    continue;
+                }
                 List<uint> pids = ParsekFlight.SelectChainPidsToGhost(kv.Key, chain, liveGuidOf);
                 List<ChainClaimedVessel> held = chain.HeldBackVessels();
                 for (int p = 0; p < pids.Count; p++)

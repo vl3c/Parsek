@@ -7484,6 +7484,7 @@ namespace Parsek
             double baselineFunds = RewindContext.RewindBaselineFunds;
             double baselineScience = RewindContext.RewindBaselineScience;
             float baselineRep = RewindContext.RewindBaselineRep;
+            bool rewindGameWrittenToPersistent = RewindContext.RewindGameWrittenToPersistent;
 
             // CRITICAL: yield at least one frame before touching any singleton.
             // During OnLoad, singletons from the OLD scene may still be alive.
@@ -7539,6 +7540,11 @@ namespace Parsek
             // should no-op instead of patching the same balances again.
             budgetDeductionApplied = true;
 
+            // The rewind wrote its own game to persistent.sfs before this scene loaded (with the
+            // last live Parsek node); put the stripped world, the holds and the patched pools on
+            // disk together so a crash from here on cold-loads a consistent file.
+            if (rewindGameWrittenToPersistent)
+                RecordingStore.WritePersistentAfterRewindAdjustment();
         }
 
         #endregion

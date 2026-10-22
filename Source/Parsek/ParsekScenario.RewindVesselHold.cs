@@ -66,17 +66,28 @@ namespace Parsek
             Dictionary<uint, GhostChain> chains = trees != null && trees.Count > 0
                 ? GhostChainWalker.ComputeAllGhostChains(trees, rewindUT)
                 : null;
-            List<ReFlyInvokeHold.Entry> chainEntries =
-                RewindVesselHold.CollectChainHolds(chains, rewindUT, guidOf);
+            // A hold is only as good as the replay that ends it: a recording the rewind will not
+            // play (historical, RecordingStore.WillReplayAfterRewind - the strip and spawn gates'
+            // own predicate) would neither ghost nor spawn the vessel back, so its use holds
+            // nothing and the vessel stays live as before.
+            Func<string, bool> recordingReplays = id =>
+                RecordingStore.WillReplayAfterRewind(FindEffectiveRecordingById(id), rewindUT);
+            int chainsNotReplayed;
+            List<ReFlyInvokeHold.Entry> chainEntries = RewindVesselHold.CollectChainHolds(
+                chains, rewindUT, guidOf, recordingReplays, out chainsNotReplayed);
 
             var supersededClaimants = GhostChainWalker.BuildSupersededClaimantMap(RecordingSupersedes);
             int claimsSkipped;
             List<ReFlyInvokeHold.ChangeClaim> changeClaims = ReFlyInvokeHold.CollectChangeClaims(
-                trees, rewindUT, id => supersededClaimants.ContainsKey(id), out claimsSkipped);
+                trees, rewindUT,
+                id => supersededClaimants.ContainsKey(id) || !recordingReplays(id),
+                out claimsSkipped);
             int matchedWithoutFuture;
+            int fliesNotReplayed;
             List<ReFlyInvokeHold.Entry> futureEntries = ReFlyInvokeHold.Classify(
                 survivors, null, EffectiveState.ComputeERS(), EffectiveState.ComputeELS(),
-                changeClaims, rewindUT, out matchedWithoutFuture);
+                changeClaims, rewindUT, rec => RecordingStore.WillReplayAfterRewind(rec, rewindUT),
+                out matchedWithoutFuture, out fliesNotReplayed);
 
             List<ReFlyInvokeHold.Entry> merged = RewindVesselHold.Merge(chainEntries, futureEntries);
             var held = new List<RewindVesselHold.Hold>();
@@ -127,9 +138,11 @@ namespace Parsek
             RewindVesselHold.Replace(held, "plain-rewind");
             ParsekLog.Info(RewindVesselHold.Tag, string.Format(CultureInfo.InvariantCulture,
                 "Rewind vessel hold: survivors={0} held={1} chainHolds={2} futureHolds={3} notInWorld={4} " +
-                "matchedWithoutFuture={5} changeClaims={6} claimsSkipped={7} spawnClaimsReleased={8} cutoffUT={9:F1}",
+                "matchedWithoutFuture={5} changeClaims={6} claimsSkipped={7} spawnClaimsReleased={8} " +
+                "chainsNotReplayed={9} fliesNotReplayed={10} cutoffUT={11:F1}",
                 survivors.Count, held.Count, chainEntries.Count, futureEntries.Count, notInWorld,
-                matchedWithoutFuture, changeClaims.Count, claimsSkipped, claimsReleased, rewindUT));
+                matchedWithoutFuture, changeClaims.Count, claimsSkipped, claimsReleased,
+                chainsNotReplayed, fliesNotReplayed, rewindUT));
         }
 
         /// <summary>

@@ -29,6 +29,7 @@ namespace Parsek.Tests
             RewindContext.ResetForTesting();
             SceneExitInterceptor.ResetTestOverrides();
             RecordingStore.RewindWritePersistentForTesting = null;
+            RecordingStore.PostRewindPersistentWriteForTesting = null;
         }
 
         public void Dispose()
@@ -37,6 +38,7 @@ namespace Parsek.Tests
             RewindContext.ResetForTesting();
             SceneExitInterceptor.ResetTestOverrides();
             RecordingStore.RewindWritePersistentForTesting = null;
+            RecordingStore.PostRewindPersistentWriteForTesting = null;
             ParsekLog.ResetTestOverrides();
         }
 
@@ -245,6 +247,50 @@ namespace Parsek.Tests
             Assert.Equal(new[] { "switch" }, entry.FlyingRecordingIds);
         }
 
+        [Fact]
+        public void FlightTheRewindWillNotReplay_HoldsNothing()
+        {
+            // A recording that spans the rewind UT but is historical after it (no ghost, no
+            // spawn): holding its vessel would remove it for good.
+            var spanning = Rec("fork", 42u, GuidA, 600.0, 2000.0, TerminalState.Landed);
+            int matchedWithoutFuture, fliesNotReplayed;
+            var future = ReFlyInvokeHold.Classify(
+                new List<(uint, string)> { (42u, GuidA) }, null,
+                new List<Recording> { spanning }, new List<GameAction>(),
+                new List<ReFlyInvokeHold.ChangeClaim>(), RewindUT, rec => rec.RecordingId != "fork",
+                out matchedWithoutFuture, out fliesNotReplayed);
+
+            Assert.Empty(future);
+            Assert.Equal(1, fliesNotReplayed);
+
+            // The same recording, replayed, holds.
+            future = ReFlyInvokeHold.Classify(
+                new List<(uint, string)> { (42u, GuidA) }, null,
+                new List<Recording> { spanning }, new List<GameAction>(),
+                new List<ReFlyInvokeHold.ChangeClaim>(), RewindUT, rec => true,
+                out matchedWithoutFuture, out fliesNotReplayed);
+            Assert.Single(future);
+            Assert.Equal(0, fliesNotReplayed);
+        }
+
+        [Fact]
+        public void ChainWhoseTipWillNotReplay_HoldsNothing()
+        {
+            var chains = new Dictionary<uint, GhostChain>
+            {
+                { 42u, Chain(42u, GuidA, 1600.0, 2000.0) },
+                { 43u, Chain(43u, GuidB, 1700.0, 2100.0) },
+            };
+            int tipNotReplayed;
+            var holds = RewindVesselHold.CollectChainHolds(chains, RewindUT,
+                pid => pid == 42u ? GuidA : pid == 43u ? GuidB : null,
+                id => id != "tip-42", out tipNotReplayed);
+
+            var only = Assert.Single(holds);
+            Assert.Equal(43u, only.Pid);
+            Assert.Equal(1, tipNotReplayed);
+        }
+
         // ---------- Save / load ---------------------------------------------
 
         [Fact]
@@ -394,6 +440,17 @@ namespace Parsek.Tests
             Assert.False(RewindContext.RewindGameWrittenToPersistent);
             Assert.Contains(logLines, l => l.Contains("[Rewind]")
                 && l.Contains("Rewind: no rewind game to write to persistent.sfs"));
+        }
+
+        [Fact]
+        public void PostRewindPersistentWrite_IsLogged()
+        {
+            int writes = 0;
+            RecordingStore.PostRewindPersistentWriteForTesting = () => { writes++; return true; };
+            Assert.True(RecordingStore.WritePersistentAfterRewindAdjustment());
+            Assert.Equal(1, writes);
+            Assert.Contains(logLines, l => l.Contains("[Rewind]")
+                && l.Contains("Post-rewind persistent.sfs write ok=true"));
         }
 
         [Fact]

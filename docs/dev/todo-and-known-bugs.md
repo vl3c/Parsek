@@ -834,7 +834,11 @@ are saved in the PARSEK node (`REWIND_VESSEL_HOLDS`, policy category `RewindVess
 the save's, a plain rewind / Re-Fly start / Discard Re-fly clear, in-session loads keep memory), and
 `ParsekFlight.RestoreRewindVesselHolds` draws each one's hold ghost from its copy until its first
 claim on every flight load. Outside flight nothing shows it until its committed flight's own ghost
-does (owner ruling 2026-10-22, decision card: hidden until its flight). Tests: `RewindVesselHoldTests`.
+does (owner ruling 2026-10-22, decision card: hidden until its flight). Only a use the rewind will
+replay holds: a flying recording, a chain tip or a dock / board claimant that is historical after the
+rewind (`RecordingStore.WillReplayAfterRewind`, the strip and spawn gates' predicate) would never
+bring the vessel back, so it holds nothing (`chainsNotReplayed=` / `fliesNotReplayed=` in the summary)
+and the vessel stays live as before. Tests: `RewindVesselHoldTests`.
 Not covered: a Discard Re-fly lands in the rewind point's world with no hold (the Re-Fly start
 cleared the plain rewind's, and the discard computes none).
 
@@ -1253,6 +1257,10 @@ then makes `SceneExitInterceptor.SafeWritePersistent` skip until the rewind ends
 save cannot put the old world back. A refused splice or write logs and lands on the old world.
 Stock scenarios and the roster now come from the rewind save too; the ledger patch sets the career
 pools, tech, facilities, milestones and contracts as before. Warp-to-game-start shares the path.
+Once the deferred pool patch has run, `WritePersistentAfterRewindAdjustment` saves persistent.sfs
+again (`Post-rewind persistent.sfs written`), so a crash after the Space Center loads cannot
+cold-load the rewind world's pools against the latest pool reference (which would file the drop as
+a leak row); the window left is the first seconds of the Space Center load.
 Tests: `RewindVesselHoldTests` (the flag and the skip); the write itself needs a flight.
 
 ## ~~CLAIMED-VESSEL-VANISHES-BEFORE-ITS-CLAIM: after a rewind, a vessel a committed future claims disappears until the claiming recording starts~~ [FILED 2026-10-16 from the coverage audit (`roadmap/coverage-matrix-2026-10-16.md` section 5), confirmed in EVA-11's `2026-10-15_2343` log (the rover is despawned at the rewind load and nothing draws it for about 15 s of game time, until its member recording's ghost spawns). FIXED 2026-10-16, branch `claude/project-thread-wr5u4k`; xUnit; EVA-11 `2026-10-16_2256` showed it drawn and released at the claim, in the post-claim shape (the follow-up below); LIVE-PROVEN by EVA-11 `2026-10-16_2322` (PASS attempt 1, `parts=16 ... from=rewind-save`). product]
