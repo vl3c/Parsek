@@ -824,7 +824,7 @@ and `CanAffordFundsSpending`'s effective available amount (pure `DecideKscFundsA
 bound (`bound=live|reserved`) and keeps the existing `FundsShort` / `WaitingForFunds` path. Cells:
 `RouteDispatchReservationGateTests` (pure decision plus a seeded committed-future purchase).
 
-## ~~REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE: after a plain rewind, a vessel whose committed future is a root-lineage or switch-continuation flight stays a real vessel~~ [FILED 2026-10-19, inferred from code. FIXED 2026-10-22 (xUnit), branch `claude/project-thread-stn7at`; live proof pending. medium, physical paradox]
+## ~~REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE: after a plain rewind, a vessel whose committed future is a root-lineage or switch-continuation flight stays a real vessel~~ [FILED 2026-10-19, inferred from code. FIXED 2026-10-22 (xUnit), branch `claude/project-thread-stn7at`; LIVE-PROVEN by EVA-11 `2026-10-22_1431` and RC-6 `_1432` (held=1, hold ghost restored on the flight load). medium, physical paradox]
 
 The strip removes only the split's sibling slots, and the claimed-vessel hold covers only vessels a
 chain claims through a branch point. A vessel that existed at the rewind point and is flown later
@@ -1248,7 +1248,7 @@ where the ordinary path refuses (`RejectUnresolvedTerminalOrbitSpawn`). Tests:
 for both paths, which was checked by mutation.
 
 ---
-## ~~REWIND-TO-LAUNCH-LANDS-IN-THE-LATEST-PERSISTENT-WORLD: a Rewind-to-Launch keeps every surviving vessel in its latest form~~ [FILED 2026-10-16 from EVA-11 `2026-10-16_2256` (the rewind save `parsek_rw_add97f` holds the rover with 16 parts, the rewound game `eva11-rewound` with 15), confirmed by code read. FIXED 2026-10-22 (xUnit), branch `claude/project-thread-stn7at`; live proof pending. product]
+## ~~REWIND-TO-LAUNCH-LANDS-IN-THE-LATEST-PERSISTENT-WORLD: a Rewind-to-Launch keeps every surviving vessel in its latest form~~ [FILED 2026-10-16 from EVA-11 `2026-10-16_2256` (the rewind save `parsek_rw_add97f` holds the rover with 16 parts, the rewound game `eva11-rewound` with 15), confirmed by code read. FIXED 2026-10-22 (xUnit), branch `claude/project-thread-stn7at`; LIVE-PROVEN: every plain-rewind lane logged `rewind game written to persistent.sfs` (41 lanes flown 2026-10-22, EVA-9 `_1904` and EVA-10 `_1909` re-cut to the rewind world). product]
 
 `RecordingStore`'s rewind load parses the preprocessed rewind save into `HighLogic.CurrentGame`
 and calls `HighLogic.LoadScene(SPACECENTER)`, but `SpaceCenterMain.Start` reloads persistent.sfs
@@ -1363,7 +1363,7 @@ Re-Fly slots (a commandless cabin cannot be flown), so a crewed-part rule needs 
 between "record it" and "offer it to Re-Fly". Next step: fly a Hitchhiker undock to confirm
 what KSP calls the separated cabin and what Parsek writes.
 
-## ~~FOREIGN-BOARD-LEAVES-NO-GHOST-CLAIM: boarding a vessel from another mission does not claim it for ghost playback~~ [FILED 2026-10-17 from the crew-across-vessels code trace, branch `claude/crew-across-vessels-db6ycy`. FIXED 2026-10-22 (xUnit), branch `claude/project-thread-stn7at`; live proof pending. product]
+## ~~FOREIGN-BOARD-LEAVES-NO-GHOST-CLAIM: boarding a vessel from another mission does not claim it for ghost playback~~ [FILED 2026-10-17 from the crew-across-vessels code trace, branch `claude/crew-across-vessels-db6ycy`. FIXED 2026-10-22 (xUnit), branch `claude/project-thread-stn7at`; no lane boards a foreign vessel yet. product]
 
 A Board merge onto a vessel outside the tree stamps no target pid (`HandleTreeBoardMerge`; design
 `design-dock-event-graph.md` item 1 deferred Board stamping), so `GhostChainWalker` sees no claim
@@ -3224,7 +3224,7 @@ repeats it).
 
 ---
 
-## ~~CLAIMED-VESSEL-DESPAWN-AT-REWIND-OUTSIDE-FLIGHT: a vessel a committed future mission claims should leave the KSC and Tracking Station at the rewind, as it does in flight~~ [FILED 2026-10-07 from the owner ruling on PR #2029, branch `fix-chain-tip-outside-flight`. FIXED 2026-10-22 (xUnit), branch `claude/project-thread-stn7at`; live proof pending]
+## ~~CLAIMED-VESSEL-DESPAWN-AT-REWIND-OUTSIDE-FLIGHT: a vessel a committed future mission claims should leave the KSC and Tracking Station at the rewind, as it does in flight~~ [FILED 2026-10-07 from the owner ruling on PR #2029, branch `fix-chain-tip-outside-flight`. FIXED 2026-10-22 (xUnit), branch `claude/project-thread-stn7at`; LIVE-PROVEN by EVA-11 `2026-10-22_1431` (Space Center and Tracking Station recover refused: vessel not found)]
 
 Design 12.5 / 20.3 despawn a claimed vessel at the rewind in every scene. Today only flight does
 (`FilterAndGhostChains`); outside flight PR #2029 replaces the stale vessel when the chain tip's

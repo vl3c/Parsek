@@ -10,8 +10,8 @@ id = "EVA-10-mun-ground-science-cluster"
 # Mun members spawn at their tips. Nothing is loaded near the cluster then, so the FLIGHT
 # sibling-exemption tokens are gone (EVA-9 keeps the Space Center twin); this lane now proves
 # the Mun cluster, Jeb and the lander come back after a rewind with the player elsewhere.
-# Counts move 17 -> 18 and recordings=6 -> 7 (the lander's member). Spec changed, not yet
-# flown. The FLIGHT reload notes below describe the old shape.
+# Counts move 17 -> 18 and recordings=6 -> 7 (the lander's member). PASS `2026-10-22_1909`
+# attempt 1. The FLIGHT reload notes below describe the old shape.
 # 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): the
 # 1x waits this lane sized in inert seam steps (0.25 s each at the old poll; one frame
 # since PR #2017) are `WarpToUT maxRate=1` waits to explicit UTs, deterministic in
@@ -222,7 +222,7 @@ allowedAnomalies = []
 # standalone as a 2-point Kerbal X segment (18 in the store, 19 sidecars) and respawned a twin of
 # the kept lander after the rewind (todo REWIND-KEPT-VESSEL-RESPAWNED-BY-STANDALONE-SEGMENT);
 # that shape is now forbidden below.
-# 2026-10-22: + the lander's inventory-transfer member = 18 (derived, not yet measured).
+# 2026-10-22: + the lander's inventory-transfer member = 18 (measured `2026-10-22_1909`).
 count = { min = 18, max = 18 }
 
 [expectations.logContracts]

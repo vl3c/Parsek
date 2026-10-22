@@ -11,8 +11,8 @@ id = "EVA-9-ground-science-cluster-spawn-flight"
 # its landed de-overlap exempts each later member against the sibling already standing
 # (`site=landed-de-overlap`, the #1920 twin the old header said this lane never reached). The
 # FLIGHT chain-tip site has no live witness left: a cluster whose parts came out of a vessel
-# leaves no tree-free host at the site. Counts move 14 -> 15 (the capsule's member). Spec
-# changed, not yet flown. The FLIGHT notes below describe the old shape.
+# leaves no tree-free host at the site. Counts move 14 -> 15 (the capsule's member). PASS
+# `2026-10-22_1904` attempt 1. The FLIGHT notes below describe the old shape.
 # 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): the
 # 1x waits this lane sized in inert seam steps (0.25 s each at the old poll; one frame
 # since PR #2017) are `WarpToUT maxRate=1` waits to explicit UTs, deterministic in
