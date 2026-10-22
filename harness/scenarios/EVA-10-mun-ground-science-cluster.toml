@@ -1,5 +1,17 @@
 schema = 1
 id = "EVA-10-mun-ground-science-cluster"
+# 2026-10-22 (PR #2181, plain rewind safety): RE-CUT TO LAUNCH INTO FLIGHT AFTER THE REWIND.
+# The takes out of the lander's pod adopt the lander into Jeb's tree as an inventory-transfer
+# member (since the 2026-10-15 foreign-transfer fix), so the rewind replays it and it leaves
+# the rewind's world; the rewind now lands in that world (it writes its save to
+# persistent.sfs), which holds no vessel at all (`2026-10-22_1457`: `vessels=0`, the reload
+# stayed at the Space Center and nothing spawned). The lane now launches the stock Kerbal X
+# from the SPH (RR-1's recipe, recording off) and waits in FLIGHT on the runway, where the
+# Mun members spawn at their tips. Nothing is loaded near the cluster then, so the FLIGHT
+# sibling-exemption tokens are gone (EVA-9 keeps the Space Center twin); this lane now proves
+# the Mun cluster, Jeb and the lander come back after a rewind with the player elsewhere.
+# Counts move 17 -> 18 and recordings=6 -> 7 (the lander's member). PASS `2026-10-22_1909`
+# attempt 1. The FLIGHT reload notes below describe the old shape.
 # 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): the
 # 1x waits this lane sized in inert seam steps (0.25 s each at the old poll; one frame
 # since PR #2017) are `WarpToUT maxRate=1` waits to explicit UTs, deterministic in
@@ -92,7 +104,7 @@ id = "EVA-10-mun-ground-science-cluster"
 # KNOWN PREAMBLE FLAKE: see EVA-9's header (the 1 Hz committed-spawned restore retry can
 # re-adopt the lander right after the boot's DiscardTree; retried once).
 tier = "nightly"
-description = "Mun ground-science cluster: on mun-landing-recorded Jeb climbs out of the landed Kerbal X carrying a Central Station and places a four-part cluster on a 19 m ring round the lander, neighbours ~5 m apart (action=step walks him between the pod, where he takes the RTG, the seismometer and the Go-ob one at a time, and each part's own bearing); he picks the seismometer up and places it again; he leaves for the Space Center, whose scene-exit auto-commit trims every member to a staggered end; back into FLIGHT, Rewind-to-Launch, SaveGame + LoadGame straight back into FLIGHT on the lander, and 1x flight time spawns every member left standing (and Jeb) in FLIGHT, the picked-up member never. Each later member's spawn finds its ~5 m neighbour inside its overlap box and is exempted as a co-existing tree sibling (fix #1920)."
+description = "Mun ground-science cluster: on mun-landing-recorded Jeb climbs out of the landed Kerbal X carrying a Central Station and places a four-part cluster on a 19 m ring round the lander, neighbours ~5 m apart (action=step walks him between the pod, where he takes the RTG, the seismometer and the Go-ob one at a time, and each part's own bearing); he picks the seismometer up and places it again; he leaves for the Space Center, whose scene-exit auto-commit trims every member to a staggered end; back into FLIGHT, Rewind-to-Launch (the lander, adopted by the takes, replays and leaves the rewind's world, which then holds no vessel), a stock Kerbal X launched from the SPH, and 1x flight time on the runway spawns every member left standing (and Jeb) on the Mun, the picked-up member never."
 instanceProfile = "stock-minimal"
 tags = ["eva", "inventory", "ground-science", "breaking-ground", "cluster", "mun", "rewind-to-launch", "spawn", "EVA-10"]
 
@@ -173,24 +185,22 @@ steps = [
   # EVA-6's preamble flake: a re-adopted recorder would refuse the rewind `recording-active`.
   { cmd = "StopRecording",                                                   expect = "OK" },
   { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
-  # Straight back into FLIGHT on the lander (EVA-9's reload recipe): the members spawn in
-  # FLIGHT. The Space Center cannot spawn them: ParsekKSC.IsKscStructurallyEligible admits
-  # only recordings whose first point is on Kerbin (`_1937`: 0 [KSCSpawn] lines by UT 23430).
-  { cmd = "SaveGame",   args = { name = "eva10-rewound" },                   expect = "OK", budget = 120 },
-  { cmd = "LoadGame",   args = { save = "${runSave}", name = "eva10-rewound" }, expect = "OK", budget = 300 },
-  { cmd = "StopRecording",                                                   expect = "OK" },
-  { cmd = "DiscardTree",                                                     expect = "OK" },
+  # The rewind's world holds no vessel, and the Space Center cannot spawn the members
+  # (ParsekKSC.IsKscStructurallyEligible admits only Kerbin-first recordings, `_1937`), so the
+  # lane launches the stock Kerbal X from the SPH (recording off) and waits in FLIGHT.
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c1",        expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-reloaded-count-${c1.count}-a-${c1.rec11}-${c1.rec11spawned}-b-${c1.rec12}-${c1.rec12spawned}-c-${c1.rec13}-${c1.rec13spawned}-d-${c1.rec14}-${c1.rec14spawned}-e-${c1.rec15}-${c1.rec15spawned}-f-${c1.rec16}-${c1.rec16spawned}" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva10-rewound-count-${c1.count}-a-${c1.rec11}-${c1.rec11spawned}-b-${c1.rec12}-${c1.rec12spawned}-c-${c1.rec13}-${c1.rec13spawned}-d-${c1.rec14}-${c1.rec14spawned}-e-${c1.rec15}-${c1.rec15spawned}-f-${c1.rec16}-${c1.rec16spawned}-g-${c1.rec17}-${c1.rec17spawned}" }, expect = "OK" },
+  { cmd = "GoToEditor", args = { facility = "SPH", craft = "Kerbal X" },     expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                expect = "OK", budget = 180 },
   # 1x flight time past every member's end and the kerbal's (~180 s: 15 s of rewind lead +
   # ~35 s of walks, placements and the pick-up + ~53 s of idle + margin).
   # 1x FLIGHT time to UT 23430: past every member's trimmed end (all <= the idle end 23340) with the margin `_2323` had (640 inert steps before 2026-10-07: since PR #2017 one costs a
   # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
   { cmd = "WarpToUT", args = { ut = "23430", maxRate = "1" }, expect = "OK", budget = 300 },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c2",        expect = "OK" },
-  { cmd = "MissionMark", args = { label = "eva10-spawned-count-${c2.count}-a-${c2.rec11}-${c2.rec11spawned}-${c2.rec11spawnedPid}-b-${c2.rec12}-${c2.rec12spawned}-${c2.rec12spawnedPid}-c-${c2.rec13}-${c2.rec13spawned}-${c2.rec13spawnedPid}-d-${c2.rec14}-${c2.rec14spawned}-${c2.rec14spawnedPid}-e-${c2.rec15}-${c2.rec15spawned}-${c2.rec15spawnedPid}-f-${c2.rec16}-${c2.rec16spawned}-${c2.rec16spawnedPid}-end" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva10-spawned-count-${c2.count}-a-${c2.rec11}-${c2.rec11spawned}-${c2.rec11spawnedPid}-b-${c2.rec12}-${c2.rec12spawned}-${c2.rec12spawnedPid}-c-${c2.rec13}-${c2.rec13spawned}-${c2.rec13spawnedPid}-d-${c2.rec14}-${c2.rec14spawned}-${c2.rec14spawnedPid}-e-${c2.rec15}-${c2.rec15spawned}-${c2.rec15spawnedPid}-f-${c2.rec16}-${c2.rec16spawned}-${c2.rec16spawnedPid}-g-${c2.rec17}-${c2.rec17spawned}-${c2.rec17spawnedPid}-end" }, expect = "OK" },
   { cmd = "SaveGame",                                                        expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
@@ -212,7 +222,8 @@ allowedAnomalies = []
 # standalone as a 2-point Kerbal X segment (18 in the store, 19 sidecars) and respawned a twin of
 # the kept lander after the rewind (todo REWIND-KEPT-VESSEL-RESPAWNED-BY-STANDALONE-SEGMENT);
 # that shape is now forbidden below.
-count = { min = 17, max = 17 }
+# 2026-10-22: + the lander's inventory-transfer member = 18 (measured `2026-10-22_1909`).
+count = { min = 18, max = 18 }
 
 [expectations.logContracts]
 required = [
@@ -243,7 +254,7 @@ required = [
   "Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=([0-9]+) [\\s\\S]*evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* anchorPid=\\1 [^\\r\\n]*bearing=90\\.0",
   # THE COMMIT: the player's scene exit, whose auto-commit runs the optimization pass.
   "exittospacecenter complete scene=SPACECENTER",
-  "full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='Jebediah Kerman' recordings=6 ",
+  "full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='Jebediah Kerman' recordings=7 ",
   # THE STAGGER: every standing member trims to ~13 s after its own placement.
   "Ground part placed: tree member created part='DeployedCentralStation' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*TrimBoringTail: trimmed '[^'\\r\\n]*' \\(\\1\\) from endUT=",
   "Ground part placed: tree member created part='DeployedRTG' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*TrimBoringTail: trimmed '[^'\\r\\n]*' \\(\\1\\) from endUT=",
@@ -255,23 +266,20 @@ required = [
   # members then spawn on the Mun in FLIGHT after the reload onto the lander, never from
   # the Space Center (ParsekKSC.IsKscStructurallyEligible admits only Kerbin-first
   # recordings): the reload / spawned read-backs and the FLIGHT sibling exemptions follow.
-  "MISSIONMARK label=eva10-commit-count-17(?:\\s|$)",
-  # Right after the reload no member is spawned yet (the reload beat every EndUT).
-  "Ground part placed: tree member created part='DeployedCentralStation' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-reloaded-count-17-[^\\r\\n]*-\\1-false(?:-|\\s)",
+  "MISSIONMARK label=eva10-commit-count-18(?:\\s|$)",
+  # The rewind lands in its own save's world, which the lander (replayed) is not in.
+  "rewind game written to persistent\\.sfs [^\\r\\n]*vessels=0 ",
+  "launchfromeditor complete scene=FLIGHT ",
+  # Right after the rewind no member is spawned yet (the rewind's lead beats every EndUT).
+  "Ground part placed: tree member created part='DeployedCentralStation' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-rewound-count-18-[^\\r\\n]*-\\1-false(?:-|\\s)",
   # EVERY member left standing spawned in FLIGHT, read back from the committed store.
-  "Ground part placed: tree member created part='DeployedCentralStation' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-spawned-count-17-[^\\r\\n]*-\\1-true-[1-9][0-9]*-",
-  "Ground part placed: tree member created part='DeployedRTG' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-spawned-count-17-[^\\r\\n]*-\\1-true-[1-9][0-9]*-",
-  "Ground part placed: tree member created part='DeployedGoExOb' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-spawned-count-17-[^\\r\\n]*-\\1-true-[1-9][0-9]*-",
-  "evagroundscience pickup complete part=DeployedSeismicSensor[\\s\\S]*Ground part placed: tree member created part='DeployedSeismicSensor' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-spawned-count-17-[^\\r\\n]*-\\1-true-[1-9][0-9]*-",
+  "Ground part placed: tree member created part='DeployedCentralStation' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-spawned-count-18-[^\\r\\n]*-\\1-true-[1-9][0-9]*-",
+  "Ground part placed: tree member created part='DeployedRTG' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-spawned-count-18-[^\\r\\n]*-\\1-true-[1-9][0-9]*-",
+  "Ground part placed: tree member created part='DeployedGoExOb' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-spawned-count-18-[^\\r\\n]*-\\1-true-[1-9][0-9]*-",
+  "evagroundscience pickup complete part=DeployedSeismicSensor[\\s\\S]*Ground part placed: tree member created part='DeployedSeismicSensor' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-spawned-count-18-[^\\r\\n]*-\\1-true-[1-9][0-9]*-",
   # And Jeb.
-  "startrecording recordingId=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-spawned-count-17-[^\\r\\n]*-\\1-true-[1-9][0-9]*-",
-  # The fix's own witness (#1920) in FLIGHT: each later member spawned while an earlier
-  # sibling stood inside its overlap box, and was exempted.
-  "Ground part placed: tree member created part='DeployedRTG' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-reloaded-count[\\s\\S]*Overlap exempt: co-existing tree sibling (?:spawn|original): site=[^\\r\\n]* rec=\\1 blocker=",
-  # The Go-ob spawns before the re-placed seismometer and its only earlier neighbour (the
-  # first seismometer) was picked up, so it spawns clear; the re-placed seismometer is the
-  # member that finds standing siblings (`_2018`: the Go-ob and the RTG, both exempted).
-  "evagroundscience pickup complete part=DeployedSeismicSensor[\\s\\S]*Ground part placed: tree member created part='DeployedSeismicSensor' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-reloaded-count[\\s\\S]*Overlap exempt: co-existing tree sibling (?:spawn|original): site=[^\\r\\n]* rec=\\1 blocker=",
+  "startrecording recordingId=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-spawned-count-18-[^\\r\\n]*-\\1-true-[1-9][0-9]*-",
+  # No sibling-exemption token: nothing is loaded at the Mun site when the members spawn.
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -303,14 +311,15 @@ forbidden = [
   # All three printed in `2026-09-29_2018`; none in `2026-09-29_2116`.
   "Committed recording from Kerbal X",
   "Committed orphaned recording",
-  "Vessel spawn for #[0-9]+ \\(Kerbal X\\)",
+  # The lander now replays and spawns back once at its own tip; a second spawn is the twin.
+  "Vessel spawn for #[0-9]+ \\(Kerbal X\\)[\\s\\S]*Vessel spawn for #[0-9]+ \\(Kerbal X\\)",
   "Spawn not needed for #[0-9]+ \\\"Jebediah Kerman\\\": non-leaf in tree",
 ]
 
 [runtime]
 # The act budget of EVA-8 + 9 steps + 40 s idle + 120 ExitToSpaceCenter + 120 SaveGame +
-# 300 LoadGame + 300 rewind + 120 SaveGame + 300 LoadGame + ~160 s flight wait + 120 SaveGame
-# + margin.
+# 300 LoadGame + 300 rewind + 120 GoToEditor + 180 LaunchFromEditor + ~160 s flight wait +
+# 120 SaveGame + margin.
 budgetSeconds = 3000
 
 [retry]

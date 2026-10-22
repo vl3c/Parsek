@@ -1152,9 +1152,10 @@ namespace Parsek
                     string targetGuid = bp.TargetVesselGuid;
                     if (targetPid == 0 && bp.Type == BranchPointType.Board)
                     {
-                        // A Board merge stamps no target (HandleTreeBoardMerge), but the boarded
-                        // vessel IS the merged child's vessel: the kerbal joins it and the
-                        // vessel flies on under its own pid and launch guid.
+                        // A Board onto a vessel of the same tree stamps no target
+                        // (ParsekFlight.ResolveBoardPartnerStamp), but the boarded vessel IS the
+                        // merged child's vessel: the kerbal joins it and the vessel flies on
+                        // under its own pid and launch guid.
                         RecordingMeta childMeta;
                         if (recordingMeta.TryGetValue(mergedChildId, out childMeta))
                         {

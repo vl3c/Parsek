@@ -121,7 +121,30 @@ namespace Parsek
             double rewindUT,
             out int matchedWithoutFuture)
         {
+            int fliesNotReplayed;
+            return Classify(survivors, excludedPids, committedRecordings, ledgerActions,
+                changeClaims, rewindUT, null, out matchedWithoutFuture, out fliesNotReplayed);
+        }
+
+        /// <summary>
+        /// The classifier with a replay filter: a <see cref="EvidenceFlies"/> use whose recording
+        /// <paramref name="fliesReplays"/> rejects (it will not play after the rewind, so it would
+        /// neither ghost nor spawn the vessel back) decides nothing and is counted in
+        /// <paramref name="fliesNotReplayed"/>. A null filter keeps every use.
+        /// </summary>
+        internal static List<Entry> Classify(
+            IReadOnlyList<(uint pid, string guid)> survivors,
+            ICollection<uint> excludedPids,
+            IReadOnlyList<Recording> committedRecordings,
+            IReadOnlyList<GameAction> ledgerActions,
+            IReadOnlyList<ChangeClaim> changeClaims,
+            double rewindUT,
+            Func<Recording, bool> fliesReplays,
+            out int matchedWithoutFuture,
+            out int fliesNotReplayed)
+        {
             matchedWithoutFuture = 0;
+            fliesNotReplayed = 0;
             var result = new List<Entry>();
             if (survivors == null || survivors.Count == 0) return result;
             bool hasRecordings = committedRecordings != null && committedRecordings.Count > 0;
@@ -150,6 +173,11 @@ namespace Parsek
                     string evidence;
                     if (!TryFirstFutureUse(rec, ledgerActions, rewindUT, out claimUT, out evidence))
                         continue;
+                    if (evidence == EvidenceFlies && fliesReplays != null && !fliesReplays(rec))
+                    {
+                        fliesNotReplayed++;
+                        continue;
+                    }
 
                     if (entry == null)
                         entry = new Entry { Pid = pid, LaunchGuid = guid, FirstClaimUT = double.PositiveInfinity };

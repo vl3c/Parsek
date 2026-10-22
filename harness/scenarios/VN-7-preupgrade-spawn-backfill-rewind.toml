@@ -96,7 +96,7 @@ vesselNames    = { "VN7 Relay Final" = { min = 1, max = 1 }, "VN7 Relay" = { max
 required = [
   # (1) The cold load and its backfill: exactly the one genuine spawn linked.
   "Load classified: early=Cold refined=Cold scene=FLIGHT",
-  "Spawn link backfill \\(onload-tail:cold\\): vessels=[0-9]+ genuineSpawnMatches=[1-9][0-9]* adoptionStampSkipped=[0-9]+ added=1 alreadyLinked=0 links=1",
+  "Spawn link backfill \\(onload-tail:cold\\): vessels=[0-9]+ genuineSpawnMatches=[1-9][0-9]* adoptionStampSkipped=[0-9]+ added=1 alreadyLinked=0 resumeAdded=[0-9]+ links=1",
   "Link added: kind=Spawn guid=61c1c39c65bb4ef6b1a61970c309f613 -> ae3f3c10ebbd440c875b325e318a9315 reason=backfill:onload-tail:cold rec=rec_d4b696b61b544c1e8013073c611c8477 links=1",
   # (2) The stock rename resolves the spawned probe's identity through the link.
   "renamevessel applied pid=3049612057 old='Kerbal X With Probe' new='VN7 Relay' type=Probe active=false changed=true legs=[1-9][0-9]* decision=StockDialog decisionName='VN7 Relay'",

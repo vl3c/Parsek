@@ -76,6 +76,16 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A Rewind-to-Launch holds back every vessel a later flight uses, in every scene.** A vessel a
+  committed later flight flies, docks with, boards or recovers leaves the world at the rewind (crew
+  safe) and returns as that flight's ghost and end result; in flight a ghost marks where it waits.
+  Nothing can bump, dock with or recover it first. (REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE)
+- **A Rewind-to-Launch lands in the world as it was at launch.** Every vessel the rewind keeps is
+  back in its launch-time form (parts, place, fuel, crew) instead of its latest one.
+  (REWIND-TO-LAUNCH-LANDS-IN-THE-LATEST-PERSISTENT-WORLD)
+- **Boarding a vessel from another mission claims it like a dock does.** After a rewind to before
+  the boarding, that vessel is held back for the boarding flight instead of staying live and being
+  spawned a second time. (FOREIGN-BOARD-LEAVES-NO-GHOST-CLAIM)
 - **A booster still under its parachute when you leave the flight is no longer saved as crashed.**
   It stays a flight still in the air, so it keeps its Unfinished Flight and can be re-flown to a
   landing. A vessel falling with no open parachute is still read as the crash it is heading for.

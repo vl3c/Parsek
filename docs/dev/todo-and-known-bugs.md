@@ -48,6 +48,19 @@ now carries two outcome rows. Find which stock path fires `onFailed` after `onCa
 `Contract.Cancel` / `ContractSystem`) and either drop the duplicate at capture or prove it harmless
 in every consumer (ledger ground truth, Missions wording, the committed-future index).
 
+## MINE-6-PINS-PREDATE-THE-RESUMED-SPAWN-SEGMENT: MINE-6 pins one recording, but flying the respawned rover again now records a new segment [FILED 2026-10-22 from MINE-6 `2026-10-22_1619` (PARSEK-FAIL, expectations), flown for PR #2181; not caused by it. OPEN, low. harness]
+
+**Symptom.** `recordings.count 2 > max 1`: after the end-of-watch respawn (pid 3850340315) the log
+prints `Resumed spawn continues in a new segment: rec=fdb7cde8 segment=fc1a4789`, so the rover gets
+a second recording. That is main's 14eafccf6 ("Flying a Parsek-spawned vessel again records a new
+segment", 2026-10-17); MINE-6's last PASS (`2026-10-17_1431`) predates it. The same run also missed
+the `mine6-lfox-off-before ... ConverterDeactivated 'MiniISRU' ... mine6-lfox-off-after` window:
+the event logged 13 ms after the off-after mark, a sampling-order race between the seam step and
+the part-event poll.
+
+**Fix.** Re-pin the count to the new-segment rule (measure first) and widen the converter window to
+accept the event landing just after the closing mark (or anchor it on the next step instead).
+
 ## SCENE-EXIT-RECOVERY-READS-A-ZERO-ALTITUDE-SEED-AS-ORBITING: an early finalizer pass on a just-decoupled booster extrapolates a recorded point at altitude 0.0 into an Orbiting terminal [FILED 2026-10-22 from RF-L2 `2026-10-22_1026` (PASS), flown for PR #2176. OPEN, low; no verdict or saved terminal affected so far. product]
 
 On the booster's first background finalizer pass after the decouple, before its chutes opened, the
@@ -911,7 +924,7 @@ and `CanAffordFundsSpending`'s effective available amount (pure `DecideKscFundsA
 bound (`bound=live|reserved`) and keeps the existing `FundsShort` / `WaitingForFunds` path. Cells:
 `RouteDispatchReservationGateTests` (pure decision plus a seeded committed-future purchase).
 
-## REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE: after a plain rewind, a vessel whose committed future is a root-lineage or switch-continuation flight stays a real vessel [FILED 2026-10-19, inferred from code. OPEN, medium, physical paradox]
+## ~~REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE: after a plain rewind, a vessel whose committed future is a root-lineage or switch-continuation flight stays a real vessel~~ [FILED 2026-10-19, inferred from code. FIXED 2026-10-22 (xUnit), branch `claude/project-thread-stn7at`; LIVE-PROVEN by EVA-11 `2026-10-22_1431` and RC-6 `_1432` (held=1, hold ghost restored on the flight load). medium, physical paradox]
 
 The strip removes only the split's sibling slots, and the claimed-vessel hold covers only vessels a
 chain claims through a branch point. A vessel that existed at the rewind point and is flown later
@@ -920,6 +933,31 @@ be bumped, docked with or destroyed before the flight its recording replays. Sec
 rewind design closes this for a Re-Fly invoke (every vessel a committed recording uses after the
 rewind UT goes to the claimed-vessel hold); a plain Rewind-to-Launch is still open. Design section
 10.13.
+
+Fix (2026-10-22, branch `claude/project-thread-stn7at`): the plain rewind takes the same hold in every scene.
+`ParsekScenario.ApplyRewindVesselHolds` (from `HandleRewindOnLoad`, after the future-vessel strips,
+before the spawn reconcile and the orphaned-crew rescue) holds every vessel of the rewind's world
+that an active ghost chain claims (`RewindVesselHold.CollectChainHolds`, the flight ghosting rule)
+or that a committed recording of its launch flies, recovers, docks with or boards after the rewind
+UT (`ReFlyInvokeHold.Classify` over ERS / ELS, positive launch identity): its ProtoVessel leaves
+flightState with a copy of it kept (`[RewindHold] Rewind held vessel for its committed future: ...`,
+summary `Rewind vessel hold: survivors=... held=...`), its crew go Available with the rescue, and a
+flying recording's end-spawn claim on it is released so that recording brings it back. The holds
+are saved in the PARSEK node (`REWIND_VESSEL_HOLDS`, policy category `RewindVesselHolds`: Cold takes
+the save's, a plain rewind / Re-Fly start / Discard Re-fly clear, in-session loads keep memory), and
+`ParsekFlight.RestoreRewindVesselHolds` draws each one's hold ghost from its copy until its first
+claim on every flight load. Outside flight nothing shows it until its committed flight's own ghost
+does (owner ruling 2026-10-22, decision card: hidden until its flight). Only a use the rewind will
+replay holds: a flying recording, a chain tip or a dock / board claimant that is historical after the
+rewind (`RecordingStore.WillReplayAfterRewind`, the strip and spawn gates' predicate) would never
+bring the vessel back, so it holds nothing (`chainsNotReplayed=` / `fliesNotReplayed=` in the summary)
+and the vessel stays live as before. Tests: `RewindVesselHoldTests`.
+Not covered: a Discard Re-fly lands in the rewind point's world with no hold (the Re-Fly start
+cleared the plain rewind's, and the discard computes none). And a vessel another tree spawned and
+this tree adopted by inventory transfer (EVA-9's capsule) is taken by the rewind's spawn strip
+(`superseding-continuation-replays`) before the hold runs, so a flight near it shows nothing of it
+until its transfer member's ghost starts (`ForeignInventoryTransfer.FindAdoptedForeignVesselMember`
+matches same-tree holders only).
 
 ## ~~REMAINING-RECORDED-VELOCITY-SEEDS: state-vector map ghosts, the spawner's state-vector seeds and the scene-exit finalizer's reseeds read a recorded velocity as inertial and in this session's axes~~ [FILED AND FIXED 2026-10-20 from the TERMINAL-SPAWN-TAIL-ORBIT-SURFACE-VELOCITY audit (its "Still open" item 1) and harness lanes EVA-4 (run `2026-10-11_1458`), GS-7 (run `2026-10-12_1856`) and LAB-10 (run `2026-10-18_0104`, the control), branch `claude/remaining-velocity-seeds`. xUnit; re-flown green: EVA-4, GS-7, LAB-10, LAB-7, V20M, V20T on the first build (`2026-10-20_1812`..`_1842`), EVA-4 `2026-10-20_1850` and LAB-10b `2026-10-20_1857` on the review build (`FromLatLonAltAndSameSessionRecordedVelocity: site=predicted-tail-reseed ... source=pair-resolved ... velFrame=rotating`; `State-vector seed velocity: site=create ... source=pair-resolved ... velFrame=inertial ... residual=0.000`, the map ghost still `sma=700213`). product]
 
@@ -1310,7 +1348,7 @@ where the ordinary path refuses (`RejectUnresolvedTerminalOrbitSpawn`). Tests:
 for both paths, which was checked by mutation.
 
 ---
-## REWIND-TO-LAUNCH-LANDS-IN-THE-LATEST-PERSISTENT-WORLD: a Rewind-to-Launch keeps every surviving vessel in its latest form [FILED 2026-10-16 from EVA-11 `2026-10-16_2256` (the rewind save `parsek_rw_add97f` holds the rover with 16 parts, the rewound game `eva11-rewound` with 15), confirmed by code read. OPEN. product]
+## ~~REWIND-TO-LAUNCH-LANDS-IN-THE-LATEST-PERSISTENT-WORLD: a Rewind-to-Launch keeps every surviving vessel in its latest form~~ [FILED 2026-10-16 from EVA-11 `2026-10-16_2256` (the rewind save `parsek_rw_add97f` holds the rover with 16 parts, the rewound game `eva11-rewound` with 15), confirmed by code read. FIXED 2026-10-22 (xUnit), branch `claude/project-thread-stn7at`; LIVE-PROVEN: every plain-rewind lane logged `rewind game written to persistent.sfs` (41 lanes flown 2026-10-22, EVA-9 `_1904` and EVA-10 `_1909` re-cut to the rewind world). product]
 
 `RecordingStore`'s rewind load parses the preprocessed rewind save into `HighLogic.CurrentGame`
 and calls `HighLogic.LoadScene(SPACECENTER)`, but `SpaceCenterMain.Start` reloads persistent.sfs
@@ -1326,6 +1364,21 @@ what the stock scenario nodes (contracts, facilities, progress) read on this loa
 write the rewind game to persistent.sfs before the scene load with the live PARSEK node spliced
 in, as `RevertInterceptor.DiscardReFlyHandler` does; a wide change that every rewind lane would
 need to re-prove.
+
+Fix (2026-10-22, branch `claude/project-thread-stn7at`): the candidate. `RecordingStore.ExecuteRewindSaveLoad` calls
+`WriteRewindGameAsPersistent` before the Space Center load: the parsed, pre-processed rewind game
+is written to persistent.sfs with its PARSEK node replaced by the one already there (the node the
+rewind's OnLoad read before), through the Discard Re-fly helpers
+(`RevertInterceptor.SpliceLiveParsekScenarioNode`). `RewindContext.RewindGameWrittenToPersistent`
+then makes `SceneExitInterceptor.SafeWritePersistent` skip until the rewind ends, so a scene-exit
+save cannot put the old world back. A refused splice or write logs and lands on the old world.
+Stock scenarios and the roster now come from the rewind save too; the ledger patch sets the career
+pools, tech, facilities, milestones and contracts as before. Warp-to-game-start shares the path.
+Once the deferred pool patch has run, `WritePersistentAfterRewindAdjustment` saves persistent.sfs
+again (`Post-rewind persistent.sfs written`), so a crash after the Space Center loads cannot
+cold-load the rewind world's pools against the latest pool reference (which would file the drop as
+a leak row); the window left is the first seconds of the Space Center load.
+Tests: `RewindVesselHoldTests` (the flag and the skip); the write itself needs a flight.
 
 ## ~~CLAIMED-VESSEL-VANISHES-BEFORE-ITS-CLAIM: after a rewind, a vessel a committed future claims disappears until the claiming recording starts~~ [FILED 2026-10-16 from the coverage audit (`roadmap/coverage-matrix-2026-10-16.md` section 5), confirmed in EVA-11's `2026-10-15_2343` log (the rover is despawned at the rewind load and nothing draws it for about 15 s of game time, until its member recording's ghost spawns). FIXED 2026-10-16, branch `claude/project-thread-wr5u4k`; xUnit; EVA-11 `2026-10-16_2256` showed it drawn and released at the claim, in the post-claim shape (the follow-up below); LIVE-PROVEN by EVA-11 `2026-10-16_2322` (PASS attempt 1, `parts=16 ... from=rewind-save`). product]
 
@@ -1410,7 +1463,7 @@ Re-Fly slots (a commandless cabin cannot be flown), so a crewed-part rule needs 
 between "record it" and "offer it to Re-Fly". Next step: fly a Hitchhiker undock to confirm
 what KSP calls the separated cabin and what Parsek writes.
 
-## FOREIGN-BOARD-LEAVES-NO-GHOST-CLAIM: boarding a vessel from another mission does not claim it for ghost playback [FILED 2026-10-17 from the crew-across-vessels code trace, branch `claude/crew-across-vessels-db6ycy`. OPEN, to be checked by the EVA hop lane. product]
+## ~~FOREIGN-BOARD-LEAVES-NO-GHOST-CLAIM: boarding a vessel from another mission does not claim it for ghost playback~~ [FILED 2026-10-17 from the crew-across-vessels code trace, branch `claude/crew-across-vessels-db6ycy`. FIXED 2026-10-22 (xUnit), branch `claude/project-thread-stn7at`; no lane boards a foreign vessel yet. product]
 
 A Board merge onto a vessel outside the tree stamps no target pid (`HandleTreeBoardMerge`; design
 `design-dock-event-graph.md` item 1 deferred Board stamping), so `GhostChainWalker` sees no claim
@@ -1419,6 +1472,14 @@ the boarding: the boarded vessel stays a real vessel while the boarding mission'
 also plays and spawns it at its end, a possible duplicate. The crew side no longer depends on the
 stamp (CROSS-TREE-CREW-TRANSFER-STRANDS-RESERVATION follow-up). Fix candidate: stamp the partner
 pid and guid on a Board merge whose target is outside the tree, as a Dock does.
+
+Fix (2026-10-22, branch `claude/project-thread-stn7at`): the candidate. `HandleTreeBoardMerge` passes
+`ParsekFlight.ResolveBoardPartnerStamp` (the boarded vessel's pid and live launch guid when it is
+not in the tree's `BackgroundMap`; 0 for a same-tree board, a two-parent merge) as the branch
+partner stamp (`Board merge partner stamp: ...` Verbose line). The chain walker, the Re-Fly and
+rewind holds and the cross-tree mission links read it like a Dock stamp; the absorbed-spawn
+suppression stays Dock-only. Tests: `RewindVesselHoldTests` (stamp, and the stamp read as a change
+claim).
 
 ## ~~SWITCH-SEGMENT-STARTS-WITHOUT-A-START-SNAPSHOT: a vessel flown again replays in its end shape and counts only its end crew~~ [FILED 2026-10-17 from the crew-across-vessels code trace, verified by a red xUnit test. FIXED 2026-10-17, branch `claude/crew-across-vessels-db6ycy`. LIVE-PROVEN 2026-10-22 by S0.8 `2026-10-22_1228` (branch `claude/project-thread-77b92l`): `StartRecording: forwarded start ghost snapshot` is now required. product]
 
@@ -3263,7 +3324,7 @@ repeats it).
 
 ---
 
-## CLAIMED-VESSEL-DESPAWN-AT-REWIND-OUTSIDE-FLIGHT: a vessel a committed future mission claims should leave the KSC and Tracking Station at the rewind, as it does in flight [FILED 2026-10-07 from the owner ruling on PR #2029, branch `fix-chain-tip-outside-flight`. OPEN, product design; follow-up, not a release blocker]
+## ~~CLAIMED-VESSEL-DESPAWN-AT-REWIND-OUTSIDE-FLIGHT: a vessel a committed future mission claims should leave the KSC and Tracking Station at the rewind, as it does in flight~~ [FILED 2026-10-07 from the owner ruling on PR #2029, branch `fix-chain-tip-outside-flight`. FIXED 2026-10-22 (xUnit), branch `claude/project-thread-stn7at`; LIVE-PROVEN by EVA-11 `2026-10-22_1431` (Space Center and Tracking Station recover refused: vessel not found)]
 
 Design 12.5 / 20.3 despawn a claimed vessel at the rewind in every scene. Today only flight does
 (`FilterAndGhostChains`); outside flight PR #2029 replaces the stale vessel when the chain tip's
@@ -3277,6 +3338,14 @@ Fix: hide the claimed vessel at the rewind outside flight too (ghost map presenc
 removal from the KSC / TS vessel lists, routes treating it as chain-ghosted the way flight BLOCKS
 its crossings), reusing `ClaimedVesselRemoval` so crew survive. Decide first how the player sees
 it in the TS until the tip spawns.
+
+Fix (2026-10-22, branch `claude/project-thread-stn7at`): owner ruling (decision card, 2026-10-22): hidden outside flight until
+its committed flight's own ghost appears. The plain rewind's vessel hold removes every chain-claimed
+vessel from the rewind's world before any scene loads it (see
+REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE), so the Space Center and the Tracking Station
+never hold it live, routes find no endpoint to deliver into, and the tip spawns with no stale vessel
+to replace; the crew go Available through the rewind's orphaned-crew rescue. The GC-2 click-blocks
+stay for any live claimed vessel a load outside a rewind still shows.
 
 ---
 

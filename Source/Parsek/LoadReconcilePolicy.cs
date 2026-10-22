@@ -83,6 +83,10 @@ namespace Parsek
         /// counted rows (committed-value rule plan 2.4), saved in the PARSEK node; kept leaks are
         /// <c>StockPoolAdjustment</c> ledger rows.</summary>
         StockPoolReference,
+        /// <summary><c>RewindVesselHold</c>: the vessels the last plain rewind held back for their
+        /// committed future (rewind design 10.13), with the rewind save's copy of each, saved in
+        /// the PARSEK node.</summary>
+        RewindVesselHolds,
     }
 
     /// <summary>What a load does with one category today.</summary>
@@ -456,6 +460,7 @@ namespace Parsek
                 case LoadStateCategory.KerbalSlots:
                 case LoadStateCategory.GroupHierarchy:
                 case LoadStateCategory.StockPoolReference:
+                case LoadStateCategory.RewindVesselHolds:
                     return true;
                 case LoadStateCategory.UntaggedLedgerRowsAfterCutoff:
                 case LoadStateCategory.PendingScience:
@@ -519,6 +524,7 @@ namespace Parsek
                 case LoadStateCategory.Milestones: return DecideMilestones(kind);
                 case LoadStateCategory.VesselNames: return DecideVesselNames(kind);
                 case LoadStateCategory.StockPoolReference: return DecideStockPoolReference(kind);
+                case LoadStateCategory.RewindVesselHolds: return DecideRewindVesselHolds(kind);
             }
             throw new ArgumentOutOfRangeException(nameof(category), category, "unknown LoadStateCategory");
         }
@@ -1039,6 +1045,41 @@ namespace Parsek
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
                     return Today(LoadReconcileAction.Save, StockPoolReferenceFromSave);
+            }
+            throw UnknownKind(kind);
+        }
+
+        private const string RewindVesselHoldsMemory =
+            "RewindVesselHold is static memory: the vessels a plain rewind held back stay held across "
+            + "scene changes and reverts, which reload a world that no longer holds them";
+
+        // Rewind design 10.13: the holds describe the world of the save that holds them (the
+        // held vessels are absent from it), so a cold load takes the save's; a plain rewind
+        // computes its own from the rewind save's world; a Re-Fly takes its own invoke holds.
+        private static LoadReconcileDecision DecideRewindVesselHolds(LoadKind kind)
+        {
+            switch (kind)
+            {
+                case LoadKind.Cold:
+                    return Today(LoadReconcileAction.Save,
+                        "ParsekScenario.LoadRewindVesselHolds -> RewindVesselHold.LoadFrom installs the loaded node's "
+                        + "REWIND_VESSEL_HOLDS: the save's world lacks exactly those vessels");
+                case LoadKind.PlainRewind:
+                    return Today(LoadReconcileAction.Clear,
+                        "cleared in the prologue; HandleRewindOnLoad -> ApplyRewindVesselHolds then holds what the "
+                        + "committed future uses in the rewind save's world");
+                case LoadKind.ReFlyStart:
+                    return Today(LoadReconcileAction.Clear,
+                        "the Re-Fly invoke holds the vessels its rewind point's world brings back "
+                        + "(RewindInvoker.HoldResurrectedVesselsWithCommittedFuture, saved on its marker)");
+                case LoadKind.DiscardReFly:
+                    return Today(LoadReconcileAction.Clear,
+                        "the Re-Fly start cleared them; the discard lands in the rewind point's world");
+                // Consumed in the prologue, before the revert detector: one cell for all three.
+                case LoadKind.StockRevert:
+                case LoadKind.QuickloadFlight:
+                case LoadKind.InSessionOther:
+                    return Today(LoadReconcileAction.Memory, RewindVesselHoldsMemory);
             }
             throw UnknownKind(kind);
         }

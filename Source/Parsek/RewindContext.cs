@@ -72,6 +72,21 @@ namespace Parsek
         internal static double RewindSaveClockUT { get; private set; } = double.NaN;
 
         /// <summary>
+        /// True once the rewind wrote its own game (the pre-processed rewind save, carrying the
+        /// live Parsek node) to persistent.sfs for the Space Center start to reload. A scene-exit
+        /// save of the scene being left must not overwrite it before that reload
+        /// (<c>SceneExitInterceptor.SafeWritePersistent</c> skips while it is set).
+        /// </summary>
+        internal static bool RewindGameWrittenToPersistent { get; private set; }
+
+        /// <summary>Marks the rewind game as written to persistent.sfs (see <see cref="RewindGameWrittenToPersistent"/>).</summary>
+        internal static void MarkRewindGameWrittenToPersistent()
+        {
+            RewindGameWrittenToPersistent = true;
+            ParsekLog.Verbose("RewindContext", "MarkRewindGameWrittenToPersistent: rewind game is persistent.sfs until the rewind ends");
+        }
+
+        /// <summary>
         /// Sets all rewind state at the start of a rewind operation.
         /// RewindAdjustedUT and RewindQuicksaveVesselPids are set separately
         /// (after LoadGame and PreProcessRewindSave respectively).
@@ -81,6 +96,7 @@ namespace Parsek
         {
             IsRewinding = true;
             RewindUT = ut;
+            RewindGameWrittenToPersistent = false;
             RewindHistoricalSpawnKeepRecordingIds = null;
             RewindSaveRoutes = null;
             RewindSaveClockUT = double.NaN;
@@ -113,6 +129,7 @@ namespace Parsek
             RewindHistoricalSpawnKeepRecordingIds = null;
             RewindSaveRoutes = null;
             RewindSaveClockUT = double.NaN;
+            RewindGameWrittenToPersistent = false;
 
             ParsekLog.Info("RewindContext", "EndRewind: all rewind flags cleared");
         }
@@ -227,6 +244,7 @@ namespace Parsek
             RewindHistoricalSpawnKeepRecordingIds = null;
             RewindSaveRoutes = null;
             RewindSaveClockUT = double.NaN;
+            RewindGameWrittenToPersistent = false;
         }
     }
 }
