@@ -3,8 +3,8 @@ id = "CX-2-hitchhiker-decouple-crew"
 # =====================================================================================
 # CX-2: A CREWED CABIN WITH NO COMMAND MODULE LEAVES THE RECORDED VESSEL
 # (todo SPLIT-OF-A-CREWED-COMMANDLESS-PART-READS-AS-DEBRIS; queue item 4 of 2026-10-22).
-# NOT FLOWN. The first flight is a READING run: it shows what KSP writes for the separated
-# cabin and what Parsek records for it and for its kerbal, before any fix.
+# NOT FLOWN. Pins the fix: the cabin records as its own branch (not debris, no Re-Fly slot) and
+# Bob is handed to it at the decouple instead of reading Dead on the pod's recording.
 #
 # THE HOST is `hitchhiker-pad` (built by `harness/tools/build_hitchhiker_pad.py`): an empty
 # sandbox pad and, in the VAB, `HH1 Hitchhiker Drop` = a Mk1-3 pod (the root and the only
@@ -21,15 +21,15 @@ id = "CX-2-hitchhiker-decouple-crew"
 #   (e) Commit, then a save and Rewind-to-Launch, so the produced log shows Bob's crew end
 #       state, his reservation and what the rewound world does with the cabin.
 #
-# WHAT THE READING RUN LOOKS FOR (code read, 2026-10-22, before any fix):
-#   - `Feeding split to coalescer: childPid=... childHasController=False` and a debris child
-#     (`ProcessBreakupEvent: debris child created`) with a 60 s TTL;
-#   - the pod recording's `PopulateCrewEndStates: ... dead=1` for Bob (he is in the start
-#     snapshot and missing from the end snapshot of an intact recording);
-#   - Bob's reservation / death hold lines and the roster status after the rewind.
+# BEFORE THE FIX (code read and xUnit, 2026-10-22): the cabin was fed to the coalescer with
+# `childHasController=False`, became a 60 s debris child, and the pod's recording read Bob
+# `dead=1` (in its start crew, missing from the end crew of an intact flight): a permanent loss.
+# AFTER: `has no command module but carries crew=1: recorded as its own branch`, Bob's Dead
+# inference turned Unknown (`left through a split child`), his pod hold ended at the decouple
+# (`mid-flight split handoff`), and no recording in the lane reads a death.
 # =====================================================================================
 tier = "nightly"
-description = "Crew in a commandless cabin: on hitchhiker-pad a VAB launch of HH1 Hitchhiker Drop (Mk1-3 pod / TD-25 / PPD-10 Hitchhiker), a stock crew transfer moves Bob into the Hitchhiker, recording on the pad, the TD-25 decouples the cabin with Bob inside, a warp past the debris lifetime, a commit and a Rewind-to-Launch. Reads what Parsek records for a crewed part with no command module and what Bob's end state and reservation become."
+description = "Crew in a commandless cabin (todo SPLIT-OF-A-CREWED-COMMANDLESS-PART-READS-AS-DEBRIS): on hitchhiker-pad a VAB launch of HH1 Hitchhiker Drop (Mk1-3 pod / TD-25 / PPD-10 Hitchhiker), a stock crew transfer moves Bob into the Hitchhiker, recording on the pad, the TD-25 decouples the cabin with Bob inside, a warp past the debris lifetime, a commit and a Rewind-to-Launch. Pins that the crewed cabin records as its own branch and that Bob is handed to it, never read as dead."
 instanceProfile = "stock-minimal"
 tags = ["CX-2", "crew", "crew-transfer", "decouple", "commandless", "hitchhiker",
         "debris", "rewind", "kerbin", "sandbox", "pending-flight"]
@@ -85,9 +85,8 @@ D14 = ["kerbin", "sandbox", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# A window until the reading run pins it: the pod's recording, and the cabin's (as debris or
-# as its own branch) if Parsek records one.
-count = { min = 1, max = 6 }
+# The pod's recording and the cabin's own branch; a window until the first flight pins it.
+count = { min = 2, max = 6 }
 
 [expectations.logContracts]
 required = [
@@ -95,11 +94,19 @@ required = [
   "crewtransfer applied kerbal='Bob Kerman' pid=[0-9]+ from=mk1-3pod fromId=[0-9]+ to=crewCabin toId=[0-9]+ crewFrom=2 crewTo=1",
   # (c) The decouple made a new vessel.
   "partaction applied button=decouple ",
+  # The fix, record side: the crewed commandless cabin is its own branch, not debris.
+  "has no command module but carries crew=1: recorded as its own branch, not debris \\(no Re-Fly slot\\)",
+  # The fix, crew side: Bob left through the split child, so he is not Dead on the pod's recording...
+  "InferCrewEndState: crew='Bob Kerman' recording='[^']+' left through a split child",
+  # ...and his pod hold ends at the decouple, where the cabin's recording takes him over.
+  "Reservation bounded by mid-flight split handoff: 'Bob Kerman' ",
   "committree committed=true",
   "\\[Rewind\\] Rewind-to-Launch initiated to UT ",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
+  # Nobody dies in this lane: a death on any recording is the bug.
+  "PopulateCrewEndStates: recording='[^']*' \\(id=[^)]+\\) crew=[0-9]+ aboard=[0-9]+ dead=[1-9]",
 ]
 
 [runtime]

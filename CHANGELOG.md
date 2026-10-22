@@ -71,6 +71,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A kerbal who leaves in a crew cabin is no longer lost.** A Hitchhiker or other cabin with no
+  command module that separates with someone inside is recorded as its own vessel, not debris, and
+  the kerbal goes with it instead of reading as dead. It is not a Re-Fly choice (it cannot fly).
+  (SPLIT-OF-A-CREWED-COMMANDLESS-PART-READS-AS-DEBRIS)
 - **A Rewind-to-Launch holds back every vessel a later flight uses, in every scene.** A vessel a
   committed later flight flies, docks with, boards or recovers leaves the world at the rewind (crew
   safe) and returns as that flight's ghost and end result; in flight a ghost marks where it waits.

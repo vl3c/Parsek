@@ -1233,7 +1233,9 @@ namespace Parsek
                         continue;
                     }
 
-                    bool hasController = ParsekFlight.IsTrackableVessel(v);
+                    // A crewed vessel with no command module records as its own branch too;
+                    // the Rewind Point hook below re-checks controllability for its slots.
+                    bool hasController = ParsekFlight.ShouldRecordAsOwnBranch(v);
                     newVesselInfos.Add((v.persistentId, Recording.ResolveLocalizedName(v.vesselName) ?? "Unknown", hasController));
                 }
             }
@@ -1298,6 +1300,13 @@ namespace Parsek
                     ParsekLog.Warn("Rewind",
                         $"Background split: controllable child pid={info.pid} not in " +
                         $"FlightGlobals.Vessels at RP-hook time; skipping slot");
+                    continue;
+                }
+                if (!ParsekFlight.IsTrackableVessel(childVessel))
+                {
+                    ParsekLog.Verbose("Rewind",
+                        $"Background split: child pid={info.pid} is recorded (crew aboard) but not " +
+                        "controllable; not a Re-Fly slot");
                     continue;
                 }
                 pairs.Add((childVessel, childRecordings[i]));
