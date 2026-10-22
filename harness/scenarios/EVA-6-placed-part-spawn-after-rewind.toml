@@ -101,13 +101,6 @@ inventory = "evaChute,DeployedSeismicSensor"
 [driver]
 kind = "seam"
 steps = [
-  # A stale restore attempt that outlived its clone would be replaced only at the next arm.
-  "ArmCommittedTreeRestoreAttempt: replacing stale context",
-  # RESET-FLIGHT-READY-STATE-LEAVES-RESTORE-ATTEMPT-ARMED (fixed 2026-10-18, extended to every
-  # drop site of the restore clone): the boot's committed-tree restore clone of 'Kerbal X' is
-  # dropped by the DiscardTree, and its armed restore attempt goes with it. Measured
-  # 2026-10-22_1216 (the auto-discard site; the flight-ready-reset site is not reached here).
-  "ClearCommittedTreeRestoreAttemptForDroppedTree: dropped tree=c05c834c[0-9a-f]* matches the armed restore attempt; clearing it reason=auto-discard dropped the restore clone",
   # ACT 0: boot hygiene. The fixture boots FLIGHT on its committed tip (the landed capsule),
   # which the recorder PROMOTES; stop and discard that continuation (the LF-2 / SE-1 recipe)
   # so the kerbal's recording below is a fresh, non-promotion start.
@@ -170,6 +163,11 @@ vesselNames = { "Grand Slam Passive Seismometer" = 1, "Jebediah Kerman" = 1, "#a
 [expectations.logContracts]
 required = [
   "evaexit complete",
+  # RESET-FLIGHT-READY-STATE-LEAVES-RESTORE-ATTEMPT-ARMED (fixed 2026-10-18, extended to every
+  # drop site of the restore clone): the boot's committed-tree restore clone of 'Kerbal X' is
+  # dropped by the DiscardTree, and its armed restore attempt goes with it. Measured
+  # 2026-10-22_1216 (the auto-discard site; the flight-ready-reset site is not reached here).
+  "ClearCommittedTreeRestoreAttemptForDroppedTree: dropped tree=c05c834c[0-9a-f]* matches the armed restore attempt; clearing it reason=auto-discard dropped the restore clone",
   "startrecording recordingId=[0-9a-f]+ already=false",
   "Captured rewind save at UT ([0-9.]+): vessel \"Jebediah Kerman\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
   "evagroundscience place start kerbal=Jebediah Kerman part=DeployedSeismicSensor slot=1 inventory=0:evaChute,1:DeployedSeismicSensor",
@@ -215,6 +213,8 @@ forbidden = [
   "De-overlap for #[0-9]+ \\\"Jebediah Kerman\\\": nudged",
   "De-overlap for #[0-9]+ \\\"Grand Slam Passive Seismometer\\\": nudged",
   "Overlap not exempt: other-tree vessel",
+  # A stale restore attempt that outlived its clone would be replaced only at the next arm.
+  "ArmCommittedTreeRestoreAttempt: replacing stale context",
 ]
 
 [runtime]

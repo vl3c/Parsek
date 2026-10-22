@@ -11335,6 +11335,15 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
         v = hlib.validate_spec(bad, reg)
         self.assertFalse(v.ok)
 
+    def test_validate_spec_reports_a_non_table_step_instead_of_crashing(self):
+        spec = copy.deepcopy(load_spec("S4.1-rewind-merge.toml"))
+        reg = load_registry()
+        spec["driver"]["steps"].insert(0, "ArmCommittedTreeRestoreAttempt: replacing stale context")
+        v = hlib.validate_spec(spec, reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any(e.startswith("driver.steps[0]: must be a table") for e in v.errors),
+                        v.errors)
+
     def test_validate_spec_rejects_malformed_structure_block(self):
         spec = copy.deepcopy(load_spec("S4.1-rewind-merge.toml"))
         spec["expectations"]["recordings"]["structure"] = {

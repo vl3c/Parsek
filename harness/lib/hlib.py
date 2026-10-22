@@ -6985,6 +6985,14 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     is_autopilot = kind == "autopilot"
 
     steps = driver.get("steps", []) or []
+    # A bare string in the steps array (a logContract line pasted one table too high)
+    # is a spec error, not a crash: every step rule below reads a table.
+    non_table = [i for i, s in enumerate(steps) if not isinstance(s, dict)]
+    for i in non_table:
+        errors.append("driver.steps[%d]: must be a table { cmd = ... }, got %s %r"
+                      % (i, type(steps[i]).__name__, steps[i]))
+    if non_table:
+        steps = [s for s in steps if isinstance(s, dict)]
     autorun = driver.get("autorun")
 
     # skipTailOnUnmetMission (the unmet-mission tail opt-out): bool when present.
