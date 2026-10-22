@@ -16,6 +16,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## CONTRACT-CANCEL-PENALTY-IGNORES-STOCK-TIME-LERP: a cancelled contract files its full failure penalty, but stock charges less the earlier the cancel [FILED 2026-10-22 from the L9 authoring decompile (KSP 1.12.5), code read, not reproduced. OPEN, medium. product]
+
+Stock `Contract.Cancel()` sets `dateFinished = GameTime`, then `SetState(Cancelled)`, then
+`PenalizeCancellation()`, which charges `Lerp(FundsAdvance, FundsFailure, t)` funds and
+`Lerp(Career.RepLossDeclined, ReputationFailure, t)` reputation with
+`t = InverseLerp(dateAccepted, dateDeadline, dateFinished)`; only `PenalizeFailure` charges the full
+`FundsFailure` / `ReputationFailure`. `GameStateRecorder.OnContractCancelled`
+(`GameStateRecorder.Handlers.cs`, the `fundsPenalty` / `repPenalty` locals) records
+`contract.FundsFailure` and `contract.ReputationFailure` whole, so a cancel early in a long contract
+files a ContractCancel row worth far more than stock took (the career-earned-pad Active contract
+07c8e34d: 27225 filed against about 0.16 charged), and the ledger and stock pools disagree until the
+next patch. Fix: record the penalty stock applies, from the same lerp or from the measured pool
+delta around `onCancelled`. Lane L9 cancels a contract whose advance equals its fail penalty, so its
+funds leg is exact either way; its reputation leg can read this gap (it forbids only the Funds
+GUARDED clamp).
+
 ## SCENE-EXIT-RECOVERY-READS-A-ZERO-ALTITUDE-SEED-AS-ORBITING: an early finalizer pass on a just-decoupled booster extrapolates a recorded point at altitude 0.0 into an Orbiting terminal [FILED 2026-10-22 from RF-L2 `2026-10-22_1026` (PASS), flown for PR #2176. OPEN, low; no verdict or saved terminal affected so far. product]
 
 On the booster's first background finalizer pass after the decouple, before its chutes opened, the
@@ -686,7 +702,9 @@ and logistics design section 10.6).**
   are never settled; batch writes are stamped in UT order; science has no non-cost loss so its settle
   is inert; the projection reserve stays debt-free; reputation's floor uses the debt-free curve (a
   few tenths short, documented). Harness, predicted and not re-flown: only lanes with a loss after a
-  rewind that lies before a committed cost move.
+  rewind that lies before a committed cost move. New lane `L9-career-floor-debt-after-rewind`
+  (authored 2026-10-22, never flown): a contract cancel after a rewind settles at the funds floor and
+  a later accept pays the Debt; phase 4 makes its cancel a refused step and re-pins it.
 - O2: a stock revert removes only the rows the reverted flight wrote; every committed row stays
   (matches D2). **FIXED 2026-10-22** (branch `claude/project-thread-6f7rhy`): Parsek remembers
   the ledger's row ids where stock captures its revert targets (every non-revert flight entry for

@@ -1,0 +1,263 @@
+schema = 1
+id = "L9-career-floor-debt-after-rewind"
+tier = "nightly"
+# CAREER x REWIND: THE RESERVED FLOOR AND THE DEBT (committed-value rule phase 3, plan
+# docs/dev/plans/committed-value-rule-implementation.md section 2.3; design
+# docs/parsek-game-actions-and-resources-recorder-design.md 3.13 rule 4; todo
+# LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY). The live check that, after a rewind, a funds loss
+# that a committed purchase lies ahead of stops at the reserved floor, the part below it
+# becomes a Debt, and the walk charges that debt from later room. "Ahead" is judged by
+# capture order: a cost row with a later UT that was captured (cseq) before the loss.
+#
+# THE HOST. `career-earned-pad`: funds 536558 (the fixture ledger's seed 500000 plus five
+# milestones and a 4558 recovery), science 111.6, rep 1.99999881, clock UT 409.56, the
+# Jumping Flea on the pad (persistentId 1846203977; this host's Flea also carries a
+# SurfAntenna and two batteryPack), AllowNegativeCurrency = True, Mission Control and
+# Administration at level 0 (two contract slots, one strategy slot), PartTest 07c8e34d Active
+# (one slot), PartTests 8a2b7d40 and 7692d51a Offered. 8a2b7d40 (an RT-10 test the pad craft
+# cannot complete): advance 9000, fail penalty 9000, reputation failure 4, offer expires UT
+# 21618. 7692d51a: advance 21336.2050652504, expires UT 19304.
+#
+# WHY A CONTRACT WHOSE ADVANCE EQUALS ITS PENALTY. Stock's cancellation penalty is not the
+# fail penalty: decompiled `Contract.PenalizeCancellation` charges
+# Lerp(FundsAdvance, FundsFailure, t) funds and Lerp(Career.RepLossDeclined, ReputationFailure,
+# t) reputation, t = the fraction of the accept-to-deadline span elapsed (`Cancel()` sets
+# `dateFinished` first). These deadlines are millions of seconds out, so an early cancel
+# costs the advance. Parsek's ContractCancel row records FundsFailure / ReputationFailure
+# (`GameStateRecorder.OnContractCancelled`), filed as todo
+# CONTRACT-CANCEL-PENALTY-IGNORES-STOCK-TIME-LERP. 8a2b7d40 makes the FUNDS leg exact on both
+# sides (9000 = 9000 for any t); its REPUTATION leg still differs (stock 3, the row 4), so
+# a reputation guard line at the cancel is that filed defect, not this lane's subject, and is
+# not forbidden here. The cancel is the only non-cost funds loss a player can make at the
+# Space Center (contract fails come from flights or deadlines).
+#
+# WHY THESE PURCHASES. The floor binds only when the pool left after the committed purchases
+# is smaller than the loss: after the rewind the pool IS that remainder (the reserve holds the
+# rest), so the purchases must leave less than 9000 and the costs must be known to the unit.
+# Measured on this install: Administration 0 -> 1 150000 (KB-4 `2026-10-07_0015`), Tracking
+# Station 0 -> 1 150000 (L1 / L8 / QL-1), Mission Control 0 -> 1 75000 (L8). The two
+# funds-only strategies of GUI-5 / L3 at factor 0.06640625 (17/256, exact in float, inside
+# Administration level 1's 0.6 commit range): Appreciation Campaign lerp(35000, 750000) =
+# 82480.46875, Outsourced R&D lerp(38000, 800000) = 88601.5625 (GUI-5 / L3 measured both
+# ends' lerp at 0.05: 76100 and 70750; required reputation at 0.05 was -437.5 and from
+# -500, a few points higher at 0.066). Administration first: level 0 has one strategy slot
+# and the lane needs two (KB-4 had Outsourced R&D reach Parsek's own refusal beside an
+# active Appreciation Campaign, so the two do not conflict). C = 546082.03125.
+#
+# THE WALK (UTs are the plan; the reading run measures them):
+#   accept     boot to the Space Center (UT ~410): accept 8a2b7d40 (+9000), save, reload
+#              into FLIGHT on the pad Flea. The accept must sit before the rewind clock.
+#   flight A   warp the pad to 440, record the Flea, warp to 470 in flight, stop, CommitTree,
+#              Recover (+X). L8's flight A on this host (CommitTree first: a pad-only tree is
+#              auto-discarded at the scene exit).
+#   KSC 1      at ~470: upgrade Administration, Tracking Station, Mission Control (-375000),
+#              activate Appreciation Campaign and Outsourced R&D at factor 0.06640625
+#              (-171081.03125). Five cost rows, all captured before anything below.
+#   rewind     Rewind-to-Launch A from the Space Center: clock ~425 (launch - 15 s). The
+#              recovery and KSC 1 are committed future; the accept stays in the past.
+#   loss       at ~425: cancel 8a2b7d40 (-9000). The ContractCancel row lies BEFORE the
+#              purchases in UT and is captured AFTER them, so the five costs lie ahead of it.
+#   crossing   warp at the Space Center to 540: the recovery, the upgrades and the two
+#              activations cross the clock (strategies switch on in stock, no charge).
+#   room       at ~540: accept 7692d51a, the first gain after the last cost: the debt is
+#              charged from it.
+#
+# THE PLAN, NUMBERS (X = flight A's pad recovery: L2 / L8 measured 4182 for the plain Flea,
+# about 4642 here if the antenna and the two batteries add their catalogue 300 + 80 + 80;
+# the reading run reads it off the `VesselRecovery` row; everything below holds for
+# 524.03125 < X < 9524.03125):
+#   KSC 1      live 536558 + 9000 + X - 546082.03125 = X - 524.03125 (about 4117.97).
+#   rewind     available = X - 524.03125, reserved = C - X (about 541440.03).
+#   loss       stock: X - 524.03125 - 9000 = X - 9524.03125 (about -4882.03; negative, the
+#              host allows it). Walk: the plan is built (Funds costRows = 5; science and
+#              reputation have no cost row), floor at the cancel = need = C - X (the recovery
+#              sits between the cancel and the costs); running after the penalty
+#              545558 - 9000 = 536558 < floor, so `Floor settle` holds back
+#              heldBack = (C - X) - 536558 = 9524.03125 - X (about 4882.03), debt = heldBack,
+#              running = the floor, projected minimum 0, so `PatchFunds` writes 0 (from about
+#              -4882.0). Reputation takes the cancel through the curve, no floor (no
+#              reputation cost ahead).
+#   crossing   running 0 after the last cost, debt unchanged, pool 0.
+#   room       the advance lands (21336.205078125 as the ledger's float, less whatever the
+#              two active converters take if ContractAdvance is in their AffectReasons; not
+#              pinned) and `Debt charge` takes the whole debt from it: charged = heldBack,
+#              debt 0. Final pool about advance - (9524.03125 - X) (about 16454.17 with no
+#              diversion).
+#   Stock with no Parsek ends at the same pool (-4882.03 + the advance); what phase 3 adds is
+#   that the pool never shows money the committed purchases need, and the cancel's
+#   overdraft is held as a Debt (the funds tooltip's `Debt:` line) until room pays it.
+#   A DLL without phase 3 reds: no `cseq=` on the AddEvent / Added action lines, no plan, no
+#   `Floor settle`, and PatchFunds keeps the -4882.0 (AllowNegativeCurrency keeps a deficit).
+#
+# PHASE 4 WILL RE-PIN THIS LANE. Phase 4 (plan 2.5) greys a Cancel whose penalty digs into a
+# reservation: this cancel (9000 against a pool of about 4118) then becomes a refused step
+# (`kscaction refused action=cancel-contract reason=blocked-committed`), and the lane needs a
+# loss the player cannot be blocked from. None is cheap on a committed host today: the only
+# non-cost funds losses are contract fails and cancels, neither PartTest here can fail in
+# flight short of its deadline (millions of seconds out), and the reputation floor needs a
+# committed strategy reputation cost the host's reputation (2) cannot afford (the cheapest
+# is 14.5).
+#
+# NOT COVERED: the `Debt:` tooltip line itself (stock's currency widget has no seam hover; it
+# is pinned by `CurrencyReservationOverlayTests`), and no ledger oracle block (the oracle
+# models neither the floor nor the strategy conversions at the accept; the final pool matches
+# stock's arithmetic anyway).
+#
+# FAST-LANE CHECKLIST: (1) reuse - L8 flies a host with no contracts, and none of
+# career-earned-pad's lanes (H45, L4, LT-3, ST-1) rewinds or spends, so no flight to share;
+# (2) explicit-UT warps only; (3)-(5) n/a (no dwell, burn or coast); (6) retry `none`,
+# deterministic; (7) recordings pinned exactly (2 fixture + flight A); (8) nightly, L8-sized;
+# (9) run flight_efficiency.py after the first green flight.
+#
+# STATUS: AUTHORED 2026-10-22, NEVER FLOWN (reading run). Fly on request.
+#
+# PRE-REGISTERED READINGS (what to check first if the reading run reds):
+#   - The second LoadGame stays at the Space Center (`route=NoVesselSpaceCenter`) and
+#     StartRecording refuses: the save written at the Space Center did not keep the Flea
+#     focusable (stock's FlightState writes activeVessel 0 when FlightGlobals is not ready);
+#     a premise miss, reshape the accept step.
+#   - `kscaction refused action=activate-strategy reason=strategy-cannot-activate ...`: read
+#     stock's reason (slots after the Administration upgrade, a group conflict, required
+#     reputation at 0.066, the recovery summary still open); a premise miss.
+#   - `kscaction refused action=upgrade-facility`: the funds or the level; the costs above
+#     are per (facility, level) and measured on this install.
+#   - `blocking cancel for guid=8a2b7d40...`: a committed resolution exists; a product
+#     question, file it before re-pinning.
+#   - No `Reserved floor plans built`: read `Added action: type=ContractCancel ... cseq=`
+#     against the KSC 1 rows' cseq; 0 or -1 on the cancel means the KSC door did not stamp.
+#   - `Floor settle` present but `heldBack` not 9524.03125 - X: compare X with the
+#     `VesselRecovery` row and the floor with C - X; a different floor means the plan's need
+#     window read another row between the cancel and the costs.
+#   - `GUARDED ... resource=Funds` at the cancel: the guard stepped the settle (it must step
+#     the pre-settle effect); at the accept: the converters' capture with a debt in the walk.
+#     Either is a product finding.
+#   - No `Debt charge`: the advance diverted below the debt, or room found earlier; read the
+#     `Floor walk: pool=Funds` summary after the accept.
+description = "Career x rewind, the reserved floor and the debt (committed-value rule phase 3): on career-earned-pad accept a contract, record and recover a pad flight, spend the career below that contract's penalty (three facility upgrades and two strategies), rewind to the launch, cancel the contract; the loss stops at the floor the committed purchases need and the rest is a debt, which a contract advance after the purchases pays off."
+instanceProfile = "stock-minimal"
+tags = ["L9", "career", "ledger", "rewind", "reserved-floor", "debt", "capture-sequence",
+        "recovery", "contracts", "strategies", "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-earned-pad"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+
+  # ---- before the launch: the contract the loss will cancel (advance 9000 = penalty) ----
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "8a2b7d40-4ee9-4f98-8290-7052ca24afd0" }, expect = "OK", budget = 60 },
+  { cmd = "SaveGame",       args = { name = "persistent" },                                expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+
+  # ---- flight A: the Flea, recorded on the pad, committed, then recovered ----
+  { cmd = "WarpToUT",       args = { ut = "440" },                                         expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "470" },                                         expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "1846203977" },                                 expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "l9-a-committed" },                           expect = "OK" },
+
+  # ---- KSC 1: the committed purchases (C = 546082.03125), Administration first for the slot ----
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/Administration" },   expect = "OK", budget = 60 },
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/TrackingStation" },  expect = "OK", budget = 60 },
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/MissionControl" },   expect = "OK", budget = 60 },
+  { cmd = "KscAction",      args = { action = "activate-strategy", strategy = "AppreciationCampaignCfg", factor = "0.06640625" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",      args = { action = "activate-strategy", strategy = "OutsourcedResearchCfg", factor = "0.06640625" },   expect = "OK", budget = 60 },
+
+  # ---- rewind: A's launch, from the Space Center ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "l9-rewound" },                               expect = "OK" },
+
+  # ---- the loss: captured after the purchases, dated before them ----
+  # Phase 4 turns this step into expect = "REJECTED" (header).
+  { cmd = "KscAction",      args = { action = "cancel-contract", contract = "8a2b7d40-4ee9-4f98-8290-7052ca24afd0" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "l9-cancelled" },                             expect = "OK" },
+
+  # ---- the purchases cross the clock, then the first room after them ----
+  { cmd = "WarpToUT",       args = { ut = "540", maxRate = "100" },                        expect = "OK", budget = 120 },
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "7692d51a-1548-4aaa-8ba2-795cbbc269cf" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "l9-room" },                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "contracts", "facilities", "strategies", "recalc-engine", "ksp-state-patcher"]
+D14 = ["career", "scene-ksc", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's two committed recordings plus flight A; the rewind removes none.
+count = { min = 3, max = 3 }
+
+[expectations.logContracts]
+required = [
+  # ---- before the launch: the accept, stamped ----
+  "kscaction action=accept-contract target=8a2b7d40-4ee9-4f98-8290-7052ca24afd0 applied=true",
+  "AddEvent: ContractAccepted key='8a2b7d40-4ee9-4f98-8290-7052ca24afd0' tag='' ut=[0-9.]+ cseq=[1-9][0-9]*",
+
+  # ---- KSC 1: the five committed purchases, each stamped with a capture sequence ----
+  "kscaction action=upgrade-facility target=SpaceCenter/Administration applied=true",
+  "kscaction action=upgrade-facility target=SpaceCenter/TrackingStation applied=true",
+  "kscaction action=upgrade-facility target=SpaceCenter/MissionControl applied=true",
+  "kscaction action=activate-strategy target=AppreciationCampaignCfg applied=true manifestKind=strategy-activate observedAfter=factor=0\\.06640625 slots=1/[0-9]+ setupFunds=82480\\.4[0-9]* setupSci=0 setupRep=0 fundsDelta=-82480\\.4[0-9]* ",
+  "kscaction action=activate-strategy target=OutsourcedResearchCfg applied=true manifestKind=strategy-activate observedAfter=factor=0\\.06640625 slots=2/[0-9]+ setupFunds=88601\\.5[0-9]* setupSci=0 setupRep=0 fundsDelta=-88601\\.5[0-9]* ",
+  "\\[Ledger\\] Added action: type=FacilityUpgrade, ut=[0-9.]+, recordingId=\\(none\\), writer=\\S+, cseq=[1-9][0-9]*,",
+  "\\[Ledger\\] Added action: type=StrategyActivate, ut=[0-9.]+, recordingId=\\(none\\), writer=\\S+, cseq=[1-9][0-9]*,",
+
+  # ---- the rewind, then the loss: allowed, captured, stamped after the purchases ----
+  "\\[Rewind\\] Rewind-to-Launch initiated to UT ",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*allowing cancel for guid=8a2b7d40-4ee9-4f98-8290-7052ca24afd0 - no committed resolution after now",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*Game state: ContractCancelled '[^'\\r\\n]*' \\(fundsPenalty=9000, repPenalty=4\\)",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*AddEvent: ContractCancelled key='8a2b7d40-4ee9-4f98-8290-7052ca24afd0' tag='' ut=[0-9.]+ cseq=[1-9][0-9]*",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[Ledger\\] Added action: type=ContractCancel, ut=[0-9.]+, recordingId=\\(none\\), writer=StockApplied, cseq=[1-9][0-9]*,",
+  "kscaction action=cancel-contract target=8a2b7d40-4ee9-4f98-8290-7052ca24afd0 applied=true manifestKind=\\S+ observedAfter=state=Cancelled",
+
+  # ---- the floor and the debt ----
+  "Rewind-to-Launch initiated to UT [\\s\\S]*Reserved floor plans built \\(a committed cost was captured before a loss with an earlier UT\\): [^\\r\\n]*pool=Funds rows=[0-9]+ costRows=5\\b",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*Floor settle: ContractCancel id=\\S+ ut=[0-9.]+ effect=-9000 floor=[0-9.]+ heldBack=([0-9.]+) debt=\\1 runningBalance=[0-9.]+ \\(a committed cost captured before this loss needs the rest\\)",
+  "Floor walk: pool=Funds settled=1\\(([0-9.]+)\\) charged=0\\(0\\) debt=\\1 maxFloor=[0-9.]+ plan=pool=Funds rows=[0-9]+ costRows=5 ",
+  # The pool after the cancel: stock's overdraft written back to 0 (the projected minimum).
+  "Floor settle: ContractCancel [^\\r\\n]*\\r?\\n(?:(?!PatchFunds: )[\\s\\S])*PatchFunds: -[0-9]+\\.[0-9] -> -?0\\.0 \\(delta=[0-9]+\\.[0-9], target=-?0\\.0\\)",
+
+  # ---- the purchases cross the clock; the first room after them pays the debt ----
+  "Floor settle: ContractCancel [\\s\\S]*Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* ",
+  "kscaction action=accept-contract target=7692d51a-1548-4aaa-8ba2-795cbbc269cf applied=true",
+  "Floor settle: ContractCancel [^\\r\\n]* heldBack=([0-9.]+) debt=\\1 [\\s\\S]*Debt charge: ContractAccept id=\\S+ ut=[0-9.]+ charged=\\1 debt=0 runningBalance=",
+  "Floor walk: pool=Funds settled=1\\(([0-9.]+)\\) charged=1\\(\\1\\) debt=0 maxFloor=[0-9.]+ plan=pool=Funds rows=[0-9]+ costRows=[0-9]+ ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # Funds only: the cancel's reputation leg is the filed lerp defect (header).
+  "GUARDED (UPLIFT|DRAWDOWN) clamped resource=Funds",
+  "kscaction refused ",
+  "blocking cancel for guid=",
+  # Only the cancel is a loss below a floor; a cost row is never settled.
+  "Floor settle: (?!ContractCancel )",
+  # With a cost ahead the cancel is floored, never stock-clamped (the host allows negative
+  # funds anyway, so phase 2's clamp would not run either).
+  "Zero clamp: ContractCancel ",
+  "KSC reconciliation \\(funds\\): action ContractCancel ",
+]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): each deferred verb waits max(step budget, 600) + 60 = 660 s
+# at worst. Two LoadGames, SaveGame, three WarpToUT, StartRecording, CommitTree, Recover and
+# the rewind are deferred or scene-changing; eight KscActions add 60 s each. L8's 3600 clears
+# it.
+budgetSeconds = 3600
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""
