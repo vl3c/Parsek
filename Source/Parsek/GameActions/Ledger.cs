@@ -333,16 +333,20 @@ namespace Parsek
         /// (KSP refunds it). In-flight orphans always have UT strictly greater than the launch UT
         /// because the clock advances once in flight, so both modes drop them.</para>
         ///
-        /// <para>Safe because every persisted ledger action is stamped with the clock UT at the
-        /// moment it was appended and recording-tied actions carry a recording id, so a
-        /// null-recordingId action at/after the launch UT can only have come from the live
-        /// (non-recorded) part of the discarded session. Seed actions (<see cref="GameActionType.FundsInitial"/>
+        /// <para>An untagged row at/after the launch UT is not always the discarded session's:
+        /// after a rewind the ledger also holds committed future rows (KSC purchases, credits a
+        /// discard kept) later than the launch. <paramref name="keepActionIds"/> names the rows
+        /// the ledger held when the reverted flight started (owner ruling O2,
+        /// <c>ParsekScenario.PruneRevertedFlightLedgerRows</c>); they are kept, so the prune
+        /// removes only what the flight wrote. Null keeps the pre-O2 rule. Seed actions (<see cref="GameActionType.FundsInitial"/>
         /// / <see cref="GameActionType.ScienceInitial"/> / <see cref="GameActionType.ReputationInitial"/>)
         /// are excluded explicitly: they define the session baseline and must survive regardless of UT.</para>
         /// </summary>
-        internal static int PruneOrphanActionsAfterUT(double cutoffUT, bool inclusive = false)
+        internal static int PruneOrphanActionsAfterUT(
+            double cutoffUT, bool inclusive = false, ICollection<string> keepActionIds = null)
         {
             int removed = 0;
+            int keptFromFlightEntry = 0;
             for (int i = actions.Count - 1; i >= 0; i--)
             {
                 var action = actions[i];
@@ -358,24 +362,36 @@ namespace Parsek
                 bool keep = inclusive ? action.UT < cutoffUT : action.UT <= cutoffUT;
                 if (keep)
                     continue;
+                // O2 (owner ruling 2026-10-21): a row the ledger already held when the reverted
+                // flight started is not the flight's; a rewind leaves committed future rows
+                // later than the launch, and the revert keeps them.
+                if (keepActionIds != null && !string.IsNullOrEmpty(action.ActionId)
+                    && keepActionIds.Contains(action.ActionId))
+                {
+                    keptFromFlightEntry++;
+                    continue;
+                }
 
                 actions.RemoveAt(i);
                 removed++;
             }
 
             string boundary = inclusive ? "at/after" : "after";
+            string keptPart = keepActionIds != null
+                ? $", keptFromFlightEntry={keptFromFlightEntry}"
+                : ", flightEntryRows=none";
             if (removed > 0)
             {
                 BumpStateVersion();
                 ParsekLog.Info("Ledger",
                     $"PruneOrphanActionsAfterUT: removed {removed} untagged action(s) {boundary} UT " +
-                    $"{cutoffUT.ToString("R", CultureInfo.InvariantCulture)}, total={actions.Count}");
+                    $"{cutoffUT.ToString("R", CultureInfo.InvariantCulture)}{keptPart}, total={actions.Count}");
             }
             else
             {
                 ParsekLog.Verbose("Ledger",
                     $"PruneOrphanActionsAfterUT: no untagged actions {boundary} UT " +
-                    $"{cutoffUT.ToString("R", CultureInfo.InvariantCulture)} (total={actions.Count})");
+                    $"{cutoffUT.ToString("R", CultureInfo.InvariantCulture)}{keptPart} (total={actions.Count})");
             }
 
             return removed;
@@ -543,12 +559,10 @@ namespace Parsek
         /// cleared, row kept).
         /// </para>
         /// <para>
-        /// ACCEPTED EXPOSURE: an untagged row becomes eligible for
-        /// <see cref="PruneOrphanActionsAfterUT"/>, which drops untagged non-seed rows
-        /// after a launch boundary. This is the SAME exposure the existing discard re-home
-        /// already accepts, and it is the better of the two failure modes: a row that may
-        /// be pruned by a later revert-to-launch, versus a row whose stale tag can erase a
-        /// real payout at the next merge.
+        /// An untagged row stays out of <see cref="PruneOrphanActionsAfterUT"/>'s reach for
+        /// every flight that starts after it: the revert prune keeps the rows the reverted
+        /// flight's entry already held (owner ruling O2). The same holds for the discard
+        /// re-home and the failed-load keep (O3) that also clear tags.
         /// </para>
         /// </summary>
         internal static int ClearRecordingTagForRecordings(ICollection<string> recordingIds)

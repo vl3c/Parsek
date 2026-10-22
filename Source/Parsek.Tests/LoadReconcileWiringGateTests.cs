@@ -134,7 +134,7 @@ namespace Parsek.Tests
             int isRevert = IndexOrFail(body, "ComputeIsRevertOnLoad(");
             int refined = IndexOrFail(body, "LoadReconcilePolicy.ClassifyRefined(");
             int quickloadDiscard = IndexOrFail(body, "DiscardStashedOnQuickload(");
-            int revertPrune = IndexOrFail(body, "Ledger.PruneOrphanActionsAfterUT(");
+            int revertPrune = IndexOrFail(body, "PruneRevertedFlightLedgerRows(");
 
             Assert.True(detect < consume && consume < early,
                 "load-reconcile gate: the early classification reads initialLoadDone after "

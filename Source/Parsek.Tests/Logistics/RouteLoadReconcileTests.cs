@@ -608,7 +608,7 @@ namespace Parsek.Tests.Logistics
                 + "path reads routes from the save and the rewind branch runs HandleRewindOnLoad's own reconcile)");
 
             int refined = body.IndexOf("LoadReconcilePolicy.ClassifyRefined(", StringComparison.Ordinal);
-            int prune = body.IndexOf("Ledger.PruneOrphanActionsAfterUT(", StringComparison.Ordinal);
+            int prune = body.IndexOf("PruneRevertedFlightLedgerRows(", StringComparison.Ordinal);
             // The in-session ledger dispatch (future-actions check + recalculation) lives in
             // RecalculateLedgerForInSessionLoad, which OnLoad calls after the reconcile.
             int recalcCall = body.IndexOf("RecalculateLedgerForInSessionLoad(", StringComparison.Ordinal);

@@ -380,6 +380,10 @@ namespace Parsek
             s_instance = null;
             CurrentTimelineUTProviderForTesting = null;
             currentFlightLaunchUT = double.NaN;
+            flightEntryLedgerActionIds = null;
+            prelaunchEntryLedgerActionIds = null;
+            freshLaunchEntryPending = false;
+            lastLoadDroppedRecordingIds = null;
             pendingFreshRecordingAfterDiscard = null;
         }
 
@@ -4229,11 +4233,13 @@ namespace Parsek
                     {
                         case FreshLaunchUtAction.Capture:
                             currentFlightLaunchUT = loadedUT;
+                            freshLaunchEntryPending = true;
                             ParsekLog.Info("Scenario",
                                 $"Captured fresh-launch UT {loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
                                 "for the Revert-to-editor orphan-prune boundary");
                             break;
                         case FreshLaunchUtAction.Clear:
+                            freshLaunchEntryPending = false;
                             if (!double.IsNaN(currentFlightLaunchUT))
                             {
                                 currentFlightLaunchUT = double.NaN;
@@ -4513,8 +4519,8 @@ namespace Parsek
                         // Route events are not ledger rows: the in-session route reconcile below
                         // retires the reverted flight's route events at this cutoff (raised to the
                         // revert save's route state floor).
-                        int prunedOrphans = Ledger.PruneOrphanActionsAfterUT(
-                            pruneCutoffUT, pruneInclusive);
+                        int prunedOrphans = PruneRevertedFlightLedgerRows(
+                            pruneCutoffUT, pruneInclusive, revertKind);
                         revertPruneCutoffUTForRoutes = pruneCutoffUT;
                         if (prunedOrphans > 0)
                             ParsekLog.Info("Scenario",
@@ -4784,6 +4790,10 @@ namespace Parsek
                     VesselNameStore.RunSpawnLinkBackfill(isRevert ? "onload-tail:revert" : "onload-tail:scene-change");
                     VesselNameStore.ApplyAll(isRevert ? "onload-tail:revert" : "onload-tail:scene-change",
                         VesselNameLiveScope.ProtosOnly);
+                    // The revert target of the flight that starts here (O2); a revert keeps the
+                    // entry it went back to.
+                    if (HighLogic.LoadedScene == GameScenes.FLIGHT && !isRevert)
+                        RememberFlightEntryLedgerRows("in-session:" + refinedLoadKind);
                     loadedRecordingCount = recordings.Count;
                     loadStatus = isRevert ? "returned-revert" : "returned-scene-change";
                     return;
@@ -4944,7 +4954,8 @@ namespace Parsek
                     validIds,
                     reconcileUT,
                     useCurrentUtCutoffForFutureActions:
-                        IsCurrentUtCutoffSupportedScene(HighLogic.LoadedScene));
+                        IsCurrentUtCutoffSupportedScene(HighLogic.LoadedScene),
+                    loadDroppedRecordingIds: TakeLoadDroppedRecordingIds());
 
                 // Supply routes (design §4.7). Loads after recordings + ledger so
                 // Phase 5 source-ref validation has the ERS / ELS data it needs.
@@ -5190,6 +5201,8 @@ namespace Parsek
                 loadPhase = "vessel-names-apply";
                 VesselNameStore.RunSpawnLinkBackfill("onload-tail:cold");
                 VesselNameStore.ApplyAll("onload-tail:cold", VesselNameLiveScope.ProtosOnly);
+                if (HighLogic.LoadedScene == GameScenes.FLIGHT)
+                    RememberFlightEntryLedgerRows("cold");
                 loadedRecordingCount = recordings.Count;
                 loadStatus = "completed";
             }
@@ -5998,6 +6011,7 @@ namespace Parsek
             committedTrees.Clear();
             // Inert trees (GC-3) share the committed trees' lifetime: replaced here.
             InertRecordingTrees.BeginLoad();
+            var namedCommittedRecordingIds = new HashSet<string>(StringComparer.Ordinal);
             ParsekLog.Info("Scenario",
                 $"OnLoad initial: cleared CommittedTrees, loading {treeNodes.Length} tree(s)");
 
@@ -6031,6 +6045,7 @@ namespace Parsek
                         continue;
                     }
 
+                    CollectNamedCommittedRecordingIds(treeNode, namedCommittedRecordingIds);
                     var tree = RecordingTree.Load(treeNode);
                     if (tree.Recordings == null || tree.Recordings.Count == 0)
                     {
@@ -6125,6 +6140,7 @@ namespace Parsek
                     $"{treeWithTrackSections} with track sections, {treeWithSnapshots} with snapshots");
             }
             InertRecordingTrees.LogLoadSummary();
+            NoteLoadDroppedRecordings(namedCommittedRecordingIds, committedTrees);
         }
 
         /// <summary>
