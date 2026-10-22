@@ -555,7 +555,7 @@ and logistics design section 10.6).**
   the earning or penalty they divert), killing a kerbal a committed flight uses (crew reservation).
 - O7: the funds check is no longer advisory: purchases and launch costs are greyed when they eat
   into reserved money (rule 3; closes the P15 half of GUI-P15-D7-TWO-SAFETY-GATES-THAT-EXIST-AND-ARE-NEVER-ARMED).
-- **Plan phase 2 BUILT 2026-10-22** (branch `o6-phase2-local`; plan section 2.4 revision 6): the
+- **Plan phase 2 BUILT 2026-10-22** (branch `claude/project-thread-6f7rhy`; plan section 2.4 revision 7): the
   drawdown guard reads an incremental stock pool reference per pool
   (`GameActions/StockPoolReference.cs`: `lastWritten` and, per row id, the row's walk effect and the
   part stepped), saved in the PARSEK node as `STOCK_POOL_REFERENCE` (`LoadReconcilePolicy` category
@@ -599,6 +599,12 @@ and logistics design section 10.6).**
   the GUARDED WARN fires only on a measured leak; L5 requires the withheld line for B's synthetic
   fail and forbids both the clamp and a 9000 debit; the L3 strategy, LAB-12 and QL-14 forbids keep
   their reading.
+  Known edges from the revision-7 review, not blocking (each needs several rare events in one patch
+  window): a row stock applies in the same frame as a patch (`UT == lastPatchUT`) is left out of the
+  clamp replay, so two contract fails in one frame under a reservation file the second one's clamp as
+  a leak; the replay starts from `lastWritten` minus stepped-back removed rows, not the live pool, so
+  a deduped earning removed in the same patch as a loss near 0 can absorb part of a real leak; ledger
+  order out of UT order plus an untracked earning in one window can be forgiven.
 - O2: a stock revert removes only the rows the reverted flight wrote; every committed row stays
   (matches D2). **FIXED 2026-10-22** (branch `claude/project-thread-6f7rhy`): Parsek remembers
   the ledger's row ids where stock captures its revert targets (every non-revert flight entry for
