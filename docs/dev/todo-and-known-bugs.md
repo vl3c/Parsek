@@ -6579,7 +6579,7 @@ OPEN as follow-ups: one green flight each for the fourteen lanes and EVA-6..EVA-
 their `retry policy = "once"` can go; `LaunchFromEditor` still answers before stock
 onFlightReady (RR-1 waits on `ListHandles kind=chains`), not touched here.
 
-## ~~RESET-FLIGHT-READY-STATE-LEAVES-RESTORE-ATTEMPT-ARMED: the flight-ready reset drops a committed-restore clone tree but leaves its restore attempt armed~~ [FILED 2026-10-03 from EVA-6 `2026-10-03_1437`, branch `closing-flights`; FIXED 2026-10-18. LIVE-PROVEN 2026-10-22 by EVA-6 `2026-10-22_1216` (branch `claude/project-thread-77b92l`) at the auto-discard drop site, which now pins the clear and forbids a stale-context replacement; no lane reaches the flight-ready-reset site itself; observed in a harness boot, not traced on a player path]
+## ~~RESET-FLIGHT-READY-STATE-LEAVES-RESTORE-ATTEMPT-ARMED: the flight-ready reset drops a committed-restore clone tree but leaves its restore attempt armed~~ [FILED 2026-10-03 from EVA-6 `2026-10-03_1437`, branch `closing-flights`; FIXED 2026-10-18. LIVE-PROVEN 2026-10-22 by EVA-6 `2026-10-22_1216`, then `2026-10-22_1243` with the pins (branch `claude/project-thread-77b92l`), at the auto-discard drop site, which now pins the clear and forbids a stale-context replacement; no lane reaches the flight-ready-reset site itself; observed in a harness boot, not traced on a player path]
 
 **Evidence.** Same run as LOADGAME-COMPLETES-BEFORE-ONFLIGHTREADY:
 - 17:38:33.081 `Armed committed-tree restore attempt for 'Kerbal X'
