@@ -744,7 +744,8 @@ namespace Parsek
                         "the revert prune runs only when the in-session branch reads isRevert");
                 case LoadKind.StockRevert:
                     return Today(LoadReconcileAction.Prune,
-                        "ParsekScenario.OnLoad revert branch -> Ledger.PruneOrphanActionsAfterUT at ResolveRevertPruneCutoff, "
+                        "ParsekScenario.OnLoad revert branch -> PruneRevertedFlightLedgerRows at ResolveRevertPruneCutoff "
+                        + "(only rows added since the flight entry; the rows the entry held stay, O2), "
                         + "then LedgerOrchestrator.PruneRevertedFlightStrategyConversionRows "
                         + "for the reverted flight's tagged strategy conversion rows");
                 case LoadKind.QuickloadFlight:

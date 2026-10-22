@@ -21,6 +21,8 @@ Source/Parsek/RecordingStoreTestSnapshot.cs
 Source/Parsek/ParsekScenario.cs
 # [ERS-exempt] the cold load's GAME_STATE read logs the raw row count of the ledger it just loaded.
 Source/Parsek/ParsekScenario.SessionReset.cs
+# [ERS-exempt] the revert prune remembers the raw ledger row ids at each flight entry (O2).
+Source/Parsek/ParsekScenario.RevertLedgerSnapshot.cs
 
 # --- Ledger owner + orchestration internals ---
 Source/Parsek/GameActions/Ledger.cs

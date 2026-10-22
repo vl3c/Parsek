@@ -4604,10 +4604,15 @@ namespace Parsek
         /// surviving ledger still contains later actions. This is needed for loading
         /// older saves/quicksaves behind already-committed recording rewards.
         /// </param>
+        /// <param name="loadDroppedRecordingIds">
+        /// Committed recordings the loaded save names but that did not load (O3): their rows are
+        /// kept, untagged, before the reconcile (<see cref="KeepRowsOfRecordingsThatFailedToLoad"/>).
+        /// </param>
         internal static void OnKspLoad(
             HashSet<string> validRecordingIds,
             double maxUT,
-            bool useCurrentUtCutoffForFutureActions = false)
+            bool useCurrentUtCutoffForFutureActions = false,
+            ICollection<string> loadDroppedRecordingIds = null)
         {
             Initialize();
             InvalidateCommittedFutureSnapshot("ksp-load");
@@ -4657,6 +4662,10 @@ namespace Parsek
             // this falls back to the original scene-driven behavior.
             bool currentUtReady = IsCurrentUtReadyForCutoff(maxUT);
             bool preserveFutureRows = useCurrentUtCutoffForFutureActions || !currentUtReady;
+
+            // O3: a recording the save names but that did not load keeps its rows. Before the
+            // reconcile, which prunes rows tagged to a recording missing from the loaded set.
+            KeepRowsOfRecordingsThatFailedToLoad(loadDroppedRecordingIds, validRecordingIds);
 
             // Reconcile after timestamp-normalizing rollout repair. Current-UT load
             // mode removes orphaned rows but preserves future committed rows so the
@@ -4767,9 +4776,44 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Migration for old saves: converts existing GameStateStore events from committed
-        /// recordings into GameActions and adds them to the ledger.
+        /// Owner ruling O3 (2026-10-21, game-actions design 3.13 / 4.3): a committed recording
+        /// the loaded save names but that failed to load, for any reason, loses its ghost and
+        /// playback, never its ledger rows. The load dropped it and the next save will not name
+        /// it, so its rows are kept as career rows with the tag cleared (the shape a non-rewind
+        /// discard leaves, <see cref="Ledger.ClearRecordingTagForRecordings"/>); keeping the tag
+        /// would let the next load's reconcile prune them. Ids the loaded set still knows (an
+        /// inert tree, GC-3) keep their tagged rows. Returns the number of rows kept this way.
         /// </summary>
+        internal static int KeepRowsOfRecordingsThatFailedToLoad(
+            ICollection<string> loadDroppedRecordingIds, HashSet<string> validRecordingIds)
+        {
+            if (loadDroppedRecordingIds == null || loadDroppedRecordingIds.Count == 0)
+                return 0;
+            var untag = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string id in loadDroppedRecordingIds)
+            {
+                if (string.IsNullOrEmpty(id)) continue;
+                if (validRecordingIds != null && validRecordingIds.Contains(id)) continue;
+                untag.Add(id);
+            }
+            if (untag.Count == 0)
+                return 0;
+
+            int kept = Ledger.ClearRecordingTagForRecordings(untag);
+            var examples = new List<string>();
+            foreach (string id in untag)
+            {
+                if (examples.Count >= 3) break;
+                examples.Add(id);
+            }
+            ParsekLog.Info(Tag,
+                "OnKspLoad: kept " + kept.ToString(CultureInfo.InvariantCulture) +
+                " ledger row(s) of " + untag.Count.ToString(CultureInfo.InvariantCulture) +
+                " committed recording(s) that failed to load (O3, tag cleared, rows kept) ids=[" +
+                string.Join(", ", examples.ToArray()) + (untag.Count > examples.Count ? ", ..." : "") + "]");
+            return kept;
+        }
+
         /// <summary>
         /// The ids of <paramref name="validRecordingIds"/> that do not belong to a committed tree
         /// kept inert (<see cref="InertRecordingTrees"/>). Returns the same set when none do.
@@ -4796,6 +4840,10 @@ namespace Parsek
             return kept;
         }
 
+        /// <summary>
+        /// Migration for old saves: converts existing GameStateStore events from committed
+        /// recordings into GameActions and adds them to the ledger.
+        /// </summary>
         private static void MigrateOldSaveEvents(HashSet<string> validRecordingIds)
         {
             LedgerLoadMigration.MigrateOldSaveEvents(validRecordingIds);
