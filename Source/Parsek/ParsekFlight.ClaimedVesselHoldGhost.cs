@@ -187,6 +187,73 @@ namespace Parsek
                 $"marker={(marker.LoadedFromSave ? "save" : "memory")}");
         }
 
+        /// <summary>
+        /// Rewind design 10.13 on a flight load: the vessels the last plain rewind held back for
+        /// their committed future (<see cref="RewindVesselHold"/>) are absent from the world, so
+        /// nothing would draw them. Tracks each one whose first claim is still ahead with its
+        /// rewind-time copy as the hold ghost's shape (a live one, which only a stale world can
+        /// hold, is despawned as the Re-Fly hold does), so
+        /// <see cref="UpdateClaimedVesselHoldGhosts"/> draws it until the committed recording
+        /// takes over. Logs one summary.
+        /// </summary>
+        private void RestoreRewindVesselHolds(double currentUT)
+        {
+            IReadOnlyList<RewindVesselHold.Hold> holds = RewindVesselHold.Holds;
+            if (holds == null || holds.Count == 0)
+                return;
+            if (vesselGhoster == null)
+                vesselGhoster = new VesselGhoster();
+
+            int restored = 0, heldLive = 0, alreadyHeld = 0, claimPassed = 0, noSnapshot = 0, otherLaunch = 0;
+            for (int i = 0; i < holds.Count; i++)
+            {
+                RewindVesselHold.Hold hold = holds[i];
+                ReFlyInvokeHold.Entry entry = hold?.Entry;
+                if (entry == null || entry.Pid == 0u) continue;
+                Vessel live = FlightRecorder.FindVesselByPid(entry.Pid);
+                string liveGuid = live != null && live.id != Guid.Empty ? live.id.ToString("N") : null;
+                string action = ReFlyInvokeHold.DecideReloadAction(
+                    entry, currentUT, vesselGhoster.IsGhosted(entry.Pid), live != null, liveGuid,
+                    hold.Snapshot != null);
+                switch (action)
+                {
+                    case "claim-passed": claimPassed++; continue;
+                    case "already-held": alreadyHeld++; continue;
+                    case "other-launch": otherLaunch++; continue;
+                    case "no-snapshot": noSnapshot++; continue;
+                    case "hold-live":
+                        if (!vesselGhoster.GhostVessel(entry.Pid)) { noSnapshot++; continue; }
+                        heldLive++;
+                        break;
+                    case "restore":
+                        if (!vesselGhoster.TrackHeldVesselWithoutLiveVessel(
+                                entry.Pid, hold.VesselName ?? hold.Snapshot.GetValue("name"),
+                                hold.Snapshot.CreateCopy()))
+                        {
+                            alreadyHeld++;
+                            continue;
+                        }
+                        restored++;
+                        break;
+                    default:
+                        continue;
+                }
+                AddReFlyInvokeHold(entry, "rewind-hold");
+            }
+
+            if (restored + heldLive > 0)
+                GhostPlaybackLogic.SetIsGhostedOverride(
+                    pid => vesselGhoster != null && vesselGhoster.IsGhosted(pid));
+
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            ParsekLog.Info(ClaimedVesselHoldGhost.Tag,
+                $"Rewind vessel holds restored on flight load: saved={holds.Count.ToString(ic)} " +
+                $"restored={restored.ToString(ic)} heldLive={heldLive.ToString(ic)} " +
+                $"alreadyHeld={alreadyHeld.ToString(ic)} claimPassed={claimPassed.ToString(ic)} " +
+                $"otherLaunch={otherLaunch.ToString(ic)} noSnapshot={noSnapshot.ToString(ic)} " +
+                $"UT={currentUT.ToString("F1", ic)}");
+        }
+
         /// <summary>The FLIGHTSTATE of the rewind point's quicksave, or null when it cannot be read.</summary>
         private static ConfigNode ReadRewindPointFlightState(ParsekScenario scenario, string rewindPointId)
         {

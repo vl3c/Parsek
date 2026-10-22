@@ -167,8 +167,11 @@ required = [
   "result: hardFailures=0 reportOnly=0 facetsCompared=11 strict=False",
   "\\[Rewind\\] Rewind-to-Launch initiated to UT ",
   "\\[Rewind\\] Rewind: adjustedUT=0\\.0, rewindUT=",
-  "PatchScience: 107\\.0 -> 100\\.0 \\(delta=-7\\.0, target=100\\.0\\)",
-  "PatchReputation: 2\\.00 -> 0\\.00 \\(target=0\\.00\\)",
+  # The rewind lands in its own save's world (written to persistent.sfs before the Space
+  # Center load), whose pools are already at the launch values, so the recalc either patches
+  # down to the target or finds the balance already there.
+  "PatchScience: (?:[0-9.]+ -> 100\\.0 \\([^)]*target=100\\.0\\)|balance unchanged \\(current=100\\.0, target=100\\.0\\))",
+  "PatchReputation: (?:[0-9.]+ -> 0\\.00 \\(target=0\\.00\\)|no change needed \\(current=0\\.00, target=0\\.00\\))",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

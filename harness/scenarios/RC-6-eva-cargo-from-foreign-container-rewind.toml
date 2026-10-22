@@ -119,9 +119,11 @@ required = [
   "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*Chain built: vessel=1871615455 links=1 tip=\\1 ",
   "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
   "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*invokerewindtolaunch complete [\\s\\S]*listhandles chain index=[0-9]+ pid=1871615455 links=1 trees=1 treeIds=[0-9a-f]{32} tip=\\1",
-  # After the rewind the rover is a ghost, then spawns at its tip with 16 parts and
-  # without the chute: the other storage unit's three parts only.
-  "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Vessel ghosted: pid=1871615455 name=rover fuel 0[\\s\\S]*\\[Ghoster\\] Chain tip spawn: pid=1871615455 vessel=rover fuel 0 preserveIdentity=true [^\\r\\n]*parts=16",
+  # The rewind holds the rover back for its committed future (removed from the world, a
+  # hold ghost in flight), then it spawns at its tip with 16 parts and without the chute:
+  # the other storage unit's three parts only.
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind held vessel for its committed future: pid=1871615455 name='rover fuel 0' [^\\r\\n]*evidence=chain [^\\r\\n]*snapshot=yes",
+  "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Held vessel tracked without a live vessel: pid=1871615455 name=rover fuel 0[\\s\\S]*\\[Ghoster\\] Chain tip spawn: pid=1871615455 vessel=rover fuel 0 preserveIdentity=true [^\\r\\n]*parts=16",
   "invokerewindtolaunch complete [\\s\\S]*(?:Vessel respawned|SpawnAtPosition: vessel spawned) \\(sit=[A-Z_]+, pid=1871615455[,)][^\\r\\n]* storedParts=3 \\[DeployedCentralStation x1, evaScienceKit x2\\]",
   "invokerewindtolaunch complete [\\s\\S]*Chain tip spawn complete: #[0-9]+ \"rover fuel 0\" pid=1871615455",
   "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=rc6-spawned-[^\\r\\n]*-\\1-true-1871615455-",
@@ -131,6 +133,8 @@ required = [
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "evagroundscience failed",
+  # The held rover is never a live vessel the ghoster hides.
+  "\\[Ghoster\\] Vessel ghosted: pid=1871615455 ",
   "evagroundscience refused",
   "Foreign inventory transfer: no background recorder",
   "lost its member recording",

@@ -1486,6 +1486,11 @@ namespace Parsek
                 savePhase = "stock-pool-reference";
                 StockPoolReference.SaveTo(node);
 
+                // The vessels the last plain rewind held back, with their rewind-time copies
+                // (rewind design 10.13).
+                savePhase = "rewind-vessel-holds";
+                RewindVesselHold.SaveInto(node);
+
                 // Strip ghost map ProtoVessels — they are transient and reconstructed on load
                 savePhase = "ghost-map-strip";
                 if (GhostMapPresence.ghostMapVesselPids.Count > 0)
@@ -3984,6 +3989,11 @@ namespace Parsek
                 loadPhase = "stock-pool-reference-load";
                 LoadStockPoolReference(node, earlyLoadKind);
 
+                // The vessels a plain rewind held back for their committed future describe the
+                // world of the save that holds them (LoadReconcilePolicy, RewindVesselHolds).
+                loadPhase = "rewind-vessel-holds-load";
+                LoadRewindVesselHolds(node, earlyLoadKind);
+
                 // A rewind point always survives a plain rewind (operator ruling
                 // 2026-09-23). The node above is persistent.sfs as last written, not the
                 // rewind save (SpaceCenterMain.Start reloads persistent), so its RP list is
@@ -5388,6 +5398,10 @@ namespace Parsek
                 }
                 RewindContext.SetQuicksaveVesselPids(null);
             }
+
+            // Hold back every vessel of the rewind's world the committed future uses after the
+            // rewind (rewind design 10.13, flight recorder design 12.5 / 20.3), in every scene.
+            ApplyRewindVesselHolds(RewindContext.RewindAdjustedUT);
 
             // Defense-in-depth: reconcile spawn state after all strips (#168).
             // ResetAllPlaybackState already zeroed spawn PIDs, so this should be a no-op,
@@ -7470,6 +7484,7 @@ namespace Parsek
             double baselineFunds = RewindContext.RewindBaselineFunds;
             double baselineScience = RewindContext.RewindBaselineScience;
             float baselineRep = RewindContext.RewindBaselineRep;
+            bool rewindGameWrittenToPersistent = RewindContext.RewindGameWrittenToPersistent;
 
             // CRITICAL: yield at least one frame before touching any singleton.
             // During OnLoad, singletons from the OLD scene may still be alive.
@@ -7525,6 +7540,11 @@ namespace Parsek
             // should no-op instead of patching the same balances again.
             budgetDeductionApplied = true;
 
+            // The rewind wrote its own game to persistent.sfs before this scene loaded (with the
+            // last live Parsek node); put the stripped world, the holds and the patched pools on
+            // disk together so a crash from here on cold-loads a consistent file.
+            if (rewindGameWrittenToPersistent)
+                RecordingStore.WritePersistentAfterRewindAdjustment();
         }
 
         #endregion
