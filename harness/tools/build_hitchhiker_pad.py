@@ -28,7 +28,7 @@ WHAT IS COPIED AND WHAT IS DERIVED.
       child.pos = parent.pos + parent_node_offset - child_opposite_node_offset
   with the pod's bottom (-0.47924) and the TD-25's top / bottom (+-0.1) node offsets
   read off Kerbal X's own PIPE-FORMAT attN tokens. The Hitchhiker's top / bottom offsets
-  (`CABIN_NODE_TOP` / `CABIN_NODE_BOTTOM`) come from its part cfg (crewCabin.cfg
+  (`CABIN_NODE_TOP` / `CABIN_NODE_BOTTOM`) come from its part cfg (hitchikerStorageContainer.cfg
   node_stack_top / node_stack_bottom); no KSP-written craft token exists for it. A
   visible gap or overlap between the TD-25 and the cabin is that number, and it is
   cosmetic (the joint is made from the node pair, not from the gap).
@@ -85,9 +85,9 @@ POD_NODE_BOTTOM = -0.47924
 POD_NODE_TOP = 1.19318998
 DECOUPLER_NODE_TOP = 0.100000001
 DECOUPLER_NODE_BOTTOM = -0.100000001
-# crewCabin.cfg (KSP 1.12.5) node_stack_top / node_stack_bottom.
-CABIN_NODE_TOP = 1.0
-CABIN_NODE_BOTTOM = -1.0
+# hitchikerStorageContainer.cfg (KSP 1.12.5, part crewCabin) node_stack_top / node_stack_bottom, float32 form.
+CABIN_NODE_TOP = 0.986899018
+CABIN_NODE_BOTTOM = -0.986899018
 
 POD_Y = 15.0
 

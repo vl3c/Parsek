@@ -2,7 +2,7 @@ ship = HH1 Hitchhiker Drop
 version = 1.12.5
 description = HH1 Hitchhiker Drop. A Mk1-3 pod over a TD-25 decoupler over a PPD-10 Hitchhiker crew cabin (four seats, no command module). The VAB seats the pod only; the lane moves one kerbal into the cabin and decouples it on the pad. Built by construction by harness/tools/build_hitchhiker_pad.py.
 type = VAB
-size = 2.5,3.87243,2.5
+size = 2.5,3.846228,2.5
 steamPublishedFileId = 0
 persistentId = 2200220011
 rot = 0,0,0,1
@@ -534,9 +534,9 @@ PART
 	part = crewCabin_4250000003
 	partName = Part
 	persistentId = 1700220003
-	pos = 0,13.320759998,0
+	pos = 0,13.33386098,0
 	attPos = 0,0,0
-	attPos0 = 0,-1.100000001,0
+	attPos0 = 0,-1.086899019,0
 	rot = 0,0,0,1
 	attRot = 0,0,0,1
 	attRot0 = 0,0,0,1
@@ -555,8 +555,8 @@ PART
 	modCost = 0
 	modMass = 0
 	modSize = 0,0,0
-	attN = top,Decoupler.2_4250000002_0|1|0
-	attN = bottom,Null_0_0|-1|0
+	attN = top,Decoupler.2_4250000002_0|0.986899018|0
+	attN = bottom,Null_0_0|-0.986899018|0
 	EVENTS
 	{
 	}
