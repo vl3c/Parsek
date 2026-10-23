@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~CONTRACT-CANCEL-PENALTY-IGNORES-STOCK-TIME-LERP: a cancelled contract files its full failure penalty, but stock charges less the earlier the cancel~~ [FILED 2026-10-22 from the L9 authoring decompile (KSP 1.12.5), code read, not reproduced. FIXED 2026-10-23 in PR #PRNUM (unit cells; L9 re-flight pending). product]
+## ~~CONTRACT-CANCEL-PENALTY-IGNORES-STOCK-TIME-LERP: a cancelled contract files its full failure penalty, but stock charges less the earlier the cancel~~ [FILED 2026-10-22 from the L9 authoring decompile (KSP 1.12.5), code read, not reproduced. FIXED 2026-10-23 in PR #2184 (unit cells; L9 re-flight pending). product]
 
 Stock `Contract.Cancel()` sets `dateFinished = GameTime`, then `SetState(Cancelled)`, then
 `PenalizeCancellation()`, which charges `Lerp(FundsAdvance, FundsFailure, t)` funds and
@@ -44,7 +44,7 @@ float-narrowed dates and `Math.Abs`; `RepLossDeclined` comes from `ClickReservat
 The Info line now carries `t=` and the contract's `failFunds=` / `failRep=`. Rows already in a
 ledger keep their recorded values (no migration). Cells: `ContractOutcomeRowsTests`.
 
-## ~~CONTRACT-CANCEL-ALSO-FILES-A-FAIL-ROW: a Space Center contract cancel files a ContractFail row for the same contract right after the ContractCancel row~~ [FILED 2026-10-22 from L9 `2026-10-22_1332`. FIXED 2026-10-23 in PR #PRNUM (unit cells; L9 re-flight pending). product]
+## ~~CONTRACT-CANCEL-ALSO-FILES-A-FAIL-ROW: a Space Center contract cancel files a ContractFail row for the same contract right after the ContractCancel row~~ [FILED 2026-10-22 from L9 `2026-10-22_1332`. FIXED 2026-10-23 in PR #2184 (unit cells; L9 re-flight pending). product]
 
 After `kscaction cancel-contract 8a2b7d40` the log holds `AddEvent: ContractCancelled ... cseq=18`,
 `Added action: type=ContractCancel ... cseq=18`, a recalculation, then 6 ms later
@@ -159,7 +159,7 @@ re-capture, or a seed plus the award). Next: read QL-2's collected KSP.log aroun
 post-load recalculation for the reputation rows the walk processed, and compare with the
 quicksave's ledger.
 
-## ~~STOCK-OFFER-EXPIRED-ACTIVE-CONTRACT-NO-TERMINAL-ROW: an Active contract stock ends as OfferExpired files no terminal ledger row~~ [FILED 2026-10-22 from the clean review of committed-value plan phase 2 (a075d07), code read, not reproduced. FIXED 2026-10-23 in PR #PRNUM (unit cells; not flown: no lane drives a requirements loss). product]
+## ~~STOCK-OFFER-EXPIRED-ACTIVE-CONTRACT-NO-TERMINAL-ROW: an Active contract stock ends as OfferExpired files no terminal ledger row~~ [FILED 2026-10-22 from the clean review of committed-value plan phase 2 (a075d07), code read, not reproduced. FIXED 2026-10-23 in PR #2184 (unit cells; not flown: no lane drives a requirements loss). product]
 
 Stock's `Contract.Update()` ends an Active contract whose requirements no longer hold with
 `SetState(State.OfferExpired)`, which charges no penalty (`SetState` penalizes only `Failed` and
