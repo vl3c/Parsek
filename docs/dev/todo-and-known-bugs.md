@@ -5371,7 +5371,7 @@ Sibling gap filed as EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED.
 
 ---
 
-## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; LIVE-PROVEN by EVA-11 `2026-10-15_2343`. FOREIGN EVA KERBAL HALF FIXED 2026-10-23, branch `claude/project-thread-y4esmb`; xUnit; lane EVA-12. Still open: a part detached and dropped on the ground]
+## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; LIVE-PROVEN by EVA-11 `2026-10-15_2343`. FOREIGN EVA KERBAL HALF FIXED 2026-10-23, branch `claude/project-thread-y4esmb`; xUnit; LIVE-PROVEN by EVA-12 `2026-10-23_2257`. Still open: a part detached and dropped on the ground]
 
 The inventory fix records a stored part moved into or out of a foreign vessel's container, but two
 neighbours of the same defect remain. `EVAConstructionModeEditor` fires
@@ -5471,7 +5471,8 @@ funds, science or reputation; holds are derived, so a discard or supersede of th
 the earlier hold back. Seam: `EvaGroundScience take from=<kerbal>` takes from that kerbal's own
 inventory. Cells in `ForeignKerbalCargoHandoffTests`, `ForeignInventoryTransferTests`,
 `TestCommandEvaGroundScienceTests`. Lane `EVA-12-cargo-from-foreign-kerbal-rewind` (RC-6's shape,
-Bob Kerman as the partner): authored 2026-10-23, live result below when flown.
+Bob Kerman as the partner): LIVE-PROVEN 2026-10-23 on its first flight, `2026-10-23_2257` PASS attempt 1
+(Bob held through the rewind, spawned with `storedParts=0`; Bill spawned with the kit).
 
 Still OPEN: a part detached from a foreign vessel and then dropped on the ground (a new vessel no
 recording carries). Also noticed, not fixed (pre-existing, filed here rather than widened): KSC

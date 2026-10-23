@@ -2,7 +2,7 @@ schema = 1
 id = "EVA-12-cargo-from-foreign-kerbal-rewind"
 # =====================================================================================
 # EVA-12 (todo EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED, the foreign EVA kerbal half,
-# fixed 2026-10-23 on `claude/project-thread-y4esmb`, never flown): a recording EVA kerbal
+# fixed 2026-10-23 on `claude/project-thread-y4esmb`, live-proven `2026-10-23_2257`): a recording EVA kerbal
 # takes a part out of ANOTHER kerbal's inventory, the flight is committed, then
 # Rewind-to-Launch. Before the fix the transfer was refused (`reason=ChangedVesselIsEva`),
 # so the rewind gave the part to both kerbals: Bill spawned with it at his recording's end
