@@ -1429,7 +1429,15 @@ namespace Parsek
         /// reintroduce the regression. A second call with any value logs a
         /// WARN and returns without mutation.
         /// </summary>
-        internal static void SeedInitialReputation(float initialReputation)
+        /// <param name="pendingRecordingIds">For a seed read off the live pool: the
+        /// recordings uncommitted at that moment (see
+        /// <see cref="GameAction.SeedPendingRecordingIds"/>); null or empty records none.</param>
+        /// <param name="captureUT">The game UT of that read; used only with
+        /// <paramref name="pendingRecordingIds"/>.</param>
+        internal static void SeedInitialReputation(
+            float initialReputation,
+            IList<string> pendingRecordingIds = null,
+            double captureUT = double.NaN)
         {
             for (int i = 0; i < actions.Count; i++)
             {
@@ -1449,11 +1457,52 @@ namespace Parsek
                 Type = GameActionType.ReputationInitial,
                 InitialReputation = initialReputation
             };
+            bool recordsPending = pendingRecordingIds != null && pendingRecordingIds.Count > 0
+                && !double.IsNaN(captureUT) && !double.IsInfinity(captureUT);
+            if (recordsPending)
+            {
+                seed.SeedPendingRecordingIds = new List<string>(pendingRecordingIds);
+                seed.SeedCaptureUT = captureUT;
+            }
 
             actions.Add(seed);
             BumpStateVersion();
             ParsekLog.Info("Ledger",
-                $"Seeded initial reputation: amount={initialReputation.ToString("R", CultureInfo.InvariantCulture)}, total={actions.Count}");
+                $"Seeded initial reputation: amount={initialReputation.ToString("R", CultureInfo.InvariantCulture)}, total={actions.Count}" +
+                (recordsPending
+                    ? $", uncommittedRecordings={seed.SeedPendingRecordingIds.Count.ToString(CultureInfo.InvariantCulture)} " +
+                      $"captureUT={captureUT.ToString("R", CultureInfo.InvariantCulture)}"
+                    : ""));
+        }
+
+        /// <summary>
+        /// An optimizer split gave part of a recording a new id and moved its captured
+        /// events there (<c>RecordingStore.RetagLedgerActionsAfterOptimizationSplit</c>).
+        /// When the original was uncommitted at the live-pool reputation seed's read
+        /// (<see cref="GameAction.SeedPendingRecordingIds"/>), the second half is the same
+        /// recorded flight, so it joins the list: otherwise its awards from before the read
+        /// would be applied a second time. Returns true when the list changed.
+        /// </summary>
+        internal static bool AddSeedPendingRecordingForSplit(string originalId, string secondId)
+        {
+            if (string.IsNullOrEmpty(originalId) || string.IsNullOrEmpty(secondId))
+                return false;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var seed = actions[i];
+                if (seed == null || seed.Type != GameActionType.ReputationInitial) continue;
+                var pending = seed.SeedPendingRecordingIds;
+                if (pending == null || !pending.Contains(originalId) || pending.Contains(secondId))
+                    return false;
+                pending.Add(secondId);
+                BumpStateVersion();
+                ParsekLog.Info("Ledger",
+                    $"Reputation seed: optimizer split second half '{secondId}' of '{originalId}' " +
+                    $"joins the recordings uncommitted at the seed's read " +
+                    $"(now {pending.Count.ToString(CultureInfo.InvariantCulture)})");
+                return true;
+            }
+            return false;
         }
 
         // ================================================================

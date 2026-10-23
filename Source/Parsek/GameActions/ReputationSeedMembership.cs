@@ -197,6 +197,57 @@ namespace Parsek
         }
 
         /// <summary>
+        /// THE UNCOMMITTED-RECORDING ARM OF THE INSIDE-SEED RULE. True iff a reputation row
+        /// filed for <paramref name="recordingId"/> at <paramref name="rowUT"/> is already
+        /// inside <paramref name="seed"/> although its producer reads
+        /// <see cref="ReputationSeedOrigin.PreExisting"/>: the seed was read off the live
+        /// pool while this recording was recorded but not yet committed
+        /// (<see cref="GameAction.SeedPendingRecordingIds"/>), and the row's hit predates
+        /// that read (<see cref="GameAction.SeedCaptureUT"/>). Measured on QL-2
+        /// (2026-10-22_1146): a quickload's DeferredSeed read 2.0 while the loaded flight's
+        /// two +1 milestones were still uncommitted, and the commit applied them again
+        /// (walk 4.0 against a live 2.0); QL-2b showed the same off a mid-flight warp-exit
+        /// recalc.
+        ///
+        /// <para>
+        /// WHY A UT COMPARISON IS SOUND HERE, where <see cref="IsInsideReputationSeed"/>
+        /// refuses one. It compares only within ONE recording that was live when the seed
+        /// was read. Such a recording records forward from there, and no load moves its
+        /// clock back while the seed survives: every save-file load restores the ledger,
+        /// seed row included, from the same save as the recording, and a rewind or Re-Fly
+        /// records into new recordings. A re-fly's rows therefore never match the id list.
+        /// </para>
+        ///
+        /// <para>
+        /// STRICTLY BEFORE the capture UT, and every unknown answers false: a row wrongly
+        /// marked inside would take away reputation the player really earned, while a row
+        /// wrongly applied is a double count the stock pool guard already files as an
+        /// adjustment. Pure; no logging.
+        /// </para>
+        /// </summary>
+        internal static bool IsRecordedBeforeSeedCapture(
+            GameAction seed, string recordingId, double rowUT)
+        {
+            if (seed == null || seed.Type != GameActionType.ReputationInitial)
+                return false;
+            if (string.IsNullOrEmpty(recordingId))
+                return false;
+            var pending = seed.SeedPendingRecordingIds;
+            if (pending == null || pending.Count == 0)
+                return false;
+            if (double.IsNaN(seed.SeedCaptureUT) || double.IsNaN(rowUT))
+                return false;
+            if (!(rowUT < seed.SeedCaptureUT))
+                return false;
+            for (int i = 0; i < pending.Count; i++)
+            {
+                if (string.Equals(pending[i], recordingId, System.StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// THE RE-STAMP RULE, the mirror of <see cref="IsInsideReputationSeed"/>. True iff
         /// a seed CREATED BY THIS CALL carries a value that predates the flights, so every
         /// row already stamped inside a seed is now stamped against a value that does not

@@ -313,6 +313,14 @@ namespace Parsek
                 && !RecordingStore.CommittedTrees.Contains(Instance.activeTree);
 
         /// <summary>
+        /// The live active tree when it is not a committed tree (the same test as
+        /// <see cref="HasUncommittedTreeForKspPatchDeferral"/>), else null. Read by the
+        /// live-pool reputation seed to name the recordings whose hits the pool holds.
+        /// </summary>
+        internal static RecordingTree UncommittedActiveTreeForLedger()
+            => HasUncommittedTreeForKspPatchDeferral() ? Instance.activeTree : null;
+
+        /// <summary>
         /// Returns true when <paramref name="recordingId"/> belongs to the currently-live
         /// active tree. Used by the post-epoch timeline visibility helpers so events from
         /// a reverted-away flight stay hidden until the matching quickload-resume tree is

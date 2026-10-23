@@ -545,6 +545,11 @@ namespace Parsek
             // itself in 3d with the same answer, so this pass finds it already stamped.
             StampReputationRowsAgainstSeed(actions, repSeedOrigin, "recording=" + recordingId);
 
+            // 3f. Rows this recording recorded before a live-pool seed was read while it
+            // was still uncommitted: the seed holds their hit, but 3e read PreExisting.
+            StampRowsRecordedBeforeSeedCapture(
+                actions, recordingId, ledgerActions, "recording=" + recordingId);
+
             build.Actions = actions;
             return build;
         }
@@ -3245,21 +3250,192 @@ namespace Parsek
             // Live-pool read: any death that already lowered the pool is inside the
             // value being seeded.
             //
-            // KNOWN LIMITATION, filed rather than fixed
-            // (REPUTATION-SEED-CONTAINS-A-PENDING-TREE-S-DEATH-THAT-IS-FILED-LATER). The
-            // live pool is a snapshot of EVERY stock change to date, including any
+            // The live pool is a snapshot of EVERY stock change to date, including any
             // reputation movement - a death, a milestone, a contract outcome - from a
-            // flight that is already RECORDED but whose tree has not been committed yet.
-            // Those movements are inside this value, yet their rows are produced later, by
-            // a commit that reads PreExisting - stamped outside the seed and applied a
-            // second time. It needs the very first seed capture in a career to coincide
-            // with a second pending tree that carries such a row, so it is not reachable
-            // from the normal one-tree-at-a-time flow; closing it means correlating the
-            // pool against uncommitted trees, which is a bigger change than the state
-            // deserves.
-            Ledger.SeedInitialReputation(repProbe.ReputationValue);
+            // flight that is already RECORDED but not committed yet (the active tree, or
+            // the pending tree a quickload restores). Their rows are produced later, by a
+            // commit that reads PreExisting, so the seed names those recordings and the
+            // read's UT, and the commit stamps their earlier rows inside
+            // (ReputationSeedMembership.IsRecordedBeforeSeedCapture; todo
+            // QUICKLOAD-REPUTATION-WALK-TWICE-LIVE, QL-2 / QL-2b).
+            List<string> uncommitted = null;
+            double captureUT = double.NaN;
+            if (TryReadUncommittedRecordingsAtSeedCapture(out uncommitted, out captureUT))
+                Ledger.SeedInitialReputation(repProbe.ReputationValue, uncommitted, captureUT);
+            else
+                Ledger.SeedInitialReputation(repProbe.ReputationValue);
             origin = ReputationSeedOrigin.CreatedThisCommitFromLivePool;
             return true;
+        }
+
+        /// <summary>Test seam replacing the uncommitted-recording read a live-pool
+        /// reputation seed records. Cleared by ResetForTesting.</summary>
+        internal static Func<List<string>> UncommittedRecordingIdsForTesting;
+
+        /// <summary>
+        /// The recordings recorded but not committed at this moment, and the game UT, for a
+        /// live-pool reputation seed (<see cref="GameAction.SeedPendingRecordingIds"/>).
+        /// False when there are none or the clock cannot be read; the seed then records
+        /// nothing, which is the apply-every-row answer.
+        /// </summary>
+        private static bool TryReadUncommittedRecordingsAtSeedCapture(
+            out List<string> recordingIds, out double captureUT)
+        {
+            recordingIds = null;
+            captureUT = double.NaN;
+            try
+            {
+                var provider = UncommittedRecordingIdsForTesting;
+                recordingIds = provider != null ? provider() : ReadUncommittedRecordingIdsLive();
+                if (recordingIds == null || recordingIds.Count == 0)
+                    return false;
+                bool inLoad = ParsekScenario.IsOnLoadInProgress;
+                captureUT = ResolveSeedCaptureUT(
+                    inLoad, inLoad ? ReadLoadedFlightStateUT() : double.NaN,
+                    inLoad ? double.NaN : GetNowUT());
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    "EnsureInitialReputationSeed: could not read the uncommitted recordings or " +
+                    "the clock at the live-pool seed (" + ex.GetType().Name + "); the seed " +
+                    "records none");
+                recordingIds = null;
+                return false;
+            }
+            if (double.IsNaN(captureUT) || double.IsInfinity(captureUT))
+            {
+                recordingIds = null;
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>Test seam replacing the loaded save's <c>flightState.universalTime</c>
+        /// read. Cleared by ResetForTesting.</summary>
+        internal static Func<double> LoadedFlightStateUTForTesting;
+
+        private static double ReadLoadedFlightStateUT()
+        {
+            var provider = LoadedFlightStateUTForTesting;
+            return provider != null ? provider() : ParsekScenario.ReadLoadedFlightStateUTRaw();
+        }
+
+        /// <summary>
+        /// Pure: the capture UT a live-pool reputation seed records. Inside a scenario
+        /// OnLoad the Planetarium can still read the clock from BEFORE the load (stock
+        /// <c>Game.Load</c> runs OnLoad before <c>FlightState.Load</c> sets the time, see
+        /// <see cref="ParsekScenario.ResolveColdLoadClockUT"/>); after an F9 back in time
+        /// that reading is later than the restored flight's resumed awards, and they would
+        /// be marked inside a seed that lacks them. So during OnLoad the loaded save's own
+        /// <c>flightState.universalTime</c> is the clock (the
+        /// <see cref="KerbalsModule.ResolveWalkClockUT(double?,bool,double,bool,double,double)"/>
+        /// rule), else the live Planetarium. Not usable -> NaN, and the seed records nothing.
+        /// </summary>
+        internal static double ResolveSeedCaptureUT(
+            bool onLoadInProgress, double loadedSaveUT, double liveUT)
+        {
+            double ut = onLoadInProgress ? loadedSaveUT : liveUT;
+            if (double.IsNaN(ut) || double.IsInfinity(ut) || ut < 0.0)
+                return double.NaN;
+            return ut;
+        }
+
+        /// <summary>
+        /// Recording ids of the pending tree and of the live active tree when it is not a
+        /// committed tree, minus any recording a committed tree holds (its rows are already
+        /// in the ledger).
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static List<string> ReadUncommittedRecordingIdsLive()
+        {
+            var ids = new List<string>();
+            AddTreeRecordingIds(ids, RecordingStore.PendingTree);
+            AddTreeRecordingIds(ids, ParsekFlight.UncommittedActiveTreeForLedger());
+            if (ids.Count == 0)
+                return ids;
+
+            var committedTrees = RecordingStore.CommittedTrees;
+            if (committedTrees != null)
+            {
+                for (int t = 0; t < committedTrees.Count; t++)
+                {
+                    var recs = committedTrees[t]?.Recordings;
+                    if (recs == null) continue;
+                    ids.RemoveAll(id => recs.ContainsKey(id));
+                }
+            }
+            return ids;
+        }
+
+        private static void AddTreeRecordingIds(List<string> ids, RecordingTree tree)
+        {
+            if (tree?.Recordings == null)
+                return;
+            foreach (var id in tree.Recordings.Keys)
+            {
+                if (!string.IsNullOrEmpty(id) && !ids.Contains(id))
+                    ids.Add(id);
+            }
+        }
+
+        /// <summary>
+        /// Marks inside the reputation seed every reputation-changing row in
+        /// <paramref name="actions"/> that <paramref name="recordingId"/> recorded before a
+        /// live-pool seed was read while it was uncommitted
+        /// (<see cref="ReputationSeedMembership.IsRecordedBeforeSeedCapture"/>). The
+        /// production-order stamp (<see cref="StampReputationRowsAgainstSeed"/>) reads
+        /// PreExisting for such a commit and so stamps nothing. Additive only; returns how
+        /// many rows it changed.
+        /// </summary>
+        internal static int StampRowsRecordedBeforeSeedCapture(
+            IList<GameAction> actions, string recordingId,
+            IReadOnlyList<GameAction> ledgerActions, string context)
+        {
+            if (actions == null || actions.Count == 0 || ledgerActions == null)
+                return 0;
+            GameAction seed = null;
+            for (int i = 0; i < ledgerActions.Count; i++)
+            {
+                if (ledgerActions[i] != null
+                    && ledgerActions[i].Type == GameActionType.ReputationInitial)
+                {
+                    seed = ledgerActions[i];
+                    break;
+                }
+            }
+            if (seed == null || seed.SeedPendingRecordingIds == null)
+                return 0;
+
+            int stamped = 0, after = 0;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action == null) continue;
+                if (!ReputationSeedMembership.IsReputationAffectingRow(action.Type)) continue;
+                if (action.InsideReputationSeed) continue;
+                if (ReputationSeedMembership.IsRecordedBeforeSeedCapture(seed, recordingId, action.UT))
+                {
+                    action.InsideReputationSeed = true;
+                    stamped++;
+                }
+                else
+                {
+                    after++;
+                }
+            }
+
+            if (stamped == 0)
+                return 0;
+
+            ParsekLog.Info(Tag,
+                $"Reputation seed stamp: {stamped.ToString(CultureInfo.InvariantCulture)} row(s) " +
+                $"stamped insideRepSeed=True for {context ?? "(none)"} - recorded before the " +
+                $"live-pool seed was read at UT " +
+                $"{seed.SeedCaptureUT.ToString("R", CultureInfo.InvariantCulture)} while uncommitted " +
+                $"({after.ToString(CultureInfo.InvariantCulture)} later row(s) stay outside)");
+            return stamped;
         }
 
         /// <summary>
@@ -9120,6 +9296,8 @@ namespace Parsek
         {
             initialized = false;
             CurrencyPoolProbeForTesting = null;
+            UncommittedRecordingIdsForTesting = null;
+            LoadedFlightStateUTForTesting = null;
             ExpectedCurrencySingletonsForTesting = null;
             ProgressSeedProbeForTesting = null;
             FacilityCostTableProbeForTesting = null;
@@ -10042,6 +10220,8 @@ namespace Parsek
                 ? repSeedOrigin
                 : EnsureReputationSeedForCommit();
             StampReputationRowsAgainstSeed(actions, origin, "retired-refly-provisional=" + recordingId);
+            StampRowsRecordedBeforeSeedCapture(
+                actions, recordingId, Ledger.Actions, "retired-refly-provisional=" + recordingId);
 
             int converted = actions.Count;
             actions = DeduplicateAgainstLedger(actions);

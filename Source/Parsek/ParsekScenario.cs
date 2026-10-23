@@ -782,7 +782,7 @@ namespace Parsek
         /// <summary>The loaded game's <c>flightState.universalTime</c> as written, or NaN.</summary>
         [System.Runtime.CompilerServices.MethodImpl(
             System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        private static double ReadLoadedFlightStateUTRaw()
+        internal static double ReadLoadedFlightStateUTRaw()
         {
             try
             {
