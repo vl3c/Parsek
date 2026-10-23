@@ -245,8 +245,9 @@ namespace Parsek
         /// An Active contract timeline resolves later (owner ruling D7, section 7.3): the
         /// Cancel refusal, the Mission Control detail panel and the Active-row label read the
         /// same text. The participle follows the row's kind: Completed / Failed / Cancelled,
-        /// and Expired for a fail that is the deadline running out (the Timeline's
-        /// "Expired"); any other kind reads as a completion.
+        /// Expired for a fail that is the deadline running out (the Timeline's "Expired"),
+        /// and Ended for stock ending the contract because its requirements no longer hold
+        /// (the Timeline's "Ended"); any other kind reads as a completion.
         /// </summary>
         internal static ReservationText ContractResolution(CommittedFutureEntry entry, Func<double, string> formatDate)
         {
@@ -257,7 +258,7 @@ namespace Parsek
                     participle = entry.DeadlineExpiry ? "Expired" : "Failed";
                     break;
                 case CommittedFutureKind.ContractCancel:
-                    participle = "Cancelled";
+                    participle = entry.RequirementsLost ? "Ended" : "Cancelled";
                     break;
                 default:
                     participle = "Completed";

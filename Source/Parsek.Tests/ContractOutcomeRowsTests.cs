@@ -419,6 +419,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CommittedRequirementsLostRow_ReadsEnded_InTheMissionControlText()
+        {
+            var index = CommittedFutureIndex.Build(new[]
+            {
+                new GameAction { UT = 10, Type = GameActionType.ContractAccept, ContractId = "c1" },
+                new GameAction
+                {
+                    UT = 500, Type = GameActionType.ContractCancel, ContractId = "c1", RecordingId = "rec",
+                    ContractRequirementsLost = true
+                },
+                new GameAction { UT = 20, Type = GameActionType.ContractAccept, ContractId = "c2" },
+                new GameAction { UT = 600, Type = GameActionType.ContractCancel, ContractId = "c2", RecordingId = "rec" },
+            }, id => id == "rec", id => "Mun Lander 3", null);
+            Func<double, string> fmt = ut => "D" + ((long)(ut / 100.0)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+            var ended = index.FirstFuture(CommittedFutureKind.ContractCancel, "c1", 100);
+            var cancel = index.FirstFuture(CommittedFutureKind.ContractCancel, "c2", 100);
+            Assert.True(ended.RequirementsLost);
+            Assert.True(ended.WithAgentTitle("Agent").RequirementsLost);
+            Assert.False(cancel.RequirementsLost);
+            Assert.Equal("Ended on D5, blocked by timeline until then.",
+                ReservationExplanation.ContractResolution(ended, fmt).Body);
+            Assert.Equal("Cancelled on D6, blocked by timeline until then.",
+                ReservationExplanation.ContractResolution(cancel, fmt).Body);
+        }
+
+        [Fact]
         public void EventDisplay_RequirementsLostEvent_ReadsEnded()
         {
             var e = new GameStateEvent

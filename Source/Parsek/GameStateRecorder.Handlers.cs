@@ -345,11 +345,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Builds the shared ContractFailed/ContractCancelled penalty detail string parsed
-        /// by the converter side. Frozen converter-parse contract: field order +
-        /// InvariantCulture "R" formatting must stay byte-identical.
-        /// </summary>
-        /// <summary>
         /// The ContractCancelled detail for a player cancel, carrying the penalty stock
         /// charged rather than the fail penalty: <c>PenalizeCancellation</c> lerps from the
         /// advance / decline loss toward the fail penalty by how far the cancel lies between
@@ -368,6 +363,11 @@ namespace Parsek
             return BuildContractPenaltyDetail(contract.Title ?? "", fundsPenalty, repPenalty);
         }
 
+        /// <summary>
+        /// The ContractCancelled detail for stock's OfferExpired end of an Active contract:
+        /// zero penalties plus <c>ended=requirements</c>
+        /// (<see cref="GameStateEventConverter.IsContractRequirementsLostDetail"/>).
+        /// </summary>
         internal static string BuildContractRequirementsLostDetail(string title)
         {
             return BuildContractPenaltyDetail(title, 0f, 0f)
@@ -379,6 +379,11 @@ namespace Parsek
         internal const string ContractRequirementsLostDetailKey = "ended";
         internal const string ContractRequirementsLostDetailValue = "requirements";
 
+        /// <summary>
+        /// Builds the shared ContractFailed/ContractCancelled penalty detail string parsed
+        /// by the converter side. Frozen converter-parse contract: field order +
+        /// InvariantCulture "R" formatting must stay byte-identical.
+        /// </summary>
         private static string BuildContractPenaltyDetail(
             string title, float fundsPenalty, float repPenalty)
         {

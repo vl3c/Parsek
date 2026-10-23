@@ -111,7 +111,9 @@ tier = "nightly"
 # deterministic; (7) recordings pinned exactly (2 fixture + flight A); (8) nightly, L8-sized;
 # (9) run flight_efficiency.py after the first green flight.
 #
-# STATUS: LIVE-PROVEN 2026-10-22 (`2026-10-22_1342` PASS attempt 1, same DLL). Reading run `2026-10-22_1332` (automation DLL sha256
+# STATUS: re-pinned for PR #2184 (contract cancel lerp and the skipped fail fire) and green on it
+# (`2026-10-23_1651` PASS attempt 1: `repPenalty=3` against `failRep=4`, zero GUARDED lines).
+# LIVE-PROVEN 2026-10-22 (`2026-10-22_1342` PASS attempt 1, same DLL). Reading run `2026-10-22_1332` (automation DLL sha256
 # `d01d3403...`, main 15b2ef2) was PARSEK-FAIL on one spec regex only: the PatchFunds
 # lookahead stopped at the StockPoolReference line, which also reads "PatchFunds: "; every
 # step, verifier and other contract was green. Anchored on `[KspStatePatcher]` since. The

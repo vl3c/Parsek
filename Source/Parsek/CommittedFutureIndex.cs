@@ -94,6 +94,10 @@ namespace Parsek
         /// <summary>FacilityUpgrade only: true when the row is a stock Rebuild (the level drops
         /// to <see cref="FacilityToLevel"/>), false for an upgrade.</summary>
         internal readonly bool FacilityDowngrade;
+        /// <summary>ContractCancel only: true when the row is stock ending the Active contract
+        /// because its requirements no longer hold (<see cref="GameAction.ContractRequirementsLost"/>),
+        /// not a player cancel, so Mission Control says "Ended" where the Timeline says "Ended".</summary>
+        internal readonly bool RequirementsLost;
 
         internal CommittedFutureEntry(
             CommittedFutureKind kind,
@@ -109,7 +113,8 @@ namespace Parsek
             bool autoAccept = false,
             string agentTitle = null,
             bool deadlineExpiry = false,
-            bool facilityDowngrade = false)
+            bool facilityDowngrade = false,
+            bool requirementsLost = false)
         {
             Kind = kind;
             Key = key ?? "";
@@ -125,6 +130,7 @@ namespace Parsek
             AgentTitle = string.IsNullOrEmpty(agentTitle) ? null : agentTitle;
             DeadlineExpiry = deadlineExpiry;
             FacilityDowngrade = facilityDowngrade;
+            RequirementsLost = requirementsLost;
         }
 
         /// <summary>A copy of this entry carrying <paramref name="agentTitle"/> as its agent.</summary>
@@ -132,7 +138,8 @@ namespace Parsek
         {
             return new CommittedFutureEntry(
                 Kind, Key, UT, RecordingId, RecordingName, FacilityToLevel, Amount, Title,
-                FromMilestoneFallback, DeadlineUT, AutoAccept, agentTitle, DeadlineExpiry, FacilityDowngrade);
+                FromMilestoneFallback, DeadlineUT, AutoAccept, agentTitle, DeadlineExpiry, FacilityDowngrade,
+                RequirementsLost);
         }
     }
 
@@ -368,7 +375,8 @@ namespace Parsek
                         autoAccept: isAccept && isAutoAcceptContract != null && isAutoAcceptContract(key),
                         agentTitle: isAccept && contractAgentTitle != null ? contractAgentTitle(key) : null,
                         deadlineExpiry: expiry,
-                        facilityDowngrade: kind == CommittedFutureKind.FacilityUpgrade && a.FacilityDowngrade));
+                        facilityDowngrade: kind == CommittedFutureKind.FacilityUpgrade && a.FacilityDowngrade,
+                        requirementsLost: kind == CommittedFutureKind.ContractCancel && a.ContractRequirementsLost));
                     entries++;
                 }
             }
