@@ -206,7 +206,8 @@ namespace Parsek
             // before any flight was recorded holds 0 recordings while the save names its heads.
             if (references.RecordingIds.Count == 0)
             {
-                int diskIds = CountHeadIds(recordingsDir, out int fileCount);
+                int diskIds = CountHeadIds(recordingsDir, out int fileCount)
+                    + CountQuarantinedIds(QuarantineDirectory(recordingsDir), ref fileCount);
                 if (diskIds > 0)
                 {
                     result.SkipReason = "zero-known-ids";
@@ -473,6 +474,25 @@ namespace Parsek
             return ids.Count;
         }
 
+        private static int CountQuarantinedIds(string quarantineDir, ref int fileCount)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            try
+            {
+                var files = ListQuarantinedFiles(quarantineDir);
+                fileCount += files.Count;
+                for (int i = 0; i < files.Count; i++)
+                {
+                    string id = RecordingStore.ExtractRecordingIdFromFileName(
+                        QuarantinedHeadFileName(Path.GetFileName(files[i].Key)));
+                    if (!string.IsNullOrEmpty(id))
+                        ids.Add(id);
+                }
+            }
+            catch { }
+            return ids.Count;
+        }
+
         private static void FileIncomingBackups(string versionsDir, Result result)
         {
             if (!Directory.Exists(versionsDir))
@@ -698,6 +718,69 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Moves back every quarantined head whose recording <paramref name="named"/> names. When
+        /// several copies of one head wait (quarantined on different days), the copy whose bytes
+        /// carry a hash <paramref name="named"/> names for that recording wins, else the newest
+        /// (latest dated folder, an undated copy last). The other copies stay in quarantine.
+        /// </summary>
+        private static void RestoreNamedQuarantinedFiles(
+            string recordingsDir, List<KeyValuePair<string, string>> files, SaveReferences named,
+            string reason, out int restored, out int headExists)
+        {
+            restored = 0;
+            headExists = 0;
+            var candidates = new Dictionary<string, List<KeyValuePair<string, string>>>(StringComparer.Ordinal);
+            var headOrder = new List<string>();
+            for (int i = 0; i < files.Count; i++)
+            {
+                string headName = QuarantinedHeadFileName(Path.GetFileName(files[i].Key));
+                string id = RecordingStore.ExtractRecordingIdFromFileName(headName);
+                if (id == null || !named.RecordingIds.Contains(id))
+                    continue;
+                if (!candidates.TryGetValue(headName, out var list))
+                {
+                    list = new List<KeyValuePair<string, string>>();
+                    candidates[headName] = list;
+                    headOrder.Add(headName);
+                }
+                list.Add(files[i]);
+            }
+
+            for (int h = 0; h < headOrder.Count; h++)
+            {
+                string headName = headOrder[h];
+                string id = RecordingStore.ExtractRecordingIdFromFileName(headName);
+                var list = candidates[headName];
+                // Newest first: dated folders descending, an undated copy last.
+                list.Sort((a, b) =>
+                {
+                    if (a.Value == null) return b.Value == null ? 0 : 1;
+                    if (b.Value == null) return -1;
+                    return string.CompareOrdinal(b.Value, a.Value);
+                });
+                string pick = list[0].Key;
+                if (list.Count > 1)
+                {
+                    for (int c = 0; c < list.Count; c++)
+                    {
+                        string hash = null;
+                        try { hash = SidecarContentHash.ComputeFile(list[c].Key); }
+                        catch (Exception) { }
+                        if (hash != null && named.NamesVersion(id, hash))
+                        {
+                            pick = list[c].Key;
+                            break;
+                        }
+                    }
+                }
+                if (TryRestoreQuarantinedFile(pick, recordingsDir, headName, id, reason, out bool exists))
+                    restored++;
+                else if (exists)
+                    headExists++;
+            }
+        }
+
+        /// <summary>
         /// Every file in <c>_quarantine</c>: flat files (quarantined before the folders were
         /// dated) and files in <c>yyyy-MM-dd</c> folders. Other subfolders are not Parsek's.
         /// </summary>
@@ -737,6 +820,9 @@ namespace Parsek
             int keptWaiting = 0;
             int keptNamed = 0;
             int unrecognized = 0;
+            RestoreNamedQuarantinedFiles(recordingsDir, ListQuarantinedFiles(quarantineDir), references,
+                "named-by-save-or-memory", out int restored, out _);
+            result.QuarantineRestored += restored;
             var files = ListQuarantinedFiles(quarantineDir);
             for (int i = 0; i < files.Count; i++)
             {
@@ -753,10 +839,8 @@ namespace Parsek
 
                 if (references.RecordingIds.Contains(id))
                 {
-                    if (TryRestoreQuarantinedFile(path, recordingsDir, headName, id, "named-by-save-or-memory", out _))
-                        result.QuarantineRestored++;
-                    else
-                        keptNamed++;
+                    // Named but not moved back (its head exists, or another copy won): never purged.
+                    keptNamed++;
                     continue;
                 }
 
@@ -794,7 +878,7 @@ namespace Parsek
             RemoveEmptyQuarantineFolders(quarantineDir);
             ParsekLog.Verbose(Tag,
                 $"Quarantine judged: restored={result.QuarantineRestored} purged={result.QuarantinePurged} " +
-                $"dated={result.QuarantineDated} waiting={keptWaiting} namedHeadExists={keptNamed} " +
+                $"dated={result.QuarantineDated} waiting={keptWaiting} namedKept={keptNamed} " +
                 $"unrecognized={unrecognized}");
         }
 
@@ -835,31 +919,19 @@ namespace Parsek
                 if (!Directory.Exists(quarantineDir))
                     return 0;
 
-                var named = new HashSet<string>(StringComparer.Ordinal);
-                CollectRecordingIds(scenarioNode, named);
-                if (named.Count == 0)
+                var named = new SaveReferences();
+                CollectRecordingReferences(scenarioNode, named);
+                if (named.RecordingIds.Count == 0)
                     return 0;
 
-                int restored = 0;
-                int headExists = 0;
-                var files = ListQuarantinedFiles(quarantineDir);
-                for (int i = 0; i < files.Count; i++)
-                {
-                    string headName = QuarantinedHeadFileName(Path.GetFileName(files[i].Key));
-                    string id = RecordingStore.ExtractRecordingIdFromFileName(headName);
-                    if (id == null || !named.Contains(id))
-                        continue;
-                    if (TryRestoreQuarantinedFile(files[i].Key, recordingsDir, headName, id, "named-by-loaded-save", out bool exists))
-                        restored++;
-                    else if (exists)
-                        headExists++;
-                }
+                RestoreNamedQuarantinedFiles(recordingsDir, ListQuarantinedFiles(quarantineDir), named,
+                    "named-by-loaded-save", out int restored, out int headExists);
                 if (restored > 0 || headExists > 0)
                 {
                     RemoveEmptyQuarantineFolders(quarantineDir);
                     ParsekLog.Info(Tag,
                         $"Quarantine restore at load: restored={restored} namedHeadExists={headExists} " +
-                        $"namedRecordings={named.Count}");
+                        $"namedRecordings={named.RecordingIds.Count}");
                 }
                 return restored;
             }
@@ -871,8 +943,11 @@ namespace Parsek
             }
         }
 
-        /// <summary>Pure: every <c>recordingId</c> of a <c>RECORDING</c> node at any depth (the scanner's rule).</summary>
-        internal static void CollectRecordingIds(ConfigNode node, HashSet<string> ids)
+        /// <summary>
+        /// Pure: every <c>recordingId</c> (with its three hashes) of a <c>RECORDING</c> node at
+        /// any depth (the scanner's rule).
+        /// </summary>
+        internal static void CollectRecordingReferences(ConfigNode node, SaveReferences refs)
         {
             if (node == null)
                 return;
@@ -882,11 +957,13 @@ namespace Parsek
                 ConfigNode child = children[i];
                 if (string.Equals(child.name, "RECORDING", StringComparison.Ordinal))
                 {
-                    string id = child.GetValue("recordingId");
-                    if (!string.IsNullOrEmpty(id))
-                        ids.Add(id);
+                    refs.AddRecording(
+                        child.GetValue("recordingId"),
+                        child.GetValue("precHash"),
+                        child.GetValue("vesselHash"),
+                        child.GetValue("ghostHash"));
                 }
-                CollectRecordingIds(child, ids);
+                CollectRecordingReferences(child, refs);
             }
         }
 

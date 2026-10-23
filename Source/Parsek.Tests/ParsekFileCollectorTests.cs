@@ -452,6 +452,58 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Quarantine_SeveralCopiesOfOneHead_TheCopyTheSaveNamesWins()
+        {
+            // The save names the OLDER copy's hash: it wins over the newer one.
+            string dir = NewSaveDir("q-hash");
+            ParsekFileCollector.UtcNowForTesting = () => QuarantineNow;
+            string olderHash = SidecarContentHash.Compute(System.Text.Encoding.UTF8.GetBytes("older"));
+            Write(dir, "persistent.sfs", ParsekScenarioText(RecordingNode("rec-h", precHash: olderHash)));
+            string older = Write(dir, Quarantined("2026-09-01", "rec-h.prec"), "older");
+            string newer = Write(dir, Quarantined("2026-10-20", "rec-h.prec"), "newer");
+
+            var result = ParsekFileCollector.Run("test", null);
+
+            Assert.Equal(1, result.QuarantineRestored);
+            Assert.Equal("older", File.ReadAllText(Path.Combine(dir, "Parsek", "Recordings", "rec-h.prec")));
+            Assert.False(File.Exists(older));
+            Assert.True(File.Exists(newer), "the other copy stays, named, never purged");
+            Assert.Equal(0, result.QuarantinePurged);
+        }
+
+        [Fact]
+        public void Quarantine_SeveralCopiesNoHashMatch_TheNewestWins()
+        {
+            string dir = NewSaveDir("q-newest");
+            ParsekFileCollector.UtcNowForTesting = () => QuarantineNow;
+            Write(dir, "persistent.sfs", ParsekScenarioText(RecordingNode("rec-n")));
+            Write(dir, Quarantined(null, "rec-n.prec"), "flat");
+            Write(dir, Quarantined("2026-09-01", "rec-n.prec"), "older");
+            Write(dir, Quarantined("2026-10-20", "rec-n.prec"), "newest");
+
+            var result = ParsekFileCollector.Run("test", null);
+
+            Assert.Equal(1, result.QuarantineRestored);
+            Assert.Equal("newest", File.ReadAllText(Path.Combine(dir, "Parsek", "Recordings", "rec-n.prec")));
+        }
+
+        [Fact]
+        public void Quarantine_ZeroKnownIds_OnlyQuarantinedFiles_TouchesNothing()
+        {
+            // No head on disk, no id named anywhere, only quarantined files: the guard still holds.
+            string dir = NewSaveDir("q-zero-only");
+            ParsekFileCollector.UtcNowForTesting = () => QuarantineNow;
+            Write(dir, "persistent.sfs", ParsekScenarioText(""));
+            string expired = Write(dir, Quarantined("2026-01-01", "rec-old.prec"));
+
+            var result = ParsekFileCollector.Run("test", null);
+
+            Assert.False(result.Ran);
+            Assert.Equal("zero-known-ids", result.SkipReason);
+            Assert.True(File.Exists(expired));
+        }
+
+        [Fact]
         public void Quarantine_ZeroKnownIds_TouchesNothingInQuarantine()
         {
             string dir = NewSaveDir("q-zero");

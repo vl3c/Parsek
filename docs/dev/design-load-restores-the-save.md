@@ -525,6 +525,8 @@ still there, a save that names the recording again brings the file back to its p
   (`ParsekFileCollector.RestoreQuarantinedNamedBy`, OnLoad phase `quarantine-restore`,
   `reason=named-by-loaded-save`), so a save copied into the folder, or restored from `Backup/`,
   loads with its flights the first time;
+- when several copies of one head wait (quarantined on different days), the copy whose bytes
+  carry a hash the naming save or memory names wins, else the newest; the others stay;
 - a file is never moved back over an existing head of the same name; a named copy stays in
   quarantine and is never purged while anything names it;
 - a file quarantined into the folder's root (before the folders were dated) is filed into
@@ -532,8 +534,11 @@ still there, a save that names the recording again brings the file back to its p
 
 Only the head of a recording is quarantined; its unnamed `_versions` copies go at once, as above.
 A save brought back that names an older copy of a recording than the quarantined head therefore
-still reads that recording as unresolved. The zero-known-ids and unreadable-referrer guards skip
-the whole run, the quarantine sweep included.
+still reads that recording as unresolved, and a restored head whose hash differs from the one a
+save names is promoted aside into `_versions` like any other replaced head, where an unnamed
+version goes at the next collection without a grace. The zero-known-ids guard counts quarantined
+ids as well as heads, and it and the unreadable-referrer guard skip the whole run, the quarantine
+sweep included.
 
 The rewind point reaper keeps deciding WHEN a point is done (all slots sealed); it removes the
 point from memory's list and no longer deletes the file. The file goes when no save lists the
