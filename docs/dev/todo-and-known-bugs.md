@@ -888,6 +888,16 @@ dev install define no `PARTUPGRADE` node (ModuleManager cache grep), so the live
 synthetic upgrade through a test seam (`KscAction action=define-upgrade` / `purchase-upgrade`). Lane
 `L11-career-part-upgrade-after-rewind` live-proven on its first flight, `2026-10-23_1852` PASS attempt 1.
 
+## PURCHASE-STATE-PATCH-RUNS-WHEN-THE-FUNDS-PATCH-IS-CLAMPED: a committed part or upgrade purchase can unlock with nothing charged [FILED 2026-10-23 by the review of PR #2185. OPEN, low. product]
+
+`KspStatePatcher.PatchPurchasedParts` and `PatchUnlockedUpgrades` run before `PatchFunds` in the pool
+pass and do not look at whether the funds patch applied. If a clock crossing that reaches a committed
+purchase has its funds step clamped by the drawdown guard (`GUARDED DRAWDOWN clamped`), the part or
+upgrade is marked bought with its cost not taken. Hires already wait for an applied funds patch
+(`LedgerOrchestrator`, the hire state gate). Not seen on any flown lane (zero clamps on L8, L10, L11);
+the guard clamps only on an unexpected drawdown. Fix shape when taken: gate the two purchase state
+patches on the same applied-funds signal the hire path reads.
+
 ## ~~LOGISTICS-WITHOUT-MONEY: supply routes still charge and credit funds and write ledger rows, so the funds history depends on choices made after a rewind~~ [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4, first as ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES, then ROUTE-MONEY-COST-ONLY. FIXED 2026-10-21: phase 1 (no route money) on branch `logistics-no-money-p1`, phase 2 (route events out of the ledger) on branch `logistics-no-money-p2`. Harness re-flight of the Logistics lanes pending. product]
 
 Supply routes are a real-time system: every load back in time retires a route's cycles after its

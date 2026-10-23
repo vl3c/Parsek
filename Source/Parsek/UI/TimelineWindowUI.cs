@@ -2407,7 +2407,7 @@ namespace Parsek
             return false;
         }
 
-        /// <summary>The live part-purchase decision (<c>StockUiPartPurchase.DecideLive</c>).</summary>
+        /// <summary>The live part-upgrade purchase decision (<c>StockUiPartUpgradePurchase.DecideLive</c>).</summary>
         private static bool IsUpgradePurchaseBlockedLive(string upgradeName)
         {
             if (string.IsNullOrEmpty(upgradeName)) return false;
@@ -2422,6 +2422,7 @@ namespace Parsek
             }
         }
 
+        /// <summary>The live part-purchase decision (<c>StockUiPartPurchase.DecideLive</c>).</summary>
         private static bool IsPartPurchaseBlockedLive(string partName)
         {
             if (string.IsNullOrEmpty(partName)) return false;
