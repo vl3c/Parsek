@@ -266,6 +266,10 @@ tombstones    = { max = 0 }
 
 [expectations.logContracts]
 required = [
+  # QUICKLOAD-REPUTATION-WALK-TWICE-LIVE (2026-10-23): the reputation seed is first read
+  # off the live pool while the flight is still uncommitted (its +1 record milestone already
+  # in), so the commit stamps those rows inside the seed instead of counting them twice.
+  "Reputation seed stamp: [1-9][0-9]* row\\(s\\) stamped insideRepSeed=True for recording=[0-9a-f]{32} - recorded before the live-pool seed was read",
   # GROUP 1 - THE FLIGHT, THE SPLIT AND THE F5 (QL-4's tokens).
   "Recording started",
   "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
@@ -325,6 +329,9 @@ required = [
   "exittospacecenter complete scene=SPACECENTER game-loaded=true",
 ]
 forbidden = [
+  # The doubled walk this lane measured before the fix (walk twice the live pool, the gap
+  # filed as an adjustment row).
+  "PatchReputation: filed StockPoolAdjustment amount=\\S+ reason=adopted-gap",
   "\\[Parsek\\]\\[ERROR\\]",
   # THE OLD IN-SESSION MACHINERY (design 8), unreachable on a save-file load: no splice
   # from, or detach of, a committed copy, no reconcile purge or retire.

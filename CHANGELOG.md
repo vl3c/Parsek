@@ -80,6 +80,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Reputation from a flight in progress is no longer counted twice.** When Parsek first read your
+  starting reputation while a flight was still recording (after a quickload, or a warp mid-flight
+  on a new career), that flight's reputation awards were later added on top again. Your stock
+  reputation was never changed; Parsek's own count now matches it. (QUICKLOAD-REPUTATION-WALK-TWICE-LIVE)
 - **Part upgrades are part of the timeline.** Buying a part upgrade in R&D or the editor is now
   booked as a cost. After a rewind, an upgrade a later committed flight buys is greyed with its
   date and comes back unlocked when the clock reaches it, and one whose price would take money

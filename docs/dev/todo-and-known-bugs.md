@@ -163,7 +163,7 @@ load, whose rewind point abandons the attempt's flight; that load splices and de
 e46a9ef. Unit cells in `InPlaceResumeSidecarVersionTests` (the Re-Fly start splice + detach, and the
 predicate's truth table).
 
-## QUICKLOAD-REPUTATION-WALK-TWICE-LIVE: after a quickload the walk's reputation reads exactly twice the live pool [FILED 2026-10-22 from QL-2 `2026-10-22_1146` and QL-2b `2026-10-22_1153` (both PASS), flown for PR #2177. OPEN, low, not reproduced in xUnit. product]
+## ~~QUICKLOAD-REPUTATION-WALK-TWICE-LIVE: after a quickload the walk's reputation reads exactly twice the live pool~~ [FILED 2026-10-22 from QL-2 `2026-10-22_1146` and QL-2b `2026-10-22_1153` (both PASS), flown for PR #2177. FIXED 2026-10-23 (unit cells in `ReputationSeedUncommittedRecordingTests`; lanes QL-2 / QL-2b to re-fly). product]
 
 On a save with no stored pool reference, the first reputation patch after the quickload found the
 walk's target at exactly twice the live reputation: QL-2 `target=4.0` vs `live=2.0`, QL-2b
@@ -174,6 +174,28 @@ factor 2 suggests the walk counts one reputation award twice on the quickload pa
 re-capture, or a seed plus the award). Next: read QL-2's collected KSP.log around the first
 post-load recalculation for the reputation rows the walk processed, and compare with the
 quicksave's ledger.
+
+**Cause (read 2026-10-23 from both archived KSP.logs).** Not a quickload defect: it is
+REPUTATION-SEED-CONTAINS-A-PENDING-TREE-S-DEATH-THAT-IS-FILED-LATER, reached in the ordinary
+one-flight flow. On a fresh career the reputation seed defers while the pool reads ~0. QL-2: the
+F5 save held no reputation seed, the F9's DeferredSeed read the live 2.0 (`Seeded initial
+reputation: amount=1.99999881`) while the flight's two +1 record milestones (UT 11.6, 15.0) sat in
+the restored pending tree, uncommitted; the commit then filed both rows against a `PreExisting`
+seed and walked 2 + 1 + 1 = 4. QL-2b: the first capture happened with no quickload at all, in a
+mid-flight warp-exit recalc (`reason=time-jump`) while the active tree held the +1; its F9 then
+repeated it.
+
+**Fix.** The fix shape that entry named. A live-pool `ReputationInitial` seed now records the
+recordings uncommitted at the read (pending tree plus the live active tree, minus any recording
+a committed tree holds) and the read's game UT (`seedPendingRec` / `seedCaptureUT`, sparse,
+additive). The commit build's step 3f (`LedgerOrchestrator.StampRowsRecordedBeforeSeedCapture`,
+also run for a retired Re-Fly provisional) stamps `insideRepSeed` on that recording's
+reputation-changing rows whose UT is strictly before the read
+(`ReputationSeedMembership.IsRecordedBeforeSeedCapture`). The seed value is unchanged (CL-2's pin
+holds); later awards of the same recording, and every row of a recording that did not exist at
+the read, still apply. Unknowns answer "apply". Science and funds seeds keep the same hazard,
+unaddressed (no lane shows it: funds seed off the career baseline, science seeds off a loaded
+pool at scene start).
 
 ## ~~STOCK-OFFER-EXPIRED-ACTIVE-CONTRACT-NO-TERMINAL-ROW: an Active contract stock ends as OfferExpired files no terminal ledger row~~ [FILED 2026-10-22 from the clean review of committed-value plan phase 2 (a075d07), code read, not reproduced. FIXED 2026-10-23 in PR #2184 (unit cells; not flown: no lane drives a requirements loss). product]
 
@@ -10705,7 +10727,7 @@ and the capture is then a picture of an unhovered control, readable back from `K
 Until one of them is flown, the four hover labels stay as they are - the run ids cite them -
 and the design doc's rows say MEASURED: cursor lands, hover does not paint.
 
-## REPUTATION-SEED-CONTAINS-A-PENDING-TREE-S-DEATH-THAT-IS-FILED-LATER: a live-pool seed snapshot includes a reputation movement whose recording has not been committed yet, and that row is produced later against a `PreExisting` seed and applied
+## ~~REPUTATION-SEED-CONTAINS-A-PENDING-TREE-S-DEATH-THAT-IS-FILED-LATER: a live-pool seed snapshot includes a reputation movement whose recording has not been committed yet, and that row is produced later against a `PreExisting` seed and applied~~ [FIXED 2026-10-23 with QUICKLOAD-REPUTATION-WALK-TWICE-LIVE, which showed it reachable from one flight (a quickload, or a mid-flight warp exit); see that entry]
 
 Filed 2026-09-15, split out of
 REPUTATION-SEED-CAPTURED-MID-FLIGHT-REAPPLIES-PRE-SEED-AWARDS when that entry's fix

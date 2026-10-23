@@ -927,6 +927,31 @@ namespace Parsek
         /// <summary>Existing reputation when Parsek is first installed mid-career.</summary>
         public float InitialReputation;
 
+        /// <summary>
+        /// On a <see cref="GameActionType.ReputationInitial"/> seed read off the LIVE pool:
+        /// the recordings that were already recorded but not yet committed when it was
+        /// read (the active and pending trees), so every reputation hit they had taken by
+        /// then is inside the seed value although their rows are filed later.
+        /// Paired with <see cref="SeedCaptureUT"/>; read by
+        /// <c>ReputationSeedMembership.IsRecordedBeforeSeedCapture</c>. Null on every
+        /// other seed (career baseline, refusal fallback, a seed with no uncommitted
+        /// recording at capture). Sparse on disk: one <see cref="SeedPendingRecordingKey"/>
+        /// value per id, absent means none.
+        /// </summary>
+        public List<string> SeedPendingRecordingIds;
+
+        /// <summary>
+        /// Game UT at which a live-pool <see cref="GameActionType.ReputationInitial"/> seed
+        /// with <see cref="SeedPendingRecordingIds"/> was read. NaN when not recorded.
+        /// </summary>
+        public double SeedCaptureUT = double.NaN;
+
+        /// <summary>Sparse ReputationInitial key for <see cref="SeedPendingRecordingIds"/>.</summary>
+        internal const string SeedPendingRecordingKey = "seedPendingRec";
+
+        /// <summary>Sparse ReputationInitial key for <see cref="SeedCaptureUT"/>.</summary>
+        internal const string SeedCaptureUTKey = "seedCaptureUT";
+
         // ================================================================
         // Derived fields — set during recalculation walk, NOT serialized
         // ================================================================
@@ -1923,11 +1948,28 @@ namespace Parsek
         private void SerializeReputationInitial(ConfigNode n)
         {
             n.AddValue("initialReputation", InitialReputation.ToString("R", IC));
+            if (SeedPendingRecordingIds == null || SeedPendingRecordingIds.Count == 0
+                || double.IsNaN(SeedCaptureUT))
+                return;
+            n.AddValue(SeedCaptureUTKey, SeedCaptureUT.ToString("R", IC));
+            for (int i = 0; i < SeedPendingRecordingIds.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(SeedPendingRecordingIds[i]))
+                    n.AddValue(SeedPendingRecordingKey, SeedPendingRecordingIds[i]);
+            }
         }
 
         private static void DeserializeReputationInitial(ConfigNode n, GameAction a)
         {
             TryParseFloat(n, "initialReputation", out a.InitialReputation);
+            string captureUT = n.GetValue(SeedCaptureUTKey);
+            string[] pending = n.GetValues(SeedPendingRecordingKey);
+            double ut;
+            if (captureUT == null || pending == null || pending.Length == 0
+                || !double.TryParse(captureUT, NS, IC, out ut))
+                return;
+            a.SeedCaptureUT = ut;
+            a.SeedPendingRecordingIds = new List<string>(pending);
         }
 
         // ---- Parse helpers ----

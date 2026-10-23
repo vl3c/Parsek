@@ -1429,7 +1429,15 @@ namespace Parsek
         /// reintroduce the regression. A second call with any value logs a
         /// WARN and returns without mutation.
         /// </summary>
-        internal static void SeedInitialReputation(float initialReputation)
+        /// <param name="pendingRecordingIds">For a seed read off the live pool: the
+        /// recordings uncommitted at that moment (see
+        /// <see cref="GameAction.SeedPendingRecordingIds"/>); null or empty records none.</param>
+        /// <param name="captureUT">The game UT of that read; used only with
+        /// <paramref name="pendingRecordingIds"/>.</param>
+        internal static void SeedInitialReputation(
+            float initialReputation,
+            IList<string> pendingRecordingIds = null,
+            double captureUT = double.NaN)
         {
             for (int i = 0; i < actions.Count; i++)
             {
@@ -1449,11 +1457,22 @@ namespace Parsek
                 Type = GameActionType.ReputationInitial,
                 InitialReputation = initialReputation
             };
+            bool recordsPending = pendingRecordingIds != null && pendingRecordingIds.Count > 0
+                && !double.IsNaN(captureUT) && !double.IsInfinity(captureUT);
+            if (recordsPending)
+            {
+                seed.SeedPendingRecordingIds = new List<string>(pendingRecordingIds);
+                seed.SeedCaptureUT = captureUT;
+            }
 
             actions.Add(seed);
             BumpStateVersion();
             ParsekLog.Info("Ledger",
-                $"Seeded initial reputation: amount={initialReputation.ToString("R", CultureInfo.InvariantCulture)}, total={actions.Count}");
+                $"Seeded initial reputation: amount={initialReputation.ToString("R", CultureInfo.InvariantCulture)}, total={actions.Count}" +
+                (recordsPending
+                    ? $", uncommittedRecordings={seed.SeedPendingRecordingIds.Count.ToString(CultureInfo.InvariantCulture)} " +
+                      $"captureUT={captureUT.ToString("R", CultureInfo.InvariantCulture)}"
+                    : ""));
         }
 
         // ================================================================
