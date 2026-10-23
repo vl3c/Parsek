@@ -1679,6 +1679,11 @@ namespace Parsek
                         when a.FundsSpendingSource == FundsSpendingSource.StrategyConverter:
                     return (a.RecordingId ?? "") + ":" +
                            a.FundsSpent.ToString("R", CultureInfo.InvariantCulture);
+                // A part upgrade's key is the upgrade name; the source keeps it apart from a
+                // part purchase that happens to share the name.
+                case GameActionType.FundsSpending
+                        when a.FundsSpendingSource == FundsSpendingSource.PartUpgrade:
+                    return (a.RecordingId ?? "") + ":upgrade:" + (a.DedupKey ?? "");
                 case GameActionType.FundsSpending: return (a.RecordingId ?? "") + ":" + (a.DedupKey ?? "");
                 case GameActionType.MilestoneAchievement: return a.MilestoneId ?? "";
                 case GameActionType.FacilityUpgrade:
@@ -5460,7 +5465,7 @@ namespace Parsek
             // as they happen without triggering false positives on curve-/strategy-
             // transformed rewards.
             var deferHost = ResolveKscDeferHost();
-            if (ShouldDeferKscReconcileOneFrame(action.Type, deferHost != null))
+            if (ShouldDeferKscReconcileOneFrame(action, deferHost != null))
             {
                 GameAction deferredAction = action;
                 double deferredUt = evt.ut;
@@ -5730,6 +5735,24 @@ namespace Parsek
         internal static bool ShouldDeferKscReconcileOneFrame(GameActionType type, bool hasFrameHost)
         {
             return type == GameActionType.KerbalHire && hasFrameHost;
+        }
+
+        /// <summary>
+        /// The row form of <see cref="ShouldDeferKscReconcileOneFrame(GameActionType, bool)"/>:
+        /// also a part purchase or part upgrade row. Stock's <c>Funding</c> registers its
+        /// <c>OnPartPurchased</c> and <c>OnPartUpgradePurchased</c> listeners in the same
+        /// <c>OnAwake</c> as its hire listener, and <c>EventData.Fire</c> runs the listeners
+        /// last-added first (KSP 1.12.5 decompiled), so Parsek's handler runs before the
+        /// <c>RnDPartPurchase</c> charge exactly as it does before the hire's
+        /// (todo PART-UPGRADE-PURCHASE-UNRESERVED).
+        /// </summary>
+        internal static bool ShouldDeferKscReconcileOneFrame(GameAction action, bool hasFrameHost)
+        {
+            if (action == null || !hasFrameHost) return false;
+            if (ShouldDeferKscReconcileOneFrame(action.Type, hasFrameHost)) return true;
+            return action.Type == GameActionType.FundsSpending
+                && (action.FundsSpendingSource == FundsSpendingSource.Other
+                    || action.FundsSpendingSource == FundsSpendingSource.PartUpgrade);
         }
 
 

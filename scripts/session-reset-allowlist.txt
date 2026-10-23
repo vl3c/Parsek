@@ -61,6 +61,7 @@ KspStatePatcher.StockPoolAdjustmentSinkForTesting test seam
 KspStatePatcher.stockReferenceActions scoped: set around one PatchAll pool pass (try/finally), restored to the previous value after
 KspStatePatcher.stockReferenceNowUT scoped: set around one PatchAll pool pass (try/finally), restored to the previous value after
 KspStatePatcher.SuppressUnityCallsForTesting test seam
+KspStatePatcher.UpgradeUnlockLiveUtProviderForTesting test seam
 ParsekScenario.CrashReconcileInProgress batch crash-reconcile marker that spans the cold load it triggers
 ParsekScenario.cachedAutoMerge settings cache
 ParsekScenario.coldLoadsThisProcess process lifetime count of cold loads (names the boot load)

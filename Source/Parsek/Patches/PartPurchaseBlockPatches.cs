@@ -47,9 +47,10 @@ namespace Parsek.Patches
     }
 
     /// <summary>
-    /// The upgrade overload of <c>PartListTooltip.Setup</c> sells a part UPGRADE, not an
-    /// entry purchase, so nothing is blocked there; the postfix only gives back purchase
-    /// buttons a reused tooltip may still carry disabled from a blocked part.
+    /// The upgrade overload of <c>PartListTooltip.Setup</c> sells a part UPGRADE: disable its
+    /// purchase buttons when the committed timeline buys the upgrade later or its price would
+    /// dig into the click reservation, and give back buttons a reused tooltip carries disabled
+    /// otherwise (todo PART-UPGRADE-PURCHASE-UNRESERVED).
     /// </summary>
     [HarmonyPatch]
     internal static class PartListTooltipSetupUpgradePatch
@@ -59,8 +60,8 @@ namespace Parsek.Patches
             var method = ResolveTargetMethodForTesting();
             if (method == null)
                 ParsekLog.Warn("StockUiOverlay",
-                    "PartListTooltip.Setup(AvailablePart, Upgrade, Callback, RenderTexture) not found - an upgrade " +
-                    "tooltip reusing a blocked part's tooltip may keep a disabled purchase button");
+                    "PartListTooltip.Setup(AvailablePart, Upgrade, Callback, RenderTexture) not found - the upgrade " +
+                    "purchase button will not be disabled (PartListTooltipController.onPurchaseUpgrade still refuses the click)");
             return method;
         }
 
@@ -74,17 +75,17 @@ namespace Parsek.Patches
                 });
         }
 
-        static void Postfix(PartListTooltip __instance)
+        static void Postfix(PartListTooltip __instance, PartUpgradeHandler.Upgrade up)
         {
             if (ParsekGameModeGate.CheckInert("PartListTooltipSetupUpgradePatch.Postfix")) return; // S9 game-mode gate
             try
             {
-                StockUiPartPurchase.RestoreTooltipButtons(__instance);
+                StockUiPartUpgradePurchase.ApplyTooltipButtons(__instance, up);
             }
             catch (Exception ex)
             {
-                ParsekLog.WarnRateLimited("StockUiOverlay", "part-tooltip-restore-failed",
-                    "Part upgrade tooltip button restore failed (" + ex.GetType().Name + ": " + ex.Message + ")");
+                ParsekLog.WarnRateLimited("StockUiOverlay", "upgrade-tooltip-block-failed",
+                    "Part upgrade tooltip purchase block failed (" + ex.GetType().Name + ": " + ex.Message + ")");
             }
         }
     }
@@ -120,6 +121,7 @@ namespace Parsek.Patches
             try
             {
                 StockUiPartPurchase.ApplyTooltipReason(tooltip, partIcon);
+                StockUiPartUpgradePurchase.ApplyTooltipReason(tooltip, partIcon);
             }
             catch (Exception ex)
             {
@@ -160,6 +162,40 @@ namespace Parsek.Patches
         {
             if (ParsekGameModeGate.CheckInert("PartListTooltipPurchasePatch.Prefix")) return true; // S9 game-mode gate
             return !StockUiPartPurchase.TryBlockPurchase(___partInfo, "tooltip purchase", showDialog: true);
+        }
+    }
+
+    /// <summary>
+    /// The part-upgrade backstop in BOTH scenes: stock's
+    /// <c>PartListTooltipController.onPurchaseUpgrade</c> is the one entry to the private
+    /// <c>onPurchaseUpgradeProceed</c>, which unlocks the upgrade and fires
+    /// <c>OnPartUpgradePurchased</c> (stock's Funding charges on that event, too late to
+    /// refuse). Refused before stock destroys the tooltip or runs its R&amp;D facility check,
+    /// with the decision the greyed button reads (todo PART-UPGRADE-PURCHASE-UNRESERVED).
+    /// </summary>
+    [HarmonyPatch]
+    internal static class PartListTooltipPurchaseUpgradePatch
+    {
+        static MethodBase TargetMethod()
+        {
+            var method = ResolveTargetMethodForTesting();
+            if (method == null)
+                ParsekLog.Warn("StockUiOverlay",
+                    "PartListTooltipController.onPurchaseUpgrade(PartListTooltip) not found - a part upgrade " +
+                    "purchase the reservation refuses will not be refused");
+            return method;
+        }
+
+        internal static MethodBase ResolveTargetMethodForTesting()
+        {
+            return AccessTools.Method(typeof(PartListTooltipController), "onPurchaseUpgrade",
+                new[] { typeof(PartListTooltip) });
+        }
+
+        static bool Prefix(PartUpgradeHandler.Upgrade ___upgrade)
+        {
+            if (ParsekGameModeGate.CheckInert("PartListTooltipPurchaseUpgradePatch.Prefix")) return true; // S9 game-mode gate
+            return !StockUiPartUpgradePurchase.TryBlockPurchase(___upgrade, "upgrade tooltip purchase", showDialog: true);
         }
     }
 

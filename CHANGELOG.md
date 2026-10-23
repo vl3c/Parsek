@@ -80,6 +80,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Part upgrades are part of the timeline.** Buying a part upgrade in R&D or the editor is now
+  booked as a cost. After a rewind, an upgrade a later committed flight buys is greyed with its
+  date and comes back unlocked when the clock reaches it, and one whose price would take money
+  later costs need is greyed with the reason. (PART-UPGRADE-PURCHASE-UNRESERVED)
 - **Contract cancels and stock-ended contracts are booked as stock books them.** A cancel costs the
   time-scaled share stock charges, not the full fail penalty, and files one row instead of two. A
   contract stock ends because its requirements no longer hold now ends in Parsek too, with no

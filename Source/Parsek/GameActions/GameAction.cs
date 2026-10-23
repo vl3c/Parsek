@@ -331,7 +331,17 @@ namespace Parsek
         /// <c>FundsSpending</c> case, so every spending row falls to its
         /// <c>Reconcile = false</c> default by TYPE rather than by source.</para>
         /// </summary>
-        StrategyConverter = 7
+        StrategyConverter = 7,
+
+        /// <summary>
+        /// A part UPGRADE bought from the editor or R&amp;D part list tooltip
+        /// (<see cref="GameStateEventType.PartUpgradePurchased"/>). <see cref="GameAction.DedupKey"/>
+        /// carries the upgrade name. Kept apart from <see cref="Other"/> (part purchases, key =
+        /// part name) because every reader of a part purchase row treats its key as an
+        /// <c>AvailablePart</c> name. Stock charges it under the same
+        /// <c>TransactionReasons.RnDPartPurchase</c> as a part purchase.
+        /// </summary>
+        PartUpgrade = 8
     }
 
     /// <summary>Where reputation earnings came from.</summary>

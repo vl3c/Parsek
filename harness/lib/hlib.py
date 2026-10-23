@@ -11296,6 +11296,18 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "crew-dialog-not-open": "driver-gate",
     "button-not-found": "driver-gate",
     "button-no-effect": "driver-gate",
+    # KscAction define-upgrade / purchase-upgrade (todo PART-UPGRADE-PURCHASE-UNRESERVED; stock
+    # defines no PARTUPGRADE, so a lane defines a synthetic one first). A bad cost or an upgrade
+    # name nothing defined is the SPEC's fault; a second definition, an unresearched tech and an
+    # upgrade already unlocked are career state; a handler or definition that did not take is a
+    # gate. A committed-timeline or reserve refusal is `blocked-committed`, above.
+    "cost-arg-invalid": "driver-arg",
+    "unknown-upgrade": "driver-arg",
+    "upgrade-already-defined": "driver-career",
+    "upgrade-tech-not-researched": "driver-career",
+    "upgrade-already-unlocked": "driver-career",
+    "upgrade-handler-missing": "driver-gate",
+    "define-not-applied": "driver-gate",
     # R12 (design "> Update (R12)"). Both verbs ship a TYPED refusal taxonomy; without
     # these rows every one of them collapses to the coarse driver-verdict-mismatch and the
     # taxonomy is decorative on the harness side. Same retryability either way - these

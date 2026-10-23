@@ -515,6 +515,45 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Fires from <c>PartListTooltipController.onPurchaseUpgradeProceed</c> (the part
+        /// list tooltip of the editor and of R&amp;D) after stock unlocked the upgrade. Stock's
+        /// <c>Funding.onUpgradePurchased</c> charges the upgrade's <c>entryCost</c> from its
+        /// own listener on the same event, under <c>TransactionReasons.RnDPartPurchase</c>
+        /// (todo PART-UPGRADE-PURCHASE-UNRESERVED). A free row (bypass, or a zero price) is
+        /// still recorded: it is the unlock <c>KspStatePatcher.PatchUnlockedUpgrades</c>
+        /// re-applies after a rewind.
+        /// </summary>
+        private void OnPartUpgradePurchased(PartUpgradeHandler.Upgrade upgrade)
+        {
+            if (IsReplayingActions)
+            {
+                ParsekLog.Verbose("GameStateRecorder", "Suppressed PartUpgradePurchased event during action replay");
+                return;
+            }
+            if (upgrade == null || string.IsNullOrEmpty(upgrade.name))
+            {
+                LogEventReject("PartUpgradePurchased", "upgrade-null");
+                return;
+            }
+            bool bypass = IsBypassEntryPurchaseAfterResearch();
+            var evt = CreatePartUpgradePurchasedEvent(
+                upgrade.name,
+                upgrade.entryCost,
+                bypass,
+                Planetarium.GetUniversalTime(),
+                Funding.Instance != null ? Funding.Instance.Funds : 0);
+            Emit(ref evt, "PartUpgradePurchased");
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: PartUpgradePurchased '{upgrade.name}' " +
+                $"(chargedCost={ComputePartUpgradeChargedCost(upgrade.entryCost, bypass).ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                $"entryCost={upgrade.entryCost.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                $"techRequired={upgrade.techRequired ?? "(none)"})");
+
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
+                LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
         /// Returns the actual funds debit for an R&D part purchase. Stock KSP still
         /// fires OnPartPurchased when BypassEntryPurchaseAfterResearch is enabled, but
         /// the purchase is free in that mode.

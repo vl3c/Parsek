@@ -547,6 +547,7 @@ namespace Parsek
                 case FundsSpendingSource.StrategyConverter:
                     return "Strategy converter";
                 case FundsSpendingSource.Other:           return "Part";
+                case FundsSpendingSource.PartUpgrade:     return "Part upgrade";
                 default:                                  return "Expense";
             }
         }

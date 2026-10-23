@@ -501,6 +501,43 @@ namespace Parsek
             };
         }
 
+        /// <summary>
+        /// Builds the PartUpgradePurchased event payload from stock KSP semantics
+        /// (<c>Funding.onUpgradePurchased</c>, KSP 1.12.5 decompiled): nothing is charged
+        /// under bypass-entry-purchase or for an upgrade whose <c>entryCost</c> is not
+        /// positive, otherwise the upgrade's <c>entryCost</c>. Internal static for unit tests.
+        /// </summary>
+        internal static GameStateEvent CreatePartUpgradePurchasedEvent(
+            string upgradeName,
+            float entryCost,
+            bool bypassEntryPurchaseAfterResearch,
+            double ut,
+            double currentFunds)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            float chargedCost = ComputePartUpgradeChargedCost(entryCost, bypassEntryPurchaseAfterResearch);
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.PartUpgradePurchased,
+                key = upgradeName ?? "",
+                detail = "cost=" + chargedCost.ToString("R", ic) + ";entryCost=" + entryCost.ToString("R", ic),
+                valueBefore = currentFunds + chargedCost,
+                valueAfter = currentFunds
+            };
+        }
+
+        /// <summary>
+        /// What stock's <c>Funding.onUpgradePurchased</c> deducts for one upgrade purchase:
+        /// nothing under bypass-entry-purchase or for an <c>entryCost</c> that is not
+        /// positive, otherwise the <c>entryCost</c>. Pure.
+        /// </summary>
+        internal static float ComputePartUpgradeChargedCost(float entryCost, bool bypassEntryPurchaseAfterResearch)
+        {
+            if (bypassEntryPurchaseAfterResearch || !(entryCost > 0f)) return 0f;
+            return entryCost;
+        }
+
         private bool subscribed = false;
         private readonly GameStateFacilityRecorder facilityRecorder;
 
@@ -554,6 +591,7 @@ namespace Parsek
             // Tech
             GameEvents.OnTechnologyResearched.Add(OnTechResearched);
             GameEvents.OnPartPurchased.Add(OnPartPurchased);
+            GameEvents.OnPartUpgradePurchased.Add(OnPartUpgradePurchased);
 
             // Crew
             // #416: OnCrewmemberHired (fired from KerbalRoster.HireApplicant) — NOT
@@ -632,6 +670,7 @@ namespace Parsek
             // Tech
             GameEvents.OnTechnologyResearched.Remove(OnTechResearched);
             GameEvents.OnPartPurchased.Remove(OnPartPurchased);
+            GameEvents.OnPartUpgradePurchased.Remove(OnPartUpgradePurchased);
 
             // Crew
             GameEvents.OnCrewmemberHired.Remove(OnCrewmemberHired);

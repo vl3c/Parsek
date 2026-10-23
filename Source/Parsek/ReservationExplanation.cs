@@ -153,7 +153,7 @@ namespace Parsek
         internal static string ForTimelineRow(
             TimelineEntry entry, CommittedFutureIndex index, double currentUT,
             Func<double, string> formatDate, Func<string, bool> partPurchaseBlocked = null,
-            Func<string, bool> strategyActiveNow = null)
+            Func<string, bool> strategyActiveNow = null, Func<string, bool> upgradePurchaseBlocked = null)
         {
             if (entry == null || entry.Action == null || index == null) return null;
             if (!CommittedFutureIndex.IsFuture(entry.UT, currentUT)) return null;
@@ -161,7 +161,7 @@ namespace Parsek
             string key;
             if (!CommittedFutureIndex.TryClassify(entry.Action, out kind, out key)) return null;
             string control = TimelineHeldControl(
-                kind, key, index, currentUT, partPurchaseBlocked, strategyActiveNow);
+                kind, key, index, currentUT, partPurchaseBlocked, strategyActiveNow, upgradePurchaseBlocked);
             if (control == null) return null;
             return TimelineHoldsPrefix + control + " until " + FormatDate(entry.UT, formatDate) + ".";
         }
@@ -172,7 +172,8 @@ namespace Parsek
         /// <summary>The stock control a future row of (kind, key) holds now, or null.</summary>
         internal static string TimelineHeldControl(
             CommittedFutureKind kind, string key, CommittedFutureIndex index, double currentUT,
-            Func<string, bool> partPurchaseBlocked, Func<string, bool> strategyActiveNow = null)
+            Func<string, bool> partPurchaseBlocked, Func<string, bool> strategyActiveNow = null,
+            Func<string, bool> upgradePurchaseBlocked = null)
         {
             switch (kind)
             {
@@ -218,6 +219,9 @@ namespace Parsek
                 case CommittedFutureKind.PartPurchase:
                     return partPurchaseBlocked != null && partPurchaseBlocked(key)
                         ? "Purchase for this part" : null;
+                case CommittedFutureKind.PartUpgradePurchase:
+                    return upgradePurchaseBlocked != null && upgradePurchaseBlocked(key)
+                        ? "Purchase for this part upgrade" : null;
                 default:
                     return null;
             }
@@ -225,6 +229,12 @@ namespace Parsek
 
         /// <summary>A part entry purchase timeline makes later (P1).</summary>
         internal static ReservationText PartPurchase(CommittedFutureEntry entry, Func<double, string> formatDate)
+        {
+            return Dated("Purchased", entry != null ? entry.UT : 0.0, formatDate);
+        }
+
+        /// <summary>A part upgrade purchase the timeline makes later.</summary>
+        internal static ReservationText PartUpgradePurchase(CommittedFutureEntry entry, Func<double, string> formatDate)
         {
             return Dated("Purchased", entry != null ? entry.UT : 0.0, formatDate);
         }

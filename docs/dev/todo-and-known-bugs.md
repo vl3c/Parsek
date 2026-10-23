@@ -851,7 +851,7 @@ and logistics design section 10.6).**
   during an in-session load, which #2155 makes a Cold save-file load that drops the handoff
   (design-load-restores-the-save section 8 lists it as unreached).
 
-## PART-UPGRADE-PURCHASE-UNRESERVED: buying a part upgrade spends funds with no ledger row, no mark and no backstop [FILED 2026-10-22 by the review of committed-value rule phase 4 (c86c5b9); predates that commit. OPEN, not built. product]
+## ~~PART-UPGRADE-PURCHASE-UNRESERVED: buying a part upgrade spends funds with no ledger row, no mark and no backstop~~ [FILED 2026-10-22 by the review of committed-value rule phase 4 (c86c5b9); predates that commit. FIXED 2026-10-23 on branch `claude/project-thread-rd3eiv`. product]
 
 Stock's part-upgrade purchase (KSP 1.12.5, decompiled: `PartListTooltipController.onPurchaseUpgrade`
 -> `onPurchaseUpgradeProceed` -> `PartUpgradeHandler.SetUnlocked` + `GameEvents.OnPartUpgradePurchased`
@@ -867,6 +867,36 @@ purchase as a cost row (its own type or the part-purchase row with the upgrade n
 `ReservedFloorPlan.IsAnyPoolCostRow`, and grey the upgrade tooltip's purchase button with the same
 `ClickReservationGate.EvaluatePurchaseNow(StockPool.Funds, entryCost, ...)` decision its backstop (a
 prefix on `onPurchaseUpgradeProceed` or `Funding.onUpgradePurchased`) reads.
+
+Fix (2026-10-23): a mirror of the part-purchase reservation. Capture: `GameStateRecorder.OnPartUpgradePurchased`
+writes a `PartUpgradePurchased` event (detail `cost=<charged>;entryCost=<price>`, the charge 0 under
+bypass or a non-positive price) and books it through `LedgerOrchestrator.OnKscSpending` as a
+`FundsSpending` row with the new source `PartUpgrade` (key = upgrade name), which is a funds cost row
+for the walk, the reserved floor and the click reservation with no further wiring. Block half:
+`CommittedFutureKind.PartUpgradePurchase` in the index; `StockUiPartUpgradePurchase` decides
+(committed purchase ahead, else `ClickReservationGate.EvaluatePurchaseNow`) and both the upgrade
+tooltip's greyed purchase button (`PartListTooltip.Setup(AvailablePart, Upgrade, ...)` postfix, reason
+in `textGreyoutMessage`) and the backstop prefix on `PartListTooltipController.onPurchaseUpgrade` read
+it; the Timeline row hover names the held control. State half: `KspStatePatcher.PatchUnlockedUpgrades`
+re-unlocks a committed purchase at its UT (add-only, cutoff clamped to the live clock, skipped under
+bypass and when `PartUpgradeManager` is not loaded). Found on the way: stock's `Funding` charges a part
+purchase and an upgrade on the same event Parsek books on, and `EventData.Fire` runs Parsek's
+listener first, so the inline recalculation ran before the charge, the hire defect
+(HIRE-RECALC-BEFORE-STOCK-DEBIT) in another shape. Part purchases and upgrades now defer the reconcile
+and recalculation one frame like hires (`ShouldDeferKscReconcileOneFrame`). Stock KSP 1.12.5 and the
+dev install define no `PARTUPGRADE` node (ModuleManager cache grep), so the live lane defines a
+synthetic upgrade through a test seam (`KscAction action=define-upgrade` / `purchase-upgrade`). Lane
+`L11-career-part-upgrade-after-rewind` live-proven on its first flight, `2026-10-23_1852` PASS attempt 1.
+
+## PURCHASE-STATE-PATCH-RUNS-WHEN-THE-FUNDS-PATCH-IS-CLAMPED: a committed part or upgrade purchase can unlock with nothing charged [FILED 2026-10-23 by the review of PR #2185. OPEN, low. product]
+
+`KspStatePatcher.PatchPurchasedParts` and `PatchUnlockedUpgrades` run before `PatchFunds` in the pool
+pass and do not look at whether the funds patch applied. If a clock crossing that reaches a committed
+purchase has its funds step clamped by the drawdown guard (`GUARDED DRAWDOWN clamped`), the part or
+upgrade is marked bought with its cost not taken. Hires already wait for an applied funds patch
+(`LedgerOrchestrator`, the hire state gate). Not seen on any flown lane (zero clamps on L8, L10, L11);
+the guard clamps only on an unexpected drawdown. Fix shape when taken: gate the two purchase state
+patches on the same applied-funds signal the hire path reads.
 
 ## ~~LOGISTICS-WITHOUT-MONEY: supply routes still charge and credit funds and write ledger rows, so the funds history depends on choices made after a rewind~~ [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4, first as ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES, then ROUTE-MONEY-COST-ONLY. FIXED 2026-10-21: phase 1 (no route money) on branch `logistics-no-money-p1`, phase 2 (route events out of the ledger) on branch `logistics-no-money-p2`. Harness re-flight of the Logistics lanes pending. product]
 

@@ -1,0 +1,207 @@
+schema = 1
+id = "L11-career-part-upgrade-after-rewind"
+tier = "nightly"
+# CAREER x REWIND: A PART UPGRADE IS A COMMITTED COST (todo PART-UPGRADE-PURCHASE-UNRESERVED).
+# Buying a part upgrade spent funds with no ledger row, no greyed control and no backstop, so after
+# a rewind it could be bought a second time, or spend money a later committed cost needed. The fix
+# books the purchase as a FundsSpending row (source PartUpgrade), greys the upgrade tooltip's
+# purchase button and refuses `PartListTooltipController.onPurchaseUpgrade` for an upgrade the
+# committed timeline buys later, and re-unlocks it (`KspStatePatcher.PatchUnlockedUpgrades`) when
+# the clock reaches the committed purchase. On the way: stock's Funding charges a part or an
+# upgrade AFTER Parsek's listener on the same event, so the inline recalculation ran before the
+# charge (the hire defect, HIRE-RECALC-BEFORE-STOCK-DEBIT); both now defer one frame.
+#
+# THE HOST. `career-pad-craft-hard` (HC-1's host: L2's `career-pad-craft` under the Hard preset),
+# because it is the committed career host with entry purchases ON
+# (`BypassEntryPurchaseAfterResearch = False`): under bypass stock charges nothing and shows every
+# upgrade of a researched node unlocked, so the defect cannot bite. Funds 500000, science 100,
+# the Jumping Flea on the pad (pid 2905720181), `PartUpgradesInCareer = True`.
+#
+# THE SYNTHETIC UPGRADE. Stock KSP 1.12.5 defines no PARTUPGRADE node (the dev install's
+# ModuleManager cache holds none either), so the lane defines one through the automation seam:
+# `KscAction action=define-upgrade` adds `ParsekLaneUpgrade` on the `start` node (researched)
+# with an entry cost of 20000 through `PartUpgradeHandler.AddUpgrade`. The handler is
+# process-static, so the definition survives the rewind's load; stock reads its unlock from a
+# save that names it, and the launch-time rewind save does not.
+#
+# THE WALK (UTs are the plan; the reading run measures them):
+#   flight A   warp the pad to 60, record the Flea, warp to 1000 in flight, stop, CommitTree,
+#              Recover (L2's pad recovery, +4182 on the x1 host).
+#   KSC 1      at ~1000, R&D open on `start`: buy the upgrade through stock's tooltip purchase
+#              (-20000). Its row is written and the reconcile deferred one frame.
+#   rewind     Rewind-to-Launch A from the Space Center: clock 45. The upgrade row is committed
+#              future, so buying it again is refused (blocked-committed) with the blocked dialog.
+#   KSC 2      at 45: research basicRocketry (-5 science) and buy the RT-10 Hammer
+#              (`solidBooster.v2`) on it: a part purchase with a committed future row ahead,
+#              the case whose inline recalculation used to run before stock's charge. It must be
+#              charged once (deferral line, no guard clamp, no reconcile warning).
+#   warp       to 1100 at the Space Center: the clock passes the committed purchase and the state
+#              patch unlocks the upgrade again (`added=1`), with no second charge; buying it now is
+#              refused by the seam as already unlocked (stock's own read).
+#   save       persistent at ~1100, then quit.
+#
+# THE EXPECTATION (oracle, HARD). End clock ~1100, every row past: funds 500000 + 4182 - 20000
+# - 1200 = 482982, science 100 - 5 = 95, reputation 0. The recovery and the Hammer's entry cost
+# are the x1 host's values; the reading run measures them under Hard.
+#
+# STATUS: AUTHORED 2026-10-23 (branch `claude/project-thread-rd3eiv`). LIVE-PROVEN on its first
+# flight, `2026-10-23_1852` PASS attempt 1 (automation DLL sha256 `23b963b2...`): endUt 1100.03,
+# past 4 / future 0, funds 482982, science 95, rep 0. Measured: recovery +4182 at 1000.2, upgrade
+# -20000 at 1000.3, rewind clock 44.9, basicRocketry -5 and the Hammer -1200 at 45.1 (the Hard host
+# kept the x1 values), the upgrade unlocked again at 1000.39; one deferral line per purchase, zero
+# guard clamps, zero reconcile warnings.
+#
+# PRE-REGISTERED READINGS (what to check first if the first flight reds):
+#   - `kscaction refused action=purchase-upgrade reason=rnd-not-open`: the R&D screen had no
+#     node for the upgrade's tech; a seam premise miss (StockScreen select before the press).
+#   - `kscaction purchase-upgrade onPurchaseUpgrade threw`: stock's proceed needs a part list
+#     tooltip controller it did not have; read the exception before changing the seam.
+#   - `kscaction refused action=purchase-upgrade reason=blocked-committed` on KSC 1: the
+#     reservation refused a purchase nothing reserves; read the `Blocking part upgrade purchase`
+#     line's reason (a committed row, or the reserve with its numbers).
+#   - `PatchUnlockedUpgrades: ... unknownUpgrade=1`: the definition did not survive the rewind's
+#     load; a seam premise miss, not the product.
+#   - A funds divergence of exactly -1200 or -20000 with every token green: a double charge the
+#     deferral did not catch; a product finding.
+description = "Career x rewind on the Hard host (entry purchases on): define a synthetic part upgrade, buy it after a committed flight, rewind to the launch and check the upgrade is refused while its committed purchase is ahead, buy a part after the rewind (charged once), warp past the committed purchase and check the upgrade comes back unlocked with no second charge; the rewind-aware ledger oracle gates the final pools."
+instanceProfile = "stock-minimal"
+tags = ["L11", "career", "ledger", "rewind", "part-upgrade", "part-purchase", "action-blocking",
+        "stock-ui", "hard-preset", "recovery", "timeline-ops", "flown"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-pad-craft-hard"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "KscAction",      args = { action = "define-upgrade", upgrade = "ParsekLaneUpgrade", node = "start", cost = "20000" }, expect = "OK", budget = 60 },
+
+  # ---- flight A: the Flea, recorded on the pad, committed, then recovered ----
+  { cmd = "WarpToUT",       args = { ut = "60" },                                          expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "1000" },                                        expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "2905720181" },                                 expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "l11-a-committed" },                          expect = "OK" },
+
+  # ---- KSC 1: buy the upgrade through stock's tooltip purchase ----
+  { cmd = "StockScreen",    args = { screen = "rnd", act = "open" },                       expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "rnd", act = "select", item = "start" },     expect = "OK" },
+  { cmd = "KscAction",      args = { action = "purchase-upgrade", upgrade = "ParsekLaneUpgrade" }, expect = "OK", budget = 60 },
+  { cmd = "StockScreen",    args = { screen = "rnd", act = "close" },                      expect = "OK" },
+
+  # ---- rewind: A's launch, from the Space Center ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "l11-rewound" },                              expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "rnd", act = "open" },                       expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "rnd", act = "select", item = "start" },     expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "l11-rnd-start-rewound" },                 expect = "OK" },
+  { cmd = "KscAction",      args = { action = "purchase-upgrade", upgrade = "ParsekLaneUpgrade" }, expect = "REJECTED", budget = 60 },
+  { cmd = "CaptureScreenshot", args = { label = "l11-upgrade-refused" },                   expect = "OK" },
+  { cmd = "UiAction",       args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "rnd", act = "close" },                      expect = "OK" },
+
+  # ---- KSC 2: research and a part purchase with a committed row ahead ----
+  { cmd = "KscAction",      args = { action = "research-node", node = "basicRocketry" },   expect = "OK", budget = 60 },
+  { cmd = "StockScreen",    args = { screen = "rnd", act = "open" },                       expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "rnd", act = "select", item = "basicRocketry" }, expect = "OK" },
+  { cmd = "KscAction",      args = { action = "purchase-part", part = "solidBooster.v2" }, expect = "OK", budget = 60 },
+  { cmd = "StockScreen",    args = { screen = "rnd", act = "close" },                      expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "l11-part-bought" },                          expect = "OK" },
+
+  # ---- warp past the committed purchase: the upgrade comes back unlocked ----
+  { cmd = "WarpToUT",       args = { ut = "1100", maxRate = "100" },                       expect = "OK", budget = 120 },
+  { cmd = "StockScreen",    args = { screen = "rnd", act = "open" },                       expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "rnd", act = "select", item = "start" },     expect = "OK" },
+  { cmd = "KscAction",      args = { action = "purchase-upgrade", upgrade = "ParsekLaneUpgrade" }, expect = "REJECTED", budget = 60 },
+  { cmd = "StockScreen",    args = { screen = "rnd", act = "close" },                      expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "persistent" },                                expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "science", "recalc-engine", "ksp-state-patcher", "action-blocking"]
+D14 = ["career", "scene-ksc", "scene-flight", "hard-preset"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Flight A only; the rewind removes no recording.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  "kscaction action=define-upgrade target=ParsekLaneUpgrade applied=true",
+  "kscaction action=purchase-upgrade target=ParsekLaneUpgrade applied=true",
+  "Game state: PartUpgradePurchased 'ParsekLaneUpgrade' \\(chargedCost=20000",
+  "\\[Rewind\\] Rewind-to-Launch initiated to UT ",
+  "Blocking part upgrade purchase: 'ParsekLaneUpgrade' .* committed future purchase ut=",
+  "kscaction refused action=purchase-upgrade reason=blocked-committed target=ParsekLaneUpgrade",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false",
+  "kscaction action=research-node target=basicRocketry applied=true",
+  "kscaction action=purchase-part target=solidBooster.v2 applied=true",
+  "\\A(?:[\\s\\S]*?OnKscSpending: deferring the reconcile and recalc one frame for FundsSpending){2}",
+  "PatchUnlockedUpgrades: targets=1, added=1, ",
+  "kscaction refused action=purchase-upgrade reason=upgrade-already-unlocked target=ParsekLaneUpgrade",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  "KSC reconciliation \\(funds\\): action FundsSpending",
+  "kscaction purchase-upgrade onPurchaseUpgrade threw",
+  "PatchUnlockedUpgrades: .*unknownUpgrade=[1-9]",
+  "kscaction action=purchase-upgrade target=ParsekLaneUpgrade applied=true[\\s\\S]*kscaction action=purchase-upgrade target=ParsekLaneUpgrade applied=true",
+]
+
+# The rewind-aware ledger oracle. The save is written at ~1100, after every row of the walk, so
+# every row is past and the pools are the plain sums.
+[expectations.ledger]
+seedFrom     = "template"
+tolerances   = "default"
+timeline     = "rewind-aware"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [1000.0, 1010.0]
+  kind       = "vessel-recovery"
+  # Flight A's pad recovery of the Jumping Flea (L2's measured payout on the x1 host).
+  funds      = 4182.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [1000.0, 1010.0]
+  kind       = "part-upgrade-purchase"
+  # The synthetic upgrade's entry cost (define-upgrade cost=20000).
+  funds      = -20000.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [44.0, 60.0]
+  kind       = "tech-unlock"
+  # basicRocketry (L1-research-node-career).
+  science    = -5.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [44.0, 60.0]
+  kind       = "part-purchase"
+  # The RT-10 Hammer's entry cost (stock part cfg; the reading run measures it).
+  funds      = -1200.0
+  provenance = "seam-declared"
+
+[runtime]
+# L8's shape, shorter: one LoadGame, one flight, one rewind, three WarpToUT.
+budgetSeconds = 2400
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

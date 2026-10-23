@@ -408,6 +408,36 @@ namespace Parsek
                 CommittedPartPurchaseAfter(index, partName, currentUT), formatDate);
         }
 
+        /// <summary>
+        /// The committed part upgrade purchase still ahead of <paramref name="currentUT"/>:
+        /// the earliest <c>FundsSpending</c> / <c>PartUpgrade</c> row for this upgrade (key =
+        /// the stock <c>PARTUPGRADE</c> name), or null. A zero-cost row reserves it too, as
+        /// for a part.
+        /// </summary>
+        internal static CommittedFutureEntry CommittedPartUpgradePurchaseAfter(
+            CommittedFutureIndex index, string upgradeName, double currentUT)
+        {
+            if (index == null || string.IsNullOrEmpty(upgradeName)) return null;
+            return index.FirstFuture(CommittedFutureKind.PartUpgradePurchase, upgradeName, currentUT);
+        }
+
+        /// <summary>
+        /// The part-upgrade block (todo PART-UPGRADE-PURCHASE-UNRESERVED): buying
+        /// <paramref name="upgradeName"/> now is refused when the committed timeline buys it
+        /// later and stock still shows it locked, because the walk would charge it twice.
+        /// Inert under bypass-entry-purchase (stock unlocks every researched upgrade free). It
+        /// lifts at the committed row's UT, when <c>KspStatePatcher.PatchUnlockedUpgrades</c>
+        /// unlocks it. The greyed upgrade tooltip button and its backstop read this one
+        /// predicate.
+        /// </summary>
+        internal static bool IsPartUpgradePurchaseBlocked(
+            CommittedFutureIndex index, string upgradeName, double currentUT,
+            bool bypassEntryPurchase, bool unlockedInStock)
+        {
+            if (bypassEntryPurchase || unlockedInStock) return false;
+            return CommittedPartUpgradePurchaseAfter(index, upgradeName, currentUT) != null;
+        }
+
         internal static ReservationText ExplainTech(
             CommittedFutureIndex index, string techId, double currentUT, Func<double, string> formatDate)
         {
