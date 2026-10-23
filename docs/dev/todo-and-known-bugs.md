@@ -30,7 +30,7 @@ folder's date; a cold load also restores what the loaded save names before hydra
 `ParsekFileCollectorTests` (`Quarantine_*`, `RestoreQuarantinedNamedBy_*`). No lane: the grace is
 wall-clock days, and the restore-at-load path is a file move the unit cells drive end to end.
 
-## CONTRACT-CANCEL-PENALTY-IGNORES-STOCK-TIME-LERP: a cancelled contract files its full failure penalty, but stock charges less the earlier the cancel [FILED 2026-10-22 from the L9 authoring decompile (KSP 1.12.5), code read, not reproduced. OPEN, medium. product]
+## ~~CONTRACT-CANCEL-PENALTY-IGNORES-STOCK-TIME-LERP: a cancelled contract files its full failure penalty, but stock charges less the earlier the cancel~~ [FILED 2026-10-22 from the L9 authoring decompile (KSP 1.12.5), code read, not reproduced. FIXED 2026-10-23 in PR #2184 (unit cells; L9 `2026-10-23_1651` PASS attempt 1). product]
 
 Stock `Contract.Cancel()` sets `dateFinished = GameTime`, then `SetState(Cancelled)`, then
 `PenalizeCancellation()`, which charges `Lerp(FundsAdvance, FundsFailure, t)` funds and
@@ -51,7 +51,16 @@ Live-confirmed on L9's reading run `2026-10-22_1332`: the cancel of 8a2b7d40 fil
 `PatchReputation: GUARDED DRAWDOWN clamped` and filed a `StockPoolAdjustment` of +0.99999785
 (reason=leak); funds were exact (advance = fail).
 
-## CONTRACT-CANCEL-ALSO-FILES-A-FAIL-ROW: a Space Center contract cancel files a ContractFail row for the same contract right after the ContractCancel row [FILED 2026-10-22 from L9 `2026-10-22_1332`. OPEN, low; no pool moved. product]
+**Fix (2026-10-23).** `GameStateRecorder.OnContractCancelled` records the penalty stock charged,
+through `GameStateRecorder.BuildContractCancelledDetail` and the pure
+`GameActions/ContractCancellationPenalty.cs`, a transcription of `PenalizeCancellation` with stock's
+float-narrowed dates and `Math.Abs`; `RepLossDeclined` comes from `ClickReservationGate.RepLossDeclined()`.
+The Info line now carries `t=` and the contract's `failFunds=` / `failRep=`. Rows already in a
+ledger keep their recorded values (no migration). Cells: `ContractOutcomeRowsTests`. Live:
+L9 `2026-10-23_1651` PASS attempt 1 filed `repPenalty=3` against `failRep=4` (this career's
+decline loss at an early t), PatchReputation stepped -3 once, and no GUARDED line printed.
+
+## ~~CONTRACT-CANCEL-ALSO-FILES-A-FAIL-ROW: a Space Center contract cancel files a ContractFail row for the same contract right after the ContractCancel row~~ [FILED 2026-10-22 from L9 `2026-10-22_1332`. FIXED 2026-10-23 in PR #2184 (unit cells; L9 `2026-10-23_1651` PASS attempt 1). product]
 
 After `kscaction cancel-contract 8a2b7d40` the log holds `AddEvent: ContractCancelled ... cseq=18`,
 `Added action: type=ContractCancel ... cseq=18`, a recalculation, then 6 ms later
@@ -61,6 +70,12 @@ cseq=20` at the same UT. The walk gave the second row no effect (the funds `Floo
 now carries two outcome rows. Find which stock path fires `onFailed` after `onCancelled` (decompile
 `Contract.Cancel` / `ContractSystem`) and either drop the duplicate at capture or prove it harmless
 in every consumer (ledger ground truth, Missions wording, the committed-future index).
+
+**Cause and fix (2026-10-23).** Decompiled `Contract.SetState(State.Cancelled)` runs
+`PenalizeCancellation()` and then fires `onCancelled`, `onFailed` and `onFinished`, in that order.
+`GameStateRecorder.OnContractFailed` now skips a fire whose contract is already Cancelled
+(`IsFailFireOfCancel`; Info line `ContractFailed '<title>' skipped - stock's onFailed re-fire of a
+cancel`), so a cancel files one row. A real fail (`State.Failed` / `DeadlineExpired`) is unchanged.
 
 ## MINE-6-PINS-PREDATE-THE-RESUMED-SPAWN-SEGMENT: MINE-6 pins one recording, but flying the respawned rover again now records a new segment [FILED 2026-10-22 from MINE-6 `2026-10-22_1619` (PARSEK-FAIL, expectations), flown for PR #2181; not caused by it. OPEN, low. harness]
 
@@ -160,7 +175,7 @@ re-capture, or a seed plus the award). Next: read QL-2's collected KSP.log aroun
 post-load recalculation for the reputation rows the walk processed, and compare with the
 quicksave's ledger.
 
-## STOCK-OFFER-EXPIRED-ACTIVE-CONTRACT-NO-TERMINAL-ROW: an Active contract stock ends as OfferExpired files no terminal ledger row [FILED 2026-10-22 from the clean review of committed-value plan phase 2 (a075d07), code read, not reproduced. OPEN, low. product]
+## ~~STOCK-OFFER-EXPIRED-ACTIVE-CONTRACT-NO-TERMINAL-ROW: an Active contract stock ends as OfferExpired files no terminal ledger row~~ [FILED 2026-10-22 from the clean review of committed-value plan phase 2 (a075d07), code read, not reproduced. FIXED 2026-10-23 in PR #2184 (unit cells; not flown: no lane drives a requirements loss). product]
 
 Stock's `Contract.Update()` ends an Active contract whose requirements no longer hold with
 `SetState(State.OfferExpired)`, which charges no penalty (`SetState` penalizes only `Failed` and
@@ -177,6 +192,22 @@ committed outcome lies ahead. Fix direction (not designed): capture the Active -
 transition as a terminal row with no penalty (a ContractCancel-like row carrying zero penalties,
 or a dedicated outcome), checked against `ContractsModule.PrePass`'s suppression of the synthetic
 fail.
+
+What `PatchContracts` did with it (checked 2026-10-23): the walk held the contract Active, so the
+rebuild loop reloaded it from its accept snapshot and added it to the live list as Active again,
+after which stock's `Update()` could end it again.
+
+**Fix (2026-10-23).** Stock reports this end only through `onFinished`, which also fires for an
+Offered contract expiring and for `Kill()`, so `Patches/ContractOfferExpiredCapturePatch.cs`
+(prefix + postfix on `Contract.SetState`) raises exactly the Active -> OfferExpired transition; a
+call `ContractEarlyFailPatch` refuses leaves the contract Active and raises nothing.
+`GameStateRecorder.OnActiveContractOfferExpired` files a ContractCancelled event with zero
+penalties and `ended=requirements`; the converter makes it a `ContractCancel` row with
+`GameAction.ContractRequirementsLost` (serialized `requirementsLost = True`, absent otherwise).
+The walk ends the contract there (outcome `ContractTerminalOutcome.RequirementsLost`, compatible
+with stock's `OfferExpired`), which frees the slot and suppresses the PrePass synthetic fail; the
+row reads `Ended: <contract>` with the hover "Its requirements no longer held, no penalty.", and a
+committed such row reads `Ended on <date>` in Mission Control (`CommittedFutureEntry.RequirementsLost`).
 
 ## ~~QL-2-RECOVER-REFUSED-WHILE-SLIDING: QL-2's Recover can be refused while the landed Flea still slides, and the refusal reads as a Parsek failure~~ [FILED 2026-10-22 from QL-2 `2026-10-21_2220` and `2026-10-22_0001` (both PARSEK-FAIL, expectations), flown for PR #2170. Half fixed in PR #2170, merged (the verb waits); the classification half FIXED 2026-10-22 in PR #2175 (harness unit cells; QL-2 `2026-10-22_0833` PASS attempt 1 did not hit a refusal). harness]
 

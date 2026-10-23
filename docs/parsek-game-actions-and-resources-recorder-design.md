@@ -1403,6 +1403,7 @@ Contracts are procedurally generated offers that reward the player for completin
 OFFERED → ACCEPTED → COMPLETED
                    → FAILED (deadline expiration or vessel loss)
                    → CANCELLED (player choice at KSC)
+                   → ENDED (requirements no longer met; stock state OfferExpired)
 ```
 
 Each transition has resource effects:
@@ -1410,7 +1411,16 @@ Each transition has resource effects:
 - **Accept**: advance payment (funds earning), contract slot consumed.
 - **Complete**: reward (funds + reputation + sometimes science earning).
 - **Fail**: penalty (funds + reputation loss).
-- **Cancel**: partial penalty (funds + reputation loss).
+- **Cancel**: partial penalty (funds + reputation loss). Stock scales it with time: with `t` the share of the accept-to-deadline span that had passed at the cancel, the funds penalty runs from the advance (`t = 0`) to the fail penalty (`t = 1`) and the reputation penalty from the career's decline loss to the fail loss (`Contract.PenalizeCancellation`, KSP 1.12.5). A contract with no deadline is charged at `t = 0`. The ledger records exactly that amount, never the full fail penalty.
+- **Ended by stock (requirements no longer met)**: no penalty. Stock's `Contract.Update()` ends an Active contract whose requirements stop holding as `OfferExpired`. The contract leaves the active list, its slot frees, and nothing is charged.
+
+**Game rules for contract outcomes (0.10.6, todos CONTRACT-CANCEL-PENALTY-IGNORES-STOCK-TIME-LERP, CONTRACT-CANCEL-ALSO-FILES-A-FAIL-ROW, STOCK-OFFER-EXPIRED-ACTIVE-CONTRACT-NO-TERMINAL-ROW):**
+
+1. A contract that ends has exactly one outcome row: complete, fail, cancel, or ended.
+2. A cancel costs what stock charged for it, the time-scaled share above, never more.
+3. An Active contract stock ends because its requirements no longer hold is ended at that moment, with no penalty. It frees its slot then, not at its deadline, and it is never rebuilt as Active.
+
+Capture: `GameStateRecorder.OnContractCancelled` records the lerped penalty (`GameActions/ContractCancellationPenalty.cs`, stock's float-narrowed dates included). Stock's `SetState(Cancelled)` fires `onCancelled` and then `onFailed`, so `OnContractFailed` skips a fire whose contract is already Cancelled. `Patches/ContractOfferExpiredCapturePatch.cs` (prefix + postfix on `Contract.SetState`) raises the Active -> OfferExpired transition, which stock reports only through `onFinished`. The recorder files it as a ContractCancelled event with zero penalties and `ended=requirements`, converted to a `ContractCancel` row with `ContractRequirementsLost` set (serialized `requirementsLost = True`), shown as `Ended: <contract>`. A refused end (rule 1 of section 3.13) leaves the contract Active and files nothing.
 
 Contracts are offered by KSP procedurally based on progress, reputation level, and randomness. Mission Control has a limited number of active contract slots (determined by building level). Each contract has a unique ID assigned by KSP.
 
@@ -1496,12 +1506,13 @@ ContractFail (recording-associated or timeline event)
   fundsPenalty:   float — IMMUTABLE
   repPenalty:     float — IMMUTABLE (nominal, pre-curve)
 
-ContractCancel (KSC action)
+ContractCancel (KSC action, or stock's requirements-lost end)
   ut:             double — frozen KSC time
   sequence:       int
   contractId:     string
-  fundsPenalty:   float — IMMUTABLE
-  repPenalty:     float — IMMUTABLE (nominal, pre-curve)
+  fundsPenalty:   float — IMMUTABLE (the time-scaled cancel penalty stock charged; 0 when ended)
+  repPenalty:     float — IMMUTABLE (nominal, pre-curve; 0 when ended)
+  requirementsLost: bool — true for stock's OfferExpired end of an Active contract
 ```
 
 ### 8.5 Contract recalculation
@@ -1570,6 +1581,7 @@ On warp exit / rewind, Parsek patches KSP's `ContractSystem` to match the ledger
 - **Completed contracts**: patched as completed. KSP won't re-offer them.
 - **Failed contracts**: patched as failed.
 - **Cancelled contracts**: patched as cancelled.
+- **Contracts ended by stock (requirements no longer met)**: not Active after their end row, so never rebuilt as Active; stock's own `OfferExpired` entry is left in place.
 - **Contracts not yet on the timeline**: left to KSP's procedural generation. Parsek doesn't interfere with offerings.
 
 This is the most complex patching operation across all modules. KSP's `Contract` objects have parameters, conditions, and internal state that must be correctly restored. The coding agent should investigate KSP's contract serialization API to determine how much of the contract state can be preserved and restored.

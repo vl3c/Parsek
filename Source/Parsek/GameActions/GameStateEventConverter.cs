@@ -1002,7 +1002,22 @@ namespace Parsek
             };
         }
 
-        /// <summary>ContractCancelled -> ContractCancel (contractId=key, penalties from detail).</summary>
+        /// <summary>
+        /// True when a ContractCancelled event's detail marks stock's OfferExpired end of an
+        /// Active contract (<c>ended=requirements</c>, written by
+        /// <see cref="GameStateRecorder.BuildContractRequirementsLostDetail"/>).
+        /// </summary>
+        internal static bool IsContractRequirementsLostDetail(string detail)
+        {
+            return string.Equals(
+                ExtractDetail(detail, GameStateRecorder.ContractRequirementsLostDetailKey),
+                GameStateRecorder.ContractRequirementsLostDetailValue,
+                StringComparison.Ordinal);
+        }
+
+        /// <summary>ContractCancelled -> ContractCancel (contractId=key, penalties from detail;
+        /// a requirements-lost end carries no penalty and sets
+        /// <see cref="GameAction.ContractRequirementsLost"/>).</summary>
         private static GameAction ConvertContractCancelled(GameStateEvent evt, string recordingId)
         {
             float fundsPenalty = 0f;
@@ -1016,6 +1031,14 @@ namespace Parsek
             if (repStr != null)
                 float.TryParse(repStr, NumberStyles.Float, IC, out repPenalty);
 
+            bool requirementsLost = IsContractRequirementsLostDetail(evt.detail);
+            if (requirementsLost)
+            {
+                // Stock's OfferExpired end of an Active contract charges nothing.
+                fundsPenalty = 0f;
+                repPenalty = 0f;
+            }
+
             return new GameAction
             {
                 UT = evt.ut,
@@ -1024,7 +1047,8 @@ namespace Parsek
                 ContractId = evt.key,
                 ContractTitle = ExtractOutcomeContractTitle(evt.detail),
                 FundsPenalty = fundsPenalty,
-                RepPenalty = repPenalty
+                RepPenalty = repPenalty,
+                ContractRequirementsLost = requirementsLost
             };
         }
 

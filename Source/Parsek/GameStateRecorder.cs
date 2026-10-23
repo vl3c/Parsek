@@ -549,6 +549,7 @@ namespace Parsek
             GameEvents.Contract.onFailed.Add(OnContractFailed);
             GameEvents.Contract.onCancelled.Add(OnContractCancelled);
             GameEvents.Contract.onDeclined.Add(OnContractDeclined);
+            Patches.ContractOfferExpiredCapturePatch.ActiveContractOfferExpired += OnActiveContractOfferExpired;
 
             // Tech
             GameEvents.OnTechnologyResearched.Add(OnTechResearched);
@@ -626,6 +627,7 @@ namespace Parsek
             GameEvents.Contract.onFailed.Remove(OnContractFailed);
             GameEvents.Contract.onCancelled.Remove(OnContractCancelled);
             GameEvents.Contract.onDeclined.Remove(OnContractDeclined);
+            Patches.ContractOfferExpiredCapturePatch.ActiveContractOfferExpired -= OnActiveContractOfferExpired;
 
             // Tech
             GameEvents.OnTechnologyResearched.Remove(OnTechResearched);

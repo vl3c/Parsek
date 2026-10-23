@@ -408,7 +408,7 @@ namespace Parsek
                         + displayName;
 
                 case GameActionType.ContractCancel:
-                    return "Cancel: " + displayName;
+                    return (action.ContractRequirementsLost ? "Ended: " : "Cancel: ") + displayName;
 
                 default:
                     return displayName;

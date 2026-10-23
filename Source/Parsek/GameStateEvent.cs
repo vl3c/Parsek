@@ -377,7 +377,11 @@ namespace Parsek
                 case GameStateEventType.ContractFailed:
                     return FormatContractDescription(key, detail, "failed");
                 case GameStateEventType.ContractCancelled:
-                    return FormatContractDescription(key, detail, "cancelled");
+                    return FormatContractDescription(key, detail,
+                        ExtractDetailField(detail, GameStateRecorder.ContractRequirementsLostDetailKey)
+                            == GameStateRecorder.ContractRequirementsLostDetailValue
+                            ? "ended (requirements no longer met)"
+                            : "cancelled");
                 case GameStateEventType.ContractDeclined:
                     return FormatContractDescription(key, detail, "declined");
                 case GameStateEventType.TechResearched:

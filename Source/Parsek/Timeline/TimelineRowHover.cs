@@ -114,6 +114,8 @@ namespace Parsek
                     if (outcome.RepPenalty > 0f) parts.Add(FormatWhole(outcome.RepPenalty) + " rep");
                     if (parts.Count > 0)
                         AppendSentence(sb, "Penalty " + string.Join(" + ", parts.ToArray()) + ".");
+                    if (outcome.Type == GameActionType.ContractCancel && outcome.ContractRequirementsLost)
+                        AppendSentence(sb, "Its requirements no longer held, no penalty.");
                     break;
                 }
             }

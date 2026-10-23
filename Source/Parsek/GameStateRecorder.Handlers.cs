@@ -205,6 +205,16 @@ namespace Parsek
                 LogEventReject("ContractFailed", "contract-null");
                 return;
             }
+            // Stock's SetState(Cancelled) fires onCancelled and then onFailed for the same
+            // cancel (KSP 1.12.5, decompiled). The cancel row is the outcome; a fail row
+            // would be a second outcome row for one contract.
+            if (IsFailFireOfCancel(contract.ContractState))
+            {
+                ParsekLog.Info("GameStateRecorder",
+                    $"Game state: ContractFailed '{contract.Title ?? ""}' skipped - stock's onFailed re-fire of " +
+                    $"a cancel (state=Cancelled, contract {contract.ContractGuid}); the ContractCancelled row is the outcome");
+                return;
+            }
             var title = contract.Title ?? "";
             float fundsPenalty = (float)contract.FundsFailure;
             float repPenalty = (float)contract.ReputationFailure;
@@ -234,9 +244,9 @@ namespace Parsek
                 return;
             }
             var title = contract.Title ?? "";
-            float fundsPenalty = (float)contract.FundsFailure;
-            float repPenalty = (float)contract.ReputationFailure;
-            var detail = BuildContractPenaltyDetail(title, fundsPenalty, repPenalty);
+            float fundsPenalty, repPenalty, t;
+            var detail = BuildContractCancelledDetail(contract,
+                (float)ClickReservationGate.RepLossDeclined(), out fundsPenalty, out repPenalty, out t);
             var evt = new GameStateEvent
             {
                 ut = Planetarium.GetUniversalTime(),
@@ -246,12 +256,59 @@ namespace Parsek
             };
             Emit(ref evt, "ContractCancelled");
             ParsekLog.Info("GameStateRecorder",
-                $"Game state: ContractCancelled '{title}' (fundsPenalty={fundsPenalty}, repPenalty={repPenalty})");
+                $"Game state: ContractCancelled '{title}' (fundsPenalty={fundsPenalty.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                $"repPenalty={repPenalty.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                $"t={t.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                $"failFunds={contract.FundsFailure.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                $"failRep={contract.ReputationFailure.ToString("R", System.Globalization.CultureInfo.InvariantCulture)})");
 
             // #405: route to ledger immediately when there is no recording owner.
             // #431 gate: see OnContractAccepted.
             if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
+        /// Stock ended an Active contract as OfferExpired (its requirements no longer hold;
+        /// raised by <see cref="Patches.ContractOfferExpiredCapturePatch"/>). Stock charges
+        /// nothing and fires only <c>onFinished</c>, so without this row the ledger keeps the
+        /// contract Active. Files a ContractCancelled event with zero penalties and
+        /// <c>ended=requirements</c>, which converts to a terminal ContractCancel row the
+        /// walk treats as an unpenalized end.
+        /// </summary>
+        private void OnActiveContractOfferExpired(Contract contract)
+        {
+            if (contract == null)
+            {
+                LogEventReject("ContractOfferExpired", "contract-null");
+                return;
+            }
+            var title = contract.Title ?? "";
+            var detail = BuildContractRequirementsLostDetail(title);
+            var evt = new GameStateEvent
+            {
+                ut = Planetarium.GetUniversalTime(),
+                eventType = GameStateEventType.ContractCancelled,
+                key = contract.ContractGuid.ToString(),
+                detail = detail
+            };
+            Emit(ref evt, "ContractOfferExpired");
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: Active contract '{title}' ended by stock as OfferExpired (requirements no longer met) - " +
+                $"filed as an unpenalized end (contract {contract.ContractGuid})");
+
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
+                LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
+        /// True when an <c>onFailed</c> fire is stock's second event of a cancel:
+        /// <c>SetState(Cancelled)</c> fires <c>onCancelled</c> then <c>onFailed</c>, and the
+        /// contract's state is already Cancelled when both run.
+        /// </summary>
+        internal static bool IsFailFireOfCancel(Contract.State state)
+        {
+            return state == Contract.State.Cancelled;
         }
 
         private void OnContractDeclined(Contract contract)
@@ -286,6 +343,41 @@ namespace Parsek
                 $";repReward={repReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
                 $";sciReward={sciReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}";
         }
+
+        /// <summary>
+        /// The ContractCancelled detail for a player cancel, carrying the penalty stock
+        /// charged rather than the fail penalty: <c>PenalizeCancellation</c> lerps from the
+        /// advance / decline loss toward the fail penalty by how far the cancel lies between
+        /// accept and deadline (<c>Contract.Cancel</c> sets <c>dateFinished</c> before
+        /// <c>SetState</c>). See <see cref="ContractCancellationPenalty"/>.
+        /// </summary>
+        internal static string BuildContractCancelledDetail(Contract contract, float repLossDeclined,
+            out float fundsPenalty, out float repPenalty, out float t)
+        {
+            t = ContractCancellationPenalty.TimeFraction(
+                contract.DateAccepted, contract.DateDeadline, contract.DateFinished);
+            fundsPenalty = (float)ContractCancellationPenalty.Funds(
+                contract.FundsAdvance, contract.FundsFailure, t);
+            repPenalty = ContractCancellationPenalty.Reputation(
+                repLossDeclined, contract.ReputationFailure, t);
+            return BuildContractPenaltyDetail(contract.Title ?? "", fundsPenalty, repPenalty);
+        }
+
+        /// <summary>
+        /// The ContractCancelled detail for stock's OfferExpired end of an Active contract:
+        /// zero penalties plus <c>ended=requirements</c>
+        /// (<see cref="GameStateEventConverter.IsContractRequirementsLostDetail"/>).
+        /// </summary>
+        internal static string BuildContractRequirementsLostDetail(string title)
+        {
+            return BuildContractPenaltyDetail(title, 0f, 0f)
+                + ";" + ContractRequirementsLostDetailKey + "=" + ContractRequirementsLostDetailValue;
+        }
+
+        /// <summary>Detail key / value marking a ContractCancelled event as stock's
+        /// OfferExpired end of an Active contract (no penalty).</summary>
+        internal const string ContractRequirementsLostDetailKey = "ended";
+        internal const string ContractRequirementsLostDetailValue = "requirements";
 
         /// <summary>
         /// Builds the shared ContractFailed/ContractCancelled penalty detail string parsed
