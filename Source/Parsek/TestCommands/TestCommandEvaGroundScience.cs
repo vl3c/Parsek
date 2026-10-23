@@ -511,6 +511,27 @@ namespace Parsek.TestCommands
             }
         }
 
+        /// <summary>Take only, optional: the name of another kerbal on EVA whose personal
+        /// inventory is the take's ONLY source (the inventory window a player opens on a
+        /// second kerbal standing next to him). Absent, a take reads the containers of the
+        /// loaded vessels that are not kerbals, as before.</summary>
+        internal const string FromArg = "from";
+
+        /// <summary>
+        /// Is <paramref name="vesselIsActive"/> / <paramref name="vesselIsEva"/> (with
+        /// <paramref name="evaCrewName"/>, the kerbal an EVA vessel carries) a vessel a take
+        /// reads containers from? Never the active kerbal himself; without
+        /// <paramref name="fromKerbal"/> every loaded vessel that is not a kerbal; with it,
+        /// only the EVA kerbal of that exact name (ordinal).
+        /// </summary>
+        internal static bool IsTakeSourceVessel(
+            bool vesselIsActive, bool vesselIsEva, string evaCrewName, string fromKerbal)
+        {
+            if (vesselIsActive) return false;
+            if (string.IsNullOrEmpty(fromKerbal)) return !vesselIsEva;
+            return vesselIsEva && string.Equals(evaCrewName, fromKerbal, StringComparison.Ordinal);
+        }
+
         /// <summary>
         /// Chooses the container slot a take moves the part out of: among candidates
         /// storing <paramref name="partName"/> (ordinal) within

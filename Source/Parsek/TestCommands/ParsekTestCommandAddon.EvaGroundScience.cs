@@ -292,7 +292,7 @@ namespace Parsek.TestCommands
             else if (action == EvaGroundScienceAction.Place)
                 StartGroundPlace(active, inv, part);
             else if (action == EvaGroundScienceAction.Take)
-                StartGroundTake(active, inv, part);
+                StartGroundTake(active, inv, part, ArgOrNull(cmd, TestCommandEvaGroundScience.FromArg));
             else if (action == EvaGroundScienceAction.Step)
                 StartGroundStep(active, stepAnchorPid, stepDistance, stepHasBearing, stepBearing);
             else
@@ -670,16 +670,20 @@ namespace Parsek.TestCommands
                 + $"fsm={stateName}->{FsmStateName(eva)} stillOnLadder={Bool(eva.OnALadder)}");
         }
 
-        private void StartGroundTake(Vessel active, ModuleInventoryPart inv, string part)
+        private void StartGroundTake(Vessel active, ModuleInventoryPart inv, string part, string fromKerbal)
         {
             // Every loaded container slot storing the part, with the kerbal's distance to
             // the container's part (the nearest point of its colliders when it has any,
-            // so a tall part is measured to its surface rather than its origin).
+            // so a tall part is measured to its surface rather than its origin). With from=,
+            // only that other EVA kerbal's own inventory.
             var containers = new List<ModuleInventoryPart>();
             var candidates = new List<GroundTakeCandidate>();
             foreach (Vessel v in FlightGlobals.VesselsLoaded)
             {
-                if (v == null || v == active || v.isEVA || v.parts == null) continue;
+                if (v == null || v.parts == null) continue;
+                string evaCrew = v.isEVA ? GetEvaKerbalName(v) : null;
+                if (!TestCommandEvaGroundScience.IsTakeSourceVessel(v == active, v.isEVA, evaCrew, fromKerbal))
+                    continue;
                 for (int i = 0; i < v.parts.Count; i++)
                 {
                     Part p = v.parts[i];
@@ -704,7 +708,7 @@ namespace Parsek.TestCommands
             if (choice.Decision == GroundTakeSourceDecision.NotStored)
             {
                 ParsekLog.Warn(Tag, $"evagroundscience refused reason=not-stored-nearby part={part} "
-                    + $"containers={containers.Count}");
+                    + $"containers={containers.Count} from={(string.IsNullOrEmpty(fromKerbal) ? "<any>" : fromKerbal)}");
                 SetExecResult("REJECTED", null, "not-stored-nearby");
                 return;
             }
@@ -791,6 +795,12 @@ namespace Parsek.TestCommands
                 return;
             }
             SetExecResult(PendingVerdict, null, null);
+        }
+
+        private static string GetEvaKerbalName(Vessel evaVessel)
+        {
+            List<ProtoCrewMember> crew = evaVessel != null ? evaVessel.GetVesselCrew() : null;
+            return crew != null && crew.Count > 0 && crew[0] != null ? crew[0].name : null;
         }
 
         private static double DistanceToPart(Part p, Vector3 from)

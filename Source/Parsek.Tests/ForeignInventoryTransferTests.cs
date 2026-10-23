@@ -51,13 +51,12 @@ namespace Parsek.Tests
             uint activeVesselPid = KerbalPid,
             uint activeRecordingVesselPid = KerbalPid,
             uint changedVesselPid = RoverPid,
-            bool changedVesselIsEva = false,
             bool changedVesselIsGhost = false,
             ForeignInventoryMembership membership = ForeignInventoryMembership.None)
         {
             return ForeignInventoryTransfer.Evaluate(
                 hasActiveTree, recorderIsRecording, parsekWriteInProgress, activeVesselIsEva,
-                activeVesselPid, activeRecordingVesselPid, changedVesselPid, changedVesselIsEva,
+                activeVesselPid, activeRecordingVesselPid, changedVesselPid,
                 changedVesselIsGhost, membership);
         }
 
@@ -91,8 +90,6 @@ namespace Parsek.Tests
                 Evaluate(changedVesselPid: KerbalPid));
             Assert.Equal(ForeignInventoryTransferVerdict.ChangedVesselIsGhost,
                 Evaluate(changedVesselIsGhost: true));
-            Assert.Equal(ForeignInventoryTransferVerdict.ChangedVesselIsEva,
-                Evaluate(changedVesselIsEva: true));
             // The kerbal's lander (a tree member): its own recording's end snapshot carries it.
             Assert.Equal(ForeignInventoryTransferVerdict.ChangedVesselIsTreeMember,
                 Evaluate(membership: ForeignInventoryMembership.OtherMember));
