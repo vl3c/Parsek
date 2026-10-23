@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Runtime.CompilerServices;
 
@@ -16,7 +17,9 @@ namespace Parsek
     /// <para>Decision table: a retained version <c>_versions/&lt;id&gt;.&lt;hash&gt;&lt;suffix&gt;</c>
     /// goes when nothing names <c>(id, hash)</c>; a leftover <c>.incoming.</c> backup is filed
     /// first and then judged the same way; a head of an id nothing names is moved to
-    /// <c>_quarantine</c> (never deleted); a <c>Parsek/RewindPoints/&lt;rp&gt;.sfs</c> goes when no
+    /// <c>_quarantine/&lt;yyyy-MM-dd&gt;</c> and deleted from there only once
+    /// <see cref="QuarantineGraceDays"/> have passed with nothing naming it again (a file a save
+    /// names again is moved back); a <c>Parsek/RewindPoints/&lt;rp&gt;.sfs</c> goes when no
     /// <c>REWIND_POINTS</c> lists it; a <c>Parsek/Saves/parsek_rw_*.sfs</c> goes when nothing names
     /// it as <c>rewindSave</c> / <c>resumeRewindSave</c>; any other <c>Parsek/Saves</c> file
     /// (<c>parsek_career_start.sfs</c>, unknown names) is never collected.</para>
@@ -27,6 +30,10 @@ namespace Parsek
         internal const double InSessionMinIntervalSeconds = 600.0;
         internal const string RewindSavePrefix = "parsek_rw_";
         internal const string BackupDirName = "Backup";
+        /// <summary>Days an unnamed recording file waits in <c>_quarantine</c> before it is deleted.</summary>
+        internal const int QuarantineGraceDays = 14;
+        internal const string QuarantineDateFormat = "yyyy-MM-dd";
+        private const string QuarantineDupMarker = ".dup";
 
         /// <summary>Absolute <c>saves/&lt;folder&gt;</c> directory; null in the game.</summary>
         internal static string SaveDirectoryOverrideForTesting;
@@ -36,6 +43,8 @@ namespace Parsek
         internal static Func<string, TextReader> OpenReferrerForTesting;
         /// <summary>Extra memory references; null in the game.</summary>
         internal static Func<SaveReferences> ExtraMemoryReferencesForTesting;
+        /// <summary>Wall clock (UTC) dating the quarantine folders; null in the game.</summary>
+        internal static Func<DateTime> UtcNowForTesting;
 
         private sealed class CacheEntry
         {
@@ -61,6 +70,9 @@ namespace Parsek
             public int IncomingFiled;
             public int VersionsDeleted;
             public int HeadsQuarantined;
+            public int QuarantineRestored;
+            public int QuarantinePurged;
+            public int QuarantineDated;
             public int TransientDeleted;
             public int RewindPointFilesDeleted;
             public int RewindSavesDeleted;
@@ -78,6 +90,7 @@ namespace Parsek
             RealtimeClockForTesting = null;
             OpenReferrerForTesting = null;
             ExtraMemoryReferencesForTesting = null;
+            UtcNowForTesting = null;
         }
 
         internal static int CachedReferrerCountForTesting => referrerCache.Count;
@@ -86,6 +99,12 @@ namespace Parsek
         {
             var clock = RealtimeClockForTesting;
             return clock != null ? clock() : processClock.Elapsed.TotalSeconds;
+        }
+
+        private static DateTime UtcNow()
+        {
+            var clock = UtcNowForTesting;
+            return clock != null ? clock() : DateTime.UtcNow;
         }
 
         /// <summary>
@@ -205,6 +224,7 @@ namespace Parsek
             FileIncomingBackups(versionsDir, result);
             CollectVersions(versionsDir, references, result);
             CollectRecordingHeads(recordingsDir, references, result);
+            SweepQuarantine(recordingsDir, references, result);
 
             // 4. Rewind point files and rewind saves.
             CollectRewindPointFiles(Path.Combine(saveDir, "Parsek", "RewindPoints"), references, result);
@@ -216,7 +236,9 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"Collection: referrers={result.Referrers} scanned={result.Scanned} cached={result.Cached} " +
                 $"incomingFiled={result.IncomingFiled} versionsDeleted={result.VersionsDeleted} " +
-                $"headsQuarantined={result.HeadsQuarantined} transientDeleted={result.TransientDeleted} " +
+                $"headsQuarantined={result.HeadsQuarantined} quarantineRestored={result.QuarantineRestored} " +
+                $"quarantinePurged={result.QuarantinePurged} quarantineDated={result.QuarantineDated} " +
+                $"transientDeleted={result.TransientDeleted} " +
                 $"rewindPointFilesDeleted={result.RewindPointFilesDeleted} " +
                 $"rewindSavesDeleted={result.RewindSavesDeleted} failures={result.Failures} " +
                 $"bytesFreed={result.BytesFreed} ms={result.Milliseconds} reason={reason}");
@@ -562,18 +584,11 @@ namespace Parsek
         {
             try
             {
-                string quarantineDir = Path.Combine(recordingsDir, RecordingStore.OrphanQuarantineDirName);
-                Directory.CreateDirectory(quarantineDir);
-                string dest = Path.Combine(quarantineDir, fileName);
-                if (File.Exists(dest))
-                {
-                    dest = Path.Combine(
-                        quarantineDir,
-                        fileName + ".dup" + Guid.NewGuid().ToString("N").Substring(0, 8));
-                }
-                File.Move(filePath, dest);
+                string datedDir = TodayQuarantineDirectory(recordingsDir);
+                MoveIntoQuarantineFolder(filePath, datedDir, fileName);
                 ParsekLog.Verbose(Tag,
-                    $"Quarantined orphan recording file: {fileName} (id={id}) -> {RecordingStore.OrphanQuarantineDirName}/");
+                    $"Quarantined orphan recording file: {fileName} (id={id}) -> " +
+                    $"{RecordingStore.OrphanQuarantineDirName}/{Path.GetFileName(datedDir)}/");
                 return true;
             }
             catch (Exception ex)
@@ -582,6 +597,296 @@ namespace Parsek
                 ParsekLog.Warn(Tag,
                     $"Failed to quarantine orphan recording file '{fileName}': {ex.Message} (left in place, NOT deleted)");
                 return false;
+            }
+        }
+
+        // ---------------------------------------------------------------- quarantine
+
+        private static string QuarantineDirectory(string recordingsDir)
+        {
+            return Path.Combine(recordingsDir, RecordingStore.OrphanQuarantineDirName);
+        }
+
+        internal static string TodayQuarantineDirectory(string recordingsDir)
+        {
+            return Path.Combine(QuarantineDirectory(recordingsDir),
+                UtcNow().ToString(QuarantineDateFormat, CultureInfo.InvariantCulture));
+        }
+
+        /// <summary>Moves a file into a quarantine folder, never overwriting an earlier copy.</summary>
+        private static void MoveIntoQuarantineFolder(string filePath, string folder, string fileName)
+        {
+            Directory.CreateDirectory(folder);
+            string dest = Path.Combine(folder, fileName);
+            if (File.Exists(dest))
+            {
+                dest = Path.Combine(
+                    folder,
+                    fileName + QuarantineDupMarker + Guid.NewGuid().ToString("N").Substring(0, 8));
+            }
+            File.Move(filePath, dest);
+        }
+
+        /// <summary>
+        /// Pure: the head file name a quarantined file was moved from (the
+        /// <c>.dup&lt;8 hex&gt;</c> collision suffix stripped).
+        /// </summary>
+        internal static string QuarantinedHeadFileName(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName))
+                return fileName;
+            int marker = fileName.LastIndexOf(QuarantineDupMarker, StringComparison.Ordinal);
+            if (marker > 0 && fileName.Length - marker == QuarantineDupMarker.Length + 8)
+            {
+                bool hex = true;
+                for (int i = marker + QuarantineDupMarker.Length; i < fileName.Length && hex; i++)
+                    hex = Uri.IsHexDigit(fileName[i]);
+                if (hex)
+                    return fileName.Substring(0, marker);
+            }
+            return fileName;
+        }
+
+        /// <summary>Pure: parses a quarantine folder name (<c>yyyy-MM-dd</c>, UTC).</summary>
+        internal static bool TryParseQuarantineFolderDate(string folderName, out DateTime date)
+        {
+            return DateTime.TryParseExact(
+                folderName, QuarantineDateFormat, CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out date);
+        }
+
+        /// <summary>
+        /// Pure: whether a quarantine folder dated <paramref name="folderDate"/> has waited out
+        /// the grace period on <paramref name="nowUtc"/> (whole UTC days).
+        /// </summary>
+        internal static bool IsQuarantineExpired(DateTime folderDate, DateTime nowUtc)
+        {
+            return nowUtc.Date >= folderDate.Date.AddDays(QuarantineGraceDays);
+        }
+
+        /// <summary>
+        /// Moves a quarantined file back to its head position. A head that already exists is
+        /// never replaced; the quarantined copy then stays where it is.
+        /// </summary>
+        private static bool TryRestoreQuarantinedFile(
+            string quarantinedPath, string recordingsDir, string headName, string id, string reason,
+            out bool headExists)
+        {
+            headExists = false;
+            string headPath = Path.Combine(recordingsDir, headName);
+            if (File.Exists(headPath))
+            {
+                headExists = true;
+                ParsekLog.Verbose(Tag,
+                    $"Quarantined file named again but its head exists: {headName} (id={id}) - copy left in quarantine");
+                return false;
+            }
+            try
+            {
+                File.Move(quarantinedPath, headPath);
+                ParsekLog.Info(Tag,
+                    $"Restored quarantined recording file: {headName} (id={id}) reason={reason}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Failed to restore quarantined recording file '{headName}': {ex.GetType().Name}:{ex.Message} " +
+                    $"(left in quarantine)");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Every file in <c>_quarantine</c>: flat files (quarantined before the folders were
+        /// dated) and files in <c>yyyy-MM-dd</c> folders. Other subfolders are not Parsek's.
+        /// </summary>
+        private static List<KeyValuePair<string, string>> ListQuarantinedFiles(string quarantineDir)
+        {
+            var files = new List<KeyValuePair<string, string>>();
+            if (!Directory.Exists(quarantineDir))
+                return files;
+            foreach (string flat in Directory.GetFiles(quarantineDir))
+                files.Add(new KeyValuePair<string, string>(flat, null));
+            string[] dirs = Directory.GetDirectories(quarantineDir);
+            Array.Sort(dirs, StringComparer.Ordinal);
+            for (int d = 0; d < dirs.Length; d++)
+            {
+                string folderName = Path.GetFileName(dirs[d]);
+                if (!TryParseQuarantineFolderDate(folderName, out _))
+                    continue;
+                foreach (string dated in Directory.GetFiles(dirs[d]))
+                    files.Add(new KeyValuePair<string, string>(dated, folderName));
+            }
+            return files;
+        }
+
+        /// <summary>
+        /// Collection step after the heads: a quarantined file some save or memory names again
+        /// goes back to its head position; a flat (undated) one is filed into today's folder so
+        /// its grace period starts now; a file in a folder older than
+        /// <see cref="QuarantineGraceDays"/> that nothing names is deleted; empty dated folders go.
+        /// </summary>
+        private static void SweepQuarantine(string recordingsDir, SaveReferences references, Result result)
+        {
+            string quarantineDir = QuarantineDirectory(recordingsDir);
+            if (!Directory.Exists(quarantineDir))
+                return;
+            DateTime now = UtcNow();
+            string todayDir = TodayQuarantineDirectory(recordingsDir);
+            int keptWaiting = 0;
+            int keptNamed = 0;
+            int unrecognized = 0;
+            var files = ListQuarantinedFiles(quarantineDir);
+            for (int i = 0; i < files.Count; i++)
+            {
+                string path = files[i].Key;
+                string folderName = files[i].Value;
+                string fileName = Path.GetFileName(path);
+                string headName = QuarantinedHeadFileName(fileName);
+                string id = RecordingStore.ExtractRecordingIdFromFileName(headName);
+                if (id == null)
+                {
+                    unrecognized++;
+                    continue;
+                }
+
+                if (references.RecordingIds.Contains(id))
+                {
+                    if (TryRestoreQuarantinedFile(path, recordingsDir, headName, id, "named-by-save-or-memory", out _))
+                        result.QuarantineRestored++;
+                    else
+                        keptNamed++;
+                    continue;
+                }
+
+                if (folderName == null)
+                {
+                    try
+                    {
+                        MoveIntoQuarantineFolder(path, todayDir, fileName);
+                        result.QuarantineDated++;
+                    }
+                    catch (Exception ex)
+                    {
+                        result.Failures++;
+                        ParsekLog.Warn(Tag,
+                            $"Failed to date quarantined file '{fileName}': {ex.GetType().Name}:{ex.Message} - left for the next run");
+                    }
+                    continue;
+                }
+
+                TryParseQuarantineFolderDate(folderName, out DateTime folderDate);
+                if (!IsQuarantineExpired(folderDate, now))
+                {
+                    keptWaiting++;
+                    continue;
+                }
+                if (TryDelete(path, result))
+                {
+                    result.QuarantinePurged++;
+                    ParsekLog.Verbose(Tag,
+                        $"Quarantined recording file purged: {headName} (id={id}) quarantined={folderName} " +
+                        $"graceDays={QuarantineGraceDays}");
+                }
+            }
+
+            RemoveEmptyQuarantineFolders(quarantineDir);
+            ParsekLog.Verbose(Tag,
+                $"Quarantine judged: restored={result.QuarantineRestored} purged={result.QuarantinePurged} " +
+                $"dated={result.QuarantineDated} waiting={keptWaiting} namedHeadExists={keptNamed} " +
+                $"unrecognized={unrecognized}");
+        }
+
+        private static void RemoveEmptyQuarantineFolders(string quarantineDir)
+        {
+            foreach (string dir in Directory.GetDirectories(quarantineDir))
+            {
+                if (!TryParseQuarantineFolderDate(Path.GetFileName(dir), out _))
+                    continue;
+                try
+                {
+                    if (Directory.GetFileSystemEntries(dir).Length == 0)
+                        Directory.Delete(dir);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"Empty quarantine folder not removed: {Path.GetFileName(dir)} {ex.GetType().Name}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Cold-load step before the recordings hydrate: every quarantined file whose recording
+        /// the loaded save names goes back to its head position, so a save brought back into the
+        /// folder (copied in, or restored from <c>Backup/</c>) loads whole. Housekeeping: a
+        /// failure never aborts the load.
+        /// </summary>
+        internal static int RestoreQuarantinedNamedBy(ConfigNode scenarioNode)
+        {
+            try
+            {
+                string saveDir = ResolveSaveDirectory();
+                if (string.IsNullOrEmpty(saveDir) || scenarioNode == null)
+                    return 0;
+                string recordingsDir = Path.Combine(saveDir, "Parsek", "Recordings");
+                string quarantineDir = QuarantineDirectory(recordingsDir);
+                if (!Directory.Exists(quarantineDir))
+                    return 0;
+
+                var named = new HashSet<string>(StringComparer.Ordinal);
+                CollectRecordingIds(scenarioNode, named);
+                if (named.Count == 0)
+                    return 0;
+
+                int restored = 0;
+                int headExists = 0;
+                var files = ListQuarantinedFiles(quarantineDir);
+                for (int i = 0; i < files.Count; i++)
+                {
+                    string headName = QuarantinedHeadFileName(Path.GetFileName(files[i].Key));
+                    string id = RecordingStore.ExtractRecordingIdFromFileName(headName);
+                    if (id == null || !named.Contains(id))
+                        continue;
+                    if (TryRestoreQuarantinedFile(files[i].Key, recordingsDir, headName, id, "named-by-loaded-save", out bool exists))
+                        restored++;
+                    else if (exists)
+                        headExists++;
+                }
+                if (restored > 0 || headExists > 0)
+                {
+                    RemoveEmptyQuarantineFolders(quarantineDir);
+                    ParsekLog.Info(Tag,
+                        $"Quarantine restore at load: restored={restored} namedHeadExists={headExists} " +
+                        $"namedRecordings={named.Count}");
+                }
+                return restored;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Quarantine restore at load aborted: {ex.GetType().Name}:{ex.Message} - files left in quarantine");
+                return 0;
+            }
+        }
+
+        /// <summary>Pure: every <c>recordingId</c> of a <c>RECORDING</c> node at any depth (the scanner's rule).</summary>
+        internal static void CollectRecordingIds(ConfigNode node, HashSet<string> ids)
+        {
+            if (node == null)
+                return;
+            ConfigNode[] children = node.GetNodes();
+            for (int i = 0; i < children.Length; i++)
+            {
+                ConfigNode child = children[i];
+                if (string.Equals(child.name, "RECORDING", StringComparison.Ordinal))
+                {
+                    string id = child.GetValue("recordingId");
+                    if (!string.IsNullOrEmpty(id))
+                        ids.Add(id);
+                }
+                CollectRecordingIds(child, ids);
             }
         }
 

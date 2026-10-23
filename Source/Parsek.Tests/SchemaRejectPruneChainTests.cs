@@ -248,7 +248,7 @@ namespace Parsek.Tests
             logLines.Clear();
             ParsekFileCollector.Run("test");
 
-            string quarantineDir = Path.Combine(recordingsDir, RecordingStore.OrphanQuarantineDirName);
+            string quarantineDir = ParsekFileCollector.TodayQuarantineDirectory(recordingsDir);
             Assert.False(File.Exists(PrecPath(MidId)));
             Assert.True(File.Exists(Path.Combine(quarantineDir, MidId + ".prec")));
 

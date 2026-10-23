@@ -508,10 +508,32 @@ once per process.
 |---|---|
 | `_versions/<id>.<hash><suffix>` | no referrer and no memory recording names `(id, hash)` |
 | `_versions/<id><suffix>.incoming.<guid>` | always filed first: hashed and renamed (4.4), then judged as above |
-| head `<id><suffix>` (all kinds) | no referrer and no memory names `id`; moved to `_quarantine` as today, never deleted outright |
+| head `<id><suffix>` (all kinds) | no referrer and no memory names `id`; moved to `_quarantine/<yyyy-MM-dd>/` (the UTC day it was quarantined), never deleted at that point |
+| `_quarantine/<yyyy-MM-dd>/<file>` | still named by no referrer and no memory 14 whole UTC days after its folder's date (`ParsekFileCollector.QuarantineGraceDays`); an empty dated folder goes with it |
 | `Parsek/RewindPoints/<rp>.sfs` | no referrer's and no memory's `REWIND_POINTS` lists `rp` |
 | `Parsek/Saves/parsek_rw_<id>.sfs` | no referrer and no memory names it as `rewindSave` or `resumeRewindSave` |
 | any other `Parsek/Saves/*.sfs` (`parsek_career_start.sfs`, unknown names) | never |
+
+**The quarantine (game rule).** A recording file that no save in the folder and nothing in the
+running game names is not deleted at once: it waits 14 days in `_quarantine`, so a player who
+brings an old save back can still load it whole. Within that time, or after it if the file is
+still there, a save that names the recording again brings the file back to its place:
+
+- each collection moves a quarantined file back when any referrer or memory names its id again
+  (`reason=named-by-save-or-memory`);
+- a cold load does the same for the save it is loading BEFORE its recordings hydrate
+  (`ParsekFileCollector.RestoreQuarantinedNamedBy`, OnLoad phase `quarantine-restore`,
+  `reason=named-by-loaded-save`), so a save copied into the folder, or restored from `Backup/`,
+  loads with its flights the first time;
+- a file is never moved back over an existing head of the same name; a named copy stays in
+  quarantine and is never purged while anything names it;
+- a file quarantined into the folder's root (before the folders were dated) is filed into
+  today's folder, so its 14 days start then.
+
+Only the head of a recording is quarantined; its unnamed `_versions` copies go at once, as above.
+A save brought back that names an older copy of a recording than the quarantined head therefore
+still reads that recording as unresolved. The zero-known-ids and unreadable-referrer guards skip
+the whole run, the quarantine sweep included.
 
 The rewind point reaper keeps deciding WHEN a point is done (all slots sealed); it removes the
 point from memory's list and no longer deletes the file. The file goes when no save lists the
@@ -814,7 +836,7 @@ existing `QL-*` lane with its log contract moved from the old machinery's lines 
 | Risk | Mitigation |
 |---|---|
 | A static the reset misses carries state across an F9 | reflection inventory gate (4.2) |
-| Collection deletes a file some save needs | referrer set includes every save file and memory; fail closed on any unreadable referrer; heads are quarantined, never deleted; only `parsek_rw_` rewind saves are ever collected; one grep gate owns every delete site; lane S6 |
+| Collection deletes a file some save needs | referrer set includes every save file and memory; fail closed on any unreadable referrer; heads wait 14 days in quarantine, are deleted only if nothing names them again and come back when a save does; only `parsek_rw_` rewind saves are ever collected; one grep gate owns every delete site; lane S6 |
 | A retained version is filed under the wrong hash | the filing hashes the backup's own bytes, never memory's value |
 | A version read serves stale annotations | the `.pann` is dropped and recomputed on every version read |
 | Disk growth from retained versions | collection at every cold load and periodically in-session; versions are bounded by what saves reference |

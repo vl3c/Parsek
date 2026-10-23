@@ -147,7 +147,7 @@ namespace Parsek.Tests
             ParsekFileCollector.Run("test");
 
             string quarantinedOrphan = Path.Combine(
-                recordingsDir, RecordingStore.OrphanQuarantineDirName, "orphan-rec.prec");
+                ParsekFileCollector.TodayQuarantineDirectory(recordingsDir), "orphan-rec.prec");
             Assert.True(File.Exists(keepPrec));            // known recording untouched
             Assert.False(File.Exists(orphanPrec));         // moved out of the active set
             Assert.True(File.Exists(quarantinedOrphan));   // preserved in quarantine, NOT deleted
@@ -179,7 +179,7 @@ namespace Parsek.Tests
             logLines.Clear();
             ParsekFileCollector.Run("test");
 
-            string qDir = Path.Combine(recordingsDir, RecordingStore.OrphanQuarantineDirName);
+            string qDir = ParsekFileCollector.TodayQuarantineDirectory(recordingsDir);
             Assert.True(File.Exists(survivorPrec));
             Assert.False(File.Exists(droppedPrec));
             Assert.False(File.Exists(droppedVessel));
@@ -198,7 +198,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(keep);
             File.WriteAllText(Path.Combine(recordingsDir, "keep-rec.prec"), "keep");
 
-            string qDir = Path.Combine(recordingsDir, RecordingStore.OrphanQuarantineDirName);
+            string qDir = ParsekFileCollector.TodayQuarantineDirectory(recordingsDir);
             Directory.CreateDirectory(qDir);
             File.WriteAllText(Path.Combine(qDir, "orphan-rec.prec"), "earlier-copy");
 
