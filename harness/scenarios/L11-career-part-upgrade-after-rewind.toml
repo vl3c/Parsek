@@ -44,7 +44,12 @@ tier = "nightly"
 # - 1200 = 482982, science 100 - 5 = 95, reputation 0. The recovery and the Hammer's entry cost
 # are the x1 host's values; the reading run measures them under Hard.
 #
-# STATUS: AUTHORED 2026-10-23 (branch `claude/project-thread-rd3eiv`), never flown.
+# STATUS: AUTHORED 2026-10-23 (branch `claude/project-thread-rd3eiv`). LIVE-PROVEN on its first
+# flight, `2026-10-23_1852` PASS attempt 1 (automation DLL sha256 `23b963b2...`): endUt 1100.03,
+# past 4 / future 0, funds 482982, science 95, rep 0. Measured: recovery +4182 at 1000.2, upgrade
+# -20000 at 1000.3, rewind clock 44.9, basicRocketry -5 and the Hammer -1200 at 45.1 (the Hard host
+# kept the x1 values), the upgrade unlocked again at 1000.39; one deferral line per purchase, zero
+# guard clamps, zero reconcile warnings.
 #
 # PRE-REGISTERED READINGS (what to check first if the first flight reds):
 #   - `kscaction refused action=purchase-upgrade reason=rnd-not-open`: the R&D screen had no
@@ -61,7 +66,7 @@ tier = "nightly"
 description = "Career x rewind on the Hard host (entry purchases on): define a synthetic part upgrade, buy it after a committed flight, rewind to the launch and check the upgrade is refused while its committed purchase is ahead, buy a part after the rewind (charged once), warp past the committed purchase and check the upgrade comes back unlocked with no second charge; the rewind-aware ledger oracle gates the final pools."
 instanceProfile = "stock-minimal"
 tags = ["L11", "career", "ledger", "rewind", "part-upgrade", "part-purchase", "action-blocking",
-        "stock-ui", "hard-preset", "recovery", "timeline-ops", "reading-run"]
+        "stock-ui", "hard-preset", "recovery", "timeline-ops", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/career-pad-craft-hard"

@@ -885,7 +885,8 @@ listener first, so the inline recalculation ran before the charge, the hire defe
 (HIRE-RECALC-BEFORE-STOCK-DEBIT) in another shape. Part purchases and upgrades now defer the reconcile
 and recalculation one frame like hires (`ShouldDeferKscReconcileOneFrame`). Stock KSP 1.12.5 and the
 dev install define no `PARTUPGRADE` node (ModuleManager cache grep), so the live lane defines a
-synthetic upgrade through a test seam.
+synthetic upgrade through a test seam (`KscAction action=define-upgrade` / `purchase-upgrade`). Lane
+`L11-career-part-upgrade-after-rewind` live-proven on its first flight, `2026-10-23_1852` PASS attempt 1.
 
 ## ~~LOGISTICS-WITHOUT-MONEY: supply routes still charge and credit funds and write ledger rows, so the funds history depends on choices made after a rewind~~ [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4, first as ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES, then ROUTE-MONEY-COST-ONLY. FIXED 2026-10-21: phase 1 (no route money) on branch `logistics-no-money-p1`, phase 2 (route events out of the ledger) on branch `logistics-no-money-p2`. Harness re-flight of the Logistics lanes pending. product]
 
