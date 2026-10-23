@@ -344,7 +344,7 @@ namespace Parsek.Tests
             // still hard-deleted.
             Assert.False(File.Exists(orphanReadable));
             Assert.True(File.Exists(Path.Combine(
-                recordingsDir, RecordingStore.OrphanQuarantineDirName, "orphan-readable.prec.txt")));
+                ParsekFileCollector.TodayQuarantineDirectory(recordingsDir), "orphan-readable.prec.txt")));
             Assert.True(File.Exists(readme));
             Assert.Contains(logLines, l =>
                 l.Contains("[FileCollector]") && l.Contains("headsQuarantined=1")

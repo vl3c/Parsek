@@ -16,6 +16,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~RECORDING-QUARANTINE-NEVER-EMPTIED: recording files no save names pile up in `_quarantine` forever, and a save that names one again cannot load it~~ [FILED 2026-10-23 from the owner's question in the "Orphan recording files after load" thread, code read on main 6d3e318. Owner ruling 2026-10-23: 14-day grace, then delete; restore when a save names it. FIXED 2026-10-23 on branch `claude/project-thread-iy2xbd`, xUnit only. product]
+
+`ParsekFileCollector` (design-load-restores-the-save.md 4.5) moved every recording head no save
+in the folder and no in-memory state named into `Parsek/Recordings/_quarantine/`, and nothing ever
+read or emptied that folder: the flights recorded after a save the player loaded and never saved
+again stayed on disk for good, and a save brought back into the folder that named one of them
+hydrated it as `trajectory-missing`. Fix: quarantine into `_quarantine/<yyyy-MM-dd>/`; each
+collection moves a quarantined file back when any save or memory names its id again, files a flat
+(undated) file into today's folder, and deletes a file still unnamed 14 whole UTC days after its
+folder's date; a cold load also restores what the loaded save names before hydration (OnLoad phase
+`quarantine-restore`). A named copy never replaces an existing head and is never purged. xUnit
+`ParsekFileCollectorTests` (`Quarantine_*`, `RestoreQuarantinedNamedBy_*`). No lane: the grace is
+wall-clock days, and the restore-at-load path is a file move the unit cells drive end to end.
+
 ## CONTRACT-CANCEL-PENALTY-IGNORES-STOCK-TIME-LERP: a cancelled contract files its full failure penalty, but stock charges less the earlier the cancel [FILED 2026-10-22 from the L9 authoring decompile (KSP 1.12.5), code read, not reproduced. OPEN, medium. product]
 
 Stock `Contract.Cancel()` sets `dateFinished = GameTime`, then `SetState(Cancelled)`, then
