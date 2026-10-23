@@ -1,0 +1,166 @@
+schema = 1
+id = "EVA-12-cargo-from-foreign-kerbal-rewind"
+# =====================================================================================
+# EVA-12 (todo EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED, the foreign EVA kerbal half,
+# fixed 2026-10-23 on `claude/project-thread-y4esmb`, never flown): a recording EVA kerbal
+# takes a part out of ANOTHER kerbal's inventory, the flight is committed, then
+# Rewind-to-Launch. Before the fix the transfer was refused (`reason=ChangedVesselIsEva`),
+# so the rewind gave the part to both kerbals: Bill spawned with it at his recording's end
+# while Bob, untouched by the rewind, still carried it. Now the other kerbal joins the tree
+# as its cargo partner exactly as a foreign container does (RC-6): his own kerbal vessel is
+# the member, the rewind holds him back for that committed future, he replays as a ghost and
+# spawns at his chain tip WITHOUT the part while Bill spawns WITH it.
+#
+# HOST: `eva-construct-pad` (RC-6 / EVA-11's host): Kerbal X PRELAUNCH on the pad (pid
+# 3620499050) with Valentina, Bob and Bill aboard, and the crewless `rover fuel 0` (pid
+# 1871615455) LANDED 153 m away, used here only as a step anchor on flat ground outside the
+# KSC pad exclusion. THE INVENTORY PATCH: Bob carries only an evaRepairKit (no container on
+# the host holds one, so the part is unique), Bill only an evaJetpack.
+#
+# THE SETUP, before anything records: Bob steps out (autoRecordOnEva off), steps 12 m from
+# the rover on bearing 200, and the stock switch click puts Kerbal X back in focus (the same
+# `SimulateStockSwitchClick pid=3620499050` CI-1 drives); a StopRecording + DiscardTree
+# clears anything that switch might have armed. Bill then steps out and stands 13.5 m from
+# the rover on the same bearing, 1.5 m from Bob, and the recording starts on him.
+#
+# THE SEAM: `EvaGroundScience action=take part=evaRepairKit from=Bob Kerman` (from= added on
+# this branch) reads ONLY Bob's own inventory and drives stock's clear-then-store, so stock
+# fires `onModuleInventorySlotChanged` on Bob's kerbal part (the foreign side) and on Bill's
+# (the recorded side, skipped). Bill then walks to 30 m (16.5 m from Bob) so his end spawn
+# clears Bob (RC-6's walk-away lesson).
+#
+# ACT 3 is RC-6's flight reload: Rewind-to-Launch, SaveGame + LoadGame lands FLIGHT on
+# Kerbal X, and 1x flight time to UT 120 crosses both recordings' ends (about UT 60-80 on
+# this host: fixture UT 25.4 plus the setup).
+#
+# THE CREW: the member's own snapshot seats Bob, so the cargo flight writes a KerbalAssignment
+# row for him (`CreateKerbalAssignmentActions: 1 crew members from '<member>'`) and holds him
+# from the transfer on; nothing else holds him on this host.
+# =====================================================================================
+tier = "nightly"
+description = "EVA-12: Bill Kerman takes the evaRepairKit out of Bob Kerman's own inventory while both stand on EVA, the flight commits with Bob as Bill's cargo partner, then Rewind-to-Launch. After the rewind Bob is held, ghosted and spawns at his chain tip without the kit, and Bill spawns with it: the part is neither duplicated nor lost."
+instanceProfile = "stock-minimal"
+tags = ["eva", "inventory", "foreign-vessel", "foreign-kerbal", "ghost-chain", "rewind-to-launch", "EVA-12"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva-construct-pad"
+injectedRecordings = "none"
+craft              = []
+
+[[fixture.crewInventory]]
+kerbal    = "Bill Kerman"
+inventory = "evaJetpack"
+
+[[fixture.crewInventory]]
+kerbal    = "Bob Kerman"
+inventory = "evaRepairKit"
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  # Bob first, unrecorded: he is the foreign kerbal.
+  { cmd = "EvaExit",    args = { kerbal = "Bob Kerman", release = "true" },   expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "1871615455", distance = "12", bearing = "200" }, expect = "OK", budget = 120 },
+  { cmd = "SimulateStockSwitchClick", args = { pid = "3620499050" },          expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  # Bill next to him, and only then the recording.
+  { cmd = "EvaExit",    args = { kerbal = "Bill Kerman", release = "true" },  expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "1871615455", distance = "13.5", bearing = "200" }, expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "EvaGroundScience", args = { action = "take", part = "evaRepairKit", from = "Bob Kerman" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "1871615455", distance = "30", bearing = "200" }, expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva12-commit-count-${c0.count}" }, expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "eva12-rewound" },                   expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "eva12-rewound" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "chains" },    label = "ch", expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "120", maxRate = "1" },                expect = "OK", budget = 240 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva12-spawned-a-${c2.rec0}-${c2.rec0spawned}-${c2.rec0spawnedPid}-b-${c2.rec1}-${c2.rec1spawned}-${c2.rec1spawnedPid}-end" }, expect = "OK" },
+  { cmd = "SaveGame",                                                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Bill's root and Bob's member.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  "evaexit complete kerbal=Bob Kerman ",
+  "evagroundscience step complete kerbal=Bob Kerman anchor=rover fuel 0 ",
+  "evaexit complete kerbal=Bill Kerman ",
+  "evagroundscience step complete kerbal=Bill Kerman anchor=rover fuel 0 ",
+  "evagroundscience take start kerbal=Bill Kerman part=evaRepairKit source=Bob Kerman sourcePart=kerbalEVA[^ ]* sourceSlot=[0-9]+ [^\\r\\n]*inventory=0:evaJetpack ",
+  "evagroundscience take complete part=evaRepairKit [^\\r\\n]*sourceInventory=<empty>",
+  # Bob joined Bill's tree on the take, as an inventory transfer out of his own inventory.
+  "startrecording recordingId=([0-9a-f]+) already=false[\\s\\S]*Foreign inventory transfer: vessel joined the tree vesselPid=[0-9]+ name='Bob Kerman' rec=[0-9a-f]+ parentRec=\\1 bp=[0-9a-f]+ ut=[0-9.]+ event=PartRemoved details='inventory part=evaRepairKit slot=[0-9]+ qty=0 container=[0-9]+' snapshot=True",
+  "MISSIONMARK label=eva12-commit-count-2 ",
+  "committree committed=true",
+  # The cargo flight holds Bob: his member's snapshot seats him.
+  "Foreign inventory transfer: vessel joined the tree vesselPid=[0-9]+ name='Bob Kerman' rec=([0-9a-f]+) [\\s\\S]*CreateKerbalAssignmentActions: 1 crew members from '\\1'",
+  "Foreign inventory transfer: vessel joined the tree vesselPid=([0-9]+) name='Bob Kerman' rec=([0-9a-f]+) [\\s\\S]*Chain built: vessel=\\1 links=1 tip=\\2 ",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # The rewind holds Bob back for his committed future, then he spawns at his tip without
+  # the kit.
+  "Foreign inventory transfer: vessel joined the tree vesselPid=([0-9]+) name='Bob Kerman' [\\s\\S]*Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind held vessel for its committed future: pid=\\1 name='Bob Kerman' [^\\r\\n]*evidence=chain [^\\r\\n]*snapshot=yes",
+  "Foreign inventory transfer: vessel joined the tree vesselPid=([0-9]+) name='Bob Kerman' [\\s\\S]*invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Chain tip spawn: pid=\\1 vessel=Bob Kerman preserveIdentity=true",
+  "Foreign inventory transfer: vessel joined the tree vesselPid=([0-9]+) name='Bob Kerman' [\\s\\S]*invokerewindtolaunch complete [\\s\\S]*(?:Vessel respawned|SpawnAtPosition: vessel spawned) \\(sit=[A-Z_]+, pid=\\1[,)][^\\r\\n]* storedParts=0",
+  "Foreign inventory transfer: vessel joined the tree vesselPid=([0-9]+) name='Bob Kerman' [\\s\\S]*invokerewindtolaunch complete [\\s\\S]*Chain tip spawn complete: #[0-9]+ \"Bob Kerman\" pid=\\1",
+  "Foreign inventory transfer: vessel joined the tree vesselPid=([0-9]+) name='Bob Kerman' rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva12-spawned-[^\\r\\n]*-\\2-true-\\1-",
+  # Bill spawns at his recording's end carrying the kit and his jetpack.
+  "invokerewindtolaunch complete [\\s\\S]*(?:Vessel respawned|SpawnAtPosition: vessel spawned) \\(sit=[A-Z_]+, pid=([0-9]+)[,)][^\\r\\n]* storedParts=2 \\[evaJetpack x1, evaRepairKit x1\\][\\s\\S]*MISSIONMARK label=eva12-spawned-[^\\r\\n]*-true-\\1-",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "evagroundscience failed",
+  "evagroundscience refused",
+  "Foreign inventory transfer: no background recorder",
+  "lost its member recording",
+  "vessel joined the tree vesselPid=[0-9]+ name='Bob Kerman' [\\s\\S]*vessel joined the tree vesselPid=[0-9]+ name='Bob Kerman' ",
+  "invokerewindtolaunch refused",
+  "Stripping orphaned spawned vessel 'Bob Kerman'",
+  "Chain tip spawn blocked by collision: #[0-9]+ \"Bob Kerman\"",
+  "Chain tip spawn failed: #[0-9]+ \"Bob Kerman\"",
+  "SpawnAtChainTip: spawn path returned pid=0",
+  "Spawn RETIRED",
+  "Spawn ABANDONED",
+  "Spawn FAILED",
+  "Crew dedup: 'Bob Kerman' is already aboard",
+  # The kit duplicated onto a spawn, or still in Bob's inventory after the rewind.
+  "storedParts=[0-9]+ \\[[^\\]\\r\\n]*evaRepairKit x[2-9]",
+  "vessel joined the tree vesselPid=([0-9]+) name='Bob Kerman'[\\s\\S]*pid=\\1[,)][^\\r\\n]* storedParts=[0-9]+ \\[[^\\]\\r\\n]*evaRepairKit",
+]
+
+[runtime]
+# RC-6's shape plus a second EVA, a step and a switch click before the recording.
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

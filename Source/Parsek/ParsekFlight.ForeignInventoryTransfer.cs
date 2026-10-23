@@ -52,7 +52,6 @@ namespace Parsek
                 activeVesselPid: activePid,
                 activeRecordingVesselPid: activeRec != null ? activeRec.VesselPersistentId : 0u,
                 changedVesselPid: changedPid,
-                changedVesselIsEva: changed != null && changed.isEVA,
                 changedVesselIsGhost: changedPid != 0 && GhostMapPresence.IsGhostMapVessel(changedPid),
                 membership: membership);
 
@@ -143,7 +142,6 @@ namespace Parsek
                 activeVesselPid: activePid,
                 activeRecordingVesselPid: activeRec != null ? activeRec.VesselPersistentId : 0u,
                 changedVesselPid: changedPid,
-                changedVesselIsEva: changed != null && changed.isEVA,
                 changedVesselIsGhost: changedPid != 0 && GhostMapPresence.IsGhostMapVessel(changedPid),
                 membership: membership);
 

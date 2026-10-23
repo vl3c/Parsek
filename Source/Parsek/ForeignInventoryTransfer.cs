@@ -21,7 +21,6 @@ namespace Parsek
         NoChangedVessel,
         ChangedVesselIsActive,
         ChangedVesselIsGhost,
-        ChangedVesselIsEva,
         ChangedVesselIsTreeMember
     }
 
@@ -62,10 +61,14 @@ namespace Parsek
         /// <c>RemoveNPartsFromInventory</c> on the module whose slot changed (never from
         /// <c>OnLoad</c>, which fires only <c>onModuleInventoryChanged</c>), so a recorded
         /// transfer is: the tree is recording its active EVA kerbal in the foreground, the
-        /// changed module sits on another real vessel (not a ghost, not a kerbal), and the
-        /// change is not one of Parsek's own supply-route writes. A vessel with no recording
-        /// in the tree is adopted; an earlier cargo partner gets one more event; any other
-        /// tree vessel is left to its own recording, whose end snapshot carries the change.
+        /// changed module sits on another real vessel (not a ghost), and the change is not one
+        /// of Parsek's own supply-route writes. A vessel with no recording in the tree is
+        /// adopted; an earlier cargo partner gets one more event; any other tree vessel is left
+        /// to its own recording, whose end snapshot carries the change. Another kerbal on EVA
+        /// is a vessel like any other here: adopted, his own kerbal vessel is the member and
+        /// its snapshot carries him as crew, so the tree holds him from the transfer on and an
+        /// earlier mission's open-ended hold on him ends there (KerbalsModule's claim
+        /// hand-off).
         /// </summary>
         internal static ForeignInventoryTransferVerdict Evaluate(
             bool hasActiveTree,
@@ -75,7 +78,6 @@ namespace Parsek
             uint activeVesselPid,
             uint activeRecordingVesselPid,
             uint changedVesselPid,
-            bool changedVesselIsEva,
             bool changedVesselIsGhost,
             ForeignInventoryMembership membership)
         {
@@ -89,7 +91,6 @@ namespace Parsek
             if (changedVesselPid == activeVesselPid)
                 return ForeignInventoryTransferVerdict.ChangedVesselIsActive;
             if (changedVesselIsGhost) return ForeignInventoryTransferVerdict.ChangedVesselIsGhost;
-            if (changedVesselIsEva) return ForeignInventoryTransferVerdict.ChangedVesselIsEva;
             switch (membership)
             {
                 case ForeignInventoryMembership.TransferMember:

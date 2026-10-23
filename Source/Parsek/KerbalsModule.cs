@@ -128,10 +128,11 @@ namespace Parsek
             new Dictionary<string, SplitHandoff>(StringComparer.Ordinal);
 
         /// <summary>
-        /// Every Dock / Board claim on a recorded vessel in the committed trees, and the
-        /// kerbals each recording's own KerbalAssignment rows name. An open-ended hold whose
-        /// vessel a later dock claims, with the kerbal carried on by the docked recording,
-        /// ends at the dock (<see cref="ResolveDockClaimHandoffUT"/>). Built in
+        /// Every Dock / Board / InventoryTransfer claim on a recorded vessel in the committed
+        /// trees, and the kerbals each recording's own KerbalAssignment rows name. An
+        /// open-ended hold whose vessel a later dock (or cargo adoption) claims, with the
+        /// kerbal carried on by the claiming recording, ends at the claim
+        /// (<see cref="ResolveDockClaimHandoffUT"/>). Built in
         /// <see cref="PrePass"/>, cleared in <see cref="Reset"/>.
         /// </summary>
         private readonly List<DockClaim> dockClaims = new List<DockClaim>();
@@ -264,9 +265,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// A Dock / Board branch point (any tree) whose target is a recorded vessel: the
-        /// claim's UT, the target's pid and launch guid, and the merged child recording
-        /// that carries the docked vessel on. Built in <see cref="PrePass"/>.
+        /// A Dock / Board branch point (any tree) whose target is a recorded vessel, or an
+        /// InventoryTransfer branch point adopting a foreign cargo partner: the claim's UT,
+        /// the target's pid and launch guid, and the merged child (or member) recording that
+        /// carries the claimed vessel on. Built in <see cref="PrePass"/>.
         /// </summary>
         internal struct DockClaim
         {
@@ -1200,7 +1202,8 @@ namespace Parsek
         /// <summary>
         /// Fills <see cref="dockClaims"/> from the committed trees' Dock / Board branch points
         /// that name a target vessel (a Board's is its merged child's vessel) and a merged
-        /// child, and <see cref="rowKerbalsByRecording"/>
+        /// child, plus every InventoryTransfer branch point (the claimed cargo partner is its
+        /// member recording's own vessel, which the member carries on), and <see cref="rowKerbalsByRecording"/>
         /// from the walk's non-tourist KerbalAssignment rows (the walk's actions are the
         /// effective ledger, so a superseded docked recording carries nobody). Returns the
         /// claims collected.
@@ -1235,14 +1238,28 @@ namespace Parsek
                 {
                     BranchPoint bp = tree.BranchPoints[b];
                     if (bp == null
-                        || (bp.Type != BranchPointType.Dock && bp.Type != BranchPointType.Board)
+                        || (bp.Type != BranchPointType.Dock && bp.Type != BranchPointType.Board
+                            && bp.Type != BranchPointType.InventoryTransfer)
                         || bp.ChildRecordingIds == null || bp.ChildRecordingIds.Count == 0
                         || string.IsNullOrEmpty(bp.ChildRecordingIds[0]))
                         continue;
                     string mergedChildId = bp.ChildRecordingIds[0];
                     uint targetPid = bp.TargetVesselPersistentId;
                     string targetGuid = bp.TargetVesselGuid;
-                    if (targetPid == 0 && bp.Type == BranchPointType.Board)
+                    if (bp.Type == BranchPointType.InventoryTransfer)
+                    {
+                        // A cargo partner joins the tree as its own member recording (design
+                        // 4.12): the member IS the claimed vessel flying on, so it takes over
+                        // the crew an earlier mission left aboard it (or the kerbal himself,
+                        // when the partner is another kerbal on EVA). The branch point names
+                        // no target; the member's own identity is the target.
+                        RecordingMeta memberMeta;
+                        if (!recordingMeta.TryGetValue(mergedChildId, out memberMeta))
+                            continue;
+                        targetPid = memberMeta.VesselPid;
+                        targetGuid = memberMeta.VesselGuid;
+                    }
+                    else if (targetPid == 0 && bp.Type == BranchPointType.Board)
                     {
                         // A Board onto a vessel of the same tree stamps no target
                         // (ParsekFlight.ResolveBoardPartnerStamp), but the boarded vessel IS the

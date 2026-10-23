@@ -230,6 +230,25 @@ namespace Parsek.Tests
             }
         }
 
+        // catches: a take with from= reading a container (or the wrong kerbal), or a plain
+        // take starting to read other kerbals' inventories.
+        [Theory]
+        [InlineData(true, false, null, null, false)]
+        [InlineData(true, true, "Bob Kerman", "Bob Kerman", false)]
+        [InlineData(false, false, null, null, true)]
+        [InlineData(false, true, "Bob Kerman", null, false)]
+        [InlineData(false, true, "Bob Kerman", "", false)]
+        [InlineData(false, true, "Bob Kerman", "Bob Kerman", true)]
+        [InlineData(false, true, "Bob Kerman", "bob kerman", false)]
+        [InlineData(false, true, "Valentina Kerman", "Bob Kerman", false)]
+        [InlineData(false, false, null, "Bob Kerman", false)]
+        public void IsTakeSourceVessel_Truth(
+            bool isActive, bool isEva, string evaCrew, string from, bool expected)
+        {
+            Assert.Equal(expected,
+                TestCommandEvaGroundScience.IsTakeSourceVessel(isActive, isEva, evaCrew, from));
+        }
+
         private static GroundTakeCandidate Cand(int container, int slot, string part, double dist)
             => new GroundTakeCandidate { ContainerIndex = container, Slot = slot, PartName = part, DistanceMeters = dist };
 

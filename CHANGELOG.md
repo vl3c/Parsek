@@ -80,6 +80,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Cargo you take from another kerbal on EVA is remembered.** Taking a part from (or giving one
+  to) a kerbal standing outside during a recorded EVA now makes him part of your flight: after a
+  rewind he is kept for it, replayed, and comes back without the part, so it is never lost or
+  doubled. (EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED)
 - **Reputation from a flight in progress is no longer counted twice.** When Parsek first read your
   starting reputation while a flight was still recording (after a quickload, or a warp mid-flight
   on a new career), that flight's reputation awards were later added on top again. Your stock

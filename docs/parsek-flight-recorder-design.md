@@ -637,9 +637,14 @@ member snapshot taken there is the vessel without the part and needs no frame wa
 `PartAdded`, a detach a `PartRemoved`, with details `construction part=<name> action=attach|detach
 pid=<part pid>`; skips log `Foreign construction change not recorded: reason=...`.
 
-**Not covered.** A transfer with a foreign EVA kerbal: adopting a kerbal vessel as a plain member
-would hand crew reservation a kerbal it does not own (`ChangedVesselIsEva`). A part detached from a
-foreign vessel and then dropped on the ground becomes a new vessel that no recording carries.
+**A foreign EVA kerbal (2026-10-23).** Another kerbal standing on EVA is a vessel like any other
+here: a part taken from or given to his own inventory adopts his kerbal vessel as the member. Its
+snapshot carries him as the kerbalEVA part's crew, so the cargo flight writes his crew assignment
+from the transfer on, and the cross-tree claim hand-off (game-actions design 9.3) ends an earlier
+mission's open-ended hold on him at the transfer, as a dock or a boarding does.
+
+**Not covered.** A part detached from a foreign vessel and then dropped on the ground becomes a new
+vessel that no recording carries.
 
 ---
 

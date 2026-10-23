@@ -3703,7 +3703,7 @@ with a red test once confirmed.
 - [ ] Resource amounts: nothing checks origin-out == destination-in for routes, fuel moved while docked, or a spawned vessel's tanks. Roadmap TC-1 / TC-2, RC-1. Progress 2026-10-16: the `ReadVesselResources` verb and `resourceq.py` landed, and RC-1 reads both spawned tanks after a docked transfer and two rewinds; routes are still unchecked.
 - [ ] Career x repeated rewinds, and LedgerGroundTruth after a rewind, Re-Fly or F9: never run. Roadmap TC-4, GP-1.
 - [ ] Stale lanes: H38 / H39 / H40 / HV-1 not green since the 10-07 and 10-15 logistics changes; H58 and EVA-5 re-pinned, never re-flown. Roadmap XS-2.
-- [ ] EVA-CONSTRUCTION-GHOST-SHAPE-NEVER-CHANGES (suspected defect): playback never reads `SegmentEventType.PartAdded / PartRemoved` (only `GhostingTriggerClassifier` and `ForeignInventoryTransfer` name them), though the flight-recorder design says the ghost renders the part from that UT. Roadmap XS-3.
+- [x] ~~EVA-CONSTRUCTION-GHOST-SHAPE-NEVER-CHANGES (suspected defect): playback never reads `SegmentEventType.PartAdded / PartRemoved` (only `GhostingTriggerClassifier` and `ForeignInventoryTransfer` name them), though the flight-recorder design says the ghost renders the part from that UT. Roadmap XS-3.~~ Same defect as CONSTRUCTION-GHOST-NEVER-CHANGES-SHAPE, fixed 2026-10-16 (live-proven by EVA-11 `2026-10-16_2322`); re-confirmed by code reading 2026-10-23.
 - [ ] CLAIMED-VESSEL-HAS-NO-GHOST-BEFORE-ITS-MEMBER (suspected defect): `VesselGhoster.GhostVessel` despawns the claimed vessel and creates no ghost (`VesselGhoster.cs:155-168`), so it is missing after a rewind until its member recording starts. Roadmap XS-3.
 - [x] ~~Lab science and the ledger: science reaches the ledger only with a subject (`GameStateEventConverter.cs:326-345`, `GameStateRecorder.cs:1063`, `:1153`); whether stock's lab transmit carries one needs a decompile. Roadmap XS-4, XS-5 (GC-8).~~ Decompiled 2026-10-17: it carries none; filed and fixed as LAB-SCIENCE-NEVER-LEDGERED (xUnit; lane LAB-1 live-proven 2026-10-17).
 - [x] ~~TA-6 outside the physics bubble: see TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND. Roadmap MINE-3.~~ Fixed 2026-10-17 (xUnit; lane LAB-1 live-proven 2026-10-17).
@@ -5371,7 +5371,7 @@ Sibling gap filed as EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED.
 
 ---
 
-## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; LIVE-PROVEN by EVA-11 `2026-10-15_2343`; the foreign EVA kerbal half stays OPEN]
+## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; LIVE-PROVEN by EVA-11 `2026-10-15_2343`. FOREIGN EVA KERBAL HALF FIXED 2026-10-23, branch `claude/project-thread-y4esmb`; xUnit; lane EVA-12. Still open: a part detached and dropped on the ground]
 
 The inventory fix records a stored part moved into or out of a foreign vessel's container, but two
 neighbours of the same defect remain. `EVAConstructionModeEditor` fires
@@ -5456,6 +5456,29 @@ took the same detour. Cells in `ClaimedVesselRemovalTests` (`RemoveFlightStateEn
 prefix 90964a279107c47f): `Flight-state entries removed: pid=1871615455 removed=1`, `Vessel ghosted`,
 `Chain tip spawn: pid=1871615455 ... parts=15`, no adoption or stale-vessel replace after the rewind,
 the rover LANDED with 15 parts in the produced save.
+
+**Foreign EVA kerbal half FIXED 2026-10-23** (branch `claude/project-thread-y4esmb`). The refusal was
+over-cautious: an adopted kerbal's own kerbal vessel is the member, its snapshot carries him as the
+kerbalEVA part's crew, so `KerbalsModule` already writes his KerbalAssignment row from it (the cargo
+flight does own him from the transfer on, the same way a dock or a boarding claims a crew). The real
+gap was the earlier mission's hold: a kerbal left standing on EVA by a committed flight is held
+open-ended (Aboard / Unknown end), and a cross-tree claim ended that hold only for Dock and Board.
+Fix: `ForeignInventoryTransfer.Evaluate` drops `ChangedVesselIsEva` (another kerbal is a vessel like
+any other), and `KerbalsModule.CollectDockClaims` also reads `InventoryTransfer` branch points, taking
+the claimed vessel's pid / guid from the member recording (the branch point carries none), so the
+open hold ends at the transfer through the existing cross-tree hand-off. Ledger effect: none on
+funds, science or reputation; holds are derived, so a discard or supersede of the cargo flight brings
+the earlier hold back. Seam: `EvaGroundScience take from=<kerbal>` takes from that kerbal's own
+inventory. Cells in `ForeignKerbalCargoHandoffTests`, `ForeignInventoryTransferTests`,
+`TestCommandEvaGroundScienceTests`. Lane `EVA-12-cargo-from-foreign-kerbal-rewind` (RC-6's shape,
+Bob Kerman as the partner): authored 2026-10-23, live result below when flown.
+
+Still OPEN: a part detached from a foreign vessel and then dropped on the ground (a new vessel no
+recording carries). Also noticed, not fixed (pre-existing, filed here rather than widened): KSC
+end-of-flight retirement exempts only recordings with `EvaCrewName`
+(`VesselSpawner.EvaluateKscEndOfFlightRetirement`), so a kerbal recording without it (an adopted
+cargo-partner kerbal, or a recording started on an EVA kerbal) whose endpoint lies inside the KSC
+exclusion circle would be retired and not respawn. EVA-12 parks its kerbals 153 m from the pad.
 
 ---
 

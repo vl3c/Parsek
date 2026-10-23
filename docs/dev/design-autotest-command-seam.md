@@ -3800,8 +3800,14 @@ source=<vessel> sourcePart=<part> sourceSlot=<i> sourceInventory=<slots> kerbalS
 inventory=<slots> distance=<m> range=<m>` and, once the kerbal holds the part and the source
 slot is empty for 30 frames, `evagroundscience take complete ... inventory=<slots>
 sourceInventory=<slots>`; payload `action=take part partPid vesselPid=<source vessel> slot
-presses=0 distance`. No GameEvent is involved and the recorder records nothing for a take.
-Pure half `TestCommandEvaGroundScience.ChooseTakeSource` / `DecideTakeCompletion`.
+presses=0 distance`. The seam fires no GameEvent; stock's own `ClearPartAtSlot` /
+`StoreCargoPartAtSlot` fire `onModuleInventorySlotChanged`, which the recorder reads only when
+the source is a vessel outside the recorded tree (a foreign cargo partner, flight recorder
+design 4.12). Optional `from=<kerbal name>` (added 2026-10-23 for EVA-12) makes another kerbal
+on EVA the ONLY source: his own personal inventory, matched by exact crew name, the inventory
+window a player opens on a second kerbal standing next to him; a miss refuses
+`not-stored-nearby ... from=<name>`. Pure half `TestCommandEvaGroundScience.ChooseTakeSource` /
+`IsTakeSourceVessel` / `DecideTakeCompletion`.
 
 **Step** (added 2026-09-29 for EVA-10; `bearing=` added the same day for the spread-out
 cluster layouts of EVA-8 / EVA-9 / EVA-10). A kerbal off a Mun lander's ladder stands ON the
