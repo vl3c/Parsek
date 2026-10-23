@@ -45,6 +45,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            ParsekScenario.SetOnLoadInProgressForTesting(false);
             LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(null, null, null);
             RecalculationEngine.ClearModules();
             CurrencyScenarioReadiness.ResetForTesting();
@@ -301,6 +302,83 @@ namespace Parsek.Tests
             LedgerOrchestrator.RecalculateAndPatch();
 
             Assert.Equal(new[] { RecA }, Seed().SeedPendingRecordingIds);
+        }
+        // ------------------------------------------------------------------
+        // Review follow-ups: the OnLoad clock and the optimizer split
+        // ------------------------------------------------------------------
+
+        [Theory]
+        // Inside OnLoad the loaded save's clock wins over a stale Planetarium reading.
+        [InlineData(true, 400.0, 1000.0, 400.0)]
+        [InlineData(false, 400.0, 1000.0, 1000.0)]
+        // Unusable clocks record nothing.
+        [InlineData(true, double.NaN, 1000.0, double.NaN)]
+        [InlineData(true, -1.0, 1000.0, double.NaN)]
+        [InlineData(false, 400.0, double.NaN, double.NaN)]
+        [InlineData(false, 400.0, double.PositiveInfinity, double.NaN)]
+        public void ResolveSeedCaptureUT_TruthTable(
+            bool onLoad, double loadedSaveUT, double liveUT, double expected)
+        {
+            double got = LedgerOrchestrator.ResolveSeedCaptureUT(onLoad, loadedSaveUT, liveUT);
+            if (double.IsNaN(expected)) Assert.True(double.IsNaN(got));
+            else Assert.Equal(expected, got);
+        }
+
+        [Fact]
+        public void SeedReadInsideOnLoad_UsesTheLoadedSavesClock_SoResumedAwardsStillCount()
+        {
+            // F5 at UT 400 after one +1 at 350; the player flew on to UT 1000 and pressed F9.
+            // Inside the cold OnLoad the Planetarium still reads 1000. The restored flight
+            // then earns +1 at 700 and +1 at 800: both are real and must count.
+            AddMilestone("RecordsSpeed", 350.0, RecA, 1f);
+            ParsekScenario.SetOnLoadInProgressForTesting(true);
+            LedgerOrchestrator.NowUtProviderForTesting = () => 1000.0;
+            LedgerOrchestrator.LoadedFlightStateUTForTesting = () => 400.0;
+            LedgerOrchestrator.UncommittedRecordingIdsForTesting = () => new List<string> { RecA };
+            LedgerOrchestrator.CurrencyPoolProbeForTesting = () =>
+            {
+                var probe = LivePoolAfterTheFlightsAwards();
+                probe.ReputationValue = 1f;
+                return probe;
+            };
+            LedgerOrchestrator.RecalculateAndPatch();
+            ParsekScenario.SetOnLoadInProgressForTesting(false);
+            LedgerOrchestrator.UncommittedRecordingIdsForTesting = () => new List<string>();
+            Assert.Equal(400.0, Seed().SeedCaptureUT);
+
+            AddMilestone("RecordsAltitude", 700.0, RecA, 1f);
+            AddMilestone("RecordsDistance", 800.0, RecA, 1f);
+            Commit(RecA, 300.0, 900.0);
+
+            Assert.Equal(3.0, (double)LedgerOrchestrator.Reputation.GetRunningRep(), 3);
+            Assert.True(Ledger.Actions.Single(a => a.MilestoneId == "RecordsSpeed").InsideReputationSeed);
+            Assert.False(Ledger.Actions.Single(a => a.MilestoneId == "RecordsAltitude").InsideReputationSeed);
+            Assert.False(Ledger.Actions.Single(a => a.MilestoneId == "RecordsDistance").InsideReputationSeed);
+        }
+
+        [Fact]
+        public void OptimizerSplitSecondHalf_JoinsTheSeedsList_AndItsEarlierAwardIsNotCountedTwice()
+        {
+            // The merge dialog optimizes before it files: the split moves the flight's
+            // second-half events (here the +1 at 200) onto a new id.
+            const string secondHalf = "rec-ql2-flea-second-half";
+            AddMilestone("RecordsSpeed", 11.6, RecA, 1f);
+            AddMilestone("RecordsAltitude", 200.0, secondHalf, 1f);
+            LedgerOrchestrator.UncommittedRecordingIdsForTesting = () => new List<string> { RecA };
+            LedgerOrchestrator.CurrencyPoolProbeForTesting = LivePoolAfterTheFlightsAwards;
+            LedgerOrchestrator.RecalculateAndPatch();
+            LedgerOrchestrator.UncommittedRecordingIdsForTesting = () => new List<string>();
+
+            Assert.True(Ledger.AddSeedPendingRecordingForSplit(RecA, secondHalf));
+            Assert.False(Ledger.AddSeedPendingRecordingForSplit(RecA, secondHalf));
+            Assert.False(Ledger.AddSeedPendingRecordingForSplit(RecB, "rec-unrelated"));
+            Assert.Equal(new[] { RecA, secondHalf }, Seed().SeedPendingRecordingIds);
+            Assert.Contains(logLines, l => l.Contains("[Ledger]")
+                && l.Contains("optimizer split second half '" + secondHalf + "'"));
+
+            Commit(RecA, 11.0, 150.0);
+            Commit(secondHalf, 150.0, 350.6);
+            Assert.Equal(2.0, (double)LedgerOrchestrator.Reputation.GetRunningRep(), 3);
         }
     }
 }

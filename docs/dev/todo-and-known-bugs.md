@@ -191,8 +191,11 @@ a committed tree holds) and the read's game UT (`seedPendingRec` / `seedCaptureU
 additive). The commit build's step 3f (`LedgerOrchestrator.StampRowsRecordedBeforeSeedCapture`,
 also run for a retired Re-Fly provisional) stamps `insideRepSeed` on that recording's
 reputation-changing rows whose UT is strictly before the read
-(`ReputationSeedMembership.IsRecordedBeforeSeedCapture`). The seed value is unchanged (CL-2's pin
-holds); later awards of the same recording, and every row of a recording that did not exist at
+(`ReputationSeedMembership.IsRecordedBeforeSeedCapture`). Inside a scenario OnLoad the read's UT
+is the loaded save's `flightState.universalTime`, not the Planetarium (which can still read the
+pre-load clock there, so an F9 back in time would mark the resumed flight's later awards inside).
+An optimizer split's second half joins the list (`Ledger.AddSeedPendingRecordingForSplit`), since
+the merge dialog optimizes before it files. The seed value is unchanged (CL-2's pin holds); later awards of the same recording, and every row of a recording that did not exist at
 the read, still apply. Unknowns answer "apply". Science and funds seeds keep the same hazard,
 unaddressed (no lane shows it: funds seed off the career baseline, science seeds off a loaded
 pool at scene start).

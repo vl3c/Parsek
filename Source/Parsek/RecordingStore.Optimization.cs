@@ -539,6 +539,7 @@ namespace Parsek
                     $"'{original.RecordingId}' to second half '{second.RecordingId}' " +
                     $"(deathIntervalsByEndUT={deathIntervalsByEndUT})");
 
+            Ledger.AddSeedPendingRecordingForSplit(original.RecordingId, second.RecordingId);
             int eventsRetagged = GameStateStore.RetagEventsForSplitSecondHalf(
                 original.RecordingId, second.RecordingId, splitUT);
             int scienceRetagged = GameStateRecorder.RetagPendingScienceForSplitSecondHalf(

@@ -50,6 +50,7 @@ LedgerOrchestrator.OnTimelineDataChanged UI subscription (timeline invalidation 
 LedgerOrchestrator.ProgressSeedProbeForTesting test seam
 LedgerOrchestrator.repTrackedOverrideForTesting test seam
 LedgerOrchestrator.scienceTrackedOverrideForTesting test seam
+LedgerOrchestrator.LoadedFlightStateUTForTesting test seam
 LedgerOrchestrator.UncommittedRecordingIdsForTesting test seam
 KspStatePatcher.ActiveClockCrossing scoped: set around one clock-advance patch (try/finally), null otherwise
 KspStatePatcher.AllowNegativeCurrencyProviderForTesting test seam

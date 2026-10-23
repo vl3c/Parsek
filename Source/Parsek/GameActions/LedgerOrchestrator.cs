@@ -3289,7 +3289,10 @@ namespace Parsek
                 recordingIds = provider != null ? provider() : ReadUncommittedRecordingIdsLive();
                 if (recordingIds == null || recordingIds.Count == 0)
                     return false;
-                captureUT = GetNowUT();
+                bool inLoad = ParsekScenario.IsOnLoadInProgress;
+                captureUT = ResolveSeedCaptureUT(
+                    inLoad, inLoad ? ReadLoadedFlightStateUT() : double.NaN,
+                    inLoad ? double.NaN : GetNowUT());
             }
             catch (Exception ex)
             {
@@ -3306,6 +3309,36 @@ namespace Parsek
                 return false;
             }
             return true;
+        }
+
+        /// <summary>Test seam replacing the loaded save's <c>flightState.universalTime</c>
+        /// read. Cleared by ResetForTesting.</summary>
+        internal static Func<double> LoadedFlightStateUTForTesting;
+
+        private static double ReadLoadedFlightStateUT()
+        {
+            var provider = LoadedFlightStateUTForTesting;
+            return provider != null ? provider() : ParsekScenario.ReadLoadedFlightStateUTRaw();
+        }
+
+        /// <summary>
+        /// Pure: the capture UT a live-pool reputation seed records. Inside a scenario
+        /// OnLoad the Planetarium can still read the clock from BEFORE the load (stock
+        /// <c>Game.Load</c> runs OnLoad before <c>FlightState.Load</c> sets the time, see
+        /// <see cref="ParsekScenario.ResolveColdLoadClockUT"/>); after an F9 back in time
+        /// that reading is later than the restored flight's resumed awards, and they would
+        /// be marked inside a seed that lacks them. So during OnLoad the loaded save's own
+        /// <c>flightState.universalTime</c> is the clock (the
+        /// <see cref="KerbalsModule.ResolveWalkClockUT(double?,bool,double,bool,double,double)"/>
+        /// rule), else the live Planetarium. Not usable -> NaN, and the seed records nothing.
+        /// </summary>
+        internal static double ResolveSeedCaptureUT(
+            bool onLoadInProgress, double loadedSaveUT, double liveUT)
+        {
+            double ut = onLoadInProgress ? loadedSaveUT : liveUT;
+            if (double.IsNaN(ut) || double.IsInfinity(ut) || ut < 0.0)
+                return double.NaN;
+            return ut;
         }
 
         /// <summary>
@@ -9264,6 +9297,7 @@ namespace Parsek
             initialized = false;
             CurrencyPoolProbeForTesting = null;
             UncommittedRecordingIdsForTesting = null;
+            LoadedFlightStateUTForTesting = null;
             ExpectedCurrencySingletonsForTesting = null;
             ProgressSeedProbeForTesting = null;
             FacilityCostTableProbeForTesting = null;
