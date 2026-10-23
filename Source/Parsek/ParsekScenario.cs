@@ -4830,6 +4830,11 @@ namespace Parsek
                 // versions the save names (design-load-restores-the-save.md 4.4).
                 SidecarVersionResolution.BeginColdLoad(node);
 
+                // A recording file the collector quarantined goes back before hydration when
+                // this save names it (design-load-restores-the-save.md 4.5).
+                loadPhase = "quarantine-restore";
+                ParsekFileCollector.RestoreQuarantinedNamedBy(node);
+
                 // A game load ends any window in which an in-game batch's persistent.sfs
                 // restore was still the intended final state of a save (the batch's own
                 // baseline quickload precedes its teardown latch, so this never disarms the

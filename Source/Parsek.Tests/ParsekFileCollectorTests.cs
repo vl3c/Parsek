@@ -254,6 +254,7 @@ namespace Parsek.Tests
         public void Collect_DecisionTable()
         {
             string dir = NewSaveDir("table");
+            ParsekFileCollector.UtcNowForTesting = () => new DateTime(2026, 10, 23, 15, 0, 0, DateTimeKind.Utc);
             Write(dir, "persistent.sfs", ParsekScenarioText(
                 RecordingNode("rec-a", precHash: HashA1, rewindSave: "parsek_rw_aaa") + PointsNode("rp-1")));
             AddMemoryRecording("rec-m", HashM);
@@ -289,7 +290,7 @@ namespace Parsek.Tests
             Assert.True(File.Exists(headM), "expected kept: " + headM);
             Assert.False(File.Exists(headOrphan), "expected collected: " + headOrphan);
             Assert.Equal("orphan", File.ReadAllText(Path.Combine(dir, "Parsek", "Recordings",
-                RecordingStore.OrphanQuarantineDirName, "rec-orphan_vessel.craft")));
+                RecordingStore.OrphanQuarantineDirName, "2026-10-23", "rec-orphan_vessel.craft")));
             Assert.False(File.Exists(transient), "expected collected: " + transient);
             Assert.True(File.Exists(versionA1), "expected kept: " + versionA1);
             Assert.False(File.Exists(versionA2), "expected collected: " + versionA2);
@@ -313,6 +314,279 @@ namespace Parsek.Tests
                 && l.Contains("referrers=1") && l.Contains("versionsDeleted=2")
                 && l.Contains("headsQuarantined=1") && l.Contains("rewindPointFilesDeleted=1")
                 && l.Contains("rewindSavesDeleted=1") && l.Contains("reason=test"));
+        }
+
+        // ------------------------------------------------------------- quarantine
+
+        private static readonly DateTime QuarantineNow = new DateTime(2026, 10, 23, 15, 0, 0, DateTimeKind.Utc);
+
+        private static string Quarantined(string folder, string fileName)
+        {
+            return "Parsek/Recordings/" + RecordingStore.OrphanQuarantineDirName + "/"
+                + (folder == null ? "" : folder + "/") + fileName;
+        }
+
+        [Fact]
+        public void Quarantine_GracePeriod_PurgesOnlyExpiredUnnamedFiles()
+        {
+            // 2026-10-09 is exactly 14 days before "now": purged. 2026-10-10 is 13 days: kept.
+            string dir = NewSaveDir("q-grace");
+            ParsekFileCollector.UtcNowForTesting = () => QuarantineNow;
+            Write(dir, "persistent.sfs", ParsekScenarioText(RecordingNode("rec-live")));
+            Write(dir, "Parsek/Recordings/rec-live.prec");
+            string expired = Write(dir, Quarantined("2026-10-09", "rec-old.prec"));
+            string expiredVessel = Write(dir, Quarantined("2026-10-09", "rec-old_vessel.craft"));
+            string waiting = Write(dir, Quarantined("2026-10-10", "rec-young.prec"));
+            string notOurs = Write(dir, Quarantined("not-a-date", "rec-x.prec"));
+            string unrecognized = Write(dir, Quarantined("2026-01-01", "readme.txt"));
+
+            var result = ParsekFileCollector.Run("test", null);
+
+            Assert.True(result.Ran);
+            Assert.False(File.Exists(expired), "expected purged: " + expired);
+            Assert.False(File.Exists(expiredVessel), "expected purged: " + expiredVessel);
+            Assert.False(Directory.Exists(Path.GetDirectoryName(expired)), "expected empty dated folder removed");
+            Assert.True(File.Exists(waiting), "expected kept (in grace): " + waiting);
+            Assert.True(File.Exists(notOurs), "expected untouched (undated folder): " + notOurs);
+            Assert.True(File.Exists(unrecognized), "expected untouched (not a recording file): " + unrecognized);
+            Assert.Equal(2, result.QuarantinePurged);
+            Assert.Equal(0, result.QuarantineRestored);
+            Assert.Contains(logLines, l => l.Contains("[FileCollector]") && l.Contains("Collection:")
+                && l.Contains("quarantinePurged=2") && l.Contains("quarantineRestored=0"));
+            Assert.Contains(logLines, l => l.Contains("[FileCollector]")
+                && l.Contains("Quarantined recording file purged: rec-old.prec") && l.Contains("graceDays=14"));
+        }
+
+        [Fact]
+        public void Quarantine_ExpiredButNamedAgain_IsRestoredNeverPurged()
+        {
+            // A save copied back into the folder names a recording quarantined long ago.
+            string dir = NewSaveDir("q-named");
+            ParsekFileCollector.UtcNowForTesting = () => QuarantineNow;
+            Write(dir, "persistent.sfs", ParsekScenarioText(RecordingNode("rec-back") + RecordingNode("rec-both")));
+            string old = Write(dir, Quarantined("2026-01-01", "rec-back.prec"), "back");
+            string oldVessel = Write(dir, Quarantined("2026-01-01", "rec-back_vessel.craft.dup0123abcd"), "back-v");
+            string head = Write(dir, "Parsek/Recordings/rec-both.prec", "current");
+            string staleCopy = Write(dir, Quarantined("2026-01-01", "rec-both.prec"), "stale");
+
+            var result = ParsekFileCollector.Run("test", null);
+
+            Assert.False(File.Exists(old));
+            Assert.False(File.Exists(oldVessel));
+            Assert.Equal("back", File.ReadAllText(Path.Combine(dir, "Parsek", "Recordings", "rec-back.prec")));
+            Assert.Equal("back-v", File.ReadAllText(Path.Combine(dir, "Parsek", "Recordings", "rec-back_vessel.craft")));
+            Assert.Equal("current", File.ReadAllText(head));
+            Assert.True(File.Exists(staleCopy), "a named copy is never purged, and never replaces a head");
+            Assert.Equal(2, result.QuarantineRestored);
+            Assert.Equal(0, result.QuarantinePurged);
+            Assert.Contains(logLines, l => l.Contains("[FileCollector]")
+                && l.Contains("Restored quarantined recording file: rec-back.prec")
+                && l.Contains("reason=named-by-save-or-memory"));
+        }
+
+        [Fact]
+        public void Quarantine_MemoryNamesIt_IsRestored()
+        {
+            string dir = NewSaveDir("q-memory");
+            ParsekFileCollector.UtcNowForTesting = () => QuarantineNow;
+            Write(dir, "persistent.sfs", ParsekScenarioText(RecordingNode("rec-a")));
+            AddMemoryRecording("rec-m");
+            Write(dir, Quarantined("2026-10-20", "rec-m.prec"), "m");
+
+            var result = ParsekFileCollector.Run("test", null);
+
+            Assert.Equal(1, result.QuarantineRestored);
+            Assert.Equal("m", File.ReadAllText(Path.Combine(dir, "Parsek", "Recordings", "rec-m.prec")));
+        }
+
+        [Fact]
+        public void Quarantine_UndatedFlatFile_IsFiledIntoTodaysFolder_StartingItsGrace()
+        {
+            // Files quarantined before the folders were dated start their 14 days now.
+            string dir = NewSaveDir("q-flat");
+            ParsekFileCollector.UtcNowForTesting = () => QuarantineNow;
+            Write(dir, "persistent.sfs", ParsekScenarioText(RecordingNode("rec-a")));
+            string flat = Write(dir, Quarantined(null, "rec-flat.prec"), "flat");
+
+            var first = ParsekFileCollector.Run("test", null);
+
+            string dated = Path.Combine(dir, "Parsek", "Recordings", RecordingStore.OrphanQuarantineDirName,
+                "2026-10-23", "rec-flat.prec");
+            Assert.False(File.Exists(flat));
+            Assert.Equal("flat", File.ReadAllText(dated));
+            Assert.Equal(1, first.QuarantineDated);
+            Assert.Equal(0, first.QuarantinePurged);
+
+            ParsekFileCollector.UtcNowForTesting = () => QuarantineNow.AddDays(13);
+            var second = ParsekFileCollector.Run("test", null);
+            Assert.True(File.Exists(dated), "13 days later: still in grace");
+            Assert.Equal(0, second.QuarantinePurged);
+
+            ParsekFileCollector.UtcNowForTesting = () => QuarantineNow.AddDays(14);
+            var third = ParsekFileCollector.Run("test", null);
+            Assert.False(File.Exists(dated), "14 days later: purged");
+            Assert.Equal(1, third.QuarantinePurged);
+        }
+
+        [Fact]
+        public void Quarantine_NewOrphan_GoesToTodaysFolder_AndWaitsOutTheGrace()
+        {
+            // V's case: a flight recorded after the save, the save loaded, no later save kept.
+            string dir = NewSaveDir("q-new");
+            ParsekFileCollector.UtcNowForTesting = () => QuarantineNow;
+            Write(dir, "persistent.sfs", ParsekScenarioText(RecordingNode("rec-a")));
+            Write(dir, "Parsek/Recordings/rec-a.prec");
+            Write(dir, "Parsek/Recordings/rec-future.prec", "future");
+
+            var first = ParsekFileCollector.Run("test", null);
+            string dated = Path.Combine(dir, "Parsek", "Recordings", RecordingStore.OrphanQuarantineDirName,
+                "2026-10-23", "rec-future.prec");
+            Assert.Equal(1, first.HeadsQuarantined);
+            Assert.Equal("future", File.ReadAllText(dated));
+            Assert.Equal(0, first.QuarantinePurged);
+
+            ParsekFileCollector.UtcNowForTesting = () => QuarantineNow.AddDays(20);
+            var later = ParsekFileCollector.Run("test", null);
+            Assert.False(File.Exists(dated));
+            Assert.Equal(1, later.QuarantinePurged);
+        }
+
+        [Fact]
+        public void Quarantine_SeveralCopiesOfOneHead_TheCopyTheSaveNamesWins()
+        {
+            // The save names the OLDER copy's hash: it wins over the newer one.
+            string dir = NewSaveDir("q-hash");
+            ParsekFileCollector.UtcNowForTesting = () => QuarantineNow;
+            string olderHash = SidecarContentHash.Compute(System.Text.Encoding.UTF8.GetBytes("older"));
+            Write(dir, "persistent.sfs", ParsekScenarioText(RecordingNode("rec-h", precHash: olderHash)));
+            string older = Write(dir, Quarantined("2026-09-01", "rec-h.prec"), "older");
+            string newer = Write(dir, Quarantined("2026-10-20", "rec-h.prec"), "newer");
+
+            var result = ParsekFileCollector.Run("test", null);
+
+            Assert.Equal(1, result.QuarantineRestored);
+            Assert.Equal("older", File.ReadAllText(Path.Combine(dir, "Parsek", "Recordings", "rec-h.prec")));
+            Assert.False(File.Exists(older));
+            Assert.True(File.Exists(newer), "the other copy stays, named, never purged");
+            Assert.Equal(0, result.QuarantinePurged);
+        }
+
+        [Fact]
+        public void Quarantine_SeveralCopiesNoHashMatch_TheNewestWins()
+        {
+            string dir = NewSaveDir("q-newest");
+            ParsekFileCollector.UtcNowForTesting = () => QuarantineNow;
+            Write(dir, "persistent.sfs", ParsekScenarioText(RecordingNode("rec-n")));
+            Write(dir, Quarantined(null, "rec-n.prec"), "flat");
+            Write(dir, Quarantined("2026-09-01", "rec-n.prec"), "older");
+            Write(dir, Quarantined("2026-10-20", "rec-n.prec"), "newest");
+
+            var result = ParsekFileCollector.Run("test", null);
+
+            Assert.Equal(1, result.QuarantineRestored);
+            Assert.Equal("newest", File.ReadAllText(Path.Combine(dir, "Parsek", "Recordings", "rec-n.prec")));
+        }
+
+        [Fact]
+        public void Quarantine_ZeroKnownIds_OnlyQuarantinedFiles_TouchesNothing()
+        {
+            // No head on disk, no id named anywhere, only quarantined files: the guard still holds.
+            string dir = NewSaveDir("q-zero-only");
+            ParsekFileCollector.UtcNowForTesting = () => QuarantineNow;
+            Write(dir, "persistent.sfs", ParsekScenarioText(""));
+            string expired = Write(dir, Quarantined("2026-01-01", "rec-old.prec"));
+
+            var result = ParsekFileCollector.Run("test", null);
+
+            Assert.False(result.Ran);
+            Assert.Equal("zero-known-ids", result.SkipReason);
+            Assert.True(File.Exists(expired));
+        }
+
+        [Fact]
+        public void Quarantine_ZeroKnownIds_TouchesNothingInQuarantine()
+        {
+            string dir = NewSaveDir("q-zero");
+            ParsekFileCollector.UtcNowForTesting = () => QuarantineNow;
+            Write(dir, "persistent.sfs", ParsekScenarioText(""));
+            Write(dir, "Parsek/Recordings/rec-z.prec");
+            string expired = Write(dir, Quarantined("2026-01-01", "rec-old.prec"));
+
+            var result = ParsekFileCollector.Run("test", null);
+
+            Assert.False(result.Ran);
+            Assert.True(File.Exists(expired));
+        }
+
+        [Fact]
+        public void RestoreQuarantinedNamedBy_LoadedSaveNamesIt_MovesItBackBeforeHydration()
+        {
+            string dir = NewSaveDir("q-load");
+            string named = Write(dir, Quarantined("2026-01-01", "rec-back.prec"), "back");
+            string namedFlat = Write(dir, Quarantined(null, "rec-back_vessel.craft"), "back-v");
+            string other = Write(dir, Quarantined("2026-01-01", "rec-other.prec"));
+            string head = Write(dir, "Parsek/Recordings/rec-kept.prec", "current");
+            string namedHeadExists = Write(dir, Quarantined("2026-01-01", "rec-kept.prec"), "stale");
+
+            var scenario = new ConfigNode("SCENARIO");
+            scenario.AddValue("name", "ParsekScenario");
+            var tree = scenario.AddNode("RECORDING_TREE");
+            tree.AddNode("RECORDING").AddValue("recordingId", "rec-back");
+            tree.AddNode("RECORDING").AddValue("recordingId", "rec-kept");
+            tree.AddNode("BRANCH").AddValue("recordingId", "rec-other");
+
+            int restored = ParsekFileCollector.RestoreQuarantinedNamedBy(scenario);
+
+            Assert.Equal(2, restored);
+            Assert.Equal("back", File.ReadAllText(Path.Combine(dir, "Parsek", "Recordings", "rec-back.prec")));
+            Assert.Equal("back-v", File.ReadAllText(Path.Combine(dir, "Parsek", "Recordings", "rec-back_vessel.craft")));
+            Assert.False(File.Exists(named));
+            Assert.False(File.Exists(namedFlat));
+            Assert.True(File.Exists(other), "a BRANCH recordingId is not a recording reference");
+            Assert.Equal("current", File.ReadAllText(head));
+            Assert.True(File.Exists(namedHeadExists));
+            Assert.Contains(logLines, l => l.Contains("[FileCollector]")
+                && l.Contains("Quarantine restore at load: restored=2 namedHeadExists=1"));
+        }
+
+        [Fact]
+        public void RestoreQuarantinedNamedBy_NoQuarantineFolder_IsANoOp()
+        {
+            NewSaveDir("q-none");
+            var scenario = new ConfigNode("SCENARIO");
+            scenario.AddNode("RECORDING").AddValue("recordingId", "rec-a");
+            Assert.Equal(0, ParsekFileCollector.RestoreQuarantinedNamedBy(scenario));
+            Assert.DoesNotContain(logLines, l => l.Contains("Quarantine restore at load"));
+        }
+
+        [Theory]
+        [InlineData("rec-a.prec", "rec-a.prec")]
+        [InlineData("rec-a.prec.dup0123abcd", "rec-a.prec")]
+        [InlineData("rec-a_vessel.craft.dupABCDEF01", "rec-a_vessel.craft")]
+        [InlineData("rec-a.prec.dup012", "rec-a.prec.dup012")]
+        [InlineData("rec-a.prec.dupzzzzzzzz", "rec-a.prec.dupzzzzzzzz")]
+        public void QuarantinedHeadFileName_StripsOnlyTheCollisionSuffix(string fileName, string expected)
+        {
+            Assert.Equal(expected, ParsekFileCollector.QuarantinedHeadFileName(fileName));
+        }
+
+        [Theory]
+        [InlineData("2026-10-09", true)]
+        [InlineData("2026-10-10", false)]
+        [InlineData("2026-10-23", false)]
+        [InlineData("2027-01-01", false)]
+        public void IsQuarantineExpired_FourteenWholeUtcDays(string folder, bool expected)
+        {
+            Assert.True(ParsekFileCollector.TryParseQuarantineFolderDate(folder, out DateTime date));
+            Assert.Equal(expected, ParsekFileCollector.IsQuarantineExpired(date, QuarantineNow));
+        }
+
+        [Fact]
+        public void TryParseQuarantineFolderDate_RejectsOtherNames()
+        {
+            Assert.False(ParsekFileCollector.TryParseQuarantineFolderDate("_versions", out _));
+            Assert.False(ParsekFileCollector.TryParseQuarantineFolderDate("2026-13-01", out _));
+            Assert.False(ParsekFileCollector.TryParseQuarantineFolderDate("2026-1-1", out _));
         }
 
         [Fact]
