@@ -2337,7 +2337,8 @@ namespace Parsek
                         CommittedFutureIndexCache.CurrentUT(),
                         ReservationExplanation.DefaultDateFormatter,
                         IsPartPurchaseBlockedLive,
-                        IsStrategyActiveNowLive);
+                        IsStrategyActiveNowLive,
+                        IsUpgradePurchaseBlockedLive);
                 details = BuildRowHoverDetails(entry);
             }
             catch (Exception ex)
@@ -2407,6 +2408,20 @@ namespace Parsek
         }
 
         /// <summary>The live part-purchase decision (<c>StockUiPartPurchase.DecideLive</c>).</summary>
+        private static bool IsUpgradePurchaseBlockedLive(string upgradeName)
+        {
+            if (string.IsNullOrEmpty(upgradeName)) return false;
+            try
+            {
+                PartUpgradeHandler.Upgrade up = PartUpgradeManager.Handler.GetUpgrade(upgradeName);
+                return up != null && StockUiPartUpgradePurchase.DecideLive(up).Blocked;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
         private static bool IsPartPurchaseBlockedLive(string partName)
         {
             if (string.IsNullOrEmpty(partName)) return false;

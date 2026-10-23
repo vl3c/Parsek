@@ -55,7 +55,16 @@ namespace Parsek
         /// <see cref="ScienceChanged"/> event, which stays the reconcile's store side.
         /// Explicitly numbered and append-only, like <see cref="ExperienceGained"/>.
         /// </summary>
-        ScienceLabCredited = 24
+        ScienceLabCredited = 24,
+
+        /// <summary>
+        /// The player bought a part UPGRADE (a stock <c>PARTUPGRADE</c>) from the editor or
+        /// R&amp;D part list tooltip. <c>key</c> is the upgrade name; <c>detail</c> carries
+        /// <c>cost=</c> (what stock's <c>Funding.onUpgradePurchased</c> charged: 0 under
+        /// bypass-entry-purchase or for a free upgrade) and <c>entryCost=</c> (the upgrade's
+        /// price). Explicitly numbered and append-only, like <see cref="ExperienceGained"/>.
+        /// </summary>
+        PartUpgradePurchased = 25
     }
 
     public struct GameStateEvent
@@ -330,6 +339,8 @@ namespace Parsek
                     return "Tech";
                 case GameStateEventType.PartPurchased:
                     return "Part";
+                case GameStateEventType.PartUpgradePurchased:
+                    return "Upgrade";
                 case GameStateEventType.CrewHired:
                 case GameStateEventType.CrewRemoved:
                 case GameStateEventType.CrewStatusChanged:
@@ -393,6 +404,11 @@ namespace Parsek
                 {
                     string cost = ExtractDetailField(detail, "cost");
                     return cost != null ? $"\"{key}\" ({cost} funds)" : $"\"{key}\"";
+                }
+                case GameStateEventType.PartUpgradePurchased:
+                {
+                    string cost = ExtractDetailField(detail, "cost");
+                    return cost != null ? $"Part upgrade \"{key}\" ({cost} funds)" : $"Part upgrade \"{key}\"";
                 }
                 case GameStateEventType.CrewHired:
                 {

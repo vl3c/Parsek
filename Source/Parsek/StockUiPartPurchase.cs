@@ -170,17 +170,14 @@ namespace Parsek
             int id = tooltip.GetInstanceID();
             bool? write = PurchaseButtonsInteractable(d.Blocked, disabledTooltips.Contains(id));
             if (!write.HasValue) return;
-            SetInteractable(tooltip.buttonPurchase, write.Value);
-            SetInteractable(tooltip.buttonPurchaseRed, write.Value);
+            SetTooltipButtonsInteractable(tooltip, write.Value);
             if (write.Value)
             {
-                disabledTooltips.Remove(id);
                 ParsekLog.VerboseRateLimited(Tag, "part-tooltip-restored",
                     "Part tooltip purchase buttons given back (" + (ap != null ? ap.name : "(none)") + ")");
             }
             else
             {
-                disabledTooltips.Add(id);
                 ParsekLog.InfoRateLimited(Tag, "part-tooltip-greyed-" + d.PartName,
                     "Part tooltip purchase button disabled for '" + d.PartName + "' - "
                     + (double.IsNaN(d.UT) ? "reserved for later costs" : "committed future purchase ut="
@@ -188,18 +185,40 @@ namespace Parsek
             }
         }
 
+        /// <summary>True when Parsek disabled this tooltip's purchase buttons.</summary>
+        internal static bool IsTooltipDisabled(int tooltipInstanceId)
+        {
+            return disabledTooltips.Contains(tooltipInstanceId);
+        }
+
         /// <summary>
-        /// The upgrade overload of <c>PartListTooltip.Setup</c> buys a part UPGRADE, never
-        /// an entry purchase, so P1 never blocks it; its postfix only gives back buttons a
-        /// reused tooltip may still carry disabled.
+        /// Writes both purchase buttons of <paramref name="tooltip"/> and records whether
+        /// Parsek holds them disabled. One record for the part and the upgrade path, because
+        /// stock reuses one tooltip for both kinds of icon.
         /// </summary>
-        internal static void RestoreTooltipButtons(PartListTooltip tooltip)
+        internal static void SetTooltipButtonsInteractable(PartListTooltip tooltip, bool interactable)
         {
             if (tooltip == null) return;
             int id = tooltip.GetInstanceID();
-            if (!disabledTooltips.Remove(id)) return;
-            SetInteractable(tooltip.buttonPurchase, true);
-            SetInteractable(tooltip.buttonPurchaseRed, true);
+            SetInteractable(tooltip.buttonPurchase, interactable);
+            SetInteractable(tooltip.buttonPurchaseRed, interactable);
+            if (interactable) disabledTooltips.Remove(id);
+            else disabledTooltips.Add(id);
+        }
+
+        /// <summary>
+        /// Appends <paramref name="why"/> to the tooltip's stock <c>textGreyoutMessage</c>
+        /// label, enabling the label when stock left it off.
+        /// </summary>
+        internal static void AppendTooltipGreyoutReason(PartListTooltip tooltip, string why, string what)
+        {
+            object label = StockUiText.LabelField(tooltip, typeof(PartListTooltip), "textGreyoutMessage");
+            if (label == null) return;
+            var behaviour = label as Behaviour;
+            if (behaviour != null && !behaviour.enabled)
+                behaviour.enabled = true;
+            string existing = StockUiText.Get(label);
+            StockUiText.Set(label, StockUiRnDDecoration.AppendReason(existing, why, what));
         }
 
         private static void SetInteractable(Button button, bool interactable)
@@ -220,13 +239,7 @@ namespace Parsek
             if (tooltip == null || partIcon == null || !partIcon.isPart || partIcon.isEmptySlot) return;
             var d = DecideLive(partIcon.partInfo);
             if (!d.Blocked) return;
-            object label = StockUiText.LabelField(tooltip, typeof(PartListTooltip), "textGreyoutMessage");
-            if (label == null) return;
-            var behaviour = label as Behaviour;
-            if (behaviour != null && !behaviour.enabled)
-                behaviour.enabled = true;
-            string existing = StockUiText.Get(label);
-            StockUiText.Set(label, StockUiRnDDecoration.AppendReason(existing, d.Why, "part tooltip greyout message"));
+            AppendTooltipGreyoutReason(tooltip, d.Why, "part tooltip greyout message");
         }
 
         // ---------------- R&D "purchase all parts" ----------------
@@ -353,6 +366,7 @@ namespace Parsek
             disabledTooltips.Clear();
             purchaseAllDepth = 0;
             PurchasedInStockProviderForTesting = null;
+            StockUiPartUpgradePurchase.ResetForTesting();
         }
     }
 }

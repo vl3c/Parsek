@@ -48,7 +48,10 @@ namespace Parsek
         FacilityDestruction,
         /// <summary><c>FacilityRepair</c>. Key: the destructible building id, as
         /// <see cref="FacilityDestruction"/>.</summary>
-        FacilityRepair
+        FacilityRepair,
+        /// <summary><c>FundsSpending</c> with <c>FundsSpendingSource.PartUpgrade</c> and a
+        /// <c>DedupKey</c>: a part upgrade purchase. Key: the stock <c>PARTUPGRADE</c> name.</summary>
+        PartUpgradePurchase
     }
 
     /// <summary>
@@ -277,8 +280,12 @@ namespace Parsek
                     key = action.FacilityId;
                     break;
                 case GameActionType.FundsSpending:
-                    if (action.FundsSpendingSource != FundsSpendingSource.Other) return false;
-                    kind = CommittedFutureKind.PartPurchase;
+                    if (action.FundsSpendingSource == FundsSpendingSource.Other)
+                        kind = CommittedFutureKind.PartPurchase;
+                    else if (action.FundsSpendingSource == FundsSpendingSource.PartUpgrade)
+                        kind = CommittedFutureKind.PartUpgradePurchase;
+                    else
+                        return false;
                     key = action.DedupKey;
                     break;
                 default:
@@ -354,6 +361,7 @@ namespace Parsek
                         case CommittedFutureKind.FacilityRepair: amount = a.FacilityCost; break;
                         case CommittedFutureKind.KerbalHire: amount = a.HireCost; break;
                         case CommittedFutureKind.PartPurchase: amount = a.FundsSpent; break;
+                        case CommittedFutureKind.PartUpgradePurchase: amount = a.FundsSpent; break;
                         case CommittedFutureKind.StrategyActivate: amount = a.SetupCost; break;
                         default: amount = 0f; break;
                     }
@@ -640,7 +648,7 @@ namespace Parsek
             return string.Format(ic,
                 "tech={0} facility={1} accept={2} complete={3} fail={4} cancel={5} hire={6} " +
                 "retire={7} strategyOn={8} strategyOff={9} part={10} destroy={11} repair={12} " +
-                "rebuild={13} assignments={14} skippedUncommitted={15}",
+                "rebuild={13} assignments={14} skippedUncommitted={15} upgrade={16}",
                 CountOf(CommittedFutureKind.TechResearch),
                 CountOf(CommittedFutureKind.FacilityUpgrade),
                 CountOf(CommittedFutureKind.ContractAccept),
@@ -656,7 +664,8 @@ namespace Parsek
                 CountOf(CommittedFutureKind.FacilityRepair),
                 FacilityRebuildCount(),
                 AssignmentCount,
-                SkippedUncommittedRows);
+                SkippedUncommittedRows,
+                CountOf(CommittedFutureKind.PartUpgradePurchase));
         }
 
     }

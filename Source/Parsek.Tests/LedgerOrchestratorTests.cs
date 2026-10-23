@@ -3809,6 +3809,51 @@ namespace Parsek.Tests
         // the uplift guard), or the drawdown guard clamps it; the reconcile finds no
         // FundsChanged(CrewRecruited) yet. Both must wait for the host's next frame.
         [Fact]
+        public void OnKscSpending_PartPurchase_DefersTheReconcileAndRecalcPastStocksCharge()
+        {
+            // Stock's Funding charges a part purchase from its own OnPartPurchased listener,
+            // registered in the same OnAwake as its hire listener, so it runs after Parsek's
+            // exactly like the hire (PART-UPGRADE-PURCHASE-UNRESERVED).
+            Action deferred = null;
+            LedgerOrchestrator.DeferOneFrameForTesting = a => deferred = a;
+            try
+            {
+                LedgerOrchestrator.OnKscSpending(new GameStateEvent
+                {
+                    ut = 500.0,
+                    eventType = GameStateEventType.PartPurchased,
+                    key = "mk1pod",
+                    detail = "cost=600"
+                });
+
+                Assert.NotNull(deferred);
+                Assert.NotNull(FindLedgerRow(GameActionType.FundsSpending));
+                Assert.DoesNotContain(logLines, l =>
+                    l.Contains("[RecalcEngine]") && l.Contains("Recalculate complete"));
+
+                var charge = new GameStateEvent
+                {
+                    ut = 500.0,
+                    eventType = GameStateEventType.FundsChanged,
+                    key = "RnDPartPurchase",
+                    valueBefore = 10600.0,
+                    valueAfter = 10000.0
+                };
+                GameStateStore.AddEvent(ref charge);
+
+                deferred();
+
+                Assert.Contains(logLines, l =>
+                    l.Contains("[RecalcEngine]") && l.Contains("Recalculate complete"));
+                Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation (funds)"));
+            }
+            finally
+            {
+                LedgerOrchestrator.DeferOneFrameForTesting = null;
+            }
+        }
+
+        [Fact]
         public void OnKscSpending_KerbalHire_DefersTheReconcileAndRecalcPastStocksCharge()
         {
             Action deferred = null;
@@ -3902,8 +3947,9 @@ namespace Parsek.Tests
             Assert.Equal(expected, LedgerOrchestrator.ResolveDeferredLiveEventUT(eventUt, nowUt, "test"));
         }
 
-        // A non-milestone row still recalculates inline through the same host-aware path -
-        // the deferral must not leak onto the rest of the door.
+        // A row outside the deferred set (milestone, hire, part and part upgrade purchase)
+        // still recalculates inline through the same host-aware path - the deferral must not
+        // leak onto the rest of the door.
         [Fact]
         public void OnKscSpending_NonMilestoneRow_StillRecalculatesInline()
         {
@@ -3914,9 +3960,9 @@ namespace Parsek.Tests
                 LedgerOrchestrator.OnKscSpending(new GameStateEvent
                 {
                     ut = 500.0,
-                    eventType = GameStateEventType.PartPurchased,
-                    key = "mk1pod",
-                    detail = "cost=600"
+                    eventType = GameStateEventType.TechResearched,
+                    key = "basicRocketry",
+                    detail = "cost=5"
                 });
 
                 Assert.Null(deferred);

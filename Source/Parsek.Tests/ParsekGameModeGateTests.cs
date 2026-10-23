@@ -282,6 +282,7 @@ namespace Parsek.Tests
             "Parsek.Patches.MissionControlRebuildPassPatch.Prefix",
             "Parsek.Patches.MissionControlRefreshUIControlsPatch.Postfix",
             "Parsek.Patches.PartListTooltipPurchasePatch.Prefix",
+            "Parsek.Patches.PartListTooltipPurchaseUpgradePatch.Prefix",
             "Parsek.Patches.PartListTooltipReasonPatch.Postfix",
             "Parsek.Patches.PartListTooltipSetupPartPatch.Postfix",
             "Parsek.Patches.PartListTooltipSetupUpgradePatch.Postfix",

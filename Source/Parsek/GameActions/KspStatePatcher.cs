@@ -138,6 +138,8 @@ namespace Parsek
             PatchPurchasedParts(partPurchaseActions, walkUtCutoff, techUtCutoff);
             // Add-only, capped like the part purchases; the same action list.
             PatchResourceScans(partPurchaseActions, walkUtCutoff, techUtCutoff);
+            // Add-only, capped like the part purchases; the same action list.
+            PatchUnlockedUpgrades(partPurchaseActions, walkUtCutoff, techUtCutoff);
             PatchFunds(funds, suppressSuspiciousDrawdownWarnings, authoritativeReduction);
             PatchReputation(reputation, authoritativeReduction);
         }
@@ -2115,6 +2117,238 @@ namespace Parsek
                 map.IsBiomeUnlocked,
                 map.UnlockPlanet,
                 map.UnlockBiome);
+        }
+
+        // ---------------- part upgrades (PART-UPGRADE-PURCHASE-UNRESERVED state half) ----------------
+
+        /// <summary>
+        /// The upgrade names the patch unlocks: every effective part-upgrade row
+        /// (<c>FundsSpending</c>, <c>FundsSpendingSource.PartUpgrade</c>, key = the stock
+        /// <c>PARTUPGRADE</c> name in <c>DedupKey</c>) at or before <paramref name="cutoff"/>,
+        /// whatever its amount. Sorted, so the apply order and its log are deterministic. Pure.
+        /// </summary>
+        internal static List<string> BuildUnlockedUpgradeNamesForPatch(
+            IReadOnlyList<GameAction> actions, double cutoff)
+        {
+            var names = new SortedSet<string>(StringComparer.Ordinal);
+            if (actions != null)
+            {
+                for (int i = 0; i < actions.Count; i++)
+                {
+                    var a = actions[i];
+                    if (a == null || a.Type != GameActionType.FundsSpending) continue;
+                    if (a.FundsSpendingSource != FundsSpendingSource.PartUpgrade) continue;
+                    if (string.IsNullOrEmpty(a.DedupKey)) continue;
+                    if (a.UT > cutoff) continue;
+                    names.Add(a.DedupKey);
+                }
+            }
+            return new List<string>(names);
+        }
+
+        /// <summary>
+        /// The names one <see cref="PatchUnlockedUpgrades"/> pass would unlock, over the
+        /// part-purchase cutoff (<see cref="ResolvePartPurchasePatchCutoff"/>: the supplied
+        /// cutoff clamped to the live clock when it is ready). Stock has no re-lock, so the
+        /// clamp keeps a committed future upgrade from reaching stock before its UT, which is
+        /// also when its purchase block lifts. Null when there is no usable cutoff. Pure.
+        /// </summary>
+        internal static List<string> PlanUnlockedUpgradeNamesForPatch(
+            IReadOnlyList<GameAction> actions, double? walkCutoff, double? techPatchCutoff,
+            double liveUT, out double? cutoff)
+        {
+            cutoff = ResolvePartPurchasePatchCutoff(walkCutoff, techPatchCutoff, liveUT);
+            return cutoff.HasValue ? BuildUnlockedUpgradeNamesForPatch(actions, cutoff.Value) : null;
+        }
+
+        /// <summary>What <see cref="ApplyUpgradeUnlockPatch"/> did with one upgrade name.</summary>
+        internal enum UpgradeUnlockPatchOutcome { Added, AlreadyUnlocked, UnknownUpgrade, TechNotResearched }
+
+        /// <summary>The per-pass counters and the bounded identity lists the upgrade patch logs.</summary>
+        internal sealed class UpgradeUnlockPatchResult
+        {
+            internal int Added;
+            internal int AlreadyUnlocked;
+            internal int UnknownUpgrade;
+            internal int TechNotResearched;
+            internal readonly List<string> AddedNames = new List<string>();
+            internal readonly List<string> UnknownNames = new List<string>();
+            internal readonly List<string> TechNotResearchedNames = new List<string>();
+        }
+
+        /// <summary>
+        /// Pure: the outcome for one upgrade. An upgrade this install does not define is
+        /// skipped; one whose tech is not researched in stock is skipped and logged, never
+        /// forced (a committed purchase implies its tech is researched by then); an unlocked
+        /// one is left alone; otherwise it is unlocked.
+        /// </summary>
+        internal static UpgradeUnlockPatchOutcome ClassifyUpgradeUnlockForPatch(
+            string upgradeName,
+            Func<string, bool> isKnownUpgrade,
+            Func<string, bool> isTechResearched,
+            Func<string, bool> isUnlocked)
+        {
+            if (isKnownUpgrade == null || !isKnownUpgrade(upgradeName)) return UpgradeUnlockPatchOutcome.UnknownUpgrade;
+            if (isTechResearched == null || !isTechResearched(upgradeName)) return UpgradeUnlockPatchOutcome.TechNotResearched;
+            if (isUnlocked != null && isUnlocked(upgradeName)) return UpgradeUnlockPatchOutcome.AlreadyUnlocked;
+            return UpgradeUnlockPatchOutcome.Added;
+        }
+
+        /// <summary>
+        /// The add-only core of <see cref="PatchUnlockedUpgrades"/>, over delegates so it is
+        /// testable without KSP. Nothing is ever re-locked: a rewind reloads stock's unlock
+        /// state from its quicksave. Running it twice unlocks nothing the second time.
+        /// </summary>
+        internal static UpgradeUnlockPatchResult ApplyUpgradeUnlockPatch(
+            IEnumerable<string> upgradeNames,
+            Func<string, bool> isKnownUpgrade,
+            Func<string, bool> isTechResearched,
+            Func<string, bool> isUnlocked,
+            Action<string> markUnlocked)
+        {
+            var result = new UpgradeUnlockPatchResult();
+            if (upgradeNames == null) return result;
+            foreach (var name in upgradeNames)
+            {
+                if (string.IsNullOrEmpty(name)) continue;
+                switch (ClassifyUpgradeUnlockForPatch(name, isKnownUpgrade, isTechResearched, isUnlocked))
+                {
+                    case UpgradeUnlockPatchOutcome.UnknownUpgrade:
+                        result.UnknownUpgrade++;
+                        result.UnknownNames.Add(name);
+                        break;
+                    case UpgradeUnlockPatchOutcome.TechNotResearched:
+                        result.TechNotResearched++;
+                        result.TechNotResearchedNames.Add(name);
+                        break;
+                    case UpgradeUnlockPatchOutcome.AlreadyUnlocked:
+                        result.AlreadyUnlocked++;
+                        break;
+                    default:
+                        markUnlocked?.Invoke(name);
+                        result.Added++;
+                        result.AddedNames.Add(name);
+                        break;
+                }
+            }
+            return result;
+        }
+
+        /// <summary>Test seam for the live clock the upgrade cutoff falls back to.</summary>
+        internal static Func<double> UpgradeUnlockLiveUtProviderForTesting;
+
+        /// <summary>
+        /// The state half of the part-upgrade reservation (todo PART-UPGRADE-PURCHASE-UNRESERVED):
+        /// unlocks in stock's <c>PartUpgradeHandler</c> every upgrade whose committed purchase
+        /// row the walk has reached, the way the stock tooltip does minus its event
+        /// (<c>SetUnlocked(name, true)</c> only: firing <c>OnPartUpgradePurchased</c> would make
+        /// stock's Funding charge it again). Skipped with bypass-entry-purchase on (stock
+        /// unlocks every researched upgrade itself), when upgrades are off for this game, and
+        /// when <c>PartUpgradeManager</c> is not loaded in this scene (it is absent from the
+        /// Tracking Station; the next recalc where it is loaded applies it).
+        /// </summary>
+        internal static void PatchUnlockedUpgrades(
+            IReadOnlyList<GameAction> actions, double? walkCutoff, double? techPatchCutoff)
+        {
+            if (actions == null)
+            {
+                VerboseStablePatchState("patch-skip|upgrades|actions", "actions-null",
+                    "PatchUnlockedUpgrades: no action list supplied - skipping");
+                return;
+            }
+
+            var liveProvider = UpgradeUnlockLiveUtProviderForTesting;
+            double liveUT = liveProvider != null ? liveProvider() : CommittedFutureIndexCache.CurrentUT();
+            double? cutoff;
+            var names = PlanUnlockedUpgradeNamesForPatch(actions, walkCutoff, techPatchCutoff, liveUT, out cutoff);
+            if (names == null)
+            {
+                VerboseStablePatchState("patch-skip|upgrades|cutoff", "cutoff-unknown",
+                    "PatchUnlockedUpgrades: no finite cutoff and the clock is not ready - skipping");
+                return;
+            }
+
+            if (names.Count == 0)
+            {
+                VerboseStablePatchState("patch-noop|upgrades", "no-rows",
+                    "PatchUnlockedUpgrades: no committed part upgrade purchase at or before the cutoff");
+                return;
+            }
+
+            if (SuppressUnityCallsForTesting)
+            {
+                VerboseStablePatchState("patch-skip|upgrades|test", "suppressed",
+                    "PatchUnlockedUpgrades: Unity calls suppressed for testing - skipping");
+                return;
+            }
+
+            if (GameStateRecorder.IsBypassEntryPurchaseAfterResearch())
+            {
+                VerboseStablePatchState("patch-skip|upgrades|bypass", "bypass-on",
+                    "PatchUnlockedUpgrades: bypass-entry-purchase is on - stock unlocks researched upgrades, skipping");
+                return;
+            }
+
+            string skip;
+            try { skip = ReadLiveUpgradeStateSkipReason(); }
+            catch (Exception ex) { skip = "upgrade state unreadable (" + ex.GetType().Name + ")"; }
+            if (skip != null)
+            {
+                VerboseStablePatchState("patch-skip|upgrades|state", skip,
+                    "PatchUnlockedUpgrades: " + skip + " - skipping (the next recalc with it loaded applies it)");
+                return;
+            }
+
+            var result = ApplyLiveUpgradeUnlocks(names);
+            string cutoffLabel = cutoff.Value.ToString("R", IC);
+            string summary =
+                $"PatchUnlockedUpgrades: targets={names.Count.ToString(IC)}, " +
+                $"added={result.Added.ToString(IC)}, " +
+                $"alreadyUnlocked={result.AlreadyUnlocked.ToString(IC)}, " +
+                $"unknownUpgrade={result.UnknownUpgrade.ToString(IC)}, " +
+                $"techNotResearched={result.TechNotResearched.ToString(IC)}, " +
+                $"cutoffUT={cutoffLabel}" +
+                (result.AddedNames.Count > 0
+                    ? $", addedUpgrades=[{ComposeBoundedIdentitySample(result.AddedNames, IdentitySampleCap)}]"
+                    : string.Empty);
+            if (result.Added > 0)
+                ParsekLog.Info(Tag, summary);
+            else
+                VerboseStablePatchState("patch-upgrades", summary, summary);
+
+            if (result.TechNotResearched > 0)
+                ParsekLog.Warn(Tag,
+                    "PatchUnlockedUpgrades: committed purchase of an upgrade whose tech is not researched in stock - " +
+                    $"not unlocked: [{ComposeBoundedIdentitySample(result.TechNotResearchedNames, IdentitySampleCap)}]");
+            if (result.UnknownUpgrade > 0)
+                ParsekLog.Verbose(Tag,
+                    $"PatchUnlockedUpgrades: {result.UnknownUpgrade.ToString(IC)} committed upgrade(s) this install " +
+                    $"does not define: [{ComposeBoundedIdentitySample(result.UnknownNames, IdentitySampleCap)}]");
+        }
+
+        /// <summary>Null when the live upgrade state can be patched, else why not.</summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static string ReadLiveUpgradeStateSkipReason()
+        {
+            if (PartUpgradeManager.Instance == null) return "PartUpgradeManager not loaded in this scene";
+            if (!PartUpgradeManager.Handler.CanHaveUpgrades()) return "part upgrades are off for this game";
+            return null;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static UpgradeUnlockPatchResult ApplyLiveUpgradeUnlocks(IEnumerable<string> names)
+        {
+            var handler = PartUpgradeManager.Handler;
+            return ApplyUpgradeUnlockPatch(names,
+                n => handler.GetUpgrade(n) != null,
+                n =>
+                {
+                    string tech = handler.GetUpgrade(n).techRequired;
+                    return string.IsNullOrEmpty(tech)
+                        || ResearchAndDevelopment.GetTechnologyState(tech) == RDTech.State.Available;
+                },
+                handler.IsUnlocked,
+                n => handler.SetUnlocked(n, true));
         }
 
         /// <summary>
@@ -5105,6 +5339,7 @@ namespace Parsek
             StockPoolReference.ResetForTesting();
             PartPurchaseLiveUtProviderForTesting = null;
             ResourceScanLiveUtProviderForTesting = null;
+            UpgradeUnlockLiveUtProviderForTesting = null;
             AllowNegativeCurrencyProviderForTesting = null;
             protoTechNodesReflectionWarnEmitted = false;
             scienceSubjectsReflectionWarnEmitted = false;

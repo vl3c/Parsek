@@ -827,6 +827,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PartUpgrade_TheGreyedTooltipAndTheBackstopReadTheReserve()
+        {
+            L12Ledger();
+            open.Add(new OpenContractPenalty { Key = "y", Funds = 50000 });
+            GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = () => false;
+            StockUiPartUpgradePurchase.UnlockedInStockProviderForTesting = n => false;
+            var up = new PartUpgradeHandler.Upgrade { name = "ReactionWheelTorqueUpgrade", title = "Wheel", entryCost = 4000f };
+
+            var d = StockUiPartUpgradePurchase.DecideLive(up);
+            Assert.True(d.Blocked);
+            Assert.Equal("Reserved for later costs and contract penalties, blocked by timeline. Needs 4,000 funds, 0 free.", d.Why);
+            Assert.True(StockUiPartUpgradePurchase.TryBlockPurchase(up, "test", showDialog: true));
+            Assert.Equal("Cannot purchase \"Wheel\"", dialogAction);
+            Assert.Equal(d.Why, dialogReason);
+            Assert.Contains(logLines, l => l.Contains("[ClickReserve]") && l.Contains("part upgrade ReactionWheelTorqueUpgrade"));
+
+            // A free upgrade, an unlocked one, or no open penalty: nothing to refuse.
+            Assert.False(StockUiPartUpgradePurchase.DecideLive(
+                new PartUpgradeHandler.Upgrade { name = "free", entryCost = 0f }).Blocked);
+            open.Clear();
+            ClickReservationGate.Invalidate();
+            Assert.False(StockUiPartUpgradePurchase.DecideLive(up).Blocked);
+        }
+
+        [Fact]
         public void StrategySetup_IsRefusedByTheReputationReserve_InsideTheOneActivationDecision()
         {
             Ledger.AddAction(RepSeed(60));

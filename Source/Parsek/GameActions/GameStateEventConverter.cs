@@ -262,6 +262,9 @@ namespace Parsek
                 case GameStateEventType.PartPurchased:
                     return ConvertPartPurchased(evt, recordingId);
 
+                case GameStateEventType.PartUpgradePurchased:
+                    return ConvertPartUpgradePurchased(evt, recordingId);
+
                 case GameStateEventType.FacilityUpgraded:
                     return ConvertFacilityUpgraded(evt, recordingId);
 
@@ -624,6 +627,27 @@ namespace Parsek
                 RecordingId = recordingId,
                 FundsSpent = cost,
                 FundsSpendingSource = FundsSpendingSource.Other,
+                DedupKey = evt.key ?? ""
+            };
+        }
+
+        /// <summary>
+        /// PartUpgradePurchased -> FundsSpending (source PartUpgrade, upgrade name = key,
+        /// cost from <c>cost=</c>, the amount stock charged).
+        /// </summary>
+        private static GameAction ConvertPartUpgradePurchased(GameStateEvent evt, string recordingId)
+        {
+            float cost = 0f;
+            string costStr = ExtractDetail(evt.detail, "cost");
+            if (costStr != null)
+                float.TryParse(costStr, NumberStyles.Float, IC, out cost);
+            return new GameAction
+            {
+                UT = evt.ut,
+                Type = GameActionType.FundsSpending,
+                RecordingId = recordingId,
+                FundsSpent = cost,
+                FundsSpendingSource = FundsSpendingSource.PartUpgrade,
                 DedupKey = evt.key ?? ""
             };
         }

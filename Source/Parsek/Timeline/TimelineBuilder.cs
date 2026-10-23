@@ -625,17 +625,22 @@ namespace Parsek
                         action.UT,
                         action.NodeId);
 
-                // Part purchases are the only FundsSpending source that has a legacy
-                // GameStateEvent twin (PartPurchased). VesselBuild / facility / hire
-                // spending has no PartPurchased equivalent, so leave those alone.
-                // DedupKey carries the part name set by ConvertPartPurchased.
+                // Part purchases and part upgrade purchases are the FundsSpending sources
+                // with a legacy GameStateEvent twin (PartPurchased / PartUpgradePurchased).
+                // VesselBuild / facility / hire spending has none, so leave those alone.
+                // DedupKey carries the part or upgrade name set by the converter.
                 case GameActionType.FundsSpending:
-                    return action.FundsSpendingSource == FundsSpendingSource.Other
-                        ? EncodeLegacyDuplicateKey(
+                    if (action.FundsSpendingSource == FundsSpendingSource.Other)
+                        return EncodeLegacyDuplicateKey(
                             GameStateEventType.PartPurchased,
                             action.UT,
-                            action.DedupKey)
-                        : null;
+                            action.DedupKey);
+                    if (action.FundsSpendingSource == FundsSpendingSource.PartUpgrade)
+                        return EncodeLegacyDuplicateKey(
+                            GameStateEventType.PartUpgradePurchased,
+                            action.UT,
+                            action.DedupKey);
+                    return null;
 
                 // Contract lifecycle actions duplicate their legacy GameStateEvent twins;
                 // match on the contract guid carried in ContractId / legacy event key.
@@ -1144,7 +1149,8 @@ namespace Parsek
                     // Their ledger twin is filtered as a no-op spend (FundsSpent <= 0) in
                     // CollectGameActionEntries rather than de-duped, so the de-dup set below
                     // never holds a key for them. Skip the legacy event directly here too.
-                    if (e.eventType == GameStateEventType.PartPurchased &&
+                    if ((e.eventType == GameStateEventType.PartPurchased
+                            || e.eventType == GameStateEventType.PartUpgradePurchased) &&
                         GameStateEventConverter.ParsePartPurchaseChargedCost(e.detail) <= 0f)
                     {
                         freePartSkipped++;

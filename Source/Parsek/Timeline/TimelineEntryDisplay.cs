@@ -338,6 +338,11 @@ namespace Parsek
                         string part = string.IsNullOrEmpty(action.DedupKey) ? "part" : action.DedupKey;
                         return string.Format(IC, "Part: {0} -{1:0}", part, action.FundsSpent);
                     }
+                    if (action.FundsSpendingSource == FundsSpendingSource.PartUpgrade)
+                    {
+                        string upgrade = string.IsNullOrEmpty(action.DedupKey) ? "upgrade" : action.DedupKey;
+                        return string.Format(IC, "Part upgrade: {0} -{1:0}", upgrade, action.FundsSpent);
+                    }
 
                     string source;
                     switch (action.FundsSpendingSource)
