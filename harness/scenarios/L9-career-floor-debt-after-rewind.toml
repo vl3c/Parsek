@@ -23,13 +23,16 @@ tier = "nightly"
 # Lerp(FundsAdvance, FundsFailure, t) funds and Lerp(Career.RepLossDeclined, ReputationFailure,
 # t) reputation, t = the fraction of the accept-to-deadline span elapsed (`Cancel()` sets
 # `dateFinished` first). These deadlines are millions of seconds out, so an early cancel
-# costs the advance. Parsek's ContractCancel row records FundsFailure / ReputationFailure
-# (`GameStateRecorder.OnContractCancelled`), filed as todo
-# CONTRACT-CANCEL-PENALTY-IGNORES-STOCK-TIME-LERP. 8a2b7d40 makes the FUNDS leg exact on both
-# sides (9000 = 9000 for any t); its REPUTATION leg still differs (stock 3, the row 4), so
-# a reputation guard line at the cancel is that filed defect, not this lane's subject, and is
-# not forbidden here. The cancel is the only non-cost funds loss a player can make at the
-# Space Center (contract fails come from flights or deadlines).
+# costs the advance. Until 2026-10-23 Parsek's ContractCancel row recorded FundsFailure /
+# ReputationFailure whole (todo CONTRACT-CANCEL-PENALTY-IGNORES-STOCK-TIME-LERP, fixed): the row
+# now carries the lerped penalty stock charged, and the Info line prints `t=` and the contract's
+# `failFunds=` / `failRep=`. 8a2b7d40 makes the FUNDS leg 9000 for any t; its REPUTATION leg is
+# about RepLossDeclined at this early t, never the fail loss 4, so a reputation guard line at the
+# cancel is forbidden since the fix (it was the defect's signature). Stock fires `onFailed` after
+# `onCancelled` for a cancel; the skipped fail line is required and a ContractFailed event for
+# 8a2b7d40 forbidden (todo CONTRACT-CANCEL-ALSO-FILES-A-FAIL-ROW, fixed). The cancel is the only
+# non-cost funds loss a player can make at the Space Center (contract fails come from flights or
+# deadlines).
 #
 # WHY THESE PURCHASES. The floor binds only when the pool left after the committed purchases
 # is smaller than the loss: after the rewind the pool IS that remainder (the reserve holds the
@@ -228,7 +231,8 @@ required = [
   # ---- the rewind, then the loss: allowed, captured, stamped after the purchases ----
   "\\[Rewind\\] Rewind-to-Launch initiated to UT ",
   "Rewind-to-Launch initiated to UT [\\s\\S]*allowing cancel for guid=8a2b7d40-4ee9-4f98-8290-7052ca24afd0 - no committed resolution after now",
-  "Rewind-to-Launch initiated to UT [\\s\\S]*Game state: ContractCancelled '[^'\\r\\n]*' \\(fundsPenalty=9000, repPenalty=4\\)",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*Game state: ContractCancelled '[^'\\r\\n]*' \\(fundsPenalty=9000, repPenalty=[0-3](\\.[0-9]+)?(E-?[0-9]+)?, t=[0-9.]+(E-?[0-9]+)?, failFunds=9000, failRep=4\\)",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*Game state: ContractFailed '[^'\\r\\n]*' skipped - stock's onFailed re-fire of a cancel \\(state=Cancelled, contract 8a2b7d40-4ee9-4f98-8290-7052ca24afd0\\)",
   "Rewind-to-Launch initiated to UT [\\s\\S]*AddEvent: ContractCancelled key='8a2b7d40-4ee9-4f98-8290-7052ca24afd0' tag='' ut=[0-9.]+ cseq=[1-9][0-9]*",
   "Rewind-to-Launch initiated to UT [\\s\\S]*\\[Ledger\\] Added action: type=ContractCancel, ut=[0-9.]+, recordingId=\\(none\\), writer=StockApplied, cseq=[1-9][0-9]*,",
   "kscaction action=cancel-contract target=8a2b7d40-4ee9-4f98-8290-7052ca24afd0 applied=true manifestKind=\\S+ observedAfter=state=Cancelled",
@@ -250,8 +254,9 @@ required = [
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
-  # Funds only: the cancel's reputation leg is the filed lerp defect (header).
-  "GUARDED (UPLIFT|DRAWDOWN) clamped resource=Funds",
+  # Both pools: the cancel now records the penalty stock charged (header).
+  "GUARDED (UPLIFT|DRAWDOWN) clamped resource=(Funds|Reputation)",
+  "AddEvent: ContractFailed key='8a2b7d40-4ee9-4f98-8290-7052ca24afd0'",
   "kscaction refused ",
   "blocking cancel for guid=",
   # Only the cancel is a loss below a floor; a cost row is never settled.

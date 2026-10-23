@@ -8,7 +8,10 @@ namespace Parsek
         Completed = 0,
         Failed = 1,
         DeadlineExpired = 2,
-        Cancelled = 3
+        Cancelled = 3,
+        /// <summary>Stock ended the Active contract as OfferExpired (requirements no longer
+        /// met); filed as a ContractCancel row with <see cref="GameAction.ContractRequirementsLost"/>.</summary>
+        RequirementsLost = 4
     }
 
     /// <summary>
@@ -631,6 +634,7 @@ namespace Parsek
                 case ContractTerminalOutcome.Failed: return "failed";
                 case ContractTerminalOutcome.Cancelled: return "cancelled";
                 case ContractTerminalOutcome.DeadlineExpired: return "failed at its deadline";
+                case ContractTerminalOutcome.RequirementsLost: return "ended (requirements no longer met)";
                 default: return "resolved";
             }
         }
@@ -684,12 +688,15 @@ namespace Parsek
             bool wasActive = activeContracts.Remove(id);
             terminalContracts.Add(id);
             terminalContractActions[id] = GameActionType.ContractCancel;
-            terminalContractOutcomes[id] = ContractTerminalOutcome.Cancelled;
+            terminalContractOutcomes[id] = action.ContractRequirementsLost
+                ? ContractTerminalOutcome.RequirementsLost
+                : ContractTerminalOutcome.Cancelled;
             explicitlyResolvedContracts.Add(id);
 
             ParsekLog.Info(Tag,
                 $"Cancel: contractId='{id}' fundsPenalty={action.FundsPenalty} " +
                 $"repPenalty={action.RepPenalty} " +
+                $"requirementsLost={action.ContractRequirementsLost} " +
                 $"wasActive={wasActive} " +
                 $"activeSlots={activeContracts.Count}/{maxSlots}");
         }

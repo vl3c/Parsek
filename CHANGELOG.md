@@ -76,6 +76,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Contract cancels and stock-ended contracts are booked as stock books them.** A cancel costs the
+  time-scaled share stock charges, not the full fail penalty, and files one row instead of two. A
+  contract stock ends because its requirements no longer hold now ends in Parsek too, with no
+  penalty, frees its slot, and reads `Ended:` in the Timeline.
+  (CONTRACT-CANCEL-PENALTY-IGNORES-STOCK-TIME-LERP)
 - **A kerbal who leaves in a crew cabin is no longer lost.** A Hitchhiker or other cabin with no
   command module that separates with someone inside is recorded as its own vessel, not debris, and
   the kerbal goes with it instead of reading as dead. It is not a Re-Fly choice (it cannot fly).

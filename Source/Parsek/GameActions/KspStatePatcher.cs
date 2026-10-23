@@ -4282,6 +4282,8 @@ namespace Parsek
                     return state == Contract.State.DeadlineExpired;
                 case ContractTerminalOutcome.Cancelled:
                     return state == Contract.State.Cancelled;
+                case ContractTerminalOutcome.RequirementsLost:
+                    return state == Contract.State.OfferExpired;
                 default:
                     return false;
             }

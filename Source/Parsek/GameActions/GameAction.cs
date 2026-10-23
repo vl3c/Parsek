@@ -770,6 +770,18 @@ namespace Parsek
         /// <summary>Reputation penalty on fail/cancel (nominal, pre-curve).</summary>
         public float RepPenalty;
 
+        /// <summary>
+        /// True on a <see cref="GameActionType.ContractCancel"/> row that is not a player cancel
+        /// but stock ending an Active contract as <c>OfferExpired</c> because its requirements
+        /// no longer hold. Stock charges nothing for that end, so the row carries zero
+        /// penalties; the walk ends the contract and frees its slot like a cancel. Written
+        /// under <see cref="ContractRequirementsLostKey"/> only when true.
+        /// </summary>
+        public bool ContractRequirementsLost;
+
+        /// <summary>ConfigNode key for <see cref="ContractRequirementsLost"/>; absent reads false.</summary>
+        internal const string ContractRequirementsLostKey = "requirementsLost";
+
         // ---- Kerbal fields ----
 
         /// <summary>Kerbal's full name.</summary>
@@ -1586,8 +1598,20 @@ namespace Parsek
         private void SerializeContractFail(ConfigNode n) => SerializeContractPenalty(n);
         private static void DeserializeContractFail(ConfigNode n, GameAction a) => DeserializeContractPenalty(n, a);
 
-        private void SerializeContractCancel(ConfigNode n) => SerializeContractPenalty(n);
-        private static void DeserializeContractCancel(ConfigNode n, GameAction a) => DeserializeContractPenalty(n, a);
+        private void SerializeContractCancel(ConfigNode n)
+        {
+            SerializeContractPenalty(n);
+            if (ContractRequirementsLost)
+                n.AddValue(ContractRequirementsLostKey, "True");
+        }
+
+        private static void DeserializeContractCancel(ConfigNode n, GameAction a)
+        {
+            DeserializeContractPenalty(n, a);
+            bool requirementsLost;
+            a.ContractRequirementsLost = bool.TryParse(n.GetValue(ContractRequirementsLostKey), out requirementsLost)
+                && requirementsLost;
+        }
 
         private void SerializeContractPenalty(ConfigNode n)
         {
