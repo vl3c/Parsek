@@ -71,6 +71,8 @@ KINDS: Tuple[str, ...] = (
     "facility-upgrade", "facility-refund", "tech-unlock",
     "kerbal-hire", "kerbal-dismiss", "strategy-activate", "strategy-convert",
     "vessel-recovery", "vessel-build-cost", "route-delivery",
+    # A part's or a part upgrade's entry-cost purchase (R&D or the editor tooltip).
+    "part-purchase", "part-upgrade-purchase",
     # The GENERIC stock-award kinds. Only `stock-reputation-award` is stamped by the
     # leg-A log capture: KSP logs no funds award line, so `stock-funds-award` is a
     # LEGAL SEAM KIND an author may declare but one the capture can never produce

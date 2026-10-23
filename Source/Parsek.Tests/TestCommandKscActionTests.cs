@@ -509,6 +509,8 @@ namespace Parsek.Tests
         [InlineData("purchase-part", "PurchasePart", "part-purchase")]
         [InlineData("purchase-all", "PurchaseAllParts", "part-purchase")]
         [InlineData("assign-crew", "AssignCrew", "crew-assign")]
+        [InlineData("define-upgrade", "DefineUpgrade", "part-upgrade-define")]
+        [InlineData("purchase-upgrade", "PurchaseUpgrade", "part-upgrade-purchase")]
         public void ParseKind_And_ManifestKind_ClickBlockSubActions(string action, string kind, string manifest)
         {
             KscActionKind parsed = TestCommandKscAction.ParseKind(action);
@@ -524,6 +526,8 @@ namespace Parsek.Tests
         [InlineData("press-strategy", "unknown-strategy")]
         [InlineData("purchase-part", "unknown-part")]
         [InlineData("purchase-all", "unknown-tech-node")]
+        [InlineData("purchase-upgrade", "unknown-upgrade")]
+        [InlineData("define-upgrade", "unknown-tech-node")]
         public void Decide_ClickBlock_UnknownTargetNamedFirst(string action, string reason)
         {
             // Every other input would refuse too; the unknown target is named first so a
@@ -577,6 +581,7 @@ namespace Parsek.Tests
         [Theory]
         [InlineData("purchase-part", "part-tech-not-researched", "part-already-purchased")]
         [InlineData("purchase-all", "node-not-researched", "nothing-to-purchase")]
+        [InlineData("purchase-upgrade", "upgrade-tech-not-researched", "upgrade-already-unlocked")]
         public void Decide_Purchase_RefusalsInOrder(string action, string notResearched, string nothingLeft)
         {
             var inputs = new KscActionInputs { ArgPresent = true, TargetResolves = true, AlreadyApplied = true };
@@ -598,6 +603,46 @@ namespace Parsek.Tests
             Assert.Equal("kerbal-already-assigned", TestCommandKscAction.Decide("assign-crew", "k", inputs).RejectReason);
             inputs.AlreadyApplied = false;
             Assert.True(TestCommandKscAction.Decide("assign-crew", "k", inputs).Accepted);
+        }
+
+        [Fact]
+        public void Decide_DefineUpgrade_CostArgThenAlreadyDefinedThenAccept()
+        {
+            var inputs = new KscActionInputs
+            {
+                ArgPresent = true, TargetResolves = true, CostArgInvalid = true, AlreadyApplied = true,
+            };
+            Assert.Equal("cost-arg-invalid", TestCommandKscAction.Decide("define-upgrade", "u", inputs).RejectReason);
+            inputs.CostArgInvalid = false;
+            Assert.Equal("upgrade-already-defined", TestCommandKscAction.Decide("define-upgrade", "u", inputs).RejectReason);
+            inputs.AlreadyApplied = false;
+            Assert.True(TestCommandKscAction.Decide("define-upgrade", "u", inputs).Accepted);
+            Assert.Equal("missing-arg", TestCommandKscAction.Decide("define-upgrade", "", new KscActionInputs()).RejectReason);
+        }
+
+        [Theory]
+        [InlineData("20000", true, 20000f)]
+        [InlineData("0", true, 0f)]
+        [InlineData("1250.5", true, 1250.5f)]
+        [InlineData("-1", false, 0f)]
+        [InlineData("NaN", false, 0f)]
+        [InlineData("Infinity", false, 0f)]
+        [InlineData("abc", false, 0f)]
+        [InlineData("", false, 0f)]
+        [InlineData(null, false, 0f)]
+        public void TryParseUpgradeCost_FiniteNonNegativeInvariant(string arg, bool ok, float value)
+        {
+            var saved = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+                Assert.Equal(ok, TestCommandKscAction.TryParseUpgradeCost(arg, out float parsed));
+                Assert.Equal(value, parsed);
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = saved;
+            }
         }
 
         [Fact]

@@ -66,6 +66,18 @@ namespace Parsek.TestCommands
         /// button empties the seats when none is free.</summary>
         AssignCrew,
 
+        /// <summary>Define a synthetic part upgrade (test-only: stock KSP 1.12.5 defines no
+        /// <c>PARTUPGRADE</c>) through <c>PartUpgradeHandler.AddUpgrade</c>, on a tech node, with
+        /// an entry cost. The handler is process-static, so the definition outlives scene
+        /// changes and loads; stock reads its unlock from a save that names it.</summary>
+        DefineUpgrade,
+
+        /// <summary>Buy one part upgrade through the part list tooltip's own purchase,
+        /// <c>PartListTooltipController.onPurchaseUpgrade</c> (stock's R&amp;D facility check,
+        /// then <c>SetUnlocked</c> + <c>OnPartUpgradePurchased</c>, on which stock charges the
+        /// entry cost), with the upgrade's tech node selected on the OPEN R&amp;D screen.</summary>
+        PurchaseUpgrade,
+
         /// <summary>An unrecognized <c>action</c> arg (REJECTED unknown-action).</summary>
         Unknown,
     }
@@ -162,8 +174,13 @@ namespace Parsek.TestCommands
         public bool TargetSelected;
 
         /// <summary>purchase-part: the part's tech is researched; purchase-all: the node is
-        /// researched (stock shows the purchase button on a researched node only).</summary>
+        /// researched (stock shows the purchase button on a researched node only);
+        /// purchase-upgrade: the upgrade's tech is researched.</summary>
         public bool PrerequisiteMet;
+
+        /// <summary>define-upgrade: the <c>cost</c> arg did not parse as a finite, non-negative
+        /// number.</summary>
+        public bool CostArgInvalid;
     }
 
     internal static class TestCommandKscAction
@@ -190,6 +207,8 @@ namespace Parsek.TestCommands
                 case "purchase-part": return KscActionKind.PurchasePart;
                 case "purchase-all": return KscActionKind.PurchaseAllParts;
                 case "assign-crew": return KscActionKind.AssignCrew;
+                case "define-upgrade": return KscActionKind.DefineUpgrade;
+                case "purchase-upgrade": return KscActionKind.PurchaseUpgrade;
                 default: return KscActionKind.Unknown;
             }
         }
@@ -216,6 +235,8 @@ namespace Parsek.TestCommands
                 case KscActionKind.PurchasePart:
                 case KscActionKind.PurchaseAllParts: return "part-purchase";
                 case KscActionKind.AssignCrew: return "crew-assign";
+                case KscActionKind.DefineUpgrade: return "part-upgrade-define";
+                case KscActionKind.PurchaseUpgrade: return "part-upgrade-purchase";
                 default: return string.Empty;
             }
         }
@@ -344,6 +365,17 @@ namespace Parsek.TestCommands
                     if (!inputs.ScreenOpen) { d.RejectReason = "crew-dialog-not-open"; return d; }
                     if (inputs.AlreadyApplied) { d.RejectReason = "kerbal-already-assigned"; return d; }
                     break;
+
+                case KscActionKind.DefineUpgrade:
+                    if (inputs.CostArgInvalid) { d.RejectReason = "cost-arg-invalid"; return d; }
+                    if (inputs.AlreadyApplied) { d.RejectReason = "upgrade-already-defined"; return d; }
+                    break;
+
+                case KscActionKind.PurchaseUpgrade:
+                    if (!inputs.ScreenOpen) { d.RejectReason = "rnd-not-open"; return d; }
+                    if (!inputs.PrerequisiteMet) { d.RejectReason = "upgrade-tech-not-researched"; return d; }
+                    if (inputs.AlreadyApplied) { d.RejectReason = "upgrade-already-unlocked"; return d; }
+                    break;
             }
 
             d.Accepted = true;
@@ -370,6 +402,8 @@ namespace Parsek.TestCommands
                 case KscActionKind.PressStrategyButton: return "unknown-strategy";
                 case KscActionKind.PurchasePart: return "unknown-part";
                 case KscActionKind.PurchaseAllParts: return "unknown-tech-node";
+                case KscActionKind.DefineUpgrade: return "unknown-tech-node";
+                case KscActionKind.PurchaseUpgrade: return "unknown-upgrade";
                 default: return "unknown-target";
             }
         }
@@ -410,7 +444,8 @@ namespace Parsek.TestCommands
         /// </summary>
         internal static KscActionExecOutcome Execute(
             string action, string node, string facility, string kerbal, string building = null,
-            string strategy = null, string factor = null, string contract = null, string part = null)
+            string strategy = null, string factor = null, string contract = null, string part = null,
+            string upgrade = null, string cost = null)
         {
             KscActionKind kind = ParseKind(action);
             switch (kind)
@@ -431,6 +466,8 @@ namespace Parsek.TestCommands
                 case KscActionKind.PurchasePart: return ExecutePurchasePart(part);
                 case KscActionKind.PurchaseAllParts: return ExecutePurchaseAll(node);
                 case KscActionKind.AssignCrew: return ExecuteAssignCrew(kerbal);
+                case KscActionKind.DefineUpgrade: return ExecuteDefineUpgrade(upgrade, node, cost, part);
+                case KscActionKind.PurchaseUpgrade: return ExecutePurchaseUpgrade(upgrade);
                 default:
                     ParsekLog.Warn(Tag, "kscaction refused action=" + (action ?? string.Empty) + " reason=unknown-action target=");
                     return KscActionExecOutcome.Reject("unknown-action");
@@ -1637,6 +1674,170 @@ namespace Parsek.TestCommands
             string observed = purchasedAfter.ToString(CultureInfo.InvariantCulture) + "/" + assigned.ToString(CultureInfo.InvariantCulture);
             LogApplied(action, techId, d.ManifestKind, "purchased=" + observed);
             return KscActionExecOutcome.Ok(OkPayload(action, techId, "purchased", observed));
+        }
+
+        /// <summary>define-upgrade: the <c>cost</c> arg as a finite, non-negative entry cost
+        /// (invariant culture).</summary>
+        internal static bool TryParseUpgradeCost(string cost, out float value)
+        {
+            value = 0f;
+            if (string.IsNullOrEmpty(cost)) return false;
+            if (!float.TryParse(cost, NumberStyles.Float, CultureInfo.InvariantCulture, out float v)) return false;
+            if (float.IsNaN(v) || float.IsInfinity(v) || v < 0f) return false;
+            value = v;
+            return true;
+        }
+
+        private static KscActionExecOutcome ExecuteDefineUpgrade(string upgradeArg, string techArg, string costArg, string partArg)
+        {
+            const string action = "define-upgrade";
+            bool argPresent = !string.IsNullOrEmpty(upgradeArg) && !string.IsNullOrEmpty(techArg)
+                && !string.IsNullOrEmpty(costArg);
+            ProtoTechNode proto = argPresent ? ResolveProtoTech(techArg) : null;
+            bool costOk = TryParseUpgradeCost(costArg, out float entryCost);
+            PartUpgradeHandler handler = PartUpgradeManager.Handler;
+            bool defined = argPresent && handler != null && handler.GetUpgrade(upgradeArg) != null;
+
+            var inputs = new KscActionInputs
+            {
+                ArgPresent = argPresent,
+                TargetResolves = proto != null,
+                CostArgInvalid = !costOk,
+                AlreadyApplied = defined,
+            };
+            KscActionDecision d = Decide(action, upgradeArg, inputs);
+            if (!d.Accepted)
+                return Refuse(action, upgradeArg, d.RejectReason);
+            if (handler == null)
+                return Refuse(action, upgradeArg, "upgrade-handler-missing");
+
+            // The R&D part list draws an upgrade with its partIcon part's model, so the icon
+            // must name a loaded part: the part arg, else the first part on the same node.
+            string icon = !string.IsNullOrEmpty(partArg) ? partArg : FirstPartOnTech(techArg);
+            var up = new PartUpgradeHandler.Upgrade
+            {
+                name = upgradeArg,
+                techRequired = techArg,
+                entryCost = entryCost,
+                cost = 0f,
+                cumulativeCost = false,
+                partIcon = icon ?? string.Empty,
+                title = "Parsek test upgrade " + upgradeArg,
+                basicInfo = "Test-only upgrade defined by the automation seam.",
+                manufacturer = "Parsek",
+                description = "Test-only upgrade defined by the automation seam.",
+            };
+            handler.AddUpgrade(up);
+            if (handler.GetUpgrade(upgradeArg) == null)
+                return Refuse(action, upgradeArg, "define-not-applied");
+
+            string observed = string.Format(CultureInfo.InvariantCulture, "tech={0} entryCost={1} partIcon={2} unlocked={3}",
+                techArg, entryCost.ToString("R", CultureInfo.InvariantCulture), icon ?? "(none)",
+                handler.IsUnlocked(upgradeArg) ? "True" : "False");
+            LogApplied(action, upgradeArg, d.ManifestKind, observed);
+            return KscActionExecOutcome.Ok(OkPayload(action, upgradeArg, "entryCost",
+                entryCost.ToString("R", CultureInfo.InvariantCulture)));
+        }
+
+        private static string FirstPartOnTech(string techId)
+        {
+            List<AvailablePart> parts = PartLoader.LoadedPartsList;
+            if (parts == null) return null;
+            for (int i = 0; i < parts.Count; i++)
+            {
+                AvailablePart ap = parts[i];
+                if (ap != null && ap.TechRequired == techId && !string.IsNullOrEmpty(ap.name))
+                    return ap.name;
+            }
+            return null;
+        }
+
+        private static KscActionExecOutcome ExecutePurchaseUpgrade(string upgradeArg)
+        {
+            const string action = "purchase-upgrade";
+            bool argPresent = !string.IsNullOrEmpty(upgradeArg);
+            PartUpgradeHandler handler = PartUpgradeManager.Handler;
+            PartUpgradeHandler.Upgrade up = argPresent && handler != null ? handler.GetUpgrade(upgradeArg) : null;
+            KSP.UI.Screens.RDController controller = KSP.UI.Screens.RDController.Instance;
+            KSP.UI.Screens.RDNode node = up != null ? FindRdNode(controller, up.techRequired) : null;
+            bool researched = up != null && (string.IsNullOrEmpty(up.techRequired)
+                || ResearchAndDevelopment.GetTechnologyState(up.techRequired) == RDTech.State.Available);
+
+            var inputs = new KscActionInputs
+            {
+                ArgPresent = argPresent,
+                TargetResolves = up != null,
+                ScreenOpen = controller != null && node != null,
+                PrerequisiteMet = researched,
+                AlreadyApplied = up != null && handler.IsUnlocked(upgradeArg),
+            };
+            KscActionDecision d = Decide(action, upgradeArg, inputs);
+            if (!d.Accepted)
+                return Refuse(action, upgradeArg, d.RejectReason);
+
+            MethodInfo purchase = typeof(KSP.UI.Screens.Editor.PartListTooltipController).GetMethod("onPurchaseUpgrade",
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, null,
+                new[] { typeof(KSP.UI.Screens.Editor.PartListTooltip) }, null);
+            FieldInfo upgradeField = typeof(KSP.UI.Screens.Editor.PartListTooltipController).GetField("upgrade",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (purchase == null || upgradeField == null)
+                return Refuse(action, upgradeArg, "button-not-found");
+
+            // The tooltip's purchase on a controller carrying this upgrade, with its node
+            // selected the way a click on it does (stock's R&D branch refreshes the selected
+            // node). PartListTooltipPurchaseUpgradePatch refuses it for an upgrade the
+            // committed timeline buys later or one the click reservation holds back.
+            double fundsBefore = LiveFunds();
+            double scienceBefore = LiveScience();
+            UnityEngine.GameObject host = null;
+            KSP.UI.Screens.Editor.PartListTooltipController ctl = null;
+            object previous = null;
+            try
+            {
+                controller.node_selected = node;
+                controller.ShowNodePanel(node);
+                KSP.UI.Screens.Editor.PartListTooltipController[] live =
+                    UnityEngine.Object.FindObjectsOfType<KSP.UI.Screens.Editor.PartListTooltipController>();
+                if (live != null && live.Length > 0)
+                {
+                    ctl = live[0];
+                }
+                else
+                {
+                    host = new UnityEngine.GameObject("ParsekSeamUpgradeTooltip");
+                    ctl = host.AddComponent<KSP.UI.Screens.Editor.PartListTooltipController>();
+                }
+                previous = upgradeField.GetValue(ctl);
+                upgradeField.SetValue(ctl, up);
+                purchase.Invoke(ctl, new object[] { null });
+            }
+            catch (System.Exception ex)
+            {
+                var inner = ex.InnerException ?? ex;
+                ParsekLog.Warn(Tag, "kscaction purchase-upgrade onPurchaseUpgrade threw: " + inner.GetType().Name + ": " + inner.Message);
+                // A throw inside stock's proceed skips its own dismiss, which lifts this lock.
+                InputLockManager.RemoveControlLock("partTooltipCheckingRnDState");
+            }
+            finally
+            {
+                if (ctl != null && host == null)
+                {
+                    try { upgradeField.SetValue(ctl, previous); } catch (System.Exception) { }
+                }
+                if (host != null) UnityEngine.Object.Destroy(host);
+            }
+
+            bool unlockedNow = handler.IsUnlocked(upgradeArg);
+            if (!unlockedNow)
+            {
+                ParsekLog.Info(Tag, FormatNotAppliedLine(action, upgradeArg, "unlocked",
+                    "False", "False", fundsBefore, LiveFunds(), scienceBefore, LiveScience()));
+                return Refuse(action, upgradeArg, "blocked-committed");
+            }
+
+            string observed = LiveFunds().ToString("R", CultureInfo.InvariantCulture);
+            LogApplied(action, upgradeArg, d.ManifestKind, "funds=" + observed);
+            return KscActionExecOutcome.Ok(OkPayload(action, upgradeArg, "fundsAfter", observed));
         }
 
         private static KSP.UI.UIListItem FindCrewDialogRow(KSP.UI.UIList list, string kerbal)

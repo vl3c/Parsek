@@ -868,7 +868,8 @@ namespace Parsek.TestCommands
                         || action == "accept-contract"
                         || action == "decline-contract" || action == "cancel-contract"
                         || action == "sack-kerbal" || action == "press-strategy"
-                        || action == "purchase-part" || action == "purchase-all";
+                        || action == "purchase-part" || action == "purchase-all"
+                        || action == "purchase-upgrade";
                     if (needsSpaceCenter && !state.AtSpaceCenter)
                         return DispatchResult.Defer("not-at-space-center");
                     // The Administration building's screen owns the slot count stock checks.
