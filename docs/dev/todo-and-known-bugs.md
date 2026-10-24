@@ -17,6 +17,28 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## FOREIGN-BOARD-TARGET-STRIPPED-AT-REWIND: a vessel a kerbal boarded or took a seat on from another mission is removed at a rewind instead of held, so it has no ghost until the boarding [FILED 2026-10-24 while writing lanes EVA-14 / SEAT-3 (branch `claude/project-thread-d0rqqc`), code read on main f46545d, not reproduced. SUSPECTED; lane EVA-14 quarantines it. low, visual]
+
+A kerbal whose recording boards a vessel outside his tree (a hatch Board, or a seat, which is a
+Dock merge into the rover) and commits in flight leaves the merged child as the active recording,
+so `CommitTreeFlight` adoption-stamps it (`VesselSpawner.TryAdoptExistingSourceVesselForSpawn`:
+`SpawnedVesselPersistentId` = the boarded vessel's pid). At a Rewind-to-Launch,
+`RecordingStore.IsSpawnedVesselReproducedByRewindReplay` answers `holder-replays` for that child,
+so the boarded vessel, which existed before the tree, is stripped from the rewind save before
+`ApplyRewindVesselHolds` runs: `held=0`, no claimed-vessel hold ghost, and nothing draws it from the
+rewind until the child's ghost starts at the boarding UT. The Board / Dock twin of
+REWIND-HOLD-MISSES-CROSS-TREE-ADOPTED-VESSEL, whose fix exempts only inventory-transfer members
+(`FliesTransferAdoptedVessel`). No paradox and no duplicate (the vessel is gone, not live; the
+chain tip still spawns or retires once), only a gap in what the player sees. Expected signature:
+`Rewind strip scope: strip spawned pid=<boarded> ... via holder-replays:<child>`,
+`Captured 0 rewind-save copy(ies)`, `Rewind vessel hold: ... held=0`. Fix candidate: treat a holder
+whose spawned pid is the stamped `TargetVesselPersistentId` of a Board or Dock branch point that
+created it like a foreign adoption. Repro: `EVA-14-foreign-board-claim-rewind` (EXACT
+`[expectedFail]` on the six hold pins plus the strip line); SEAT-3's header carries the same hold
+pins, unarmed.
+
+---
+
 ## ~~STALE-OFFER-RE-ACCEPTABLE-AFTER-FLIGHT-PASSES-COMMITTED-RESOLUTION: after a rewind to before a committed accept, a flight that runs past the committed resolution leaves the contract Offered and acceptable again~~ [FILED 2026-10-24 from the PR #2218 review, code read, not reproduced. FIXED 2026-10-24 in PR #2218 (V: "in this one"); xUnit + in-game cell, lane L12 `2026-10-24_1657` PASS. low, product]
 
 Committed history: accept at UT 100, a committed completion (or cancel) at 150. Rewind to before
@@ -139,6 +161,10 @@ strips. Tests: `ForeignAdoptionRewindStripTests` (`CrossTreeAdoption_*`, three o
 the skip disabled). Owed: a live lane, an EVA-11 variant that first records and commits the rover
 in its own tree so the construction flight adopts it cross-tree, then pins `held=1` and the hold
 ghost through the rewind.
+
+Lane (2026-10-24, AUTHORED, never flown): `EVA-13-construction-cross-tree-adopted-hold` records and commits
+the rover in its own tree, then adopts it by an inventory take in a second tree, and after a
+Rewind-to-Launch pins the strip-scope keep line, `held=1` and the rewind-save hold ghost.
 
 ## ~~H40-DOCK-BOUNDARY-CADENCE-TEST-RACES-THE-LIVE-ROUTE-TICK: one H40 Logistics cell lets a frame pass between its two synthetic-UT route ticks, and the live route tick can fire on its route in that frame~~ [FILED 2026-10-24 from H40 `2026-10-24_0045` (PARSEK-FAIL, batchComplete failed=1), flown for PR #2188; not caused by it (no EndpointRescan line, the route is Active). FIXED 2026-10-24 on branch `claude/project-thread-a50btn`, test-only. harness]
 
@@ -379,6 +405,10 @@ partner stamp (`Board merge partner stamp: ...` Verbose line). The chain walker,
 rewind holds and the cross-tree mission links read it like a Dock stamp; the absorbed-spawn
 suppression stays Dock-only. Tests: `RewindVesselHoldTests` (stamp, and the stamp read as a change
 claim).
+
+Lane (2026-10-24, AUTHORED, never flown): `EVA-14-foreign-board-claim-rewind` pins `Board merge partner
+stamp: ... inTree=False partnerPidStamped=3620499050`, the MERGE claim and the chain; its hold half
+is quarantined on FOREIGN-BOARD-TARGET-STRIPPED-AT-REWIND.
 
 ## ~~DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY: a dock claim whose claimer absorbed the partner carries no launch guid, so a relaunch of the same craft pools into its ghost chain~~ [FILED 2026-10-15 from the launch-identity audit (gap 3), verified by code read. FIXED 2026-10-15, branch `claude/project-thread-1twzdw-dock-chain-guid` (PR #2106); LIVE-PROVEN 2026-10-15 on the owner's PC before merge: BDOCK-1, CI-4, CI-9 and H50 all PASS. Parsek]
 
@@ -1337,6 +1367,10 @@ Splashed, SubOrbital), `ResolveEndOfRecordingCollisionExemptPid_OrbitingEvaOnOrb
 (red before the fix).
 
 Live proof: none, unit tests only; a lane would spawn an orbiting EVA after a warp.
+
+Lane (2026-10-24, AUTHORED, never flown): `EVA-15-orbiting-eva-deferred-spawn` pins the kerbal's deferred
+spawn taking the recorded-terminal-orbit route and forbids the endpoint re-seed; a true distance pin
+needs a verb that reports a spawned vessel's position.
 
 ---
 

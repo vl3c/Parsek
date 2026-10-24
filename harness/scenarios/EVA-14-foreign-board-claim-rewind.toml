@@ -74,8 +74,10 @@ id = "EVA-14-foreign-board-claim-rewind"
 # fixed for transfer members. Expected first-flight signature if so: `Rewind strip scope:
 # strip spawned pid=3620499050 of 'Kerbal X' (id=<child>) via holder-replays:<child>` (a
 # FORBIDDEN pin below), `Stripped 2 vessel(s) ... 1 by PID`, `held=0`, no hold ghost; the
-# stamp, claim, chain and retirement pins should still pass. If it reds exactly there,
-# file it (the report proposes an id); do not relax the pins.
+# stamp, claim, chain and retirement pins should still pass. Filed as the suspected todo
+# FOREIGN-BOARD-TARGET-STRIPPED-AT-REWIND and quarantined by an EXACT [expectedFail] (the six
+# hold pins plus the strip line), so a run that reds exactly there reads EXPECTED-FAIL and
+# confirms the defect, the stamp half still gates, and a fix flips the lane to XPASS.
 #
 # GUESSES the first flight confirms: every absolute UT (45 / 55 / 75; fixture UT 25.42, and
 # EVA-11 measured about 9.5 s of game time from load to its last construction verb); that
@@ -231,4 +233,19 @@ budgetSeconds = 1500
 policy = "once"
 
 [expectedFail]
-bugId = ""
+# THE HOLD HALF IS QUARANTINED on the suspected defect FOREIGN-BOARD-TARGET-STRIPPED-AT-REWIND
+# (filed 2026-10-24 by code read, see the header's PREDICTED RED paragraph). The demotion is
+# EXACT: only a run whose expectation mismatches are precisely the six hold pins plus the
+# strip line reads EXPECTED-FAIL. Any other red (the stamp, the claim, the chain, the KSC
+# retirement, a duplicate) stays PARSEK-FAIL, and a run where the hold works reads XPASS.
+bugId = "FOREIGN-BOARD-TARGET-STRIPPED-AT-REWIND"
+subkind = "expectation"
+mismatches = [
+  "logContracts.required not matched: Rewind-to-Launch initiated to UT [\\s\\S]*Captured [1-9][0-9]* rewind-save copy\\(ies\\) of [1-9][0-9]* vessel\\(s\\) a committed future claims",
+  "logContracts.required not matched: Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind held vessel for its committed future: pid=3620499050 name='Kerbal X' [^\\r\\n]*evidence=(?:chain|changes|flies) [^\\r\\n]*snapshot=yes",
+  "logContracts.required not matched: Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind vessel hold: survivors=[0-9]+ held=1 ",
+  "logContracts.required not matched: invokerewindtolaunch complete [\\s\\S]*\\[ClaimedHoldGhost\\] Rewind vessel holds restored on flight load: saved=1 restored=1 ",
+  "logContracts.required not matched: invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Held vessel tracked without a live vessel: pid=3620499050 [\\s\\S]*\\[ClaimedHoldGhost\\] Claimed vessel hold ghost shown: pid=3620499050 name='Kerbal X' chain=3620499050 source=snapshot-surface body=Kerbin parts=86 firstClaimUT=[0-9.]+ UT=[0-9.]+ from=rewind-save",
+  "logContracts.required not matched: Claimed vessel hold ghost shown: pid=3620499050 [\\s\\S]*Claimed vessel hold ghost released: pid=3620499050 name='Kerbal X' reason=(claimed|covered-by-recording) ",
+  "logContracts.forbidden matched: Rewind strip scope: strip spawned pid=3620499050 ",
+]
