@@ -4,9 +4,9 @@
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how multiple players, each in their own KSP instance, share one cooperative career: one KSC, one pooled economy, one timeline, exchanged asynchronously through a file-sharing folder (Dropbox, Google Drive, or any service of the players' choice).*
 
-**Status:** DESIGN v5 (pre-implementation; interview complete 2026-09-01; adversarial review + code verification folded in 2026-09-01; player-perspective edge-case pass, spawn-ownership reconciliation, and implementation task breakdown added 2026-09-01; 2026-09-02: full control of foreign vessels (Fly/Switch-To/Recover as claims via a foreign-continuation route, replacing the earlier Fly block), trajectory-aware tip-advance predicate, attribution shown only with 2+ registered players; 2026-09-02 gameplay stress test (14 multi-player sessions): own continuations and recoveries of exported terminals are claims too, covering-link acceptance + fit clause (c), pending-claim masking, orphaned coupling dependents salvaged not deleted, UT-gated live blocks for foreign tech/hires, seq allocation from the folder, deterministic campaign stand-ins, rescue carve-out, route endpoint re-check, shared reservation attribution - see `docs/dev/plans/coop-async-multiplayer-tasks.md`). DESIGN v6 (2026-10-24): freshness pass against the single-player rules built since v5 - see "Revision 2026-10-24" below.)
-**Version:** v1 (roadmap Phase 14)
-**Out of scope:** competitive play and per-player economies (Phase 15, `docs/roadmap.md`), real-time synchronization (permanently out per roadmap), Gloops extraction (decoupled from this feature; see section 10), contract pooling (v2; see 7.11 and section 10), excise-and-stitch conflict salvage (v1.1 upgrade; see 7.9 Case 2), any exchange of supply routes (routes carry no money and their outcome is never committed; 7.11).
+**Status:** DESIGN v5 (pre-implementation; interview complete 2026-09-01; adversarial review + code verification folded in 2026-09-01; player-perspective edge-case pass, spawn-ownership reconciliation, and implementation task breakdown added 2026-09-01; 2026-09-02: full control of foreign vessels (Fly/Switch-To/Recover as claims via a foreign-continuation route, replacing the earlier Fly block), trajectory-aware tip-advance predicate, attribution shown only with 2+ registered players; 2026-09-02 gameplay stress test (14 multi-player sessions): own continuations and recoveries of exported terminals are claims too, covering-link acceptance + fit clause (c), pending-claim masking, orphaned coupling dependents salvaged not deleted, UT-gated live blocks for foreign tech/hires, seq allocation from the folder, deterministic campaign stand-ins, rescue carve-out, route endpoint re-check, shared reservation attribution - see `docs/dev/plans/coop-async-multiplayer-tasks.md`). DESIGN v6 (2026-10-24): freshness pass against the single-player rules built since v5 - see "Revision 2026-10-24" below. DESIGN v7 (2026-10-24, same day): owner rulings on open questions 17.6 to 17.8 - a losing flight's rows are trimmed, contested earnings are held until final, co-op runs only with an allowlisted mod set, and co-op is built mode by mode: Sandbox (v1), then Science (v2), then Career (v3), with no implementation before base Parsek is release-ready - see "Owner rulings 2026-10-24" below.)
+**Version:** roadmap Phase 14, built mode by mode (owner ruling 2026-10-24, see "Game modes" below): v1 = Sandbox, v2 = Science, v3 = Career. Not implemented before base Parsek is release-ready.
+**Out of scope:** the science pool in v1 (v2) and funds, reputation, contracts, facility upgrades, hires and strategies before v3; competitive play and per-player economies (Phase 15, `docs/roadmap.md`), real-time synchronization (permanently out per roadmap), Gloops extraction (decoupled from this feature; see section 10), contract pooling (v3 or later; see 7.11 and section 10), excise-and-stitch conflict salvage (v1.1 upgrade; see 7.9 Case 2), any exchange of supply routes (routes carry no money and their outcome is never committed; 7.11).
 **Related docs:** `docs/parsek-architecture.md`, `docs/parsek-game-actions-and-resources-recorder-design.md` (section 3.13, the committed-value rule), `docs/parsek-timeline-design.md`, `docs/parsek-rewind-to-separation-design.md` (section 2.12, Re-Fly ledger safety), `docs/dev/design-load-restores-the-save.md`, `docs/parsek-logistics-supply-routes-design.md` (section 10.6), `docs/dev/design-mission-crosstree-dock.md`, `docs/dev/dock-undock-recording-structure.md`, `docs/roadmap.md` (Phase 14).
 
 ### Revision 2026-10-24 (design v6)
@@ -15,7 +15,9 @@ v5 was written on 2026-09-02. Since then the single-player rules this design
 composes with were ruled and built (0.10.6, PRs #2151 through #2193). None of
 them changes the exchange model (packets, the fold, the salvage ladder); they
 change what a merge, a verdict and a load may do to a player's career. This
-pass applies them:
+pass applies them (two of its defaults, "verdicts move vessels, never value"
+and "both recoveries are paid", were reversed the same day by the owner
+rulings in the next section):
 
 - **Ledger safety** (owner rulings 2026-10-19, rewind design 2.12; committed-value
   rule, game-actions design 3.13, ruled 2026-10-21, built in PRs #2172 to #2180):
@@ -49,14 +51,79 @@ pass applies them:
 - **Re-Fly seals a slot a peer has claimed** (new clause in 7.10.1), and a merge
   waits while a Re-Fly session or a merge journal is open (7.5).
 
-Choices this pass made on the owner's behalf are recorded as open questions
-17.6 to 17.8, each with the default the text uses.
+Choices this pass made on the owner's behalf were recorded as open questions
+17.6 to 17.8; the owner ruled on all three the same day (next section).
+
+### Owner rulings 2026-10-24 (design v7)
+
+The owner was interviewed on 17.6 to 17.8 and ruled. Background analysis
+(how Git, Mercurial phases, bank holds, sagas and blockchains handle value
+built on history that may be rewritten):
+`/mnt/project-files/analysis/coop-trim-ledger-conflict-2026-10-24.md`
+(project files, outside the repo).
+
+- **17.6, "Shared stays shared."** A load never un-shares an exported packet;
+  the next merge imports it back (7.5.1, unchanged from v6).
+- **17.7, a trimmed flight's rows are trimmed too.** v6 kept a losing
+  flight's ledger rows so that no verdict took value back. The owner
+  rejected that: "if we resolve the race condition by taking parallel
+  timeline A instead of B, and we trim B at the split point.. that means we
+  should trim all ledger-related recorded actions also; otherwise we open the
+  door for paradoxes". His single-player observation ("purchases can only be
+  done after exiting flight mode and going to the space center.. which means
+  the recording is either merged or discarded or trimmed already") is Git's
+  rule: rewrite only history nobody has built on. In a campaign a race can
+  only be decided after the losing flight's merge (an earlier-shared packet
+  may still be on its way), so the campaign form of the rule is "settle
+  before the spend": **earnings a lost race could trim are held, visible but
+  not spendable, until the race is final, then released at their original
+  UT or trimmed** (owner pick: "After everyone syncs past it"). Nothing
+  spendable is ever taken back, and nothing is built on value that can
+  vanish. New section 7.10.2; 7.9, 7.10, 7.10.1 and edge cases 10, 28, 33,
+  46, 48 change with it.
+- **17.8, co-op runs only with an allowlisted mod set.** Money that moves
+  outside the ledger is a mod-compatibility problem, and in a shared career a
+  mod that pays one player breaks everyone's. A campaign links only when
+  every member runs the same set of mods and every mod in it is on Parsek's
+  verified co-op allowlist (owner pick: allowlist, not blocklist). Single
+  player keeps today's flexibility. A `StockPoolAdjustment` row that still
+  appears in a linked save is then a Parsek gap, not a mod: it is shared as a
+  ledger row like any other, logged, and announced once on screen (7.11
+  foundation 8).
+- **Away members (17.9).** Any member may mark a silent member away, so one
+  absent player cannot hold everyone's contested earnings forever (7.10.2
+  rule 6).
+- **Game modes: Sandbox first, then Science, then Career.** The owner, after
+  the rulings above: "all these ledger problems make me think that career
+  mode might not be good for multiplayer because of its global resources and
+  maybe science mode is the best place to actually build and test
+  multiplayer first", then: "we will build multiplayer co-op for sandbox
+  first, then add complexity for science mode later; just write it down, but
+  we won't start implementing until after i get parsek base working". So v1
+  is Sandbox only: no shared pool, the test bed for the exchange, the fold,
+  the salvage ladder and crew on their own. v2 adds Science saves: one shared
+  pool, science, spent on tech, with no funds, reputation, contracts,
+  facility upgrades (stock has them all built; VERIFY at v2 planning), hire
+  costs or strategies, so merge debt in funds, contract penalties and funds
+  payouts do not arise. v3 adds Career. A save of a mode not yet supported
+  cannot found or join a campaign (7.2). The ledger and career rules in this
+  document stay as the v2 / v3 design, so earlier versions build nothing
+  that blocks them (7.11 "Scope by version"). Nothing here is implemented
+  before base Parsek is release-ready (roadmap "Current focus").
+
+#### Game modes
+
+| Mode | Version | Shared pool | What the ledger rules reduce to |
+|------|---------|-------------|---------------------------------|
+| Sandbox | v1 | none | Exchange, fold, salvage, crew; no ledger rows to hold, trim or merge |
+| Science | v2 | science | Once-ever tech; concurrent research of different nodes can leave a science merge debt; a contested flight's science (and science recovered aboard) is held until final (7.10.2); a trimmed tail's science goes with it |
+| Career | v3 | funds, science, reputation | Everything in 7.10.1, 7.10.2 and 7.11 as written |
 
 ---
 
 ## 1. Introduction
 
-Cooperative async multiplayer lets a group of players run one shared space program. All players are on the same team: they share the KSC, the career save, and the timeline. Each player's missions and flights are added to the shared timeline under their name. Players never need to be online simultaneously; the timeline converges over time as each player's contributions propagate through a shared folder. Correspondence chess, not real-time multiplayer.
+Cooperative async multiplayer lets a group of players run one shared space program. All players are on the same team: they share the KSC, the save, and the timeline. (v1 runs on Sandbox saves, v2 adds Science, v3 Career; the career examples below describe the v3 design, see "Game modes".) Each player's missions and flights are added to the shared timeline under their name. Players never need to be online simultaneously; the timeline converges over time as each player's contributions propagate through a shared folder. Correspondence chess, not real-time multiplayer.
 
 The central architectural decision: the shared folder does NOT hold a mirrored copy of the save. It holds one write-only subfolder per player containing append-only contribution packets, plus founder-written checkpoints (the campaign snapshot is checkpoint 0) for bootstrapping. Each player keeps their own complete local save; convergence is achieved by importing everyone's packets and re-deriving shared state through the existing ledger recalculation engine. "One shared save" is delivered as an experience, not as a literal shared `persistent.sfs`.
 
@@ -136,7 +203,8 @@ Resolution    On Bogdan's machine the salvage executes: his docked-window
               and post-undock recordings are retired, the pre-dock segment
               survives under a new recording id with a recomputed Orbiting
               terminal and a dock-time snapshot. The tail's ledger rows
-              stay: a verdict moves vessels, never value (7.10.1). His
+              are trimmed; what it earned was held while the race was
+              open and never reached the pool (7.10.2). His
               next packet carries the truncation retirement. Every other machine derives the same verdict
               from the fold and masks Bogdan's post-dock chain from
               canonical state until that packet confirms it durably.
@@ -167,7 +235,7 @@ If Bogdan's fuel run had happened before Ana's lab flight on the timeline AND ag
 6. **Paradox avoidance over fairness.** Conflict resolution never rewrites a winner's data and never moves anything backward in time. All physical salvage is loser-side restructuring of the loser's own data; everyone else applies the same verdict as derived masking. A little resource slack (fuel appearing from nothing) is acceptable; deleting recorded state is not.
 7. **Reuse before invention.** The recalculation engine already replays from UT=0 and supports retroactive insertion; the once-ever dedup pattern already exists three times (milestones, contracts, science caps); the ghost-block guard family already fences stock entry points; `RecordingOptimizer.SplitAtUT` already cuts recordings; supersede relations and tombstones already retire timeline segments; route revalidation already handles dangling references. This feature composes those mechanisms; it invents only the exchange layer and the arbitration fold.
 8. **Basic but reliable.** v1 prefers the smaller mechanism with the louder failure. Degradation is always visible (marked ghosts, on-screen notices, log lines), never silent.
-9. **Single-player rules hold inside a campaign; shared is permanent.** A load restores the save, a click never digs into a reservation, and nothing takes back value a player earned (`design-load-restores-the-save.md`, game-actions design 3.13, rewind design 2.12). The campaign adds no exception to them. It adds one fact they did not have to face: once a packet is in the shared folder it is in every peer's timeline, so a load can roll back only what was not yet shared, and a fold verdict moves vessels, never value (7.5.1, 7.10.1).
+9. **Single-player rules hold inside a campaign; shared is permanent.** A load restores the save, a click never digs into a reservation, and nothing takes back value a player earned (`design-load-restores-the-save.md`, game-actions design 3.13, rewind design 2.12). The campaign adds no exception to them. It adds one fact they did not have to face: once a packet is in the shared folder it is in every peer's timeline, so a load can roll back only what was not yet shared, and value a fold verdict could still take back is never spendable: a contested flight's earnings wait until its race is final (7.5.1, 7.10.1, 7.10.2).
 
 ---
 
@@ -294,7 +362,9 @@ Design-concept-to-implementation-class mapping: section 18.
 | `KspStatePatcher` + `GameStateStore` baselines | `CaptureBaselineIfNeeded` snapshots LIVE state at every commit; `SelectTechBaselineForPatch` picks latest baseline <= cutoff | Campaign-linked patching pins to the checkpoint baseline (identical on every machine); post-link locally captured baselines are not used for merged facets (they bake foreign state divergently) | Med |
 | `MilestoneStore` + `CommittedFutureIndex` | The stock-screen click blocks and marks (`TechResearchPatch`, `KerbalHirePatch`, the facility, part and part-upgrade blocks) read ONE UT-keyed committed-future index over the effective ledger (`CommittedFutureIndex`); the milestone store no longer feeds them | Foreign rows reach the index through the ledger (7.5 step 3); its per-target blocks skip a foreign row after the local current UT (edge case 49) while the pool reservation keeps it; EVENTS registration remains only where an event consumer remains (VERIFY at M2) | Low |
 | `GameActions/ClickReservation.cs` (game-actions 3.13 part 3) | Purchases, launches and Mission Control clicks refused when they dig into what committed costs and open contract penalties need | Unchanged rule; the projection includes every member's committed future rows (the shared reservation, 7.11), and the existing Reserved tooltip line names the largest future spender | Low |
-| `GameActions/StockPoolReference.cs` (3.13, phase 2) | Money stock applied with no ledger row becomes a `StockPoolAdjustment` row at the next update | A merge, and the join's first recalc, step the reference by the merged target change, so value a merge brings is never filed as a leak; own `StockPoolAdjustment` rows export like other own Space Center rows (open question 17.8) | Med |
+| `GameActions/StockPoolReference.cs` (3.13, phase 2) | Money stock applied with no ledger row becomes a `StockPoolAdjustment` row at the next update | A merge, the join's first recalc and a hold change (7.10.2) step the reference by the target change, so value a merge brings or a hold keeps is never filed as a leak; in a linked save an adjustment row is a Parsek gap: exported like any own Space Center row, logged Warn, announced once on screen (7.11 foundation 8, ruled 17.8) | Med |
+| Ledger walk + `ClickReservationGate` (3.13) | Every effective row sets pools, reservation, floor and debt | Held rows (7.10.2) are outside every walk that sets pools, the click reservation, the floor and the debt, until their claim is final; a final accepted claim releases them at their original UT, a final rejected one trims them; the funds and science tooltips' existing Reserved area gains one Pending line | Med |
+| Mod set (new, campaign create / join / import) | None | `campaign.cfg` pins the campaign's mod set; create, join and every import refuse a mod set that differs or holds a mod off Parsek's verified co-op allowlist (7.2, 7.3, 7.5 step 1, ruled 17.8) | Low |
 | `GameActions/CaptureSequence.cs` + `ReservedFloorPlan.cs` (3.13 part 4) | A per-save capture sequence `cseq` decides which committed costs a loss's floor protects | Campaign capture key `(share key, cseq)`: shared before = captured before (7.11 foundation 7); `cseq` values are never renumbered | Med |
 | Revert prune (`ParsekScenario.PruneRevertedFlightLedgerRows`, ruling O2) | A stock revert removes only the untagged rows the reverted flight added | Also keeps every foreign-owned row: a peer's Space Center row imported mid-flight is not the reverted flight's (7.5.1) | Low |
 | Save-file load (`SaveFileLoadIntent`, `LoadReconcilePolicy`, the save's `GAME_STATE` node) | F9 and every Load restore Parsek exactly as the save holds it; scene changes, reverts, rewinds and Re-Fly loads keep memory | The import journal and export queue are saved in the PARSEK node, so a load rolls them back; the next merge re-imports whatever was shared, own packets included (7.5.1) | Med |
@@ -346,7 +416,10 @@ CampaignManifest (campaign.cfg, ConfigNode, written once by founder)
   formatVersion: int        - pinned RecordingStore.CurrentRecordingFormatVersion
   schemaGeneration: int     - pinned RecordingStore.CurrentRecordingSchemaGeneration
   parsekVersion: string     - informational
-  gameMode: string          - CAREER / SCIENCE / SANDBOX (economy inert outside CAREER)
+  gameMode: string          - SANDBOX in v1; SCIENCE from v2; CAREER from v3.
+                              Science pools science only; Sandbox pools nothing
+  MOD_SET { MOD id version ... } - the campaign's mod set, every entry on Parsek's
+                              verified co-op allowlist (7.2; ruled 17.8)
 
 CheckpointManifest (checkpoints/<n>/highwater.cfg, single writer = founder)
   checkpointSeq: int
@@ -357,6 +430,9 @@ PlayerManifest (players/<id>/player.cfg, ConfigNode, single writer = owner)
   playerId, displayName
   joinedRealTime: string
   lastSeq: int              - highest packet sequence this player has exported
+  heartbeatRealTime: string - rewritten at every merge tick AFTER the envelopes it
+                              covers: "nothing of mine is keyed before this";
+                              read by the finality test (7.10.2)
 
 PacketEnvelope (<seq>_<shortId>.ppkt, ConfigNode, written LAST)
   packetId: string          - "pkt_" + Guid("N")
@@ -366,6 +442,8 @@ PacketEnvelope (<seq>_<shortId>.ppkt, ConfigNode, written LAST)
   exporterUT: double        - the exporter's current game UT at export (display only:
                               the Settings member list shows each player's clock)
   schemaGeneration, formatVersion: int
+  modSetHash: string        - hash of the exporter's mod set; must equal the
+                              campaign's (7.5 step 1)
   TREES { }                 - complete per-tree RECORDING_TREE + RECORDING states (6.6)
   ACTIONS { }               - GameAction rows (owner's, non-seed only)
   EVENTS { }                - per-tree game-state event bundles (milestone registration; 7.5)
@@ -380,7 +458,9 @@ PacketEnvelope (<seq>_<shortId>.ppkt, ConfigNode, written LAST)
   PAYLOAD { FILE name size sha256 ... } - integrity list for the payload dir
 
 TipClaim (node inside envelope; the claimant is the envelope's ownerPlayerId)
-  kind: enum { Dock=0, Board=1, Claw=2, Control=3, Recover=4 }
+  kind: enum { Dock=0, Board=1, Claw=2, Control=3, Recover=4, Retire=5 }
+                                   (Retire: a Re-Fly or rewind retirement of an
+                                   EXPORTED recording, 7.10.2 rule 5)
   targetRecordingId: string      - the consumed recording's id
   targetOwnerPlayerId: string
   continuationRecordingId: string - the claimant's continuation recording (the
@@ -395,6 +475,9 @@ TipClaim (node inside envelope; the claimant is the envelope's ownerPlayerId)
                                     it from the payload and refuses the packet on
                                     mismatch (Error naming the claim). Recover is
                                     always tip-advancing (it ends the chain)
+  payoutActionIds: list<string>   - Recover only: the recovery rows this claim
+                                    carries (funds, science aboard, crew), held
+                                    until the claim is final (7.10.2)
   claimRealTime: string           - equals envelope exportedRealTime
 
 RetirementRecord (node inside envelope; append-only)
@@ -405,8 +488,16 @@ RetirementRecord (node inside envelope; append-only)
   tombstonedActionIds: list<string> - the ledger rows the owner's operation retired
                                     (a Re-Fly's retire set: loss rows only); every
                                     importer retires exactly these, never recomputes
-                                    them; empty for a Truncation (7.10.1)
+                                    them; for a Truncation: the trimmed tail's rows
+                                    minus the inherited ending's (7.9 step 3)
   reasonUT: double
+
+AwayMark (node inside envelope; append-only; any member may write it, 7.10.2)
+  awayPlayerId: string            - the silent member
+  seqHigh: int                    - the away member's last seq the writer had
+                                    imported; packets above it pend until Back
+Back (node inside envelope; written by the returning member)
+  (no fields: the envelope's key is the moment the member counts again)
 
 ConflictVerdict (derived, runtime only, recomputed by every fold, never persisted
                  as authority)
@@ -577,7 +668,11 @@ Every exchange timestamp uses the fixed-width invariant format
 precisions from future versions must still parse. A packet whose timestamps do
 not parse is refused (Error). The arbitration key is
 `(exportedRealTime ticks, ownerPlayerId ordinal)`; the ledger tiebreak key is
-`(OwnerPlayerId ?? "", ActionId)`, both ordinal.
+`(OwnerPlayerId ?? "", ActionId)`, both ordinal. Keys are monotone per
+writer: an envelope is stamped `max(now, previous own key + 1 s)`, and an
+importer refuses (Error) a packet keyed below its predecessor from the same
+writer, so a clock set back can never slip a packet in front of a race that
+is already final (7.10.2).
 
 ### 6.6 Cross-packet tree updates
 
@@ -648,13 +743,19 @@ under `GameData/Parsek/PluginData/identity.cfg` so new campaigns prefill.
 
 ### 7.2 Campaign creation
 
-Founder, on a career save (science/sandbox allowed; economy layer inert there).
+Founder, on a save of a supported mode (v1 Sandbox, v2 Science, v3 Career;
+any other is refused with "co-op for this game mode comes in a later
+version", owner ruling 2026-10-24). In Sandbox there is no pool; in Science
+the shared pool is science alone.
 Preconditions, refused with the exact reason: shared folder invalid or already
 carrying a campaign; save already campaign-linked; a merge journal is
 non-empty; a re-fly session marker is armed; a test batch marker is present;
 NotCommitted provisionals are pending; a pending tree awaits its merge
-dialog; a committed-tree restore attempt or a switch-segment session is live.
-Then, in this order:
+dialog; a committed-tree restore attempt or a switch-segment session is live;
+the installed mod set holds a mod that is not on Parsek's verified co-op
+allowlist (the refusal names each such mod; ruled 17.8, 7.11 foundation 8).
+Then, in this order (the founder's mod set is pinned in `campaign.cfg`
+`MOD_SET`):
 
 1. Derive `saveSlug` from the campaign name (filename-safe slug, uniquified
    against existing saves with the `#N` pattern).
@@ -687,9 +788,12 @@ the campaign's ONLY seeds, forever.
 ### 7.3 Joining
 
 1. Player points Settings at the shared folder; Join validates `campaign.cfg`
-   (schema generation must equal the local build's, else refuse with the exact
-   mismatch - at join time the manifest pin IS the gate; per-packet gates take
-   over afterwards).
+   (schema generation must equal the local build's, and the local mod set must
+   equal the campaign's `MOD_SET`, else refuse with the exact mismatch or the
+   missing / extra mods named - at join time the manifest pin IS the gate;
+   per-packet gates take over afterwards). A member who later changes their
+   mods is refused at every import and export until the set matches again
+   (Warn naming the mods; play continues locally, exports queue).
 2. If `players/<localPlayerId>/` already exists, this is a RE-join: skip to
    step 5 with a fresh save clone, and resume the existing subtree (edge case
    27) - never mint a second subtree for the same id.
@@ -770,7 +874,9 @@ and the UT-sorted walk, and claims/retirements with unknown referents pend):
 1. **Validate**: schema generation/format (hard refuse, name the reason - the
    existing `IsRecordingSchemaCompatible` policy), payload hashes (chunked,
    time-budgeted; see 13), id safety (`ValidateRecordingId` on every id),
-   timestamps parse (6.5), owner consistency (packet under `players/X/` must
+   timestamps parse and stay monotone per writer (6.5), mod set
+   (`modSetHash` equals the campaign's; else refuse naming the differing mods,
+   like schema drift, ruled 17.8), owner consistency (packet under `players/X/` must
    carry ownerPlayerId X; tree fragments must belong to X), structural-hint
    recomputation on claims (6.1), no seed rows (Warn + strip).
 2. **Apply recordings**: copy sidecars into the local Recordings dir, register
@@ -982,12 +1088,12 @@ stamps land locally (exempt state). Two additions:
     Instead the recovery emits a `Recover` tip claim in the next flush
     packet - for the OWNER too - and "terminal = Recovered at UT x" is a
     DERIVED fact from the winning claim on every machine. Recover is always
-    tip-advancing. Every recovery pays its recoverer: two players who
-    recover one vessel before syncing are both paid, while the vessel is
-    canonically recovered once (edge case 48). Deduplicating the earning
-    would take a credit back on the losing machine, which the ledger-safety
-    ruling forbids (7.10.1). Recovery of a NOT-yet-exported own vessel keeps
-    today's stored mutation (nothing to converge yet).
+    tip-advancing. Its payout rows (`payoutActionIds`) are held until the
+    claim is final (7.10.2): the winner's are released at the recovery UT,
+    a loser's are trimmed, so two players who recover one vessel before
+    syncing are paid once, and nobody spends a payout that could vanish
+    (edge case 48, ruled 17.7). Recovery of a NOT-yet-exported own vessel
+    keeps today's stored mutation and pays at once (nothing to contest).
   - **Claimed vessels stay claimed.** Recover, Delete and the stock
     launch-site clear are refused for a vessel a committed future flight
     still holds back (`ClaimedVesselDisposalGate`, GC-2 / GC-9), whoever
@@ -1094,7 +1200,7 @@ The fold:
      canonical state covering its window. This includes claims targeting a
      continuation that itself lost (the A->B->C cascade: C's target B is off
      the canonical chain, so C rejects deterministically). A losing Recover
-     claim changes no ledger row: both recoverers keep their earnings (7.7).
+     claim's payout, held until final, is trimmed (7.7, 7.10.2).
 4. Derived masks: every rejected, non-withdrawn claim's continuation chain
    (docked-window recording + descendants) and every accepted non-structural
    claim's target-side post-undock recording (the demoted station-side leaf)
@@ -1102,10 +1208,12 @@ The fold:
    suppression at the effective-state layer: masked recordings neither play
    as ghosts nor pass any spawn path (all six, including the post-commit
    leaf spawner, which today bypasses the spawn gate and must be routed
-   through it first) nor feed a ghost chain or a route endpoint. Masks never
-   touch the ledger (7.10.1): a masked recording's rows stay in ELS, whose
-   only filter stays the tombstone check. The mask is replaced by durable
-   retirement state when the loser's confirming packet arrives.
+   through it first) nor feed a ghost chain or a route endpoint. On the
+   ledger side the fold derives the held set (7.10.2): a masked or pending
+   chain's gains sit outside every walk until the claim is final; a final
+   rejection drops them from ELS on every machine, and the loser's
+   confirming truncation names them durably (7.9 step 3). The mask is
+   replaced by durable retirement state when that packet arrives.
 5. Crew ownership (7.6) is folded in the same pass, by the same key.
 6. **Spawn-ownership reconciliation** (local, per vessel). Today a dock
    merge stamps the target's `TerminalSpawnSupersededByRecordingId` at merge
@@ -1201,7 +1309,7 @@ window after only transient canonical visits fits.
   Truncate. For a Control claim (foreign-continuation tree) truncation
   degenerates: there is no pre-control segment of the claimant's own to keep
   (the vessel flown was the peer's), so the whole continuation tree is
-  retired (its ledger rows kept, 7.10.1), a Truncation retirement exported, and
+  retired (its ledger rows trimmed, step 3), a Truncation retirement exported, and
   the claimant's local instance of the target reverts to the canonical tip
   per edge case 12. Anything the claimant's OWN vessels did in that session
   (their tug's flight to the rendezvous, for example) lives in their own
@@ -1226,13 +1334,20 @@ so peers can apply it durably:
    resources as accepted slack).
 2. The docked-window recording, the post-undock recordings, their branch
    points, and the dock branch point are retired.
-3. The tail's ledger rows stay, tagged to their retired recordings; a
-   truncation writes no tombstone (7.10.1).
+3. The tail's ledger rows are trimmed (owner ruling 17.7): they leave the
+   effective ledger on every machine, named in the retirement's
+   `tombstonedActionIds`. Its gains never reached a pool, because they were
+   held while the claim was not final (7.10.2); its losses leave too, which
+   only raises value. One group stays: the rows of the vessel's ENDING that
+   the head inherits in step 5 (the recovery or the loss, with its crew rows)
+   follow that ending, so the crew who came home stay home and nobody
+   recovers the vessel twice. A contract outcome inside the window stays
+   (3.13 part 1, the contract is local); its reward leaves with the tail.
 4. A Truncation retirement is exported: supersede rows (original pre-dock id
    -> new head id), retired ids, and the withdrawn claim's continuation id.
 5. When the retired tail ended the vessel (Recovered or Destroyed), the head
    takes that ending instead of the recomputed terminal: the recovery or loss
-   the loser's ledger keeps then describes a vessel that is really gone, and
+   rows kept in step 3 then describe a vessel that is really gone, and
    nothing parks to be recovered twice (VERIFY at M4 how the ending's UT is
    carried on a head whose trajectory stops at the dock). Otherwise the
    recomputed terminal is in practice Orbiting or Landed, so the loser's
@@ -1271,7 +1386,7 @@ LOCAL recordings that depended on a retired tip in two ways:
 - **Transient dependents** (accepted visits, dock links with no structural
   effect): kept, visible, `OrphanedByRetiredRecordingId` set, marked
   "depends on a superseded mission (Ana re-flew Harbor)", their ledger
-  rows kept (7.10.1) - the route-revalidation pattern
+  rows kept (a transient visit changed nothing the retirement removed) - the route-revalidation pattern
   (`MissingSourceRecording`) generalized.
 - **Coupling dependents** (a Dock/Board/Claw continuation that left a module
   attached, or a Control continuation): the dependent's own vessel would
@@ -1281,8 +1396,11 @@ LOCAL recordings that depended on a retired tip in two ways:
   procedure at the coupling boundary: the pre-coupling segment survives
   under a new head id with a recomputed terminal and the dock-time snapshot,
   parked at its pre-coupling state; the docked-window and post-undock
-  recordings retire; the truncation retirement ships. The orphan flag stays
-  on the retired ids for history. The player keeps the lab they paid for,
+  recordings retire; the truncation retirement ships, trimming their rows
+  as in 7.9 step 3. This happens only while the dependent's claim is not
+  final: a retirement of exported data is itself a `Retire` claim (7.10.2
+  rule 5), so a final claim is never orphaned; the later-keyed retirement
+  loses instead. The orphan flag stays on the retired ids for history. The player keeps the lab they paid for,
   in orbit where the old station was, and can redock it to the new tip
   (edge case 46).
 
@@ -1311,17 +1429,21 @@ after a spend - and v6 closes each:
    record names the rows (`tombstonedActionIds`), so every machine retires the
    same set. The re-fly's own new rows enter the importer's walk like any
    imported rows (point 3). A rewind retirement carries what the owner's own
-   rewind retired under the single-player rules and applies as is.
-2. **Verdicts move vessels, never value.** A rejected or pending claim, a
-   truncation, a demoted leaf and a dependent of a retired tip all keep their
-   ledger rows, tagged as recorded. The fold masks only physical canonical
-   state: what plays, what spawns, what a ghost chain or a route endpoint
-   resolves to. ELS keeps its one filter, the tombstone check. This is the
-   ledger form of principle 6: funds or science may appear from nothing;
-   nothing a player earned vanishes because a peer shared first. Where a kept
-   row would describe a vessel that still exists, the vessel follows the row:
-   a truncated tail that recovered or destroyed the vessel hands that ending
-   to the surviving head (7.9 step 5).
+   rewind retired under the single-player rules and applies as is. When the
+   retirement touches EXPORTED data it is also a `Retire` claim, and until
+   that claim is final the value it frees counts as a held gain (7.10.2
+   rule 5).
+2. **Verdicts take back only value that was never spendable** (owner ruling
+   17.7, v7; v6 said "verdicts move vessels, never value"). A rejected claim's
+   tail is trimmed with its rows (7.9 step 3), but every gain a not-final
+   claim could lose was held (7.10.2): outside the pools, the reservation,
+   the floor and the debt. So a trim removes rows no balance ever counted,
+   and no balance at any UT goes down. A pending claim's gains stay held; a
+   demoted leaf and a transient dependent keep their rows, because nothing
+   of theirs is trimmed. ELS gains one derived filter beside the tombstone
+   check: held rows, recomputed by every fold (principle 3c). Where a
+   trimmed tail ended the vessel, the ending and its rows go to the
+   surviving head (7.9 step 5).
 3. **Merges never re-price what you hold.** A peer's rows are new history to
    the importer: their purchases are paid in full, so concurrent purchases
    make a merge debt (7.11), and their losses obey the reserved floor with
@@ -1339,12 +1461,108 @@ after a spend - and v6 closes each:
    machine (7.10) for an interaction the fold already accepted. A claim that
    arrives after the merge is handled by 7.10 as before, under point 2.
 
-The accepted cost is a little value collected twice: both players recover one
-capsule before syncing; a losing Control continuation keeps the science it
-gathered. It needs concurrency the players do not control and gains nothing
-they could not have flown, so v1 accepts it (open question 17.7).
+v6 accepted a little value collected twice (both players paid for one
+capsule; a losing Control continuation keeping its science). v7 removes it:
+the loser's payout and science were held and are trimmed (edge case 48).
+The cost moves to time: a contested flight's earnings wait for the race to
+be final (7.10.2).
+
+### 7.10.2 Held earnings: settle before the spend (owner ruling 17.7, 2026-10-24)
+
+In single player a flight is merged, discarded or trimmed before the player
+can reach a Space Center button, so nothing is ever bought with value that
+later disappears. In a campaign the losing flight's merge can come first:
+an earlier-keyed packet may still be on its way (a slow sync, a player who
+wrote it offline, edge case 54), and with single-writer files and no server
+"nobody claimed this before me" is a statement about other machines' future
+uploads (17.2). It becomes true only when every other member has published
+past the claim. So the campaign settles the race before the SPEND instead
+of before the merge, the way a bank holds a deposit until it clears and
+Bitcoin will not let new coins be spent for 100 blocks.
+
+1. **What is held.** A gain row (funds, science or reputation up, a milestone
+   or contract reward) that the trim of a not-final claim would remove: the
+   rows tagged to the continuation chain of a pending or not-final claim
+   (Dock, Board, Claw, Control, an own continuation of an exported terminal),
+   minus the inherited-ending rows (7.9 step 5); the `payoutActionIds` of a
+   not-final Recover claim; and, for a not-final `Retire` claim, the losses
+   its tombstones would free. Losses are never held: they apply at once
+   (recognize a loss now, a gain when it clears). Flights that touch no
+   exported vessel hold nothing and play exactly as in single player. Space
+   Center rows are never flight-tagged and never held.
+2. **Where held rows are.** Outside every walk that sets the pools, the click
+   reservation, the reserved floor and the debt. The pools are patched
+   without them, so stock itself refuses a purchase that would need them; no
+   new gate. Held is DERIVED from the fold on every merge (principle 3c),
+   never stored. The stock pool reference steps by a hold change like a
+   merge step (7.11 foundation 5), so stock's own recovery payout is not
+   filed as a leak.
+3. **Final.** A claim keyed t is final when, for every member not marked
+   away, the importer holds that member's packets with no seq gap up to
+   their `player.cfg` lastSeq, and their `heartbeatRealTime` is after t. The
+   fold's verdict on a claim depends only on earlier-keyed claims and
+   retirements, so once all of those are known the verdict cannot change.
+   Keys are monotone per writer (6.5), so a clock set back cannot reopen it.
+4. **Release or trim.** A final, accepted claim's held rows enter the walk
+   at their ORIGINAL UT (the only point every machine agrees on). Adding a
+   gain can only fill a debt sooner, move a once-ever credit earlier, or meet
+   a loss the 0 clamp had forgiven; no balance at any UT goes down. On
+   release the rows keep their exported `cseq` and share key, so the floor
+   reads them as if they had always been there. A final, rejected claim's
+   held rows are trimmed (7.9 step 3); they never entered a balance.
+5. **Retirements of shared data are claims.** A Re-Fly or rewind that
+   retires an EXPORTED recording writes a `Retire` claim, keyed at its
+   retirement packet and ordered with the others. A KNOWN earlier claim on
+   the recording seals the slot (7.10.1 point 4). An earlier-keyed claim that
+   surfaces after the merge beats it: the retirement is withdrawn and its
+   session salvaged like a losing continuation; its new gains and the value
+   its tombstones freed were held, so nothing comes back down. Without this
+   rule a later retirement could orphan a final claim (edge case 46) and
+   "final" would not mean final.
+6. **Away members.** A silent member keeps every contested earning waiting.
+   Any member may write an `AwayMark` naming them (owner ruling 17.9); an
+   away member drops out of the finality test. Their packets above the mark's
+   `seqHigh` pend until their own `Back` record and then rank at that
+   record's key, so their offline claims lose to everything that became
+   final meanwhile: deterministic, and they lose ties, never value.
+7. **Known before the merge.** Before the merge dialog of a flight that will
+   export a claim, Parsek runs a time-budgeted sync and the fold with the
+   prospective claim included; when it would lose, the dialog's existing
+   body says so ("Ana's packet, shared 19:30, docked to Harbor first; if you
+   merge, this flight is cut at the dock and keeps nothing after it"). The
+   KSC-entry merge already runs before any click (7.5). This settles every
+   conflict already on disk the single-player way: before the Space Center.
+8. **What the player sees.** The funds and science tooltips' existing
+   Reserved area gains one line, "Pending: 30,000 until Ana syncs" (extra
+   wording in an existing tooltip, budgeted by `TooltipEchoBudgetTests`).
+   When a race settles, the batched merge message says either "Harbor: your
+   tanker dock stands; 30,000 funds and 40 science released" or "Ana docked
+   to Harbor first; your tanker flight is cut at the dock and its pending
+   30,000 funds and 40 science are dropped". No new surface.
+9. **Defect path.** A trim that would remove a row already released (only
+   possible with a writer's clock past the monotone check or a build that
+   predates holds) keeps the row, logs a Warn naming the claim, and never
+   charges a debt for it.
+
+VERIFY at M3: the walk is monotone in added gain rows at every UT (strategy
+converters, the 0 clamp, once-ever credit shifts, science caps; a proof
+test over `RecalculationEngine`); `KspStatePatcher` patches pools without
+held rows while stock has already paid a recovery, with the reference
+stepped by the held amount; a held milestone shows as reached in stock
+ProgressTracking while only its reward waits; heartbeat write rate against
+sync-service throttling.
 
 ### 7.11 The economy contract
+
+**Scope by version** (owner ruling 2026-10-24). v1 (Sandbox) writes no pool
+rows; only foundations 1 and 2 apply, and nothing is held or trimmed. v2
+(Science) applies every rule below to the science pool alone: once-ever tech
+(foundation 3), cutoff walks, authoritative merges and the stock pool
+reference for science, a science merge debt when two members research
+different nodes before syncing, held science (7.10.2). The funds and
+reputation rules, contracts, facility upgrades, hires, strategies, part
+purchases and the reserved floor for contract penalties are the v3 (Career)
+design.
 
 Foundations (all deterministic, all walk-level):
 
@@ -1387,6 +1605,14 @@ Foundations (all deterministic, all walk-level):
    (transient divergence, like a pending claim). This is principle 5 applied
    to the economy's one share-order question; the walk itself stays in UT
    order.
+8. **No money outside the ledger** (owner ruling 17.8). A campaign links only
+   with an allowlisted mod set (7.2, 7.3), so nothing but stock and Parsek
+   moves the pools. A `StockPoolAdjustment` row minted in a linked save is
+   therefore a Parsek gap: it is kept as a ledger row (the event), exported
+   in the next flush like any own Space Center row so every machine walks
+   the same log, logged Warn with the amount and the pool, and announced by
+   one on-screen message naming the amount. Rows minted before the link ride
+   checkpoint 0. VERIFY at M3 that a merge never mints one (foundation 5).
 
 Policies:
 
@@ -1422,8 +1648,9 @@ Policies:
   `TooltipEchoBudgetTests`), the Settings member list repeats it, and the
   join notice (edge case 31) explains it. Not a defect: the money IS
   committed; the fix is attribution.
-- **Every recovery pays its recoverer** (7.7): concurrent recoveries of one
-  vessel are both paid; the vessel is canonically recovered once.
+- **One recovery is paid** (7.7): concurrent recoveries of one vessel hold
+  their payouts until the race is final; the winner's is released, the
+  loser's trimmed (7.10.2, ruled 17.7).
 - **Earlier UT wins credit.** Milestone/first races across players resolve by
   the existing once-ever UT-order walk - identical to how retroactive commits
   shift credit today. Deep-warping ahead cannot lock in a first; credit (never
@@ -1439,7 +1666,7 @@ Policies:
   penalties are reserved while a committed cost lies ahead (part 2). Peers'
   contracts are invisible to you; their penalties reach you only as the loss
   rows they file, under the floor rule above. Canonical cross-save contract
-  identity is the v2 problem (section 10).
+  identity is a Career-stage problem (v3 or later, section 10).
 - **Routes are owner-local and never exported.** Supply routes carry no money
   and write no ledger rows; a route's cycles exist only as the owner's clock
   passes them, and every load back in time drops the later ones (logistics
@@ -1540,11 +1767,12 @@ bootstrap cost and the folder's growth.
    both are accepted visits when their windows do not intersect and both fit;
    if the windows intersect, the later-shared claim fails clause (a) and
    truncates (v1) - with the v1.1 stitch it survives minus the visit.
-10. **Loser already recovered the mission.** The truncation keeps the
-    recovery: its funds, science and XP rows stay (7.10.1), and the surviving
-    head takes the tail's Recovered ending instead of parking a vessel (7.9
-    step 5), so the vessel and its crew exist once, at the KSC. Only the
-    docked window's story changes: canonically the tanker never docked.
+10. **Loser already recovered the mission.** The surviving head takes the
+    tail's Recovered ending instead of parking a vessel (7.9 step 5), and the
+    recovery's rows follow that ending, so the vessel and its crew exist once,
+    at the KSC. Everything else the docked window earned was held while the
+    claim was open and is trimmed (7.9 step 3, 7.10.2): canonically the
+    tanker never docked, and nothing it earned there was ever spendable.
 11. **Truncation cut lands in a non-spawnable situation.** Interaction during
     atmospheric flight (rare: claw grab mid-air). The truncated head keeps its
     history; the recomputed terminal is not spawnable; no parked vessel, redo
@@ -1667,12 +1895,13 @@ Player-perspective cases (a session walked as a player, not a developer):
     Allowed and recorded as YOUR continuation of his station (a
     foreign-continuation tree, 7.7): a tip-advancing Control claim at
     commit. If Bogdan shared a tip-advancing change first, your continuation
-    is rejected: the tree is retired whole (Case 3, Control form), your
-    local station reverts to the canonical tip, and your own tug's flight
-    (a separate tree) is untouched. Boarding it with a kerbal and flying it
+    is rejected: the tree is retired whole with its rows (Case 3, Control
+    form; its gains were held, 7.10.2), your local station reverts to the
+    canonical tip, and your own tug's flight (a separate tree) is untouched. Boarding it with a kerbal and flying it
     is the same story via a Board claim (a truncated board parks your kerbal
     on EVA, edge 26). Settings and the Recordings Manager show "pending
-    arbitration" until the fold has both packets.
+    arbitration", and the pool tooltips show its earnings as pending, until
+    the race is final.
 33a. **"I took control of Ana's rover, drove it 200 m, and switched back."**
     A tip-advancing Control claim (landed position moved beyond tolerance).
     If you only turned the lights on and left: `SwitchSegmentNoOpClassifier`
@@ -1763,7 +1992,12 @@ Stress-test cases (fourteen imagined multi-player sessions, 2026-09-02):
     station was; the docked window and post-undock recordings retire and
     ship as a truncation. His lab still exists, he still paid for it once,
     and he can redock it to Ana's new Harbor. Carol's fuel visit to the old
-    station is a transient dependent: flagged and harmless.
+    station is a transient dependent: flagged and harmless. This happens only
+    while Bogdan's claim is not final: Ana's re-fly of shared data is a
+    `Retire` claim (7.10.2 rule 5). If Bogdan's lab claim was already final
+    (or keyed before her retirement), the re-fly is refused for that slot
+    when known (7.10.1 point 4) or withdrawn when it surfaces later; a final
+    claim is never orphaned.
 47. **"I reboosted my own station; Bogdan had already moved it and shared
     first."** Ana's own continuation of her exported Harbor derives a
     `Control` claim (7.7) and loses to Bogdan's earlier-shared one; her
@@ -1775,9 +2009,11 @@ Stress-test cases (fourteen imagined multi-player sessions, 2026-09-02):
     redocks. Both are told on screen which claim won and why (share order).
 48. **"Ana recovered my capsule from her Tracking Station; I recovered it
     too, unsynced."** Two `Recover` claims on one target; the earlier-shared
-    one wins and is the canonical Recovered; both recovery earnings stay, so
-    the pool gains the capsule twice (accepted slack, 7.10.1); the stored
-    terminal is never mutated on either machine (Recovered is derived). The rescue variant: Ana Switch-To's Bogdan's
+    one wins and is the canonical Recovered. Both payouts were held until the
+    race was final (7.10.2): the winner's is released at her recovery UT, the
+    loser's is trimmed, so the pool gains the capsule once (v6 paid both);
+    the stored terminal is never mutated on either machine (Recovered is
+    derived). The rescue variant: Ana Switch-To's Bogdan's
     fuel-less lander, EVAs Bob, boards him into her ship, recovers. The crew
     gate does not fire at board (7.6 rescue carve-out); the lander's Control
     claim is crew-changing and tip-advancing; Bob's reservation bounds at
@@ -1847,6 +2083,30 @@ Cases from the single-player rules built since v5 (2026-10-24):
     re-flying it would truncate her flight on her machine. With no claim on
     it, the slot is open as in single player.
 
+Cases from the owner rulings of 2026-10-24 (v7):
+
+61. **"I docked my tanker to Harbor, merged, and the 30,000 it earned says
+    pending."** Harbor is Ana's exported station, so the dock is a claim, and
+    Ana has not synced since before it. Your pools and the purchase buttons
+    count without the 30,000 until her next sync passes the dock (7.10.2);
+    then the merge message says "released" and the money is there, booked at
+    the dock's UT. Had Ana shared an earlier dock, the message says "dropped"
+    instead, and nothing you bought depended on it.
+62. **"Carol has not played for two weeks and my earnings are stuck."** Mark
+    her away from the Settings member list (any member may, owner ruling
+    17.9). Your pending earnings release at the next merge. When Carol comes
+    back, her offline flights count as shared at her return, so a race she
+    would have won by an earlier key she now loses; she loses the tie, never
+    value she could already spend.
+63. **"I installed a mod that pays funds for science, and co-op stopped
+    syncing."** The mod is not on the verified co-op allowlist, so imports
+    and exports refuse until your mod set matches the campaign's again (7.3
+    step 1). Single player saves are unaffected.
+64. **"A toast said Parsek booked 1,200 funds it could not explain."** A stock
+    path Parsek does not track yet moved money in a linked save. The amount
+    is kept as a ledger row, shared with everyone, and logged so the gap can
+    be fixed (7.11 foundation 8).
+
 ---
 
 ## 9. What Doesn't Change
@@ -1882,8 +2142,11 @@ Cases from the single-player rules built since v5 (2026-10-24):
 
 ## 10. Out of Scope (v1)
 
+- Science and Career saves (owner ruling 2026-10-24): v1 founds and joins
+  Sandbox saves only; Science is v2, Career v3. The ledger and career
+  sections of this document are their design.
 - Per-player economies, milestone racing, opponent packs (Phase 15).
-- Contract pooling / canonical contract identity (v2; contracts are
+- Contract pooling / canonical contract identity (v3 or later; contracts are
   local-only per 7.11).
 - Using the tree-replacing RESTORE path on a foreign tree (foreign control
   goes through the foreign-continuation route, 7.7; the restore path stays
@@ -2081,9 +2344,9 @@ every merge, every fold verdict, and why.
 - **SalvageTruncationCut** - truncation at a dock boundary yields a NEW head
   id with cleared child link, recomputed spawnable terminal (from the
   InferTerminalStateFromTrajectory core), the dock-time snapshot (or
-  segment-start fallback), correct supersede rows, and no tombstone (the
-  tail's rows stay); a tail that ended Recovered or Destroyed hands that
-  ending to the head.
+  segment-start fallback), correct supersede rows, and `tombstonedActionIds`
+  naming the tail's rows minus the inherited ending's; a tail that ended
+  Recovered or Destroyed hands that ending, with its rows, to the head.
 - **CrewClaimByShareOrder** - two packets flying the same kerbal: earlier
   key owns; the loser's derived stand-in name is identical across machines.
 - **MergeDebtAndFloor** - two concurrent purchases overdraw the merged walk
@@ -2097,9 +2360,20 @@ every merge, every fold verdict, and why.
 - **MergeStepsStockPoolReference** - a merge that changes the funds target
   mints no `StockPoolAdjustment` row on the next update; money stock applied
   outside the merge still does.
-- **VerdictsNeverRetireRows** - rejected, pending, truncated and orphaned
-  recordings keep every ledger row in ELS; the fold writes no tombstone and
-  ELS filters by tombstone only.
+- **HeldUntilFinal** - a contested flight's gain rows are outside the pools,
+  the reservation, the floor and the debt while its claim is pending or not
+  final; losses apply at once; a final accepted claim releases them at their
+  original UT and no balance at any UT goes down; a final rejected claim
+  trims them and no balance at any UT goes down.
+- **FinalityTest** - final only when every non-away member's packets are
+  gap-free to lastSeq and their heartbeat is after the claim key; a packet
+  keyed below its writer's previous key is refused; an `AwayMark` removes a
+  member from the test and their later packets rank at their `Back` record.
+- **RetireClaimNeverOrphansAFinalClaim** - a Re-Fly retirement of exported
+  data keyed after a final claim on the same recording is withdrawn; its
+  held gains and freed losses never entered a balance.
+- **ModSetGate** - create, join and import refuse a mod set that differs from
+  `MOD_SET` or holds a mod off the allowlist, naming the mods.
 - **ReFlyRetirementAppliesNamedRows** - an imported Re-Fly retirement
   tombstones exactly its `tombstonedActionIds`, all loss rows; balances at
   every UT are >= before on a machine holding extra peer spends.
@@ -2248,16 +2522,21 @@ every merge, every fold verdict, and why.
 
 | Phase | Scope | Notes |
 |-------|-------|-------|
-| M1 | Identity + campaign store (manifest, checkpoint 0, join/rejoin, ContractSystem/applicant regeneration) + Settings section | Ships inert without a campaign |
+| M1 | Identity + campaign store (manifest, checkpoint 0, join/rejoin, mod-set allowlist gate, ContractSystem/applicant regeneration) + Settings section | Ships inert without a campaign |
 | M2 | Export/import of recordings as read-only citizens + ownership fence + journal and export queue in the save (re-import after a load, 7.5.1) + merge deferral during Re-Fly sessions + scope-tracker latching + crew registration + attribution | No interaction, no economy merge: purely additive world sharing; scale budgets measured here |
-| M3 | Ledger exchange: deterministic sort + ordering freeze, seeds policy, once-ever dedup, merge debt + reserved floor with the capture key, stock-pool-reference stepping, committed-future-index foreign-future rule, cutoff-walk mandate, reconcile preservation, revert prune keeps foreign rows, baseline pinning, authoritative merges, credit notifications, action flush | The pooled economy |
-| M4 | Foreign spawns + full control (foreign-continuation route, Recover claims) + coupling + dock-time parent snapshot stamp + tip claims + the arbitration fold + salvage ladder (Cases 1 and 3; Case 2 = truncate; no tombstones) + retirement propagation (named tombstone sets) + physical-only derived masks + the Re-Fly peer-claim seal | The co-op world |
+| M3 (v2) | Ledger exchange for the science pool (the funds and reputation half is v3): deterministic sort + ordering freeze, seeds policy, once-ever dedup, merge debt + reserved floor with the capture key, stock-pool-reference stepping, committed-future-index foreign-future rule, cutoff-walk mandate, reconcile preservation, revert prune keeps foreign rows, baseline pinning, authoritative merges, credit notifications, action flush | The pooled economy |
+| M4 | Foreign spawns + full control (foreign-continuation route, Recover claims) + coupling + dock-time parent snapshot stamp + tip claims + the arbitration fold + salvage ladder (Cases 1 and 3; Case 2 = truncate; a truncation trims the tail's rows except the inherited ending's) + held earnings (finality test, heartbeats, monotone keys, away marks, release / trim, merge-dialog preview) + retirement propagation (named tombstone sets; `Retire` claims) + the Re-Fly peer-claim seal | The co-op world |
 | M5 | Crew claim rule + derived substitution + assignment gate | |
 | M6 | Polish: founder checkpoints N>0, missing-parts UX, cloud-placeholder handling, poll tuning, notifications batching, per-player timeline filter | |
 | v1.1 | Excise-and-stitch (Case 2 upgrade) | Designed here, built later |
+| v2 | Science saves: M3 for the science pool + held earnings (science) | Built after v1 is played |
+| v3 | Career saves: funds and reputation pools, contracts, facility upgrades, hires, strategies, part purchases, the reserved floor, recovery funds payouts | Designed here (7.10.1, 7.10.2, 7.11); built after v2 is played |
 
 Ground-up per the maintainer's direction: each phase is independently playable
-and testable; M2 alone already delivers "see your friends' missions".
+and testable; M2 alone already delivers "see your friends' missions". v1
+(Sandbox) is M1, M2, M4 without held earnings, M5 and M6; M3 and the held
+earnings of M4 arrive with Science saves (v2). No phase starts before base
+Parsek is release-ready (owner ruling 2026-10-24).
 
 The task-level breakdown (per-phase tasks with files, tests, dependencies,
 and done conditions), the codebase inventory seeded from the verified
@@ -2303,10 +2582,11 @@ The CREW block carries name/type/trait/gender/veteran. Whether to also carry
 courage/stupidity/XP for exact cross-machine roster parity, or accept
 cosmetic divergence on derived stand-ins, is an M5 call.
 
-### 17.6 A load past something already shared (owner question, 2026-10-24)
-Default in the text (7.5.1): a load restores the save, then the next merge
-imports again everything in the folder, own packets included, so a quickload
-cannot unshare. Alternatives considered: (a) the load writes retirement
+### 17.6 (resolved) A load past something already shared
+Owner ruling 2026-10-24: "Shared stays shared." The text (7.5.1) stands: a
+load restores the save, then the next merge imports again everything in the
+folder, own packets included, so a quickload cannot unshare. Alternatives
+considered and rejected: (a) the load writes retirement
 records for own packets newer than the save - rejected by default, because a
 retirement that removes a shared flight would take its earnings back on every
 peer and orphan their dependents, which the ledger-safety ruling forbids; (b)
@@ -2314,20 +2594,27 @@ export only at an explicit save, so a quickload never crosses a shared packet
 - rejected by default, because it delays every share and still fails for a
 quickload past an explicit save.
 
-### 17.7 Verdicts keep value (owner question, 2026-10-24)
-Default in the text (7.10.1): fold verdicts, truncations and orphaning never
-retire ledger rows; concurrent recoveries are both paid; a losing flight keeps
-what it earned. The alternative, v5's ledger masks and truncation tombstones,
-takes value back on the losing machine and conflicts with the 2026-10-19
-ruling. Revisit only if co-op groups use the double recovery as a farm.
+### 17.7 (resolved) What a losing flight keeps
+v6 defaulted to "verdicts keep value" (no row ever trimmed; both recoveries
+paid). Owner ruling 2026-10-24 reversed it: a trimmed flight's rows are
+trimmed too, or the door opens to paradoxes. To keep the never-reduce ruling
+at the same time, contested earnings are held until the race is final
+(owner pick among: hold until everyone syncs; spend at once and trim into
+debt; spend at once and charge back today; never take back). Text: 7.9 step
+3, 7.10.1 point 2, 7.10.2.
 
-### 17.8 Exporting `StockPoolAdjustment` rows
-Default in the text (section 5, 7.11 foundation 5): own `StockPoolAdjustment`
-rows written after the link export like any own Space Center row, so money a
-mod paid one player reaches the shared pool and every machine walks the same
-log. Rows minted before the link ride checkpoint 0. The alternative (keep them
-local) leaves each machine's pools off by its own untracked money and breaks
-principle 4. VERIFY at M3 that a merge never mints one (foundation 5).
+### 17.8 (resolved) Money outside the ledger
+Owner ruling 2026-10-24: a mod-compatibility question. A campaign links only
+with a matching mod set whose every mod is on Parsek's verified co-op
+allowlist (allowlist, not blocklist); single player keeps today's
+flexibility. A `StockPoolAdjustment` row in a linked save is a Parsek gap:
+shared as a ledger row, logged, announced once on screen (7.11 foundation 8).
+VERIFY at M3 that a merge never mints one (foundation 5).
+
+### 17.9 (resolved) Releasing a silent member's hold
+Owner ruling 2026-10-24: any member may mark a silent member away (an
+append-only `AwayMark`, 6.1); the away member's packets then rank at their
+`Back` record (7.10.2 rule 6). Rejected: founder only; nobody.
 
 ---
 

@@ -4488,6 +4488,16 @@ namespace Parsek
                                 recordings);
                     }
 
+                    // The Discard Re-fly lands in the rewind point's world: hold back what the
+                    // committed future uses there, as a plain rewind does (rewind design 10.13).
+                    // After the spawn-state restore above, so the claims the hold releases stay
+                    // released.
+                    if (refinedLoadKind == LoadKind.DiscardReFly)
+                    {
+                        loadPhase = "discard-refly-vessel-holds";
+                        ApplyDiscardReFlyVesselHolds(recordings, KerbalsModule.ReadLoadedSaveUT());
+                    }
+
                     // The revert prune's launch boundary, read by the route reconcile below.
                     double revertPruneCutoffUTForRoutes = double.NaN;
                     if (isRevert)

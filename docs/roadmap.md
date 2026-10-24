@@ -470,7 +470,7 @@ Out of scope by doctrine (revisit on demand): non-docking connection producers b
 **Status: deferred (owner ruling 2026-10-24).** Implementation does not start before Parsek's public
 release, and comes later only if Parsek has users. See "Current focus" above.
 
-Multiple players run one shared space program: one KSC, one pooled economy (science, funds, reputation, kerbals; contracts stay local-only in v1), one timeline with per-player attribution. The Kerbal system feels populated with vessels flying and bases being built. Players never need to be online simultaneously; the timeline converges over time - correspondence chess, not real-time multiplayer.
+Multiple players run one shared space program: one KSC, one timeline with per-player attribution, and in later versions one pooled economy. It is built mode by mode (owner ruling 2026-10-24): Sandbox first (no shared pool), then Science (one shared science pool), then Career (science, funds, reputation; contracts stay local-only). The Kerbal system feels populated with vessels flying and bases being built. Players never need to be online simultaneously; the timeline converges over time - correspondence chess, not real-time multiplayer.
 
 **Design (binding):** `docs/dev/design-coop-async-multiplayer.md` (2026-09-01). It supersedes this section's earlier sketch in two ways:
 

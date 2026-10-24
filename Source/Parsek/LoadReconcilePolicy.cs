@@ -1055,7 +1055,8 @@ namespace Parsek
 
         // Rewind design 10.13: the holds describe the world of the save that holds them (the
         // held vessels are absent from it), so a cold load takes the save's; a plain rewind
-        // computes its own from the rewind save's world; a Re-Fly takes its own invoke holds.
+        // computes its own from the rewind save's world; a Re-Fly takes its own invoke holds;
+        // a Discard Re-fly computes its own from the rewind point's world it lands in.
         private static LoadReconcileDecision DecideRewindVesselHolds(LoadKind kind)
         {
             switch (kind)
@@ -1074,7 +1075,8 @@ namespace Parsek
                         + "(RewindInvoker.HoldResurrectedVesselsWithCommittedFuture, saved on its marker)");
                 case LoadKind.DiscardReFly:
                     return Today(LoadReconcileAction.Clear,
-                        "the Re-Fly start cleared them; the discard lands in the rewind point's world");
+                        "cleared in the prologue; the in-session branch's ApplyDiscardReFlyVesselHolds then holds "
+                        + "what the committed future uses in the rewind point's world the discard lands in");
                 // Consumed in the prologue, before the revert detector: one cell for all three.
                 case LoadKind.StockRevert:
                 case LoadKind.QuickloadFlight:

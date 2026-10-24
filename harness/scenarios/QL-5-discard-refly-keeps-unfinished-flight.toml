@@ -43,6 +43,16 @@ id = "QL-5-discard-refly-keeps-unfinished-flight"
 #      loaded one (`marker source=memory(none; loaded=<sess>)`), and step B partitions the
 #      rewind points by owner, keeping `rp_b9_root` (`rp_b9_root:<class>:kept-...`).
 #
+#   4. The same OnLoad holds back what the committed future uses in the rewind point's world
+#      (todo DISCARD-REFLY-LANDS-WITHOUT-REWIND-HOLDS, fixed 2026-10-24): both B9 slot vessels
+#      are live in that world and both slot recordings fly on from the split, so the
+#      plain rewind's hold pass (`ParsekScenario.ApplyDiscardReFlyVesselHolds` ->
+#      `ApplyRewindVesselHolds`) takes each out of flightState
+#      (`[RewindHold] Rewind held vessel for its committed future: ... rec=b9-upper-b` /
+#      `rec=b9-booster-a`, summary `Rewind vessel hold: survivors=... held=... source=discard-refly`).
+#      Before the fix no hold line was written on this load and both vessels stayed live
+#      next to their own replaying recordings.
+#
 # THE HOST: S4.1's (`gloops-airshow` + the injected `rewind-b9` corpus): the B9 split
 # `rp_b9_root` whose slot 1, the crashed booster `b9-booster-a` (TerminalState.Destroyed,
 # MergeState.CommittedProvisional), is the open Unfinished Flight. The template loads into
@@ -176,13 +186,17 @@ required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation comple
              "Load classified: early=DiscardReFly refined=DiscardReFly scene=SPACECENTER [^\\r\\n]*discardReFly=Launch handoff=present",
              "In-session staged lists from memory: kind=DiscardReFly captured=OnDestroy; [^\\r\\n]*marker source=memory\\(none; loaded=",
              "In-session RP owner partition decisions: [^\\r\\n]*rp_b9_root:[A-Za-z]+:kept-",
+             "\\[RewindHold\\] Rewind held vessel for its committed future: pid=[0-9]+ name='[^']*' guid=\\S+ rec=b9-upper-b ",
+             "\\[RewindHold\\] Rewind held vessel for its committed future: pid=[0-9]+ name='[^']*' guid=\\S+ rec=b9-booster-a ",
+             "\\[RewindHold\\] Rewind vessel hold: survivors=[0-9]+ held=[1-9][0-9]* [^\\r\\n]*source=discard-refly",
              "reflyrevert complete choice=discard target=launch scene=SPACECENTER sess=\\S+ rp=rp_b9_root rpKept=true slot=b9-booster-a slotListed=true unfinishedFlights=[1-9][0-9]* marker=none"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]",
              "In-session load found no staged-list handoff",
              "DiscardReFly load intent dropped as stale",
              "Reaped rp=rp_b9_root",
              "Purged rp=rp_b9_root",
-             "Deleted rewind quicksave rp=rp_b9_root"]
+             "Deleted rewind quicksave rp=rp_b9_root",
+             "Discard Re-fly vessel hold skipped"]
 
 [expectations.rewind]
 gating        = false

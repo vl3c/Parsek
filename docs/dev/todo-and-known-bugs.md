@@ -30,7 +30,7 @@ classifies the attempt there as driver-stage INVALID) and record the rest in
 Consider also skipping the retry when the unmet verdict is a REJECTED gate refusal, which a re-boot
 cannot change.
 
-## DISCARD-REFLY-LANDS-WITHOUT-REWIND-HOLDS: after a Discard Re-fly, a vessel the committed future uses is a live vessel again [FILED 2026-10-24 from the item-7 re-check of the 10-16 audit's suspected defects, code read on main f3a22ce, not reproduced. Split out of the "Not covered" note of REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE. OPEN, medium, physical paradox]
+## ~~DISCARD-REFLY-LANDS-WITHOUT-REWIND-HOLDS: after a Discard Re-fly, a vessel the committed future uses is a live vessel again~~ [FILED 2026-10-24 from the item-7 re-check of the 10-16 audit's suspected defects, code read on main f3a22ce, not reproduced. Split out of the "Not covered" note of REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE. FIXED 2026-10-24 (xUnit), branch `claude/project-thread-mh6nli`, PR #2201; LIVE-PROVEN by QL-5 `2026-10-24_1026` (held=2, `source=discard-refly`). medium, physical paradox]
 
 A Re-Fly start holds every vessel its rewind point's world brings back that a committed recording
 uses after the rewind UT (design 2.12 Rule 3, `ParsekFlight.HoldReFlyInvokeVessels`, saved on the
@@ -46,6 +46,22 @@ Fix (proposed): run the plain rewind's hold over the discard's world (the same
 `RewindVesselHold.CollectChainHolds` + `ReFlyInvokeHold.Classify` pass at the rewind point's UT,
 from the discard's OnLoad), flip the policy cell's reason, and fly a lane that discards a Re-Fly
 next to a vessel with a committed future (RF lanes host the Re-Fly; EVA-11 / RC-6 assert the hold).
+
+Fix (2026-10-24, branch `claude/project-thread-mh6nli`): the Discard Re-fly load runs the plain
+rewind's hold. `ParsekScenario.ApplyDiscardReFlyVesselHolds`, from the in-session OnLoad branch when
+the refined kind is `DiscardReFly` (after the tree spawn-state restore, which would otherwise put back
+the spawn claims the hold releases; before the ledger recalculation), calls
+`ApplyRewindVesselHolds` at the loaded save's UT (`KerbalsModule.ReadLoadedSaveUT`, the rewind
+point's clock the handler wrote to persistent.sfs; the Planetarium clock is stale there, so an
+unusable save clock skips the hold with a Warn), then `ReconcileSpawnStateAfterStrip` and
+`RescueOrphanedCrew` when anything was held. The rewind point's world holds the split's own vessels
+too, and their committed recordings replay from the split, so they are held with the rest (first
+claim = the rewind UT in production, so no hold ghost shows; the B9 fixture's rewind point
+quicksave carries the donor's clock, 60 s before the split, so there the first claim is the split UT). The summary line carries `source=discard-refly`
+(`source=plain-rewind` on a plain rewind). The policy cell stays Clear in the prologue, its reason
+now names the recompute. Accepted gap: persistent.sfs still lists the held vessels until the next
+save, so a crash in that window cold-loads them live (no save from inside OnLoad). Tests:
+`RewindVesselHoldTests` (policy reason, cutoff), `LoadReconcileWiringGateTests.DiscardReFlyLoadHoldsAfterTheSpawnStateRestore`.
 
 ## ~~REWIND-HOLD-MISSES-CROSS-TREE-ADOPTED-VESSEL: a vessel another mission spawned and this one adopted by inventory transfer has no ghost after a rewind until its transfer member starts~~ [FILED 2026-10-24 from the item-7 re-check of the 10-16 audit's suspected defects (CLAIMED-VESSEL-HAS-NO-GHOST-BEFORE-ITS-MEMBER), code read on main f3a22ce, not reproduced. Split out of the "Not covered" note of REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE. FIXED 2026-10-24 on branch `claude/project-thread-1kbuzp`, xUnit only; a lane is owed. low, visual]
 
@@ -803,8 +819,10 @@ strategy converter debits, a destruction that makes a later committed repair cha
 fail that zeroes a later committed completion); (O7) `CanAffordFundsSpending` has no production
 caller (the route dispatch gate of PR #2159 used it until LOGISTICS-WITHOUT-MONEY phase 1) and the "keep what you earned" floor can hold the funds counter above the reservation.
 Coop retirements (a transient dependent's ledger effects, a truncation's tail rows) are the same
-shape; the coop design answers them in section 7.10.1 (v6, 2026-10-24: fold verdicts, salvage and
-orphaning never retire ledger rows; an imported Re-Fly retirement retires named loss rows only).
+shape; the coop design answers them in sections 7.10.1 and 7.10.2 (v7, owner rulings 2026-10-24:
+a losing flight's rows are trimmed with it, and contested earnings are held, unspendable, until
+the race is final, so a trim never lowers a balance; an imported Re-Fly retirement retires named
+loss rows only).
 Candidate shapes in the research doc, section 7.
 
 **Rulings (V, 2026-10-21, ledger rulings interview; record: project file
@@ -1214,7 +1232,8 @@ rewind (`RecordingStore.WillReplayAfterRewind`, the strip and spawn gates' predi
 bring the vessel back, so it holds nothing (`chainsNotReplayed=` / `fliesNotReplayed=` in the summary)
 and the vessel stays live as before. Tests: `RewindVesselHoldTests`.
 Not covered: a Discard Re-fly lands in the rewind point's world with no hold (the Re-Fly start
-cleared the plain rewind's, and the discard computes none). And a vessel another tree spawned and
+cleared the plain rewind's, and the discard computes none; fixed 2026-10-24, see
+DISCARD-REFLY-LANDS-WITHOUT-REWIND-HOLDS). And a vessel another tree spawned and
 this tree adopted by inventory transfer (EVA-9's capsule) is taken by the rewind's spawn strip
 (`superseding-continuation-replays`) before the hold runs, so a flight near it shows nothing of it
 until its transfer member's ghost starts (`ForeignInventoryTransfer.FindAdoptedForeignVesselMember`
@@ -18227,7 +18246,7 @@ Every Tier 1 merge-queue item below LANDED on `main` (verified 2026-07-11 via `g
 
 ### Tier 4 - LONG-HORIZON: the strategic arc
 - **Gloops extraction -> Gloops.dll** (XL) - now a standalone-mod code-health track, NOT a multiplayer gateway: the Phase 14 design (2026-09-01) exchanges Parsek-native full-fidelity packets and explicitly decouples from the `.gloop` format (foreign recordings are full citizens: ledger rows, real spawns, interaction - all things `.gloop` strips). Prior caveats stand (engine coupling re-accreted; parallel Gloops recorder #435 to consolidate first). Don't start until logistics/missions are done - every in-flight feature still edits the engine files.
-- **Phase 14 co-op async multiplayer** -> **Phase 15 space race** -> **Phase 16 mod compat**. Phase 14 DESIGN COMPLETE (2026-09-01): `docs/dev/design-coop-async-multiplayer.md` (v2 after 2 adversarial reviews + 3 code verifications) - shared-folder contribution exchange, campaigns/checkpoints, read-only foreign citizenship + ownership fence, arbitration fold + salvage ladder, merged economy (deterministic sort, once-ever spend dedup, debt, earlier-UT credit), crew claims. Implementation phased M1-M6 with a 38-task breakdown in `docs/dev/plans/coop-async-multiplayer-tasks.md` (+ `-inventory.md` verified-mechanics map, `-deferred.md` D1-D16). Design v5 (2026-09-02): any player controls any campaign vessel (foreign-continuation route, no ownership guards), own continuations/recoveries of exported terminals are claims too, covering-link acceptance + fit clause (c), coupling dependents salvaged not deleted, UT-gated foreign tech/hire blocks, schema generation bumps to 5 in M2.1, attribution only with 2+ registered players, all work on integration branch `coop-multiplayer` with task sub-branch PRs (main untouched until complete). Pre-implementation refactors tiered in `docs/dev/plans/coop-async-multiplayer-prerefactor.md` (A1-A6 before M2, B1-B3 before M3, C1-C7 before M4; C3 = the post-commit leaf spawner bypasses the spawn gate today, a real solo gap) Design v6 freshness pass (2026-10-24): aligned with Re-Fly ledger safety, the committed-value rule, load restores the save, the quarantine grace and no-money logistics; open owner questions 17.6-17.8 in the design.
+- **Phase 14 co-op async multiplayer** -> **Phase 15 space race** -> **Phase 16 mod compat**. Phase 14 DESIGN COMPLETE (2026-09-01): `docs/dev/design-coop-async-multiplayer.md` (v2 after 2 adversarial reviews + 3 code verifications) - shared-folder contribution exchange, campaigns/checkpoints, read-only foreign citizenship + ownership fence, arbitration fold + salvage ladder, merged economy (deterministic sort, once-ever spend dedup, debt, earlier-UT credit), crew claims. Implementation phased M1-M6 with a 38-task breakdown in `docs/dev/plans/coop-async-multiplayer-tasks.md` (+ `-inventory.md` verified-mechanics map, `-deferred.md` D1-D16). Design v5 (2026-09-02): any player controls any campaign vessel (foreign-continuation route, no ownership guards), own continuations/recoveries of exported terminals are claims too, covering-link acceptance + fit clause (c), coupling dependents salvaged not deleted, UT-gated foreign tech/hire blocks, schema generation bumps to 5 in M2.1, attribution only with 2+ registered players, all work on integration branch `coop-multiplayer` with task sub-branch PRs (main untouched until complete). Pre-implementation refactors tiered in `docs/dev/plans/coop-async-multiplayer-prerefactor.md` (A1-A6 before M2, B1-B3 before M3, C1-C7 before M4; C3 = the post-commit leaf spawner bypasses the spawn gate today, a real solo gap) Design v6 freshness pass (2026-10-24): aligned with Re-Fly ledger safety, the committed-value rule, load restores the save, the quarantine grace and no-money logistics. Design v7 (owner rulings 2026-10-24): shared stays shared; a losing flight's rows are trimmed and contested earnings are held until final; co-op links only with an allowlisted mod set; any member may mark a silent member away; built mode by mode, Sandbox (v1), Science (v2), Career (v3), and not implemented before base Parsek is release-ready.
 - **Parked mission shapes** - ~~M-MIS-6 (multi-moon, needs a design note)~~ BUILT + MERGED (PR #1256; design note `docs/dev/design-mission-multimoon-alignment.md` done; gated only on an in-game looped-Jool playtest observation) and ~~M-MIS-8 (cross-tree foreign dock, low value)~~ MERGED (PR #1261). Still parked: **M-MIS-7** (intra-SOI re-aim, gated on M-MIS-6 playtest evidence). Hold pending a concrete player ask.
 
 ### Open maintainer decisions (surfaced this session)

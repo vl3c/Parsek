@@ -393,6 +393,25 @@ namespace Parsek.Tests
             Assert.True(LoadReconcilePolicy.IsConsumedEarly(LoadStateCategory.RewindVesselHolds));
         }
 
+        [Fact]
+        public void LoadPolicy_DiscardReFly_ClearsThenTheDiscardLoadComputesItsOwn()
+        {
+            LoadReconcileDecision decision =
+                LoadReconcilePolicy.Decide(LoadKind.DiscardReFly, LoadStateCategory.RewindVesselHolds);
+            Assert.Equal(LoadReconcileAction.Clear, decision.Action);
+            Assert.Contains("ApplyDiscardReFlyVesselHolds", decision.Reason);
+        }
+
+        [Fact]
+        public void DiscardReFlyCutoff_IsTheLoadedSaveClock_AndNeverAnUnusableOne()
+        {
+            Assert.Equal(1234.5, ParsekScenario.ResolveDiscardReFlyHoldCutoffUT(1234.5));
+            Assert.True(double.IsNaN(ParsekScenario.ResolveDiscardReFlyHoldCutoffUT(double.NaN)));
+            Assert.True(double.IsNaN(ParsekScenario.ResolveDiscardReFlyHoldCutoffUT(double.PositiveInfinity)));
+            Assert.True(double.IsNaN(ParsekScenario.ResolveDiscardReFlyHoldCutoffUT(0.0)));
+            Assert.True(double.IsNaN(ParsekScenario.ResolveDiscardReFlyHoldCutoffUT(-5.0)));
+        }
+
         // ---------- The rewind's landing world --------------------------------
 
         [Fact]
