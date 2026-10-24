@@ -78,6 +78,8 @@ namespace Parsek.Tests
                 ["InGameTests/StockUiFacilityMenuTests.cs::AddCommittedFacilityUpgradeFixture"] = new[] { Stock },
                 ["InGameTests/ReFlyRecoveryBundleRuntimeTest.cs::ReFlyMergeRetiresRecoveryBundleAndStopsCareerLogReassert"] = new[] { Stock, Stock, Stock, Stock, Stock },
                 ["InGameTests/DiscardEconomyPreservationInGameTest.cs::RunSeededDiscardScenario"] = new[] { Stock },
+                ["InGameTests/ContractReachedOutcomeInGameTest.cs::ReachedCommittedOutcomeBlocksDeadlineExpiryAndFail"] = new[] { Stock },
+                ["InGameTests/ContractReachedOutcomeInGameTest.cs::EndedCommittedLifecycleRemovesTheStaleOffer"] = new[] { Stock, Stock },
             };
 
         private static readonly Dictionary<string, int> PinnedRestores =

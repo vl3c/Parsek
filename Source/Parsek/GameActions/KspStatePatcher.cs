@@ -3951,6 +3951,31 @@ namespace Parsek
                 unregisterBeforeRemove: false,
                 ref unregisterFailures);
 
+            // An Offered copy of a contract whose lifecycle the walk already ended. A rewind to
+            // before the accept puts the contract back on offer; when no recalculation ran
+            // between the committed accept and the committed outcome (a flight passing both,
+            // the flight scene has no clock cursor), the rebuild below never replaced the
+            // Offered copy, and it would stay acceptable for a second advance.
+            var staleOfferedKeys = BuildEndedLifecycleOfferedRemovalKeys(
+                currentEntries, activeIdSet, terminalIdSet);
+            int removedStaleOffered = 0;
+            if (staleOfferedKeys.Count > 0)
+            {
+                removedStaleOffered = RemoveContractsByKey(
+                    currentContracts,
+                    staleOfferedKeys,
+                    unregisterBeforeRemove: true,
+                    ref unregisterFailures);
+                var staleOfferedIds = new List<string>();
+                foreach (var key in staleOfferedKeys)
+                    staleOfferedIds.Add(key.Id.ToString());
+                staleOfferedIds.Sort(StringComparer.Ordinal);
+                ParsekLog.Info(Tag,
+                    $"PatchContracts: removed {removedStaleOffered.ToString(IC)} Offered copy(ies) of contract(s) " +
+                    $"whose committed lifecycle already ended: " +
+                    ComposeBoundedIdentitySample(staleOfferedIds, IdentitySampleCap));
+            }
+
             ParsekLog.Verbose(Tag,
                 $"PatchContracts: removed {removedStale.ToString(IC)} stale Active/terminal contract(s), " +
                 $"{removedFinishedTombstoned.ToString(IC)} tombstoned finished terminal contract(s), " +
@@ -4423,6 +4448,37 @@ namespace Parsek
                 {
                     keys.Add(ToRemovalKey(entry));
                 }
+            }
+
+            return keys;
+        }
+
+        /// <summary>
+        /// Pure: the live Offered entries whose contract the walk holds terminal and not
+        /// Active (todo STALE-OFFER-RE-ACCEPTABLE-AFTER-FLIGHT-PASSES-COMMITTED-RESOLUTION).
+        /// Stock never re-offers a finished guid, so such an offer is the quicksave's copy from
+        /// before a committed accept that a rewind restored; the committed timeline already
+        /// accepted and ended it. Declined and every other state are left alone.
+        /// </summary>
+        internal static HashSet<ContractRemovalKey> BuildEndedLifecycleOfferedRemovalKeys(
+            IReadOnlyList<ContractFilterEntry> currentEntries,
+            HashSet<Guid> activeIdSet,
+            HashSet<Guid> terminalIdSet)
+        {
+            var keys = new HashSet<ContractRemovalKey>();
+            if (currentEntries == null || terminalIdSet == null || terminalIdSet.Count == 0)
+                return keys;
+
+            for (int i = 0; i < currentEntries.Count; i++)
+            {
+                var entry = currentEntries[i];
+                if (entry.State != Contract.State.Offered)
+                    continue;
+                if (!terminalIdSet.Contains(entry.Id))
+                    continue;
+                if (activeIdSet != null && activeIdSet.Contains(entry.Id))
+                    continue;
+                keys.Add(ToRemovalKey(entry));
             }
 
             return keys;
