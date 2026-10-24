@@ -1632,6 +1632,9 @@ namespace Parsek
             }
         }
 
+        internal const string WindowedIntervalFieldDisabledReason =
+            "This route delivers on launch windows, so it takes no typed interval; use -/+ to deliver every Nth window";
+
         /// <summary>
         /// Draws the M1 inline cadence control inside the Interval cell of a route
         /// row: a compact "[-] field [+]" stepper plus a small "Nx" multiplier label.
@@ -1646,9 +1649,6 @@ namespace Parsek
         /// <see cref="RouteCadence.ApplyMultiplier"/> DIRECTLY in
         /// <see cref="CommitIntervalEdit"/> (never via a frame-reset pending field).
         /// </summary>
-        internal const string WindowedIntervalFieldDisabledReason =
-            "This route delivers on launch windows, so it takes no typed interval; use -/+ to deliver every Nth window";
-
         private void DrawIntervalCell(Route route, RouteLegibility leg)
         {
             string controlName = "LogiInterval_" + (route.Id ?? "<no-id>");
