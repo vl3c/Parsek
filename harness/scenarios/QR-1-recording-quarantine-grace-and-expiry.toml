@@ -1,0 +1,191 @@
+schema = 1
+id = "QR-1-recording-quarantine-grace-and-expiry"
+tier = "nightly"
+# =====================================================================================
+# THE RECORDING FILE QUARANTINE: 14-day grace, expiry, and restore when named again.
+# Two fixes, one boot, no flight (todo RECORDING-QUARANTINE-NEVER-EMPTIED, fix 9fdd78b;
+# todo GC15-UNNAMED-VERSION-DELETED-WITHOUT-GRACE, fix 9ec9104; rule in
+# design-load-restores-the-save.md 4.5 "The quarantine").
+#
+# AUTHORED 2026-10-24, NEVER FLOWN. Every pin below is derived from the C# format string
+# that writes it (ParsekFileCollector.cs, SidecarVersions.cs, SidecarFileCommitBatch.cs,
+# TrajectorySidecarBinary.cs, ParsekScenario.cs) and from the fixture's own bytes
+# (`python harness/tools/build_recording_quarantine_ksc.py` prints every hash and the
+# byte count). GUESSES the first flight confirms are marked GUESS.
+#
+# HOST: `recording-quarantine-ksc`, derived by `harness/tools/build_recording_quarantine_ksc.py`
+# from `career-earned-ksc` (vessel-less career, NoVesselSpaceCenter route, committed tree
+# "Jumping Flea" with R1 = 1d611e75... (510 points) and R2 = 5436a7e8... (18 points)).
+# No seam verb can plant a file, so the states the collector judges are COMMITTED in the
+# fixture and staged by the verbatim copytree:
+#   R1 (GC-15, "a save restored from outside the folder"): the save names vesselHash
+#      2b5c00ba2929612e and ghostHash 214ff67b915c1b62 (the base bytes); the heads hold a
+#      NEWER copy (b699f11c1f8045fc / b2a645edb318eaf5); the named ghost waits as a live
+#      version in `_versions/`, the named vessel waits in `_versions/_quarantine/2020-01-01/`
+#      (quarantined by an earlier collection, long expired).
+#   R2 (restore): all five files in `_quarantine/2020-01-01/` (expired), no head.
+#   O1 9f1e5...01: an unnamed five-file set at the HEAD position (the fresh case).
+#   O2 9f1e5...02: an unnamed five-file set in `_quarantine/2020-01-01/` (expired).
+#   O3 9f1e5...03: an unnamed five-file set FLAT in `_quarantine/` (the pre-fix layout).
+#   O4 9f1e5...04: an unnamed ghost version in `_versions/_quarantine/2020-01-01/` (expired).
+#
+# THE ONE COLD OnLoad DOES ALL OF IT, in this order (ParsekScenario cold branch):
+#   1. phase `quarantine-restore` (RestoreQuarantinedNamedBy, before hydration): the save
+#      names R2 and (R1, 2b5c00ba2929612e), so R2's five files go back to the head
+#      position and R1's vessel version goes back to `_versions/` -> `Quarantine restore at
+#      load: restored=5 namedHeadExists=0 versionsRestored=1 namedRecordings=2`. An
+#      expired date does not matter: restore runs before any purge.
+#   2. hydration: R1's vessel and ghost heads miss their named hash, both versions carry
+#      it, one owner -> both PROMOTED in one batch; each newer head is retained under its
+#      own hash (`Sidecar retained: ... reason=rewrite outcome=filed`). R2 reads its
+#      restored `.prec` (no hash, epoch rule).
+#   3. phase `file-collection` (Run "cold-load"): O4 purged (expired), R1's two newer
+#      copies QUARANTINED into today's `_versions/_quarantine/` (nothing names them), O1
+#      quarantined into today's `_quarantine/` and judged waiting in the same pass, O2
+#      purged (expired), O3 filed into today's folder.
+#
+# WHICH PINS PROVE THE FIXES (none can print before its fix):
+#   * GC-15 (9ec9104): `Version quarantined: rec=<R1> kind=vessel|ghost hash=<newer>`,
+#     `versionsQuarantined=2 ... versionsDeleted=0`, `Restored quarantined version:`,
+#     `versionsRestored=1`, `Quarantined version purged:` - the version quarantine did not
+#     exist. Before it, R1's vessel version was invisible in `_versions/_quarantine/`, so R1
+#     read `Sidecar version unresolved: ... kind=vessel ... reason=stale-sidecar-epoch`
+#     (forbidden) and the ghost's newer copy, promoted in the same call, was deleted at once
+#     as `Version collected: rec=<R1> kind=ghost hash=b2a645edb318eaf5` (forbidden).
+#   * NEVER-EMPTIED (9fdd78b): `Restored quarantined recording file:`, `Quarantine restore
+#     at load:`, `Quarantined recording file purged:`, `Quarantine judged: ... dated=5`, the
+#     dated `-> _quarantine/<yyyy-MM-dd>/` suffix and the `quarantinePurged=` /
+#     `quarantineDated=` summary keys. Before it nothing read `_quarantine/`, so R2 hydrated
+#     `LoadRecordingFiles: missing trajectory sidecar` (forbidden) and the produced save held
+#     ONE `.prec` at the head position, not two.
+#   * THE PRODUCED SAVE DIRECTORY: `[expectations.recordings] count` is run.py's
+#     `count_recordings`, the number of `.prec` files at the produced save's
+#     `Parsek/Recordings/` top level. Exactly 2 means R1's head stayed, R2's came back and
+#     O1's left (into quarantine, not deleted: `headsQuarantined=5`, `failures=0`). Before
+#     9fdd78b it reads 1. No verifier lists `_quarantine/` itself (saveParse reads only
+#     persistent.sfs), so the moves inside it are proven by the collector's own per-file
+#     lines and its summary counters.
+#
+# DERIVED COUNTS: five files per set (.prec, .prec.txt, .pann, _vessel.craft,
+# _ghost.craft), so headsQuarantined / quarantinePurged / quarantineDated / waiting / the
+# restore are 5 each; bytesFreed = O2's five files (22,498) + O4 (6,240) = 28,738 (TryDelete
+# sums the deleted lengths). Resolution summary: R1 prec has no hash (1 noHash), vessel +
+# ghost resolve from versions (2), R2 names no hash (3 noHash) -> files=6 head=0 version=2
+# noHash=4 owners=2.
+#
+# GUESSES the first flight confirms:
+#   * Verbose is ON at the first load. No SetSetting can precede the first LoadGame (it
+#     Defers until a game is loaded), so the per-file Verbose lines rely on the fixture's own
+#     `verboseLogging = True`; run.py's stage writes a settings sidecar WITHOUT a
+#     verboseLogging key, so the save's value governs. The Info lines (`Collection:`,
+#     `Quarantine restore at load:`, `Restored quarantined ...`, the resolution summary) do
+#     not depend on it.
+#   * referrers / scanned are regexed (persistent.sfs, plus any stock Backup copy).
+#   * Nothing else in the cold load rewrites an R1 / R2 hashed sidecar (that would retain
+#     another version and move versionsQuarantined off 2). career-earned-ksc lanes show none.
+#   * R2's section-authoritative read prints `rebuiltPoints=18` (the save's pointCount;
+#     ST-4 measured R1's 510 the same way).
+#   * The dated folder name is the run's UTC date; the pins only require it is not
+#     2020-01-01.
+#
+# FAST-LANE CHECKLIST: (1) no host flight to reuse - the states live in a derived fixture
+# no existing lane boots, and planting them in a shared host would change every lane on it;
+# (2)-(5) no waits, dwells, burns or coasts: LoadGame, SaveGame, FlushAndQuit; (6) one boot,
+# nothing to fail fast on; (7) every count pinned exact; (8)-(9) after the first flight.
+# =====================================================================================
+description = "Recording file quarantine (AUTHORED 2026-10-24, never flown): one cold load of a derived career save whose Parsek/Recordings holds every collector state - a named recording and a named version waiting in long-expired quarantine folders (restored before hydration and loaded whole), newer snapshot heads a restored older save does not name (promoted aside and QUARANTINED, not deleted: GC-15), an unnamed head set (quarantined into today's folder and kept), an expired unnamed set and version (purged) and a flat undated set (dated); then a save and quit with exactly two .prec heads left."
+instanceProfile = "stock-minimal"
+tags = ["QR-1", "storage", "file-collector", "quarantine", "gc15", "career", "cold-load"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/recording-quarantine-ksc"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SaveGame",   args = { name = "persistent" },                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                                        expect = "OK" },
+]
+
+[dimensionsCovered]
+# No D16 value names the file collector; QR-1 claims only the environment it boots in.
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# run.py count_recordings: top-level `.prec` files of the produced save = R1 + restored R2.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  # The cold load.
+  "OnLoad initial: cleared CommittedTrees, loading 1 tree\\(s\\)",
+  # 1. Restore before hydration (Info).
+  "\\[FileCollector\\] Restored quarantined recording file: 5436a7e8840b4c5885afcbaedc9dc037\\.prec \\(id=5436a7e8840b4c5885afcbaedc9dc037\\) reason=named-by-loaded-save",
+  "\\[FileCollector\\] Restored quarantined recording file: 5436a7e8840b4c5885afcbaedc9dc037_vessel\\.craft \\(id=5436a7e8840b4c5885afcbaedc9dc037\\) reason=named-by-loaded-save",
+  "\\[FileCollector\\] Restored quarantined version: 1d611e7533a64508ae6f3b305a51615e\\.2b5c00ba2929612e_vessel\\.craft \\(rec=1d611e7533a64508ae6f3b305a51615e hash=2b5c00ba2929612e\\) reason=named-by-loaded-save",
+  "\\[FileCollector\\] Quarantine restore at load: restored=5 namedHeadExists=0 versionsRestored=1 namedRecordings=2",
+  # 2. Hydration: both R1 snapshots promoted from their versions (Verbose), both newer
+  #    heads retained under their own hashes (Verbose), R2 read whole (Verbose).
+  "\\[RecordingStore\\] Sidecar version resolved: rec=1d611e7533a64508ae6f3b305a51615e kind=vessel hash=2b5c00ba2929612e source=version promoted=True",
+  "\\[RecordingStore\\] Sidecar version resolved: rec=1d611e7533a64508ae6f3b305a51615e kind=ghost hash=214ff67b915c1b62 source=version promoted=True",
+  "\\[RecordingStore\\] Sidecar retained: rec=1d611e7533a64508ae6f3b305a51615e kind=vessel hash=b699f11c1f8045fc reason=rewrite outcome=filed",
+  "\\[RecordingStore\\] Sidecar retained: rec=1d611e7533a64508ae6f3b305a51615e kind=ghost hash=b2a645edb318eaf5 reason=rewrite outcome=filed",
+  "\\[RecordingStore\\] ReadBinaryTrajectoryFile: recording=1d611e7533a64508ae6f3b305a51615e .* rebuiltPoints=510 ",
+  "\\[RecordingStore\\] ReadBinaryTrajectoryFile: recording=5436a7e8840b4c5885afcbaedc9dc037 .* rebuiltPoints=18 ",
+  "\\[RecordingStore\\] Sidecar version resolution summary: reason=cold-onload files=6 head=0 version=2 promoted=2 readWithoutPromote=0 unresolved=0 noHash=4 owners=2",
+  # 3. Collection: the version quarantine (GC-15).
+  "\\[FileCollector\\] Quarantined version purged: 9f1e5000000000000000000000000004\\.486d3c3e4018344d_ghost\\.craft quarantined=2020-01-01 graceDays=14",
+  "\\[FileCollector\\] Version quarantine judged: restored=0 purged=1 waiting=0",
+  "\\[FileCollector\\] Version quarantined: rec=1d611e7533a64508ae6f3b305a51615e kind=vessel hash=b699f11c1f8045fc -> _versions/_quarantine/(?!2020-01-01)[0-9]{4}-[0-9]{2}-[0-9]{2}/",
+  "\\[FileCollector\\] Version quarantined: rec=1d611e7533a64508ae6f3b305a51615e kind=ghost hash=b2a645edb318eaf5 -> _versions/_quarantine/(?!2020-01-01)[0-9]{4}-[0-9]{2}-[0-9]{2}/",
+  "\\[FileCollector\\] Versions judged: kept=0 quarantined=2 deleted=0",
+  #    The head quarantine (NEVER-EMPTIED).
+  "\\[FileCollector\\] Quarantined orphan recording file: 9f1e5000000000000000000000000001\\.prec \\(id=9f1e5000000000000000000000000001\\) -> _quarantine/(?!2020-01-01)[0-9]{4}-[0-9]{2}-[0-9]{2}/",
+  "\\[FileCollector\\] Quarantined recording file purged: 9f1e5000000000000000000000000002\\.prec \\(id=9f1e5000000000000000000000000002\\) quarantined=2020-01-01 graceDays=14",
+  "\\[FileCollector\\] Quarantine judged: restored=0 purged=5 dated=5 waiting=5 namedKept=0 unrecognized=0",
+  #    The whole pass (Info).
+  "\\[FileCollector\\] Collection: referrers=[1-9][0-9]* scanned=[1-9][0-9]* cached=0 incomingFiled=0 versionsDeleted=0 versionsQuarantined=2 versionsRestored=0 versionsPurged=1 headsQuarantined=5 quarantineRestored=0 quarantinePurged=5 quarantineDated=5 transientDeleted=0 rewindPointFilesDeleted=0 rewindSavesDeleted=0 failures=0 bytesFreed=28738 ms=[0-9]+ reason=cold-load",
+  # Order: restore before hydration before collection.
+  "(?s)Quarantine restore at load: restored=5 .*Sidecar version resolved: rec=1d611e7533a64508ae6f3b305a51615e kind=vessel .*\\[FileCollector\\] Collection: referrers=",
+  # The save afterwards still holds the tree.
+  "OnSave: saving 1 committed tree\\(s\\)",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The pre-fix shapes.
+  "\\[FileCollector\\] Version collected: rec=1d611e7533a64508ae6f3b305a51615e",
+  "\\[RecordingStore\\] Sidecar version unresolved: ",
+  "LoadRecordingFiles: missing trajectory sidecar",
+  # A named or fresh file is never purged; a named recording is never quarantined.
+  "Quarantined recording file purged: (5436a7e8840b4c5885afcbaedc9dc037|1d611e7533a64508ae6f3b305a51615e|9f1e5000000000000000000000000001|9f1e5000000000000000000000000003)",
+  "Quarantined version purged: 1d611e7533a64508ae6f3b305a51615e",
+  "Quarantined orphan recording file: (5436a7e8840b4c5885afcbaedc9dc037|1d611e7533a64508ae6f3b305a51615e)",
+  # The resolution took another branch.
+  "Sidecar version read without promote: rec=1d611e7533a64508ae6f3b305a51615e",
+  "Sidecar version promote failed",
+  # The collection did not run whole.
+  "\\[FileCollector\\] Collection skipped reason=(?!rate-limited)",
+  "\\[FileCollector\\] Collection aborted",
+  "\\[FileCollector\\] Quarantine restore at load aborted",
+  "\\[FileCollector\\] Failed to ",
+]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): max(step_budget, 600) + 60 per DEFERRED verb (LoadGame)
+# and max(step_budget, dispatch + 60) for the rest:
+#   LoadGame 660   SetSetting 120   SaveGame 120   FlushAndQuit 120      -> sum 1020
+# 1400 clears it by 380.
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
