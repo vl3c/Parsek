@@ -55,8 +55,8 @@ Auto-merge is always on, so the merge normally happens silently without this dia
 leaving the flight for the Space Center or the Tracking Station commits the mission. Two
 exits always ask regardless: concluding a Rewind to Separation attempt (whose dialog can
 also offer "Merge & Seal" and "Commit (don't seal)"), and quitting to the main menu with an
-uncommitted mission. A map Switch To onto another vessel never asks: the flight you are
-leaving is merged, or dropped when it changed nothing. A Revert never shows it: the reverted flight is thrown away. (There is no setting for this. The
+uncommitted mission. A map Switch To onto another vessel never asks (outside a Re-Fly): the
+flight you are leaving is merged, or dropped when it changed nothing. A Revert never shows it: the reverted flight is thrown away. (There is no setting for this. The
 2026-08-27 settings simplification hardwired auto-merge on; the toggle earlier versions
 of this guide described no longer exists.)
 

@@ -16,9 +16,12 @@ namespace Parsek.Tests
         private static MapFocusObjectOnSelectPatch.PreSwitchAutoResolution Decide(
             bool isAutoMerge, bool hasSession, bool evaluable, bool priorIsNoOp,
             SwitchSegmentDisposition disposition = SwitchSegmentDisposition.None,
-            bool idleOnPad = false)
+            bool idleOnPad = false,
+            bool stockWillRefuse = false,
+            bool reFlyOrJournal = false)
             => MapFocusObjectOnSelectPatch.DecidePreSwitchAutoResolution(
-                isAutoMerge, hasSession, evaluable, priorIsNoOp, disposition, idleOnPad);
+                stockWillRefuse, reFlyOrJournal, isAutoMerge, hasSession, evaluable,
+                priorIsNoOp, disposition, idleOnPad);
 
         private const MapFocusObjectOnSelectPatch.PreSwitchAutoResolution Dialog =
             MapFocusObjectOnSelectPatch.PreSwitchAutoResolution.Dialog;
@@ -26,6 +29,8 @@ namespace Parsek.Tests
             MapFocusObjectOnSelectPatch.PreSwitchAutoResolution.Discard;
         private const MapFocusObjectOnSelectPatch.PreSwitchAutoResolution Merge =
             MapFocusObjectOnSelectPatch.PreSwitchAutoResolution.Merge;
+        private const MapFocusObjectOnSelectPatch.PreSwitchAutoResolution StockWillRefuse =
+            MapFocusObjectOnSelectPatch.PreSwitchAutoResolution.StockWillRefuse;
 
         // catches: a no-op segment of a background member still asking (the reported case).
         [Fact]
@@ -87,17 +92,51 @@ namespace Parsek.Tests
             Assert.Equal(Merge, Decide(true, false, true, false));
         }
 
-        // catches: pressing a button for the player while a restore owns the tree or the
-        // no-op check threw.
+        // catches: a recording that could not be judged being discarded on a guess, or the
+        // dialog coming back for it under auto-merge.
         [Theory]
         [InlineData(true, true)]
         [InlineData(true, false)]
         [InlineData(false, true)]
         [InlineData(false, false)]
-        public void Unevaluated_AlwaysShowsTheDialog(bool hasSession, bool priorIsNoOp)
+        public void Unevaluated_MergesUnderAutoMerge_DialogWithItOff(bool hasSession, bool priorIsNoOp)
         {
-            Assert.Equal(Dialog, Decide(true, hasSession, false, priorIsNoOp,
+            Assert.Equal(Merge, Decide(true, hasSession, false, priorIsNoOp,
                 SwitchSegmentDisposition.Standalone, idleOnPad: true));
+            Assert.Equal(Dialog, Decide(false, hasSession, false, priorIsNoOp,
+                SwitchSegmentDisposition.Standalone, idleOnPad: true));
+        }
+
+        // catches: the recording being committed (or dropped) for a switch stock then refuses
+        // (the S0.13 first flight: a click 0.1 s after a decouple, "under acceleration").
+        [Theory]
+        [InlineData(true, true, true)]
+        [InlineData(true, true, false)]
+        [InlineData(true, false, false)]
+        [InlineData(false, true, true)]
+        [InlineData(false, false, false)]
+        public void StockWillRefuse_DecidesNothing(bool isAutoMerge, bool hasSession, bool priorIsNoOp)
+        {
+            Assert.Equal(StockWillRefuse, Decide(isAutoMerge, hasSession, true, priorIsNoOp,
+                SwitchSegmentDisposition.BgMemberOrMixed, stockWillRefuse: true));
+            Assert.Equal(StockWillRefuse, Decide(isAutoMerge, hasSession, true, priorIsNoOp,
+                stockWillRefuse: true, reFlyOrJournal: true));
+        }
+
+        // catches: a Re-Fly tree being committed through the plain in-flight commit (no
+        // supersede rows, no journal) because a switch between the re-flown vessel and its
+        // own crew pressed Merge.
+        [Theory]
+        [InlineData(true, true, false)]
+        [InlineData(true, true, true)]
+        [InlineData(true, false, false)]
+        [InlineData(false, true, false)]
+        public void ReFlyOrJournal_KeepsTheDialog(bool isAutoMerge, bool hasSession, bool priorIsNoOp)
+        {
+            Assert.Equal(Dialog, Decide(isAutoMerge, hasSession, true, priorIsNoOp,
+                SwitchSegmentDisposition.Standalone, reFlyOrJournal: true));
+            Assert.Equal(Dialog, Decide(isAutoMerge, hasSession, false, priorIsNoOp,
+                reFlyOrJournal: true));
         }
 
         [Theory]

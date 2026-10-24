@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using KSP.UI.Screens.Mapview.MapContextMenuOptions;
 
@@ -190,8 +191,9 @@ namespace Parsek.Patches
 
             // Design section 2.12 Rule 3: during a Re-Fly session only the re-flown vessel
             // and its own EVA crew can be flown. The refusal runs before the pre-switch
-            // dialog decision, so that dialog is never reached during a session; skipping
-            // OnSelect leaves the map open and the active vessel unchanged.
+            // dialog decision, so only a switch between the re-flown vessel and its own crew
+            // reaches it during a session (TryAutoResolvePreSwitch then presses no button);
+            // skipping OnSelect leaves the map open and the active vessel unchanged.
             if (ReFlySwitchGate.IsRefused(vessel.persistentId, reFlyPath))
                 return false;
 
@@ -340,11 +342,15 @@ namespace Parsek.Patches
                         // (design section 5.4, "Switching vessels in flight"): a prior
                         // recording that changed nothing is discarded, anything else is
                         // merged. The dialog below stays only for auto-merge off (an
-                        // automation hook) and for a prior recording that cannot be read
-                        // safely right now.
+                        // automation hook). A switch stock is about to refuse decides
+                        // nothing: it takes the plain arm path, stock refuses it with its
+                        // own message, and the Postfix clears the marker.
                         if (TryAutoResolvePreSwitch(vessel, existingSession,
-                                targetIsSeparateCommittedVessel, out _))
+                                targetIsSeparateCommittedVessel,
+                                out PreSwitchAutoResolution autoResolution))
                             return false;
+                        if (autoResolution == PreSwitchAutoResolution.StockWillRefuse)
+                            break;
 
                         // Distinguish the three OpenDialog routes in KSP.log so
                         // a reader can tell Case A (session) from the two
@@ -449,28 +455,42 @@ namespace Parsek.Patches
         /// </summary>
         internal enum PreSwitchAutoResolution
         {
-            /// <summary>Show the dialog: auto-merge is off (an automation hook), the
-            /// prior recording's no-op check could not run (a restore in progress, a
-            /// throw), or a no-op segment of a mixed tree with auto-merge off.</summary>
+            /// <summary>Show the dialog: auto-merge is off (an automation hook) and the
+            /// prior recording is not a no-op the dialog never asked about, or a Re-Fly
+            /// session or merge journal is live (the Re-Fly owns how its tree is merged, so
+            /// the switch presses no button for it).</summary>
             Dialog = 0,
 
             /// <summary>The prior recording changed nothing: press Discard.</summary>
             Discard = 1,
 
-            /// <summary>The prior recording changed something: press Merge.</summary>
+            /// <summary>The prior recording changed something, or its no-op check could
+            /// not run (a restore in progress, a throw): press Merge, which keeps the
+            /// data.</summary>
             Merge = 2,
+
+            /// <summary>Stock is about to refuse the switch (<c>FlightGlobals.ClearToSave</c>
+            /// is not CLEAR: under acceleration, in atmosphere, throttled up, ...): decide
+            /// nothing, so the recording is not committed for a switch that never
+            /// happens.</summary>
+            StockWillRefuse = 3,
         }
 
         /// <summary>
         /// Pure: the button the switch presses for the player. <paramref name="priorIsNoOp"/>
         /// is the session segment's no-op verdict when <paramref name="hasSession"/>, else the
         /// no-session committed-resume verdict; <paramref name="activeTreeIdleOnPad"/> is the
-        /// scene exit's idle-on-pad verdict for a no-session tree. With auto-merge off the
+        /// scene exit's idle-on-pad verdict for a no-session tree. A switch stock will refuse
+        /// decides nothing, a live Re-Fly session or merge journal keeps the dialog, and a
+        /// prior recording that could not be judged is merged. With
+        /// auto-merge off the
         /// result is today's behavior: only the Standalone / committed-clone segment and the
         /// no-session resume no-ops skip the dialog. A merge never lowers a ledger pool and a
         /// discard re-homes the irreversible earnings, so neither outcome takes value away.
         /// </summary>
         internal static PreSwitchAutoResolution DecidePreSwitchAutoResolution(
+            bool stockWillRefuse,
+            bool reFlyOrJournalActive,
             bool isAutoMerge,
             bool hasSession,
             bool evaluable,
@@ -478,8 +498,12 @@ namespace Parsek.Patches
             SwitchSegmentDisposition disposition,
             bool activeTreeIdleOnPad)
         {
-            if (!evaluable)
+            if (stockWillRefuse)
+                return PreSwitchAutoResolution.StockWillRefuse;
+            if (reFlyOrJournalActive)
                 return PreSwitchAutoResolution.Dialog;
+            if (!evaluable)
+                return isAutoMerge ? PreSwitchAutoResolution.Merge : PreSwitchAutoResolution.Dialog;
 
             if (hasSession)
             {
@@ -507,9 +531,9 @@ namespace Parsek.Patches
         }
 
         /// <summary>
-        /// True when a no-op check's reason says it never ran to a verdict, so neither
-        /// button may be pressed for the player: a restore coroutine owns the tree, or the
-        /// check threw.
+        /// True when a no-op check's reason says it never ran to a verdict (a restore
+        /// coroutine owns the tree, or the check threw), so the prior recording is merged
+        /// rather than discarded on a guess.
         /// </summary>
         internal static bool IsUnevaluatedNoOpReason(string reason)
         {
@@ -523,7 +547,9 @@ namespace Parsek.Patches
         /// Decides the prior recording for a switch the dialog would otherwise ask about,
         /// and when the decision is Merge or Discard runs that button's handler, which also
         /// arms the new intent and switches. Returns false (nothing done) when the dialog
-        /// must still show. Shared by the map Prefix, the alarm Jump and the
+        /// must still show (auto-merge off) or, with <paramref name="resolution"/>
+        /// <see cref="PreSwitchAutoResolution.StockWillRefuse"/>, when stock is about to
+        /// refuse the switch and the caller takes its plain path. Shared by the map Prefix, the alarm Jump and the
         /// <c>SimulateStockSwitchClick</c> seam verb, so the verb drives this exact path.
         /// </summary>
         internal static bool TryAutoResolvePreSwitch(
@@ -539,10 +565,21 @@ namespace Parsek.Patches
             var flight = ParsekFlight.Instance;
             bool isAutoMerge = ParsekScenario.IsAutoMerge;
             bool hasSession = existingSession != null;
-            bool evaluable = flight != null && !ParsekFlight.restoringActiveTree;
+            var scenario = ParsekScenario.Instance;
+            bool reFlyOrJournalActive = !object.ReferenceEquals(null, scenario)
+                && (scenario.ActiveReFlySessionMarker != null || scenario.ActiveMergeJournal != null);
+            string clearToSave = ReadClearToSaveStatus();
+            bool stockWillRefuse = clearToSave != null
+                && !string.Equals(clearToSave, "CLEAR", StringComparison.Ordinal);
+            bool evaluable = !stockWillRefuse && !reFlyOrJournalActive
+                && flight != null && !ParsekFlight.restoringActiveTree;
             bool priorIsNoOp = false;
             bool idleOnPad = false;
-            string reason = evaluable ? null : (flight == null ? "no-flight" : "restoring-active-tree");
+            string reason = stockWillRefuse
+                ? "stock-not-clear-to-save:" + clearToSave
+                : reFlyOrJournalActive
+                    ? "refly-or-merge-journal-active"
+                    : (evaluable ? null : (flight == null ? "no-flight" : "restoring-active-tree"));
             SwitchSegmentDisposition disposition = SwitchSegmentDisposition.None;
 
             if (evaluable)
@@ -558,7 +595,8 @@ namespace Parsek.Patches
             }
 
             resolution = DecidePreSwitchAutoResolution(
-                isAutoMerge, hasSession, evaluable, priorIsNoOp, disposition, idleOnPad);
+                stockWillRefuse, reFlyOrJournalActive, isAutoMerge, hasSession, evaluable,
+                priorIsNoOp, disposition, idleOnPad);
 
             string caseToken = hasSession
                 ? "A-session"
@@ -586,6 +624,27 @@ namespace Parsek.Patches
                     return true;
                 default:
                     return false;
+            }
+        }
+
+        /// <summary>
+        /// Stock's <c>FlightGlobals.ClearToSave()</c> status name, which
+        /// <c>setActiveVessel</c> reads first and refuses the switch on when it is not
+        /// CLEAR. Null when it cannot be read (no active vessel, a headless host), which
+        /// leaves the decision to the no-op check.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static string ReadClearToSaveStatus()
+        {
+            try
+            {
+                if (FlightGlobals.ActiveVessel == null)
+                    return null;
+                return FlightGlobals.ClearToSave().ToString();
+            }
+            catch (Exception)
+            {
+                return null;
             }
         }
 

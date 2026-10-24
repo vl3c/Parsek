@@ -181,15 +181,20 @@ namespace Parsek.TestCommands
             // call the Prefix makes: under auto-merge the switch presses Merge or Discard for
             // the player and switches, so the verb reports what that did instead of refusing.
             // In-bubble targets only: an unloaded one switches through a scene reload this
-            // single-phase verb cannot observe, so Case B keeps its refusal.
-            if (gate == SwitchClickGateDecision.RefusedDialogRequired
-                && !targetIsUnloaded
-                && MapFocusObjectOnSelectPatch.TryAutoResolvePreSwitch(
-                    target, session, targetIsSeparateCommittedVessel,
-                    out MapFocusObjectOnSelectPatch.PreSwitchAutoResolution autoResolution))
+            // single-phase verb cannot observe, so Case B keeps its refusal. A switch stock is
+            // about to refuse decides nothing and takes the plain path, as the Prefix does, so
+            // the refusal is OBSERVED below (switch-refused-by-stock).
+            if (gate == SwitchClickGateDecision.RefusedDialogRequired && !targetIsUnloaded)
             {
-                FinishAutoResolvedSwitchClick(site, target, autoResolution);
-                return;
+                if (MapFocusObjectOnSelectPatch.TryAutoResolvePreSwitch(
+                        target, session, targetIsSeparateCommittedVessel,
+                        out MapFocusObjectOnSelectPatch.PreSwitchAutoResolution autoResolution))
+                {
+                    FinishAutoResolvedSwitchClick(site, target, autoResolution);
+                    return;
+                }
+                if (autoResolution == MapFocusObjectOnSelectPatch.PreSwitchAutoResolution.StockWillRefuse)
+                    gate = SwitchClickGateDecision.Proceed;
             }
 
             if (gate != SwitchClickGateDecision.Proceed)
