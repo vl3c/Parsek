@@ -126,7 +126,9 @@ required = [
   "(?s)MISSIONMARK label=ir1-activated (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=297\\.6000 actual=297\\.6[0-9]{3} [^\\r\\n]*match=true",
   "savegame name=quicksave folder=.+ saved=true",
   # THE ABANDONED FUTURE: one crossing, one delivery into the loaded endpoint.
-  "(?s)savegame name=quicksave (?:(?!loadgame start ).)*Delivery write: route=\\S+ dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.6[0-9]* written=97\\.6[0-9]* tankBefore=297\\.6[0-9]* tankAfter=395\\.2[0-9]* capacity=400 path=loaded",
+  # The writer logs round-trip floats (97.599999999998431 on the first flight), so each
+  # amount accepts both spellings.
+  "(?s)savegame name=quicksave (?:(?!loadgame start ).)*Delivery write: route=\\S+ dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.(?:6|599999)[0-9]* written=97\\.(?:6|599999)[0-9]* tankBefore=297\\.(?:6|599999)[0-9]* tankAfter=395\\.(?:2|199999)[0-9]* capacity=400 path=loaded",
   "(?s)MISSIONMARK label=ir1-delivered (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR1 Rover Supply' status=Active completed=1 skipped=0 cursor=[0-9]+ [^\\r\\n]* dispatched=1 debited=[01] pickedUp=0 delivered=1 ",
   "(?s)MISSIONMARK label=ir1-delivered (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=395\\.2000 actual=395\\.[0-9]{4} [^\\r\\n]*match=true",
   # THE F9 is a Cold save-file load that reads the quicksave's routes.
@@ -137,7 +139,7 @@ required = [
   "(?s)MISSIONMARK label=ir1-reloaded (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR1 Rover Supply' status=Active completed=0 skipped=0 cursor=-1 [^\\r\\n]* dispatched=0 debited=0 pickedUp=0 delivered=0 ",
   "(?s)MISSIONMARK label=ir1-reloaded (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=297\\.6000 actual=297\\.6[0-9]{3} [^\\r\\n]*match=true",
   # THE RE-FLOWN FUTURE: exactly one re-dispatch, exactly one delivery.
-  "(?s)MISSIONMARK label=ir1-reloaded (?:(?!MISSIONMARK label=ir1-redelivered ).)*Delivery write: route=\\S+ dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.6[0-9]* written=97\\.6[0-9]* tankBefore=297\\.6[0-9]* tankAfter=395\\.2[0-9]* capacity=400 path=loaded",
+  "(?s)MISSIONMARK label=ir1-reloaded (?:(?!MISSIONMARK label=ir1-redelivered ).)*Delivery write: route=\\S+ dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.(?:6|599999)[0-9]* written=97\\.(?:6|599999)[0-9]* tankBefore=297\\.(?:6|599999)[0-9]* tankAfter=395\\.(?:2|199999)[0-9]* capacity=400 path=loaded",
   "(?s)MISSIONMARK label=ir1-redelivered (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR1 Rover Supply' status=Active completed=1 skipped=0 cursor=[0-9]+ [^\\r\\n]* dispatched=1 debited=[01] pickedUp=0 delivered=1 ",
   "(?s)MISSIONMARK label=ir1-redelivered (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=395\\.2000 actual=395\\.[0-9]{4} [^\\r\\n]*match=true",
 ]
