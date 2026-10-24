@@ -17,6 +17,38 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~CONTRACT-FAIL-AFTER-REACHED-COMMITTED-OUTCOME: after a flight passes a committed contract outcome, stock can still fail or expire the contract, and the penalty stays charged for good~~ [FILED 2026-10-24 from V's question on the 0.10.6 release-notes known limitation ("A contract a new flight fails in the brief moment between its committed outcome's time and the next career update can still fail"), code read on main 2f86caf, not reproduced. FIXED 2026-10-24 on branch `claude/project-thread-uj5p10`; xUnit + in-game cell, lane L12. product]
+
+**Symptom.** `Patches/ContractEarlyFailPatch.cs` refused a fail only while the committed outcome
+(a ContractComplete / Fail / Cancel row) lay AHEAD of the clock, and it never covered stock's
+deadline expiry. The flight scene has no clock cursor, so once a flight passed the committed UT
+stock still held the contract Active until the next recalculation (scene change, commit): a
+parameter failure, `Fail()` or the deadline passing there went through. Not cosmetic: the walk
+skips the late fail (`TrySkipResolutionOfResolvedContract`, the contract already ended), so its
+effect is 0, while stock had already charged the fail penalty live; the next non-authoritative
+patch's stock pool reference (`StockPoolReference.Measure`) reads that gap as a leak and keeps it
+as an adjustment row. The player kept the committed reward and also paid a fail penalty for a
+contract the timeline completed, a ledger loss outside every rule (never-reduce).
+
+**Fix.** The patch now refuses an Active contract's `Failed`, `DeadlineExpired` and `OfferExpired`
+whenever the committed timeline holds its outcome at ANY UT
+(`StockUiReservationPredicates.CommittedContractResolution`, the any-UT form of the Cancel block's
+predicate): an Active contract with a committed outcome at or before now is exactly the stale live
+state the next recalculation resolves. The ahead-of-now refusal and its log line are unchanged;
+a reached one logs `refusing fail of "<title>" guid=<g> end=<state> - committed <kind> ut=<ut>
+already reached nowUT=<now> recording=<id|(ksc)>; the contract stays Active until the next career
+update applies it`, and every refusal names its end state (`end=`). A contract with no committed
+outcome still expires as stock decides (the committed timeline holds the same expiry). The Cancel
+block and every Mission Control mark keep the ahead-of-now predicate (the Space Center and
+Tracking Station clock cursors apply a reached row at once). Cells: `ContractEarlyFailPatchTests`
+(reached complete / fail / cancel, at-now, future named over reached, the any-UT predicate, the
+prefix refusing `DeadlineExpired`); mutation (the reached lookup removed) reds 4. In-game:
+`ContractReachedOutcomeInGameTest` (category `ContractReachedOutcome`) on `career-earned-pad`
+files a committed completion one second behind the clock, moves the Active contract's deadline
+behind it so stock's own update daemon calls `SetState(DeadlineExpired)`, then calls `Fail()`;
+both refused, the contract Active, funds and reputation unchanged. Lane
+`L12-contract-reached-outcome-blocks-fail`.
+
 ## ~~SWITCH-ASKS-MERGE-FOR-AN-UNCHANGED-VESSEL: a map Switch-To away from a vessel you did nothing with opens the Merge / Discard dialog~~ [FILED 2026-10-24 from V's playtest report (switching from the recorded vessel to an older one showed the manual merge dialog). FIXED 2026-10-24 on branch `claude/project-thread-pp3xy9`. xUnit; S0.13 live-proven `2026-10-24_1503`, GS-3 re-cut and re-flown green. product]
 
 **Symptom.** The pre-switch decision (`MapFocusObjectOnSelectPatch`, Cases A / B / C) always opened
