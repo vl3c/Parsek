@@ -813,7 +813,7 @@ Fix (the first direction above): when the cold load restores no active tree, no 
 Fix, the trajectory (owner ruling 2026-10-21, "Switch to versioned files", after a first cut that always resumed in a new segment was reverted: it added a segment to every in-flight commit's re-take, about 40 lane counts, and armed a switch-segment session on every resume, so a later ordinary switch popped the Merge / Discard dialog): the overlap skip is gone. `PlanActiveTreeSidecarSaves` writes a restore-attempt member that shares its id with the committed copy like any other (counted as `committedRestoreOverlap`, Verbose `writing restore-attempt recording`). The write replaces the shared head and keeps the committed bytes as their hashed version under `_versions/` (#2155). The committed copy keeps naming that hash, and `EnsureRecordingFilesCurrentForSave` treats a committed-tree recording whose head moved on as current when every named hash resolves and one resolves to a retained version (`RecordingStore.AreRecordingFilesCurrentThroughNamedVersions`, Verbose `is current through its named sidecar version(s)`), so it is never rewritten and its sidecar epoch does not move before a merge. One save then names two versions of the id; a cold load reads each copy from its own bytes without promoting (`reason=multiple-owners owners=2`) and re-arms the attempt. Discard leaves the head holding the clone's bytes and the committed copy current through its version; the next lone load promotes it back. A lazy vessel-snapshot re-hydration now reads the bytes its recording names whenever a retained version holds them (`ResolveLazyVesselSnapshotPath`), so an in-session committed copy never picks up the clone's snapshot. Because the clone starts at the committed copy's epoch, an attempt member's save also checks that the head holds the hash it names (`TrajectoryHeadHoldsNamedBytes`, `reason=head-holds-other-bytes`), so a committed rewrite at the same epoch is not read as the clone's bytes. Now that every save holds the attempt's active node, an in-session load of one (the save stock makes before leaving flight) keeps the committed original committed and skips the splice while the attempt is armed for that tree (`kept the committed copy ... the live restore attempt's clone`), as the cold re-arm does: otherwise the scene-exit merge of the clone ran as a first commit and a Discard found nothing committed (found in review). The ATTEMPT_EVENTS hold above stays as the fallback for a save written without the active tree. Cells: `InPlaceResumeSidecarVersionTests` (save, cold load, discard over real hashed sidecars; red with the skip restored, with the version rule off, with the old lazy-hydration rule, with the head-hash check off, and with the live-attempt keep or splice skip removed), `SaveActiveTreeSidecarBothOrNeitherTests`, the `ColdLoadRestoreAttemptRearmTests` wiring cell. Residual, not changed: `SavePendingTreeIfAny` still skips a dirty pending-tree member that shares a committed id, so a pending tree written at the Space Center with unsaved resumed flying is left out of that save. Lane QL-13.
 
 
-## LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on [FILED 2026-10-19 from the same analysis. RULED 2026-10-21 (owner interview, every path); O2 and O3 FIXED 2026-10-22; plan phases 2, 3 and 4 BUILT 2026-10-22 (phase 4, the clicks, on branch `o6-phase4-local`); OPEN until the phases land and the career lanes fly; same invariant as section 2.12]
+## ~~LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY: other operations still retire committed credit that later committed spends relied on~~ [FILED 2026-10-19 from the same analysis. RULED 2026-10-21 (owner interview, every path); O2 and O3 FIXED 2026-10-22; plan phases 2, 3 and 4 BUILT 2026-10-22 (phase 4, the clicks, on branch `o6-phase4-local`); same invariant as section 2.12. DONE 2026-10-24 (re-check): O2 / O3 in PR #2172, rule 1 in #2174, phases 2 / 3 / 4 in #2177, #2179 and #2180, O4 in LOGISTICS-WITHOUT-MONEY, O5 moot since #2155; lanes L9 `2026-10-22_1342` and L10 `2026-10-22_1932` live-proven]
 
 Each breaks "the committed timeline pays for every committed spend at every UT" without Re-Fly:
 (O1, ruled 2026-10-19: a quickload undoes Space Center rows after the save, fixed with
@@ -1723,7 +1723,7 @@ starts hidden); a part re-attached at another pose gets a stand-in node with a d
 shape is the hold ghost above. Inventory events are ghosting triggers, so the optimizer will not
 split such a member. Log line `Construction ghost shape:`. Tests: `ConstructionGhostShapeTests`.
 
-## WATCH-END-SPAWN-UNDER-WARP-LOSES-CAMERA: watching a ghost to its end under warp leaves the camera on the old vessel, and the view can end up inside the ground [FILED 2026-10-17 from V's mining-rover session (`logs/2026-10-17_1419_mining-rover`, DLL = main at fc491b151). FIXED 2026-10-17, branch `claude/ghost-spawn-camera-6osrjb`; xUnit only, no live repro of the brown view yet (owner: no flight lane for camera work). product]
+## ~~WATCH-END-SPAWN-UNDER-WARP-LOSES-CAMERA: watching a ghost to its end under warp leaves the camera on the old vessel, and the view can end up inside the ground~~ [FILED 2026-10-17 from V's mining-rover session (`logs/2026-10-17_1419_mining-rover`, DLL = main at fc491b151). FIXED 2026-10-17, branch `claude/ghost-spawn-camera-6osrjb`; xUnit only, no live repro of the brown view yet (owner: no flight lane for camera work). product. Merged in PRs #2132 and #2147; closed 2026-10-24, the camera probe below stays as the witness]
 
 Sequence (KSP.log 14:17:07-08): the watched landed ghost "Mining Rover RC" completed at 50x warp
 with a spawn due, so `HandlePlaybackCompleted` took the warp branch: it exited watch (camera
@@ -2074,7 +2074,7 @@ Parsek-spawned vessel (whose resumed recording keeps the pre-spawn guid, a `Resu
 reads as a different launch on both the absorbed and the surviving path; the identity links are
 not consulted by `VesselLaunchIdentity`. Older saves stay pid-only until re-recorded.
 
-## REFLY-FORK-SELF-SPAWN-AFTER-QUICKSAVE: during a Re-Fly, a save turns the session's own fork into an "ended" recording and Parsek spawns a real copy of it; the copy's breakup debris is then attributed to the Re-Fly recording [FILED 2026-10-13 from CI-3, reproduced twice. FIXED on branch `claude/project-thread-1twzdw` (PR #2100), confirmed green `2026-10-15_0656`; item 3 was defect 1, Parsek, high]
+## ~~REFLY-FORK-SELF-SPAWN-AFTER-QUICKSAVE: during a Re-Fly, a save turns the session's own fork into an "ended" recording and Parsek spawns a real copy of it; the copy's breakup debris is then attributed to the Re-Fly recording~~ [FILED 2026-10-13 from CI-3, reproduced twice. FIXED on branch `claude/project-thread-1twzdw` (PR #2100), confirmed green `2026-10-15_0656`; item 3 was defect 1, Parsek, high]
 
 `CI-3-chain-rederive-readback` reds PARSEK-FAIL on analyzer `INV4-PARTEVENT-PID` on two runs
 (`2026-10-12_1810`, `2026-10-13_0304`). The lane rewinds a slot (Re-Fly), `SaveGame quicksave`,
@@ -2139,7 +2139,7 @@ launch-guid guard (refuse when the active vessel is the recording's own launch) 
 a stock revert re-flies the same launch guid while a committed recording of that launch must still
 spawn its end vessel (the #226 replay/revert duplicate-source exception).
 
-## BDOCK2-RENDEZVOUS-PHASING-BURN-DEORBITS-THE-INTERCEPTOR: MechJeb's rendezvous plan from BDOCK-2's 95 x 84 km interceptor orbit drops periapsis into the atmosphere and the craft crashes [FILED 2026-10-13 from the operator tier, reproduced twice. FIXED on branch `bdock2-rendezvous` (PR #2093), confirmed green `2026-10-14_2113`, harness mission]
+## ~~BDOCK2-RENDEZVOUS-PHASING-BURN-DEORBITS-THE-INTERCEPTOR: MechJeb's rendezvous plan from BDOCK-2's 95 x 84 km interceptor orbit drops periapsis into the atmosphere and the craft crashes~~ [FILED 2026-10-13 from the operator tier, reproduced twice. FIXED on branch `bdock2-rendezvous` (PR #2093), confirmed green `2026-10-14_2113`, harness mission]
 
 `BDOCK-2-second-dock-harvest` went INVALID (mission `vessel-lost`) on `2026-10-12_1748` and again
 on the re-flight `2026-10-13_0309`, identically: in RENDEZVOUS the interceptor sits in a stable
@@ -2356,7 +2356,7 @@ the engine stored a first selection silently, so no hand-off could print. Ghost 
 (`... first evaluation: camera-live member #1 at loopUT=434.59 cycle=0`), and W1 requires that line,
 still accepting the old hand-off for a run that dwells past the anchor before its jump.
 
-## TIER-2026-10-12-LANE-VARIANCE: four operator-tier reds that were flight variance, not defects [FILED 2026-10-13. Both operator calls RULED and DONE 2026-10-15 (GS-10, RF-9), flown on the owner's PC]
+## ~~TIER-2026-10-12-LANE-VARIANCE: four operator-tier reds that were flight variance, not defects~~ [FILED 2026-10-13. Both operator calls RULED and DONE 2026-10-15 (GS-10, RF-9), flown on the owner's PC]
 
 - GS-10 2026-10-12_1834 PARSEK-FAIL on the TTL PAIR token (the spec's FLAKE WATCH POINT): of the last pair (expiryUT 125.9) pid 4066981309 hit the ground at ~UT 125.8 ('Debris TTL: vessel destroyed/despawned') and only 513253397 printed 'Debris TTL expired ... expiry=125.9 currentUT=126.0'; the middle pairs were all destroyed before expiry. Margin < 0.2 s. Operator call: keep the pair token, or relax it to at least one expiry. RULED 2026-10-15: keep the pair token (both pieces of the last pair must expire) and fix the margin instead. The six boosters drain together and drop at burnout (~65 s), and the close cut (`mlib.py` `impact_cut_at_last_booster_drop`) zeroes the throttle there, so the whole coast to impact is ~60-63 s against the 60 s TTL. Fix: hold the last pair attached while the core burns on for a set time (a new mission param), then cut the throttle and drop the pair on the same step, so pair and stack leave the burn with the same extra energy, fall together inside the physics bubble, and the coast grows (estimate ~20-30 s for a 10 s hold, inferred, not measured). Burning the core on after an at-burnout drop does not help: the boosters' own fall is unchanged and the stack climbs out of the bubble (GS-7's far profile). Needs `test_kx_rewind_watch` cells and a fresh 2-flight stability reading on the operator tier. Owner rule 2026-10-15: whoever builds this validates it with flights on the owner's local PC (the operator tier there), and the entry is closed only on those flights. ~~Not yet built.~~ DONE 2026-10-15: kx opt-in `impactLastPairHoldSeconds` (phase LAST-PAIR-HOLD; `stackCutAtLastBoosterDrop` also requires the full hold), GS-10 declares 10 s. Flown on the owner's PC (DLL `0f2bfc6b...`): `2026-10-15_1515` and `_1522` PASS attempt 1, held 10.50 / 10.04 s, last pair dropped at UT 76.1 / 75.2 and both pieces closed `Debris TTL expired` at 136.1 / 135.2 with the parent down at ~161 / ~158.
 - RF-9 2026-10-12_2119 PARSEK-FAIL on `Forwarded 19 permanent state event(s)` (read 21): a dropped booster destroyed an R8winglet 1.3 s after separation (`Part event: Destroyed` + `Decoupled 'R8winglet'`), two correctly forwarded seeds more. Re-flown green 2026-10-13_0305 (19). Flight variance on an exact count. Operator call: keep the exact count or accept the collision case. RULED 2026-10-15: neither a fixed count nor a widened number; the check must judge the forwarded events themselves. RF-9 passes when the 19 expected seeds are present and every extra seed is an acceptable one (here the 2026-10-12 collision: the `Destroyed` and `Decoupled` seeds of the R8winglet the dropped booster knocked off), and fails on any other extra or missing seed. Needs the spec (or a verifier) to read the forwarded seed list, not only the `Forwarded N` line. Owner rule 2026-10-15: whoever builds this validates it with flights on the owner's local PC (the operator tier there), and the entry is closed only on those flights. ~~Not yet applied.~~ DONE 2026-10-15: `ForwardPermanentStateEvents` appends the sorted seed list (`Type:part#pid`) to its Info line, and the new hlib logContracts facet `forwardedSeeds` replaces RF-9's two count tokens (19 expected focus seeds plus the probe's one; acceptable extra: a complete R8winglet `Decoupled` + `Destroyed` pair on one pid). Flown on the owner's PC (DLL `290502ec...`): `2026-10-15_1530` PASS with 19, `_1534` PASS with 23 (two winglets knocked off, both complete pairs).
@@ -3613,6 +3613,11 @@ and a payload chain's StartUT order are the controls).
 
 ## ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS: inside a go-back rewind's lead-time window, a load back to a save written in that window keeps the route actions taken after it [FILED 2026-10-07 from the route state floor, branch `fix-route-goback-cutoff`. OPEN, product, low; by construction, not reproduced in game]
 
+Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): release rating low, not a blocker.
+Since LOGISTICS-WITHOUT-MONEY a second in-window crossing no longer charges funds; it can still
+deliver its cargo a second time, inside a 15 s game-time window that needs a save and a route action
+in it. The fix shape below stands.
+
 The go-back rewind keys its route cutoff to the rewind save's own UT, up to 15 s ahead of the
 wound-back clock, and every save written before the clock passes it carries that route state floor;
 a load of such a save keys its route cutoff to the floor, not to its own UT. So a route row written
@@ -3664,7 +3669,7 @@ cell and a source gate that `Update` goes through the helper.
 
 ---
 
-## DESIGN-GO-BACK-REWIND-VESSEL-SOURCE: logistics design 10.6 says a go-back rewind restores the stock vessels from the loaded save; they come from persistent.sfs [FILED 2026-10-07 from the ROUTE-REWIND-CURSOR-RESET-REFIRES-LATEST-CROSSING fix, branch `fix-route-rewind-refire`. OPEN, docs; verify then correct]
+## ~~DESIGN-GO-BACK-REWIND-VESSEL-SOURCE: logistics design 10.6 says a go-back rewind restores the stock vessels from the loaded save; they come from persistent.sfs~~ [FILED 2026-10-07 from the ROUTE-REWIND-CURSOR-RESET-REFIRES-LATEST-CROSSING fix, branch `fix-route-rewind-refire`. MOOT 2026-10-24: since PR #2181 the design text is true. docs]
 
 Decompiled `SpaceCenterMain.Start` calls `LoadGame("persistent")`, and `Game.Load` hands that game's
 protos to OnLoad, so a go-back rewind's world vessels come from persistent.sfs with the future
@@ -3673,6 +3678,17 @@ vessels stripped, not from the rewind save (the rewind save's own scenario node 
 persistent write between). Design 10.6's "restores the stock vessels from the loaded save" reads
 otherwise. Confirm against a go-back rewind log, then correct 10.6 (and any rewind design text that
 repeats it).
+
+Re-checked 2026-10-24 on main b26cdc0: moot. Since PR #2181 (REWIND-TO-LAUNCH-LANDS-IN-THE-LATEST-PERSISTENT-WORLD)
+`RecordingStore.ExecuteRewindSaveLoad` calls `WriteRewindGameAsPersistent`
+(`RecordingStore.RewindPersistentWrite.cs`) before the Space Center load: the pre-processed rewind
+game is written to persistent.sfs with only its PARSEK node replaced by the live one, so the
+Space Center's reload hands OnLoad the rewind save's own vessels (minus the future vessels and the
+vessels the rewind holds). A refused splice or write logs a Warn and lands on the old
+persistent.sfs, the only case the old wording described. Design 10.6 now names the write, and its
+"Loop position" paragraph says why the rewind save's ROUTES are still read before the scene load
+(the PARSEK node persistent.sfs carries is the live one); rewind design section 10.13 already
+states the rewind world.
 
 ---
 
@@ -4714,7 +4730,15 @@ and its consumed line says whether the scene landed there
 
 ---
 
-## REWIND-POINT-FILES-OF-AN-ABANDONED-FUTURE-STAY-ON-DISK: a quickload or a revert drops rewind points from the list but leaves their quicksave files [FILED 2026-10-06 from the in-session carry (owner ruling OQ-3), PR #2038. OPEN, residual by ruling]
+## ~~REWIND-POINT-FILES-OF-AN-ABANDONED-FUTURE-STAY-ON-DISK: a quickload or a revert drops rewind points from the list but leaves their quicksave files~~ [FILED 2026-10-06 from the in-session carry (owner ruling OQ-3), PR #2038. OPEN, residual by ruling. CLOSED 2026-10-24: fixed by the PR #2155 file collector]
+
+Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): fixed elsewhere. The premise (no
+sweep walks a file the list no longer names) no longer holds: PR #2155 added `ParsekFileCollector`,
+whose `CollectRewindPointFiles` (`ParsekFileCollector.cs`) deletes a `Parsek/RewindPoints/<rp>.sfs`
+only when no referrer names it, the referrers being every `*.sfs` and `Backup/*.sfs` in the save
+folder plus memory. That is the sweep the OQ-3 ruling asked for, so a quicksave that can still name
+the point keeps its file. It runs at OnLoad and skips rewind, Re-Fly start, Discard Re-fly and an
+open journal.
 
 The in-session owner partition (`InSessionStagedStateHandoff.MergeRewindPointsByOwner`) lets a
 rewind point whose owner is the flight a quickload resumes, a reverted flight or an unknown tree
@@ -5685,6 +5709,13 @@ Sibling gap filed as EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED.
 
 ## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; LIVE-PROVEN by EVA-11 `2026-10-15_2343`. FOREIGN EVA KERBAL HALF FIXED 2026-10-23, branch `claude/project-thread-y4esmb`; xUnit; LIVE-PROVEN by EVA-12 `2026-10-23_2257`. Still open: a part detached and dropped on the ground]
 
+Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): the unfixed half (a part detached
+from a foreign vessel and then dropped) is still real, low: only attach and detach are handled
+(`ParsekFlight.ForeignInventoryTransfer.cs`), and new-vessel adoption exists only for inventory
+ground placement (`ParsekFlight.GroundPartPlacement.cs`), so the dropped part is gone after a rewind
+or replay. Needs a decompile of the construction drop path and a live reading (EVA-11 shape) before
+a fix. The KSC-retirement side note (only `EvaCrewName` exempts) is also still true.
+
 The inventory fix records a stored part moved into or out of a foreign vessel's container, but two
 neighbours of the same defect remain. `EVAConstructionModeEditor` fires
 `OnEVAConstructionModePartAttached(parentVessel, part)` after `AttachPart` and
@@ -5867,6 +5898,13 @@ and `..._ConverterOnlyEverOff_NotAWitness`.
 ---
 
 ## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness. Background-leg item CLOSED 2026-10-07, branch `release-rulings`, by the converter-event witness. Supply-route item CLOSED 2026-10-07, branch `chain-tip-cargo-all-spawns`, by END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO (owner ruling: trimming stays)]
+
+Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): still real, low. The witnesses are
+still a harvest window and a running converter (`RecordingOptimizer.TailTrim.cs`). The in-vessel
+transfer half needs the owner's call (accepting it looks right: at most the per-part split arrives
+early on an early spawn). The promotion residue has a small fix: on a fresh-branch promotion, also
+emit `ConverterActivated` seeds for converters running at the promotion UT, gated like
+`ChainPromotionShouldEmitEngineSeeds`. Not a release blocker.
 
 TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT keeps a tail when a closed `RouteHarvestWindow` measured a change
 or a converter is still running at the recording end (the last converter part event of some part is
@@ -6549,7 +6587,7 @@ and the tree discard cores revert without a load.
 
 ---
 
-## HARNESS-NO-RETRY-DETERMINISTIC-SEAM-ERROR: a definite seam error is not retried [OPERATOR RULING 2026-10-06, branch `no-retry-deterministic-seam-error`. DONE; the reason set stays open to additions by name]
+## ~~HARNESS-NO-RETRY-DETERMINISTIC-SEAM-ERROR: a definite seam error is not retried~~ [OPERATOR RULING 2026-10-06, branch `no-retry-deterministic-seam-error`. DONE; the reason set stays open to additions by name. Merged in PR #2016]
 
 Ruling (2026-10-06): "Don't retry when the failure is a definite error from the seam, and
 keep retrying everything that looks like random flakiness. We can recheck failures
@@ -6693,6 +6731,14 @@ force 0) still reads "Decoupled" when no crash child joins the window. Telling i
 needs `onPartWillDie`, which fires before those decouples; not done here.
 
 ## REALSPAWN-JUMP-SHIFT-RESIDUE: what the orbital-tip jump shift does not cover [FILED 2026-10-03 from the REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST fix, branch `fix-orbital-tip-spawn`. OPEN; product, low]
+
+Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): all four residues still stand; later
+commits widened the shifted cases without closing these. The walkback item is the one with a small
+fix: `VesselGhoster.TryWalkbackSpawn` still walks the unshifted `tipRecording.Points` while the
+overlap check uses the shifted pose (`TryResolveJumpShiftedTipSpawn`), so skip the walkback, or walk
+the shifted orbit, while a shift is armed (a few lines and one cell; needs a held-tip flight). The
+ghost-freeze item needs a design call (playback has no per-recording time offset). Low, rare; not a
+release blocker.
 
 The fix shifts only a spawn that resolves through the recorded terminal orbit. Read from source,
 four neighbours keep the old geometry; none is flown:
@@ -7524,6 +7570,13 @@ of the live pool (they settle at the floor when they cross the clock, phase 3). 
 written before the reference carry this; KB-3 / KB-4 re-pinned to the two rows (28 / 29 actions).
 
 ## CHILD-BRANCH-SINGLE-SLOT-OVERWRITE: a second split overwrites a breakup-continuous recording's `ChildBranchPointId` [FILED 2026-09-28 from BREAKUP-CONTINUOUS-LEAF-READERS. OPEN, low; owner ruling 2026-09-28: leave filed until a player-visible defect shows]
+
+Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): the ruling still matches the code.
+The overwrite sites and the single-slot readers (`GhostChainWalker.TraceLineagePids` ->
+`ScanBackgroundEventClaims`; `AnchorDetector` rank only) are unchanged. The worst case, a spurious
+background-event claim on a lost child's pid, needs a live vessel with that pid at a future UT,
+which exists only where the plain rewind's vessel hold (PR #2181) would hold it anyway, so no
+visible symptom path was found. Keep as ruled.
 
 `WireBreakupIntoTree`, `CreateSplitBranch` and the switch-continuation creator all overwrite
 `ChildBranchPointId`; the earlier branch still lists the recording in `ParentRecordingIds`. Walks
@@ -8566,7 +8619,7 @@ would pin). Open:
 - Adding `vessels = { "Kerbal X Debris" = { spawned = { min = 6 } } }` to GS-4's armed block is
   an arming change and wants its own reading run.
 
-## RP-SURVIVES-REWIND-TO-LAUNCH: a rewind point survives a Rewind-to-Launch, and its Re-Fly waits for the clock [RULED 2026-09-23 (operator). FIXED 2026-09-23 on branch `rp-survives-rewind`]
+## ~~RP-SURVIVES-REWIND-TO-LAUNCH: a rewind point survives a Rewind-to-Launch, and its Re-Fly waits for the clock~~ [RULED 2026-09-23 (operator). FIXED 2026-09-23 on branch `rp-survives-rewind`. Merged in PR #1788]
 
 **Ruling.** A rewind point ALWAYS survives a Rewind-to-Launch. Its slots stay in Unfinished
 Flights, but the Re-Fly (invoke) is enabled only once the current UT has passed the RP's UT
@@ -8639,6 +8692,15 @@ Retry from Rewind Point there would read the gate; production RP quicksaves are 
 the RP stamps its UT and never have this shape.
 
 ## RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT: a Rewind-to-Launch rebuilds the other Re-Fly lists from a stale persistent.sfs [FILED 2026-09-23 from the #1788 review. FIXED 2026-09-26 on branch `fix-rewind-staged-lists` (headless only, not flown). The related open question below stays OPEN]
+
+Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): the open question still stands; PR
+#2181 does not answer it. #2181 changes only which file the Space Center reload reads
+(`WriteRewindGameAsPersistent`); `DropSupersedesRewoundOutOfExistence` and
+`CaptureRewindStagedListsForRewind` are unchanged. By code reading a dropped non-Immutable row
+retires its fork (`RetiredForkRecordingIds`, honoured by ERS), so a re-flown slot "next to the
+fork's ghost" looks unlikely; the origin becomes the slot tip again and its slot reads open, gated
+by `IsRewindPointInFuture`. Still needs the slot-resolution trace or a lane. Low; a product
+question, not a proven defect.
 
 `LoadRewindStagingState` rebuilds RECORDING_SUPERSEDES, RECORDING_REWIND_RETIREMENTS,
 LEDGER_TOMBSTONES and the merge journal from the same OnLoad node, and on a plain rewind that
@@ -8837,6 +8899,12 @@ assert the distance.
 
 ## VESSEL-SWITCH-266-UNREACHABLE-FOR-FAR-SWITCH: the #266 vessel-switch stash (`StashActiveTreeForVesselSwitch`) never fires for a real far Switch-To [FILED 2026-09-23 from the #1780 review. OPEN; a design follow-up, no player-visible regression]
 
+Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): unchanged, no player harm. Nothing
+subscribes to `onVesselSwitchingToUnloaded`, and the flag still arms only in
+`ParsekScenario.TryArmVesselSwitchFlag`. A far Switch-To with a live recording is caught first by
+the pre-switch Case B dialog (`MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction`). The
+follow-up is a design call: keep it, or delete the #266 stash path as dead code. Not a release item.
+
 `FinalizeTreeOnSceneChangeCore` takes the #266 pre-transition stash only when
 `vesselSwitchPending` is fresh, and that flag is set from `onVesselSwitching`. Decompiled
 `FlightGlobals.setActiveVessel` (KSP 1.12.5): for an UNLOADED target it fires
@@ -8851,7 +8919,7 @@ Option if #266's "keep the mission across a far switch" behavior is wanted: subs
 the new readiness gate. That revives a path that has effectively never run in play, so it
 needs its own design pass and a flight, not a one-line subscribe.
 
-## CAREER-STATE-VIEW-2026-09-24: the Career window became the state view of contracts and strategies (PR 4 of the career-vs-timeline plan) [FILED 2026-09-24 with branch `career-state-view`. DONE on that branch; the residue below is MOOT since CAREER-WINDOW-REMOVED-2026-09-27 except item 3, FIXED 2026-10-06 on branch `fix-facility-upgrade-cost`]
+## ~~CAREER-STATE-VIEW-2026-09-24: the Career window became the state view of contracts and strategies (PR 4 of the career-vs-timeline plan)~~ [FILED 2026-09-24 with branch `career-state-view`. DONE on that branch; the residue below is MOOT since CAREER-WINDOW-REMOVED-2026-09-27 except item 3, FIXED 2026-10-06 on branch `fix-facility-upgrade-cost`]
 
 Done: tabs Contracts and Strategies only (Facilities and Milestones removed with their VM,
 draw code, gallery states and tests; the Timeline's Career view owns that history); ONE
@@ -10134,6 +10202,13 @@ triage.
 
 ## GUI-P3-ROUTE-INTERVAL-SNAPS-SILENTLY: a free-text field that rewrites what you typed [FILED 2026-09-11 by the GUI fix batch]
 
+Re-checked 2026-10-24 on main b26cdc0: still real, line numbers moved. The field is
+`LogisticsWindowUI.DrawIntervalCell` (a bare `GUILayout.TextField`, no tooltip of its own) and
+`CommitIntervalEdit` (rejected parse: Warn only). The neighbouring `Nx` label's tooltip
+(`LogisticsIntervalPresentation.BuildNxCellTooltip`, budgeted by `TooltipEchoBudgetTests`) already
+states the cadence, so the proposed fix is a sentence there. Still waits on the owner's pick in
+`design-gui-inventory.md` (open question P3).
+
 **Evidence.** The editable route Interval field (`UI/LogisticsWindowUI.cs:1197`, `:1216`)
 accepts `30m` / `2h` / `1d`. `RouteCadence.ParseAndSnapInterval`
 (`Logistics/RouteCadence.cs:100`) ceil-snaps the value to `N x transit` and overwrites what
@@ -10145,6 +10220,13 @@ dead input entirely, which the code itself says at `RouteCadence.cs:199` and
 surface), and say when the field cannot change anything on a windowed route.
 
 ## GUI-P4-WARP-TO-SPAWN-NAMES-AN-OUTCOME-IT-CANNOT-PROMISE: 15 silent refusals behind one button [FILED 2026-09-11 by the GUI fix batch]
+
+Re-checked 2026-10-24 on main b26cdc0: still real. The Real Spawn Control button is now labelled
+`Warp` (`SpawnControlPresentation.WarpButtonText`) with the hover "Warps to <date>, when <vessel>
+spawns here."; `ParsekFlight.WarpToRecordingEnd` still jumps time only and an invalid jump still
+aborts with a Warn. The disabled-hover seam (`WarpButtonDisabledReason`) covers only the greyed
+states it computes up front, not the spawn-time refusals. Still waits on the owner's pick (open
+question P4).
 
 **Evidence.** "Warp to Spawn" (`UI/SpawnControlPresentation.cs:104`) runs
 `ParsekFlight.WarpToRecordingEnd:27367`, which performs a TIME JUMP only. Whether a vessel
@@ -10161,6 +10243,11 @@ it.
 
 ## GUI-P9-RENAME-REFUSALS-DISCARD-THE-TYPED-NAME-SILENTLY: three paths, one Warn each, no player-facing word [FILED 2026-09-11 by the GUI fix batch]
 
+Re-checked 2026-10-24 on main b26cdc0: still real. Mission rename (`MissionsWindowUI`, `Mission
+rename rejected` Warn) and group rename (`RecordingsTableUI`, `Group rename rejected` Warns for
+invalid characters, a reserved name and a collision) still fall back to the old name with a Warn
+only. Still waits on the owner's pick (open question P9).
+
 **Evidence.** Mission rename (`UI/MissionsWindowUI.cs:3868-3893`, Warn at `:3879`), group
 rename (`UI/RecordingsTableUI.cs:4346`, `:4353`, `:4364`) and group re-parent
 (`GroupHierarchyStore.cs:150`, `:156`) all fall through on collision, invalid characters or
@@ -10172,7 +10259,12 @@ that was broken.
 tooltip. Explicitly NOT a ScreenMessage: a refusal is a no-op, and the house rule reserves
 one-shot messages for events that actually changed something.
 
-## GUI-P10-MISSION-LOG-IGNORES-THE-MISSIONS-OWN-INCLUDE-SET: two clones render byte-identical logs under different titles [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-P10-MISSION-LOG-IGNORES-THE-MISSIONS-OWN-INCLUDE-SET: two clones render byte-identical logs under different titles~~ [FILED 2026-09-11 by the GUI fix batch. FIXED 2026-10-01 by MISSION-LOG-REWORK, closed 2026-10-24]
+
+Re-checked 2026-10-24 on main b26cdc0: fixed 2026-10-01 by MISSION-LOG-REWORK (recorded in
+`design-gui-inventory.md`, P10): the Log opens on a Mission, `StructureListWindowUI.Rebuild` passes
+`mission.ExcludedIntervalKeys` to `MissionStructureListBuilder.Build` and rebuilds on a change
+signature that includes them.
 
 **Evidence.** The Missions header's "Log" button titles the window with the mission
 (`UI/MissionsWindowUI.cs:2492`) but the content is built from the TREE:
@@ -10190,6 +10282,12 @@ ruling should cover the family rather than this one button.
 
 ## GUI-P11-SEAL-ADVICE-POINTS-AT-A-BUTTON-THAT-WILL-NOT-BE-THERE [FILED 2026-09-11 by the GUI fix batch]
 
+Re-checked 2026-10-24 on main b26cdc0: still real. Both ScreenMessages now sit in
+`MergeDialog.Commit.cs` `ApplyPlayerRequestedSeal` ("Merged, but could not seal - seal it from the
+Timeline window"); `UnfinishedFlightSealHandler.TrySeal` fails when the slot or its tip does not
+resolve, and the Timeline and Recordings-table Seal buttons need the same resolution. A pure
+rewording; still waits on the owner's pick (open question P11).
+
 **Evidence.** `MergeDialog.Commit.cs:371` and `:389` tell the player
 "Merged, but could not seal - seal it from the Timeline window". The Timeline's Seal button
 only exists on rows whose RP route RESOLVES (`UI/TimelineWindowUI.cs:1481`, `:1597`) -
@@ -10200,7 +10298,7 @@ names a control that will not be drawn.
 already effectively concluded), or make the Timeline row draw a disabled Seal with the
 reason in its hover echo, so the advice lands somewhere real.
 
-## GUI-P15-D7-TWO-SAFETY-GATES-THAT-EXIST-AND-ARE-NEVER-ARMED [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-P15-D7-TWO-SAFETY-GATES-THAT-EXIST-AND-ARE-NEVER-ARMED~~ [FILED 2026-09-11 by the GUI fix batch. D7 RESOLVED 2026-09-14; P15 DONE with PR #2180 (merged 2026-10-22), L10 live-proven `2026-10-22_1932`]
 
 **P15 ruled 2026-10-21 (V, ledger rulings interview, O7 of LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY):**
 the funds check is enforced, not advisory: a funds purchase or launch cost that eats into reserved
@@ -10208,8 +10306,8 @@ money is greyed with the reason, as science already is. The fix ships with that 
 **P15 BUILT 2026-10-22** with plan phase 4 of LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY (branch
 `o6-phase4-local`): funds purchases and launches are refused, and their stock controls greyed, when
 they would eat into money reserved for a committed cost ahead or an open contract's penalty
-(`GameActions/ClickReservation.cs`); the Reserved readout includes the open penalties. Closes when
-that branch lands.
+(`GameActions/ClickReservation.cs`); the Reserved readout includes the open penalties. Landed in
+PR #2180; closed 2026-10-24.
 
 **Evidence.**
 
@@ -10262,6 +10360,12 @@ drives the DESIGNED flag through a real career.
   the right gate, so the lane has to exist before such a floor could be designed.
 
 ## GUI-P19-CANDIDATES-EMPTY-STATE-TELLS-THE-PLAYER-TO-DO-WHAT-THEY-DID [FILED 2026-09-11 by the GUI fix batch]
+
+Re-checked 2026-10-24 on main b26cdc0: still real, text changed.
+`LogisticsWindowUI.DrawCandidateSectionBubble` draws "No supply runs to offer yet. Fly a cargo run
+that docks, transfers cargo and undocks, then finish the mission." whenever no candidate exists,
+including above a non-empty near-miss list (`DrawNearMissSubsection`). A pure rewording; still waits
+on the owner's pick (open question P19).
 
 **Evidence.** `UI/LogisticsWindowUI.cs:743` draws "No eligible Supply Runs. Fly a one-way
 transport that docks, transfers cargo..." whenever the ELIGIBLE list is empty - including
@@ -10471,7 +10575,15 @@ carried, which the census found nothing else exposes. The triage held it back fr
 batch for exactly this reason: deleting it is cheap and irreversible, wiring it is cheap and
 adds the most information per byte of any item in the audit.
 
-## BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG: after BDOCK-1's mid-mission CommitTree, the re-adopted station continuation is stashed to Limbo by the interceptor launch and surfaces as a whole-tree merge dialog over already-committed recordings [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) off its BDOCK-1 reading run; REWRITTEN 2026-09-11 off the archive grep. The dialog is the lane's deterministic shape on every post-fix build (4 of 4 logs), reached through a CORRECT refusal; OPEN PRODUCT QUESTION narrowed to the fallback dialog's UX over committed-overlap recordings; not fixed in this wave]
+## ~~BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG: after BDOCK-1's mid-mission CommitTree, the re-adopted station continuation is stashed to Limbo by the interceptor launch and surfaces as a whole-tree merge dialog over already-committed recordings~~ [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) off its BDOCK-1 reading run; REWRITTEN 2026-09-11 off the archive grep. The dialog is the lane's deterministic shape on every post-fix build (4 of 4 logs), reached through a CORRECT refusal; OPEN PRODUCT QUESTION narrowed to the fallback dialog's UX over committed-overlap recordings; not fixed in this wave. CLOSED 2026-10-24: fixed by the fresh-launch refused-tree fixes, BDOCK-1 flown without the dialog]
+
+Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): fixed elsewhere, by
+FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME and FRESH-LAUNCH-REFUSED-KEPT-TREE-PENDING (both closed,
+`docs/dev/done/todo-and-known-bugs-v9.md`): after the fresh-rollout refusal,
+`ParsekFlight.DisposeFreshRolloutRefusedPendingTree` discards an idle copy of a committed tree or
+commits a meaningful one, so the fallback dialog is not reached. Flown: BDOCK-1 `2026-09-30_1732` is
+the first no-dialog run (`showing tree merge dialog (fallback)` 0, noted in its spec), with later
+passes `2026-10-07_0044` and `2026-10-16_1138`.
 
 **What happens**, from `2026-09-10_1815_BDOCK-1-station-interceptor`'s own KSP.log (local
 21:19):
@@ -10673,6 +10785,14 @@ the wave supervisor's keep-4 ruling; 0 flights, the offline control stands (`_00
 composition are in the spec comment and in test_hlib's CEILINGS comment.
 
 ## LOOP-ANCHOR-ACTIVE-VESSEL-NEVER-MARKED-LOADED: a loop anchored to the vessel the player is flying at scene load never plays its ghost
+
+Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): still latent, not player-reachable.
+The only writer of the loaded-anchor set is `ParsekFlight.OnVesselLoaded`;
+`GhostPlaybackEngine.OnAnchorVesselLoaded` has no production caller and nothing seeds the set at
+scene start. `LoopAnchorVesselId` is written only by the codec load and the clone, so no shipping
+flow anchors a loop to the active vessel. Small fix when one does: seed the set from
+`FlightGlobals.VesselsLoaded` at onFlightReady (skipping ghost map vessels), with a unit cell and an
+RL-1 variant flown anchored to the active vessel. Not a release item.
 
 Filed 2026-09-23 by the D3 `relative-loop` lane (register item C5, branch `d3-relloop`). A PRODUCT defect, LATENT today. OPEN. Not fixed on that branch (no product C# there); raised with the operator.
 
@@ -11342,6 +11462,13 @@ cannot pass vacuously) is the standing test of whether the watch path is a secon
 it has not been flown. A lane author reaching for the flight map should read this entry
 first and either use the TS host or engage a ghost deliberately.
 ## PREDICTED-TAIL-CHAIN-HEAD-HOLDS-MAP-PRESENCE: routing the segment lookup to the effective tip does not restore presence at a UT NEITHER member's conics cover
+
+Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): still real by code reading,
+cosmetic. `GhostMapPresence` routes the segment lookup through `ResolveMapPresenceChainSegments` and
+then `TrajectoryMath.FindOrbitSegmentForMapDisplay`, which carries no gap across members, so a UT
+before the tip's first conic still falls to the state-vector path. No small fix; why the TIP never
+entered pending-create needs a lifecycle read and a flight (RF-7T / RF-8 host). Not a release
+blocker.
 
 Residual of the fix above, stated rather than papered over. In the measured session the
 HEAD's ghost sat at UT 191.1 - between the HEAD's own end (191.04) and the TIP's first
@@ -12059,6 +12186,13 @@ loss for another, and probably the worst of the three.
 
 ## SENDONCE-RESIDUAL-PATHS: three Send-Once arm paths the blocked-cycle fix deliberately did not take, surfaced by PR #1582's clean review [FOUND 2026-08-30 by the pre-merge review of the fix. ALL PRE-EXISTING (none introduced by the fix); filed together because they are one family: "which cycle resolutions consume the arm, and does every consumer say so". Items 1 and 2 FIXED 2026-09-01; item 3 CLASSIFIED and left open by design; item 4 ADDED and FIXED 2026-09-01 from the same family, found while fixing 1 and 2 - see below. Only item 3 remains, deliberately]
 
+Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): item 3's ruling still holds. New
+since it: the player's Re-scan (`RouteOrchestrator.TryRecoverEndpointLostAfterRescan`) is a second
+way from EndpointLost back to Active; it keeps the arm on purpose and logs `sendOnceArmed=`, and the
+next completed cycle honours it (`TryHonorArmedPauseOnCompletedCycle`), so the invariant holds. The
+rewind classifier still clears both flags. LOGISTICS-WITHOUT-MONEY does not touch this. Not a
+release item.
+
 **~~1. Multi-stop delivered path can end a Send Once ACTIVE (the fixed defect's delivered-side
 sibling).~~** [FIXED 2026-09-01] `ProcessMultiStopCrossings` fired every due window of the cycle
 in one pass with no status re-check, and `ApplyDeliveryFromPlan`'s armed tail ran PER WINDOW:
@@ -12394,6 +12528,14 @@ ghost`); the transport-subset last resort has NEVER executed in flight and is co
 eight xUnit cells only.
 
 ## RESERVATION-OVERLAY-GAPS: the reservation readout that replaced the dead budget UI is absent in the EDITOR and reports `Reserved: 0` in a genuine deficit [SPLIT OUT 2026-08-29 from RESOURCE-BUDGET-READOUTS-ARE-DEAD when that entry was struck as cleanup-done. Neither gap was part of that cleanup; refiled here so they survive it. **(b) FIXED 2026-09-02; (a) still open** - extending the overlay to a scene where it never showed is a product decision, not a wording fix]
+
+Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): (a) still real, now partly
+mitigated. `CurrencyReservationOverlay.Start` still idles outside SPACECENTER / FLIGHT, and
+`KspStatePatcher.PatchFunds` still writes the reservation-net target, so the editor's standing funds
+number goes unexplained. Since PR #2180 the editor's Launch button and the launch-site flyout are
+greyed with the `ReservationExplanation.ClickReserve` reason when a launch would spend reserved
+money, so the blocking case is explained there. Adding EDITOR to the overlay is the owner's call
+under the no-new-UI rule.
 
 **Fix for (b) (2026-09-02).** `FundsModule` / `ScienceModule` now keep the projection's unclamped
 minimum (`GetProjectionMinBalance()`, the value `GetAvailable*()` floors at zero; legacy
@@ -18524,6 +18666,14 @@ ZERO raises on any lane; V7T's `icon-off-orbit` red is its own documented findin
 **EVE DATA POINTS, 2026-08-11 (branch `eve-loop-lanes`).** V8-eve-player-loop measured `faithful-parity summary sampled=1 overTolerance=0` on every bracketed run - the first non-zero `sampled` on an interplanetary loop lane (the Duna engaged lanes all read `sampled=0` via this entry's standdown). The sampled leg is the Eve unit's tilt-declined FAITHFUL-window transfer (see the first-raise paragraph in the 2026-06-15 entry below), which parity-resolves where the re-aimed Duna legs stand down - consistent with this entry's diagnosis that the standdown keys on the seed, not on faithfulness. The TS sibling V8T measured the OTHER side at its post-seam epoch: `sampled=0 skip.reaimed-or-foreign-seed=1` - the TS chain's seed lands back in this entry's standdown even on the same faithful-window unit, so the standdown is scene-path-dependent, not just member-dependent. ALSO MEASURED, same V8 runs: a parity-skip variant this entry has not previously catalogued - `Synth parity skipped: rendered orbit epoch=15174018.619 is not the baked convention (seg.epoch=15673182.924 + loopShift=14687035.5) - UNEXPLAINED epoch convention` - where the rendered epoch equals the RAW recorded epoch of a DIFFERENT (earlier) segment of the same Sun leg, unshifted. Same family (the lens's epoch-convention resolution disagreeing with the Director's fragment choice) on a new shape; filed here rather than as a new entry.
 
 ## TS-LOADGAME-RECORDING-ACTIVE-RACE - the scene-entry recorder re-arms after a StopRecording/DiscardTree pair and REJECTS the next `LoadGame` (SECOND SIGHTING 2026-08-09; V5's re-kill mitigation narrows the window, it does not close it)
+
+Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): both producers are fixed in code.
+HARNESS-BOOT-DISCARD-RACES-COMMITTED-SPAWNED-RESTORE (2026-10-03) makes the seam `DiscardTree` arm
+`SuppressCommittedSpawnedRestoreForActiveVessel`, which blocks V7T's re-arm
+(`ResumeCommittedActiveRecording` after the second `DiscardTree`);
+LOADGAME-COMPLETES-BEFORE-ONFLIGHTREADY (2026-10-09) completes a FLIGHT `LoadGame` only after
+onFlightReady and the unpack, which removes V5's case. No V5 / V6T / V7T / V8T / V18T flight is
+recorded since 2026-10-09; close on the next green TS lane. Harness only, not a release item.
 
 **What happens.** A `seam`-driver spec that re-enters a second scene mid-run must kill the live recorder first - `TestCommandDispatcher` refuses `LoadGame` with `msg=recording-active` by design, so the load never silently discards a live recording (the ONE exception, added 2026-09-09, is RF-3/A1's `allowLiveRecorder=refly`, which admits the load only while a re-fly session marker is live). The TS lanes therefore issue `StopRecording` + `DiscardTree` immediately before the load. On some scene-entry orderings a scene-entry recorder RE-ARMS after that pair and before the load lands, and the load is rejected. The run is driver-INVALID: the second half of the declared sequence never executes.
 
