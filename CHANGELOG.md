@@ -80,6 +80,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **The alarm's Jump button follows the same rules as every other switch.** Jumping from a fired
+  stock alarm never flies a ghost, is refused during a Re-Fly for any vessel but the re-flown one,
+  asks to merge or discard an open recording first like Switch-To, and from the Tracking Station
+  no longer lands you in the wrong vessel. The button is hidden when the jump is refused. (GC-13)
 - **Re-scan restarts a supply route whose destination came back.** When a route stopped because its
   destination vessel was gone, Re-scan found it again but the route stayed stopped until you paused
   and activated it. It now restarts at once, and its next run delivers instead of being skipped.

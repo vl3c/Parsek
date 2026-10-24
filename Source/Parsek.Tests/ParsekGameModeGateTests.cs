@@ -234,6 +234,8 @@ namespace Parsek.Tests
             "Parsek.RevertInterceptor.Prefix", "Parsek.HighLogic_LoadScene_Patch.Prefix",
             "Parsek.Patches.ActiveCrewCountPatch.Postfix",
             "Parsek.Patches.AdministrationButtonBackstopPatch.Prefix",
+            "Parsek.Patches.AlarmJumpButtonMarkPatch.Postfix",
+            "Parsek.Patches.AlarmJumpSwitchPatch.Prefix",
             "Parsek.Patches.AdministrationSetSelectedStrategyPatch.Postfix",
             "Parsek.Patches.AdministrationUpdateStrategyStatsPatch.Postfix",
             "Parsek.Patches.AstronautComplexAddItemPatch.Postfix",
