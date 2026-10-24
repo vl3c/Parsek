@@ -377,6 +377,86 @@ namespace Parsek.Tests
                 && l.Contains("reader=predicted-tail-anchor"));
         }
 
+        // FINALIZER-READS-UNFLUSHED-RELATIVE-POINTS: a NON-parent-anchored background vessel
+        // in Relative mode (nearest-anchor search) before its first flush. Its flat Points
+        // carry the anchor-local offset (altitude 0.0 here) and the open section's
+        // bodyFixedFrames the real position (305.7 m). The raw recording still reads the flat
+        // list (the flat-list guard is parent-anchored only); the refresh view reads the
+        // section in its own frame.
+        [Fact]
+        public void RecordedPointReaders_UnflushedRelativeSectionView_ReadBodyFixedShadowNotFlatOffset()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "bg-nearest-anchor-relative",
+                ExplicitStartUT = 31.10,
+                ExplicitEndUT = 31.14
+            };
+            var openSection = new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 31.10,
+                anchorRecordingId = "nearest-anchor-rec",
+                frames = new List<TrajectoryPoint>(),
+                bodyFixedFrames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment>()
+            };
+            double[] uts = { 31.10, 31.12, 31.14 };
+            for (int i = 0; i < uts.Length; i++)
+            {
+                var offset = new TrajectoryPoint
+                {
+                    ut = uts[i],
+                    bodyName = "Kerbin",
+                    latitude = 0.0,
+                    longitude = -0.455,
+                    altitude = 0.0,
+                    velocity = new Vector3(-76.37f, -0.17f, 51.99f)
+                };
+                rec.Points.Add(offset);
+                openSection.frames.Add(offset);
+                openSection.bodyFixedFrames.Add(new TrajectoryPoint
+                {
+                    ut = uts[i],
+                    bodyName = "Kerbin",
+                    latitude = -0.0972,
+                    longitude = -74.5577,
+                    altitude = 305.7 - i,
+                    velocity = new Vector3(-76.37f, -0.17f, 51.99f)
+                });
+            }
+            OrbitSegment segment = MakePredictedSegmentForReseedTest(31.20, 200.0);
+
+            Assert.True(IncompleteBallisticSceneExitFinalizer.TryFindRecordedPredictedTailAnchorPoint(
+                rec, segment, 1.0, out TrajectoryPoint rawAnchor, out string rawSource, out _));
+            Assert.Equal("Points", rawSource);
+            Assert.Equal(0.0, rawAnchor.altitude);
+
+            List<TrackSection> unflushed = RecordingFinalizationCacheProducer.CollectUnflushedTrackSections(
+                null, openSectionActive: true, openSection: openSection);
+            Recording view = RecordingFinalizationCacheProducer.WithUnflushedTrackSections(rec, unflushed);
+
+            Assert.True(IncompleteBallisticSceneExitFinalizer.TryFindRecordedPredictedTailAnchorPoint(
+                view, segment, 1.0, out TrajectoryPoint anchor, out string source, out double gap));
+            Assert.Equal("TrackSection[0].bodyFixedFrames", source);
+            Assert.Equal(31.14, anchor.ut, 6);
+            Assert.Equal(303.7, anchor.altitude, 6);
+            Assert.Equal(0.06, gap, 6);
+
+            Assert.True(IncompleteBallisticSceneExitFinalizer.TryFindRecordedPointPredecessor(
+                view, anchor, out TrajectoryPoint previous));
+            Assert.Equal(31.12, previous.ut, 6);
+            Assert.Equal(304.7, previous.altitude, 6);
+            Assert.True(IncompleteBallisticSceneExitFinalizer.TryFindRecordedPointSuccessor(
+                view, openSection.bodyFixedFrames[0], out TrajectoryPoint next));
+            Assert.Equal(304.7, next.altitude, 6);
+
+            // The view is read-only: the recording itself still has no flushed section.
+            Assert.Empty(rec.TrackSections);
+            Assert.Equal(3, rec.Points.Count);
+        }
+
         [Fact]
         public void CanReadFlatPointsAsBodyFixed_OnlyForRecordingsWithoutParentAnchor()
         {

@@ -1450,8 +1450,12 @@ namespace Parsek
         /// mirrors their frames, and a parent-anchored recording's first section is Relative
         /// to its parent whenever the seed opened in range, so its flat points carry
         /// anchor-local metre offsets that cannot be told apart from body-fixed values (a
-        /// booster 300 m up reads as altitude 0.0). Until the flush such a recording offers
-        /// no recorded point, and the live-orbit verdict stands for that pass.
+        /// booster 300 m up reads as altitude 0.0). The background cache refresh hands the
+        /// readers the unflushed sections through a read-only view
+        /// (<see cref="RecordingFinalizationCacheProducer.WithUnflushedTrackSections"/>), so
+        /// it does not reach this fallback while a section is held; this refusal is the
+        /// backstop for any other caller, where such a recording offers no recorded point
+        /// and the live-orbit verdict stands for that pass.
         /// </summary>
         internal static bool CanReadFlatPointsAsBodyFixed(Recording recording)
         {

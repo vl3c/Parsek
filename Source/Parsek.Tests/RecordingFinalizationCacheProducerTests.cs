@@ -737,6 +737,157 @@ namespace Parsek.Tests
                 line.Contains("segments=1"));
         }
 
+        private static TrackSection MakeSection(
+            ReferenceFrame frame, double startUT, double endUT, params double[] frameUTs)
+        {
+            var section = new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = frame,
+                startUT = startUT,
+                endUT = endUT,
+                frames = new List<TrajectoryPoint>(),
+                bodyFixedFrames = frame == ReferenceFrame.Relative ? new List<TrajectoryPoint>() : null,
+                checkpoints = new List<OrbitSegment>()
+            };
+            for (int i = 0; i < frameUTs.Length; i++)
+            {
+                section.frames.Add(new TrajectoryPoint { ut = frameUTs[i], bodyName = "Kerbin" });
+                if (section.bodyFixedFrames != null)
+                    section.bodyFixedFrames.Add(new TrajectoryPoint { ut = frameUTs[i], bodyName = "Kerbin" });
+            }
+            return section;
+        }
+
+        [Fact]
+        public void CollectUnflushedTrackSections_NothingHeld_ReturnsNull()
+        {
+            Assert.Null(RecordingFinalizationCacheProducer.CollectUnflushedTrackSections(
+                null, false, default(TrackSection)));
+            Assert.Null(RecordingFinalizationCacheProducer.CollectUnflushedTrackSections(
+                new List<TrackSection>(), false, MakeSection(ReferenceFrame.Relative, 10.0, 0.0, 10.0)));
+        }
+
+        [Fact]
+        public void CollectUnflushedTrackSections_ClosedThenOpenCopy_OpenEndsAtLastSample()
+        {
+            var closed = new List<TrackSection> { MakeSection(ReferenceFrame.Absolute, 10.0, 12.0, 10.0, 12.0) };
+            TrackSection open = MakeSection(ReferenceFrame.Relative, 12.0, 0.0, 12.0, 12.5, 13.25);
+
+            List<TrackSection> sections = RecordingFinalizationCacheProducer.CollectUnflushedTrackSections(
+                closed, true, open);
+
+            Assert.Equal(2, sections.Count);
+            Assert.Equal(ReferenceFrame.Absolute, sections[0].referenceFrame);
+            Assert.Equal(12.0, sections[0].endUT);
+            Assert.Equal(ReferenceFrame.Relative, sections[1].referenceFrame);
+            Assert.Equal(13.25, sections[1].endUT);
+            Assert.Same(open.bodyFixedFrames, sections[1].bodyFixedFrames);
+            // The recorder's open section is a struct the caller still owns: not stamped.
+            Assert.Equal(0.0, open.endUT);
+
+            // An open section with no sample yet ends where it starts.
+            List<TrackSection> empty = RecordingFinalizationCacheProducer.CollectUnflushedTrackSections(
+                null, true, MakeSection(ReferenceFrame.Relative, 20.0, 0.0));
+            Assert.Single(empty);
+            Assert.Equal(20.0, empty[0].endUT);
+        }
+
+        [Fact]
+        public void WithUnflushedTrackSections_NothingUnflushed_ReturnsRecordingItself()
+        {
+            var recording = new Recording { RecordingId = "rec-no-unflushed" };
+
+            Assert.Same(recording, RecordingFinalizationCacheProducer.WithUnflushedTrackSections(recording, null));
+            Assert.Same(recording, RecordingFinalizationCacheProducer.WithUnflushedTrackSections(
+                recording, new List<TrackSection>()));
+            Assert.Null(RecordingFinalizationCacheProducer.WithUnflushedTrackSections(
+                null, new List<TrackSection> { MakeSection(ReferenceFrame.Absolute, 1.0, 2.0, 1.0) }));
+        }
+
+        [Fact]
+        public void WithUnflushedTrackSections_AppendsAfterFlushed_LeavesRecordingUntouched()
+        {
+            var recording = new Recording
+            {
+                RecordingId = "rec-unflushed-view",
+                ParentAnchorRecordingId = null,
+                EvaCrewName = "Jebediah Kerman"
+            };
+            recording.TrackSections.Add(MakeSection(ReferenceFrame.Absolute, 10.0, 12.0, 10.0, 12.0));
+            recording.Points.Add(new TrajectoryPoint { ut = 10.0, bodyName = "Kerbin" });
+            recording.Points.Add(new TrajectoryPoint { ut = 12.0, bodyName = "Kerbin" });
+            recording.Points.Add(new TrajectoryPoint { ut = 12.5, bodyName = "Kerbin" });
+            var unflushed = new List<TrackSection> { MakeSection(ReferenceFrame.Relative, 12.0, 12.5, 12.0, 12.5) };
+
+            Recording view = RecordingFinalizationCacheProducer.WithUnflushedTrackSections(recording, unflushed);
+
+            Assert.NotSame(recording, view);
+            Assert.Equal(2, view.TrackSections.Count);
+            Assert.Equal(ReferenceFrame.Absolute, view.TrackSections[0].referenceFrame);
+            Assert.Equal(ReferenceFrame.Relative, view.TrackSections[1].referenceFrame);
+            Assert.Equal("rec-unflushed-view", view.RecordingId);
+            Assert.Equal("Jebediah Kerman", view.EvaCrewName);
+            Assert.Same(recording.Points, view.Points);
+            Assert.Single(recording.TrackSections);
+            Assert.Contains(logLines, line =>
+                line.Contains("[FinalizerCache]")
+                && line.Contains("Refresh reads unflushed recorder sections")
+                && line.Contains("rec=rec-unflushed-view")
+                && line.Contains("flushed=1 unflushed=1 unflushedRelative=1 flatPoints=3"));
+        }
+
+        [Fact]
+        public void TryBuildFromLiveVessel_UnflushedSections_DefaultFinalizerReadsView()
+        {
+            Recording seen = null;
+            RecordingFinalizationCacheProducer.TryBuildDefaultFinalizationResultOverrideForTesting =
+                (Recording recording, Vessel vessel, double refreshUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    seen = recording;
+                    result = default(IncompleteBallisticFinalizationResult);
+                    return false;
+                };
+
+            var vessel = MakeFlyingView(303u, packed: false, loaded: true, inAtmosphere: true);
+            var recording = new Recording
+            {
+                RecordingId = "rec-live-unflushed",
+                VesselPersistentId = 303u,
+                ExplicitEndUT = 100.0
+            };
+            var unflushed = new List<TrackSection> { MakeSection(ReferenceFrame.Relative, 95.0, 100.0, 95.0, 100.0) };
+
+            RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                120.0,
+                FinalizationCacheOwner.BackgroundLoaded,
+                "unit-live-unflushed",
+                hasMeaningfulThrust: false,
+                recordingTree: null,
+                unflushedTrackSections: unflushed,
+                cache: out RecordingFinalizationCache cache);
+
+            Assert.NotNull(seen);
+            Assert.NotSame(recording, seen);
+            Assert.Single(seen.TrackSections);
+            Assert.Equal(ReferenceFrame.Relative, seen.TrackSections[0].referenceFrame);
+            Assert.Empty(recording.TrackSections);
+            Assert.Equal("rec-live-unflushed", cache.RecordingId);
+
+            seen = null;
+            RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                125.0,
+                FinalizationCacheOwner.BackgroundLoaded,
+                "unit-live-no-unflushed",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache _);
+            Assert.Same(recording, seen);
+        }
+
         /// <summary>
         /// AN ORBITAL EVA RECORDS NOTHING (2026-07-30): the degrade path, pinned
         /// independently of the specific throw that exposed it.

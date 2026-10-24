@@ -85,6 +85,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **An unfocused vessel flying near another craft no longer has its ending guessed from a wrong
+  altitude.** Before its track was first saved, the background check that predicts how its flight
+  ends read its position relative to the nearby craft as a ground position (300 m up could read as
+  sea level). It now reads the real position. (FINALIZER-READS-UNFLUSHED-RELATIVE-POINTS)
 - **Discard Re-fly no longer brings back a vessel your committed future still flies.** The
   discard returns you to the moment of the separation, and every vessel a committed flight flies,
   docks with, boards or recovers after that moment is now held back as a plain rewind does, so it
