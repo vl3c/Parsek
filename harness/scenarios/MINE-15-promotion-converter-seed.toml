@@ -1,0 +1,91 @@
+schema = 1
+id = "MINE-15-promotion-converter-seed"
+tier = "nightly"
+# BATCH-ONLY scenario, SB-1 shape. The live half of the promotion residue of
+# TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES (docs/dev/todo-and-known-bugs.md, fixed in PR
+# #2221): a recording started as a promotion into a FRESH branch (a split, a merge, a
+# switch segment) skips the full seed set, so a converter already running there carried
+# no ConverterActivated and the tail-trim witness (`CountConvertersRunningAtEnd`) never
+# saw it; the trimmed tail then delivered its mined resources early on a spawn. The
+# promotion branch of `FlightRecorder.ResetPartEventTrackingState` now seeds
+# ConverterActivated when the active recording has no converter edge yet. The gate and
+# the emitter are xUnit (`ConverterPromotionSeedTests`); what only a live game has is the
+# converter DETECTION over real stock BaseConverter modules, which the one cell of
+# category `PromotionConverterSeed` drives: a transient recorder runs the promotion
+# branch over the live rover with its drills and ISRU running, once over a fresh empty
+# recording (one seed per running converter part, no non-engine seeds) and once over a
+# recording that already carries a converter edge (no seeds).
+#
+# THE SETUP is MINE-2's own: `miner-rover-landed`'s `Mining Rover RC` (four MiniDrills
+# and a MiniISRU, Ore 0), drills deployed, the deploy animation waited out at 1x, then
+# the Surface Harvester started on every drill and the ISRU's Lf+Ox converter. No
+# recording is started: the cell builds its own recorder and trees in memory.
+#
+# NEVER FLOWN: the batch line pins total=1 exactly and regexes the rest until the first
+# flight measures it.
+description = "Run the in-game PromotionConverterSeed category over miner-rover-landed's rover with its drills and ISRU running: a promotion into a fresh recording seeds one ConverterActivated per running converter part, and a recording that already has a converter edge gets none."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "converter", "tail-trim", "MINE-15"]
+
+[fixture]
+# miner-rover-landed: the active vessel is `Mining Rover RC` (pid 110406740), LANDED
+# about 0.8 km north of the runway, Ore 0, so the harvesters run (MINE-2's host).
+saveTemplate = "fixtures/saves/miner-rover-landed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# verboseLogging=true is LOAD-BEARING: the runner's per-cell PASSED line is Verbose.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                 expect = "OK" },
+  { cmd = "DiscardTree",                                                   expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "PartAction", args = { button = "deploy", part = "MiniDrill", all = "true" }, expect = "OK" },
+  # The drills' deploy animation must finish before stock shows their Start button.
+  { cmd = "WarpToUT",   args = { ut = "60", maxRate = "1" },               expect = "OK", budget = 120 },
+  { cmd = "PartAction", args = { button = "startconverter", part = "MiniDrill", converter = "Surface Harvester", all = "true" }, expect = "OK" },
+  { cmd = "PartAction", args = { button = "startconverter", part = "MiniISRU", converter = "Lf+Ox" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "PromotionConverterSeed" },    expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: auto-record is off and the cell commits nothing (its recorder and trees never
+# reach the store, and the batch isolation reverts the save after teardown).
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: total=1 is ATTRIBUTE-EXACT (one FLIGHT declaration), kept in sync by
+# CommittedBatchTallySourceSyncTests. Never flown, so the rest is a regex until the first
+# flight; the PASSED witness requires the one cell by name, and a Skip (no running
+# converter) is the lane failing its own premise.
+required = [
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=[0-9]+ skipped=[0-9]+ category=PromotionConverterSeed scene=FLIGHT",
+  "PASSED: PromotionConverterSeedInGameTest\\.PromotionSeedsRunningConverters \\(",
+  "PromotionSeedsRunningConverters: vessel='Mining Rover RC' runningConverterParts=[1-9][0-9]* freshSeeds=[1-9][0-9]* edgedSeeds=0",
+  "\\[Recorder\\] ResetPartEventTrackingState: emitted [1-9][0-9]* converter seed event\\(s\\) for chain promotion",
+  "\\[Recorder\\] ResetPartEventTrackingState: skipping converter seeds \\(chain promotion, activeRec='promo-seed-edged' already has 1 converter event\\(s\\)\\)",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "FAILED: PromotionConverterSeedInGameTest\\.PromotionSeedsRunningConverters",
+  "SKIPPED: PromotionConverterSeedInGameTest\\.PromotionSeedsRunningConverters",
+]
+
+[runtime]
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
