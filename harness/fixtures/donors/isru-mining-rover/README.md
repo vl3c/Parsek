@@ -9,10 +9,10 @@ consumer, and it reads `mining-rover-rc.vessel` alone.
 - V's dev KSP install (ReStock installed), sandbox save `isru`.
 - Collected 2026-10-17 by `scripts/collect-logs.py` into
   `logs/2026-10-17_1419_mining-rover` (umbrella root, outside git).
-- Original branch `claude/mining-rover-donor`, commit
-  `ff09b4748706ff2ce6951c72c124fbf4c7a5868c`, holds the byte-exact CRLF originals:
-  the collected `persistent.sfs`, the `parsek_rw_9dbfac.sfs` rewind-point quicksave and
-  `Mining Rover RC.craft`.
+- `originals/` holds the byte-exact CRLF originals: the collected `persistent.sfs`,
+  the `parsek_rw_9dbfac.sfs` rewind-point quicksave and `Mining Rover RC.craft`
+  (first committed on branch `claude/mining-rover-donor`, commit
+  `ff09b4748706ff2ce6951c72c124fbf4c7a5868c`; same blobs).
 
 ## Files
 
@@ -29,6 +29,8 @@ consumer, and it reads `mining-rover-rc.vessel` alone.
   has no ReStock.
 - `Mining Rover RC.craft` - LF copy of V's SPH craft file. Reference only; the builder
   does not read it.
+- `originals/` - the three byte-exact CRLF source files listed under Provenance.
+  Reference only; nothing reads them.
 
 Re-run `python harness/tools/build_miner_rover_landed.py` after any change here;
 `harness/lib/test_miner_rover_landed.py` reds on drift.
