@@ -6435,7 +6435,7 @@ namespace Parsek
             // what the predicate decided.
             //
             // Invariant: the Pass-1 defense path in EnsureRewindRetirementsForRollback
-            // (Immutable id in RetiredForkRecordingIds without explicit demotion)
+            // (committed id in RetiredForkRecordingIds without explicit demotion)
             // performs a remove-then-restore round-trip on RecordingSupersedes —
             // the apply-drops loop above already removed the relation, and the
             // defense re-adds the same instance. The supersede list ends up
@@ -6515,7 +6515,7 @@ namespace Parsek
             public int ForksAdded;
             public int OldSidesAdded;
             // Pass-2 old-side retirements skipped because the dropped supersede's
-            // fork was not a non-self-rewound Immutable. The priorTip stays
+            // fork was not Immutable. The priorTip stays
             // visible so spawn-at-endpoint replays it. See
             // docs/dev/plans/fix-tree-rewind-supersede-old-side.md.
             public int OldSidesSkippedNonImmutable;
@@ -6708,7 +6708,7 @@ namespace Parsek
 
                 // The priorTip only stays permanently retired when at least
                 // one dropped relation targeting it represented a permanent
-                // (canon Immutable, non-self-rewound) supersede. For
+                // (canon Immutable, reachable only through a demotion) supersede. For
                 // non-canon supersedes the rewind rolls them back: the
                 // priorTip is the restored canonical state.
                 if (!AnyDroppedRelationRetiresPriorTipPermanently(

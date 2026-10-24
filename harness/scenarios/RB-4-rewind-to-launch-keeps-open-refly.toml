@@ -16,7 +16,7 @@ id = "RB-4-rewind-to-launch-keeps-open-refly"
 # pins the Immutable branch; this lane skips the seal, so the fork the merge leaves is the
 # OPEN one RF-4's header measured (RF-1: `reason=crashed terminal=Destroyed side=child`,
 # `TerminalKindClassifier` routes Crashed to `CommittedProvisional`, and a re-fly that
-# gained nothing does not seal under section 2.12). Acts 1 and 2 are RF-4's verbatim; read
+# gained nothing does not seal under section 2.12). Every step is RF-4's verbatim; read
 # RF-4's header for why each step is there (the SaveGame before the reload, the
 # StopRecording before `InvokeRewind`, the bare `InvokeRewindToLaunch` auto-select).
 #
@@ -58,8 +58,9 @@ mission = "gs1_auto_chute_booster"
 
 # `steps` MUST stay in [driver], ABOVE the [driver.missionParams] header.
 #
-# THREE ACTS: RF-4's acts 1, 2 and 4 (its act 3, the seal, is the one step this lane is
-# about NOT taking).
+# RF-4's four acts with the seal itself taken out of act 3 (the reload and recorder stop
+# stay, so the rewind runs from the same state as RF-4's): the seal is the one step this
+# lane is about NOT taking.
 steps = [
   { cmd = "LoadGame",           args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
   { cmd = "SetSetting",         args = { name = "autoRecordOnLaunch", value = "true" },  expect = "OK" },
@@ -83,7 +84,12 @@ steps = [
   { cmd = "ListHandles",        args = { kind = "rewindpoints" }, label = "handles",      expect = "OK" },
   { cmd = "InvokeRewind",       args = { rp = "${handles.rp0}", slot = "1" },             expect = "OK", budget = 300 },
   { cmd = "AnswerMergeDialog",  args = { choice = "merge" },                              expect = "OK", budget = 120 },
-  # --- ACT 3: rewind the WHOLE tree to launch, over the OPEN fork it now carries --------
+  # --- ACT 3: RF-4's act 3 MINUS its ListHandles + SealSlot: the same reload and recorder
+  # stop, so the rewind below runs from the scene and state RF-4's rewind runs from.
+  { cmd = "LoadGame",           args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",         args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  # --- ACT 4: rewind the WHOLE tree to launch, over the OPEN fork it now carries --------
   # BARE, with no `tree=`, exactly as RF-4: this host has one committed tree.
   { cmd = "InvokeRewindToLaunch",                                                         expect = "OK", budget = 300 },
   { cmd = "FlushAndQuit",                                                                 expect = "OK" },
@@ -154,11 +160,11 @@ supersedeRows = { min = 1 }
 tombstones    = { max = 0 }
 
 [runtime]
-# RF-4's arithmetic without its act 3: LoadGame x2 1320 + SetSetting x4 480 + mission 900
-#   + ExitToSpaceCenter 180 + SaveGame 120 + StopRecording 120 + ListHandles 120
-#   + InvokeRewind 660 + AnswerMergeDialog 180 + InvokeRewindToLaunch 660
-#   + FlushAndQuit 120 = 4860. 5100 clears it by 240.
-budgetSeconds = 5100
+# RF-4's arithmetic without ListHandles + SealSlot: LoadGame x3 1980 + SetSetting x5 600
+#   + mission 900 + ExitToSpaceCenter 180 + SaveGame 120 + StopRecording x2 240
+#   + ListHandles 120 + InvokeRewind 660 + AnswerMergeDialog 180
+#   + InvokeRewindToLaunch 660 + FlushAndQuit 120 = 5760. 6000 clears it by 240.
+budgetSeconds = 6000
 
 [retry]
 policy = "once"

@@ -1597,7 +1597,7 @@ namespace Parsek.Tests
             // demoted, so the bypass kicks in and retirement proceeds normally.
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[Rewind]") &&
-                l.Contains("Skipping retirement for Immutable canon recording"));
+                l.Contains("Skipping retirement for committed fork"));
         }
 
         [Fact]
@@ -1836,13 +1836,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Rollback_OwnerIsImmutableFork_RewindOnSelfStillDrops()
+        public void Rollback_OwnerIsImmutableFork_DanglingDownstreamStillDrops()
         {
             // Edge case: the owner of the rewind is itself an Immutable canon
-            // fork. Self-rewind. Relations where owner is the Old should still
-            // drop — the user is asking to undo this canon recording. The
-            // Immutable guard protects forks from being retired by a different
-            // recording's rewind, not from self-rewind.
+            // fork, and its outgoing relation points at a NotCommitted
+            // (dangling) recording. That relation drops like any dangling row;
+            // a committed downstream fork would be kept.
             var canonOwner = MakeRecWithMergeState("canon-owner", startUT: 31.5, MergeState.Immutable);
             var downstream = MakeRecWithMergeState("downstream", startUT: 50.0, MergeState.NotCommitted);
             var liveById = new Dictionary<string, Recording>
