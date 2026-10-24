@@ -2050,7 +2050,7 @@ exclusion circle would be retired and not respawn. EVA-12 parks its kerbals 153 
 
 ---
 
-## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness. Background-leg item CLOSED 2026-10-07, branch `release-rulings`, by the converter-event witness. Supply-route item CLOSED 2026-10-07, branch `chain-tip-cargo-all-spawns`, by END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO (owner ruling: trimming stays)]
+## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness. Fresh-branch promotion residue FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit. Background-leg item CLOSED 2026-10-07, branch `release-rulings`, by the converter-event witness. Supply-route item CLOSED 2026-10-07, branch `chain-tip-cargo-all-spawns`, by END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO (owner ruling: trimming stays)]
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): still real, low. The witnesses are
 still a harvest window and a running converter (`RecordingOptimizer.TailTrim.cs`). The in-vessel
@@ -2097,8 +2097,17 @@ converter running). A destroyed part is final (fixed in the same PR).
 
 Fix options: ~~(1) give the optimizer pass the ledger's route rows whose endpoint is the recording's
 vessel and treat a row inside the tail as interesting~~ (not taken, see the closed route item);
-(2) accept the in-vessel case; (3) for the residues, emit a converter seed on a promotion into a
-fresh branch (it would also start the ghost's running loop there).
+(2) accept the in-vessel case; ~~(3) for the residues, emit a converter seed on a promotion into a
+fresh branch (it would also start the ghost's running loop there)~~ - promotion residue FIXED
+2026-10-24, branch `claude/project-thread-u9w386`, xUnit (`ConverterPromotionSeedTests`): the promotion path of
+`FlightRecorder.ResetPartEventTrackingState` now emits `ConverterActivated` seeds
+(`PartStateSeeder.EmitConverterSeedEvents`) when the active recording has no converter edge yet
+(`ChainPromotionShouldEmitConverterSeeds`, the engine gate's shape), at the engine seeds' UT
+(`ResolveChainPromotionSeedUT`). A recording that already carries a converter edge keeps its own
+state. Still open: the in-vessel transfer half (owner's call), a background vessel recorded only on
+rails (a later promotion of it now seeds, the background recording itself does not), and the
+decoupled-converter missed trim. Live witness owed: a fresh-branch split off a vessel with a drill
+running, then a commit whose tail stays (no lane flies it yet).
 
 ---
 
@@ -2428,7 +2437,7 @@ Left open: a part shed because its parent part DIED (`Part.Die` decouples childr
 force 0) still reads "Decoupled" when no crash child joins the window. Telling it apart
 needs `onPartWillDie`, which fires before those decouples; not done here.
 
-## REALSPAWN-JUMP-SHIFT-RESIDUE: what the orbital-tip jump shift does not cover [FILED 2026-10-03 from the REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST fix, branch `fix-orbital-tip-spawn`. OPEN; product, low]
+## REALSPAWN-JUMP-SHIFT-RESIDUE: what the orbital-tip jump shift does not cover [FILED 2026-10-03 from the REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST fix, branch `fix-orbital-tip-spawn`. OPEN; product, low. Walkback item FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit]
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): all four residues still stand; later
 commits widened the shifted cases without closing these. The walkback item is the one with a small
@@ -2448,8 +2457,12 @@ four neighbours keep the old geometry; none is flown:
   current positions"); playback has no per-recording time offset to honour that.
 - **An orbital end without a recorded terminal orbit**, and a SubOrbital / Docked bubble tip:
   the spawn falls back to the endpoint lat/lon/alt at EndUT, unshifted.
-- **The blocked-tip trajectory walkback** (`VesselGhoster.TryWalkbackSpawn`) still walks the
-  recorded points unshifted, so a tip held long enough to walk back leaves the frozen geometry.
+- ~~**The blocked-tip trajectory walkback** (`VesselGhoster.TryWalkbackSpawn`) still walks the
+  recorded points unshifted, so a tip held long enough to walk back leaves the frozen geometry.~~
+  FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit: `TrySpawnBlockedChain` skips the walkback while the
+  tip resolves a jump-shifted spawn (`VesselGhoster.ShouldWalkBackBlockedTip`, Verbose
+  `Chain tip walkback skipped: ... jump-shifted orbit`); the tip stays blocked until the shifted
+  position clears. Live witness owed: a held tip blocked more than 5 s after a jump.
 - **A second jump before an armed tip spawns, when the tip is not held.** Accumulation reads
   the held blocked-tip ghosts; a tip armed by a first jump that has neither spawned nor been
   blocked (its plain ghost is not held) is not re-captured, so a second jump in that window
@@ -5822,7 +5835,16 @@ the wave supervisor's keep-4 ruling; 0 flights, the offline control stands (`_00
 3); only an opportunistic live control on an NRE-bearing run remains open. n and the class
 composition are in the spec comment and in test_hlib's CEILINGS comment.
 
-## LOOP-ANCHOR-ACTIVE-VESSEL-NEVER-MARKED-LOADED: a loop anchored to the vessel the player is flying at scene load never plays its ghost
+## LOOP-ANCHOR-ACTIVE-VESSEL-NEVER-MARKED-LOADED: a loop anchored to the vessel the player is flying at scene load never plays its ghost [first shape FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit; the recorded-anchor zone-distance shape below stays open]
+
+**Fixed 2026-10-24 (first shape).** `ParsekFlight.OnFlightReady` now seeds the loaded-anchor set
+from `FlightGlobals.VesselsLoaded` before any early return (pure
+`ParsekFlight.SeedLoadedAnchorVessels`, ghost map vessels skipped the way `OnVesselLoaded` skips
+them; Verbose `[Loop] Loaded-anchor set seeded: reason=flight-ready ...`), cells in
+`LoopAnchorSeedTests`. Still latent: no shipping flow sets `LoopAnchorVesselId`, so the RL-1
+variant anchored to the active vessel stays owed until one does. `DestroyAllTimelineGhosts`
+clears the set; its production caller is the scene-change request, whose next flight ready
+reseeds, and the in-game test runner's ghost cleanup is the one in-scene caller left unseeded.
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): still latent, not player-reachable.
 The only writer of the loaded-anchor set is `ParsekFlight.OnVesselLoaded`;
