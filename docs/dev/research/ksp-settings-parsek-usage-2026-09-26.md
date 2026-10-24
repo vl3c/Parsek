@@ -83,7 +83,10 @@ produces wrong or surprising behaviour; N/A = test/automation-only read.
    routes through `ParsekTimeFormat` (which reads `GameSettings.KERBIN_TIME` live) or stock
    `KSPUtil.PrintDateCompact`.
 
-6. **CommNet: the only `EnableCommNet` read is in dead code.**
+6. **CommNet: the only `EnableCommNet` read is in dead code.** (Superseded 2026-10-24: ghost
+   relays shipped (design 15.6); `GhostCommNetRelay` is gone, `GhostCommNetMath.DecideAvailability`
+   answers CommNetDisabled when no `CommNetScenario` exists and the manager removes every ghost
+   node; the text below is the 2026-09-26 reading.)
    `GhostCommNetRelay.RegisterNode` checks `Parameters.Difficulty.EnableCommNet`
    (`GhostCommNetRelay.cs:242`), but the class has no production caller (todo
    GUI-D3-GHOSTCOMMNETRELAY-IS-DEAD..., `docs/dev/todo-and-known-bugs.md:4796-4807`).
