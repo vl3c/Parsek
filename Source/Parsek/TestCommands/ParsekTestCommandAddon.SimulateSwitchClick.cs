@@ -32,12 +32,14 @@ namespace Parsek.TestCommands
         //     path. Lengthening it, or arranging to skip that evaluation, would certify a
         //     marker lifetime no player click can produce.
         //
-        // (2) PLAIN PATH ONLY, and the dialog cases are REFUSALS. The real Prefix has three
-        //     dialog branches (Case A armed-session, Case B unloaded-target, Case C
-        //     loaded-separate-committed) and a re-entry branch. A seam verb cannot drive a
-        //     ControlTypes.All-locking modal (AnswerMergeDialog is markerLive-gated to the
-        //     re-fly popup alone), so each one is a typed REJECTED naming the case rather
-        //     than a wedge. The classification comes from the patch's OWN
+        // (2) PLAIN PATH, the AUTO-RESOLUTION, and the remaining dialog cases are REFUSALS.
+        //     The real Prefix has three dialog branches (Case A armed-session, Case B
+        //     unloaded-target, Case C loaded-separate-committed) and a re-entry branch. Each
+        //     dialog case first goes through the patch's OWN TryAutoResolvePreSwitch, which
+        //     under auto-merge presses Merge or Discard and switches. A case it leaves to the
+        //     modal cannot be driven (a ControlTypes.All-locking dialog; AnswerMergeDialog is
+        //     markerLive-gated to the re-fly popup alone), so it is a typed REJECTED naming
+        //     the case rather than a wedge. The classification comes from the patch's OWN
         //     DecidePreSwitchDialogAction, called with the same seven inputs the Prefix
         //     computes - a restatement would drift.
         //
@@ -175,6 +177,26 @@ namespace Parsek.TestCommands
             SwitchClickGateDecision gate = TestCommandSimulateSwitchClick.DecideSwitchGate(
                 scenarioReady, canSwitchVesselsFar, targetIsActiveVessel, dialogDecision, !targetIsUnloaded);
 
+            // A dialog case first goes through the product's own auto-resolution, the same
+            // call the Prefix makes: under auto-merge the switch presses Merge or Discard for
+            // the player and switches, so the verb reports what that did instead of refusing.
+            // In-bubble targets only: an unloaded one switches through a scene reload this
+            // single-phase verb cannot observe, so Case B keeps its refusal. A switch stock is
+            // about to refuse decides nothing and takes the plain path, as the Prefix does, so
+            // the refusal is OBSERVED below (switch-refused-by-stock).
+            if (gate == SwitchClickGateDecision.RefusedDialogRequired && !targetIsUnloaded)
+            {
+                if (MapFocusObjectOnSelectPatch.TryAutoResolvePreSwitch(
+                        target, session, targetIsSeparateCommittedVessel,
+                        out MapFocusObjectOnSelectPatch.PreSwitchAutoResolution autoResolution))
+                {
+                    FinishAutoResolvedSwitchClick(site, target, autoResolution);
+                    return;
+                }
+                if (autoResolution == MapFocusObjectOnSelectPatch.PreSwitchAutoResolution.StockWillRefuse)
+                    gate = SwitchClickGateDecision.Proceed;
+            }
+
             if (gate != SwitchClickGateDecision.Proceed)
             {
                 string caseToken = TestCommandSimulateSwitchClick.DialogCaseToken(
@@ -273,6 +295,46 @@ namespace Parsek.TestCommands
                 $"intentId={intentId:D} route={TestCommandSimulateSwitchClick.PlainRoute} " +
                 $"activeVesselPid={activePidAfter} switched=true " +
                 "- consume outcome (segment started / refused) is in the TryConsumeStockActionIntent lines");
+            SetExecResult("OK", payload, null);
+        }
+
+        /// <summary>
+        /// The terminal for a click the pre-switch auto-resolution answered. The handler
+        /// armed its own intent and called <c>SetActiveVessel</c>, so there is no verb
+        /// intent to report or clean up; what is OBSERVED is whether the active vessel
+        /// moved. A merge refused for a live Re-Fly merge journal leaves the vessel where it
+        /// was, and that reads <c>auto-resolve-no-switch</c>.
+        /// </summary>
+        private void FinishAutoResolvedSwitchClick(
+            SwitchClickSite site, Vessel target,
+            MapFocusObjectOnSelectPatch.PreSwitchAutoResolution resolution)
+        {
+            string route = TestCommandSimulateSwitchClick.AutoResolveRoute(resolution);
+            uint activePidAfter = ActiveVesselPidOrZero();
+            bool switched = activePidAfter != 0u && activePidAfter == target.persistentId;
+            List<KeyValuePair<string, string>> payload = TestCommandSimulateSwitchClick.BuildPayload(
+                TestCommandSimulateSwitchClick.SiteToken(site),
+                target.persistentId,
+                target.vesselName,
+                Guid.Empty,
+                route,
+                activePidAfter,
+                switched);
+
+            if (!switched)
+            {
+                ParsekLog.Warn(Tag,
+                    $"switchclick failed reason={TestCommandSimulateSwitchClick.AutoResolveNoSwitchReason} " +
+                    $"route={route} targetPid={target.persistentId} activeVesselPid={activePidAfter}");
+                SetExecResult("ERROR", payload, TestCommandSimulateSwitchClick.AutoResolveNoSwitchReason);
+                return;
+            }
+
+            ParsekLog.Info(Tag,
+                $"switchclick complete site={TestCommandSimulateSwitchClick.SiteToken(site)} " +
+                $"targetPid={target.persistentId} targetName={target.vesselName ?? string.Empty} " +
+                $"route={route} activeVesselPid={activePidAfter} switched=true " +
+                "- the prior recording was decided by the pre-switch auto-resolution");
             SetExecResult("OK", payload, null);
         }
 

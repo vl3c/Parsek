@@ -10,6 +10,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **Switching vessels in flight no longer asks Merge or Discard.** The flight you leave is
+  merged at the switch, or dropped when you changed nothing on that vessel (or it never left the
+  pad), the same way leaving for the Space Center works. Quickload to undo a change you did not
+  mean. (SWITCH-ASKS-MERGE-FOR-AN-UNCHANGED-VESSEL)
 - **Real Spawn Control's Warp says when the vessel did not spawn.** If the craft still cannot
   appear after the Warp (something parked on its spot, an orbit too low to hold it, no living crew,
   a flight that ended on the pad), one short message says why. Crafts that can never spawn are no

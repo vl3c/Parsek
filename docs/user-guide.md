@@ -55,8 +55,8 @@ Auto-merge is always on, so the merge normally happens silently without this dia
 leaving the flight for the Space Center or the Tracking Station commits the mission. Two
 exits always ask regardless: concluding a Rewind to Separation attempt (whose dialog can
 also offer "Merge & Seal" and "Commit (don't seal)"), and quitting to the main menu with an
-uncommitted mission. A map Switch To onto another vessel can also ask first about the flight
-you are leaving. A Revert never shows it: the reverted flight is thrown away. (There is no setting for this. The
+uncommitted mission. A map Switch To onto another vessel never asks (outside a Re-Fly): the
+flight you are leaving is merged, or dropped when it changed nothing. A Revert never shows it: the reverted flight is thrown away. (There is no setting for this. The
 2026-08-27 settings simplification hardwired auto-merge on; the toggle earlier versions
 of this guide described no longer exists.)
 
@@ -368,7 +368,7 @@ are drawn nowhere and cannot be turned off.
 - **Mid-recording EVA** - Going EVA during an active recording branches it: the EVA kerbal gets a linked child recording and the vessel keeps recording as the other branch. Both are committed with the mission.
 - **Part events** - 28 event types are recorded with timestamps, including staging, decoupling, engine ignition/shutdown/throttle, parachute deploy/cut, solar panel/antenna/radiator extend/retract, light on/off/blink, landing gear deploy/retract, cargo bay open/close, fairing jettison, RCS fire, docking/undocking, and inventory part placement/removal. During ghost playback, decoupled parts (and their subtrees) disappear from the ghost at the correct time. Engines and RCS thrusters emit particle FX during burn phases. Parachute canopies deploy with the real mesh, engine shrouds are jettisoned, and deployable parts animate between stowed/deployed states. Docking/undocking events are used as chain segment boundaries, not direct ghost mesh transforms.
 - **Paused game** - Recording cannot start while the game is paused.
-- **Vessel change** - Changing the active vessel does not stop recording. Docking and undocking become branch points in the mission tree. When you switch away, the vessel you leave keeps recording in the background, and switching back to a vessel the mission already tracks resumes its recording. A map Switch To, Tracking Station Fly or Space Center marker Fly onto a vessel starts a new recording segment for it (continuing that vessel's mission when it has one); a vessel sitting on the pad, ground or water starts recording only when it launches, takes off or stages. If you switch away from such a segment without changing anything (no burn, staging, docking or orbit change), it is dropped automatically. A Switch To can first ask you to Merge or Discard the flight you are leaving.
+- **Vessel change** - Changing the active vessel does not stop recording. Docking and undocking become branch points in the mission tree. When you switch away, the vessel you leave keeps recording in the background, and switching back to a vessel the mission already tracks resumes its recording. A map Switch To, Tracking Station Fly or Space Center marker Fly onto a vessel starts a new recording segment for it (continuing that vessel's mission when it has one); a vessel sitting on the pad, ground or water starts recording only when it launches, takes off or stages. If you switch away from such a segment without changing anything (no burn, staging, docking or orbit change), it is dropped automatically. A Switch To never asks about the flight you are leaving: a flight that changed something is merged at the switch (quickload with F9 to undo a mistake), and one that changed nothing, or never left the pad, is dropped.
 - **Very short recordings** - Recordings with fewer than 2 sample points are silently dropped on revert (nothing to play back).
 
 ### Ghost Playback

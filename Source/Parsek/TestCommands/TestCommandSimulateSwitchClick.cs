@@ -89,7 +89,10 @@ namespace Parsek.TestCommands
         RefusedTargetAlreadyActive,
 
         /// <summary><c>DecidePreSwitchDialogAction</c> returned <c>OpenDialog</c> (Case A /
-        /// B / C). A modal would spawn; no seam verb can answer it.</summary>
+        /// B / C). The applier first runs the product's own
+        /// <c>MapFocusObjectOnSelectPatch.TryAutoResolvePreSwitch</c>; this refusal is the
+        /// terminal only when that leaves the decision to the modal (auto-merge off, or a
+        /// no-op check that could not run), which no seam verb can answer.</summary>
         RefusedDialogRequired,
 
         /// <summary><c>DecidePreSwitchDialogAction</c> returned <c>SkipDialogReEntry</c>: a
@@ -141,8 +144,11 @@ namespace Parsek.TestCommands
     ///   through their own patched handlers (the TS one runs
     ///   <c>RemoveAllGhostVesselsBeforeStockFly</c>, a live-list/saved-file index desync fix
     ///   a hand-rolled call would reintroduce), so they belong with their own consumers.</item>
-    /// <item>The PLAIN arm-and-switch path only. Every dialog branch of the real Prefix is a
-    ///   typed refusal (see <see cref="SwitchClickGateDecision"/>), never a driven dialog.</item>
+    /// <item>The PLAIN arm-and-switch path, plus the pre-switch auto-resolution: a dialog
+    ///   case is handed to the same <c>TryAutoResolvePreSwitch</c> the Prefix calls (routes
+    ///   <see cref="AutoDiscardRoute"/> / <see cref="AutoMergeRoute"/>), and only a case it
+    ///   leaves to the modal is a typed refusal (see <see cref="SwitchClickGateDecision"/>),
+    ///   never a driven dialog.</item>
     /// <item>Loaded (in-bubble) targets only.</item>
     /// </list></para>
     ///
@@ -210,9 +216,24 @@ namespace Parsek.TestCommands
         /// target (one of stock's <c>ClearToSave</c> / discovery-level early returns).</summary>
         internal const string SwitchRefusedReason = "switch-refused-by-stock";
 
-        /// <summary>The only route v1 drives. Reported in the payload so a later version that
-        /// adds dialog routes stays distinguishable in the same field.</summary>
+        /// <summary>The verb's own arm-and-switch route. Reported in the payload so the
+        /// auto-resolved routes below stay distinguishable in the same field.</summary>
         internal const string PlainRoute = "plain-arm-and-switch";
+
+        /// <summary>Route of a click the pre-switch auto-resolution answered with Discard.</summary>
+        internal const string AutoDiscardRoute = "pre-switch-auto-discard";
+
+        /// <summary>Route of a click the pre-switch auto-resolution answered with Merge.</summary>
+        internal const string AutoMergeRoute = "pre-switch-auto-merge";
+
+        /// <summary>The auto-resolution pressed a button but the active vessel did not move.</summary>
+        internal const string AutoResolveNoSwitchReason = "auto-resolve-no-switch";
+
+        /// <summary>The payload <c>route</c> token for an auto-resolved click.</summary>
+        internal static string AutoResolveRoute(MapFocusObjectOnSelectPatch.PreSwitchAutoResolution resolution)
+            => resolution == MapFocusObjectOnSelectPatch.PreSwitchAutoResolution.Merge
+                ? AutoMergeRoute
+                : AutoDiscardRoute;
 
         /// <summary>The clear reason the verb uses for its own Postfix-equivalent cleanup.
         /// Byte-identical to <c>MapFocusObjectOnSelectPatch</c>'s Postfix so one grep finds
