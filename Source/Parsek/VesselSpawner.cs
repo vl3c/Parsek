@@ -5937,6 +5937,9 @@ namespace Parsek
             // Dock records name parts by flightID: carry the regenerated uids into them, and
             // into the dock-absorb rows, so an undock of the spawned stack is recognized.
             int dockRefsRemapped = VesselNameSpawn.RemapDockRecordUids(spawnNode, uidMap);
+            // A seated EVA kerbal is a part of the seat's vessel, named by flightID in the
+            // seat's occupantID: without the remap the spawned seat loads empty.
+            int seatOccupantsRemapped = VesselSnapshotOps.RemapSeatOccupantUids(spawnNode, uidMap);
             int dockRowsCopied = VesselNameStore.CopyDockAbsorbsForUidMap(uidMap,
                 "spawn rec=" + (source?.RecordingId ?? "<none>"));
 
@@ -5944,7 +5947,8 @@ namespace Parsek
                 $"Regenerated vessel identity: pid={newPid}, {pidMap.Count} part(s) regenerated, " +
                 $"{oldPartPids.Count} old PID(s) cleaned from registry" +
                 (roboticsPatched > 0 ? $", {roboticsPatched} robotics ref(s) patched" : "") +
-                $", dockRefsRemapped={dockRefsRemapped} dockAbsorbRowsCopied={dockRowsCopied}");
+                $", dockRefsRemapped={dockRefsRemapped} seatOccupantsRemapped={seatOccupantsRemapped}" +
+                $" dockAbsorbRowsCopied={dockRowsCopied}");
             return uidMap;
         }
 

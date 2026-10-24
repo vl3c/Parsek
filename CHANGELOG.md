@@ -93,6 +93,14 @@ _(unreleased - entries accumulate here per commit)_
   destination vessel was gone, Re-scan found it again but the route stayed stopped until you paused
   and activated it. It now restarts at once, and its next run delivers instead of being skipped.
   (LOOP-ROUTE-RESCAN-DOES-NOTHING)
+- **Taking a seat on a rover from another mission claims it like a dock does.** A kerbal sitting in
+  another mission's external command seat now marks that rover as used by his flight, so after a
+  rewind to before he sat down the rover is held back for that flight instead of staying live and
+  being spawned a second time. (FOREIGN-SEAT-BOARD-LEAVES-NO-GHOST-CLAIM)
+- **A spawned rover keeps the kerbal sitting in its seat.** When a recording ends with a kerbal in
+  an external command seat, the spawned vessel now loads with him seated, instead of the seat
+  reading as empty (offering Board again and no longer steering the rover).
+  (SEAT-OCCUPANT-LINK-LOST-ON-SPAWN)
 - **A contract or science won while resuming a committed flight is kept when you discard.** If you
   took over a committed vessel, finished a contract, reached a milestone or banked science, and then
   discarded that flight, stock kept the reward but Parsek dropped it. Parsek now keeps it too.

@@ -27,14 +27,14 @@ namespace Parsek.Tests
             // Fails if the stamp decision starts requiring route eligibility again
             // (the pre-decoupling behavior this change exists to remove).
             Assert.Equal(777u, ParsekFlight.ResolveBranchPartnerStampPid(
-                partnerPidFromEvent: 777u, selfVesselPid: 42u, involvesEva: false));
+                partnerPidFromEvent: 777u, selfVesselPid: 42u, partnerIsEva: false));
         }
 
         [Fact]
         public void StampPid_ZeroPartner_ReturnsZero()
         {
             Assert.Equal(0u, ParsekFlight.ResolveBranchPartnerStampPid(
-                partnerPidFromEvent: 0u, selfVesselPid: 42u, involvesEva: false));
+                partnerPidFromEvent: 0u, selfVesselPid: 42u, partnerIsEva: false));
         }
 
         [Fact]
@@ -44,7 +44,7 @@ namespace Parsek.Tests
             // this input is production-unreachable today; the stamp's own self-filter
             // keeps a future caller from stamping a vessel as its own dock partner.
             Assert.Equal(0u, ParsekFlight.ResolveBranchPartnerStampPid(
-                partnerPidFromEvent: 42u, selfVesselPid: 42u, involvesEva: false));
+                partnerPidFromEvent: 42u, selfVesselPid: 42u, partnerIsEva: false));
         }
 
         [Fact]
@@ -54,7 +54,70 @@ namespace Parsek.Tests
             // a kerbal-scale event; stamping it would mint ghost-chain claims keyed on
             // kerbal pids). Fails if the EVA suppression is dropped from the stamp path.
             Assert.Equal(0u, ParsekFlight.ResolveBranchPartnerStampPid(
-                partnerPidFromEvent: 777u, selfVesselPid: 42u, involvesEva: true));
+                partnerPidFromEvent: 777u, selfVesselPid: 42u, partnerIsEva: true));
+        }
+
+        [Fact]
+        public void StampPid_EvaRecorderTakesExternalSeat_StampsTheSeatVessel()
+        {
+            // GC-11 FOREIGN-SEAT-BOARD-LEAVES-NO-GHOST-CLAIM: KerbalEVA On_seatBoard runs
+            // part.Couple(kerbalSeat.part), so from = the recorder's own EVA kerbal (42) and
+            // to = the rover (777). The partner is not EVA, so the rover is stamped and the
+            // chain walker / rewind hold see the claim. Fails if the suppression keys on
+            // "either side is EVA" again (it then reads partnerIsEva true and stamps 0).
+            bool partnerIsEva = ConnectionProducerClassifier.PartnerIsEvaCore(
+                partnerPid: 777u, fromVesselPid: 42u, fromIsEva: true,
+                toVesselPid: 777u, toIsEva: false);
+            Assert.False(partnerIsEva);
+            Assert.Equal(777u, ParsekFlight.ResolveBranchPartnerStampPid(
+                partnerPidFromEvent: 777u, selfVesselPid: 42u, partnerIsEva: partnerIsEva));
+            // The guid stamp follows the pid stamp: the rover's live launch guid.
+            Assert.Equal("feedfacefeedfacefeedfacefeedface",
+                ParsekFlight.ResolveDockPartnerGuidFromEvent(777u,
+                    42u, "42424242424242424242424242424242",
+                    777u, "feedfacefeedfacefeedfacefeedface"));
+        }
+
+        [Fact]
+        public void StampPid_ClawGrabsEvaKerbal_StillSuppressed_EitherSide()
+        {
+            // Mirror of the seat cell: a non-EVA recorder (42) whose partner is the EVA
+            // kerbal (909) stays unstamped whichever couple side the kerbal is on (a claw
+            // couple's from side depends on Vessel.GetDominantVessel).
+            bool kerbalFrom = ConnectionProducerClassifier.PartnerIsEvaCore(
+                partnerPid: 909u, fromVesselPid: 909u, fromIsEva: true,
+                toVesselPid: 42u, toIsEva: false);
+            bool kerbalTo = ConnectionProducerClassifier.PartnerIsEvaCore(
+                partnerPid: 909u, fromVesselPid: 42u, fromIsEva: false,
+                toVesselPid: 909u, toIsEva: true);
+            Assert.True(kerbalFrom);
+            Assert.True(kerbalTo);
+            Assert.Equal(0u, ParsekFlight.ResolveBranchPartnerStampPid(909u, 42u, kerbalFrom));
+            Assert.Equal(0u, ParsekFlight.ResolveBranchPartnerStampPid(909u, 42u, kerbalTo));
+        }
+
+        [Fact]
+        public void PartnerIsEvaCore_ZeroOrUnmatchedPartner_IsNotEva()
+        {
+            Assert.False(ConnectionProducerClassifier.PartnerIsEvaCore(0u, 0u, true, 42u, true));
+            Assert.False(ConnectionProducerClassifier.PartnerIsEvaCore(555u, 42u, true, 777u, true));
+            // Already reparented (both sides one vessel): reads that vessel's own flag.
+            Assert.False(ConnectionProducerClassifier.PartnerIsEvaCore(777u, 777u, false, 777u, false));
+        }
+
+        [Fact]
+        public void Wiring_BothCouplePathsStampWithThePartnerSideFlag()
+        {
+            // Both OnPartCouple paths must feed the stamp the partner-side flag, never the
+            // either-side coupleInvolvesEva the route window keys on.
+            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
+                System.AppDomain.CurrentDomain.BaseDirectory,
+                "..", "..", "..", "..", "..", "Source", "Parsek", "ParsekFlight.cs"));
+            Assert.DoesNotContain("RecordingVesselId, coupleInvolvesEva)", src);
+            Assert.Contains("partnerPidFromEvent, recorder.RecordingVesselId, partnerIsEva);", src);
+            Assert.Contains("partnerPidFromEventR, recorder.RecordingVesselId, partnerIsEvaR);", src);
+            Assert.Contains("data.from, data.to, partnerPidFromEvent);", src);
+            Assert.Contains("data.from, data.to, partnerPidFromEventR);", src);
         }
 
         // -------- BuildMergeBranchData (the stamp/route split) --------
@@ -246,7 +309,7 @@ namespace Parsek.Tests
             // stamp: BOTH resolvers zero their pid for an EVA couple, so a claw / kerbal
             // grab still marks no terminal spawn superseded.
             uint evaStamp = ParsekFlight.ResolveBranchPartnerStampPid(
-                partnerPidFromEvent: 909090u, selfVesselPid: 42u, involvesEva: true);
+                partnerPidFromEvent: 909090u, selfVesselPid: 42u, partnerIsEva: true);
             uint evaRoute = ParsekFlight.SuppressRouteWindowForEvaGrab(
                 909090u, involvesEva: true, RouteConnectionKind.Grapple, pathLabel: "");
 

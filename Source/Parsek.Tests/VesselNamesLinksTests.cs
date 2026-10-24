@@ -498,6 +498,56 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("Dock absorb rows re-keyed for regenerated part uids: copied=1"));
         }
 
+        [Fact]
+        public void RegeneratePartIdentities_SeatOccupantFollowsTheUidMap()
+        {
+            // GC-11 SEAT-OCCUPANT-LINK-LOST-ON-SPAWN: stock KerbalSeat.OnSave writes the seated
+            // kerbal's part flightID as occupantID and OnStart resolves vessel[occupantID], so a
+            // spawn that regenerates uids must carry the new one or the seat loads empty.
+            var v = new ConfigNode("VESSEL");
+            ConfigNode rover = v.AddNode("PART");
+            rover.AddValue("uid", "100");
+            rover.AddValue("persistentId", "1");
+            ConfigNode seatPart = v.AddNode("PART");
+            seatPart.AddValue("uid", "200");
+            seatPart.AddValue("persistentId", "2");
+            ConfigNode seat = seatPart.AddNode("MODULE");
+            seat.AddValue("name", "KerbalSeat");
+            seat.AddValue("occupantID", "300");
+            ConfigNode kerbal = v.AddNode("PART");
+            kerbal.AddValue("uid", "300");
+            kerbal.AddValue("persistentId", "3");
+            // A second, empty seat (stock writes no occupantID), one carrying 0, one naming a
+            // part outside the snapshot, and a non-seat module with an occupantID-shaped value.
+            ConfigNode emptySeat = rover.AddNode("MODULE");
+            emptySeat.AddValue("name", "KerbalSeat");
+            ConfigNode zeroSeat = kerbal.AddNode("MODULE");
+            zeroSeat.AddValue("name", "KerbalSeat");
+            zeroSeat.AddValue("occupantID", "0");
+            ConfigNode strangerSeat = seatPart.AddNode("MODULE");
+            strangerSeat.AddValue("name", "KerbalSeat");
+            strangerSeat.AddValue("occupantID", "555");
+            ConfigNode other = rover.AddNode("MODULE");
+            other.AddValue("name", "ModuleCommand");
+            other.AddValue("occupantID", "300");
+
+            uint nextUid = 900, nextPid = 50;
+            var uidMap = new Dictionary<uint, uint>();
+            VesselSnapshotOps.RegeneratePartIdentities(v, () => nextPid++, () => nextUid++, 7u, 8u, uidMap);
+            Assert.Equal(902u, uidMap[300]);
+
+            Assert.Equal(1, VesselSnapshotOps.RemapSeatOccupantUids(v, uidMap));
+            Assert.Equal("902", seat.GetValue("occupantID"));
+            Assert.Equal("902", kerbal.GetValue("uid"));
+            Assert.False(emptySeat.HasValue("occupantID"));
+            Assert.Equal("0", zeroSeat.GetValue("occupantID"));
+            Assert.Equal("555", strangerSeat.GetValue("occupantID"));
+            Assert.Equal("300", other.GetValue("occupantID"));
+
+            Assert.Equal(0, VesselSnapshotOps.RemapSeatOccupantUids(v, new Dictionary<uint, uint>()));
+            Assert.Equal(0, VesselSnapshotOps.RemapSeatOccupantUids(null, uidMap));
+        }
+
         // ---------------------------------------------------------------- resume link (6.2)
 
         [Fact]
@@ -736,6 +786,9 @@ namespace Parsek.Tests
                 "the Spawn link is recorded even when the per-part pass is skipped");
             Assert.Contains("VesselIdentityLinkKind.Spawn", regen);
             IndexOrFail(regen, "VesselNameSpawn.RemapDockRecordUids(spawnNode, uidMap)");
+            Assert.True(IndexOrFail(regen, "VesselSnapshotOps.RegeneratePartIdentities(")
+                < IndexOrFail(regen, "VesselSnapshotOps.RemapSeatOccupantUids(spawnNode, uidMap)"),
+                "the seat occupant remap reads the map the per-part pass fills");
             IndexOrFail(regen, "VesselNameStore.CopyDockAbsorbsForUidMap(uidMap");
 
             foreach (string sig in new[]
