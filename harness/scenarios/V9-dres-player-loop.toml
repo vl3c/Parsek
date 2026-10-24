@@ -9,7 +9,7 @@ id = "V9-dres-player-loop"
 # FAITHFUL because the load-time optimizer split the transfer at its on-rails
 # Kerbin->Sun handoff, so no member held parking + coast + arrival. That is
 # OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER, fixed on branch `dres-split-cohesion`
-# (docs/dev/plans/optimizer-split-transfer-cohesion.md, Design A).
+# (docs/dev/done/plans/optimizer-split-transfer-cohesion.md, Design A).
 #
 # IT IS NOW THE REGRESSION FLOOR FOR THAT FIX, armed 2026-08-12 on the
 # two-consecutive-runs discipline (_0241/_0244, byte-identical). The armed tokens

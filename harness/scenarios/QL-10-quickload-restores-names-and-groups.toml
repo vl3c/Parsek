@@ -3,7 +3,7 @@ id = "QL-10-quickload-restores-names-and-groups"
 # =====================================================================================
 # QL-10: A LOAD PUTS BACK THE SAVE'S RECORDING NAMES AND GROUP NAMES.
 # "Load restores the save" Phase 2 (design docs/dev/design-load-restores-the-save.md
-# section 5; plan docs/dev/plans/load-restores-the-save-implementation.md Phase 2 step 7).
+# section 5; plan docs/dev/done/plans/load-restores-the-save-implementation.md Phase 2 step 7).
 # AUTHORED 2026-10-20, NOT FLOWN.
 #
 # In gameplay terms: at the Space Center the player quicksaves, renames a recording (a

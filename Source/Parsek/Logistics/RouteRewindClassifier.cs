@@ -29,7 +29,7 @@ namespace Parsek.Logistics
     /// <summary>
     /// Pure, Unity-free helpers for the route rewind-visibility extension
     /// (dormant routes; plan
-    /// <c>docs/dev/plans/plan-route-rewind-dormant-visibility.md</c>).
+    /// <c>docs/dev/done/plans/plan-route-rewind-dormant-visibility.md</c>).
     ///
     /// <para><b>The model.</b> RouteStore is preserved in memory across every
     /// in-session load (LoadRoutesFrom runs only on the cold-start branch), so

@@ -29,7 +29,7 @@ id = "V11-moho-player-loop"
 #      transfer-cohesion fix (PR #1458, Design A rule-3) is what keeps the on-rails
 #      Kerbin->Sun handoff from splitting the transfer into two members, and it is
 #      already merged. IF IT DECLINES, THE DECLINE REASON IS THE FINDING -- diagnose
-#      it against docs/dev/plans/optimizer-split-transfer-cohesion.md BEFORE
+#      it against docs/dev/done/plans/optimizer-split-transfer-cohesion.md BEFORE
 #      touching anything, because the pre-fix symptom (`no member yields a re-aim
 #      transfer`) and a genuinely new one look identical from the outside.
 #

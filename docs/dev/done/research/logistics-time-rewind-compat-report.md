@@ -73,7 +73,7 @@ review). Every claim below is anchored to `file:line` confirmed by direct reads.
 > pre-cutoff routes kept abandoned-future loop cursors that silently swallowed
 > re-flown cycles (partially defeating Rec-1's re-delivery). Both are fixed by
 > the dormant-routes extension
-> (`docs/dev/plans/plan-route-rewind-dormant-visibility.md`):
+> (`docs/dev/done/plans/plan-route-rewind-dormant-visibility.md`):
 > `ReconciliationBundle` now captures + classifies the route lists at
 > `Restore(cutoff)` (post-cutoff routes go dormant and re-materialize at their
 > `CreatedUT`; kept routes get their cycle state reconciled). Read this

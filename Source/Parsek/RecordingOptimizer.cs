@@ -2334,7 +2334,7 @@ namespace Parsek
         ///
         /// TWO WAYS TO QUALIFY, and the second one was added 2026-08-12 by
         /// OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER (plan:
-        /// docs/dev/plans/optimizer-split-transfer-cohesion.md, Design A):
+        /// docs/dev/done/plans/optimizer-split-transfer-cohesion.md, Design A):
         ///
         ///   (a) both sides raw ExoBallistic — the original rule, unchanged;
         ///   (b) both sides Exo CLASS *and* both sections OrbitalCheckpoint-framed

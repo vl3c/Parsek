@@ -2,7 +2,7 @@ schema = 1
 id = "L9-career-floor-debt-after-rewind"
 tier = "nightly"
 # CAREER x REWIND: THE RESERVED FLOOR AND THE DEBT (committed-value rule phase 3, plan
-# docs/dev/plans/committed-value-rule-implementation.md section 2.3; design
+# docs/dev/done/plans/committed-value-rule-implementation.md section 2.3; design
 # docs/parsek-game-actions-and-resources-recorder-design.md 3.13 rule 4; todo
 # LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY). The live check that, after a rewind, a funds loss
 # that a committed purchase lies ahead of stops at the reserved floor, the part below it

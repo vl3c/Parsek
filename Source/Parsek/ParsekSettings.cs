@@ -83,7 +83,7 @@ namespace Parsek
         /// (it committed ghost-only and dropped the terminal vessel snapshot, so a
         /// surviving vessel never re-materialised at its recording end), which is
         /// why the default was OFF; the silent full-fidelity auto-commit work
-        /// (`docs/dev/plans/silent-full-fidelity-autocommit.md`) closed that gap for
+        /// (`docs/dev/done/plans/silent-full-fidelity-autocommit.md`) closed that gap for
         /// the path that matters, routing a <c>Finalized</c> pending tree through the
         /// dialog's own commit + per-leaf vessel decisions — and the 2026-08-29 fix
         /// extended that same commit to a non-re-fly <c>Limbo</c> resume-stash, which

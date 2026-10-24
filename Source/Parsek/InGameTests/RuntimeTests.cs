@@ -13795,7 +13795,7 @@ namespace Parsek.InGameTests
 
         /// <summary>
         /// THE autoMerge=ON scene-exit cell (plan §7 of
-        /// docs/dev/plans/silent-full-fidelity-autocommit.md, recorded as a coverage
+        /// docs/dev/done/plans/silent-full-fidelity-autocommit.md, recorded as a coverage
         /// gap by the default-flip PR #1523 and still missing when the 2026-08-27
         /// settings simplification made ON UNCONDITIONAL for every player). Its two
         /// siblings in the SceneExitMerge category both force autoMerge OFF and drive

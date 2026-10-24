@@ -4,7 +4,7 @@ Status: IMPLEMENTED 2026-10-20 on branch `claude/project-thread-vy0m14` (PR #215
 clean review's five fixes, and the lanes (RF-L1..RF-L4 new, nine reshaped). Lanes not flown yet.
 Design authority: `docs/parsek-rewind-to-separation-design.md` section 2.12 (wins over this plan
 where they disagree; fix the plan, not the code, when they do). Evidence:
-`docs/dev/research/refly-ledger-paradox-2026-10-19.md`. Todos:
+`docs/dev/done/research/refly-ledger-paradox-2026-10-19.md`. Todos:
 `REFLY-MERGE-RETIRES-VALUE-LATER-SPENDING-USED`, `REFLY-RESUMED-MERGED-DISCARD-RESTORES-LOSSES`,
 `REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE` (Re-Fly invoke part only).
 

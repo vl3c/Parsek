@@ -336,7 +336,7 @@ namespace Parsek.Tests
 
         // ================= E1: the Kerbin->Eve CYCLE-0 geometry, pinned in-repo =================
         //
-        // WHY THESE CELLS EXIST (docs/dev/plans/reaim-inclined-target-tilt-retention.md section 3, E1).
+        // WHY THESE CELLS EXIST (docs/dev/done/plans/reaim-inclined-target-tilt-retention.md section 3, E1).
         // On 2026-08-11 the V8-eve-player-loop lane raised `seam-endpoint-outside-soi` for the first
         // time in its existence, bit-identically on five bracketed runs. The route: an ENGAGED
         // Kerbin->Eve loop unit whose cycle-0 window declined at the plane-tilt achievability gate on
@@ -674,7 +674,7 @@ namespace Parsek.Tests
 
         // ============ PHASE 1: the tilt seam's DISPOSITION (Retain replaces the decline) ============
         //
-        // WHAT CHANGED (docs/dev/plans/reaim-inclined-target-tilt-retention.md, Design A). The tilt seam
+        // WHAT CHANGED (docs/dev/done/plans/reaim-inclined-target-tilt-retention.md, Design A). The tilt seam
         // used to have two outcomes: correct the plane (fire) or KILL the candidate (decline). It now has
         // three, decided by the pure DecideTiltDisposition:
         //   Noop   - the tilt is not excessive.

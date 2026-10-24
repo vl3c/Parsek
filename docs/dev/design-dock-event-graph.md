@@ -22,7 +22,7 @@ Numbered decisions this design needs input on. Each carries a recommendation; th
 6. **Chapter exclusion vs new topology.** Excluding a chapter expands to explicit `ExcludedIntervalKeys`. A genuinely new branch recorded later inside that chapter's subtree defaults to INCLUDED (the standing open-question-3a contract, `design-mission-abstractions.md:688-694`), so it reappears in the loop despite the excluded chapter. Recommendation: accept and warn-log at reconcile ("chapter 'X' has new included topology"), consistent with 3a; auto-extending the exclusion would be a silent write to player selection state.
 7. **Digest surfaces.** The event digest renders as a collapsed-by-default foldout per mission in the Missions tab (issue-1 T2.3's placement). Recommendation: Missions tab only in v1; the Recordings tab gets partner naming (tooltip/cell text) but no digest.
 8. **Same-tree recovered links get no include-toggle.** A recovered same-tree link (the A->D case) names the partner, feeds the digest and chapters, and drives seam markers, but mints no "Partner journey"-style selection row: both sides already live in the same tree and are already selectable. Confirm that no selection affordance is wanted for the same-tree case.
-9. **Advisory gate (#7).** DECIDED 2026-08-13 (owner directed the playtest be AUTOMATED): the verification ran headless instead of as a playtest - the real loop-unit builder + the real span-clock render decision, swept over the two-tree docked fixture with both loops enabled - and CONFIRMED the structural double render (302 of 801 swept wall UTs double-render, every collision clock-diverged by 137-237 s on the fixture; the control with the second loop off produces zero). The advisory therefore ships, worded to the evidence ("ghosts may appear twice") since the on-screen confirmation remains an opportunistic in-play observation. Evidence: `docs/dev/research/double-clock-verification-2026-08-13.md`; implementation: PR sequence step 7.
+9. **Advisory gate (#7).** DECIDED 2026-08-13 (owner directed the playtest be AUTOMATED): the verification ran headless instead of as a playtest - the real loop-unit builder + the real span-clock render decision, swept over the two-tree docked fixture with both loops enabled - and CONFIRMED the structural double render (302 of 801 swept wall UTs double-render, every collision clock-diverged by 137-237 s on the fixture; the control with the second loop off produces zero). The advisory therefore ships, worded to the evidence ("ghosts may appear twice") since the on-screen confirmation remains an opportunistic in-play observation. Evidence: `docs/dev/done/research/double-clock-verification-2026-08-13.md`; implementation: PR sequence step 7.
 10. **#8 spike GO threshold.** DECIDED 2026-08-12 (owner delegated code-only questions to the recommendation): the section 9.4 criterion stands as written - exact part-pid preservation on the BDOCK-1 fixture, plus a >= 90% / <= 50% overlap separation between the departing and continuing child.
 
 ---
@@ -396,7 +396,7 @@ zero collisions. The I6 structural claim is confirmed; Q9 resolves to "advisory 
 seam; the visual (two ghosts of one vessel on screen together) follows from the diverged
 clocks mapping to different trajectory points but is not machine-measured - it stays an
 opportunistic in-play observation, like the other M-MIS-8 visuals. Full methodology and
-numbers: `docs/dev/research/double-clock-verification-2026-08-13.md`.
+numbers: `docs/dev/done/research/double-clock-verification-2026-08-13.md`.
 
 ---
 
@@ -597,7 +597,7 @@ Cross-cutting per-commit duties (project rules): CHANGELOG entry per behavior-ch
 ## 18. Addendum (2026-08-13): #8 spike resolved GO - ClassifyUndockChildProvenance
 
 The section 9 spike ran on 2026-08-13 and resolved **GO** on all three 9.4 clauses;
-evidence in `docs/dev/research/dprovenance-spike-2026-08-13.md` (perfect 100%/0%
+evidence in `docs/dev/done/research/dprovenance-spike-2026-08-13.md` (perfect 100%/0%
 separation on the BDOCK-1 fixture; window sets exactly partner-scoped on disk; pid
 preservation proven end-to-end through commit and harvest). This addendum specifies the
 follow-up implementation; it is NOT part of PR sequence steps 1-7 and lands as its own

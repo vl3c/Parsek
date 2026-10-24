@@ -12,7 +12,7 @@ namespace Parsek.Tests
     // Gated on the section-7.8 verification, which CONFIRMED the collision structurally:
     // DoubleClockVerificationTests measured 302 of 801 swept wall UTs rendering the AB docked
     // stretch and B's own recording concurrently, every one of them with the two span clocks
-    // 137-237 s apart. Research note: docs/dev/research/double-clock-verification-2026-08-13.md.
+    // 137-237 s apart. Research note: docs/dev/done/research/double-clock-verification-2026-08-13.md.
     //
     // The advisory is a SENTENCE, not a rule: it fires on loop-ENABLE when the enabling mission's
     // tree is transitively dock-connected to another LOOPING mission's tree, and changes nothing.

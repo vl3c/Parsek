@@ -50,7 +50,7 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// Dormant routes (rewind-visibility extension, plan
-        /// <c>docs/dev/plans/plan-route-rewind-dormant-visibility.md</c>):
+        /// <c>docs/dev/done/plans/plan-route-rewind-dormant-visibility.md</c>):
         /// routes whose <see cref="Route.CreatedUT"/> lies AFTER the last
         /// rewind cutoff. Invisible to every committed-route consumer (the
         /// orchestrator tick, RouteTreeGuard, the candidate finder, and the

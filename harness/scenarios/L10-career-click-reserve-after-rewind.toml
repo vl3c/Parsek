@@ -2,7 +2,7 @@ schema = 1
 id = "L10-career-click-reserve-after-rewind"
 tier = "nightly"
 # CAREER x REWIND: CLICKS REFUSED FOR MONEY RESERVED FOR LATER COSTS (committed-value rule
-# phase 4, plan docs/dev/plans/committed-value-rule-implementation.md section 2.5 "Built in
+# phase 4, plan docs/dev/done/plans/committed-value-rule-implementation.md section 2.5 "Built in
 # phase 4" and section 4 "a purchase and a Mission Control Accept greyed while a committed
 # cost needs the money"; design docs/parsek-game-actions-and-resources-recorder-design.md
 # 3.13 rule 3; todo LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY, O7). The live check that, after a

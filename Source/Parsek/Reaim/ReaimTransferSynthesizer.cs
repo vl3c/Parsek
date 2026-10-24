@@ -197,7 +197,7 @@ namespace Parsek.Reaim
         /// <see cref="TiltDisposition.Noop"/>; excessive + gate safe =&gt; <see cref="TiltDisposition.Fire"/>;
         /// excessive + gate UNSAFE =&gt; <see cref="TiltDisposition.Retain"/>.
         ///
-        /// THE RETAIN ARM IS THE 2026-08-11 CHANGE (docs/dev/plans/reaim-inclined-target-tilt-retention.md,
+        /// THE RETAIN ARM IS THE 2026-08-11 CHANGE (docs/dev/done/plans/reaim-inclined-target-tilt-retention.md,
         /// Design A). It used to be a decline, which killed the candidate and - when every candidate died -
         /// dropped the whole window to the FAITHFUL recorded transfer. Measured consequence: an ENGAGED
         /// Kerbin-&gt;Eve loop unit whose cycle-0 window declined on all 27 tof candidates (incAch constant
@@ -543,7 +543,7 @@ namespace Parsek.Reaim
             //   Fire   - excessive + gate safe: re-pin, then re-validate sane -> direction -> tilt.
             //   Retain - excessive + gate UNSAFE: skip the correction and KEEP the un-corrected conic, then
             //            FALL THROUGH to exactly the validation a Noop conic takes. This is the 2026-08-11
-            //            inclined-target change (docs/dev/plans/reaim-inclined-target-tilt-retention.md);
+            //            inclined-target change (docs/dev/done/plans/reaim-inclined-target-tilt-retention.md);
             //            it used to `return false`, which dropped whole windows (every Eve cycle-0 candidate)
             //            to the faithful recorded transfer.
             // FAIL-CLOSED IS PRESERVED BY THE DOWNSTREAM GUARDS, NOT BY A SPECIAL CASE HERE. A retained conic

@@ -17105,7 +17105,7 @@ namespace Parsek
             // would not otherwise reach disk before the next OnLoad. Without this the
             // silent full-fidelity commit's spawn-at-end could not re-hydrate the
             // finalized _vessel.craft on a cold load — see
-            // docs/dev/plans/silent-full-fidelity-autocommit.md.
+            // docs/dev/done/plans/silent-full-fidelity-autocommit.md.
             int forcedWrites = 0;
             foreach (var rec in activeTree.Recordings.Values)
             {

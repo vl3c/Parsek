@@ -1,7 +1,7 @@
 # Supply routes across a rewind: funds vs cargo (2026-10-21)
 
 Status: superseded by the owner ruling of 2026-10-21 13:32Z (routes carry no money; section 7,
-logistics design section 10.6.1, plan `docs/dev/plans/logistics-without-money.md`). Sections 1-6
+logistics design section 10.6.1, plan `docs/dev/done/plans/logistics-without-money.md`). Sections 1-6
 are the analysis that led there, kept as history.
 
 Read-only analysis for V's question on O4 (thread "Ledger rulings interview"): separate what a
@@ -189,4 +189,4 @@ what the player does after a rewind (pause, then spend, then rewind and resume).
 prepaid cycles as too much technical debt and ruled: "we delete money/ funds from the logistics
 system and go from there; logistics cycles should not touch the ledger, they only deliver resources
 to enable that gameplay". At 13:39Z: Space Center routes stay, free in every mode. Todo
-LOGISTICS-WITHOUT-MONEY, plan `docs/dev/plans/logistics-without-money.md`, logistics design 10.6.
+LOGISTICS-WITHOUT-MONEY, plan `docs/dev/done/plans/logistics-without-money.md`, logistics design 10.6.

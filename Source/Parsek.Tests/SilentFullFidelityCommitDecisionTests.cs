@@ -9,7 +9,7 @@ namespace Parsek.Tests
     /// file keeps the name of the pre-2026-08-29 predicate it tested
     /// (<c>ShouldSilentFullFidelityCommit</c>, deleted with the fix) so the history stays
     /// greppable. See
-    /// docs/dev/plans/silent-full-fidelity-autocommit.md and the
+    /// docs/dev/done/plans/silent-full-fidelity-autocommit.md and the
     /// AUTOMERGE-ON-BY-DEFAULT entry in docs/dev/todo-and-known-bugs.md.
     ///
     /// <para>The 2026-08-29 fix moved ONE cell of the matrix below: a non-re-fly

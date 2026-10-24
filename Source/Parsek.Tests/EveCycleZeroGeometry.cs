@@ -5,7 +5,7 @@ using Parsek.Reaim;
 namespace Parsek.Tests
 {
     // The Kerbin->Eve CYCLE-0 re-aim window, modelled headlessly from stock constants so the E1/E2
-    // cells of docs/dev/plans/reaim-inclined-target-tilt-retention.md (Phase 0) can drive the REAL
+    // cells of docs/dev/done/plans/reaim-inclined-target-tilt-retention.md (Phase 0) can drive the REAL
     // production helpers (ReaimTransferSynthesizer.* / UvLambert.Solve / ReaimTofSearch.*) over the
     // exact geometry the V8-eve-player-loop lane measured in game on 2026-08-11. Consumed by
     // ReaimTransferSynthesizerTests (E1 + E3) and UvLambertTests (E2); it lives in its own file so the
