@@ -89,6 +89,14 @@ _(unreleased - entries accumulate here per commit)_
   A plane that ended its flight mid-runway used to appear inside a rover you had parked on its stop
   point. The vessel you fly now blocks the spot like any other, and the plane appears just behind it
   on its own track. (GC9-SPAWN-IGNORES-ACTIVE-VESSEL)
+- **A committed part or upgrade purchase unlocks only once it is paid for.** When the clock reaches
+  a committed purchase after a rewind, the part or upgrade is now unlocked in the same update that
+  takes its cost. If the funds update could not run, the unlock waits for the next one instead of
+  handing the part over first. (PURCHASE-STATE-PATCH-RUNS-WHEN-THE-FUNDS-PATCH-IS-CLAMPED)
+- **A booster just dropped is no longer predicted to orbit forever.** Right after a separation,
+  Parsek could read the booster's first sample as a spot at sea level and predict an endless orbit
+  from it, an ending that could be kept if the flight ended before the next update. That sample is
+  no longer read as a position. (SCENE-EXIT-RECOVERY-READS-A-ZERO-ALTITUDE-SEED-AS-ORBITING)
 - **The alarm's Jump button follows the same rules as every other switch.** Jumping from a fired
   stock alarm never flies a ghost, is refused during a Re-Fly for any vessel but the re-flown one,
   asks to merge or discard an open recording first like Switch-To, and from the Tracking Station
@@ -436,6 +444,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Harness: MINE-6 expects the new segment its spawned rover records.** The lane now counts two
+  recordings, the mined flight plus the segment the respawned rover opens, and accepts an ISRU
+  switch logged a few milliseconds after its own step.
+  (MINE-6-PINS-PREDATE-THE-RESUMED-SPAWN-SEGMENT)
 - **Automated tests can read a supply route's live state between steps.** A new test command
   lists each route's status, cycle count, loop position and route events, so two new lanes can
   check that a quickload or a stock revert back across a delivery runs the next cycle exactly
