@@ -135,13 +135,39 @@ namespace Parsek
             // Add-only; the caller supplies a set only when it supplied no tech cutoff,
             // so at most one of the two tech passes does anything.
             PatchCommittedTechUnlocks(committedTechUnlockIds, committedTechUnlockLiveUt);
-            PatchPurchasedParts(partPurchaseActions, walkUtCutoff, techUtCutoff);
-            // Add-only, capped like the part purchases; the same action list.
+            // Add-only, capped like the part purchases; the same action list. Free.
             PatchResourceScans(partPurchaseActions, walkUtCutoff, techUtCutoff);
-            // Add-only, capped like the part purchases; the same action list.
-            PatchUnlockedUpgrades(partPurchaseActions, walkUtCutoff, techUtCutoff);
+            // Funds before the purchase unlocks: a purchase the clock just reached is marked
+            // bought only by a pass whose funds patch took its cost.
             PatchFunds(funds, suppressSuspiciousDrawdownWarnings, authoritativeReduction);
+            if (ShouldHoldPurchaseStatePatches(ActiveClockCrossing))
+            {
+                ParsekLog.Warn(Tag,
+                    "Clock-crossing purchase unlocks held: the funds patch did not apply the reached rows " +
+                    $"(skipped); crossedRows={ActiveClockCrossing.CrossedRows.ToString(IC)} - parts and upgrades " +
+                    "are left unbought, and the next recalc with funds applied takes the cost and unlocks them");
+            }
+            else
+            {
+                PatchPurchasedParts(partPurchaseActions, walkUtCutoff, techUtCutoff);
+                // Add-only, capped like the part purchases; the same action list.
+                PatchUnlockedUpgrades(partPurchaseActions, walkUtCutoff, techUtCutoff);
+            }
             PatchReputation(reputation, authoritativeReduction);
+        }
+
+        /// <summary>
+        /// Pure: hold this pass's part-purchase and part-upgrade unlocks? Only on a clock
+        /// crossing whose funds patch skipped while there is a funds pool to charge: the
+        /// reached rows' cost is then not in the live pool, so unlocking would hand over a
+        /// part for nothing. The cost is not lost: a crossed row stays counted as unapplied
+        /// in the stock pool reference until a funds patch writes it, and the add-only
+        /// purchase passes unlock it on that same later pass. No pool (sandbox, science
+        /// mode) has nothing to charge, and an ordinary recalc reaches no unapplied row.
+        /// </summary>
+        internal static bool ShouldHoldPurchaseStatePatches(ClockCrossing crossing)
+        {
+            return crossing != null && !crossing.FundsApplied && !crossing.NoFundsPool;
         }
 
         /// <summary>
@@ -2369,6 +2395,9 @@ namespace Parsek
 
             if (Funding.Instance == null)
             {
+                var noPoolCrossing = ActiveClockCrossing;
+                if (noPoolCrossing != null)
+                    noPoolCrossing.NoFundsPool = true;
                 VerboseStablePatchState("patch-skip|funds|funding", "funding-null",
                     "PatchFunds: Funding.Instance is null (sandbox mode) — skipping");
                 return;
@@ -4778,9 +4807,13 @@ namespace Parsek
             internal int CrossedRows;
             /// <summary>Kerbals named by the reached committed-future KerbalHire rows.</summary>
             internal readonly List<string> CrossedHireKerbals = new List<string>();
-            /// <summary>Set by the funds patch: it ran and did not clamp, so the reached rows'
-            /// funds effect reached the live pool.</summary>
+            /// <summary>Set by the funds patch when it reached its write decision, so the
+            /// reached rows' funds effect is in the live pool. A skipped funds patch leaves it
+            /// false.</summary>
             internal bool FundsApplied;
+            /// <summary>Set by the funds patch when the game has no funds pool (sandbox,
+            /// science mode): nothing is charged, so nothing waits for a charge.</summary>
+            internal bool NoFundsPool;
         }
 
         /// <summary>

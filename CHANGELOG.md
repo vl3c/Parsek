@@ -85,6 +85,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A committed part or upgrade purchase unlocks only once it is paid for.** When the clock reaches
+  a committed purchase after a rewind, the part or upgrade is now unlocked in the same update that
+  takes its cost. If the funds update could not run, the unlock waits for the next one instead of
+  handing the part over first. (PURCHASE-STATE-PATCH-RUNS-WHEN-THE-FUNDS-PATCH-IS-CLAMPED)
 - **A booster just dropped is no longer predicted to orbit forever.** Right after a separation,
   Parsek could read the booster's first sample as a spot at sea level and predict an endless orbit
   from it, an ending that could be kept if the flight ended before the next update. That sample is

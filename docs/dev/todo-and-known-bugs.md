@@ -1006,7 +1006,7 @@ dev install define no `PARTUPGRADE` node (ModuleManager cache grep), so the live
 synthetic upgrade through a test seam (`KscAction action=define-upgrade` / `purchase-upgrade`). Lane
 `L11-career-part-upgrade-after-rewind` live-proven on its first flight, `2026-10-23_1852` PASS attempt 1.
 
-## PURCHASE-STATE-PATCH-RUNS-WHEN-THE-FUNDS-PATCH-IS-CLAMPED: a committed part or upgrade purchase can unlock with nothing charged [FILED 2026-10-23 by the review of PR #2185. OPEN, low. product]
+## ~~PURCHASE-STATE-PATCH-RUNS-WHEN-THE-FUNDS-PATCH-IS-CLAMPED: a committed part or upgrade purchase can unlock with nothing charged~~ [FILED 2026-10-23 by the review of PR #2185. FIXED 2026-10-24, branch `claude/project-thread-saxn4v`. product]
 
 `KspStatePatcher.PatchPurchasedParts` and `PatchUnlockedUpgrades` run before `PatchFunds` in the pool
 pass and do not look at whether the funds patch applied. If a clock crossing that reaches a committed
@@ -1015,6 +1015,34 @@ upgrade is marked bought with its cost not taken. Hires already wait for an appl
 (`LedgerOrchestrator`, the hire state gate). Not seen on any flown lane (zero clamps on L8, L10, L11);
 the guard clamps only on an unexpected drawdown. Fix shape when taken: gate the two purchase state
 patches on the same applied-funds signal the hire path reads.
+
+Fix (2026-10-24): the premise moved under the stock pool reference (#2177): `PatchFunds` passes
+`authoritativeReduction: true` to `ResolveFundsPatch`, so the funds write no longer clamps, and a
+committed future cost is already held out of the live pool by the reservation. What was left is the
+order: a purchase could be unlocked in a pass whose funds patch skipped (no seed, `Funding` not
+loaded, null module). `PatchPools` now runs `PatchFunds` before `PatchPurchasedParts` /
+`PatchUnlockedUpgrades`, and `KspStatePatcher.ShouldHoldPurchaseStatePatches` holds both on a clock
+crossing whose funds patch did not apply (`ClockCrossing.FundsApplied` false) while a funds pool
+exists (`ClockCrossing.NoFundsPool`, set by the `Funding.Instance == null` skip: sandbox and science
+mode have nothing to charge); Warn `Clock-crossing purchase unlocks held`. Nothing is lost: the
+crossed row stays counted unapplied (NaN effect) in the stock pool reference until a funds patch
+commits, so the next applying patch takes the cost (`StockPoolReferenceTests.B1_*`), and the
+add-only purchase passes unlock it on that same pass. Tests: `PurchaseStatePatchFundsGateTests`
+(three cells red with the gate stubbed). Left as is: a fresh-baseline funds patch (no saved
+reference, only an old-build save) adopts the gap and reports `FundsApplied`; and the hire twin below.
+Unit tests only, no lane (a funds skip on a clock crossing cannot be staged from the seam).
+
+## CROSSED-HIRE-NEVER-MADE-AFTER-A-SKIPPED-FUNDS-PATCH: a committed hire whose clock crossing skipped the funds patch is paid for but never made [FILED 2026-10-24 while fixing PURCHASE-STATE-PATCH-RUNS-WHEN-THE-FUNDS-PATCH-IS-CLAMPED. OPEN, low. product]
+
+`LedgerOrchestrator` promotes a reached committed hire only on the clock crossing that reaches it, and
+only when `ClockCrossing.FundsApplied`. When that crossing's funds patch skips, the hire is not made
+(Warn `Clock-crossing hire(s) not made`), but the committed-future snapshot is recaptured anyway, so
+no later pass is a crossing for that row, while the funds side still applies it: the row stays
+counted unapplied in the stock pool reference and the next applying funds patch takes its cost. So
+the cost is kept and the kerbal stays an applicant. Not seen on any flown lane; the skip needs
+`Funding` unloaded or unseeded during a clock advance. Fix shape when taken: keep the unmade hires
+pending (or leave the snapshot uncaptured) until a pass whose funds patch applied, the way the part
+purchase passes are add-only over every reached row.
 
 ## ~~LOGISTICS-WITHOUT-MONEY: supply routes still charge and credit funds and write ledger rows, so the funds history depends on choices made after a rewind~~ [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4, first as ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES, then ROUTE-MONEY-COST-ONLY. FIXED 2026-10-21: phase 1 (no route money) on branch `logistics-no-money-p1`, phase 2 (route events out of the ledger) on branch `logistics-no-money-p2`. Harness re-flight of the Logistics lanes pending. product]
 
