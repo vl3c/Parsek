@@ -3638,6 +3638,11 @@ class CommittedFixtureSweepTests(unittest.TestCase):
     RECORDED_FIXTURES["depot-route-recorded-career"] = RECORDED_FIXTURES["depot-route-recorded"]
     RECORDED_FIXTURES["bdock-recorded-career"] = RECORDED_FIXTURES["bdock-recorded"]
     RECORDED_FIXTURES["rover-route-recorded-career"] = RECORDED_FIXTURES["rover-route-recorded"]
+    # TOUR-1's host, built by harness/tools/build_tourist_splashdown_career.py: the same
+    # career conversion plus a seated tourist, her Active contract and its accept row;
+    # the ParsekScenario node and every recording sidecar stay byte-identical (gated by
+    # lib/test_tourist_splashdown_career.py), so it pins its source's payload.
+    RECORDED_FIXTURES["tourist-splashdown-career"] = RECORDED_FIXTURES["kerbin-splashdown-recorded"]
 
     def test_fixture_set_is_exactly_the_committed_set(self):
         found = sorted(d for d in os.listdir(FIXTURE_SAVES_DIR)
