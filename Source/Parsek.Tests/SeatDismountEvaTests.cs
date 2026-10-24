@@ -54,12 +54,34 @@ namespace Parsek.Tests
             string body = MethodBody(src, "private void HandleKerbalLeftVehicleUndock(Vessel oldVessel, Vessel newVessel)");
 
             Assert.Contains("StartCoroutine(DeferredEvaBranch(kerbalName, evaData));", body);
-            Assert.Contains("OnCrewOnEva(evaData);", body);
+            Assert.Contains("StartCoroutine(DeferredKerbalLeftVehicleNotRecording(evaData, kerbalVessel));", body);
             Assert.Contains("recorder.ConsumePendingJointBreakCheck(", body);
             Assert.Contains("new GameEvents.FromToAction<Part, Part>(", body);
             Assert.DoesNotContain("BranchPointType.Undock", body);
             Assert.DoesNotContain("DeferredUndockBranch", body);
             Assert.DoesNotContain("ResumeSplitRecorder", body);
+        }
+
+        [Theory]
+        [InlineData(false, true, true, true)]    // seat dismount: focus moved to the kerbal
+        [InlineData(false, true, false, false)]  // claw release: the claw's vessel kept focus
+        [InlineData(false, false, false, false)] // kerbal gone within the frame
+        [InlineData(true, true, true, false)]    // a recording started meanwhile
+        public void NotRecordingRoute_OnlyWhenTheKerbalHoldsFocus(
+            bool isRecording, bool alive, bool active, bool expected)
+        {
+            Assert.Equal(expected,
+                ParsekFlight.ShouldRouteKerbalLeftVehicleNotRecording(isRecording, alive, active));
+        }
+
+        [Fact]
+        public void Wiring_NotRecordingRouteRunsTheHatchEvaHandlerBehindTheFocusGate()
+        {
+            string src = SourceScanText.StripCSharpComments(ReadParsekFlight());
+            string body = MethodBody(src, "private IEnumerator DeferredKerbalLeftVehicleNotRecording(");
+            int gate = body.IndexOf("ShouldRouteKerbalLeftVehicleNotRecording(", StringComparison.Ordinal);
+            int route = body.IndexOf("OnCrewOnEva(evaData);", StringComparison.Ordinal);
+            Assert.True(gate >= 0 && route > gate, "OnCrewOnEva must run only behind the focus gate");
         }
 
         [Fact]

@@ -12696,6 +12696,41 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Not-recording half of <see cref="HandleKerbalLeftVehicleUndock"/>: the same routes
+        /// as a hatch EVA (a tracked background parent branch, else the deferred auto-record),
+        /// but only once the kerbal holds the focus. A seat dismount moves focus to the kerbal
+        /// right after its undock (<c>ForceSetActiveVessel</c>); a claw release keeps it on the
+        /// claw's vessel, and an auto-record armed there would wait for, and start on, whatever
+        /// EVA kerbal the player next switches to.
+        /// </summary>
+        private IEnumerator DeferredKerbalLeftVehicleNotRecording(
+            GameEvents.FromToAction<Part, Part> evaData, Vessel kerbalVessel)
+        {
+            yield return null;
+            bool kerbalActive = ShouldRouteKerbalLeftVehicleNotRecording(
+                isRecording: IsRecording,
+                kerbalVesselAlive: kerbalVessel != null,
+                kerbalIsActive: kerbalVessel != null
+                    && ReferenceEquals(FlightGlobals.ActiveVessel, kerbalVessel));
+            if (!kerbalActive)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"OnVesselsUndocking: kerbal-left-vehicle not routed as a not-recording EVA " +
+                    $"(recording={IsRecording} kerbalAlive={kerbalVessel != null} " +
+                    $"activePid={FlightGlobals.ActiveVessel?.persistentId ?? 0u})");
+                yield break;
+            }
+            OnCrewOnEva(evaData);
+        }
+
+        /// <summary>Pure gate of <see cref="DeferredKerbalLeftVehicleNotRecording"/>.</summary>
+        internal static bool ShouldRouteKerbalLeftVehicleNotRecording(
+            bool isRecording, bool kerbalVesselAlive, bool kerbalIsActive)
+        {
+            return !isRecording && kerbalVesselAlive && kerbalIsActive;
+        }
+
+        /// <summary>
         /// An undock whose two ends are a vehicle and an EVA kerbal (a kerbal leaving an
         /// external command seat, a claw releasing a kerbal) is recorded as an EVA: the same
         /// deferred EVA branch a hatch EVA takes (kerbal name on the child, no Rewind Point,
@@ -12721,9 +12756,7 @@ namespace Parsek
 
             if (!IsRecording)
             {
-                // Same not-recording routes as a hatch EVA: a tracked background parent
-                // branch, else the deferred auto-record.
-                OnCrewOnEva(evaData);
+                StartCoroutine(DeferredKerbalLeftVehicleNotRecording(evaData, kerbalVessel));
                 return;
             }
             if (pendingSplitInProgress)
