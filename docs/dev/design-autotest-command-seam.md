@@ -354,7 +354,7 @@ save load, including a `LoadGame`.
 Reserving the phase-3 names now means the envelope (id/cmd/args, percent-encoding,
 journal, verdicts) is designed once and the later commands slot in without a format break.
 
-The table today is **54 implemented / 4 reserved**. `TestCommandVerbs.cs` is the authority
+The table today is **56 implemented / 4 reserved**. `TestCommandVerbs.cs` is the authority
 (`hlib.IMPLEMENTED_SEAM_VERBS` mirrors it as an ordered list, and a cell pins both lengths);
 the updates below record how each verb arrived.
 
@@ -614,6 +614,14 @@ the updates below record how each verb arrived.
 > the cycle Prefix's own body after its key read (`VesselCycleReFlySwitchPatch.RunCycle`); the
 > optional `forceGhost=true` then calls `ForceSetActiveVessel` on a ghost marker to witness the
 > backstop. Full contract below (`#### CycleVessel`); lane `GC-4-vessel-cycle-skips-ghost-marker`.
+
+> Update (EvaSeatBoard / EvaSeatLeave, 2026-10-24): two ADDITIVE verbs, taking the table to **56
+> implemented / 4 reserved**, to live-prove the owner ruling of 2026-10-24 (a kerbal leaving an
+> external command seat is an EVA, never an Undock; recorder fix ccb8a33). `EvaSeatBoard` seats
+> the active EVA kerbal in the nearest free external command seat through stock's own
+> `KerbalEVA.BoardSeat`; `EvaSeatLeave` makes the seated kerbal of the active vessel leave through
+> stock's own `KerbalEVA.OnDeboardSeat`. Neither takes an arg. Full contract below
+> (`#### EvaSeatBoard / EvaSeatLeave`); lane `SEAT-1-seat-dismount-eva`.
 
 > Update (ReadVesselResources, 2026-10-16): one ADDITIVE verb, taking the table to **52 implemented /
 > 4 reserved**, the first read of what is really in a vessel's tanks (todo
@@ -4864,6 +4872,52 @@ in stock's candidate order (`none` when empty). Line `cyclevessel result` plus t
 `key=value`. Pure half `TestCommandCycleVessel`, applier `ParsekTestCommandAddon.CycleVessel.cs`,
 mirrored by `CycleVesselSourceSyncTests`.
 
+#### EvaSeatBoard / EvaSeatLeave (additive; the external command seat, a dismount is an EVA)
+
+**Why.** Owner ruling 2026-10-24: a kerbal leaving an external command seat ends as a vehicle and
+a kerbal, so it is an EVA; undock is vehicle + vehicle. Stock reaches Parsek with a seat dismount
+only through `onVesselsUndocking` (no `onCrewOnEva`), and no seam could seat a kerbal or unseat
+one, so the recorder fix had no lane.
+
+**Stock ground truth (decompiled KSP 1.12.5).** `KerbalEVA.BoardSeat(KerbalSeat)` runs the FSM's
+`On_seatBoard` (accepted from the idle, ladder and swim states; anything else returns false with a
+screen message only), whose body moves the kerbal onto the seat pivot, `part.Couple(seat.part)`
+(the EVA vessel is destroyed and the kerbal part joins the seat's vessel, which Parsek records as
+a dock merge) and `ForceSetActiveVessel` on the merged vessel. `KerbalEVA.OnDeboardSeat()` (the
+seat's "Leave Seat" button) refuses a tourist with a screen message; otherwise `On_seatDeboard`
+runs `EjectFromSeat` (`part.Undock`, so `onVesselsUndocking(vehicle, kerbal)`) and then
+`ForceSetActiveVessel(kerbal)`. `IsSeated()` is the FSM's seated-command state; a seated kerbal's
+`KerbalEVA` lives on the kerbal's part inside the vehicle.
+
+**Grammar.** `cmd=EvaSeatBoard` and `cmd=EvaSeatLeave`, issued in FLIGHT, no args (the pre-launch
+validator rejects any key, which the verb would silently ignore).
+
+**Behavior.** `EvaSeatBoard` dispatch defers `split-pending` while a Parsek split is pending (the
+preceding hatch EVA's deferred branch) and `not-eva` until the active vessel is an EVA kerbal. It
+picks the nearest seat (a part with a `KerbalSeat` whose `Occupant` is null) on a loaded, non-EVA,
+non-ghost vessel and refuses (REJECTED, gate-class) `evaseatboard-not-eva`, `-no-free-seat`,
+`-not-near-seat` (beyond 10 m inclusive, the seam's bound over `BoardSeat`'s missing range check)
+and `-refused` (`BoardSeat` returned false: the FSM state declined, nothing moved). It logs
+`evaseatboard start kerbal='..' targetPid= seatPart= seatId= dist=` and calls `BoardSeat`; a throw
+is ERROR `evaseatboard-threw`. `EvaSeatLeave` dispatch defers `split-pending` (a pending split
+would make the dismount's undock skip its branch). It finds the kerbals of the active vessel's
+parts whose `KerbalEVA.IsSeated()` and refuses `evaseatleave-no-active-vessel`, `-not-seated`,
+`-seated-ambiguous` (two or more) and `-tourist`; then logs `evaseatleave start kerbal='..'
+vehiclePid= seatPart=` and calls `OnDeboardSeat`; a throw is ERROR `evaseatleave-threw`.
+
+**Phases.** Both TWO-PHASE, `RequiresFlight`, default 60 s budget, world-mutating tail role,
+`recording` post-mission role. The board completes once the EVA vessel is gone, the kerbal is
+seated, his part is on the seat's vessel, that vessel is active, Parsek has no split and no board
+merge pending, and the scene settled; the leave once the active vessel is the kerbal's own EVA
+vessel, unseated and off the vehicle, with the same quiescence. Both hold their conjuncts for 10
+consecutive polls first (`TestCommandEvaSeat.HeldPollsRequired`): Parsek's dock confirmation window
+(5 frames) has no seam-readable bit, and a next FIFO command must not land inside it. OK lines
+`evaseatboard complete kerbal='..' vesselPid= seatPart= seatId=` (payload `kerbal vesselPid seatPart
+seatId`) and `evaseatleave complete kerbal='..' kerbalPid= vehiclePid=` (payload `kerbal kerbalPid
+vehiclePid`); otherwise ERROR `evaseatboard-timeout` / `evaseatleave-timeout`. Pure half
+`TestCommandEvaSeat`, applier `ParsekTestCommandAddon.EvaSeat.cs`, mirrored by
+`EvaSeatSourceSyncTests`.
+
 ### Addon lifecycle
 
 `ParsekTestCommandAddon` mirrors `TestRunnerShortcut`: `[KSPAddon(KSPAddon.Startup.Instantly, true)]`
@@ -4991,6 +5045,7 @@ wall-clock. Some verbs need a different bound and override the default:
 | `DriveVessel` | (default) 60 s | TWO-PHASE, at most 30 game seconds of drive; the completion ends ERROR `drivevessel-timeout` rather than letting the pump convert it |
 | `CrewTransfer` | (default) 60 s | TWO-PHASE: stock moves the kerbal synchronously and dismisses one frame later; the completion ends ERROR `crewtransfer-timeout` rather than letting the pump convert it |
 | `CycleVessel` | (default) 60 s | SINGLE-PHASE: the press and a switch between loaded vessels run inside the call; the budget only bounds the not-in-flight dispatch defer |
+| `EvaSeatBoard` / `EvaSeatLeave` | (default) 60 s | TWO-PHASE: stock's board and leave land within a frame and the completion holds 10 polls past Parsek's dock merge; each ends ERROR `-timeout` rather than letting the pump convert it |
 | `ReFlyRevert` | 300 s | TWO-PHASE, the `InvokeRewind` / `InvokeRewindToLaunch` size: the resume settle (up to 30 s) and the stock menus, then Discard's quicksave `LoadGame` plus the Space Center / editor load or Retry's flight reload; a `DEFERRED_SEAM_VERB` |
 | `AnswerMergeDialog` | 60 s | MEASURED 2026-10-06 over 859 collected runs (2026-09-10 to 2026-10-05): OK n=65, p50 3.3 s, p99 6.6 s, max 7.2 s. 4x the OK max is 29 s; the floor is twice `TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds` (30 s), which the re-fly fallback spends before the driven exit (unit-guarded). Was 120 s; all 6 non-OK outcomes (4 `no-refly-dialog` TIMEOUT, 2 `answer-timeout` ERROR) waited the full 120 s and none was a slow success |
 | `EvaGroundScience` | 60 s | MEASURED 2026-10-06 over the same corpus: OK n=412, p50 0.9 s, p99 5.5 s, max 5.5 s (step 3.3, take 0.5, place 3.6, pickup 5.5). Each action is its own command, so the budget bounds one action. 4x the OK max is only 22 s, but the place ladder counts frames (about 1,000 worst case), so 60 s keeps it inside the budget down to about 17 fps. Was 120 s (the EvaExit size); all 37 timeouts (27 `step-timeout`, 5 `placement-timeout`, 3 `place-gate-timeout`, 2 `pickup-timeout`) waited the full 120 s, 4,440 s in all |

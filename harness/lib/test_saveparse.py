@@ -852,6 +852,8 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         "fresh-sandbox": False,
         # `fresh-sandbox` plus the HH1 Hitchhiker Drop craft in the VAB (CX-2).
         "hitchhiker-pad": False,
+        # `fresh-sandbox` plus the SEAT1 Seat Pod craft in the VAB (SEAT-1).
+        "seat-pad": False,
         "fresh-science": False,
         # `fresh-career` WITH A REPUTATION SEED and nothing else - two lines of
         # the save differ. It inherits the base's deliberate ABSENCE of a

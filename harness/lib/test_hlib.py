@@ -1120,7 +1120,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # between two crewed parts of the active vessel (the crew-across-vessels lanes).
         # 54 / 4 after CycleVessel, an ADDITION by one: one press of stock's [ / ] vessel
         # cycle through the cycle Prefix's own body (GC-4, a ghost marker in range).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 54)
+        # 56 / 4 after the EvaSeatBoard / EvaSeatLeave pair, an ADDITION by two: an EVA
+        # kerbal takes an external command seat and leaves it (SEAT-1, the seat-dismount EVA).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 56)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -17690,6 +17692,60 @@ class CycleVesselSourceSyncTests(unittest.TestCase):
                       v(0, {"direction": "next", "forceGhost": "yes"})[0])
         errs = v(0, {"direction": "next", "pid": "1"})
         self.assertEqual(1, len(errs), errs)
+        self.assertIn("silently ignored", errs[0])
+
+
+class EvaSeatSourceSyncTests(unittest.TestCase):
+    """`EvaSeatBoard` / `EvaSeatLeave`. Reads OUTSIDE harness/: the two verbs and the refusal
+    and error reasons (IN ORDER) of the comment-stripped TestCommands/TestCommandEvaSeat.cs,
+    and the applier's calls into stock's own seat board / leave, so the pre-launch validator
+    and a spec's pinned reasons cannot drift from what the seam answers."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# EvaSeat tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_verbs_and_reasons_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandEvaSeat.cs")
+        self.assertIn('internal const string BoardVerb = "%s";' % hlib.EVASEAT_BOARD_VERB, text)
+        self.assertIn('internal const string LeaveVerb = "%s";' % hlib.EVASEAT_LEAVE_VERB, text)
+        self.assertEqual(list(hlib.EVASEAT_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        self.assertEqual(list(hlib.EVASEAT_ERROR_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "ErrorReasons"))
+        for reason in hlib.EVASEAT_REASONS:
+            self.assertEqual("driver-gate", hlib._SEAM_REFUSAL_SUBKINDS.get(reason), reason)
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        for reason in hlib.EVASEAT_ERROR_REASONS:
+            self.assertNotIn(reason, hlib._SEAM_REFUSAL_SUBKINDS, reason)
+
+    def test_the_applier_calls_stocks_own_seat_methods(self):
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.EvaSeat.cs")
+        self.assertIn("accepted = evaCtl.BoardSeat(bestSeat);", applier)
+        self.assertIn("seatedKerbal.OnDeboardSeat();", applier)
+
+    def test_the_verbs_are_registered_on_every_axis(self):
+        for verb in (hlib.EVASEAT_BOARD_VERB, hlib.EVASEAT_LEAVE_VERB):
+            with self.subTest(verb=verb):
+                self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+                self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+                self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+                self.assertEqual(60.0, hlib.dispatch_deferral_budget(verb))
+                self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+                self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
+                                 hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+                self.assertFalse(hlib.post_mission_step_gates(verb))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_eva_seat_step
+        self.assertEqual([], v(0, "EvaSeatBoard", {}))
+        self.assertEqual([], v(0, "EvaSeatLeave", {}))
+        errs = v(3, "EvaSeatBoard", {"targetPid": "1"})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("driver.steps[3]", errs[0])
         self.assertIn("silently ignored", errs[0])
 
 

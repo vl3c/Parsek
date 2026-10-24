@@ -759,6 +759,17 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     ghostsDropped= refusedDropped= leftToStock= picked= stockWouldPick=
     #     stockWouldPickGhost= forceGhost= forceGhostPid=`.
     "CycleVessel",
+    # ADDITIVE (54 -> 56 implemented, reserved unchanged at 4), the SEAT-1 host (owner ruling
+    # 2026-10-24: a kerbal leaving an external command seat is an EVA, never an Undock).
+    #   EvaSeatBoard (no args), FLIGHT, TWO-PHASE, default 60 s: the active EVA kerbal takes
+    #     the nearest free external command seat within 10 m through stock's own
+    #     KerbalEVA.BoardSeat. OK `kerbal= vesselPid= seatPart= seatId=` once seated, merged
+    #     into the seat's vessel, that vessel active and Parsek quiescent for 10 polls.
+    #   EvaSeatLeave (no args), FLIGHT, TWO-PHASE, default 60 s: the one seated kerbal of the
+    #     active vessel leaves through stock's own KerbalEVA.OnDeboardSeat. OK `kerbal=
+    #     kerbalPid= vehiclePid=` once the active vessel is that kerbal's EVA vessel, unseated.
+    "EvaSeatBoard",
+    "EvaSeatLeave",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1379,6 +1390,9 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     "CrewTransfer": TAIL_ROLE_WORLD_MUTATING,
     # CycleVessel switches the active vessel (stock state a save captures).
     "CycleVessel": TAIL_ROLE_WORLD_MUTATING,
+    # The seat pair couples / undocks a kerbal's part (stock state a save captures).
+    "EvaSeatBoard": TAIL_ROLE_WORLD_MUTATING,
+    "EvaSeatLeave": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1591,6 +1605,11 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # CycleVessel is `recording`: its OK is a statement about Parsek's cycle filter (which
     # candidates it dropped, where the press landed), a Parsek claim, never a kerbal's state.
     "CycleVessel": POST_MISSION_ROLE_RECORDING,
+    # The seat pair is `recording` for CrewTransfer's reason: each sets up the subject a
+    # Parsek recording claim is about (the dock merge into the seat's vessel, the dismount
+    # EVA branch), never a mission outcome on its own.
+    "EvaSeatBoard": POST_MISSION_ROLE_RECORDING,
+    "EvaSeatLeave": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -4078,6 +4097,32 @@ CYCLEVESSEL_OUTCOMES: Tuple[str, ...] = (
     "stock-early-return", "no-active-vessel", "no-candidates", "left-to-stock",
     "only-ghosts", "only-refused", "switched", "set-active-fallback", "inert",
 )
+
+
+# EvaSeatBoard / EvaSeatLeave: mirrored from TestCommands/TestCommandEvaSeat.cs
+# (EvaSeatSourceSyncTests). Neither verb reads an arg.
+EVASEAT_BOARD_VERB = "EvaSeatBoard"
+EVASEAT_LEAVE_VERB = "EvaSeatLeave"
+EVASEAT_REASONS: Tuple[str, ...] = (
+    "evaseatboard-not-eva", "evaseatboard-no-free-seat", "evaseatboard-not-near-seat",
+    "evaseatboard-refused",
+    "evaseatleave-no-active-vessel", "evaseatleave-not-seated",
+    "evaseatleave-seated-ambiguous", "evaseatleave-tourist",
+)
+EVASEAT_ERROR_REASONS: Tuple[str, ...] = (
+    "evaseatboard-threw", "evaseatboard-timeout",
+    "evaseatleave-threw", "evaseatleave-timeout",
+)
+
+
+def validate_eva_seat_step(index: int, cmd: str, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``EvaSeatBoard`` / ``EvaSeatLeave`` step: neither verb
+    reads an arg, so any key would be sent and silently ignored."""
+    extra = sorted(str(k) for k in step_args)
+    if extra:
+        return ["driver.steps[%d].args: %s reads no args, so %s would be silently ignored"
+                % (index, cmd, ", ".join(extra))]
+    return []
 
 
 def validate_cycle_vessel_step(index: int, step_args: Dict) -> List[str]:
@@ -7263,6 +7308,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_crew_transfer_step(i, step_args))
         elif cmd == CYCLEVESSEL_VERB:
             errors.extend(validate_cycle_vessel_step(i, step_args))
+        elif cmd in (EVASEAT_BOARD_VERB, EVASEAT_LEAVE_VERB):
+            errors.extend(validate_eva_seat_step(i, cmd, step_args))
         # LoadGame focusPid= (any verb: the validator flags it on a verb that ignores it).
         if LOADGAME_FOCUS_PID_KEY in step_args:
             errors.extend(validate_loadgame_focus_step(i, cmd, step_args))
@@ -11531,6 +11578,17 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "cyclevessel-direction-arg-invalid": "driver-arg",
     "cyclevessel-forceghost-arg-invalid": "driver-arg",
     "cyclevessel-no-active-vessel": "driver-gate",
+    # EvaSeatBoard / EvaSeatLeave read no args, so every refusal is a live state the move
+    # would not act in (the kerbal not out, no free seat in reach, nobody seated, a tourist,
+    # or stock's FSM declining the board) (EvaSeatSourceSyncTests).
+    "evaseatboard-not-eva": "driver-gate",
+    "evaseatboard-no-free-seat": "driver-gate",
+    "evaseatboard-not-near-seat": "driver-gate",
+    "evaseatboard-refused": "driver-gate",
+    "evaseatleave-no-active-vessel": "driver-gate",
+    "evaseatleave-not-seated": "driver-gate",
+    "evaseatleave-seated-ambiguous": "driver-gate",
+    "evaseatleave-tourist": "driver-gate",
     # SimulateStockSwitchClick, arg half: site / selector spellings and target resolution.
     # target-not-found / -name-ambiguous / -is-ghost are arg-class because each one means
     # the SPEC named the wrong thing, the same call `unknown-target` gets for KscAction.
