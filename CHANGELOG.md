@@ -6,7 +6,15 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.6
 
-_(unreleased - entries accumulate here per commit)_
+### Highlights
+
+- **Vessel renames stick, and logistics carries no money.** A stock or Parsek rename renames the
+  real vessel, its recordings and its ghost, through rewinds, docking and spawns. Supply routes only
+  move cargo now: no run costs or pays funds, and route runs are no longer career history.
+- **Mining and labs work with the timeline, loads restore the save, rewinds protect your career.**
+  Miners and labs keep their recordings and earn no free production; lab science counts. F9 and Load
+  put Parsek back exactly as saved. Money later flights need is held back, and vessels they use wait
+  as ghosts.
 
 ### Changed
 
