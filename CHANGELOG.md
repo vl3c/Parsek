@@ -6,7 +6,13 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.6
 
-_(unreleased - entries accumulate here per commit)_
+### Highlights
+
+- **Loads restore the save, and rewinds can't break your career.** F9 and the Load menu put
+  Parsek back exactly as the save was. Money, science and reputation that later committed flights
+  need are held back, a Re-Fly can no longer lower your career, and a vessel a later flight uses
+  is held as a ghost after a rewind. Vessel names stay in step with stock, and supply routes no
+  longer cost or pay funds.
 
 ### Changed
 

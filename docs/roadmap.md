@@ -429,6 +429,15 @@ Point release maturing the re-aim / looping engine and expanding Supply Routes i
 - **Logistics updates** - routes are named after the mission they repeat, the Logistics window and Route History are rebuilt, a held route says how much fuel is missing, loading a save no longer stops routes, and cargo really moves between nearby vessels during time warp.
 - **Automated test harness buildout** - the harness grows to 367 committed scenarios with every registry coverage cell claimed (253 of 253, [`docs/dev/autotest-status.md`](dev/autotest-status.md)), every in-game test group driven by an unattended run, a game-settings axis, physics-warp recording lanes, GUI census lanes that photograph Parsek's windows and the stock-screen annotations, and mutation checks that show a lane's gates can fail.
 
+### v0.10.6 - Save-Exact Loads and Career Safety
+
+- **Loading restores the save** - F9 and the Load menu put Parsek back exactly as the save was (committed flights, career ledger, Re-Fly merges, Unfinished Flights, names, groups and missions); flights committed after the save are gone, Space Center actions after a quicksave are undone as in stock, and recordings any save in the folder still uses are kept, the rest deleted after a 14-day quarantine.
+- **Career safety for rewind and Re-Fly** - money, science and reputation that later committed flights need are reserved on every stock screen, a loss after a rewind stops at what they need and is carried as a debt, a new flight cannot fail a contract the timeline settles later, and a Re-Fly is offered only where its merge cannot take anything back. Part upgrades, contract cancels, hires and in-flight recoveries are booked as stock books them.
+- **Vessels kept for their future flights** - a rewind, a Re-Fly and a Discard Re-fly hold back every vessel a later flight flies, docks with, boards, builds on or moves cargo into, drawing it as a ghost until that flight takes it over; boarding, sitting in a seat and EVA construction or cargo claim another mission's vessel like a dock does.
+- **Vessel names** - stock and Parsek renames stay in step and follow a vessel by its launch through rewinds, quickloads, docking, undocking and spawns.
+- **Logistics without money** - supply routes no longer cost or pay funds (Space Center routes are free in every mode), route runs are saved with the routes instead of the career ledger, and mining routes deliver only what their drills could really produce.
+- **Ghosts, orbits and spawns** - map ghosts, end spawns and undocked vessels keep their real orbits, parked ghost rovers stop spinning their wheels, stationary miners and labs keep their recordings, and Real Spawn Control's Warp says why a vessel did not spawn.
+
 ---
 
 ## Phase 13: Logistics (Supply Routes) - shipped in v0.10.0
