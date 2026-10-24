@@ -67,6 +67,8 @@ namespace Parsek.Tests
         [InlineData("ReadVesselResources")]
         [InlineData("CrewTransfer")]
         [InlineData("CycleVessel")]
+        [InlineData("EvaSeatBoard")]
+        [InlineData("EvaSeatLeave")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -209,7 +211,9 @@ namespace Parsek.Tests
             // crew transfer between two crewed parts of the active vessel.
             // CycleVessel is ADDITIVE (53 -> 54; reserved unchanged at 4): one press of stock's
             // [ / ] vessel cycle through the cycle Prefix's own body (GC-4).
-            Assert.Equal(54, TestCommandVerbs.ImplementedVerbNames.Count);
+            // EvaSeatBoard / EvaSeatLeave are ADDITIVE (54 -> 56; reserved unchanged at 4): an
+            // EVA kerbal takes an external command seat and leaves it (the seat-dismount EVA).
+            Assert.Equal(56, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

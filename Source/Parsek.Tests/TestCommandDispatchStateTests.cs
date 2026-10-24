@@ -72,6 +72,8 @@ namespace Parsek.Tests
             public void ReadVesselResources(ParsedCommand cmd) => Calls.Add("ReadVesselResources");
             public void CrewTransfer(ParsedCommand cmd) => Calls.Add("CrewTransfer");
             public void CycleVessel(ParsedCommand cmd) => Calls.Add("CycleVessel");
+            public void EvaSeatBoard(ParsedCommand cmd) => Calls.Add("EvaSeatBoard");
+            public void EvaSeatLeave(ParsedCommand cmd) => Calls.Add("EvaSeatLeave");
         }
 
         [Fact]
@@ -205,6 +207,9 @@ namespace Parsek.Tests
         [InlineData("CrewTransfer", "RequiresFlight")]
         // CycleVessel: stock's vessel cycle runs only in the flight scene.
         [InlineData("CycleVessel", "RequiresFlight")]
+        // The external command seat pair: a live kerbal and a live seat part.
+        [InlineData("EvaSeatBoard", "RequiresFlight")]
+        [InlineData("EvaSeatLeave", "RequiresFlight")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -269,6 +274,8 @@ namespace Parsek.Tests
             fake.ReadVesselResources(cmd);
             fake.CrewTransfer(cmd);
             fake.CycleVessel(cmd);
+            fake.EvaSeatBoard(cmd);
+            fake.EvaSeatLeave(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

@@ -303,6 +303,10 @@ namespace Parsek.TestCommands
         // ----- CycleVessel (one press of stock's [ / ] vessel cycle, through the cycle
         // Prefix's own body) -----
         void CycleVessel(ParsedCommand cmd);
+        // ----- EvaSeatBoard / EvaSeatLeave (an EVA kerbal takes an external command seat,
+        // and a seated kerbal leaves it: stock's own KerbalEVA.BoardSeat / OnDeboardSeat) -----
+        void EvaSeatBoard(ParsedCommand cmd);
+        void EvaSeatLeave(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -689,6 +693,11 @@ namespace Parsek.TestCommands
                 // scene (VesselSwitching.Update returns outside it). Default budget (the switch
                 // between loaded vessels is synchronous).
                 ["CycleVessel"] = VerbSceneRequirement.RequiresFlight,
+                // The external command seat pair. RequiresFlight: both act on a live kerbal
+                // and a live seat part. Default budget (stock's board and leave land in a
+                // frame; the completion then holds a few frames past Parsek's dock merge).
+                ["EvaSeatBoard"] = VerbSceneRequirement.RequiresFlight,
+                ["EvaSeatLeave"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>
@@ -1013,6 +1022,23 @@ namespace Parsek.TestCommands
                     if (TestCommandWarpToUT.ShouldDeferForPhysicsHold(
                             state.WarpPhysicsHoldOnly, state.WarpPhysicsHoldSeconds))
                         return DispatchResult.Defer(TestCommandWarpToUT.PhysicsHoldDeferReason);
+                    break;
+
+                case "EvaSeatBoard":
+                    // The kerbal must be out on EVA (the preceding EvaExit's auto-switch
+                    // settled) and that EVA's deferred branch must have landed, or the seat
+                    // couple would race it.
+                    if (state.StructuralSplitPending)
+                        return DispatchResult.Defer("split-pending");
+                    if (!state.ActiveVesselIsEva)
+                        return DispatchResult.Defer("not-eva");
+                    break;
+
+                case "EvaSeatLeave":
+                    // A pending split would make the dismount's undock skip its own branch
+                    // (OnVesselsUndocking logs a split skip on pendingSplitInProgress).
+                    if (state.StructuralSplitPending)
+                        return DispatchResult.Defer("split-pending");
                     break;
 
                 case "PlantFlag":

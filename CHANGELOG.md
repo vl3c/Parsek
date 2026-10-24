@@ -85,6 +85,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Leaving an external command seat is recorded as an EVA.** A kerbal stepping off a rover seat
+  (or let go by a claw) now gets the same kerbal branch as a hatch EVA, the rover keeps its own
+  recording, and no Rewind Point appears at the dismount. Undock stays for two vehicles parting.
+  (GC11-SEAT-DISMOUNT-RECORDED-AS-UNDOCK)
 - **A committed hire is always made once it is paid for.** When the clock reaches a committed hire
   after a rewind and the funds update cannot run at that moment, the kerbal now joins your crew in
   the later update that takes the hire cost, instead of the cost being taken while he stays an
