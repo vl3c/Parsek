@@ -16,6 +16,38 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## DISCARD-REFLY-LANDS-WITHOUT-REWIND-HOLDS: after a Discard Re-fly, a vessel the committed future uses is a live vessel again [FILED 2026-10-24 from the item-7 re-check of the 10-16 audit's suspected defects, code read on main f3a22ce, not reproduced. Split out of the "Not covered" note of REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE. OPEN, medium, physical paradox]
+
+A Re-Fly start holds every vessel its rewind point's world brings back that a committed recording
+uses after the rewind UT (design 2.12 Rule 3, `ParsekFlight.HoldReFlyInvokeVessels`, saved on the
+session marker), and a plain rewind takes the same hold in every scene (`ApplyRewindVesselHolds`).
+A Discard Re-fly does neither: `RevertInterceptor.DiscardReFlyHandler` writes the rewind point's
+game to persistent.sfs and loads the Space Center, the marker (and with it the invoke holds) is
+cleared, and the load-policy cell `DiscardReFly x RewindVesselHolds` clears the plain rewind's
+holds ("the discard lands in the rewind point's world"). Nothing computes holds for that world, so
+a vessel its committed future flies, docks with, boards or recovers after the rewind UT is real and
+can be bumped, docked with or recovered before the flight its recording replays.
+
+Fix (proposed): run the plain rewind's hold over the discard's world (the same
+`RewindVesselHold.CollectChainHolds` + `ReFlyInvokeHold.Classify` pass at the rewind point's UT,
+from the discard's OnLoad), flip the policy cell's reason, and fly a lane that discards a Re-Fly
+next to a vessel with a committed future (RF lanes host the Re-Fly; EVA-11 / RC-6 assert the hold).
+
+## REWIND-HOLD-MISSES-CROSS-TREE-ADOPTED-VESSEL: a vessel another mission spawned and this one adopted by inventory transfer has no ghost after a rewind until its transfer member starts [FILED 2026-10-24 from the item-7 re-check of the 10-16 audit's suspected defects (CLAIMED-VESSEL-HAS-NO-GHOST-BEFORE-ITS-MEMBER), code read on main f3a22ce, not reproduced. Split out of the "Not covered" note of REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE. OPEN, low, visual]
+
+The claimed-vessel hold ghost (CLAIMED-VESSEL-VANISHES-BEFORE-ITS-CLAIM, extended to plain rewinds
+by PR #2181) draws every vessel a chain claim, a Re-Fly invoke hold or a plain rewind hold takes
+out of the world, from the rewind until its first claim. One case escapes it: a vessel another
+tree spawned and this tree adopted by inventory transfer (EVA-9's capsule before its re-cut) is
+removed by the rewind's spawn strip (`superseding-continuation-replays`) before
+`ApplyRewindVesselHolds` runs, so it is never a hold and nothing draws it until its transfer
+member's ghost starts (`ForeignInventoryTransfer.FindAdoptedForeignVesselMember` matches same-tree
+holders only). No paradox (the vessel is gone, not live), only a gap in what the player sees.
+
+Fix (proposed): have the strip hand a vessel it removes for a replaying continuation to the hold
+ghost (its ProtoVessel copy as the shape, released at the continuation's start), then an EVA-9
+variant that keeps the cross-tree adoption.
+
 ## ~~RECORDING-QUARANTINE-NEVER-EMPTIED: recording files no save names pile up in `_quarantine` forever, and a save that names one again cannot load it~~ [FILED 2026-10-23 from the owner's question in the "Orphan recording files after load" thread, code read on main 6d3e318. Owner ruling 2026-10-23: 14-day grace, then delete; restore when a save names it. FIXED 2026-10-23 on branch `claude/project-thread-iy2xbd`, xUnit only. product]
 
 `ParsekFileCollector` (design-load-restores-the-save.md 4.5) moved every recording head no save
@@ -1073,7 +1105,8 @@ cleared the plain rewind's, and the discard computes none). And a vessel another
 this tree adopted by inventory transfer (EVA-9's capsule) is taken by the rewind's spawn strip
 (`superseding-continuation-replays`) before the hold runs, so a flight near it shows nothing of it
 until its transfer member's ghost starts (`ForeignInventoryTransfer.FindAdoptedForeignVesselMember`
-matches same-tree holders only).
+matches same-tree holders only). Both filed on their own 2026-10-24:
+DISCARD-REFLY-LANDS-WITHOUT-REWIND-HOLDS and REWIND-HOLD-MISSES-CROSS-TREE-ADOPTED-VESSEL.
 
 ## ~~REMAINING-RECORDED-VELOCITY-SEEDS: state-vector map ghosts, the spawner's state-vector seeds and the scene-exit finalizer's reseeds read a recorded velocity as inertial and in this session's axes~~ [FILED AND FIXED 2026-10-20 from the TERMINAL-SPAWN-TAIL-ORBIT-SURFACE-VELOCITY audit (its "Still open" item 1) and harness lanes EVA-4 (run `2026-10-11_1458`), GS-7 (run `2026-10-12_1856`) and LAB-10 (run `2026-10-18_0104`, the control), branch `claude/remaining-velocity-seeds`. xUnit; re-flown green: EVA-4, GS-7, LAB-10, LAB-7, V20M, V20T on the first build (`2026-10-20_1812`..`_1842`), EVA-4 `2026-10-20_1850` and LAB-10b `2026-10-20_1857` on the review build (`FromLatLonAltAndSameSessionRecordedVelocity: site=predicted-tail-reseed ... source=pair-resolved ... velFrame=rotating`; `State-vector seed velocity: site=create ... source=pair-resolved ... velFrame=inertial ... residual=0.000`, the map ghost still `sma=700213`). product]
 
@@ -3751,13 +3784,13 @@ thread: lanes assert Parsek's own log lines, and no lane independently reads a t
 or a ghost's shape. The items below are code reads, not reproductions; each becomes its own entry
 with a red test once confirmed.
 
-- [ ] STRATEGY-CONVERSION-ROWS-SURVIVE-F9-AND-REFLY (suspected defect): conversion legs are written untagged (`LedgerOrchestrator.cs:5260-5439`) while the award they divert is flight-tagged, and F9 / a Re-Fly merge retire only tagged rows (`ParsekScenario.Trim.cs:1210-1235`, `TombstoneEligibility.cs:56-117`), so the leg would outlive its award. Roadmap XS-1.
+- [x] ~~STRATEGY-CONVERSION-ROWS-SURVIVE-F9-AND-REFLY (suspected defect): conversion legs are written untagged (`LedgerOrchestrator.cs:5260-5439`) while the award they divert is flight-tagged, and F9 / a Re-Fly merge retire only tagged rows (`ParsekScenario.Trim.cs:1210-1235`, `TombstoneEligibility.cs:56-117`), so the leg would outlive its award. Roadmap XS-1.~~ Same defect as STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD, fixed 2026-10-16 in PR #2123 (the door tags its rows like the award, `GameStateRecorder.ResolveStrategyConversionRecordingTag`; live-proven by QL-2c `2026-10-16_2239`). Re-checked 2026-10-24 on main f3a22ce: the F9 half is moot since save-file loads are cold (PR #2155; the save's own ledger never held the share, QL-2c reshaped), and the Re-Fly half holds (`TombstoneEligibility.IsSupersedeTombstoneEligible` takes every tagged conversion row type; `StrategyConversionTimelineTests.ReFlyMerge_TombstonesTheConvertedShareOfTheSupersededFlight`).
 - [ ] Strategies across any timeline operation: no lane activates a strategy and then rewinds, re-flies, F9s or reverts; Bail-Out Grant, Aggressive Negotiations and Recovery Transponder never ran in game. Roadmap XS-1, GP-1.
 - [ ] Resource amounts: nothing checks origin-out == destination-in for routes, fuel moved while docked, or a spawned vessel's tanks. Roadmap TC-1 / TC-2, RC-1. Progress 2026-10-16: the `ReadVesselResources` verb and `resourceq.py` landed, and RC-1 reads both spawned tanks after a docked transfer and two rewinds; routes are still unchecked.
 - [ ] Career x repeated rewinds, and LedgerGroundTruth after a rewind, Re-Fly or F9: never run. Roadmap TC-4, GP-1.
 - [ ] Stale lanes: H38 / H39 / H40 / HV-1 not green since the 10-07 and 10-15 logistics changes; H58 and EVA-5 re-pinned, never re-flown. Roadmap XS-2.
 - [x] ~~EVA-CONSTRUCTION-GHOST-SHAPE-NEVER-CHANGES (suspected defect): playback never reads `SegmentEventType.PartAdded / PartRemoved` (only `GhostingTriggerClassifier` and `ForeignInventoryTransfer` name them), though the flight-recorder design says the ghost renders the part from that UT. Roadmap XS-3.~~ Same defect as CONSTRUCTION-GHOST-NEVER-CHANGES-SHAPE, fixed 2026-10-16 (live-proven by EVA-11 `2026-10-16_2322`); re-confirmed by code reading 2026-10-23.
-- [ ] CLAIMED-VESSEL-HAS-NO-GHOST-BEFORE-ITS-MEMBER (suspected defect): `VesselGhoster.GhostVessel` despawns the claimed vessel and creates no ghost (`VesselGhoster.cs:155-168`), so it is missing after a rewind until its member recording starts. Roadmap XS-3.
+- [x] ~~CLAIMED-VESSEL-HAS-NO-GHOST-BEFORE-ITS-MEMBER (suspected defect): `VesselGhoster.GhostVessel` despawns the claimed vessel and creates no ghost (`VesselGhoster.cs:155-168`), so it is missing after a rewind until its member recording starts. Roadmap XS-3.~~ Same defect as CLAIMED-VESSEL-VANISHES-BEFORE-ITS-CLAIM, fixed 2026-10-16 (`ParsekFlight.UpdateClaimedVesselHoldGhosts`; live-proven by EVA-11 `2026-10-16_2322`). Re-checked 2026-10-24 on main f3a22ce against PR #2181: the plain rewind's holds feed the same hold ghost on every flight load (`RestoreRewindVesselHolds`; EVA-11 / RC-6 `2026-10-22_1431` / `_1432`), and outside flight a held vessel is hidden by owner ruling 2026-10-22. The two cases still uncovered are filed on their own: REWIND-HOLD-MISSES-CROSS-TREE-ADOPTED-VESSEL and DISCARD-REFLY-LANDS-WITHOUT-REWIND-HOLDS.
 - [x] ~~Lab science and the ledger: science reaches the ledger only with a subject (`GameStateEventConverter.cs:326-345`, `GameStateRecorder.cs:1063`, `:1153`); whether stock's lab transmit carries one needs a decompile. Roadmap XS-4, XS-5 (GC-8).~~ Decompiled 2026-10-17: it carries none; filed and fixed as LAB-SCIENCE-NEVER-LEDGERED (xUnit; lane LAB-1 live-proven 2026-10-17).
 - [x] ~~TA-6 outside the physics bubble: see TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND. Roadmap MINE-3.~~ Fixed 2026-10-17 (xUnit; lane LAB-1 live-proven 2026-10-17).
 - [ ] Contracts x Re-Fly never executes (the in-game cell skips on every host). Roadmap XS-6.
