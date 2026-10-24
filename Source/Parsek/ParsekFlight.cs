@@ -440,6 +440,8 @@ namespace Parsek
         private string spawnWarpWatchVesselName;
         private double spawnWarpWatchTargetUT;
         private float spawnWarpWatchArmedRealtime;
+        private bool spawnWarpWatchWalkbackAtArm;
+        private int spawnWarpWatchCollisionCountAtArm;
         private const float ProximityCheckIntervalSec = 1.5f;
         internal const double NearbySpawnRadius = 250.0;
         // Real Spawn Control: maximum relative speed (m/s) between the active vessel and a
@@ -29446,6 +29448,8 @@ namespace Parsek
             spawnWarpWatchVesselName = rec.VesselName;
             spawnWarpWatchTargetUT = targetUT;
             spawnWarpWatchArmedRealtime = Time.realtimeSinceStartup;
+            spawnWarpWatchWalkbackAtArm = rec.WalkbackExhausted;
+            spawnWarpWatchCollisionCountAtArm = rec.CollisionBlockCount;
             ParsekLog.Info("Flight",
                 string.Format(CultureInfo.InvariantCulture,
                     "Warp spawn watch armed: rec={0} vessel=\"{1}\" targetUT={2:F1}",
@@ -29477,7 +29481,8 @@ namespace Parsek
             double elapsed = Time.realtimeSinceStartup - spawnWarpWatchArmedRealtime;
             GhostChain chain = rec != null ? FindChainTipForRecording(activeGhostChains, rec) : null;
             SpawnWarpOutcomeInput input = BuildSpawnWarpOutcomeInput(
-                rec, spawnWarpWatchTargetUT, elapsed, chain != null && chain.SpawnBlocked);
+                rec, spawnWarpWatchTargetUT, elapsed, chain != null && chain.SpawnBlocked,
+                spawnWarpWatchWalkbackAtArm, spawnWarpWatchCollisionCountAtArm);
             SpawnWarpOutcome outcome = SpawnWarpOutcomeWatch.Evaluate(
                 input, SpawnControlUI.FormatRowDate);
             if (!SpawnWarpOutcomeWatch.IsResolved(outcome.Kind))
@@ -29498,7 +29503,8 @@ namespace Parsek
         }
 
         internal static SpawnWarpOutcomeInput BuildSpawnWarpOutcomeInput(
-            Recording rec, double targetUT, double elapsedSeconds, bool chainSpawnBlocked)
+            Recording rec, double targetUT, double elapsedSeconds, bool chainSpawnBlocked,
+            bool walkbackExhaustedAtArm, int collisionBlockCountAtArm)
         {
             if (rec == null)
                 return new SpawnWarpOutcomeInput { RecordingFound = false, ElapsedSeconds = elapsedSeconds };
@@ -29508,9 +29514,12 @@ namespace Parsek
                 SpawnedVesselPersistentId = rec.SpawnedVesselPersistentId,
                 VesselSpawned = rec.VesselSpawned,
                 SpawnAbandoned = rec.SpawnAbandoned,
-                KscRetired = rec.SpawnAbandoned && VesselSpawner.IsSettledAsKscRetirement(rec),
+                KscRetired = rec.VesselSpawned && rec.SpawnedVesselPersistentId == 0
+                    && VesselSpawner.IsSettledAsKscRetirement(rec),
                 WalkbackExhausted = rec.WalkbackExhausted,
                 CollisionBlockCount = rec.CollisionBlockCount,
+                WalkbackExhaustedAtArm = walkbackExhaustedAtArm,
+                CollisionBlockCountAtArm = collisionBlockCountAtArm,
                 ChainSpawnBlocked = chainSpawnBlocked,
                 SpawnAttempts = rec.SpawnAttempts,
                 TerminalSpawnCannotSpawnSafely = rec.TerminalSpawnCannotSpawnSafely,

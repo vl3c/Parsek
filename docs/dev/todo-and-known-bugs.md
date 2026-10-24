@@ -10242,7 +10242,11 @@ walkback exhaustion, the collision limit, no living crew / an invalid snapshot (
 spawner at those two abandon sites), a latched terminal-orbit refusal or an exhausted load is
 `<craft> did not spawn: <reason>.`; a terminal-orbit deferral decided after the Warp, a
 collision retry or a blocked chain tip still running at 10 s, or no answer at all is `<craft>
-has not spawned yet: <reason>.`. One `Warp spawn outcome:` Info line per resolution. The Warp
+has not spawned yet: <reason>.`. An abandon reads off `VesselSpawned` with no pid (a listed row
+never has it at arm), and walkback / collision causes count only when they changed after the arm,
+because an in-session load resets `VesselSpawned` but leaves `SpawnAbandoned`,
+`WalkbackExhausted` and `CollisionBlockCount` from an earlier abandon. One `Warp spawn outcome:`
+Info line per resolution. The Warp
 moved the clock, so the message rides an event that changed something (owner pick 2026-10-24:
 one message after the Warp). (3) The `Ready` hovers
 say `is due to spawn`. The invalid jump stays a Warn: a `Ready` row's spawn time is ahead of the

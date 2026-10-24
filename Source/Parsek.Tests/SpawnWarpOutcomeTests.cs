@@ -152,7 +152,6 @@ namespace Parsek.Tests
         {
             var input = Fresh();
             input.VesselSpawned = true;
-            input.SpawnAbandoned = true;
 
             var outcome = Eval(input);
 
@@ -276,6 +275,58 @@ namespace Parsek.Tests
             Assert.Equal(SpawnWarpOutcomeWatch.ReasonNoAnswer, outcome.Reason);
         }
 
+        // An in-session load (quickload, revert) resets VesselSpawned and the pid but leaves
+        // SpawnAbandoned / WalkbackExhausted / CollisionBlockCount from an earlier abandon, so
+        // the row is listed again with them still set.
+        private static SpawnWarpOutcomeInput StaleAbandonFlags(double elapsed = 0.5)
+        {
+            var input = Fresh(elapsed);
+            input.SpawnAbandoned = true;
+            input.WalkbackExhausted = true;
+            input.WalkbackExhaustedAtArm = true;
+            input.CollisionBlockCount = VesselSpawner.MaxCollisionBlocks;
+            input.CollisionBlockCountAtArm = VesselSpawner.MaxCollisionBlocks;
+            return input;
+        }
+
+        [Fact]
+        public void StaleAbandonFlags_BeforeTheSpawnRuns_StayPending()
+        {
+            Assert.Equal(SpawnWarpOutcomeKind.Pending, Eval(StaleAbandonFlags()).Kind);
+        }
+
+        [Fact]
+        public void StaleAbandonFlags_ThenSpawnSucceeds_IsSpawned()
+        {
+            var input = StaleAbandonFlags();
+            input.VesselSpawned = true;
+            input.SpawnedVesselPersistentId = 12345;
+
+            Assert.Equal(SpawnWarpOutcomeKind.Spawned, Eval(input).Kind);
+        }
+
+        [Fact]
+        public void StaleAbandonFlags_ThenANewAbandon_NamesTheNewCause()
+        {
+            var input = StaleAbandonFlags();
+            input.VesselSpawned = true;
+            input.AbandonNote = SpawnWarpOutcomeWatch.ReasonNoLivingCrew;
+
+            var outcome = Eval(input);
+
+            Assert.Equal(SpawnWarpOutcomeKind.Refused, outcome.Kind);
+            Assert.Equal(SpawnWarpOutcomeWatch.ReasonNoLivingCrew, outcome.Reason);
+        }
+
+        [Fact]
+        public void StaleCollisionCount_AtTimeout_IsNotABlocker()
+        {
+            var outcome = Eval(StaleAbandonFlags(SpawnWarpOutcomeWatch.TimeoutSeconds + 1));
+
+            Assert.Equal(SpawnWarpOutcomeKind.Held, outcome.Kind);
+            Assert.Equal("no-answer", outcome.Cause);
+        }
+
         [Fact]
         public void FormatMessage_NoName_SaysTheVessel()
         {
@@ -298,14 +349,19 @@ namespace Parsek.Tests
             };
             SpawnWarpOutcomeWatch.NoteAbandonReason(rec, "noted");
 
-            var atTarget = ParsekFlight.BuildSpawnWarpOutcomeInput(rec, 1000, 3.0, chainSpawnBlocked: true);
-            var beforeTarget = ParsekFlight.BuildSpawnWarpOutcomeInput(rec, 1000.5, 3.0, chainSpawnBlocked: false);
-            var missing = ParsekFlight.BuildSpawnWarpOutcomeInput(null, 1000, 3.0, chainSpawnBlocked: false);
+            var atTarget = ParsekFlight.BuildSpawnWarpOutcomeInput(rec, 1000, 3.0, chainSpawnBlocked: true,
+                walkbackExhaustedAtArm: true, collisionBlockCountAtArm: 3);
+            var beforeTarget = ParsekFlight.BuildSpawnWarpOutcomeInput(rec, 1000.5, 3.0, chainSpawnBlocked: false,
+                walkbackExhaustedAtArm: false, collisionBlockCountAtArm: 0);
+            var missing = ParsekFlight.BuildSpawnWarpOutcomeInput(null, 1000, 3.0, chainSpawnBlocked: false,
+                walkbackExhaustedAtArm: false, collisionBlockCountAtArm: 0);
 
             Assert.True(atTarget.RecordingFound);
             Assert.Equal(2, atTarget.SpawnAttempts);
             Assert.Equal(7, atTarget.CollisionBlockCount);
             Assert.True(atTarget.ChainSpawnBlocked);
+            Assert.True(atTarget.WalkbackExhaustedAtArm);
+            Assert.Equal(3, atTarget.CollisionBlockCountAtArm);
             Assert.True(atTarget.TerminalDecisionAfterWarp);
             Assert.False(atTarget.KscRetired);
             Assert.Equal("noted", atTarget.AbandonNote);

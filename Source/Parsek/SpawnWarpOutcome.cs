@@ -48,6 +48,12 @@ namespace Parsek
         internal bool KscRetired;
         internal bool WalkbackExhausted;
         internal int CollisionBlockCount;
+        /// <summary><see cref="WalkbackExhausted"/> and <see cref="CollisionBlockCount"/>
+        /// when the watch armed. An in-session load resets <c>VesselSpawned</c> but leaves
+        /// these (and <c>SpawnAbandoned</c>) as an earlier abandon set them, so only a change
+        /// after the Warp names this spawn's cause.</summary>
+        internal bool WalkbackExhaustedAtArm;
+        internal int CollisionBlockCountAtArm;
         /// <summary>The recording is a ghost-chain tip whose spawn is blocked by a vessel
         /// in the way (<c>GhostChain.SpawnBlocked</c>); the chain path keeps retrying.</summary>
         internal bool ChainSpawnBlocked;
@@ -155,16 +161,20 @@ namespace Parsek
         {
             if (!input.RecordingFound)
                 return Outcome(SpawnWarpOutcomeKind.Gone, string.Empty, "recording-gone");
-            if (input.SpawnedVesselPersistentId != 0 && !input.SpawnAbandoned)
+            if (input.SpawnedVesselPersistentId != 0)
                 return Outcome(SpawnWarpOutcomeKind.Spawned, string.Empty, "spawned");
 
-            if (input.SpawnAbandoned || input.VesselSpawned)
+            // A listed row is never VesselSpawned when the watch arms, and every abandon sets
+            // it with no pid, so it is the signal. SpawnAbandoned may be left over from an
+            // abandon before an in-session load and is not read.
+            if (input.VesselSpawned)
             {
                 if (input.KscRetired)
                     return Outcome(SpawnWarpOutcomeKind.Refused, ReasonKscRetired, "ksc-retired");
-                if (input.WalkbackExhausted)
+                if (input.WalkbackExhausted && !input.WalkbackExhaustedAtArm)
                     return Outcome(SpawnWarpOutcomeKind.Refused, ReasonWalkbackExhausted, "walkback-exhausted");
-                if (input.CollisionBlockCount >= VesselSpawner.MaxCollisionBlocks)
+                if (input.CollisionBlockCount >= VesselSpawner.MaxCollisionBlocks
+                    && input.CollisionBlockCountAtArm < VesselSpawner.MaxCollisionBlocks)
                     return Outcome(SpawnWarpOutcomeKind.Refused, ReasonCollisionBlocked, "collision-blocked");
                 if (!string.IsNullOrEmpty(input.AbandonNote))
                     return Outcome(SpawnWarpOutcomeKind.Refused, input.AbandonNote, "noted-abandon");
@@ -187,7 +197,9 @@ namespace Parsek
             if (!(input.ElapsedSeconds >= TimeoutSeconds))
                 return Outcome(SpawnWarpOutcomeKind.Pending, string.Empty, "pending");
 
-            if (input.CollisionBlockCount > 0 || input.ChainSpawnBlocked)
+            bool collisionRetrying = input.CollisionBlockCount > 0
+                && input.CollisionBlockCount != input.CollisionBlockCountAtArm;
+            if (collisionRetrying || input.ChainSpawnBlocked)
                 return Outcome(SpawnWarpOutcomeKind.Held, ReasonCollisionBlocked, "collision-retrying");
             return Outcome(SpawnWarpOutcomeKind.Held, ReasonNoAnswer, "no-answer");
         }
