@@ -4,10 +4,53 @@
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how multiple players, each in their own KSP instance, share one cooperative career: one KSC, one pooled economy, one timeline, exchanged asynchronously through a file-sharing folder (Dropbox, Google Drive, or any service of the players' choice).*
 
-**Status:** DESIGN v5 (pre-implementation; interview complete 2026-09-01; adversarial review + code verification folded in 2026-09-01; player-perspective edge-case pass, spawn-ownership reconciliation, and implementation task breakdown added 2026-09-01; 2026-09-02: full control of foreign vessels (Fly/Switch-To/Recover as claims via a foreign-continuation route, replacing the earlier Fly block), trajectory-aware tip-advance predicate, attribution shown only with 2+ registered players; 2026-09-02 gameplay stress test (14 multi-player sessions): own continuations and recoveries of exported terminals are claims too, covering-link acceptance + fit clause (c), pending-claim masking, orphaned coupling dependents salvaged not deleted, UT-gated live blocks for foreign tech/hires, seq allocation from the folder, deterministic campaign stand-ins, rescue carve-out, route endpoint re-check, shared reservation attribution - see `docs/dev/plans/coop-async-multiplayer-tasks.md`)
+**Status:** DESIGN v5 (pre-implementation; interview complete 2026-09-01; adversarial review + code verification folded in 2026-09-01; player-perspective edge-case pass, spawn-ownership reconciliation, and implementation task breakdown added 2026-09-01; 2026-09-02: full control of foreign vessels (Fly/Switch-To/Recover as claims via a foreign-continuation route, replacing the earlier Fly block), trajectory-aware tip-advance predicate, attribution shown only with 2+ registered players; 2026-09-02 gameplay stress test (14 multi-player sessions): own continuations and recoveries of exported terminals are claims too, covering-link acceptance + fit clause (c), pending-claim masking, orphaned coupling dependents salvaged not deleted, UT-gated live blocks for foreign tech/hires, seq allocation from the folder, deterministic campaign stand-ins, rescue carve-out, route endpoint re-check, shared reservation attribution - see `docs/dev/plans/coop-async-multiplayer-tasks.md`). DESIGN v6 (2026-10-24): freshness pass against the single-player rules built since v5 - see "Revision 2026-10-24" below.)
 **Version:** v1 (roadmap Phase 14)
-**Out of scope:** competitive play and per-player economies (Phase 15, `docs/roadmap.md`), real-time synchronization (permanently out per roadmap), Gloops extraction (decoupled from this feature; see section 10), contract pooling (v2; see 7.11 and section 10), excise-and-stitch conflict salvage (v1.1 upgrade; see 7.9 Case 2).
-**Related docs:** `docs/parsek-architecture.md`, `docs/parsek-game-actions-and-resources-recorder-design.md`, `docs/parsek-timeline-design.md`, `docs/parsek-rewind-to-separation-design.md`, `docs/dev/design-mission-crosstree-dock.md`, `docs/dev/dock-undock-recording-structure.md`, `docs/roadmap.md` (Phase 14).
+**Out of scope:** competitive play and per-player economies (Phase 15, `docs/roadmap.md`), real-time synchronization (permanently out per roadmap), Gloops extraction (decoupled from this feature; see section 10), contract pooling (v2; see 7.11 and section 10), excise-and-stitch conflict salvage (v1.1 upgrade; see 7.9 Case 2), any exchange of supply routes (routes carry no money and their outcome is never committed; 7.11).
+**Related docs:** `docs/parsek-architecture.md`, `docs/parsek-game-actions-and-resources-recorder-design.md` (section 3.13, the committed-value rule), `docs/parsek-timeline-design.md`, `docs/parsek-rewind-to-separation-design.md` (section 2.12, Re-Fly ledger safety), `docs/dev/design-load-restores-the-save.md`, `docs/parsek-logistics-supply-routes-design.md` (section 10.6), `docs/dev/design-mission-crosstree-dock.md`, `docs/dev/dock-undock-recording-structure.md`, `docs/roadmap.md` (Phase 14).
+
+### Revision 2026-10-24 (design v6)
+
+v5 was written on 2026-09-02. Since then the single-player rules this design
+composes with were ruled and built (0.10.6, PRs #2151 through #2193). None of
+them changes the exchange model (packets, the fold, the salvage ladder); they
+change what a merge, a verdict and a load may do to a player's career. This
+pass applies them:
+
+- **Ledger safety** (owner rulings 2026-10-19, rewind design 2.12; committed-value
+  rule, game-actions design 3.13, ruled 2026-10-21, built in PRs #2172 to #2180):
+  nothing may take back value a player earned. v5 retired a losing claim's rows
+  through fold masks and truncation tombstones; v6 does not. A verdict moves
+  vessels, never value (new section 7.10.1). The fold's ledger mask is gone, so
+  the tombstone check stays the only ELS filter. A Re-Fly retirement can only
+  raise an importer's balances, because its retire set holds losses alone.
+- **The economy speaks the 3.13 rule**: concurrent purchases make a merge debt,
+  any other loss stops at the reserved floor, and with no committed cost ahead a
+  loss applies as stock applies it. "Captured before", which decides the floor,
+  becomes "shared before" across players (7.11 foundation 7). A merge steps the
+  stock pool reference, so peers' value is never filed as a leak. Clicks read
+  the click reservation and the committed-future index, not the milestone store.
+  Part and part-upgrade purchases join the once-ever keys. Recoveries leave
+  them: two players who recover one vessel before syncing are both paid.
+- **Load restores the save** (`design-load-restores-the-save.md`, PRs #2155,
+  #2164, #2169, #2170): the import journal and the export queue move into the
+  save, so a load rolls them back with everything else. Anything already shared
+  comes back at the next merge, because a packet is permanent (new section
+  7.5.1, open question 17.6). Edge cases 34 and 35 are rewritten.
+- **Quarantine grace** (PR #2183, GC-15 in PR #2192): unnamed recording files wait
+  14 days before deletion. Imported sidecars are named by the save like any
+  others, and a re-import after a load finds them again.
+- **Logistics has no money** (PRs #2161 to #2168, logistics design 10.6): routes
+  write no ledger rows and their outcome is never committed, so nothing about a
+  route is exported. The endpoint rules stay.
+- **Holds and gates now built in single player** (#2181 rewind vessel hold, GC-2
+  / GC-9 claimed-vessel disposal, GC-12 tourists, GC-13 alarm Jump, Re-Fly switch
+  block): foreign committed recordings feed them exactly like own ones (7.6, 7.7).
+- **Re-Fly seals a slot a peer has claimed** (new clause in 7.10.1), and a merge
+  waits while a Re-Fly session or a merge journal is open (7.5).
+
+Choices this pass made on the owner's behalf are recorded as open questions
+17.6 to 17.8, each with the default the text uses.
 
 ---
 
@@ -48,11 +91,14 @@ It deliberately does not cover: per-player economies, contract instance pooling,
 | Player opens Settings after a merge | Member list shows each player's name and last-known game clock ("Ana: Y1 D120"), the shared balance including any debt, and pending export/import counts |
 | Solo save, or a campaign with only one registered player | No player names appear anywhere (timeline, Recordings Manager, Kerbals window); attribution renders only once two or more distinct player ids are registered in the campaign |
 | Two players interacted with the same vessel before syncing | The arbitration fold picks the canonical interaction (share order); the other player is auto-resolved by the salvage ladder and notified on screen |
-| Two players spent the same funds before syncing | Balance goes into debt (displays 0); a warning names the colliding spends; future earnings fill the hole |
+| Two players spent the same funds before syncing | Both purchases stand (each was affordable where it was clicked); the merged balance goes into a merge debt, shown on the existing `Debt:` tooltip line, and a warning names the colliding spends; future earnings fill the hole |
+| A peer's flight loses a kerbal before a purchase you had already shared | The loss stops at the reserved floor and the rest becomes a debt, exactly as in single player; "captured before" means "shared before" (7.11) |
 | Two players achieve the same milestone first | Earlier UT gets the credit; the total payout never doubles |
 | Two players both flew Jebediah before syncing | The earlier-shared packet claims him; the other mission gets a derived stand-in and a flagged row |
 | A peer uses a mod you do not have | Their ghost renders with missing parts skipped, marked, and never spawns real; if they modify YOUR station with such a part, it becomes a held, marked ghost instead of a real vessel until you have the part |
-| Player rewinds their own shared mission | Peers receive the supersede as a retirement record; dependent peer recordings are orphan-flagged, kept, and marked |
+| Player rewinds their own shared mission | Peers receive the supersede as a retirement record; dependent peer recordings are orphan-flagged, kept, and marked; nobody's earnings are taken back (7.10.1) |
+| Player quickloads (F9) to before something they already shared | The load restores the save exactly, as in single player; at the next merge everything already in the shared folder (own packets included) imports again, because a shared packet is permanent (7.5.1) |
+| Player's claim loses the arbitration | Their vessel is moved back (parked, or reverted to the winner's state); what they earned and lost on the losing flight stays on the ledger (7.10.1) |
 
 ### 1.2 Worked example
 
@@ -89,19 +135,22 @@ Fold          Every machine runs the same arbitration fold over all known
 Resolution    On Bogdan's machine the salvage executes: his docked-window
               and post-undock recordings are retired, the pre-dock segment
               survives under a new recording id with a recomputed Orbiting
-              terminal and a dock-time snapshot, and the tail's ledger rows
-              are tombstoned. His next packet carries the truncation
-              retirement. Every other machine derives the same verdict
+              terminal and a dock-time snapshot. The tail's ledger rows
+              stay: a verdict moves vessels, never value (7.10.1). His
+              next packet carries the truncation retirement. Every other machine derives the same verdict
               from the fold and masks Bogdan's post-dock chain from
               canonical state until that packet confirms it durably.
               Bogdan is notified on screen; his tanker sits parked in
               orbit near Harbor. He later takes control of it (his own
               vessel), redocks to the lab-equipped Harbor, and re-flies
               the delivery.
-Economy       Both paid launch costs concurrently; the merged walk dips
-              to -12,000 funds at UT 8,150,200. Both machines show 0
-              funds; the next earning of 40,000 patches to 28,000.
-              One-shot warning names both rollout rows.
+Economy       Both paid launch costs concurrently. Each launch was
+              affordable on its own machine and a purchase is paid in
+              full (game-actions 3.13), so the merged walk dips to
+              -12,000 funds at UT 8,150,200: a merge debt. Both machines
+              show 0 funds with a "Debt: 12,000" tooltip line; the next
+              earning of 40,000 patches to 28,000. A one-shot warning
+              names both rollout rows.
 ```
 
 If Bogdan's fuel run had happened before Ana's lab flight on the timeline AND against the part tree he actually recorded (say docked window [8,120,000..8,120,600], pre-lab Harbor), the fit predicate would pass and it would splice (Case 1): both missions fully canonical, Harbor's timeline shows "Docked: Tanker (Bogdan)", and the only fiction is 800 LF that Ana's later recording never knew was gone.
@@ -118,6 +167,7 @@ If Bogdan's fuel run had happened before Ana's lab flight on the timeline AND ag
 6. **Paradox avoidance over fairness.** Conflict resolution never rewrites a winner's data and never moves anything backward in time. All physical salvage is loser-side restructuring of the loser's own data; everyone else applies the same verdict as derived masking. A little resource slack (fuel appearing from nothing) is acceptable; deleting recorded state is not.
 7. **Reuse before invention.** The recalculation engine already replays from UT=0 and supports retroactive insertion; the once-ever dedup pattern already exists three times (milestones, contracts, science caps); the ghost-block guard family already fences stock entry points; `RecordingOptimizer.SplitAtUT` already cuts recordings; supersede relations and tombstones already retire timeline segments; route revalidation already handles dangling references. This feature composes those mechanisms; it invents only the exchange layer and the arbitration fold.
 8. **Basic but reliable.** v1 prefers the smaller mechanism with the louder failure. Degradation is always visible (marked ghosts, on-screen notices, log lines), never silent.
+9. **Single-player rules hold inside a campaign; shared is permanent.** A load restores the save, a click never digs into a reservation, and nothing takes back value a player earned (`design-load-restores-the-save.md`, game-actions design 3.13, rewind design 2.12). The campaign adds no exception to them. It adds one fact they did not have to face: once a packet is in the shared folder it is in every peer's timeline, so a load can roll back only what was not yet shared, and a fold verdict moves vessels, never value (7.5.1, 7.10.1).
 
 ---
 
@@ -143,6 +193,9 @@ If Bogdan's fuel run had happened before Ana's lab flight on the timeline AND ag
 | Retirement record | An append-only export telling peers that the owner superseded/rewound/discarded/truncated previously shared data. A truncation retirement is also a permanent claim withdrawal in the fold. |
 | Derived mask | The fold's suppression of a rejected claim's continuation chain from canonical state (ERS-level), applied identically on every machine, ahead of the loser's durable retirement packet. |
 | Merge | The import pipeline run: scan shared folder, apply new packets, run the fold, recalculate, patch (or defer the patch). |
+| Merge debt | The part of the merged funds or science walk below zero that concurrent purchases leave: each was affordable where it was clicked, together they overdraw. Paid from later gains (7.11). Distinct from the single-player floor debt of game-actions 3.13 part 4, which a loss leaves; the existing `Debt:` tooltip line shows both. |
+| Capture key | Under a campaign link, a ledger row's position for the reserved-floor question "captured before?": `(share key, cseq)`, so captured before means shared before (7.11 foundation 7). |
+| Claimed vessel (single-player term) | A real vessel a committed future flight still uses (the Ghost Chain Rule, `ClaimedVesselDisposalGate`, the rewind vessel hold). Unrelated to a tip claim; foreign committed flights claim vessels exactly like own ones (7.7). |
 
 Design-concept-to-implementation-class mapping: section 18.
 
@@ -212,7 +265,7 @@ Design-concept-to-implementation-class mapping: section 18.
       |                          |
       |                apply: recordings -> RecordingStore (owner-tagged,
       |                                     appended at END, latched replayed)
-      |                       actions    -> Ledger (owner-tagged)
+      |                       actions    -> Ledger (owner-tagged, capture key)
       |                       events     -> MilestoneStore registration
       |                       crew       -> roster materialization
       |                       retirements-> supersede rows / withdrawals
@@ -239,7 +292,16 @@ Design-concept-to-implementation-class mapping: section 18.
 | `LedgerOrchestrator` | Uncut `RecalculateAndPatch()` walks ALL actions (future earnings patch into current pools); cutoff variant exists (`RecalculateAndPatchForCurrentTimelineIfFutureActions`) | Campaign-linked recalcs ALWAYS run the current-UT cutoff walk (peer future rows otherwise inflate pools and drag the contract-deadline horizon); merge recalcs pass authoritative reduction | Med |
 | `FundsModule` / `ScienceModule` / `FacilitiesModule` / `StrategiesModule` | Duplicate same-target spends double-charge, idempotently apply | Once-ever by target key: first effective, duplicates uncharged + ineffective (fixes a latent single-player double-charge too) | Med |
 | `KspStatePatcher` + `GameStateStore` baselines | `CaptureBaselineIfNeeded` snapshots LIVE state at every commit; `SelectTechBaselineForPatch` picks latest baseline <= cutoff | Campaign-linked patching pins to the checkpoint baseline (identical on every machine); post-link locally captured baselines are not used for merged facets (they bake foreign state divergently) | Med |
-| `MilestoneStore` | Independent state built at commit (`CreateMilestone`); feeds live blocks (`TechResearchPatch`, `KerbalHirePatch`) and overlays; NEVER rebuilt from the ledger | Import registers foreign milestone/event bundles (packets carry them) so live blocks see foreign tech unlocks and hires | Med |
+| `MilestoneStore` + `CommittedFutureIndex` | The stock-screen click blocks and marks (`TechResearchPatch`, `KerbalHirePatch`, the facility, part and part-upgrade blocks) read ONE UT-keyed committed-future index over the effective ledger (`CommittedFutureIndex`); the milestone store no longer feeds them | Foreign rows reach the index through the ledger (7.5 step 3); its per-target blocks skip a foreign row after the local current UT (edge case 49) while the pool reservation keeps it; EVENTS registration remains only where an event consumer remains (VERIFY at M2) | Low |
+| `GameActions/ClickReservation.cs` (game-actions 3.13 part 3) | Purchases, launches and Mission Control clicks refused when they dig into what committed costs and open contract penalties need | Unchanged rule; the projection includes every member's committed future rows (the shared reservation, 7.11), and the existing Reserved tooltip line names the largest future spender | Low |
+| `GameActions/StockPoolReference.cs` (3.13, phase 2) | Money stock applied with no ledger row becomes a `StockPoolAdjustment` row at the next update | A merge, and the join's first recalc, step the reference by the merged target change, so value a merge brings is never filed as a leak; own `StockPoolAdjustment` rows export like other own Space Center rows (open question 17.8) | Med |
+| `GameActions/CaptureSequence.cs` + `ReservedFloorPlan.cs` (3.13 part 4) | A per-save capture sequence `cseq` decides which committed costs a loss's floor protects | Campaign capture key `(share key, cseq)`: shared before = captured before (7.11 foundation 7); `cseq` values are never renumbered | Med |
+| Revert prune (`ParsekScenario.PruneRevertedFlightLedgerRows`, ruling O2) | A stock revert removes only the untagged rows the reverted flight added | Also keeps every foreign-owned row: a peer's Space Center row imported mid-flight is not the reverted flight's (7.5.1) | Low |
+| Save-file load (`SaveFileLoadIntent`, `LoadReconcilePolicy`, the save's `GAME_STATE` node) | F9 and every Load restore Parsek exactly as the save holds it; scene changes, reverts, rewinds and Re-Fly loads keep memory | The import journal and export queue are saved in the PARSEK node, so a load rolls them back; the next merge re-imports whatever was shared, own packets included (7.5.1) | Med |
+| `ParsekFileCollector` (quarantine grace, PR #2183, GC-15) | Unnamed heads and retained versions wait 14 days in dated quarantine, then go; a save naming them again restores them | Unchanged; imported sidecars are named by the save like any others, with their content hashes (load design 4.4), and a re-import after a load finds them again | Low |
+| Ghost chains, `RewindVesselHold`, `ClaimedVesselDisposalGate` (GC-2, GC-9) | A vessel a committed future flight uses is held (ghosted in flight, hidden outside flight after a rewind), and its Recover, Delete and launch-site clear are refused | Unchanged; foreign committed recordings claim like own ones; only canonical (unmasked) recordings feed the chains (7.8 step 4) | Low |
+| Re-Fly gates (`SupersedeCommit.RetireSetHoldsSealingRow`, the session switch block) | A slot whose retire set holds a gain is sealed; during a session only the re-flown vessel and its own EVA crew can be flown | The value gate gains a peer-claim clause (7.10.1); the switch block covers foreign vessels unchanged; a merge waits while a session is live (7.5.1) | Low |
+| `VesselNameStore` (GC-7) | Name decisions keyed by launch guid; the apply pass rewrites each covered leg's `VesselName` | Decisions on own launches export in flush packets (`VESSEL_NAMES`); a rename of a foreign launch stays a local display decision and never rewrites the foreign recording's stored bytes (VERIFY at M2) | Low |
 | `KerbalsModule` / `CrewReservationManager` | Reservation derived from UT=0; unknown crew names warn-and-skip at reservation; only `VesselSpawner.EnsureCrewExistInRoster` creates missing crew (spawn-time, name-only, random stats) | Import-time crew materialization from packet crew attributes; crew claim rule (share order) + derived stand-in substitution for losers | Med |
 | `PlaybackScopeTracker` | A recording whose activation start is past and was never latched is `historical-never-replayed` and suppressed from playback AND spawn | Importer latches imported recordings as replayed so peer history plays and spawns | Low |
 | Spawn gate (`GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` + hosts) | Spawns terminal Orbiting/Landed/Splashed leaves once | Unchanged for foreign recordings (spawn stamps are local runtime state); `MissingParts` recordings get a new early reject | Low |
@@ -259,7 +321,7 @@ Design-concept-to-implementation-class mapping: section 18.
 | `TimelineBuilder` / timeline window | Entries with semantic colors | Owner name on attributed entries; per-player filter alongside existing source filters | Low |
 | `ParsekScenario` OnSave/OnLoad | Save/load + sweeps; the `SaveStagingList`/`LoadStagingList` pattern for additive lists | Persist owner fields, campaign link, annotation cache, orphan flags, import journal pointer, following the staging-list pattern | Med |
 | `EffectiveState` | Supersede walk does not halt at tree boundaries; a TODO at `EffectiveState.cs:109` proposes ADDING a halt | The TODO's proposed halt is REJECTED: cross-tree supersede rows become legitimate producible data under retirements, and the current non-halting walk is the contract. Closing the TODO means deleting it, not implementing it | Low |
-| `Logistics/RouteStore` | Routes revalidate sources vs ERS | Unchanged; routes are owner-local (foreign route rows import as inert history) | Low |
+| `Logistics/RouteStore` | Routes revalidate sources vs ERS; no money, no ledger rows (route events live in `RouteEventLog`), outcome never committed | Unchanged; routes are owner-local and never exported (7.11) | Low |
 
 New subsystems: campaign store (manifest, checkpoints), packet exporter, packet importer + journal, arbitration fold (claims, verdicts, masks, crew claims), conflict classifier + salvage executor, ownership fence. Section 18 lists proposed files.
 
@@ -307,10 +369,13 @@ PacketEnvelope (<seq>_<shortId>.ppkt, ConfigNode, written LAST)
   TREES { }                 - complete per-tree RECORDING_TREE + RECORDING states (6.6)
   ACTIONS { }               - GameAction rows (owner's, non-seed only)
   EVENTS { }                - per-tree game-state event bundles (milestone registration; 7.5)
-  CREW { MEMBER name trait gender veteran ... } - minimal attributes for roster materialization
+  CREW { MEMBER name type trait gender veteran ... } - minimal attributes for roster
+                              materialization; type = Crew or Tourist (a tourist
+                              materializes as a tourist, GC-12)
   TIP_CLAIMS { CLAIM ... }  - see TipClaim
   RETIREMENTS { ... }       - see RetirementRecord
   MISSION_NAMES { }         - tree id -> mission/root-group name at export
+  VESSEL_NAMES { }          - launch guid -> name decision, own launches only (GC-7)
   PART_MANIFEST { }         - distinct part names used by this packet's snapshots
   PAYLOAD { FILE name size sha256 ... } - integrity list for the payload dir
 
@@ -337,6 +402,10 @@ RetirementRecord (node inside envelope; append-only)
   recordingIds: list<string>      - owner's retired recording ids
   supersedeRelations: list        - Old->New rows (Supersede and Truncation)
   withdrawnClaimContinuationId: string - Truncation only: the claim this withdraws
+  tombstonedActionIds: list<string> - the ledger rows the owner's operation retired
+                                    (a Re-Fly's retire set: loss rows only); every
+                                    importer retires exactly these, never recomputes
+                                    them; empty for a Truncation (7.10.1)
   reasonUT: double
 
 ConflictVerdict (derived, runtime only, recomputed by every fold, never persisted
@@ -352,10 +421,16 @@ VisitAnnotation (derived by the fold; a cached copy may persist in the .sfs
   startUT, endUT: double
   resourceDeltaSummary: string    - display-only ("-800 LF"), never applied
 
-ImportJournal (saves/<save>/Parsek/Multiplayer/import-state.cfg, local only)
+ImportJournal (saved in the PARSEK scenario node under MULTIPLAYER; local only,
+               never exported; rolls back with a load, 7.5.1)
   appliedPackets: list<(playerId, seq, packetId)>
   pendingRefs: list<(packetId, missingRecordingId)>  - claims/retirements awaiting referents
   lastScanRealTime: string
+
+ExportQueue (saved next to the journal; local only)
+  queued: list<packet>  - envelope content and the local sidecar ids it carries,
+                          built at commit / retirement / flush time, not yet
+                          written to the folder (7.4)
 ```
 
 Class-vs-struct: all exchange types are classes (ConfigNode round-trip, nullable
@@ -389,6 +464,10 @@ fields). Enums carry explicit int values (serialized).
   its ordering fields (UT, Type, Sequence) are FROZEN: `LedgerRolloutAdoption` /
   `LedgerRecoveryFundsPairing` re-sequencing must run before export or express
   the change as new rows (section 5 row; test 15.1).
+
+- Each row keeps the `CaptureSequence` (`cseq`) its owner stamped; an importer
+  never renumbers it. Under a campaign link the reserved-floor plan reads the
+  capture key `(share key, cseq)` instead of `cseq` alone (7.11 foundation 7).
 
 **`RecalculationEngine.SortActions`**: sort key becomes
 `(UT, earning-first, Sequence, OwnerPlayerId ?? "", ActionId)` - the two appended
@@ -430,10 +509,17 @@ existing `SaveStagingList`/`LoadStagingList` remove-then-re-add pattern
   a packet before any path is built - packets fail loudly on an invalid id).
 - `SidecarEpoch` pairs (metadata + sidecar) always travel together inside one
   packet, so the exact-equality check holds for imported pairs.
-- Runtime-only, never exported: spawn stamps (`VesselSpawned`,
+- Imported sidecars land as heads, and the importer records their content
+  hashes (load design 4.4) on the recordings it registers, so the next save
+  names exactly those bytes. A foreign recording's content never changes
+  locally (6.4); a local exempt-state rewrite retains its predecessor like
+  any sidecar write.
+- Local, never exported: spawn stamps (`VesselSpawned`,
   `SpawnedVesselPersistentId`, spawn safety/death state), ghost state, local
   `TerminalSpawnSupersededByRecordingId` stamps on foreign recordings,
-  `MissingParts`, orphan flags, derived fold outputs, the import journal.
+  `MissingParts`, orphan flags, derived fold outputs, the import journal and
+  the export queue (both saved in the save, 6.1), name decisions on foreign
+  launches.
 
 ### 6.4 The ownership fence
 
@@ -460,6 +546,11 @@ Explicitly exempt:
 - **Owner-packet application**: replacing a stored tree's topology with a
   higher-seq TREES fragment from the SAME owner is the owner's own newer data
   applied in seq order, not a local edit (6.6).
+- **Local display decisions**: a vessel-name decision on a foreign launch
+  (a stock rename of a peer's spawned vessel) is per-save display state; the
+  name apply pass may show it but never rewrites the foreign recording's
+  stored bytes or exports it. Anything more (looping, restyling) is deferred
+  item D10.
 
 `FilesDirty` on a foreign recording is permitted only for the local sidecar
 rewrite that persists exempt state; the exported content of a foreign recording
@@ -561,7 +652,9 @@ Founder, on a career save (science/sandbox allowed; economy layer inert there).
 Preconditions, refused with the exact reason: shared folder invalid or already
 carrying a campaign; save already campaign-linked; a merge journal is
 non-empty; a re-fly session marker is armed; a test batch marker is present;
-NotCommitted provisionals are pending. Then, in this order:
+NotCommitted provisionals are pending; a pending tree awaits its merge
+dialog; a committed-tree restore attempt or a switch-segment session is live.
+Then, in this order:
 
 1. Derive `saveSlug` from the campaign name (filename-safe slug, uniquified
    against existing saves with the `#N` pattern).
@@ -572,11 +665,16 @@ NotCommitted provisionals are pending. Then, in this order:
 3. Force a full local save (so the stamps are on disk).
 4. Copy `persistent.sfs` + the `saves/<save>/Parsek/` sidecar tree into
    `checkpoints/000000/` via `FileIOUtils.CopyDirectory`, applying the strip
-   list: `Parsek/RewindPoints/`, `Parsek/Multiplayer/` (import journal), and
-   the marker singletons are removed from the copied `.sfs` (re-fly marker,
-   merge journal, stock-action intent, switch-segment session, test batch
-   marker). Verify the copy; failure aborts creation loudly (no partial
-   campaign).
+   list: `Parsek/RewindPoints/`, `Parsek/Saves/` (rewind saves),
+   `Parsek/Recordings/_quarantine/` and `Parsek/Recordings/_versions/_quarantine/`
+   (files no save names), and from the copied `.sfs` the MULTIPLAYER node
+   (journal and queue) and the marker singletons (re-fly marker, merge
+   journal, stock-action intent, switch-segment session, test batch marker).
+   `Parsek/Recordings/_versions/` is copied with the heads, because the save
+   names content hashes (load design 4.4). The copied `.sfs` carries the
+   `GAME_STATE` node (ledger, events, milestones, baselines), so checkpoint 0's
+   career travels inside the save file. Verify the copy; failure aborts
+   creation loudly (no partial campaign).
 5. Write `checkpoints/000000/highwater.cfg` (all players at seq 0).
 6. Write `campaign.cfg` (pins formatVersion + schemaGeneration + gameMode +
    saveSlug). The manifest is written LAST: a folder without it is an
@@ -617,7 +715,11 @@ the campaign's ONLY seeds, forever.
 8. The joiner's KSP career state converges on first load: the ledger walk +
    patcher overwrite funds/science/rep/tech/facilities/roster from the merged
    ledger, which is the mechanism that makes N locally-cloned saves one shared
-   career.
+   career. The clone's first load is a cold save-file load of the checkpoint
+   (it reads checkpoint 0's `GAME_STATE`), and the merge that follows is a
+   merge recalc: it steps the stock pool reference by the merged change
+   (7.11 foundation 5), so the joiner's pools take the campaign's value and
+   no `StockPoolAdjustment` row is minted for it.
 
 ### 7.4 Export (own contributions)
 
@@ -640,13 +742,14 @@ Three triggers:
    flush - a player who only does KSC work still contributes. Flush packets
    also carry MISSION_NAMES for any exported tree renamed since its last
    export, so mission renames propagate (importers apply them to the
-   read-only foreign mission name).
+   read-only foreign mission name), and VESSEL_NAMES for name decisions on
+   own launches made since the last flush.
 
 Steps: write payload dir, then envelope (seq per 6.3: folder-derived max + 1),
 then rewrite own `player.cfg` (safe-write with retry). Mark exported
 recordings/actions `Exported = true`. Export failure (folder offline, disk
-full) is non-blocking: the commit stands locally, the packet is queued and
-retried on every merge tick, with a settings-visible "N packets pending
+full) is non-blocking: the commit stands locally, the packet is queued (in
+the save, 6.1) and retried on every merge tick, with a settings-visible "N packets pending
 export; their claims will be timestamped when the folder returns" note and a
 Warn. The arbitration timestamp is stamped when the envelope is actually
 written (share order means what it says); the `[PacketExport]` Info line for
@@ -657,7 +760,8 @@ explainable from the log (edge case 54).
 
 Runs at: save load (after the existing OnLoad sweeps), scene changes into
 KSC/Tracking Station, a low-frequency background poll (default 90s) while in
-KSC/TS/Map scenes, and the manual Sync now button.
+KSC/TS/Map scenes, and the manual Sync now button. It never runs while a
+Re-Fly session is live or a merge journal is open (7.5.1).
 
 Pipeline per new packet (ordered per player by seq; cross-player apply order
 is arbitrary and harmless BECAUSE all cross-player semantics live in the fold
@@ -676,14 +780,19 @@ and the UT-sorted walk, and claims/retirements with unknown referents pend):
    auto-group with the owner's `AutoGeneratedRootGroupName` honored
    (display-name uniquified locally on collision, owner's canonical name
    preserved), mission seeded read-only, `MilestoneStore` registration from
-   the packet's EVENTS bundle carrying each event's UT (so
-   `TechResearchPatch`/`KerbalHirePatch` live blocks and stock-UI overlays
-   see foreign unlocks/hires - but a live block honors a FOREIGN
-   registration only when its UT <= the local current UT; a peer's unlock
-   in your future must not stop you researching the node now, and your
-   earlier-UT research then becomes the effective charged row under
-   once-ever dedup with the peer's later row refunded and a credit-shift
-   notice; edge case 49), and latch each
+   the packet's EVENTS bundle carrying each event's UT, for the consumers
+   that still read events (VERIFY at M2 which remain; if none, the EVENTS
+   block is dropped). The stock-screen click blocks and marks no longer read
+   the milestone store: they read the committed-future index over the
+   effective ledger (`CommittedFutureIndex`), so foreign Space Center rows
+   reach them through the ledger (step 3). One campaign rule there: the
+   index's per-target blocks (tech, hire, facility, part and part-upgrade
+   purchase) skip a FOREIGN row whose UT is after the local current UT. A
+   peer's unlock in your future must not stop you researching the node now;
+   your earlier-UT research then becomes the effective charged row under
+   once-ever dedup, the peer's later row is left uncharged, and a
+   credit-shift notice says so (edge case 49). Foreign future rows still
+   count in the pool reservation. Then latch each
    imported recording in `PlaybackScopeTracker` as already-replayed (without
    this, peer history entirely in the local past is suppressed as
    historical-never-replayed and neither plays nor spawns).
@@ -701,8 +810,10 @@ and the UT-sorted walk, and claims/retirements with unknown referents pend):
    current-UT cutoff walk (never the uncut walk: peer future earnings must
    not patch into today's pools, and the contract PrePass deadline horizon
    must not be dragged forward by peer future rows), with authoritative
-   reduction so the DrawdownGuard does not floor away a legitimate merged
-   balance drop. Mid-flight, the existing patch-deferral applies: the walk
+   reduction so the drawdown guard does not floor away a legitimate merged
+   balance drop, and the stock pool reference stepped by the merged change
+   so imported value is never filed as a `StockPoolAdjustment` leak
+   (7.11 foundation 5). Mid-flight, the existing patch-deferral applies: the walk
    runs, the KSP write lands at the next trigger with the deferral cleared
    (there is no flush queue; poll ticks and commits are the triggers).
 8. **Journal**: record (playerId, seq, packetId) applied, plus the pending
@@ -716,8 +827,8 @@ World-state changes with a loaded/nearby affected vessel (e.g. a tip advance
 retiring a stale local spawn while the player is parked next to it) are
 deferred to the next scene change; everything else applies immediately.
 
-Two campaign-linked behavior overrides accompany the merge machinery,
-regardless of merge timing:
+Three campaign-linked behavior overrides accompany the merge machinery,
+regardless of merge timing (the third, the revert prune, is in 7.5.1):
 
 - **Ledger reconcile preserves the future.** `Ledger.Reconcile`'s UT-based
   pruning (which today permanently deletes future-UT spending/contract/
@@ -733,6 +844,48 @@ regardless of merge timing:
   patch layer when that foreign state is later retired. The full walk from
   the pinned baseline re-derives everything; local baselines remain for
   non-campaign saves.
+
+### 7.5.1 Loads, reverts and rewinds
+
+Single player has one rule per load source (`design-load-restores-the-save.md`):
+a save-file load (F9, a pause-menu or main-menu Load) restores Parsek exactly
+as the save holds it; scene changes, stock reverts, plain rewinds and Re-Fly
+loads keep memory (ruling D2). A campaign keeps every one of those contracts
+and adds one fact: **a shared packet is permanent, so a load can roll back
+only what was not yet shared.**
+
+- **The merge state lives in the save.** The import journal and the export
+  queue are saved in the PARSEK node with everything else (6.1), not in an
+  external file. A save-file load therefore restores the journal of its
+  moment: packets applied after the save are unapplied again, and the next
+  merge (the load itself triggers one) imports them again. Their sidecars are
+  still on disk (a later save names them) or wait in the 14-day quarantine,
+  which a save naming them again restores (load design 4.5); failing both, the
+  importer copies them from the packet again.
+- **Own packets come back too.** An own packet written after the save (a
+  committed flight, a Space Center purchase in a flush packet, a retirement)
+  is in the folder for good and already in peers' timelines. The next merge
+  imports it like a peer's packet, as own data (`OwnerPlayerId` = local,
+  `Exported = true`), the way a re-join imports a player's own packets (edge
+  case 27). Seq numbers stay folder-derived (6.3), so the rolled-back save
+  never re-uses one. In a campaign the quickload rulings (a quickload drops
+  flights committed and purchases made after the save) therefore hold for
+  what was not yet shared; the batched merge message after such a load names
+  what came back. A packet still in the export queue at the load rolls back
+  with the save and is never shared. To undo a shared flight the player uses
+  the timeline's own verbs (Re-Fly), never a load (open question 17.6).
+- **Reverts and rewinds keep memory**, as in single player, so imported data
+  survives them (edge cases 34, 35). The stock revert's ledger prune (ruling
+  O2: only rows the reverted flight wrote) also keeps every foreign-owned row:
+  a peer's untagged Space Center row imported mid-flight is not the reverted
+  flight's.
+- **No merge during a Re-Fly session or an open merge journal.** Re-Fly Rule 3
+  (rewind design 2.12) needs the session to keep the ledger it was invoked
+  against, and the merge journal must not see the store move under it. The
+  poll and the scene triggers skip with one Verbose line while either is live;
+  the first trigger after the session merges or discards catches up. The
+  session's own retirement exports through the normal retirement trigger
+  after its merge.
 
 ### 7.6 Foreign recordings as citizens
 
@@ -766,6 +919,11 @@ reservation/display state, and the row is flagged "crew conflict: Jebediah is
 on Ana's roster". The loser's stored recording bytes are not touched (the
 substitution is derived state); their future missions must use
 owned/unclaimed crew.
+
+**Tourists.** The CREW block carries the kerbal type, so a peer's tourist
+materializes as a tourist (GC-12: tourists stay tourists across spawns and
+holds) and never enters anyone's assignable pool. The contract that brought
+the tourist is the peer's local contract (7.11).
 
 **Stand-ins converge.** Under a campaign link every stand-in name (the
 ordinary reservation stand-ins the existing machinery mints while a kerbal is
@@ -824,11 +982,20 @@ stamps land locally (exempt state). Two additions:
     Instead the recovery emits a `Recover` tip claim in the next flush
     packet - for the OWNER too - and "terminal = Recovered at UT x" is a
     DERIVED fact from the winning claim on every machine. Recover is always
-    tip-advancing. Recovery earnings for a spawned committed vessel are
-    once-ever by target recording id: the winning claimant's row is
-    effective, a losing recoverer's row is masked by the fold (edge case
-    48). Recovery of a NOT-yet-exported own vessel keeps today's stored
-    mutation (nothing to converge yet).
+    tip-advancing. Every recovery pays its recoverer: two players who
+    recover one vessel before syncing are both paid, while the vessel is
+    canonically recovered once (edge case 48). Deduplicating the earning
+    would take a credit back on the losing machine, which the ledger-safety
+    ruling forbids (7.10.1). Recovery of a NOT-yet-exported own vessel keeps
+    today's stored mutation (nothing to converge yet).
+  - **Claimed vessels stay claimed.** Recover, Delete and the stock
+    launch-site clear are refused for a vessel a committed future flight
+    still holds back (`ClaimedVesselDisposalGate`, GC-2 / GC-9), whoever
+    flew that flight: a peer's shared dock to your station at a later UT
+    holds your station exactly as your own committed flight would, and a
+    rewind's vessel hold (#2181) treats foreign committed recordings like
+    own ones. During a Re-Fly session every switch to another vessel is
+    refused (rewind design 2.12 Rule 3), foreign spawns included.
   - **Own continuation of an exported terminal.** When the owner
     Fly/Switch-To's their OWN spawned vessel whose terminal recording is
     `Exported`, the restore path runs as today (deep-clone, continue,
@@ -927,9 +1094,7 @@ The fold:
      canonical state covering its window. This includes claims targeting a
      continuation that itself lost (the A->B->C cascade: C's target B is off
      the canonical chain, so C rejects deterministically). A losing Recover
-     claim additionally masks its claimant's recovery earning row (7.7):
-     the fold's ledger mask is a set of recording ids PLUS a set of action
-     ids.
+     claim changes no ledger row: both recoverers keep their earnings (7.7).
 4. Derived masks: every rejected, non-withdrawn claim's continuation chain
    (docked-window recording + descendants) and every accepted non-structural
    claim's target-side post-undock recording (the demoted station-side leaf)
@@ -937,12 +1102,10 @@ The fold:
    suppression at the effective-state layer: masked recordings neither play
    as ghosts nor pass any spawn path (all six, including the post-commit
    leaf spawner, which today bypasses the spawn gate and must be routed
-   through it first) nor feed the ledger. The ledger half is a recording-id
-   exclusion inside `ComputeELS` keyed on the mask version: today ELS
-   retires rows ONLY through durable per-action tombstones, and that
-   contract widens to "tombstones or fold masks" rather than minting fake
-   tombstones for a derived fact. The mask is replaced by durable retirement
-   state when the loser's confirming packet arrives.
+   through it first) nor feed a ghost chain or a route endpoint. Masks never
+   touch the ledger (7.10.1): a masked recording's rows stay in ELS, whose
+   only filter stays the tombstone check. The mask is replaced by durable
+   retirement state when the loser's confirming packet arrives.
 5. Crew ownership (7.6) is folded in the same pass, by the same key.
 6. **Spawn-ownership reconciliation** (local, per vessel). Today a dock
    merge stamps the target's `TerminalSpawnSupersededByRecordingId` at merge
@@ -1038,7 +1201,7 @@ window after only transient canonical visits fits.
   Truncate. For a Control claim (foreign-continuation tree) truncation
   degenerates: there is no pre-control segment of the claimant's own to keep
   (the vessel flown was the peer's), so the whole continuation tree is
-  retired, its ledger rows tombstoned, a Truncation retirement exported, and
+  retired (its ledger rows kept, 7.10.1), a Truncation retirement exported, and
   the claimant's local instance of the target reverts to the canonical tip
   per edge case 12. Anything the claimant's OWN vessels did in that session
   (their tug's flight to the rendezvous, for example) lives in their own
@@ -1063,10 +1226,16 @@ so peers can apply it durably:
    resources as accepted slack).
 2. The docked-window recording, the post-undock recordings, their branch
    points, and the dock branch point are retired.
-3. The tail's ledger rows are tombstoned (existing eligibility rules).
+3. The tail's ledger rows stay, tagged to their retired recordings; a
+   truncation writes no tombstone (7.10.1).
 4. A Truncation retirement is exported: supersede rows (original pre-dock id
    -> new head id), retired ids, and the withdrawn claim's continuation id.
-5. In practice the recomputed terminal is Orbiting or Landed, so the loser's
+5. When the retired tail ended the vessel (Recovered or Destroyed), the head
+   takes that ending instead of the recomputed terminal: the recovery or loss
+   the loser's ledger keeps then describes a vessel that is really gone, and
+   nothing parks to be recovered twice (VERIFY at M4 how the ending's UT is
+   carried on a head whose trajectory stops at the dock). Otherwise the
+   recomputed terminal is in practice Orbiting or Landed, so the loser's
    vessel parks as a spawnable terminal next to the target for a later redo
    via the normal own-vessel Fly/Switch-To continuation. A non-spawnable cut
    state (edge case 11) keeps the history but parks nothing.
@@ -1090,17 +1259,19 @@ Recordings Manager rows.
 Own destructive verbs remain fully available on shared data. Each exports a
 retirement record: supersede relations (Old -> New ids) for re-fly and
 truncation, retirement ids for rewind-retired subtrees, plain ids for discards
-of previously exported data. Importers append the supersede rows (the
-append-only supersede walk and ERS filtering then hide the retired data
-everywhere - see the section 5 row on the `EffectiveState` cross-tree TODO,
-whose proposed halt is rejected), tombstone the associated ledger rows per the
-existing eligibility rules, feed withdrawals into the fold, and handle any
+of previously exported data (a kind v1 never produces: no committed recording
+can be deleted since 0.10.5, and an unmerged attempt is never exported).
+Importers append the supersede rows (the append-only supersede walk and ERS
+filtering then hide the retired data everywhere - see the section 5 row on
+the `EffectiveState` cross-tree TODO, whose proposed halt is rejected),
+tombstone exactly the record's `tombstonedActionIds` (6.1), feed withdrawals
+into the fold, and handle any
 LOCAL recordings that depended on a retired tip in two ways:
 
 - **Transient dependents** (accepted visits, dock links with no structural
   effect): kept, visible, `OrphanedByRetiredRecordingId` set, marked
   "depends on a superseded mission (Ana re-flew Harbor)", their ledger
-  effects tombstoned - the route-revalidation pattern
+  rows kept (7.10.1) - the route-revalidation pattern
   (`MissingSourceRecording`) generalized.
 - **Coupling dependents** (a Dock/Board/Claw continuation that left a module
   attached, or a Control continuation): the dependent's own vessel would
@@ -1119,20 +1290,59 @@ Retired foreign recordings' files are NOT deleted locally (history stays
 browsable; disk cost accepted for v1; checkpoints bound the shared-folder
 cost).
 
-**Ledger safety (owner rulings 2026-10-19).** A retirement may never lower a
-balance anywhere on the timeline: a retired credit may already have paid for a
-later committed spend, on the owner's machine or a peer's. For re-fly this
-holds by construction: `parsek-rewind-to-separation-design.md` section 2.12
-lets a slot be re-flown only when every row its merge retires is a loss, so a
-re-fly retirement an importer applies can only raise the importer's balances,
-and the owner's dominance check ran over the owner's timeline before export.
-The other retirement kinds here (a transient dependent's ledger effects, a
-truncation's tail rows, rewind-retired subtrees) can still retire credit and
-are covered by todo `LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY`; the coop design
-must answer it before those kinds ship. Note the importer's timeline also holds
-peer spends the owner's dominance check never saw, so the import-side check is
-the importer's own (the same Invariant LS over the importer's ledger), not the
-owner's verdict.
+### 7.10.1 Ledger safety in a campaign (owner rulings 2026-10-19 and 2026-10-21)
+
+Single player now guarantees that nothing takes back value a player earned
+("we absolutely never change past behavior that could affect the ledger in a
+negative value way"): a Re-Fly retires losses only (rewind design 2.12), and
+every other operation follows the committed-value rule (game-actions design
+3.13: committed outcomes do not move earlier, known obligations are reserved,
+a click that digs into a reservation is greyed, any other loss stops at the
+reserved floor with the rest a debt; a recording that fails to load keeps its
+rows). v5 left the campaign side of this open (todo
+`LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY`). A campaign adds three ways a row
+could be taken back - a peer's retirement, a fold verdict, a merge arriving
+after a spend - and v6 closes each:
+
+1. **Retirements an importer applies raise value only.** A Re-Fly supersede
+   retires only loss rows (Rule 1), so applying it on any machine can only
+   raise that machine's balances at every UT, whatever peer spends that
+   machine holds; no import-side check is needed (v5 asked for one). The
+   record names the rows (`tombstonedActionIds`), so every machine retires the
+   same set. The re-fly's own new rows enter the importer's walk like any
+   imported rows (point 3). A rewind retirement carries what the owner's own
+   rewind retired under the single-player rules and applies as is.
+2. **Verdicts move vessels, never value.** A rejected or pending claim, a
+   truncation, a demoted leaf and a dependent of a retired tip all keep their
+   ledger rows, tagged as recorded. The fold masks only physical canonical
+   state: what plays, what spawns, what a ghost chain or a route endpoint
+   resolves to. ELS keeps its one filter, the tombstone check. This is the
+   ledger form of principle 6: funds or science may appear from nothing;
+   nothing a player earned vanishes because a peer shared first. Where a kept
+   row would describe a vessel that still exists, the vessel follows the row:
+   a truncated tail that recovered or destroyed the vessel hands that ending
+   to the surviving head (7.9 step 5).
+3. **Merges never re-price what you hold.** A peer's rows are new history to
+   the importer: their purchases are paid in full, so concurrent purchases
+   make a merge debt (7.11), and their losses obey the reserved floor with
+   capture order = share order (7.11 foundation 7). A merge never removes a
+   row the importer held; the once-ever keys only move a credit earlier
+   (milestones, firsts) or leave a duplicate purchase uncharged, and neither
+   lowers a balance at any UT. A merge can lower a balance only by adding a
+   peer's real cost or loss: new history the importer did not have, never a
+   row taken back.
+4. **A peer's claim seals a Re-Fly slot.** A slot whose effective tip
+   recording is the target of a known accepted or pending claim by another
+   player cannot be re-flown: the value gate (rewind design 2.12 Rule 1)
+   gains one clause, reason `peerClaim:<claimantPlayerId>`, read at the same
+   sites. Re-flying it would truncate the claimant's coupling on their
+   machine (7.10) for an interaction the fold already accepted. A claim that
+   arrives after the merge is handled by 7.10 as before, under point 2.
+
+The accepted cost is a little value collected twice: both players recover one
+capsule before syncing; a losing Control continuation keeps the science it
+gathered. It needs concurrency the players do not control and gains nothing
+they could not have flown, so v1 accepts it (open question 17.7).
 
 ### 7.11 The economy contract
 
@@ -1146,7 +1356,9 @@ Foundations (all deterministic, all walk-level):
 3. **Once-ever same-target spends**: walk-level keyed sets (the
    milestones/contracts pattern) for ScienceSpending by nodeId,
    FacilityUpgrade by (facilityId, toLevel), StrategyActivate setup costs by
-   strategyId, KerbalHire by kerbalName. First-in-order is effective and
+   strategyId, KerbalHire by kerbalName, part purchases by part name, part
+   upgrades by upgrade name (the `FundsSpending` source `PartUpgrade` row,
+   game-actions 3.13). First-in-order is effective and
    charged; duplicates are ineffective and UNCHARGED (also fixes the latent
    single-player double-charge on duplicate rows). Idempotent application
    (tech unlock HashSet, absolute facility level) is unchanged.
@@ -1156,29 +1368,62 @@ Foundations (all deterministic, all walk-level):
    PrePass deadline horizon to the latest peer row).
 5. **Authoritative merges**: merge-triggered recalcs set the authoritative-
    reduction flag so `ApplyDrawdownGuard` does not floor a legitimate merged
-   balance drop.
+   balance drop, and step the stock pool reference (`StockPoolReference`,
+   3.13 phase 2) by the merge's target change, so value a merge adds or
+   removes is Parsek's own change, never read as money stock applied without
+   a row. Without the step, the first update after a merge would file the
+   whole merged difference as a `StockPoolAdjustment` row and export it back
+   to the peers it came from.
 6. **Pinned baseline**: campaign-linked patching derives from the checkpoint
    baseline + the full walk (7.5), never from post-link local baselines.
+7. **Capture order is share order.** The reserved floor (3.13 part 4) asks
+   whether a cost row was captured before a loss, by the per-save capture
+   sequence `cseq`. A per-save counter means nothing across machines, so under
+   a campaign link a row's capture key is `(share key, cseq)`: rows carried by
+   checkpoint 0 first, then each packet's rows at that packet's arbitration
+   key (6.5) in their exported `cseq` order, then own rows not yet exported in
+   local `cseq` order. Same log, same keys, same floor on every machine; an
+   own unexported row's position settles when its packet is written
+   (transient divergence, like a pending claim). This is principle 5 applied
+   to the economy's one share-order question; the walk itself stays in UT
+   order.
 
 Policies:
 
-- **Debt, not cancellation.** Genuine concurrent overspends stand; the running
-  balance goes negative; the KSP patch clamps the displayed pool at 0 (existing
-  behavior); future earnings fill the hole before money shows again. A one-shot
-  warning at merge names the colliding spends and the depth of the debt. No
-  purchase is ever retroactively cancelled (paradox avoidance).
+- **Concurrent purchases make a merge debt, never a cancellation.** Each
+  purchase was affordable where it was clicked, against that machine's
+  reservation; merged, two of them can overdraw. A purchase is paid in full
+  (3.13: a cost is never turned into a floor debt) and never cancelled after
+  the fact (paradox avoidance), so the merged walk runs below zero: the merge
+  debt. Stock shows 0, the funds and science tooltips' existing `Debt:` line
+  shows the depth, a one-shot warning at the merge names the colliding spends,
+  and later gains fill the hole before money shows again. While it lasts the
+  click reservation finds nothing available, so purchases and launches are
+  refused for their cost (3.13 part 3); flights already flying are never
+  touched. VERIFY at M3: how `KspStatePatcher.PatchFunds` writes a negative
+  target under the stock pool reference (expected: stock 0, the shortfall
+  carried in the walk), and that the `Debt:` line reads the merge debt as
+  well as the floor debt.
+- **Any other loss follows the reserved floor.** A peer's crew death, vessel
+  loss or contract-fail penalty is a loss row like a local one. With a cost
+  captured (shared) before it still ahead, it stops at the reserved floor and
+  the rest is a debt charged from the first room above the floor; with none it
+  applies as stock applies it (funds and science stop at 0 and the rest is
+  forgiven, reputation may go negative). So a peer who is behind in UT cannot
+  lose away the money a purchase you already shared needs.
 - **Shared reservation, attributed.** This is the existing single-player
-  reservation design, not a new rule, but across free-running clocks it
-  bites: `availableFunds` (and science) at your UT is the MINIMUM projected
-  balance through EVERY member's committed future rows, so a member far
-  ahead in UT who has spent down the pool pins the budget of members behind.
-  The stock currency overlay's "Reserved" line names the largest future
-  spender and UT ("reserved: 120,000 by Ana at Y2 D250"), the Settings
-  member list repeats it, and the join notice (edge case 31) explains it.
-  Not a defect: the money IS committed; the fix is attribution.
-- **Recovery earnings are once-ever per recovered vessel** (7.7): the
-  winning Recover claimant's row is effective, any other recoverer's row is
-  fold-masked.
+  reservation, not a new rule, but across free-running clocks it bites: what
+  the click reservation (3.13 part 3, `ClickReservationGate`) lets you spend
+  at your UT is the MINIMUM projected balance through EVERY member's
+  committed future rows, so a member far ahead in UT who has spent down the
+  pool pins the budget of members behind. The funds tooltip's existing
+  Reserved line names the largest future spender and UT ("reserved: 120,000
+  by Ana at Y2 D250"; extra wording in an existing tooltip, budgeted by
+  `TooltipEchoBudgetTests`), the Settings member list repeats it, and the
+  join notice (edge case 31) explains it. Not a defect: the money IS
+  committed; the fix is attribution.
+- **Every recovery pays its recoverer** (7.7): concurrent recoveries of one
+  vessel are both paid; the vessel is canonically recovered once.
 - **Earlier UT wins credit.** Milestone/first races across players resolve by
   the existing once-ever UT-order walk - identical to how retroactive commits
   shift credit today. Deep-warping ahead cannot lock in a first; credit (never
@@ -1187,12 +1432,22 @@ Policies:
   and once-ever milestones already sum/dedup correctly).
 - **Contracts are local-only in v1**: contract accept/complete/fail rows are
   excluded from packets; funds/rep from a player's contracts still enter the
-  shared pool as that player's plain earning rows. Each member's contract
-  queue is independently rolled (7.3 step 4). Canonical cross-save contract
+  shared pool as that player's plain earning and loss rows. Each member's
+  contract queue is independently rolled (7.3 step 4). The committed-value
+  rule's contract parts apply per machine: a committed outcome of your own
+  contract cannot move earlier (3.13 part 1), and your open contracts'
+  penalties are reserved while a committed cost lies ahead (part 2). Peers'
+  contracts are invisible to you; their penalties reach you only as the loss
+  rows they file, under the floor rule above. Canonical cross-save contract
   identity is the v2 problem (section 10).
-- **Routes are owner-local**: routes execute only in the owner's game; their
-  events share as the owner's actions; foreign route events import as inert
-  history (route events are not ledger rows since 0.10.6). Route ENDPOINTS must be
+- **Routes are owner-local and never exported.** Supply routes carry no money
+  and write no ledger rows; a route's cycles exist only as the owner's clock
+  passes them, and every load back in time drops the later ones (logistics
+  design 10.6). Nothing about a route is committed, so nothing is shared:
+  route definitions, the route event log and route cargo stay in the owner's
+  save, and peers see the owner's vessels as their recordings left them
+  (cargo a route moved since is the resource slack of principle 6). Space
+  Center origin routes are free in every mode, as in single player. Route ENDPOINTS must be
   own-owned vessels in v1: a foreign spawn is not a valid endpoint (route
   cargo math would mutate a peer's vessel per cycle with no recording, no
   claim, and no arbitration), refused at route creation with the owner
@@ -1224,10 +1479,9 @@ from Launch Pad on Kerbin - Bogdan"); existing semantic colors unchanged (a
 per-player color scheme would fight the earning/spending/action color
 language - deferred). A per-player filter joins the existing source filter
 row (also gated). Fold-derived visit annotations render as attributed
-timeline entries on the target. The timeline's NOW
-divider carries the shared balance text when the walk is in debt ("shared
-funds in debt: 12,000"), since KSP's own display clamps at 0 and would
-otherwise hide the fact.
+timeline entries on the target. A debt's depth shows on the funds and science
+tooltips' existing `Debt:` line (3.13 part 4), which reads the merge debt too
+(7.11), since KSP's own display stops at 0 and would otherwise hide it.
 
 ### 7.13 Checkpoints
 
@@ -1286,13 +1540,11 @@ bootstrap cost and the folder's growth.
    both are accepted visits when their windows do not intersect and both fit;
    if the windows intersect, the later-shared claim fails clause (a) and
    truncates (v1) - with the v1.1 stitch it survives minus the visit.
-10. **Loser already recovered the mission.** Truncation retires the recovery:
-    post-cut ledger rows (recovery funds, science, XP) tombstoned; live-world
-    roster/kerbal state reconciles through the existing reservation walk (the
-    kerbals are canonically aboard the parked truncated vessel; recalc derives
-    reservation accordingly). "Kerbal visible in Astronaut Complex but
-    canonically aboard" is exactly the state the reservation system already
-    models for committed recordings.
+10. **Loser already recovered the mission.** The truncation keeps the
+    recovery: its funds, science and XP rows stay (7.10.1), and the surviving
+    head takes the tail's Recovered ending instead of parking a vessel (7.9
+    step 5), so the vessel and its crew exist once, at the KSC. Only the
+    docked window's story changes: canonically the tanker never docked.
 11. **Truncation cut lands in a non-spawnable situation.** Interaction during
     atmospheric flight (rare: claw grab mid-air). The truncated head keeps its
     history; the recomputed terminal is not spawnable; no parked vessel, redo
@@ -1310,9 +1562,11 @@ bootstrap cost and the folder's growth.
     machinery, lands at the next trigger); world-affecting applications defer
     per 7.5. The recorder never observes a mid-flight world edit.
 14. **Debt exceeds all future earnings.** Balance stays negative indefinitely;
-    display stays 0; every spend gate that consults the walk
-    (`CanAffordScienceSpending`) refuses. Social problem by design; the
-    warning names the debt each merge while it persists.
+    display stays 0 with the `Debt:` tooltip line; the click reservation
+    (3.13 part 3) finds nothing available, so every purchase and every launch
+    is refused for its cost, and a zero-cost action is still allowed. Social
+    problem by design; the warning names the debt each merge while it
+    persists.
 15. **Milestone credit flips after a deep-warp player merges.** Player at year
     3 held "First Mun Landing"; a peer lands at year 1 and shares. Credit
     shifts (existing retroactive behavior); notification names old and new
@@ -1427,15 +1681,19 @@ Player-perspective cases (a session walked as a player, not a developer):
     visit: the trajectory clause fails, so the claim is tip-advancing; if
     accepted, the station's canonical tip moves to your target-side
     post-undock recording (the station on its new orbit).
-34. **Quickload (F9) after a merge tick.** Within a session the in-memory
-    store is the source of truth (existing `ParsekScenario` rule), so the
-    imported recordings and actions survive the quickload; the quickloaded
-    WORLD may lack foreign vessels spawned since the quicksave, and the
-    existing spawn-death check re-spawns them. Nothing is lost.
-35. **Revert to launch / VAB after a mid-flight merge.** Same as 34: imported
-    data persists in memory, the reverted world re-derives spawns. A dock to
-    a foreign spawn inside the reverted flight never commits, so no claim
-    exists; the dangling local supersede stamp it left is cleared by
+34. **Quickload (F9) after a merge tick.** The load restores the save
+    exactly (`design-load-restores-the-save.md`), import journal included, so
+    packets applied after the quicksave are unapplied for a moment; the
+    merge the load triggers imports them again (7.5.1). Their sidecars come
+    back from disk or from the 14-day quarantine, or are copied from the
+    packets again. Foreign vessels spawn again as their recordings say.
+    Nothing shared is lost. (v5 relied on in-session loads keeping memory;
+    that rule is gone.)
+35. **Revert to launch / VAB after a mid-flight merge.** A revert keeps
+    memory, so imported data persists and the reverted world re-derives
+    spawns; the revert's ledger prune keeps every foreign-owned row (7.5.1). A
+    dock to a foreign spawn inside the reverted flight never commits, so no
+    claim exists; the dangling local supersede stamp it left is cleared by
     reconciliation (7.8 step 6).
 36. **"I copied my campaign save as a backup and played both."** Two saves,
     one playerId, one subtree: edge 5's duplicate-seq refusal on every peer.
@@ -1489,10 +1747,11 @@ Player-perspective cases (a session walked as a player, not a developer):
     per merge, and the fold runs once at the end of the batch. Settings shows
     progress ("importing 212 of 340 packets").
 45. **"Bogdan's engineer died on his mission, then he rewound it."** The
-    death's reputation penalty pooled at first merge; the rewind's
-    retirement tombstones it and the kerbal returns to the roster on every
-    machine (existing rewind semantics carried cross-machine by the
-    retirement record).
+    death's reputation penalty pooled at first merge. A death is a loss row,
+    so the slot stays re-flyable (rewind design 2.12 Rule 1); the re-fly's
+    retirement names the penalty in `tombstonedActionIds`, every machine
+    retires it (a raise), and the kerbal's fate follows the re-fly on every
+    machine (Rule 2).
 
 Stress-test cases (fourteen imagined multi-player sessions, 2026-09-02):
 
@@ -1516,19 +1775,19 @@ Stress-test cases (fourteen imagined multi-player sessions, 2026-09-02):
     redocks. Both are told on screen which claim won and why (share order).
 48. **"Ana recovered my capsule from her Tracking Station; I recovered it
     too, unsynced."** Two `Recover` claims on one target; the earlier-shared
-    one wins; the other's recovery earning is fold-masked so the pool gains
-    the capsule once; the stored terminal is never mutated on either machine
-    (Recovered is derived). The rescue variant: Ana Switch-To's Bogdan's
+    one wins and is the canonical Recovered; both recovery earnings stay, so
+    the pool gains the capsule twice (accepted slack, 7.10.1); the stored
+    terminal is never mutated on either machine (Recovered is derived). The rescue variant: Ana Switch-To's Bogdan's
     fuel-less lander, EVAs Bob, boards him into her ship, recovers. The crew
     gate does not fire at board (7.6 rescue carve-out); the lander's Control
     claim is crew-changing and tip-advancing; Bob's reservation bounds at
     Ana's recovery UT; Bob is back on everyone's roster, still Bogdan's.
 49. **"Ana unlocked Advanced Rocketry at Y2 D10; I'm at Y1 D40 and R&D says
-    it's already committed."** The live research block honors a foreign
-    registration only once your clock reaches its UT (7.5 step 2). You
-    research it now at Y1 D40; your earlier-UT row is the effective charged
-    one, Ana's is refunded at the next merge with a credit-shift notice; the
-    node is unlocked from Y1 D40 on for everyone.
+    it's already committed."** The committed-future index's research block
+    skips a foreign row after your clock (7.5 step 2). You research it now
+    at Y1 D40; your earlier-UT row is the effective charged one, Ana's is
+    left uncharged at the next merge with a credit-shift notice; the node is
+    unlocked from Y1 D40 on for everyone.
 50. **KSP crashes two seconds after the envelope is written.** The packet is
     in the folder, `player.cfg` says seq 14, the local save still says 13
     and `Exported=false`. Next launch: seq derives from the folder (6.3), so
@@ -1562,6 +1821,32 @@ Stress-test cases (fourteen imagined multi-player sessions, 2026-09-02):
     verdicts (last merge)" block (7.1) and the per-row flags carry the
     detail.
 
+Cases from the single-player rules built since v5 (2026-10-24):
+
+56. **"I pressed F5, committed a flight, the folder synced, then I pressed
+    F9."** The load restores the save and the flight is gone locally for a
+    moment. Its packet is in the folder and in Bogdan's game, so the merge
+    the load triggers imports it back as mine, and the merge message says so
+    (7.5.1). Had the export still been queued at the F9, the queue rolled
+    back with the save and the flight is gone for good, as in single player.
+57. **"Bogdan's packet arrived while I was in a Re-Fly session."** The merge
+    waits; my session keeps the ledger it started with. The first merge after
+    I merge or discard imports it (7.5.1).
+58. **"Ana failed a contract at Y1 D20; I had already shared a Y1 D60 base
+    purchase."** My purchase was shared first, so it counts as captured
+    before her loss: her penalty stops at the floor my purchase needs and the
+    rest is a debt from later gains (7.11). Had her packet been shared first,
+    her loss applies as stock applies it (down to 0, the rest forgiven) and my
+    purchase, paid in full, can leave a merge debt.
+59. **"Bogdan shared a dock to my station at UT 9,000; I am at UT 8,000 and
+    want to recover the station."** His committed future dock holds my
+    station by the Ghost Chain Rule: Recover is greyed with the reason, as for
+    my own committed future flights (7.7).
+60. **"I want to Re-Fly my booster, but Carol docked to it and shared."**
+    Carol's accepted claim on the booster seals the slot (7.10.1 point 4):
+    re-flying it would truncate her flight on her machine. With no claim on
+    it, the slot is open as in single player.
+
 ---
 
 ## 9. What Doesn't Change
@@ -1577,13 +1862,23 @@ Stress-test cases (fourteen imagined multi-player sessions, 2026-09-02):
 - The ledger's append-only nature, tombstone eligibility rules, patch targets,
   and the recalc trigger model (merge adds trigger sites and pins the cutoff
   variant under a campaign link; semantics inside the walk are additive).
+  ELS keeps the tombstone check as its only filter (fold masks are physical,
+  7.10.1). The committed-value rule (game-actions 3.13) and the Re-Fly value
+  gate (rewind design 2.12) apply as built, plus the capture key (7.11) and
+  one value-gate clause (7.10.1).
+- The load contracts of `design-load-restores-the-save.md`: a save-file load
+  restores the save; scene changes, reverts, rewinds and Re-Fly loads keep
+  memory. A campaign adds only the re-import of what was already shared
+  (7.5.1).
 - Rewind-to-Separation mechanics on own data, the merge journal, RP lifecycle.
 - ERS/ELS routing discipline and the grep-audit gate (new import/fence/fold
   code routes through `EffectiveState` like everything else; fold masks are
   implemented AT the ERS layer, not around it).
-- Supply-route execution, `RouteTreeGuard`, route ledger rows.
-- `CleanOrphanFiles`, `LoadTimeSweep`, `PreParsekBackup` behavior (imported
-  data is registered before they can see it as foreign).
+- Supply-route execution and `RouteTreeGuard` (routes write no ledger rows
+  since 0.10.6 and are never exported).
+- `ParsekFileCollector` (with its 14-day quarantine), `LoadTimeSweep`,
+  `PreParsekBackup` behavior (imported data is registered, and named by the
+  save, before they can see it as unknown).
 
 ## 10. Out of Scope (v1)
 
@@ -1599,6 +1894,8 @@ Stress-test cases (fourteen imagined multi-player sessions, 2026-09-02):
 - Per-player timeline colors, avatars, chat, presence indicators.
 - Revoking or garbage-collecting a departed player's contributions.
 - Automatic checkpoint scheduling (v1 checkpoints are founder-manual).
+- Exchanging supply routes, route state or route cargo (routes are
+  owner-local by design, 7.11).
 - Any real-time or lockstep synchronization (permanently out, per roadmap).
 - Gloops extraction and the `.gloop` format (decoupled: packets are
   Parsek-native full-fidelity bundles because citizens need ledger rows,
@@ -1629,6 +1926,9 @@ Stress-test cases (fourteen imagined multi-player sessions, 2026-09-02):
   save on an old build (no fence, no merge) - players on one campaign are
   expected to run the same Parsek version, and the packet gate enforces the
   data side of that expectation.
+- The campaign's saved state (link, import journal, export queue, annotation
+  cache) is scenario-node data, like the load design's `GAME_STATE` node: it
+  does not move the recording schema generation.
 - Checkpoints are version-pinned at creation; a joiner on a newer generation
   is refused at join with the exact reason (no checkpoint migration - the
   founder re-checkpoints after everyone updates).
@@ -1673,7 +1973,8 @@ per-frame work is introduced anywhere.
 | Cloud-placeholder payload (dehydrated stub) | Chunked, time-budgeted hydration across polls; Warn suggests pinning the folder offline-available; no corruption Error for placeholders | None; slow |
 | Shared folder disappears mid-session | Exports queue, imports skip; single Warn per session | None |
 | Checkpoint copy fails at creation | Checkpoint not published (highwater/manifest written last); founder retries | None |
-| Journal corrupt/deleted | Re-imports are idempotent (ids match, actions dedup by ActionId presence); journal rebuilds; pending set re-derives | None; one slow merge |
+| Journal missing or corrupt (a hand-edited save) | Re-imports are idempotent (ids match, actions dedup by ActionId presence); journal rebuilds; pending set re-derives | None; one slow merge |
+| A load rolls the save back past applied or written packets | The save's journal and queue roll back with it; the next merge re-imports what was shared, own packets included (7.5.1); a queued packet that rolled back is never shared | None of what was shared |
 | Duplicate (playerId, seq) | Both duplicates refused, Error naming the two-machine cause; already-journaled packets stay applied | None applied |
 | Claim/retirement referencing an unknown recording | Pends in the journal, excluded from the fold, retried; staleness escalation names the missing id | None; transient divergence until the referent syncs |
 
@@ -1697,8 +1998,8 @@ form, playerId, packetId/seq, recordingId, UT).
 | `[PacketExport]` | Export triggers (commit/retirement/flush), queue, retries, seq allocation |
 | `[PacketImport]` | Scan, validation verdicts, apply batches, journal, pending set |
 | `[Fold]` | Claim ordering, verdicts, withdrawals, pendings, masks, crew claims |
-| `[Salvage]` | Truncation execution detail (new head id, cut UTs, tombstoned rows, terminal recompute) |
-| `[MergeEconomy]` | Debt warnings, credit shifts, once-ever dedup hits, seed strips, reconcile-preservation and cutoff decisions |
+| `[Salvage]` | Truncation execution detail (new head id, cut UTs, kept rows, terminal recompute) |
+| `[MergeEconomy]` | Merge-debt and floor-debt warnings, credit shifts, once-ever dedup hits, seed strips, reconcile-preservation and cutoff decisions, capture-key mapping, stock-pool-reference steps |
 | `[OwnershipFence]` | Blocked mutation attempts on foreign data (Warn, names the operation and owner) |
 | `[ForeignRoster]` | Kerbal materialization, crew claims/substitutions, assignment-gate refusals |
 
@@ -1717,7 +2018,8 @@ form, playerId, packetId/seq, recordingId, UT).
   part list, first occurrence per part); conflict-copy filename recognized;
   identity-on-two-machines detection; folder offline (once per session);
   pending-referent staleness.
-- **Verbose**: per-packet validation detail; optimizer freeze skips; fold
+- **Verbose**: merge skipped while a Re-Fly session or merge journal is
+  live (once per trigger kind); per-packet validation detail; optimizer freeze skips; fold
   input census (claims known/pending/withdrawn); journal writes. Poll ticks
   with zero deltas are NOT logged (silence = nothing new).
 - **Error**: hard packet refusals (schema, hash, id safety, timestamp,
@@ -1772,15 +2074,44 @@ every merge, every fold verdict, and why.
   (founder history) are optimizer-frozen exactly like packet-exported ones.
 - **ImportJournalIdempotence** - re-applying an applied packet is a no-op;
   journal loss triggers clean re-apply; pending set re-derives.
+- **ImportJournalRollsBackWithLoad** - journal and export queue round-trip
+  through the save; a cold load of an older save unapplies later packets and
+  the next merge re-imports them, own packets as own data with
+  `Exported = true`; a queued packet that rolled back is never written.
 - **SalvageTruncationCut** - truncation at a dock boundary yields a NEW head
   id with cleared child link, recomputed spawnable terminal (from the
   InferTerminalStateFromTrajectory core), the dock-time snapshot (or
-  segment-start fallback), correct supersede rows, and the matching
-  tombstone set.
+  segment-start fallback), correct supersede rows, and no tombstone (the
+  tail's rows stay); a tail that ended Recovered or Destroyed hands that
+  ending to the head.
 - **CrewClaimByShareOrder** - two packets flying the same kerbal: earlier
   key owns; the loser's derived stand-in name is identical across machines.
-- **DebtClampAndFill** - merged overdraft walk: running balance negative,
-  patch target 0, next earning fills debt first.
+- **MergeDebtAndFloor** - two concurrent purchases overdraw the merged walk
+  (merge debt, patch target 0, next earning fills it first); a peer loss
+  shared after a cost it lies behind stops at the reserved floor; with no
+  cost captured before it, it applies as stock (stops at 0, forgiven).
+- **CaptureKeyIsShareOrder** - rows from checkpoint 0, two packets and own
+  unexported rows order by (share key, cseq) identically on two machines
+  that applied the packets in opposite orders; `cseq` values are never
+  renumbered.
+- **MergeStepsStockPoolReference** - a merge that changes the funds target
+  mints no `StockPoolAdjustment` row on the next update; money stock applied
+  outside the merge still does.
+- **VerdictsNeverRetireRows** - rejected, pending, truncated and orphaned
+  recordings keep every ledger row in ELS; the fold writes no tombstone and
+  ELS filters by tombstone only.
+- **ReFlyRetirementAppliesNamedRows** - an imported Re-Fly retirement
+  tombstones exactly its `tombstonedActionIds`, all loss rows; balances at
+  every UT are >= before on a machine holding extra peer spends.
+- **PeerClaimSealsReFlySlot** - a slot whose tip is the target of another
+  player's accepted or pending claim fails the value gate with
+  `peerClaim:<id>`; an own or absent claim leaves it open.
+- **RevertPruneKeepsForeignRows** - a revert after a mid-flight import keeps
+  the imported untagged foreign rows and prunes the flight's own.
+- **MergeWaitsForReFlySessionAndJournal** - every merge trigger skips while
+  a Re-Fly marker or merge journal is live and catches up after.
+- **ForeignTouristMaterializesAsTourist** - a CREW member of type Tourist
+  materializes as a tourist and never enters the assignable pool.
 - **CampaignNameSlug** - hostile campaign names (reserved device names,
   trailing dots, path-length overflow, case-only collisions) slug and
   uniquify safely.
@@ -1816,12 +2147,13 @@ every merge, every fold verdict, and why.
   its continuation from ERS and the spawn gate; resolution lifts the mask.
 - **DuplicateClaimKeyKeepsEarliest** - two claims sharing
   `continuationRecordingId` contend once, by the earliest key.
-- **RecoverOnceEverByTargetRecording** - two Recover claims on one target:
-  one effective recovery earning, the other's action id in the fold mask;
-  no stored terminal mutation on an Exported recording.
-- **ForeignFutureTechDoesNotBlockLocalResearch** - a foreign tech
-  registration with UT > current UT does not block `TechResearchPatch`;
-  with UT <= current UT it does.
+- **RecoverPaysEveryRecoverer** - two Recover claims on one target: one
+  canonical Recovered (share order), both recovery earnings effective, no
+  ledger mask; no stored terminal mutation on an Exported recording.
+- **ForeignFutureTechDoesNotBlockLocalResearch** - a foreign tech row with
+  UT > current UT does not block `TechResearchPatch` (the committed-future
+  index skips it) but stays in the pool reservation; with UT <= current UT
+  it blocks; an own future row blocks as in single player.
 - **OrphanedCouplingDependentIsSalvagedNotFlagged** - a retirement that
   removes the target of a structural dependent produces the truncation
   (new head, retirements), not a bare orphan flag; a transient dependent
@@ -1852,11 +2184,15 @@ every merge, every fold verdict, and why.
   store; store, ledger, journal unchanged.
 - **RetirementOrphanFlagging** - peer supersede retiring a tip with a local
   dependent visit; dependent kept, flagged via
-  `OrphanedByRetiredRecordingId`, ledger effects tombstoned; ERS hides the
+  `OrphanedByRetiredRecordingId`, ledger rows kept; ERS hides the
   retired chain (cross-tree supersede walk, halt-TODO rejected).
-- **MilestoneStoreRegistrationFromEvents** - imported EVENTS bundles make
-  `GetCommittedTechIds`/`GetCommittedKerbalHireNames` include foreign
-  unlocks/hires (live-block visibility).
+- **CommittedFutureIndexSeesForeignRows** - imported foreign Space Center
+  rows reach the committed-future index through the ledger: a past foreign
+  tech unlock or hire blocks its stock click, a future one does not
+  (edge case 49), and both count in the pool reservation.
+- **QuickloadPastOwnExport** - F5, commit and export, F9: the flight is
+  absent after the load and present, owned and `Exported`, after the merge
+  the load triggers; its sidecars come back from quarantine or the packet.
 - **BaselinePinning** - a post-import local baseline is ignored for
   campaign-facet patching; retiring the foreign unlock re-locks the node on
   every machine.
@@ -1913,9 +2249,9 @@ every merge, every fold verdict, and why.
 | Phase | Scope | Notes |
 |-------|-------|-------|
 | M1 | Identity + campaign store (manifest, checkpoint 0, join/rejoin, ContractSystem/applicant regeneration) + Settings section | Ships inert without a campaign |
-| M2 | Export/import of recordings as read-only citizens + ownership fence + journal + scope-tracker latching + MilestoneStore/crew registration + attribution | No interaction, no economy merge: purely additive world sharing; scale budgets measured here |
-| M3 | Ledger exchange: deterministic sort + ordering freeze, seeds policy, once-ever dedup, debt, cutoff-walk mandate, reconcile preservation, baseline pinning, authoritative merges, credit notifications, action flush | The pooled economy |
-| M4 | Foreign spawns + full control (foreign-continuation route, Recover claims) + coupling + dock-time parent snapshot stamp + tip claims + the arbitration fold + salvage ladder (Cases 1 and 3; Case 2 = truncate) + retirement propagation + derived masks | The co-op world |
+| M2 | Export/import of recordings as read-only citizens + ownership fence + journal and export queue in the save (re-import after a load, 7.5.1) + merge deferral during Re-Fly sessions + scope-tracker latching + crew registration + attribution | No interaction, no economy merge: purely additive world sharing; scale budgets measured here |
+| M3 | Ledger exchange: deterministic sort + ordering freeze, seeds policy, once-ever dedup, merge debt + reserved floor with the capture key, stock-pool-reference stepping, committed-future-index foreign-future rule, cutoff-walk mandate, reconcile preservation, revert prune keeps foreign rows, baseline pinning, authoritative merges, credit notifications, action flush | The pooled economy |
+| M4 | Foreign spawns + full control (foreign-continuation route, Recover claims) + coupling + dock-time parent snapshot stamp + tip claims + the arbitration fold + salvage ladder (Cases 1 and 3; Case 2 = truncate; no tombstones) + retirement propagation (named tombstone sets) + physical-only derived masks + the Re-Fly peer-claim seal | The co-op world |
 | M5 | Crew claim rule + derived substitution + assignment gate | |
 | M6 | Polish: founder checkpoints N>0, missing-parts UX, cloud-placeholder handling, poll tuning, notifications batching, per-player timeline filter | |
 | v1.1 | Excise-and-stitch (Case 2 upgrade) | Designed here, built later |
@@ -1963,9 +2299,35 @@ latencies (Dropbox delivers in seconds; Drive can lag minutes) and the
 chunked-hydration budget.
 
 ### 17.5 Stand-in attribute fidelity
-The CREW block carries name/trait/gender/veteran. Whether to also carry
+The CREW block carries name/type/trait/gender/veteran. Whether to also carry
 courage/stupidity/XP for exact cross-machine roster parity, or accept
 cosmetic divergence on derived stand-ins, is an M5 call.
+
+### 17.6 A load past something already shared (owner question, 2026-10-24)
+Default in the text (7.5.1): a load restores the save, then the next merge
+imports again everything in the folder, own packets included, so a quickload
+cannot unshare. Alternatives considered: (a) the load writes retirement
+records for own packets newer than the save - rejected by default, because a
+retirement that removes a shared flight would take its earnings back on every
+peer and orphan their dependents, which the ledger-safety ruling forbids; (b)
+export only at an explicit save, so a quickload never crosses a shared packet
+- rejected by default, because it delays every share and still fails for a
+quickload past an explicit save.
+
+### 17.7 Verdicts keep value (owner question, 2026-10-24)
+Default in the text (7.10.1): fold verdicts, truncations and orphaning never
+retire ledger rows; concurrent recoveries are both paid; a losing flight keeps
+what it earned. The alternative, v5's ledger masks and truncation tombstones,
+takes value back on the losing machine and conflicts with the 2026-10-19
+ruling. Revisit only if co-op groups use the double recovery as a farm.
+
+### 17.8 Exporting `StockPoolAdjustment` rows
+Default in the text (section 5, 7.11 foundation 5): own `StockPoolAdjustment`
+rows written after the link export like any own Space Center row, so money a
+mod paid one player reaches the shared pool and every machine walks the same
+log. Rows minted before the link ride checkpoint 0. The alternative (keep them
+local) leaves each machine's pools off by its own untracked money and breaks
+principle 4. VERIFY at M3 that a merge never mints one (foundation 5).
 
 ---
 
@@ -1983,7 +2345,9 @@ cosmetic divergence on derived stand-ins, is an M5 call.
 | Salvage execution | `Source/Parsek/Multiplayer/SalvageExecutor.cs` (reuses `RecordingOptimizer.SplitAtUT`-family cuts, `InferTerminalStateFromTrajectory` cores, tombstone family) |
 | Ownership fence | `Source/Parsek/Multiplayer/OwnershipFence.cs` (pure predicate) + call-site guards |
 | Foreign roster + crew claims | extensions in `KerbalsModule.cs` / `CrewReservationManager.cs`; materialization extending the `VesselSpawner.EnsureCrewExistInRoster` mechanism |
-| Economy foundations | `RecalculationEngine.SortActions`, keyed sets in the four spend modules, `LedgerOrchestrator` merge trigger + cutoff mandate, `Ledger.Reconcile` preservation flag, `KspStatePatcher` baseline pinning |
+| Economy foundations | `RecalculationEngine.SortActions`, keyed sets in the spend modules, `LedgerOrchestrator` merge trigger + cutoff mandate, `Ledger.Reconcile` preservation flag, `KspStatePatcher` baseline pinning, `StockPoolReference` merge step, the capture key in `CaptureSequence` / `ReservedFloorPlan`, the foreign-future skip in `CommittedFutureIndex`, the foreign-row keep in `ParsekScenario.PruneRevertedFlightLedgerRows` |
+| Merge state in the save | `MULTIPLAYER` node in `ParsekScenario` OnSave / OnLoad (journal, export queue) + a `LoadReconcilePolicy` category for it |
+| Re-Fly peer-claim seal | one clause in `SupersedeCommit.RetireSetHoldsSealingRow`, fed by the fold's claim set |
 | Foreign-continuation route (taking control of a foreign spawn) | fourth branch in `ParsekFlight.TryConsumeStockActionIntent` + `SwitchSegmentBuilder`; no-op discard via `SwitchSegmentNoOpClassifier` |
 | Recover claim | recovery hook (FlightResults / TS recover path) -> `PacketExporter` flush |
 | Attribution gate | `Multiplayer/OwnerAttribution.cs` (`ShowOwnerAttribution`, pure) consumed by `TimelineBuilder`, `RecordingsTableUI`, `MissionsWindowUI`, `KerbalsWindowUI` |
@@ -2002,11 +2366,20 @@ house pure-core + thin-shell pattern for headless testability.
   additive-ghost-only import model replaced by full citizenship; the
   correspondence-chess framing and player-identity goals carry forward).
 - `docs/parsek-game-actions-and-resources-recorder-design.md` - the ledger this
-  design merges.
+  design merges; section 3.13 is the committed-value rule (reserved floor,
+  debt, click reservation, revert and failed-load rules).
+- `docs/dev/design-load-restores-the-save.md` - the load contracts 7.5.1
+  builds on (save-file loads, content hashes, the 14-day quarantine).
+- `docs/parsek-logistics-supply-routes-design.md` section 10.6 - why routes
+  carry no money and are never committed.
+- `docs/dev/plans/committed-value-rule-implementation.md`,
+  `docs/dev/plans/refly-ledger-safety-implementation.md` - the built
+  mechanisms behind 7.10.1 and 7.11.
 - `docs/dev/design-mission-crosstree-dock.md` - the derived-link precedent for
   cross-tree interaction without foreign-side writes.
 - `docs/parsek-rewind-to-separation-design.md` - supersede/tombstone machinery
-  reused by retirements and salvage.
+  reused by retirements and salvage; section 2.12 is Re-Fly ledger safety
+  (loss-only retire sets, session isolation, the switch block).
 - `docs/dev/dock-undock-recording-structure.md` - the dock episode structure
   the salvage ladder cuts along.
 - `docs/dev/plans/coop-async-multiplayer-tasks.md` - phase/task breakdown.
@@ -2022,3 +2395,6 @@ house pure-core + thin-shell pattern for headless testability.
   dock-episode structure; future-UT reconcile/cutoff/baseline/milestone-store
   corrections; import-seam registration procedure; checkpoints; contract-queue
   regeneration; crew claim rule).
+- Freshness pass 2026-10-24 (v6): the 2026-10-19 Re-Fly ledger-safety rulings,
+  the 2026-10-21 committed-value and logistics rulings, load restores the
+  save, the quarantine grace and the GC traces, as built through PR #2193.
