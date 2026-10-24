@@ -16,7 +16,21 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~DISCARD-REFLY-LANDS-WITHOUT-REWIND-HOLDS: after a Discard Re-fly, a vessel the committed future uses is a live vessel again~~ [FILED 2026-10-24 from the item-7 re-check of the 10-16 audit's suspected defects, code read on main f3a22ce, not reproduced. Split out of the "Not covered" note of REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE. FIXED 2026-10-24 (xUnit), branch `claude/project-thread-mh6nli`; lane pending. medium, physical paradox]
+## SEAM-DRIVER-KEEPS-DRIVING-AFTER-A-REFUSED-STEP: a seam step whose verdict misses its `expect` does not stop the attempt, so a deterministic refusal burns every later step's timeout and then the retry [FILED 2026-10-24 from IR-2 `2026-10-24_0934` / `_0946_a2` (INVALID, driver-gate, both attempts), flown for PR #2193. OPEN, low. harness]
+
+**Symptom.** IR-2's `LaunchFromEditor` came back REJECTED (`launchfromeditor-site-obstructed`, a
+spec bug fixed in PR #2197), and `run.py` went on sending the remaining 20 steps from the editor:
+each scene-gated verb deferred and timed out (ReadVesselResources 60 s, TimeJump 120 s,
+RevertToLaunch and so on), about 711 s per attempt, and the `retry = "once"` policy then flew the
+same deterministic refusal again: 1423 s of PC time for a verdict known at step 11.
+
+**Fix.** Stop driving at the first unmet step (design-autotest-harness-core edge 13 already
+classifies the attempt there as driver-stage INVALID) and record the rest in
+`driver.skippedTailSteps` with a reason such as `step-unmet`, then go straight to FlushAndQuit.
+Consider also skipping the retry when the unmet verdict is a REJECTED gate refusal, which a re-boot
+cannot change.
+
+## ~~DISCARD-REFLY-LANDS-WITHOUT-REWIND-HOLDS: after a Discard Re-fly, a vessel the committed future uses is a live vessel again~~ [FILED 2026-10-24 from the item-7 re-check of the 10-16 audit's suspected defects, code read on main f3a22ce, not reproduced. Split out of the "Not covered" note of REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE. FIXED 2026-10-24 (xUnit), branch `claude/project-thread-mh6nli`, PR #2201; LIVE-PROVEN by QL-5 `2026-10-24_1026` (held=2, `source=discard-refly`). medium, physical paradox]
 
 A Re-Fly start holds every vessel its rewind point's world brings back that a committed recording
 uses after the rewind UT (design 2.12 Rule 3, `ParsekFlight.HoldReFlyInvokeVessels`, saved on the
@@ -141,7 +155,7 @@ loaded-tank delivery writer (`LiveDeliveryWriters`) are synchronous, so the asse
 and with no frame between the route's creation and its teardown the scenario's Update cannot reach
 it. Re-fly H40 to confirm.
 
-## ~~MINE-6-PINS-PREDATE-THE-RESUMED-SPAWN-SEGMENT: MINE-6 pins one recording, but flying the respawned rover again now records a new segment~~ [FILED 2026-10-22 from MINE-6 `2026-10-22_1619` (PARSEK-FAIL, expectations), flown for PR #2181; not caused by it. FIXED 2026-10-24 (re-pinned; MINE-6 flight on the PR build pending). harness]
+## ~~MINE-6-PINS-PREDATE-THE-RESUMED-SPAWN-SEGMENT: MINE-6 pins one recording, but flying the respawned rover again now records a new segment~~ [FILED 2026-10-22 from MINE-6 `2026-10-22_1619` (PARSEK-FAIL, expectations), flown for PR #2181; not caused by it. FIXED 2026-10-24 in PR #2190 (MINE-6 `2026-10-24_1006` PASS attempt 1, count 2). harness]
 
 **Symptom.** `recordings.count 2 > max 1`: after the end-of-watch respawn (pid 3850340315) the log
 prints `Resumed spawn continues in a new segment: rec=fdb7cde8 segment=fc1a4789`, so the rover gets
@@ -162,7 +176,7 @@ and a forbidden `Resumed spawn segment refused`. The four ISRU edge contracts no
 press's `-before` mark to the next blocking warp's `warptout start ut=N` (the edge is still proven
 packed at the toggle, not at that warp's rails exit), instead of ending at the `-after` mark.
 
-## ~~SCENE-EXIT-RECOVERY-READS-A-ZERO-ALTITUDE-SEED-AS-ORBITING: an early finalizer pass on a just-decoupled booster extrapolates a recorded point at altitude 0.0 into an Orbiting terminal~~ [FILED 2026-10-22 from RF-L2 `2026-10-22_1026` (PASS), flown for PR #2176. FIXED 2026-10-24 (RF-L2 flight on the PR build pending). product]
+## ~~SCENE-EXIT-RECOVERY-READS-A-ZERO-ALTITUDE-SEED-AS-ORBITING: an early finalizer pass on a just-decoupled booster extrapolates a recorded point at altitude 0.0 into an Orbiting terminal~~ [FILED 2026-10-22 from RF-L2 `2026-10-22_1026` (PASS), flown for PR #2176. FIXED 2026-10-24 in PR #2190 (RF-L2 `2026-10-24_1011` PASS attempt 1: four `refused flat Points ... reader=surface-point-search` lines, no `recordedAlt=0.0`, booster committed SubOrbital and superseded by its Landed Re-Fly). product]
 
 On the booster's first background finalizer pass after the decouple, before its chutes opened, the
 recorded-point recovery used a parent-anchored body-fixed sample with `recordedAlt=0.0` (the booster
@@ -1022,7 +1036,7 @@ dev install define no `PARTUPGRADE` node (ModuleManager cache grep), so the live
 synthetic upgrade through a test seam (`KscAction action=define-upgrade` / `purchase-upgrade`). Lane
 `L11-career-part-upgrade-after-rewind` live-proven on its first flight, `2026-10-23_1852` PASS attempt 1.
 
-## PURCHASE-STATE-PATCH-RUNS-WHEN-THE-FUNDS-PATCH-IS-CLAMPED: a committed part or upgrade purchase can unlock with nothing charged [FILED 2026-10-23 by the review of PR #2185. OPEN, low. product]
+## ~~PURCHASE-STATE-PATCH-RUNS-WHEN-THE-FUNDS-PATCH-IS-CLAMPED: a committed part or upgrade purchase can unlock with nothing charged~~ [FILED 2026-10-23 by the review of PR #2185. FIXED 2026-10-24, branch `claude/project-thread-saxn4v`. product]
 
 `KspStatePatcher.PatchPurchasedParts` and `PatchUnlockedUpgrades` run before `PatchFunds` in the pool
 pass and do not look at whether the funds patch applied. If a clock crossing that reaches a committed
@@ -1031,6 +1045,34 @@ upgrade is marked bought with its cost not taken. Hires already wait for an appl
 (`LedgerOrchestrator`, the hire state gate). Not seen on any flown lane (zero clamps on L8, L10, L11);
 the guard clamps only on an unexpected drawdown. Fix shape when taken: gate the two purchase state
 patches on the same applied-funds signal the hire path reads.
+
+Fix (2026-10-24): the premise moved under the stock pool reference (#2177): `PatchFunds` passes
+`authoritativeReduction: true` to `ResolveFundsPatch`, so the funds write no longer clamps, and a
+committed future cost is already held out of the live pool by the reservation. What was left is the
+order: a purchase could be unlocked in a pass whose funds patch skipped (no seed, `Funding` not
+loaded, null module). `PatchPools` now runs `PatchFunds` before `PatchPurchasedParts` /
+`PatchUnlockedUpgrades`, and `KspStatePatcher.ShouldHoldPurchaseStatePatches` holds both on a clock
+crossing whose funds patch did not apply (`ClockCrossing.FundsApplied` false) while a funds pool
+exists (`ClockCrossing.NoFundsPool`, set by the `Funding.Instance == null` skip: sandbox and science
+mode have nothing to charge); Warn `Clock-crossing purchase unlocks held`. Nothing is lost: the
+crossed row stays counted unapplied (NaN effect) in the stock pool reference until a funds patch
+commits, so the next applying patch takes the cost (`StockPoolReferenceTests.B1_*`), and the
+add-only purchase passes unlock it on that same pass. Tests: `PurchaseStatePatchFundsGateTests`
+(three cells red with the gate stubbed). Left as is: a fresh-baseline funds patch (no saved
+reference, only an old-build save) adopts the gap and reports `FundsApplied`; and the hire twin below.
+Unit tests only, no lane (a funds skip on a clock crossing cannot be staged from the seam).
+
+## CROSSED-HIRE-NEVER-MADE-AFTER-A-SKIPPED-FUNDS-PATCH: a committed hire whose clock crossing skipped the funds patch is paid for but never made [FILED 2026-10-24 while fixing PURCHASE-STATE-PATCH-RUNS-WHEN-THE-FUNDS-PATCH-IS-CLAMPED. OPEN, low. product]
+
+`LedgerOrchestrator` promotes a reached committed hire only on the clock crossing that reaches it, and
+only when `ClockCrossing.FundsApplied`. When that crossing's funds patch skips, the hire is not made
+(Warn `Clock-crossing hire(s) not made`), but the committed-future snapshot is recaptured anyway, so
+no later pass is a crossing for that row, while the funds side still applies it: the row stays
+counted unapplied in the stock pool reference and the next applying funds patch takes its cost. So
+the cost is kept and the kerbal stays an applicant. Not seen on any flown lane; the skip needs
+`Funding` unloaded or unseeded during a clock advance. Fix shape when taken: keep the unmade hires
+pending (or leave the snapshot uncaptured) until a pass whose funds patch applied, the way the part
+purchase passes are add-only over every reached row.
 
 ## ~~LOGISTICS-WITHOUT-MONEY: supply routes still charge and credit funds and write ledger rows, so the funds history depends on choices made after a rewind~~ [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4, first as ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES, then ROUTE-MONEY-COST-ONLY. FIXED 2026-10-21: phase 1 (no route money) on branch `logistics-no-money-p1`, phase 2 (route events out of the ledger) on branch `logistics-no-money-p2`. Harness re-flight of the Logistics lanes pending. product]
 
