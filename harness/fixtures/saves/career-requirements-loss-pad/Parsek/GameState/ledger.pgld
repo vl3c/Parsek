@@ -1,0 +1,16 @@
+version = 0
+recordingSchemaGeneration = 4
+GAME_ACTION
+{
+	ut = 6
+	type = 5
+	actionId = act_8e41c27a5b9d4f03a6e1d72c4b05f918
+	seq = 1
+	contractId = 375b4446-c861-4b4d-bf97-ef38407246a4
+	contractType = PartTest
+	contractTitle = Test RT-5 "Flea" Solid Fuel Booster in flight over Kerbin.
+	advanceFunds = 0
+	deadlineAbsUT = 9201606
+	fundsPenalty = 9000
+	repPenalty = 4
+}

@@ -296,6 +296,27 @@ re-verifies every post-condition against the COMMITTED bytes and is WIRED throug
 `CareerContractPadFixtureDriftTests` and `CareerContractPadDeadlineArithmeticTests`
 in `harness/lib/test_career_contract_pad.py`.
 
+## career-requirements-loss-pad (GAME Mode = CAREER, 1 VESSEL, derived from career-science-pad)
+
+The host of `L13-contract-requirements-loss-terminal-row` (todo
+STOCK-OFFER-EXPIRED-ACTIVE-CONTRACT-NO-TERMINAL-ROW): an Active contract whose requirement
+is already false, so stock's first `Contract.Update()` ends it as `OfferExpired`.
+`career-science-pad` with its `Title` restamped, ONE `CONTRACT` spliced into the empty
+`ContractSystem/CONTRACTS` node, `ongoingContracts = 1` in the loadmeta, and one sidecar.
+
+| Facet | Pinned value | Why it matters |
+| --- | --- | --- |
+| Contract | `PartTest` `375b4446-c861-4b4d-bf97-ef38407246a4`, RT-5 Flea in flight over Kerbin at 59-64 km, copied from `career-earned-pad` (stock-written, C2 career) with `state = Active`, `viewed = Read`, advance 0, `dateAccepted = 6`, `dateDeadline = 9201606` | a start-tech part, and a test a pad that never launches cannot complete |
+| ProgressTracking | `Progress {}` EMPTY, no `FirstLaunch` anywhere (asserted) | `PartTest.MeetRequirements()` reads `NodeComplete("FirstLaunch")`: false here, so stock ends the contract on its first tick (the measured analog is L5's first build, run `2026-08-20_2217`) |
+| Ledger | ONE `type = 5` row, `ut = 6`, `advanceFunds = 0`, `deadlineAbsUT = 9201606`, `fundsPenalty = 9000`, `repPenalty = 4`, no `recordingId`, no terminal row | the accept sits below the save clock (9.06) so `Ledger.Reconcile` keeps it; the deadline is out of reach so `PrePass` never fails it; the penalties stay nonzero so a regression that charged them moves the HARD-gated pools |
+| Pools / craft | the donor's, byte-identical (500000 / 100 / 0, the Jumping Flea PRELAUNCH) | the lane's ledger oracle expects the seed unchanged |
+
+Built BY CONSTRUCTION by `harness/tools/build_career_requirements_loss_pad.py`; `--check`
+re-verifies every post-condition against the committed bytes and is wired through
+`CareerRequirementsLossPadFixtureDriftTests` in
+`harness/lib/test_career_requirements_loss_pad.py` (byte-identical rebuild from the current
+`career-science-pad` and `career-earned-pad`).
+
 ## career-earned-pad (GAME Mode = CAREER, 1 VESSEL)
 
 The suite's only fixture that is BOTH a career with populated per-identity facets AND

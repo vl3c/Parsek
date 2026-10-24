@@ -683,6 +683,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # IT also carries recordings.
         "career-contract-pad": True,
         "career-science-pad": True,
+        # `career-science-pad` plus one Active PartTest whose FirstLaunch requirement is
+        # false and its ledger accept sidecar (harness/tools/
+        # build_career_requirements_loss_pad.py, the L13 host). Inherits the inert node.
+        "career-requirements-loss-pad": True,
         # THE ONE ENTRY DERIVED FROM A RECORDED FIXTURE RATHER THAN FORGED.
         # `duna-park-probe` is `duna-direct-recorded` with Parsek's own state
         # removed: the `Parsek/` sidecar directory pruned by a harvest WITHOUT
