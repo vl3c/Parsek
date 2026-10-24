@@ -77,6 +77,22 @@ in every consumer (ledger ground truth, Missions wording, the committed-future i
 (`IsFailFireOfCancel`; Info line `ContractFailed '<title>' skipped - stock's onFailed re-fire of a
 cancel`), so a cancel files one row. A real fail (`State.Failed` / `DeadlineExpired`) is unchanged.
 
+## ~~H40-DOCK-BOUNDARY-CADENCE-TEST-RACES-THE-LIVE-ROUTE-TICK: one H40 Logistics cell lets a frame pass between its two synthetic-UT route ticks, and the live route tick can fire on its route in that frame~~ [FILED 2026-10-24 from H40 `2026-10-24_0045` (PARSEK-FAIL, batchComplete failed=1), flown for PR #2188; not caused by it (no EndpointRescan line, the route is Active). FIXED 2026-10-24 on branch `claude/project-thread-a50btn`, test-only. harness]
+
+**Symptom.** `LogisticsDockBoundaryDeliveryCadenceRuntimeTests.DockBoundary_RealUnit_EndsAtDock_TwoDeliveriesGapEqualsDispatchInterval`
+failed `Cycle 1 should have brought CompletedCycles to 2, was 1` (34 passed, 1 failed, 12 skipped).
+The test calls `RouteOrchestrator.Tick(2000.5)`, yields one frame, then calls `Tick(3000.5)`. In that
+frame `ParsekScenario.Update`'s route tick (once per second of game time) ticked the test's Active
+route at the live UT 36140.55: `warp jump=34 ... firing ONCE and snapping forward`, held
+DestinationFull on `cycle-1` and snapped `lastObserved=34`, so the test's own tick then saw `no dock
+crossing (dockCycleIdx=1)`. The last four archived H40 runs passed only because the live tick landed
+just before the test started (10-21_1849: 36140.47).
+
+**Fix.** Drop the two `yield return null` after the synthetic ticks: `RouteOrchestrator.Tick` and the
+loaded-tank delivery writer (`LiveDeliveryWriters`) are synchronous, so the asserts need no frame,
+and with no frame between the route's creation and its teardown the scenario's Update cannot reach
+it. Re-fly H40 to confirm.
+
 ## MINE-6-PINS-PREDATE-THE-RESUMED-SPAWN-SEGMENT: MINE-6 pins one recording, but flying the respawned rover again now records a new segment [FILED 2026-10-22 from MINE-6 `2026-10-22_1619` (PARSEK-FAIL, expectations), flown for PR #2181; not caused by it. OPEN, low. harness]
 
 **Symptom.** `recordings.count 2 > max 1`: after the end-of-watch respawn (pid 3850340315) the log
