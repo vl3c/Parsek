@@ -53,6 +53,9 @@ namespace Parsek.InGameTests
         // the player's "quicksave" slot; overwritten each run and disposable.
         private const string GroundTruthSlot = "parsek_ledger_groundtruth";
 
+        /// <summary>The recalculation reason the harness walk logs.</summary>
+        internal const string GroundTruthRecalcReason = "ledger-ground-truth";
+
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         [InGameTest(Category = "LedgerGroundTruth", Scene = GameScenes.FLIGHT,
@@ -141,8 +144,13 @@ namespace Parsek.InGameTests
                     $"hasRep={save.HasRep.ToString(IC)} vessels={save.Vessels.Count.ToString(IC)}");
 
                 // ---- Step 5: run reconstruction; verify modules initialized. ----
+                // The walk stops at the clock when committed rows lie ahead of it (after a
+                // rewind or a Re-Fly), as every production patch does: the save holds the
+                // career at now, and a walk to the end of the timeline reads committed future
+                // earnings and losses as if they had happened.
                 LedgerOrchestrator.Initialize();
-                LedgerOrchestrator.RecalculateAndPatch();
+                LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
+                    ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(), GroundTruthRecalcReason);
 
                 if (LedgerOrchestrator.Funds == null
                     || LedgerOrchestrator.Science == null

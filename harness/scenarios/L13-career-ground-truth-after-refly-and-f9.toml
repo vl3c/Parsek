@@ -1,0 +1,177 @@
+schema = 1
+id = "L13-career-ground-truth-after-refly-and-f9"
+tier = "operator"
+# CAREER x RE-FLY AND F9, CHECKED AGAINST THE SAVE (coverage matrix 2026-10-16 section 2; todo
+# CROSS-SYSTEM-COVERAGE-GAPS-2026-10-16, "LedgerGroundTruth after a rewind, Re-Fly or F9: never
+# run"; roadmap TC-4 / GP-1). L8 runs the ground truth after three Rewind-to-Launch; nothing
+# runs it after a Re-Fly merge or after an F9. AUTHORED 2026-10-24 (branch
+# `claude/project-thread-dkcvpn`), NEVER FLOWN.
+#
+# WHY NOW. The ground-truth harness walked the whole ledger, so with committed rows ahead of
+# the clock (after a rewind or a Re-Fly) it compared end-of-timeline values against the save's
+# values at now: a committed future reputation loss read as a hard divergence on a correct
+# pool (todo LEDGER-GROUND-TRUTH-WALKS-PAST-THE-CLOCK, fixed with this lane; pinned headless by
+# `LedgerGroundTruthAfterRewindTests`). The harness now walks with the current-UT cutoff.
+#
+# THE STORY (career-gs1-two-stage-pad, RF-L2's and RF-C1's host and mission):
+#   act 1     GS-1's hop: the pod lands, the booster is under canopy at the exit, the tree
+#             auto-commits with the booster slot open.
+#   KSC       warp to UT 1000; research basicRocketry and accept the first contract stock
+#             offers: two Space Center rows well after the separation.
+#   re-fly    save, reload, re-fly the booster (session clock about UT 60), land it by UT 400,
+#             merge. The two Space Center rows are committed future again.
+#   check 1   back to the Space Center, VAB launch of the Settings Probe (unrecorded; the
+#             harness skips with a live or pending tree, L8's window), warp to 450, save,
+#             LedgerGroundTruth: the first ground truth after a Re-Fly merge, with committed
+#             rows ahead of the clock.
+#   F9        quicksave there, warp to 500, load the quicksave as the player's load (a cold
+#             save-file load), LedgerGroundTruth again: the first ground truth after an F9.
+#
+# THE GATES: both batches pass whole (`total=3 passed=3 failed=0 skipped=0`, L8's measured
+# tally), `result: hardFailures=0` twice, no hard failure anywhere, and the patch the harness
+# runs logs its current-UT recalculation (`reason=ledger-ground-truth`) at least for check 1,
+# where rows lie ahead of the clock.
+#
+# NOT COVERED: a committed future reputation loss (the discriminating headless case; no cheap
+# Space Center reputation loss on this host avoids the filed cancel-penalty lerp defect
+# CONTRACT-CANCEL-PENALTY-IGNORES-STOCK-TIME-LERP). No ledger oracle block: hlib refuses one
+# beside InvokeRewind / AnswerMergeDialog unless rewind-aware, and the Re-Fly model is not in
+# the oracle.
+#
+# PRE-REGISTERED READINGS:
+#   - `kscaction refused action=accept-contract reason=unknown-contract`: stock offered nothing
+#     at the Space Center by UT 1000 (RF-C1 shares the premise); drop the accept.
+#   - LedgerGroundTruth `skipped=1`: read its skip text (a live or pending tree after the probe
+#     launch means autoRecordOnLaunch was not off).
+#   - `result: hardFailures=1` on reputation or funds: read the facet line and the
+#     `Current-UT ledger recalculation: reason=ledger-ground-truth` cutoff; a divergence with
+#     the cutoff present is a product finding, file it.
+#   - `ledgerground ... no reason=ledger-ground-truth` line at check 1: no row was ahead of
+#     the clock (the accept or the research landed before 450); the check is still valid.
+#
+# FAST-LANE CHECKLIST: (1) reuse - RF-L2's act 1 and act 2, L8's check window; (2) explicit-UT
+# warps only; (3)-(5) n/a beyond the descent; (6) retry `once`; (7) count window {3,8} until
+# the reading run pins it; (8) operator until green; (9) flight_efficiency.py after green.
+description = "L13 (career x Re-Fly and F9, checked against the save): GS-1's career hop commits with the booster slot open, two Space Center purchases follow at UT 1000, the booster is re-flown and merged, and LedgerGroundTruth runs after the merge (rows ahead of the clock) and again after an F9."
+instanceProfile = "stock-minimal"
+tags = ["L13", "career", "ledger", "ledger-groundtruth", "refly", "rewind", "quickload",
+        "timeline-ops", "GS1", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/career-gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "gs1_auto_chute_booster_career"
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" },  expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  # ---- ACT 1 ----
+  { phase = "mission",                                                                  expect = "MISSION-OK", budget = 900 },
+  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  # ---- KSC: two rows well after the separation ----
+  { cmd = "WarpToUT",          args = { ut = "1000", maxRate = "100" },                 expect = "OK", budget = 120 },
+  { cmd = "KscAction",         args = { action = "research-node", node = "basicRocketry" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",         args = { action = "accept-contract", contract = "offered-first" }, expect = "OK", budget = 60 },
+  { cmd = "SaveGame",          args = { name = "persistent" },                          expect = "OK" },
+  # ---- RE-FLY the booster ----
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "StopRecording",                                                              expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",     expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "1" },            expect = "OK", budget = 300 },
+  { cmd = "ListHandles",       args = { kind = "chains" },                              expect = "OK" },
+  { cmd = "RecordingState",    args = { awaitRecorderLive = "refly" },                  expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "400", maxRate = "2", ladder = "phys" },   expect = "OK", budget = 540 },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                             expect = "OK", budget = 240 },
+  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  # ---- CHECK 1: after the Re-Fly merge, rows ahead of the clock ----
+  { cmd = "GoToEditor",        args = { facility = "VAB", craft = "Settings Probe" },   expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                           expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",          args = { ut = "450" },                                   expect = "OK", budget = 120 },
+  { cmd = "SaveGame",          args = { name = "persistent" },                          expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "l13-check1" },                         expect = "OK" },
+  { cmd = "RunTests",          args = { category = "LedgerGroundTruth" },               expect = "OK", budget = 540 },
+  # ---- F9: quicksave, move on, load it as the player's load ----
+  { cmd = "SaveGame",          args = { name = "quicksave" },                           expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "500" },                                   expect = "OK", budget = 120 },
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "MissionMark",       args = { label = "l13-check2" },                         expect = "OK" },
+  { cmd = "RunTests",          args = { category = "LedgerGroundTruth" },               expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[driver.missionParams]
+# RF-L2's (QL-2b's) values VERBATIM.
+throttle = 1.0
+stagingApoapsisMeters = 700
+stagingMaxAltMeters = 1500
+apoapsisWindowMeters = { min = 600, max = 1600 }
+stageSettleFrames = 2
+chuteArmMaxRateMps = 30
+chuteFullDeployAltMeters = 600
+landedSituations = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds = 90
+coastTimeoutSeconds = 120
+stageTimeoutSeconds = 60
+descentTimeoutSeconds = 300
+siblingVesselName = "GS1 Auto-Chute Booster Probe"
+siblingAirborneAtExit = true
+siblingDownTimeoutSeconds = 240
+
+[dimensionsCovered]
+#   rewind-to-separation <- StartInvoke slot=1 + Invocation complete
+#   funds / science      <- the two ground-truth results
+D8  = ["funds", "science", "recalc-engine", "ksp-state-patcher"]
+D9  = ["rewind-to-separation"]
+D14 = ["kerbin", "career", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 3, max = 8 }
+
+[expectations.logContracts]
+# Two LedgerGroundTruth batches by design: the point is the SAME check on both sides of an F9.
+# run.py probes only the first; the second is gated here by its own whole pin after the
+# l13-check2 mark, and the count-2 pins below read both.
+batchVacuityOptOut = true
+batchVacuityOptOutReason = "two LedgerGroundTruth batches, before and after an F9 in one flight; each is pinned whole (total=3 passed=3 failed=0 skipped=0) by its own required pattern, the second anchored after the l13-check2 mark"
+required = [
+  "kscaction action=research-node target=basicRocketry applied=true",
+  "kscaction action=accept-contract target=offered-first applied=true",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_[0-9a-f]{32} slot=1",
+  "answermergedialog complete choice=merge result=committed",
+  # Check 1 walks at the clock: rows lie ahead of it.
+  "(?s)MISSIONMARK label=l13-check1 .*?Current-UT ledger recalculation: reason=ledger-ground-truth cutoffUT=",
+  "\\A(?:[\\s\\S]*?BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT){2}",
+  "\\A(?:[\\s\\S]*?result: hardFailures=0 ){2}",
+  "(?s)MISSIONMARK label=l13-check2 .*?BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "invokerewind refused",
+  "kscaction refused",
+  "warptout refused",
+  "Merge dominance check sess=\\S+ result=refuse",
+]
+
+[runtime]
+# LoadGame x3 (660 each), mission 900, ExitToSpaceCenter x2 (180 each), WarpToUT x4 (240
+# each) plus the descent 540, KscAction x2 (120 each), SaveGame x3 (120 each), InvokeRewind
+# 660, AnswerMergeDialog 300, GoToEditor 180, LaunchFromEditor 240, RunTests x2 (600 each),
+# about 10 inert steps at 120: about 9,100 s.
+budgetSeconds = 9600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
