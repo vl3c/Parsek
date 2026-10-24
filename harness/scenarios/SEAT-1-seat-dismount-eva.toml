@@ -4,7 +4,9 @@ id = "SEAT-1-seat-dismount-eva"
 # SEAT-1: A KERBAL LEAVING AN EXTERNAL COMMAND SEAT IS RECORDED AS AN EVA, NEVER AN UNDOCK
 # (owner ruling 2026-10-24: "a kerbal leaving an external seat is an EVA, as we get a vehicle
 # and a kerbal; undock is between vehicles, as we get two vehicles at the end").
-# AUTHORED 2026-10-24, NEVER FLOWN.
+# LIVE-PROVEN 2026-10-24: 2026-10-24_1048 PASS attempt 1, 0 mismatches (branch claude/project-thread-lo926k,
+# PR #2206). The guesses below held: the craft stood, Jeb crewed the pod, the board ran at 1.11 m.
+# Measured: board complete ut~14.2, leave at ut=44.90, StopRecording ut~54.9, wall 105 s.
 #
 # THE HOST is `seat-pad` (built by `harness/tools/build_seat_pad.py`): an empty sandbox pad
 # and, in the VAB, `SEAT1 Seat Pod` = a Mk1 Command Pod (the root, one seat) with an EAS-1
