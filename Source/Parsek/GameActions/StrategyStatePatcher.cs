@@ -110,17 +110,18 @@ namespace Parsek
     ///
     /// <para><b>Stock auto-expiry.</b> With KSPCF's StrategyDuration fix, stock expires a
     /// strategy through <c>Deactivate()</c>, which <c>StrategyLifecyclePatch</c> captures as a
-    /// StrategyDeactivate row (KSC-origin, or tagged to the live recording). The next walk
+    /// StrategyDeactivate row, filed untagged and written at once even in flight (an expiry is
+    /// the clock's, never a flight's; <c>GameStateRecorder.IsStrategyExpiry</c>). The next walk
     /// therefore sees it inactive and this patch leaves it off: an expiry cannot be undone
-    /// here, so there is no re-activate / expire loop. The one window where the ledger lags
-    /// is a flight's own tagged expiry before the tree commits, and the patch is deferred
-    /// while a live or pending tree exists (<c>GetKspPatchDeferralReason</c>). This patch
+    /// here, so there is no re-activate / expire loop. This patch
     /// runs only on a recalculation, so it cannot switch a strategy off at a committed
     /// deactivation's UT before stock's per-frame <c>Update</c> replays the expiry after a
     /// rewind; <c>StrategyUpdateExpiryPatch</c> does that
     /// (<see cref="StrategyReservationPredicates.DecideStockUpdate"/>), through
     /// <see cref="SwitchOffWithoutCapture"/> and the committed-rows predicate this patch
-    /// also reads (<see cref="StrategyCommittedRows.NextRowIsDeactivation"/>).</para>
+    /// also reads (<see cref="StrategyCommittedRows.NextRowIsDeactivation"/>). The mirror,
+    /// a committed activation the clock reaches mid-scene, is switched on at its UT by
+    /// <c>Patches.StrategyActivationGate</c> (a <c>StrategySystem.Update</c> postfix).</para>
     ///
     /// <para><b>A late activation expires at once, harmlessly.</b> A patch that switches a
     /// strategy on after its <c>ActivateUT + LongestDuration</c> (for example a recalculation
@@ -236,6 +237,79 @@ namespace Parsek
                 }
             }
             return plan;
+        }
+
+        /// <summary>
+        /// Pure: the ledger-active set at <paramref name="nowUT"/>. A walk with no current-UT
+        /// cutoff (the commit path) ends with the state AFTER every committed row, so a
+        /// strategy on now but deactivated and re-activated later reads as future-dated, and
+        /// one off now (deactivated earlier, re-activated later) reads as on. Where the
+        /// committed timeline has rows for an id (<paramref name="rowsOf"/>), the latest row at
+        /// or before now decides: an activation keeps the strategy on with that row's UT and
+        /// commitment (<paramref name="factorAt"/>; NaN when unknown, the caller falls back),
+        /// anything else leaves it off. An id with no committed rows keeps the walk's state.
+        /// </summary>
+        internal static LedgerStrategySnapshot ResolveLedgerActiveAtNow(
+            IDictionary<string, double> walkActive,
+            IDictionary<string, float> walkFactor,
+            IEnumerable<string> managedIds,
+            Func<string, StrategyCommittedRows> rowsOf,
+            Func<string, double, float> factorAt,
+            double nowUT)
+        {
+            var result = new LedgerStrategySnapshot();
+            var ids = new SortedSet<string>(StringComparer.Ordinal);
+            if (walkActive != null) ids.UnionWith(walkActive.Keys);
+            if (managedIds != null)
+                foreach (string id in managedIds)
+                    if (!string.IsNullOrEmpty(id)) ids.Add(id);
+            foreach (string id in ids)
+            {
+                if (string.IsNullOrEmpty(id)) continue;
+                result.Managed.Add(id);
+                var rows = rowsOf != null ? rowsOf(id) : null;
+                double walkUT;
+                bool walkOn = walkActive != null && walkActive.TryGetValue(id, out walkUT);
+                if (rows == null || rows.Count == 0)
+                {
+                    if (!walkOn) continue;
+                    result.ActivateUT[id] = walkActive[id];
+                    float f;
+                    if (walkFactor != null && walkFactor.TryGetValue(id, out f)) result.Factor[id] = f;
+                    continue;
+                }
+                int last = rows.LastAtOrBefore(nowUT);
+                if (last < 0 || !rows.IsActivation(last)) continue;
+                double activateUT = rows.UTAt(last);
+                result.ActivateUT[id] = activateUT;
+                float factor = factorAt != null ? factorAt(id, activateUT) : float.NaN;
+                float walkF;
+                if (float.IsNaN(factor) && walkOn && walkFactor != null
+                    && walkFactor.TryGetValue(id, out walkF) && walkActive[id] == activateUT)
+                    factor = walkF;
+                result.Factor[id] = factor;
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// The commitment factor of the effective ledger's StrategyActivate row for
+        /// <paramref name="strategyId"/> at <paramref name="activateUT"/>, or
+        /// <paramref name="fallback"/> when none matches.
+        /// </summary>
+        internal static float CommittedActivationFactor(string strategyId, double activateUT, float fallback)
+        {
+            var els = EffectiveState.ComputeELS();
+            if (els == null) return fallback;
+            for (int i = 0; i < els.Count; i++)
+            {
+                var a = els[i];
+                if (a != null && a.Type == GameActionType.StrategyActivate
+                    && string.Equals(a.StrategyId, strategyId, StringComparison.Ordinal)
+                    && Math.Abs(a.UT - activateUT) < 1e-6)
+                    return a.Commitment;
+            }
+            return fallback;
         }
 
         private static string lastConflictReportKey = "";
@@ -498,7 +572,9 @@ namespace Parsek
             }
             // The same committed-rows predicate the Strategy.Update() prefix holds an expiry
             // on, so the patch never switches off what the prefix keeps on.
-            var plan = ComputePlan(snapshot.ActivateUT, snapshot.Managed.Contains, stockActive, byId.Keys, now,
+            var atNow = ResolveLedgerActiveAtNow(snapshot.ActivateUT, snapshot.Factor, snapshot.Managed, index.StrategyRows,
+                (id, ut) => CommittedActivationFactor(id, ut, float.NaN), now);
+            var plan = ComputePlan(atNow.ActivateUT, snapshot.Managed.Contains, stockActive, byId.Keys, now,
                 id =>
                 {
                     var rows = index.StrategyRows(id);
@@ -518,8 +594,8 @@ namespace Parsek
                 var s = byId[id];
                 double activateUT;
                 float factor;
-                if (!snapshot.ActivateUT.TryGetValue(id, out activateUT)) activateUT = now;
-                if (!snapshot.Factor.TryGetValue(id, out factor)) factor = s.Factor;
+                if (!atNow.ActivateUT.TryGetValue(id, out activateUT)) activateUT = now;
+                if (!atNow.Factor.TryGetValue(id, out factor) || float.IsNaN(factor)) factor = s.Factor;
                 s.Load(BuildActivationNode(id, activateUT, factor));
                 if (s.IsActive) activated++;
                 else failed++;

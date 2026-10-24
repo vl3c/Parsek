@@ -190,6 +190,20 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Stores an event filed under no recording, whatever flight is live: a career event
+        /// no vessel causes (a contract's deadline expiry). <see cref="Emit(ref GameStateEvent, string)"/>
+        /// would tag it to the live recording, and a discard, a Re-Fly merge check or a
+        /// supersede would then treat the clock's own event as that flight's.
+        /// </summary>
+        internal static void EmitUntagged(ref GameStateEvent evt, string source)
+        {
+            evt.recordingId = "";
+            ParsekLog.Verbose("GameStateRecorder",
+                $"Emit: {evt.eventType} key='{evt.key}' tag='' (untagged: no flight causes it) source='{source ?? ""}'");
+            GameStateStore.AddEvent(ref evt);
+        }
+
+        /// <summary>
         /// #431: resolves the current recording id for event tagging.
         /// Primary source is <see cref="ParsekFlight.GetActiveRecordingIdForTagging"/>; the fallback
         /// reads <see cref="RecordingStore.PendingTree"/>.ActiveRecordingId while the pending tree is in

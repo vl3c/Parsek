@@ -309,6 +309,7 @@ namespace Parsek.Tests
             "Parsek.Patches.StrategyCanBeActivatedPatch.Postfix",
             "Parsek.Patches.StrategyDeactivatePatch.Postfix",
             "Parsek.Patches.StrategySystemLoadStrategiesPatch.Postfix",
+            "Parsek.Patches.StrategySystemUpdateActivationPatch.Postfix",
             "Parsek.Patches.StrategyUpdateExpiryPatch.Prefix",
             "Parsek.Patches.SunLateUpdateGuardPatch.Prefix",
             "Parsek.Patches.SwitchIntentTrackingStationFlyPatch.Prefix",
