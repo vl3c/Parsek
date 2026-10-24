@@ -15,8 +15,8 @@
 > that fixes the `ConstrainTransferPlane` over-determination, the corrected geometry
 > characterization, and the added guards/tests) are catalogued in §11 "Review resolutions".
 >
-> It RE-BASELINES — does not resume — the pre-`0dd6bd3a6` plan on branch `reaim-lambert-reliability`
-> (`reaim-near-180-lambert-reliability.md`). That plan targeted a DIFFERENT symptom (the near-180
+> It RE-BASELINES — does not resume — the pre-`0dd6bd3a6` plan from branch `reaim-lambert-reliability`
+> (now `docs/dev/done/plans/reaim-near-180-lambert-reliability.md`). That plan targeted a DIFFERENT symptom (the near-180
 > DECLINE) on code where the `r2` projection was still present. `0dd6bd3a6` already shipped the
 > decline fix (deleted the projection, threaded a launch-plane handedness normal through the seam),
 > and the live symptom is now the plane TILT. See §10 for the reconciliation.
@@ -601,7 +601,7 @@ decline-regression assertion before promotion from escalation to shipped; it is 
 
 ## 10. Reconciliation with the prior plan (`reaim-lambert-reliability`)
 
-The committed plan `reaim-near-180-lambert-reliability.md` on branch `reaim-lambert-reliability` is
+The plan `docs/dev/done/plans/reaim-near-180-lambert-reliability.md` (from branch `reaim-lambert-reliability`) is
 PRIOR ART, not a resume target. It was written for the PRE-`0dd6bd3a6` code where the projection was
 present and the symptom was the DECLINE. Re-mapping:
 
