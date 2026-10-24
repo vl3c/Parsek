@@ -1,0 +1,234 @@
+schema = 1
+id = "EVA-14-foreign-board-claim-rewind"
+# =====================================================================================
+# EVA-14 (todo FOREIGN-BOARD-LEAVES-NO-GHOST-CLAIM, fixed 2026-10-22 on
+# `claude/project-thread-stn7at`, xUnit only, `RewindVesselHoldTests`). AUTHORED 2026-10-24
+# on branch `lanes-foreign`, NEVER FLOWN: its first flight is a READING run.
+#
+# THE DEFECT. A Board merge onto a vessel outside the boarding kerbal's tree stamped no
+# target pid on its branch point (`HandleTreeBoardMerge`; design-dock-event-graph.md item 1
+# deferred Board stamping), so `GhostChainWalker.ScanBranchPointClaims` (which skips a
+# branch point with `TargetVesselPersistentId == 0`) and the rewind / Re-Fly holds saw no
+# claim on the boarded vessel, while a Dock onto the same vessel was claimed. The fix
+# passes `ParsekFlight.ResolveBoardPartnerStamp` (the boarded vessel's pid and live launch
+# guid when it is not in the tree's BackgroundMap) as the branch partner stamp and logs
+# `Board merge partner stamp: targetPid= inTree= partnerPidStamped= partnerGuidStamped=`.
+#
+# HOST: `eva-construct-pad` (EVA-11 / RC-6 / EVA-12). Kerbal X PRELAUNCH on the pad (pid
+# 3620499050, launch guid cb9f5ae95a7b4ec29f88bc81d2a32600 = the fixture's VESSEL `pid`,
+# 86 parts, Valentina, Bob and Bill aboard, the scene-entry vessel) and the crewless rover
+# `rover fuel 0` (pid 1871615455) LANDED 153 m off, used here only as the flight host after
+# the rewind (`LoadGame focusPid=`), because the boarded Kerbal X is held out of the world.
+# The fixture has no recordings, so Kerbal X belongs to no tree: the board is onto a
+# vessel OUTSIDE the boarding kerbal's tree, the case the stamp exists for. (A Kerbal X
+# that a committed earlier mission recorded would also be the in-flight-commit crew swap's
+# business, `CrewReservationManager.SwapReservedCrewInFlight`, which this lane does not
+# want to mix in; the stamp reads only BackgroundMap membership either way.)
+#
+# THE STORY. Bill steps out onto Kerbal X's ladder UNRECORDED (autoRecordOnEva off, no
+# release: EVA-3's shape on the same craft), the recording starts ON BILL (so Kerbal X is
+# not in the new tree), 1x to UT 45 so his recording has samples, then he boards Kerbal X
+# back through the hatch (`EvaBoard targetPid=3620499050`). `onCrewBoardVessel` reads
+# `inTree=False`, the board is a SINGLE-parent Board (parents=[Bill's recording]) whose
+# merged child records Kerbal X, and the branch point carries Kerbal X's pid and guid. The
+# child records to UT 55, then commit (count 2), Rewind-to-Launch, a Space Center SaveGame
+# and a LoadGame into FLIGHT on the rover, and 1x past the child's end.
+#
+# THE END IS A KSC RETIREMENT, NOT A SPAWN. The chain tip (the board child, Kerbal X with
+# all three kerbals) ends PRELAUNCH on the pad, inside the KSC exclusion zone, so
+# `VesselGhoster.SpawnAtChainTip` -> `RetireChainTipAtKscIfEnded` ->
+# `VesselSpawner.TryRetireEndedFlightAtKsc` settles it "spawned, no vessel" (operator ruling
+# 2026-09-23) and the chain closes without a vessel (`Chain tip retired at KSC`). So "no
+# duplicate" here is: after the rewind NOTHING spawns at all (no tip spawn, no ordinary leaf
+# spawn, no second Kerbal X under any pid), the held Kerbal X is never a live vessel the
+# ghoster hides, and the chain ends once, retired. (An orbital host was rejected: on
+# eva2-lko-crewed the only other vessel sits 16 m from Kerbal X, inside the tip spawn's
+# 5 m-padded OverlapBox.)
+#
+# WHAT PROVES THE FIX (required pins that could not print before it):
+#   (1) `Board merge partner stamp: targetPid=3620499050 inTree=False
+#       partnerPidStamped=3620499050 partnerGuidStamped=cb9f5ae95a7b4ec29f88bc81d2a32600`
+#       (the line is the fix's own; before it the branch point carried pid 0);
+#   (2) the walker's claim `Vessel PID=3620499050 claimed by tree=<B> via MERGE` and
+#       `Chain built: vessel=3620499050 links=1 tip=<board child>` (before: no claim, no
+#       chain on Kerbal X), and the reloaded `listhandles chain ... pid=3620499050`;
+#   (3) the chain ends at the board child's tip by the KSC retirement
+#       (`Chain tip retired at KSC ... originalPid=3620499050 tip=<child>`).
+# And the rewind hold the stamp feeds (`ReFlyInvokeHold` change claims; the fix's second
+# unit cell, `ForeignBoardStamp_IsAChangeClaimTheHoldReads`): `[RewindHold] Rewind held
+# vessel for its committed future: pid=3620499050 ...`, `held=1`, the flight-load restore
+# and `Claimed vessel hold ghost shown: pid=3620499050 ... parts=86 ... from=rewind-save`
+# until Bill's ghost boards.
+#
+# PREDICTED RED, BY CODE READ (2026-10-24, main f46545d), ON THE HOLD PINS ONLY. The in-flight
+# commit adoption-stamps the board child (`CommitTreeFlight`: the active recording gets
+# `SpawnedVesselPersistentId` = Kerbal X's pid), and at the rewind
+# `RecordingStore.ResolveRewindSpawnStripScope` finds that holder replays
+# (`IsSpawnedVesselReproducedByRewindReplay` -> `holder-replays`: the child starts at the board
+# UT, after adjustedUT). Only InventoryTransfer members are exempt
+# (`ForeignInventoryTransfer.FindAdoptedForeignVesselMember`); a Board child onto a vessel
+# that existed before the tree is not, so Kerbal X's pid enters the strip set, Kerbal X
+# (with Valentina and Bob) leaves the rewind save before `ApplyRewindVesselHolds` runs,
+# it is never a hold, and nothing draws it until the child's ghost starts at the board UT.
+# That is the Board twin of REWIND-HOLD-MISSES-CROSS-TREE-ADOPTED-VESSEL / the EVA-11 strip
+# fixed for transfer members. Expected first-flight signature if so: `Rewind strip scope:
+# strip spawned pid=3620499050 of 'Kerbal X' (id=<child>) via holder-replays:<child>` (a
+# FORBIDDEN pin below), `Stripped 2 vessel(s) ... 1 by PID`, `held=0`, no hold ghost; the
+# stamp, claim, chain and retirement pins should still pass. If it reds exactly there,
+# file it (the report proposes an id); do not relax the pins.
+#
+# GUESSES the first flight confirms: every absolute UT (45 / 55 / 75; fixture UT 25.42, and
+# EVA-11 measured about 9.5 s of game time from load to its last construction verb); that
+# the board child stays one recording through the commit optimizer (a stationary pad
+# vessel); `links=1 trees=1`; the exact retirement wording of the zone
+# (`KSC exclusion zone (pad)`, EX-1's pinned phrase); that the hold ghost window (adjustedUT
+# about UT 15 plus the Space Center seconds, to the board at about UT 45) is open at the
+# flight load.
+#
+# RECORDINGS: Bill's root (ends Boarded) + the board child (Kerbal X) = 2.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"): (1) EVA-3 boards Kerbal X
+# on the pad but records from before the EVA (a same-tree two-parent board), and no
+# committed flight boards a foreign vessel, so no prefix is reusable; (2) every wait is an
+# explicit-UT WarpToUT at 1x; (3) the two 1x waits are the recordings' own durations;
+# (4)/(5) no burns, no coast; (6) every verb fails fast, retry once; (7) count 2..2;
+# (8) nightly until measured; (9) flight_efficiency.py after the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "EVA-14: a kerbal boards a vessel outside his tree, and the board claims it. On eva-construct-pad Bill Kerman steps out of the pad Kerbal X unrecorded, a recording starts on him and he boards Kerbal X back, a single-parent Board whose branch point now carries Kerbal X's pid and launch guid (FOREIGN-BOARD-LEAVES-NO-GHOST-CLAIM); after commit and Rewind-to-Launch the ghost chain claims Kerbal X through that stamp, the rewind holds it with a hold ghost until Bill's ghost boards, nothing spawns a second Kerbal X, and the chain closes by the KSC retirement of its pad tip."
+instanceProfile = "stock-minimal"
+tags = ["eva", "board", "foreign-vessel", "ghost-chain", "rewind-to-launch", "rewind-hold", "ksc-retirement", "EVA-14", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva-construct-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  # ACT 0: boot hygiene.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  # ACT 1: Bill out onto the ladder unrecorded, then the recording on him alone.
+  { cmd = "EvaExit",    args = { kerbal = "Bill Kerman" },                    expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "45", maxRate = "1" },                 expect = "OK", budget = 120 },
+  # ACT 2: the board onto Kerbal X, a vessel outside Bill's tree.
+  { cmd = "MissionMark", args = { label = "eva14-board" },                   expect = "OK" },
+  { cmd = "EvaBoard",   args = { targetPid = "3620499050" },                 expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "55", maxRate = "1" },                 expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
+  # CommitTree re-takes the committed tree for the still-active Kerbal X; stop it (RC-6).
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva14-commit-count-${c0.count}" }, expect = "OK" },
+  # ACT 3: Rewind-to-Launch, then a Space Center save reloaded into FLIGHT on the rover
+  # (Kerbal X is held out of the world, so the save's vessel 0 is not it).
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "eva14-rewound" },                   expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "eva14-rewound", focusPid = "1871615455" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "chains" },    label = "ch", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva14-reloaded-chains-${ch.count}" }, expect = "OK" },
+  # 1x past the board (about UT 45) and the child's end (about UT 55).
+  { cmd = "WarpToUT",   args = { ut = "75", maxRate = "1" },                 expect = "OK", budget = 240 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva14-ended-a-${c2.rec0}-${c2.rec0spawned}-${c2.rec0spawnedPid}-b-${c2.rec1}-${c2.rec1spawned}-${c2.rec1spawnedPid}-end" }, expect = "OK" },
+  { cmd = "SaveGame",                                                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+D18 = ["committed-interaction-claiming"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Bill's root and the board child (header).
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  # ACT 1
+  "evaexit complete kerbal=Bill Kerman ",
+  "evaexit complete kerbal=Bill Kerman [\\s\\S]*startrecording recordingId=[0-9a-f]+ already=false",
+  # ACT 2: the board onto a vessel outside the tree, and THE FIX (1): its stamp.
+  "MISSIONMARK label=eva14-board [\\s\\S]*onCrewBoardVessel: target vessel pid=3620499050, inTree=False",
+  "MISSIONMARK label=eva14-board [\\s\\S]*Board merge partner stamp: targetPid=3620499050 inTree=False partnerPidStamped=3620499050 partnerGuidStamped=cb9f5ae95a7b4ec29f88bc81d2a32600",
+  "startrecording recordingId=([0-9a-f]+) already=false[\\s\\S]*Board merge partner stamp: targetPid=3620499050 [^\\r\\n]*[\\s\\S]*Tree merge created: type=Board, bp=[^,\\r\\n]+, parents=\\[\\1\\], child=[0-9a-f]+ \\(pid=3620499050\\)",
+  "MISSIONMARK label=eva14-board [\\s\\S]*evaboard complete kerbal=Bill Kerman boardedPid=3620499050",
+  "MISSIONMARK label=eva14-commit-count-2 ",
+  "committree committed=true",
+  # THE FIX (2): the walker claims Kerbal X through the stamp; the chain's tip is the child.
+  "Board merge partner stamp: targetPid=3620499050 [\\s\\S]*Vessel PID=3620499050 claimed by tree=[0-9a-f]{32} via MERGE at UT=[0-9.]+",
+  "Tree merge created: type=Board, [^\\r\\n]*child=([0-9a-f]+) \\(pid=3620499050\\)[\\s\\S]*Chain built: vessel=3620499050 links=1 tip=\\1 ",
+  # ACT 3: the rewind.
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=1",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # The hold the stamp feeds (PREDICTED RED by code read, see header): Kerbal X stays in the
+  # rewind save, is held for its committed future, and is drawn until Bill's ghost boards.
+  "Rewind-to-Launch initiated to UT [\\s\\S]*Captured [1-9][0-9]* rewind-save copy\\(ies\\) of [1-9][0-9]* vessel\\(s\\) a committed future claims",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind held vessel for its committed future: pid=3620499050 name='Kerbal X' [^\\r\\n]*evidence=(?:chain|changes|flies) [^\\r\\n]*snapshot=yes",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind vessel hold: survivors=[0-9]+ held=1 ",
+  "invokerewindtolaunch complete [\\s\\S]*loadgame focus pid=1871615455 ",
+  "invokerewindtolaunch complete [\\s\\S]*\\[ClaimedHoldGhost\\] Rewind vessel holds restored on flight load: saved=1 restored=1 ",
+  "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Held vessel tracked without a live vessel: pid=3620499050 [\\s\\S]*\\[ClaimedHoldGhost\\] Claimed vessel hold ghost shown: pid=3620499050 name='Kerbal X' chain=3620499050 source=snapshot-surface body=Kerbin parts=86 firstClaimUT=[0-9.]+ UT=[0-9.]+ from=rewind-save",
+  "Claimed vessel hold ghost shown: pid=3620499050 [\\s\\S]*Claimed vessel hold ghost released: pid=3620499050 name='Kerbal X' reason=(claimed|covered-by-recording) ",
+  # The reloaded chain, and THE FIX (3): it closes once, by the KSC retirement of its tip.
+  "Tree merge created: type=Board, [^\\r\\n]*child=([0-9a-f]+) \\(pid=3620499050\\)[\\s\\S]*invokerewindtolaunch complete [\\s\\S]*listhandles chain index=[0-9]+ pid=3620499050 links=1 trees=1 treeIds=[0-9a-f]{32} tip=\\1",
+  "Tree merge created: type=Board, [^\\r\\n]*child=([0-9a-f]+) \\(pid=3620499050\\)[\\s\\S]*invokerewindtolaunch complete [\\s\\S]*Spawn RETIRED for #-?[0-9]+ \\(Kerbal X\\): flight ended within KSC exclusion zone \\(pad\\) - no vessel [^\\r\\n]*rec=\\1",
+  "Tree merge created: type=Board, [^\\r\\n]*child=([0-9a-f]+) \\(pid=3620499050\\)[\\s\\S]*invokerewindtolaunch complete [\\s\\S]*Chain tip retired at KSC \\([^\\r\\n]*\\): originalPid=3620499050 tip=\\1 ",
+  "MISSIONMARK label=eva14-ended-",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "evaboard refused",
+  "evaboard timeout",
+  "invokerewindtolaunch refused",
+  # The pre-fix shape: the board leaves Kerbal X unstamped.
+  "Board merge partner stamp: targetPid=3620499050 [^\\r\\n]*partnerPidStamped=0 ",
+  # The boarded vessel stripped at the rewind as if the tree re-produced it (the predicted
+  # Board twin of the EVA-11 / REWIND-HOLD-MISSES-CROSS-TREE-ADOPTED-VESSEL strip).
+  "Rewind strip scope: strip spawned pid=3620499050 ",
+  "Stripping orphaned spawned vessel 'Kerbal X'",
+  "Claimed vessel hold ghost not drawn",
+  # NO DUPLICATE. The held Kerbal X is never a live vessel the ghoster hides beside its
+  # ghost, nothing spawns after the rewind (the tip retires, Bill ended Boarded), and the
+  # chain closes once.
+  "\\[Ghoster\\] Vessel ghosted: pid=3620499050 ",
+  "invokerewindtolaunch complete [\\s\\S]*(?:Vessel respawned|SpawnAtPosition: vessel spawned) \\(",
+  "Chain tip spawn: pid=3620499050 ",
+  "Chain tip spawn complete: #[0-9]+ \"Kerbal X\"",
+  "Chain tip retired at KSC [^\\r\\n]*originalPid=3620499050 [\\s\\S]*Chain tip retired at KSC [^\\r\\n]*originalPid=3620499050 ",
+  "Crew dedup: '[A-Za-z ]+' is already aboard",
+  "Spawn ABANDONED",
+  "Spawn FAILED",
+]
+
+[runtime]
+# LoadGame 300 x2, the rewind 300, SaveGame 120 x2, CommitTree 120, EvaExit / EvaBoard 120,
+# about 20 s of 1x before the commit and about 50 s after the reload. EVA-11's measured-safe
+# 1500 shape with fewer verbs: 1500.
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
