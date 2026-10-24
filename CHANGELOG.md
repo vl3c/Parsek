@@ -8,11 +8,13 @@ All notable changes to Parsek are documented here.
 
 ### Highlights
 
-- **Loads restore the save, and rewinds can't break your career.** F9 and the Load menu put
-  Parsek back exactly as the save was. Money, science and reputation that later committed flights
-  need are held back, a Re-Fly can no longer lower your career, and a vessel a later flight uses
-  is held as a ghost after a rewind. Vessel names stay in step with stock, and supply routes no
-  longer cost or pay funds.
+- **Vessel renames stick, and logistics carries no money.** A stock or Parsek rename renames the
+  real vessel, its recordings and its ghost, through rewinds, docking and spawns. Supply routes only
+  move cargo now: no run costs or pays funds, and route runs are no longer career history.
+- **Mining and labs work with the timeline, loads restore the save, rewinds protect your career.**
+  Miners and labs keep their recordings and earn no free production; lab science counts. F9 and Load
+  put Parsek back exactly as saved. Money later flights need is held back, and vessels they use wait
+  as ghosts.
 
 ### Changed
 
