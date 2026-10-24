@@ -23,6 +23,10 @@ namespace Parsek.TestCommands
         /// <summary><c>kind=chains</c>: the live flight scene's derived ghost chains
         /// (<c>ParsekFlight.ActiveGhostChains</c>).</summary>
         Chains = 4,
+
+        /// <summary><c>kind=routes</c>: every committed supply route's live state
+        /// (<c>RouteStore.CommittedRoutes</c>) and its route event counts.</summary>
+        Routes = 5,
     }
 
     /// <summary>One child slot of a rewind point, already resolved to open/closed.</summary>
@@ -102,6 +106,51 @@ namespace Parsek.TestCommands
         internal List<string> LinkTreeIds;
     }
 
+    /// <summary>One committed supply route, as the route store holds it in memory.</summary>
+    internal struct RouteRow
+    {
+        internal string Id;
+        internal string Name;
+        internal Logistics.RouteStatus Status;
+        internal int CompletedCycles;
+        internal int SkippedCycles;
+
+        /// <summary><c>Route.LastObservedLoopCycleIndex</c>: the loop cursor, -1 when no
+        /// cycle has been observed since the loop clock last restarted.</summary>
+        internal long Cursor;
+        internal long WindowAnchorCycleIndex;
+        internal double LoopAnchorUt;
+        internal int CurrentSegmentIndex;
+        internal int PendingStopIndex;
+
+        /// <summary>Null when no cycle is in flight.</summary>
+        internal double? CurrentCycleStartUt;
+
+        /// <summary>Null when no delivery is pending.</summary>
+        internal double? PendingDeliveryUt;
+        internal bool SendOnceArmed;
+        internal bool PauseAfterCurrentCycle;
+
+        /// <summary>The origin endpoint's pid, 0 for a Space Center origin.</summary>
+        internal uint OriginPid;
+        internal bool KscOrigin;
+
+        /// <summary>Each stop's endpoint pid, in stop order. Null is read as empty.</summary>
+        internal List<uint> StopPids;
+
+        /// <summary>Each stop's <c>RouteStop.LastFiredCycleIndex</c>, in stop order.</summary>
+        internal List<long> StopFiredCycleIndices;
+
+        /// <summary>Route event log rows carrying this route's id, by type.</summary>
+        internal int Dispatched;
+        internal int Debited;
+        internal int PickedUp;
+        internal int Delivered;
+        internal int Paused;
+        internal int Resumed;
+        internal int Held;
+    }
+
     /// <summary>
     /// Pure decision half of the ADDITIVE <c>ListHandles kind=&lt;family&gt;</c> seam verb
     /// (R10 runtime-handle plumbing). The applier
@@ -144,6 +193,17 @@ namespace Parsek.TestCommands
 
         /// <summary>Wire literal for <see cref="ListHandlesKind.Chains"/>.</summary>
         internal const string ChainsKindToken = "chains";
+
+        /// <summary>Wire literal for <see cref="ListHandlesKind.Routes"/>.</summary>
+        internal const string RoutesKindToken = "routes";
+
+        /// <summary>Prefix of the one Info line the applier writes per ENUMERATED route
+        /// (the route read-back a reload lane pins between steps; the wire alone is not
+        /// in KSP.log).</summary>
+        internal const string RouteLogLinePrefix = "listhandles route";
+
+        /// <summary>The value a nullable UT reads as on the wire when it is unset.</summary>
+        internal const string NoneValue = "none";
 
         /// <summary>The OPTIONAL <c>expectDigest=</c> arg's key. Read only by
         /// <c>kind=chains</c>: the digest of an earlier capture, carried onto this
@@ -196,9 +256,15 @@ namespace Parsek.TestCommands
         /// covers EVERY chain, so a cut never hides a difference from the readback.</summary>
         internal const int MaxChains = 16;
 
+        /// <summary>Most routes enumerated in one response.</summary>
+        internal const int MaxRoutes = 16;
+
+        /// <summary>Most stops listed per route (the per-stop values are comma-joined).</summary>
+        internal const int MaxStopsPerRoute = 8;
+
         /// <summary>
         /// Parses the REQUIRED <c>kind=</c> arg. Fail-closed and case-sensitive: only the
-        /// four lowercase literals are accepted, so <c>Rewindpoints</c> / <c>RP</c> /
+        /// five lowercase literals are accepted, so <c>Rewindpoints</c> / <c>RP</c> /
         /// an empty value are all <see cref="KindArgInvalidReason"/> rather than a
         /// tolerated spelling. Absent is its own reason so a spec author reads "you did
         /// not ask for a family" separately from "that is not a family".
@@ -229,6 +295,10 @@ namespace Parsek.TestCommands
                     kind = ListHandlesKind.Chains;
                     rejectReason = null;
                     return true;
+                case RoutesKindToken:
+                    kind = ListHandlesKind.Routes;
+                    rejectReason = null;
+                    return true;
                 default:
                     rejectReason = KindArgInvalidReason;
                     return false;
@@ -244,6 +314,7 @@ namespace Parsek.TestCommands
                 case ListHandlesKind.Committed: return CommittedKindToken;
                 case ListHandlesKind.Active: return ActiveKindToken;
                 case ListHandlesKind.Chains: return ChainsKindToken;
+                case ListHandlesKind.Routes: return RoutesKindToken;
                 default: return string.Empty;
             }
         }
@@ -552,6 +623,151 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>
+        /// <c>kind=routes count=&lt;n&gt; truncated=&lt;b&gt; dormant=&lt;n&gt;</c> then, per
+        /// enumerated route in store order, <c>route&lt;i&gt; route&lt;i&gt;name
+        /// route&lt;i&gt;status route&lt;i&gt;completed route&lt;i&gt;skipped
+        /// route&lt;i&gt;cursor route&lt;i&gt;windowAnchor route&lt;i&gt;loopAnchorUT
+        /// route&lt;i&gt;segment route&lt;i&gt;pendingStop route&lt;i&gt;cycleStartUT
+        /// route&lt;i&gt;pendingDeliveryUT route&lt;i&gt;sendOnce route&lt;i&gt;pauseAfter
+        /// route&lt;i&gt;origin route&lt;i&gt;stops route&lt;i&gt;stopPids route&lt;i&gt;stopFired
+        /// route&lt;i&gt;dispatched route&lt;i&gt;debited route&lt;i&gt;pickedUp
+        /// route&lt;i&gt;delivered route&lt;i&gt;paused route&lt;i&gt;resumed
+        /// route&lt;i&gt;held</c>.
+        ///
+        /// <para>The read-back a reload lane takes right after a load and before the next
+        /// tick: the loop cursor and the event counts are what tell "the load put the route
+        /// back where the loaded save had it" apart from "the abandoned future's cursor
+        /// swallowed the next crossing" or "the cycle ran twice". <c>origin</c> is
+        /// <c>ksc</c> for a Space Center origin, else the endpoint pid. An unset UT reads
+        /// <c>none</c>. <c>stops</c> is the FULL stop count; the comma-joined per-stop
+        /// lists are capped at <see cref="MaxStopsPerRoute"/>, and a cut sets
+        /// <c>truncated</c>.</para>
+        /// </summary>
+        internal static List<KeyValuePair<string, string>> BuildRoutesPayload(
+            IReadOnlyList<RouteRow> rows, int dormant)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            int total = rows != null ? rows.Count : 0;
+            int shown = Math.Min(total, MaxRoutes);
+            bool truncated = total > MaxRoutes;
+
+            var body = new List<KeyValuePair<string, string>>();
+            for (int i = 0; i < shown; i++)
+            {
+                RouteRow row = rows[i];
+                string prefix = "route" + i.ToString(ic);
+                int stopTotal = row.StopPids != null ? row.StopPids.Count : 0;
+                if (stopTotal > MaxStopsPerRoute)
+                    truncated = true;
+
+                body.Add(Kv(prefix, row.Id ?? string.Empty));
+                body.Add(Kv(prefix + "name", row.Name ?? string.Empty));
+                body.Add(Kv(prefix + "status", row.Status.ToString()));
+                body.Add(Kv(prefix + "completed", row.CompletedCycles.ToString(ic)));
+                body.Add(Kv(prefix + "skipped", row.SkippedCycles.ToString(ic)));
+                body.Add(Kv(prefix + "cursor", row.Cursor.ToString(ic)));
+                body.Add(Kv(prefix + "windowAnchor", row.WindowAnchorCycleIndex.ToString(ic)));
+                body.Add(Kv(prefix + "loopAnchorUT", row.LoopAnchorUt.ToString("R", ic)));
+                body.Add(Kv(prefix + "segment", row.CurrentSegmentIndex.ToString(ic)));
+                body.Add(Kv(prefix + "pendingStop", row.PendingStopIndex.ToString(ic)));
+                body.Add(Kv(prefix + "cycleStartUT", NullableUt(row.CurrentCycleStartUt)));
+                body.Add(Kv(prefix + "pendingDeliveryUT", NullableUt(row.PendingDeliveryUt)));
+                body.Add(Kv(prefix + "sendOnce", Bool(row.SendOnceArmed)));
+                body.Add(Kv(prefix + "pauseAfter", Bool(row.PauseAfterCurrentCycle)));
+                body.Add(Kv(prefix + "origin", row.KscOrigin ? "ksc" : row.OriginPid.ToString(ic)));
+                body.Add(Kv(prefix + "stops", stopTotal.ToString(ic)));
+                body.Add(Kv(prefix + "stopPids", JoinCapped(row.StopPids, v => v.ToString(ic))));
+                body.Add(Kv(prefix + "stopFired", JoinCapped(row.StopFiredCycleIndices, v => v.ToString(ic))));
+                body.Add(Kv(prefix + "dispatched", row.Dispatched.ToString(ic)));
+                body.Add(Kv(prefix + "debited", row.Debited.ToString(ic)));
+                body.Add(Kv(prefix + "pickedUp", row.PickedUp.ToString(ic)));
+                body.Add(Kv(prefix + "delivered", row.Delivered.ToString(ic)));
+                body.Add(Kv(prefix + "paused", row.Paused.ToString(ic)));
+                body.Add(Kv(prefix + "resumed", row.Resumed.ToString(ic)));
+                body.Add(Kv(prefix + "held", row.Held.ToString(ic)));
+            }
+
+            var payload = new List<KeyValuePair<string, string>>
+            {
+                Kv("kind", RoutesKindToken),
+                Kv("count", total.ToString(ic)),
+                Kv("truncated", Bool(truncated)),
+                Kv("dormant", Math.Max(0, dormant).ToString(ic)),
+            };
+            payload.AddRange(body);
+            return payload;
+        }
+
+        /// <summary>The per-route log line suffixes, in the order <see cref="RouteLogLines"/>
+        /// writes them (each is <c>route&lt;i&gt;</c> + suffix in the payload).</summary>
+        internal static readonly string[] RouteLogLineKeys =
+        {
+            "name", "status", "completed", "skipped", "cursor", "windowAnchor", "loopAnchorUT",
+            "segment", "pendingStop", "cycleStartUT", "pendingDeliveryUT", "sendOnce", "pauseAfter",
+            "origin", "stops", "stopPids", "stopFired", "dispatched", "debited", "pickedUp",
+            "delivered", "paused", "resumed", "held",
+        };
+
+        /// <summary>
+        /// One log line per enumerated route, read out of the built payload (so the log
+        /// cannot disagree with the wire): <c>listhandles route index=&lt;i&gt; id=..
+        /// name='..' status=.. completed=.. ...</c> in <see cref="RouteLogLineKeys"/> order,
+        /// the name quoted because a route name may hold spaces. Empty for every other
+        /// family. Bounded by <see cref="MaxRoutes"/>.
+        /// </summary>
+        internal static List<string> RouteLogLines(
+            IReadOnlyList<KeyValuePair<string, string>> payload, ListHandlesKind kind)
+        {
+            var lines = new List<string>();
+            if (kind != ListHandlesKind.Routes || payload == null)
+                return lines;
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            for (int i = 0; i < MaxRoutes; i++)
+            {
+                string prefix = "route" + i.ToString(ic);
+                if (!HasKey(payload, prefix))
+                    break;
+                var sb = new StringBuilder(RouteLogLinePrefix);
+                sb.Append(" index=").Append(i.ToString(ic));
+                sb.Append(" id=").Append(ValueOrEmpty(payload, prefix));
+                for (int k = 0; k < RouteLogLineKeys.Length; k++)
+                {
+                    string key = RouteLogLineKeys[k];
+                    string value = ValueOrEmpty(payload, prefix + key);
+                    sb.Append(' ').Append(key).Append('=');
+                    if (key == "name")
+                        sb.Append('\'').Append(value).Append('\'');
+                    else
+                        sb.Append(value);
+                }
+                lines.Add(sb.ToString());
+            }
+            return lines;
+        }
+
+        private static string NullableUt(double? ut)
+            => ut.HasValue ? ut.Value.ToString("R", CultureInfo.InvariantCulture) : NoneValue;
+
+        private static string JoinCapped<T>(IReadOnlyList<T> values, Func<T, string> format)
+        {
+            if (values == null || values.Count == 0)
+                return string.Empty;
+            int shown = Math.Min(values.Count, MaxStopsPerRoute);
+            var parts = new string[shown];
+            for (int i = 0; i < shown; i++)
+                parts[i] = format(values[i]);
+            return string.Join(",", parts);
+        }
+
+        private static bool HasKey(IReadOnlyList<KeyValuePair<string, string>> payload, string key)
+        {
+            for (int i = 0; i < payload.Count; i++)
+                if (payload[i].Key == key)
+                    return true;
+            return false;
+        }
+
+        /// <summary>
         /// The distinct, non-empty tree ids of a chain's links, ordinal-sorted so the
         /// joined value is the same on every run whatever order the walker kept.
         /// </summary>
@@ -604,12 +820,15 @@ namespace Parsek.TestCommands
         /// <summary>
         /// The chains family's extra Info-line tail, read out of the built payload for
         /// the reason <see cref="CountFromPayload"/> is: <c> evaluated=.. digest=..</c>,
-        /// plus <c> expected=.. match=..</c> when the payload carries a comparison. Empty
-        /// for every other family, so their pinned log lines do not move.
+        /// plus <c> expected=.. match=..</c> when the payload carries a comparison; the
+        /// routes family's <c> dormant=..</c>. Empty for every other family, so their
+        /// pinned log lines do not move.
         /// </summary>
         internal static string ChainsLogTail(
             IReadOnlyList<KeyValuePair<string, string>> payload, ListHandlesKind kind)
         {
+            if (kind == ListHandlesKind.Routes)
+                return " dormant=" + ValueOrEmpty(payload, "dormant");
             if (kind != ListHandlesKind.Chains)
                 return string.Empty;
             string tail = " evaluated=" + ValueOrEmpty(payload, "evaluated")

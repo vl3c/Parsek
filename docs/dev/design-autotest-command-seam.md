@@ -1537,7 +1537,7 @@ No side effects, so every refusal is `REJECTED` and there is no `ERROR` terminal
 
 | arg | values | meaning |
 |---|---|---|
-| `kind` | `rewindpoints` \| `committed` \| `active` \| `chains` | REQUIRED. Which handle family to enumerate. Fail-closed, case-sensitive (the `LoadGame scene=` rule): absent is `REJECTED kind-arg-missing`, anything else is `REJECTED kind-arg-invalid kind=<raw>`. Mirrored in `hlib.VERB_SCOPED_CLOSED_ARGS` so a typo is INVALID(spec-invalid) before a boot. |
+| `kind` | `rewindpoints` \| `committed` \| `active` \| `chains` \| `routes` | REQUIRED. Which handle family to enumerate. Fail-closed, case-sensitive (the `LoadGame scene=` rule): absent is `REJECTED kind-arg-missing`, anything else is `REJECTED kind-arg-invalid kind=<raw>`. Mirrored in `hlib.VERB_SCOPED_CLOSED_ARGS` so a typo is INVALID(spec-invalid) before a boot. |
 | `expectDigest` | eight lowercase hex digits | OPTIONAL, `kind=chains` only. The digest of an earlier chains capture, normally `${<label>.digest}`; the answer then carries `expected=` and `match=`. On any other family `REJECTED expect-digest-kind-mismatch`; any other shape (including an unsubstituted `${...}`) `REJECTED expect-digest-invalid`. Checked pre-launch by `hlib.validate_list_handles_expect_digest`. |
 
 **Payload grammar.** Every value is `InvariantCulture` and percent-encoded on the wire
@@ -1598,7 +1598,27 @@ The digest exists so the D18 `chain-state-rederived` readback can be compared
   false, or no `ParsekFlight` yet), the dispatcher answers `DEFER ghost-chains-pending`,
   because `LoadGame` completes on the scene switch a second or more before
   `OnFlightReady` derives the chains, and an undeferred read would observe the previous
-  instant. The other three families are untouched by it.
+  instant. The other four families are untouched by it.
+- `kind=routes count=<n> truncated=<b> dormant=<n> route<i>=<RouteId> route<i>name=<name>
+  route<i>status=<RouteStatus> route<i>completed=<n> route<i>skipped=<n>
+  route<i>cursor=<LastObservedLoopCycleIndex> route<i>windowAnchor=<n>
+  route<i>loopAnchorUT=<UT, "R"> route<i>segment=<n> route<i>pendingStop=<n>
+  route<i>cycleStartUT=<UT or none> route<i>pendingDeliveryUT=<UT or none>
+  route<i>sendOnce=<b> route<i>pauseAfter=<b> route<i>origin=<pid or ksc> route<i>stops=<m>
+  route<i>stopPids=<pid,...> route<i>stopFired=<LastFiredCycleIndex,...>
+  route<i>dispatched= debited= pickedUp= delivered= paused= resumed= held=<n>` from
+  `RouteStore.CommittedRoutes` in store order, capped at 16 routes and 8 listed stops per
+  route (a stop cut raises `truncated`; `stops` is the full count); the seven event
+  counts are the route event log rows carrying the route's id, by type. Scene-agnostic:
+  the route store is a process static every scene ticks. This is the route read-back the
+  reload lanes take right after a load and before the next tick (roadmap C2, IR-1 / IR-2):
+  the cursor and the event counts separate "the load put the route back where the loaded
+  save had it" from "the abandoned future's cursor swallowed the next crossing" and from
+  "the cycle ran twice". There is no pending recovery credit field: supply routes carry no
+  money since 2026-10-21. Each enumerated route also writes one Info line `listhandles
+  route index=<i> id=.. name='..' status=.. completed=.. ...` (the keys in
+  `TestCommandListHandles.RouteLogLineKeys` order, read out of the built payload), and the
+  summary line gains ` dormant=<n>`.
 
 **Observability.** One Info line per call, `listhandles kind=<k> count=<n>
 truncated=<b>`, with the chains family appending ` evaluated=<b> digest=<hex8>` and, when

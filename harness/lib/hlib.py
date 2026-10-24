@@ -2682,7 +2682,7 @@ RUNTESTS_STRICT_VALUES: Tuple[str, ...] = ("true", "false")
 # and a missing key is not a value.
 LISTHANDLES_KIND_KEY = "kind"
 LISTHANDLES_KIND_VALUES: Tuple[str, ...] = ("rewindpoints", "committed", "active",
-                                             "chains")
+                                             "chains", "routes")
 
 # `ListHandles kind=chains expectDigest=<hex8>`: the OPTIONAL readback comparison.
 # NOT a closed-value arg (its value is a digest, normally `${<label>.digest}` from an
@@ -2708,6 +2708,20 @@ LISTHANDLES_EXPECT_DIGEST_INVALID_REASON = "expect-digest-invalid"
 LISTHANDLES_CHAIN_LOG_PREFIX = "listhandles chain"
 LISTHANDLES_CHAIN_TREES_KEY = "trees"
 LISTHANDLES_CHAIN_TREE_IDS_KEY = "treeIds"
+
+# `ListHandles kind=routes` (the route read-back, roadmap C2) writes one Info line per
+# ENUMERATED route: `listhandles route index=<i> id=.. name='..' status=.. completed=..
+# ...`, the field order `LISTHANDLES_ROUTE_LOG_KEYS`. A reload lane pins a route's cursor
+# and event counts off that line between steps. Byte-equal to
+# `TestCommandListHandles.RouteLogLinePrefix` / `RouteLogLineKeys` (pinned by
+# ListHandlesSourceSyncTests).
+LISTHANDLES_ROUTE_LOG_PREFIX = "listhandles route"
+LISTHANDLES_ROUTE_LOG_KEYS: Tuple[str, ...] = (
+    "name", "status", "completed", "skipped", "cursor", "windowAnchor", "loopAnchorUT",
+    "segment", "pendingStop", "cycleStartUT", "pendingDeliveryUT", "sendOnce", "pauseAfter",
+    "origin", "stops", "stopPids", "stopFired", "dispatched", "debited", "pickedUp",
+    "delivered", "paused", "resumed", "held",
+)
 
 # arg key -> (the ONLY verb that reads it, its closed value set). Iterated by
 # validate_spec, so a fifth such arg is one row rather than a fifth copied block.

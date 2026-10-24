@@ -432,6 +432,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated tests can read a supply route's live state between steps.** A new test command
+  lists each route's status, cycle count, loop position and route events, so two new lanes can
+  check that a quickload or a stock revert back across a delivery runs the next cycle exactly
+  once. (HARNESS-ROUTE-STATE-READBACK-SEAM)
 - **Harness: the test command that processes an experiment in a science lab stores real data.**
   It used to put zero data into the lab whenever the results window had not been shown since a
   load, while still using up that experiment's one lab slot. It now opens the results window

@@ -1,0 +1,164 @@
+schema = 1
+id = "IR-1-route-f9-across-a-dispatch"
+tier = "nightly"
+# =====================================================================================
+# IR-1 (roadmap "The logistics integration program", Phase B): a supply route x an F9
+# back across a dispatch. AUTHORED 2026-10-24, NEVER FLOWN.
+#
+# THE STORY. The player creates and activates a route, presses F5, warps until the route
+# dispatches and delivers, then presses F9. The F9 is a save-file load, so it classifies
+# Cold (design-load-restores-the-save.md 4.1) and `RouteStore.LoadRoutesFrom` replaces the
+# route store, the route event log and the retired cargo with the quicksave's own copies
+# (LoadReconcilePolicy Routes x Cold). The route must come back exactly as the quicksave
+# had it: Active, loop cursor -1, no cycle counted, no route event for the abandoned
+# dispatch, and the endpoint's tank back at its pre-delivery fill. The next crossing must
+# then dispatch exactly once and deliver exactly once.
+#
+# WHAT EACH FAILURE WOULD LOOK LIKE:
+#   * memory's route kept across the F9 (the pre-#2155 in-session shape): the post-F9
+#     read-back shows cursor >= 0 and completed=1, and the re-crossing is swallowed, so the
+#     endpoint stays at 297.6 and the last read-back still says dispatched=1 from before;
+#   * the abandoned future's events kept: dispatched=1 delivered=1 on the post-F9 read-back;
+#   * a double fire: dispatched=2 or delivered=2 on the last read-back, or a tank that
+#     overflowed the 102.4 headroom (the capacity gate blocks a second 97.6, so a double
+#     fire reads as a BLOCKED cycle-1 line, which is forbidden below).
+#
+# THE INSTRUMENT is the new route read-back (`ListHandles kind=routes`, roadmap C2, todo
+# HARNESS-ROUTE-STATE-READBACK-SEAM): one `listhandles route index=<i> ...` Info line per
+# route with its status, loop cursor, cycle counters and route event counts by type. Each
+# read-back is pinned as the FIRST route line after its anchor (a negative lookahead), so a
+# later read-back cannot satisfy an earlier one. The tanks are read by
+# `ReadVesselResources`, not taken from Parsek's own delivery lines.
+#
+# THE HOST AND THE NUMBERS are RVR-2's (`rover-route-recorded`, save clock UT 979.48):
+# tree 73e50f1e... is the transport rover's sealed committed tree, the route's one stop is
+# `rover fuel 0` (pid 2123618197, about 566 m from the focused rover, so LOADED and
+# `path=loaded`), the delivery manifest is 97.6 LiquidFuel and the endpoint holds
+# 297.6 / 400. One delivery -> 395.2; a second would need 97.6 against 4.8 of headroom.
+# `activate` (not RVR-2's send-once) so the route stays Active after its cycle and no
+# armed one-shot flag is part of the comparison. Activation restarts the loop clock at the
+# activation UT, so the first crossing lies about one 45 s loop period later: the F5
+# below runs a few frames after the activation and lands before any crossing.
+# `TimeJump ut=1600` crosses many loop periods and fires ONCE (measured on RVR-2:
+# `warp jump=21 ... firing ONCE and snapping forward`).
+# =====================================================================================
+description = "IR-1, AUTHORED 2026-10-24, never flown: create and activate the rover route on rover-route-recorded, F5, TimeJump across a dispatch (one 97.6 LiquidFuel delivery, endpoint 297.6 -> 395.2), F9 (a Cold save-file load). The new route read-back (ListHandles kind=routes) must show the quicksave's route (Active, cursor -1, no cycle, no route event), the endpoint tank must read 297.6 again, and the next crossing must dispatch and deliver exactly once (395.2, dispatched=1 delivered=1). Pins the 2026-10-07 A1 fix (ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD) for the F9 half now that an F9 is a cold load."
+instanceProfile = "stock-minimal"
+tags = ["IR-1", "logistics", "route", "quickload", "timeline-ops", "recorded-fixture",
+        "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# The kill triple, as on every rover-route-recorded lane (RVR-3's header): the committed
+# restore path can resume a promotion-stub recording before the first step runs.
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "DiscardTree",                                                        expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "73e50f1e3aa24c299919016cd9e92269" },   expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "73e50f1e3aa24c299919016cd9e92269", name = "IR1 Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "activate", route = "IR1 Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "MissionMark",  args = { label = "ir1-activated" },                   expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:297.6", tolerance = "0.01" }, expect = "OK" },
+  # THE F5, before any crossing.
+  { cmd = "SaveGame",     args = { name = "quicksave" },                        expect = "OK", budget = 120 },
+  # The abandoned future: one crossing, one dispatch, one delivery.
+  { cmd = "TimeJump",     args = { ut = "1600" },                               expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "ir1-delivered" },                   expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:395.2", tolerance = "0.01" }, expect = "OK" },
+  # THE F9: the player's load of the quicksave, a Cold save-file load (QL-4c's form).
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
+  # Settle: the post-load passes run from OnFlightReady (QL-4c's twelve steps); then the
+  # kill triple again for the same reason as at boot.
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "DiscardTree",                                                        expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "ir1-reloaded" },                    expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:297.6", tolerance = "0.01" }, expect = "OK" },
+  # The re-flown future: exactly one re-dispatch, exactly one delivery.
+  { cmd = "TimeJump",     args = { ut = "1600" },                               expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "ir1-redelivered" },                 expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:395.2", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "FlushAndQuit",                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# No step creates or removes a recording: the five committed recordings the host stages
+# are the whole corpus before and after (RVR-3 measured `ERS Rebuilt: 5 entries`).
+count = { min = 5, max = 5 }
+
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "routecommand complete action=create tree=73e50f1e3aa24c299919016cd9e92269 route=.* name='IR1 Rover Supply' status=Paused",
+  "TryActivate: route=\\S+ now Active ",
+  # BEFORE: the activated route, nothing run yet.
+  "(?s)MISSIONMARK label=ir1-activated (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR1 Rover Supply' status=Active completed=0 skipped=0 cursor=-1 [^\\r\\n]* stopPids=2123618197 [^\\r\\n]* dispatched=0 debited=0 pickedUp=0 delivered=0 ",
+  "(?s)MISSIONMARK label=ir1-activated (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=297\\.6000 actual=297\\.6[0-9]{3} [^\\r\\n]*match=true",
+  "savegame name=quicksave folder=.+ saved=true",
+  # THE ABANDONED FUTURE: one crossing, one delivery into the loaded endpoint.
+  "(?s)savegame name=quicksave (?:(?!loadgame start ).)*Delivery write: route=\\S+ dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.6[0-9]* written=97\\.6[0-9]* tankBefore=297\\.6[0-9]* tankAfter=395\\.2[0-9]* capacity=400 path=loaded",
+  "(?s)MISSIONMARK label=ir1-delivered (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR1 Rover Supply' status=Active completed=1 skipped=0 cursor=[0-9]+ [^\\r\\n]* dispatched=1 debited=[01] pickedUp=0 delivered=1 ",
+  "(?s)MISSIONMARK label=ir1-delivered (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=395\\.2000 actual=395\\.[0-9]{4} [^\\r\\n]*match=true",
+  # THE F9 is a Cold save-file load that reads the quicksave's routes.
+  "loadgame start save=\\S+ name=quicksave scene=FLIGHT requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false playerLoad=true",
+  "(?s)loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: ).)*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "(?s)loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave .*LoadRoutesFrom: loaded 1 route\\(s\\)",
+  # AFTER THE F9: the quicksave's route, and the quicksave's tank.
+  "(?s)MISSIONMARK label=ir1-reloaded (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR1 Rover Supply' status=Active completed=0 skipped=0 cursor=-1 [^\\r\\n]* dispatched=0 debited=0 pickedUp=0 delivered=0 ",
+  "(?s)MISSIONMARK label=ir1-reloaded (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=297\\.6000 actual=297\\.6[0-9]{3} [^\\r\\n]*match=true",
+  # THE RE-FLOWN FUTURE: exactly one re-dispatch, exactly one delivery.
+  "(?s)MISSIONMARK label=ir1-reloaded (?:(?!MISSIONMARK label=ir1-redelivered ).)*Delivery write: route=\\S+ dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.6[0-9]* written=97\\.6[0-9]* tankBefore=297\\.6[0-9]* tankAfter=395\\.2[0-9]* capacity=400 path=loaded",
+  "(?s)MISSIONMARK label=ir1-redelivered (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR1 Rover Supply' status=Active completed=1 skipped=0 cursor=[0-9]+ [^\\r\\n]* dispatched=1 debited=[01] pickedUp=0 delivered=1 ",
+  "(?s)MISSIONMARK label=ir1-redelivered (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=395\\.2000 actual=395\\.[0-9]{4} [^\\r\\n]*match=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "listhandles rejected",
+  "readvesselresources rejected",
+  "readvesselresources expect [^\\r\\n]*match=false",
+  # A second delivery in either future (a double fire meets the 4.8 of headroom).
+  "BLOCKED kind=DestinationFull",
+  "(?s)savegame name=quicksave (?:(?!MISSIONMARK label=ir1-delivered ).)*Delivery write: route=(?:(?!MISSIONMARK label=ir1-delivered ).)*Delivery write: route=",
+  "(?s)MISSIONMARK label=ir1-reloaded (?:(?!MISSIONMARK label=ir1-redelivered ).)*Delivery write: route=(?:(?!MISSIONMARK label=ir1-redelivered ).)*Delivery write: route=",
+]
+
+[runtime]
+# Two LoadGames and two TimeJumps, each a deferred verb (660 s worst case per the M-A5 S8
+# arithmetic), plus the short steps; 2800 clears 4 x 660.
+budgetSeconds = 2800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -1,0 +1,147 @@
+schema = 1
+id = "IR-2-route-stock-revert-mid-cycle"
+tier = "nightly"
+# =====================================================================================
+# IR-2 (roadmap "The logistics integration program", Phase B): a supply route x a stock
+# Revert to Launch across a dispatch. AUTHORED 2026-10-24, NEVER FLOWN.
+#
+# THE STORY. The player creates the rover route, walks to the SPH, activates the route,
+# launches Kerbal X on the runway, warps until the route dispatches and delivers, then
+# picks Revert to Launch. A stock revert is an IN-SESSION load (LoadReconcilePolicy
+# Routes x StockRevert): the route store and the route event log stay in memory, so
+# `RouteLoadReconcile.ReconcileAtInSessionLoad` must retire the route rows after the launch
+# (the dispatch and the delivery), rebuild the cycle counters from the kept rows, and give
+# the route its loop position back from the launch state's own route copy. The next
+# crossing must then dispatch once and deliver once: no swallowed cycle (a cursor left
+# ahead by the abandoned future, todo ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD,
+# fixed 2026-10-07 and never flown) and no double fire.
+#
+# WHY THE ACTIVATION IS IN THE EDITOR. Activation restarts the route's loop clock at the
+# activation UT, and the first crossing lies about one 45 s loop period later. The Space
+# Center scene runs the clock at 1x, so an activation before the walk to the SPH could
+# cross (and deliver) before the launch, inside the state the revert returns to. The
+# editor freezes the clock: activating there and launching at once puts the launch at
+# the activation UT, so the delivery is unambiguously after the revert's cutoff.
+#
+# WHY `activate` AND NOT send-once: the revert reconcile drops armed one-shot flags by
+# design (`RouteRewindClassifier.ClearArmedOneShotFlags`: they cannot be timestamped, so
+# they never survive time travel). An Active route carries no such flag, so the lane
+# measures the cursor and the event rows only.
+#
+# THE HOST AND THE NUMBERS are IR-1's / RVR-2's (`rover-route-recorded`): stop endpoint
+# `rover fuel 0` (pid 2123618197) about 575 m north of the runway, so LOADED from the
+# Kerbal X flight; 97.6 LiquidFuel per delivery into 297.6 / 400.
+# =====================================================================================
+description = "IR-2, AUTHORED 2026-10-24, never flown: on rover-route-recorded create the rover route, activate it in the SPH, launch Kerbal X on the runway, TimeJump across a dispatch (endpoint 297.6 -> 395.2 LiquidFuel), Revert to Launch. The in-session revert must retire the route rows after the launch (route read-back: completed=0, no dispatch or delivery row, cursor back to the launch state's), the endpoint tank must read 297.6 again, and the next crossing must dispatch and deliver exactly once (395.2, dispatched=1 delivered=1): no swallowed cycle, no double fire. First flight of the 2026-10-07 A1 fix's stock revert half."
+instanceProfile = "stock-minimal"
+tags = ["IR-2", "logistics", "route", "revert", "timeline-ops", "recorded-fixture",
+        "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "DiscardTree",                                                        expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "73e50f1e3aa24c299919016cd9e92269" },   expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "73e50f1e3aa24c299919016cd9e92269", name = "IR2 Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "ExitToSpaceCenter",                                                  expect = "OK", budget = 120 },
+  { cmd = "GoToEditor",   args = { facility = "SPH", craft = "Kerbal X" },      expect = "OK", budget = 120 },
+  # Activated with the clock frozen (header), then launched at once.
+  { cmd = "RouteCommand", args = { action = "activate", route = "IR2 Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                   expect = "OK", budget = 180 },
+  { cmd = "MissionMark",  args = { label = "ir2-launched" },                    expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:297.6", tolerance = "0.01" }, expect = "OK" },
+  # The abandoned future: one crossing, one dispatch, one delivery.
+  { cmd = "TimeJump",     args = { ut = "1600" },                               expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "ir2-delivered" },                   expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:395.2", tolerance = "0.01" }, expect = "OK" },
+  # THE STOCK REVERT (load kind StockRevert, an in-session load).
+  { cmd = "RevertToLaunch",                                                     expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "ir2-reverted" },                    expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:297.6", tolerance = "0.01" }, expect = "OK" },
+  # The re-flown future: exactly one re-dispatch, exactly one delivery.
+  { cmd = "TimeJump",     args = { ut = "1600" },                               expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "ir2-redelivered" },                 expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:395.2", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "FlushAndQuit",                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# autoRecordOnLaunch is off, so the launch records nothing: the host's five committed
+# recordings are the whole corpus.
+count = { min = 5, max = 5 }
+
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "routecommand complete action=create tree=73e50f1e3aa24c299919016cd9e92269 route=.* name='IR2 Rover Supply' status=Paused",
+  "TryActivate: route=\\S+ now Active ",
+  "launchfromeditor complete scene=FLIGHT vessel=Kerbal X ",
+  # BEFORE: the activated route at the launch, nothing run yet.
+  "(?s)MISSIONMARK label=ir2-launched (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR2 Rover Supply' status=Active completed=0 skipped=0 cursor=-1 [^\\r\\n]* stopPids=2123618197 [^\\r\\n]* dispatched=0 debited=0 pickedUp=0 delivered=0 ",
+  "(?s)MISSIONMARK label=ir2-launched (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=297\\.6000 actual=297\\.6[0-9]{3} [^\\r\\n]*match=true",
+  # THE ABANDONED FUTURE.
+  "(?s)MISSIONMARK label=ir2-launched (?:(?!MISSIONMARK label=ir2-delivered ).)*Delivery write: route=\\S+ dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.6[0-9]* written=97\\.6[0-9]* tankBefore=297\\.6[0-9]* tankAfter=395\\.2[0-9]* capacity=400 path=loaded",
+  "(?s)MISSIONMARK label=ir2-delivered (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR2 Rover Supply' status=Active completed=1 skipped=0 cursor=[0-9]+ [^\\r\\n]* dispatched=1 debited=[01] pickedUp=0 delivered=1 ",
+  "(?s)MISSIONMARK label=ir2-delivered (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=395\\.2000 actual=395\\.[0-9]{4} [^\\r\\n]*match=true",
+  # THE REVERT: classified StockRevert, the route rows after the launch retired.
+  "reverttolaunch start pid=[0-9]+ name='Kerbal X' situation=PRELAUNCH ",
+  "Load classified: early=\\w+ refined=StockRevert scene=FLIGHT",
+  "Route reconcile at in-session load: kind=StockRevert cutoff=\\S+ loadedSaveUT=\\S+ evidence=\\S+ retiredRouteRows=[1-9][0-9]* committedRoutes=1 newlyDormant=0 savedRoutes=1 ",
+  "reverttolaunch complete pid=[0-9]+ name='[^'\\r\\n]*' situation=PRELAUNCH elapsed=",
+  # AFTER THE REVERT: no cycle, no dispatch or delivery row, the launch state's tank.
+  "(?s)MISSIONMARK label=ir2-reverted (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR2 Rover Supply' status=Active completed=0 skipped=0 cursor=-1 [^\\r\\n]* dispatched=0 debited=0 pickedUp=0 delivered=0 ",
+  "(?s)MISSIONMARK label=ir2-reverted (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=297\\.6000 actual=297\\.6[0-9]{3} [^\\r\\n]*match=true",
+  # THE RE-FLOWN FUTURE: exactly one re-dispatch, exactly one delivery.
+  "(?s)MISSIONMARK label=ir2-reverted (?:(?!MISSIONMARK label=ir2-redelivered ).)*Delivery write: route=\\S+ dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.6[0-9]* written=97\\.6[0-9]* tankBefore=297\\.6[0-9]* tankAfter=395\\.2[0-9]* capacity=400 path=loaded",
+  "(?s)MISSIONMARK label=ir2-redelivered (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR2 Rover Supply' status=Active completed=1 skipped=0 cursor=[0-9]+ [^\\r\\n]* dispatched=1 debited=[01] pickedUp=0 delivered=1 ",
+  "(?s)MISSIONMARK label=ir2-redelivered (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=395\\.2000 actual=395\\.[0-9]{4} [^\\r\\n]*match=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "listhandles rejected",
+  "readvesselresources rejected",
+  "readvesselresources expect [^\\r\\n]*match=false",
+  "reverttolaunch rejected",
+  "reverttolaunch error",
+  # A delivery before the launch would sit inside the state the revert returns to.
+  "(?s)name='IR2 Rover Supply' status=Paused(?:(?!MISSIONMARK label=ir2-launched ).)*Delivery write: route=",
+  "(?s)MISSIONMARK label=ir2-launched (?:(?!MISSIONMARK label=ir2-delivered ).)*Delivery write: route=(?:(?!MISSIONMARK label=ir2-delivered ).)*Delivery write: route=",
+  # A second delivery in either future (a double fire meets the 4.8 of headroom).
+  "BLOCKED kind=DestinationFull",
+  "(?s)MISSIONMARK label=ir2-reverted (?:(?!MISSIONMARK label=ir2-redelivered ).)*Delivery write: route=(?:(?!MISSIONMARK label=ir2-redelivered ).)*Delivery write: route=",
+]
+
+[runtime]
+# Boot LoadGame, the editor walk and launch, the revert and two TimeJumps: five deferred
+# verbs at the 660 s worst case each, plus the short steps.
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

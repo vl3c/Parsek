@@ -791,6 +791,216 @@ namespace Parsek.Tests
             Assert.Equal("1", TestCommandListHandles.CountFromPayload(plain, ListHandlesKind.Chains));
         }
 
+        // ----- routes family -----
+
+        private static RouteRow Route(string id, string name = "R")
+            => new RouteRow
+            {
+                Id = id,
+                Name = name,
+                Status = Parsek.Logistics.RouteStatus.Active,
+                Cursor = -1,
+                WindowAnchorCycleIndex = -1,
+                LoopAnchorUt = 979.5,
+                CurrentSegmentIndex = -1,
+                PendingStopIndex = -1,
+                OriginPid = 313889796,
+                StopPids = new List<uint> { 2123618197 },
+                StopFiredCycleIndices = new List<long> { -1 },
+            };
+
+        [Fact]
+        public void ParseKind_accepts_routes_and_maps_it_to_its_own_member()
+        {
+            ListHandlesKind kind;
+            string reason;
+            Assert.True(TestCommandListHandles.ParseKind("routes", out kind, out reason));
+            Assert.Equal(ListHandlesKind.Routes, kind);
+            Assert.Null(reason);
+            Assert.Equal("routes", TestCommandListHandles.KindToken(kind));
+            Assert.False(TestCommandListHandles.ParseKind("Routes", out kind, out reason));
+            Assert.Equal(TestCommandListHandles.KindArgInvalidReason, reason);
+        }
+
+        [Fact]
+        public void Routes_payload_emits_the_documented_key_sequence()
+        {
+            RouteRow row = Route("3c7e6a7e00000000", "IR1 Rover Supply");
+            row.Status = Parsek.Logistics.RouteStatus.Paused;
+            row.CompletedCycles = 1;
+            row.SkippedCycles = 2;
+            row.Cursor = 20;
+            row.WindowAnchorCycleIndex = 7;
+            row.CurrentSegmentIndex = 3;
+            row.PendingStopIndex = 0;
+            row.CurrentCycleStartUt = 1600.25;
+            row.PendingDeliveryUt = null;
+            row.SendOnceArmed = true;
+            row.PauseAfterCurrentCycle = true;
+            row.Dispatched = 1;
+            row.Debited = 1;
+            row.PickedUp = 0;
+            row.Delivered = 1;
+            row.Paused = 1;
+            row.Resumed = 2;
+            row.Held = 3;
+
+            List<KeyValuePair<string, string>> payload =
+                TestCommandListHandles.BuildRoutesPayload(new[] { row }, 1);
+
+            Assert.Equal(new[]
+            {
+                "kind", "count", "truncated", "dormant",
+                "route0", "route0name", "route0status", "route0completed", "route0skipped",
+                "route0cursor", "route0windowAnchor", "route0loopAnchorUT", "route0segment",
+                "route0pendingStop", "route0cycleStartUT", "route0pendingDeliveryUT",
+                "route0sendOnce", "route0pauseAfter", "route0origin", "route0stops",
+                "route0stopPids", "route0stopFired", "route0dispatched", "route0debited",
+                "route0pickedUp", "route0delivered", "route0paused", "route0resumed", "route0held",
+            }, Keys(payload));
+            Dictionary<string, string> m = Map(payload);
+            Assert.Equal("routes", m["kind"]);
+            Assert.Equal("1", m["count"]);
+            Assert.Equal("false", m["truncated"]);
+            Assert.Equal("1", m["dormant"]);
+            Assert.Equal("3c7e6a7e00000000", m["route0"]);
+            Assert.Equal("IR1 Rover Supply", m["route0name"]);
+            Assert.Equal("Paused", m["route0status"]);
+            Assert.Equal("1", m["route0completed"]);
+            Assert.Equal("2", m["route0skipped"]);
+            Assert.Equal("20", m["route0cursor"]);
+            Assert.Equal("7", m["route0windowAnchor"]);
+            Assert.Equal("979.5", m["route0loopAnchorUT"]);
+            Assert.Equal("3", m["route0segment"]);
+            Assert.Equal("0", m["route0pendingStop"]);
+            Assert.Equal("1600.25", m["route0cycleStartUT"]);
+            Assert.Equal("none", m["route0pendingDeliveryUT"]);
+            Assert.Equal("true", m["route0sendOnce"]);
+            Assert.Equal("true", m["route0pauseAfter"]);
+            Assert.Equal("313889796", m["route0origin"]);
+            Assert.Equal("1", m["route0stops"]);
+            Assert.Equal("2123618197", m["route0stopPids"]);
+            Assert.Equal("-1", m["route0stopFired"]);
+            Assert.Equal("1", m["route0dispatched"]);
+            Assert.Equal("1", m["route0debited"]);
+            Assert.Equal("0", m["route0pickedUp"]);
+            Assert.Equal("1", m["route0delivered"]);
+            Assert.Equal("1", m["route0paused"]);
+            Assert.Equal("2", m["route0resumed"]);
+            Assert.Equal("3", m["route0held"]);
+        }
+
+        [Fact]
+        public void Routes_ksc_origin_reads_ksc_and_store_order_is_kept()
+        {
+            RouteRow b = Route("bbbb");
+            RouteRow a = Route("aaaa");
+            a.KscOrigin = true;
+            a.OriginPid = 0;
+            Dictionary<string, string> m = Map(
+                TestCommandListHandles.BuildRoutesPayload(new[] { b, a }, 0));
+            Assert.Equal("bbbb", m["route0"]);
+            Assert.Equal("aaaa", m["route1"]);
+            Assert.Equal("313889796", m["route0origin"]);
+            Assert.Equal("ksc", m["route1origin"]);
+            Assert.Equal("0", m["dormant"]);
+        }
+
+        [Fact]
+        public void Routes_cap_enumerates_sixteen_and_reports_the_true_total()
+        {
+            var rows = new List<RouteRow>();
+            for (int i = 0; i < 20; i++)
+                rows.Add(Route("r" + i.ToString(CultureInfo.InvariantCulture)));
+            Dictionary<string, string> m = Map(TestCommandListHandles.BuildRoutesPayload(rows, 0));
+            Assert.Equal("20", m["count"]);
+            Assert.Equal("true", m["truncated"]);
+            Assert.True(m.ContainsKey("route15"));
+            Assert.False(m.ContainsKey("route16"));
+        }
+
+        [Fact]
+        public void Routes_stop_lists_are_capped_and_the_cut_raises_truncated()
+        {
+            RouteRow row = Route("multi");
+            row.StopPids = new List<uint>();
+            row.StopFiredCycleIndices = new List<long>();
+            for (int i = 0; i < 10; i++)
+            {
+                row.StopPids.Add((uint)(100 + i));
+                row.StopFiredCycleIndices.Add(i);
+            }
+            Dictionary<string, string> m = Map(TestCommandListHandles.BuildRoutesPayload(new[] { row }, 0));
+            Assert.Equal("1", m["count"]);
+            Assert.Equal("true", m["truncated"]);
+            Assert.Equal("10", m["route0stops"]);
+            Assert.Equal("100,101,102,103,104,105,106,107", m["route0stopPids"]);
+            Assert.Equal("0,1,2,3,4,5,6,7", m["route0stopFired"]);
+        }
+
+        [Fact]
+        public void Routes_empty_and_null_lists_are_legitimate_answers()
+        {
+            Dictionary<string, string> m = Map(TestCommandListHandles.BuildRoutesPayload(null, -3));
+            Assert.Equal("0", m["count"]);
+            Assert.Equal("false", m["truncated"]);
+            Assert.Equal("0", m["dormant"]);
+
+            RouteRow bare = new RouteRow { Id = null, Name = null };
+            m = Map(TestCommandListHandles.BuildRoutesPayload(new[] { bare }, 0));
+            Assert.Equal(string.Empty, m["route0"]);
+            Assert.Equal("0", m["route0stops"]);
+            Assert.Equal(string.Empty, m["route0stopPids"]);
+            Assert.Equal(string.Empty, m["route0stopFired"]);
+        }
+
+        [Fact]
+        public void Routes_uts_are_invariant_culture()
+        {
+            CultureInfo saved = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                RouteRow row = Route("r");
+                row.LoopAnchorUt = 1234.5;
+                row.PendingDeliveryUt = 99.75;
+                Dictionary<string, string> m = Map(TestCommandListHandles.BuildRoutesPayload(new[] { row }, 0));
+                Assert.Equal("1234.5", m["route0loopAnchorUT"]);
+                Assert.Equal("99.75", m["route0pendingDeliveryUT"]);
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
+
+        [Fact]
+        public void Route_log_lines_mirror_the_payload_one_line_per_enumerated_route()
+        {
+            RouteRow row = Route("3c7e6a7e", "IR1 Rover Supply");
+            row.CompletedCycles = 1;
+            row.Cursor = 20;
+            row.Dispatched = 1;
+            row.Delivered = 1;
+            List<KeyValuePair<string, string>> payload =
+                TestCommandListHandles.BuildRoutesPayload(new[] { row, Route("second") }, 0);
+            List<string> lines = TestCommandListHandles.RouteLogLines(payload, ListHandlesKind.Routes);
+            Assert.Equal(2, lines.Count);
+            Assert.Equal(
+                "listhandles route index=0 id=3c7e6a7e name='IR1 Rover Supply' status=Active "
+                + "completed=1 skipped=0 cursor=20 windowAnchor=-1 loopAnchorUT=979.5 segment=-1 "
+                + "pendingStop=-1 cycleStartUT=none pendingDeliveryUT=none sendOnce=false "
+                + "pauseAfter=false origin=313889796 stops=1 stopPids=2123618197 stopFired=-1 "
+                + "dispatched=1 debited=0 pickedUp=0 delivered=1 paused=0 resumed=0 held=0",
+                lines[0]);
+            Assert.StartsWith("listhandles route index=1 id=second name='R' ", lines[1]);
+
+            Assert.Empty(TestCommandListHandles.RouteLogLines(payload, ListHandlesKind.Chains));
+            Assert.Equal(" dormant=0",
+                TestCommandListHandles.ChainsLogTail(payload, ListHandlesKind.Routes));
+            Assert.Equal("2", TestCommandListHandles.CountFromPayload(payload, ListHandlesKind.Routes));
+        }
+
         // ----- registration -----
 
         [Fact]
