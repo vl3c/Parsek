@@ -787,5 +787,55 @@ namespace Parsek.Tests
             Assert.True(r.NudgeMeters <= 100.0,
                 $"nudge={r.NudgeMeters}m should stay local (<=100m)");
         }
+    
+        // ────────────────────────────────────────────────────────────
+        //  ClassifyLoadedVesselHit (GC9-SPAWN-IGNORES-ACTIVE-VESSEL)
+        // ────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void ClassifyLoadedVesselHit_LoadedShip_IsBlocker()
+        {
+            // The per-hit filter has no active-vessel input: a loaded ship blocks whether or
+            // not the player flies it, so a rover parked on a plane's stop point blocks.
+            Assert.Equal(SpawnCollisionDetector.LoadedVesselHitVerdict.Blocker,
+                SpawnCollisionDetector.ClassifyLoadedVesselHit(
+                    loaded: true, isGhostMapVessel: false, vesselPid: 4242u,
+                    exemptVesselPid: 0u, vesselType: VesselType.Rover));
+            Assert.Equal(SpawnCollisionDetector.LoadedVesselHitVerdict.Blocker,
+                SpawnCollisionDetector.ClassifyLoadedVesselHit(
+                    loaded: true, isGhostMapVessel: false, vesselPid: 4242u,
+                    exemptVesselPid: 999u, vesselType: VesselType.Plane));
+        }
+
+        [Fact]
+        public void ClassifyLoadedVesselHit_Filters_InOrder()
+        {
+            Assert.Equal(SpawnCollisionDetector.LoadedVesselHitVerdict.NotLoaded,
+                SpawnCollisionDetector.ClassifyLoadedVesselHit(
+                    loaded: false, isGhostMapVessel: true, vesselPid: 7u,
+                    exemptVesselPid: 7u, vesselType: VesselType.Debris));
+            Assert.Equal(SpawnCollisionDetector.LoadedVesselHitVerdict.GhostMapVessel,
+                SpawnCollisionDetector.ClassifyLoadedVesselHit(
+                    loaded: true, isGhostMapVessel: true, vesselPid: 7u,
+                    exemptVesselPid: 7u, vesselType: VesselType.Ship));
+            // An EVA's parent stays exempt even when it is the vessel the player flies.
+            Assert.Equal(SpawnCollisionDetector.LoadedVesselHitVerdict.ExemptParent,
+                SpawnCollisionDetector.ClassifyLoadedVesselHit(
+                    loaded: true, isGhostMapVessel: false, vesselPid: 7u,
+                    exemptVesselPid: 7u, vesselType: VesselType.Debris));
+            Assert.Equal(SpawnCollisionDetector.LoadedVesselHitVerdict.SkippedVesselType,
+                SpawnCollisionDetector.ClassifyLoadedVesselHit(
+                    loaded: true, isGhostMapVessel: false, vesselPid: 7u,
+                    exemptVesselPid: 8u, vesselType: VesselType.Flag));
+        }
+
+        [Fact]
+        public void ClassifyLoadedVesselHit_ZeroExemptPid_ExemptsNothing()
+        {
+            Assert.Equal(SpawnCollisionDetector.LoadedVesselHitVerdict.Blocker,
+                SpawnCollisionDetector.ClassifyLoadedVesselHit(
+                    loaded: true, isGhostMapVessel: false, vesselPid: 0u,
+                    exemptVesselPid: 0u, vesselType: VesselType.Ship));
+        }
     }
 }

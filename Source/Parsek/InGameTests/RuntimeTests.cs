@@ -12386,7 +12386,7 @@ namespace Parsek.InGameTests
                 Vector3d endpointWorldPos = body.GetWorldSurfacePosition(targetLat, targetLon, endpointAlt);
                 var (endpointOverlap, _, endpointBlockerName, _) =
                     Parsek.SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
-                        endpointWorldPos, kerbalBounds, EvaSpawnOverlapPaddingMeters, skipActiveVessel: false);
+                        endpointWorldPos, kerbalBounds, EvaSpawnOverlapPaddingMeters);
                 if (!endpointOverlap)
                 {
                     // No blocker at the endpoint means the spawner will place the kerbal at the
@@ -12478,6 +12478,238 @@ namespace Parsek.InGameTests
                 {
                     try { HighLogic.CurrentGame.CrewRoster.Remove(testKerbal); }
                     catch { /* best-effort */ }
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        //  GC9-SPAWN-IGNORES-ACTIVE-VESSEL — the active vessel blocks a non-EVA spawn
+        // ─────────────────────────────────────────────────────────────
+
+        [InGameTest(Category = "SpawnActiveVesselBlocker", Scene = GameScenes.FLIGHT,
+            Description = "A non-EVA end-of-recording spawn whose endpoint sits under the active vessel walks back along its trajectory instead of spawning inside it")]
+        public IEnumerator NonEvaSpawnWalksBackOffActiveVessel()
+        {
+            // The plane-into-rover case: a committed recording ends Landed exactly where the
+            // player parked the vessel they fly. Before the fix a non-EVA spawn filtered the
+            // active vessel out of the overlap check and spawned inside it; now the active
+            // vessel blocks and the walkback places the spawn behind it.
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null)
+            {
+                InGameAssert.Skip("needs Flight scene with an active vessel");
+                yield break;
+            }
+            var body = activeVessel.mainBody;
+            if (body == null)
+            {
+                InGameAssert.Skip("active vessel has no mainBody");
+                yield break;
+            }
+            // Same surface rules as EvaSpawnWalkbackOnOverlap: the Landed endpoint sits on the
+            // terrain under the active vessel, and a splashed host makes the walkback raycast
+            // snap to the seabed.
+            bool onSolidGround = !activeVessel.Splashed
+                && (activeVessel.Landed
+                    || activeVessel.situation == Vessel.Situations.PRELAUNCH);
+            if (!onSolidGround)
+            {
+                InGameAssert.Skip(
+                    $"requires a LANDED or PRELAUNCH active vessel on solid ground, got {activeVessel.situation} at " +
+                    $"{activeVessel.altitude.ToString("F0", CultureInfo.InvariantCulture)} m altitude");
+                yield break;
+            }
+            if (Parsek.SpawnCollisionDetector.ShouldSkipVesselType(activeVessel.vesselType))
+            {
+                InGameAssert.Skip(
+                    $"requires an active vessel the spawn overlap check can see as a blocker, got " +
+                    $"vesselType={activeVessel.vesselType}");
+                yield break;
+            }
+
+            const uint fakePid = 912641003u;
+            Parsek.Recording rec = null;
+            Vessel spawnedVessel = null;
+            var captured = new List<string>();
+            System.Action<string> prevObserver = ParsekLog.TestObserverForTesting;
+            ParsekLog.TestObserverForTesting = line => captured.Add(line);
+            var ic = CultureInfo.InvariantCulture;
+
+            try
+            {
+                // The spawned vessel is an uncrewed copy of the active vessel: real parts, real
+                // bounds, nobody aboard to duplicate.
+                ConfigNode donor = Parsek.VesselSpawner.TryBackupSnapshot(activeVessel);
+                if (donor == null)
+                {
+                    InGameAssert.Skip("TryBackupSnapshot of the active vessel returned null");
+                    yield break;
+                }
+                Parsek.VesselSpawner.StripAllCrewFromSnapshot(donor);
+
+                Vector3d targetWorldPos = activeVessel.CoMD;
+                double targetLat = body.GetLatitude(targetWorldPos);
+                double targetLon = body.GetLongitude(targetWorldPos);
+                double endpointAlt = body.TerrainAltitude(targetLat, targetLon)
+                    + Parsek.VesselSpawner.UndergroundSafetyFloorMeters;
+
+                // A non-EVA spawn takes its position from the snapshot, so the snapshot names
+                // the endpoint under the active vessel.
+                donor.SetValue("lat", targetLat.ToString("R", ic), true);
+                donor.SetValue("lon", targetLon.ToString("R", ic), true);
+                donor.SetValue("alt", endpointAlt.ToString("R", ic), true);
+
+                Bounds spawnBounds = Parsek.SpawnCollisionDetector.ComputeVesselBounds(donor);
+                InGameAssert.IsGreaterThan(spawnBounds.size.magnitude, 0.5,
+                    "Snapshot ComputeVesselBounds should not be zero (PART pos missing?)");
+                double spawnBoundsExtent = System.Math.Max(
+                    spawnBounds.extents.x,
+                    System.Math.Max(spawnBounds.extents.y, spawnBounds.extents.z));
+
+                double parentReach = ResolveParentReachMeters(activeVessel);
+                double clearanceBudget = InGameFixtureMath.ResolveWalkbackClearanceBudgetMeters(
+                    parentReach, spawnBoundsExtent, EvaSpawnOverlapPaddingMeters);
+                double trajectoryLength = InGameFixtureMath.ResolveWalkbackFixtureLengthMeters(
+                    parentReach, spawnBoundsExtent, EvaSpawnOverlapPaddingMeters);
+                double maxWalkbackTravel = InGameFixtureMath.ResolveMaxWalkbackTravelMeters(
+                    parentReach, spawnBoundsExtent, EvaSpawnOverlapPaddingMeters);
+                if (!InGameFixtureMath.WalkbackFixtureCoversParent(trajectoryLength, clearanceBudget))
+                {
+                    InGameAssert.Skip(
+                        $"requires an active vessel the walkback fixture can clear: '{activeVessel.vesselName}' " +
+                        $"needs {clearanceBudget.ToString("F0", ic)} m of backtrack, over the fixture's " +
+                        $"{InGameFixtureMath.WalkbackFixtureMaxLengthMeters.ToString("F0", ic)} m cap");
+                    yield break;
+                }
+
+                int pointCount = InGameFixtureMath.ResolveWalkbackFixturePointCount(
+                    trajectoryLength, InGameFixtureMath.WalkbackFixtureStepMeters);
+                int stepCount = pointCount - 1;
+                double metresPerDegLat = body.Radius * (System.Math.PI / 180.0);
+                double latStepDeg = InGameFixtureMath.WalkbackFixtureStepMeters / metresPerDegLat;
+                double latSpanDeg = stepCount * latStepDeg;
+                double dirSign = (targetLat - latSpanDeg) >= -85.0 ? 1.0 : -1.0;
+                double startLat = targetLat - dirSign * latSpanDeg;
+                if (startLat < -89.9 || startLat > 89.9)
+                {
+                    InGameAssert.Skip("requires an active vessel away from the poles");
+                    yield break;
+                }
+
+                rec = new Parsek.Recording
+                {
+                    RecordingId = "active-blocker-test-" + System.DateTime.UtcNow.Ticks,
+                    VesselName = "ParsekTestActiveBlocker",
+                    VesselPersistentId = fakePid,
+                    VesselSnapshot = donor,
+                    TerminalStateValue = Parsek.TerminalState.Landed,
+                };
+                double ut0 = Planetarium.GetUniversalTime();
+                // Surface-relative attitude of the active vessel, so the copy spawns upright
+                // (an identity rotation would lay a rover on its side).
+                Quaternion uprightSrfRel = activeVessel.srfRelRotation;
+                for (int i = 0; i < pointCount; i++)
+                {
+                    double lat = startLat + (dirSign * i * latStepDeg);
+                    rec.Points.Add(new Parsek.TrajectoryPoint
+                    {
+                        ut = ut0 + i,
+                        latitude = lat,
+                        longitude = targetLon,
+                        altitude = body.TerrainAltitude(lat, targetLon)
+                            + Parsek.VesselSpawner.UndergroundSafetyFloorMeters,
+                        bodyName = body.name,
+                        rotation = uprightSrfRel,
+                        velocity = Vector3.zero,
+                    });
+                }
+
+                // A flight that ends parked on the pad or the runway start is retired, never
+                // spawned, so a host inside a KSC exclusion zone measures nothing here.
+                if (Parsek.VesselSpawner.EvaluateKscEndOfFlightRetirement(rec).Retire)
+                {
+                    InGameAssert.Skip(
+                        $"requires an active vessel outside the KSC exclusion zones: a Landed flight ending under " +
+                        $"'{activeVessel.vesselName}' (lat={targetLat.ToString("F4", ic)}, lon={targetLon.ToString("F4", ic)}) " +
+                        $"is retired, not spawned");
+                    yield break;
+                }
+
+                Vector3d endpointWorldPos = body.GetWorldSurfacePosition(targetLat, targetLon, endpointAlt);
+                var (endpointOverlap, _, endpointBlockerName, endpointBlocker) =
+                    Parsek.SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
+                        endpointWorldPos, spawnBounds, EvaSpawnOverlapPaddingMeters);
+                if (!endpointOverlap)
+                {
+                    InGameAssert.Skip(
+                        $"requires the recorded endpoint to overlap the active vessel: the terrain point under " +
+                        $"'{activeVessel.vesselName}' is clear (blocker='{endpointBlockerName ?? "none"}')");
+                    yield break;
+                }
+                // The overlap probe itself is the fix: before it the active vessel was filtered
+                // out, so the probe's blocker must be the active vessel.
+                InGameAssert.IsTrue(endpointBlocker == activeVessel,
+                    $"The endpoint's blocker should be the active vessel '{activeVessel.vesselName}', " +
+                    $"got '{endpointBlockerName}'");
+
+                ParsekLog.Info("TestRunner",
+                    $"NonEvaSpawnWalksBackOffActiveVessel fixture: active='{activeVessel.vesselName}' " +
+                    $"parts={activeVessel.parts?.Count ?? 0} parentReach={parentReach.ToString("F1", ic)} " +
+                    $"boundsExtent={spawnBoundsExtent.ToString("F2", ic)} " +
+                    $"trajectoryLength={trajectoryLength.ToString("F1", ic)} points={pointCount}");
+
+                Parsek.VesselSpawner.SpawnOrRecoverIfTooClose(rec, 0);
+
+                yield return new WaitForFixedUpdate();
+                yield return new WaitForFixedUpdate();
+
+                InGameAssert.IsTrue(rec.VesselSpawned, "Recording.VesselSpawned should be true after walkback");
+                InGameAssert.IsFalse(rec.WalkbackExhausted, "Walkback should have found a clear position");
+                InGameAssert.IsFalse(rec.DuplicateBlockerRecovered,
+                    "The active vessel must never be recovered as a duplicate blocker");
+                InGameAssert.IsTrue(FlightGlobals.ActiveVessel == activeVessel,
+                    "The active vessel should still be the active vessel after the spawn");
+
+                spawnedVessel = Parsek.FlightRecorder.FindVesselByPid(rec.SpawnedVesselPersistentId);
+                InGameAssert.IsNotNull(spawnedVessel, "Spawned vessel should be findable after walkback");
+
+                double distFromActive = Vector3d.Distance(spawnedVessel.CoMD, activeVessel.CoMD);
+                double distFromEndpoint = Vector3d.Distance(spawnedVessel.CoMD, endpointWorldPos);
+                ParsekLog.Info("TestRunner",
+                    $"NonEvaSpawnWalksBackOffActiveVessel: distFromActive={distFromActive.ToString("F1", ic)} m " +
+                    $"distFromEndpoint={distFromEndpoint.ToString("F1", ic)} m " +
+                    $"maxWalkbackTravel={maxWalkbackTravel.ToString("F1", ic)} m");
+
+                InGameAssert.IsGreaterThan(distFromEndpoint, 1.0,
+                    $"Walkback should move the spawn off the endpoint under the active vessel " +
+                    $"(was {distFromEndpoint.ToString("F1", ic)} m)");
+                InGameAssert.IsLessThan(distFromEndpoint, maxWalkbackTravel,
+                    $"Walkback should stop at the first clear position " +
+                    $"(travel {distFromEndpoint.ToString("F1", ic)} m, max {maxWalkbackTravel.ToString("F1", ic)} m)");
+
+                bool sawWalkbackLog = captured.Any(l =>
+                    (l.Contains("[SpawnCollision]") && l.Contains("WalkbackSubdivided: cleared")) ||
+                    (l.Contains("[Spawner]") && l.Contains("TryWalkbackForEndOfRecordingSpawn: found clear position")));
+                InGameAssert.IsTrue(sawWalkbackLog, "Expected walkback success log line during spawn");
+            }
+            finally
+            {
+                ParsekLog.TestObserverForTesting = prevObserver;
+                Vessel toRecover = spawnedVessel;
+                if (toRecover == null && rec != null && rec.SpawnedVesselPersistentId != 0)
+                    toRecover = Parsek.FlightRecorder.FindVesselByPid(rec.SpawnedVesselPersistentId);
+                if (toRecover != null && toRecover != FlightGlobals.ActiveVessel && toRecover.protoVessel != null)
+                {
+                    try
+                    {
+                        ShipConstruction.RecoverVesselFromFlight(
+                            toRecover.protoVessel, HighLogic.CurrentGame.flightState, true);
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ParsekLog.Warn("TestRunner",
+                            $"NonEvaSpawnWalksBackOffActiveVessel cleanup failed: {ex.Message}");
+                    }
                 }
             }
         }

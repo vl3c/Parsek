@@ -85,6 +85,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A vessel that appears at the end of its flight no longer appears inside the vessel you fly.**
+  A plane that ended its flight mid-runway used to appear inside a rover you had parked on its stop
+  point. The vessel you fly now blocks the spot like any other, and the plane appears just behind it
+  on its own track. (GC9-SPAWN-IGNORES-ACTIVE-VESSEL)
 - **Discard Re-fly no longer brings back a vessel your committed future still flies.** The
   discard returns you to the moment of the separation, and every vessel a committed flight flies,
   docks with, boards or recovers after that moment is now held back as a plain rewind does, so it

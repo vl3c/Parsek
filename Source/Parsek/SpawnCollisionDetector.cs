@@ -35,6 +35,35 @@ namespace Parsek
                    type == VesselType.SpaceObject;
         }
 
+        /// <summary>What a part-owned overlap hit on a vessel means for a spawn.</summary>
+        internal enum LoadedVesselHitVerdict
+        {
+            Blocker = 0,
+            NotLoaded = 1,
+            GhostMapVessel = 2,
+            ExemptParent = 3,
+            SkippedVesselType = 4,
+        }
+
+        /// <summary>
+        /// Pure per-hit filter of <see cref="CheckOverlapAgainstLoadedVessels"/>, checked in
+        /// this order: an unloaded vessel, a ghost map vessel, the exempt vessel (an EVA's
+        /// parent, T57) and a skipped vessel type do not block; anything else does. There is
+        /// deliberately no active-vessel input: the vessel the player flies blocks a spawn like
+        /// any other loaded vessel (todo GC9-SPAWN-IGNORES-ACTIVE-VESSEL).
+        /// </summary>
+        internal static LoadedVesselHitVerdict ClassifyLoadedVesselHit(
+            bool loaded, bool isGhostMapVessel, uint vesselPid, uint exemptVesselPid,
+            VesselType vesselType)
+        {
+            if (!loaded) return LoadedVesselHitVerdict.NotLoaded;
+            if (isGhostMapVessel) return LoadedVesselHitVerdict.GhostMapVessel;
+            if (exemptVesselPid != 0 && vesselPid == exemptVesselPid)
+                return LoadedVesselHitVerdict.ExemptParent;
+            if (ShouldSkipVesselType(vesselType)) return LoadedVesselHitVerdict.SkippedVesselType;
+            return LoadedVesselHitVerdict.Blocker;
+        }
+
         /// <summary>Default half-extent per part when actual size is unknown.</summary>
         private const float DefaultPartHalfExtent = 1.25f;
 
@@ -1014,8 +1043,12 @@ namespace Parsek
         /// <see cref="Part"/> via <see cref="FlightGlobals.GetPartUpwardsCached"/>
         /// (same helper KSP uses in <c>Vessel.CheckGroundCollision</c>). Hits
         /// without a Part owner (terrain, buildings, runway mesh colliders) are
-        /// ignored. Hits on the active vessel / exempt vessel / skipped vessel
-        /// types are filtered per the existing semantics. When <paramref name="spawningRecording"/>
+        /// ignored. Each part-owned hit is then classified by
+        /// <see cref="ClassifyLoadedVesselHit"/>: an unloaded vessel, a ghost map vessel, the
+        /// exempt vessel (an EVA's parent) and a skipped vessel type do not block. The ACTIVE
+        /// vessel blocks like any other loaded vessel (todo GC9-SPAWN-IGNORES-ACTIVE-VESSEL): a
+        /// spawn whose source IS the active vessel was adopted before any collision check, so a
+        /// vessel the player flies onto a spawn spot is a real obstacle. When <paramref name="spawningRecording"/>
         /// is given, a hit on a live vessel Parsek spawned from another member of the same
         /// committed tree that co-existed with it at its recorded spot is filtered too
         /// (<see cref="CoexistingTreeSiblingSpawn"/>). A walkback passes the candidate's recorded
@@ -1023,7 +1056,7 @@ namespace Parsek
         /// spot at that UT; NaN means the end-of-recording position.</para>
         /// </summary>
         internal static (bool overlap, float closestDistance, string blockerName, Vessel blockerVessel) CheckOverlapAgainstLoadedVessels(
-            Vector3d spawnWorldPos, Bounds spawnBounds, float padding, bool skipActiveVessel = true,
+            Vector3d spawnWorldPos, Bounds spawnBounds, float padding,
             uint exemptVesselPid = 0, Recording spawningRecording = null, string site = null,
             double candidateUT = double.NaN)
         {
@@ -1063,7 +1096,7 @@ namespace Parsek
                 $"CheckOverlapAgainstLoadedVessels: Physics.OverlapBox at " +
                 $"({worldCenter.x.ToString("F0", IC)},{worldCenter.y.ToString("F0", IC)},{worldCenter.z.ToString("F0", IC)}) " +
                 $"halfExtents=({halfExtents.x.ToString("F1", IC)},{halfExtents.y.ToString("F1", IC)},{halfExtents.z.ToString("F1", IC)}) " +
-                $"padding={padding.ToString("F1", IC)}m, skipActiveVessel={skipActiveVessel}" +
+                $"padding={padding.ToString("F1", IC)}m" +
                 (exemptVesselPid != 0 ? $", exemptPid={exemptVesselPid} (T57)" : ""));
 
             Collider[] hits = Physics.OverlapBox(worldCenter, halfExtents, surfaceRot,
@@ -1103,10 +1136,19 @@ namespace Parsek
                     continue;
                 }
 
-                if (!other.loaded) { filteredHits++; continue; }
-                if (GhostMapPresence.IsGhostMapVessel(other.persistentId)) { filteredHits++; continue; }
-                if (skipActiveVessel && other == FlightGlobals.ActiveVessel) { filteredHits++; continue; }
-                if (exemptVesselPid != 0 && other.persistentId == exemptVesselPid)
+                LoadedVesselHitVerdict verdict = ClassifyLoadedVesselHit(
+                    other.loaded,
+                    GhostMapPresence.IsGhostMapVessel(other.persistentId),
+                    other.persistentId,
+                    exemptVesselPid,
+                    other.vesselType);
+                if (verdict == LoadedVesselHitVerdict.NotLoaded
+                    || verdict == LoadedVesselHitVerdict.GhostMapVessel)
+                {
+                    filteredHits++;
+                    continue;
+                }
+                if (verdict == LoadedVesselHitVerdict.ExemptParent)
                 {
                     // Rate-limited per-vessel: walkback substeps hitting the same exempt
                     // parent vessel would otherwise log once per substep.
@@ -1117,7 +1159,7 @@ namespace Parsek
                     filteredHits++;
                     continue;
                 }
-                if (ShouldSkipVesselType(other.vesselType))
+                if (verdict == LoadedVesselHitVerdict.SkippedVesselType)
                 {
                     if (reportedPids.Add(other.persistentId))
                         ParsekLog.VerboseRateLimited(Tag, "overlap-skiptype-" + other.persistentId,
@@ -1157,10 +1199,12 @@ namespace Parsek
 
                 if (reportedPids.Add(other.persistentId))
                 {
+                    bool isActive = other == FlightGlobals.ActiveVessel;
                     ParsekLog.VerboseRateLimited(Tag,
                         "overlap-" + other.persistentId,
                         $"Spawn overlaps with {Recording.ResolveLocalizedName(other.vesselName)} " +
-                        $"(pid={other.persistentId}) via part '{part.partInfo?.name ?? "?"}' at {dist.ToString("F1", IC)}m");
+                        $"(pid={other.persistentId}{(isActive ? ", active vessel" : "")}) " +
+                        $"via part '{part.partInfo?.name ?? "?"}' at {dist.ToString("F1", IC)}m");
                 }
             }
 
