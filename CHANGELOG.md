@@ -4,6 +4,12 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.10.7
+
+_(unreleased - entries accumulate here per commit)_
+
+---
+
 ## 0.10.6
 
 ### Highlights
