@@ -5914,7 +5914,7 @@ clamp and the hire's reconcile warning.
 
 ---
 
-## HARNESS-ROUTE-STATE-READBACK-SEAM: no seam verb reads a route's live state between steps [FILED 2026-10-06 for the logistics integration program (C2), branch `ccr-77f23eb2-dbqh6i`. OPEN, harness]
+## ~~HARNESS-ROUTE-STATE-READBACK-SEAM: no seam verb reads a route's live state between steps~~ [FILED 2026-10-06 for the logistics integration program (C2), branch `ccr-77f23eb2-dbqh6i`. DONE 2026-10-24, branch `claude/project-thread-3jm6oa`: `ListHandles kind=routes`; consumers IR-1 / IR-2, authored, flight pending]
 
 The `saveParse` `[expectations.routes]` facet reads the PRODUCED save at the end of a run. The
 reload lanes (IR-1, IR-2, IR-4, IR-6) need the in-memory state right after a `LoadGame` and
@@ -5924,6 +5924,20 @@ fields at all.
 
 Fix: a read-only `ListHandles kind=routes`-style verb (or an extension of an existing one) that
 echoes those fields in one grep-stable line, with the usual source-sync cell in `hlib`.
+
+Done: `ListHandles kind=routes` (`TestCommandListHandles.BuildRoutesPayload`, applier
+`GatherRouteRows`) answers per committed route its status, completed / skipped cycles, loop
+cursor, window anchor, loop anchor UT, segment, pending stop, cycle start and pending delivery
+UTs, the send-once / pause-after flags, origin and stop endpoint pids, each stop's fired
+cycle index, and the route event log rows for that route by type (dispatched, debited,
+pickedUp, delivered, paused, resumed, held), plus the dormant count. Each route also writes
+one `listhandles route index=<i> ...` Info line, its prefix and key order mirrored in
+`hlib.LISTHANDLES_ROUTE_LOG_PREFIX` / `LISTHANDLES_ROUTE_LOG_KEYS` (ListHandlesSourceSyncTests).
+There is no pending recovery credit field to echo: the recovery credit went with route
+money (LOGISTICS-WITHOUT-MONEY). The `saveParse` `[expectations.routes]` facet still reads
+only the produced save (count, stops, sourceRefs, completedCycles, skipped, statuses), not the
+cursor. Cells: `TestCommandListHandlesTests` (routes key sequence, order, caps, invariant UTs,
+log line). Consumers: `IR-1-route-f9-across-a-dispatch`, `IR-2-route-stock-revert-mid-cycle`.
 
 ---
 
