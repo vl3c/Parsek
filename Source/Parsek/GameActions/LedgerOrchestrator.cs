@@ -4236,6 +4236,11 @@ namespace Parsek
                           $"ids=[{KspStatePatcher.ComposeBoundedIdentitySample(committedTechUnlockIds, 10)}])"));
             }
 
+            // Committed hires whose funds row the stock pool reference still counts as not
+            // applied: the ones this pass's funds patch applies are made below.
+            List<GameAction> unappliedHireRows =
+                CollectHireRowsNotAppliedByFunds(StockPoolReference.Funds, actions);
+
             KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
                 milestonesModule, facilitiesModule, contractsModule,
                 targetTechIds,
@@ -4251,24 +4256,24 @@ namespace Parsek
                 committedTechUnlockIds: committedTechUnlockIds,
                 committedTechUnlockLiveUt: committedTechUnlockLiveUt);
 
-            // A hire the clock just reached was never made in stock (the load put the
-            // kerbal back among the applicants); make it now, uncharged - but only when the
-            // funds patch applied the reached rows' cost, so a clamped or skipped funds patch
-            // leaves the hire and its charge both unmade, as before.
+            // A hire the clock reached was never made in stock (the load put the kerbal back
+            // among the applicants); make it now, uncharged, in the pass whose funds patch
+            // takes its cost. A skipped funds patch leaves the hire and its charge both unmade
+            // until a later pass applies the row, crossing or not.
             var crossing = KspStatePatcher.ActiveClockCrossing;
-            if (crossing != null && crossing.CrossedHireKerbals.Count > 0)
+            List<string> hiresToMake = ResolveCommittedHiresToMake(
+                crossing, unappliedHireRows, StockPoolReference.Funds);
+            if (crossing != null && crossing.CrossedHireKerbals.Count > 0 && !crossing.FundsApplied)
             {
-                if (crossing.FundsApplied)
-                {
-                    KerbalsModule.PromoteReachedCommittedHires(
-                        HighLogic.CurrentGame?.CrewRoster, crossing.CrossedHireKerbals);
-                }
-                else
-                {
-                    ParsekLog.Warn(Tag,
-                        $"Clock-crossing hire(s) not made: the funds patch did not apply the reached rows " +
-                        $"(clamped or skipped); kerbals=[{string.Join(", ", crossing.CrossedHireKerbals.ToArray())}]");
-                }
+                ParsekLog.Warn(Tag,
+                    $"Clock-crossing hire(s) not made: the funds patch did not apply the reached rows " +
+                    $"({(crossing.NoFundsPool ? "no funds pool" : "skipped; the pass whose funds patch applies them makes them")}); " +
+                    $"kerbals=[{string.Join(", ", crossing.CrossedHireKerbals.ToArray())}]");
+            }
+            if (hiresToMake.Count > 0)
+            {
+                KerbalsModule.PromoteReachedCommittedHires(
+                    HighLogic.CurrentGame?.CrewRoster, hiresToMake);
             }
 
             // LedgerTrace Tier-A: emit ONE structural snapshot per recalc, here (after
@@ -4286,6 +4291,74 @@ namespace Parsek
                 LedgerTrace.EmitStructural(BuildLedgerStructuralSnapshot(
                     targetTechIds, utCutoff, authoritativeReduction));
             }
+        }
+
+        /// <summary>
+        /// The committed KerbalHire rows of <paramref name="actions"/> whose funds row
+        /// <paramref name="funds"/> counts as not applied (a NaN effect: the last funds patch
+        /// saw it ahead of its cutoff). Empty when the reference holds none.
+        /// </summary>
+        internal static List<GameAction> CollectHireRowsNotAppliedByFunds(
+            StockPoolReferenceState funds, IList<GameAction> actions)
+        {
+            var rows = new List<GameAction>();
+            if (funds == null || !funds.Initialized || funds.Counted.Count == 0 || actions == null)
+                return rows;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                GameAction a = actions[i];
+                if (a == null || a.Type != GameActionType.KerbalHire
+                    || string.IsNullOrEmpty(a.ActionId) || string.IsNullOrEmpty(a.KerbalName))
+                    continue;
+                CountedRow counted;
+                if (funds.Counted.TryGetValue(a.ActionId, out counted) && double.IsNaN(counted.Effect))
+                    rows.Add(a);
+            }
+            return rows;
+        }
+
+        /// <summary>
+        /// Pure: the kerbals to hire after one pass. A clock crossing's reached hires when its
+        /// funds patch applied them, plus every row
+        /// of <paramref name="unappliedBefore"/> that <paramref name="fundsAfter"/> now counts
+        /// as applied: a hire whose crossing skipped the funds patch is made by the later pass
+        /// that takes its cost. Ordered, without repeats.
+        /// </summary>
+        internal static List<string> ResolveCommittedHiresToMake(
+            KspStatePatcher.ClockCrossing crossing, IList<GameAction> unappliedBefore,
+            StockPoolReferenceState fundsAfter)
+        {
+            var names = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            if (crossing != null && crossing.FundsApplied)
+            {
+                for (int i = 0; i < crossing.CrossedHireKerbals.Count; i++)
+                {
+                    string name = crossing.CrossedHireKerbals[i];
+                    if (!string.IsNullOrEmpty(name) && seen.Add(name))
+                        names.Add(name);
+                }
+            }
+            if (unappliedBefore != null && fundsAfter != null)
+            {
+                int applied = 0;
+                for (int i = 0; i < unappliedBefore.Count; i++)
+                {
+                    GameAction a = unappliedBefore[i];
+                    CountedRow counted;
+                    if (a == null || !fundsAfter.Counted.TryGetValue(a.ActionId, out counted)
+                        || double.IsNaN(counted.Effect))
+                        continue;
+                    applied++;
+                    if (seen.Add(a.KerbalName))
+                        names.Add(a.KerbalName);
+                }
+                if (applied > 0)
+                    ParsekLog.Info(Tag,
+                        $"Committed hire row(s) applied by this funds patch: count={applied.ToString(CultureInfo.InvariantCulture)} " +
+                        $"crossing={(crossing != null)}");
+            }
+            return names;
         }
 
         /// <summary>
