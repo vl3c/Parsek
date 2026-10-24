@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~SWITCH-ASKS-MERGE-FOR-AN-UNCHANGED-VESSEL: a map Switch-To away from a vessel you did nothing with opens the Merge / Discard dialog~~ [FILED 2026-10-24 from V's playtest report (switching from the recorded vessel to an older one showed the manual merge dialog). FIXED 2026-10-24 on branch `claude/project-thread-pp3xy9`. xUnit; lanes GS-3 (re-cut) and S0.13 to fly. product]
+## ~~SWITCH-ASKS-MERGE-FOR-AN-UNCHANGED-VESSEL: a map Switch-To away from a vessel you did nothing with opens the Merge / Discard dialog~~ [FILED 2026-10-24 from V's playtest report (switching from the recorded vessel to an older one showed the manual merge dialog). FIXED 2026-10-24 on branch `claude/project-thread-pp3xy9`. xUnit; S0.13 live-proven `2026-10-24_1503`, GS-3 re-cut and re-flown green. product]
 
 **Symptom.** The pre-switch decision (`MapFocusObjectOnSelectPatch`, Cases A / B / C) always opened
 `MergeDialog.ShowPreSwitchDecisionDialog` unless the prior recording was a no-op Standalone /
