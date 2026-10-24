@@ -720,6 +720,36 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Emits one ConverterActivated seed per part in <c>activeConverterParts</c> (value 0,
+        /// moduleIndex 0, the same shape <see cref="EmitSeedEvents"/> writes). Used by the
+        /// chain-promotion path, which skips the full seed set. Returns the count emitted.
+        /// </summary>
+        internal static int EmitConverterSeedEvents(
+            PartTrackingSets sets, List<PartEvent> events,
+            double startUT, string logTag, System.Func<uint, string> NameFor)
+        {
+            if (sets == null || sets.activeConverterParts == null || events == null)
+                return 0;
+            int emitted = 0;
+            foreach (uint pid in sets.activeConverterParts)
+            {
+                string name = NameFor != null ? NameFor(pid) : "unknown";
+                events.Add(new PartEvent
+                {
+                    ut = startUT,
+                    partPersistentId = pid,
+                    eventType = PartEventType.ConverterActivated,
+                    partName = name,
+                    value = 0f,
+                    moduleIndex = 0
+                });
+                emitted++;
+                ParsekLog.Verbose(logTag, $"Seed event: ConverterActivated pid={pid} part='{name}' (promotion)");
+            }
+            return emitted;
+        }
+
+        /// <summary>
         /// Emits EngineIgnited seed events from activeEngineKeys with throttle values.
         /// Engines with throttle=0 are skipped — they are staged but not yet producing
         /// thrust, so no plume should be shown at playback start. The first real

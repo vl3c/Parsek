@@ -11958,6 +11958,66 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Pure: adds every already-loaded vessel pid to the loaded-anchor set, skipping ghost
+        /// map vessels the same way <see cref="OnVesselLoaded"/> does. The vessel being flown
+        /// is loaded by <c>FlightDriver.Start</c> before this scene subscribes to
+        /// <c>onVesselLoaded</c>, so without the seed a loop anchored to it never plays
+        /// (LOOP-ANCHOR-ACTIVE-VESSEL-NEVER-MARKED-LOADED). Returns how many pids were added.
+        /// </summary>
+        internal static int SeedLoadedAnchorVessels(
+            HashSet<uint> loadedAnchors, IList<uint> loadedVesselPids,
+            Func<uint, bool> isGhostMapVessel, out int ghostSkipped)
+        {
+            ghostSkipped = 0;
+            if (loadedAnchors == null || loadedVesselPids == null)
+                return 0;
+            int added = 0;
+            for (int i = 0; i < loadedVesselPids.Count; i++)
+            {
+                uint pid = loadedVesselPids[i];
+                if (pid == 0)
+                    continue;
+                if (isGhostMapVessel != null && isGhostMapVessel(pid))
+                {
+                    ghostSkipped++;
+                    continue;
+                }
+                if (loadedAnchors.Add(pid))
+                    added++;
+            }
+            return added;
+        }
+
+        private void SeedLoadedAnchorVesselsFromScene(string reason)
+        {
+            if (engine == null)
+                return;
+            List<uint> pids = ReadLoadedVesselPids();
+            int added = SeedLoadedAnchorVessels(
+                loadedAnchorVessels, pids, GhostMapPresence.IsGhostMapVessel, out int ghostSkipped);
+            ParsekLog.Verbose("Loop",
+                $"Loaded-anchor set seeded: reason={reason} loaded={pids.Count} added={added} " +
+                $"ghostSkipped={ghostSkipped} total={loadedAnchorVessels.Count}");
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static List<uint> ReadLoadedVesselPids()
+        {
+            var pids = new List<uint>();
+            var loaded = FlightGlobals.VesselsLoaded;
+            if (loaded == null)
+                return pids;
+            for (int i = 0; i < loaded.Count; i++)
+            {
+                Vessel v = loaded[i];
+                if (v != null)
+                    pids.Add(v.persistentId);
+            }
+            return pids;
+        }
+
         void OnVesselUnloaded(Vessel v)
         {
             if (v == null) return;
@@ -13132,6 +13192,10 @@ namespace Parsek
         void OnFlightReady()
         {
             FlightReadyObserved = true;
+            // The vessels already loaded at scene start fired onVesselLoaded before this
+            // scene subscribed; seed them so a loop anchored to one plays. First, before any
+            // early return below.
+            SeedLoadedAnchorVesselsFromScene("flight-ready");
             // Vessel names (design 7.6): a new stock revert target starts a new flight epoch,
             // and the first host tick re-applies the name decisions to every live vessel.
             // First, before any early return below.

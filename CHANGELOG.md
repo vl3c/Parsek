@@ -8,6 +8,16 @@ All notable changes to Parsek are documented here.
 
 _(unreleased - entries accumulate here per commit)_
 
+### Fixed
+
+- **A drill or converter already running when a vessel splits off keeps its later mining.** The
+  new branch's recording now notes the running converter, so the end of that recording is no longer
+  trimmed away and its mined resources no longer arrive early on a spawn.
+  (TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES)
+- **A held end-of-flight vessel frozen by a time jump no longer spawns away from its ghost.** While
+  the vessel spawns from its jump-shifted orbit, a blocked spawn waits for the spot to clear instead
+  of walking back along the unshifted path. (REALSPAWN-JUMP-SHIFT-RESIDUE)
+
 ---
 
 ## 0.10.6

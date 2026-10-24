@@ -353,6 +353,31 @@ namespace Parsek.Tests
             Assert.Equal("propagated", source);
         }
 
+        // ---------------------------------------------------------------- the blocked-tip walkback
+
+        [Fact]
+        public void Walkback_JumpShiftResolved_IsSkippedAndLogged()
+        {
+            // The walkback walks the unshifted recorded points, so a tip that spawns from its
+            // jump-shifted orbit must not walk back (REALSPAWN-JUMP-SHIFT-RESIDUE).
+            var tip = new Recording { RecordingId = "rec-shifted", VesselName = "Frozen Tip" };
+
+            Assert.False(VesselGhoster.ShouldWalkBackBlockedTip(true));
+            Assert.False(VesselGhoster.ShouldWalkBackBlockedTip(true, 4242u, tip));
+            Assert.Contains(logLines, l => l.Contains("Chain tip walkback skipped: rec=rec-shifted")
+                && l.Contains("vessel=Frozen Tip") && l.Contains("jump-shifted orbit"));
+        }
+
+        [Fact]
+        public void Walkback_NoShift_StaysAllowedAndSilent()
+        {
+            var tip = new Recording { RecordingId = "rec-plain", VesselName = "Plain Tip" };
+
+            Assert.True(VesselGhoster.ShouldWalkBackBlockedTip(false));
+            Assert.True(VesselGhoster.ShouldWalkBackBlockedTip(false, 4243u, tip));
+            Assert.DoesNotContain(logLines, l => l.Contains("Chain tip walkback skipped"));
+        }
+
         // ---------------------------------------------------------------- a second jump
 
         [Fact]

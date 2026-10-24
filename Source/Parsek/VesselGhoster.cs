@@ -499,7 +499,8 @@ namespace Parsek
                 // walk backward along the recorded trajectory to find a valid spawn position.
                 // Skip walkback if already exhausted (entire trajectory was scanned with no valid spot).
                 float distanceChange = Math.Abs(distance - chain.BlockedInitialDistance);
-                if (ShouldRunWalkbackRescan(chain, CurrentRealTime())
+                if (ShouldWalkBackBlockedTip(shifted.Resolved, chain.OriginalVesselPid, tipRecording)
+                    && ShouldRunWalkbackRescan(chain, CurrentRealTime())
                     && SpawnCollisionDetector.ShouldTriggerWalkback(
                         chain.BlockedSinceUT, currentUT, 5.0, distanceChange, 1.0f)
                     && tipRecording.Points != null && tipRecording.Points.Count > 1)
@@ -1269,6 +1270,31 @@ namespace Parsek
 
             source = defaultSource;
             return defaultPos;
+        }
+
+        /// <summary>
+        /// Pure: whether a blocked chain tip may walk back along its recorded points. Not
+        /// while the tip spawns from a jump-shifted orbit: the walkback walks the UNSHIFTED
+        /// <c>Recording.Points</c>, so a walked-back spawn would leave the frozen geometry the
+        /// shift exists to keep (REALSPAWN-JUMP-SHIFT-RESIDUE). The tip stays blocked until
+        /// the shifted position clears, the same as a tip with no walkback room.
+        /// </summary>
+        internal static bool ShouldWalkBackBlockedTip(bool jumpShiftedSpawnResolved)
+        {
+            return !jumpShiftedSpawnResolved;
+        }
+
+        internal static bool ShouldWalkBackBlockedTip(
+            bool jumpShiftedSpawnResolved, uint chainPid, Recording tip)
+        {
+            if (ShouldWalkBackBlockedTip(jumpShiftedSpawnResolved))
+                return true;
+            ParsekLog.VerboseRateLimited(Tag, "jump-shift-walkback-skip-" + chainPid,
+                string.Format(ic,
+                    "Chain tip walkback skipped: rec={0} vessel={1} spawns from its jump-shifted orbit, " +
+                    "the recorded points are unshifted",
+                    tip?.RecordingId ?? "(none)", tip?.VesselName ?? "(unknown)"));
+            return false;
         }
 
         /// <summary>
