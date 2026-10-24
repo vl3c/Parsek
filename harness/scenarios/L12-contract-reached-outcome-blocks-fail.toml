@@ -24,7 +24,9 @@ tier = "nightly"
 # dwell, burn or coast); (6) retry once; (7) recordings pinned exactly (the 2 fixture ones);
 # (8) nightly, ST-1-sized; (9) run flight_efficiency.py after the first green flight.
 #
-# STATUS: AUTHORED 2026-10-24, never flown.
+# STATUS: AUTHORED 2026-10-24 and LIVE-PROVEN on its first flight `2026-10-24_1624` (PASS attempt 1,
+# automation DLL sha256 5c1d9b2f...a738, branch claude/project-thread-uj5p10 head ba48a1d): the
+# expiry refused 16 times by the daemon (logged once), the Fail() refused once, pools unchanged.
 description = "Career pad flight with an Active contract whose committed completion lies one second behind the clock: stock's own deadline expiry and its public Fail() are both refused, the contract stays Active, and funds and reputation do not move."
 instanceProfile = "stock-minimal"
 tags = ["L12", "ingame-batch", "career", "contracts", "committed-value"]

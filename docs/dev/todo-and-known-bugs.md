@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~CONTRACT-FAIL-AFTER-REACHED-COMMITTED-OUTCOME: after a flight passes a committed contract outcome, stock can still fail or expire the contract, and the penalty stays charged for good~~ [FILED 2026-10-24 from V's question on the 0.10.6 release-notes known limitation ("A contract a new flight fails in the brief moment between its committed outcome's time and the next career update can still fail"), code read on main 2f86caf, not reproduced. FIXED 2026-10-24 on branch `claude/project-thread-uj5p10`; xUnit + in-game cell, lane L12. product]
+## ~~CONTRACT-FAIL-AFTER-REACHED-COMMITTED-OUTCOME: after a flight passes a committed contract outcome, stock can still fail or expire the contract, and the penalty stays charged for good~~ [FILED 2026-10-24 from V's question on the 0.10.6 release-notes known limitation ("A contract a new flight fails in the brief moment between its committed outcome's time and the next career update can still fail"), code read on main 2f86caf, not reproduced. FIXED 2026-10-24 on branch `claude/project-thread-uj5p10` (PR #2218); xUnit + in-game cell, lane L12 LIVE-PROVEN `2026-10-24_1624`. product]
 
 **Symptom.** `Patches/ContractEarlyFailPatch.cs` refused a fail only while the committed outcome
 (a ContractComplete / Fail / Cancel row) lay AHEAD of the clock, and it never covered stock's
@@ -47,7 +47,9 @@ prefix refusing `DeadlineExpired`); mutation (the reached lookup removed) reds 4
 files a committed completion one second behind the clock, moves the Active contract's deadline
 behind it so stock's own update daemon calls `SetState(DeadlineExpired)`, then calls `Fail()`;
 both refused, the contract Active, funds and reputation unchanged. Lane
-`L12-contract-reached-outcome-blocks-fail`.
+`L12-contract-reached-outcome-blocks-fail` PASS `2026-10-24_1624` attempt 1 on its first flight
+(the daemon's expiry refused 16 times, logged once; `Fail()` refused once; funds 536558.0 and
+reputation 2.000 unchanged).
 
 ## ~~SWITCH-ASKS-MERGE-FOR-AN-UNCHANGED-VESSEL: a map Switch-To away from a vessel you did nothing with opens the Merge / Discard dialog~~ [FILED 2026-10-24 from V's playtest report (switching from the recorded vessel to an older one showed the manual merge dialog). FIXED 2026-10-24 on branch `claude/project-thread-pp3xy9`. xUnit; S0.13 live-proven `2026-10-24_1503`, GS-3 re-cut and re-flown green. product]
 
