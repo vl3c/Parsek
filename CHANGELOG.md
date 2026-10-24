@@ -85,6 +85,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A booster just dropped is no longer predicted to orbit forever.** Right after a separation,
+  Parsek could read the booster's first sample as a spot at sea level and predict an endless orbit
+  from it, an ending that could be kept if the flight ended before the next update. That sample is
+  no longer read as a position. (SCENE-EXIT-RECOVERY-READS-A-ZERO-ALTITUDE-SEED-AS-ORBITING)
 - **The alarm's Jump button follows the same rules as every other switch.** Jumping from a fired
   stock alarm never flies a ghost, is refused during a Re-Fly for any vessel but the re-flown one,
   asks to merge or discard an open recording first like Switch-To, and from the Tracking Station
@@ -432,6 +436,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Harness: MINE-6 expects the new segment its spawned rover records.** The lane now counts two
+  recordings, the mined flight plus the segment the respawned rover opens, and accepts an ISRU
+  switch logged a few milliseconds after its own step.
+  (MINE-6-PINS-PREDATE-THE-RESUMED-SPAWN-SEGMENT)
 - **Automated tests can read a supply route's live state between steps.** A new test command
   lists each route's status, cycle count, loop position and route events, so two new lanes can
   check that a quickload or a stock revert back across a delivery runs the next cycle exactly

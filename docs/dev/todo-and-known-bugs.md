@@ -125,7 +125,7 @@ loaded-tank delivery writer (`LiveDeliveryWriters`) are synchronous, so the asse
 and with no frame between the route's creation and its teardown the scenario's Update cannot reach
 it. Re-fly H40 to confirm.
 
-## MINE-6-PINS-PREDATE-THE-RESUMED-SPAWN-SEGMENT: MINE-6 pins one recording, but flying the respawned rover again now records a new segment [FILED 2026-10-22 from MINE-6 `2026-10-22_1619` (PARSEK-FAIL, expectations), flown for PR #2181; not caused by it. OPEN, low. harness]
+## ~~MINE-6-PINS-PREDATE-THE-RESUMED-SPAWN-SEGMENT: MINE-6 pins one recording, but flying the respawned rover again now records a new segment~~ [FILED 2026-10-22 from MINE-6 `2026-10-22_1619` (PARSEK-FAIL, expectations), flown for PR #2181; not caused by it. FIXED 2026-10-24 (re-pinned; MINE-6 flight on the PR build pending). harness]
 
 **Symptom.** `recordings.count 2 > max 1`: after the end-of-watch respawn (pid 3850340315) the log
 prints `Resumed spawn continues in a new segment: rec=fdb7cde8 segment=fc1a4789`, so the rover gets
@@ -138,7 +138,15 @@ the part-event poll.
 **Fix.** Re-pin the count to the new-segment rule (measure first) and widen the converter window to
 accept the event landing just after the closing mark (or anchor it on the next step instead).
 
-## SCENE-EXIT-RECOVERY-READS-A-ZERO-ALTITUDE-SEED-AS-ORBITING: an early finalizer pass on a just-decoupled booster extrapolates a recorded point at altitude 0.0 into an Orbiting terminal [FILED 2026-10-22 from RF-L2 `2026-10-22_1026` (PASS), flown for PR #2176. OPEN, low; no verdict or saved terminal affected so far. product]
+**Done.** Measured on `2026-10-22_1619`: the end spawn activates the rover at UT ~1568, and 0.8 s
+later `TryRestoreCommittedTreeForSpawnedActiveVessel` continues it in segment `fc1a4789` under the
+committed miner, 21 s before the SaveGame; the last PASS (`2026-10-17_1431`) resumed in place. The
+count is pinned `{2, 2}` with a required contract naming the segment under `mine6-committed-1-<rec>`
+and a forbidden `Resumed spawn segment refused`. The four ISRU edge contracts now run from the
+press's `-before` mark to the next blocking warp's `warptout start ut=N` (the edge is still proven
+packed at the toggle, not at that warp's rails exit), instead of ending at the `-after` mark.
+
+## ~~SCENE-EXIT-RECOVERY-READS-A-ZERO-ALTITUDE-SEED-AS-ORBITING: an early finalizer pass on a just-decoupled booster extrapolates a recorded point at altitude 0.0 into an Orbiting terminal~~ [FILED 2026-10-22 from RF-L2 `2026-10-22_1026` (PASS), flown for PR #2176. FIXED 2026-10-24 (RF-L2 flight on the PR build pending). product]
 
 On the booster's first background finalizer pass after the decouple, before its chutes opened, the
 recorded-point recovery used a parent-anchored body-fixed sample with `recordedAlt=0.0` (the booster
@@ -150,6 +158,42 @@ same kind of point (`pointUT=30.860, recordedAlt=0.0`) as Destroyed. Two questio
 the recovery should refuse a seed at or below the surface instead of extrapolating it. Next: read
 the booster's first sidecar samples from the RF-L2 save.
 
+**Cause.** The 0.0 is not an altitude. The pass ran at UT 31.64, before the booster's seed section
+(Relative, 31.12..31.68) closed, so the recording had no TrackSections and the finalizer's
+recorded-point search fell back to the flat `Points` list (`source=Points`). That list mirrors the
+open section's frames, and the Relative seed is the anchor-local offset `(0, -0.46, 0)` m; its
+body-fixed shadow (`BODY_FIXED_POINT` alt 305.7 m, saved in the sidecar) lives only in the open
+section's `bodyFixedFrames`. The CLAUDE.md RELATIVE-field trap, in the one reader branch that cannot
+resolve the section frame.
+
+**Fix.** `IncompleteBallisticSceneExitFinalizer.CanReadFlatPointsAsBodyFixed`: the flat-`Points`
+fallback of the surface-point search, the predicted-tail anchor search and the predecessor /
+successor lookups is refused for a parent-anchored recording (Verbose `Recorded-point read refused
+flat Points for parent-anchored recording ... reader=`). With no readable point that pass keeps the
+live-orbit verdict (a no-solver Destroyed cache stamped at the refresh UT). That holds until the
+background recorder first flushes its sections into the recording (commit, scene exit, on-rails,
+leaving the background); review traced that such a cache cannot reach a saved terminal
+(`RejectedTerminalBeforeLastSample` once a later sample exists, the confirmed-destruction clamp,
+`SkipPredictedDestroyedWhileAlive`, and scene exit flushing before its own pass). No extra
+at-or-below-surface seed guard: a real body-fixed sample never read 0.0 here. The same blind spot
+remains for a NON-parent-anchored background vessel that enters Relative mode through the
+nearest-anchor search before its first flush: filed as FINALIZER-READS-UNFLUSHED-RELATIVE-POINTS. Unit tests in
+`SceneExitFinalizationIntegrationTests` (`..._ParentAnchoredFlatRelativeSeed_NotReadAsSurfacePoint`,
+`..._ParentAnchoredFlatPoints_Refused`).
+
+
+## FINALIZER-READS-UNFLUSHED-RELATIVE-POINTS: a background recording's finalizer pass cannot see its unflushed sections [FILED 2026-10-24 from the PR #2190 review. OPEN, low. product]
+
+`IncompleteBallisticSceneExitFinalizer` reads recorded points from `Recording.TrackSections` and falls
+back to the flat `Points` list only when there are none. `BackgroundRecorder` keeps a loaded
+vessel's open and closed sections in its own state until `FlushTrackSectionsToRecording` (commit,
+scene exit, on-rails, leaving the background), so a periodic cache refresh before that sees only
+the flat list, which mirrors frames in whatever frame they were sampled. PR #2190 refuses that list
+for parent-anchored recordings; a non-parent-anchored vessel that entered Relative mode through the
+nearest-anchor search (`UpdateBackgroundAnchorDetection`) still has its anchor-local offsets read
+as body-fixed in that window. No saved terminal is known to be affected. Fix direction: hand the
+finalizer the recorder's unflushed sections (their `bodyFixedFrames` included) for the refresh,
+instead of more flat-list guards.
 ## ~~SCENE-EXIT-FINALIZER-CRASHES-A-CHUTE-DESCENT: leaving the flight finalizes a booster still descending under its parachute as Destroyed~~ [FILED 2026-10-22 from RF-L2 `2026-10-22_0734` (PARSEK-FAIL, expectations), flown for PR #2173, and the same on plain main 9dbf9c2 (`2026-10-22_0817`). FIXED 2026-10-22 in PR #2176 (RF-L2 `2026-10-22_1026` PASS attempt 1), exposed by PR #2154 (REMAINING-RECORDED-VELOCITY-SEEDS). product]
 
 RF-L2's first flight exits to the Space Center at UT 124.4 while the booster probe hangs under its
