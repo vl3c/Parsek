@@ -1,5 +1,5 @@
 """Fixture + spec gates for `career-requirements-loss-pad` and
-`L13-contract-requirements-loss-terminal-row`.
+`L14-contract-requirements-loss-terminal-row`.
 
 The fixture is `career-science-pad` plus one Active `PartTest` whose requirement
 (`FirstLaunch` complete) is false in a career that never launched, and its ledger
@@ -36,7 +36,7 @@ FIXTURE_LEDGER = os.path.join(FIXTURE_DIR, "Parsek", "GameState", "ledger.pgld")
 BASE_DIR = os.path.join(_SAVES, "career-science-pad")
 DONOR_SFS = os.path.join(_SAVES, "career-earned-pad", "persistent.sfs")
 SPEC_PATH = os.path.join(_HARNESS, "scenarios",
-                         "L13-contract-requirements-loss-terminal-row.toml")
+                         "L14-contract-requirements-loss-terminal-row.toml")
 
 
 def _load_builder():
@@ -110,7 +110,7 @@ class CareerRequirementsLossPadFixtureDriftTests(unittest.TestCase):
         self.assertLess(float(b.CONTRACT_ACCEPT_UT), b.SAVE_CLOCK_UT)
 
 
-class L13SpecFixtureSyncTests(unittest.TestCase):
+class L14SpecFixtureSyncTests(unittest.TestCase):
     """The spec's pinned literals are the fixture's own."""
 
     @classmethod

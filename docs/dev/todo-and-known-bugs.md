@@ -253,7 +253,7 @@ with stock's `OfferExpired`), which frees the slot and suppresses the PrePass sy
 row reads `Ended: <contract>` with the hover "Its requirements no longer held, no penalty.", and a
 committed such row reads `Ended on <date>` in Mission Control (`CommittedFutureEntry.RequirementsLost`).
 
-Lane (2026-10-24, AUTHORED, never flown): `L13-contract-requirements-loss-terminal-row` drives the requirements loss on the derived fixture `career-requirements-loss-pad` (an Active PartTest whose FirstLaunch requirement is false) and pins the capture line, the `requirementsLost=True` zero-penalty Cancel and unchanged pools.
+Lane (2026-10-24, AUTHORED, never flown): `L14-contract-requirements-loss-terminal-row` drives the requirements loss on the derived fixture `career-requirements-loss-pad` (an Active PartTest whose FirstLaunch requirement is false) and pins the capture line, the `requirementsLost=True` zero-penalty Cancel and unchanged pools.
 
 ## ~~ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE: F5 inside a committed-tree restore attempt that resumed its recording in place loses the attempt's held-back earnings on F9~~ [FILED 2026-10-20 while closing design-load-restores-the-save.md open question 3. Was open. FIXED 2026-10-21 (the held-back earnings, PR #2164; the trajectory, owner ruling 2026-10-21) on branch `claude/project-thread-hvhou8`. xUnit; lane QL-13 LIVE-PROVEN `2026-10-21_2058`]
 

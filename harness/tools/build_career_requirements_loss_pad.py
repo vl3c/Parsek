@@ -7,7 +7,7 @@ requirements no longer hold with `SetState(State.OfferExpired)`, unpenalized, an
 before the fix Parsek filed no terminal ledger row for it. The fix
 (`Patches/ContractOfferExpiredCapturePatch.cs` + `GameStateRecorder.
 OnActiveContractOfferExpired`) files a zero-penalty `ContractCancel` row flagged
-`requirementsLost`. `L13-contract-requirements-loss-terminal-row` flies it, and this
+`requirementsLost`. `L14-contract-requirements-loss-terminal-row` flies it, and this
 fixture is its host: a save whose one Active contract CANNOT meet its requirements.
 
 THE REQUIREMENTS LOSS IS A MEASUREMENT, NOT A HYPOTHESIS. The first build of

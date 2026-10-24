@@ -298,7 +298,7 @@ in `harness/lib/test_career_contract_pad.py`.
 
 ## career-requirements-loss-pad (GAME Mode = CAREER, 1 VESSEL, derived from career-science-pad)
 
-The host of `L13-contract-requirements-loss-terminal-row` (todo
+The host of `L14-contract-requirements-loss-terminal-row` (todo
 STOCK-OFFER-EXPIRED-ACTIVE-CONTRACT-NO-TERMINAL-ROW): an Active contract whose requirement
 is already false, so stock's first `Contract.Update()` ends it as `OfferExpired`.
 `career-science-pad` with its `Title` restamped, ONE `CONTRACT` spliced into the empty

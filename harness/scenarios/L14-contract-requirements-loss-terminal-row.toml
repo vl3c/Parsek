@@ -1,7 +1,7 @@
 schema = 1
-id = "L13-contract-requirements-loss-terminal-row"
+id = "L14-contract-requirements-loss-terminal-row"
 # =====================================================================================
-# L13: AN ACTIVE CONTRACT STOCK ENDS BECAUSE ITS REQUIREMENTS NO LONGER HOLD FILES AN
+# L14: AN ACTIVE CONTRACT STOCK ENDS BECAUSE ITS REQUIREMENTS NO LONGER HOLD FILES AN
 # UNPENALIZED TERMINAL LEDGER ROW (todo STOCK-OFFER-EXPIRED-ACTIVE-CONTRACT-NO-TERMINAL-ROW,
 # fixed 2026-10-23 in PR #2184, commit 5f018a9, unit cells only before this lane).
 # AUTHORED 2026-10-24 (branch lanes-contract), NEVER FLOWN.
@@ -102,7 +102,7 @@ id = "L13-contract-requirements-loss-terminal-row"
 tier = "nightly"
 description = "An Active contract stock ends because its requirements no longer hold files an unpenalized terminal ledger row (STOCK-OFFER-EXPIRED-ACTIVE-CONTRACT-NO-TERMINAL-ROW): on career-requirements-loss-pad (the pad Flea in a career that never launched, with an Active RT-5 PartTest whose FirstLaunch requirement is false and its ledger accept row) stock's first contract tick ends the contract as OfferExpired; Parsek files a ContractCancel row with zero penalties and requirementsLost, the walk ends the contract and frees its slot, and no pool moves."
 instanceProfile = "stock-minimal"
-tags = ["L13", "ledger", "career", "contracts", "kerbin"]
+tags = ["L14", "ledger", "career", "contracts", "kerbin"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/career-requirements-loss-pad"
