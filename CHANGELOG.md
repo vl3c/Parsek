@@ -178,6 +178,10 @@ _(unreleased - entries accumulate here per commit)_
 - **A station a later flight docks with can't be recovered early.** After a rewind, the Tracking
   Station greys Recover and Delete, and the Space Center greys Recover, on a vessel a recorded later
   flight still docks with, so it can't come back as a duplicate and be paid for twice. (GC-2)
+- **Clearing the runway or pad no longer recovers a vessel a later flight uses.** When a vessel a
+  recorded later flight boards or docks with stands on the launch site, the launch-site warning
+  says why it stays and offers no Recover (the Space Center greys it), so it can't come back as a
+  duplicate and be paid for twice. (GC9-LAUNCH-SITE-CLEAR-RECOVERS-CLAIMED-VESSEL)
 - **The vessel-cycle keys skip ghosts.** Pressing `[` or `]` near a replaying ghost no longer makes
   its map marker the active vessel. (GC-4)
 - **Loading another save starts clean after a rewind that never finished.** If a rewind or a
