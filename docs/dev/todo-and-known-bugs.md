@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## DISCARD-REFLY-LANDS-WITHOUT-REWIND-HOLDS: after a Discard Re-fly, a vessel the committed future uses is a live vessel again [FILED 2026-10-24 from the item-7 re-check of the 10-16 audit's suspected defects, code read on main f3a22ce, not reproduced. Split out of the "Not covered" note of REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE. OPEN, medium, physical paradox]
+## ~~DISCARD-REFLY-LANDS-WITHOUT-REWIND-HOLDS: after a Discard Re-fly, a vessel the committed future uses is a live vessel again~~ [FILED 2026-10-24 from the item-7 re-check of the 10-16 audit's suspected defects, code read on main f3a22ce, not reproduced. Split out of the "Not covered" note of REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE. FIXED 2026-10-24 (xUnit), branch `claude/project-thread-mh6nli`; lane pending. medium, physical paradox]
 
 A Re-Fly start holds every vessel its rewind point's world brings back that a committed recording
 uses after the rewind UT (design 2.12 Rule 3, `ParsekFlight.HoldReFlyInvokeVessels`, saved on the
@@ -32,6 +32,21 @@ Fix (proposed): run the plain rewind's hold over the discard's world (the same
 `RewindVesselHold.CollectChainHolds` + `ReFlyInvokeHold.Classify` pass at the rewind point's UT,
 from the discard's OnLoad), flip the policy cell's reason, and fly a lane that discards a Re-Fly
 next to a vessel with a committed future (RF lanes host the Re-Fly; EVA-11 / RC-6 assert the hold).
+
+Fix (2026-10-24, branch `claude/project-thread-mh6nli`): the Discard Re-fly load runs the plain
+rewind's hold. `ParsekScenario.ApplyDiscardReFlyVesselHolds`, from the in-session OnLoad branch when
+the refined kind is `DiscardReFly` (after the tree spawn-state restore, which would otherwise put back
+the spawn claims the hold releases; before the ledger recalculation), calls
+`ApplyRewindVesselHolds` at the loaded save's UT (`KerbalsModule.ReadLoadedSaveUT`, the rewind
+point's clock the handler wrote to persistent.sfs; the Planetarium clock is stale there, so an
+unusable save clock skips the hold with a Warn), then `ReconcileSpawnStateAfterStrip` and
+`RescueOrphanedCrew` when anything was held. The rewind point's world holds the split's own vessels
+too, and their committed recordings replay from the split, so they are held with the rest (first
+claim = the rewind UT, so no hold ghost shows). The summary line carries `source=discard-refly`
+(`source=plain-rewind` on a plain rewind). The policy cell stays Clear in the prologue, its reason
+now names the recompute. Accepted gap: persistent.sfs still lists the held vessels until the next
+save, so a crash in that window cold-loads them live (no save from inside OnLoad). Tests:
+`RewindVesselHoldTests` (policy reason, cutoff), `LoadReconcileWiringGateTests.DiscardReFlyLoadHoldsAfterTheSpawnStateRestore`.
 
 ## REWIND-HOLD-MISSES-CROSS-TREE-ADOPTED-VESSEL: a vessel another mission spawned and this one adopted by inventory transfer has no ghost after a rewind until its transfer member starts [FILED 2026-10-24 from the item-7 re-check of the 10-16 audit's suspected defects (CLAIMED-VESSEL-HAS-NO-GHOST-BEFORE-ITS-MEMBER), code read on main f3a22ce, not reproduced. Split out of the "Not covered" note of REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE. OPEN, low, visual]
 

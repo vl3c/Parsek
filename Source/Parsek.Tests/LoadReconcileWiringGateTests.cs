@@ -347,6 +347,23 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DiscardReFlyLoadHoldsAfterTheSpawnStateRestore()
+        {
+            string body = PreparedMethodBody(ScenarioPath, "public override void OnLoad(ConfigNode node)");
+            Assert.Equal(1, Occurrences(body, "ApplyDiscardReFlyVesselHolds("));
+            int reset = IndexOrFail(body, "ResetTreeRecordingMutableStateForLoad(recordings);");
+            int restore = IndexOrFail(body, "RestorePersistedTerminalAbandon(");
+            int hold = IndexOrFail(body, "ApplyDiscardReFlyVesselHolds(");
+            int recalc = IndexOrFail(body, "RecalculateLedgerForInSessionLoad(");
+            Assert.True(reset < restore && restore < hold && hold < recalc,
+                "load-reconcile gate: the Discard Re-fly hold runs after the in-session spawn-state "
+                + "restore (which would put back the claims it releases) and before the ledger recalculation");
+            Assert.Contains(SourceScanText.IfConditions(body),
+                c => Collapse(c).Contains("refinedLoadKind == LoadKind.DiscardReFly"));
+            Assert.Contains("ApplyDiscardReFlyVesselHolds(recordings, KerbalsModule.ReadLoadedSaveUT())", Collapse(body));
+        }
+
+        [Fact]
         public void InSessionLoadRecalculatesAfterTheSweepRemovedZombieRows()
         {
             string body = PreparedMethodBody(ScenarioPath, "public override void OnLoad(ConfigNode node)");

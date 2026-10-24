@@ -85,6 +85,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Discard Re-fly no longer brings back a vessel your committed future still flies.** The
+  discard returns you to the moment of the separation, and every vessel a committed flight flies,
+  docks with, boards or recovers after that moment is now held back as a plain rewind does, so it
+  cannot be bumped or recovered before its flight replays. (DISCARD-REFLY-LANDS-WITHOUT-REWIND-HOLDS)
 - **A booster just dropped is no longer predicted to orbit forever.** Right after a separation,
   Parsek could read the booster's first sample as a spot at sea level and predict an endless orbit
   from it, an ending that could be kept if the flight ended before the next update. That sample is
