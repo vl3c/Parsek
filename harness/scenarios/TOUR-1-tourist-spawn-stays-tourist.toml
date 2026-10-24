@@ -1,0 +1,222 @@
+schema = 1
+id = "TOUR-1-tourist-spawn-stays-tourist"
+# =====================================================================================
+# TOUR-1: A TOURIST STOCK REMOVED COMES BACK AT A SPAWN AS A TOURIST, NEVER AS HIRED CREW
+# (todo GC12-TOURISTS-REBORN-AS-HIRED-CREW and its GC-12 trace, fixed 2026-10-24 on branch
+# claude/project-thread-q9rwbh, commit 9e81c8b, unit tests only before this lane).
+# AUTHORED 2026-10-24 (branch lanes-gc12), NEVER FLOWN.
+#
+# THE TWO DEFECTS THE LANE FLIES.
+#   (1) Every spawn route ran VesselSpawner.EnsureCrewExistInRoster, which re-created a crew
+#       name missing from the roster with GetNewKerbal(KerbalType.Crew): a tourist stock
+#       had removed (TourismContract's clear when the contract ends) came back as a free
+#       hired crewmember. Fixed: PlanMissingCrew + KerbalsModule.HasTouristEvidence create
+#       him as a tourist.
+#   (2) FindTraitForKerbal and the baseline crew capture read only roster.Crew (type Crew),
+#       so a tourist's KerbalAssignment row read "Pilot" and got a slot that could grow a
+#       stand-in. Fixed: the row's role is "Tourist", PostWalk holds him with no slot
+#       (`touristHolds=N` on its summary).
+#
+# THE HOST is `tourist-splashdown-career` (built by
+# `harness/tools/build_tourist_splashdown_career.py`, gated by
+# `harness/lib/test_tourist_splashdown_career.py`): `kerbin-splashdown-recorded` (B4's
+# committed Kerbal X tree; the mk1-3pod capsule LANDED ~1,690 km east of the pad, the
+# EVA-6 / EVA-7 host) converted to CAREER by build_route_career's recipe, with Masel Kerman
+# (a stock-written C1Career tourist, type Tourist) seated in the capsule beside Jebediah and
+# her Active TourismContract 36cb3f0c-a786-41f3-ac4b-8d223b3a3683 (C1Career's stock node,
+# penalties zeroed) plus its ledger accept row. No seam verb seats a kerbal outside the
+# editor and no committed fixture held a tourist, hence the derived host.
+#
+# THE FLIGHT, every step a player's:
+#   (a) Boot hygiene (EVA-6's): the boot promotes the committed tip (the capsule); stop and
+#       discard that continuation so the recording below is a fresh tree with its own
+#       rewind save.
+#   (b) Rails warp to UT 1300, so the rewind lands at ~1285, AFTER the Kerbal X tree's end
+#       (1276.42): only this lane's recording replays after the rewind.
+#   (c) StartRecording on the capsule (`Captured rewind save ... in LANDED`, the tourist
+#       aboard), 1x to UT 1320, stop, commit. THE COMMIT IS DEFECT (2)'s SUBJECT: the
+#       KerbalAssignment row for Masel resolves "Tourist" off the roster, so the walk holds
+#       her as a passenger (`Tourist hold:` + `touristHolds=1`). Before the fix it read
+#       "Pilot" and the walk created her a slot (`Created slot for 'Masel Kerman'`).
+#   (d) Rewind-to-Launch of that tree from the flight: the Space Center at ~1285, the
+#       capsule stripped from the rewind save (owner guid), Masel back in the roster
+#       (the rewind save was written with her aboard), the contract Active.
+#   (e) KscAction cancel-contract (Mission Control's Cancel, Contract.Cancel()): stock ends
+#       the tour and removes its tourist from the roster. Parsek lets it through (no
+#       committed resolution of the contract, no reserved cost: both penalties are 0).
+#   (f) 1x Space Center time past the recording's end (~1320): the ordinary KSC
+#       spawn-at-end brings the capsule back. Masel is missing from the roster, the walk's
+#       tourist row is the evidence, and THE SPAWN IS DEFECT (1)'s SUBJECT:
+#       `Created missing tourist 'Masel Kerman' ... (type=Tourist trait=Tourist
+#       toured=True ...)`. Before the fix: `Created missing crew 'Masel Kerman' ...`, a
+#       hired kerbal.
+#
+# WHICH PINS PROVE THE FIX (each literal was added by 9e81c8b, `git log -S`, so none can
+# print on a pre-fix build): `Created missing tourist '...'`, `Spawn prep: ... (tourists=1)`,
+# `Tourist hold: '...' ... passenger, no slot or stand-in`, `touristHolds=1`. FORBIDDEN, the
+# old shapes: `Created missing crew 'Masel Kerman'` (reborn as crew), `Created slot for
+# 'Masel Kerman'` (the Pilot slot), `for slot 'Masel Kerman' depth` (a stand-in for her),
+# `CrewHired 'Masel Kerman'` (a hire event for her).
+#
+# THE KERBALASSIGNMENT ROW'S ROLE has no log line of its own (BuildKerbalAssignmentActions
+# logs a count only); the produced save's `Parsek/GameState/ledger.pgld` carries it as
+# `kerbalRole = Tourist`, and the walk lines above are the only way a "Tourist" role reaches
+# the log (ProcessAction marks the passenger off IsTouristRole). No harness verifier parses
+# ledger rows, so the row is read by hand on the first flight (see READINGS).
+#
+# NO [expectations.ledger] BLOCK: the oracle has never modelled a fixture-authored accept
+# plus a cancel on a rewound clock; the "no hire for the tourist" claim is the forbidden
+# CrewHired line and the forbidden crew-creation line instead.
+#
+# GUESSES THE FIRST FLIGHT CONFIRMS (pre-registered readings, check these first on a red):
+#   G1 stock keeps the authored Active TourismContract through the load (its
+#      MeetRequirements / Contract.Update; the census fixture's Active PartTest survives,
+#      but L5's first build measured a spliced Active PartTest withdrawn): a red on
+#      `kscaction refused action=cancel-contract reason=unknown-contract` (or
+#      contract-not-offered / not active) means stock dropped it; a red on the boot with
+#      Masel missing from the commit's crew means stock's withdraw also cleared her.
+#   G2 stock's cancel removes an off-vessel tourist (the rewind strip leaves her Assigned
+#      to no vessel, or stock's roster validation makes her Missing; CrewReservationManager's
+#      rescue loops roster.Crew, which excludes tourists). If she is left Missing, the
+#      spawn drops her (`Removed dead/missing crew 'Masel Kerman'`, forbidden here) and
+#      no creation line prints; if she is left Available, the spawn seats her and no
+#      creation line prints either. Both are a premise miss, not a Parsek defect.
+#   G3 the timeline: the rewind lands at ~1285 (1300 - RewindToLaunchLeadTimeSeconds 15),
+#      the cancel lands well before the ghost's end at ~1320, and the WarpToUT 1345 wait
+#      crosses it. A `backward-warp` refusal or a spawn before the cancel mark (the
+#      ordered pin then reds) means the waits need re-sizing.
+#   G4 the recordings count, derived below.
+#   G5 the produced ledger row reads `kerbalRole = Tourist` for Masel (a hand check).
+#   G6 the Kerbal X tree's tip (ended 1276.42, before the rewind lands) is not re-spawned
+#      beside the new capsule; a second `[KSCSpawn] Attempting spawn` for it is a finding
+#      to file, not something this lane gates.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse: EVA-6 / EVA-7 fly this host in SANDBOX; a tourist needs a career contract and
+#     a seated tourist neither host has, so this is a new flight on a derived host.
+#   2 waits: explicit-UT WarpToUT only: 1300 on rails (landed), 1320 at maxRate=1 (the
+#     recording needs samples), 1345 at maxRate=1 at the Space Center (EVA-7's 1x KSC
+#     crossing).
+#   3 dwells: 20 s recorded, 25 s past the spawn; no dwell keys. 4 burns: none.
+#   5 b5 coasts: none. 6 fail fast: every seam verb refuses in one frame; retry once
+#     because the stock contract and roster behaviour above are live-state dependent.
+#   7 count: derived exactly; re-pin from the first flight if it reads otherwise.
+#   8 tier: nightly (EVA-7's class: no launch, ~2 min wall); re-tier by p50.
+#   9 run tools/flight_efficiency.py on the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "A tourist stock removed comes back at a spawn as a tourist, never as hired crew (GC12-TOURISTS-REBORN-AS-HIRED-CREW): on tourist-splashdown-career (the landed Kerbal X capsule ~1,690 km from KSC, career, with tourist Masel Kerman seated beside Jeb under an Active TourismContract) record the capsule, commit (her row is a Tourist passenger hold, no slot), Rewind-to-Launch, cancel the contract at Mission Control so stock removes her, and let the KSC spawn-at-end re-create her as type Tourist."
+instanceProfile = "stock-minimal"
+tags = ["TOUR-1", "GC-12", "tourist", "kerbals", "contracts", "spawn", "rewind-to-launch",
+        "career", "kerbin"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/tourist-splashdown-career"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  # (a) Boot hygiene: stop and discard the promoted committed-tip continuation.
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva",    value = "false" },      expect = "OK" },
+  # LOAD-BEARING: `Tourist hold:` and ContractCancelPatch's allowing line are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" },       expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "tour1-boot" },                              expect = "OK" },
+  # (b) Rails warp past the Kerbal X tree's end plus the rewind lead.
+  { cmd = "WarpToUT",       args = { ut = "1300" },                                       expect = "OK", budget = 120 },
+  # (c) The tourist's flight: a fresh tree on the capsule, 20 s at 1x, committed.
+  { cmd = "StartRecording",                                                               expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "1320", maxRate = "1" },                        expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "CommitTree",                                                                   expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c0",                  expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "tour1-committed-count-${c0.count}" },       expect = "OK" },
+  # (d) Rewind-to-Launch of that tree: the Space Center at ~1285, the tourist back.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                             expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "tour1-rewound" },                           expect = "OK" },
+  # (e) Mission Control's Cancel: stock ends the tour and removes the tourist.
+  { cmd = "KscAction",      args = { action = "cancel-contract", contract = "36cb3f0c-a786-41f3-ac4b-8d223b3a3683" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "tour1-cancelled" },                         expect = "OK" },
+  # (f) 1x Space Center time past the recording's end: the spawn-at-end.
+  { cmd = "WarpToUT",       args = { ut = "1345", maxRate = "1" },                        expect = "OK", budget = 180 },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c2",                  expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "tour1-kscspawn-count-${c2.count}" },        expect = "OK" },
+  { cmd = "SaveGame",                                                                     expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["kerbals", "contracts"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "career", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# DERIVED, not yet measured: the host reads nine (EVA-6 / EVA-7 measured the fixture's own
+# rows as rec0..rec8 over the same Kerbal X tree; this host carries its sidecars byte for
+# byte), the discarded boot continuation adds none, and the capsule's fresh tree is one
+# recording (a landed vessel for 20 s: no split, no branch). The rewind and the spawn add
+# none. 10 is the only count a green run can read; re-pin from the first flight.
+count = { min = 10, max = 10 }
+
+[expectations.logContracts]
+required = [
+  # (c) The fresh tree and its rewind save, with the tourist aboard.
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "Captured rewind save at UT [0-9.]+: vessel \"[^\"\\r\\n]*\" in LANDED",
+  "committree committed=true",
+  # DEFECT (2): the commit's KerbalAssignment row for Masel is a Tourist passenger row, so
+  # the walk holds her with no slot. Both lines are new in 9e81c8b; before it the role was
+  # "Pilot" and the walk printed `Created slot for 'Masel Kerman' (trait=Pilot)` instead.
+  "startrecording recordingId=[0-9a-f]+ already=false[\\s\\S]*?\\[Parsek\\]\\[VERBOSE\\]\\[KerbalsModule\\] Tourist hold: 'Masel Kerman' held until [^\\r\\n]* - passenger, no slot or stand-in",
+  "startrecording recordingId=[0-9a-f]+ already=false[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[KerbalsModule\\] PostWalk summary: reservations=[0-9]+ permanent=[0-9]+ temporary=[0-9]+ slots=[0-9]+ retired=[0-9]+ slotsCreated=[0-9]+ released=[0-9]+ respawnPending=[0-9]+ touristHolds=1 ",
+  # (d) The rewind.
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # (e) The cancel, let through by Parsek and applied by stock, after the rewind.
+  "\\[ContractCancelPatch\\] allowing cancel for guid=36cb3f0c-a786-41f3-ac4b-8d223b3a3683 - no committed resolution after now",
+  "invokerewindtolaunch complete [\\s\\S]*?kscaction action=cancel-contract target=36cb3f0c-a786-41f3-ac4b-8d223b3a3683 applied=true manifestKind=contract-cancel observedAfter=state=Cancelled",
+  # (f) DEFECT (1), THE SUBJECT: the capsule's own KSC spawn (tied to the recording by its
+  # id), after the cancel, re-creates the missing tourist as a tourist.
+  "startrecording recordingId=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=tour1-cancelled[\\s\\S]*?\\[KSCSpawn\\] Attempting spawn for #([0-9]+) \"[^\"\\r\\n]*\" \\(id=\\1\\)[\\s\\S]*?\\[Spawner\\] Created missing tourist 'Masel Kerman' in roster for vessel spawn \\(type=Tourist trait=Tourist toured=True: a passenger, not hired crew\\)[\\s\\S]*?\\[Spawner\\] Spawn prep: created [1-9][0-9]* missing crew in roster \\(tourists=1\\)[\\s\\S]*?\\[KSCSpawn\\] Vessel spawned for #\\2 \"[^\"\\r\\n]*\" pid=[0-9]+ sit=LANDED",
+  # The committed store keeps every row through the rewind and the spawn (G4).
+  "MISSIONMARK label=tour1-committed-count-10 ",
+  "MISSIONMARK label=tour1-kscspawn-count-10 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The bug's shapes, for the tourist's own name.
+  "Created missing crew 'Masel Kerman' in roster for vessel spawn",
+  "Created slot for 'Masel Kerman'",
+  "for slot 'Masel Kerman' depth",
+  "Game state: CrewHired 'Masel Kerman'",
+  # Premise misses (G2): the spawn found her Missing and dropped her.
+  "Removed dead/missing crew 'Masel Kerman' from vessel snapshot",
+  # Premise misses (G1, G3) and spawn outcomes this lane must not read.
+  "blocking cancel for guid=36cb3f0c-a786-41f3-ac4b-8d223b3a3683",
+  "kscaction refused",
+  "invokerewindtolaunch refused",
+  "Spawn RETIRED",
+  "Spawn ABANDONED",
+  "Spawn FAILED",
+]
+
+[runtime]
+# 1500 >= 300 LoadGame + 120 + 120 + 180 WarpToUT + 180 StartRecording + 120 CommitTree
+# + 300 InvokeRewindToLaunch + 60 KscAction + 120 SaveGame + the fast verbs; EVA-7's
+# measured class (wall 123 s) with margin.
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
