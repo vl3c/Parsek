@@ -434,6 +434,14 @@ namespace Parsek
         // Real Spawn Control: proximity-based nearby craft detection
         private readonly List<NearbySpawnCandidate> nearbySpawnCandidates = new List<NearbySpawnCandidate>();
         private float nextProximityCheckTime;
+        // Real Spawn Control: the last Warp-to-spawn whose outcome is still owed a word when
+        // the vessel does not appear (SpawnWarpOutcomeWatch). Null id = nothing owed.
+        private string spawnWarpWatchRecordingId;
+        private string spawnWarpWatchVesselName;
+        private double spawnWarpWatchTargetUT;
+        private float spawnWarpWatchArmedRealtime;
+        private bool spawnWarpWatchWalkbackAtArm;
+        private int spawnWarpWatchCollisionCountAtArm;
         private const float ProximityCheckIntervalSec = 1.5f;
         internal const double NearbySpawnRadius = 250.0;
         // Real Spawn Control: maximum relative speed (m/s) between the active vessel and a
@@ -1491,6 +1499,7 @@ namespace Parsek
                 HandleInput();
                 if (isPlaying) UpdatePlayback();
                 UpdateTimelinePlaybackViaEngine();
+                TickSpawnWarpWatch();
                 return;
             }
 
@@ -1504,6 +1513,7 @@ namespace Parsek
             }
 
             UpdateTimelinePlaybackViaEngine();
+            TickSpawnWarpWatch();
             UpdateProximityCheck();
         }
 
@@ -29416,6 +29426,110 @@ namespace Parsek
             TimeJumpManager.ExecuteJump(
                 targetUT, null, vesselGhoster, CollectBubbleGhostsForTimeJump());
             RefreshBlockedChainTipGhostOrbitsAfterJump();
+            ArmSpawnWarpWatch(rec, targetUT);
+        }
+
+        /// <summary>
+        /// Starts watching the spawn a Warp just jumped to, so a vessel that does not
+        /// appear gets one message naming why (<see cref="SpawnWarpOutcomeWatch"/>). A newer
+        /// Warp replaces an unresolved older one.
+        /// </summary>
+        private void ArmSpawnWarpWatch(Recording rec, double targetUT)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return;
+            if (spawnWarpWatchRecordingId != null)
+                ParsekLog.Info("Flight",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Warp spawn watch replaced: rec={0} by rec={1}",
+                        spawnWarpWatchRecordingId, rec.RecordingId));
+            SpawnWarpOutcomeWatch.ClearAbandonNote(rec.RecordingId);
+            spawnWarpWatchRecordingId = rec.RecordingId;
+            spawnWarpWatchVesselName = rec.VesselName;
+            spawnWarpWatchTargetUT = targetUT;
+            spawnWarpWatchArmedRealtime = Time.realtimeSinceStartup;
+            spawnWarpWatchWalkbackAtArm = rec.WalkbackExhausted;
+            spawnWarpWatchCollisionCountAtArm = rec.CollisionBlockCount;
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "Warp spawn watch armed: rec={0} vessel=\"{1}\" targetUT={2:F1}",
+                    rec.RecordingId, rec.VesselName, targetUT));
+        }
+
+        /// <summary>
+        /// Reads the watched recording's spawn state once per frame until it resolves, then
+        /// logs the outcome and, for a refused or held spawn, posts its one message.
+        /// </summary>
+        private void TickSpawnWarpWatch()
+        {
+            if (spawnWarpWatchRecordingId == null)
+                return;
+
+            Recording rec = null;
+            var committed = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (committed[i] != null
+                    && string.Equals(committed[i].RecordingId, spawnWarpWatchRecordingId,
+                        StringComparison.Ordinal))
+                {
+                    rec = committed[i];
+                    break;
+                }
+            }
+
+            double elapsed = Time.realtimeSinceStartup - spawnWarpWatchArmedRealtime;
+            GhostChain chain = rec != null ? FindChainTipForRecording(activeGhostChains, rec) : null;
+            SpawnWarpOutcomeInput input = BuildSpawnWarpOutcomeInput(
+                rec, spawnWarpWatchTargetUT, elapsed, chain != null && chain.SpawnBlocked,
+                spawnWarpWatchWalkbackAtArm, spawnWarpWatchCollisionCountAtArm);
+            SpawnWarpOutcome outcome = SpawnWarpOutcomeWatch.Evaluate(
+                input, SpawnControlUI.FormatRowDate);
+            if (!SpawnWarpOutcomeWatch.IsResolved(outcome.Kind))
+                return;
+
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "Warp spawn outcome: rec={0} vessel=\"{1}\" outcome={2} cause={3} elapsed={4:F1}s",
+                    spawnWarpWatchRecordingId, spawnWarpWatchVesselName, outcome.Kind,
+                    outcome.Cause, elapsed));
+            string message = SpawnWarpOutcomeWatch.FormatMessage(
+                outcome.Kind, spawnWarpWatchVesselName, outcome.Reason);
+            if (!string.IsNullOrEmpty(message))
+                ParsekLog.ScreenMessage(message, SpawnWarpOutcomeWatch.MessageSeconds);
+            SpawnWarpOutcomeWatch.ClearAbandonNote(spawnWarpWatchRecordingId);
+            spawnWarpWatchRecordingId = null;
+            spawnWarpWatchVesselName = null;
+        }
+
+        internal static SpawnWarpOutcomeInput BuildSpawnWarpOutcomeInput(
+            Recording rec, double targetUT, double elapsedSeconds, bool chainSpawnBlocked,
+            bool walkbackExhaustedAtArm, int collisionBlockCountAtArm)
+        {
+            if (rec == null)
+                return new SpawnWarpOutcomeInput { RecordingFound = false, ElapsedSeconds = elapsedSeconds };
+            return new SpawnWarpOutcomeInput
+            {
+                RecordingFound = true,
+                SpawnedVesselPersistentId = rec.SpawnedVesselPersistentId,
+                VesselSpawned = rec.VesselSpawned,
+                SpawnAbandoned = rec.SpawnAbandoned,
+                KscRetired = rec.VesselSpawned && rec.SpawnedVesselPersistentId == 0
+                    && VesselSpawner.IsSettledAsKscRetirement(rec),
+                WalkbackExhausted = rec.WalkbackExhausted,
+                CollisionBlockCount = rec.CollisionBlockCount,
+                WalkbackExhaustedAtArm = walkbackExhaustedAtArm,
+                CollisionBlockCountAtArm = collisionBlockCountAtArm,
+                ChainSpawnBlocked = chainSpawnBlocked,
+                SpawnAttempts = rec.SpawnAttempts,
+                TerminalSpawnCannotSpawnSafely = rec.TerminalSpawnCannotSpawnSafely,
+                TerminalSpawnSafetyDeferred = rec.TerminalSpawnSafetyDeferred,
+                TerminalSpawnSafetyReasonCode = rec.TerminalSpawnSafetyReasonCode,
+                TerminalSpawnNextAttemptUT = rec.TerminalSpawnNextAttemptUT,
+                TerminalDecisionAfterWarp = rec.TerminalSpawnSafetyDecisionUT >= targetUT,
+                AbandonNote = SpawnWarpOutcomeWatch.GetAbandonNote(rec.RecordingId),
+                ElapsedSeconds = elapsedSeconds
+            };
         }
 
         /// <summary>

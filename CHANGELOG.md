@@ -10,6 +10,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **Real Spawn Control's Warp says when the vessel did not spawn.** If the craft still cannot
+  appear after the Warp (something parked on its spot, an orbit too low to hold it, no living crew,
+  a flight that ended on the pad), one short message says why. Crafts that can never spawn are no
+  longer listed, and the hover says "is due to spawn". (GUI-P4)
 - **Clearer wording where Parsek refused something without saying why.** Folder and mission
   hovers name the rename rule, a failed Merge & Seal no longer points at a Seal button that is not
   there, the empty supply-run list points at the missions below it, and a launch-window route's

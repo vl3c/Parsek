@@ -210,9 +210,9 @@ namespace Parsek
             {
                 case SpawnCandidateStatus.Ready:
                     statusHover = string.Format(IC,
-                        "Close and slow enough to spawn; it spawns here on {0}", date);
+                        "Close and slow enough to spawn; it is due to spawn here on {0}", date);
                     warpHover = string.Format(IC,
-                        "Warps to {0}, when {1} spawns here.", date, name);
+                        "Warps to {0}, when {1} is due to spawn here.", date, name);
                     enabled = true;
                     break;
                 case SpawnCandidateStatus.Leaves:

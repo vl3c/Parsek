@@ -231,7 +231,7 @@ The window lists ghost craft within 250 m of your vessel whose recording ends in
 - **Spawns** - countdown to the moment the row's Warp goes to
 - **Spawn date** - the exact date of that moment
 - **Status** - one word; hover it for the reason:
-  - **Ready** - close and slow enough; Warp jumps to when it spawns here.
+  - **Ready** - close and slow enough; Warp jumps to when it is due to spawn here. If it still cannot spawn then (something parked on its spot, an orbit too low to hold a vessel, no living crew, a flight that ended on the launch pad), a short message after the Warp says why.
   - **Leaves** - it leaves its orbit (for another body, a new orbit, or to land) before it would spawn; Warp jumps to just before it leaves, and it does not spawn here.
   - **Leaving** - it is leaving its orbit now.
   - **Too fast** - it is passing faster than 2 m/s relative to you; match its speed first.

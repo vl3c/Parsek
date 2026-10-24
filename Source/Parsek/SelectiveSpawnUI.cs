@@ -258,7 +258,7 @@ namespace Parsek
 
             double delta = c.endUT - currentUT;
             return string.Format(IC,
-                "Warps to when {0} spawns here, in {1}.",
+                "Warps to when {0} is due to spawn here, in {1}.",
                 c.vesselName, ParsekTimeFormat.FormatDuration(delta));
         }
 

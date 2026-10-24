@@ -10241,7 +10241,32 @@ dead input entirely, which the code itself says at `RouteCadence.cs:199` and
 **Proposed fix.** Show the snapped value and why in the field's existing tooltip (no new
 surface), and say when the field cannot change anything on a windowed route.
 
-## GUI-P4-WARP-TO-SPAWN-NAMES-AN-OUTCOME-IT-CANNOT-PROMISE: 15 silent refusals behind one button [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-P4-WARP-TO-SPAWN-NAMES-AN-OUTCOME-IT-CANNOT-PROMISE: 15 silent refusals behind one button~~ [FILED 2026-09-11 by the GUI fix batch. FIXED 2026-10-24]
+
+**Fix (2026-10-24).** The disabled-hover route in the proposal cannot carry a spawn-time refusal:
+the list keeps a row only while its spawn time is ahead of the clock and its spawn is still open
+(`GhostPlaybackLogic.IsNearbySpawnCandidateEligible`), so after the Warp the row is gone. Three
+parts. (1) Up front: `IsSpawnSettledUnspawnable` (a latched `TerminalSpawnCannotSpawnSafely`, or
+`SpawnAttempts >= MaxSpawnAttempts`, both skipped outright by `SpawnOrRecoverIfTooClose`) keeps
+such a recording out of the list, the proximity toast and `Warp to Next Spawn`, like the
+`ShouldSpawnAtRecordingEnd` refusals already were. (2) After the Warp:
+`ParsekFlight.WarpToRecordingEnd` arms `SpawnWarpOutcomeWatch`; each frame `TickSpawnWarpWatch`
+reads the recording's spawn state (pure `SpawnWarpOutcomeWatch.Evaluate`) until it resolves:
+spawned or adopted says nothing (the spawner's `has appeared!` stands); a KSC retirement,
+walkback exhaustion, the collision limit, no living crew / an invalid snapshot (noted by the
+spawner at those two abandon sites), a latched terminal-orbit refusal or an exhausted load is
+`<craft> did not spawn: <reason>.`; a terminal-orbit deferral decided after the Warp, a
+collision retry or a blocked chain tip still running at 10 s, or no answer at all is `<craft>
+has not spawned yet: <reason>.`. An abandon reads off `VesselSpawned` with no pid (a listed row
+never has it at arm), and walkback / collision causes count only when they changed after the arm,
+because an in-session load resets `VesselSpawned` but leaves `SpawnAbandoned`,
+`WalkbackExhausted` and `CollisionBlockCount` from an earlier abandon. One `Warp spawn outcome:`
+Info line per resolution. The Warp
+moved the clock, so the message rides an event that changed something (owner pick 2026-10-24:
+one message after the Warp). (3) The `Ready` hovers
+say `is due to spawn`. The invalid jump stays a Warn: a `Ready` row's spawn time is ahead of the
+clock, and a refused jump changes nothing. Gated by `SpawnWarpOutcomeTests` and two
+`RewindSpawnSuppressionTests` cells.
 
 Re-checked 2026-10-24 on main b26cdc0: still real. The Real Spawn Control button is now labelled
 `Warp` (`SpawnControlPresentation.WarpButtonText`) with the hover "Warps to <date>, when <vessel>

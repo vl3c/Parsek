@@ -304,7 +304,7 @@ namespace Parsek.Tests
 
             string result = SelectiveSpawnUI.FormatNextSpawnTooltip(cand, 100);
 
-            Assert.Equal("Warps to when Station spawns here, in 1m 40s.", result);
+            Assert.Equal("Warps to when Station is due to spawn here, in 1m 40s.", result);
         }
 
         [Fact]

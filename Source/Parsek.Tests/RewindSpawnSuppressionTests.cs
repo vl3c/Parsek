@@ -1103,6 +1103,49 @@ namespace Parsek.Tests
                 rec, currentUT: 1829.9, chains: null));
         }
 
+        [Fact]
+        public void IsNearbySpawnCandidateEligible_TerminalOrbitLatchedUnsafe_IsNotListed()
+        {
+            // The spawner skips a latched terminal-orbit refusal outright, so a Warp to it
+            // could only move the clock (todo GUI-P4).
+            var rec = MakeRecording(
+                "rsc-latched-unsafe",
+                "Low Orbiter",
+                110406741u,
+                treeId: null,
+                startUT: 31.0,
+                endUT: 1829.9);
+            Assert.True(GhostPlaybackLogic.IsNearbySpawnCandidateEligible(
+                rec, currentUT: 60.0, chains: null));
+
+            rec.TerminalSpawnCannotSpawnSafely = true;
+
+            Assert.True(GhostPlaybackLogic.IsSpawnSettledUnspawnable(rec));
+            Assert.False(GhostPlaybackLogic.IsNearbySpawnCandidateEligible(
+                rec, currentUT: 60.0, chains: null));
+        }
+
+        [Fact]
+        public void IsNearbySpawnCandidateEligible_SpawnAttemptsExhausted_IsNotListed()
+        {
+            var rec = MakeRecording(
+                "rsc-attempts-exhausted",
+                "Broken Lander",
+                110406742u,
+                treeId: null,
+                startUT: 31.0,
+                endUT: 1829.9);
+            rec.SpawnAttempts = VesselSpawner.MaxSpawnAttempts - 1;
+            Assert.False(GhostPlaybackLogic.IsSpawnSettledUnspawnable(rec));
+            Assert.True(GhostPlaybackLogic.IsNearbySpawnCandidateEligible(
+                rec, currentUT: 60.0, chains: null));
+
+            rec.SpawnAttempts = VesselSpawner.MaxSpawnAttempts;
+
+            Assert.False(GhostPlaybackLogic.IsNearbySpawnCandidateEligible(
+                rec, currentUT: 60.0, chains: null));
+        }
+
         private static Recording MakeRecording(
             string recordingId,
             string vesselName,
