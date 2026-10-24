@@ -1447,6 +1447,8 @@ The spawn system uses two thresholds:
 
 **Bounding box overlap check (spawn blocker):** At the chain tip UT, Parsek computes the bounding box of the vessel about to spawn (from its recorded part layout) and checks for geometric overlap with bounding boxes of all real vessels in the loaded physics bubble, plus a small padding margin. If overlap is detected, the spawn is blocked.
 
+**The vessel you fly is an obstacle too** (todo GC9-SPAWN-IGNORES-ACTIVE-VESSEL, 2026-10-24). Every loaded vessel blocks a spawn, the active vessel included, for an EVA kerbal and a vessel alike: a plane whose flight ended mid-runway does not appear inside the rover you parked on its stop point; it walks back along its own track to the first clear spot behind the rover (Section 13.7). The exceptions are the ones that are not obstacles: a vessel of a skipped type (debris, EVA kerbal, flag, asteroid), a ghost map vessel, an EVA kerbal's own parent vessel, and a live vessel of the same committed tree that stood at its spot at that time (`CoexistingTreeSiblingSpawn`). A recording whose own vessel is the one you fly never reaches this check: the live vessel is adopted as its spawn first. The vessel you fly is never recovered as a duplicate blocker (#112); it only moves the spawn.
+
 ### 13.5 Ghost Extension
 
 Operator ruling 2026-09-23: this section describes the code's behaviour; the earlier indefinite-extension design was retired.

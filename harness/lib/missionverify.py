@@ -104,6 +104,36 @@ class DriverValidity:
     recording_refusal_subkind: str = ""
 
 
+def drive_stop_subkind(ev: "hlib.ResponseEvaluation", mission: Optional[Dict]) -> str:
+    """The driver-stage subkind when the steps driven SO FAR already make the attempt a
+    terminal driver-stage INVALID because of a seam step, else "" (todo
+    SEAM-DRIVER-KEEPS-DRIVING-AFTER-A-REFUSED-STEP). run.py asks it after each unmet
+    step and, on a non-empty answer, drives only the cleanup tail.
+
+    ``ev`` is the response evaluation over the DRIVEN prefix; ``mission`` is the
+    mission row so far (None while no mission step has been driven, which is also
+    every seam-only driver). Read through ``compose_driver_validity`` itself, so the
+    stop rule cannot drift from the verdict rule. It is safe to stop on its answer
+    because, for a fixed driven prefix, no later step can make the attempt valid
+    again or change the subkind:
+      - seam-only, and any step before the mission: the first unmet step owns the
+        subkind and every later step is behind it;
+      - after a MET mission: an outcome step's driver-fault miss owns it when it is
+        the first unmet outcome step, and a refused recording step owns it when it is
+        the first unmet post-mission step; both are fixed once driven. A post-mission
+        miss that does NOT invalidate the stage (a flight-outcome ERROR, which reds
+        PARSEK-FAIL(mission-outcome), or a non-refusal recording miss) answers "",
+        so the tail the verifiers read is still driven.
+    An UNMET mission answers "": the unmet-mission tail (with its spec opt-out) owns
+    that tail."""
+    if mission is not None and not mission.get("met"):
+        return ""
+    dv = compose_driver_validity(ev, mission, boot_crashed=False, batch_crashed=False)
+    if dv.driver_valid:
+        return ""
+    return dv.stage_subkind or "driver-stage"
+
+
 def compose_driver_validity(ev: "hlib.ResponseEvaluation", mission: Optional[Dict],
                             boot_crashed: bool, batch_crashed: bool) -> DriverValidity:
     """Driver validity from the response stream + the mission step (M-B1).

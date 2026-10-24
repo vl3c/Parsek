@@ -1639,12 +1639,15 @@ class AutopilotHandoffSmokeTests(unittest.TestCase):
         # defect and not a mission verdict.
         self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
         self.assertEqual("load-failed", result["subkind"])
-        # The mission step row is present, unmet, and carries the skip reason.
-        mission_rows = [s for s in result["driver"]["steps"] if s.get("phase") == "mission"]
+        # The failed LoadGame stops the drive (SEAM-DRIVER-KEEPS-DRIVING-AFTER-A-
+        # REFUSED-STEP), so the mission step is never reached: it is a skipped row
+        # naming the stop, not a driven step.
+        self.assertFalse([s for s in result["driver"]["steps"] if s.get("phase") == "mission"])
+        mission_rows = [s for s in result["driver"]["skippedTailSteps"]
+                        if s.get("phase") == "mission"]
         self.assertEqual(1, len(mission_rows))
-        self.assertFalse(mission_rows[0]["met"])
-        self.assertIsNone(mission_rows[0]["missionVerdict"])
-        self.assertIn("LoadGame", mission_rows[0].get("reason", ""))
+        self.assertEqual(hlib.TAIL_SKIP_REASON_STEP_UNMET, mission_rows[0]["reason"])
+        self.assertEqual("LoadGame", result["verifiers"]["unmetStepTail"]["stoppedAt"]["cmd"])
         # The expectations verifier is SKIPPED on a driver-INVALID save -- but
         # it still records the MEASURED facets. `observed` exists so a run's
         # numbers survive into results/<runId>.json instead of dying with the
@@ -1943,11 +1946,21 @@ class UnmetMissionTailSmokeTests(unittest.TestCase):
         self.assertEqual(0, rt.mission_spawn_count, "a failed boot must not spawn a mission")
         self.assertEqual("load-failed", result["subkind"])
         verbs = self._verbs(self._commands())
+        self.assertNotIn("SetSetting", verbs)
         self.assertNotIn("EvaExit", verbs)
         self.assertNotIn("EvaChuteDeploy", verbs)
+        self.assertIn("StopRecording", verbs)
         self.assertIn("FlushAndQuit", verbs)
-        self.assertEqual(["EvaExit", "EvaChuteDeploy", "CommitTree"],
-                         [r["cmd"] for r in result["driver"]["skippedTailSteps"]])
+        # The failed LoadGame stops the drive itself (reason step-unmet), so the
+        # pre-mission SetSetting and the mission step are skipped along with the tail.
+        skipped = result["driver"]["skippedTailSteps"]
+        self.assertEqual(["SetSetting", "", "EvaExit", "EvaChuteDeploy", "CommitTree"],
+                         [r["cmd"] for r in skipped])
+        self.assertEqual("mission", skipped[1]["phase"])
+        self.assertEqual([hlib.TAIL_SKIP_REASON_STEP_UNMET],
+                         sorted({r["reason"] for r in skipped}))
+        self.assertEqual("0001", result["verifiers"]["unmetStepTail"]["stoppedAt"]["id"])
+        self.assertNotIn("unmetMissionTail", result["verifiers"])
 
     # ---- HARNESS-MIDMISSION-COMMIT-BYPASS, end to end ------------------------
     # The gap the tail gate above does NOT close, driven over the fake KSP + fake
@@ -6077,16 +6090,16 @@ class RuntimeHandleSmokeTests(unittest.TestCase):
     # ---- the REFUSED-producer control (the swallowed-refusal regression) --
 
     def test_a_refused_producer_keeps_its_own_retryable_subkind(self):
-        """THE M1 REGRESSION. When the producer REFUSES, the consumer becomes
-        unresolvable as a CONSEQUENCE -- and the record must still blame the
-        refusal, not the consumer.
+        """THE M1 REGRESSION, as the drive now reaches it. When the producer REFUSES,
+        the record must blame the refusal, never the consumer that would have been
+        unresolvable as a consequence (driver-unresolved-handle is deliberately
+        non-retryable, so blaming the consumer would lose the retry a refusal earns).
 
-        Before the fix, run_verifiers asserted driver-unresolved-handle for BOTH
-        unresolved causes. That subkind is deliberately non-retryable (a second boot
-        cannot grow a field a verb does not emit), so a REFUSAL -- which IS
-        retryable, and whose real cause is one step earlier -- was reported under the
-        consumer's name and never retried. The rule is now keyed on the row's kind:
-        no-payload leaves the stage to _stage_subkind_for(first_unmet).
+        Since SEAM-DRIVER-KEEPS-DRIVING-AFTER-A-REFUSED-STEP the drive stops AT the
+        refused producer: the consumer is skipped (reason step-unmet) instead of being
+        reached and found unresolvable, and FlushAndQuit still brings KSP down. The
+        run_verifiers no-payload rule stays for the one shape that still reaches it, a
+        NON-gating post-mission producer on a MISSION-OK run.
 
         `kind-arg-missing` is deliberately absent from _SEAM_REFUSAL_SUBKINDS, so the
         mapping falls back to the coarse driver-verdict-mismatch -- retryable."""
@@ -6096,35 +6109,30 @@ class RuntimeHandleSmokeTests(unittest.TestCase):
                          "the PRODUCER's refusal owns the stage, not the consumer")
         self.assertNotEqual(hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND, result["subkind"])
         # Retryable, both ways it is asked: should_retry over the recorded subkind,
-        # and classify_verdict's own flag for the same driver stage (the retry the
-        # swallowed refusal used to lose).
+        # and classify_verdict's own flag for the same driver stage.
         self.assertTrue(hlib.should_retry(
             hlib.Verdict(result["verdict"], result["subkind"], True, ""), 1, "once"))
         classified = hlib.classify_verdict(
             {"valid": False, "stage_subkind": result["subkind"]}, {}, {}, 1, "once")
         self.assertEqual(result["subkind"], classified.subkind)
         self.assertTrue(classified.retryable)
-        # Still NOT a KILLED: the driver stage is what the record blames.
+        # NOT a KILLED: the cleanup quit ran, so the driver stage is what is blamed.
         self.assertFalse(result["kspExit"]["killed"])
-        # The contract that has to hold on EVERY unresolved path: no literal ${} on
-        # the wire, and nothing after the unresolved step is driven.
         lines = self._commands_written()
         self.assertFalse(any("${" in l for l in lines),
                          "a literal ${} must never reach the channel: %s" % lines)
         self.assertFalse(any("cmd=InvokeRewind" in l for l in lines),
-                         "the unresolved step's line must NOT be written: %s" % lines)
-        self.assertFalse(any("cmd=FlushAndQuit" in l for l in lines),
-                         "no later step may run after an unresolved handle: %s" % lines)
-        # ... and the reference is still RECORDED, under the no-payload cause, so the
-        # consequence is auditable even though it is not what the verdict blames.
-        self.assertEqual("${handles.rp0}",
-                         result["verifiers"]["unresolvedHandle"]["ref"])
-        self.assertEqual(hlib.UNRESOLVED_HANDLE_NO_PAYLOAD,
-                         result["verifiers"]["unresolvedHandle"]["kind"])
-        self.assertEqual(hlib.UNRESOLVED_HANDLE_NO_PAYLOAD,
-                         self._step_row(result, "InvokeRewind")["unresolvedHandle"]["kind"])
-        # The producer's own row shows WHY there was no payload.
+                         "nothing after the refused producer may be driven: %s" % lines)
+        self.assertTrue(any("cmd=FlushAndQuit" in l for l in lines),
+                        "the cleanup quit must still run: %s" % lines)
+        # The consumer was never reached, so it is a skipped row, not an unresolved one.
+        self.assertNotIn("unresolvedHandle", result["verifiers"])
+        self.assertEqual([("0003", "InvokeRewind", hlib.TAIL_SKIP_REASON_STEP_UNMET)],
+                         [(r["id"], r["cmd"], r["reason"])
+                          for r in result["driver"]["skippedTailSteps"]])
+        # The producer's own row shows WHY the drive stopped.
         self.assertEqual("REJECTED", self._step_row(result, "ListHandles")["verdict"])
+        self.assertEqual("0002", result["verifiers"]["unmetStepTail"]["stoppedAt"]["id"])
 
     # ---- the static negative control -------------------------------------
 
@@ -6192,6 +6200,91 @@ class RuntimeHandleSmokeTests(unittest.TestCase):
                          "an unresolved param must stop the spawn, not fly a mission "
                          "with a literal ${} in its params")
         self.assertFalse(result["kspExit"]["killed"])
+
+
+class UnmetStepStopSmokeTests(unittest.TestCase):
+    """The step-unmet drive stop over the real run loop (todo
+    SEAM-DRIVER-KEEPS-DRIVING-AFTER-A-REFUSED-STEP). The incident: IR-2's
+    LaunchFromEditor came back REJECTED and run.py drove the remaining 20 steps from
+    the editor anyway, each scene-gated verb deferring to its own timeout, about 711 s
+    per attempt. These cells assert on the COMMAND CHANNEL FILE, the only artifact
+    that proves a command was never sent."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-stepstop-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "stepstop_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _spec(self, refuse):
+        """LoadGame -> ListHandles (REJECTED kind-arg-missing when `refuse`) ->
+        MissionMark -> TimeJump -> StopRecording -> FlushAndQuit."""
+        spec = _make_spec(self.template, 30, 600)
+        spec["id"] = "SMOKE-stepstop"
+        spec["driver"]["steps"] = [
+            {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+             "expect": "OK", "budget": 30},
+            {"cmd": "ListHandles", "args": {} if refuse else {"kind": "rewindpoints"},
+             "expect": "OK"},
+            {"cmd": "MissionMark", "args": {"label": "after"}, "expect": "OK"},
+            {"cmd": "TimeJump", "args": {"ut": "1600"}, "expect": "OK"},
+            {"cmd": "StopRecording", "expect": "OK"},
+            {"cmd": "FlushAndQuit", "expect": "OK"},
+        ]
+        spec["expectations"]["logContracts"]["required"] = []
+        return spec
+
+    def _run(self, refuse):
+        rt = FakeRuntime("pass")
+        result = run.run_attempt(self._spec(refuse), self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        path = os.path.join(self.instance, "parsek-test-commands.txt")
+        with open(path, "r", encoding="utf-8") as fh:
+            verbs = [tok[4:] for l in fh for tok in l.split() if tok.startswith("cmd=")]
+        return result, verbs
+
+    def test_a_refused_step_stops_the_drive_but_still_quits_cleanly(self):
+        result, verbs = self._run(refuse=True)
+        self.assertEqual(["LoadGame", "ListHandles", "StopRecording", "FlushAndQuit"], verbs)
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("driver-verdict-mismatch", result["subkind"])
+        self.assertFalse(result["kspExit"]["killed"])
+        skipped = result["driver"]["skippedTailSteps"]
+        self.assertEqual([("0003", "MissionMark", "inert"),
+                          ("0004", "TimeJump", "world-mutating")],
+                         [(r["id"], r["cmd"], r["role"]) for r in skipped])
+        self.assertEqual({hlib.TAIL_SKIP_REASON_STEP_UNMET}, {r["reason"] for r in skipped})
+        # The skipped steps are not seam verdict misses.
+        self.assertEqual(["LoadGame", "ListHandles", "StopRecording", "FlushAndQuit"],
+                         [r["cmd"] for r in result["driver"]["steps"]])
+        row = result["verifiers"]["unmetStepTail"]
+        self.assertEqual("SKIPPED", row["status"])
+        self.assertEqual(hlib.TAIL_SKIP_REASON_STEP_UNMET, row["reason"])
+        self.assertEqual({"id": "0002", "cmd": "ListHandles", "verdict": "REJECTED",
+                          "msg": "kind-arg-missing", "subkind": "driver-verdict-mismatch"},
+                         row["stoppedAt"])
+        self.assertNotIn("unmetMissionTail", result["verifiers"])
+
+    def test_a_clean_run_drives_every_step_and_carries_no_skip_rows(self):
+        result, verbs = self._run(refuse=False)
+        self.assertEqual(["LoadGame", "ListHandles", "MissionMark", "TimeJump",
+                          "StopRecording", "FlushAndQuit"], verbs)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"],
+                         "expected PASS, got %s (%s)" % (result["verdict"], result.get("subkind")))
+        self.assertNotIn("skippedTailSteps", result["driver"])
+        self.assertNotIn("unmetStepTail", result["verifiers"])
 
 
 class KspGameplaySettingsStagingSmokeTests(unittest.TestCase):

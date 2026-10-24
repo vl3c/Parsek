@@ -169,21 +169,48 @@ namespace Parsek.Tests
             // Everything else about this blocker is a perfect match, so the latch is
             // the only thing standing between it and a second recovery.
             Assert.False(VesselSpawner.ShouldEnterDuplicateBlockerRecovery(
-                rec, blockerVesselLoaded: true, blockerPid: 12345, blockerGuid: null));
+                rec, blockerVesselLoaded: true, blockerPid: 12345, blockerGuid: null,
+                blockerIsActiveVessel: false));
 
             // Positive control: clear the latch and the same inputs DO enter recovery,
             // so the refusal above is the latch rather than a dead predicate.
             rec.DuplicateBlockerRecovered = false;
             Assert.True(VesselSpawner.ShouldEnterDuplicateBlockerRecovery(
-                rec, blockerVesselLoaded: true, blockerPid: 12345, blockerGuid: null));
+                rec, blockerVesselLoaded: true, blockerPid: 12345, blockerGuid: null,
+                blockerIsActiveVessel: false));
 
             // An unloaded (or absent) blocker cannot be recovered: the call site passes
             // false here for a null blockerVessel.
             Assert.False(VesselSpawner.ShouldEnterDuplicateBlockerRecovery(
-                rec, blockerVesselLoaded: false, blockerPid: 12345, blockerGuid: null));
+                rec, blockerVesselLoaded: false, blockerPid: 12345, blockerGuid: null,
+                blockerIsActiveVessel: false));
 
             Assert.False(VesselSpawner.ShouldEnterDuplicateBlockerRecovery(
-                null, blockerVesselLoaded: true, blockerPid: 12345, blockerGuid: null));
+                null, blockerVesselLoaded: true, blockerPid: 12345, blockerGuid: null,
+                blockerIsActiveVessel: false));
+        }
+
+        [Fact]
+        public void DuplicateBlockerRecovery_NeverRecoversTheActiveVessel_GC9()
+        {
+            // GC9-SPAWN-IGNORES-ACTIVE-VESSEL: the active vessel now blocks every spawn, so
+            // it can reach the duplicate-blocker branch. Even a perfect same-spawn match is
+            // not recovered out from under the player; the walkback moves the spawn instead.
+            var rec = new Recording
+            {
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 12345,
+                VesselName = "Aeris 4A",
+            };
+
+            Assert.False(VesselSpawner.ShouldEnterDuplicateBlockerRecovery(
+                rec, blockerVesselLoaded: true, blockerPid: 12345, blockerGuid: null,
+                blockerIsActiveVessel: true));
+
+            // Positive control: the same blocker when it is not the active vessel.
+            Assert.True(VesselSpawner.ShouldEnterDuplicateBlockerRecovery(
+                rec, blockerVesselLoaded: true, blockerPid: 12345, blockerGuid: null,
+                blockerIsActiveVessel: false));
         }
 
         // ────────────────────────────────────────────────────────────

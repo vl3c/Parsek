@@ -59,7 +59,10 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   run.py drives the CLEANUP tail steps only (`hlib.SEAM_VERB_TAIL_ROLE`;
   design-autotest-harness-core.md "The unmet-mission tail"), so a scenario
   whose tail contains irreversible in-world verbs cannot fire them over a
-  flight that never reached its envelope.
+  flight that never reached its envelope. The same cleanup-only tail follows
+  any seam step whose miss already makes the attempt a driver-stage INVALID
+  (design "The unmet-step stop"), so a refused step no longer drives the rest
+  of the spec into its timeouts.
 - Declarative inputs: `scenarios/*.toml` (incl. `[expectations.ledger]`),
   `coverage/registry.toml`, `provision/pins.toml`, `provision/profiles/*.toml`,
   `missions/<name>.schema.toml` + `missions/requirements.txt`.

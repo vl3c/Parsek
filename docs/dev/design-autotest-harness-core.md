@@ -839,9 +839,9 @@ on a torn or non-manifest text, `true` otherwise. The row ships REPORT-ONLY: it
 moves a verdict only for a spec whose block declares `gating = true`, which no
 committed spec does.
 
-THREE CONDITIONAL fields exist, all tied to "The unmet-mission tail" and all emitted
-only in the case each names, so a record from any other run is byte-identical to the
-shape above:
+FOUR CONDITIONAL fields exist, all tied to "The unmet-mission tail" or "The unmet-step
+stop" and all emitted only in the case each names, so a record from any other run is
+byte-identical to the shape above:
 
 - `driver.skippedTailSteps` -- the ordered rows the harness chose NOT to drive,
   `{ "id": "0004", "cmd": "EvaExit", "role": "world-mutating", "reason":
@@ -849,10 +849,16 @@ shape above:
   harness never sent is not an unmet step, so it must not drag `allExpectedMet`
   down or read as a seam verdict miss. Ids are index-derived, so a skipped row
   still points at the spec step it stands for and skipping never renumbers.
+  `reason` is `mission-unmet` (the unmet-mission tail) or `step-unmet` (the unmet-step
+  stop); a skipped mission step carries `"cmd": ""` and `"phase": "mission"`.
 - `verifiers.unmetMissionTail` -- `{ "status": "SKIPPED", "reason":
   "mission-unmet", "skippedSteps": [...] }`, sitting next to the verifier rows it
   explains (on this path the analyzer is triage-only and every save-reading
   verifier is SKIPPED, because the produced save is deliberately incomplete).
+- `verifiers.unmetStepTail` -- the unmet-step stop's row, `{ "status": "SKIPPED",
+  "reason": "step-unmet", "stoppedAt": { "id", "cmd", "verdict", "msg", "subkind" },
+  "skippedSteps": [...] }`. `stoppedAt` names the step whose miss ended the drive.
+  The two skip rows never appear together.
 - `driver.skipTailOnUnmetMission` -- present as `false` on the MIRROR case: an UNMET
   mission whose spec opted OUT, so the full tail was driven by policy. Named after the
   spec key a reader would go looking for. Without it that run's record is
@@ -1412,6 +1418,44 @@ error), and warns as inert on a seam-kind driver. The decision itself is pure:
 `hlib.plan_unmet_mission_tail(steps, mission_index, skip_tail)` returns the per-step
 disposition, the run / skip index sets, and a log-ready summary; run.py's only job is
 to consult it and to log every skip.
+
+### The unmet-step stop
+
+The same cleanup-only tail follows a SEAM step whose verdict misses its `expect` when
+that miss already makes the attempt a driver-stage INVALID. run.py asks
+`missionverify.drive_stop_subkind` after each unmet step; it runs
+`compose_driver_validity` over the steps driven so far, so the stop rule and the
+verdict rule are one function. On a non-empty answer run.py plans the rest with
+`hlib.plan_unmet_step_tail` (cleanup verbs run, everything else is skipped, a later
+mission step included), records the skips with reason `step-unmet` and the
+`verifiers.unmetStepTail` row, and goes straight on to `FlushAndQuit`.
+
+**Why.** IR-2 (2026-10-24 `_0934` / `_0946_a2`): `LaunchFromEditor` came back
+REJECTED and the harness drove the remaining 20 steps from the editor. Every
+scene-gated verb deferred to its own timeout, about 711 s per attempt, and
+`retry = "once"` flew the same refusal again: 1423 s for a verdict known at step 11.
+
+**Why stopping cannot change a verdict.** For a fixed driven prefix no later step
+can make the stage valid again or change its subkind: on a seam-only driver and
+before the mission the first unmet step owns the subkind; after a MET mission the
+first unmet outcome step's driver fault, or the first unmet post-mission step's
+recognised refusal, owns it, and both are fixed once driven. The driver-INVALID
+branch of `classify_verdict` already outranks every save-reading verifier and the
+mission-outcome row. What the stop gives up is a crash or a watchdog kill the
+cascade might have produced later, and either would only have masked the cause.
+
+**What does NOT stop.** A post-mission miss that leaves the stage valid keeps
+driving: a flight-outcome ERROR on an outcome verb (which reds
+`PARSEK-FAIL(mission-outcome)` and whose save the verifiers still read) and a
+non-refusal miss on a recording verb (non-gating by the autopilot carve-out). An
+UNMET mission keeps its own tail policy, including the `skipTailOnUnmetMission`
+opt-out. A step that expects a refusal (`expect = "REJECTED"`) and gets it is met.
+There is no spec opt-out for the stop.
+
+**Retry.** Unchanged: the stop shortens each attempt to the refused step and the
+cleanup quit, and `hlib.decide_retry`'s closed deterministic-reason veto still
+decides whether the second attempt flies. A REJECTED gate refusal is not vetoed
+wholesale, because most gate reasons read live state a load race can change.
 
 ### Budget enforcement and the kill
 
@@ -2185,7 +2229,8 @@ Each: scenario -> expected behavior -> v1 or deferred.
     expected OK returned ERROR no-active-tree because a prior step did not arrange
     a tree). -> Driver stage failed at that step -> INVALID (subkind
     driver-verdict-mismatch), retry once. The mismatch (expected vs got) recorded
-    per step. v1.
+    per step. v1. When the miss already fails the driver stage, run.py stops
+    driving there and runs only the cleanup tail (see "The unmet-step stop").
 14. **Seam INTERRUPTED verdict is UNREACHABLE in v1.** The seam only emits
     `INTERRUPTED` when it RESTARTS and reconciles its at-most-once journal, but the
     harness never restarts KSP mid-run (each attempt truncates the channel files and
@@ -2626,6 +2671,13 @@ CI exercises the tail/kill/verify plumbing without a real game:
   `skipTailOnUnmetMission = false` restores the legacy full tail. Fails the moment the
   harness goes back to driving irreversible in-world verbs over a flight that never
   reached its envelope.
+- **Fake-KSP refused seam step -> the rest is never written to the channel.**
+  (`UnmetStepStopSmokeTests`, pure cells in `test_drive_stop.py`.) A seam-only spec
+  whose `ListHandles` is REJECTED must leave the later `MissionMark` / `TimeJump` out
+  of `parsek-test-commands.txt`, still write `StopRecording` and `FlushAndQuit`, keep
+  the refusal's own subkind, and record `skippedTailSteps` (reason `step-unmet`) plus
+  `verifiers.unmetStepTail.stoppedAt`. The control cell drives every step with no skip
+  rows.
 - **Fake-KSP multi-lane selection, pipelined vs serial.**
   (`PipelinedSelectionSmokeTests`, `PipelinedEdgeSmokeTests`,
   `PipelinedVerifyCopySetTests`.) Four scenarios through `_run_selection` both ways:

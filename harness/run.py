@@ -1781,10 +1781,14 @@ class DriveResult:
         # never ran / wrote no readable result.
         self.mission_wall_seconds: Optional[float] = None
         # The tail steps NOT driven because the mission step came back UNMET (design
-        # "The unmet-mission tail"). Each row: id / cmd / role / reason. Empty on every
-        # other path, including a MISSION-OK run and a seam-only driver, so a normal
-        # result record is byte-identical to what it was before this seam existed.
+        # "The unmet-mission tail", reason mission-unmet) or because a seam step missed
+        # its expect and already made the attempt a driver-stage INVALID (reason
+        # step-unmet). Each row: id / cmd / role / reason. Empty on every other path,
+        # so a normal result record is byte-identical to what it was before this seam
+        # existed.
         self.skipped_tail_steps: List[Dict] = []
+        # The step-unmet stop ({"id", "cmd", "verdict", "msg", "subkind"}), or None.
+        self.stopped_at_step: Optional[Dict] = None
         # True IFF a mission came back UNMET while the spec's skipTailOnUnmetMission was
         # false, i.e. the full tail was driven BY POLICY. Without this the durable record
         # of such a run is indistinguishable from one where the policy never applied
@@ -1925,7 +1929,9 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
     # mission budget flying against a game that never reached FLIGHT -- skip the
     # spawn and record the mission step unmet. (Classification is driven by the
     # pre-step LoadGame failure, so this is INVALID(load-failed) either way; the
-    # value here is spending ZERO mission budget on a dead boot.)
+    # value here is spending ZERO mission budget on a dead boot.) The unmet-step stop
+    # in drive_seam normally skips the mission step before this point; this stays as
+    # the backstop for a LoadGame whose spec expects a non-OK verdict.
     if not preceding_load_ok:
         logger.warn("Drive", "mission step id=%s: preceding LoadGame not OK -> skipping mission spawn (INVALID load-failed)"
                     % step_id)
@@ -2153,6 +2159,26 @@ def _record_mid_mission_seam_writes(result: "DriveResult", mission_ctx, reserved
         logger.info("Mission", "mid-mission seam writes: %s" % writes.summary)
 
 
+def _maybe_stop_after_unmet_step(result: "DriveResult", step_id: str, verb: str,
+                                 verdict: str, terminal: Optional[Dict],
+                                 logger: HarnessLogger) -> None:
+    """Set ``result.stopped_at_step`` when the step just answered (unmet) already made
+    the attempt a terminal driver-stage INVALID (todo
+    SEAM-DRIVER-KEEPS-DRIVING-AFTER-A-REFUSED-STEP). The decision is
+    ``missionverify.drive_stop_subkind`` over the driven prefix, the same
+    composition run_verifiers classifies with, so the stop and the verdict agree."""
+    ev = hlib.evaluate_response_stream(result.response_lines, result.steps_with_ids)
+    subkind = missionverify.drive_stop_subkind(ev, result.mission_step)
+    if not subkind:
+        logger.info("Drive", "step UNMET id=%s cmd=%s verdict=%s does not fail the driver "
+                             "stage on its own (post-mission, non-gating); driving on"
+                    % (step_id, verb, verdict))
+        return
+    result.stopped_at_step = {"id": step_id, "cmd": verb, "verdict": verdict,
+                              "msg": (terminal or {}).get("msg", "") or "",
+                              "subkind": subkind}
+
+
 def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                runtime: Runtime, logger: HarnessLogger, run_budget: float,
                mission_ctx: Optional[MissionContext] = None,
@@ -2170,10 +2196,27 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
     # calls it again -- which is the design's rule: a retry's captures are its own.
     capture_store: Dict[str, Dict[str, str]] = {}
     tail_plan: Optional[hlib.UnmetTailPlan] = None
+    tail_reason = hlib.TAIL_SKIP_REASON_MISSION_UNMET
     response_tail = ResponseTail(responses_path)
 
     for i, step in enumerate(steps):
         step_id = hlib.step_id_for_index(i)
+        # Checked BEFORE the mission handoff: a refused pre-mission step skips the
+        # mission step itself (plan_unmet_step_tail), so no mission budget is spent.
+        if tail_plan is not None and i in tail_plan.skipped_indices:
+            role = hlib.seam_verb_tail_role(step.get("cmd", ""))
+            row = {"id": step_id, "cmd": step.get("cmd", ""), "role": role,
+                   "reason": tail_reason}
+            if step.get("phase") == "mission":
+                row["role"] = hlib.TAIL_ROLE_WORLD_MUTATING
+                row["phase"] = "mission"
+            result.skipped_tail_steps.append(row)
+            # Bounded (a driver has well under 40 steps), so log per skipped step: the
+            # KSP.log / harness log is the only place the omission is auditable.
+            logger.info("Drive", "drive step=%d id=%s cmd=%s SKIPPED role=%s reason=%s "
+                                 "(no channel line written)"
+                        % (i, step_id, row["cmd"] or "mission", row["role"], tail_reason))
+            continue
         # M-B1 handoff (design "The handoff"): a phase=mission step is NOT written to
         # the channel; run.py spawns the mission subprocess and bounded-waits it, then
         # drives the remaining seam steps. On a MET mission the whole tail runs; on an
@@ -2193,17 +2236,6 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                 log("Drive", "mission UNMET verdict=%s subkind=%s: %s"
                     % (result.mission_step.get("missionVerdict") or "<no-result>",
                        result.mission_step.get("subkind") or "-", tail_plan.summary))
-            continue
-        if tail_plan is not None and i in tail_plan.skipped_indices:
-            role = hlib.seam_verb_tail_role(step.get("cmd", ""))
-            row = {"id": step_id, "cmd": step.get("cmd", ""), "role": role,
-                   "reason": "mission-unmet"}
-            result.skipped_tail_steps.append(row)
-            # Bounded (a driver has well under 20 steps), so log per skipped step: the
-            # KSP.log / harness log is the only place the omission is auditable.
-            logger.info("Drive", "drive step=%d id=%s cmd=%s SKIPPED role=%s reason=mission-unmet "
-                                 "(no channel line written)"
-                        % (i, step_id, row["cmd"], role))
             continue
         verb = step.get("cmd", "")
         args = dict(step.get("args", {}) or {})
@@ -2314,6 +2346,16 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                         logger.info("Drive", "captured id=%s label=%s fields=%s"
                                     % (step_id, label if label else "-",
                                        ",".join(captured)))
+                if tail_plan is None and verdict != record_step["expect"]:
+                    _maybe_stop_after_unmet_step(result, step_id, verb, verdict, terminal,
+                                                 logger)
+                    if result.stopped_at_step is not None:
+                        tail_plan = hlib.plan_unmet_step_tail(steps, i)
+                        tail_reason = hlib.TAIL_SKIP_REASON_STEP_UNMET
+                        logger.warn("Drive", "step UNMET id=%s cmd=%s verdict=%s expect=%s "
+                                             "-> driver-INVALID(%s); stopping the drive: %s"
+                                    % (step_id, verb, verdict, record_step["expect"],
+                                       result.stopped_at_step["subkind"], tail_plan.summary))
                 break
 
             exit_code = runtime.poll_exit(proc)
@@ -2744,16 +2786,29 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     # so the produced save is deliberately incomplete (no committed tree) and no
     # verifier reads it as ground truth. Without this row a reader of the result JSON
     # would have to reconstruct WHY the save has no committed recording.
+    # The step-unmet stop gets its own row (unmetStepTail) naming the step it stopped
+    # at; the two skips never both fire in one attempt (the step-unmet stop is not
+    # consulted once a mission came back UNMET).
     if drive.skipped_tail_steps:
-        detail["unmetMissionTail"] = {
-            "status": "SKIPPED", "reason": "mission-unmet",
+        stopped = drive.stopped_at_step
+        row_key = "unmetMissionTail" if stopped is None else "unmetStepTail"
+        detail[row_key] = {
+            "status": "SKIPPED",
+            "reason": (hlib.TAIL_SKIP_REASON_MISSION_UNMET if stopped is None
+                       else hlib.TAIL_SKIP_REASON_STEP_UNMET),
             "skippedSteps": [dict(r) for r in drive.skipped_tail_steps],
         }
-        logger.info("Verify", "verify unmetMissionTail skipped=%d [%s]; the produced save is "
+        if stopped is not None:
+            detail[row_key]["stoppedAt"] = dict(stopped)
+        logger.info("Verify", "verify %s skipped=%d [%s]%s; the produced save is "
                                "deliberately incomplete and every save-reading verifier is "
                                "triage-only/SKIPPED on driver-invalid"
-                    % (len(drive.skipped_tail_steps),
-                       ", ".join("%s:%s" % (r["id"], r["cmd"]) for r in drive.skipped_tail_steps)))
+                    % (row_key, len(drive.skipped_tail_steps),
+                       ", ".join("%s:%s" % (r["id"], r["cmd"] or "mission")
+                                 for r in drive.skipped_tail_steps),
+                       "" if stopped is None
+                       else " stoppedAt=%s:%s verdict=%s" % (stopped["id"], stopped["cmd"],
+                                                             stopped["verdict"])))
 
     # 2. BATCH_COMPLETE presence (parsed even on short-circuit; cheap triage).
     # M-A5.1 (N3): a multi-category selector ("all" / "A,B") emits per-category lines
