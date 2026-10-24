@@ -2246,8 +2246,16 @@ Each item needs a trace (or a lane) before it is a defect or a non-issue; see
 - [ ] (Traced 2026-10-06, not adversarially verified: crossings while an endpoint is absent are BLOCKED with no catch-up - lost service, not lost cargo; see CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO.) Spawns are deferred until warp ends while routes keep ticking: a cycle crossing a
   station's spawn UT during warp is held and its cargo lost.
 - [ ] Multi-stop routes reserve no destination capacity between dispatch and a later window.
-- [ ] A kerbal swapped into a station during a dock is inferred Dead or held indefinitely
-  (`KerbalsModule.cs` around 1786-1821).
+- [x] ~~A kerbal swapped into a station during a dock is inferred Dead or held indefinitely
+  (`KerbalsModule.cs` around 1786-1821).~~ No defect (traced 2026-10-24, branch
+  `claude/project-thread-lzdclu`): the tug's recording ends Docked (never Dead), the docked
+  recording ends at the undock with no terminal (Unknown) and hands each kerbal to the undock
+  child carrying him (a one-half end snapshot reads Unknown through the split departure), the
+  station half reads him Aboard (held while he is aboard, never permanently), and a later
+  rescue's dock to that half ends the hold. Cells `CrewMovedIntoStationAtDockTests` (6: a swap
+  into another mission's station, a one-way move into an empty one, a same-tree two-parent
+  dock, the one-half end snapshot, a later rescue); live witness lane
+  `CX-3-crew-swapped-into-station-at-dock`, never flown.
 - [ ] The Rewind Point quicksave is written one frame after the split: a route crossing at
   exactly a staging event against the strict-after-cutoff retire.
 - [ ] A route loop unit and a foreign Mission partner journey can claim the same recordings;

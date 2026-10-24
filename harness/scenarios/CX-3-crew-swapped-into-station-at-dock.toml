@@ -1,0 +1,125 @@
+schema = 1
+id = "CX-3-crew-swapped-into-station-at-dock"
+# =====================================================================================
+# CX-3: A KERBAL SWAPPED INTO A STATION DURING A DOCK (todo ROUTE-INTERACTION-SEAMS-TO-VERIFY,
+# item "a kerbal swapped into a station during a dock is inferred Dead or held
+# indefinitely"; branch `claude/project-thread-lzdclu`). AUTHORED 2026-10-24, NEVER FLOWN.
+#
+# The code trace found no defect: the docked recording ends at the undock with no terminal
+# (Unknown) and hands each kerbal to the undock child carrying him, the station half's own
+# end snapshot reads him Aboard, and a later rescue's dock ends that hold
+# (CrewMovedIntoStationAtDockTests). CX-1 moves a kerbal OUT of the Station; this lane is the
+# live witness of the inward direction, a swap.
+#
+# THE HOST is CX-1's: `bdock-second-dock-recorded`, whose ACTIVE vessel is the Station +
+# third-Kerbal-X pair (pid 3620499050). Two mk1-3pods: the Station's (Bill, Bob, Valentina;
+# full) and the Kerbal X's (Jebediah, two free seats). The Station keeps the focus on the
+# undock (CX-1's first flight read `activePid=3620499050`).
+#
+# THE FLIGHT, every step a player's:
+#   (a) CrewTransfer: Valentina moves from the Station pod into the Kerbal X pod (frees a
+#       Station seat).
+#   (b) CrewTransfer: Jebediah moves from the Kerbal X pod into the Station pod. The two
+#       have swapped vessels while docked.
+#   (c) PartAction undock. The Station (Bill, Bob, Jebediah) keeps the focus; the Kerbal X
+#       half (Valentina) leaves under a fresh pid.
+#   (d) StopRecording, CommitTree, SaveGame persistent: the commit infers every kerbal's end
+#       state and walks the ledger.
+# THE CLAIM: Jebediah reads Aboard on the Station half (never Dead, never a death hold, never
+# a permanent hold), his hold on the docked recording ends at the undock by the split hand-off
+# to the Station half, and Valentina reads Aboard on the Kerbal X half.
+#
+# FAST-LANE CHECKLIST: (1) CX-1 flies a different prefix (one transfer, an F5); (2) no idle
+# waits, the four RecordingState steps after the undock are the frame settle the deferred undock
+# branch needs (CX-1's); (3)-(5) no EVA, burns or coasts; (6) seam-only, a refusal is
+# immediate; (7) the count is a window until the first flight pins it; (8) nightly, expected
+# under a minute of flight.
+# =====================================================================================
+tier = "nightly"
+description = "Crew swapped across a docked pair on bdock-second-dock-recorded: two stock crew transfers swap Valentina (Station -> Kerbal X) and Jebediah (Kerbal X -> Station), the undock leaves Jebediah on the Station half, and the commit reads him Aboard there (never Dead, no death hold, not permanent) with his docked-recording hold handed to the Station half at the undock."
+instanceProfile = "stock-minimal"
+tags = ["CX-3", "crew", "crew-transfer", "undock", "dock", "cross-tree", "reservation",
+        "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/bdock-second-dock-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # LOAD-BEARING: the end-state and hand-off lines are Verbose.
+  { cmd = "SetSetting",   args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # (a) Free a Station seat.
+  { cmd = "CrewTransfer", args = { kerbal = "Valentina Kerman", part = "mk1-3pod" }, expect = "OK" },
+  # (b) Jebediah into the Station.
+  { cmd = "CrewTransfer", args = { kerbal = "Jebediah Kerman", part = "mk1-3pod" }, expect = "OK" },
+  # (c) The undock.
+  { cmd = "PartAction",   args = { button = "undock" }, label = "und", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # (d) Commit.
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "CommitTree",   expect = "OK", budget = 120 },
+  { cmd = "SaveGame",     args = { name = "persistent" }, expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# D14 values only, each already covered elsewhere; no D value names a crew transfer yet.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's recordings (about 31 after the scene-entry promotion, from CX-1's reading)
+# plus the two undock children. A window until the first flight pins it.
+count = { min = 30, max = 35 }
+
+[expectations.logContracts]
+required = [
+  # (a) and (b): the swap, both pods end with two and three crew.
+  "crewtransfer applied kerbal='Valentina Kerman' pid=3620499050 from=mk1-3pod fromId=[0-9]+ to=mk1-3pod toId=[0-9]+ crewFrom=2 crewTo=2",
+  "crewtransfer applied kerbal='Jebediah Kerman' pid=3620499050 from=mk1-3pod fromId=[0-9]+ to=mk1-3pod toId=[0-9]+ crewFrom=1 crewTo=3",
+
+  # (c) The undock off the Station, a Parsek split.
+  "partaction applied button=undock pid=3620499050 part='[^']+' partId=[0-9]+ event=Undock newPid=[1-9][0-9]* ",
+  "Tree branch created: type=Undock, bp=[0-9a-f]+, activeChild=[0-9a-f]+ \\(pid=3620499050\\), bgChild=[0-9a-f]+ \\(pid=[0-9]+\\)",
+  "committree committed=true",
+
+  # THE CLAIM. After the undock, Jebediah reads Aboard where he ended (the Station half) and
+  # Valentina where she ended (the Kerbal X half).
+  "(?s)Tree branch created: type=Undock.*?InferCrewEndState: crew='Jebediah Kerman' terminalState=\\w+ inSnapshot=True -> Aboard",
+  "(?s)Tree branch created: type=Undock.*?InferCrewEndState: crew='Valentina Kerman' terminalState=\\w+ inSnapshot=True -> Aboard",
+  # His hold on the docked recording ends at the undock, handed to the Station half (the
+  # active child).
+  "(?s)Tree branch created: type=Undock, bp=([0-9a-f]+), activeChild=([0-9a-f]+) .*?Reservation bounded by split handoff: 'Jebediah Kerman' recording '[0-9a-f]+' \\((?:Aboard|Unknown)\\) endUT=[0-9.]+ bp='\\1' child='\\2'",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "crewtransfer rejected",
+  "crewtransfer error",
+  "partaction rejected",
+  "partaction error",
+  # No kerbal of the docked pair is read lost, given a death hold or held permanently.
+  "InferCrewEndState: crew='(?:Jebediah|Valentina|Bill|Bob) Kerman'[^\\r\\n]*-> Dead",
+  "Death hold: '(?:Jebediah|Valentina|Bill|Bob) Kerman'",
+  "Reservation: '(?:Jebediah|Valentina|Bill|Bob) Kerman' endUT=INDEFINITE",
+]
+
+[runtime]
+# LoadGame 300, CommitTree 120, SaveGame 120, the rest on the default budget.
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
