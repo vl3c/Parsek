@@ -683,6 +683,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # IT also carries recordings.
         "career-contract-pad": True,
         "career-science-pad": True,
+        # `career-science-pad` plus one Active PartTest whose FirstLaunch requirement is
+        # false and its ledger accept sidecar (harness/tools/
+        # build_career_requirements_loss_pad.py, the L13 host). Inherits the inert node.
+        "career-requirements-loss-pad": True,
         # THE ONE ENTRY DERIVED FROM A RECORDED FIXTURE RATHER THAN FORGED.
         # `duna-park-probe` is `duna-direct-recorded` with Parsek's own state
         # removed: the `Parsek/` sidecar directory pruned by a harvest WITHOUT
@@ -836,6 +840,9 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # vessel list reordered to [Kerbal X, asteroid, rover] (harness/tools/
         # build_eva_construct_pad.py, the EVA-11 host). Inherits the base's node.
         "eva-construct-pad": True,
+        # `eva-construct-pad` plus an empty EAS-1 seat on the rover's SAS part
+        # (harness/tools/build_seat_rover_pad.py, the SEAT-2 / SEAT-3 host). Inherits the node.
+        "seat-rover-pad": True,
         # `fresh-sandbox` plus V's real Mining Rover RC (index 0, active) and an orbiting
         # Observer Probe (harness/tools/build_miner_rover_landed.py). The base has no node,
         # but a focusable save routes to FLIGHT, so the builder splices b1-pad-craft's.
@@ -2208,6 +2215,25 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             # base); a re-harvest of `C2CareerPostFix` moves them in BOTH entries.
             "recordingIds": ["1d611e7533a64508ae6f3b305a51615e",
                              "5436a7e8840b4c5885afcbaedc9dc037"],
+            "schemaGeneration": 4,
+        },
+        # recording-quarantine-ksc is career-earned-ksc with its Parsek/Recordings
+        # rearranged into every file-collector state (harness/tools/
+        # build_recording_quarantine_ksc.py, the QR-1 host); the save gains only R1's
+        # vesselHash / ghostHash. Same tree and recordings, so the structure pins
+        # verbatim. `recordingIds` lists R1 ONLY: R2's `.prec` is deliberately NOT at the
+        # head position (all five of its files wait in `_quarantine/2020-01-01/`, and
+        # QR-1 asserts the cold load restores them); test_recording_quarantine_ksc.py
+        # pins where it is. The floor counts R1's four authoritative heads, which the
+        # unnamed O1 set and the two quarantine / version directories only add to.
+        "recording-quarantine-ksc": {
+            "trees": 1, "committedTrees": 1, "recordings": 2,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Landed": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 4,
+            "recordingIds": ["1d611e7533a64508ae6f3b305a51615e"],
             "schemaGeneration": 4,
         },
         # stock-screen-census is career-earned-ksc plus ONE synthetic committed flight
@@ -3638,6 +3664,11 @@ class CommittedFixtureSweepTests(unittest.TestCase):
     RECORDED_FIXTURES["depot-route-recorded-career"] = RECORDED_FIXTURES["depot-route-recorded"]
     RECORDED_FIXTURES["bdock-recorded-career"] = RECORDED_FIXTURES["bdock-recorded"]
     RECORDED_FIXTURES["rover-route-recorded-career"] = RECORDED_FIXTURES["rover-route-recorded"]
+    # TOUR-1's host, built by harness/tools/build_tourist_splashdown_career.py: the same
+    # career conversion plus a seated tourist, her Active contract and its accept row;
+    # the ParsekScenario node and every recording sidecar stay byte-identical (gated by
+    # lib/test_tourist_splashdown_career.py), so it pins its source's payload.
+    RECORDED_FIXTURES["tourist-splashdown-career"] = RECORDED_FIXTURES["kerbin-splashdown-recorded"]
 
     def test_fixture_set_is_exactly_the_committed_set(self):
         found = sorted(d for d in os.listdir(FIXTURE_SAVES_DIR)

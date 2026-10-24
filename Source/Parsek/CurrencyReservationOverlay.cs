@@ -39,7 +39,7 @@ namespace Parsek
         private void Start()
         {
             GameScenes scene = HighLogic.LoadedScene;
-            if (scene != GameScenes.SPACECENTER && scene != GameScenes.FLIGHT)
+            if (!ShowsCurrencyTooltipInScene(scene))
             {
                 ParsekLog.Verbose(Tag, $"CurrencyOverlay: scene={scene} has no currency bar - controller idle");
                 return;
@@ -51,6 +51,21 @@ namespace Parsek
             active = true;
             ParsekLog.Info(Tag, $"CurrencyOverlay: initialised for scene={scene} - starting widget refresh loop");
             StartCoroutine(RefreshLoop());
+        }
+
+        /// <summary>
+        /// Pure: the scenes whose stock currency bar gets the reservation tooltip. The EDITOR
+        /// is where funds are spent and its funds number already has the reserve taken off
+        /// (owner ruling 2026-10-24, RESERVATION-OVERLAY-GAPS (a)); the tooltip reads the
+        /// live <c>Funding.Instance.Funds</c> the widget draws, so the editor's own vessel
+        /// cost readout is never subtracted a second time. A scene with no widget stays
+        /// harmless: the refresh loop simply never finds one.
+        /// </summary>
+        internal static bool ShowsCurrencyTooltipInScene(GameScenes scene)
+        {
+            return scene == GameScenes.SPACECENTER
+                || scene == GameScenes.FLIGHT
+                || scene == GameScenes.EDITOR;
         }
 
         private void OnDestroy()

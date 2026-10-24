@@ -1,0 +1,218 @@
+schema = 1
+id = "CX-4-foreign-tree-recording-closes-hold"
+# =====================================================================================
+# CX-4: A LATER MISSION THAT RECORDS THE VESSEL ITSELF TAKES OVER THE KERBAL'S OPEN HOLD
+# (todo GC6-FOREIGN-TREE-RECORDING-KEEPS-OPEN-HOLD, fix e1be07e, branch `gc6-foreign-tree-hold`).
+# AUTHORED 2026-10-24 (branch `lanes-gc96`), NEVER FLOWN: every pin is derived from the C#
+# format strings, and the ones marked GUESS below are what the first flight confirms.
+#
+# THE DEFECT. Mission A leaves a kerbal aboard a vessel S (an Aboard row with no end: an
+# open-ended hold). A later mission B records S itself: a fresh recording of S that JOINED
+# tree B (B's root, a parentless post-switch recording, or a post-switch Launch child).
+# Cross-tree claims existed only for Dock / Board / InventoryTransfer branch points,
+# recovery closure is same-tree, and split hand-off needs a branch point in tree A, so
+# nothing ever closed A's row: the kerbal stayed held forever whatever B did with him.
+# The fix (`KerbalsModule.CollectDockClaims` -> `DockClaim.ForeignVesselRecording`,
+# `ResolveDockClaimHandoffUT`) lets a crewed joined recording of the same vessel (same pid
+# and launch guid, or a guid linked to it) end ANOTHER tree's open hold at its own start,
+# and logs `Reservation bounded by foreign recording of the vessel:` (new in e1be07e).
+#
+# THE HOST: `kerbin-splashdown-recorded` (EVA-6 / SE-1 / RR-1's host). Its one committed
+# tree A (`c05c834cd2754892b4588e7ce9220c3f`, 9 recordings) flew the stock Kerbal X and left
+# the capsule LANDED ~1,690 km from the pad (outside the KSC retirement circle), with
+# Jebediah Kerman alone aboard. Fixture constants (a re-harvest moves them): capsule
+# persistentId 2708531065, launch guid 5493223fe49b42b181998849a9a2aefa, root recording
+# `28b6e543d67c4d1c9e4763b451c01df5` (vesselPersistentId = spawnedPid = 2708531065: the live
+# capsule IS A's adopted vessel), and Jeb's one ledger row: KerbalAssignment on that root,
+# endState 0 = Aboard. EVA-6 measured that this tree holds Jeb open-ended on this host.
+#
+# THE FLIGHT, every step a player's:
+#   (0) boot hygiene, EVA-6's recipe: the boot resumes A's committed recording on the capsule
+#       (a copy-on-write clone); StopRecording + DiscardTree drop the clone and arm the
+#       committed-restore suppression, so the next start is a FRESH tree.
+#   (1) StartRecording on the capsule: tree B, a single-node tree whose root (no parent
+#       branch point: a joined recording) records pid 2708531065 with Jeb aboard
+#       (`Always-tree: created single-node tree id=<B> root=<Broot>`). ~10 s at 1x.
+#   (2) EvaExit Jeb (release): the EVA split ends B's root (`Tree branch created: type=EVA`),
+#       the ship continues crewless as one child and Jeb's EVA is the other.
+#   (3) Recover Jeb with stock's Recover button (autoMerge on): the scene exit commits tree B
+#       with his EVA recording Recovered, and stock recovers him at the Space Center.
+#   (4) SaveGame, then a cold LoadGame of that save at the Space Center: the reservation walk
+#       re-derives every hold from disk.
+#
+# WHY IT DISCRIMINATES. Before the fix nothing closes A's Aboard row here: no branch point
+# in A, the recovered vessel is Jeb's EVA (it continues no recording of tree A, so the
+# KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL crew-close writes no row for A), and
+# the capsule is not at the KSC. So every walk after (3) still reads Jeb held until
+# INDEFINITE and he is never released. After the fix A's hold ends at B's root start, B's
+# root hands him to his EVA (split hand-off) and the EVA's Recovered row ends at the
+# recovery, so the walk RELEASES him. A Recover of the CAPSULE with Jeb aboard would not
+# discriminate: that crew-close row is owned by A's root and closes A's hold pre-fix too.
+#
+# THE GATE (each pinned below):
+#   (a) THE FIX LINE: `Reservation bounded by foreign recording of the vessel: 'Jebediah
+#       Kerman' recording '28b6e543...' (Aboard) ... tree='<B>' child='<Broot>'
+#       pid=2708531065`, tree and child tied by backreference to the Always-tree line.
+#   (b) the hand-off chain on B: the split hand-off from B's root to the EVA child, and the
+#       EVA child inferred Recovered.
+#   (c) THE OUTCOME: `Reservation released: 'Jebediah Kerman' ... (the clock has reached the
+#       Recovered flight's end - the kerbal is free again)` (Info, so it prints with verbose
+#       off too), and after the cold reload no walk reads Jeb held until INDEFINITE.
+#   Forbidden: the old open-hold shape after the reload (`Reservation: 'Jebediah Kerman'
+#   endUT=Infinity` / `Reservation extended: ... endUT->Infinity`), any Jeb death hold or
+#   Dead inference, a crew-close row owned by A's root (it would mean another path closed
+#   the hold and the lane proves nothing), and a second committed-tree restore after the
+#   discard (B would then be A's clone, the same tree, and the claim could not apply).
+#
+# GUESSES THE FIRST FLIGHT CONFIRMS:
+#   - the EVA split names the ship continuation `activeChild` and Jeb `bgChild` (CI-1's
+#     measured order on a foreground EVA split, `2026-09-08_1054`);
+#   - B's root ends Unknown at the split (no terminal state: `InferCrewEndState ...
+#     terminalState=null -> Unknown`), so the hand-off line reads `(Unknown)`; Aboard is
+#     allowed too;
+#   - the boot clock: fixture UT 1276.62, EVA-6 measured its first post-hygiene step at
+#     ~1279, so the 1x wait to UT 1290 is forward (a backward target refuses `backward-warp`);
+#   - Jeb settles under stock's 0.3 m/s recover gate inside the verb's 15 s unlock-wait
+#     after the ladder release (QL-2b / QL-2c recover-adjacent EVA exits stood still);
+#   - the recordings count: tree A's 9 plus tree B's 3 (root, ship continuation, Jeb's EVA)
+#     = 12; 13 allows one optimizer split of the EVA (the ladder drop is a brief graze,
+#     normally suppressed).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) EVA-6 / RR-1 fly other prefixes on this host,
+# none records the capsule into a second tree; (2) one explicit-UT 1x wait (~10 s) so B's
+# root has a real span; (3)-(5) no burns or coasts; (6) seam-only, every refusal is
+# immediate; (7) count window until the first flight pins it; (8) nightly, expected ~3 min
+# (two loads, one Space Center transition).
+# =====================================================================================
+tier = "nightly"
+description = "A later mission that records the vessel itself takes over a kerbal's open hold: on kerbin-splashdown-recorded, whose committed Kerbal X tree holds Jebediah Kerman open-ended aboard the landed capsule, a fresh recording of the capsule starts a second tree, Jeb steps out (EVA split) and is recovered with the stock Recover button; the reservation walk bounds tree A's hold at the new tree's start (the GC-6 foreign-recording claim), hands Jeb through the EVA to his Recovered row, releases him, and after a cold reload never reads him held indefinitely."
+instanceProfile = "stock-minimal"
+tags = ["CX-4", "GC-6", "crew", "reservation", "cross-tree", "eva", "recover", "scene-exit",
+        "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/kerbin-splashdown-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  # (0) Boot hygiene: drop the resumed clone of tree A (EVA-6's recipe).
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  # Keeps the deferred EVA auto-record path (a fresh tree, no split) out of the picture (CI-1).
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },         expect = "OK" },
+  # LOAD-BEARING: the fix line and the hand-off lines are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  # The Recover's Space Center load commits the live tree; without autoMerge the verb
+  # refuses `dialog-required`.
+  { cmd = "SetSetting",     args = { name = "autoMerge", value = "true" },                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "cx4-boot-clean" },                          expect = "OK" },
+  # (1) Tree B: a fresh recording of the capsule, Jeb aboard.
+  { cmd = "StartRecording",                                                               expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "1290", maxRate = "1" },                        expect = "OK", budget = 120 },
+  # (2) Jeb steps out: the EVA split ends B's root.
+  { cmd = "EvaExit",        args = { kerbal = "Jebediah Kerman", release = "true" }, label = "eva", expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "cx4-recover-before" },                      expect = "OK" },
+  # (3) Stock Recover of the EVA kerbal: the scene exit commits tree B.
+  { cmd = "Recover",        args = { pid = "${eva.evaPid}" },                             expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "cx4-recovered" },                           expect = "OK" },
+  # (4) Save, then a cold reload of that save at the Space Center.
+  { cmd = "SaveGame",       args = { name = "cx4-after" },                                expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "cx4-before-reload" },                       expect = "OK" },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "cx4-after", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "cx4-reloaded" },                            expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+[dimensionsCovered]
+# Values only, each already covered elsewhere; no D value names a cross-tree crew hold.
+D1  = ["commit-scene-exit", "auto-merge"]
+D5  = ["eva-branch"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "warp-1x"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Tree A's 9 plus tree B's 3 (root, ship continuation, Jeb's EVA); 13 allows one optimizer
+# split of the EVA. A window until the first flight pins it.
+count = { min = 12, max = 13 }
+
+[expectations.recordings.structure]
+# Report-only: tree A plus tree B, both committed.
+trees          = { min = 2, max = 2 }
+committedTrees = { min = 2, max = 2 }
+recordings     = { min = 12, max = 13 }
+
+[expectations.logContracts]
+required = [
+  # (1) Tree B is a fresh single-node tree on the capsule, not a resumed clone of A.
+  "startrecording recordingId=[0-9a-f]{32} already=false",
+  "Always-tree: created single-node tree id=[0-9a-f]{32}, root=[0-9a-f]{32}, vessel=[^\\r\\n]*?\\(pid=2708531065\\)",
+
+  # (2) The EVA split off the capsule, Jeb the EVA kerbal (GUESS: bgChild is Jeb, CI-1).
+  "Tree branch created: type=EVA, bp=[0-9a-f]{32}, activeChild=[0-9a-f]{32} \\(pid=2708531065\\), bgChild=[0-9a-f]{32} \\(pid=[0-9]+\\)[^\\r\\n]*evaCrew=Jebediah Kerman",
+  "evaexit complete kerbal=Jebediah Kerman evaPid=[0-9]+ released=true",
+
+  # (3) The stock Recover of the EVA kerbal, the request bound to his EVA recording, the
+  # scene-exit stamp and the commit.
+  "(?s)Tree branch created: type=EVA, bp=[0-9a-f]{32}, activeChild=[0-9a-f]{32} \\(pid=2708531065\\), bgChild=([0-9a-f]{32}) \\(pid=([0-9]+)\\)[^\\r\\n]*evaCrew=Jebediah Kerman.*?In-flight recovery requested: vessel='Jebediah Kerman' pid=\\2 guid=[0-9a-f]{32} boundRec=\\1 ",
+  "In-flight recovery: recording '[0-9a-f]{32}' vessel='Jebediah Kerman' pid=[0-9]+ terminal [A-Za-z<>]+ -> Recovered ",
+  "(?s)MISSIONMARK label=cx4-recover-before .*?full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='[^']+' recordings=[1-9][0-9]* ",
+  "recover complete pid=[0-9]+ vessel=Jebediah Kerman scene=SPACECENTER elapsed=",
+
+  # THE FIX LINE (a). Tree A's hold on Jeb (its root, Aboard) is bounded by tree B's root,
+  # which recorded the capsule itself; tree and child tied to the Always-tree line.
+  "(?s)Always-tree: created single-node tree id=([0-9a-f]{32}), root=([0-9a-f]{32}), vessel=[^\\r\\n]*?\\(pid=2708531065\\).*?\\[KerbalsModule\\] Reservation bounded by foreign recording of the vessel: 'Jebediah Kerman' recording '28b6e543d67c4d1c9e4763b451c01df5' \\(Aboard\\) endUT=[0-9.]+ tree='\\1' child='\\2' pid=2708531065",
+
+  # (b) B's root hands Jeb to his EVA at the split (GUESS: Unknown, no terminal state), and
+  # the EVA reads him Recovered.
+  "(?s)Always-tree: created single-node tree id=[0-9a-f]{32}, root=([0-9a-f]{32}), vessel=[^\\r\\n]*?\\(pid=2708531065\\).*?Tree branch created: type=EVA, bp=([0-9a-f]{32}), activeChild=[0-9a-f]{32} \\(pid=2708531065\\), bgChild=([0-9a-f]{32}) .*?Reservation bounded by split handoff: 'Jebediah Kerman' recording '\\1' \\((?:Unknown|Aboard)\\) endUT=[0-9.]+ bp='\\2' child='\\3'",
+  "(?s)MISSIONMARK label=cx4-recover-before .*?InferCrewEndState: crew='Jebediah Kerman' terminalState=Recovered -> Recovered",
+
+  # (c) THE OUTCOME. With A's hold handed on, Jeb's hold ends at his recovery and the walk
+  # releases him. Before the fix his hold stayed INDEFINITE and this line never printed.
+  "(?s)MISSIONMARK label=cx4-recover-before .*?\\[KerbalsModule\\] Reservation released: 'Jebediah Kerman' endUT=[0-9.]+ nowUT=[0-9.]+ \\(the clock has reached the Recovered flight's end - the kerbal is free again\\)",
+  # The cold reload's walk re-derives the bounded hold from disk (finite).
+  "(?s)MISSIONMARK label=cx4-before-reload .*?\\[KerbalsModule\\] Reservation bounded by foreign recording of the vessel: 'Jebediah Kerman' recording '28b6e543d67c4d1c9e4763b451c01df5' \\(Aboard\\) .*?MISSIONMARK label=cx4-reloaded ",
+  "MISSIONMARK label=cx4-reloaded ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "startrecording start-refused",
+  "evaexit refused",
+  "evaexit timeout",
+  "warptout refused",
+  "recover rejected",
+  "recover error",
+  # B must be a fresh tree: a second committed-tree restore after the discard would make B
+  # tree A's clone (the same tree), where the foreign-recording claim cannot apply.
+  "(?s)MISSIONMARK label=cx4-boot-clean .*?TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree",
+  # THE OLD OPEN-HOLD SHAPE. After tree B committed and the save reloaded, no walk reads Jeb
+  # held until INDEFINITE (the `Reservation:` line formats infinity through ToString("F1"),
+  # `Reservation extended:` through :F1; KB-5 measured `endUT->Infinity`).
+  "(?s)MISSIONMARK label=cx4-before-reload .*?\\[KerbalsModule\\] Reservation(?: extended)?: 'Jebediah Kerman' endUT(?:=|->)(?:Infinity|INDEFINITE)",
+  # Jeb is never read lost.
+  "Death hold: 'Jebediah Kerman'",
+  "InferCrewEndState: crew='Jebediah Kerman'[^\\r\\n]*-> Dead",
+  # PREMISE: no crew-close row owned by tree A's root. One would mean the recovered vessel
+  # continued tree A and closed the hold by the pre-fix path, so the lane would prove nothing.
+  "Crew reservation closed by recovery: 'Jebediah Kerman' [^\\r\\n]*recordingId=28b6e543d67c4d1c9e4763b451c01df5",
+]
+
+[runtime]
+# Two LoadGame steps (300 s each), StartRecording 180, EvaExit 120, WarpToUT 120 (~10 s of
+# 1x), Recover 120 (Space Center load + recovery), SaveGame 120, the rest on the default.
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

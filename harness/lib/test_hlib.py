@@ -24364,7 +24364,7 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
 
 
 class CommittedFixtureQuarantineTests(unittest.TestCase):
-    """No fixture may carry `Parsek/Recordings/_quarantine`.
+    """No fixture may carry `Parsek/Recordings/_quarantine`, except the QR-1 host.
 
     `RecordingStore.OrphanQuarantineDirName` is where `CleanOrphanFiles` PARKS a
     sidecar whose recording the store could no longer resolve, instead of
@@ -24380,22 +24380,35 @@ class CommittedFixtureQuarantineTests(unittest.TestCase):
     (`duna-one-recorded`, 2026-08-25): 12 MB over 375 files, LARGER than the
     recorded payload the fixture is for. `harvest_bdock_station.py` prunes it via
     `_PRUNE_RECORDINGS_SUBDIRS`; this cell is what keeps a future harvest from
-    re-introducing it."""
+    re-introducing it.
+
+    THE ONE EXEMPTION. Since the RECORDING-QUARANTINE-NEVER-EMPTIED and GC-15 fixes
+    the collector (`ParsekFileCollector`) DOES read the quarantine: it restores a
+    file a save names again and purges one 14 days old. `recording-quarantine-ksc`
+    (built by `harness/tools/build_recording_quarantine_ksc.py`, the QR-1 host)
+    commits both quarantine folders ON PURPOSE, as the input QR-1 judges; its
+    builder cell pins every file in them. Any other fixture still reds."""
 
     QUARANTINE_DIR_NAME = "_quarantine"
+    ALLOWED = (
+        "recording-quarantine-ksc/Parsek/Recordings/_quarantine",
+        "recording-quarantine-ksc/Parsek/Recordings/_versions/_quarantine",
+    )
 
     def test_no_fixture_commits_a_quarantine_directory(self):
         offenders = []
         for dirpath, dirnames, _filenames in os.walk(FIXTURE_SAVES_DIR):
             for d in dirnames:
                 if d == self.QUARANTINE_DIR_NAME:
-                    offenders.append(
-                        os.path.relpath(os.path.join(dirpath, d),
-                                        FIXTURE_SAVES_DIR).replace("\\", "/"))
+                    rel = os.path.relpath(os.path.join(dirpath, d),
+                                          FIXTURE_SAVES_DIR).replace("\\", "/")
+                    if rel not in self.ALLOWED:
+                        offenders.append(rel)
         self.assertEqual([], sorted(offenders),
                          "Parsek/Recordings/_quarantine is orphan-sweep exhaust "
-                         "nothing reads (RecordingStore's scans never descend "
-                         "into it); harvest_bdock_station.py prunes it")
+                         "a harvest brings across by accident; "
+                         "harvest_bdock_station.py prunes it (only the QR-1 host "
+                         "commits one, see ALLOWED)")
 
 
 class CommittedFixtureRewindSaveTests(unittest.TestCase):

@@ -1,0 +1,240 @@
+schema = 1
+id = "SEAT-2-seat-occupant-survives-spawn"
+# =====================================================================================
+# SEAT-2: A SPAWNED VESSEL KEEPS THE KERBAL SITTING IN ITS EXTERNAL COMMAND SEAT
+# (todo SEAT-OCCUPANT-LINK-LOST-ON-SPAWN, fixed 2026-10-24 on branch
+# claude/project-thread-q9rwbh, commit 8cd9e08, unit tests only until this lane).
+# AUTHORED 2026-10-24, NEVER FLOWN: its first flight is a reading run (guesses below).
+#
+# THE BUG. Stock `KerbalSeat.OnSave` writes `occupantID = <the seated kerbal's part
+# flightID>` and `OnStart` resolves it through the vessel's flightID indexer. A Parsek
+# spawn regenerates every part uid (`VesselSnapshotOps.RegeneratePartIdentities`) and only
+# dock records followed the uid map, so the spawned seat named a part that no longer
+# existed: it loaded EMPTY (Board offered again, no control source, Leave Seat did
+# nothing). THE FIX: `VesselSnapshotOps.RemapSeatOccupantUids` carries the map into every
+# KerbalSeat `occupantID`, in `VesselSpawner.RegenerateVesselIdentity`, and the Verbose
+# `Regenerated vessel identity: ...` line gained `seatOccupantsRemapped=<n>`.
+#
+# WHY THIS SHAPE. The remap runs only on a REGENERATED spawn (RespawnVessel /
+# SpawnAtPosition without preserveIdentity): an end-of-recording leaf spawn of a vessel
+# the replayed recordings produced. A chain-tip spawn (VesselGhoster) preserves identity
+# and never reaches it, and a flight ending LANDED inside 50 m of the pad or the runway
+# threshold is retired (`VesselSpawner.TryRetireEndedFlightAtKsc`), so `seat-pad`'s pod on
+# the pad cannot host this. MINE-9 / MINE-7 (live-proven) are the road: a recording
+# started on a pre-existing landed vessel, commit, Rewind-to-Launch (the rewind strips
+# the recorded vessel and its replay spawns it again, regenerated). Here the vessel
+# carries a seated kerbal.
+#
+# THE HOST is `seat-rover-pad` (harness/tools/build_seat_rover_pad.py): `eva-construct-pad`
+# (the pad Kerbal X with Jeb, Bill and Bob aboard; the crewless `rover fuel 0`, pid
+# 1871615455, LANDED 153 m from the pad) plus an EAS-1 External Command Seat
+# surface-attached on the rover's rear SAS part (17 parts). GUESSED, the first flight
+# confirms: that the seat authored with no MODULE node loads as an empty seat with its
+# prefab modules, and its pose (on the SAS's top, upright; cosmetic).
+#
+# THE FLIGHT, every step a player's:
+#   (a) Boot on the pad Kerbal X; Bill out through the hatch (unrecorded) and set down
+#       4 m from the rover's root (EVA-11's move), inside the seam's 10 m seat bound.
+#   (b) EvaSeatBoard, still unrecorded: Bill takes the rover's seat (stock
+#       KerbalEVA.BoardSeat); the rover is now active with Bill seated.
+#   (c) StartRecording on the rover (a fresh tree; its rewind save holds the rover with
+#       Bill seated), ~15 s at 1x, stop, commit. One recording, ending LANDED 153 m out.
+#   (d) Rewind-to-Launch (Space Center, 15 s before the recording started; the owner strip
+#       removes the rover and Bill with it), a Space Center save reloaded into FLIGHT on
+#       VESSEL index 0, the pad Kerbal X (EVA-11's road), 153 m from the rover's ghost.
+#   (e) 1x FLIGHT time past the recording's end: the ordinary leaf spawn brings the rover
+#       back as a REAL vessel with a regenerated identity. THE SUBJECT.
+#   (f) A stock map Switch-To click on the spawned rover (SimulateStockSwitchClick by the
+#       spawned pid the committed store reports), the boot-hygiene StopRecording /
+#       DiscardTree pair (the committed-spawned restore would otherwise re-take the
+#       committed tree for the now-active spawn and record the dismount), then
+#       EvaSeatLeave: Bill leaves the seat of the SPAWNED rover. Then a short 1x wait,
+#       the hygiene pair again, save, quit.
+#
+# WHICH PINS PROVE THE FIX.
+#   * `Regenerated vessel identity: ... 18 part(s) regenerated ... seatOccupantsRemapped=1`
+#     after the rewind. The `seatOccupantsRemapped=` token did not exist before 8cd9e08,
+#     so the line cannot print without the fix; `=1` says the one seated kerbal's link was
+#     carried. 18 = the rover's 16 + the seat + Bill's kerbal part (DERIVED).
+#   * `Spawning vessel: "rover fuel 0" sit=LANDED, crew=[Bill Kerman]`: the snapshot the
+#     spawn used carries Bill in the seat (the premise of the remap).
+#   * `evaseatleave start kerbal='Bill Kerman' vehiclePid=<the spawned pid>` and its
+#     `complete`: the leave finds Bill seated on the spawned vessel (`KerbalEVA.IsSeated`)
+#     and stock ejects him. Before the fix the seat loaded with no occupant; the expected
+#     old shape is REJECTED `evaseatleave-not-seated` (or an ERROR if the FSM still read
+#     seated with no seat to eject from): GUESSED, either fails this step's OK expect.
+#   The spawned pid is tied by back-reference from the committed store's own read-back
+#   (ListHandles, `rec0spawnedPid`) through the switch to the leave, and must differ from
+#   1871615455 (a regenerated spawn mints a new pid).
+#
+# FORBIDDEN: `seatOccupantsRemapped=0` (the bug's shape, or a spawn whose snapshot lost
+# Bill); a preserve-identity spawn (`preserving vessel identity`, which skips the remap and
+# would prove nothing); a chain tip spawn; Bill removed from the spawn snapshot; any
+# retire / abandon / fail of the spawn; a Dock merge recorded for the unrecorded board.
+#
+# GUESSES the first flight confirms: the fixture seat (above); the UTs (the boot clock is
+# 25.42; EVA-11 measured its recording start at ~UT 30, so the board lands near UT 32 and
+# the recording runs from there to the WarpToUT 50 target; a WarpToUT behind the clock is
+# refused `backward-warp`, so read the seam's UTs and tighten); that the rewind lands near
+# UT 18 and 1x to UT 65 crosses the end (~UT 50) with ~15 s to settle; that Bill is not
+# swapped for a stand-in (a stand-in would change the `crew=` and `kerbal=` tokens); and
+# that the leave's refusal shape before the fix is as stated.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse: no committed lane spawns a vessel with a seated kerbal; SEAT-1 flies on the
+#     pad, where the spawn is retired, so this is a new flight on a new derived fixture.
+#   2 waits: explicit-UT WarpToUT at maxRate=1 only (a seated kerbal and a landed rover in
+#     physics range).
+#   3 dwells: none beyond the verbs' own settle frames. 4 burns / 5 coasts: none.
+#   6 fail fast: every seam verb refuses in one frame or times out on its default budget;
+#     retry once (stock FSM and spawn timing are live-state dependent).
+#   7 count: one recording (DERIVED: the board, the switch and the leave are unrecorded,
+#     the hygiene pairs drop any restore clone), min = max = 1.
+#   8 tier: nightly (one rewind, one reload, ~1 min of 1x); re-tier by p50.
+#   9 run tools/flight_efficiency.py on the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "A spawned vessel keeps the kerbal in its external command seat (todo SEAT-OCCUPANT-LINK-LOST-ON-SPAWN): on seat-rover-pad Bill Kerman steps out of the pad Kerbal X to a crewless rover 153 m away carrying an EAS-1 seat, takes the seat unrecorded, a recording on the rover with Bill seated is committed, Rewind-to-Launch, a flight reload on the Kerbal X and 1x time past the end spawn the rover back with a regenerated identity whose seat link is remapped (seatOccupantsRemapped=1), and after a map Switch-To Bill leaves the seat of the spawned rover."
+instanceProfile = "stock-minimal"
+tags = ["SEAT-2", "eva", "seat", "external-command-seat", "spawn", "regenerated-identity",
+        "rewind-to-launch", "switch-to", "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/seat-rover-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  # ACT 0: boot hygiene (EVA-11's). Nothing is recorded in the fixture.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                       expect = "OK" },
+  { cmd = "DiscardTree",                                                         expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  # LOAD-BEARING: the `Regenerated vessel identity` line is Verbose.
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "MissionMark", args = { label = "seat2-boot" },                        expect = "OK" },
+  # ACT 1 (a)+(b): Bill out, over to the rover, into its seat, all unrecorded.
+  { cmd = "EvaExit",    args = { kerbal = "Bill Kerman", release = "true" },     expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "1871615455", distance = "4" }, expect = "OK", budget = 120 },
+  { cmd = "EvaSeatBoard",                                                        expect = "OK" },
+  # ACT 2 (c): record the rover with Bill seated, commit.
+  { cmd = "StartRecording",                                                      expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "50", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                       expect = "OK" },
+  { cmd = "CommitTree",                                                          expect = "OK", budget = 120 },
+  # CommitTree re-takes the committed tree for the still-active rover; stop it (RC-6).
+  { cmd = "StopRecording",                                                       expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0",            expect = "OK" },
+  { cmd = "MissionMark", args = { label = "seat2-committed-${c0.count}-${c0.rec0}-${c0.rec0pid}-end" }, expect = "OK" },
+  # ACT 3 (d): Rewind-to-Launch, then a Space Center save reloaded into FLIGHT on the pad.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                    expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "seat2-rewound" },                       expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "seat2-rewound" },  expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                       expect = "OK" },
+  { cmd = "DiscardTree",                                                         expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1",            expect = "OK" },
+  { cmd = "MissionMark", args = { label = "seat2-reloaded-${c1.rec0}-${c1.rec0spawned}-end" }, expect = "OK" },
+  # ACT 4 (e): 1x FLIGHT time past the recording's end; the leaf spawn is THE SUBJECT.
+  { cmd = "WarpToUT",   args = { ut = "65", maxRate = "1" },                     expect = "OK", budget = 180 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2",            expect = "OK" },
+  { cmd = "MissionMark", args = { label = "seat2-spawned-${c2.rec0spawned}-${c2.rec0spawnedPid}-end" }, expect = "OK" },
+  # ACT 5 (f): the player switches to the spawned rover and Bill leaves its seat.
+  { cmd = "SimulateStockSwitchClick", args = { pid = "${c2.rec0spawnedPid}" },   expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                       expect = "OK" },
+  { cmd = "DiscardTree",                                                         expect = "OK" },
+  { cmd = "MissionMark", args = { label = "seat2-leave" },                       expect = "OK" },
+  { cmd = "EvaSeatLeave",                                                        expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "70", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                       expect = "OK" },
+  { cmd = "DiscardTree",                                                         expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c3",            expect = "OK" },
+  { cmd = "MissionMark", args = { label = "seat2-end-committed-${c3.count}" },   expect = "OK" },
+  { cmd = "SaveGame",                                                            expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                        expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+D18 = ["rewind-strip-respawn-cycle"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# DERIVED: the rover's one recording (ACT 2). The board, the switch and the leave run with
+# nothing recording, and the hygiene pairs drop any committed-spawned restore clone.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  # ACT 1: Bill out, over to the rover, into its seat with nothing recording.
+  "evaexit complete kerbal=Bill Kerman ",
+  "evagroundscience step complete kerbal=Bill Kerman anchor=rover fuel 0 ",
+  "evaseatboard start kerbal='Bill Kerman' targetPid=1871615455 seatPart=seatExternalCmd seatId=[0-9]+ dist=",
+  "onPartCouple: no dock merge armed \\(mergedPid=1871615455, hasTree=False",
+  "evaseatboard complete kerbal='Bill Kerman' vesselPid=1871615455 seatPart=seatExternalCmd seatId=[0-9]+",
+  # ACT 2: the rover's own recording (a fresh tree with its rewind save), committed.
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "Captured rewind save at UT ([0-9.]+): vessel \"rover fuel 0\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
+  "committree committed=true",
+  "MISSIONMARK label=seat2-committed-1-[0-9a-f]{32}-1871615455-end",
+  # ACT 3: the rewind lands before the recording and the rover is stripped from its world.
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=1",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*Stripped [1-9][0-9]* vessel\\(s\\) from save ",
+  "MISSIONMARK label=seat2-reloaded-[0-9a-f]{32}-false-end",
+  # ACT 4, THE FIX: the leaf spawn's snapshot carries Bill, and its regenerated identity
+  # remaps the one seat link (the token did not exist before 8cd9e08).
+  "MISSIONMARK label=seat2-reloaded-[\\s\\S]*Spawning vessel: \"rover fuel 0\" sit=LANDED, crew=\\[Bill Kerman\\], nearest vessel=",
+  "MISSIONMARK label=seat2-reloaded-[\\s\\S]*Regenerated vessel identity: pid=[0-9a-f]{32}, 18 part\\(s\\) regenerated, [0-9]+ old PID\\(s\\) cleaned from registry(?:, [0-9]+ robotics ref\\(s\\) patched)?, dockRefsRemapped=[0-9]+ seatOccupantsRemapped=1 dockAbsorbRowsCopied=[0-9]+",
+  # The committed store reads the spawn back with a NEW pid (regenerated, not 1871615455).
+  "MISSIONMARK label=seat2-spawned-true-(?!1871615455-)[0-9]+-end",
+  # ACT 5: the switch lands on the spawned rover, and Bill leaves THAT rover's seat.
+  "MISSIONMARK label=seat2-spawned-true-([0-9]+)-end[\\s\\S]*switchclick complete site=map targetPid=\\1 targetName=rover fuel 0 [^\\r\\n]*activeVesselPid=\\1 switched=true",
+  "MISSIONMARK label=seat2-spawned-true-([0-9]+)-end[\\s\\S]*evaseatleave start kerbal='Bill Kerman' vehiclePid=\\1 seatPart=seatExternalCmd",
+  "MISSIONMARK label=seat2-spawned-true-([0-9]+)-end[\\s\\S]*evaseatleave complete kerbal='Bill Kerman' kerbalPid=[0-9]+ vehiclePid=\\1",
+  "MISSIONMARK label=seat2-end-committed-1 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "evaseatboard rejected",
+  "evaseatleave rejected",
+  "evagroundscience (?:failed|refused)",
+  "switchclick (?:rejected|refused|failed)",
+  "invokerewindtolaunch refused",
+  # The unrecorded board must stay unrecorded.
+  "Tree merge created: type=Dock",
+  # The bug's shape: a spawn that remapped no seat link.
+  "seatOccupantsRemapped=0",
+  # A preserve-identity spawn skips the remap and would prove nothing; so would a chain tip.
+  "(?:RespawnVessel|SpawnAtPosition): preserving vessel identity",
+  "Chain tip spawn: ",
+  # Bill dropped from the spawn snapshot (the seat would then hold a crewless kerbal part).
+  "Removed [^\\r\\n']*crew 'Bill Kerman' from vessel snapshot",
+  "Spawn RETIRED",
+  "Spawn ABANDONED",
+  "Spawn FAILED",
+]
+
+[runtime]
+# Estimated wall ~245 s, summed per act: boot LoadGame ~45 + hygiene ~3 + EvaExit / step
+# ~10 + board ~5 + StartRecording ~3 + 1x to UT 50 ~17 + stop / commit / marks ~6 + rewind to
+# the Space Center ~30 + SaveGame ~3 + reload ~45 + hygiene / ListHandles ~4 + 1x to UT 65
+# ~47 + switch ~5 + leave ~5 + 1x to UT 70 ~5 + SaveGame ~3 + quit ~10 = ~246 s (EVA-11, the
+# same boot / rewind / reload road, measured 86 s). 1800 is EVA-11's cap, ~7x the estimate;
+# the per-step budgets only bound single steps.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

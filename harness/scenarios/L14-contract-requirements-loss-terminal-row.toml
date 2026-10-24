@@ -1,0 +1,186 @@
+schema = 1
+id = "L14-contract-requirements-loss-terminal-row"
+# =====================================================================================
+# L14: AN ACTIVE CONTRACT STOCK ENDS BECAUSE ITS REQUIREMENTS NO LONGER HOLD FILES AN
+# UNPENALIZED TERMINAL LEDGER ROW (todo STOCK-OFFER-EXPIRED-ACTIVE-CONTRACT-NO-TERMINAL-ROW,
+# fixed 2026-10-23 in PR #2184, commit 5f018a9, unit cells only before this lane).
+# AUTHORED 2026-10-24 (branch lanes-contract), NEVER FLOWN.
+#
+# THE DEFECT. Stock's `Contract.Update()` ends an Active contract whose requirements stop
+# holding with `SetState(State.OfferExpired)`: no penalty, and the only stock event is
+# `Contract.onFinished`. Parsek subscribed to onCompleted / onFailed / onCancelled /
+# onDeclined only, so it filed nothing: the ledger kept the contract Active (a Mission
+# Control slot held) until its deadline, then `ContractsModule.PrePass` failed it there.
+# THE FIX: `Patches/ContractOfferExpiredCapturePatch.cs` (prefix + postfix on
+# `Contract.SetState`) raises exactly the Active -> OfferExpired transition;
+# `GameStateRecorder.OnActiveContractOfferExpired` files a ContractCancelled event with
+# zero penalties and `ended=requirements`; the converter makes it a `ContractCancel` row
+# with `requirementsLost = True`, and the walk ends the contract there (outcome
+# RequirementsLost), which frees the slot and suppresses the PrePass synthetic fail.
+#
+# THE REQUIREMENTS LOSS. No seam verb can make a stock requirement stop holding (every
+# stock MeetRequirements reads progress that only grows), so the HOST carries a contract
+# whose requirement is already false: `career-requirements-loss-pad` (built by
+# `harness/tools/build_career_requirements_loss_pad.py`, gated by
+# `harness/lib/test_career_requirements_loss_pad.py`) is `career-science-pad` (the Jumping
+# Flea PRELAUNCH on the pad, UT 9.06, funds 500000 / science 100 / reputation 0, EMPTY
+# ProgressTracking) plus ONE Active `PartTest` (`375b4446-...`, the stock-written RT-5
+# Flea test in flight over Kerbin at 59-64 km, copied from `career-earned-pad`) and its
+# ledger ContractAccept row. `PartTest.MeetRequirements()` reads
+# `ProgressTracking.NodeComplete("FirstLaunch")` (decompiled, quoted in
+# `build_career_contract_pad.py`), and this career has never launched. MEASURED ANALOG:
+# run `2026-08-20_2217_L5-career-contract-complete` spliced an Active PartTest into the
+# SAME donor and stock retired it before the mission's first frame (`PatchContracts:
+# ledger has 1 active contracts, ... KSP has 0 current contracts, 0 finished contracts`,
+# todo SAVE-AUTHORED-PROGRESS-NODE-DOES-NOT-RESTORE). That line is the old bug's shape.
+#
+# THE FLIGHT: load the pad save (stock's first ContractSystem tick ends the contract),
+# 1x on the pad to UT 25 so the inline recalc and any deferred work settle, save, quit.
+# Nothing launches, nothing records.
+#
+# WHICH PINS PROVE THE FIX. Each of these needs the fix to print (`git log -S` on the
+# literal names 5f018a9): `Emit: ContractCancelled ... source='ContractOfferExpired'`,
+# `Game state: Active contract '...' ended by stock as OfferExpired (requirements no longer
+# met) - filed as an unpenalized end (contract <guid>)`, and the walk's
+# `Cancel: contractId='<guid>' fundsPenalty=0 repPenalty=0 requirementsLost=True
+# wasActive=True activeSlots=0/2` (the `requirementsLost=` key is new). `KSC spending
+# recorded: type=ContractCancel ... key=<guid>` is an old format, but before the fix no
+# event existed for this end, so it could not print for this guid either.
+# PREMISE PINS (pre-existing literals): the walk's `Accept:` for the guid (the sidecar
+# loaded; activeSlots=1/2 on this level-1 Mission Control, L5's measured value) and
+# ContractEarlyFailPatch's Verbose `allowing fail for guid=<guid> end=OfferExpired - no
+# committed outcome`, which proves the end came through stock's own SetState on the Active
+# contract (not a load-time drop).
+# FORBIDDEN: a fail filed for the end (`Game state: ContractFailed`), a penalized cancel of
+# the guid, the PrePass synthetic fail of the guid (the old fallback), any pool clamp, and
+# the capture patch's no-subscriber line (the end ran before Parsek's recorder existed).
+#
+# THE LEDGER ORACLE. `[expectations.ledger]` seeds from the template and declares NO
+# manifest entry: stock charges nothing for this end and the fix files zero penalties, so
+# the produced save's funds / science / reputation must equal the template's (HARD). The
+# row carries a 9000 funds / 4 reputation pack on purpose, so a regression that charged it
+# reds there. The oracle has no cancel / ended kind; its report-only contract facet expects
+# no Active contract (no accept entry) and the produced save holds none (stock removes an
+# OfferExpired contract outright), so it reads no divergence.
+# THE ROW ITSELF has no verifier (no harness verifier parses ledger rows): on the first
+# flight, read the produced `Parsek/GameState/ledger.pgld` by hand for a `type = 8` row,
+# contractId 375b4446-..., fundsPenalty 0, repPenalty 0, `requirementsLost = True`.
+#
+# GUESSES THE FIRST FLIGHT CONFIRMS (check these first on a red):
+#   G1 stock's Contract.Load accepts the spliced Active node (a KSP-written node, the
+#      lineage's only change from L5's first build is the part and the sit). A red on the
+#      `allowing fail` premise pin with no `Game state: Active contract` line means stock
+#      dropped it some other way; read `PatchContracts: ledger has ... KSP has ...`.
+#   G2 the end runs from Contract.Update after ParsekScenario.OnLoad subscribed the
+#      recorder (MonoBehaviour Update follows the scenario load pass). The forbidden
+#      `with no subscribed recorder` line names the miss.
+#   G3 no live recorder on the pad (autoRecordOnLaunch default, no launch), so the event
+#      goes straight to the ledger (`tag=''`). A tagged event would wait for a commit
+#      that never comes and the `KSC spending` / `Cancel:` pins red.
+#   G4 activeSlots denominators `/2` (L5 measured `/2` on this donor).
+#   G5 recordings 0 (nothing launches; L1's fixtures read 0 the same way).
+#   G6 the produced save's pools equal the template's (no stock or Parsek move on a
+#      pad that never launches).
+#   G7 the row's recalc runs INLINE inside stock's SetState postfix, i.e. inside
+#      ContractSystem's per-contract update, and its PatchContracts touches the stock
+#      contract lists there. Not seen in any flight yet; the unity-exception scan is
+#      report-only here, so read it: a `Collection was modified` (or any) exception out
+#      of ContractSystem.Update right after the `Cancel:` line is a finding to file.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse: no flown host carries an Active contract with a false requirement (L12 /
+#     ST-1's career-earned-pad has FirstLaunch complete and a FirstLaunch milestone row
+#     that PatchMilestones would re-credit), so a derived pad host; no flight.
+#   2 waits: one explicit-UT WarpToUT at maxRate=1 (9.06 -> 25, ~16 s).
+#   3 dwells: that one. 4 burns: none. 5 coasts: none.
+#   6 fail fast: every verb answers in one frame or one bounded wait; retry once because
+#     the stock tick and contract load are live-state dependent.
+#   7 count: 0, derived (no recording can start).
+#   8 tier: nightly (an L1-sized lane, about a minute of wall plus the boot).
+#   9 run tools/flight_efficiency.py on the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "An Active contract stock ends because its requirements no longer hold files an unpenalized terminal ledger row (STOCK-OFFER-EXPIRED-ACTIVE-CONTRACT-NO-TERMINAL-ROW): on career-requirements-loss-pad (the pad Flea in a career that never launched, with an Active RT-5 PartTest whose FirstLaunch requirement is false and its ledger accept row) stock's first contract tick ends the contract as OfferExpired; Parsek files a ContractCancel row with zero penalties and requirementsLost, the walk ends the contract and frees its slot, and no pool moves."
+instanceProfile = "stock-minimal"
+tags = ["L14", "ledger", "career", "contracts", "kerbin"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/career-requirements-loss-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # verboseLogging defaults true, so the Verbose pins below that print during the boot
+  # (before this step) are not gated on it; it keeps them for the rest of the run.
+  { cmd = "SetSetting",   args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "l13-loaded" },                         expect = "OK" },
+  # 1x on the pad: the inline recalc after the row and any deferred patch settle.
+  { cmd = "WarpToUT",     args = { ut = "25", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",  args = { label = "l13-settled" },                        expect = "OK" },
+  { cmd = "SaveGame",                                                              expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                          expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["contracts"]
+D14 = ["career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# DERIVED: the fixture carries no recording, autoRecordOnLaunch is off and nothing
+# launches. 0 is the only count a green run can read.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required = [
+  # Premise: the sidecar loaded and the walk holds the contract Active.
+  "\\[Parsek\\]\\[INFO\\]\\[Contracts\\] Accept: contractId='375b4446-c861-4b4d-bf97-ef38407246a4' type='PartTest' [^\\r\\n]*activeSlots=1/2",
+  # Premise: stock's own SetState(OfferExpired) on the Active contract, let through.
+  "\\[Parsek\\]\\[VERBOSE\\]\\[ContractEarlyFailPatch\\] allowing fail for guid=375b4446-c861-4b4d-bf97-ef38407246a4 end=OfferExpired - no committed outcome",
+  # THE FIX: the capture, untagged (G3).
+  "\\[Parsek\\]\\[VERBOSE\\]\\[GameStateRecorder\\] Emit: ContractCancelled key='375b4446-c861-4b4d-bf97-ef38407246a4' tag='' source='ContractOfferExpired'",
+  "\\[Parsek\\]\\[INFO\\]\\[GameStateRecorder\\] Game state: Active contract '[^\\r\\n]*' ended by stock as OfferExpired \\(requirements no longer met\\) - filed as an unpenalized end \\(contract 375b4446-c861-4b4d-bf97-ef38407246a4\\)",
+  "\\[Parsek\\]\\[INFO\\]\\[LedgerOrchestrator\\] KSC spending recorded: type=ContractCancel, UT=[0-9.]+, key=375b4446-c861-4b4d-bf97-ef38407246a4",
+  # THE FIX: the walk ends the contract with no penalty and frees its slot.
+  "\\[Parsek\\]\\[INFO\\]\\[Contracts\\] Cancel: contractId='375b4446-c861-4b4d-bf97-ef38407246a4' fundsPenalty=0 repPenalty=0 requirementsLost=True wasActive=True activeSlots=0/2",
+  # The chain in order: the stock end, the capture, the row, the walk.
+  "allowing fail for guid=375b4446-c861-4b4d-bf97-ef38407246a4 end=OfferExpired[\\s\\S]*?Game state: Active contract [^\\r\\n]*\\(contract 375b4446-c861-4b4d-bf97-ef38407246a4\\)[\\s\\S]*?KSC spending recorded: type=ContractCancel, UT=[0-9.]+, key=375b4446-c861-4b4d-bf97-ef38407246a4[\\s\\S]*?Cancel: contractId='375b4446-c861-4b4d-bf97-ef38407246a4' fundsPenalty=0 repPenalty=0 requirementsLost=True",
+  "MISSIONMARK label=l13-settled ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The end is not a fail, and stock charged nothing.
+  "Game state: ContractFailed",
+  "Cancel: contractId='375b4446-c861-4b4d-bf97-ef38407246a4' fundsPenalty=[1-9]",
+  "Cancel: contractId='375b4446-c861-4b4d-bf97-ef38407246a4' fundsPenalty=0 repPenalty=[1-9]",
+  # The old fallback: the walk kept the contract Active and failed it at its deadline.
+  "PrePass: injected synthetic ContractFail for contractId='375b4446-c861-4b4d-bf97-ef38407246a4'",
+  # Premise misses (G2, and a committed outcome this fixture does not carry).
+  "Active contract ended as OfferExpired with no subscribed recorder",
+  "refusing fail of \"[^\"]*\" guid=375b4446-c861-4b4d-bf97-ef38407246a4",
+  # No pool moves.
+  "GUARDED DRAWDOWN clamped",
+  "GUARDED UPLIFT clamped",
+]
+
+[expectations.ledger]
+seedFrom     = "template"   # the staged fixture's own pools: 500000 / 100 / 0.
+tolerances   = "default"
+# NO manifest entry: the end is unpenalized and nothing else in the run earns or spends,
+# so the expected pools are the seed (HARD). See the header for the contract facet.
+
+[runtime]
+# 600 >= 300 LoadGame + 120 WarpToUT + 120 SaveGame + the fast verbs; an L1-sized lane.
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

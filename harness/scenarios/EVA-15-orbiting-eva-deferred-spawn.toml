@@ -1,0 +1,273 @@
+schema = 1
+id = "EVA-15-orbiting-eva-deferred-spawn"
+# =====================================================================================
+# EVA-15: AN EVA KERBAL THAT ENDED ORBITING SPAWNS FROM HIS RECORDED TERMINAL ORBIT AFTER A
+# WARP-DEFERRED SPAWN, NOT FROM HIS STALE BODY-FIXED END POINT.
+# Live proof of GC5-ORBITING-EVA-SPAWN-USES-STALE-SURFACE-POINT (docs/dev/todo-and-known-
+# bugs.md; fix 5218c1d, branch `gc5-orbiting-eva-spawn`, unit tests only until this lane).
+# AUTHORED 2026-10-24, NEVER FLOWN. Every pin below is read off the C# format string that
+# writes it; the GUESSES the first flight confirms are listed at the end of this header.
+#
+# THE BUG (code reading, the todo entry): a deferred spawn (warp past the recording's end)
+# materialized the capsule on its recorded terminal orbit propagated to the spawn UT (#353),
+# but the EVA kerbal from his LAST TRAJECTORY POINT (body-fixed lat/lon/alt + velocity)
+# re-seeded into an orbit at the CURRENT UT (`SpawnAtPosition` no-override branch ->
+# `OrbitReseed.FromWorldPosAndRecordedVelocity`), so his orbit came out rotated with the
+# planet and his phase was not advanced: he appeared km to hundreds of km from his capsule.
+# The `!isEva` term of `VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState` kept him out
+# of the orbit route; the fix drops it, so an Orbiting kerbal with a recorded terminal orbit
+# takes the orbit route of any vessel (the `Orbital` path label).
+#
+# THE HOST is `eva2-lko-crewed` (EVA-2's, CI-1's): Kerbal X (pid 3620499050) in a ~100 km
+# circular Kerbin orbit with Valentina and Bob aboard, the spent core "Kerbal X Probe" ~16 m
+# away on a near-identical orbit, four landed "Kerbal X Debris" at the pad, and the asteroid
+# Ast. VPA-167 at FLIGHTSTATE index 0. `[[fixture.liveState]]` REMOVES the asteroid at
+# staging (the EVA-9 / EVA-10 recipe; savepatch re-points activeVessel 1 -> 0 so the boot
+# still focuses Kerbal X). After the rewind strips Kerbal X, a Space Center save carries
+# `activeVessel = 0` (measured in EX-1), which is then the first pad debris: the SaveGame +
+# LoadGame straight after the rewind boots FLIGHT on a landed vessel at the pad.
+#
+# WHY THE FOCUS IS A LANDED VESSEL AT THE PAD, NOT THE PROBE IN ORBIT (CN-3's shape): (1) a
+# landed active vessel lifts stock's rails altitude ceiling, so the warp is not clamped to
+# 50x by a 100 km orbit; (2) the two spawns land ~100 km up, far outside the bubble, so they
+# materialize UNLOADED and no collision check can block or walk either of them back. The
+# cost, stated: the T57 parent exemption (`ResolveEndOfRecordingCollisionExemptPid`, the
+# kerbal exempting his capsule) is computed but never decides anything here, because
+# `CheckSpawnCollisions` only tests LOADED vessels. A spawn inside the bubble (focus the
+# probe instead: also remove the four debris) is the follow-up that would exercise it.
+#
+# THE FLIGHT, every step a player's:
+#   (a) A 1x wait to UT 424 (CI-1's LoadGame-race wait: past onFlightReady and the unpack),
+#       recording starts on Kerbal X (non-promotion: the host has no committed trees, so the
+#       start writes the tree's rewind quicksave).
+#   (b) EvaExit kerbal=Valentina release=true settleSeconds=10: the EVA split (CI-1
+#       measured the ship as activeChild, the kerbal as bgChild, evaCrew=Valentina Kerman),
+#       and she lets go of the ladder, floating beside the capsule.
+#   (c) A 1x wait to UT 470 so both leaves record ~30 s of formation flight, then stop and
+#       commit in flight. Both leaves end ORBITING, each with a recorded terminal orbit
+#       (`ParsekFlight.CaptureTerminalOrbit` at finalize has no EVA check).
+#   (d) Rewind-to-Launch the tree just committed (`tree=latest`): the owner strip removes
+#       Kerbal X (and the EVA child name) from the rewind save, UT is wound back 15 s
+#       (`RewindToLaunchLeadTimeSeconds`) to ~407, and the rewind lands at the Space Center.
+#   (e) SaveGame + LoadGame at once: FLIGHT on the pad debris, ~60 s of game time before
+#       EndUT ~470 (EX-1 measured its reload ~12 s before StartUT with the same 15 s lead).
+#   (f) THE SUBJECT: WarpToUT ut=1400 maxRate=100 (rails). The ladder picks 100x (a 990 s
+#       span covers 100x's 2.5 real-second rule, not 1000x's), so EndUT is crossed with warp
+#       active: `ParsekPlaybackPolicy` queues both spawns (`Deferred spawn during warp`) and
+#       they materialize either from the held-ghost retry during the warp (CN-3's measured
+#       road: `Held ghost spawn succeeded on retry`) or from the warp-end flush
+#       (`Deferred spawn executing`). Either way the spawn UT is later than EndUT, which is
+#       the whole condition the bug needs.
+#   (g) ListHandles marks before and after the warp, SaveGame, quit.
+#
+# THE PINS THAT PROVE THE FIX (each could not print for an EVA kerbal before 5218c1d):
+#  - `[Spawner] Spawn #N (Valentina Kerman): using recorded terminal orbit propagated to
+#    current UT (ut=.., body=Kerbin, ...)` (Verbose, VesselSpawner.SpawnOrRecoverIfTooClose):
+#    printed only inside `if (useRecordedTerminalOrbit)`, which was false for every EVA.
+#  - `[Spawner] Orbital vessel spawn for #N (Valentina Kerman) pid=P ... terminal=Orbiting`:
+#    the path label is `Orbital` only when `useRecordedTerminalOrbit`; before the fix an EVA
+#    printed `EVA vessel spawn for #N (...)`.
+#  Both are chained in ONE contract behind `Deferred spawn during warp: #N "Valentina
+#  Kerman"` by the #N backreference (the policy's evt.Index and the spawner's index are the
+#  same committed-list index), with the spawn-context line between them.
+#
+# NEAR THE CAPSULE. No seam verb reports a spawned vessel's position or orbit (ListHandles
+# carries pid / spawned / name / state; ReadVesselResources carries tanks). The one surface
+# that does is `LogSpawnContext`'s `Spawning vessel: "<name>" sit=.., crew=[..], nearest
+# vessel=<D>m`, D = the distance from the RESOLVED spawn position to the nearest non-ghost
+# vessel on Kerbin (`FindNearestVesselDistance`, unloaded vessels included). After the fix the
+# kerbal's spawn position is his propagated orbit, so D is his distance to the capsule (if it
+# spawned first, the expected order: the ship is the activeChild, committed before the
+# kerbal) or to the co-orbiting probe (Kepler-propagating the fixture's two orbits: ~30 m at
+# UT 470, ~140 m at 1000, ~500 m at 1400). The pin bounds D below 10 km (`[0-9]{1,4}m`).
+# Before the fix the spawn position was the end point at the current planet rotation, which
+# sits ~2.1 km per second of delay (orbital speed minus surface rotation) behind the
+# formation; with a 100x crossing the delay is the frame overshoot, up to ~3 s, so the bound
+# is a FIX-SIDE sanity check, not the discriminator (the route pins above are). A
+# per-vessel position verb would make the distance itself a pin.
+#
+# FORBIDDEN, the old route's shape for the kerbal: the `EVA` path label, the end point's
+# `Recorded spawn velocity: site=spawn-at-position` seed (Verbose, logContext `recording #N
+# (Valentina Kerman)`), and an `OrbitReseed.FromWorldPosAndRecordedVelocity` re-seed between
+# his `Spawning vessel` line and the next spawn result line. That label has no vessel name
+# and GhostMapPresence uses it too, so it is forbidden only inside that window (a tempered
+# token that stops at the first `vessel spawn for #`).
+#
+# GUESSES the first flight confirms (re-pin from its bytes, then arm the structure block):
+#   - UT budget: the boot + EvaExit (release + 10 s settle) finish before UT 470 (a WarpToUT
+#     behind the clock is refused `backward-warp`), and the reload lands before EndUT (the
+#     reloaded mark pins every recording unspawned).
+#   - count 3: the root recording plus the two EVA-split children (EVA-1's and CI-1's
+#     measured EVA topology); CommitTree's optimizer has nothing to split or merge (one
+#     ExoBallistic run each, the root ends at a branch point).
+#   - both leaves finalize Orbiting with a recorded terminal orbit (EVA-2 logged a stock
+#     orbital-EVA `dT is NaN` / non-finite patched-conic WARN on a kerbal ON THE LADDER; a
+#     kerbal whose terminal orbit came out non-finite would keep the endpoint route, which
+#     these pins would read as the old shape: a finding, not a spec bug).
+#   - the warp-active crossing at EndUT (stock's eased upshift may cross it below 100x; any
+#     rate above 1x defers) and which deferred road spawns (either is accepted).
+#   - the `sit=` token and the crew list on the kerbal's `Spawning vessel` line (regexed).
+#   - the structure block's facets (report-only).
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse: no committed lane spawns an EVA kerbal that ended Orbiting; H20 covers a landed
+#     kerbal, CN-3 a deferred orbital spawn of a probe. This flies EVA-2 / CI-1's host with
+#     EVA-7 / EX-1's rewind-and-reload chain.
+#   2 waits: explicit-UT WarpToUT only (two 1x waits, one rails warp).
+#   3 dwells: EvaExit settleSeconds=10 (CI-1's); 4 burns: none; 5 b5 coasts: none.
+#   6 fail fast: every verb refuses in one frame; retry once (live EVA FSM).
+#   7 count: derived exactly (3); re-pin from the first flight if it reads otherwise.
+#   8 tier: nightly (one rewind, one reload, ~4 min wall estimated); re-tier by p50.
+#   9 run tools/flight_efficiency.py on the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "GC5 orbiting EVA spawn (fix 5218c1d): on eva2-lko-crewed (asteroid removed) Valentina steps out of the orbiting Kerbal X and floats beside it, recorded and committed; Rewind-to-Launch, reload into FLIGHT on a pad debris, and a 100x rails warp past the recording's end defers both spawns. Pins that the kerbal's spawn takes the recorded-terminal-orbit route (Orbital path label, the propagated-orbit line) behind the deferred spawn, that she lands within 10 km of the nearest vessel (her capsule or the co-orbiting probe), and that the old endpoint re-seed (EVA label, recorded spawn velocity, FromWorldPosAndRecordedVelocity) never runs for her."
+instanceProfile = "stock-minimal"
+tags = ["EVA-15", "GC-5", "eva", "orbital", "spawn", "deferred-spawn", "terminal-orbit",
+        "warp", "rewind-to-launch", "eva-branch", "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft              = []
+
+# Ast. VPA-167, FLIGHTSTATE index 0: removed so a Space Center save's `activeVessel = 0`
+# names a pad debris instead of a heliocentric asteroid (header).
+[[fixture.liveState]]
+pid    = 1490391000
+remove = true
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  # The propagated-orbit line and the recorded-spawn-velocity seed are Verbose.
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva15-boot" },                     expect = "OK" },
+  # ACT 1: record the formation. CI-1's LoadGame-race wait (fixture UT 421.19) first.
+  { cmd = "WarpToUT",   args = { ut = "424", maxRate = "1" },                 expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
+  { cmd = "EvaExit",    args = { kerbal = "Valentina Kerman", release = "true", settleSeconds = "10" }, expect = "OK", budget = 120 },
+  # ~30 s of the kerbal floating beside the capsule (EndUT ~470).
+  { cmd = "WarpToUT",   args = { ut = "470", maxRate = "1" },                 expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
+  # CommitTree auto-resumes a recorder on the still-active vessel (H58 flight 1, EX-1).
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0",        expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva15-commit-count-${c0.count}" }, expect = "OK" },
+  # ACT 2: rewind before the flight, then leave the Space Center at once (EX-1's road), so
+  # EndUT is crossed in FLIGHT.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "eva15-rewound" },                   expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "eva15-rewound" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1",        expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva15-reloaded-count-${c1.count}-a-${c1.rec0}-${c1.rec0spawned}-${c1.rec0spawnedPid}-b-${c1.rec1}-${c1.rec1spawned}-${c1.rec1spawnedPid}-c-${c1.rec2}-${c1.rec2spawned}-${c1.rec2spawnedPid}-end" }, expect = "OK" },
+  # ACT 3, THE SUBJECT: a rails warp across EndUT ~470 defers both spawns (header (f)).
+  { cmd = "WarpToUT",   args = { ut = "1400", maxRate = "100" },              expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2",        expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva15-spawned-count-${c2.count}-a-${c2.rec0}-${c2.rec0spawned}-${c2.rec0spawnedPid}-b-${c2.rec1}-${c2.rec1spawned}-${c2.rec1spawnedPid}-c-${c2.rec2}-${c2.rec2spawned}-${c2.rec2spawnedPid}-end" }, expect = "OK" },
+  { cmd = "SaveGame",                                                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+# D9  rewind-to-launch <- the required `invokerewindtolaunch complete` line, then the spawns
+#     the rewound timeline replays to.
+# D5  eva-branch       <- the required `Tree branch created: type=EVA ... evaCrew=Valentina
+#     Kerman` line (CI-1's measured shape).
+D5  = ["eva-branch"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see EVA-2): this table stays ahead of the sub-tables.
+allowedAnomalies = []
+
+[expectations.recordings]
+# DERIVED (a guess until the first flight): the root recording on Kerbal X up to the EVA,
+# plus the EVA split's two children (the ship's continuation and the kerbal) = 3, the
+# topology EVA-1 and CI-1 measured for StartRecording -> EvaExit. The post-commit
+# auto-resumed recorder is stopped and dropped by the rewind and the reload (EX-1 pins 1
+# on the same chain), and nothing records after the reload (autoRecordOnLaunch=false,
+# DiscardTree). No legitimate variance: an exact window.
+count = { min = 3, max = 3 }
+
+# REPORT-ONLY until a reading run (arming is a per-scenario decision). Expected: one
+# committed tree, 3 recordings, the two leaves Orbiting, one EVA branch point, and in the
+# final save the two spawned vessels once each beside the probe and the four pad debris.
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 3, max = 3 }
+terminalStates = { Orbiting = { min = 2, max = 2 } }
+branchPoints   = { EVA = { min = 1, max = 1 } }
+spawnedVessels = { min = 2, max = 2 }
+vesselNames    = { "Kerbal X" = 1, "Valentina Kerman" = 1, "Kerbal X Probe" = 1, "Kerbal X Debris" = 4 }
+
+[expectations.logContracts]
+required = [
+  # ACT 1: the recording and the EVA split (CI-1's measured line).
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "Tree branch created: type=EVA, bp=[0-9a-f]{32}, activeChild=[0-9a-f]{32} \\(pid=3620499050\\), bgChild=[0-9a-f]{32} \\(pid=[0-9]+\\), evaCrew=Valentina Kerman",
+  "evaexit complete kerbal=Valentina Kerman evaPid=[0-9]+ released=true ",
+  "committree committed=true",
+  "MISSIONMARK label=eva15-commit-count-3 ",
+  # ACT 2: the rewind strips Kerbal X and lands at the Space Center; the reload lands
+  # BEFORE EndUT (all three recordings still unspawned).
+  "\\[Rewind\\] Stripped [1-9][0-9]* vessel\\(s\\) from save \\([1-9][0-9]* by name \\[",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "MISSIONMARK label=eva15-reloaded-count-3-a-[0-9a-f-]+-false-0-b-[0-9a-f-]+-false-0-c-[0-9a-f-]+-false-0-end ",
+  # ACT 3, THE FIX: the kerbal's spawn is warp-deferred and then takes the recorded
+  # terminal orbit route (propagated-orbit line, spawn context, Orbital label), tied by the
+  # committed index; the spawn context bounds her distance to the nearest vessel (header).
+  "\\[Policy\\] Deferred spawn during warp: #([0-9]+) \"Valentina Kerman\"[\\s\\S]*\\[Spawner\\] Spawn #\\1 \\(Valentina Kerman\\): using recorded terminal orbit propagated to current UT \\(ut=[0-9.]+, body=Kerbin, lat=-?[0-9.]+, lon=-?[0-9.]+, alt=[0-9.]+, speed=[0-9.]+\\)[\\s\\S]*?\\[Spawner\\] Spawning vessel: \"Valentina Kerman\" sit=[A-Z_]+(?:, crew=\\[[^\\]\\r\\n]*\\])?, nearest vessel=[0-9]{1,4}m[\\s\\S]*?\\[Spawner\\] Orbital vessel spawn for #\\1 \\(Valentina Kerman\\) pid=[0-9]+ lat=-?[0-9.]+ lon=-?[0-9.]+ alt=[0-9.]+ terminal=Orbiting",
+  # The deferred machinery materialized her: the held-ghost retry during the warp or the
+  # warp-end flush (either road).
+  "\\[Policy\\] Deferred spawn during warp: #([0-9]+) \"Valentina Kerman\"[\\s\\S]*\\[Policy\\] (?:Held ghost spawn succeeded on retry|Deferred spawn executing): #\\1 \"Valentina Kerman\" id=[0-9a-f-]+",
+  # The capsule, deferred and spawned on its own recorded terminal orbit (#353's route).
+  "\\[Policy\\] Deferred spawn during warp: #([0-9]+) \"Kerbal X\"[\\s\\S]*\\[Spawner\\] Orbital vessel spawn for #\\1 \\(Kerbal X\\) pid=[0-9]+ lat=-?[0-9.]+ lon=-?[0-9.]+ alt=[0-9.]+ terminal=Orbiting",
+  # The committed store reads her back spawned with the pid the spawn line printed.
+  "\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\(Valentina Kerman\\) pid=([0-9]+) [\\s\\S]*MISSIONMARK label=eva15-spawned-count-3-[^\\r\\n]*-true-\\1-",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # THE OLD ROUTE for the kerbal (header): the EVA path label, the end point's recorded
+  # velocity seed, and the end-point re-seed inside her spawn window.
+  "EVA vessel spawn for #[0-9]+ \\(Valentina Kerman\\)",
+  "Recorded spawn velocity: site=spawn-at-position [^\\r\\n]*context=recording #[0-9]+ \\(Valentina Kerman\\)",
+  "Spawning vessel: \"Valentina Kerman\"(?:(?!vessel spawn for #)[\\s\\S])*?\\]\\[OrbitReseed\\] FromWorldPosAndRecordedVelocity: body=",
+  # Every way either spawn could fail to materialize.
+  "Spawn skipped for #[0-9]+ \\((?:Valentina Kerman|Kerbal X)\\): terminal orbit cannot spawn safely",
+  "Deferred spawn cannot execute safely",
+  "Deferred spawn resolved as cannot-spawn-safely",
+  "Spawn refused for #[0-9]+ \\((?:Valentina Kerman|Kerbal X)\\)",
+  "Spawn ABANDONED",
+  "Spawn RETIRED",
+  "Vessel spawn failed",
+  "SpawnAtPosition returned 0",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "evaexit refused",
+]
+
+[runtime]
+# 2400 >= the explicit step budgets (300 LoadGame + 120 + 180 StartRecording + 120 EvaExit
+# + 120 + 120 CommitTree + 300 InvokeRewindToLaunch + 120 SaveGame + 300 LoadGame + 300
+# WarpToUT + 120 SaveGame = 2100) + 300 for the 18 default-budget steps and the boot.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

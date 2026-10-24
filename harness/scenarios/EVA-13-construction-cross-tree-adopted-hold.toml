@@ -1,0 +1,282 @@
+schema = 1
+id = "EVA-13-construction-cross-tree-adopted-hold"
+# =====================================================================================
+# EVA-13 (todo REWIND-HOLD-MISSES-CROSS-TREE-ADOPTED-VESSEL, fixed 2026-10-24 on
+# `claude/project-thread-1kbuzp`, PR #2199, xUnit only). AUTHORED 2026-10-24 on branch
+# `lanes-foreign`, NEVER FLOWN: its first flight is a READING run.
+#
+# THE DEFECT. A vessel ANOTHER tree owns, adopted by this tree through an inventory
+# transfer, was stripped from a plain rewind's save, so it was never a rewind hold and
+# nothing drew it until its transfer member's ghost started. The shape that triggers it
+# (ForeignAdoptionRewindStripTests `CrossTreeAdoption_*`): tree A holds the vessel's spawn
+# (`SpawnedVesselPersistentId` = the vessel), tree B adopts the vessel by inventory
+# transfer, and B's commit links A's terminal spawn to B's member
+# (`MarkSupersededTerminalSpawnsForContinuedSources`, reason `spawned-pid-match`). At the
+# rewind of B, A is history, so `IsSpawnedVesselReproducedByRewindReplay(A)` reached the
+# continuation route and read the member's replay as re-producing the vessel
+# (`superseding-continuation-replays:<member>`): the pid went into the strip set and the
+# vessel left the rewind save. The fix (`RecordingStore.FliesTransferAdoptedVessel`) never
+# counts a recording that flies a vessel its own tree adopted by inventory transfer on that
+# route, so A's pid is KEPT as committed history, the vessel stays in the rewind save, and
+# `ApplyRewindVesselHolds` holds it with a hold ghost until the member starts.
+#
+# WHY "RECORD THE ROVER IN ITS OWN TREE" REPRODUCES THE SHAPE (no Parsek spawn needed).
+# Tree A is a recording of the fixture rover committed IN FLIGHT with the rover active:
+# `ParsekFlight.CommitTreeFlight` stamps the active recording `VesselSpawned = true`,
+# `SpawnedVesselPersistentId = recorder.RecordingVesselId` (the rover's own pid, the
+# adoption stamp). So A is a holder of pid 1871615455 exactly as a terminal spawn would
+# make it. B's member flies the same live rover (same pid, same launch guid, ends after A),
+# so `ShouldMarkSupersededTerminalSpawn` answers `spawned-pid-match` (the adoption-relaunch
+# guid guard does not fire: one physical vessel, one `Vessel.id`). A must be HISTORY at the
+# rewind (its activation start more than 2 s before B's adjustedUT = B start - 15 s), or it
+# replays itself and strips on `holder-replays` with or without the fix
+# (`CrossTreeAdoption_SupersedeLinkedSpawnerReplays_StillStripped`): hence the rails warp to
+# UT 100 between the two trees (A ends at UT 45, B starts after 100, adjustedUT about 90).
+#
+# THE TRANSFER is RC-6's (live-proven `2026-10-16_0709` on this host): Bill takes the
+# evaChute out of the rover's first ConformalStorageUnit (`EvaGroundScience take`), the
+# rover joins his tree as an InventoryTransfer member (`Foreign inventory transfer: vessel
+# joined the tree ... event=PartRemoved`), and he walks 15 m off so his end spawn clears the
+# rover. A take, not EVA-11's construction: the defect is in the strip scope, which reads
+# only "is this recording an InventoryTransfer member", and a take adopts the rover with no
+# construction transpiler and no part-count change (the hold ghost is the rover's 16 parts
+# either way).
+#
+# HOST: `eva-construct-pad` (EVA-11 / RC-6 / EVA-12): Kerbal X PRELAUNCH on the pad (pid
+# 3620499050, Bill Kerman aboard, VESSEL index 0 and active) and the crewless probe rover
+# `rover fuel 0` (pid 1871615455, 16 parts) LANDED 153 m away, outside the KSC exclusion
+# zone. Fixture UT 25.42. Bill carries only an evaJetpack (RC-6's inventory patch).
+#
+# THE STORY.
+#   ACT A (tree A, the rover's own mission): the stock switch click puts the rover in focus
+#     (`SimulateStockSwitchClick pid=1871615455`; StopRecording + DiscardTree drop anything
+#     the switch armed, EVA-12's shape), a recording starts ON THE ROVER and runs at 1x to
+#     UT 45, and it is committed in flight. CommitTree re-takes the committed tree for the
+#     still-active rover; RC-6's StopRecording and LAB-6's DiscardTree drop the re-taken
+#     copy (the committed tree stays, LAB-6 measured), and the DiscardTree also suppresses
+#     the 1 Hz re-take for the rover. Then the switch click back to Kerbal X (no live
+#     recording, so no pre-switch dialog case applies) and a rails warp to UT 100.
+#   ACT B (tree B, Bill's mission): RC-6 verbatim. Bill out of the pad Kerbal X, 3 m from
+#     the rover, StartRecording, take the evaChute, 15 m off, commit (count 3).
+#   ACT C: Rewind-to-Launch of tree B (`tree=latest`, the last committed), then EVA-11's
+#     Space Center SaveGame + LoadGame into FLIGHT on the pad Kerbal X, 153 m from the
+#     rover, and 1x time past the member's end.
+#
+# WHAT PROVES THE FIX (required pins that could not print before #2199):
+#   (1) the fix's own new Verbose line `Rewind strip scope: spawned pid=1871615455 of 'rover
+#       fuel 0' (id=<A>) is not re-produced by its superseding continuation '<member>': ...`,
+#       tied to A's id (the eva13-a-committed mark) and to the member's id (the join line);
+#   (2) the strip-scope summary `keptHistoryPids=1 keptHolders=1 foreignAdoptedPids=1`
+#       (before: A's pid in `stripPids`, `keptHistoryPids=0`);
+#   (3) `Stripped ... 0 by PID` (before: `1 by PID`, the rover) and `Captured 1 rewind-save
+#       copy(ies) of 1 vessel(s) a committed future claims` (before: `Captured 0 ...`, the
+#       rover had left the save before the copy);
+#   (4) the hold: `[RewindHold] Rewind held vessel for its committed future: pid=1871615455
+#       ... evidence=chain ... snapshot=yes`, `Rewind vessel hold: ... held=1 `, the
+#       flight-load restore `saved=1 restored=1`, and `Claimed vessel hold ghost shown:
+#       pid=1871615455 ... parts=16 ... from=rewind-save` before the member's claim
+#       releases it (before: no hold, `held=0`, nothing drawn until the member's ghost).
+# The precondition that makes it the cross-tree shape is pinned too: the adoption stamp on
+# A (the mark reads `rec0spawned=true rec0spawnedPid=1871615455`) and B's commit linking
+# A's terminal spawn to the member (`terminal spawn for recording '<A>' vessel='rover fuel
+# 0' superseded by continuation '<member>' ... reason=spawned-pid-match`). If that link line
+# is missing the lane did not build the defect's shape: read it before reading the rest.
+#
+# FORBIDDEN, the old bug shape: `Rewind strip scope: strip spawned pid=1871615455 ` (any
+# route, `superseding-continuation-replays` the pre-fix one), the OnLoad strip
+# `Stripping orphaned spawned vessel 'rover fuel 0'`, a second rover (A's own end snapshot
+# still carries the chute: `storedParts=4 [DeployedCentralStation x1, evaChute x1, ...]` on
+# any spawn line is a duplicate rover from tree A), two tip spawns.
+#
+# GUESSES the first flight confirms: every absolute UT (45 / 100 / 140; the only measured
+# anchor is EVA-11's member end 34.96 from the same fixture UT); that A's recording keeps
+# exactly one recording through the in-flight commit optimizer (a stationary landed probe:
+# one Surface run, no split; the mark's `count-1` pins it); `links=1 trees=1` on the
+# rover's chain (A has no branch point, so it contributes no claim); the strip summary's
+# `stripPids=` value (left open: Bill's own adoption-stamped pid is in it); the hold ghost
+# shown BEFORE the claim (EVA-11 proved that window on this host with two extra KSC
+# presses; this lane has none).
+#
+# RECORDINGS: tree A 1 (the rover) + tree B 2 (Bill's root and the rover member, RC-6's
+# count) = 3; the two switch clicks' armed trees are discarded before anything records.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"): (1) RC-6 is the prefix of
+# ACT B and C, but its spec pins count 2 and no tree before Bill, so this is its own lane;
+# (2) every wait is an explicit-UT WarpToUT; (3) the 1x wait in ACT A is A's duration, the
+# UT 100 warp is the history gap at 10x; (4)/(5) no burns, no coast; (6) every verb fails
+# fast on its own refusal, retry once; (7) count pinned 3..3, part counts exact; (8)
+# nightly until measured; (9) flight_efficiency.py after the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "EVA-13: a vessel another mission owns, adopted cross-tree by inventory transfer, is held through a rewind with its hold ghost. On eva-construct-pad the crewless rover is first recorded and committed in flight in its own tree (adoption-stamped as that tree's spawn), then Bill Kerman takes the evaChute out of its storage unit on a later EVA flight, so the rover joins his tree as a transfer member and the commit links the rover tree's terminal spawn to that member; after Rewind-to-Launch of Bill's tree the rover stays in the rewind save (PR #2199), is held with a rewind-save hold ghost until the member starts, and spawns once at the chain tip."
+instanceProfile = "stock-minimal"
+tags = ["eva", "inventory", "foreign-vessel", "cross-tree", "ghost-chain", "rewind-to-launch", "rewind-hold", "EVA-13", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva-construct-pad"
+injectedRecordings = "none"
+craft              = []
+
+[[fixture.crewInventory]]
+kerbal    = "Bill Kerman"
+inventory = "evaJetpack"
+
+[driver]
+kind = "seam"
+steps = [
+  # ACT 0: boot hygiene.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  # ACT A: tree A, the rover's own mission, committed in flight with the rover active.
+  { cmd = "SimulateStockSwitchClick", args = { pid = "1871615455" },         expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "45", maxRate = "1" },                 expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
+  # CommitTree re-takes the committed tree for the still-active rover; stop it (RC-6) and
+  # drop the re-taken copy (LAB-6), so no tree is live when the focus leaves the rover.
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva13-a-committed-${c0.count}-${c0.rec0}-${c0.rec0spawned}-${c0.rec0spawnedPid}-end" }, expect = "OK" },
+  # Back to the pad Kerbal X, then the history gap: tree A ends at UT 45, tree B starts
+  # after UT 100, so B's adjustedUT (B start - 15) lies past all of A.
+  { cmd = "SimulateStockSwitchClick", args = { pid = "3620499050" },         expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "100", maxRate = "10" },               expect = "OK", budget = 120 },
+  { cmd = "MissionMark", args = { label = "eva13-history-gap" },             expect = "OK" },
+  # ACT B: tree B, RC-6's take from the rover's container.
+  { cmd = "EvaExit",    args = { kerbal = "Bill Kerman", release = "true" },  expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "1871615455", distance = "3" }, expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "EvaGroundScience", args = { action = "take", part = "evaChute" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "1871615455", distance = "15" }, expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva13-b-committed-${c1.count}" }, expect = "OK" },
+  # ACT C: Rewind-to-Launch of tree B, then EVA-11's flight reload on the pad Kerbal X.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "eva13-rewound" },                   expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "eva13-rewound" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "chains" },    label = "ch", expect = "OK" },
+  # 1x past the member's end (B's take is about UT 105-110 on this timeline; see header).
+  { cmd = "WarpToUT",   args = { ut = "140", maxRate = "1" },                expect = "OK", budget = 240 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva13-spawned-a-${c2.rec0}-${c2.rec0spawned}-${c2.rec0spawnedPid}-b-${c2.rec1}-${c2.rec1spawned}-${c2.rec1spawnedPid}-c-${c2.rec2}-${c2.rec2spawned}-${c2.rec2spawnedPid}-end" }, expect = "OK" },
+  { cmd = "SaveGame",                                                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+D18 = ["background-event-claims", "intermediate-spawn-suppression"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Tree A's rover recording, tree B's Bill root and rover member (header).
+count = { min = 3, max = 3 }
+
+[expectations.logContracts]
+required = [
+  # ACT A: the rover in focus, recorded and committed in its own tree, adoption-stamped.
+  "switchclick complete site=map targetPid=1871615455 targetName=rover fuel 0 [^\\r\\n]*activeVesselPid=1871615455 switched=true",
+  "switchclick complete site=map targetPid=1871615455 [\\s\\S]*startrecording recordingId=[0-9a-f]+ already=false[\\s\\S]*committree committed=true",
+  "MISSIONMARK label=eva13-a-committed-1-[0-9a-f]+-true-1871615455-end ",
+  "switchclick complete site=map targetPid=3620499050 targetName=Kerbal X [^\\r\\n]*activeVesselPid=3620499050 switched=true",
+  "MISSIONMARK label=eva13-history-gap ",
+  # ACT B: RC-6's take; the rover joins Bill's tree (the second startrecording).
+  "evaexit complete kerbal=Bill Kerman ",
+  "evagroundscience take start kerbal=Bill Kerman part=evaChute source=[^\\r\\n]* sourcePart=ConformalStorageUnit sourceSlot=[0-9]+ [^\\r\\n]*inventory=0:evaJetpack ",
+  "evagroundscience take complete part=evaChute [^\\r\\n]*sourceVesselPid=1871615455 ",
+  "MISSIONMARK label=eva13-history-gap [\\s\\S]*startrecording recordingId=([0-9a-f]+) already=false[\\s\\S]*Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=[0-9a-f]+ parentRec=\\1 bp=[0-9a-f]+ ut=[0-9.]+ event=PartRemoved details='inventory part=evaChute ",
+  # THE SHAPE: B's commit links tree A's terminal spawn to the member (spawned-pid-match).
+  "MISSIONMARK label=eva13-a-committed-1-([0-9a-f]+)-true-1871615455-end [\\s\\S]*[A-Za-z]+: terminal spawn for recording '\\1' vessel='rover fuel 0' superseded by continuation '[0-9a-f]+' vesselPid=1871615455 reason=spawned-pid-match",
+  "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*terminal spawn for recording '[0-9a-f]+' vessel='rover fuel 0' superseded by continuation '\\1' vesselPid=1871615455 reason=spawned-pid-match",
+  "MISSIONMARK label=eva13-b-committed-3 ",
+  "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*Chain built: vessel=1871615455 links=1 tip=\\1 ",
+  # ACT C: the rewind of tree B.
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=2",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # THE FIX (1): tree A's pid is not re-produced by its superseding continuation, the member.
+  "MISSIONMARK label=eva13-a-committed-1-([0-9a-f]+)-true-1871615455-end [\\s\\S]*Rewind-to-Launch initiated to UT [\\s\\S]*Rewind strip scope: spawned pid=1871615455 of 'rover fuel 0' \\(id=\\1\\) is not re-produced by its superseding continuation '[0-9a-f]+': it flies the vessel its tree adopted by inventory transfer, so its replay ghosts the real vessel",
+  "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*Rewind-to-Launch initiated to UT [\\s\\S]*Rewind strip scope: spawned pid=1871615455 of 'rover fuel 0' \\(id=[0-9a-f]+\\) is not re-produced by its superseding continuation '\\1': ",
+  # THE FIX (2): A kept as committed history, the member left as a foreign adoption.
+  "MISSIONMARK label=eva13-a-committed-1-([0-9a-f]+)-true-1871615455-end [\\s\\S]*Rewind-to-Launch initiated to UT [\\s\\S]*Rewind strip scope: keep spawned pid=1871615455 of 'rover fuel 0' \\(id=\\1\\) as committed history ",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*Rewind strip scope: leave spawned pid=1871615455 of 'rover fuel 0' \\(id=[0-9a-f]+\\) in the rewind save: a foreign vessel its tree adopted by inventory transfer",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*Rewind strip scope: adjustedUT=[0-9.]+ stripPids=[0-9]+ keptHistoryPids=1 keptHolders=1 foreignAdoptedPids=1",
+  # THE FIX (3): the rover stays in the rewind save, so its copy is captured for the ghost.
+  "Rewind-to-Launch initiated to UT [\\s\\S]*Stripped [0-9]+ vessel\\(s\\) from save \\([0-9]+ by name \\[[^\\]\\r\\n]*\\], [0-9]+ by owner guid, 0 by PID; ",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*Captured 1 rewind-save copy\\(ies\\) of 1 vessel\\(s\\) a committed future claims",
+  # THE FIX (4): the rewind holds the rover, and flight draws its hold ghost until the claim.
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind held vessel for its committed future: pid=1871615455 name='rover fuel 0' [^\\r\\n]*evidence=chain [^\\r\\n]*snapshot=yes",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind vessel hold: survivors=[0-9]+ held=1 ",
+  "invokerewindtolaunch complete [\\s\\S]*\\[ClaimedHoldGhost\\] Rewind vessel holds restored on flight load: saved=1 restored=1 ",
+  "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Held vessel tracked without a live vessel: pid=1871615455 [\\s\\S]*\\[ClaimedHoldGhost\\] Claimed vessel hold ghost shown: pid=1871615455 name='rover fuel 0' chain=1871615455 source=snapshot-surface body=Kerbin parts=16 firstClaimUT=[0-9.]+ UT=[0-9.]+ from=rewind-save",
+  "Claimed vessel hold ghost shown: pid=1871615455 [\\s\\S]*Claimed vessel hold ghost released: pid=1871615455 name='rover fuel 0' reason=(claimed|covered-by-recording) [\\s\\S]*Chain tip spawn: pid=1871615455 ",
+  # The reloaded chain, and the tip spawn: once, original pid, without the chute.
+  "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*invokerewindtolaunch complete [\\s\\S]*listhandles chain index=[0-9]+ pid=1871615455 links=1 trees=1 treeIds=[0-9a-f]{32} tip=\\1",
+  "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Chain tip spawn: pid=1871615455 vessel=rover fuel 0 preserveIdentity=true [^\\r\\n]*parts=16",
+  "invokerewindtolaunch complete [\\s\\S]*(?:Vessel respawned|SpawnAtPosition: vessel spawned) \\(sit=[A-Z_]+, pid=1871615455[,)][^\\r\\n]* storedParts=3 \\[DeployedCentralStation x1, evaScienceKit x2\\]",
+  "invokerewindtolaunch complete [\\s\\S]*Chain tip spawn complete: #[0-9]+ \"rover fuel 0\" pid=1871615455",
+  "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva13-spawned-[^\\r\\n]*-\\1-true-1871615455-",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "evagroundscience failed",
+  "evagroundscience refused",
+  "switchclick refused",
+  "switchclick failed",
+  "Foreign inventory transfer: no background recorder",
+  "lost its member recording",
+  "vessel joined the tree vesselPid=1871615455 [\\s\\S]*vessel joined the tree vesselPid=1871615455 ",
+  "invokerewindtolaunch refused",
+  # The old bug shape: the rover's pid in the strip set (pre-fix route
+  # superseding-continuation-replays), and the rover lost from the rewound world.
+  "Rewind strip scope: strip spawned pid=1871615455 ",
+  "Stripping orphaned spawned vessel 'rover fuel 0'",
+  "Claimed vessel hold ghost not drawn",
+  # The held rover is never a live vessel the ghoster hides.
+  "\\[Ghoster\\] Vessel ghosted: pid=1871615455 ",
+  "Chain tip spawn blocked by collision: #[0-9]+ \"rover fuel 0\"",
+  "Chain tip spawn failed: #[0-9]+ \"rover fuel 0\"",
+  "SpawnAtChainTip: spawn path returned pid=0",
+  "Spawn RETIRED",
+  "Spawn ABANDONED",
+  "Spawn FAILED",
+  "Chain tip spawn: pid=1871615455 [\\s\\S]*Chain tip spawn: pid=1871615455 ",
+  # A second rover: tree A's own end snapshot still holds the chute.
+  "storedParts=[0-9]+ \\[DeployedCentralStation x1, evaChute x1",
+  "storedParts=[0-9]+ \\[[^\\]\\r\\n]*evaChute x[2-9]",
+  "pid=1871615455[,)][^\\r\\n]* storedParts=[0-9]+ \\[[^\\]\\r\\n]*evaChute",
+]
+
+[runtime]
+# RC-6's measured-safe 1500 plus tree A: two switch clicks (120 each), a 1x wait of about
+# 15 s, a commit (120) and a 10x warp of about 55 s, and a 1x tail of about 35 s more than
+# RC-6's. 1500 + 600 = 2100.
+budgetSeconds = 2100
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
