@@ -1096,6 +1096,17 @@ namespace Parsek
             catch { return null; }
         }
 
+        /// <summary>
+        /// The Candidates empty-state sentence. With near-misses listed below it the player
+        /// already flew such runs, so it points at that list instead of repeating how to fly one.
+        /// </summary>
+        internal static string CandidatesEmptyStateText(int nearMissCount)
+        {
+            return nearMissCount > 0
+                ? "No supply runs to offer yet. The list below shows why your finished missions cannot become routes; open a reason to see them."
+                : "No supply runs to offer yet. Fly a cargo run that docks, transfers cargo and undocks, then finish the mission.";
+        }
+
         private void DrawCandidateSectionBubble(string title, List<RouteCandidate> rows, List<RouteNearMiss> nearMisses)
         {
             if (!DrawSectionHeader(LogisticsRoutePresentation.CandidatesSectionName, title, rows.Count,
@@ -1107,7 +1118,7 @@ namespace Parsek
             GUILayout.BeginVertical(GUI.skin.box);
             DrawCandidateColumnHeader();
             if (rows.Count == 0)
-                GUILayout.Label("  No supply runs to offer yet. Fly a cargo run that docks, transfers cargo and undocks, then finish the mission.", parentUI.GetEmptyStateStyle());
+                GUILayout.Label("  " + CandidatesEmptyStateText(nearMisses?.Count ?? 0), parentUI.GetEmptyStateStyle());
             for (int i = 0; i < rows.Count; i++)
                 DrawCandidateRow(rows[i], i + 1);
 
@@ -1621,6 +1632,9 @@ namespace Parsek
             }
         }
 
+        internal const string WindowedIntervalFieldDisabledReason =
+            "This route delivers on launch windows, so it takes no typed interval; use -/+ to deliver every Nth window";
+
         /// <summary>
         /// Draws the M1 inline cadence control inside the Interval cell of a route
         /// row: a compact "[-] field [+]" stepper plus a small "Nx" multiplier label.
@@ -1665,7 +1679,20 @@ namespace Parsek
             // editing this route we show the live interval value and arm editing when
             // the field gains focus; while editing we hold the typed text and commit
             // on Enter (focus-loss / click-outside is handled in HandleLogisticsDefocus).
-            if (!editingThis)
+            // On a launch-window route the interval is not a time: the route delivers every
+            // Nth window, so a typed duration would set N from N x transit and the shown
+            // value means nothing. The field is greyed there and -/+ set N.
+            bool windowed = RouteWindowBasisPresentation.IsWindowedBasis(leg.Basis);
+            if (windowed)
+            {
+                GUI.enabled = false;
+                GUILayout.TextField(FormatIntervalFieldValue(route.DispatchInterval), GUILayout.Width(64f));
+                DisabledHoverEcho.CarryLastControl(false, WindowedIntervalFieldDisabledReason);
+                GUI.enabled = true;
+                if (editingThis)
+                    ClearIntervalEdit();
+            }
+            else if (!editingThis)
             {
                 string display = FormatIntervalFieldValue(route.DispatchInterval);
                 GUI.SetNextControlName(controlName);
@@ -1726,7 +1753,6 @@ namespace Parsek
             // ("2x (every 2nd window)") - interval arithmetic is actively
             // misleading on synodic spacing - and a small basis label follows the
             // Nx readout. Flat rows draw the pre-M5 content byte-identically.
-            bool windowed = RouteWindowBasisPresentation.IsWindowedBasis(leg.Basis);
             // Pure builder in LogisticsIntervalPresentation: the flat variant is the
             // window's longest runtime-composed tooltip, so its length is pinned by
             // TooltipEchoBudgetTests against the single-line strip budget.

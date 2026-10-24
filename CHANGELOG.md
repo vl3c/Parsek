@@ -10,6 +10,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **Clearer wording where Parsek refused something without saying why.** Folder and mission
+  hovers name the rename rule, a failed Merge & Seal no longer points at a Seal button that is not
+  there, the empty supply-run list points at the missions below it, and a launch-window route's
+  interval field is greyed with how to change its cadence. (GUI P-items)
 - **A kerbal left aboard a station is freed when a later flight takes the station over.** If you
   switch to the station from another flight (for example with the `]` key) and fly it, that
   flight now decides his fate: brought home, he is free; killed with lost-crew respawn on, he

@@ -1090,7 +1090,9 @@ singles), exactly two buttons on every row. The from/to text and the Would deliv
 cached per candidate on the ~1 Hz refresh, and the candidate list, the near-miss list and its
 groups refresh on a Layout pass only, so a frame's Layout and Repaint draw the same controls.
 Empty state: `No supply runs to offer yet. Fly a cargo run that docks, transfers cargo and
-undocks, then finish the mission.` The expanded candidate is the cost line and `Built from
+undocks, then finish the mission.`, or, when the near-miss list below has rows, `No supply runs
+to offer yet. The list below shows why your finished missions cannot become routes; open a reason
+to see them.` (`CandidatesEmptyStateText`). The expanded candidate is the cost line and `Built from
 mission 'X'.`. The create dialog names its ends as the candidate row does (`Origin: KSC
 (Runway)`, a depot by its name, `harvested en route`; `Destination:` the live vessel's name, else
 the place `Mun (surface)`, never coordinates), lists resources amount first (`97.6 LiquidFuel`)
@@ -1596,7 +1598,7 @@ the full rows; the per-subsystem row counts are in the table above.
 | H26 | `LoopStartUT` / `LoopEndUT` / `LoopAnchorVesselId` are written only by `ApplyAutoLoopRange`, so the same Loop checkbox produces a different loop WINDOW depending on where it was clicked | `Recording.cs:63-66`, `UI/RecordingsTableUI.cs:5735`, `:1338`, `:2643` |
 | H27 | Deleting a single non-ghost-only recording has no player path; the only one is the all-or-nothing wipe | `RecordingStore.cs:4287`, `ParsekFlight.cs:19787`. BY DESIGN since 2026-09-26: no player deletion path exists at all (the wipe and the ghost-only `X` were removed, and `ParsekFlight.DeleteRecording` with them) |
 | D9 | Four store operations with no production caller, three destructive | `RecordingStore.cs:3813`, `:3782`, `:5079`, `:4522` |
-| P9 | Rename refusals (group, re-parent) discard the typed name with a Warn | `UI/RecordingsTableUI.cs:4346`, `:4353`, `:4364`, `GroupHierarchyStore.cs:150` |
+| P9 | Rename refusals (group, re-parent) discard the typed name with a Warn; FIXED 2026-10-24 for the rename half: the folder hover and the mission header hover state the rule (a name in use, or one with `= { }`, is refused); re-parent is pre-empted, the picker never offers a parent that would make a cycle, so its Warn is only a backstop | `UI/RecordingsTableUI.cs:4346`, `:4353`, `:4364`, `GroupHierarchyStore.cs:150` |
 | P17 | Group hide-all writes `Hidden` over every descendant with no Unfinished-Flight check | `UI/RecordingsTableUI.cs:2859` vs the per-row guard `:2164-2172` |
 
 **2. Rewind, Re-Fly and supersede** (17 HIDDEN, 4 DEAD, 2 promised)
@@ -1609,7 +1611,7 @@ the full rows; the per-subsystem row counts are in the table above.
 | H28 | A player inside a Re-Fly session has no indicator anywhere; same for `SwitchSegmentSession` and `StockActionIntentMarker` | `ReFlySessionMarker.cs:32`, `SwitchSegmentSession.cs:85`, `StockActionIntentMarker.cs:136` |
 | H29 | `MergeState`, supersede rows and the 11-phase journal are named to the player exactly twice, both as refusals | `MergeJournal.cs:66-84`, `SupersedeCommit.cs:176`, `:839` |
 | D8 | Legacy `SupersedeCommit` public surfaces kept alive only by their in-game tests | `SupersedeCommit.cs:123`, `:773`, `:699` |
-| P11 | `Merged, but could not seal - seal it from the Timeline window` names a control that cannot exist in that state | `MergeDialog.Commit.cs:371`, `:389` vs `UI/TimelineWindowUI.cs:1481`, `:1597` |
+| P11 | `Merged, but could not seal - seal it from the Timeline window` names a control that cannot exist in that state; FIXED 2026-10-24: reads `Merged, but the Re-Fly slot could not be sealed` | `MergeDialog.Commit.cs:371`, `:389` vs `UI/TimelineWindowUI.cs:1481`, `:1597` |
 | P12 | Timeline `R` on a non-launch row rewinds the PARENT launch; the Recordings table suppresses this deliberately | `UI/TimelineWindowUI.cs:1385`, gate `:1555` vs `UI/RecordingsTableUI.cs:3741` |
 
 **3. Missions** (7 HIDDEN, 1 DEAD, 2 promised, 3 no-backend-truth)
@@ -1633,8 +1635,8 @@ the full rows; the per-subsystem row counts are in the table above.
 | H24 | `Route.CostManifest` / `InventoryCostManifest` - what a route DEBITS per cycle - appear only retroactively in the flow lines | `Logistics/Route.cs:89`, `:92` |
 | H25 | Eleven of the 46 mod-wide rate-limited refusal sites are here, so a Pause / Activate / Send Once / Create click that does nothing looks like one that worked | `Logistics/RouteOrchestrator.cs:115`, `:129`, `:181`, `:186`, `:306`, `:311`, `:1746`; `RouteAnalysisEngine.cs:842`; `RouteEndpointResolver.cs:293`; `RouteStore.cs:640`; `UI/LogisticsWindowUI.cs:1301`, `:2876` |
 | D4 | The whole post-commit `RouteCreationDialog`; its live `DismissIfOpen` can only no-op | `UI/RouteCreationDialog.cs:81`, `:136`, `:147`, `:241`, `:448` |
-| P3 | The Interval field accepts `30m` / `2h` / `1d`, then ceil-snaps to `N x transit` and overwrites the typed value; on a windowed-basis route it is dead input | `UI/LogisticsWindowUI.cs:1197`, `Logistics/RouteCadence.cs:100`, `:199` |
-| P19 | The Candidates empty sentence draws over a full near-miss list | `UI/LogisticsWindowUI.cs:743` |
+| P3 | The Interval field accepts `30m` / `2h` / `1d`, then ceil-snaps to `N x transit` and overwrites the typed value; on a windowed-basis route it is dead input; FIXED: the flat `Nx` hover says a typed interval snaps up to a whole run-multiple, and since 2026-10-24 the field is greyed on a windowed route with the reason in its hover | `UI/LogisticsWindowUI.cs:1197`, `Logistics/RouteCadence.cs:100`, `:199` |
+| P19 | The Candidates empty sentence draws over a full near-miss list; FIXED 2026-10-24: with near-misses it points at that list | `UI/LogisticsWindowUI.cs:743` |
 | P20 | ~~Four cells read `route.Stops[0]` only while `RouteBuilder` builds multi-stop routes~~ FIXED 2026-10-01: on a route with more than one stop, Delivers per cycle sums every stop's delivery, Destination names the first receiving stop plus `(+N stops)` with the stop list in its tooltip, the DestinationFull capacity line names the stop the capacity gate refuses, and the one Re-scan button re-scans every stop; single-stop text is unchanged (pure helpers in `UI/LogisticsDeliveryPresentation.cs`) | `UI/LogisticsWindowUI.cs`; `Logistics/RouteBuilder.cs:353` |
 | - | The `Next` countdown cell renders identically for three different branches; only the expanded detail line disambiguates | `UI/LogisticsCountdownPresentation.cs:163` |
 
@@ -1837,12 +1839,12 @@ One line each for the rest:
 | id | the decision needed |
 |---|---|
 | P2 | The 20-clone cap silently raises the loop period while the Period cell shows the typed value: show the effective period with a tooltip, or leave the cap invisible? DECIDED + FIXED 2026-10-01: show it, typed value and reason on the hover |
-| P3 | The route Interval field snaps to `N x transit` and overwrites the typed value: show the snapped value and why in the existing tooltip, or accept the silent rewrite? |
+| P3 | The route Interval field snaps to `N x transit` and overwrites the typed value: show the snapped value and why in the existing tooltip, or accept the silent rewrite? DECIDED + FIXED (flat hover already explained the snap; windowed field greyed with the reason 2026-10-24) |
 | P4 | Real Spawn Control's row `Warp` has 15 silent refusals behind it: put the refusal reason in the existing disabled-hover echo, or rename the button to the action it performs? |
-| P9 | Rename refusals (mission, group, re-parent) discard the typed name with a Warn: keep the field content and show the reason in the row tooltip, or leave it? |
+| P9 | Rename refusals (mission, group, re-parent) discard the typed name with a Warn: keep the field content and show the reason in the row tooltip, or leave it? DECIDED + FIXED 2026-10-24 (owner: go with the recommendation): the rule in the existing folder hover and a mission header hover; the field still closes; re-parent needs nothing (the picker offers no cycle-making parent) |
 | P10 | The mission `Log` is built from the tree and ignores the mission's include set, so clones render identical logs under different titles: is that the intended contract? DECIDED + FIXED 2026-10-01: no; the Log follows the mission's include set (MISSION-LOG-REWORK) |
-| P11 | `Merged, but could not seal - seal it from the Timeline window` names a control that cannot exist in exactly that state: reword, or make the control exist? |
-| P19 | The Candidates empty-state sentence tells the player to do what the near-miss list below shows they already did: reword, or suppress it when near-misses exist? |
+| P11 | `Merged, but could not seal - seal it from the Timeline window` names a control that cannot exist in exactly that state: reword, or make the control exist? DECIDED + FIXED 2026-10-24: reworded to `Merged, but the Re-Fly slot could not be sealed` |
+| P19 | The Candidates empty-state sentence tells the player to do what the near-miss list below shows they already did: reword, or suppress it when near-misses exist? DECIDED + FIXED 2026-10-24: reworded to point at the near-miss list when it has rows |
 | P20 | Four route cells read `Stops[0]` only while `RouteBuilder` builds multi-stop routes: is multi-stop display in scope, or should the labels be scoped to the first stop? |
 | D3 | `GhostCommNetRelay` is dead while `GhostCommNetVesselPatch` cites it as the justification for destroying each ghost's `CommNetVessel`: do ghost relays contribute to CommNet or not? RULED A 2026-09-26: yes; rebuilt as `GhostCommNet` / `GhostCommNetManager` (design 15.6, todo GUI-D3) |
 | D6 | `MissionSelection` and `Mission.ExcludedThroughLineHeadIds` are persisted but never written: removal touches the mission save schema, so does it go now or wait for a generation bump? |

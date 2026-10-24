@@ -2782,7 +2782,7 @@ namespace Parsek
                     groupName, parentGroupName);
                 if (GUILayout.Button(
                     new GUIContent($"{treeConnector ?? ""}{arrow} {groupLabel} ({memberCount})",
-                        "Click to expand or collapse this folder; double-click to rename it."),
+                        "Click to expand or collapse; double-click to rename (a name in use, or one with = { }, is refused)."),
                     GUI.skin.label, GUILayout.ExpandWidth(true)))
                 {
                     float t = Time.realtimeSinceStartup;

@@ -422,6 +422,12 @@ namespace Parsek
             return ReFlyMergeCommitResult.Interrupted;
         }
 
+        // A failed seal means the slot or its tip did not resolve, and every Seal control
+        // (Timeline row, Recordings table) needs that same resolution, so the message
+        // names no control to retry from.
+        internal const string MergeAndSealFailedMessage =
+            "Merged, but the Re-Fly slot could not be sealed";
+
         // internal (not private) so the MergeAndSealReFlyClosesSlot in-game
         // test can drive the exact Merge & Seal post-merge step.
         internal static void ApplyPlayerRequestedSeal(Recording provisional)
@@ -430,10 +436,10 @@ namespace Parsek
             if (provisional == null)
             {
                 ParsekLog.Warn("MergeDialog",
-                    "Merge & Seal: resolved provisional is null after merge — " +
-                    "cannot seal; player can seal from the Timeline window");
+                    "Merge & Seal: resolved provisional is null after merge - " +
+                    "cannot seal");
                 ParsekLog.ScreenMessage(
-                    "Merged, but could not seal — seal it from the Timeline window", 4f);
+                    MergeAndSealFailedMessage, 4f);
                 return;
             }
 
@@ -449,9 +455,9 @@ namespace Parsek
             {
                 ParsekLog.Warn("MergeDialog",
                     $"Merge & Seal: seal failed after merge rec={recId} " +
-                    $"reason={sealReason ?? "<none>"} — player can seal from the Timeline window");
+                    $"reason={sealReason ?? "<none>"}");
                 ParsekLog.ScreenMessage(
-                    "Merged, but could not seal — seal it from the Timeline window", 4f);
+                    MergeAndSealFailedMessage, 4f);
             }
         }
 
