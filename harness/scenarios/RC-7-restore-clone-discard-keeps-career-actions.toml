@@ -1,0 +1,224 @@
+schema = 1
+id = "RC-7-restore-clone-discard-keeps-career-actions"
+tier = "nightly"
+# =====================================================================================
+# RC-7: A COMMITTED VESSEL FLOWN AGAIN BANKS SCIENCE, THEN THE ATTEMPT IS DISCARDED: THE
+# SCIENCE STOCK KEPT GETS A LEDGER ROW. Live proof of todo
+# RESTORE-CLONE-DISCARD-DROPS-IRREVERSIBLE-CAREER-ACTIONS (fixed in PR #2188, commit 3263d12;
+# xUnit `RestoreAttemptIrreversibleTailsTests`).
+#
+# STATUS: AUTHORED 2026-10-24 (branch `lanes-b2188`), NEVER FLOWN. Every token below is
+# derived from the C# format strings at origin/main a690da9; the ones a first flight must
+# confirm are listed under GUESSES.
+#
+# THE DEFECT. Flying a committed vessel again takes a copy-on-write clone of its committed
+# tree (`TryTakeCommittedTreeForSpawnedVesselRestore`) and arms a restore attempt whose
+# per-recording cutoff is the committed end UT. The clone KEEPS the committed recording ids, so
+# a game-state event the player causes in the attempt is tagged with a COMMITTED id. When the
+# attempt was discarded live, `LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard`
+# skipped every event on a committed id ("never re-home committed history"), and the drop
+# site's tail purge then deleted the event. KSP kept what the player did (a contract finished,
+# a milestone, banked science), the ledger had no row for it.
+#
+# THE FIX. The drop site passes `preserveIrreversibleTails` (true on a live discard) and,
+# before the purge, `PreserveIrreversibleRestoreAttemptTailsOnDiscard` re-homes every
+# irreversible event and science subject on a committed id STRICTLY AFTER its cutoff to a
+# direct (untagged) ledger row. A lab credit (`ScienceLabCredited`) is irreversible
+# (`IsIrreversibleLiveGameplayEvent`), so it is the event this lane uses.
+#
+# HOST: `lab-lko-seeded-transmit` (LAB-10 / LAB-10b / LAB-13's host): SCIENCE_SANDBOX, science
+# 100, the LABX Orbital Lab (pid 2200110055) orbiting Kerbin with its probe tender docked, the
+# lab seeded storedScience 12.5 / dataStored 0, Research off, Communotron 16-S. Fixture UT
+# 355.8; the KSC ground station sees the vessel from about UT 2105 to 2480, and LAB-10b's
+# transmit at UT 2250 (`WarpToUT 2240 maxRate=50` then 1x) is live-proven there. No committed
+# tree in the fixture (LAB-10b counts 2 recordings, both its own).
+#
+# THE ROUTE.
+#   record    the LAB opening (StopRecording + DiscardTree), record the lab to UT 600 (QL-13's
+#             leg on the same vessel), StopRecording, CommitTree. CommitTree re-takes the
+#             committed tree for the still-active vessel IN PLACE (QL-13, LAB-6, H58: the
+#             clone keeps the committed recording id and a recorder resumes on it): the
+#             restore attempt is armed with the commit's end UT as its cutoff.
+#   attempt   the recorder stays live (a stopped recorder would book the credit straight to the
+#             ledger as a KSC row and bypass the bug), rails to 2240, 1x to 2250, transmit, 1x
+#             to 2262: one `ScienceLabCredited +12.50` tagged to the COMMITTED id (backreference
+#             to the `ListHandles kind=committed` mark), stock's pool 100 -> 112.5.
+#   discard   `DiscardTree` (the verb's `AutoDiscardActiveTreeCore`, whose drop site is
+#             `ClearCommittedTreeRestoreAttemptForDroppedTree(..., "auto-discard dropped the
+#             restore clone", preserveIrreversibleTails: true)`, a live discard): the credit is
+#             re-homed as a direct row, then the tail is purged, then the discard's own
+#             current-timeline recalc walks the ledger.
+#
+# WHICH PINS PROVE THE FIX, and why each could not print before it:
+#   * `ClearCommittedTreeRestoreAttemptForDroppedTree: ... reason=auto-discard dropped the
+#     restore clone preserveIrreversibleTails=True` - the `preserveIrreversibleTails=` suffix
+#     was added by the fix (the old line ended at `reason=...`).
+#   * `PreserveIrreversibleRestoreAttemptTailsOnDiscard (auto-discard dropped the restore
+#     clone): re-homed N direct action(s) from the discarded restore attempt (...) for 1
+#     committed recording(s)` - the method is new in the fix; it must precede the drop site's
+#     `purged N same-id game-state event tail(s)` WARN (the purge that used to delete the
+#     credit silently). `other=` counts the lab credit (it is neither a milestone nor a
+#     contract event).
+#   * FORBIDDEN after the transmit: `PatchScience: filed StockPoolAdjustment` and
+#     `PatchScience: GUARDED ... clamped`. Before the fix the discard's recalc walked a ledger
+#     with no 12.5 credit against a live pool of 112.5: the stock-pool reference reads the
+#     12.5 as a leak, files a `StockPoolAdjustment ... reason=leak` row and WARNs `GUARDED
+#     DRAWDOWN clamped ... ledger may be missing an earning channel` (KspStatePatcher
+#     `EmitStockPoolLeak`). With the fix the re-homed row is a new, uncounted row whose step
+#     brings the reference's expected value to 112.5, so nothing is filed. A `PatchScience:
+#     <from> -> <to>` write after the discard is forbidden too (the authoritative shape of the
+#     same missing row: 112.5 -> 100.0).
+#
+# GUESSES a first flight confirms: the re-take's action (`ResumeActiveRecording` expected,
+# `PromoteFromBackground` accepted by alternation; a new segment is forbidden because the
+# live parts are the snapshot's own); that `ListHandles kind=active` names the committed id
+# as the active recording (the clone keeps ids, QL-13's "resumes in place"); `cutoffs=1`
+# (one recording with trajectory bounds);
+# the re-home's `milestone=` and `science=` counts (regexed: a first transmit may also fire a
+# stock science milestone, and whether a lab transmit leaves a pending science subject is not
+# measured); that no leak / clamp line prints between the transmit and the discard on a fixed
+# DLL (no recalc is expected there; a leak filed there would itself be a ledger defect).
+#
+# RECORDINGS COUNT, derived: the lab's one recording is committed (no split: an orbit coast
+# with no separation, QL-13 measured one). The clone keeps that id and is discarded without a
+# save, so it adds no sidecar; `discardtree sidecar-reap` reaps nothing it still knows. 1..1.
+#
+# NOT HERE: the other live drop sites (no-op revert, switch-segment scoped discard, pre-switch
+# dialog discard, failed start) and the rollback sites (Re-Fly start, suppressed scene exit,
+# flight-ready reset); the xUnit source gate covers their flags. A contract completion or a
+# milestone in the attempt (needs a career host with an in-flight contract target).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - QL-13's record-and-commit opening and
+# LAB-10b's transmit window on the same vessel; neither flies a transmit inside a re-take, so
+# this is its own lane. (2) explicit-UT waits only. (3) no dwells. (4) no burns. (5) one rails
+# coast to the KSC window (LAB-10b's 50x). (6) fail fast: every verb refusal fails its step;
+# retry `once`. (7) count window 1..1. (8) tier nightly (expected wall about 3 min, one
+# LoadGame). (9) flight_efficiency.py after the first green flight.
+# =====================================================================================
+description = "RC-7: a committed orbiting lab is flown again (CommitTree's in-place re-take arms a committed-tree restore attempt), transmits its 12.5 science inside the attempt (the credit tagged to the committed recording id), and the attempt is discarded live: the credit is re-homed as a direct ledger row before the attempt's tail purge, so the discard's recalc files no stock-pool leak and writes no science patch."
+instanceProfile = "stock-minimal"
+tags = ["RC-7", "restore-clone", "resume", "discard", "science-lab", "science", "transmit",
+        "ledger", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/lab-lko-seeded-transmit"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # LOAD-BEARING: the re-home's empty-case line (forbidden below) is Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+
+  # ---- the recording, committed; CommitTree's re-take is the restore attempt ----
+  { cmd = "StartRecording",                                                          expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "600" },                                   expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rc7-committed-${c0.count}-${c0.rec0}" }, expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "active" }, label = "a0",                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rc7-resumed-${a0.activeRec}" },        expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+
+  # ---- inside the attempt: the transmit, with the resumed recorder live ----
+  { cmd = "WarpToUT",       args = { ut = "2240", maxRate = "50" },                  expect = "OK", budget = 540 },
+  { cmd = "WarpToUT",       args = { ut = "2250", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rc7-t-before" },                       expect = "OK" },
+  { cmd = "PartAction",     args = { button = "labtransmit", part = "Large.Crewed.Lab" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "2262", maxRate = "1" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rc7-t-after" },                        expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "Large.Crewed.Lab" }, expect = "OK" },
+
+  # ---- the live discard of the attempt (the verb stops the live recorder itself) ----
+  { cmd = "MissionMark",    args = { label = "rc7-discard" },                        expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rc7-discarded" },                      expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c1",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rc7-done-${c1.count}" },               expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "persistent" },                          expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+# D8 science <- the tagged lab credit and stock's +12.5; orchestrator <- the re-home line.
+D8  = ["science", "orchestrator"]
+D14 = ["kerbin", "science-mode", "scene-flight", "warp-1x", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# DERIVED 1 (header): the lab's one committed recording; the discarded clone adds nothing.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  # The seeded lab (LAB-10b's token on this host).
+  "partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=0\\.00;Research:active=0'",
+  # --- THE COMMIT AND THE RE-TAKE (QL-13's tokens) ---
+  "committree committed=true",
+  "committree committed=true[\\s\\S]*Armed committed-tree restore attempt for '[^'\\r\\n]*' \\(id=\\S+, recordings=1, cutoffs=1, reason=TryTakeCommittedTreeForSpawnedVesselRestore copy-on-write\\)[\\s\\S]*MISSIONMARK label=rc7-committed-",
+  "TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree '[^'\\r\\n]*' for vessel 'LABX Orbital Lab' pid=2200110055 via (?:ResumeActiveRecording|PromoteFromBackground)",
+  # The resume is IN PLACE: the active recording IS the committed one ...
+  "MISSIONMARK label=rc7-committed-1-([0-9a-f]{32}) [\\s\\S]*?MISSIONMARK label=rc7-resumed-\\1 ",
+  # ... and its recorder is live, so the attempt's events are tagged to the committed id.
+  "(?s)MISSIONMARK label=rc7-resumed-[0-9a-f]{32} (?:(?!MISSIONMARK label=rc7-t-before ).)*?recordingstate recording=true tree=\\S+ points=",
+  # --- THE TRANSMIT INSIDE THE ATTEMPT: the credit on the COMMITTED recording id ---
+  "(?s)MISSIONMARK label=rc7-committed-1-([0-9a-f]{32}) .*?MISSIONMARK label=rc7-t-before (?:(?!MISSIONMARK label=rc7-t-after ).)*?Game state: ScienceLabCredited \\+12\\.50 reason='ScienceTransmission' vessel='LABX Orbital Lab' ut=[0-9.]+ recordingId='\\1'",
+  "(?s)MISSIONMARK label=rc7-t-before (?:(?!MISSIONMARK label=rc7-t-after ).)*?Game state: ScienceChanged \\+12\\.5 \\(ScienceTransmission\\)[^0-9\\r\\n]+112\\.5(?![0-9])",
+  "(?s)MISSIONMARK label=rc7-t-after (?:(?!partaction applied button=).)*?partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=0\\.50 dataStored=0\\.00;",
+  # --- THE LIVE DISCARD ---
+  # The drop site says it is a live discard (the suffix is new in the fix) ...
+  "(?s)MISSIONMARK label=rc7-discard (?:(?!MISSIONMARK label=rc7-discarded ).)*?ClearCommittedTreeRestoreAttemptForDroppedTree: dropped tree=\\S+ matches the armed restore attempt; clearing it reason=auto-discard dropped the restore clone preserveIrreversibleTails=True",
+  # ... THE FIX: the credit is re-homed as a direct row (the method is new in the fix) ...
+  "(?s)MISSIONMARK label=rc7-discard (?:(?!MISSIONMARK label=rc7-discarded ).)*?PreserveIrreversibleRestoreAttemptTailsOnDiscard \\(auto-discard dropped the restore clone\\): re-homed [1-9][0-9]* direct action\\(s\\) from the discarded restore attempt \\(contract=0, milestone=[0-9]+, other=[1-9][0-9]*, science=[0-9]+, deduped=0\\) for 1 committed recording\\(s\\)",
+  # ... BEFORE the tail purge that used to delete it silently.
+  "(?s)MISSIONMARK label=rc7-discard (?:(?!MISSIONMARK label=rc7-discarded ).)*?PreserveIrreversibleRestoreAttemptTailsOnDiscard \\(auto-discard dropped the restore clone\\): re-homed (?:(?!MISSIONMARK label=rc7-discarded ).)*?auto-discard dropped the restore clone: purged [1-9][0-9]* same-id game-state event tail\\(s\\) for committed-tree restore attempt tree=\\S+ armedReason=TryTakeCommittedTreeForSpawnedVesselRestore copy-on-write",
+  "(?s)MISSIONMARK label=rc7-discard (?:(?!MISSIONMARK label=rc7-discarded ).)*?discardtree discarded=true",
+  # The committed recording survives the discard of its clone.
+  "MISSIONMARK label=rc7-done-1 ",
+  "savegame name=persistent folder=\\S+ saved=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "partaction error ",
+  "warptout refused",
+  "loadgame rejected",
+  # The re-take resumes in place, never in a new segment (the live parts are the snapshot's).
+  "TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree [^\\r\\n]*\\(continues in new segment '",
+  "TryRestoreCommittedTreeForSpawnedActiveVessel: tree '[^'\\r\\n]*' matched vessel '[^'\\r\\n]*' pid=[0-9]+ via \\w+, but recorder attach failed",
+  # A live discard is never treated as a rollback.
+  "reason=auto-discard dropped the restore clone preserveIrreversibleTails=False",
+  # The re-home found nothing at the discard (the pre-fix outcome, in the fixed method's words).
+  "(?s)MISSIONMARK label=rc7-discard (?:(?!MISSIONMARK label=rc7-discarded ).)*?PreserveIrreversibleRestoreAttemptTailsOnDiscard \\([^)\\r\\n]*\\): nothing to re-home",
+  # THE PRE-FIX SHAPE: the discard's recalc sees stock's 112.5 with no ledger row for the
+  # credit, and the stock-pool reference files the 12.5 as a leak / clamps the drawdown, or
+  # an authoritative walk writes the pool back down.
+  "(?s)MISSIONMARK label=rc7-t-before .*?PatchScience: filed StockPoolAdjustment ",
+  "(?s)MISSIONMARK label=rc7-t-before .*?PatchScience: GUARDED (?:DRAWDOWN|UPLIFT) clamped",
+  "(?s)MISSIONMARK label=rc7-discard .*?PatchScience: [0-9]+\\.[0-9] -> [0-9]",
+  # Exactly one lab credit in the run.
+  "(?s)(?:Game state: ScienceLabCredited .*?){2}",
+]
+
+[runtime]
+# One LoadGame (up to 300 s), the rails leg to 600 (~10 s), the 50x leg 600 -> 2240 (~33 s),
+# 22 s of 1x, CommitTree / DiscardTree / SaveGame on their budgets. Expected wall about 3 min.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

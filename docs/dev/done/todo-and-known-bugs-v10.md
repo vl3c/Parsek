@@ -116,6 +116,8 @@ folder's date; a cold load also restores what the loaded save names before hydra
 `ParsekFileCollectorTests` (`Quarantine_*`, `RestoreQuarantinedNamedBy_*`). No lane: the grace is
 wall-clock days, and the restore-at-load path is a file move the unit cells drive end to end.
 
+Lane (2026-10-24, AUTHORED, never flown): `QR-1-recording-quarantine-grace-and-expiry` pins a recording restored from an expired `_quarantine/2020-01-01` before hydration and loaded whole, an unnamed head set quarantined and kept, an expired set purged and a flat set dated.
+
 ## ~~CONTRACT-CANCEL-PENALTY-IGNORES-STOCK-TIME-LERP: a cancelled contract files its full failure penalty, but stock charges less the earlier the cancel~~ [FILED 2026-10-22 from the L9 authoring decompile (KSP 1.12.5), code read, not reproduced. FIXED 2026-10-23 in PR #2184 (unit cells; L9 `2026-10-23_1651` PASS attempt 1). product]
 
 Stock `Contract.Cancel()` sets `dateFinished = GameTime`, then `SetState(Cancelled)`, then
@@ -1454,6 +1456,8 @@ Re-fly / rewind load) and `ResetFlightReadyState` (a freshly loaded scene, KSP's
 the same save), and the abandon path of `DiscardPendingTree`. Cells:
 `RestoreAttemptIrreversibleTailsTests` (live re-home with history kept, rollback re-homes nothing,
 the pending-tree path both ways, a source gate on five drop sites' flags).
+
+Lane (2026-10-24, AUTHORED, never flown): `RC-7-restore-clone-discard-keeps-career-actions`: a lab credit earned inside a re-taken committed tree survives the live `DiscardTree` as a direct ledger row, and the discard's recalc files no stock-pool leak.
 
 ---
 

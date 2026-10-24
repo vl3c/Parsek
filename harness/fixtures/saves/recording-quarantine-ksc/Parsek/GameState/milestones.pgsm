@@ -1,0 +1,65 @@
+version = 1
+MILESTONE
+{
+	id = 5db7664433be42a793e49021d8d384b5
+	startUT = 0
+	endUT = 347.91999999997353
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 3
+	GAME_STATE_EVENT
+	{
+		ut = 10.959999999999855
+		type = 18
+		key = RecordsSpeed
+		detail = funds=14400;rep=1;sci=0
+		recordingId = 1d611e7533a64508ae6f3b305a51615e
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 14.399999999999782
+		type = 18
+		key = RecordsAltitude
+		detail = funds=14400;rep=1;sci=0
+		recordingId = 1d611e7533a64508ae6f3b305a51615e
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 15.119999999999767
+		type = 18
+		key = FirstLaunch
+		detail = funds=800;rep=0;sci=0
+		recordingId = 1d611e7533a64508ae6f3b305a51615e
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 346.0799999999752
+		type = 18
+		key = Kerbin/Science
+		detail = funds=1600;rep=0;sci=0
+		recordingId = 1d611e7533a64508ae6f3b305a51615e
+	}
+}
+MILESTONE
+{
+	id = 855da047109d40c192459611b9d3dcce
+	startUT = 347.91999999997353
+	endUT = 348.07999999997338
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 1
+	GAME_STATE_EVENT
+	{
+		ut = 348.07999999997338
+		type = 18
+		key = FirstCrewToSurvive
+		detail = funds=800;rep=0;sci=0
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 348.07999999997338
+		type = 22
+		key = Jebediah Kerman
+		detail = flight=0;entries=0,Land,Kerbin|0,Flight,Kerbin|0,Recover,;trait=Pilot
+	}
+}

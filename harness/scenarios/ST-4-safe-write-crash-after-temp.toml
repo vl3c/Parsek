@@ -105,9 +105,12 @@ required = [
   "OnLoad initial: cleared CommittedTrees, loading 1 tree\\(s\\)",
   "TryProbeTrajectorySidecar: encoding=BinaryV0 .* recording=1d611e7533a64508ae6f3b305a51615e sidecarEpoch=4",
   "ReadBinaryTrajectoryFile: recording=1d611e7533a64508ae6f3b305a51615e .* rebuiltPoints=510 ",
-  # The cold load's orphan sweep.
-  "Deleted transient sidecar artifact: 1d611e7533a64508ae6f3b305a51615e\\.prec\\.stage\\.[0-9a-f]{32}\\.tmp",
-  "Cleaned orphan files: .*deleted 1 transient sidecar artifact\\(s\\)",
+  # The cold load's orphan sweep. Since the file collector replaced CleanOrphanFiles it logs
+  # no per-file line for a transient artifact, only the `transientDeleted=` counter on its
+  # one Collection summary (ParsekFileCollector.Collect); the residue=0 probe below names
+  # the file. Re-pinned 2026-10-24 by code read (the old two literals no longer exist in
+  # Source/Parsek), not yet re-flown.
+  "\\[FileCollector\\] Collection: [^\\r\\n]*transientDeleted=1 ",
   # After the reload: parsed, previous content, residue swept.
   "safewritecrash probe recording=1d611e7533a64508ae6f3b305a51615e fired=1 armed=false digest=[0-9a-f]{16} unchanged=true residue=0 loaded=true loadFailed=false points=510 baselinePoints=510",
   # The harness checks the digest equality itself, independently of the C# `unchanged=`.

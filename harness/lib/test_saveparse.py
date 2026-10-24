@@ -683,6 +683,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # IT also carries recordings.
         "career-contract-pad": True,
         "career-science-pad": True,
+        # `career-science-pad` plus one Active PartTest whose FirstLaunch requirement is
+        # false and its ledger accept sidecar (harness/tools/
+        # build_career_requirements_loss_pad.py, the L13 host). Inherits the inert node.
+        "career-requirements-loss-pad": True,
         # THE ONE ENTRY DERIVED FROM A RECORDED FIXTURE RATHER THAN FORGED.
         # `duna-park-probe` is `duna-direct-recorded` with Parsek's own state
         # removed: the `Parsek/` sidecar directory pruned by a harvest WITHOUT
@@ -2211,6 +2215,25 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             # base); a re-harvest of `C2CareerPostFix` moves them in BOTH entries.
             "recordingIds": ["1d611e7533a64508ae6f3b305a51615e",
                              "5436a7e8840b4c5885afcbaedc9dc037"],
+            "schemaGeneration": 4,
+        },
+        # recording-quarantine-ksc is career-earned-ksc with its Parsek/Recordings
+        # rearranged into every file-collector state (harness/tools/
+        # build_recording_quarantine_ksc.py, the QR-1 host); the save gains only R1's
+        # vesselHash / ghostHash. Same tree and recordings, so the structure pins
+        # verbatim. `recordingIds` lists R1 ONLY: R2's `.prec` is deliberately NOT at the
+        # head position (all five of its files wait in `_quarantine/2020-01-01/`, and
+        # QR-1 asserts the cold load restores them); test_recording_quarantine_ksc.py
+        # pins where it is. The floor counts R1's four authoritative heads, which the
+        # unnamed O1 set and the two quarantine / version directories only add to.
+        "recording-quarantine-ksc": {
+            "trees": 1, "committedTrees": 1, "recordings": 2,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Landed": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 4,
+            "recordingIds": ["1d611e7533a64508ae6f3b305a51615e"],
             "schemaGeneration": 4,
         },
         # stock-screen-census is career-earned-ksc plus ONE synthetic committed flight

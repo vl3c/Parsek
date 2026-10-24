@@ -296,6 +296,27 @@ re-verifies every post-condition against the COMMITTED bytes and is WIRED throug
 `CareerContractPadFixtureDriftTests` and `CareerContractPadDeadlineArithmeticTests`
 in `harness/lib/test_career_contract_pad.py`.
 
+## career-requirements-loss-pad (GAME Mode = CAREER, 1 VESSEL, derived from career-science-pad)
+
+The host of `L14-contract-requirements-loss-terminal-row` (todo
+STOCK-OFFER-EXPIRED-ACTIVE-CONTRACT-NO-TERMINAL-ROW): an Active contract whose requirement
+is already false, so stock's first `Contract.Update()` ends it as `OfferExpired`.
+`career-science-pad` with its `Title` restamped, ONE `CONTRACT` spliced into the empty
+`ContractSystem/CONTRACTS` node, `ongoingContracts = 1` in the loadmeta, and one sidecar.
+
+| Facet | Pinned value | Why it matters |
+| --- | --- | --- |
+| Contract | `PartTest` `375b4446-c861-4b4d-bf97-ef38407246a4`, RT-5 Flea in flight over Kerbin at 59-64 km, copied from `career-earned-pad` (stock-written, C2 career) with `state = Active`, `viewed = Read`, advance 0, `dateAccepted = 6`, `dateDeadline = 9201606` | a start-tech part, and a test a pad that never launches cannot complete |
+| ProgressTracking | `Progress {}` EMPTY, no `FirstLaunch` anywhere (asserted) | `PartTest.MeetRequirements()` reads `NodeComplete("FirstLaunch")`: false here, so stock ends the contract on its first tick (the measured analog is L5's first build, run `2026-08-20_2217`) |
+| Ledger | ONE `type = 5` row, `ut = 6`, `advanceFunds = 0`, `deadlineAbsUT = 9201606`, `fundsPenalty = 9000`, `repPenalty = 4`, no `recordingId`, no terminal row | the accept sits below the save clock (9.06) so `Ledger.Reconcile` keeps it; the deadline is out of reach so `PrePass` never fails it; the penalties stay nonzero so a regression that charged them moves the HARD-gated pools |
+| Pools / craft | the donor's, byte-identical (500000 / 100 / 0, the Jumping Flea PRELAUNCH) | the lane's ledger oracle expects the seed unchanged |
+
+Built BY CONSTRUCTION by `harness/tools/build_career_requirements_loss_pad.py`; `--check`
+re-verifies every post-condition against the committed bytes and is wired through
+`CareerRequirementsLossPadFixtureDriftTests` in
+`harness/lib/test_career_requirements_loss_pad.py` (byte-identical rebuild from the current
+`career-science-pad` and `career-earned-pad`).
+
 ## career-earned-pad (GAME Mode = CAREER, 1 VESSEL)
 
 The suite's only fixture that is BOTH a career with populated per-identity facets AND
@@ -466,6 +487,32 @@ Like `coalescer-pad`, it carries no `AddOns/` directory: the xUnit base has none
 nothing in the harness requires it (H71 flew green without it). Drift-gated by
 `harness/lib/test_career_earned_ksc.py` (`--check` byte identity, shape, and the pad
 sibling's ledger extending this one by exactly its accept row).
+
+## recording-quarantine-ksc (GAME Mode = CAREER, 0 VESSELS, 2 recordings)
+
+`career-earned-ksc` with its `Parsek/Recordings/` rearranged into every state
+`ParsekFileCollector` judges on a cold load (design-load-restores-the-save.md 4.5, "The
+quarantine"), the QR-1 host. Built by `harness/tools/build_recording_quarantine_ksc.py`
+and drift-gated by `harness/lib/test_recording_quarantine_ksc.py` (`--check` byte
+identity, shape, and every hash and byte count QR-1's log contract quotes). The save
+changes in two lines only: R1 (`1d611e75...`) names `vesselHash` / `ghostHash` of the
+base snapshot bytes. On disk:
+
+- R1's vessel / ghost heads hold a NEWER copy (base bytes plus an ASCII trailer) the save
+  does not name; the named ghost waits as a live version in `_versions/`, the named vessel
+  in `_versions/_quarantine/2020-01-01/` (GC-15: a save restored from outside the folder).
+- R2 (`5436a7e8...`) has no head: all five files wait in `_quarantine/2020-01-01/`.
+- Unnamed five-file sets (R2's bytes under a synthetic id): `9f1e5...01` at the head
+  position (quarantined into today's folder and kept), `9f1e5...02` in
+  `_quarantine/2020-01-01/` (purged), `9f1e5...03` flat in `_quarantine/` (dated).
+- An unnamed version `9f1e5...04.<hash>_ghost.craft` in `_versions/_quarantine/2020-01-01/`
+  (purged).
+
+`2020-01-01` is expired under any clock the lane flies (14-day grace). It is the only
+fixture allowed to commit a `_quarantine` directory (`CommittedFixtureQuarantineTests.
+ALLOWED`); every committed `.prec` keeps its `.prec.txt` and `_vessel.craft` siblings, and
+no snapshot mirror is committed. `test_saveparse.RECORDED_FIXTURES` lists R1 only in
+`recordingIds`, because R2's `.prec` is deliberately not at the head position.
 
 ## stock-screen-census (GAME Mode = CAREER, 0 VESSELS, 3 recordings)
 
