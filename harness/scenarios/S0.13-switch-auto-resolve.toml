@@ -1,0 +1,147 @@
+schema = 1
+id = "S0.13-switch-auto-resolve"
+# =====================================================================================
+# THE SWITCH DECIDES, NOTHING ASKS (todo SWITCH-ASKS-MERGE-FOR-AN-UNCHANGED-VESSEL; game
+# rules in docs/parsek-flight-recorder-design.md section 5.4, "Switching vessels in
+# flight"). Under auto-merge a map Switch-To away from a vessel no longer opens the
+# pre-switch Merge / Discard dialog: `MapFocusObjectOnSelectPatch.TryAutoResolvePreSwitch`
+# presses Discard when the prior segment changed nothing and Merge when it did, and the
+# `SimulateStockSwitchClick` verb drives that same call (routes `pre-switch-auto-discard`
+# / `pre-switch-auto-merge`). This lane drives BOTH buttons on one fixture, in one flight.
+#
+# THE SHAPE, on `eva2-lko-crewed` (S0.8's fixture: "Kerbal X" pid 3620499050, the active
+# crewed stack, and "Kerbal X Probe" pid 2614652043 ~16 m away, both loaded and orbiting,
+# nothing committed):
+#   1. `StartRecording` on Kerbal X (the live tree, no session).
+#   2. Click the probe: NoPriorSession, the plain path. The segment joins the live tree
+#      (S0.12's mirror measurement: `createdFreshTree=False`), disposition
+#      BgMemberOrMixed - the case that ALWAYS asked before this fix.
+#   3. Dwell with nothing commanded, then click Kerbal X: Case A, the probe's segment is
+#      a no-op, so the switch presses DISCARD (the segment is pruned, the probe drops out
+#      of the tree) and switches. Kerbal X is a background member, so its consume opens a
+#      continuation segment and a new session.
+#   4. Decouple Kerbal X's one `Decoupler.2` (the pod + heat shield keep the root; the
+#      released upper stage is debris): a meaningful change (descendants / a Decoupled
+#      part event), then a WarpToUT dwell to UT 430 so the separation kick has settled
+#      (stock refuses a switch under acceleration).
+#   5. Click the probe: Case A again, the Kerbal X segment did something, so the switch
+#      presses MERGE (`CommitTreeFlight`) and switches. The probe is in no tree now, so its
+#      consume opens a fresh standalone tree.
+#   6. ExitToSpaceCenter: the probe's standalone no-op segment is discarded at the scene
+#      exit (S0.12's mechanism), so exactly ONE tree, Kerbal X's, is saved.
+#
+# PRE-REGISTERED OUTCOMES:
+#   (P1) The two auto-resolve lines below, each verb terminal OK with its route, ONE
+#        committed tree, and no `pre-switch-dialog opening` line.
+#   (P2) The first auto-resolve reads `resolution=Merge reason=insufficient-data`: the
+#        dwell was too short for the segment recorder to author coverage (lengthen it -
+#        not a finding). Any other keep reason on a segment that did nothing is a
+#        classifier question, filed in docs/dev/todo-and-known-bugs.md.
+#   (P3) A click REJECTED `dialog-required case=A-session`: the verb did not reach the
+#        auto-resolution (`evaluable=False`, or auto-merge read off). Read the
+#        auto-resolve line's `reason=`.
+# FIRST FLIGHT 2026-10-24 (`2026-10-24_1439`, both attempts INVALID driver-verdict-mismatch,
+# automation DLL sha256 951fc8fd...ff277): the discard half matched every token below as
+# written; the third click came 0.1 s after the decouple (UT 424.23 -> 424.33) and stock
+# refused it "under acceleration (G = 0.92)" AFTER the auto-merge had committed the tree.
+# Two changes followed: the patch now decides nothing for a switch stock will refuse
+# (`FlightGlobals.ClearToSave` not CLEAR; resolution StockWillRefuse, plain path), and the
+# three polls after the decouple became a `WarpToUT` dwell so the kick settles before the
+# click. SECOND FLIGHT `2026-10-24_1457` (DLL 860f1448...76e7, PASS on driver, log and
+# analyzer) red on one token only: after the 6 s dwell the background recorder holds the
+# decoupled stage as the segment's child, so the merge reason is `has-descendants`, not
+# `part-event:Decoupled`; pinned as measured, count measured 3. A WARN
+# `FlushRecorderToTreeRecording: dropping recorder data because active recording id is
+# missing` follows the first discard (the probe's segment had no parent); it is measured,
+# not a finding.
+# =====================================================================================
+tier = "daily"
+description = "The pre-switch auto-resolution end to end (todo SWITCH-ASKS-MERGE-FOR-AN-UNCHANGED-VESSEL): on eva2-lko-crewed, record Kerbal X, click the probe (its segment joins the live tree, disposition BgMemberOrMixed), dwell, click back - the no-op segment is DISCARDED with no dialog; decouple Kerbal X's stage, click the probe - the meaningful segment is MERGED with no dialog; the scene exit then drops the probe's standalone no-op segment, leaving one committed tree."
+instanceProfile = "stock-minimal"
+tags = ["switch-segment", "stock-click", "S0.13", "pre-switch-auto-resolve", "D1"]
+
+[fixture]
+saveTemplate = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# `autoMerge = true` is LOAD-BEARING: with it off the switch keeps the dialog and both
+# clicks REJECT `dialog-required case=A-session`. `verboseLogging = true` is mandatory
+# (the classifier line is Verbose). The WarpToUT settle is S0.12's LoadGame-race guard.
+steps = [
+  { cmd = "LoadGame",                 args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",               args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",               args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",               args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "WarpToUT",                 args = { ut = "424", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                                    expect = "OK" },
+  { cmd = "SimulateStockSwitchClick", args = { vessel = "Kerbal X Probe" },                    expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "SimulateStockSwitchClick", args = { vessel = "Kerbal X" },                          expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "PartAction",               args = { button = "decouple", part = "Decoupler.2" }, label = "dec", expect = "OK" },
+  { cmd = "WarpToUT",                 args = { ut = "430", maxRate = "1" },                     expect = "OK", budget = 60 },
+  { cmd = "SimulateStockSwitchClick", args = { vessel = "Kerbal X Probe" },                    expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                      expect = "OK" },
+]
+
+[dimensionsCovered]
+# `switch-segment` <- the auto-resolve lines and the route terminals below, which only a
+#   switch with a live SwitchSegmentSession reaches (Case A). A re-claim (S0.8, S0.12,
+#   GS-3, H12, CI-1).
+D1 = ["switch-segment"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Kerbal X's tree only: its root recording, its continuation segment and the decoupled
+# stage's recording; the probe's two segments are both discarded. Measured 3
+# (2026-10-24_1457), pinned exactly.
+count = { min = 3, max = 3 }
+
+[expectations.logContracts]
+# In the order the mechanism runs: discard decision, prune, discard terminal, merge
+# decision, merge commit, merge terminal, the scene-exit discard, all MEASURED
+# 2026-10-24_1457.
+required  = [
+  "pre-switch auto-resolve: resolution=Discard case=A-session autoMerge=True evaluable=True priorIsNoOp=True disposition=BgMemberOrMixed idleOnPad=False reason=no-op priorSessionId=[0-9a-f-]{36} targetPid=3620499050",
+  "TryDiscardActiveSwitchSegmentAttempt pruned: sessionId=[0-9a-f-]{36} ",
+  "switchclick complete site=map targetPid=3620499050 targetName=Kerbal X route=pre-switch-auto-discard activeVesselPid=3620499050 switched=true",
+  "pre-switch auto-resolve: resolution=Merge case=A-session autoMerge=True evaluable=True priorIsNoOp=False disposition=BgMemberOrMixed idleOnPad=False reason=has-descendants priorSessionId=[0-9a-f-]{36} targetPid=2614652043",
+  "pre-switch-dialog committed-prior-segment priorSessionId=[0-9a-f-]{36}",
+  "switchclick complete site=map targetPid=2614652043 targetName=Kerbal X Probe route=pre-switch-auto-merge activeVesselPid=2614652043 switched=true",
+  "TryAutoDiscardNoOpSwitchSegment: no-op switch segment \\(Standalone\\) detected dest=SPACECENTER - discarding without commit",
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=[0-9.]+s",
+  "OnSave: saving 1 committed tree\\(s\\)",
+]
+# The suite-wide ERROR pattern, and the dialog itself: neither switch may open it.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "pre-switch-dialog opening",
+             "switchclick refused gate=RefusedDialogRequired"]
+
+[runtime]
+# 300 LoadGame + 120 + 60 WarpToUT + three 120 s clicks + 120 ExitToSpaceCenter + the fast
+# polls and verbs + boot and margin. S0.12 flies at ~50 s wall; 1200 is a kill backstop.
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

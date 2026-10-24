@@ -135,6 +135,16 @@ id = "GS-3-switch-nudge-deployed"
 # (`hlib.SEAM_EXPECT_VERDICTS` includes REJECTED and step matching is
 # `met = found and verdict == expect`, so an OK there would red the step.)
 #
+# RE-CUT 2026-10-24 (todo SWITCH-ASKS-MERGE-FOR-AN-UNCHANGED-VESSEL): THE CONTRACT ABOVE
+# CHANGED, as this cell was built to notice. Under auto-merge a switch no longer asks:
+# `MapFocusObjectOnSelectPatch.TryAutoResolvePreSwitch` presses Discard for a no-op
+# segment and Merge otherwise, and the verb drives that same call. The probe's nudge
+# segment is a no-op of disposition BgMemberOrMixed, so the second click is now an OK
+# `route=pre-switch-auto-discard`: the segment is pruned and the probe goes back to
+# background recording into its origin recording, which is a leaf again - GS-2's shape,
+# so the save-side tokens below (promotion, RP kept) are unchanged. NOT YET FLOWN on the
+# re-cut; the first flight reads the GROUP 3 tokens.
+#
 # =====================================================================================
 # WHAT IS REQUIRED AND WHAT IS ONLY MEASURED. The divergence facts were carried as
 # report-only on flight 1 because they were a PREDICTION from code; that flight has
@@ -250,7 +260,7 @@ steps = [
   { cmd = "StartRecording",                                                                    expect = "OK" },
   { phase = "mission",                                                                         expect = "MISSION-OK", budget = 300 },
   { cmd = "SimulateStockSwitchClick", args = { vessel = "Kerbal X Probe" },                    expect = "OK", budget = 120 },
-  { cmd = "SimulateStockSwitchClick", args = { vessel = "Kerbal X" },                          expect = "REJECTED", budget = 120 },
+  { cmd = "SimulateStockSwitchClick", args = { vessel = "Kerbal X" },                          expect = "OK", budget = 120 },
   { cmd = "ExitToSpaceCenter",                                                                 expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit",                                                                      expect = "OK" },
 ]
@@ -347,6 +357,11 @@ allowedAnomalies = []
 # the numeric statement of the no-op-discard finding in the header: a segment that had
 # been auto-discarded at scene exit would leave 2, i.e. GS-2's count.
 #
+# RE-CUT 2026-10-24: still THREE predicted, by a different route. The core's no-op
+# segment is now discarded at the switch back, and that switch opens a continuation
+# segment on the pod stack instead (a no-op BgMemberOrMixed segment, which the scene exit
+# still commits), so the VesselSwitchContinuation floor below is met by the pod stack's.
+#
 # RE-PIN CONTRACT: the first reading run measures the real count. Re-pin to the
 # MEASURED value; do not widen blindly.
 count = { min = 3, max = 5 }
@@ -391,13 +406,13 @@ count = { min = 3, max = 5 }
 #   "switchclick complete site=map targetPid=... targetName=Kerbal X Probe ... switched=true"
 #                                             ...SimulateSwitchClick.cs:256 (Info)
 #
-# GROUP 3 - THE REFUSED SWITCH BACK, the v1-contract probe.
-#   "switchclick refused gate=RefusedDialogRequired reason=dialog-required case=A-session targetPid=..."
-#                                             ...SimulateSwitchClick.cs:169 (WARN) [DERIVED]
-#       Pinned as a log token AS WELL AS a step `expect = "REJECTED"`, because the two
-#       assert different things: the step verdict says the verb refused, and this line
-#       says WHICH gate refused and WHY. A refusal for `target-unloaded` or
-#       `target-already-active` would satisfy the step and not this.
+# GROUP 3 - THE SWITCH BACK, auto-resolved (re-cut 2026-10-24, see the header).
+#   "pre-switch auto-resolve: resolution=Discard case=A-session ... disposition=BgMemberOrMixed ..."
+#                                             MapFocusObjectOnSelectPatch (Info) [DERIVED]
+#   "switchclick complete ... targetName=Kerbal X route=pre-switch-auto-discard ... switched=true"
+#                                             ...SimulateSwitchClick.cs (Info) [DERIVED]
+#       Pinned as log tokens AS WELL AS the step `expect = "OK"`: the step says the switch
+#       happened, these say WHICH button the switch pressed and why.
 #
 # GROUP 4 - THE COMMIT. GS-2's tokens; the commit must still happen for the save-side
 # facets to mean anything.
@@ -454,7 +469,8 @@ required  = ["Recording started",
              "\\[SwitchSegment\\] route=bg-member-continuation intentId=\\S+ sessionId=\\S+ treeId=\\S+ parentRecId=[0-9a-f]{32} segmentRecId=[0-9a-f-]{36} bgRecId=[0-9a-f]{32} sourcePid=[0-9]+ focusedPid=[0-9]+",
              "\\[SwitchIntent\\] cleared: intentId=.* reason=consumed-into-segment",
              "switchclick complete site=map targetPid=[0-9]+ targetName=Kerbal X Probe .* switched=true",
-             "switchclick refused gate=RefusedDialogRequired reason=dialog-required case=A-session targetPid=[0-9]+",
+             "pre-switch auto-resolve: resolution=Discard case=A-session autoMerge=True evaluable=True priorIsNoOp=True disposition=BgMemberOrMixed idleOnPad=False reason=no-op priorSessionId=[0-9a-f-]{36} targetPid=[0-9]+",
+             "switchclick complete site=map targetPid=[0-9]+ targetName=Kerbal X route=pre-switch-auto-discard activeVesselPid=[0-9]+ switched=true",
              "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
              "OnSave: saving 1 committed tree\\(s\\)",
              "\\[SwitchSegment\\] origin-terminal-stamped recId=\\S+ terminal=Orbiting source=(?:cache|live)",

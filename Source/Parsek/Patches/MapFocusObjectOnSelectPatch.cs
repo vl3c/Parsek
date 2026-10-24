@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using KSP.UI.Screens.Mapview.MapContextMenuOptions;
 
@@ -190,8 +191,9 @@ namespace Parsek.Patches
 
             // Design section 2.12 Rule 3: during a Re-Fly session only the re-flown vessel
             // and its own EVA crew can be flown. The refusal runs before the pre-switch
-            // dialog decision, so that dialog is never reached during a session; skipping
-            // OnSelect leaves the map open and the active vessel unchanged.
+            // dialog decision, so only a switch between the re-flown vessel and its own crew
+            // reaches it during a session (TryAutoResolvePreSwitch then presses no button);
+            // skipping OnSelect leaves the map open and the active vessel unchanged.
             if (ReFlySwitchGate.IsRefused(vessel.persistentId, reFlyPath))
                 return false;
 
@@ -336,80 +338,19 @@ namespace Parsek.Patches
             {
                 case PreSwitchDialogDecision.OpenDialog:
                     {
-                        // No-op auto-discard (Case A only): if the prior
-                        // switch-segment session's segment changed nothing
-                        // meaningful, silently drop it and switch with no prompt —
-                        // there is no point prompting the player to merge / discard
-                        // a resumed segment that did nothing, and the boring
-                        // segment only prolongs the ghost state.
-                        //
-                        // Disposition gate: Standalone (a fresh throwaway tree) and
-                        // CommittedRestoreClone (revisiting a tracked mission) are
-                        // both safe — DiscardPriorAndSwitchTo routes through
-                        // ParsekFlight.DiscardActiveSwitchSegmentAttemptRevertingLiveClone,
-                        // which tears down the live clone so it reverts to the
-                        // committed original instead of stranding (the data-loss
-                        // fix). Only BgMemberOrMixed defers to the dialog (the rest
-                        // of a live tree must still commit). Case B / Case C have no
-                        // session and operate on the live activeTree (the original
-                        // flight, not a resumed segment) — out of scope.
-                        if (existingSession != null)
-                        {
-                            var noOpFlight = ParsekFlight.Instance;
-                            string noOpReason = null;
-                            SwitchSegmentDisposition noOpDisp = SwitchSegmentDisposition.None;
-                            bool priorIsNoOp = noOpFlight != null
-                                && noOpFlight.TryEvaluateActiveSwitchSegmentNoOp(
-                                    out noOpReason, out noOpDisp);
-                            bool safeToAutoDiscard =
-                                noOpDisp == SwitchSegmentDisposition.Standalone
-                                || noOpDisp == SwitchSegmentDisposition.CommittedRestoreClone;
-                            if (priorIsNoOp && safeToAutoDiscard)
-                            {
-                                ParsekLog.Info("SwitchIntentPatch",
-                                    $"pre-switch no-op auto-discard: prior segment ({noOpDisp}) " +
-                                    $"changed nothing priorSessionId=" +
-                                    $"{existingSession.SessionId.ToString("D", CultureInfo.InvariantCulture)} " +
-                                    $"targetPid={vessel.persistentId} reason={noOpReason ?? "<none>"} " +
-                                    "- discarding without dialog");
-                                DiscardPriorAndSwitchTo(vessel, existingSession);
-                                return false;
-                            }
-                            if (priorIsNoOp)
-                            {
-                                // No-op but BgMemberOrMixed: the live tree has other
-                                // content beyond the segment that must still commit,
-                                // so fall through to the existing dialog.
-                                ParsekLog.Info("SwitchIntentPatch",
-                                    $"pre-switch no-op detected but disposition={noOpDisp} " +
-                                    "defers to dialog (rest of tree must commit) " +
-                                    $"priorSessionId=" +
-                                    $"{existingSession.SessionId.ToString("D", CultureInfo.InvariantCulture)} " +
-                                    $"targetPid={vessel.persistentId}");
-                            }
-                        }
-
-                        // No-op auto-discard for the NO-SESSION committed-restore
-                        // resume (Case B / Case C): if the PRIOR active tree is a
-                        // committed-mission clone resumed without a session
-                        // (ResumeCommittedActiveRecording) and the resume tail
-                        // changed nothing, revert it to the committed original and
-                        // switch with no prompt — reuses the existing no-session
-                        // Discard handler (DiscardActiveRecordingAndSwitchTo →
-                        // AutoDiscardActiveTreeWithMessage, which tears the clone
-                        // down so the committed original in committedTrees
-                        // survives). This closes the in-flight map Switch-To gap.
-                        if (existingSession == null
-                            && (ParsekFlight.Instance?.TryEvaluateNoSessionCommittedResumeNoOp(
-                                    out string noSessionNoOpReason) ?? false))
-                        {
-                            ParsekLog.Info("SwitchIntentPatch",
-                                $"pre-switch no-op auto-discard: prior no-session committed-restore " +
-                                $"resume changed nothing targetPid={vessel.persistentId} " +
-                                $"reason={noSessionNoOpReason ?? "<none>"} - reverting without dialog");
-                            DiscardActiveRecordingAndSwitchTo(vessel);
+                        // The recording the player is leaving is decided without asking
+                        // (design section 5.4, "Switching vessels in flight"): a prior
+                        // recording that changed nothing is discarded, anything else is
+                        // merged. The dialog below stays only for auto-merge off (an
+                        // automation hook). A switch stock is about to refuse decides
+                        // nothing: it takes the plain arm path, stock refuses it with its
+                        // own message, and the Postfix clears the marker.
+                        if (TryAutoResolvePreSwitch(vessel, existingSession,
+                                targetIsSeparateCommittedVessel,
+                                out PreSwitchAutoResolution autoResolution))
                             return false;
-                        }
+                        if (autoResolution == PreSwitchAutoResolution.StockWillRefuse)
+                            break;
 
                         // Distinguish the three OpenDialog routes in KSP.log so
                         // a reader can tell Case A (session) from the two
@@ -505,6 +446,206 @@ namespace Parsek.Patches
                 $"targetPid={marker.TargetVesselPersistentId} sourceScene={marker.SourceScene} " +
                 $"capturedUT={marker.CapturedUT.ToString("R", CultureInfo.InvariantCulture)}");
             return true;
+        }
+
+        /// <summary>
+        /// What the pre-switch hook does about the recording the player is leaving,
+        /// in place of the Merge / Discard dialog (design section 5.4, "Switching
+        /// vessels in flight").
+        /// </summary>
+        internal enum PreSwitchAutoResolution
+        {
+            /// <summary>Show the dialog: auto-merge is off (an automation hook) and the
+            /// prior recording is not a no-op the dialog never asked about, or a Re-Fly
+            /// session or merge journal is live (the Re-Fly owns how its tree is merged, so
+            /// the switch presses no button for it).</summary>
+            Dialog = 0,
+
+            /// <summary>The prior recording changed nothing: press Discard.</summary>
+            Discard = 1,
+
+            /// <summary>The prior recording changed something, or its no-op check could
+            /// not run (a restore in progress, a throw): press Merge, which keeps the
+            /// data.</summary>
+            Merge = 2,
+
+            /// <summary>Stock is about to refuse the switch (<c>FlightGlobals.ClearToSave</c>
+            /// is not CLEAR: under acceleration, in atmosphere, throttled up, ...): decide
+            /// nothing, so the recording is not committed for a switch that never
+            /// happens.</summary>
+            StockWillRefuse = 3,
+        }
+
+        /// <summary>
+        /// Pure: the button the switch presses for the player. <paramref name="priorIsNoOp"/>
+        /// is the session segment's no-op verdict when <paramref name="hasSession"/>, else the
+        /// no-session committed-resume verdict; <paramref name="activeTreeIdleOnPad"/> is the
+        /// scene exit's idle-on-pad verdict for a no-session tree. A switch stock will refuse
+        /// decides nothing, a live Re-Fly session or merge journal keeps the dialog, and a
+        /// prior recording that could not be judged is merged. With
+        /// auto-merge off the
+        /// result is today's behavior: only the Standalone / committed-clone segment and the
+        /// no-session resume no-ops skip the dialog. A merge never lowers a ledger pool and a
+        /// discard re-homes the irreversible earnings, so neither outcome takes value away.
+        /// </summary>
+        internal static PreSwitchAutoResolution DecidePreSwitchAutoResolution(
+            bool stockWillRefuse,
+            bool reFlyOrJournalActive,
+            bool isAutoMerge,
+            bool hasSession,
+            bool evaluable,
+            bool priorIsNoOp,
+            SwitchSegmentDisposition disposition,
+            bool activeTreeIdleOnPad)
+        {
+            if (stockWillRefuse)
+                return PreSwitchAutoResolution.StockWillRefuse;
+            if (reFlyOrJournalActive)
+                return PreSwitchAutoResolution.Dialog;
+            if (!evaluable)
+                return isAutoMerge ? PreSwitchAutoResolution.Merge : PreSwitchAutoResolution.Dialog;
+
+            if (hasSession)
+            {
+                if (priorIsNoOp)
+                {
+                    if (disposition == SwitchSegmentDisposition.Standalone
+                        || disposition == SwitchSegmentDisposition.CommittedRestoreClone)
+                        return PreSwitchAutoResolution.Discard;
+                    // A no-op segment of a background member: Discard drops only the
+                    // segment and the vessel goes back to background recording in the
+                    // still-live tree.
+                    if (disposition == SwitchSegmentDisposition.BgMemberOrMixed)
+                        return isAutoMerge
+                            ? PreSwitchAutoResolution.Discard
+                            : PreSwitchAutoResolution.Dialog;
+                }
+                return isAutoMerge ? PreSwitchAutoResolution.Merge : PreSwitchAutoResolution.Dialog;
+            }
+
+            if (priorIsNoOp)
+                return PreSwitchAutoResolution.Discard;
+            if (isAutoMerge && activeTreeIdleOnPad)
+                return PreSwitchAutoResolution.Discard;
+            return isAutoMerge ? PreSwitchAutoResolution.Merge : PreSwitchAutoResolution.Dialog;
+        }
+
+        /// <summary>
+        /// True when a no-op check's reason says it never ran to a verdict (a restore
+        /// coroutine owns the tree, or the check threw), so the prior recording is merged
+        /// rather than discarded on a guess.
+        /// </summary>
+        internal static bool IsUnevaluatedNoOpReason(string reason)
+        {
+            if (string.IsNullOrEmpty(reason))
+                return false;
+            return string.Equals(reason, "restoring-active-tree", StringComparison.Ordinal)
+                || reason.StartsWith("exception:", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Decides the prior recording for a switch the dialog would otherwise ask about,
+        /// and when the decision is Merge or Discard runs that button's handler, which also
+        /// arms the new intent and switches. Returns false (nothing done) when the dialog
+        /// must still show (auto-merge off) or, with <paramref name="resolution"/>
+        /// <see cref="PreSwitchAutoResolution.StockWillRefuse"/>, when stock is about to
+        /// refuse the switch and the caller takes its plain path. Shared by the map Prefix, the alarm Jump and the
+        /// <c>SimulateStockSwitchClick</c> seam verb, so the verb drives this exact path.
+        /// </summary>
+        internal static bool TryAutoResolvePreSwitch(
+            Vessel target,
+            SwitchSegmentSession existingSession,
+            bool targetIsSeparateCommittedVessel,
+            out PreSwitchAutoResolution resolution)
+        {
+            resolution = PreSwitchAutoResolution.Dialog;
+            if (target == null)
+                return false;
+
+            var flight = ParsekFlight.Instance;
+            bool isAutoMerge = ParsekScenario.IsAutoMerge;
+            bool hasSession = existingSession != null;
+            var scenario = ParsekScenario.Instance;
+            bool reFlyOrJournalActive = !object.ReferenceEquals(null, scenario)
+                && (scenario.ActiveReFlySessionMarker != null || scenario.ActiveMergeJournal != null);
+            string clearToSave = ReadClearToSaveStatus();
+            bool stockWillRefuse = clearToSave != null
+                && !string.Equals(clearToSave, "CLEAR", StringComparison.Ordinal);
+            bool evaluable = !stockWillRefuse && !reFlyOrJournalActive
+                && flight != null && !ParsekFlight.restoringActiveTree;
+            bool priorIsNoOp = false;
+            bool idleOnPad = false;
+            string reason = stockWillRefuse
+                ? "stock-not-clear-to-save:" + clearToSave
+                : reFlyOrJournalActive
+                    ? "refly-or-merge-journal-active"
+                    : (evaluable ? null : (flight == null ? "no-flight" : "restoring-active-tree"));
+            SwitchSegmentDisposition disposition = SwitchSegmentDisposition.None;
+
+            if (evaluable)
+            {
+                if (hasSession)
+                    priorIsNoOp = flight.TryEvaluateActiveSwitchSegmentNoOp(out reason, out disposition);
+                else
+                    priorIsNoOp = flight.TryEvaluateNoSessionCommittedResumeNoOp(out reason);
+                if (!priorIsNoOp && IsUnevaluatedNoOpReason(reason))
+                    evaluable = false;
+                else if (!hasSession && !priorIsNoOp && isAutoMerge)
+                    idleOnPad = flight.IsActiveTreeIdleOnPad();
+            }
+
+            resolution = DecidePreSwitchAutoResolution(
+                stockWillRefuse, reFlyOrJournalActive, isAutoMerge, hasSession, evaluable,
+                priorIsNoOp, disposition, idleOnPad);
+
+            string caseToken = hasSession
+                ? "A-session"
+                : (targetIsSeparateCommittedVessel ? "C-loaded-separate-committed" : "B-unloaded");
+            ParsekLog.Info("SwitchIntentPatch",
+                $"pre-switch auto-resolve: resolution={resolution} case={caseToken} " +
+                $"autoMerge={isAutoMerge} evaluable={evaluable} priorIsNoOp={priorIsNoOp} " +
+                $"disposition={disposition} idleOnPad={idleOnPad} reason={reason ?? "<none>"} " +
+                $"priorSessionId={existingSession?.SessionId.ToString("D", CultureInfo.InvariantCulture) ?? "<no-session>"} " +
+                $"targetPid={target.persistentId}");
+
+            switch (resolution)
+            {
+                case PreSwitchAutoResolution.Discard:
+                    if (hasSession)
+                        DiscardPriorAndSwitchTo(target, existingSession);
+                    else
+                        DiscardActiveRecordingAndSwitchTo(target);
+                    return true;
+                case PreSwitchAutoResolution.Merge:
+                    if (hasSession)
+                        MergePriorAndSwitchTo(target, existingSession);
+                    else
+                        MergeActiveTreeAndSwitchTo(target);
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Stock's <c>FlightGlobals.ClearToSave()</c> status name, which
+        /// <c>setActiveVessel</c> reads first and refuses the switch on when it is not
+        /// CLEAR. Null when it cannot be read (no active vessel, a headless host), which
+        /// leaves the decision to the no-op check.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static string ReadClearToSaveStatus()
+        {
+            try
+            {
+                if (FlightGlobals.ActiveVessel == null)
+                    return null;
+                return FlightGlobals.ClearToSave().ToString();
+            }
+            catch (Exception)
+            {
+                return null;
+            }
         }
 
         /// <summary>
