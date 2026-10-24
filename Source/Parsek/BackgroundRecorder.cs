@@ -8086,6 +8086,15 @@ namespace Parsek
                 return false;
             }
 
+            // The finalizer reads recorded points from the recording's sections; a loaded
+            // vessel's sections stay in loadedState until a flush, so hand them over too.
+            List<TrackSection> unflushedSections = loadedState != null
+                && string.Equals(loadedState.recordingId, recordingId, StringComparison.Ordinal)
+                ? RecordingFinalizationCacheProducer.CollectUnflushedTrackSections(
+                    loadedState.trackSections,
+                    loadedState.trackSectionActive,
+                    loadedState.currentTrackSection)
+                : null;
             RecordingFinalizationCache refreshed;
             bool success = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
                 treeRec,
@@ -8095,6 +8104,7 @@ namespace Parsek
                 reason,
                 hasMeaningfulThrust,
                 tree,
+                unflushedSections,
                 out refreshed);
 
             refreshed.RecordingId = recordingId;

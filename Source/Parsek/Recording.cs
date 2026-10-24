@@ -1020,6 +1020,22 @@ namespace Parsek
             LaunchSiteName = source.LaunchSiteName;
         }
 
+        /// <summary>
+        /// A READ-ONLY view of this recording whose <see cref="TrackSections"/> is
+        /// <paramref name="trackSections"/>. Every other field, list and dictionary is
+        /// shared with this recording (a member-wise copy), so the view must never be
+        /// mutated, stored, or handed to a writer: it exists for a side-effect-free
+        /// reader that needs sections a recorder has not flushed yet.
+        /// </summary>
+        internal Recording CreateReadViewWithTrackSections(List<TrackSection> trackSections)
+        {
+            var view = (Recording)MemberwiseClone();
+            view.TrackSections = trackSections ?? new List<TrackSection>();
+            view.CachedStats = null;
+            view.CachedStatsPointCount = 0;
+            return view;
+        }
+
         internal static Recording DeepClone(Recording source)
         {
             if (source == null) return null;

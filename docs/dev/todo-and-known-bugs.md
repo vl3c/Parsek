@@ -236,7 +236,7 @@ nearest-anchor search before its first flush: filed as FINALIZER-READS-UNFLUSHED
 `..._ParentAnchoredFlatPoints_Refused`).
 
 
-## FINALIZER-READS-UNFLUSHED-RELATIVE-POINTS: a background recording's finalizer pass cannot see its unflushed sections [FILED 2026-10-24 from the PR #2190 review. OPEN, low. product]
+## ~~FINALIZER-READS-UNFLUSHED-RELATIVE-POINTS: a background recording's finalizer pass cannot see its unflushed sections~~ [FILED 2026-10-24 from the PR #2190 review. FIXED 2026-10-24 (xUnit only). product]
 
 `IncompleteBallisticSceneExitFinalizer` reads recorded points from `Recording.TrackSections` and falls
 back to the flat `Points` list only when there are none. `BackgroundRecorder` keeps a loaded
@@ -248,6 +248,21 @@ nearest-anchor search (`UpdateBackgroundAnchorDetection`) still has its anchor-l
 as body-fixed in that window. No saved terminal is known to be affected. Fix direction: hand the
 finalizer the recorder's unflushed sections (their `bodyFixedFrames` included) for the refresh,
 instead of more flat-list guards.
+
+Fix: `BackgroundRecorder.RefreshFinalizationCacheForVessel` collects the loaded state's closed
+unflushed sections plus a copy of the open one (`RecordingFinalizationCacheProducer
+.CollectUnflushedTrackSections`, the copy's `endUT` stamped at its last sample, the recorder's own
+section untouched) when the state belongs to the refreshed recording, and passes them to
+`TryBuildFromLiveVessel`. Its default-finalizer step reads a read-only view
+(`WithUnflushedTrackSections` -> `Recording.CreateReadViewWithTrackSections`: member-wise copy,
+`TrackSections` = flushed + unflushed; Verbose rate-limited `Refresh reads unflushed recorder
+sections:`), so every recorded-point reader walks sections in their own frame and never reaches the
+flat fallback while a section is held. The destroy-event branch still writes to the real recording.
+The PR #2190 parent-anchored refusal stays as the backstop for other callers. The active recorder
+does not share the gap: its tree recording receives neither points nor sections until a flush.
+Unit tests: `SceneExitFinalizationIntegrationTests.RecordedPointReaders_UnflushedRelativeSectionView_*`,
+`RecordingFinalizationCacheProducerTests` (`CollectUnflushedTrackSections_*`,
+`WithUnflushedTrackSections_*`, `TryBuildFromLiveVessel_UnflushedSections_*`).
 ## ~~SCENE-EXIT-FINALIZER-CRASHES-A-CHUTE-DESCENT: leaving the flight finalizes a booster still descending under its parachute as Destroyed~~ [FILED 2026-10-22 from RF-L2 `2026-10-22_0734` (PARSEK-FAIL, expectations), flown for PR #2173, and the same on plain main 9dbf9c2 (`2026-10-22_0817`). FIXED 2026-10-22 in PR #2176 (RF-L2 `2026-10-22_1026` PASS attempt 1), exposed by PR #2154 (REMAINING-RECORDED-VELOCITY-SEEDS). product]
 
 RF-L2's first flight exits to the Space Center at UT 124.4 while the booster probe hangs under its

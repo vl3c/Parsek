@@ -111,12 +111,36 @@ namespace Parsek
         {
             return TryBuildFromLiveVessel(
                 recording,
+                vessel,
+                refreshUT,
+                owner,
+                reason,
+                hasMeaningfulThrust,
+                recordingTree,
+                null,
+                out cache);
+        }
+
+        internal static bool TryBuildFromLiveVessel(
+            Recording recording,
+            Vessel vessel,
+            double refreshUT,
+            FinalizationCacheOwner owner,
+            string reason,
+            bool hasMeaningfulThrust,
+            RecordingTree recordingTree,
+            IList<TrackSection> unflushedTrackSections,
+            out RecordingFinalizationCache cache)
+        {
+            return TryBuildFromLiveVessel(
+                recording,
                 vessel != null ? new VesselFinalizationView(vessel) : null,
                 refreshUT,
                 owner,
                 reason,
                 hasMeaningfulThrust,
                 recordingTree,
+                unflushedTrackSections,
                 out cache);
         }
 
@@ -148,6 +172,34 @@ namespace Parsek
             string reason,
             bool hasMeaningfulThrust,
             RecordingTree recordingTree,
+            out RecordingFinalizationCache cache)
+        {
+            return TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                refreshUT,
+                owner,
+                reason,
+                hasMeaningfulThrust,
+                recordingTree,
+                null,
+                out cache);
+        }
+
+        /// <param name="unflushedTrackSections">Sections the calling recorder still holds
+        /// for <paramref name="recording"/> (closed and open) that it has not flushed into
+        /// <c>recording.TrackSections</c>. The default finalizer reads them through a
+        /// read-only view (<see cref="WithUnflushedTrackSections"/>); every write in this
+        /// method still goes to <paramref name="recording"/> itself.</param>
+        internal static bool TryBuildFromLiveVessel(
+            Recording recording,
+            IRecordingFinalizationVesselView vessel,
+            double refreshUT,
+            FinalizationCacheOwner owner,
+            string reason,
+            bool hasMeaningfulThrust,
+            RecordingTree recordingTree,
+            IList<TrackSection> unflushedTrackSections,
             out RecordingFinalizationCache cache)
         {
             string recordingId = recording?.RecordingId;
@@ -223,7 +275,9 @@ namespace Parsek
                     0);
             }
 
-            Recording context = recording ?? BuildContextRecording(recordingId, vesselPid, refreshUT);
+            Recording context = recording != null
+                ? WithUnflushedTrackSections(recording, unflushedTrackSections)
+                : BuildContextRecording(recordingId, vesselPid, refreshUT);
             IncompleteBallisticFinalizationResult result;
             bool finalized;
             try
@@ -1057,6 +1111,104 @@ namespace Parsek
                 VesselPersistentId = vesselPid,
                 ExplicitEndUT = endUT
             };
+        }
+
+        /// <summary>
+        /// Pure: the sections a recorder holds for a recording but has not flushed into it,
+        /// in recording order: the closed ones, then a copy of the open one when a section
+        /// is active. The copy's <c>endUT</c> is its last sample's UT (its start when it has
+        /// none yet), so a reader that walks section bounds sees a closed-shaped section; the
+        /// recorder's own open section is not touched (TrackSection is a struct, and its
+        /// frame lists are shared read-only). Returns null when there is nothing unflushed.
+        /// </summary>
+        internal static List<TrackSection> CollectUnflushedTrackSections(
+            IList<TrackSection> closedUnflushed,
+            bool openSectionActive,
+            TrackSection openSection)
+        {
+            int closedCount = closedUnflushed != null ? closedUnflushed.Count : 0;
+            if (closedCount == 0 && !openSectionActive)
+                return null;
+
+            var sections = new List<TrackSection>(closedCount + 1);
+            for (int i = 0; i < closedCount; i++)
+                sections.Add(closedUnflushed[i]);
+
+            if (openSectionActive)
+            {
+                TrackSection open = openSection;
+                open.endUT = LastSampleUT(open);
+                sections.Add(open);
+            }
+
+            return sections;
+        }
+
+        private static double LastSampleUT(TrackSection section)
+        {
+            double last = section.startUT;
+            if (section.frames != null && section.frames.Count > 0)
+                last = Math.Max(last, section.frames[section.frames.Count - 1].ut);
+            if (section.bodyFixedFrames != null && section.bodyFixedFrames.Count > 0)
+                last = Math.Max(last, section.bodyFixedFrames[section.bodyFixedFrames.Count - 1].ut);
+            if (section.checkpoints != null)
+            {
+                for (int i = 0; i < section.checkpoints.Count; i++)
+                    last = Math.Max(last, section.checkpoints[i].endUT);
+            }
+            return last;
+        }
+
+        /// <summary>
+        /// Pure: the recording the default finalizer reads during a cache refresh. A
+        /// background recorder keeps a loaded vessel's sections to itself until a flush
+        /// (commit, scene exit, going on rails, leaving the background), while every sample
+        /// also lands in the recording's flat <c>Points</c> list in the frame it was taken
+        /// in. With no flushed section the finalizer's recorded-point readers fall back to
+        /// that flat list, and a Relative sample there is an anchor-local metre offset, not
+        /// lat/lon/alt. Handing them the unflushed sections instead lets them read each
+        /// section in its own frame (a Relative section's <c>bodyFixedFrames</c>). Returns
+        /// <paramref name="recording"/> itself when there is nothing unflushed, otherwise a
+        /// read-only view (<see cref="Recording.CreateReadViewWithTrackSections"/>).
+        /// </summary>
+        internal static Recording WithUnflushedTrackSections(
+            Recording recording,
+            IList<TrackSection> unflushedTrackSections)
+        {
+            if (recording == null
+                || unflushedTrackSections == null
+                || unflushedTrackSections.Count == 0)
+            {
+                return recording;
+            }
+
+            int flushedCount = recording.TrackSections != null ? recording.TrackSections.Count : 0;
+            var sections = new List<TrackSection>(flushedCount + unflushedTrackSections.Count);
+            if (flushedCount > 0)
+                sections.AddRange(recording.TrackSections);
+            int relativeCount = 0;
+            for (int i = 0; i < unflushedTrackSections.Count; i++)
+            {
+                sections.Add(unflushedTrackSections[i]);
+                if (unflushedTrackSections[i].referenceFrame == ReferenceFrame.Relative)
+                    relativeCount++;
+            }
+
+            ParsekLog.VerboseRateLimited(
+                "FinalizerCache",
+                "unflushed-sections-view." + (recording.RecordingId ?? "(null)"),
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Refresh reads unflushed recorder sections: rec={0} flushed={1} unflushed={2} " +
+                    "unflushedRelative={3} flatPoints={4}",
+                    recording.RecordingId ?? "(null)",
+                    flushedCount,
+                    unflushedTrackSections.Count,
+                    relativeCount,
+                    recording.Points != null ? recording.Points.Count : 0),
+                minIntervalSeconds: 30.0);
+
+            return recording.CreateReadViewWithTrackSections(sections);
         }
 
         private static OrbitSegment BuildOrbitSegmentFromVessel(

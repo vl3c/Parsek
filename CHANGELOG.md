@@ -89,6 +89,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **An unfocused vessel flying near another craft no longer has its ending guessed from a wrong
+  altitude.** Before its track was first saved, the background check that predicts how its flight
+  ends read its position relative to the nearby craft as a ground position (300 m up could read as
+  sea level). It now reads the real position. (FINALIZER-READS-UNFLUSHED-RELATIVE-POINTS)
 - **A vessel that appears at the end of its flight no longer appears inside the vessel you fly.**
   A plane that ended its flight mid-runway used to appear inside a rover you had parked on its stop
   point. The vessel you fly now blocks the spot like any other, and the plane appears just behind it
