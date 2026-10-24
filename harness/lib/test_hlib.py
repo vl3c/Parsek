@@ -25748,6 +25748,15 @@ class ListHandlesSourceSyncTests(unittest.TestCase):
         self.assertEqual(hlib.LISTHANDLES_CHAIN_TREE_IDS_KEY,
                          self.consts["ChainTreeIdsKeySuffix"])
 
+    def test_the_route_log_line_prefix_and_keys_are_byte_equal(self):
+        self.assertEqual(hlib.LISTHANDLES_ROUTE_LOG_PREFIX,
+                         self.consts["RouteLogLinePrefix"])
+        head = re.search(r"\bRouteLogLineKeys\s*=\s*\{", self.code)
+        self.assertIsNotNone(head, "RouteLogLineKeys declaration not found")
+        body = self.code[head.end():self.code.index("};", head.end())]
+        keys = tuple(re.findall(r'"([^"\\]*)"', body))
+        self.assertEqual(hlib.LISTHANDLES_ROUTE_LOG_KEYS, keys)
+
     def test_the_chain_log_line_writes_the_tree_keys_after_links(self):
         """The field order a spec regex pins (`links=.. trees=.. treeIds=..`) is the
         order the C# concatenates them in `ChainLogLines`' own body."""

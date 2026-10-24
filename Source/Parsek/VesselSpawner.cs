@@ -1520,6 +1520,19 @@ namespace Parsek
         }
 
         /// <summary>
+        /// T57: the vessel an end-of-recording spawn's collision check exempts. An EVA kerbal
+        /// exempts its parent vessel whichever spawn state it uses (endpoint or recorded
+        /// terminal orbit): a kerbal floating beside his capsule overlaps it by construction.
+        /// Every other recording exempts nothing.
+        /// </summary>
+        internal static uint ResolveEndOfRecordingCollisionExemptPid(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.EvaCrewName))
+                return 0;
+            return ResolveParentVesselPid(rec);
+        }
+
+        /// <summary>
         /// T57: Resolves the parent recording's VesselPersistentId for EVA collision
         /// exemption. Searches committed trees for the parent recording by ParentRecordingId.
         /// Returns 0 if no parent found. Pure lookup, no side effects.
@@ -1645,7 +1658,7 @@ namespace Parsek
 
             bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
             bool isBreakupContinuous = rec.ChildBranchPointId != null && rec.TerminalStateValue.HasValue;
-            bool useRecordedTerminalOrbit = ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva);
+            bool useRecordedTerminalOrbit = ShouldUseRecordedTerminalOrbitSpawnState(rec);
             bool terminalSpawnWasDeferred = TerminalOrbitSpawnSafety.HasActiveHold(rec);
 
             // Resolve spawn position from snapshot or trajectory endpoint.
@@ -1725,7 +1738,7 @@ namespace Parsek
             // T57: resolve parent vessel PID for EVA collision exemption.
             // EVA trajectories overlap the parent vessel for their entire length;
             // without exemption, walkback exhausts all points and abandons the spawn.
-            uint exemptPid = isEva ? ResolveParentVesselPid(rec) : 0;
+            uint exemptPid = ResolveEndOfRecordingCollisionExemptPid(rec);
             var collision = CheckSpawnCollisions(rec, index, isEva, body,
                 spawnLat, spawnLon, spawnAlt, spawnPos, exemptPid);
             if (collision.blocked) return;
@@ -1785,7 +1798,9 @@ namespace Parsek
                 //   was on the parent ladder) causes OrbitDriver.updateFromParameters to
                 //   overwrite the corrected transform with the parent position on the first
                 //   physics frame after load. SpawnAtPosition rebuilds the ORBIT from the
-                //   walked endpoint so the kerbal stays where recorded.
+                //   walked endpoint so the kerbal stays where recorded. An EVA that ended
+                //   Orbiting with a recorded terminal orbit takes the orbital route instead,
+                //   so a deferred spawn does not rotate his orbit with the planet.
                 // - Breakup-continuous (#224 follow-up via #264): same stale-ORBIT mechanism.
                 //   Rotation is preserved via the same surface-relative ProtoVessel.rot helper
                 //   used by snapshot-prep fallbacks.
@@ -1967,6 +1982,9 @@ namespace Parsek
             // but the kerbal walked to a different location during the recording. Without
             // this override, the kerbal spawns on top of the parent vessel and grabs its
             // ladder, triggering KSP's "Kerbals on a ladder — cannot save" error.
+            // On the recorded-terminal-orbit path the position is the orbit propagated to the
+            // spawn UT, so the endpoint's surface-relative rotation (valid only at the endpoint
+            // and its UT) is not applied, the same rule as breakup-continuous below.
             if (isEva && rec.VesselSnapshot != null)
             {
                 ApplyResolvedSpawnStateToSnapshot(
@@ -1977,7 +1995,8 @@ namespace Parsek
                     spawnLon,
                     spawnAlt,
                     index,
-                    rec.VesselName);
+                    rec.VesselName,
+                    allowPreferredRotation: !useRecordedTerminalOrbit);
             }
 
             // Breakup-continuous recordings: snapshot position is from breakup time (mid-air).
@@ -4035,10 +4054,50 @@ namespace Parsek
             return names;
         }
 
+        /// <summary>One crew name a spawn snapshot needs that the roster lacks.</summary>
+        internal struct MissingCrewEntry
+        {
+            public string Name;
+            /// <summary>The timeline says he rode as a tourist: re-create him as one.</summary>
+            public bool AsTourist;
+        }
+
+        /// <summary>
+        /// The crew names of <paramref name="snapshot"/> that <paramref name="isInRoster"/>
+        /// does not know, each once, in snapshot order, with whether
+        /// <paramref name="hasTouristEvidence"/> says he rode as a tourist. Pure.
+        /// </summary>
+        internal static List<MissingCrewEntry> PlanMissingCrew(
+            ConfigNode snapshot, Func<string, bool> isInRoster, Func<string, bool> hasTouristEvidence)
+        {
+            var result = new List<MissingCrewEntry>();
+            if (snapshot == null || isInRoster == null) return result;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            {
+                foreach (string name in partNode.GetValues("crew"))
+                {
+                    if (string.IsNullOrEmpty(name) || !seen.Add(name)) continue;
+                    if (isInRoster(name)) continue;
+                    result.Add(new MissingCrewEntry
+                    {
+                        Name = name,
+                        AsTourist = hasTouristEvidence != null && hasTouristEvidence(name)
+                    });
+                }
+            }
+            return result;
+        }
+
         /// <summary>
         /// Ensure all crew referenced in the snapshot exist in the game's CrewRoster.
         /// Synthetic recordings or cross-save imports may reference kerbals that were
         /// never added to this career's roster, causing NullRef in Part.RegisterCrew.
+        /// A missing kerbal the timeline knows as a tourist (stock deleted him when his
+        /// contract ended or his vessel was recovered, or a rewind went to before the offer)
+        /// comes back as a tourist, never as hired crew (GC-12): created the way stock's
+        /// TourismContract creates one, and marked toured so stock sends him home when the
+        /// vessel is recovered (ScenarioContractEvents.TouristDepartures).
         /// </summary>
         public static void EnsureCrewExistInRoster(ConfigNode snapshot)
         {
@@ -4049,40 +4108,44 @@ namespace Parsek
                 return;
             }
 
+            var missing = PlanMissingCrew(
+                snapshot, name => roster[name] != null, KerbalsModule.HasTouristEvidence);
+
             int createdCount = 0;
-            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            int touristCount = 0;
+            for (int i = 0; i < missing.Count; i++)
             {
-                var crewNames = partNode.GetValues("crew");
-                foreach (string name in crewNames)
+                string name = missing[i].Name;
+                if (missing[i].AsTourist)
                 {
-                    if (string.IsNullOrEmpty(name)) continue;
+                    ProtoCrewMember tourist = roster.GetNewKerbal(ProtoCrewMember.KerbalType.Unowned);
+                    if (tourist == null) continue;
+                    tourist.ChangeName(name);
+                    tourist.type = ProtoCrewMember.KerbalType.Tourist;
+                    KerbalRoster.SetExperienceTrait(tourist, KerbalRoster.touristTrait);
+                    tourist.hasToured = true;
+                    tourist.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
+                    ParsekLog.Info("Spawner",
+                        $"Created missing tourist '{name}' in roster for vessel spawn " +
+                        "(type=Tourist trait=Tourist toured=True: a passenger, not hired crew)");
+                    createdCount++;
+                    touristCount++;
+                    continue;
+                }
 
-                    // Check if already in roster
-                    bool found = false;
-                    foreach (ProtoCrewMember pcm in roster.Crew)
-                    {
-                        if (pcm.name == name) { found = true; break; }
-                    }
-                    if (found) continue;
-
-                    // Also check unowned (applicants, tourists, etc.)
-                    ProtoCrewMember existing = roster[name];
-                    if (existing != null) continue;
-
-                    // Create the kerbal and add to roster
-                    ProtoCrewMember newCrew = HighLogic.CurrentGame.CrewRoster.GetNewKerbal(ProtoCrewMember.KerbalType.Crew);
-                    if (newCrew != null)
-                    {
-                        newCrew.ChangeName(name);
-                        newCrew.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
-                        ParsekLog.Info("Spawner", $"Created missing crew '{name}' in roster for vessel spawn");
-                        createdCount++;
-                    }
+                ProtoCrewMember newCrew = roster.GetNewKerbal(ProtoCrewMember.KerbalType.Crew);
+                if (newCrew != null)
+                {
+                    newCrew.ChangeName(name);
+                    newCrew.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
+                    ParsekLog.Info("Spawner", $"Created missing crew '{name}' in roster for vessel spawn");
+                    createdCount++;
                 }
             }
 
             if (createdCount > 0)
-                ParsekLog.Info("Spawner", $"Spawn prep: created {createdCount} missing crew in roster");
+                ParsekLog.Info("Spawner",
+                    $"Spawn prep: created {createdCount} missing crew in roster (tourists={touristCount})");
         }
 
         public static bool VesselExistsByPid(uint pid)
@@ -5918,6 +5981,9 @@ namespace Parsek
             // Dock records name parts by flightID: carry the regenerated uids into them, and
             // into the dock-absorb rows, so an undock of the spawned stack is recognized.
             int dockRefsRemapped = VesselNameSpawn.RemapDockRecordUids(spawnNode, uidMap);
+            // A seated EVA kerbal is a part of the seat's vessel, named by flightID in the
+            // seat's occupantID: without the remap the spawned seat loads empty.
+            int seatOccupantsRemapped = VesselSnapshotOps.RemapSeatOccupantUids(spawnNode, uidMap);
             int dockRowsCopied = VesselNameStore.CopyDockAbsorbsForUidMap(uidMap,
                 "spawn rec=" + (source?.RecordingId ?? "<none>"));
 
@@ -5925,7 +5991,8 @@ namespace Parsek
                 $"Regenerated vessel identity: pid={newPid}, {pidMap.Count} part(s) regenerated, " +
                 $"{oldPartPids.Count} old PID(s) cleaned from registry" +
                 (roboticsPatched > 0 ? $", {roboticsPatched} robotics ref(s) patched" : "") +
-                $", dockRefsRemapped={dockRefsRemapped} dockAbsorbRowsCopied={dockRowsCopied}");
+                $", dockRefsRemapped={dockRefsRemapped} seatOccupantsRemapped={seatOccupantsRemapped}" +
+                $" dockAbsorbRowsCopied={dockRowsCopied}");
             return uidMap;
         }
 
@@ -6548,10 +6615,16 @@ namespace Parsek
             return false;
         }
 
-        internal static bool ShouldUseRecordedTerminalOrbitSpawnState(Recording rec, bool isEva)
+        /// <summary>
+        /// True when the spawn must come from the recorded terminal orbit propagated to the
+        /// spawn UT rather than from the last trajectory point. Applies to an EVA kerbal like
+        /// any vessel: the last point is body-fixed lat/lon/alt, so re-seeding an orbit from it
+        /// at a later UT rotates the orbit with the planet and leaves the kerbal's phase where
+        /// it was at the end UT. Without orbit data the caller keeps the endpoint path.
+        /// </summary>
+        internal static bool ShouldUseRecordedTerminalOrbitSpawnState(Recording rec)
         {
-            return !isEva
-                && rec != null
+            return rec != null
                 && rec.TerminalStateValue == TerminalState.Orbiting
                 && HasRecordedTerminalOrbit(rec);
         }

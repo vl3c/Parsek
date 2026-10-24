@@ -508,19 +508,23 @@ namespace Parsek.Tests
 
             // A looped recording in the owner's tree is closed like any flight
             // (LOOP-RECORDING-CREW-NEVER-RESERVED: the loop is visual only, design 12.7).
-            Assert.Equal(3, rows.Count);
+            // A tourist is held like crew (GC-12), so the recovery ends his hold too.
+            Assert.Equal(4, rows.Count);
             Assert.Equal(Bill, rows[0].Action.KerbalName);   // name order
             Assert.Equal(1, rows[0].ClosedHolds);
             Assert.Equal("Bob Kerman", rows[1].Action.KerbalName);
             Assert.Equal(1, rows[1].ClosedHolds);            // the looped recording
             Assert.Equal(Jeb, rows[2].Action.KerbalName);
             Assert.Equal(2, rows[2].ClosedHolds);            // the TIP and the EVA
+            Assert.Equal("Tourist Kerman", rows[3].Action.KerbalName);
+            Assert.Equal(1, rows[3].ClosedHolds);
             foreach (var r in rows)
             {
                 Assert.Equal(GameActionType.KerbalRecovered, r.Action.Type);
                 Assert.Equal("tip", r.Action.RecordingId);
                 Assert.Equal(250.0, r.Action.UT);
-                Assert.Equal("Pilot", r.Action.KerbalRole);
+                Assert.Equal(r.Action.KerbalName == "Tourist Kerman" ? "Tourist" : "Pilot",
+                    r.Action.KerbalRole);
             }
         }
 

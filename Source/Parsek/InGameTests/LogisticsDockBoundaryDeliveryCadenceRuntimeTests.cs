@@ -367,8 +367,13 @@ namespace Parsek.InGameTests
                     $"dockUT={cycle0DockUT.ToString("R", IC)} preDrain={preDrain0.ToString("R", IC)} " +
                     $"cadence={seamCadence.ToString("R", IC)}");
 
+                // No frame may pass between the two synthetic-UT ticks and their
+                // asserts: ParsekScenario.Update ticks every route at the LIVE UT once
+                // per second of game time, and a live tick on this Active route reads
+                // a warp jump against the seam's 1000 s clock, fires once and snaps
+                // LastObservedLoopCycleIndex far past cycle 1 (H40 2026-10-24_0045).
+                // Tick and the loaded-tank delivery are synchronous.
                 RouteOrchestrator.Tick(tick0UT);
-                yield return null;
 
                 Route afterCycle0;
                 InGameAssert.IsTrue(RouteStore.TryGetRoute(routeId, out afterCycle0),
@@ -402,7 +407,6 @@ namespace Parsek.InGameTests
                     $"dockUT={cycle1DockUT.ToString("R", IC)} preDrain={preDrain1.ToString("R", IC)}");
 
                 RouteOrchestrator.Tick(tick1UT);
-                yield return null;
 
                 Route afterCycle1;
                 InGameAssert.IsTrue(RouteStore.TryGetRoute(routeId, out afterCycle1),

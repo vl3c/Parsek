@@ -103,7 +103,7 @@ namespace Parsek
         /// kerbal) that closes at least one open-ended hold: an effective
         /// <see cref="GameActionType.KerbalAssignment"/> row for that kerbal whose end state is
         /// <see cref="KerbalEndState.Aboard"/> or <see cref="KerbalEndState.Unknown"/>, on a
-        /// non-tourist flight (looped or not: the loop is visual only and the walk holds a
+        /// holding row (looped or not: the loop is visual only and the walk holds a
         /// looped recording's crew like any flight's, design 12.7), and that
         /// <see cref="KerbalsModule.RecoveryClosesHold"/> puts in the owner's scope. A kerbal with nothing open-ended in scope (a
         /// Recovered flight, a death, a hold from another mission) gets no row.
@@ -191,7 +191,8 @@ namespace Parsek
 
         /// <summary>
         /// The assignment rows the kerbals walk turns into an open-ended hold: a
-        /// non-tourist <see cref="GameActionType.KerbalAssignment"/> with an owner
+        /// holding (<see cref="KerbalsModule.RoleHoldsKerbal(string)"/>, a tourist too under
+        /// the shipped policy) <see cref="GameActionType.KerbalAssignment"/> with an owner
         /// recording and an Aboard / Unknown end state.
         /// </summary>
         internal static bool IsOpenEndedHoldRow(GameAction action)
@@ -199,7 +200,7 @@ namespace Parsek
             if (action == null || action.Type != GameActionType.KerbalAssignment) return false;
             if (string.IsNullOrEmpty(action.RecordingId) || string.IsNullOrEmpty(action.KerbalName))
                 return false;
-            if (string.Equals(action.KerbalRole, "Tourist", StringComparison.OrdinalIgnoreCase))
+            if (!KerbalsModule.RoleHoldsKerbal(action.KerbalRole))
                 return false;
             return action.KerbalEndStateField == KerbalEndState.Aboard
                 || action.KerbalEndStateField == KerbalEndState.Unknown;

@@ -76,6 +76,10 @@ namespace Parsek.TestCommands
                     payload = TestCommandListHandles.BuildChainsPayload(chainRows, evaluated, expectedDigest);
                     break;
                 }
+                case ListHandlesKind.Routes:
+                    payload = TestCommandListHandles.BuildRoutesPayload(
+                        GatherRouteRows(), Logistics.RouteStore.DormantRoutes.Count);
+                    break;
                 default:
                     payload = TestCommandListHandles.BuildActivePayload(GatherActiveRow());
                     break;
@@ -90,6 +94,9 @@ namespace Parsek.TestCommands
             List<string> chainLines = TestCommandListHandles.ChainLogLines(payload, kind);
             for (int i = 0; i < chainLines.Count; i++)
                 ParsekLog.Info(Tag, chainLines[i]);
+            List<string> routeLines = TestCommandListHandles.RouteLogLines(payload, kind);
+            for (int i = 0; i < routeLines.Count; i++)
+                ParsekLog.Info(Tag, routeLines[i]);
             SetExecResult("OK", payload, null);
         }
 
@@ -231,6 +238,84 @@ namespace Parsek.TestCommands
             for (int i = 0; i < chain.Links.Count; i++)
                 ids.Add(chain.Links[i].treeId);
             return ids;
+        }
+
+        /// <summary>
+        /// Every committed route in store order, with its route event log rows counted by
+        /// type. Scene-agnostic: the route store is a process static that every scene ticks,
+        /// so the answer is the same live state the next tick will read.
+        /// </summary>
+        private static List<RouteRow> GatherRouteRows()
+        {
+            var rows = new List<RouteRow>();
+            IReadOnlyList<Logistics.Route> routes = Logistics.RouteStore.CommittedRoutes;
+            if (routes == null)
+                return rows;
+            IReadOnlyList<Logistics.RouteEvent> events = Logistics.RouteEventLog.Events;
+            for (int i = 0; i < routes.Count; i++)
+            {
+                Logistics.Route route = routes[i];
+                if (route == null)
+                    continue;
+                var stopPids = new List<uint>();
+                var stopFired = new List<long>();
+                if (route.Stops != null)
+                {
+                    for (int s = 0; s < route.Stops.Count; s++)
+                    {
+                        Logistics.RouteStop stop = route.Stops[s];
+                        stopPids.Add(stop != null ? stop.Endpoint.VesselPersistentId : 0u);
+                        stopFired.Add(stop != null ? stop.LastFiredCycleIndex : -1L);
+                    }
+                }
+                var row = new RouteRow
+                {
+                    Id = route.Id,
+                    Name = route.Name,
+                    Status = route.Status,
+                    CompletedCycles = route.CompletedCycles,
+                    SkippedCycles = route.SkippedCycles,
+                    Cursor = route.LastObservedLoopCycleIndex,
+                    WindowAnchorCycleIndex = route.WindowAnchorCycleIndex,
+                    LoopAnchorUt = route.LoopAnchorUT,
+                    CurrentSegmentIndex = route.CurrentSegmentIndex,
+                    PendingStopIndex = route.PendingStopIndex,
+                    CurrentCycleStartUt = route.CurrentCycleStartUT,
+                    PendingDeliveryUt = route.PendingDeliveryUT,
+                    SendOnceArmed = route.SendOnceArmed,
+                    PauseAfterCurrentCycle = route.PauseAfterCurrentCycle,
+                    OriginPid = route.Origin.VesselPersistentId,
+                    KscOrigin = route.IsKscOrigin,
+                    StopPids = stopPids,
+                    StopFiredCycleIndices = stopFired,
+                };
+                CountRouteEvents(events, route.Id, ref row);
+                rows.Add(row);
+            }
+            return rows;
+        }
+
+        private static void CountRouteEvents(
+            IReadOnlyList<Logistics.RouteEvent> events, string routeId, ref RouteRow row)
+        {
+            if (events == null || string.IsNullOrEmpty(routeId))
+                return;
+            for (int i = 0; i < events.Count; i++)
+            {
+                Logistics.RouteEvent e = events[i];
+                if (e == null || !string.Equals(e.RouteId, routeId, System.StringComparison.Ordinal))
+                    continue;
+                switch (e.Type)
+                {
+                    case Logistics.RouteEventType.RouteDispatched: row.Dispatched++; break;
+                    case Logistics.RouteEventType.RouteCargoDebited: row.Debited++; break;
+                    case Logistics.RouteEventType.RouteCargoPickedUp: row.PickedUp++; break;
+                    case Logistics.RouteEventType.RouteCargoDelivered: row.Delivered++; break;
+                    case Logistics.RouteEventType.RoutePaused: row.Paused++; break;
+                    case Logistics.RouteEventType.RouteResumed: row.Resumed++; break;
+                    case Logistics.RouteEventType.RouteHeld: row.Held++; break;
+                }
+            }
         }
 
         /// <summary>

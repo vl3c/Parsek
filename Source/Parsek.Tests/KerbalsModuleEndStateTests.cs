@@ -108,7 +108,7 @@ namespace Parsek.Tests
         /// <summary>
         /// Builds KerbalAssignment rows for one recording through the production
         /// extraction path (<see cref="LedgerOrchestrator.ExtractCrewFromRecording"/>),
-        /// which reverse-maps stand-in names, drops Tourists, and reads the
+        /// which reverse-maps stand-in names, keeps Tourists as Tourist rows, and reads the
         /// populated end state per identity.
         /// </summary>
         private static List<GameAction> BuildAssignmentActions(Recording rec)

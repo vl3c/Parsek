@@ -168,11 +168,31 @@ namespace Parsek.Patches
                 return true;
             }
 
+            return PrepareOwnedVesselSwitch(
+                vessel, ReFlySwitchGate.PathMapSwitchTo, "Map Switch-To", out __state);
+        }
+
+        /// <summary>
+        /// The Switch-To gates that run once the target vessel is known, shared with the stock
+        /// alarm dialog's Jump in FLIGHT (<see cref="AlarmJumpSwitchPatch"/>), which switches
+        /// through the same <c>FlightGlobals.SetActiveVessel</c>: the Re-Fly switch block, the
+        /// pre-switch Merge / Discard dialog (Cases A / B / C) and the intent arm. Returns false
+        /// when stock must not run (a refused switch, or a dialog whose buttons now own the
+        /// switch). <paramref name="armedIntentId"/> is the intent armed for stock's own switch,
+        /// or empty; the caller's Postfix hands it to <see cref="ClearUnconsumedIntent"/>.
+        /// </summary>
+        internal static bool PrepareOwnedVesselSwitch(
+            Vessel vessel, string reFlyPath, string label, out Guid armedIntentId)
+        {
+            armedIntentId = default(Guid);
+            if (vessel == null)
+                return true;
+
             // Design section 2.12 Rule 3: during a Re-Fly session only the re-flown vessel
             // and its own EVA crew can be flown. The refusal runs before the pre-switch
             // dialog decision, so that dialog is never reached during a session; skipping
             // OnSelect leaves the map open and the active vessel unchanged.
-            if (ReFlySwitchGate.IsRefused(vessel.persistentId, ReFlySwitchGate.PathMapSwitchTo))
+            if (ReFlySwitchGate.IsRefused(vessel.persistentId, reFlyPath))
                 return false;
 
             // Stock will refuse the switch if CanSwitchVesselsFar is off (the
@@ -190,13 +210,13 @@ namespace Parsek.Patches
             catch (Exception ex)
             {
                 ParsekLog.Warn("SwitchIntentPatch",
-                    $"Map Switch-To intent not armed: CanSwitchVesselsFar read failed: {ex.GetType().Name}: {ex.Message}");
+                    $"{label} intent not armed: CanSwitchVesselsFar read failed: {ex.GetType().Name}: {ex.Message}");
                 return true;
             }
             if (!canSwitchVesselsFar)
             {
                 ParsekLog.Verbose("SwitchIntentPatch",
-                    $"Map Switch-To intent not armed: CanSwitchVesselsFar=false targetPid={vessel.persistentId}");
+                    $"{label} intent not armed: CanSwitchVesselsFar=false targetPid={vessel.persistentId}");
                 return true;
             }
 
@@ -204,7 +224,7 @@ namespace Parsek.Patches
             if (scenario == null)
             {
                 ParsekLog.Warn("SwitchIntentPatch",
-                    $"Map Switch-To intent not armed: ParsekScenario.Instance is null targetPid={vessel.persistentId}");
+                    $"{label} intent not armed: ParsekScenario.Instance is null targetPid={vessel.persistentId}");
                 return true;
             }
 
@@ -474,14 +494,14 @@ namespace Parsek.Patches
             if (existing != null && existing.IntentId != intentId)
             {
                 ParsekLog.Info("SwitchIntentPatch",
-                    $"Map Switch-To intent stale-intent-superseded: prior intentId={existing.IntentId:D} " +
+                    $"{label} intent stale-intent-superseded: prior intentId={existing.IntentId:D} " +
                     $"action={existing.Action} new intentId={intentId:D}");
             }
 
             scenario.ArmStockActionIntent(marker);
-            __state = intentId;
+            armedIntentId = intentId;
             ParsekLog.Info("SwitchIntentPatch",
-                $"Map Switch-To intent armed: intentId={marker.IntentId:D} action={marker.Action} " +
+                $"{label} intent armed: intentId={marker.IntentId:D} action={marker.Action} " +
                 $"targetPid={marker.TargetVesselPersistentId} sourceScene={marker.SourceScene} " +
                 $"capturedUT={marker.CapturedUT.ToString("R", CultureInfo.InvariantCulture)}");
             return true;
@@ -1020,6 +1040,16 @@ namespace Parsek.Patches
 
         static void Postfix(Guid __state)
         {
+            ClearUnconsumedIntent(__state, "Map Switch-To");
+        }
+
+        /// <summary>
+        /// Clears the intent a Switch-To armed for stock's own switch when no consume fired
+        /// (stock's <c>SetActiveVessel</c> took an early return). Shared with
+        /// <see cref="AlarmJumpSwitchPatch"/>.
+        /// </summary>
+        internal static void ClearUnconsumedIntent(Guid __state, string label)
+        {
             // Contract: this Postfix uses "marker still armed under my IntentId"
             // as a proxy for "Phase C's TryConsumeStockActionIntent didn't fire
             // for this click, so SetActiveVessel took an early-return path."
@@ -1059,7 +1089,7 @@ namespace Parsek.Patches
                 // Subsequent click's marker (stale-intent-superseded path); leave
                 // it armed for the new Prefix's lifecycle.
                 ParsekLog.Verbose("SwitchIntentPatch",
-                    $"Map Switch-To Postfix: marker IntentId mismatch (mine={__state:D} current={current.IntentId:D}) — leaving armed");
+                    $"{label} Postfix: marker IntentId mismatch (mine={__state:D} current={current.IntentId:D}) — leaving armed");
                 return;
             }
 
@@ -1073,7 +1103,7 @@ namespace Parsek.Patches
             // branch earlier.)
             scenario.ClearStockActionIntent("refused-no-switch");
             ParsekLog.Info("SwitchIntentPatch",
-                $"Map Switch-To Postfix: cleared own marker intentId={__state:D} reason=refused-no-switch");
+                $"{label} Postfix: cleared own marker intentId={__state:D} reason=refused-no-switch");
         }
 
         /// <summary>

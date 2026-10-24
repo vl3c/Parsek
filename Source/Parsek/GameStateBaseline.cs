@@ -53,6 +53,28 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// The baseline crew entry for one roster kerbal: crew and tourists are captured
+        /// (a tourist's trait reads "Tourist" whatever his trait field says), applicants and
+        /// unowned kerbals are not. Pure.
+        /// </summary>
+        internal static bool TryBuildCrewEntry(
+            string name, string status, string trait, ProtoCrewMember.KerbalType type,
+            out CrewEntry entry)
+        {
+            entry = default(CrewEntry);
+            if (string.IsNullOrEmpty(name)) return false;
+            bool tourist = type == ProtoCrewMember.KerbalType.Tourist;
+            if (!tourist && type != ProtoCrewMember.KerbalType.Crew) return false;
+            entry = new CrewEntry
+            {
+                name = name,
+                status = status ?? "",
+                trait = tourist ? KerbalsModule.TouristRole : (trait ?? "")
+            };
+            return true;
+        }
+
         public static GameStateBaseline CaptureCurrentState()
         {
             var baseline = new GameStateBaseline();
@@ -136,20 +158,17 @@ namespace Parsek
                 }
             }
 
-            // Crew roster
+            // Crew roster: crew and tourists (stock's roster.Crew leaves tourists out), so
+            // a tourist's trait survives stock deleting him (GC-12).
             if (HighLogic.CurrentGame != null && HighLogic.CurrentGame.CrewRoster != null)
             {
-                foreach (var crew in HighLogic.CurrentGame.CrewRoster.Crew)
+                foreach (var crew in HighLogic.CurrentGame.CrewRoster.Kerbals())
                 {
-                    if (crew != null)
-                    {
-                        baseline.crewEntries.Add(new CrewEntry
-                        {
-                            name = crew.name,
-                            status = crew.rosterStatus.ToString(),
-                            trait = crew.trait ?? ""
-                        });
-                    }
+                    if (crew == null) continue;
+                    CrewEntry entry;
+                    if (TryBuildCrewEntry(crew.name, crew.rosterStatus.ToString(), crew.trait,
+                            crew.type, out entry))
+                        baseline.crewEntries.Add(entry);
                 }
             }
 

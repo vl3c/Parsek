@@ -295,7 +295,12 @@ class RoverRouteSpecFixtureSyncTests(unittest.TestCase):
     # re-authored 2026-09-04 for the endpoint-transfer ruling and RVR-19 authored for
     # it in the same commit, and both flew green against the merged ruling (runs
     # `2026-09-03_2153` / `_2154` on DLL `2414aa3a3d32d7b7`).
-    SPECS = ("RVR-1-rover-route-proof.toml",
+    SPECS = (# IR-1 / IR-2 (2026-10-24, roadmap Phase B) boot these bytes for RVR-2's
+             # route and endpoint arithmetic and read the route back across an F9 and a
+             # stock revert.
+             "IR-1-route-f9-across-a-dispatch.toml",
+             "IR-2-route-stock-revert-mid-cycle.toml",
+             "RVR-1-rover-route-proof.toml",
              "RVR-2-rover-route-create.toml",
              "RVR-3-route-lifecycle.toml",
              "RVR-16-rover-route-destination-slots-full.toml",

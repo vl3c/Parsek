@@ -72,6 +72,42 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// True when the couple side whose vessel carries <paramref name="partnerPid"/> (the
+        /// recorder's dock partner) is an EVA kerbal. Unlike <see cref="InvolvesEvaVessel"/>
+        /// this tells a claw grabbing a kerbal (partner EVA) from a kerbal taking an external
+        /// command seat (the recorder's own vessel EVA, partner the seat's vessel).
+        /// </summary>
+        internal static bool PartnerIsEvaVessel(Part from, Part to, uint partnerPid)
+        {
+            Vessel fromVessel = from != null ? from.vessel : null;
+            Vessel toVessel = to != null ? to.vessel : null;
+            return PartnerIsEvaCore(
+                partnerPid,
+                fromVessel != null ? fromVessel.persistentId : 0u,
+                fromVessel != null && fromVessel.isEVA,
+                toVessel != null ? toVessel.persistentId : 0u,
+                toVessel != null && toVessel.isEVA);
+        }
+
+        /// <summary>
+        /// Pure core of <see cref="PartnerIsEvaVessel"/>. The from side is checked first,
+        /// matching <c>ParsekFlight.ResolveDockPartnerPidFromEvent</c>, which picks the from
+        /// side when it is not the recorder. A zero or unmatched partner pid is not EVA (the
+        /// stamp is 0 for it anyway).
+        /// </summary>
+        internal static bool PartnerIsEvaCore(
+            uint partnerPid, uint fromVesselPid, bool fromIsEva, uint toVesselPid, bool toIsEva)
+        {
+            if (partnerPid == 0u)
+                return false;
+            if (fromVesselPid == partnerPid)
+                return fromIsEva;
+            if (toVesselPid == partnerPid)
+                return toIsEva;
+            return false;
+        }
+
         private static bool HasDockingNode(Part part)
         {
             return part != null && part.FindModuleImplementing<ModuleDockingNode>() != null;

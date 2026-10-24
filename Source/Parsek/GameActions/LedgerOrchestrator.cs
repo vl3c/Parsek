@@ -2155,11 +2155,6 @@ namespace Parsek
             public KerbalEndState EndState;
         }
 
-        private static bool ShouldTrackKerbalRole(string role)
-        {
-            return !string.Equals(role, "Tourist", StringComparison.OrdinalIgnoreCase);
-        }
-
         /// <summary>
         /// Extracts crew members from a recording's vessel snapshot data,
         /// mirroring the crew extraction logic in KerbalsModule.ProcessAction.
@@ -2167,7 +2162,8 @@ namespace Parsek
         /// for crew names (same as PopulateCrewEndStates), falls back to VesselSnapshot.
         /// Stand-in names are reverse-mapped back to original slot owners so
         /// KerbalAssignment actions use the same identity as CrewEndStates.
-        /// Roles come from KerbalsModule.FindTraitForKerbal (KSP roster lookup).
+        /// Roles come from KerbalsModule.FindTraitForKerbal (roster, tourist rows, baselines;
+        /// a tourist reads "Tourist").
         /// End states come from rec.CrewEndStates if populated.
         /// </summary>
         internal static List<CrewInfo> ExtractCrewFromRecording(Recording rec)
@@ -2193,9 +2189,9 @@ namespace Parsek
             for (int i = 0; i < names.Count; i++)
             {
                 string name = names[i];
+                // A tourist keeps his row (role "Tourist"): it is the durable record of the
+                // passenger seat, and the kerbal-death count reads the same crew list.
                 string role = KerbalsModule.FindTraitForKerbal(name);
-                if (!ShouldTrackKerbalRole(role))
-                    continue;
 
                 KerbalEndState endState = KerbalEndState.Unknown;
                 if (rec.CrewEndStates != null)
@@ -5079,6 +5075,11 @@ namespace Parsek
                     rec.RecordingId, rec.StartUT, rec.EndUT);
                 List<GameAction> existing;
                 existingByRecording.TryGetValue(rec.RecordingId, out existing);
+                int touristRolesKept = CarryTouristRoles(existing, kerbalActions);
+                if (touristRolesKept > 0)
+                    ParsekLog.Verbose(Tag,
+                        $"MigrateKerbalAssignments: recording '{rec.RecordingId}' kept the tourist role on " +
+                        $"{touristRolesKept.ToString(CultureInfo.InvariantCulture)} row(s) the roster can no longer confirm");
                 if (KerbalAssignmentActionsMatch(existing, kerbalActions))
                     continue;
 
@@ -5224,6 +5225,43 @@ namespace Parsek
             public string KerbalName;
             public KerbalEndState FromState;
             public KerbalEndState ToState;
+        }
+
+        /// <summary>
+        /// A seat recorded as a tourist's stays a tourist's: for every
+        /// <paramref name="desired"/> row whose kerbal an <paramref name="existing"/> row of
+        /// the same recording names with the tourist role, the desired row takes that role.
+        /// Stock deletes a tourist when his contract ends or his vessel is recovered, and a
+        /// rewind prunes the baselines that captured him, so a re-derived row would otherwise
+        /// fall back to "Pilot" and the hold would grow a stand-in. Stock never turns a
+        /// tourist into crew. Returns the rows changed. Pure over its inputs.
+        /// </summary>
+        internal static int CarryTouristRoles(List<GameAction> existing, List<GameAction> desired)
+        {
+            if (existing == null || existing.Count == 0 || desired == null || desired.Count == 0)
+                return 0;
+
+            var touristNames = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < existing.Count; i++)
+            {
+                var a = existing[i];
+                if (a != null && !string.IsNullOrEmpty(a.KerbalName)
+                    && KerbalsModule.IsTouristRole(a.KerbalRole))
+                    touristNames.Add(a.KerbalName);
+            }
+            if (touristNames.Count == 0) return 0;
+
+            int changed = 0;
+            for (int i = 0; i < desired.Count; i++)
+            {
+                var d = desired[i];
+                if (d == null || string.IsNullOrEmpty(d.KerbalName)) continue;
+                if (KerbalsModule.IsTouristRole(d.KerbalRole)) continue;
+                if (!touristNames.Contains(d.KerbalName)) continue;
+                d.KerbalRole = KerbalsModule.TouristRole;
+                changed++;
+            }
+            return changed;
         }
 
         private sealed class KerbalAssignmentRepairStats

@@ -69,6 +69,9 @@ namespace Parsek
             public int Cached;
             public int IncomingFiled;
             public int VersionsDeleted;
+            public int VersionsQuarantined;
+            public int VersionsRestored;
+            public int VersionsPurged;
             public int HeadsQuarantined;
             public int QuarantineRestored;
             public int QuarantinePurged;
@@ -223,6 +226,7 @@ namespace Parsek
 
             // 3. Recordings: incoming first, then versions, then heads and artifacts.
             FileIncomingBackups(versionsDir, result);
+            SweepVersionQuarantine(versionsDir, references, result);
             CollectVersions(versionsDir, references, result);
             CollectRecordingHeads(recordingsDir, references, result);
             SweepQuarantine(recordingsDir, references, result);
@@ -237,6 +241,8 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"Collection: referrers={result.Referrers} scanned={result.Scanned} cached={result.Cached} " +
                 $"incomingFiled={result.IncomingFiled} versionsDeleted={result.VersionsDeleted} " +
+                $"versionsQuarantined={result.VersionsQuarantined} versionsRestored={result.VersionsRestored} " +
+                $"versionsPurged={result.VersionsPurged} " +
                 $"headsQuarantined={result.HeadsQuarantined} quarantineRestored={result.QuarantineRestored} " +
                 $"quarantinePurged={result.QuarantinePurged} quarantineDated={result.QuarantineDated} " +
                 $"transientDeleted={result.TransientDeleted} " +
@@ -533,11 +539,21 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// An unnamed version waits in <c>_versions/_quarantine/yyyy-MM-dd/</c> for
+        /// <see cref="QuarantineGraceDays"/> like an unnamed head (GC-15): a cold load of a save
+        /// brought in from outside the folder promotes its own copy and moves the newer head
+        /// aside into <c>_versions</c>, so deleting that head at once would lose the newer copy
+        /// before the player can swap the newer save back. A copy already waiting under the same
+        /// name holds the same bytes (the name carries the content hash), so the newcomer goes.
+        /// </summary>
         private static void CollectVersions(string versionsDir, SaveReferences references, Result result)
         {
             if (!Directory.Exists(versionsDir))
                 return;
             string[] files = Directory.GetFiles(versionsDir);
+            string todayDir = Path.Combine(VersionQuarantineDirectory(versionsDir),
+                UtcNow().ToString(QuarantineDateFormat, CultureInfo.InvariantCulture));
             int kept = 0;
             for (int i = 0; i < files.Length; i++)
             {
@@ -549,14 +565,150 @@ namespace Parsek
                     kept++;
                     continue;
                 }
-                if (TryDelete(files[i], result))
+                if (QuarantinedVersionExists(versionsDir, fileName))
                 {
-                    result.VersionsDeleted++;
+                    if (TryDelete(files[i], result))
+                    {
+                        result.VersionsDeleted++;
+                        ParsekLog.Verbose(Tag,
+                            $"Version collected: rec={id} kind={SidecarVersions.Label(kind)} hash={hash} " +
+                            "reason=identical-copy-in-quarantine");
+                    }
+                    continue;
+                }
+                try
+                {
+                    Directory.CreateDirectory(todayDir);
+                    File.Move(files[i], Path.Combine(todayDir, fileName));
+                    result.VersionsQuarantined++;
                     ParsekLog.Verbose(Tag,
-                        $"Version collected: rec={id} kind={SidecarVersions.Label(kind)} hash={hash}");
+                        $"Version quarantined: rec={id} kind={SidecarVersions.Label(kind)} hash={hash} -> " +
+                        $"{SidecarVersions.VersionsDirName}/{RecordingStore.OrphanQuarantineDirName}/{Path.GetFileName(todayDir)}/");
+                }
+                catch (Exception ex)
+                {
+                    result.Failures++;
+                    ParsekLog.Warn(Tag,
+                        $"Failed to quarantine version '{fileName}': {ex.GetType().Name}:{ex.Message} (left in place, NOT deleted)");
                 }
             }
-            ParsekLog.Verbose(Tag, $"Versions judged: kept={kept} deleted={result.VersionsDeleted}");
+            ParsekLog.Verbose(Tag,
+                $"Versions judged: kept={kept} quarantined={result.VersionsQuarantined} deleted={result.VersionsDeleted}");
+        }
+
+        private static string VersionQuarantineDirectory(string versionsDir)
+        {
+            return Path.Combine(versionsDir, RecordingStore.OrphanQuarantineDirName);
+        }
+
+        private static bool QuarantinedVersionExists(string versionsDir, string fileName)
+        {
+            foreach (var entry in ListQuarantinedVersions(versionsDir))
+            {
+                if (string.Equals(Path.GetFileName(entry.Key), fileName, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>Every file in a dated folder of <c>_versions/_quarantine</c>, with its folder name.</summary>
+        private static List<KeyValuePair<string, string>> ListQuarantinedVersions(string versionsDir)
+        {
+            var files = new List<KeyValuePair<string, string>>();
+            string quarantineDir = VersionQuarantineDirectory(versionsDir);
+            if (!Directory.Exists(quarantineDir))
+                return files;
+            string[] dirs = Directory.GetDirectories(quarantineDir);
+            Array.Sort(dirs, StringComparer.Ordinal);
+            for (int d = 0; d < dirs.Length; d++)
+            {
+                string folderName = Path.GetFileName(dirs[d]);
+                if (!TryParseQuarantineFolderDate(folderName, out _))
+                    continue;
+                foreach (string dated in Directory.GetFiles(dirs[d]))
+                    files.Add(new KeyValuePair<string, string>(dated, folderName));
+            }
+            return files;
+        }
+
+        /// <summary>
+        /// Moves back to <c>_versions</c> every quarantined version whose (recording id, hash)
+        /// <paramref name="named"/> names. A version already back in place holds the same bytes,
+        /// so the quarantined copy then goes.
+        /// </summary>
+        private static int RestoreNamedQuarantinedVersions(
+            string versionsDir, SaveReferences named, string reason, Result result)
+        {
+            int restored = 0;
+            var files = ListQuarantinedVersions(versionsDir);
+            for (int i = 0; i < files.Count; i++)
+            {
+                string path = files[i].Key;
+                string fileName = Path.GetFileName(path);
+                if (!SidecarVersions.TryParseVersionFileName(fileName, out string id, out string hash, out _))
+                    continue;
+                if (!named.NamesVersion(id, hash))
+                    continue;
+                string target = Path.Combine(versionsDir, fileName);
+                try
+                {
+                    if (File.Exists(target))
+                    {
+                        File.Delete(path);
+                        ParsekLog.Verbose(Tag,
+                            $"Quarantined version named again but already in place: {fileName} (rec={id}) - copy removed");
+                        continue;
+                    }
+                    File.Move(path, target);
+                    restored++;
+                    ParsekLog.Info(Tag,
+                        $"Restored quarantined version: {fileName} (rec={id} hash={hash}) reason={reason}");
+                }
+                catch (Exception ex)
+                {
+                    if (result != null) result.Failures++;
+                    ParsekLog.Warn(Tag,
+                        $"Failed to restore quarantined version '{fileName}': {ex.GetType().Name}:{ex.Message} (left in quarantine)");
+                }
+            }
+            return restored;
+        }
+
+        /// <summary>
+        /// Collection step before the versions: a quarantined version some save or memory names
+        /// again goes back; one in a folder older than <see cref="QuarantineGraceDays"/> that
+        /// nothing names is deleted; empty dated folders go.
+        /// </summary>
+        private static void SweepVersionQuarantine(string versionsDir, SaveReferences references, Result result)
+        {
+            string quarantineDir = VersionQuarantineDirectory(versionsDir);
+            if (!Directory.Exists(quarantineDir))
+                return;
+            result.VersionsRestored += RestoreNamedQuarantinedVersions(
+                versionsDir, references, "named-by-save-or-memory", result);
+            DateTime now = UtcNow();
+            int waiting = 0;
+            var files = ListQuarantinedVersions(versionsDir);
+            for (int i = 0; i < files.Count; i++)
+            {
+                TryParseQuarantineFolderDate(files[i].Value, out DateTime folderDate);
+                if (!IsQuarantineExpired(folderDate, now))
+                {
+                    waiting++;
+                    continue;
+                }
+                if (TryDelete(files[i].Key, result))
+                {
+                    result.VersionsPurged++;
+                    ParsekLog.Verbose(Tag,
+                        $"Quarantined version purged: {Path.GetFileName(files[i].Key)} quarantined={files[i].Value} " +
+                        $"graceDays={QuarantineGraceDays}");
+                }
+            }
+            RemoveEmptyQuarantineFolders(quarantineDir);
+            ParsekLog.Verbose(Tag,
+                $"Version quarantine judged: restored={result.VersionsRestored} purged={result.VersionsPurged} " +
+                $"waiting={waiting}");
         }
 
         private static void CollectRecordingHeads(string recordingsDir, SaveReferences references, Result result)
@@ -904,8 +1056,9 @@ namespace Parsek
         /// <summary>
         /// Cold-load step before the recordings hydrate: every quarantined file whose recording
         /// the loaded save names goes back to its head position, so a save brought back into the
-        /// folder (copied in, or restored from <c>Backup/</c>) loads whole. Housekeeping: a
-        /// failure never aborts the load.
+        /// folder (copied in, or restored from <c>Backup/</c>) loads whole, and every quarantined
+        /// version whose (recording id, hash) it names goes back to <c>_versions</c>, where the
+        /// hash resolution finds it. Housekeeping: a failure never aborts the load.
         /// </summary>
         internal static int RestoreQuarantinedNamedBy(ConfigNode scenarioNode)
         {
@@ -916,7 +1069,10 @@ namespace Parsek
                     return 0;
                 string recordingsDir = Path.Combine(saveDir, "Parsek", "Recordings");
                 string quarantineDir = QuarantineDirectory(recordingsDir);
-                if (!Directory.Exists(quarantineDir))
+                string versionsDir = Path.Combine(recordingsDir, SidecarVersions.VersionsDirName);
+                bool headsWaiting = Directory.Exists(quarantineDir);
+                bool versionsWaiting = Directory.Exists(VersionQuarantineDirectory(versionsDir));
+                if (!headsWaiting && !versionsWaiting)
                     return 0;
 
                 var named = new SaveReferences();
@@ -924,16 +1080,25 @@ namespace Parsek
                 if (named.RecordingIds.Count == 0)
                     return 0;
 
-                RestoreNamedQuarantinedFiles(recordingsDir, ListQuarantinedFiles(quarantineDir), named,
-                    "named-by-loaded-save", out int restored, out int headExists);
-                if (restored > 0 || headExists > 0)
+                int restored = 0;
+                int headExists = 0;
+                if (headsWaiting)
                 {
-                    RemoveEmptyQuarantineFolders(quarantineDir);
+                    RestoreNamedQuarantinedFiles(recordingsDir, ListQuarantinedFiles(quarantineDir), named,
+                        "named-by-loaded-save", out restored, out headExists);
+                }
+                int versionsRestored = versionsWaiting
+                    ? RestoreNamedQuarantinedVersions(versionsDir, named, "named-by-loaded-save", null)
+                    : 0;
+                if (restored > 0 || headExists > 0 || versionsRestored > 0)
+                {
+                    if (headsWaiting) RemoveEmptyQuarantineFolders(quarantineDir);
+                    if (versionsWaiting) RemoveEmptyQuarantineFolders(VersionQuarantineDirectory(versionsDir));
                     ParsekLog.Info(Tag,
                         $"Quarantine restore at load: restored={restored} namedHeadExists={headExists} " +
-                        $"namedRecordings={named.RecordingIds.Count}");
+                        $"versionsRestored={versionsRestored} namedRecordings={named.RecordingIds.Count}");
                 }
-                return restored;
+                return restored + versionsRestored;
             }
             catch (Exception ex)
             {
