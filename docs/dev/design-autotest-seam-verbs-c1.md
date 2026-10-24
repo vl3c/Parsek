@@ -906,7 +906,10 @@ accounted whatever DID happen.
 > Control's slot count, which stock's Accept button checks before this call. Refusals after
 > `missing-arg`: `unknown-contract` (arg class), `contract-not-offered` (career class).
 > Dispatch: CAREER (Funding and the contract system live) + SPACECENTER. Manifest kind
-> `contract-accept`; payload `state` / `fundsAfter`.
+> `contract-accept`; payload `state` / `fundsAfter` / `contract` (the accepted guid).
+> `contract=offered-first` (2026-10-24, lane RF-C1) accepts the first Offered contract in
+> stock's list instead, for a host whose offers stock generates at run time; read the guid back
+> from the payload's `contract` or the applied line's `observedAfter=... contract=<guid>`.
 >
 > A research, upgrade, hire or accept whose stock call left no effect now writes one Info line
 > before its refusal: `kscaction <action> not applied: target=<t> <key>Before=<b> <key>After=<a>

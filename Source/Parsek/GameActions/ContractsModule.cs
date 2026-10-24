@@ -742,6 +742,21 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The UT of the accept row that made <paramref name="contractId"/> active, or NaN
+        /// when it is not active. A walk past now (the Re-Fly session's full-timeline walk)
+        /// leaves contracts active whose accept the committed timeline makes only later;
+        /// <see cref="KspStatePatcher.SelectContractsAcceptedByNow"/> reads this to keep them
+        /// out of stock until the clock reaches the accept.
+        /// </summary>
+        internal double GetActiveContractAcceptUT(string contractId)
+        {
+            GameAction accept;
+            return activeContracts.TryGetValue(contractId ?? "", out accept) && accept != null
+                ? accept.UT
+                : double.NaN;
+        }
+
+        /// <summary>
         /// Returns the set of contract IDs that resolved to terminal state during
         /// the current walk. Used by KSP state patching to remove only terminal
         /// stock contracts that no longer have terminal ledger support.

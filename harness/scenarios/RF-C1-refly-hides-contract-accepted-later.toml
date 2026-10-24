@@ -1,0 +1,173 @@
+schema = 1
+id = "RF-C1-refly-hides-contract-accepted-later"
+tier = "operator"
+# CONTRACTS x RE-FLY (roadmap XS-6, todo REFLY-SESSION-SHOWS-CONTRACT-ACCEPTED-LATER). A
+# contract accepted at the Space Center AFTER a flight's separation is committed future when the
+# player re-flies that flight's booster. The Re-Fly invoke walks the whole ledger (design 6.8
+# step 5, the session shows the committed career), so the contract was active at the end of
+# that walk and `KspStatePatcher.PatchContracts` restored it Active at the session's earlier
+# clock: the re-flown booster could complete or fail a contract before it was accepted (the
+# walk then credits the completion with no accept before it and makes the contract Active
+# again at its accept). The fix holds it out of stock's active list until the clock reaches the
+# accept. AUTHORED 2026-10-24 (branch `claude/project-thread-dkcvpn`), NEVER FLOWN.
+#
+# THE STORY. RF-L2's act 1 verbatim (GS-1's two-stage hop on `career-gs1-two-stage-pad`, the
+# booster still under canopy at the exit, the tree auto-commits, the booster slot open), then
+# at the Space Center warp to UT 1000 and accept the first contract stock offers there
+# (`KscAction accept-contract contract=offered-first`; the fixture carries no offers, stock
+# generates them at the Space Center). Save, reload, re-fly the booster (session clock about
+# UT 60, the accept about 1000 ahead), land it under its chute by UT 400 (still before the
+# accept), merge, back to the Space Center, warp across the accept to UT 1100.
+#
+# THE GATES:
+#   - the invoke's patch holds the accepted contract out of stock (`PatchContracts: kept 1
+#     contract(s) out of stock's active list until the clock reaches their committed accept:
+#     [<the accepted guid>]`, backreferenced to the accept line); a DLL without the fix has no
+#     such literal and reds here;
+#   - the merge passes the dominance check (Variant A), nothing tombstoned;
+#   - crossing the accept at the Space Center restores the contract Active
+#     (`PatchContracts: ... restored=1, ...` after the `rfc1-ksc` mark).
+#
+# PRE-REGISTERED READINGS:
+#   - `kscaction refused action=accept-contract reason=unknown-contract`: stock offered nothing
+#     at the Space Center by UT 1000 on this host; a premise miss (warp longer, or a host with
+#     offers and a two-stage craft).
+#   - `kscaction refused ... reason=blocked-committed`: Mission Control's slot or a committed
+#     accept; read the not-applied line.
+#   - no `kept 1` line but `restored=1` at the invoke: the defect reproduced on this DLL (check
+#     the deployed DLL carries `kept ` + `out of stock's active list` first).
+#   - `Merge dominance check ... result=refuse`: read the pool; the booster's crash lost nothing.
+#   - no `restored=1` after the mark: the Space Center crossing did not re-patch contracts;
+#     read the `Clock-crossing` lines, then file it.
+#
+# FAST-LANE CHECKLIST: (1) reuse - RF-L2's act 1 and act 2 verbatim; (2) explicit-UT warps only;
+# (3)-(5) no dwells, burns or coasts beyond the descent; (6) retry `once`; (7) count window {3,8}
+# until the reading run pins it; (8) operator until green, about 10 min expected; (9)
+# flight_efficiency.py after the first green flight.
+description = "RF-C1 (contracts x Re-Fly): GS-1's career hop commits with the booster slot open; at the Space Center a contract is accepted later; re-flying the booster keeps that contract out of stock's active list until the clock reaches its accept, the merge passes, and crossing the accept at the Space Center brings the contract back Active."
+instanceProfile = "stock-minimal"
+tags = ["RF-C1", "refly-ledger-safety", "refly", "rewind", "career", "contracts", "GS1",
+        "staging", "controlled-child", "scene-exit", "auto-merge", "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/career-gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "gs1_auto_chute_booster_career"
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" },  expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  # ---- ACT 1: RF-L2's hop; the pod lands, the booster is under canopy at the exit ----
+  { phase = "mission",                                                                  expect = "MISSION-OK", budget = 900 },
+  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  # ---- THE LATER ACCEPT: well after the separation's rewind point ----
+  { cmd = "WarpToUT",          args = { ut = "1000", maxRate = "100" },                 expect = "OK", budget = 120 },
+  { cmd = "KscAction",         args = { action = "accept-contract", contract = "offered-first" }, label = "acc", expect = "OK", budget = 60 },
+  { cmd = "SaveGame",          args = { name = "persistent" },                          expect = "OK" },
+  # ---- ACT 2: re-fly the booster slot (RF-L2's order) ----
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "StopRecording",                                                              expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",     expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "rfc1-invoke" },                        expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "1" },            expect = "OK", budget = 300 },
+  { cmd = "ListHandles",       args = { kind = "chains" },                              expect = "OK" },
+  { cmd = "RecordingState",    args = { awaitRecorderLive = "refly" },                  expect = "OK" },
+  # The descent under canopy, ending before the accept's UT.
+  { cmd = "WarpToUT",          args = { ut = "400", maxRate = "2", ladder = "phys" },   expect = "OK", budget = 540 },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                             expect = "OK", budget = 240 },
+  { cmd = "MissionMark",       args = { label = "rfc1-merged" },                        expect = "OK" },
+  # ---- ACT 3: cross the accept at the Space Center ----
+  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "rfc1-ksc" },                           expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "1100", maxRate = "100" },                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[driver.missionParams]
+# RF-L2's (QL-2b's) values VERBATIM.
+throttle = 1.0
+stagingApoapsisMeters = 700
+stagingMaxAltMeters = 1500
+apoapsisWindowMeters = { min = 600, max = 1600 }
+stageSettleFrames = 2
+chuteArmMaxRateMps = 30
+chuteFullDeployAltMeters = 600
+landedSituations = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds = 90
+coastTimeoutSeconds = 120
+stageTimeoutSeconds = 60
+descentTimeoutSeconds = 300
+siblingVesselName = "GS1 Auto-Chute Booster Probe"
+siblingAirborneAtExit = true
+siblingDownTimeoutSeconds = 240
+
+[dimensionsCovered]
+#   commit-scene-exit / auto-merge <- `Silent full-fidelity auto-commit (scene-exit)`
+#   controlled-decoupled-child     <- `ProcessBreakupEvent: controlled child created`
+#   rewind-to-separation           <- StartInvoke slot=1 + Invocation complete
+#   supersede-relation             <- `Added N supersede relations`
+#   contracts                      <- the kept and restored PatchContracts lines
+D1  = ["commit-scene-exit", "auto-merge"]
+D5  = ["controlled-decoupled-child"]
+D9  = ["rewind-to-separation", "supersede-relation"]
+D14 = ["kerbin", "career", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 3, max = 8 }
+
+[expectations.logContracts]
+required = [
+  # --- ACT 1 (RF-L2's tokens) ---
+  "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+  "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
+  "IsUnfinishedFlight=true rec=\\S+ reason=stableLeafUnconcluded slot=1 focusSlot=0 terminal=SubOrbital",
+  # --- THE LATER ACCEPT ---
+  "kscaction action=accept-contract target=offered-first applied=true manifestKind=\\S+ observedAfter=state=Active funds=\\S+ contract=[0-9a-f-]{36}",
+  # --- ACT 2: the invoke's patch holds the accepted contract out of stock ---
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_[0-9a-f]{32} slot=1",
+  "(?s)kscaction action=accept-contract target=offered-first applied=true [^\\r\\n]*contract=([0-9a-f-]{36}).*?MISSIONMARK label=rfc1-invoke .*?PatchContracts: kept 1 contract\\(s\\) out of stock's active list until the clock reaches their committed accept: \\[\\1\\]",
+  "Invocation complete: sess=\\S+ rp=rp_[0-9a-f]{32} slot=1 ",
+  "recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true",
+  # --- THE MERGE passes, Variant A ---
+  "Merge dominance check sess=\\S+ result=pass pool=\\S+ ut=\\S+ before=\\S+ after=\\S+ ",
+  "Loss swap sess=\\S+ variant=A repLossOld=\\S+ repLossNew=\\S+",
+  "answermergedialog complete choice=merge result=committed",
+  # --- ACT 3: crossing the accept restores it ---
+  "(?s)MISSIONMARK label=rfc1-ksc .*?PatchContracts: removedStale=[0-9]+, removedFinishedTombstoned=[0-9]+, restored=1, ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewind refused",
+  "kscaction refused",
+  "warptout refused",
+  "Tombstoned [1-9][0-9]* career actions",
+  "Merge dominance check sess=\\S+ result=refuse",
+]
+
+[expectations.rewind]
+gating        = false
+supersedeRows = { min = 1 }
+tombstones    = { max = 0 }
+
+[runtime]
+# LoadGame x2 (660 each), mission 900, ExitToSpaceCenter x2 (180 each), WarpToUT x2 at the
+# Space Center (240 each), KscAction 120, SaveGame 120, InvokeRewind 660, the descent 540,
+# AnswerMergeDialog 300, about 12 inert steps at 120: about 6,500 s.
+budgetSeconds = 6900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

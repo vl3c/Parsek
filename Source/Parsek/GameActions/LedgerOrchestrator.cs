@@ -4055,7 +4055,8 @@ namespace Parsek
                         techPatchCutoff,
                         excludeTombstonedTechFromBaseline,
                         suppressSuspiciousDrawdownWarnings,
-                        authoritativeReduction);
+                        authoritativeReduction,
+                        deadlineClockUT);
                 }
                 finally
                 {
@@ -4151,7 +4152,8 @@ namespace Parsek
             double? techPatchCutoff,
             bool excludeTombstonedTechFromBaseline,
             bool suppressSuspiciousDrawdownWarnings,
-            bool authoritativeReduction)
+            bool authoritativeReduction,
+            double? deadlineClockUT)
         {
             // LedgerTrace Tier-A: open the recalc burst so every trace line emitted by
             // the Patch* sites below shares one grep-sliceable recalcSeq. No-op when the
@@ -4254,7 +4256,8 @@ namespace Parsek
                 partPurchaseActions: actions,
                 walkUtCutoff: utCutoff,
                 committedTechUnlockIds: committedTechUnlockIds,
-                committedTechUnlockLiveUt: committedTechUnlockLiveUt);
+                committedTechUnlockLiveUt: committedTechUnlockLiveUt,
+                deadlineClockUT: deadlineClockUT);
 
             // A hire the clock reached was never made in stock (the load put the kerbal back
             // among the applicants); make it now, uncharged, in the pass whose funds patch

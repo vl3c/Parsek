@@ -58,6 +58,9 @@
 "career-pad-craft-zero-funds" = ["Settings Probe"]
 # L8 launches the probe twice on L2's host after its rewinds strip the Jumping Flea.
 "career-pad-craft" = ["Settings Probe"]
+# L13 launches the probe from the VAB for its ground-truth window after the Re-Fly merge
+# (the host carries its GS-1 craft on the pad, nothing in the VAB).
+"career-gs1-two-stage-pad" = ["Settings Probe"]
 # RF-9's produced save, harvested. The row is INHERITED rather than chosen: the
 # fixture is a copy of what a `gs1-two-stage-pad` run left behind, so its
 # `Ships/VAB` held the same two craft and the harvester dropped them as already

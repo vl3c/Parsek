@@ -224,7 +224,17 @@ namespace Parsek
 
             double clock = ResolveDeadlineClockUT(inputs.DeadlineClockUT, baseline, attemptRows);
             List<GameAction> afterA = ComposeAfter(baseline, attemptRows, retireIds, null, null);
-            var walkBefore = Walk(baseline, clock);
+            // A deadline expiry stock charged during the attempt is the committed timeline's
+            // own expiry: L walks it too, or L's penalty-free synthetic fail makes every
+            // attempt that outlives an open deadline read as a loss.
+            var sharedExpiries = SharedDeadlineExpiries(baseline, attemptRows);
+            List<GameAction> beforeWalkRows = baseline;
+            if (sharedExpiries.Count > 0)
+            {
+                beforeWalkRows = new List<GameAction>(baseline);
+                beforeWalkRows.AddRange(sharedExpiries);
+            }
+            var walkBefore = Walk(beforeWalkRows, clock);
             var walkA = Walk(afterA, clock);
 
             // Rule 2: A when reputation over L'(A) never drops below L.
@@ -311,6 +321,59 @@ namespace Parsek
             }
 
             return v;
+        }
+
+        /// <summary>Slack below a contract's deadline for the UT stock stamps on its expiry.</summary>
+        internal const double DeadlineExpiryToleranceSeconds = 1.0;
+
+        /// <summary>
+        /// The attempt's ContractFail rows that are a deadline expiry of a contract
+        /// <paramref name="baseline"/> leaves open at its deadline: the contract was accepted
+        /// in <c>L</c> with a real deadline (<see cref="ContractsModule.IsImplausibleContractDeadline"/>
+        /// false), nothing in <c>L</c> resolves it after that accept, and the row is dated at
+        /// or after the deadline (a contract cannot still be Active past it, so a fail there
+        /// is stock's expiry). The committed timeline holds the same expiry with the same
+        /// penalty (game-actions design 3.13), but <c>L</c>'s walk only synthesizes it, and a
+        /// synthetic fail moves contract state and no pool, so <c>L</c> must walk the real
+        /// row too (todo REFLY-DEADLINE-EXPIRY-REFUSES-THE-MERGE). Pure.
+        /// </summary>
+        internal static List<GameAction> SharedDeadlineExpiries(
+            IReadOnlyList<GameAction> baseline,
+            IReadOnlyList<GameAction> attemptRows)
+        {
+            var shared = new List<GameAction>();
+            if (baseline == null || attemptRows == null) return shared;
+            for (int i = 0; i < attemptRows.Count; i++)
+            {
+                var fail = attemptRows[i];
+                if (fail == null || fail.Type != GameActionType.ContractFail
+                    || string.IsNullOrEmpty(fail.ContractId))
+                    continue;
+                GameAction accept = null;
+                for (int j = 0; j < baseline.Count; j++)
+                {
+                    var a = baseline[j];
+                    if (a != null && a.Type == GameActionType.ContractAccept
+                        && a.ContractId == fail.ContractId && a.UT <= fail.UT
+                        && (accept == null || a.UT > accept.UT))
+                        accept = a;
+                }
+                if (accept == null || double.IsNaN(accept.DeadlineUT)
+                    || ContractsModule.IsImplausibleContractDeadline(accept.DeadlineUT, accept.UT)
+                    || fail.UT < accept.DeadlineUT - DeadlineExpiryToleranceSeconds)
+                    continue;
+                bool resolvedInL = false;
+                for (int j = 0; j < baseline.Count && !resolvedInL; j++)
+                {
+                    var r = baseline[j];
+                    resolvedInL = r != null && r.ContractId == fail.ContractId && r.UT >= accept.UT
+                        && (r.Type == GameActionType.ContractComplete
+                            || r.Type == GameActionType.ContractFail
+                            || r.Type == GameActionType.ContractCancel);
+                }
+                if (!resolvedInL) shared.Add(fail);
+            }
+            return shared;
         }
 
         private static bool IsAttemptRow(GameAction a, ICollection<string> attemptIds)
