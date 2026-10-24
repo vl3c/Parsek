@@ -85,6 +85,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A vessel another mission adopted by cargo transfer stays visible after a rewind.** If one
+  mission spawned a vessel and a later one moved cargo into or out of it, rewinding the later
+  mission used to make that vessel vanish until the transfer's replay began. It is now held back
+  like any other vessel the future uses, drawn as a ghost until its replay starts.
+  (REWIND-HOLD-MISSES-CROSS-TREE-ADOPTED-VESSEL)
 - **The alarm's Jump button follows the same rules as every other switch.** Jumping from a fired
   stock alarm never flies a ghost, is refused during a Re-Fly for any vessel but the re-flown one,
   asks to merge or discard an open recording first like Switch-To, and from the Tracking Station

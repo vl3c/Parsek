@@ -33,7 +33,7 @@ Fix (proposed): run the plain rewind's hold over the discard's world (the same
 from the discard's OnLoad), flip the policy cell's reason, and fly a lane that discards a Re-Fly
 next to a vessel with a committed future (RF lanes host the Re-Fly; EVA-11 / RC-6 assert the hold).
 
-## REWIND-HOLD-MISSES-CROSS-TREE-ADOPTED-VESSEL: a vessel another mission spawned and this one adopted by inventory transfer has no ghost after a rewind until its transfer member starts [FILED 2026-10-24 from the item-7 re-check of the 10-16 audit's suspected defects (CLAIMED-VESSEL-HAS-NO-GHOST-BEFORE-ITS-MEMBER), code read on main f3a22ce, not reproduced. Split out of the "Not covered" note of REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE. OPEN, low, visual]
+## ~~REWIND-HOLD-MISSES-CROSS-TREE-ADOPTED-VESSEL: a vessel another mission spawned and this one adopted by inventory transfer has no ghost after a rewind until its transfer member starts~~ [FILED 2026-10-24 from the item-7 re-check of the 10-16 audit's suspected defects (CLAIMED-VESSEL-HAS-NO-GHOST-BEFORE-ITS-MEMBER), code read on main f3a22ce, not reproduced. Split out of the "Not covered" note of REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE. FIXED 2026-10-24 on branch `claude/project-thread-1kbuzp`, xUnit only; a lane is owed. low, visual]
 
 The claimed-vessel hold ghost (CLAIMED-VESSEL-VANISHES-BEFORE-ITS-CLAIM, extended to plain rewinds
 by PR #2181) draws every vessel a chain claim, a Re-Fly invoke hold or a plain rewind hold takes
@@ -44,9 +44,21 @@ removed by the rewind's spawn strip (`superseding-continuation-replays`) before
 member's ghost starts (`ForeignInventoryTransfer.FindAdoptedForeignVesselMember` matches same-tree
 holders only). No paradox (the vessel is gone, not live), only a gap in what the player sees.
 
-Fix (proposed): have the strip hand a vessel it removes for a replaying continuation to the hold
-ghost (its ProtoVessel copy as the shape, released at the continuation's start), then an EVA-9
-variant that keeps the cross-tree adoption.
+Fix: the strip no longer removes the vessel. The removal came from the spawner's
+`TerminalSpawnSupersededByRecordingId` link (the adopting commit's `spawned-pid-match` names the
+transfer member, or its same-tree chain tip): `IsSpawnedVesselReproducedByRewindReplay` read the
+member's replay as re-producing the vessel. A recording that flies a vessel its own tree adopted
+by inventory transfer (`RecordingStore.FliesTransferAdoptedVessel`: the member, or a same-tree
+recording flying the member's pid) now never counts on the continuation route, as it already did
+not on the same-vessel route: it ghosts the real vessel. With the spawner historical the pid is
+kept (committed history), so the vessel stays in the rewind save and its whitelist, the chain
+walker's BACKGROUND_EVENT claim takes its rewind-save copy, and `ApplyRewindVesselHolds` holds it
+and draws the hold ghost until the member starts, as for a same-tree adoption. A spawner that
+replays (a rewind to before it) still strips, and a continuation that is no adoption still
+strips. Tests: `ForeignAdoptionRewindStripTests` (`CrossTreeAdoption_*`, three of them red with
+the skip disabled). Owed: a live lane, an EVA-11 variant that first records and commits the rover
+in its own tree so the construction flight adopts it cross-tree, then pins `held=1` and the hold
+ghost through the rewind.
 
 ## ~~RECORDING-QUARANTINE-NEVER-EMPTIED: recording files no save names pile up in `_quarantine` forever, and a save that names one again cannot load it~~ [FILED 2026-10-23 from the owner's question in the "Orphan recording files after load" thread, code read on main 6d3e318. Owner ruling 2026-10-23: 14-day grace, then delete; restore when a save names it. FIXED 2026-10-23 on branch `claude/project-thread-iy2xbd`, xUnit only. product]
 
