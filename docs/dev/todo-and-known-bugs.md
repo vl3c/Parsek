@@ -139,7 +139,7 @@ loaded-tank delivery writer (`LiveDeliveryWriters`) are synchronous, so the asse
 and with no frame between the route's creation and its teardown the scenario's Update cannot reach
 it. Re-fly H40 to confirm.
 
-## ~~MINE-6-PINS-PREDATE-THE-RESUMED-SPAWN-SEGMENT: MINE-6 pins one recording, but flying the respawned rover again now records a new segment~~ [FILED 2026-10-22 from MINE-6 `2026-10-22_1619` (PARSEK-FAIL, expectations), flown for PR #2181; not caused by it. FIXED 2026-10-24 (re-pinned; MINE-6 flight on the PR build pending). harness]
+## ~~MINE-6-PINS-PREDATE-THE-RESUMED-SPAWN-SEGMENT: MINE-6 pins one recording, but flying the respawned rover again now records a new segment~~ [FILED 2026-10-22 from MINE-6 `2026-10-22_1619` (PARSEK-FAIL, expectations), flown for PR #2181; not caused by it. FIXED 2026-10-24 in PR #2190 (MINE-6 `2026-10-24_1006` PASS attempt 1, count 2). harness]
 
 **Symptom.** `recordings.count 2 > max 1`: after the end-of-watch respawn (pid 3850340315) the log
 prints `Resumed spawn continues in a new segment: rec=fdb7cde8 segment=fc1a4789`, so the rover gets
@@ -160,7 +160,7 @@ and a forbidden `Resumed spawn segment refused`. The four ISRU edge contracts no
 press's `-before` mark to the next blocking warp's `warptout start ut=N` (the edge is still proven
 packed at the toggle, not at that warp's rails exit), instead of ending at the `-after` mark.
 
-## ~~SCENE-EXIT-RECOVERY-READS-A-ZERO-ALTITUDE-SEED-AS-ORBITING: an early finalizer pass on a just-decoupled booster extrapolates a recorded point at altitude 0.0 into an Orbiting terminal~~ [FILED 2026-10-22 from RF-L2 `2026-10-22_1026` (PASS), flown for PR #2176. FIXED 2026-10-24 (RF-L2 flight on the PR build pending). product]
+## ~~SCENE-EXIT-RECOVERY-READS-A-ZERO-ALTITUDE-SEED-AS-ORBITING: an early finalizer pass on a just-decoupled booster extrapolates a recorded point at altitude 0.0 into an Orbiting terminal~~ [FILED 2026-10-22 from RF-L2 `2026-10-22_1026` (PASS), flown for PR #2176. FIXED 2026-10-24 in PR #2190 (RF-L2 `2026-10-24_1011` PASS attempt 1: four `refused flat Points ... reader=surface-point-search` lines, no `recordedAlt=0.0`, booster committed SubOrbital and superseded by its Landed Re-Fly). product]
 
 On the booster's first background finalizer pass after the decouple, before its chutes opened, the
 recorded-point recovery used a parent-anchored body-fixed sample with `recordedAlt=0.0` (the booster
