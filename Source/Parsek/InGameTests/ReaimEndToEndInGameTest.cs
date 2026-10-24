@@ -215,7 +215,7 @@ namespace Parsek.InGameTests
             };
         }
 
-        // Eve: the INCLINED-TARGET RETENTION fixture (docs/dev/plans/reaim-inclined-target-tilt-retention.md).
+        // Eve: the INCLINED-TARGET RETENTION fixture (docs/dev/done/plans/reaim-inclined-target-tilt-retention.md).
         // Eve is inclined 2.1 deg with a near-circular orbit (ecc ~0.01) INSIDE Kerbin's, so a Kerbin->Eve
         // Hohmann sweeps ~180 deg and plane(r1,r2) - the only plane a single conic through both endpoints can
         // use - picks up a large amplified tilt (10-18 deg measured at the V8 cycle-0 geometry) against a
@@ -1859,7 +1859,7 @@ namespace Parsek.InGameTests
             // near-antiparallel tilt onto the target's own plane.
             //
             // It is the WRONG assertion for a RETAINED window. Since 2026-08-11
-            // (docs/dev/plans/reaim-inclined-target-tilt-retention.md, Phase 1) an excessive tilt whose
+            // (docs/dev/done/plans/reaim-inclined-target-tilt-retention.md, Phase 1) an excessive tilt whose
             // achievability gate says the target plane is UNREACHABLE from r1 no longer kills the candidate: the
             // synthesizer KEEPS the un-corrected conic - deliberately above this bound - and lets CalculatePatch
             // plus the proximity encounter check arbitrate. plane(r1,r2) is the only plane a single conic through

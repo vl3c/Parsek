@@ -179,7 +179,7 @@ namespace Parsek
             // (spawn-at-end preserved), so landed/splashed exits to KSC/TS no longer
             // need an approval dialog — they auto-commit silently. MAINMENU still
             // shows the dialog (game unloading; no destination scene to defer a
-            // commit into). See docs/dev/plans/silent-full-fidelity-autocommit.md.
+            // commit into). See docs/dev/done/plans/silent-full-fidelity-autocommit.md.
             if (destination == GameScenes.MAINMENU)
                 return DialogVariant.RegularMerge;
 

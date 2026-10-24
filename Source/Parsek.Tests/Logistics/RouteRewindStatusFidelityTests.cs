@@ -9,7 +9,7 @@ namespace Parsek.Tests.Logistics
 {
     /// <summary>
     /// Kept-route status fidelity at rewind (follow-up to the dormant-routes
-    /// extension, plan <c>docs/dev/plans/plan-route-rewind-dormant-visibility.md</c>):
+    /// extension, plan <c>docs/dev/done/plans/plan-route-rewind-dormant-visibility.md</c>):
     /// timeline pause-state derivation from kept RoutePaused/RouteResumed rows
     /// (<see cref="RouteRewindClassifier.DeriveTimelineStatus"/> +
     /// <see cref="RouteRewindClassifier.ApplyDerivedTimelineStatus"/>),

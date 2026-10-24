@@ -304,7 +304,7 @@ namespace Parsek.Tests
             // spawnable leaf (decision=true) keeps its VesselSnapshot so it can
             // spawn at recording end, while a ghost-only leaf (decision=false)
             // has its snapshot nulled but its GhostVisualSnapshot preserved for
-            // rendering. See docs/dev/plans/silent-full-fidelity-autocommit.md.
+            // rendering. See docs/dev/done/plans/silent-full-fidelity-autocommit.md.
             var tree = new RecordingTree { TreeName = "TestTree" };
             tree.Recordings["survivor"] = new Recording
             {

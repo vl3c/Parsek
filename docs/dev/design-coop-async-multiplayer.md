@@ -2659,8 +2659,8 @@ house pure-core + thin-shell pattern for headless testability.
   builds on (save-file loads, content hashes, the 14-day quarantine).
 - `docs/parsek-logistics-supply-routes-design.md` section 10.6 - why routes
   carry no money and are never committed.
-- `docs/dev/plans/committed-value-rule-implementation.md`,
-  `docs/dev/plans/refly-ledger-safety-implementation.md` - the built
+- `docs/dev/done/plans/committed-value-rule-implementation.md`,
+  `docs/dev/done/plans/refly-ledger-safety-implementation.md` - the built
   mechanisms behind 7.10.1 and 7.11.
 - `docs/dev/design-mission-crosstree-dock.md` - the derived-link precedent for
   cross-tree interaction without foreign-side writes.

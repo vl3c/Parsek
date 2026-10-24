@@ -1505,7 +1505,7 @@ namespace Parsek
 
         // R6 double-clock advisory (design-dock-event-graph.md 7.7, gated on the section-7.8
         // verification, which CONFIRMED the collision - see
-        // docs/dev/research/double-clock-verification-2026-08-13.md). Called on loop-ENABLE only:
+        // docs/dev/done/research/double-clock-verification-2026-08-13.md). Called on loop-ENABLE only:
         // when the freshly-looping mission's tree is dock-connected (transitively) to a tree whose
         // own mission is ALSO looping, the two loops run independent clocks over recordings that
         // share physical matter, so one vessel can be on screen twice at two recorded times. ONE

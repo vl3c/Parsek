@@ -3,7 +3,7 @@
 *Design specification for making every load of a save file (F9, the pause-menu Load, the main-menu Load) put Parsek back exactly as that save holds it.*
 
 **Status:** IMPLEMENTED (2026-10-22): Phases 1 and 2 PR #2155, follow-ups PR #2164 and PR #2169, Phase 3 PR #2170, all merged; the `QL-*` lanes are live-proven. Todo `QUICKLOAD-RESTORES-THE-SAVE-EXACTLY` (closed).
-Implementation plan: `docs/dev/plans/load-restores-the-save-implementation.md`.
+Implementation plan: `docs/dev/done/plans/load-restores-the-save-implementation.md`.
 
 **Owner rulings implemented (V, 2026-10-19):**
 
@@ -27,7 +27,7 @@ what was just saved), mission and scenario game modes (Parsek is inert there).
 `docs/parsek-game-actions-and-resources-recorder-design.md` (ledger storage, QL-R1 / QL-R2),
 `docs/parsek-flight-recorder-design.md` (sidecar storage), the load policy table
 `Source/Parsek/LoadReconcilePolicy.cs`, the audit appendix of
-`docs/dev/plans/refly-ledger-safety-implementation.md`.
+`docs/dev/done/plans/refly-ledger-safety-implementation.md`.
 
 ---
 

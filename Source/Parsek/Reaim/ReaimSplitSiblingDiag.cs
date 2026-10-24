@@ -6,7 +6,7 @@ namespace Parsek.Reaim
 {
     // Split-sibling decline diagnostics for the re-aim classifier - the CHEAP INTERIM of
     // REAIM-CLASSIFIER-FRAGILE-TO-MEMBER-SPLITS (docs/dev/todo-and-known-bugs.md; Design C of
-    // docs/dev/plans/optimizer-split-transfer-cohesion.md open question 2 is still the structural
+    // docs/dev/done/plans/optimizer-split-transfer-cohesion.md open question 2 is still the structural
     // cure and is NOT implemented here).
     //
     // THE PROBLEM. `ReaimClassifier.Classify` needs parking orbit + heliocentric coast +

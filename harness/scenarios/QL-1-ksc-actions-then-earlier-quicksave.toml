@@ -18,7 +18,7 @@ id = "QL-1-ksc-actions-then-earlier-quicksave"
 #
 # RESHAPED 2026-10-20 FOR THE OWNER RULING OF 2026-10-19 ("a quickload also undoes Space
 # Center purchases made after the quicksave", design parsek-rewind-to-separation-design.md
-# section 2.12 Rule 3; plan docs/dev/plans/refly-ledger-safety-implementation.md Phase 2
+# section 2.12 Rule 3; plan docs/dev/done/plans/refly-ledger-safety-implementation.md Phase 2
 # step 3, which flips LoadReconcilePolicy's UntaggedLedgerRowsAfterCutoff cell for
 # QuickloadFlight / InSessionOther from Keep to a retire). NOT FLOWN in this shape. The
 # lane used to pin ruling D2 / QL-R2 (the KSC rows stay as committed future, each control

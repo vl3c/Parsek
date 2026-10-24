@@ -9,7 +9,7 @@ namespace Parsek.Tests.Logistics
 {
     /// <summary>
     /// Dormant-routes rewind-visibility extension
-    /// (plan <c>docs/dev/plans/plan-route-rewind-dormant-visibility.md</c>):
+    /// (plan <c>docs/dev/done/plans/plan-route-rewind-dormant-visibility.md</c>):
     /// pure classifier + cycle-state reconcile + store materialization +
     /// bundle rewind seam. [Collection("Sequential")] + full static reset per
     /// the shared-static rule (mirrors <see cref="RouteRewindRedeliveryTests"/>).

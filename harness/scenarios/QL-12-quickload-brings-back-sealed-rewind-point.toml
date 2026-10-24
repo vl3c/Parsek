@@ -3,7 +3,7 @@ id = "QL-12-quickload-brings-back-sealed-rewind-point"
 # =====================================================================================
 # QL-12: AN F9 BRINGS BACK A REWIND POINT SEALED AFTER THE SAVE, WITH ITS FILE.
 # "Load restores the save" Phase 2 (design docs/dev/design-load-restores-the-save.md
-# section 5 scenario S9; plan docs/dev/plans/load-restores-the-save-implementation.md
+# section 5 scenario S9; plan docs/dev/done/plans/load-restores-the-save-implementation.md
 # Phase 2 step 7). AUTHORED 2026-10-20, NOT FLOWN.
 #
 # In gameplay terms: the player quicksaves while a rewind point has an open Unfinished

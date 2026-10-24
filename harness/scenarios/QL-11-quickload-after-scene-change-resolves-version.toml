@@ -3,7 +3,7 @@ id = "QL-11-quickload-after-scene-change-resolves-version"
 # =====================================================================================
 # QL-11: AN F9 AFTER A LATER SAVE REWROTE THE SIDECAR READS THE F5'S BYTES.
 # "Load restores the save" Phase 2 (design docs/dev/design-load-restores-the-save.md
-# section 4.4 / 5 scenario S2; plan docs/dev/plans/load-restores-the-save-implementation.md
+# section 4.4 / 5 scenario S2; plan docs/dev/done/plans/load-restores-the-save-implementation.md
 # Phase 2 step 7). AUTHORED 2026-10-20, NOT FLOWN.
 #
 # In gameplay terms: the player quicksaves during a recorded flight, visits the Tracking

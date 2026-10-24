@@ -19,7 +19,7 @@ route money and no route rows, the ledger holds only committed history again and
 Cargo stays live: a rewind restores the vessels, and the cargo with them.
 
 Analysis: Claude Doc "Supply routes and time travel: first principles"; research
-`docs/dev/research/route-funds-vs-cargo-2026-10-21.md` section 7. Todo `LOGISTICS-WITHOUT-MONEY`.
+`docs/dev/done/research/route-funds-vs-cargo-2026-10-21.md` section 7. Todo `LOGISTICS-WITHOUT-MONEY`.
 
 ## What stays
 

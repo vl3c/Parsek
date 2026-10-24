@@ -34,7 +34,7 @@ namespace Parsek.Tests
     /// <see cref="RecordingStore.MarkTreeAsApplied"/> itself) and fall back to this
     /// seam only for the ghost-only cases (re-fly / Limbo / MAINMENU); the OnSave
     /// safety net still uses it directly. The mark-applied contract is identical on
-    /// both routes — see docs/dev/plans/silent-full-fidelity-autocommit.md.</para>
+    /// both routes — see docs/dev/done/plans/silent-full-fidelity-autocommit.md.</para>
     ///
     /// <para>The critical regression test is
     /// <see cref="AutoCommit_DoesNotTouchMilestoneReplayIndexes"/> — it pins the

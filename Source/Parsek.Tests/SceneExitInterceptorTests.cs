@@ -131,7 +131,7 @@ namespace Parsek.Tests
         {
             // #88 folded: a finalized landed pending tree under autoMerge now
             // commits silently (full fidelity) instead of surfacing an approval
-            // dialog. See docs/dev/plans/silent-full-fidelity-autocommit.md.
+            // dialog. See docs/dev/done/plans/silent-full-fidelity-autocommit.md.
             ParsekScenario.SetCachedAutoMergeForTesting(true);
             RecordingStore.StashPendingTree(
                 MakePendingTree("pending_landed", TerminalState.Landed),
@@ -328,7 +328,7 @@ namespace Parsek.Tests
         {
             // #88 folded: under autoMerge a KSC exit now commits silently with
             // full fidelity, so no approval dialog — landed/splashed no longer
-            // forces one. See docs/dev/plans/silent-full-fidelity-autocommit.md.
+            // forces one. See docs/dev/done/plans/silent-full-fidelity-autocommit.md.
             var v = SceneExitInterceptor.ShouldShowDialogBeforeSceneChange(
                 GameScenes.SPACECENTER,
                 hasActiveTree: true,

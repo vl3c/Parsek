@@ -311,7 +311,7 @@ namespace Parsek.Tests
         // auto-commit became full-fidelity — landed/splashed exits under
         // autoMerge now commit silently instead of showing an approval dialog.
         // The pre-transition decision is covered by SceneExitInterceptorTests;
-        // see docs/dev/plans/silent-full-fidelity-autocommit.md.
+        // see docs/dev/done/plans/silent-full-fidelity-autocommit.md.
 
         // ────────────────────────────────────────────────────────────
         //  CacheEngineModules — null-vessel guard
