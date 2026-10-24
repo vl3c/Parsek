@@ -85,6 +85,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Leaving an external command seat is recorded as an EVA.** A kerbal stepping off a rover seat
+  (or let go by a claw) now gets the same kerbal branch as a hatch EVA, the rover keeps its own
+  recording, and no Rewind Point appears at the dismount. Undock stays for two vehicles parting.
+  (GC11-SEAT-DISMOUNT-RECORDED-AS-UNDOCK)
 - **The alarm's Jump button follows the same rules as every other switch.** Jumping from a fired
   stock alarm never flies a ghost, is refused during a Re-Fly for any vessel but the re-flown one,
   asks to merge or discard an open recording first like Switch-To, and from the Tracking Station
