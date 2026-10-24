@@ -80,6 +80,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A booster just dropped is no longer predicted to orbit forever.** Right after a separation,
+  Parsek could read the booster's first sample as a spot at sea level and predict an endless orbit
+  from it, an ending that could be kept if the flight ended before the next update. That sample is
+  no longer read as a position. (SCENE-EXIT-RECOVERY-READS-A-ZERO-ALTITUDE-SEED-AS-ORBITING)
 - **Re-scan restarts a supply route whose destination came back.** When a route stopped because its
   destination vessel was gone, Re-scan found it again but the route stayed stopped until you paused
   and activated it. It now restarts at once, and its next run delivers instead of being skipped.
@@ -403,6 +407,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Harness: MINE-6 expects the new segment its spawned rover records.** The lane now counts two
+  recordings, the mined flight plus the segment the respawned rover opens, and accepts an ISRU
+  switch logged a few milliseconds after its own step.
+  (MINE-6-PINS-PREDATE-THE-RESUMED-SPAWN-SEGMENT)
 - **Harness: the test command that processes an experiment in a science lab stores real data.**
   It used to put zero data into the lab whenever the results window had not been shown since a
   load, while still using up that experiment's one lab slot. It now opens the results window

@@ -63,7 +63,8 @@ tier = "nightly"
 # retract tail, the end crossing); (3) the replay warps at 100x to 1562, just before the
 # stop at the recording's 1560, and crosses the end (retract + up to 15 s) at 1x; (4)-(5) no
 # burns, no coast; (6) retry once (the pack-latency premise of the first mid-warp press is
-# unmeasured); (7) count pinned 1; (8)-(9) after the first green flight.
+# unmeasured); (7) count pinned 2 (the committed miner and the end spawn's resumed
+# segment); (8)-(9) after the first green flight.
 description = "MINE-6: V's manual mining flight replayed step for step on his real rover: four drills deployed and started, a 5x / 10x / 50x / 100x rails ladder, the ISRU's Lf+Ox and then MonoPropellant each switched on and off while on rails, the radiators flicked off and on while on rails, a 1x stop and retract, a scene-exit commit at the Space Center, Rewind-to-Launch, and from a neighbouring rover the miner's ghost watched through its replay (drill deploy, converter loop) to its end spawn, the camera handed to the spawned rover, whose tanks equal its end snapshot."
 instanceProfile = "stock-minimal"
 tags = ["mining", "isru", "rewind", "scene-exit", "watch-mode", "MINE-6"]
@@ -189,7 +190,12 @@ D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "warp-rails"]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 1, max = 1 }
+# The miner's committed recording plus the segment the end spawn opens: the camera handoff
+# makes the spawned rover active, and flying a Parsek-spawned vessel again continues in a
+# new segment under its recording (its regenerated part ids are not in the ghost snapshot).
+# Measured 2 on `2026-10-22_1619`; the segment opens ~1 s after the spawn, inside the 1x
+# wait to UT 1590, long before the SaveGame.
+count = { min = 2, max = 2 }
 
 [expectations.logContracts]
 required = [
@@ -220,11 +226,15 @@ required = [
   "Part event: ConverterDeactivated 'MiniDrill' pid=[0-9]+ \\(converter\\)",
   # THE EVENT UTs (see THE OPEN QUESTION in the header): the first flight (`2026-10-17_1348`)
   # wrote every packed ISRU edge about 10 ms after its press, still packed and long before
-  # the rails exit, so each edge must sit between its press's `-before` and `-after` marks.
-  "(?s)MISSIONMARK label=mine6-lfox-on-before (?:(?!MISSIONMARK label=mine6-lfox-on-after ).)*?Part event: ConverterActivated 'MiniISRU' pid=[0-9]+ \\(converter\\)(?:(?!MISSIONMARK).)*?MISSIONMARK label=mine6-lfox-on-after ",
-  "(?s)MISSIONMARK label=mine6-lfox-off-before (?:(?!MISSIONMARK label=mine6-lfox-off-after ).)*?Part event: ConverterDeactivated 'MiniISRU' pid=[0-9]+ \\(converter\\)(?:(?!MISSIONMARK).)*?MISSIONMARK label=mine6-lfox-off-after ",
-  "(?s)MISSIONMARK label=mine6-mono-on-before (?:(?!MISSIONMARK label=mine6-mono-on-after ).)*?Part event: ConverterActivated 'MiniISRU' pid=[0-9]+ \\(converter\\)(?:(?!MISSIONMARK).)*?MISSIONMARK label=mine6-mono-on-after ",
-  "(?s)MISSIONMARK label=mine6-mono-off-before (?:(?!MISSIONMARK label=mine6-mono-off-after ).)*?Part event: ConverterDeactivated 'MiniISRU' pid=[0-9]+ \\(converter\\)(?:(?!MISSIONMARK).)*?MISSIONMARK label=mine6-mono-off-after ",
+  # the rails exit. The poll that writes it is not ordered against the seam step, so the
+  # edge can land just AFTER the `-after` mark (`2026-10-22_1619`: 13 ms after it); each
+  # edge must sit after its press's `-before` mark and before the next blocking warp's
+  # `warptout start` (ParsekTestCommandAddon.WarpToUT.cs:209), which still proves the edge
+  # is written at the toggle and not at that warp's rails exit.
+  "(?s)MISSIONMARK label=mine6-lfox-on-before (?:(?!warptout start ut=).)*?Part event: ConverterActivated 'MiniISRU' pid=[0-9]+ \\(converter\\)(?:(?!warptout start ut=).)*?warptout start ut=780 ",
+  "(?s)MISSIONMARK label=mine6-lfox-off-before (?:(?!warptout start ut=).)*?Part event: ConverterDeactivated 'MiniISRU' pid=[0-9]+ \\(converter\\)(?:(?!warptout start ut=).)*?warptout start ut=960 ",
+  "(?s)MISSIONMARK label=mine6-mono-on-before (?:(?!warptout start ut=).)*?Part event: ConverterActivated 'MiniISRU' pid=[0-9]+ \\(converter\\)(?:(?!warptout start ut=).)*?warptout start ut=1260 ",
+  "(?s)MISSIONMARK label=mine6-mono-off-before (?:(?!warptout start ut=).)*?Part event: ConverterDeactivated 'MiniISRU' pid=[0-9]+ \\(converter\\)(?:(?!warptout start ut=).)*?warptout start ut=1560 ",
   # The harvest window opens when the drills start and closes when they stop (both at 1x;
   # FlightRecorder.cs:7894 / :7918; the stop-time close at :8095 says atStop=1).
   "Harvest window opened: window=[^ \\r\\n]+ ut=[0-9.]+ converters=\\[[^\\]\\r\\n]*\\] res=[0-9]+ atStart=0 trigger=[a-z-]+",
@@ -256,6 +266,9 @@ required = [
   # (ParsekPlaybackPolicy.cs:802-811 or the deferred :578-587 -> ParsekFlight.cs:21245), and
   # that is the vessel the store reads back as the spawn.
   "MISSIONMARK label=mine6-spawned-true-[0-9]+ ",
+  # The second recording is that segment, under the committed miner recording
+  # (ParsekFlight.TryContinueRestoredSpawnInNewSegment).
+  "MISSIONMARK label=mine6-committed-1-([0-9a-f]{32}) [\\s\\S]*MISSIONMARK label=mine6-replay-before-end [\\s\\S]*Resumed spawn continues in a new segment: rec=\\1 segment=[0-9a-f-]{36} vessel='Mining Rover RC' pid=([0-9]+) [\\s\\S]*MISSIONMARK label=mine6-spawned-true-\\2 ",
   "(?s)MISSIONMARK label=mine6-replay-before-end .*?Activated spawned vessel pid=([0-9]+) \\(Mining Rover RC\\).*?MISSIONMARK label=mine6-spawned-true-\\1 ",
   "(?s)MISSIONMARK label=mine6-spawned-(?:(?!cmd=ReadVesselResources start).)*?cmd=ReadVesselResources start(?:(?!cmd=ReadVesselResources start).)*?readvesselresources complete vessels=1 missing=0 uidCollisions=0 [^\\r\\n]*snapshotMatch=true",
   # The spawned rover carries the end pose and state: drills retracted, no converter running.
@@ -282,6 +295,7 @@ forbidden = [
   "Within-segment breakage",
   # ParsekFlight.cs:21241 / :21249: the camera handoff did not reach the spawned rover.
   "Spawned vessel pid=[0-9]+ not loaded",
+  "Resumed spawn segment refused",
   "Could not find spawned vessel pid=",
 ]
 

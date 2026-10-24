@@ -1417,7 +1417,8 @@ namespace Parsek
                     }
                 }
             }
-            else if (recording.Points != null)
+            else if (recording.Points != null
+                && !RefuseFlatPointsAsBodyFixed(recording, "surface-point-search"))
             {
                 InspectRecordedSurfacePoints(
                     recording.Points,
@@ -1437,6 +1438,46 @@ namespace Parsek
                 return false;
 
             nearestDeltaUT = bestDelta;
+            return true;
+        }
+
+        /// <summary>
+        /// Pure: whether a recording's flat <c>Points</c> list may be read as body-fixed
+        /// lat/lon/alt. The readers here fall back to that list only when the recording has
+        /// no track sections, which for a live recording means its first section is still
+        /// open in the recorder. The list mirrors that section's frames, and a parent-anchored
+        /// recording's first section is Relative to its parent whenever the seed opened in
+        /// range, so its flat points carry anchor-local metre offsets that cannot be told
+        /// apart from body-fixed values (a booster 300 m up reads as altitude 0.0). Such a
+        /// recording has no body-fixed sample to offer until that section closes into
+        /// <c>bodyFixedFrames</c>.
+        /// </summary>
+        internal static bool CanReadFlatPointsAsBodyFixed(Recording recording)
+        {
+            return recording != null
+                && string.IsNullOrEmpty(recording.ParentAnchorRecordingId);
+        }
+
+        private static bool RefuseFlatPointsAsBodyFixed(Recording recording, string reader)
+        {
+            if (CanReadFlatPointsAsBodyFixed(recording))
+                return false;
+            if (recording != null && recording.Points != null && recording.Points.Count > 0)
+            {
+                ParsekLog.VerboseRateLimited(
+                    "Extrapolator",
+                    "flat-points-refused." + reader + "." + (recording.RecordingId ?? "(null)"),
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Recorded-point read refused flat Points for parent-anchored recording " +
+                        "rec={0} parentAnchorRec={1} reader={2} points={3}: no closed track " +
+                        "section, so the points may be anchor-local Relative offsets",
+                        recording.RecordingId ?? "(null)",
+                        recording.ParentAnchorRecordingId ?? "(null)",
+                        reader,
+                        recording.Points.Count),
+                    minIntervalSeconds: 30.0);
+            }
             return true;
         }
 
@@ -1668,7 +1709,7 @@ namespace Parsek
                     }
                 }
             }
-            else
+            else if (!RefuseFlatPointsAsBodyFixed(recording, "predicted-tail-anchor"))
             {
                 InspectPredictedTailAnchorCandidates(
                     recording.Points,
@@ -1758,7 +1799,8 @@ namespace Parsek
                 return false;
             }
 
-            return TryFindPredecessorInList(recording.Points, point, out previous);
+            return CanReadFlatPointsAsBodyFixed(recording)
+                && TryFindPredecessorInList(recording.Points, point, out previous);
         }
 
         /// <summary>
@@ -1791,7 +1833,8 @@ namespace Parsek
                 return false;
             }
 
-            return TryFindSuccessorInList(recording.Points, point, out next);
+            return CanReadFlatPointsAsBodyFixed(recording)
+                && TryFindSuccessorInList(recording.Points, point, out next);
         }
 
         private static bool TryFindSuccessorInList(

@@ -321,6 +321,75 @@ namespace Parsek.Tests
             Assert.Equal(733333.0, segments[0].semiMajorAxis, precision: 3);
         }
 
+        // A parent-anchored recording with no closed section: its flat points mirror the
+        // recorder's still-open Relative section, so they are anchor-local metre offsets and
+        // the anchor search must not reseed a predicted tail from them.
+        [Fact]
+        public void TryReseedFirstPredictedTailSegmentFromRecordedAnchor_ParentAnchoredFlatPoints_Refused()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-tail-reseed-parent-anchored-points",
+                ParentAnchorRecordingId = "parent-rec"
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 110.0,
+                latitude = 0.0,
+                longitude = -0.455,
+                altitude = 0.0,
+                bodyName = "Kerbin",
+                velocity = new Vector3(10f, 20f, 30f)
+            });
+            var segments = new List<OrbitSegment>
+            {
+                MakePredictedSegmentForReseedTest(112.0, 500.0)
+            };
+            bool builderCalled = false;
+
+            bool applied = IncompleteBallisticSceneExitFinalizer
+                .TryReseedFirstPredictedTailSegmentFromRecordedAnchor(
+                    rec,
+                    segments,
+                    (TrajectoryPoint anchorPoint,
+                        OrbitSegment originalSegment,
+                        out OrbitSegment reseededSegment,
+                        out double rawOffsetMeters,
+                        out double residualOffsetMeters,
+                        out string reason) =>
+                    {
+                        builderCalled = true;
+                        reseededSegment = originalSegment;
+                        rawOffsetMeters = 0.0;
+                        residualOffsetMeters = 0.0;
+                        reason = "unexpected";
+                        return true;
+                    },
+                    out PredictedTailReseedDiagnostics diagnostics);
+
+            Assert.False(applied);
+            Assert.False(builderCalled);
+            Assert.Equal(112.0, segments[0].startUT, precision: 3);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Extrapolator]")
+                && l.Contains("refused flat Points for parent-anchored recording")
+                && l.Contains("rec=scene-exit-tail-reseed-parent-anchored-points")
+                && l.Contains("reader=predicted-tail-anchor"));
+        }
+
+        [Fact]
+        public void CanReadFlatPointsAsBodyFixed_OnlyForRecordingsWithoutParentAnchor()
+        {
+            Assert.False(IncompleteBallisticSceneExitFinalizer.CanReadFlatPointsAsBodyFixed(null));
+            Assert.True(IncompleteBallisticSceneExitFinalizer.CanReadFlatPointsAsBodyFixed(
+                new Recording { RecordingId = "plain" }));
+            Assert.False(IncompleteBallisticSceneExitFinalizer.CanReadFlatPointsAsBodyFixed(
+                new Recording { RecordingId = "debris", ParentAnchorRecordingId = "p", IsDebris = true }));
+            // Controlled-decoupled children carry the same contract with IsDebris=false.
+            Assert.False(IncompleteBallisticSceneExitFinalizer.CanReadFlatPointsAsBodyFixed(
+                new Recording { RecordingId = "child", ParentAnchorRecordingId = "p", IsDebris = false }));
+        }
+
         [Fact]
         public void ResetLifecycleDiagnostics_AllowsFreshSubSurfaceClassificationLog()
         {
@@ -1965,6 +2034,77 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("suppressing sub-surface Destroyed")
                 && l.Contains("scene-exit-null-solver-recovery"));
+        }
+
+        // RF-L2 `2026-10-22_1026`: the first finalizer pass on a just-decoupled booster ran
+        // before its seed section closed, so the recording had no TrackSections and its one
+        // flat point was the Relative seed (anchor-local dx/dy/dz = 0 / -0.46 / 0, read as
+        // altitude 0.0 while the booster was 305 m up). The recovery reseeded an orbit from
+        // that point and shipped Orbiting. The flat list must not be read as body-fixed for a
+        // parent-anchored recording, so no recovery runs and the live-orbit verdict stands.
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_ParentAnchoredFlatRelativeSeed_NotReadAsSurfacePoint()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "parent-anchored-open-seed",
+                ParentAnchorRecordingId = "parent-rec",
+                IsDebris = false,
+                ExplicitStartUT = 31.12,
+                ExplicitEndUT = 31.12
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 31.12,
+                bodyName = "Kerbin",
+                latitude = 0.0,
+                longitude = -0.455,
+                altitude = 0.0,
+                velocity = new Vector3(-76.37f, -0.17f, 51.99f)
+            });
+            bool recoveryBuilderCalled = false;
+            IncompleteBallisticSceneExitFinalizer.TryBuildRecoveryStartStateOverrideForTesting =
+                (point, _) =>
+                {
+                    recoveryBuilderCalled = true;
+                    return null;
+                };
+
+            int extrapolateCallCount = 0;
+            bool built = IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                rec,
+                NullSolverSnapshot(),
+                KerbinBodies(),
+                delegate(out BallisticStateVector startState)
+                {
+                    startState = MakeSubSurfaceKerbinStartState();
+                    return true;
+                },
+                (startState, extrapolationBodies) =>
+                {
+                    extrapolateCallCount++;
+                    return BallisticExtrapolator.Extrapolate(
+                        startState,
+                        extrapolationBodies,
+                        warnOnSubSurfaceStart: false);
+                },
+                out IncompleteBallisticFinalizationResult result);
+
+            Assert.True(built);
+            Assert.Equal(1, extrapolateCallCount);
+            Assert.False(recoveryBuilderCalled);
+            Assert.NotEqual(TerminalState.Orbiting, result.terminalState);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("recovered sub-surface live-orbit fallback")
+                && l.Contains("parent-anchored-open-seed"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Sub-surface contradiction accepted")
+                && l.Contains("parent-anchored-open-seed"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Extrapolator]")
+                && l.Contains("refused flat Points for parent-anchored recording")
+                && l.Contains("rec=parent-anchored-open-seed")
+                && l.Contains("reader=surface-point-search"));
         }
 
         private static Recording MakeChuteDescentRecording(string recordingId, params PartEvent[] events)
