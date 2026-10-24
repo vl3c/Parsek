@@ -3670,7 +3670,9 @@ namespace Parsek
 
         /// <summary>
         /// Makes the hires a clock advance reached (committed-future KerbalHire rows past the
-        /// previous patch's cutoff, <see cref="LedgerOrchestrator.RecalculateAndPatchForClockAdvance"/>):
+        /// previous patch's cutoff, <see cref="LedgerOrchestrator.RecalculateAndPatchForClockAdvance"/>,
+        /// or a later pass whose funds patch applies a row that crossing could not:
+        /// <see cref="LedgerOrchestrator.ResolveCommittedHiresToMake"/>):
         /// a load back in time put each kerbal back among the applicants, and nothing else
         /// hires him when the clock reaches his row. Promotes an Applicant to Crew the way
         /// stock <c>KerbalRoster.HireApplicant</c> does minus its <c>OnCrewmemberHired</c>

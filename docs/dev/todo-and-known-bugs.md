@@ -1043,10 +1043,10 @@ crossed row stays counted unapplied (NaN effect) in the stock pool reference unt
 commits, so the next applying patch takes the cost (`StockPoolReferenceTests.B1_*`), and the
 add-only purchase passes unlock it on that same pass. Tests: `PurchaseStatePatchFundsGateTests`
 (three cells red with the gate stubbed). Left as is: a fresh-baseline funds patch (no saved
-reference, only an old-build save) adopts the gap and reports `FundsApplied`; and the hire twin below.
+reference, only an old-build save) adopts the gap and reports `FundsApplied`. The hire twin below is fixed too.
 Unit tests only, no lane (a funds skip on a clock crossing cannot be staged from the seam).
 
-## CROSSED-HIRE-NEVER-MADE-AFTER-A-SKIPPED-FUNDS-PATCH: a committed hire whose clock crossing skipped the funds patch is paid for but never made [FILED 2026-10-24 while fixing PURCHASE-STATE-PATCH-RUNS-WHEN-THE-FUNDS-PATCH-IS-CLAMPED. OPEN, low. product]
+## ~~CROSSED-HIRE-NEVER-MADE-AFTER-A-SKIPPED-FUNDS-PATCH: a committed hire whose clock crossing skipped the funds patch is paid for but never made~~ [FILED 2026-10-24 while fixing PURCHASE-STATE-PATCH-RUNS-WHEN-THE-FUNDS-PATCH-IS-CLAMPED. FIXED 2026-10-24, branch `claude/project-thread-saxn4v`. product]
 
 `LedgerOrchestrator` promotes a reached committed hire only on the clock crossing that reaches it, and
 only when `ClockCrossing.FundsApplied`. When that crossing's funds patch skips, the hire is not made
@@ -1057,6 +1057,20 @@ the cost is kept and the kerbal stays an applicant. Not seen on any flown lane; 
 `Funding` unloaded or unseeded during a clock advance. Fix shape when taken: keep the unmade hires
 pending (or leave the snapshot uncaptured) until a pass whose funds patch applied, the way the part
 purchase passes are add-only over every reached row.
+
+Fix (2026-10-24): the signal that outlives the crossing is the stock pool reference itself. Before
+`PatchAll`, `LedgerOrchestrator.CollectHireRowsNotAppliedByFunds` takes the KerbalHire rows whose
+funds row `StockPoolReference.Funds` counts with a NaN effect (seen ahead of the last committed funds
+patch's cutoff); after it, `ResolveCommittedHiresToMake` adds every one of them the funds patch has
+now committed with a real effect to the crossing's own reached hires (still gated on
+`ClockCrossing.FundsApplied`), and `PromoteReachedCommittedHires` makes them. So a skipped crossing
+leaves the row NaN and the hire unmade, and the next pass that applies the row, crossing or not,
+makes the hire (Info `Committed hire row(s) applied by this funds patch`). The NaN counts are saved
+with the reference, so this survives a save and load. The skipped-crossing Warn now says which case
+it is (`skipped; the pass whose funds patch applies them makes them` / `no funds pool`). Left as is:
+with no funds pool (science mode, sandbox) a crossed hire is still not made, as before. Tests:
+`CommittedHireFundsAppliedTests` (the skipped-crossing cell red with the second half stubbed).
+Unit tests only, no lane (a funds skip on a clock crossing cannot be staged from the seam).
 
 ## ~~LOGISTICS-WITHOUT-MONEY: supply routes still charge and credit funds and write ledger rows, so the funds history depends on choices made after a rewind~~ [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4, first as ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES, then ROUTE-MONEY-COST-ONLY. FIXED 2026-10-21: phase 1 (no route money) on branch `logistics-no-money-p1`, phase 2 (route events out of the ledger) on branch `logistics-no-money-p2`. Harness re-flight of the Logistics lanes pending. product]
 
