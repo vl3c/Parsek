@@ -3,7 +3,7 @@ id = "IR-2-route-stock-revert-mid-cycle"
 tier = "nightly"
 # =====================================================================================
 # IR-2 (roadmap "The logistics integration program", Phase B): a supply route x a stock
-# Revert to Launch across a dispatch. AUTHORED 2026-10-24, NEVER FLOWN.
+# Revert to Launch across a dispatch. AUTHORED 2026-10-24, LIVE-PROVEN 2026-10-24.
 #
 # THE STORY. The player creates the rover route, walks to the VAB, activates the route,
 # launches Kerbal X on the launch pad, warps until the route dispatches and delivers, then
@@ -43,10 +43,9 @@ tier = "nightly"
 # 297.59999999999843, 395.19999999999686 on IR-1's first flight), so the delivery
 # contracts accept both spellings of each number.
 # =====================================================================================
-description = "IR-2, AUTHORED 2026-10-24, never flown: on rover-route-recorded create the rover route, activate it in the VAB, launch Kerbal X on the launch pad, TimeJump across a dispatch (endpoint 297.6 -> 395.2 LiquidFuel), Revert to Launch. The in-session revert must retire the route rows after the launch (route read-back: completed=0, no dispatch or delivery row, cursor back to the launch state's), the endpoint tank must read 297.6 again, and the next crossing must dispatch and deliver exactly once (395.2, dispatched=1 delivered=1): no swallowed cycle, no double fire. First flight of the 2026-10-07 A1 fix's stock revert half."
+description = "IR-2, LIVE-PROVEN 2026-10-24: on rover-route-recorded create the rover route, activate it in the VAB, launch Kerbal X on the launch pad, TimeJump across a dispatch (endpoint 297.6 -> 395.2 LiquidFuel), Revert to Launch. The in-session revert must retire the route rows after the launch (route read-back: completed=0, no dispatch or delivery row, cursor back to the launch state's), the endpoint tank must read 297.6 again, and the next crossing must dispatch and deliver exactly once (395.2, dispatched=1 delivered=1): no swallowed cycle, no double fire. First flight of the 2026-10-07 A1 fix's stock revert half."
 instanceProfile = "stock-minimal"
-tags = ["IR-2", "logistics", "route", "revert", "timeline-ops", "recorded-fixture",
-        "pending-flight"]
+tags = ["IR-2", "logistics", "route", "revert", "timeline-ops", "recorded-fixture"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/rover-route-recorded"

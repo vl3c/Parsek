@@ -85,6 +85,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A committed hire is always made once it is paid for.** When the clock reaches a committed hire
+  after a rewind and the funds update cannot run at that moment, the kerbal now joins your crew in
+  the later update that takes the hire cost, instead of the cost being taken while he stays an
+  applicant. (CROSSED-HIRE-NEVER-MADE-AFTER-A-SKIPPED-FUNDS-PATCH)
 - **A vessel another mission adopted by cargo transfer stays visible after a rewind.** If one
   mission spawned a vessel and a later one moved cargo into or out of it, rewinding the later
   mission used to make that vessel vanish until the transfer's replay began. It is now held back

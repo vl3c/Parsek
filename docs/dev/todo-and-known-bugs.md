@@ -1055,10 +1055,10 @@ crossed row stays counted unapplied (NaN effect) in the stock pool reference unt
 commits, so the next applying patch takes the cost (`StockPoolReferenceTests.B1_*`), and the
 add-only purchase passes unlock it on that same pass. Tests: `PurchaseStatePatchFundsGateTests`
 (three cells red with the gate stubbed). Left as is: a fresh-baseline funds patch (no saved
-reference, only an old-build save) adopts the gap and reports `FundsApplied`; and the hire twin below.
+reference, only an old-build save) adopts the gap and reports `FundsApplied`. The hire twin below is fixed too.
 Unit tests only, no lane (a funds skip on a clock crossing cannot be staged from the seam).
 
-## CROSSED-HIRE-NEVER-MADE-AFTER-A-SKIPPED-FUNDS-PATCH: a committed hire whose clock crossing skipped the funds patch is paid for but never made [FILED 2026-10-24 while fixing PURCHASE-STATE-PATCH-RUNS-WHEN-THE-FUNDS-PATCH-IS-CLAMPED. OPEN, low. product]
+## ~~CROSSED-HIRE-NEVER-MADE-AFTER-A-SKIPPED-FUNDS-PATCH: a committed hire whose clock crossing skipped the funds patch is paid for but never made~~ [FILED 2026-10-24 while fixing PURCHASE-STATE-PATCH-RUNS-WHEN-THE-FUNDS-PATCH-IS-CLAMPED. FIXED 2026-10-24, branch `claude/project-thread-saxn4v`. product]
 
 `LedgerOrchestrator` promotes a reached committed hire only on the clock crossing that reaches it, and
 only when `ClockCrossing.FundsApplied`. When that crossing's funds patch skips, the hire is not made
@@ -1069,6 +1069,20 @@ the cost is kept and the kerbal stays an applicant. Not seen on any flown lane; 
 `Funding` unloaded or unseeded during a clock advance. Fix shape when taken: keep the unmade hires
 pending (or leave the snapshot uncaptured) until a pass whose funds patch applied, the way the part
 purchase passes are add-only over every reached row.
+
+Fix (2026-10-24): the signal that outlives the crossing is the stock pool reference itself. Before
+`PatchAll`, `LedgerOrchestrator.CollectHireRowsNotAppliedByFunds` takes the KerbalHire rows whose
+funds row `StockPoolReference.Funds` counts with a NaN effect (seen ahead of the last committed funds
+patch's cutoff); after it, `ResolveCommittedHiresToMake` adds every one of them the funds patch has
+now committed with a real effect to the crossing's own reached hires (still gated on
+`ClockCrossing.FundsApplied`), and `PromoteReachedCommittedHires` makes them. So a skipped crossing
+leaves the row NaN and the hire unmade, and the next pass that applies the row, crossing or not,
+makes the hire (Info `Committed hire row(s) applied by this funds patch`). The NaN counts are saved
+with the reference, so this survives a save and load. The skipped-crossing Warn now says which case
+it is (`skipped; the pass whose funds patch applies them makes them` / `no funds pool`). Left as is:
+with no funds pool (science mode, sandbox) a crossed hire is still not made, as before. Tests:
+`CommittedHireFundsAppliedTests` (the skipped-crossing cell red with the second half stubbed).
+Unit tests only, no lane (a funds skip on a clock crossing cannot be staged from the seam).
 
 ## ~~LOGISTICS-WITHOUT-MONEY: supply routes still charge and credit funds and write ledger rows, so the funds history depends on choices made after a rewind~~ [FILED 2026-10-21 from the owner ruling on LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY O4, first as ROUTE-REWIND-REFUNDS-COMMITTED-CYCLES, then ROUTE-MONEY-COST-ONLY. FIXED 2026-10-21: phase 1 (no route money) on branch `logistics-no-money-p1`, phase 2 (route events out of the ledger) on branch `logistics-no-money-p2`. Harness re-flight of the Logistics lanes pending. product]
 
@@ -6013,7 +6027,7 @@ clamp and the hire's reconcile warning.
 
 ---
 
-## ~~HARNESS-ROUTE-STATE-READBACK-SEAM: no seam verb reads a route's live state between steps~~ [FILED 2026-10-06 for the logistics integration program (C2), branch `ccr-77f23eb2-dbqh6i`. DONE 2026-10-24, branch `claude/project-thread-3jm6oa`: `ListHandles kind=routes`; consumers IR-1 / IR-2, authored, flight pending]
+## ~~HARNESS-ROUTE-STATE-READBACK-SEAM: no seam verb reads a route's live state between steps~~ [FILED 2026-10-06 for the logistics integration program (C2), branch `ccr-77f23eb2-dbqh6i`. DONE 2026-10-24, branch `claude/project-thread-3jm6oa`: `ListHandles kind=routes`; consumers IR-1 / IR-2, both LIVE-PROVEN 2026-10-24 (`2026-10-24_1022`, `2026-10-24_1023`)]
 
 The `saveParse` `[expectations.routes]` facet reads the PRODUCED save at the end of a run. The
 reload lanes (IR-1, IR-2, IR-4, IR-6) need the in-memory state right after a `LoadGame` and
@@ -6133,7 +6147,7 @@ point the cell there.
 
 ---
 
-## ~~ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD: an in-session load back in time leaves route cursors and credits in the abandoned future~~ [FILED 2026-10-06 from the integration-coverage code read, verified by an adversarial pass; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-route-state-on-load` (owner ruling 2026-10-07: reuse the rewind reconcile): F9 quickload, stock revert and the Esc-menu Discard Re-fly load run the go-back rewind's reconcile at the loaded save's UT; the recovery credit refuses a retired dispatch]
+## ~~ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD: an in-session load back in time leaves route cursors and credits in the abandoned future~~ [FILED 2026-10-06 from the integration-coverage code read, verified by an adversarial pass; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-route-state-on-load` (owner ruling 2026-10-07: reuse the rewind reconcile): F9 quickload, stock revert and the Esc-menu Discard Re-fly load run the go-back rewind's reconcile at the loaded save's UT; the recovery credit refuses a retired dispatch. Stock-revert half LIVE-PROVEN 2026-10-24 by IR-2 (`2026-10-24_1023`); the F9 is a cold load since #2155 and is covered by IR-1 (`2026-10-24_1022`)]
 
 Routes are loaded from the save only on a cold load (`ParsekScenario.cs:4464`); an in-session
 load (F9 quickload, stock Revert) returns at `ParsekScenario.cs:4320` before any route code.
