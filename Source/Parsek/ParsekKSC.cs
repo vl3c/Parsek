@@ -2064,7 +2064,7 @@ namespace Parsek
             bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
             bool isBreakupContinuous = rec.ChildBranchPointId != null && rec.TerminalStateValue.HasValue;
             bool routeThroughSpawnAtPosition = VesselSpawner.ShouldRouteThroughSpawnAtPosition(rec);
-            bool useRecordedTerminalOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva);
+            bool useRecordedTerminalOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec);
             double spawnUT = Planetarium.GetUniversalTime();
             TrajectoryPoint? lastPt = rec.Points != null && rec.Points.Count > 0
                 ? (TrajectoryPoint?)rec.Points[rec.Points.Count - 1]
@@ -2192,7 +2192,8 @@ namespace Parsek
                         spawnLon,
                         spawnAlt,
                         recIdx,
-                        rec.VesselName);
+                        rec.VesselName,
+                        allowPreferredRotation: !useRecordedTerminalOrbit);
                 }
                 else if (isBreakupContinuous)
                 {

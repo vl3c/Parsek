@@ -1480,23 +1480,100 @@ namespace Parsek.Tests
                 TerminalOrbitSemiMajorAxis = 700000.0
             };
 
-            Assert.True(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva: false));
+            Assert.True(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec));
         }
 
         [Fact]
-        public void ShouldUseRecordedTerminalOrbitSpawnState_EvaOrMissingOrbitData_ReturnsFalse()
+        public void ShouldUseRecordedTerminalOrbitSpawnState_OrbitingEva_ReturnsTrue()
         {
+            // GC-5: an EVA kerbal that ended Orbiting spawns from his recorded terminal orbit
+            // propagated to the spawn UT, like his capsule, not from the body-fixed endpoint.
             var rec = new Recording
             {
+                VesselName = "Jebediah Kerman",
+                EvaCrewName = "Jebediah Kerman",
                 TerminalStateValue = TerminalState.Orbiting,
                 TerminalOrbitBody = "Kerbin",
                 TerminalOrbitSemiMajorAxis = 700000.0
             };
 
-            Assert.False(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva: true));
+            Assert.True(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec));
+        }
 
-            rec.TerminalOrbitSemiMajorAxis = 0.0;
-            Assert.False(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva: false));
+        [Fact]
+        public void ShouldUseRecordedTerminalOrbitSpawnState_MissingOrbitData_ReturnsFalse()
+        {
+            var rec = new Recording
+            {
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 0.0
+            };
+            Assert.False(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec));
+
+            rec.TerminalOrbitSemiMajorAxis = 700000.0;
+            rec.TerminalOrbitBody = null;
+            Assert.False(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec));
+
+            // An orbiting EVA with no orbit data keeps the endpoint path too.
+            rec.EvaCrewName = "Jebediah Kerman";
+            Assert.False(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec));
+
+            Assert.False(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(null));
+        }
+
+        [Theory]
+        [InlineData(TerminalState.Landed)]
+        [InlineData(TerminalState.Splashed)]
+        [InlineData(TerminalState.SubOrbital)]
+        public void ShouldUseRecordedTerminalOrbitSpawnState_NonOrbitingEva_ReturnsFalse(TerminalState terminal)
+        {
+            // Stale orbit fields on a surface or suborbital EVA never pick the orbit route.
+            var rec = new Recording
+            {
+                EvaCrewName = "Jebediah Kerman",
+                TerminalStateValue = terminal,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000.0
+            };
+
+            Assert.False(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec));
+        }
+
+        [Fact]
+        public void ResolveEndOfRecordingCollisionExemptPid_OrbitingEvaOnOrbitPath_ExemptsParent()
+        {
+            // T57 still holds on the orbit route: the kerbal floating beside his capsule
+            // exempts the capsule from his spawn's collision check.
+            string treeId = "gc5-tree";
+            var tree = new RecordingTree { Id = treeId, TreeName = "Orbiter", RootRecordingId = "capsule" };
+            tree.Recordings["capsule"] = new Recording
+            {
+                RecordingId = "capsule",
+                TreeId = treeId,
+                VesselName = "Orbiter",
+                VesselPersistentId = 4242u
+            };
+            var eva = new Recording
+            {
+                RecordingId = "jeb",
+                TreeId = treeId,
+                VesselName = "Jebediah Kerman",
+                EvaCrewName = "Jebediah Kerman",
+                ParentRecordingId = "capsule",
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000.0
+            };
+            tree.Recordings["jeb"] = eva;
+            RecordingStore.AddCommittedTreeForTesting(tree);
+
+            Assert.True(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(eva));
+            Assert.Equal(4242u, VesselSpawner.ResolveEndOfRecordingCollisionExemptPid(eva));
+
+            // A non-EVA member of the same tree exempts nothing.
+            Assert.Equal(0u, VesselSpawner.ResolveEndOfRecordingCollisionExemptPid(tree.Recordings["capsule"]));
+            Assert.Equal(0u, VesselSpawner.ResolveEndOfRecordingCollisionExemptPid(null));
         }
 
         [Fact]

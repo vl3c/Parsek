@@ -409,6 +409,10 @@ _(unreleased - entries accumulate here per commit)_
   it, and an older launch's vessel no longer counts as alive because the relaunch shares its
   craft. Vessels Parsek spawned and you flew again are still recognised, in older saves too.
   (ADOPTION-STAMP-READ-AS-UNIQUE-SPAWN-PID)
+- **A kerbal left floating in orbit now appears beside his ship after a time warp.** When a flight
+  ended with a kerbal on EVA in orbit and you warped past its end, the ship appeared on its orbit
+  but the kerbal appeared far away on a different orbit. He now appears on his own recorded orbit,
+  next to the ship. (GC5-ORBITING-EVA-SPAWN-USES-STALE-SURFACE-POINT)
 
 ### Dev
 

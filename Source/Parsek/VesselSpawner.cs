@@ -1520,6 +1520,19 @@ namespace Parsek
         }
 
         /// <summary>
+        /// T57: the vessel an end-of-recording spawn's collision check exempts. An EVA kerbal
+        /// exempts its parent vessel whichever spawn state it uses (endpoint or recorded
+        /// terminal orbit): a kerbal floating beside his capsule overlaps it by construction.
+        /// Every other recording exempts nothing.
+        /// </summary>
+        internal static uint ResolveEndOfRecordingCollisionExemptPid(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.EvaCrewName))
+                return 0;
+            return ResolveParentVesselPid(rec);
+        }
+
+        /// <summary>
         /// T57: Resolves the parent recording's VesselPersistentId for EVA collision
         /// exemption. Searches committed trees for the parent recording by ParentRecordingId.
         /// Returns 0 if no parent found. Pure lookup, no side effects.
@@ -1645,7 +1658,7 @@ namespace Parsek
 
             bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
             bool isBreakupContinuous = rec.ChildBranchPointId != null && rec.TerminalStateValue.HasValue;
-            bool useRecordedTerminalOrbit = ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva);
+            bool useRecordedTerminalOrbit = ShouldUseRecordedTerminalOrbitSpawnState(rec);
             bool terminalSpawnWasDeferred = TerminalOrbitSpawnSafety.HasActiveHold(rec);
 
             // Resolve spawn position from snapshot or trajectory endpoint.
@@ -1725,7 +1738,7 @@ namespace Parsek
             // T57: resolve parent vessel PID for EVA collision exemption.
             // EVA trajectories overlap the parent vessel for their entire length;
             // without exemption, walkback exhausts all points and abandons the spawn.
-            uint exemptPid = isEva ? ResolveParentVesselPid(rec) : 0;
+            uint exemptPid = ResolveEndOfRecordingCollisionExemptPid(rec);
             var collision = CheckSpawnCollisions(rec, index, isEva, body,
                 spawnLat, spawnLon, spawnAlt, spawnPos, exemptPid);
             if (collision.blocked) return;
@@ -1785,7 +1798,9 @@ namespace Parsek
                 //   was on the parent ladder) causes OrbitDriver.updateFromParameters to
                 //   overwrite the corrected transform with the parent position on the first
                 //   physics frame after load. SpawnAtPosition rebuilds the ORBIT from the
-                //   walked endpoint so the kerbal stays where recorded.
+                //   walked endpoint so the kerbal stays where recorded. An EVA that ended
+                //   Orbiting with a recorded terminal orbit takes the orbital route instead,
+                //   so a deferred spawn does not rotate his orbit with the planet.
                 // - Breakup-continuous (#224 follow-up via #264): same stale-ORBIT mechanism.
                 //   Rotation is preserved via the same surface-relative ProtoVessel.rot helper
                 //   used by snapshot-prep fallbacks.
@@ -1967,6 +1982,9 @@ namespace Parsek
             // but the kerbal walked to a different location during the recording. Without
             // this override, the kerbal spawns on top of the parent vessel and grabs its
             // ladder, triggering KSP's "Kerbals on a ladder — cannot save" error.
+            // On the recorded-terminal-orbit path the position is the orbit propagated to the
+            // spawn UT, so the endpoint's surface-relative rotation (valid only at the endpoint
+            // and its UT) is not applied, the same rule as breakup-continuous below.
             if (isEva && rec.VesselSnapshot != null)
             {
                 ApplyResolvedSpawnStateToSnapshot(
@@ -1977,7 +1995,8 @@ namespace Parsek
                     spawnLon,
                     spawnAlt,
                     index,
-                    rec.VesselName);
+                    rec.VesselName,
+                    allowPreferredRotation: !useRecordedTerminalOrbit);
             }
 
             // Breakup-continuous recordings: snapshot position is from breakup time (mid-air).
@@ -6548,10 +6567,16 @@ namespace Parsek
             return false;
         }
 
-        internal static bool ShouldUseRecordedTerminalOrbitSpawnState(Recording rec, bool isEva)
+        /// <summary>
+        /// True when the spawn must come from the recorded terminal orbit propagated to the
+        /// spawn UT rather than from the last trajectory point. Applies to an EVA kerbal like
+        /// any vessel: the last point is body-fixed lat/lon/alt, so re-seeding an orbit from it
+        /// at a later UT rotates the orbit with the planet and leaves the kerbal's phase where
+        /// it was at the end UT. Without orbit data the caller keeps the endpoint path.
+        /// </summary>
+        internal static bool ShouldUseRecordedTerminalOrbitSpawnState(Recording rec)
         {
-            return !isEva
-                && rec != null
+            return rec != null
                 && rec.TerminalStateValue == TerminalState.Orbiting
                 && HasRecordedTerminalOrbit(rec);
         }

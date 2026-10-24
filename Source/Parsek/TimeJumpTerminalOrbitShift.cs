@@ -186,8 +186,7 @@ namespace Parsek
                     continue;
                 }
 
-                bool usesTerminalOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(
-                    rec, !string.IsNullOrEmpty(rec.EvaCrewName));
+                bool usesTerminalOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec);
                 string decision = ClassifyCapture(
                     rec.EndUT, preJumpUT, jumpTargetUT,
                     usesTerminalOrbit, rec.VesselSpawned,

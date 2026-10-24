@@ -196,8 +196,7 @@ namespace Parsek
             // (VesselGhoster.TrySpawnBlockedChain), so the ghost is drawn where the vessel
             // would appear if the blocker moved away now.
             CelestialBody body = VesselSpawner.ResolveSpawnRotationBody(rec, lastPoint);
-            bool spawnUsesOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(
-                rec, !string.IsNullOrEmpty(rec.EvaCrewName));
+            bool spawnUsesOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec);
             // A tip an epoch-shift jump froze in the bubble spawns from its jump-shifted orbit,
             // so the held ghost is drawn on that orbit too.
             double jumpLagSeconds =
