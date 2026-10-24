@@ -47,7 +47,10 @@ id = "S0.13-switch-auto-resolve"
 # Two changes followed: the patch now decides nothing for a switch stock will refuse
 # (`FlightGlobals.ClearToSave` not CLEAR; resolution StockWillRefuse, plain path), and the
 # three polls after the decouple became a `WarpToUT` dwell so the kick settles before the
-# click. The merge half and the scene exit are still derived. A WARN
+# click. SECOND FLIGHT `2026-10-24_1457` (DLL 860f1448...76e7, PASS on driver, log and
+# analyzer) red on one token only: after the 6 s dwell the background recorder holds the
+# decoupled stage as the segment's child, so the merge reason is `has-descendants`, not
+# `part-event:Decoupled`; pinned as measured, count measured 3. A WARN
 # `FlushRecorderToTreeRecording: dropping recorder data because active recording id is
 # missing` follows the first discard (the probe's segment had no parent); it is measured,
 # not a finding.
@@ -108,19 +111,19 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # Kerbal X's tree only: its root recording, its continuation segment and the decoupled
-# stage's recording at the least; the probe's two segments are both discarded. A
-# derived window for the first flight to re-pin.
-count = { min = 3, max = 6 }
+# stage's recording; the probe's two segments are both discarded. Measured 3
+# (2026-10-24_1457), pinned exactly.
+count = { min = 3, max = 3 }
 
 [expectations.logContracts]
-# In the order the mechanism runs: discard decision, prune, discard terminal [the three
-# MEASURED 2026-10-24_1439], merge decision [MEASURED up to the reason], merge commit
-# [MEASURED], merge terminal and the scene-exit discard [DERIVED].
+# In the order the mechanism runs: discard decision, prune, discard terminal, merge
+# decision, merge commit, merge terminal, the scene-exit discard, all MEASURED
+# 2026-10-24_1457.
 required  = [
   "pre-switch auto-resolve: resolution=Discard case=A-session autoMerge=True evaluable=True priorIsNoOp=True disposition=BgMemberOrMixed idleOnPad=False reason=no-op priorSessionId=[0-9a-f-]{36} targetPid=3620499050",
   "TryDiscardActiveSwitchSegmentAttempt pruned: sessionId=[0-9a-f-]{36} ",
   "switchclick complete site=map targetPid=3620499050 targetName=Kerbal X route=pre-switch-auto-discard activeVesselPid=3620499050 switched=true",
-  "pre-switch auto-resolve: resolution=Merge case=A-session autoMerge=True evaluable=True priorIsNoOp=False disposition=BgMemberOrMixed idleOnPad=False reason=part-event:Decoupled priorSessionId=[0-9a-f-]{36} targetPid=2614652043",
+  "pre-switch auto-resolve: resolution=Merge case=A-session autoMerge=True evaluable=True priorIsNoOp=False disposition=BgMemberOrMixed idleOnPad=False reason=has-descendants priorSessionId=[0-9a-f-]{36} targetPid=2614652043",
   "pre-switch-dialog committed-prior-segment priorSessionId=[0-9a-f-]{36}",
   "switchclick complete site=map targetPid=2614652043 targetName=Kerbal X Probe route=pre-switch-auto-merge activeVesselPid=2614652043 switched=true",
   "TryAutoDiscardNoOpSwitchSegment: no-op switch segment \\(Standalone\\) detected dest=SPACECENTER - discarding without commit",
