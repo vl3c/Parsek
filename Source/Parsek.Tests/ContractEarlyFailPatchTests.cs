@@ -54,11 +54,12 @@ namespace Parsek.Tests
         {
             private readonly string title;
 
-            internal FakeContract(string title, Guid guid, State state)
+            internal FakeContract(string title, Guid guid, State state, double dateAccepted = 0.0)
             {
                 this.title = title;
                 typeof(Contract).GetField("contractGuid", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(this, guid);
                 typeof(Contract).GetField("state", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(this, state);
+                typeof(Contract).GetField("dateAccepted", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(this, dateAccepted);
             }
 
             protected override string GetTitle() => title;
@@ -128,6 +129,45 @@ namespace Parsek.Tests
                 && l.Contains("refusing fail of \"Explore the Mun\" guid=c1 end=DeadlineExpired - committed "
                     + outcome + " ut=" + outcomeUT.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)
                     + " already reached nowUT=100 recording=(ksc); the contract stays Active until the next career update applies it"));
+        }
+
+        [Fact]
+        public void ReachedOutcomeOfAnEarlierLifecycle_DoesNotHoldAReacceptedContract()
+        {
+            // A rewind before the accept left the contract Offered on the board, the flight
+            // passed the committed completion with no recalculation, and the player accepted
+            // the stale offer again at 160. The 150 completion ended the FIRST lifecycle; it
+            // must not freeze the second one forever.
+            CommittedFutureIndexCache.NowUtProviderForTesting = () => 170.0;
+            Ledger.AddAction(Row(GameActionType.ContractAccept, 100, "c1"));
+            Ledger.AddAction(Row(GameActionType.ContractComplete, 150, "c1"));
+            Ledger.AddAction(Row(GameActionType.ContractAccept, 160, "c1"));
+
+            Assert.True(ContractEarlyFailPatch.ShouldAllowFail("c1", "c1", "DeadlineExpired", acceptedUT: 160.0));
+            Assert.Contains(logLines, l => l.Contains("allowing fail for guid=c1 end=DeadlineExpired - no committed outcome (nowUT=170 acceptedUT=160)"));
+            Assert.Equal(0, ContractEarlyFailPatch.RefusedFailCount);
+
+            // The lifecycle a rewind restored keeps its original accept date: still held.
+            Assert.False(ContractEarlyFailPatch.ShouldAllowFail("c1", "c1", "Failed", acceptedUT: 100.0));
+            // Within the clock-read slack of the accept date: still held.
+            Assert.False(ContractEarlyFailPatch.ShouldAllowFail("c1", "c1", "Failed", acceptedUT: 150.5));
+            // No accept date known: no bound.
+            Assert.False(ContractEarlyFailPatch.ShouldAllowFail("c1", "c1", "Failed", acceptedUT: double.NaN));
+            Assert.False(ContractEarlyFailPatch.ShouldAllowFail("c1", "c1", "Failed", acceptedUT: 0.0));
+            Assert.Equal(4, ContractEarlyFailPatch.RefusedFailCount);
+        }
+
+        [Fact]
+        public void Prefix_PassesTheLiveAcceptDate()
+        {
+            CommittedFutureIndexCache.NowUtProviderForTesting = () => 170.0;
+            var guid = Guid.NewGuid();
+            Ledger.AddAction(Row(GameActionType.ContractComplete, 150, guid.ToString()));
+            var reaccepted = new FakeContract("Re-accepted", guid, Contract.State.Active, dateAccepted: 160.0);
+            var restored = new FakeContract("Restored", guid, Contract.State.Active, dateAccepted: 100.0);
+
+            Assert.True(InvokePrefix(reaccepted, Contract.State.DeadlineExpired));
+            Assert.False(InvokePrefix(restored, Contract.State.DeadlineExpired));
         }
 
         [Fact]

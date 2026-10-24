@@ -29,7 +29,8 @@ namespace Parsek.Patches
     /// until the next recalculation; a fail there would charge a penalty the walk then skips
     /// (the contract already ended), and the stock pool reference files that gap as a kept
     /// leak, a permanent loss. An Active contract with a committed outcome at or before now is
-    /// exactly that stale state. A deadline expiry is refused on the same terms: a contract
+    /// exactly that stale state, counted from the live contract's own accept date on so an
+    /// earlier lifecycle's resolution of a re-accepted contract does not hold the new one. A deadline expiry is refused on the same terms: a contract
     /// with no committed outcome expires as stock decides (the committed timeline holds the
     /// same expiry, design 3.13), and one whose outcome is committed cannot expire past it.</para>
     /// <para><c>Fail()</c> and <c>Update()</c> set <c>dateFinished</c> before <c>SetState</c>, so
@@ -74,7 +75,7 @@ namespace Parsek.Patches
             if (__instance.ContractState != Contracts.Contract.State.Active) return true;
 
             string key = __instance.ContractGuid.ToString();
-            return ShouldAllowFail(key, __instance.Title ?? key, newState.ToString());
+            return ShouldAllowFail(key, __instance.Title ?? key, newState.ToString(), __instance.DateAccepted);
         }
 
         /// <summary>
@@ -91,12 +92,21 @@ namespace Parsek.Patches
                 || newState == Contracts.Contract.State.OfferExpired;
         }
 
+        /// <summary>Slack below the live accept date for a reached outcome's UT (the accept
+        /// date and the row UT are separate reads of the clock).</summary>
+        internal const double AcceptDateToleranceSeconds = 1.0;
+
         /// <summary>
         /// The decision for a fail of an Active contract: false (refuse) while the committed
         /// timeline completes, fails or cancels it, ahead of now or already reached. A reached
-        /// outcome is one the next recalculation has yet to apply to stock's live state.
+        /// outcome is one the next recalculation has yet to apply to stock's live state; it
+        /// counts only from the live contract's own accept date on (<paramref name="acceptedUT"/>,
+        /// stock's <c>DateAccepted</c>; NaN or not positive: no bound), so a resolution that ended
+        /// an EARLIER lifecycle of a re-accepted contract never freezes the new one. A contract
+        /// a rewind restored keeps its original accept date, so its reached outcome still holds.
         /// </summary>
-        internal static bool ShouldAllowFail(string keyString, string title, string endState = "Failed")
+        internal static bool ShouldAllowFail(string keyString, string title, string endState = "Failed",
+            double acceptedUT = double.NaN)
         {
             if (string.IsNullOrEmpty(keyString)) return true;
 
@@ -112,14 +122,20 @@ namespace Parsek.Patches
             bool reached = false;
             if (resolution == null)
             {
-                resolution = StockUiReservationPredicates.CommittedContractResolution(index, keyString);
+                resolution = HasAcceptBound(acceptedUT)
+                    ? StockUiReservationPredicates.CommittedContractResolutionAfter(
+                        index, keyString, acceptedUT - AcceptDateToleranceSeconds)
+                    : StockUiReservationPredicates.CommittedContractResolution(index, keyString);
                 reached = resolution != null;
             }
             if (resolution == null)
             {
                 ParsekLog.Verbose(Tag,
                     "allowing fail for guid=" + keyString + " end=" + endState + " - no committed outcome " +
-                    "(nowUT=" + nowUT.ToString("F0", CultureInfo.InvariantCulture) + ")");
+                    "(nowUT=" + nowUT.ToString("F0", CultureInfo.InvariantCulture) +
+                    (HasAcceptBound(acceptedUT)
+                        ? " acceptedUT=" + acceptedUT.ToString("F0", CultureInfo.InvariantCulture)
+                        : "") + ")");
                 return true;
             }
 
@@ -143,6 +159,11 @@ namespace Parsek.Patches
                     " recording=" + recording + "; the contract stays Active until then");
             }
             return false;
+        }
+
+        private static bool HasAcceptBound(double acceptedUT)
+        {
+            return !double.IsNaN(acceptedUT) && !double.IsInfinity(acceptedUT) && acceptedUT > 0.0;
         }
 
         internal static void ResetForTesting()

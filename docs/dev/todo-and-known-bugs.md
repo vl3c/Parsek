@@ -17,6 +17,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## STALE-OFFER-RE-ACCEPTABLE-AFTER-FLIGHT-PASSES-COMMITTED-RESOLUTION: after a rewind to before a committed accept, a flight that runs past the committed resolution leaves the contract Offered and acceptable again [FILED 2026-10-24 from the PR #2218 review, code read, not reproduced. Open. low, product]
+
+Committed history: accept at UT 100, a committed completion (or cancel) at 150. Rewind to before
+100: the save holds the contract Offered, same guid. Stay in FLIGHT past 150 (no clock cursor, so
+no recalculation runs between 100 and 150; only that one would remove the Offered copy through
+`RemoveOfferedCopiesOfContract`). Back at the Space Center after 150, `PatchContracts` leaves
+Offered entries alone (`BuildCurrentContractRemovalKeys` removes Active ones only) and
+`IsContractAcceptBlocked` reads future accepts only, so the player can accept the stale offer
+again and is paid its advance a second time; `ContractsModule.ProcessAccept` reopens the contract
+in the walk. Fix direction (not designed): the KSC / TS entry recalculation removes an Offered copy
+of a contract whose committed lifecycle already ended, or the accept block also refuses a contract
+with a reached committed resolution and no later committed accept. PR #2218's accept-date bound
+keeps the new lifecycle from being held by the old outcome; the double advance stands.
+
 ## ~~CONTRACT-FAIL-AFTER-REACHED-COMMITTED-OUTCOME: after a flight passes a committed contract outcome, stock can still fail or expire the contract, and the penalty stays charged for good~~ [FILED 2026-10-24 from V's question on the 0.10.6 release-notes known limitation ("A contract a new flight fails in the brief moment between its committed outcome's time and the next career update can still fail"), code read on main 2f86caf, not reproduced. FIXED 2026-10-24 on branch `claude/project-thread-uj5p10` (PR #2218); xUnit + in-game cell, lane L12 LIVE-PROVEN `2026-10-24_1624`. product]
 
 **Symptom.** `Patches/ContractEarlyFailPatch.cs` refused a fail only while the committed outcome
@@ -34,7 +48,10 @@ contract the timeline completed, a ledger loss outside every rule (never-reduce)
 whenever the committed timeline holds its outcome at ANY UT
 (`StockUiReservationPredicates.CommittedContractResolution`, the any-UT form of the Cancel block's
 predicate): an Active contract with a committed outcome at or before now is exactly the stale live
-state the next recalculation resolves. The ahead-of-now refusal and its log line are unchanged;
+state the next recalculation resolves. A reached outcome counts only from the live contract's own
+accept date on (stock's `DateAccepted`, 1 s slack), so an outcome that ended an EARLIER lifecycle
+of a re-accepted contract never holds the new one (found by the PR review; a rewind restores the
+original accept date, so the case above is still held). The ahead-of-now refusal and its log line are unchanged;
 a reached one logs `refusing fail of "<title>" guid=<g> end=<state> - committed <kind> ut=<ut>
 already reached nowUT=<now> recording=<id|(ksc)>; the contract stays Active until the next career
 update applies it`, and every refusal names its end state (`end=`). A contract with no committed
@@ -42,7 +59,8 @@ outcome still expires as stock decides (the committed timeline holds the same ex
 block and every Mission Control mark keep the ahead-of-now predicate (the Space Center and
 Tracking Station clock cursors apply a reached row at once). Cells: `ContractEarlyFailPatchTests`
 (reached complete / fail / cancel, at-now, future named over reached, the any-UT predicate, the
-prefix refusing `DeadlineExpired`); mutation (the reached lookup removed) reds 4. In-game:
+prefix refusing `DeadlineExpired`, the accept-date bound and the prefix passing it); mutations: the
+reached lookup removed reds 4, the accept-date bound removed reds 2. In-game:
 `ContractReachedOutcomeInGameTest` (category `ContractReachedOutcome`) on `career-earned-pad`
 files a committed completion one second behind the clock, moves the Active contract's deadline
 behind it so stock's own update daemon calls `SetState(DeadlineExpired)`, then calls `Fail()`;
