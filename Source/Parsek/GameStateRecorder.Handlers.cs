@@ -231,7 +231,14 @@ namespace Parsek
             // check or supersede reads it as the live flight's loss.
             bool deadlineExpiry = IsDeadlineExpiryFire(contract.ContractState);
             if (deadlineExpiry)
+            {
                 EmitUntagged(ref evt, "ContractFailed");
+                // Stock's PenalizeFailure ran just before this fire, so its funds /
+                // reputation / science changes were captured this frame with the live tag;
+                // they belong with the untagged fail, or the commit reconcile reads them as a
+                // currency change with no ledger row.
+                UntagContractPenaltyChanges(evt.ut);
+            }
             else
                 Emit(ref evt, "ContractFailed");
             ParsekLog.Info("GameStateRecorder",
@@ -244,6 +251,34 @@ namespace Parsek
             // a live recorder.
             if (ShouldForwardFailToLedger(deadlineExpiry, evt.recordingId, HasLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
+        /// Untags the currency-change events stock's <c>PenalizeFailure</c> produced at
+        /// <paramref name="ut"/> (reason <c>ContractPenalty</c>). Returns how many it untagged.
+        /// </summary>
+        internal static int UntagContractPenaltyChanges(double ut)
+        {
+            var targets = new List<GameStateEvent>();
+            var events = GameStateStore.Events;
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (e.ut != ut || string.IsNullOrEmpty(e.recordingId)) continue;
+                if (!string.Equals(e.key, "ContractPenalty", StringComparison.Ordinal)) continue;
+                if (e.eventType != GameStateEventType.FundsChanged
+                    && e.eventType != GameStateEventType.ReputationChanged
+                    && e.eventType != GameStateEventType.ScienceChanged) continue;
+                targets.Add(e);
+            }
+            int untagged = 0;
+            for (int i = 0; i < targets.Count; i++)
+                if (GameStateStore.UpdateEventRecordingId(targets[i], "")) untagged++;
+            if (untagged > 0)
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"ContractFailed: untagged {untagged} ContractPenalty currency change(s) at " +
+                    $"ut={ut.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} with the deadline expiry");
+            return untagged;
         }
 
         /// <summary>

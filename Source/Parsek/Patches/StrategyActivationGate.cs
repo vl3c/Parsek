@@ -35,6 +35,7 @@ namespace Parsek.Patches
         internal const double IndexRefreshRealSeconds = 1.0;
 
         private static double lastNowUT = double.NaN;
+        private static object lastSystem;
         private static double nextActivationUT = double.PositiveInfinity;
         private static CommittedFutureIndex cachedIndex;
         private static double lastRefreshRealTime = double.NegativeInfinity;
@@ -88,20 +89,35 @@ namespace Parsek.Patches
             return next;
         }
 
+        /// <summary>
+        /// Pure: whether this frame can have crossed a committed activation. Not on the first
+        /// frame of a stock system (a scene change or a load), nor when the clock did not move
+        /// forward (pause, or a rewind back).
+        /// </summary>
+        internal static bool IsCrossingFrame(double previousUT, double nowUT, bool newSystem)
+        {
+            return !newSystem && !double.IsNaN(previousUT) && !double.IsNaN(nowUT) && nowUT > previousUT;
+        }
+
         /// <summary>The postfix body.</summary>
         internal static void OnStrategySystemUpdate(Strategies.StrategySystem system)
         {
             if (system == null || system.Strategies == null) return;
             if (GameStateRecorder.IsReplayingActions || GameStateRecorder.SuppressResourceEvents) return;
             if (!IsCareer()) return;
+            if (ParsekScenario.IsOnLoadInProgress) return;
 
             double now = CommittedFutureIndexCache.CurrentUT();
             double previous = lastNowUT;
             lastNowUT = now;
-            if (double.IsNaN(previous) || now <= previous)
+            bool newSystem = !ReferenceEquals(system, lastSystem);
+            lastSystem = system;
+            if (!IsCrossingFrame(previous, now, newSystem))
             {
-                // First frame, or the clock went back (a load or a rewind): nothing was
-                // crossed; re-read the index from the new clock.
+                // First frame of this stock system (a scene change or a load, whose clock
+                // can be anywhere), or the clock went back (a rewind): nothing was crossed
+                // here; the state patch owns the state at a load. Re-read the index from the
+                // new clock.
                 Refresh(now, force: true);
                 return;
             }
@@ -131,7 +147,8 @@ namespace Parsek.Patches
                 var rows = index.StrategyRows(id);
                 double activateUT = rows.UTAt(rows.LastAtOrBefore(now));
                 float factor = StrategyStatePatcher.CommittedActivationFactor(id, activateUT, byId[id].Factor);
-                byId[id].Load(StrategyStatePatcher.BuildActivationNode(id, activateUT, factor));
+                using (SuppressionGuard.ResourcesAndReplay())
+                    byId[id].Load(StrategyStatePatcher.BuildActivationNode(id, activateUT, factor));
                 if (byId[id].IsActive)
                 {
                     activated++;
@@ -199,6 +216,7 @@ namespace Parsek.Patches
         internal static void ResetForTesting()
         {
             lastNowUT = double.NaN;
+            lastSystem = null;
             nextActivationUT = double.PositiveInfinity;
             cachedIndex = null;
             lastRefreshRealTime = double.NegativeInfinity;

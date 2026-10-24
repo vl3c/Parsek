@@ -233,6 +233,55 @@ namespace Parsek.Tests
             Assert.Empty(plan.FutureDated);
         }
 
+        // catches: a load of a later-dated save (a new stock system) read as one long frame
+        // that crossed every activation in between, and a rewind read as a crossing.
+        [Theory]
+        [InlineData(100.0, 100.1, false, true)]
+        [InlineData(100.0, 100.0, false, false)]
+        [InlineData(100.0, 50.0, false, false)]
+        [InlineData(100.0, 900.0, true, false)]
+        [InlineData(double.NaN, 100.0, false, false)]
+        public void IsCrossingFrame_OnlyForwardInTheSameStockSystem(
+            double previous, double now, bool newSystem, bool expected)
+        {
+            Assert.Equal(expected, StrategyActivationGate.IsCrossingFrame(previous, now, newSystem));
+        }
+
+        // catches: a patch made while OnLoad runs (live clock still the pre-load one, NaN
+        // resolve clock) re-deciding the walk from committed rows at a stale clock: a
+        // Discard Re-fly landing at 1100 would switch on an activation dated 1300.
+        [Fact]
+        public void SelectLedgerStateForPlan_NoResolveClock_KeepsTheWalkState()
+        {
+            var map = new Dictionary<string, StrategyCommittedRows>
+            {
+                { "S", R(new[] { 1300.0 }, new double[0]) },
+            };
+            var snapshot = new LedgerStrategySnapshot();
+            snapshot.Managed.Add("S");
+            var plan = StrategyStatePatcher.SelectLedgerStateForPlan(snapshot, Rows(map), NoFactor);
+            Assert.Same(snapshot, plan);
+            Assert.False(plan.ActivateUT.ContainsKey("S"));
+        }
+
+        [Fact]
+        public void SelectLedgerStateForPlan_ResolveClock_ReadsTheCommittedRowsThere()
+        {
+            var map = new Dictionary<string, StrategyCommittedRows>
+            {
+                { "S", R(new[] { 1300.0 }, new double[0]) },
+            };
+            var before = new LedgerStrategySnapshot { ResolveClockUT = 1100.0 };
+            before.Managed.Add("S");
+            before.ActivateUT["S"] = 1300.0;
+            Assert.False(StrategyStatePatcher.SelectLedgerStateForPlan(before, Rows(map), NoFactor)
+                .ActivateUT.ContainsKey("S"));
+            var after = new LedgerStrategySnapshot { ResolveClockUT = 1500.0 };
+            after.Managed.Add("S");
+            Assert.Equal(1300.0, StrategyStatePatcher.SelectLedgerStateForPlan(after, Rows(map), NoFactor)
+                .ActivateUT["S"]);
+        }
+
         // catches: a player deactivation in flight filed untagged (it is the flight's own act)
         // or a duration expiry tagged to the live flight (lost at discard).
         [Theory]

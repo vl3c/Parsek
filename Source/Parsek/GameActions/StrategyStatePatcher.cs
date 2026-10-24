@@ -51,6 +51,10 @@ namespace Parsek
         internal readonly Dictionary<string, double> ActivateUT = new Dictionary<string, double>(StringComparer.Ordinal);
         internal readonly Dictionary<string, float> Factor = new Dictionary<string, float>(StringComparer.Ordinal);
         internal readonly HashSet<string> Managed = new HashSet<string>(StringComparer.Ordinal);
+        /// <summary>The clock a walk past now is resolved at
+        /// (<see cref="StrategyStatePatcher.ResolveLedgerActiveAtNow"/>); NaN keeps the walk's
+        /// own state (a cutoff walk, or a patch made while OnLoad runs).</summary>
+        internal double ResolveClockUT = double.NaN;
 
         internal static LedgerStrategySnapshot From(StrategiesModule strategies)
         {
@@ -293,6 +297,24 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: the ledger state the plan diffs against. A snapshot with a resolve clock
+        /// (a walk past now) is read at that clock from the committed rows; one without (a
+        /// cutoff walk, or a patch made while OnLoad runs and the live clock is the pre-load
+        /// one) is the walk's own state.
+        /// </summary>
+        internal static LedgerStrategySnapshot SelectLedgerStateForPlan(
+            LedgerStrategySnapshot snapshot,
+            Func<string, StrategyCommittedRows> rowsOf,
+            Func<string, double, float> factorAt)
+        {
+            if (snapshot == null || double.IsNaN(snapshot.ResolveClockUT)) return snapshot;
+            var resolved = ResolveLedgerActiveAtNow(snapshot.ActivateUT, snapshot.Factor, snapshot.Managed,
+                rowsOf, factorAt, snapshot.ResolveClockUT);
+            resolved.ResolveClockUT = snapshot.ResolveClockUT;
+            return resolved;
+        }
+
+        /// <summary>
         /// The commitment factor of the effective ledger's StrategyActivate row for
         /// <paramref name="strategyId"/> at <paramref name="activateUT"/>, or
         /// <paramref name="fallback"/> when none matches.
@@ -495,7 +517,7 @@ namespace Parsek
         /// Writes the ledger's active strategy set into stock. Idempotent: a second call
         /// with no ledger change finds nothing to do.
         /// </summary>
-        internal static void PatchStrategies(StrategiesModule strategies)
+        internal static void PatchStrategies(StrategiesModule strategies, double committedRowClockUT = double.NaN)
         {
             if (strategies == null)
             {
@@ -510,7 +532,7 @@ namespace Parsek
             }
             try
             {
-                PatchStrategiesCore(strategies);
+                PatchStrategiesCore(strategies, committedRowClockUT);
             }
             catch (Exception ex)
             {
@@ -519,9 +541,10 @@ namespace Parsek
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static void PatchStrategiesCore(StrategiesModule strategies)
+        private static void PatchStrategiesCore(StrategiesModule strategies, double committedRowClockUT)
         {
             var snapshot = LedgerStrategySnapshot.From(strategies);
+            snapshot.ResolveClockUT = committedRowClockUT;
             var system = Strategies.StrategySystem.Instance;
             int count = system != null && system.Strategies != null ? system.Strategies.Count : 0;
             var state = ClassifyStockList(system != null, count);
@@ -562,7 +585,8 @@ namespace Parsek
                 if (s.IsActive) stockActive.Add(id);
             }
 
-            double now = Planetarium.GetUniversalTime();
+            bool resolveAtClock = !double.IsNaN(snapshot.ResolveClockUT);
+            double now = resolveAtClock ? snapshot.ResolveClockUT : Planetarium.GetUniversalTime();
             var index = CommittedFutureIndexCache.Current;
             var ordered = new List<StrategyTagInfo>(system.Strategies.Count);
             for (int i = 0; i < system.Strategies.Count; i++)
@@ -572,8 +596,10 @@ namespace Parsek
             }
             // The same committed-rows predicate the Strategy.Update() prefix holds an expiry
             // on, so the patch never switches off what the prefix keeps on.
-            var atNow = ResolveLedgerActiveAtNow(snapshot.ActivateUT, snapshot.Factor, snapshot.Managed, index.StrategyRows,
-                (id, ut) => CommittedActivationFactor(id, ut, float.NaN), now);
+            // A walk past the clock ends with the state after every committed row; read the
+            // committed rows at the clock instead. Any other walk already is the state at now.
+            var atNow = SelectLedgerStateForPlan(snapshot, index.StrategyRows,
+                (id, ut) => CommittedActivationFactor(id, ut, float.NaN));
             var plan = ComputePlan(atNow.ActivateUT, snapshot.Managed.Contains, stockActive, byId.Keys, now,
                 id =>
                 {

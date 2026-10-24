@@ -57,7 +57,9 @@ fail whose state is `DeadlineExpired` untagged (`GameStateRecorder.EmitUntagged`
 ledger at once, in flight too (`ShouldForwardFailToLedger`; a commit converts only its own tag). Both
 dominance walks then carry the same penalty, a discard keeps it, and after a rewind the committed
 expiry refuses stock's repeat through `ContractEarlyFailPatch`. A fail before the deadline stays the
-flight's own loss. Cells: `ContractDeadlineExpiryUntaggedTests`, `ReFlyMergeDominanceTests`
+flight's own loss. The penalty's funds / reputation changes from the same frame are untagged with it
+(`UntagContractPenaltyChanges`), so the commit reconcile does not read them as unledgered. Cells:
+`ContractDeadlineExpiryUntaggedTests`, `ReFlyMergeDominanceTests`
 (`Evaluate_UntaggedDeadlineExpiryDuringTheAttempt_*`, `Evaluate_TaggedDeadlineExpiry_*`,
 `Evaluate_AttemptFailBeforeTheDeadline_*`).
 
@@ -141,7 +143,10 @@ now through an earlier activation, switched off later and re-activated after tha
 cutoff-less patch (see TREE-COMMIT-WALKS-PAST-THE-CLOCK). **Fix.**
 `StrategyStatePatcher.ResolveLedgerActiveAtNow` rebuilds the active set at now from the committed rows
 (the latest row at or before now decides, with that row's commitment) before `ComputePlan` runs; an id
-with no committed rows keeps the walk's state. Cells: `StrategyActivationGateTests`
+with no committed rows keeps the walk's state. The clock is the contract patch's
+(`ResolveContractAcceptClockUT`): none for a cutoff walk or while OnLoad runs, whose live clock is
+still the pre-load one (a review found a Discard Re-fly landing before an activation would otherwise
+switch it on early). Cells: `StrategyActivationGateTests`
 (`ResolveLedgerActiveAtNow_*`, `ResolvedStateIntoComputePlan_*`).
 
 ---
