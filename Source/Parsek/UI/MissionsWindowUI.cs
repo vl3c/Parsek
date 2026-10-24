@@ -775,6 +775,10 @@ namespace Parsek
 
         // The mission's collapse caret contents: the glyph alone (MissionPresentation owns which
         // glyph and hover go with which state), allocated once.
+        internal const string MissionHeaderRenameHoverOriginal =
+            "Double-click to rename (a name in use, or one with = { }, is refused).";
+        internal const string MissionHeaderRenameHoverClone = "Double-click to rename.";
+
         private static readonly GUIContent MissionCaretExpandedContent = new GUIContent(
             MissionPresentation.MissionCollapseCaretGlyph(false),
             MissionPresentation.MissionCollapseCaretTooltip(false));
@@ -3568,7 +3572,11 @@ namespace Parsek
 
             // Bold transparent text on the row bubble (clickable for rename); no box of its own,
             // since the row's missionHeaderRowStyle already supplies the dark background.
-            if (GUILayout.Button(display, missionHeaderTextStyle, GUILayout.ExpandWidth(true)))
+            // A main mission's name is its Recordings folder's name, so it takes the folder rules.
+            string renameHover = MissionStore.IsOriginalMission(mission)
+                ? MissionHeaderRenameHoverOriginal
+                : MissionHeaderRenameHoverClone;
+            if (GUILayout.Button(new GUIContent(display, renameHover), missionHeaderTextStyle, GUILayout.ExpandWidth(true)))
             {
                 float t = Time.realtimeSinceStartup;
                 if (lastClickedMissionId == mission.Id && t - lastMissionClickTime < DoubleClickThreshold)

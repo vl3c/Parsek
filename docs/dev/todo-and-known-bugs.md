@@ -10200,7 +10200,14 @@ read them on 2026-09-11; where a file was edited by the fix batch the SYMBOL is 
 not the number. An entry that says `Decision:` is waiting on an operator ruling, per the
 triage.
 
-## GUI-P3-ROUTE-INTERVAL-SNAPS-SILENTLY: a free-text field that rewrites what you typed [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-P3-ROUTE-INTERVAL-SNAPS-SILENTLY: a free-text field that rewrites what you typed~~ [FILED 2026-09-11 by the GUI fix batch. FIXED 2026-10-24 (owner: go with the recommendation), branch `claude/project-thread-k35smp`]
+
+Fix (2026-10-24): the flat half needed nothing new; the `Nx` hover
+(`LogisticsIntervalPresentation.BuildNxCellTooltip`) has said since 2026-08-25 that a typed
+interval snaps up to a whole run-multiple. On a launch-window route (`IsWindowedBasis`) the field is
+now drawn greyed with `WindowedIntervalFieldDisabledReason` in its hover (use -/+ to deliver every
+Nth window), so a typed duration can no longer set N from N x transit there. Tests:
+`GuiWordingPItemsTests`.
 
 Re-checked 2026-10-24 on main b26cdc0: still real, line numbers moved. The field is
 `LogisticsWindowUI.DrawIntervalCell` (a bare `GUILayout.TextField`, no tooltip of its own) and
@@ -10241,7 +10248,15 @@ already carries (`SpawnControlPresentation.WarpButtonDisabledReason` is the esta
 seam), so the button that names an outcome can at least say which of the fifteen stopped
 it.
 
-## GUI-P9-RENAME-REFUSALS-DISCARD-THE-TYPED-NAME-SILENTLY: three paths, one Warn each, no player-facing word [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-P9-RENAME-REFUSALS-DISCARD-THE-TYPED-NAME-SILENTLY: three paths, one Warn each, no player-facing word~~ [FILED 2026-09-11 by the GUI fix batch. FIXED 2026-10-24 (owner: go with the recommendation), branch `claude/project-thread-k35smp`]
+
+Fix (2026-10-24): the rule is stated where the rename starts. The folder row's existing hover
+reads "double-click to rename (a name in use, or one with = { }, is refused)", and the mission
+header gains the same hover for a main mission (whose name is its folder's; a variant renames
+freely). The field still closes on a refusal and the Warn lines are unchanged (QL-10 pins one). The
+re-parent path needs nothing: the group picker never offers a parent that would make a cycle
+(`DrawGroupPopupNode` skips `cycleInvalid`), so `SetGroupParent`'s Warn is only a backstop. Tests:
+`GuiWordingPItemsTests`.
 
 Re-checked 2026-10-24 on main b26cdc0: still real. Mission rename (`MissionsWindowUI`, `Mission
 rename rejected` Warn) and group rename (`RecordingsTableUI`, `Group rename rejected` Warns for
@@ -10280,7 +10295,12 @@ work and more useful.
 list (the header summary, `Events (N)`, chapter titles, the mission `#` ordinal), so the
 ruling should cover the family rather than this one button.
 
-## GUI-P11-SEAL-ADVICE-POINTS-AT-A-BUTTON-THAT-WILL-NOT-BE-THERE [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-P11-SEAL-ADVICE-POINTS-AT-A-BUTTON-THAT-WILL-NOT-BE-THERE~~ [FILED 2026-09-11 by the GUI fix batch. FIXED 2026-10-24 (owner: go with the recommendation), branch `claude/project-thread-k35smp`]
+
+Fix (2026-10-24): both failure paths of `MergeDialog.ApplyPlayerRequestedSeal` show
+`MergeAndSealFailedMessage`, "Merged, but the Re-Fly slot could not be sealed", and their Warn
+lines drop the Timeline advice. A failed seal means the slot or its tip did not resolve, which every
+Seal control needs too. Tests: `GuiWordingPItemsTests`.
 
 Re-checked 2026-10-24 on main b26cdc0: still real. Both ScreenMessages now sit in
 `MergeDialog.Commit.cs` `ApplyPlayerRequestedSeal` ("Merged, but could not seal - seal it from the
@@ -10359,7 +10379,12 @@ drives the DESIGNED flag through a real career.
   where a per-resource floor that EXEMPTS Step-3b resurrected-recovery retirements would be
   the right gate, so the lane has to exist before such a floor could be designed.
 
-## GUI-P19-CANDIDATES-EMPTY-STATE-TELLS-THE-PLAYER-TO-DO-WHAT-THEY-DID [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-P19-CANDIDATES-EMPTY-STATE-TELLS-THE-PLAYER-TO-DO-WHAT-THEY-DID~~ [FILED 2026-09-11 by the GUI fix batch. FIXED 2026-10-24 (owner: go with the recommendation), branch `claude/project-thread-k35smp`]
+
+Fix (2026-10-24): `LogisticsWindowUI.CandidatesEmptyStateText(nearMissCount)`. With rows in the
+near-miss list it reads "No supply runs to offer yet. The list below shows why your finished
+missions cannot become routes; open a reason to see them."; without, the old instructions. Tests:
+`GuiWordingPItemsTests`.
 
 Re-checked 2026-10-24 on main b26cdc0: still real, text changed.
 `LogisticsWindowUI.DrawCandidateSectionBubble` draws "No supply runs to offer yet. Fly a cargo run
