@@ -1,0 +1,81 @@
+schema = 1
+id = "L12-contract-reached-outcome-blocks-fail"
+tier = "nightly"
+# CAREER x CONTRACTS: A REACHED COMMITTED OUTCOME CANNOT BE UNDERCUT IN FLIGHT (todo
+# CONTRACT-FAIL-AFTER-REACHED-COMMITTED-OUTCOME, game-actions design 3.13 rule 1). The flight
+# scene applies a committed contract outcome only at the next recalculation, so after a flight
+# passes the outcome's UT stock still holds the contract Active. Before the fix stock could
+# fail or expire it there: the walk then skips the late fail (the contract already ended) and
+# the stock pool reference keeps the penalty stock charged as a leak, a permanent loss.
+#
+# THE HOST. `career-earned-pad` boots into FLIGHT on the pad Flea with PartTest 07c8e34d Active
+# (the only Active contract; ST-1 / LT-3 fly the same host). The one in-game cell files a
+# committed Space Center completion of that contract one second behind the clock, moves the
+# contract's deadline behind the clock so stock's own ContractSystem update daemon expires it
+# through Contract.Update() -> SetState(DeadlineExpired), then calls stock's public Fail(). Both
+# must be refused: the contract stays Active, funds and reputation do not move. The cell
+# restores the deadline and removes the row; campaign isolation reverts the save.
+#
+# A DLL WITHOUT THE FIX reds the cell: the old strict-future predicate allows the expiry
+# (`allowing fail for guid=... - no committed outcome after now`), the contract leaves Active
+# and stock charges the fail penalty.
+#
+# FAST-LANE CHECKLIST: (1) reuse - the host's boot is ST-1's, no flight; (2)-(5) n/a (no warp,
+# dwell, burn or coast); (6) retry once; (7) recordings pinned exactly (the 2 fixture ones);
+# (8) nightly, ST-1-sized; (9) run flight_efficiency.py after the first green flight.
+#
+# STATUS: AUTHORED 2026-10-24, never flown.
+description = "Career pad flight with an Active contract whose committed completion lies one second behind the clock: stock's own deadline expiry and its public Fail() are both refused, the contract stays Active, and funds and reputation do not move."
+instanceProfile = "stock-minimal"
+tags = ["L12", "ingame-batch", "career", "contracts", "committed-value"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-earned-pad"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "RunTests",   args = { category = "ContractReachedOutcome" },          expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                        expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=ContractReachedOutcome scene=FLIGHT",
+  "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] contract reached outcome: fixture guid=07c8e34d",
+  "\\[Parsek\\]\\[INFO\\]\\[ContractEarlyFailPatch\\] refusing fail of \"[^\"]+\" guid=07c8e34d\\S* end=DeadlineExpired - committed ContractComplete ut=[0-9]+ already reached nowUT=[0-9]+ recording=\\(ksc\\); the contract stays Active until the next career update applies it",
+  "\\[Parsek\\]\\[INFO\\]\\[ContractEarlyFailPatch\\] refusing fail of \"[^\"]+\" guid=07c8e34d\\S* end=Failed - committed ContractComplete ut=[0-9]+ already reached",
+  "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] contract reached outcome: expiry state=Active refused=[1-9]",
+  "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] contract reached outcome: fail state=Active refused=1 ",
+  "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] contract reached outcome: cleanup rowRemoved=True state=Active",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "allowing fail for guid=07c8e34d",
+  "Game state: ContractFailed",
+  "GUARDED DRAWDOWN clamped",
+  "GUARDED UPLIFT clamped",
+]
+
+[runtime]
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

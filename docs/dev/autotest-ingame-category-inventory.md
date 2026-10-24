@@ -1,4 +1,4 @@
-# In-game test category inventory (all 130 categories)
+# In-game test category inventory (all 131 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -99,6 +99,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `ChainTipBlockedGhost` | 2 | 2 | 0 | 0 | 0 | 2 | NOT DRIVEN (D18-CHAIN-SPAWN-BLOCKED-GHOST-6B4-NOOP, 2026-10-01, branch `chain-blocked-ghost`). Two FLIGHT cells that drive a throwaway probe through the production positioning of a spawn-blocked chain tip's held ghost: the orbit source must land on KSP's own `Orbit.getPositionAtUT` at two UTs 60 s apart, the hold source on the body-fixed end pose, both with the body-relative end attitude and one FloatingOrigin reapply entry. Its own category so no pinned `BATCH_COMPLETE` tally moves. Self-skips without a ParsekFlight instance or an active vessel. NEVER FLOWN. Bucket **B** until a lane drives it | B |
 | `ClawCouple` | 2 | 2 | 0 | 0 | 0 | 2 | H42 (flown 2026-08-28, executes 2 of 2) | A |
 | `Coalescer` | 2 | 0 | 0 | 0 | 2 | 2 | H62-coalescer-isolated (ISOLATED, flown 2026-09-06, executes 2 of 2 - LIVE-PROVEN on its second flight `2026-09-06_2017`, `total=2 passed=2 failed=0 skipped=0` pinned whole; the first flight on `gs1-two-stage-pad` read `passed=0 skipped=2` because gs1's first stage lights the engine, so the host is now the derived `coalescer-pad`, gs1 with the decoupler moved into the first stage. A REAL controlled-decoupled split over a host carrying PRELAUNCH + an engine + 2 command modules + a decoupler IN THE NEXT STAGE: the live seed residual decision line with numeric `seedLiveRootDist=` / `propagatedResidual=`, and the child's `ParentAnchorRecordingId` stamped at the focused parent at split time. Both cells executed as predicted once the stage order matched. Claims D5 `controlled-decoupled-child` only - `crash-coalescing` is NOT claimed, because neither cell crashes anything) | A |
+| `ContractReachedOutcome` | 1 | 1 | 0 | 0 | 0 | 1 | L12-contract-reached-outcome-blocks-fail (authored 2026-10-24 with the fix for CONTRACT-FAIL-AFTER-REACHED-COMMITTED-OUTCOME, never flown; tally pinned whole at `total=1 passed=1 failed=0 skipped=0` on `career-earned-pad` in FLIGHT, whose one Active contract the cell needs). One FLIGHT cell: a committed completion one second behind the clock, then stock's own deadline expiry through the update daemon and stock's public `Fail()`, both refused with the contract still Active and the pools unchanged | A |
 | `Contracts` | 2 | 2 | 0 | 0 | 0 | 2 | LT-3-long-tail-career-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2035`, PASS attempt 1, 64 s wall, every verifier PASS or REPORT, every per-constituent `BATCH_COMPLETE` line matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-1, run `2026-09-07_2007`) at 2 of 2 - the whole category with zero skips, at FLIGHT on the `career-earned-pad` career, which is what both cells' career-only guards want and what no sandbox host could give them - and the flight measured that line exactly. The FIRST execution of either cell anywhere; PROMOTED to bucket **A** (A3) by that flight, on the promotion rule below: the tally is pinned whole AND the lane drove the category whole at its own boot) | A |
 | `ConverterJumpLab` | 5 | 0 | 5 | 0 | 0 | 4 | LAB-1-converter-jump-lab-ledger (authored 2026-10-17, branch `claude/lab-isru-drill-coverage-5oq37h`, LIVE-PROVEN the same day, run `2026-10-17_0622` PASS attempt 1, tally pinned WHOLE at `total=5 passed=5 failed=0 skipped=0`) on `fresh-career` at the Space Center. Five SPACECENTER cells for TA-6 and LAB-SCIENCE-NEVER-LEDGERED: the real forward and epoch-shift jumps each shift the converter clocks of an unloaded drill, ISRU and lab by the jump (never-ran and non-converter fields untouched); the reflected clock field is the one the stock modules persist; a stock `RecoverScienceLabs` lands one ownerless `ScienceLabEarning` row a recalc keeps; the capture pair is attached to both stock payouts | A |
 | `CrewReservation` | 15 | 14 | 6 | 5 | 0 | 12 | H31 | A |
@@ -224,8 +225,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **130 categories / 678 declarations**. Buckets **A 96 categories
-(380 declarations)**, **B 33 categories (294 declarations)**, **C 1 category (4
+Totals, re-derived: **131 categories / 679 declarations**. Buckets **A 97 categories
+(381 declarations)**, **B 33 categories (294 declarations)**, **C 1 category (4
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes).
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
@@ -244,7 +245,9 @@ into **A** on the same standing, A 93 -> 94 categories, 370 -> 373 declarations.
 lab ledger check's `ConverterJumpLab` (LAB-1, five SPACECENTER cells) landed WITH its never-flown lane into **A** on the
 same standing, A 94 -> 95 categories, 373 -> 378 declarations. The 2026-10-24 fix for
 GC9-SPAWN-IGNORES-ACTIVE-VESSEL's `SpawnActiveVesselBlocker` (SB-1, one FLIGHT cell) landed WITH its lane (live-proven the same day)
-into **A** on the same standing, A 95 -> 96 categories, 379 -> 380 declarations. All re-derived
+into **A** on the same standing, A 95 -> 96 categories, 379 -> 380 declarations. The 2026-10-24 fix for
+CONTRACT-FAIL-AFTER-REACHED-COMMITTED-OUTCOME's `ContractReachedOutcome` (L12, one FLIGHT cell) landed WITH its lane
+into **A** on the same standing, A 96 -> 97 categories, 380 -> 381 declarations. All re-derived
 mechanically by counting the table's
 rows per Bucket cell and summing their Decls column, which is also how the bucket
 section headers below are derived. The 2026-09-08 reading was A 86 / 349 and B 27 / 275;
@@ -345,10 +348,11 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **125 of 130 categories**, covering **669 of 678
+Driven by a committed spec: **126 of 131 categories**, covering **670 of 679
 declarations** (re-derived mechanically the same way: count the table rows whose
-Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 678 declarations in
-130 categories over `Source/Parsek`. The 2026-10-24 spawn fix opened a 130th row, `SpawnActiveVesselBlocker`
+Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 679 declarations in
+131 categories over `Source/Parsek`. The 2026-10-24 contract fail fix opened a 131st row, `ContractReachedOutcome`
+(one FLIGHT cell, bucket **A**), driven by L12-contract-reached-outcome-blocks-fail (authored 2026-10-24). The 2026-10-24 spawn fix opened a 130th row, `SpawnActiveVesselBlocker`
 (one FLIGHT cell, bucket **A**), driven by SB-1-spawn-active-vessel-blocker (authored 2026-10-24, LIVE-PROVEN the same day). The 2026-10-17 converter jump and lab ledger check opened a
 129th row, `ConverterJumpLab` (five SPACECENTER cells, bucket **A**), driven by LAB-1-converter-jump-lab-ledger (authored
 2026-10-17, LIVE-PROVEN the same day). The 2026-10-16 mining live check opened a 128th row,

@@ -6,8 +6,8 @@ using HarmonyLib;
 namespace Parsek.Patches
 {
     /// <summary>
-    /// Prefix on the protected <c>Contracts.Contract.SetState(State)</c>: refuses to fail an
-    /// Active contract whose outcome the committed timeline already holds later (owner ruling
+    /// Prefix on the protected <c>Contracts.Contract.SetState(State)</c>: refuses to end an
+    /// Active contract whose outcome the committed timeline already holds (owner ruling
     /// L1.1, rule 1 of the committed-value rule, game-actions design section 3.13). A new
     /// flight after a rewind would otherwise charge the fail penalty before a committed
     /// completion, which then pays nothing, and leave the committed purchases that completion
@@ -18,20 +18,28 @@ namespace Parsek.Patches
     /// parameter stays Failed), which the committed outcome resolves.
     /// <para>Stock funnel (decompiled, KSP 1.12.5): <c>Fail()</c> and a failed non-optional
     /// parameter (<c>ParameterStateUpdate</c>) both reach <c>SetState(State.Failed)</c>, which
-    /// runs <c>PenalizeFailure()</c>; refusing it leaves the contract Active, and the state
-    /// patch applies the committed outcome at the next recalculation past its UT. The refusal
-    /// is strict-future: the flight scene has no clock cursor, so between that UT and the next
-    /// recalculation a fail goes through (known gap, todo LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY).
-    /// Stock's <c>Fail()</c> ignores <c>SetState</c>'s outcome and returns true when refused. <c>DeadlineExpired</c>
-    /// is not intercepted: the committed timeline holds the same expiry at the same UT
-    /// (design 3.13, cases that need no rule). <c>OfferExpired</c> on an Active contract
-    /// (stock's <c>Update()</c>, requirements no longer met) is refused too. <c>Fail()</c> and
-    /// <c>Update()</c> set <c>dateFinished</c> before <c>SetState</c>, so a refused contract
-    /// keeps that date until its committed outcome; nothing reads it while it is Active.
-    /// A refusal from <c>Update()</c> repeats every frame, so its log line is rate-limited. Parsek itself never calls <c>SetState</c>
+    /// runs <c>PenalizeFailure()</c>; <c>Update()</c> reaches <c>SetState(State.DeadlineExpired)</c>
+    /// (also <c>PenalizeFailure()</c>) once the deadline passes, and <c>SetState(State.OfferExpired)</c>
+    /// (no penalty) when an Active contract's requirements no longer hold. Refusing leaves the
+    /// contract Active, and the state patch applies the committed outcome at the next
+    /// recalculation past its UT.</para>
+    /// <para>The refusal covers a committed outcome at ANY UT, not only one ahead of the clock
+    /// (todo CONTRACT-FAIL-AFTER-REACHED-COMMITTED-OUTCOME). The flight scene has no clock
+    /// cursor, so once a flight passes the committed UT stock still shows the contract Active
+    /// until the next recalculation; a fail there would charge a penalty the walk then skips
+    /// (the contract already ended), and the stock pool reference files that gap as a kept
+    /// leak, a permanent loss. An Active contract with a committed outcome at or before now is
+    /// exactly that stale state. A deadline expiry is refused on the same terms: a contract
+    /// with no committed outcome expires as stock decides (the committed timeline holds the
+    /// same expiry, design 3.13), and one whose outcome is committed cannot expire past it.</para>
+    /// <para><c>Fail()</c> and <c>Update()</c> set <c>dateFinished</c> before <c>SetState</c>, so
+    /// a refused contract keeps that date until its committed outcome; nothing reads it while it
+    /// is Active. Stock's <c>Fail()</c> ignores <c>SetState</c>'s outcome and returns true when
+    /// refused. A refusal from <c>Update()</c> repeats every frame, so its log line is
+    /// rate-limited. Parsek itself never calls <c>SetState</c>
     /// (<c>KspStatePatcher.PatchContracts</c> writes contract state directly). It reads
-    /// <see cref="StockUiReservationPredicates.CommittedContractResolutionAfter"/>, the
-    /// predicate the Cancel block (ruling D7) reads, so a contract whose Cancel is greyed
+    /// <see cref="StockUiReservationPredicates.CommittedContractResolution"/>, the any-UT form of
+    /// the predicate the Cancel block (ruling D7) reads, so a contract whose Cancel is greyed
     /// cannot fail in flight either.</para>
     /// </summary>
     [HarmonyPatch]
@@ -66,26 +74,29 @@ namespace Parsek.Patches
             if (__instance.ContractState != Contracts.Contract.State.Active) return true;
 
             string key = __instance.ContractGuid.ToString();
-            return ShouldAllowFail(key, __instance.Title ?? key);
+            return ShouldAllowFail(key, __instance.Title ?? key, newState.ToString());
         }
 
         /// <summary>
-        /// The end states of an Active contract that would move a committed outcome earlier:
-        /// <c>Failed</c> (charges the fail penalty) and <c>OfferExpired</c>, which stock's
-        /// <c>Update()</c> sets on an Active contract whose requirements no longer hold (no
-        /// penalty, but the contract leaves the active list before its committed outcome).
+        /// The end states of an Active contract that would contradict a committed outcome:
+        /// <c>Failed</c> and <c>DeadlineExpired</c> (both charge the fail penalty) and
+        /// <c>OfferExpired</c>, which stock's <c>Update()</c> sets on an Active contract whose
+        /// requirements no longer hold (no penalty, but the contract leaves the active list
+        /// before or instead of its committed outcome).
         /// </summary>
         internal static bool IsEarlyEndState(Contracts.Contract.State newState)
         {
             return newState == Contracts.Contract.State.Failed
+                || newState == Contracts.Contract.State.DeadlineExpired
                 || newState == Contracts.Contract.State.OfferExpired;
         }
 
         /// <summary>
         /// The decision for a fail of an Active contract: false (refuse) while the committed
-        /// timeline completes, fails or cancels it after now.
+        /// timeline completes, fails or cancels it, ahead of now or already reached. A reached
+        /// outcome is one the next recalculation has yet to apply to stock's live state.
         /// </summary>
-        internal static bool ShouldAllowFail(string keyString, string title)
+        internal static bool ShouldAllowFail(string keyString, string title, string endState = "Failed")
         {
             if (string.IsNullOrEmpty(keyString)) return true;
 
@@ -98,20 +109,39 @@ namespace Parsek.Patches
             var index = CommittedFutureIndexCache.Current;
             double nowUT = CommittedFutureIndexCache.CurrentUT();
             var resolution = StockUiReservationPredicates.CommittedContractResolutionAfter(index, keyString, nowUT);
+            bool reached = false;
+            if (resolution == null)
+            {
+                resolution = StockUiReservationPredicates.CommittedContractResolution(index, keyString);
+                reached = resolution != null;
+            }
             if (resolution == null)
             {
                 ParsekLog.Verbose(Tag,
-                    "allowing fail for guid=" + keyString + " - no committed outcome after now " +
+                    "allowing fail for guid=" + keyString + " end=" + endState + " - no committed outcome " +
                     "(nowUT=" + nowUT.ToString("F0", CultureInfo.InvariantCulture) + ")");
                 return true;
             }
 
             RefusedFailCount++;
-            ParsekLog.InfoRateLimited(Tag, "refuse|" + keyString,
-                "refusing fail of \"" + (string.IsNullOrEmpty(title) ? keyString : title) + "\" guid=" + keyString +
-                " - committed " + resolution.Kind + " ut=" + resolution.UT.ToString("F0", CultureInfo.InvariantCulture) +
-                " nowUT=" + nowUT.ToString("F0", CultureInfo.InvariantCulture) +
-                " recording=" + (resolution.RecordingId ?? "(ksc)") + "; the contract stays Active until then");
+            string titleText = string.IsNullOrEmpty(title) ? keyString : title;
+            string recording = resolution.RecordingId ?? "(ksc)";
+            if (reached)
+            {
+                ParsekLog.InfoRateLimited(Tag, "refuse-reached|" + endState + "|" + keyString,
+                    "refusing fail of \"" + titleText + "\" guid=" + keyString +
+                    " end=" + endState + " - committed " + resolution.Kind + " ut=" + resolution.UT.ToString("F0", CultureInfo.InvariantCulture) +
+                    " already reached nowUT=" + nowUT.ToString("F0", CultureInfo.InvariantCulture) +
+                    " recording=" + recording + "; the contract stays Active until the next career update applies it");
+            }
+            else
+            {
+                ParsekLog.InfoRateLimited(Tag, "refuse|" + endState + "|" + keyString,
+                    "refusing fail of \"" + titleText + "\" guid=" + keyString +
+                    " end=" + endState + " - committed " + resolution.Kind + " ut=" + resolution.UT.ToString("F0", CultureInfo.InvariantCulture) +
+                    " nowUT=" + nowUT.ToString("F0", CultureInfo.InvariantCulture) +
+                    " recording=" + recording + "; the contract stays Active until then");
+            }
             return false;
         }
 

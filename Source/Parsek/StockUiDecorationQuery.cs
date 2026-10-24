@@ -181,6 +181,20 @@ namespace Parsek
             return best;
         }
 
+        /// <summary>
+        /// The committed resolution of a contract at any UT, past or ahead of the clock: the
+        /// earliest explicit <c>ContractComplete</c> / <c>ContractFail</c> /
+        /// <c>ContractCancel</c> row, or null (the same tie order as
+        /// <see cref="CommittedContractResolutionAfter"/>). The in-flight fail block reads it:
+        /// a row the clock already reached is not in stock's live state until the next
+        /// recalculation applies it, so stock still shows the contract Active.
+        /// </summary>
+        internal static CommittedFutureEntry CommittedContractResolution(
+            CommittedFutureIndex index, string contractKey)
+        {
+            return CommittedContractResolutionAfter(index, contractKey, double.NegativeInfinity);
+        }
+
         private static readonly CommittedFutureKind[] ContractResolutionKinds =
         {
             CommittedFutureKind.ContractComplete,
