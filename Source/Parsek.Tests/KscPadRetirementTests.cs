@@ -1082,8 +1082,10 @@ namespace Parsek.Tests
 
             int added = KerbalsModule.CollectKscRetirementClosures(actions, retired, into);
 
-            Assert.Equal(2, added);
-            Assert.Equal(2, into.Count);
+            // A tourist is held like crew (GC-12), so his aboard row is freed too.
+            Assert.Equal(3, added);
+            Assert.Equal(3, into.Count);
+            Assert.Single(into["Tourist Kerman"]);
             Assert.Single(into["Aboard Kerman"]);
             Assert.Equal("rec-retired", into["Aboard Kerman"][0].OwnerRecordingId);
             Assert.Equal(123.5, into["Aboard Kerman"][0].RecoveryUT);

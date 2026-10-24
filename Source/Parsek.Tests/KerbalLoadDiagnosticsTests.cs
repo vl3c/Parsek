@@ -105,7 +105,8 @@ namespace Parsek.Tests
                 && l.Contains("repair summary:")));
             Assert.Contains("slotSource=legacy-creplacements", summaryLine);
             Assert.Contains("oldRows=2", summaryLine);
-            Assert.Contains("newRows=1", summaryLine);
+            // The tourist keeps his row (GC-12): Tourist + the remapped Jebediah.
+            Assert.Contains("newRows=2", summaryLine);
             Assert.Contains("remappedRows=1", summaryLine);
             Assert.Contains("endStateRewrites=1", summaryLine);
             Assert.Contains("touristRowsSkipped=1", summaryLine);

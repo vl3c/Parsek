@@ -4054,10 +4054,50 @@ namespace Parsek
             return names;
         }
 
+        /// <summary>One crew name a spawn snapshot needs that the roster lacks.</summary>
+        internal struct MissingCrewEntry
+        {
+            public string Name;
+            /// <summary>The timeline says he rode as a tourist: re-create him as one.</summary>
+            public bool AsTourist;
+        }
+
+        /// <summary>
+        /// The crew names of <paramref name="snapshot"/> that <paramref name="isInRoster"/>
+        /// does not know, each once, in snapshot order, with whether
+        /// <paramref name="hasTouristEvidence"/> says he rode as a tourist. Pure.
+        /// </summary>
+        internal static List<MissingCrewEntry> PlanMissingCrew(
+            ConfigNode snapshot, Func<string, bool> isInRoster, Func<string, bool> hasTouristEvidence)
+        {
+            var result = new List<MissingCrewEntry>();
+            if (snapshot == null || isInRoster == null) return result;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            {
+                foreach (string name in partNode.GetValues("crew"))
+                {
+                    if (string.IsNullOrEmpty(name) || !seen.Add(name)) continue;
+                    if (isInRoster(name)) continue;
+                    result.Add(new MissingCrewEntry
+                    {
+                        Name = name,
+                        AsTourist = hasTouristEvidence != null && hasTouristEvidence(name)
+                    });
+                }
+            }
+            return result;
+        }
+
         /// <summary>
         /// Ensure all crew referenced in the snapshot exist in the game's CrewRoster.
         /// Synthetic recordings or cross-save imports may reference kerbals that were
         /// never added to this career's roster, causing NullRef in Part.RegisterCrew.
+        /// A missing kerbal the timeline knows as a tourist (stock deleted him when his
+        /// contract ended or his vessel was recovered, or a rewind went to before the offer)
+        /// comes back as a tourist, never as hired crew (GC-12): created the way stock's
+        /// TourismContract creates one, and marked toured so stock sends him home when the
+        /// vessel is recovered (ScenarioContractEvents.TouristDepartures).
         /// </summary>
         public static void EnsureCrewExistInRoster(ConfigNode snapshot)
         {
@@ -4068,40 +4108,44 @@ namespace Parsek
                 return;
             }
 
+            var missing = PlanMissingCrew(
+                snapshot, name => roster[name] != null, KerbalsModule.HasTouristEvidence);
+
             int createdCount = 0;
-            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            int touristCount = 0;
+            for (int i = 0; i < missing.Count; i++)
             {
-                var crewNames = partNode.GetValues("crew");
-                foreach (string name in crewNames)
+                string name = missing[i].Name;
+                if (missing[i].AsTourist)
                 {
-                    if (string.IsNullOrEmpty(name)) continue;
+                    ProtoCrewMember tourist = roster.GetNewKerbal(ProtoCrewMember.KerbalType.Unowned);
+                    if (tourist == null) continue;
+                    tourist.ChangeName(name);
+                    tourist.type = ProtoCrewMember.KerbalType.Tourist;
+                    KerbalRoster.SetExperienceTrait(tourist, KerbalRoster.touristTrait);
+                    tourist.hasToured = true;
+                    tourist.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
+                    ParsekLog.Info("Spawner",
+                        $"Created missing tourist '{name}' in roster for vessel spawn " +
+                        "(type=Tourist trait=Tourist toured=True: a passenger, not hired crew)");
+                    createdCount++;
+                    touristCount++;
+                    continue;
+                }
 
-                    // Check if already in roster
-                    bool found = false;
-                    foreach (ProtoCrewMember pcm in roster.Crew)
-                    {
-                        if (pcm.name == name) { found = true; break; }
-                    }
-                    if (found) continue;
-
-                    // Also check unowned (applicants, tourists, etc.)
-                    ProtoCrewMember existing = roster[name];
-                    if (existing != null) continue;
-
-                    // Create the kerbal and add to roster
-                    ProtoCrewMember newCrew = HighLogic.CurrentGame.CrewRoster.GetNewKerbal(ProtoCrewMember.KerbalType.Crew);
-                    if (newCrew != null)
-                    {
-                        newCrew.ChangeName(name);
-                        newCrew.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
-                        ParsekLog.Info("Spawner", $"Created missing crew '{name}' in roster for vessel spawn");
-                        createdCount++;
-                    }
+                ProtoCrewMember newCrew = roster.GetNewKerbal(ProtoCrewMember.KerbalType.Crew);
+                if (newCrew != null)
+                {
+                    newCrew.ChangeName(name);
+                    newCrew.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
+                    ParsekLog.Info("Spawner", $"Created missing crew '{name}' in roster for vessel spawn");
+                    createdCount++;
                 }
             }
 
             if (createdCount > 0)
-                ParsekLog.Info("Spawner", $"Spawn prep: created {createdCount} missing crew in roster");
+                ParsekLog.Info("Spawner",
+                    $"Spawn prep: created {createdCount} missing crew in roster (tourists={touristCount})");
         }
 
         public static bool VesselExistsByPid(uint pid)

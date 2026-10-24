@@ -2802,20 +2802,20 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
         }
 
+        // catches GC-12: a tourist's row dropped (nothing holds him after a rewind) or
+        // written as "Pilot" (his hold grows a stand-in). The baseline is built by the
+        // capture's own core from a Tourist-type roster kerbal, the shape production writes.
         [Fact]
-        public void CreateKerbalAssignmentActions_TouristCrew_SkipsTourists()
+        public void CreateKerbalAssignmentActions_TouristCrew_WritesTouristRows()
         {
             var baseline = new GameStateBaseline();
-            baseline.crewEntries.Add(new GameStateBaseline.CrewEntry
-            {
-                name = "Jeb Kerman",
-                trait = "Pilot"
-            });
-            baseline.crewEntries.Add(new GameStateBaseline.CrewEntry
-            {
-                name = "Tourist Kerman",
-                trait = "Tourist"
-            });
+            GameStateBaseline.CrewEntry entry;
+            Assert.True(GameStateBaseline.TryBuildCrewEntry(
+                "Jeb Kerman", "Assigned", "Pilot", ProtoCrewMember.KerbalType.Crew, out entry));
+            baseline.crewEntries.Add(entry);
+            Assert.True(GameStateBaseline.TryBuildCrewEntry(
+                "Tourist Kerman", "Assigned", "Tourist", ProtoCrewMember.KerbalType.Tourist, out entry));
+            baseline.crewEntries.Add(entry);
             GameStateStore.AddBaseline(baseline);
 
             var snapshot = new ConfigNode("VESSEL");
@@ -2840,9 +2840,12 @@ namespace Parsek.Tests
 
             var actions = LedgerOrchestrator.CreateKerbalAssignmentActions("rec-tourists", 10.0, 20.0);
 
-            Assert.Single(actions);
+            Assert.Equal(2, actions.Count);
             Assert.Equal("Jeb Kerman", actions[0].KerbalName);
-            Assert.DoesNotContain(actions, a => a.KerbalName == "Tourist Kerman");
+            Assert.Equal("Pilot", actions[0].KerbalRole);
+            Assert.Equal("Tourist Kerman", actions[1].KerbalName);
+            Assert.Equal("Tourist", actions[1].KerbalRole);
+            Assert.Equal(KerbalEndState.Recovered, actions[1].KerbalEndStateField);
 
             RecordingStore.ResetForTesting();
         }

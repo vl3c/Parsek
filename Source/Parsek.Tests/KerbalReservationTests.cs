@@ -790,8 +790,10 @@ namespace Parsek.Tests
             Assert.Equal("Tourist", KerbalsModule.FindTraitForKerbal("Tourist Kerman"));
         }
 
+        // catches GC-12: a tourist row dropped by the walk (a tourist after a rewind can ride
+        // two vessels), or held with a slot (the stand-in is a free hired kerbal).
         [Fact]
-        public void ProcessAction_TouristKerbalAssignment_IsIgnored()
+        public void ProcessAction_TouristKerbalAssignment_HeldWithoutSlotOrStandIn()
         {
             var module = new KerbalsModule();
             var rec = MakeRecording("Tour Bus", new[] { "Tourist Kerman" },
@@ -814,8 +816,66 @@ namespace Parsek.Tests
 
             module.PrePass(new List<GameAction> { action });
             module.ProcessAction(action);
+            module.PostWalk();
 
-            Assert.Empty(module.Reservations);
+            Assert.True(module.Reservations.ContainsKey("Tourist Kerman"));
+            Assert.True(module.Reservations["Tourist Kerman"].IsTouristPassenger);
+            Assert.Equal(1000.0, module.Reservations["Tourist Kerman"].ReservedUntilUT);
+            Assert.True(module.IsReservedNow("Tourist Kerman"));
+            Assert.True(module.IsTouristPassenger("Tourist Kerman"));
+            Assert.Empty(module.Slots);
+            Assert.Null(module.GetActiveOccupant("Tourist Kerman"));
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("Tourist hold: 'Tourist Kerman'")
+                && l.Contains("no slot or stand-in"));
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("PostWalk summary:") && l.Contains("touristHolds=1"));
+        }
+
+        // catches GC-12 end to end on the production shape: the baseline the capture writes
+        // for a Tourist-type roster kerbal makes his row Tourist, and the walk holds him
+        // with no slot while his crewmate gets the ordinary slot.
+        [Fact]
+        public void Recalculate_TouristFromCapturedBaseline_HeldNoSlot_CrewmateGetsSlot()
+        {
+            var baseline = new GameStateBaseline();
+            GameStateBaseline.CrewEntry entry;
+            Assert.True(GameStateBaseline.TryBuildCrewEntry(
+                "Tourist Kerman", "Assigned", "", ProtoCrewMember.KerbalType.Tourist, out entry));
+            baseline.crewEntries.Add(entry);
+            GameStateStore.AddBaseline(baseline);
+
+            var rec = MakeRecording("Tour Bus", new[] { "Jeb", "Tourist Kerman" },
+                TerminalState.Orbiting, 2000);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
+
+            Assert.True(kerbals.IsReservedNow("Jeb"));
+            Assert.True(kerbals.IsReservedNow("Tourist Kerman"));
+            Assert.True(kerbals.Slots.ContainsKey("Jeb"));
+            Assert.False(kerbals.Slots.ContainsKey("Tourist Kerman"));
+            Assert.True(kerbals.IsTouristPassenger("Tourist Kerman"));
+            Assert.False(kerbals.IsTouristPassenger("Jeb"));
+        }
+
+        [Theory]
+        [InlineData("Tourist", true, true)]
+        [InlineData("Tourist", false, false)]
+        [InlineData("tourist", false, false)]
+        [InlineData("Pilot", true, true)]
+        [InlineData("Pilot", false, true)]
+        [InlineData(null, false, true)]
+        public void RoleHoldsKerbal_BothTouristPolicies(string role, bool touristsHeld, bool expected)
+        {
+            Assert.Equal(expected, KerbalsModule.RoleHoldsKerbal(role, touristsHeld));
+        }
+
+        [Fact]
+        public void TouristHoldPolicy_ShipsHeld()
+        {
+            Assert.True(KerbalsModule.TouristsHeldByCommittedFlights);
+            Assert.True(KerbalsModule.RoleHoldsKerbal("Tourist"));
         }
 
         // ── Retired stand-ins ──
