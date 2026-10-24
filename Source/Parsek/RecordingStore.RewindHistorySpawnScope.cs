@@ -56,10 +56,11 @@ namespace Parsek
         /// recording that flies that same vessel. The last route matches a KSP-unique spawn
         /// pid by pid alone, and an adoption-stamped (craft-baked) pid only when the launch
         /// guids do not conclusively differ, so a later relaunch of the same craft does not
-        /// count as re-producing an earlier launch's vessel. An InventoryTransfer member
-        /// (<paramref name="transferMemberIds"/>) never counts on that last route: it flies a
-        /// vessel that existed before its tree, and its replay ghosts that vessel rather than
-        /// producing a second one.
+        /// count as re-producing an earlier launch's vessel. A recording that flies a vessel its
+        /// own tree adopted by inventory transfer (<see cref="FliesTransferAdoptedVessel"/>)
+        /// never counts on the continuation route or that last route: the vessel existed before
+        /// its tree, and its replay ghosts that vessel rather than producing a second one, so a
+        /// rewind save that holds the vessel keeps it for the chain walker to claim and hold.
         /// </summary>
         internal static bool IsSpawnedVesselReproducedByRewindReplay(
             Recording holder,
@@ -94,10 +95,23 @@ namespace Parsek
                     && string.Equals(other.RecordingId, holder.RecordingId, StringComparison.Ordinal))
                     continue;
 
+                bool fliesAdoptedVessel = FliesTransferAdoptedVessel(other, recordings, transferMemberIds);
                 string reason = null;
                 if (!string.IsNullOrEmpty(supersededBy)
                     && string.Equals(other.RecordingId, supersededBy, StringComparison.Ordinal))
                 {
+                    if (fliesAdoptedVessel)
+                    {
+                        if (!SuppressLogging)
+                            ParsekLog.Verbose("Rewind",
+                                string.Format(CultureInfo.InvariantCulture,
+                                    "Rewind strip scope: spawned pid={0} of '{1}' (id={2}) is not re-produced by " +
+                                    "its superseding continuation '{3}': it flies the vessel its tree adopted by " +
+                                    "inventory transfer, so its replay ghosts the real vessel",
+                                    pid, holder.VesselName ?? "<unnamed>",
+                                    holder.RecordingId ?? "<no-id>", other.RecordingId ?? "<no-id>"));
+                        continue;
+                    }
                     reason = "superseding-continuation-replays";
                 }
                 else if (!string.IsNullOrEmpty(holder.ChainId)
@@ -107,7 +121,7 @@ namespace Parsek
                     reason = "chain-member-replays";
                 }
                 else if (other.VesselPersistentId == pid
-                    && !IsTransferMemberId(other, transferMemberIds)
+                    && !fliesAdoptedVessel
                     && (uniqueSpawnPid
                         || !VesselLaunchIdentity.GuidsConclusivelyDiffer(
                             other.RecordedVesselGuid, holder.RecordedVesselGuid)))
@@ -220,6 +234,34 @@ namespace Parsek
             return rec != null && transferMemberIds != null
                 && !string.IsNullOrEmpty(rec.RecordingId)
                 && transferMemberIds.Contains(rec.RecordingId);
+        }
+
+        /// <summary>
+        /// True when <paramref name="rec"/> flies a vessel its own tree adopted by inventory
+        /// transfer: it is an InventoryTransfer member (<paramref name="transferMemberIds"/>),
+        /// or another recording of the same tree that flies a member's vessel (the member's
+        /// chain continuation). False when no member ids are given.
+        /// </summary>
+        internal static bool FliesTransferAdoptedVessel(
+            Recording rec, IReadOnlyList<Recording> recordings, ICollection<string> transferMemberIds)
+        {
+            if (rec == null || transferMemberIds == null || transferMemberIds.Count == 0)
+                return false;
+            if (IsTransferMemberId(rec, transferMemberIds))
+                return true;
+            if (rec.VesselPersistentId == 0 || recordings == null)
+                return false;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                Recording member = recordings[i];
+                if (member == null || ReferenceEquals(member, rec)
+                    || !IsTransferMemberId(member, transferMemberIds))
+                    continue;
+                if (member.VesselPersistentId == rec.VesselPersistentId
+                    && string.Equals(member.TreeId, rec.TreeId, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>

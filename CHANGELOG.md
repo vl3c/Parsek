@@ -93,6 +93,11 @@ _(unreleased - entries accumulate here per commit)_
   after a rewind and the funds update cannot run at that moment, the kerbal now joins your crew in
   the later update that takes the hire cost, instead of the cost being taken while he stays an
   applicant. (CROSSED-HIRE-NEVER-MADE-AFTER-A-SKIPPED-FUNDS-PATCH)
+- **A vessel another mission adopted by cargo transfer stays visible after a rewind.** If one
+  mission spawned a vessel and a later one moved cargo into or out of it, rewinding the later
+  mission used to make that vessel vanish until the transfer's replay began. It is now held back
+  like any other vessel the future uses, drawn as a ghost until its replay starts.
+  (REWIND-HOLD-MISSES-CROSS-TREE-ADOPTED-VESSEL)
 - **A committed part or upgrade purchase unlocks only once it is paid for.** When the clock reaches
   a committed purchase after a rewind, the part or upgrade is now unlocked in the same update that
   takes its cost. If the funds update could not run, the unlock waits for the next one instead of
