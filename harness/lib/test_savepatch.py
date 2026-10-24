@@ -1332,6 +1332,11 @@ class CommittedSpecUsageTests(unittest.TestCase):
         "mun-landing-recorded": (
             2815888106,   # `Ast. MII-526`, FLIGHTSTATE index 0
         ),
+        # EVA-15 removes the index-0 asteroid so a Space Center save written after the
+        # rewind strips Kerbal X focuses the first pad `Kerbal X Debris` (1365670035).
+        "eva2-lko-crewed": (
+            1490391000,   # `Ast. VPA-167`, FLIGHTSTATE index 0
+        ),
     }
 
     def _specs(self):
