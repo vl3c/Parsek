@@ -7512,9 +7512,18 @@ either `outcome=no-external-coupling candidates=0` (which CONFIRMS this entry ou
 the walk ran and found nothing) or a `Captured` line (which refutes it). That lane does not
 exist yet and is the cheapest remaining step here.
 
-## RESERVATION-OVERLAY-GAPS: the reservation readout that replaced the dead budget UI is absent in the EDITOR and reports `Reserved: 0` in a genuine deficit [SPLIT OUT 2026-08-29 from RESOURCE-BUDGET-READOUTS-ARE-DEAD when that entry was struck as cleanup-done. Neither gap was part of that cleanup; refiled here so they survive it. **(b) FIXED 2026-09-02; (a) still open** - extending the overlay to a scene where it never showed is a product decision, not a wording fix]
+## ~~RESERVATION-OVERLAY-GAPS: the reservation readout that replaced the dead budget UI is absent in the EDITOR and reports `Reserved: 0` in a genuine deficit~~ [SPLIT OUT 2026-08-29 from RESOURCE-BUDGET-READOUTS-ARE-DEAD when that entry was struck as cleanup-done. Neither gap was part of that cleanup; refiled here so they survive it. **(b) FIXED 2026-09-02; (a) FIXED 2026-10-24** on the owner's ruling (extend the tooltip to the EDITOR), branch `claude/project-thread-u9w386`, xUnit; live photo owed]
 
-Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): (a) still real, now partly
+**Fix for (a) (2026-10-24).** Owner ruling: the tooltip stays (the one Parsek-drawn hover on a
+stock screen, now named in the `.claude/CLAUDE.md` hard rule) and covers the EDITOR. The scene gate
+is the pure `CurrencyReservationOverlay.ShowsCurrencyTooltipInScene` (SPACECENTER, FLIGHT, EDITOR;
+cells in `CurrencyReservationOverlayTests`). No double subtraction: the tooltip anchors on the live
+`Funding.Instance.Funds` the widget draws, and the editor's vessel cost readout is separate stock
+text. Unverified in game: that the editor's funds number is a `FundsWidget` the refresh loop finds
+(if it is not, the gate is inert there). Live witness owed: a GUI census photo of the editor funds
+hover (`[CurrencyOverlay] CurrencyOverlay: initialised for scene=EDITOR` then `located Funds widget`).
+
+Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass, before the fix above): (a) still real, now partly
 mitigated. `CurrencyReservationOverlay.Start` still idles outside SPACECENTER / FLIGHT, and
 `KspStatePatcher.PatchFunds` still writes the reservation-net target, so the editor's standing funds
 number goes unexplained. Since PR #2180 the editor's Launch button and the launch-site flyout are

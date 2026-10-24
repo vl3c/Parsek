@@ -7,6 +7,20 @@ namespace Parsek.Tests
     // ResetForTesting plumbing.
     public class CurrencyReservationOverlayTests
     {
+        [Theory]
+        [InlineData(GameScenes.SPACECENTER, true)]
+        [InlineData(GameScenes.FLIGHT, true)]
+        [InlineData(GameScenes.EDITOR, true)]
+        [InlineData(GameScenes.TRACKSTATION, false)]
+        [InlineData(GameScenes.MAINMENU, false)]
+        [InlineData(GameScenes.LOADING, false)]
+        public void SceneGate_CoversTheScenesWithASpendableFundsBar(GameScenes scene, bool expected)
+        {
+            // RESERVATION-OVERLAY-GAPS (a): the editor, where funds are spent, shows the same
+            // breakdown as the Space Center and flight (owner ruling 2026-10-24).
+            Assert.Equal(expected, CurrencyReservationOverlay.ShowsCurrencyTooltipInScene(scene));
+        }
+
         [Fact]
         public void FundsTooltip_WhenReserved_ShowsTotalAndReservedWithThousandsSeparators()
         {

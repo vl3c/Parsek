@@ -504,7 +504,7 @@ Proposed addition:
 **Consequences:**
 - `OverlayBadge`, a custom icon with a Parsek-drawn IMGUI box, does not meet the amended rule. Migrate it rather than grandfather it.
 - The Active-row contract annotation and the Astronaut Complex status labels for lost or retired stand-ins are informational kinds that no stock button acts on. They are allowed on the row's own label text; the pairing rule applies to clickable kinds, as in the v1 plan.
-- `CurrencyReservationOverlay` draws its own IMGUI hover over the stock funds and science widgets and explains an advisory reservation, not a block. It is outside this exception. D1 decides whether it stays as the one existing Parsek-drawn hover or is removed. Extending it to the EDITOR (section 10 step 8) depends on that ruling.
+- `CurrencyReservationOverlay` draws its own IMGUI hover over the stock funds and science widgets and explains an advisory reservation, not a block. It is outside this exception. D1 decides whether it stays as the one existing Parsek-drawn hover or is removed. Extending it to the EDITOR (section 10 step 8) depends on that ruling. **Ruled 2026-10-24 (owner):** it stays, and it is extended to the EDITOR (`CurrencyReservationOverlay.ShowsCurrencyTooltipInScene`); it remains the one Parsek-drawn hover on a stock screen, not a precedent for others.
 - The rule text itself is changed only in `.claude/CLAUDE.md` + `AGENTS.md` (byte-identical) and only on the owner's ruling (D1).
 
 ## 10. Sequencing

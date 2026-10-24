@@ -8,6 +8,12 @@ All notable changes to Parsek are documented here.
 
 _(unreleased - entries accumulate here per commit)_
 
+### Changed
+
+- **The VAB and SPH explain the funds number too.** Hovering the funds number in the editor now
+  shows the same Total / Reserved breakdown as at the Space Center and in flight, so money held
+  back for committed flights is no longer a mystery where you spend it. (RESERVATION-OVERLAY-GAPS)
+
 ### Fixed
 
 - **A drill or converter already running when a vessel splits off keeps its later mining.** The
