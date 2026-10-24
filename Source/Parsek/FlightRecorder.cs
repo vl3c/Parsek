@@ -8235,9 +8235,22 @@ namespace Parsek
                         $"ResetPartEventTrackingState: skipping seed events (chain promotion, " +
                         $"activeRec='{activeRecId}' already has {engineEventCount} engine event(s) " +
                         $"of {totalEventCount} total)");
-                    return;
                 }
-                EmitEngineOnlySeedEventsForPromotion(v, activeRec, activeRecId, totalEventCount);
+                else
+                {
+                    EmitEngineOnlySeedEventsForPromotion(v, activeRec, activeRecId, totalEventCount);
+                }
+                // Converter seeds ride the same promotion gate shape: a fresh branch that
+                // starts with a drill or ISRU already running needs its ConverterActivated,
+                // or the tail-trim witness (CountConvertersRunningAtEnd) never sees the
+                // converter and the trimmed tail delivers its resources early
+                // (TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES).
+                if (ChainPromotionShouldEmitConverterSeeds(activeRec, out int converterEventCount))
+                    EmitConverterSeedEventsForPromotion(v, activeRec, activeRecId);
+                else
+                    ParsekLog.Verbose("Recorder",
+                        $"ResetPartEventTrackingState: skipping converter seeds (chain promotion, " +
+                        $"activeRec='{activeRecId}' already has {converterEventCount} converter event(s))");
                 return;
             }
 
@@ -8307,6 +8320,62 @@ namespace Parsek
                 $"engine events of {totalEventCount} total — seedUT={seedUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"currentUT={currentUT.ToString("F2", CultureInfo.InvariantCulture)} — " +
                 $"non-engine seeds still skipped to preserve bug A / #263 invariant)");
+        }
+
+        /// <summary>
+        /// Emits ConverterActivated seeds for the converters running at a chain promotion,
+        /// at the same UT the engine seeds use (<see cref="ResolveChainPromotionSeedUT"/>:
+        /// the recording's StartUT when it already has trajectory, else now), so a seed never
+        /// moves FindLastInterestingUT past real activity.
+        /// </summary>
+        private void EmitConverterSeedEventsForPromotion(Vessel v, Recording activeRec, string activeRecId)
+        {
+            var partNamesByPid = new Dictionary<uint, string>();
+            if (v != null && v.parts != null)
+            {
+                for (int i = 0; i < v.parts.Count; i++)
+                {
+                    Part p = v.parts[i];
+                    if (p != null && !partNamesByPid.ContainsKey(p.persistentId))
+                        partNamesByPid[p.persistentId] = p.partInfo?.name ?? "unknown";
+                }
+            }
+            var seedSets = BuildCurrentTrackingSets();
+            double currentUT = Planetarium.GetUniversalTime();
+            double seedUT = ResolveChainPromotionSeedUT(activeRec, currentUT);
+            var converterSeedEvents = new List<PartEvent>();
+            int emitted = PartStateSeeder.EmitConverterSeedEvents(
+                seedSets, converterSeedEvents, seedUT, "Recorder",
+                pid => partNamesByPid.TryGetValue(pid, out string n) ? n : "unknown");
+            if (emitted > 0)
+                PartEvents.AddRange(converterSeedEvents);
+            ParsekLog.Verbose("Recorder",
+                $"ResetPartEventTrackingState: emitted {emitted} converter seed event(s) for chain " +
+                $"promotion (activeRec='{activeRecId ?? "(none)"}' had 0 converter events - " +
+                $"seedUT={seedUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"currentUT={currentUT.ToString("F2", CultureInfo.InvariantCulture)})");
+        }
+
+        /// <summary>
+        /// Pure: whether a chain promotion emits ConverterActivated seeds. True when the
+        /// active recording has no converter event yet (ConverterActivated /
+        /// ConverterDeactivated): a fresh branch (split, merge, switch segment) that the
+        /// promotion path would otherwise start with no record of a converter already
+        /// running. A recording that already carries a converter edge keeps its own state.
+        /// </summary>
+        internal static bool ChainPromotionShouldEmitConverterSeeds(
+            Recording activeRec, out int converterEventCount)
+        {
+            converterEventCount = 0;
+            if (activeRec == null || activeRec.PartEvents == null)
+                return true;
+            for (int i = 0; i < activeRec.PartEvents.Count; i++)
+            {
+                var t = activeRec.PartEvents[i].eventType;
+                if (t == PartEventType.ConverterActivated || t == PartEventType.ConverterDeactivated)
+                    converterEventCount++;
+            }
+            return converterEventCount == 0;
         }
 
         /// <summary>
