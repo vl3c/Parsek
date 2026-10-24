@@ -6001,7 +6001,7 @@ clamp and the hire's reconcile warning.
 
 ---
 
-## ~~HARNESS-ROUTE-STATE-READBACK-SEAM: no seam verb reads a route's live state between steps~~ [FILED 2026-10-06 for the logistics integration program (C2), branch `ccr-77f23eb2-dbqh6i`. DONE 2026-10-24, branch `claude/project-thread-3jm6oa`: `ListHandles kind=routes`; consumers IR-1 / IR-2, authored, flight pending]
+## ~~HARNESS-ROUTE-STATE-READBACK-SEAM: no seam verb reads a route's live state between steps~~ [FILED 2026-10-06 for the logistics integration program (C2), branch `ccr-77f23eb2-dbqh6i`. DONE 2026-10-24, branch `claude/project-thread-3jm6oa`: `ListHandles kind=routes`; consumers IR-1 / IR-2, both LIVE-PROVEN 2026-10-24 (`2026-10-24_1022`, `2026-10-24_1023`)]
 
 The `saveParse` `[expectations.routes]` facet reads the PRODUCED save at the end of a run. The
 reload lanes (IR-1, IR-2, IR-4, IR-6) need the in-memory state right after a `LoadGame` and
@@ -6121,7 +6121,7 @@ point the cell there.
 
 ---
 
-## ~~ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD: an in-session load back in time leaves route cursors and credits in the abandoned future~~ [FILED 2026-10-06 from the integration-coverage code read, verified by an adversarial pass; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-route-state-on-load` (owner ruling 2026-10-07: reuse the rewind reconcile): F9 quickload, stock revert and the Esc-menu Discard Re-fly load run the go-back rewind's reconcile at the loaded save's UT; the recovery credit refuses a retired dispatch]
+## ~~ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD: an in-session load back in time leaves route cursors and credits in the abandoned future~~ [FILED 2026-10-06 from the integration-coverage code read, verified by an adversarial pass; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-route-state-on-load` (owner ruling 2026-10-07: reuse the rewind reconcile): F9 quickload, stock revert and the Esc-menu Discard Re-fly load run the go-back rewind's reconcile at the loaded save's UT; the recovery credit refuses a retired dispatch. Stock-revert half LIVE-PROVEN 2026-10-24 by IR-2 (`2026-10-24_1023`); the F9 is a cold load since #2155 and is covered by IR-1 (`2026-10-24_1022`)]
 
 Routes are loaded from the save only on a cold load (`ParsekScenario.cs:4464`); an in-session
 load (F9 quickload, stock Revert) returns at `ParsekScenario.cs:4320` before any route code.
