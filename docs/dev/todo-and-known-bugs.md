@@ -42,7 +42,8 @@ point's clock the handler wrote to persistent.sfs; the Planetarium clock is stal
 unusable save clock skips the hold with a Warn), then `ReconcileSpawnStateAfterStrip` and
 `RescueOrphanedCrew` when anything was held. The rewind point's world holds the split's own vessels
 too, and their committed recordings replay from the split, so they are held with the rest (first
-claim = the rewind UT, so no hold ghost shows). The summary line carries `source=discard-refly`
+claim = the rewind UT in production, so no hold ghost shows; the B9 fixture's rewind point
+quicksave carries the donor's clock, 60 s before the split, so there the first claim is the split UT). The summary line carries `source=discard-refly`
 (`source=plain-rewind` on a plain rewind). The policy cell stays Clear in the prologue, its reason
 now names the recompute. Accepted gap: persistent.sfs still lists the held vessels until the next
 save, so a crash in that window cold-loads them live (no save from inside OnLoad). Tests:
@@ -1161,7 +1162,8 @@ rewind (`RecordingStore.WillReplayAfterRewind`, the strip and spawn gates' predi
 bring the vessel back, so it holds nothing (`chainsNotReplayed=` / `fliesNotReplayed=` in the summary)
 and the vessel stays live as before. Tests: `RewindVesselHoldTests`.
 Not covered: a Discard Re-fly lands in the rewind point's world with no hold (the Re-Fly start
-cleared the plain rewind's, and the discard computes none). And a vessel another tree spawned and
+cleared the plain rewind's, and the discard computes none; fixed 2026-10-24, see
+DISCARD-REFLY-LANDS-WITHOUT-REWIND-HOLDS). And a vessel another tree spawned and
 this tree adopted by inventory transfer (EVA-9's capsule) is taken by the rewind's spawn strip
 (`superseding-continuation-replays`) before the hold runs, so a flight near it shows nothing of it
 until its transfer member's ghost starts (`ForeignInventoryTransfer.FindAdoptedForeignVesselMember`
