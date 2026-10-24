@@ -2270,8 +2270,12 @@ fresh branch (it would also start the ghost's running loop there)~~ - promotion 
 (`ResolveChainPromotionSeedUT`). A recording that already carries a converter edge keeps its own
 state. Still open: the in-vessel transfer half (owner's call), a background vessel recorded only on
 rails (a later promotion of it now seeds, the background recording itself does not), and the
-decoupled-converter missed trim. Live witness owed: a fresh-branch split off a vessel with a drill
-running, then a commit whose tail stays (no lane flies it yet).
+decoupled-converter missed trim. Live witness: the in-game cell
+`PromotionConverterSeedInGameTest.PromotionSeedsRunningConverters` (category `PromotionConverterSeed`,
+lane `MINE-15-promotion-converter-seed`, authored 2026-10-24, never flown) runs the promotion seed
+pass over `miner-rover-landed`'s rover with its drills and ISRU running, so stock's own `BaseConverter`
+state feeds the seed detection: one seed per running converter part on a fresh recording, none on a
+recording that already carries a converter edge.
 
 ---
 
@@ -2636,7 +2640,12 @@ four neighbours keep the old geometry; none is flown:
   FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit: `TrySpawnBlockedChain` skips the walkback while the
   tip resolves a jump-shifted spawn (`VesselGhoster.ShouldWalkBackBlockedTip`, Verbose
   `Chain tip walkback skipped: ... jump-shifted orbit`); the tip stays blocked until the shifted
-  position clears. Live witness owed: a held tip blocked more than 5 s after a jump.
+  position clears. No live lane, by choice (2026-10-24): a witness needs a new orbital preset whose
+  tip spawns inside the active vessel after the jump (CI-9's `chain-tip-dock` shape with a near-zero
+  lead and a second trajectory point, since the walkback also needs two points), and the only end
+  state a seam lane can reach is a `RealSpawn` that times out with an ERROR while the tip stays
+  blocked (moving the blocker needs a kRPC mission). The gate is one pure branch with its log line
+  pinned in xUnit (`TimeJumpTerminalOrbitShiftTests`).
 - **A second jump before an armed tip spawns, when the tip is not held.** Accumulation reads
   the held blocked-tip ghosts; a tip armed by a first jump that has neither spawned nor been
   blocked (its plain ghost is not held) is not re-captured, so a second jump in that window
