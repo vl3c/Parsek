@@ -10,6 +10,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **A kerbal left aboard a station is freed when a later flight takes the station over.** If you
+  switch to the station from another flight (for example with the `]` key) and fly it, that
+  flight now decides his fate: brought home, he is free; killed with lost-crew respawn on, he
+  comes back when stock respawns him instead of staying reserved forever.
+  (GC6-FOREIGN-TREE-RECORDING-KEEPS-OPEN-HOLD)
 - **Recordings no save uses any more are cleaned up after 14 days.** Flights recorded after a save
   you loaded, and never saved since, wait 14 days in a quarantine folder and are then deleted, and so
   do older copies of a changed flight. If a save that uses one comes back into the folder first

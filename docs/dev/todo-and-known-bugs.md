@@ -3716,7 +3716,7 @@ traced end to end; each is a question, not a defect.
 - [x] ~~GC3-LEDGER-GENERATION-GATE-DROPS-ROWS: `Ledger.LoadFromNodeCore` rejected the whole ledger (the `GAME_STATE/LEDGER` node and `ledger.pgld`) when its `recordingSchemaGeneration` was not the current one and started empty; the next save wrote the empty ledger, so a save made entirely by another Parsek generation lost every earned row even though its trees are kept inert (GC3-SCHEMA-REJECTED-TREES-LOSE-EARNED-VALUE).~~ Fixed 2026-10-21 (owner ruling "Load it when its format matches"). Fix: the ledger's format is its `version` (`CurrentLedgerVersion`), which stays a hard gate; a ledger stamped with another recording schema generation (or none) loads, with one Info line naming the generation (a row carries no recording schema). The next save stamps the current generation. Not a migration: no row is rewritten. A build older than this one still rejects a ledger of another generation (owner, 2026-10-21: the mod is not public, so backward compatibility is not a goal). Tests: `LedgerTests.LoadFromFile_OtherSchemaGeneration_LoadsWhenTheVersionMatches`, `GameStateSaveNodeTests.LedgerNode_OtherRecordingSchemaGeneration_Loads`.
 - [x] ~~GC1-SAVE-SCOPED-STATE-LEFTOVERS: per-career state PR #2155's save-scoped reset (`ResetSaveScopedSessionState`) does not reset. (1) A stuck `RewindContext.IsRewinding` (a rewind reload that never settles, or `HandleRewindOnLoad` throwing before `EndRewind`) makes the next Cold load of ANOTHER save skip `LoadCrewAndGroupState` (crew replacements, kerbal slots, group hierarchy) and the ledger load, so save A's values carry into save B; it is cleared only later in `DiscardStalePendingState`. (2) `RouteRunPrompt.PendingPromptTreeId` survives into the next save (the Supply Route banner names A's mission; Dismiss writes A's tree id into B's dismissed set). (3) Low: `KerbalsModule` `lastKnownHold` / `pendingTombstonedRosterKerbals` and `RewindInvokeContext.Pending`.~~ Fixed 2026-10-21. Fix: `ResetSaveScopedSessionState` (every Cold load) now clears `RewindContext` (`ResetForSaveLoad`, Warn when a rewind was still live), `RewindInvokeContext` (Warn when an invoke was still pending) and the Supply Route banner (`RouteRunPrompt.ResetForSaveLoad`); the three classes joined the `SaveScopedSessionResetTests` inventory gate, which learned to set float, nullable, struct and read-only-list statics. Checked first: a Cold load is never a rewind's or a Re-Fly invoke's own load (`LoadReconcilePolicy.ClassifyEarly` ranks both ahead of a save-file load, and neither initiator loads with `initialLoadDone` false). (3)'s `KerbalsModule` caches were already covered: the reset replaces the ledger modules (`LedgerOrchestrator.ResetForSaveLoad` + `Initialize` builds a new `KerbalsModule`). Not live-proven: a stuck rewind needs a reload that never settles.
 - [ ] GC-5: A floating EVA kerbal as a recording's terminal spawn after a rewind or warp (H20 covers a landed kerbal only).
-- [ ] GC-6: A held (reserved) kerbal dying aboard a live vessel that is not his reserved flight.
+- [x] ~~GC-6: A held (reserved) kerbal dying aboard a live vessel that is not his reserved flight.~~ TRACED 2026-10-24 (branch `gc6-foreign-tree-hold`): a live vessel that is not his flight is still recorded by whatever flight is active, so the question is whether that recording takes his hold over. A Dock / Board / cargo claim did; a later flight that records the vessel itself (a `]` switch to it) did not. CONFIRMED: GC6-FOREIGN-TREE-RECORDING-KEEPS-OPEN-HOLD below.
 - [x] ~~GC-7: Renaming a vessel mid-mission (no recorder hook): ghost label vs spawned name; a rewind across a recorded rename; a dock merge keeping the dominant vessel's name.~~ DONE 2026-10-13: code complete with phase 2b, live proof by lanes VN-1 .. VN-13 (all live-proven), the remainder below accepted as unit-test-only.
   Design: `docs/dev/design-vessel-and-mission-names.md` (phases 0, 1, 2a, 2b, 3; GC-7 closes with 2b). Phase 0 DONE (branch `vessel-naming-sync`). Fix (phase 0): every name-as-identity site of design 7.9 decides by launch identity (pid + launch guid), the name kept only for guid-less legacy data: recovery / terminal stamping (`ParsekScenario.ClassifyVesselMatch`), duplicate-blocker and timeline-spawn recovery, the supersede repair, the quickload restore and the watch handoff; the #587 debris kill matches Destroyed / suppressed recordings by identity first (parent-chain recordings stay name-only) and keeps its debris-only prior-career name rule; legs never take the stop-time active vessel's name and the background parent continuation reads its live vessel's name. `RewindOwnerStrip` unchanged: the PID strip misses a re-keyed owner copy once `SpawnedVesselPersistentId` is reset, so its name fallback stays until phase 2b links. Tests: `VesselNameIdentityPhase0Tests`.
   Phase 1 done (branch `vessel-names-store`): `VesselIdentity` is the shared "same vessel" resolver (MissionVesselNaming's union now runs on it, grouping vessel-first), `VesselNameStore` holds the player's name decisions (seq, guid index, coverage, `VESSEL_NAMES` codec, `LoadReconcilePolicy` category `VesselNames`: Cold = Save, in-session = Memory), the apply pass renames every covered leg, `DisplayNames.Version` keys the name caches, ghost protos and CommNet nodes rename in place, a Recordings-tab rename is an identity-wide decision (refused for blank / unchanged / EVA / guid-less rows), and `RewindOwnerStrip`'s unanchored name fallback also accepts the owner recording's own pre-rename name plus the decision name (nothing wider) so a re-keyed owner copy is still stripped until 2b links. Still open: stock rename capture, write-through to live and spawned vessels, revert undo (2a); spawn / resume / undock links (2b).
@@ -3742,6 +3742,35 @@ traced end to end; each is a question, not a defect.
 
 Fix: trace each; a confirmed defect gets its own entry and a red test, a confirmed-fine case gets a
 pinning test (xUnit or in-game) so it stays fine.
+
+---
+
+## ~~GC6-FOREIGN-TREE-RECORDING-KEEPS-OPEN-HOLD: a kerbal left aboard a station stays held forever when a later flight records the station itself~~ [FILED 2026-10-24 from the GC-6 trace, code read on main f3a22ce. FIXED 2026-10-24 on branch `gc6-foreign-tree-hold`, xUnit only. product]
+
+Mission A leaves Jeb aboard station S; it is committed, S becomes a real (Parsek-spawned) vessel
+and Jeb is held open-ended (an Aboard row with no end). Later, while recording ship T in tree B,
+the player switches to S with no stock-action intent (the `]` key), which starts a fresh recording
+of S inside tree B (parentless, or under T at a post-switch Launch branch point:
+`ParsekFlight.PrepareActiveTreeForFreshPostSwitchRecording`). S crashes, Jeb dies, tree B commits
+with a correct Dead row and respawn stamp. Nothing closed tree A's Aboard row: cross-tree claims
+existed only for Dock / Board / InventoryTransfer branch points, recovery closure is same-tree and
+split hand-off needs a branch point in tree A. So `ResolveOpenEndedRespawnDeaths` read the
+open-ended co-row as spanning the dead window and made the death permanent, while stock respawned
+Jeb; the crew dialog then refused him forever. The same root kept the hold open forever when tree
+B's recording of S was recovered or Jeb left it safely. Fix: `KerbalsModule.CollectDockClaims`
+also adds a claim for every crewed committed recording whose vessel JOINED its tree
+(`IsJoinedVesselRecording`: no parent branch point, or a Launch one; the tree's root included)
+at its own StartUT on its own pid and guid (`DockClaim.ForeignVesselRecording`).
+`ResolveDockClaimHandoffUT` lets such a claim end only a hold of ANOTHER tree, under the existing
+`DockClaimHandsOffHold` rules (same launch, or a guid that follows a link such as Spawn; the hold
+ended by the claim; the claiming recording carries the kerbal), so a fresh launch of the same
+craft, an earlier recording and a recording without him hand off nothing. Holds stay derived: a
+discard or supersede of tree B's recording brings tree A's hold back. No ledger value row is
+touched. Log line `Reservation bounded by foreign recording of the vessel:`. Tests:
+`CrewAcrossVesselsHandoffTests` (`ForeignTreeRecordingOfASpawnedStation_DeathRespawnsAsStock`,
+red before the fix with `IsPermanent`; `_RecoveredFreesJeb`; the Launch-joined twin; fresh launch,
+crewless, earlier-start and same-tree negatives; `IsJoinedVesselRecording` theory). Live proof:
+none, unit tests only.
 
 ---
 

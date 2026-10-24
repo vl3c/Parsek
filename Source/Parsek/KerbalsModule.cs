@@ -268,7 +268,8 @@ namespace Parsek
         /// A Dock / Board branch point (any tree) whose target is a recorded vessel, or an
         /// InventoryTransfer branch point adopting a foreign cargo partner: the claim's UT,
         /// the target's pid and launch guid, and the merged child (or member) recording that
-        /// carries the claimed vessel on. Built in <see cref="PrePass"/>.
+        /// carries the claimed vessel on. Also a recording whose vessel JOINED its tree
+        /// (<see cref="ForeignVesselRecording"/>). Built in <see cref="PrePass"/>.
         /// </summary>
         internal struct DockClaim
         {
@@ -278,6 +279,31 @@ namespace Parsek
             public uint TargetPid;
             public string TargetGuid;
             public string MergedChildRecordingId;
+            /// <summary>
+            /// The claim is a recording whose vessel joined its tree rather than coming out of
+            /// it (the tree's root, a parentless recording, or a post-switch Launch branch
+            /// point's child): a later mission picking up a vessel an earlier one left, e.g.
+            /// by a `]` switch that arms no stock-action intent. Claim UT = the recording's
+            /// start, target = its own vessel. It claims holds of OTHER trees only: a tree's
+            /// own vessel lines hand crew on through its split and chain rules.
+            /// </summary>
+            public bool ForeignVesselRecording;
+        }
+
+        /// <summary>
+        /// True when a recording whose parent branch point is <paramref name="parentBranchPointId"/>
+        /// (type <paramref name="parentBranchPointType"/>, null when the tree does not list it)
+        /// carries a vessel that JOINED its tree: no parent (the root, a parentless post-switch
+        /// recording, a standalone switch segment) or a post-switch Launch branch point. A
+        /// split, dock, board or switch-continuation child carries a vessel of the tree's own
+        /// lineage. Pure.
+        /// </summary>
+        internal static bool IsJoinedVesselRecording(
+            string parentBranchPointId, BranchPointType? parentBranchPointType)
+        {
+            if (string.IsNullOrEmpty(parentBranchPointId))
+                return true;
+            return parentBranchPointType == BranchPointType.Launch;
         }
 
         /// <summary>
@@ -322,12 +348,16 @@ namespace Parsek
         /// +inf. The claim may live in any tree: a rescue mission docks to a station another
         /// mission left him on (design 9.3: a STRANDED hold stays open "until a rescue
         /// recording closes it"). The held recording's own outgoing branch point is the
-        /// in-tree split hand-off, never a claim on itself. Pure.
+        /// in-tree split hand-off, never a claim on itself. A
+        /// <see cref="DockClaim.ForeignVesselRecording"/> claim counts only when it lives in
+        /// a tree other than <paramref name="holdTreeId"/> (an unknown tree on either side
+        /// claims nothing). Pure.
         /// </summary>
         internal static double ResolveDockClaimHandoffUT(
             IReadOnlyList<DockClaim> claims,
             IReadOnlyDictionary<string, HashSet<string>> carriedBy,
             string recordingId,
+            string holdTreeId,
             uint holdVesselPid,
             string holdVesselGuid,
             double holdEndUT,
@@ -345,6 +375,10 @@ namespace Parsek
                 DockClaim c = claims[i];
                 if (string.IsNullOrEmpty(c.MergedChildRecordingId)
                     || string.Equals(c.MergedChildRecordingId, recordingId, StringComparison.Ordinal))
+                    continue;
+                if (c.ForeignVesselRecording
+                    && (string.IsNullOrEmpty(c.TreeId) || string.IsNullOrEmpty(holdTreeId)
+                        || string.Equals(c.TreeId, holdTreeId, StringComparison.Ordinal)))
                     continue;
                 if (!DockClaimHandsOffHold(holdVesselPid, holdVesselGuid, holdEndUT,
                         c.TargetPid, c.TargetGuid, c.DockUT))
@@ -1203,10 +1237,12 @@ namespace Parsek
         /// Fills <see cref="dockClaims"/> from the committed trees' Dock / Board branch points
         /// that name a target vessel (a Board's is its merged child's vessel) and a merged
         /// child, plus every InventoryTransfer branch point (the claimed cargo partner is its
-        /// member recording's own vessel, which the member carries on), and <see cref="rowKerbalsByRecording"/>
+        /// member recording's own vessel, which the member carries on), plus every crewed
+        /// recording whose vessel joined its tree (<see cref="IsJoinedVesselRecording"/>,
+        /// claiming its own vessel at its start), and <see cref="rowKerbalsByRecording"/>
         /// from the walk's non-tourist KerbalAssignment rows (the walk's actions are the
         /// effective ledger, so a superseded docked recording carries nobody). Returns the
-        /// claims collected.
+        /// branch-point claims collected (the joined-vessel claims log their own count).
         /// </summary>
         private int CollectDockClaims(IReadOnlyList<RecordingTree> trees, List<GameAction> actions)
         {
@@ -1286,7 +1322,70 @@ namespace Parsek
                     collected++;
                 }
             }
+
+            int joinedClaims = 0;
+            int joinedSkippedUncrewed = 0;
+            for (int t = 0; t < trees.Count; t++)
+            {
+                RecordingTree tree = trees[t];
+                if (tree?.Recordings == null || string.IsNullOrEmpty(tree.Id)) continue;
+                foreach (var kvp in tree.Recordings)
+                {
+                    string recId = kvp.Key;
+                    RecordingMeta meta;
+                    if (string.IsNullOrEmpty(recId) || !recordingMeta.TryGetValue(recId, out meta))
+                        continue;
+                    if (meta.VesselPid == 0 || double.IsNaN(meta.StartUT) || double.IsInfinity(meta.StartUT))
+                        continue;
+                    BranchPointType? parentType = null;
+                    if (!string.IsNullOrEmpty(meta.ParentBranchPointId))
+                    {
+                        BranchPoint parentBp = FindBranchPoint(tree, meta.ParentBranchPointId);
+                        if (parentBp != null) parentType = parentBp.Type;
+                    }
+                    if (!IsJoinedVesselRecording(meta.ParentBranchPointId, parentType))
+                        continue;
+                    // A recording whose rows name nobody can hand no hold on.
+                    HashSet<string> carried;
+                    if (!rowKerbalsByRecording.TryGetValue(recId, out carried)
+                        || carried == null || carried.Count == 0)
+                    {
+                        joinedSkippedUncrewed++;
+                        continue;
+                    }
+                    dockClaims.Add(new DockClaim
+                    {
+                        TreeId = tree.Id,
+                        BranchPointId = meta.ParentBranchPointId,
+                        DockUT = meta.StartUT,
+                        TargetPid = meta.VesselPid,
+                        TargetGuid = meta.VesselGuid,
+                        MergedChildRecordingId = recId,
+                        ForeignVesselRecording = true,
+                    });
+                    joinedClaims++;
+                }
+            }
+            if (joinedClaims > 0 || joinedSkippedUncrewed > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PrePass: {joinedClaims.ToString(CultureInfo.InvariantCulture)} crewed recording(s) of a " +
+                    "vessel that joined its tree can end another tree's open-ended hold on that vessel " +
+                    $"(uncrewed skipped={joinedSkippedUncrewed.ToString(CultureInfo.InvariantCulture)})");
+            }
             return collected;
+        }
+
+        private static BranchPoint FindBranchPoint(RecordingTree tree, string branchPointId)
+        {
+            if (tree?.BranchPoints == null || string.IsNullOrEmpty(branchPointId)) return null;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                BranchPoint bp = tree.BranchPoints[i];
+                if (bp != null && string.Equals(bp.Id, branchPointId, StringComparison.Ordinal))
+                    return bp;
+            }
+            return null;
         }
 
         /// <summary>
@@ -1590,22 +1689,30 @@ namespace Parsek
             // A later dock claims the vessel this recording left the kerbal on, and the
             // docked recording carries him on (a rescue that docks and takes him aboard, in
             // this tree or another): the hold ends at the dock and the docking mission's own
-            // rows decide the rest (CROSS-TREE-CREW-TRANSFER-STRANDS-RESERVATION).
+            // rows decide the rest (CROSS-TREE-CREW-TRANSFER-STRANDS-RESERVATION). A later
+            // mission that records the vessel itself (it joined that mission's tree, e.g.
+            // after a `]` switch) claims it the same way at that recording's start
+            // (GC6-FOREIGN-TREE-RECORDING-KEEPS-OPEN-HOLD).
             if (!permanent && !handedOff
                 && (endState == KerbalEndState.Aboard || endState == KerbalEndState.Unknown))
             {
                 DockClaim claim;
                 double dockUT = ResolveDockClaimHandoffUT(
-                    dockClaims, rowKerbalsByRecording, recordingId,
+                    dockClaims, rowKerbalsByRecording, recordingId, meta.TreeId,
                     meta.VesselPid, meta.VesselGuid, meta.EndUT, name, out claim);
                 if (!double.IsPositiveInfinity(dockUT))
                 {
                     endUT = dockUT;
                     handedOff = true;
                     ParsekLog.Verbose(Tag,
-                        $"Reservation bounded by cross-tree dock handoff: '{name}' recording '{recordingId}' " +
-                        $"({endState}) endUT={dockUT.ToString("F1", CultureInfo.InvariantCulture)} " +
-                        $"bp='{claim.BranchPointId}' tree='{claim.TreeId}' child='{claim.MergedChildRecordingId}'");
+                        claim.ForeignVesselRecording
+                            ? $"Reservation bounded by foreign recording of the vessel: '{name}' recording '{recordingId}' " +
+                              $"({endState}) endUT={dockUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                              $"tree='{claim.TreeId}' child='{claim.MergedChildRecordingId}' " +
+                              $"pid={claim.TargetPid.ToString(CultureInfo.InvariantCulture)}"
+                            : $"Reservation bounded by cross-tree dock handoff: '{name}' recording '{recordingId}' " +
+                              $"({endState}) endUT={dockUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                              $"bp='{claim.BranchPointId}' tree='{claim.TreeId}' child='{claim.MergedChildRecordingId}'");
                 }
             }
 
