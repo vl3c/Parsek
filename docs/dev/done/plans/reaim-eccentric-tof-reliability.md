@@ -2,7 +2,7 @@
 
 Status: PLAN. The plan itself ships docs-only in this PR; the implementation (stage B + harness parametrization + Moho/Eeloo fixtures) landed separately in PR #1148. In-game measurement / constant-pinning is still pending (see section 4.2 / open questions).
 Branch: `reaim-eccentric-tof-reliability` (from `origin/main`).
-Predecessor research: `docs/dev/plans/reaim-near-180-lambert-reliability.md` (the A+B analysis; on branch `reaim-lambert-reliability`).
+Predecessor research: `docs/dev/done/plans/reaim-near-180-lambert-reliability.md` (the A+B analysis).
 Hard dependency: the near-180 handedness fix (limitation A), MERGED to main via PR #1140 (commit `0dd6bd3a6`). This plan builds ON TOP of what that fix ships. See section 2.
 
 Note on source line numbers: stage A is now on main, and this plan branch was brought up to date with it (2026-06-14). Cites to the stage-B target files (`ReaimPlaybackResolver`, `TransferWindowMath`, `ReaimWindowPlanner`, `ReaimFeasibilityScan`) are unaffected by stage A (those files did not change). The `ReaimEndToEndInGameTest.cs` harness cites in section 4.2 are given against CURRENT main (post-stage-A).
