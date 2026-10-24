@@ -12603,6 +12603,17 @@ namespace Parsek
             TrajectoryPoint? undockRootPartSeed = pendingUndockRootPartSeed;
             ClearPendingUndockSeed();
 
+            // A vehicle and a kerbal at the end is an EVA, never an Undock (owner ruling
+            // 2026-10-24): stock's seat dismount and claw release of a kerbal reach here
+            // through Part.Undock and fire no onCrewOnEva.
+            if (oldVessel != null && newVessel != null
+                && SegmentBoundaryLogic.ClassifyUndockShape(oldVessel.isEVA, newVessel.isEVA)
+                    == UndockShape.KerbalLeftVehicle)
+            {
+                HandleKerbalLeftVehicleUndock(oldVessel, newVessel);
+                return;
+            }
+
             if (recorder == null || !recorder.IsRecording)
             {
                 ParsekLog.Verbose("Flight",
@@ -12682,6 +12693,86 @@ namespace Parsek
         private void ClearPendingUndockSeed()
         {
             pendingUndockRootPartSeed = null;
+        }
+
+        /// <summary>
+        /// An undock whose two ends are a vehicle and an EVA kerbal (a kerbal leaving an
+        /// external command seat, a claw releasing a kerbal) is recorded as an EVA: the same
+        /// deferred EVA branch a hatch EVA takes (kerbal name on the child, no Rewind Point,
+        /// the vehicle keeps its own background leg whatever its crew or command state), and
+        /// when nothing is recording, the same auto-record. The stock-EVA event shape is
+        /// rebuilt from the two vessels (from = the vehicle, to = the kerbal's part); every
+        /// consumer reads only the two parts' vessels and the kerbal part's crew.
+        /// </summary>
+        private void HandleKerbalLeftVehicleUndock(Vessel oldVessel, Vessel newVessel)
+        {
+            Vessel kerbalVessel = newVessel.isEVA ? newVessel : oldVessel;
+            Vessel vehicleVessel = newVessel.isEVA ? oldVessel : newVessel;
+            var evaData = new GameEvents.FromToAction<Part, Part>(
+                vehicleVessel.rootPart, kerbalVessel.rootPart);
+            string kerbalName = ExtractEvaKerbalName(evaData);
+            uint recordedPid = recorder != null ? recorder.RecordingVesselId : 0u;
+
+            ParsekLog.Info("Flight",
+                $"OnVesselsUndocking: kerbal left vehicle, recording as EVA " +
+                $"(kerbal='{kerbalName ?? "<none>"}' kerbalPid={kerbalVessel.persistentId} " +
+                $"vehiclePid={vehicleVessel.persistentId} (name='{vehicleVessel.vesselName}') " +
+                $"kerbalIsNewVessel={newVessel.isEVA} recording={IsRecording} recordedPid={recordedPid})");
+
+            if (!IsRecording)
+            {
+                // Same not-recording routes as a hatch EVA: a tracked background parent
+                // branch, else the deferred auto-record.
+                OnCrewOnEva(evaData);
+                return;
+            }
+            if (pendingSplitInProgress)
+            {
+                LogSplitSkip(
+                    "OnVesselsUndocking-EVA",
+                    "pendingSplitInProgress",
+                    vehicleVessel.persistentId,
+                    kerbalVessel.persistentId);
+                return;
+            }
+            if (SegmentBoundaryLogic.ClassifyUndockSplit(
+                    recordedPid, oldVessel.persistentId, newVessel.persistentId)
+                == UndockSplitDecision.NotRecordedVessel)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"OnVesselsUndocking: kerbal-left-vehicle does not involve the recorded vessel " +
+                    $"(recordedPid={recordedPid}), leaving recorder running");
+                return;
+            }
+            if (string.IsNullOrEmpty(kerbalName))
+            {
+                ParsekLog.Warn("Flight",
+                    $"OnVesselsUndocking: kerbal-left-vehicle has no crew name " +
+                    $"(kerbalPid={kerbalVessel.persistentId}); not branching");
+                return;
+            }
+
+            // Part.Undock destroyed the attach joint first (synchronous onPartJointBreak); the
+            // EVA branch owns this split, so the within-segment fallback must not run too.
+            if (recorder.ConsumePendingJointBreakCheck(out double jointBreakUT))
+            {
+                ParsekLog.Verbose("Flight",
+                    $"OnVesselsUndocking: consumed recorder pending joint-break check " +
+                    $"(ut={jointBreakUT.ToString("F2", CultureInfo.InvariantCulture)}); " +
+                    "kerbal-left-vehicle EVA owns this split");
+            }
+
+            double evaEventUT = Planetarium.GetUniversalTime();
+            var evaInvolved = new List<Vessel>(2) { vehicleVessel, kerbalVessel };
+            recorder.AppendStructuralEventSnapshot(evaEventUT, evaInvolved, "EVA");
+            backgroundRecorder?.AppendStructuralEventSnapshot(evaEventUT, evaInvolved, "EVA");
+
+            recorder.StopRecordingForChainBoundary();
+            pendingSplitRecorder = recorder;
+            recorder = null;
+            pendingSplitInProgress = true;
+            Log($"Kerbal left vehicle through an undock: '{kerbalName}' - starting deferred EVA branch");
+            StartCoroutine(DeferredEvaBranch(kerbalName, evaData));
         }
 
         /// <summary>

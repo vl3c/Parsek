@@ -44,6 +44,24 @@ namespace Parsek
     }
 
     /// <summary>
+    /// What an undock (<c>GameEvents.onVesselsUndocking</c>) produced, read from the two end
+    /// vessels before any recorder decision.
+    /// </summary>
+    internal enum UndockShape
+    {
+        /// <summary>Two vehicles: a docking-port undock. Recorded as an Undock branch.</summary>
+        VehicleSplit,
+
+        /// <summary>
+        /// A vehicle and an EVA kerbal: a kerbal leaving an external command seat (stock
+        /// <c>KerbalEVA.EjectFromSeat</c> undocks the kerbal's own part) or a claw releasing a
+        /// grabbed kerbal (<c>ModuleGrappleNode.Release</c> undocks the grabbed part). Owner
+        /// ruling 2026-10-24: this is an EVA, recorded as an EVA branch, never an Undock.
+        /// </summary>
+        KerbalLeftVehicle
+    }
+
+    /// <summary>
     /// Pure static logic for the segment boundary rule: only physical structural
     /// separation creates new tree events. Non-splitting breakage emits SegmentEvents instead.
     /// All methods are internal static for direct testability.
@@ -253,6 +271,21 @@ namespace Parsek
                 return newVesselPid;
             // Ambiguous focus (neither undock side is focused): background the new vessel.
             return newVesselPid;
+        }
+
+        /// <summary>
+        /// Names the shape of an undock from the EVA flags of its two end vessels. Owner ruling
+        /// 2026-10-24: "a kerbal leaving an external seat is an EVA, as we get a vehicle and a
+        /// kerbal; undock is between vehicles, as we get two vehicles at the end". So exactly one
+        /// EVA side is <see cref="UndockShape.KerbalLeftVehicle"/>; anything else (two vehicles,
+        /// or the unreachable two-kerbal case) stays <see cref="UndockShape.VehicleSplit"/>.
+        /// Pure: no Unity / KSP calls.
+        /// </summary>
+        internal static UndockShape ClassifyUndockShape(bool oldVesselIsEva, bool newVesselIsEva)
+        {
+            return oldVesselIsEva != newVesselIsEva
+                ? UndockShape.KerbalLeftVehicle
+                : UndockShape.VehicleSplit;
         }
 
         /// <summary>
