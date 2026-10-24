@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Contracts;
 using Xunit;
 
@@ -318,6 +319,39 @@ namespace Parsek.Tests
             Assert.False(KspStatePatcher.IsOfferedCopyOfRestoredContract(entry(id, Contract.State.Active), id));
             Assert.False(KspStatePatcher.IsOfferedCopyOfRestoredContract(entry(id, Contract.State.Declined), id));
             Assert.False(KspStatePatcher.IsOfferedCopyOfRestoredContract(entry(other, Contract.State.Offered), id));
+        }
+
+        // ================================================================
+        // STALE-OFFER-RE-ACCEPTABLE-AFTER-FLIGHT-PASSES-COMMITTED-RESOLUTION
+        // ================================================================
+
+        [Fact]
+        public void EndedLifecycleOffer_RemovesOnlyAnOfferedCopyOfAWalkTerminalContract()
+        {
+            var ended = Guid.NewGuid();
+            var reaccepted = Guid.NewGuid();
+            var open = Guid.NewGuid();
+            Func<Guid, Contract.State, KspStatePatcher.ContractFilterEntry> entry = (g, s) =>
+                new KspStatePatcher.ContractFilterEntry { Id = g, State = s, IsActive = s == Contract.State.Active };
+            var current = new List<KspStatePatcher.ContractFilterEntry>
+            {
+                entry(ended, Contract.State.Offered),
+                entry(ended, Contract.State.Declined),
+                entry(reaccepted, Contract.State.Offered),
+                entry(open, Contract.State.Offered),
+            };
+            var terminal = new HashSet<Guid> { ended, reaccepted };
+            var active = new HashSet<Guid> { reaccepted };
+
+            var keys = KspStatePatcher.BuildEndedLifecycleOfferedRemovalKeys(current, active, terminal);
+
+            Assert.Single(keys);
+            var key = keys.First();
+            Assert.Equal(ended, key.Id);
+            Assert.Equal(Contract.State.Offered, key.State);
+            Assert.Empty(KspStatePatcher.BuildEndedLifecycleOfferedRemovalKeys(current, active, new HashSet<Guid>()));
+            Assert.Empty(KspStatePatcher.BuildEndedLifecycleOfferedRemovalKeys(current, active, null));
+            Assert.Empty(KspStatePatcher.BuildEndedLifecycleOfferedRemovalKeys(null, active, terminal));
         }
     }
 }

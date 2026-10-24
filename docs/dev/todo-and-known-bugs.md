@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## STALE-OFFER-RE-ACCEPTABLE-AFTER-FLIGHT-PASSES-COMMITTED-RESOLUTION: after a rewind to before a committed accept, a flight that runs past the committed resolution leaves the contract Offered and acceptable again [FILED 2026-10-24 from the PR #2218 review, code read, not reproduced. Open. low, product]
+## ~~STALE-OFFER-RE-ACCEPTABLE-AFTER-FLIGHT-PASSES-COMMITTED-RESOLUTION: after a rewind to before a committed accept, a flight that runs past the committed resolution leaves the contract Offered and acceptable again~~ [FILED 2026-10-24 from the PR #2218 review, code read, not reproduced. FIXED 2026-10-24 in PR #2218 (V: "in this one"); xUnit + in-game cell on lane L12. low, product]
 
 Committed history: accept at UT 100, a committed completion (or cancel) at 150. Rewind to before
 100: the save holds the contract Offered, same guid. Stay in FLIGHT past 150 (no clock cursor, so
@@ -29,7 +29,18 @@ again and is paid its advance a second time; `ContractsModule.ProcessAccept` reo
 in the walk. Fix direction (not designed): the KSC / TS entry recalculation removes an Offered copy
 of a contract whose committed lifecycle already ended, or the accept block also refuses a contract
 with a reached committed resolution and no later committed accept. PR #2218's accept-date bound
-keeps the new lifecycle from being held by the old outcome; the double advance stands.
+keeps the new lifecycle from being held by the old outcome.
+
+**Fix.** `KspStatePatcher.PatchContracts` removes every live Offered entry whose contract the walk
+holds terminal and not Active (pure `BuildEndedLifecycleOfferedRemovalKeys`; Declined and other
+states untouched): stock never re-offers a finished guid, so such an offer is the quicksave's copy
+from before a committed accept. One Info line names them: `PatchContracts: removed N Offered
+copy(ies) of contract(s) whose committed lifecycle already ended: <guids>`. It runs on every
+career update, so the Space Center entry after the flight takes the offer off the board before
+Mission Control opens. Cells: `ClockCrossingCommittedFutureTests.EndedLifecycleOffer_*`. In-game:
+`ContractReachedOutcomeInGameTest.EndedCommittedLifecycleRemovesTheStaleOffer` files a committed
+zero-amount accept and completion behind the clock for a live Offered contract, runs the cutoff
+recalculation, and requires the offer gone and not back Active.
 
 ## ~~CONTRACT-FAIL-AFTER-REACHED-COMMITTED-OUTCOME: after a flight passes a committed contract outcome, stock can still fail or expire the contract, and the penalty stays charged for good~~ [FILED 2026-10-24 from V's question on the 0.10.6 release-notes known limitation ("A contract a new flight fails in the brief moment between its committed outcome's time and the next career update can still fail"), code read on main 2f86caf, not reproduced. FIXED 2026-10-24 on branch `claude/project-thread-uj5p10` (PR #2218); xUnit + in-game cell, lane L12 LIVE-PROVEN `2026-10-24_1624`. product]
 

@@ -54,11 +54,11 @@ All notable changes to Parsek are documented here.
   purchases and strategies still need; the rest is a debt, repaid from later gains before the pool
   rises again. The funds and science tooltips show it. A career that never rewinds plays as stock.
   (LEDGER-RETIREMENT-PATHS-OUTSIDE-REFLY)
-- **A flight can no longer fail a contract the timeline already settles.** When a committed flight
-  completes, fails or cancels a contract, a new flight after a rewind cannot fail it or let it
-  expire, before or after that moment: it stays active until the career applies the committed
-  outcome, so you never pay a penalty for a contract your timeline finished. Completing it earlier
-  still works. (CONTRACT-FAIL-AFTER-REACHED-COMMITTED-OUTCOME)
+- **A flight can no longer fail a contract the timeline already settles.** After a rewind, a new
+  flight cannot fail or expire a contract a committed flight completes, fails or cancels, before or
+  after that moment; it stays active until the career applies that outcome. A contract the timeline
+  already took and finished leaves the offer list, so its advance is never paid twice. Completing it
+  earlier still works. (CONTRACT-FAIL-AFTER-REACHED-COMMITTED-OUTCOME)
 - **Loading a save puts Parsek back exactly as that save was.** F9 and the Load menu now restore
   the save's committed flights, career ledger, Re-Fly merges, Unfinished Flights, names, groups and
   missions. Flights committed after the save are gone, and a flight in progress at the save resumes

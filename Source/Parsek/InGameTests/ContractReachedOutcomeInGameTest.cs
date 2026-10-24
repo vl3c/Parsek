@@ -158,5 +158,123 @@ namespace Parsek.InGameTests
                     " state=" + contract.ContractState);
             }
         }
+
+        /// <summary>
+        /// Live check of todo STALE-OFFER-RE-ACCEPTABLE-AFTER-FLIGHT-PASSES-COMMITTED-RESOLUTION:
+        /// an Offered contract whose committed accept and committed completion both lie behind
+        /// the clock (a rewind to before the accept, then a flight past both with no
+        /// recalculation in between) is removed from stock's live list by the next career
+        /// update, so it cannot be accepted for a second advance. The test files a committed
+        /// (Space Center origin, zero-amount) accept 20 s and completion 10 s behind the clock for
+        /// a live Offered contract and runs the cutoff recalculation the scene entry runs.
+        /// </summary>
+        [InGameTest(Category = "ContractReachedOutcome", Scene = GameScenes.FLIGHT,
+            Description = "An Offered contract whose committed accept and outcome the clock passed is taken off the board at the next career update")]
+        public void EndedCommittedLifecycleRemovesTheStaleOffer()
+        {
+            if (HighLogic.CurrentGame == null || HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip("needs a career game");
+                return;
+            }
+            ContractSystem system = ContractSystem.Instance;
+            if (system == null || Funding.Instance == null)
+            {
+                InGameAssert.Skip("needs ContractSystem and Funding");
+                return;
+            }
+            string deferral = GameStateRecorder.HasActiveUncommittedTree() || RecordingStore.HasPendingTree
+                ? "a flight tree is live or pending, so the career update would defer its patch"
+                : null;
+            InGameAssert.IsTrue(deferral == null, deferral ?? "");
+
+            Contract offer = null;
+            for (int i = 0; i < system.Contracts.Count; i++)
+            {
+                Contract c = system.Contracts[i];
+                if (c != null && c.ContractState == Contract.State.Offered && !c.AutoAccept)
+                {
+                    offer = c;
+                    break;
+                }
+            }
+            if (offer == null)
+            {
+                InGameAssert.Skip("needs an Offered contract (career-earned-pad holds seven)");
+                return;
+            }
+
+            Guid guid = offer.ContractGuid;
+            string key = guid.ToString();
+            double now = Planetarium.GetUniversalTime();
+            int offersBefore = CountOfState(system, guid, Contract.State.Offered);
+            var accept = new GameAction
+            {
+                UT = now - 20.0,
+                Type = GameActionType.ContractAccept,
+                ContractId = key,
+                ContractTitle = offer.Title,
+                DeadlineUT = double.NaN,
+            };
+            var complete = new GameAction
+            {
+                UT = now - 10.0,
+                Type = GameActionType.ContractComplete,
+                ContractId = key,
+                ContractTitle = offer.Title,
+            };
+            Ledger.AddAction(accept, LedgerRowWriter.StockApplied);
+            Ledger.AddAction(complete, LedgerRowWriter.StockApplied);
+            CommittedFutureIndexCache.Invalidate("ContractReachedOutcomeInGameTest stale offer");
+            ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
+                "contract stale offer: fixture guid={0} title=\"{1}\" committedAcceptUT={2:F1} committedCompleteUT={3:F1} now={4:F1} offeredBefore={5}",
+                key, offer.Title, accept.UT, complete.UT, now, offersBefore));
+
+            int offersAfter;
+            int activeAfter;
+            try
+            {
+                InGameAssert.AreEqual(1, offersBefore, "the fixture contract is not Offered exactly once");
+                LedgerOrchestrator.RecalculateAndPatch(utCutoff: now);
+                offersAfter = CountOfState(system, guid, Contract.State.Offered);
+                activeAfter = CountOfState(system, guid, Contract.State.Active);
+                ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
+                    "contract stale offer: after career update offered={0} active={1} listed={2}",
+                    offersAfter, activeAfter, CountOfState(system, guid, null)));
+            }
+            finally
+            {
+                var actions = Ledger.Actions;
+                int removed = 0;
+                for (int i = actions.Count - 1; i >= 0; i--)
+                {
+                    if (ReferenceEquals(actions[i], accept) || ReferenceEquals(actions[i], complete))
+                    {
+                        Ledger.RemoveActionAt(i);
+                        removed++;
+                    }
+                }
+                CommittedFutureIndexCache.Invalidate("ContractReachedOutcomeInGameTest stale offer cleanup");
+                LedgerOrchestrator.RecalculateAndPatch(utCutoff: Planetarium.GetUniversalTime());
+                ParsekLog.Info(Tag, "contract stale offer: cleanup rowsRemoved=" +
+                    removed.ToString(CultureInfo.InvariantCulture));
+            }
+
+            InGameAssert.AreEqual(0, offersAfter,
+                "the Offered copy of a contract whose committed lifecycle ended is still on the board");
+            InGameAssert.AreEqual(0, activeAfter, "the ended contract came back Active");
+        }
+
+        private static int CountOfState(ContractSystem system, Guid guid, Contract.State? state)
+        {
+            int n = 0;
+            for (int i = 0; i < system.Contracts.Count; i++)
+            {
+                Contract c = system.Contracts[i];
+                if (c != null && c.ContractGuid == guid && (!state.HasValue || c.ContractState == state.Value))
+                    n++;
+            }
+            return n;
+        }
     }
 }
