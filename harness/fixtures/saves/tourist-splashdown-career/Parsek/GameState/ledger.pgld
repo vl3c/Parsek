@@ -1,0 +1,42 @@
+version = 0
+recordingSchemaGeneration = 4
+GAME_ACTION
+{
+	ut = 212.15988891600111
+	type = 4
+	actionId = act_2236bb9c9f684df3a22e452562ce80dd
+	recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	seq = 7
+	milestoneId = RecordsAltitude
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 34.5399999999998
+	type = 11
+	actionId = act_62287b4466e148888fa58aaa7f718bdc
+	recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 34.54
+	endUT = 1276.42358
+	endState = 0
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 1270
+	type = 5
+	actionId = act_7c3e9a1f04b24d6e8f15a2b7c9d0e613
+	seq = 1
+	contractId = 36cb3f0c-a786-41f3-ac4b-8d223b3a3683
+	contractType = TourismContract
+	contractTitle = Tourism contract (fixture accept row)
+	advanceFunds = 0
+	deadlineAbsUT = 115021270
+	fundsPenalty = 0
+	repPenalty = 0
+}
