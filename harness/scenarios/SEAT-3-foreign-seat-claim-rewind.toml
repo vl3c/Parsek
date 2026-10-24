@@ -1,0 +1,247 @@
+schema = 1
+id = "SEAT-3-foreign-seat-claim-rewind"
+# =====================================================================================
+# SEAT-3: A RECORDED KERBAL TAKING THE SEAT OF A FOREIGN ROVER CLAIMS THAT ROVER
+# (todo FOREIGN-SEAT-BOARD-LEAVES-NO-GHOST-CLAIM, fixed 2026-10-24 on branch
+# claude/project-thread-q9rwbh, commit 8cd9e08, unit tests only until this lane).
+# AUTHORED 2026-10-24, NEVER FLOWN: its first flight is a reading run (guesses below).
+#
+# THE BUG. Stock `KerbalEVA.On_seatBoard` runs `part.Couple(seat.part)`: `onPartCouple`
+# fires with from = the kerbal's EVA part and to = the seat part, and the rover survives as
+# the merged vessel, so Parsek records a Dock merge (GC-11, traced). The partner stamp
+# (`ResolveBranchPartnerStampPid`) was suppressed whenever EITHER couple side was EVA (a
+# rule meant for a claw grabbing a kerbal), so a seat board stamped
+# `TargetVesselPersistentId = 0`: no `GhostChainWalker` claim on the rover and no rewind
+# hold. After a rewind to before the seating the rover's replayed merged leg ended in an
+# ordinary leaf spawn (a regenerated copy, a second rover where the player had one).
+# THE FIX: the suppression keys on the PARTNER side only
+# (`ConnectionProducerClassifier.PartnerIsEvaVessel`), and both OnPartCouple paths log it as
+# `partnerIsEva=` on their `route-partner resolve` lines.
+#
+# THE HOST is `seat-rover-pad` (harness/tools/build_seat_rover_pad.py; SEAT-2's host):
+# `eva-construct-pad` (the pad Kerbal X with Jeb, Bill and Bob; the crewless `rover fuel 0`,
+# pid 1871615455, launch guid 9892740591b9b500ab14bbc687377a0b, LANDED 153 m from the pad,
+# in no tree: a foreign vessel) plus an empty EAS-1 External Command Seat on the rover's
+# rear SAS part (17 parts).
+#
+# THE FLIGHT, every step a player's:
+#   (a) Boot on the pad Kerbal X; Bill out through the hatch (unrecorded) and set down 4 m
+#       from the rover's root (EVA-11's move).
+#   (b) StartRecording on Bill (a fresh tree, its rewind save holds the rover as it stands).
+#   (c) EvaSeatBoard: Bill takes the rover's seat. THE SUBJECT: the Dock merge whose partner
+#       is the foreign rover, stamped with its pid and guid.
+#   (d) ~13 s at 1x on the seated rover (the merged child), stop, commit. Two recordings.
+#   (e) Rewind-to-Launch (Space Center, 15 s before the recording started, before the
+#       seating), a Space Center save reloaded into FLIGHT on the pad Kerbal X (EVA-11's road).
+#   (f) 1x FLIGHT time past the merged child's end: the walker's chain on the rover (claimed
+#       by Bill's recording via MERGE, tip = the merged child) spawns its tip with the
+#       rover's own pid (preserve identity), carrying Bill seated. Save, quit.
+#
+# WHICH PINS PROVE THE FIX (none could print before 8cd9e08).
+#   * `OnPartCouple route-partner resolve ... partnerPidFromEvent=1871615455 ...
+#     partnerIsEva=False partnerPidStamped=1871615455 partnerGuidStamped=<rover guid>`: the
+#     `partnerIsEva=` token is new, and the old rule printed `partnerPidStamped=0` and
+#     `partnerGuidStamped=(none)` for this couple.
+#   * `Vessel PID=1871615455 claimed by tree=... via MERGE`, `Chain built: vessel=1871615455
+#     links=1 tip=<the merged child>` and, after the rewind, `listhandles chain ...
+#     pid=1871615455 links=1 ... tip=<the merged child>`: the walker claims only a branch
+#     point with a non-zero target pid (`ScanBranchPointClaims`), so before the fix there
+#     was no chain on the rover.
+#   * `[Ghoster] Chain tip spawn: pid=1871615455 ... preserveIdentity=true ... parts=18` and
+#     the committed store's read-back of the merged child spawned AT 1871615455: before the
+#     fix the end spawn went through the leaf path and minted a new pid.
+#   18 = the rover's 16 + the seat + Bill's kerbal part coupled onto it (DERIVED).
+#
+# FORBIDDEN: the old stamp shape (`partnerPidStamped=0`); a regenerated spawn of anything
+# (`Regenerated vessel identity: `, the pre-fix duplicate's road); the rover ghosted as a
+# LIVE vessel at the reload (it must be out of the world by then, see below); two tip spawns;
+# a blocked / failed / retired tip; Bill dropped from the tip's snapshot.
+#
+# KNOWN PRODUCT GAP, NOT PINNED (static read 2026-10-24; the supervisor is filing it as
+# suspected todo FOREIGN-BOARD-TARGET-STRIPPED-AT-REWIND, the same strip for a hatch Board).
+# The rewind's PID strip (`RecordingStore.ResolveRewindSpawnStripScope`) strips every
+# vessel a replaying recording spawned (`holder-replays`). CommitTreeFlight marks the active
+# recording spawned at its recorder pid, and the active recording here is the merged child
+# on the rover, so 1871615455 is stripped from the rewind save BEFORE the rewind hold runs
+# (`ApplyRewindVesselHolds` runs after the strips) and before the claimed-copy capture
+# (`PreProcessRewindSave`, after the strip). Predicted lines: `Rewind strip scope: strip
+# spawned pid=1871615455 of 'rover fuel 0' (id=...) via holder-replays`, `Captured 0
+# rewind-save copy(ies) of 1 vessel(s) a committed future claims`, and `Rewind vessel hold:
+# ... held=0 ... notInWorld=1`: the claim is there, but the rover is simply absent (no hold
+# ghost) from the rewind UT until the merged child's ghost starts at the seating. The only
+# exemption is an InventoryTransfer adoption (`ForeignInventoryTransfer.
+# FindAdoptedForeignVesselMember`, EVA-11's first red flight); a Dock / Board merge into a
+# vessel outside the tree has none. The C# change: treat a holder whose spawned pid is the
+# stamped partner (`TargetVesselPersistentId`) of a Dock / Board branch point of its own tree,
+# with the merged child flying that pid, as a foreign adoption in the strip scope. With that
+# change, arm these (all derived from the format strings):
+#   "Captured 1 rewind-save copy\\(ies\\) of 1 vessel\\(s\\) a committed future claims",
+#   "\\[RewindHold\\] Rewind held vessel for its committed future: pid=1871615455 name='rover fuel 0' guid=9892740591b9b500ab14bbc687377a0b [^\\r\\n]*snapshot=yes",
+#   "\\[RewindHold\\] Rewind vessel hold: survivors=[0-9]+ held=1 ",
+#   "\\[Ghoster\\] Held vessel tracked without a live vessel: pid=1871615455 name=rover fuel 0",
+#   "\\[ClaimedHoldGhost\\] Claimed vessel hold ghost shown: pid=1871615455 name='rover fuel 0' chain=1871615455 source=snapshot-surface body=Kerbin parts=17 ",
+# and forbid "Rewind strip scope: strip spawned pid=1871615455 ". Until then every pin
+# below holds on either side of the strip, so the lane proves the stamp, the claim and the
+# no-duplicate tip without depending on the gap.
+#
+# GUESSES the first flight confirms: the fixture seat (SEAT-2's header); which OnPartCouple
+# path runs (Bill is the initiator, so the recorder may already be stopped: the retroactive
+# variant; both are allowed); that `kind=` classifies the seat couple as a Dock (any kind is
+# allowed: only `involvesEva=True` is pinned); that the merged child keeps its recording id
+# through the in-flight commit optimization (a Surface-only 13 s leg; EVA-11's member did);
+# the UTs (boot clock 25.42, recording start ~30, board ~32, WarpToUT 45 for the end; the
+# rewind lands ~15 s before the start and WarpToUT 60 crosses the end with ~15 s to
+# settle); that the tip spawn is not blocked by the pad Kerbal X (153 m away).
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse: SEAT-2's host and boot, EVA-11's road; no committed lane seats a recorded
+#     kerbal on a foreign vessel. 2 waits: explicit-UT WarpToUT at maxRate=1 only.
+#   3 dwells: none beyond the verbs' own settle frames. 4 burns / 5 coasts: none.
+#   6 fail fast: every seam verb refuses in one frame or times out on its default budget;
+#     retry once. 7 count: two recordings (DERIVED: Bill's EVA root from StartRecording to
+#     the couple, and the one Dock merge child on the rover from the couple to the commit;
+#     the rover was outside the tree, so it had no background leg, and the merge has one
+#     parent; nothing records after the rewind, the hygiene pair drops any restore clone,
+#     and a tip spawn adds no recording), min = max = 2.
+#   8 tier: nightly (one rewind, one reload, ~1 min of 1x); re-tier by p50.
+#   9 run tools/flight_efficiency.py on the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "A recorded kerbal taking the seat of a foreign rover claims it (todo FOREIGN-SEAT-BOARD-LEAVES-NO-GHOST-CLAIM): on seat-rover-pad Bill Kerman steps out of the pad Kerbal X to a crewless rover 153 m away carrying an EAS-1 seat, a recording on him takes the seat, the Dock merge stamps the rover's pid and guid as its partner (partnerIsEva=False), and after commit, Rewind-to-Launch and a flight reload the chain walker's MERGE claim on the rover spawns its chain tip at the rover's own pid with Bill seated, never a regenerated duplicate."
+instanceProfile = "stock-minimal"
+tags = ["SEAT-3", "eva", "seat", "external-command-seat", "foreign-vessel", "dock-merge",
+        "ghost-chain", "rewind-to-launch", "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/seat-rover-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  # ACT 0: boot hygiene (EVA-11's). Nothing is recorded in the fixture.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                       expect = "OK" },
+  { cmd = "DiscardTree",                                                         expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  # LOAD-BEARING: the route-partner resolve, the walker's claim and the ghoster lines are Verbose.
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "MissionMark", args = { label = "seat3-boot" },                        expect = "OK" },
+  # ACT 1 (a)+(b): Bill out and over to the rover (unrecorded), then the recording on him.
+  { cmd = "EvaExit",    args = { kerbal = "Bill Kerman", release = "true" },     expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "1871615455", distance = "4" }, expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                      expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  # ACT 2 (c)+(d): Bill takes the foreign rover's seat while recorded. THE SUBJECT.
+  { cmd = "MissionMark", args = { label = "seat3-board" },                       expect = "OK" },
+  { cmd = "EvaSeatBoard",                                                        expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "45", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                       expect = "OK" },
+  { cmd = "CommitTree",                                                          expect = "OK", budget = 120 },
+  # CommitTree re-takes the committed tree for the still-active rover; stop it (RC-6).
+  { cmd = "StopRecording",                                                       expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0",            expect = "OK" },
+  { cmd = "MissionMark", args = { label = "seat3-commit-count-${c0.count}" },    expect = "OK" },
+  { cmd = "MissionMark", args = { label = "seat3-committed-a-${c0.rec0}-${c0.rec0pid}-b-${c0.rec1}-${c0.rec1pid}-end" }, expect = "OK" },
+  # ACT 3 (e): Rewind-to-Launch, then a Space Center save reloaded into FLIGHT on the pad.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                    expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "seat3-rewound" },                       expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "seat3-rewound" },  expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                       expect = "OK" },
+  { cmd = "DiscardTree",                                                         expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "chains" },    label = "ch",            expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1",            expect = "OK" },
+  { cmd = "MissionMark", args = { label = "seat3-reloaded-chains-${ch.count}-a-${c1.rec0}-${c1.rec0spawned}-b-${c1.rec1}-${c1.rec1spawned}-end" }, expect = "OK" },
+  # ACT 4 (f): 1x FLIGHT time past the merged child's end; the chain tip spawns.
+  { cmd = "WarpToUT",   args = { ut = "60", maxRate = "1" },                     expect = "OK", budget = 200 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2",            expect = "OK" },
+  { cmd = "MissionMark", args = { label = "seat3-spawned-a-${c2.rec0}-${c2.rec0spawned}-${c2.rec0spawnedPid}-b-${c2.rec1}-${c2.rec1spawned}-${c2.rec1spawnedPid}-end" }, expect = "OK" },
+  { cmd = "SaveGame",                                                            expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                        expect = "OK" },
+]
+
+[dimensionsCovered]
+D5  = ["cross-tree-foreign-dock"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+D18 = ["committed-interaction-claiming", "chain-tip-original-pid"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# DERIVED (header, checklist 7): Bill's EVA root + the Dock merge child on the rover.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  # ACT 1: Bill out and over to the rover, then a fresh recording on him with its rewind save.
+  "evaexit complete kerbal=Bill Kerman ",
+  "evagroundscience step complete kerbal=Bill Kerman anchor=rover fuel 0 ",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "Captured rewind save at UT ([0-9.]+): vessel \"Bill Kerman\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
+  # ACT 2: the recorded seat board is a couple of Bill's EVA part onto the seat part.
+  "MISSIONMARK label=seat3-board[\\s\\S]*evaseatboard start kerbal='Bill Kerman' targetPid=1871615455 seatPart=seatExternalCmd seatId=[0-9]+ dist=",
+  "MISSIONMARK label=seat3-board[\\s\\S]*OnPartCouple producer classified: kind=[A-Za-z]+ fromPart=kerbalEVA toPart=seatExternalCmd involvesEva=True",
+  # THE FIX: the partner is the rover (not EVA), stamped with its pid and launch guid.
+  "MISSIONMARK label=seat3-board[\\s\\S]*OnPartCouple route-partner resolve(?: \\(retroactive\\))?: selfPid=[0-9]+ mergedPid=1871615455 [^\\r\\n]*partnerPidFromEvent=1871615455 [^\\r\\n]*partnerIsEva=False partnerPidStamped=1871615455 partnerGuidStamped=9892740591b9b500ab14bbc687377a0b",
+  "MISSIONMARK label=seat3-board[\\s\\S]*onPartCouple \\(tree(?:, retroactive)?\\): dock merge pending \\(merged=1871615455, ",
+  "MISSIONMARK label=seat3-board[\\s\\S]*Tree merge created: type=Dock, bp=[^,]+, parents=\\[[0-9a-f]+\\], child=[0-9a-f]+ \\(pid=1871615455\\)",
+  "evaseatboard complete kerbal='Bill Kerman' vesselPid=1871615455 seatPart=seatExternalCmd seatId=[0-9]+",
+  # The walker claims the rover by the seat merge; the chain's tip is the merged child.
+  "Tree merge created: type=Dock, [^\\r\\n]*child=([0-9a-f]+) \\(pid=1871615455\\)[\\s\\S]*Chain built: vessel=1871615455 links=1 tip=\\1 ",
+  "Vessel PID=1871615455 claimed by tree=[0-9a-f]+ via MERGE at UT=",
+  "committree committed=true",
+  "MISSIONMARK label=seat3-commit-count-2 ",
+  "Tree merge created: type=Dock, [^\\r\\n]*child=([0-9a-f]+) \\(pid=1871615455\\)[\\s\\S]*MISSIONMARK label=seat3-committed-[^\\r\\n]*-\\1-1871615455-",
+  # ACT 3: the rewind lands before the seating; the reloaded store still holds the claim.
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=1",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "Tree merge created: type=Dock, [^\\r\\n]*child=([0-9a-f]+) \\(pid=1871615455\\)[\\s\\S]*invokerewindtolaunch complete [\\s\\S]*listhandles chain index=[0-9]+ pid=1871615455 links=1 trees=1 treeIds=[0-9a-f]{32} tip=\\1",
+  "Tree merge created: type=Dock, [^\\r\\n]*child=([0-9a-f]+) \\(pid=1871615455\\)[\\s\\S]*MISSIONMARK label=seat3-reloaded-chains-[1-9][^\\r\\n]*-\\1-false-",
+  # ACT 4: the tip spawns at the rover's own pid, preserve identity, Bill seated (18 parts).
+  "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Chain tip spawn: pid=1871615455 vessel=rover fuel 0 preserveIdentity=true [^\\r\\n]*parts=18",
+  "invokerewindtolaunch complete [\\s\\S]*Chain tip spawn complete: #[0-9]+ \"rover fuel 0\" pid=1871615455",
+  "Tree merge created: type=Dock, [^\\r\\n]*child=([0-9a-f]+) \\(pid=1871615455\\)[\\s\\S]*MISSIONMARK label=seat3-spawned-[^\\r\\n]*-\\1-true-1871615455-",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "evaseatboard rejected",
+  "evagroundscience (?:failed|refused)",
+  "invokerewindtolaunch refused",
+  # The bug's shape: a seat couple that stamped no partner.
+  "OnPartCouple route-partner resolve[^\\r\\n]*partnerPidStamped=0 ",
+  # The pre-fix duplicate's road: a regenerated end spawn (no regeneration is expected here).
+  "Regenerated vessel identity: ",
+  # The rover must be out of the world (stripped or held) when the flight reloads.
+  "\\[Ghoster\\] Vessel ghosted: pid=1871615455 ",
+  "Stripping orphaned spawned vessel 'rover fuel 0'",
+  "Chain tip spawn blocked by collision: #[0-9]+ \"rover fuel 0\"",
+  "Chain tip spawn failed: #[0-9]+ \"rover fuel 0\"",
+  "SpawnAtChainTip: spawn path returned pid=0",
+  "Removed [^\\r\\n']*crew 'Bill Kerman' from vessel snapshot",
+  "Spawn RETIRED",
+  "Spawn ABANDONED",
+  "Spawn FAILED",
+  # One tip spawn only.
+  "Chain tip spawn: pid=1871615455 [\\s\\S]*Chain tip spawn: pid=1871615455 ",
+]
+
+[runtime]
+# Estimated wall ~230 s, summed per act: boot LoadGame ~45 + hygiene ~3 + EvaExit / step ~10
+# + StartRecording ~3 + board ~5 + 1x to UT 45 ~13 + stop / commit / marks ~6 + rewind to the
+# Space Center ~30 + SaveGame ~3 + reload ~45 + hygiene / ListHandles ~4 + 1x to UT 60 ~45 +
+# SaveGame ~3 + quit ~10 = ~225 s (EVA-11, the same boot / rewind / reload road, measured
+# 86 s). 1800 is EVA-11's cap, ~8x the estimate; the per-step budgets only bound single steps.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

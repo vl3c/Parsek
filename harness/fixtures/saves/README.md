@@ -691,6 +691,22 @@ the Kerbal X AND a save written at the Space Center (`activeVessel = 0`) reloads
 re-forge of either source fixture. Host of `EVA-11-construction-foreign-claim` and the intended
 host of roadmap RC-6 (an EVA take from the rover's container).
 
+## seat-rover-pad (GAME Mode = SANDBOX, 2 VESSELS + 1 asteroid, 0 recordings, derived from eva-construct-pad)
+
+`eva-construct-pad`'s save byte for byte (the pad Kerbal X with Jebediah, Bill and Bob aboard, the
+asteroid, the crewless `rover fuel 0` with persistentId 1871615455 and launch Guid
+9892740591b9b500ab14bbc687377a0b, LANDED ~153 m from the pad; `activeVessel = 0`), with two
+changes to persistent.sfs: the Title reads `seat-rover-pad (SANDBOX)`, and the rover gains a 17th
+PART, an EAS-1 External Command Seat (`seatExternalCmd`) surface-attached (`attm = 1`,
+`srfN = srfAttach, 2`) to the rover's advSasModule (part index 2), upright on its top. The seat is
+authored with NO MODULE node, so KerbalSeat loads its prefab defaults: an empty seat. Its cid,
+uid and persistentId are derived from the seed `seat-rover-pad/v1` and checked against every id in
+the save. Every other file is copied verbatim. Built and drift-gated by
+`harness/tools/build_seat_rover_pad.py` (`--check`) and `harness/lib/test_seat_rover_pad.py`
+(which also reds when either SEAT spec names another template or rover pid); re-run the builder
+after a re-forge of `eva-construct-pad`. Host of `SEAT-2-seat-occupant-survives-spawn` and
+`SEAT-3-foreign-seat-claim-rewind` (both authored 2026-10-24, never flown).
+
 ## miner-rover-landed (GAME Mode = SANDBOX, 2 VESSELS, 0 recordings, derived from fresh-sandbox)
 
 `fresh-sandbox`'s save plus V's real `Mining Rover RC` (the VESSEL node from his dev save `isru`,
