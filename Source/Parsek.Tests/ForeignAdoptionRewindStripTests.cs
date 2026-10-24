@@ -320,6 +320,143 @@ namespace Parsek.Tests
             Assert.DoesNotContain(spawner.RecordingId, scope.KeptHolderRecordingIds);
         }
 
+        // ---- REWIND-HOLD-MISSES-CROSS-TREE-ADOPTED-VESSEL: the spawner's terminal spawn is
+        // ---- superseded by the adopting tree's member (the commit's spawned-pid-match link)
+
+        private Recording CommitLinkedSpawnerTree(string supersededById)
+        {
+            var spawner = CommitEarlierSpawnerTree(5.0, 20.0);
+            spawner.TerminalSpawnSupersededByRecordingId = supersededById;
+            return spawner;
+        }
+
+        [Fact]
+        public void CrossTreeAdoption_SupersedeLinkedSpawnerHistorical_KeepsTheVessel()
+        {
+            BuildEva11Shape();
+            var spawner = CommitLinkedSpawnerTree("r222");
+            var all = RecordingStore.CollectAllCommittedRecordings();
+
+            // Before the fix: the continuation route stripped the rover the member only ghosts.
+            Assert.True(RecordingStore.IsSpawnedVesselReproducedByRewindReplay(
+                spawner, all, AdjustedUT, out string viaUnscoped));
+            Assert.StartsWith("superseding-continuation-replays:r222", viaUnscoped);
+
+            Assert.False(RecordingStore.IsSpawnedVesselReproducedByRewindReplay(
+                spawner, all, AdjustedUT, out string via, MemberIds()));
+            Assert.Null(via);
+
+            var scope = RecordingStore.ResolveRewindSpawnStripScope(all, AdjustedUT, MemberIds());
+            Assert.DoesNotContain(RoverPid, scope.StripPids);
+            Assert.Contains(RoverPid, scope.KeptPids);
+            Assert.Contains(spawner.RecordingId, scope.KeptHolderRecordingIds);
+            Assert.Contains(BillPid, scope.StripPids);
+            Assert.Contains(logLines, l => l.Contains("[Rewind]")
+                && l.Contains("spawned pid=" + RoverPid + " of 'rover fuel 0' (id=s333) is not re-produced")
+                && l.Contains("continuation 'r222'"));
+        }
+
+        [Fact]
+        public void CrossTreeAdoption_SupersedeLinkedToMembersChainTip_KeepsTheVessel()
+        {
+            // The commit's link can land on the member's same-tree chain tip (same pid) rather
+            // than on the member itself: that tip also flies the adopted vessel.
+            BuildEva11Shape();
+            var tip = Rec("t444", "rover fuel 0", "treeE", 59.9, 80.0, RoverPid, RoverGuid);
+            RecordingStore.AddRecordingWithTreeForTesting(tip);
+            var spawner = CommitLinkedSpawnerTree("t444");
+            var all = RecordingStore.CollectAllCommittedRecordings();
+
+            Assert.True(RecordingStore.FliesTransferAdoptedVessel(tip, all, MemberIds()));
+            Assert.False(RecordingStore.IsSpawnedVesselReproducedByRewindReplay(
+                spawner, all, AdjustedUT, out _, MemberIds()));
+            var scope = RecordingStore.ResolveRewindSpawnStripScope(all, AdjustedUT, MemberIds());
+            Assert.Contains(RoverPid, scope.KeptPids);
+            Assert.DoesNotContain(RoverPid, scope.StripPids);
+        }
+
+        [Fact]
+        public void CrossTreeAdoption_SupersedeLinkedSpawnerReplays_StillStripped()
+        {
+            // Rewind to before the spawner's own flight: it replays (and the rewind save
+            // predates the rover), so the rover is stripped as before.
+            BuildEva11Shape();
+            var spawner = CommitLinkedSpawnerTree("r222");
+            var scope = RecordingStore.ResolveRewindSpawnStripScope(
+                RecordingStore.CollectAllCommittedRecordings(), 2.0, MemberIds());
+            Assert.Contains(RoverPid, scope.StripPids);
+            Assert.DoesNotContain(spawner.RecordingId, scope.KeptHolderRecordingIds);
+        }
+
+        [Fact]
+        public void Control_SupersedingContinuationNotAnAdoption_StillStripped()
+        {
+            // A continuation that is no transfer member and no member's chain re-produces the
+            // vessel at its own end: the link still strips.
+            BuildEva11Shape();
+            var other = Rec("c666", "rover fuel 0", "treeC", 45.0, 90.0, 4100000004u, null);
+            RecordingStore.AddRecordingWithTreeForTesting(other);
+            var spawner = CommitLinkedSpawnerTree("c666");
+            var all = RecordingStore.CollectAllCommittedRecordings();
+
+            Assert.False(RecordingStore.FliesTransferAdoptedVessel(other, all, MemberIds()));
+            Assert.True(RecordingStore.IsSpawnedVesselReproducedByRewindReplay(
+                spawner, all, AdjustedUT, out string via, MemberIds()));
+            Assert.StartsWith("superseding-continuation-replays:c666", via);
+        }
+
+        [Fact]
+        public void CrossTreeAdoption_RewindToLaunch_KeepsRoverInTheSaveForTheHold()
+        {
+            // The whole pre-load chain: the rover stays in the rewind save and its whitelist, the
+            // chain walker's claim takes its rewind-save copy for the hold ghost, and the OnLoad
+            // launch-identity strip (the spawner is still a candidate) leaves it to the hold.
+            var shape = BuildEva11Shape();
+            shape.rover.SegmentEvents.Add(ForeignInventoryTransfer.BuildConstructionSegmentEvent(
+                45.0, true, "solarPanels5", 4100000005u));
+            var spawner = CommitLinkedSpawnerTree("r222");
+            string sfs = WriteRewindQuicksave();
+
+            RecordingStore.PreProcessRewindSave(
+                sfs, RecordingStore.RewindOwnerStrip.FromNames(new HashSet<string> { "Bill Kerman" }),
+                RecordingStore.ResolveRewindStripSpawnedPids,
+                RecordingStore.RewindToLaunchLeadTimeSeconds,
+                RecordingStore.ResolveRewindClaimedVesselPids);
+
+            var pids = new List<string>();
+            foreach (var v in ConfigNode.Load(sfs).GetNode("FLIGHTSTATE").GetNodes("VESSEL"))
+                pids.Add(v.GetValue("persistentId"));
+            Assert.Contains(RoverPid.ToString(), pids);
+            Assert.DoesNotContain(BillPid.ToString(), pids);
+            Assert.Contains(RoverPid, RewindContext.RewindQuicksaveVesselPids);
+            Assert.NotNull(ClaimedVesselHoldGhost.TryGetRewindSaveVessel(RoverPid, null));
+            Assert.Contains(spawner.RecordingId, RewindContext.RewindHistoricalSpawnKeepRecordingIds);
+
+            var candidates = ForeignInventoryTransfer.ExcludeForeignAdoptions(
+                RecordingStore.CollectAllCommittedRecordings(), MemberIds(), out _);
+            Assert.Contains(spawner, candidates);
+            Assert.False(ParsekScenario.ShouldStripVesselForRecordings(
+                RoverPid, RoverGuid, Vessel.Situations.LANDED, candidates,
+                matchSource: true, skipPrelaunch: false,
+                requireWhitelist: false, preExistingWhitelist: RewindContext.RewindQuicksaveVesselPids,
+                out _, out _));
+        }
+
+        [Fact]
+        public void FliesTransferAdoptedVessel_MemberAndSameTreeChainOnly()
+        {
+            var shape = BuildEva11Shape();
+            var all = RecordingStore.CollectAllCommittedRecordings();
+            var ids = MemberIds();
+
+            Assert.True(RecordingStore.FliesTransferAdoptedVessel(shape.rover, all, ids));
+            Assert.False(RecordingStore.FliesTransferAdoptedVessel(shape.bill, all, ids));
+            var otherTree = Rec("o555", "rover fuel 0", "treeZ", 10.0, 20.0, RoverPid, RoverGuid);
+            Assert.False(RecordingStore.FliesTransferAdoptedVessel(
+                otherTree, new List<Recording>(all) { otherTree }, ids));
+            Assert.False(RecordingStore.FliesTransferAdoptedVessel(shape.rover, all, null));
+        }
+
         // ---- The pure helpers ----
 
         [Fact]
