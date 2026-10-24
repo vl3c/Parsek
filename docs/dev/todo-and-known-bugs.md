@@ -16,6 +16,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## SEAM-DRIVER-KEEPS-DRIVING-AFTER-A-REFUSED-STEP: a seam step whose verdict misses its `expect` does not stop the attempt, so a deterministic refusal burns every later step's timeout and then the retry [FILED 2026-10-24 from IR-2 `2026-10-24_0934` / `_0946_a2` (INVALID, driver-gate, both attempts), flown for PR #2193. OPEN, low. harness]
+
+**Symptom.** IR-2's `LaunchFromEditor` came back REJECTED (`launchfromeditor-site-obstructed`, a
+spec bug fixed in PR #2197), and `run.py` went on sending the remaining 20 steps from the editor:
+each scene-gated verb deferred and timed out (ReadVesselResources 60 s, TimeJump 120 s,
+RevertToLaunch and so on), about 711 s per attempt, and the `retry = "once"` policy then flew the
+same deterministic refusal again: 1423 s of PC time for a verdict known at step 11.
+
+**Fix.** Stop driving at the first unmet step (design-autotest-harness-core edge 13 already
+classifies the attempt there as driver-stage INVALID) and record the rest in
+`driver.skippedTailSteps` with a reason such as `step-unmet`, then go straight to FlushAndQuit.
+Consider also skipping the retry when the unmet verdict is a REJECTED gate refusal, which a re-boot
+cannot change.
+
 ## DISCARD-REFLY-LANDS-WITHOUT-REWIND-HOLDS: after a Discard Re-fly, a vessel the committed future uses is a live vessel again [FILED 2026-10-24 from the item-7 re-check of the 10-16 audit's suspected defects, code read on main f3a22ce, not reproduced. Split out of the "Not covered" note of REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE. OPEN, medium, physical paradox]
 
 A Re-Fly start holds every vessel its rewind point's world brings back that a committed recording
