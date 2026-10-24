@@ -325,8 +325,8 @@ The "Defaults" button resets every Parsek setting, including the Advanced-only o
 
 Funds and science already promised to recorded flights that have not run yet are held
 back for you: the stock currency widgets show what is actually **available** to spend,
-not the raw pool. Hover a widget at the Space Center or in flight to see the breakdown
-as **Total** and **Reserved**.
+not the raw pool. Hover a widget at the Space Center, in the VAB / SPH or in flight to see
+the breakdown as **Total** and **Reserved**.
 
 ### Action Blocking
 
