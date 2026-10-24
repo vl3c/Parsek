@@ -853,16 +853,17 @@ class Gs2SpecWiringTests(unittest.TestCase):
         self.assertTrue(
             mlib.forge_lko_params_from_dict(params).park_attached)
 
-    def test_gs3_drives_exactly_two_switch_clicks_one_of_them_a_refusal_probe(self):
-        """The second click is a DELIBERATE `expect = "REJECTED"`: with a session
-        armed and a different target, DecidePreSwitchDialogAction returns OpenDialog
-        (Case A) and the v1 verb refuses `dialog-required case=A-session`. If a future
-        version teaches it to answer the dialog, this cell notices."""
+    def test_gs3_drives_exactly_two_switch_clicks_the_second_auto_resolved(self):
+        """The second click is Case A (a session armed, a different target). Since
+        2026-10-24 the switch decides the prior segment itself under auto-merge
+        (TryAutoResolvePreSwitch) and the verb drives that call, so the click is OK
+        (route pre-switch-auto-discard) where it used to be the REJECTED
+        `dialog-required case=A-session` probe."""
         steps = self._spec("GS-3-switch-nudge-deployed.toml")["driver"]["steps"]
         clicks = [s for s in steps if s.get("cmd") == "SimulateStockSwitchClick"]
         self.assertEqual(2, len(clicks))
         self.assertEqual("OK", clicks[0].get("expect"))
-        self.assertEqual("REJECTED", clicks[1].get("expect"))
+        self.assertEqual("OK", clicks[1].get("expect"))
         self.assertEqual("Kerbal X Probe", clicks[0]["args"]["vessel"])
 
     def test_gs2_drives_no_switch_click_at_all(self):

@@ -17,6 +17,31 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~SWITCH-ASKS-MERGE-FOR-AN-UNCHANGED-VESSEL: a map Switch-To away from a vessel you did nothing with opens the Merge / Discard dialog~~ [FILED 2026-10-24 from V's playtest report (switching from the recorded vessel to an older one showed the manual merge dialog). FIXED 2026-10-24 on branch `claude/project-thread-pp3xy9`. xUnit; lanes GS-3 (re-cut) and S0.13 to fly. product]
+
+**Symptom.** The pre-switch decision (`MapFocusObjectOnSelectPatch`, Cases A / B / C) always opened
+`MergeDialog.ShowPreSwitchDecisionDialog` unless the prior recording was a no-op Standalone /
+committed-clone segment or a no-op no-session committed resume. It ignored auto-merge, which the
+scene exit already honours, so a no-op segment of a background member of the live tree
+(disposition `BgMemberOrMixed`, the common "look at a vessel of this flight and switch away" case),
+a fresh flight idle on the pad, and every flight that did change something all asked.
+
+**Fix.** `TryAutoResolvePreSwitch` (pure `DecidePreSwitchAutoResolution`) presses the button for
+the player under auto-merge: Discard for every no-op segment (BgMemberOrMixed included: the segment
+is pruned and the vessel returns to background recording), for a no-op no-session resume and for
+a no-session tree idle on the pad; Merge for everything else. The dialog stays for auto-merge off
+and for a no-op check that could not run (`restoring-active-tree`, `exception:`). The seam verb
+`SimulateStockSwitchClick` drives the same call for in-bubble targets (routes
+`pre-switch-auto-discard` / `pre-switch-auto-merge`), so GS-3's second click is now an OK
+auto-discard rather than the `dialog-required case=A-session` refusal probe. Player rules:
+flight recorder design section 5.4, "Game rules: switching vessels in flight".
+
+**Not changed.** At the scene exit a no-op `BgMemberOrMixed` segment still takes the normal commit
+(its idle end is trimmed by the optimizer when it has track sections; an on-rails-only segment is
+not). The trailing idle trim (`RecordingOptimizer.TrimBoringTail`) already runs at every in-flight
+commit for every vessel's latest recording; a leading idle stretch is not trimmed, because the
+vessel is held until its last recording ends either way.
+
 ## ~~REWIND-HOLD-MISSES-CROSS-TREE-ADOPTED-VESSEL: a vessel another mission spawned and this one adopted by inventory transfer has no ghost after a rewind until its transfer member starts~~ [FILED 2026-10-24 from the item-7 re-check of the 10-16 audit's suspected defects (CLAIMED-VESSEL-HAS-NO-GHOST-BEFORE-ITS-MEMBER), code read on main f3a22ce, not reproduced. Split out of the "Not covered" note of REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE. FIXED 2026-10-24 on branch `claude/project-thread-1kbuzp`, xUnit only; a lane is owed. low, visual]
 
 The claimed-vessel hold ghost (CLAIMED-VESSEL-VANISHES-BEFORE-ITS-CLAIM, extended to plain rewinds
