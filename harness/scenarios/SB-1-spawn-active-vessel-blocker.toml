@@ -1,0 +1,86 @@
+schema = 1
+id = "SB-1-spawn-active-vessel-blocker"
+tier = "nightly"
+# BATCH-ONLY scenario, H72 shape. The live half of GC9-SPAWN-IGNORES-ACTIVE-VESSEL
+# (docs/dev/todo-and-known-bugs.md): an end-of-recording spawn used to filter the
+# active vessel out of its overlap check unless the recording was an EVA, so a plane
+# whose recording ends Landed mid-runway spawned inside a rover the player parked on
+# its stop point. The fix makes the active vessel a blocker for every spawn
+# (`SpawnCollisionDetector.ClassifyLoadedVesselHit` has no active-vessel input) and
+# never recovers the active vessel as a duplicate blocker. The pure filter and the
+# recovery guard are xUnit (`SpawnCollisionDetectorTests`,
+# `DuplicateBlockerRecoveryTests`); what only a live game has is the one cell this
+# category drives, `FlightIntegrationTests.NonEvaSpawnWalksBackOffActiveVessel`:
+# a non-EVA Landed recording (an uncrewed copy of the active vessel) whose endpoint
+# sits on the terrain under the active vessel, spawned through
+# `VesselSpawner.SpawnOrRecoverIfTooClose`. The endpoint probe must name the active
+# vessel as its blocker, and the spawn must walk back along the recorded meridian to
+# the first clear position. On the pre-fix build the probe finds no blocker and the
+# cell self-skips, so the whole-tally pin below reds there.
+description = "Run the in-game SpawnActiveVesselBlocker category over a landed rover outside the Space Center: a non-EVA end-of-recording spawn whose endpoint sits under the active vessel is blocked by it and walks back along its trajectory instead of spawning inside it."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "spawn-safety", "SB-1"]
+
+[fixture]
+# miner-rover-landed: the active vessel is `Mining Rover RC` (type Probe, LANDED, not
+# splashed) at lat 0.0296 lon -74.7247, about 0.8 km north of the runway, so a Landed
+# flight ending under it is outside every KSC exclusion circle and spawns rather than
+# retires (the cell's retirement skip cannot fire). A Probe is not a skipped overlap
+# vessel type. Uncrewed, so the donor snapshot carries nobody. The same template boots
+# FLIGHT for MINE-2-rover-mine-rewind-warp-jump.
+saveTemplate = "fixtures/saves/miner-rover-landed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# verboseLogging=true is LOAD-BEARING: the runner's per-cell PASSED line is Verbose
+# (the walkback success line is Info).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "RunTests",   args = { category = "SpawnActiveVesselBlocker" },    expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+# The cell drives TryWalkbackForEndOfRecordingSpawn's raycast-snap branch for a
+# non-EVA Landed spawn (D13 trajectory-walkback, second witness after H20's EVA cell).
+D13 = ["trajectory-walkback"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: auto-record is off and the cell commits nothing (its recording is never added
+# to the store, and the batch isolation reverts the save after teardown).
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: total=1 is ATTRIBUTE-EXACT (one FLIGHT declaration), kept in sync by
+# CommittedBatchTallySourceSyncTests. NEVER FLOWN: the split is regexed until the
+# reading run measures it, and the PASSED witness requires the one cell by name, so a
+# self-skip cannot pass. A Skip is the lane failing its own premise.
+required = [
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=SpawnActiveVesselBlocker scene=FLIGHT",
+  "PASSED: FlightIntegrationTests\\.NonEvaSpawnWalksBackOffActiveVessel \\(",
+  "NonEvaSpawnWalksBackOffActiveVessel fixture: active='Mining Rover RC'",
+  "\\[Spawner\\] TryWalkbackForEndOfRecordingSpawn: found clear position",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "FAILED: FlightIntegrationTests\\.NonEvaSpawnWalksBackOffActiveVessel",
+  "SKIPPED: FlightIntegrationTests\\.NonEvaSpawnWalksBackOffActiveVessel",
+  "Duplicate blocker detected for #0 \\(ParsekTestActiveBlocker\\)",
+]
+
+[runtime]
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

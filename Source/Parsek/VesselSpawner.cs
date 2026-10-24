@@ -2106,13 +2106,15 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Spawner", "eva-bounds-" + index,
                     $"CheckSpawnCollisions: EVA bounds={spawnBounds.size} for #{index} ({rec.VesselName})");
             }
-            // EVA spawns must detect the active vessel (parent rocket) as a blocker
-            // so walkback can find a clear position (#291). Non-EVA spawns skip it
-            // to avoid the player's vessel blocking its own recording's spawn.
-            bool skipActive = !isEva;
+            // The active vessel blocks every spawn, EVA or not (todo
+            // GC9-SPAWN-IGNORES-ACTIVE-VESSEL): a vessel the player parked on the spawn spot
+            // is a real obstacle and the walkback finds a clear position behind it. A live
+            // source vessel of the same launch is normally adopted before this runs; the #226
+            // replay bypass skips that adoption on purpose, and its duplicate must not appear
+            // inside the vessel the player flies either.
             var (overlap, overlapDist, blockerName, blockerVessel) =
                 SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
-                    spawnPos, spawnBounds, 5f, skipActive, exemptVesselPid,
+                    spawnPos, spawnBounds, 5f, exemptVesselPid,
                     spawningRecording: rec, site: "end-of-recording");
             if (overlap)
             {
@@ -2124,7 +2126,8 @@ namespace Parsek
                         rec,
                         blockerVessel != null && blockerVessel.loaded,
                         blockerVessel != null ? blockerVessel.persistentId : 0u,
-                        blockerVessel != null ? AnchorDetector.TryReadLiveVesselGuid(blockerVessel) : null))
+                        blockerVessel != null ? AnchorDetector.TryReadLiveVesselGuid(blockerVessel) : null,
+                        blockerVessel != null && blockerVessel == FlightGlobals.ActiveVessel))
                 {
                     ParsekLog.Warn("Spawner",
                         $"Duplicate blocker detected for #{index} ({rec.VesselName}): " +
@@ -2144,7 +2147,7 @@ namespace Parsek
                     // Re-check overlap after recovery — another vessel may still block
                     var (stillOverlap, recheckDist, recheckName, _) =
                         SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
-                            spawnPos, spawnBounds, 5f, skipActive, exemptVesselPid,
+                            spawnPos, spawnBounds, 5f, exemptVesselPid,
                             spawningRecording: rec, site: "end-of-recording-post-recovery");
                     if (!stillOverlap)
                     {
@@ -2234,8 +2237,8 @@ namespace Parsek
                 return false;
             }
 
-            // EVA spawns must detect the active vessel as a blocker (#291)
-            bool skipActive = string.IsNullOrEmpty(rec.EvaCrewName);
+            // Every candidate is checked against the active vessel too (todo
+            // GC9-SPAWN-IGNORES-ACTIVE-VESSEL), the same rule as the endpoint check.
             var walkResult = SpawnCollisionDetector.WalkbackAlongTrajectorySubdivided(
                 rec.Points,
                 body.Radius,
@@ -2244,7 +2247,7 @@ namespace Parsek
                 (worldPos, candidateUT) =>
                 {
                     var (ov, _, _, _) = SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
-                        worldPos, spawnBounds, 5f, skipActive, exemptVesselPid,
+                        worldPos, spawnBounds, 5f, exemptVesselPid,
                         spawningRecording: rec, site: "end-of-recording-walkback",
                         candidateUT: candidateUT);
                     return ov;
@@ -3135,7 +3138,8 @@ namespace Parsek
         /// Pure decision half of the duplicate-blocker-recovery guard in
         /// <c>CheckSpawnCollisions</c>: the once-per-recording
         /// <see cref="Recording.DuplicateBlockerRecovered"/> latch, the live-blocker
-        /// requirement, and the same-spawn discriminator in
+        /// requirement, the rule that the active vessel is never recovered, and the
+        /// same-spawn discriminator in
         /// <see cref="ShouldRecoverBlockerVessel"/>. Kept separate from the call site so
         /// the recovery-loop latch is testable without a live blocker Vessel; the call
         /// site passes <paramref name="blockerVesselLoaded"/> false for a null blocker, so
@@ -3145,12 +3149,16 @@ namespace Parsek
             Recording rec,
             bool blockerVesselLoaded,
             uint blockerPid,
-            string blockerGuid)
+            string blockerGuid,
+            bool blockerIsActiveVessel)
         {
             if (rec == null) return false;
             // Recovery-loop latch: one recovery per recording, ever.
             if (rec.DuplicateBlockerRecovered) return false;
             if (!blockerVesselLoaded) return false;
+            // The vessel the player flies is never recovered out from under them: it blocks
+            // and the walkback moves the spawn instead.
+            if (blockerIsActiveVessel) return false;
             return ShouldRecoverBlockerVessel(rec, blockerPid, blockerGuid);
         }
 

@@ -1,4 +1,4 @@
-# In-game test category inventory (all 129 categories)
+# In-game test category inventory (all 130 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -191,6 +191,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `SnapshotBaseline` | 7 | 7 | 0 | 0 | 0 | 7 | H32 | A |
 | `SnapshotSidecars` | 2 | 2 | 2 | 2 | 0 | 2 | ST-3-snapshot-sidecars-bdock (single-category, authored 2026-09-26 by coverage wave 5 on `bdock-recorded`, the one committed Storage-shaped host with a committed AliasVessel recording: every snapshot sidecar probed as DeflateV1 and decoded, a live vessel snapshot round-tripped through the product writer and reader, and an AliasVessel copy run through the product save (no `_ghost.craft`) and load (ghost restored from the vessel). LIVE-PROVEN: reading `2026-09-25_2158` and armed `2026-09-25_2203`, both PASS attempt 1, executes 2 of 2 - the whole category at FLIGHT with zero skips, `total=2 passed=2 failed=0 skipped=0` pinned whole. Its own category so `Storage`'s whole-pinned tally on ST-1 / ST-2 does not move) | A |
 | `SoiCrossingPlayback` | 3 | 3 | 0 | 0 | 0 | 3 | S1.8 | A |
+| `SpawnActiveVesselBlocker` | 1 | 1 | 0 | 0 | 0 | 1 | SB-1-spawn-active-vessel-blocker (authored 2026-10-24 with the fix for GC9-SPAWN-IGNORES-ACTIVE-VESSEL, NOT YET FLOWN: `total=1` literal with the split regexed and the cell required through its `PASSED:` line, over `miner-rover-landed`'s parked rover outside the KSC zones; A1, `H36`'s standing). One FLIGHT cell: a non-EVA Landed recording whose endpoint sits under the active vessel is blocked by it and walks back instead of spawning inside it. Self-skips off solid ground, inside a KSC exclusion zone, or when the endpoint is clear. Its own category so no pinned `BATCH_COMPLETE` tally moves | A |
 | `SpawnCollision` | 2 | 2 | 0 | 0 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
 | `SpawnHealth` | 3 | 3 | 3 | 3 | 0 | 0 | H16 | A |
 | `SpawnRotation` | 10 | 10 | 0 | 0 | 0 | 0 | H8 | A |
@@ -223,8 +224,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **129 categories / 677 declarations**. Buckets **A 95 categories
-(379 declarations)**, **B 33 categories (294 declarations)**, **C 1 category (4
+Totals, re-derived: **130 categories / 678 declarations**. Buckets **A 96 categories
+(380 declarations)**, **B 33 categories (294 declarations)**, **C 1 category (4
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes).
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
@@ -241,7 +242,9 @@ attempt 1, 3 of 3 each) and the pins are now WHOLE. The 2026-09-27 auto-hire liv
 2026-10-16 mining live check's `HarvestCapScanLedger` (HV-2, three SPACECENTER cells) landed WITH its never-flown lane
 into **A** on the same standing, A 93 -> 94 categories, 370 -> 373 declarations. The 2026-10-17 converter jump and
 lab ledger check's `ConverterJumpLab` (LAB-1, five SPACECENTER cells) landed WITH its never-flown lane into **A** on the
-same standing, A 94 -> 95 categories, 373 -> 378 declarations. All re-derived
+same standing, A 94 -> 95 categories, 373 -> 378 declarations. The 2026-10-24 fix for
+GC9-SPAWN-IGNORES-ACTIVE-VESSEL's `SpawnActiveVesselBlocker` (SB-1, one FLIGHT cell) landed WITH its never-flown lane
+into **A** on the same standing, A 95 -> 96 categories, 379 -> 380 declarations. All re-derived
 mechanically by counting the table's
 rows per Bucket cell and summing their Decls column, which is also how the bucket
 section headers below are derived. The 2026-09-08 reading was A 86 / 349 and B 27 / 275;
@@ -342,10 +345,11 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **124 of 129 categories**, covering **668 of 677
+Driven by a committed spec: **125 of 130 categories**, covering **669 of 678
 declarations** (re-derived mechanically the same way: count the table rows whose
-Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 677 declarations in
-129 categories over `Source/Parsek`. The 2026-10-17 converter jump and lab ledger check opened a
+Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 678 declarations in
+130 categories over `Source/Parsek`. The 2026-10-24 spawn fix opened a 130th row, `SpawnActiveVesselBlocker`
+(one FLIGHT cell, bucket **A**), driven by SB-1-spawn-active-vessel-blocker (authored 2026-10-24, not yet flown). The 2026-10-17 converter jump and lab ledger check opened a
 129th row, `ConverterJumpLab` (five SPACECENTER cells, bucket **A**), driven by LAB-1-converter-jump-lab-ledger (authored
 2026-10-17, LIVE-PROVEN the same day). The 2026-10-16 mining live check opened a 128th row,
 `HarvestCapScanLedger` (three SPACECENTER cells, bucket **A**), driven by HV-2-scan-ledger-drill-rates

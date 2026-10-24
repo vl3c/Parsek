@@ -85,6 +85,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A vessel that appears at the end of its flight no longer appears inside the vessel you fly.**
+  A plane that ended its flight mid-runway used to appear inside a rover you had parked on its stop
+  point. The vessel you fly now blocks the spot like any other, and the plane appears just behind it
+  on its own track. (GC9-SPAWN-IGNORES-ACTIVE-VESSEL)
 - **The alarm's Jump button follows the same rules as every other switch.** Jumping from a fired
   stock alarm never flies a ghost, is refused during a Re-Fly for any vessel but the re-flown one,
   asks to merge or discard an open recording first like Switch-To, and from the Tracking Station
