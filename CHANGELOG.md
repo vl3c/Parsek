@@ -11,9 +11,9 @@ _(unreleased - entries accumulate here per commit)_
 ### Changed
 
 - **Recordings no save uses any more are cleaned up after 14 days.** Flights recorded after a save
-  you loaded, and never saved since, wait 14 days in a quarantine folder and are then deleted. If a
-  save that uses one comes back into the folder first (copied in or restored from a backup), the
-  recording is put back and the save loads whole. (RECORDING-QUARANTINE-NEVER-EMPTIED)
+  you loaded, and never saved since, wait 14 days in a quarantine folder and are then deleted, and so
+  do older copies of a changed flight. If a save that uses one comes back into the folder first
+  (copied in or restored from a backup), it is put back and the save loads whole. (GC-15)
 - **Your funds are no longer held back or taken back by mistake.** Reserved money returns when no
   longer needed, open contract penalties are not held out, a gain after a failure stock stopped at
   0 is kept, a missed deadline never charges twice, a Re-Fly never brings back a penalty a merge

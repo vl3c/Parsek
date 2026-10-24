@@ -294,6 +294,8 @@ namespace Parsek.Tests
             Assert.False(File.Exists(transient), "expected collected: " + transient);
             Assert.True(File.Exists(versionA1), "expected kept: " + versionA1);
             Assert.False(File.Exists(versionA2), "expected collected: " + versionA2);
+            Assert.Equal("stale", File.ReadAllText(Path.Combine(dir, VersionQuarantined("2026-10-23",
+                SidecarVersions.VersionFileName("rec-a", HashA2, SidecarKind.Prec)))));
             Assert.True(File.Exists(versionM), "expected kept: " + versionM);
             Assert.False(File.Exists(versionB), "expected collected: " + versionB);
             Assert.True(File.Exists(unknownInVersions), "expected kept: " + unknownInVersions);
@@ -306,12 +308,13 @@ namespace Parsek.Tests
             Assert.True(File.Exists(careerStart), "expected kept: " + careerStart);
             Assert.True(File.Exists(unknownSave), "expected kept: " + unknownSave);
 
-            Assert.Equal(2, result.VersionsDeleted);
+            Assert.Equal(0, result.VersionsDeleted);
+            Assert.Equal(2, result.VersionsQuarantined);
             Assert.Equal(1, result.HeadsQuarantined);
             Assert.Equal(1, result.RewindPointFilesDeleted);
             Assert.Equal(1, result.RewindSavesDeleted);
             Assert.Contains(logLines, l => l.Contains("[FileCollector]") && l.Contains("Collection:")
-                && l.Contains("referrers=1") && l.Contains("versionsDeleted=2")
+                && l.Contains("referrers=1") && l.Contains("versionsQuarantined=2")
                 && l.Contains("headsQuarantined=1") && l.Contains("rewindPointFilesDeleted=1")
                 && l.Contains("rewindSavesDeleted=1") && l.Contains("reason=test"));
         }
@@ -549,6 +552,108 @@ namespace Parsek.Tests
                 && l.Contains("Quarantine restore at load: restored=2 namedHeadExists=1"));
         }
 
+        private static string VersionQuarantined(string folder, string fileName)
+        {
+            return "Parsek/Recordings/_versions/" + RecordingStore.OrphanQuarantineDirName + "/"
+                + folder + "/" + fileName;
+        }
+
+        [Fact]
+        public void Versions_UnnamedVersion_WaitsOutTheGraceThenGoes()
+        {
+            // GC-15: an unnamed version is quarantined like a head, never deleted at once.
+            string dir = NewSaveDir("v-grace");
+            ParsekFileCollector.UtcNowForTesting = () => QuarantineNow;
+            Write(dir, "persistent.sfs", ParsekScenarioText(RecordingNode("rec-a", precHash: HashA1)));
+            Write(dir, "Parsek/Recordings/rec-a.prec");
+            string fresh = Write(dir, VersionName("rec-a", HashA2, SidecarKind.Prec), "newer");
+            string expired = Write(dir, VersionQuarantined("2026-10-09",
+                SidecarVersions.VersionFileName("rec-a", HashB, SidecarKind.Prec)));
+            string waiting = Write(dir, VersionQuarantined("2026-10-10",
+                SidecarVersions.VersionFileName("rec-a", HashM, SidecarKind.Prec)));
+
+            var result = ParsekFileCollector.Run("test", null);
+
+            Assert.False(File.Exists(fresh));
+            string today = QuarantineNow.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+            Assert.Equal("newer", File.ReadAllText(Path.Combine(dir, VersionQuarantined(today,
+                SidecarVersions.VersionFileName("rec-a", HashA2, SidecarKind.Prec)))));
+            Assert.False(File.Exists(expired), "expected purged: " + expired);
+            Assert.True(File.Exists(waiting), "expected kept (in grace): " + waiting);
+            Assert.Equal(1, result.VersionsQuarantined);
+            Assert.Equal(1, result.VersionsPurged);
+            Assert.Equal(0, result.VersionsDeleted);
+            Assert.Contains(logLines, l => l.Contains("[FileCollector]")
+                && l.Contains("Version quarantined: rec=rec-a") && l.Contains("hash=" + HashA2));
+            Assert.Contains(logLines, l => l.Contains("[FileCollector]")
+                && l.Contains("Quarantined version purged:") && l.Contains("graceDays=14"));
+        }
+
+        [Fact]
+        public void Versions_QuarantinedVersionNamedAgain_IsRestoredNeverPurged()
+        {
+            string dir = NewSaveDir("v-named");
+            ParsekFileCollector.UtcNowForTesting = () => QuarantineNow;
+            Write(dir, "persistent.sfs", ParsekScenarioText(RecordingNode("rec-a", precHash: HashA2)));
+            Write(dir, "Parsek/Recordings/rec-a.prec");
+            string old = Write(dir, VersionQuarantined("2026-01-01",
+                SidecarVersions.VersionFileName("rec-a", HashA2, SidecarKind.Prec)), "back");
+
+            var result = ParsekFileCollector.Run("test", null);
+
+            Assert.False(File.Exists(old));
+            Assert.Equal("back", File.ReadAllText(Path.Combine(dir, VersionName("rec-a", HashA2, SidecarKind.Prec))));
+            Assert.Equal(1, result.VersionsRestored);
+            Assert.Equal(0, result.VersionsPurged);
+            Assert.Contains(logLines, l => l.Contains("[FileCollector]")
+                && l.Contains("Restored quarantined version:") && l.Contains("reason=named-by-save-or-memory"));
+        }
+
+        [Fact]
+        public void Versions_IdenticalCopyAlreadyWaiting_NewcomerGoes()
+        {
+            string dir = NewSaveDir("v-dup");
+            ParsekFileCollector.UtcNowForTesting = () => QuarantineNow;
+            Write(dir, "persistent.sfs", ParsekScenarioText(RecordingNode("rec-a", precHash: HashA1)));
+            Write(dir, "Parsek/Recordings/rec-a.prec");
+            string name = SidecarVersions.VersionFileName("rec-a", HashA2, SidecarKind.Prec);
+            string waiting = Write(dir, VersionQuarantined("2026-10-20", name), "same");
+            string again = Write(dir, VersionName("rec-a", HashA2, SidecarKind.Prec), "same");
+
+            var result = ParsekFileCollector.Run("test", null);
+
+            Assert.False(File.Exists(again));
+            Assert.True(File.Exists(waiting), "the earlier copy keeps its own grace");
+            Assert.Equal(1, result.VersionsDeleted);
+            Assert.Equal(0, result.VersionsQuarantined);
+        }
+
+        [Fact]
+        public void RestoreQuarantinedNamedBy_LoadedSaveNamesAVersion_MovesItBack()
+        {
+            // GC-15 swap-back: the newer save names rec-a at HashA2, whose copy an earlier load
+            // promoted aside and the collection quarantined. It must be back before hydration.
+            string dir = NewSaveDir("v-load");
+            string named = Write(dir, VersionQuarantined("2026-10-22",
+                SidecarVersions.VersionFileName("rec-a", HashA2, SidecarKind.Prec)), "newer");
+            string other = Write(dir, VersionQuarantined("2026-10-22",
+                SidecarVersions.VersionFileName("rec-a", HashB, SidecarKind.Prec)), "other");
+
+            var scenario = new ConfigNode("SCENARIO");
+            var rec = scenario.AddNode("RECORDING_TREE").AddNode("RECORDING");
+            rec.AddValue("recordingId", "rec-a");
+            rec.AddValue("precHash", HashA2);
+
+            int restored = ParsekFileCollector.RestoreQuarantinedNamedBy(scenario);
+
+            Assert.Equal(1, restored);
+            Assert.False(File.Exists(named));
+            Assert.Equal("newer", File.ReadAllText(Path.Combine(dir, VersionName("rec-a", HashA2, SidecarKind.Prec))));
+            Assert.True(File.Exists(other), "a hash the save does not name stays in quarantine");
+            Assert.Contains(logLines, l => l.Contains("[FileCollector]")
+                && l.Contains("Quarantine restore at load:") && l.Contains("versionsRestored=1"));
+        }
+
         [Fact]
         public void RestoreQuarantinedNamedBy_NoQuarantineFolder_IsANoOp()
         {
@@ -606,7 +711,7 @@ namespace Parsek.Tests
             var result = ParsekFileCollector.Run("test", null);
 
             Assert.Equal(2, result.IncomingFiled);
-            Assert.Equal(1, result.VersionsDeleted);
+            Assert.Equal(1, result.VersionsQuarantined);
             string[] left = Directory.GetFiles(versions).Select(Path.GetFileName).ToArray();
             Assert.Equal(new[] { SidecarVersions.VersionFileName("rec-a", namedHash, SidecarKind.Prec) }, left);
         }
