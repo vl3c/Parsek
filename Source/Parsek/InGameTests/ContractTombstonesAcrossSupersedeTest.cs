@@ -1,39 +1,36 @@
+using System;
 using System.Collections.Generic;
+using System.Globalization;
+using Contracts;
 using UnityEngine;
 
 namespace Parsek.InGameTests
 {
     /// <summary>
-    /// End-to-end runtime test for broad contract tombstones across a re-fly
-    /// merge. Runs in FLIGHT so the live <see cref="ParsekScenario"/>
-    /// instance is available.
+    /// Contracts x Re-Fly, live (roadmap XS-6), against today's rule (design section 2.12):
+    /// a contract row is a sealing row, so a Re-Fly is never offered for a flight that
+    /// accepted, completed, failed or cancelled a contract after its separation, and the
+    /// broad contract tombstone the older form of this cell asserted is unreachable. The
+    /// older form also drove the legacy <c>SupersedeCommit.CommitSupersede</c>, which has no
+    /// production caller, and skipped on every host because the state it looked for cannot
+    /// exist. Runs in FLIGHT during a live session (RF-6, RF-12*), skips without one.
     ///
-    /// <para>
-    /// Preconditions: an active re-fly session marker + a provisional
-    /// recording whose supersede subtree contains at least one
-    /// <see cref="GameActionType.ContractComplete"/>,
-    /// <see cref="GameActionType.ContractFail"/>,
-    /// <see cref="GameActionType.ContractAccept"/>, or
-    /// <see cref="GameActionType.ContractCancel"/> ledger action. The test
-    /// auto-skips when no such contract lives in the subtree.
-    /// </para>
-    ///
-    /// <para>
-    /// Asserts after simulating the merge button:
-    /// </para>
-    /// <list type="bullet">
-    ///   <item><description>Every pre-merge contract action from the subtree survives
-    ///       in <see cref="Ledger.Actions"/> (nothing physically removed).</description></item>
-    ///   <item><description>A <see cref="LedgerTombstone"/> was written against every
-    ///       subtree contract action.</description></item>
-    ///   <item><description>The contract action no longer appears in the Effective
-    ///       Ledger Set (<see cref="EffectiveState.ComputeELS"/>).</description></item>
+    /// <para>Asserts:</para>
+    /// <list type="number">
+    ///   <item><description>The retire set the merge would tombstone now holds no contract
+    ///       row (Rule 1: the slot would not have been offered).</description></item>
+    ///   <item><description>No contract stock holds Active was accepted, in the committed
+    ///       timeline, after the session's clock. The invoke walks the whole ledger, and a
+    ///       contract accepted at the Space Center after the rewind point used to come back
+    ///       Active, so the re-fly could complete or fail it before it was accepted (todo
+    ///       REFLY-SESSION-SHOWS-CONTRACT-ACCEPTED-LATER). Vacuous on a host without a
+    ///       contract system (sandbox).</description></item>
     /// </list>
     /// </summary>
     public class ContractTombstonesAcrossSupersedeTest
     {
         [InGameTest(Category = "Rewind", Scene = GameScenes.FLIGHT,
-            Description = "Re-fly merge tombstones contract actions from the superseded subtree")]
+            Description = "Re-fly session: no contract row in the retire set, and no contract accepted after the session clock is Active")]
         public void ContractTombstonesAcrossSupersede()
         {
             var scenario = ParsekScenario.Instance;
@@ -49,151 +46,71 @@ namespace Parsek.InGameTests
             string provisionalId = marker.ActiveReFlyRecordingId;
             if (string.IsNullOrEmpty(provisionalId))
             {
-                InGameAssert.Skip("Marker has no ActiveReFlyRecordingId — cannot exercise Phase 9.");
+                InGameAssert.Skip("Marker has no ActiveReFlyRecordingId — cannot exercise the session.");
                 return;
             }
 
-            Recording provisional = FindRecording(provisionalId);
-            InGameAssert.IsNotNull(provisional,
-                $"Provisional rec id={provisionalId} not found in committed list");
+            var ic = CultureInfo.InvariantCulture;
 
-            // Collect every contract-type ledger action in the supersede subtree
-            // BEFORE the merge commits. These are the items the test will check
-            // for physical retention plus ELS tombstoning.
-            var subtreeBefore = EffectiveState.ComputeSessionSuppressedSubtree(marker);
-            var contractActionIds = new HashSet<string>();
-            var subtreeSet = new HashSet<string>(subtreeBefore);
-            foreach (var a in Ledger.Actions)
+            // Invariant 1: no contract row in the merge's retire set.
+            int closureCount;
+            var retire = SupersedeCommit.BuildMergeRetireSet(
+                marker, new HashSet<string> { provisionalId }, out closureCount);
+            var contractRows = new List<string>();
+            for (int i = 0; i < retire.Count; i++)
             {
+                var a = retire[i];
                 if (a == null) continue;
-                if (string.IsNullOrEmpty(a.RecordingId)) continue;
-                if (!subtreeSet.Contains(a.RecordingId)) continue;
                 if (a.Type == GameActionType.ContractAccept
                     || a.Type == GameActionType.ContractComplete
                     || a.Type == GameActionType.ContractFail
                     || a.Type == GameActionType.ContractCancel)
+                    contractRows.Add(a.Type + ":" + (a.ActionId ?? "(no id)"));
+            }
+            InGameAssert.AreEqual(0, contractRows.Count,
+                "A live Re-Fly session's retire set holds contract row(s), which Rule 1 seals: " +
+                string.Join(", ", contractRows.ToArray()));
+
+            // Invariant 2: nothing Active in stock that the committed timeline accepts later.
+            double nowUT = Planetarium.GetUniversalTime();
+            int activeChecked = 0;
+            var acceptedLater = new List<string>();
+            var system = ContractSystem.Instance;
+            if (system != null && system.Contracts != null)
+            {
+                var latestAccept = new Dictionary<string, double>(StringComparer.Ordinal);
+                var els = EffectiveState.ComputeELS();
+                for (int i = 0; i < els.Count; i++)
                 {
-                    if (!string.IsNullOrEmpty(a.ActionId))
-                        contractActionIds.Add(a.ActionId);
+                    var a = els[i];
+                    if (a == null || a.Type != GameActionType.ContractAccept
+                        || string.IsNullOrEmpty(a.ContractId))
+                        continue;
+                    double prior;
+                    if (!latestAccept.TryGetValue(a.ContractId, out prior) || a.UT > prior)
+                        latestAccept[a.ContractId] = a.UT;
+                }
+                for (int i = 0; i < system.Contracts.Count; i++)
+                {
+                    var c = system.Contracts[i];
+                    if (c == null || c.ContractState != Contract.State.Active) continue;
+                    activeChecked++;
+                    string key = c.ContractGuid.ToString();
+                    double acceptUT;
+                    if (latestAccept.TryGetValue(key, out acceptUT)
+                        && acceptUT > nowUT + KspStatePatcher.ContractAcceptClockToleranceSeconds)
+                        acceptedLater.Add(key + "@" + acceptUT.ToString("F1", ic));
                 }
             }
-
-            if (contractActionIds.Count == 0)
-            {
-                InGameAssert.Skip(
-                    "No contract actions in supersede subtree — accept/fail a contract in a BG-crash recording before running this test.");
-                return;
-            }
+            InGameAssert.AreEqual(0, acceptedLater.Count,
+                "Contract(s) Active in stock during the Re-Fly session that the committed timeline accepts only after now=" +
+                nowUT.ToString("F1", ic) + ": " + string.Join(", ", acceptedLater.ToArray()));
 
             ParsekLog.Info("RewindTest",
-                $"ContractTombstonesAcrossSupersede: found {contractActionIds.Count} contract action(s) " +
-                $"in subtree of size {subtreeBefore.Count}");
-
-            // Simulate the merge commit. CommitSupersede runs CommitTombstones
-            // internally.
-            SupersedeCommit.CommitSupersede(marker, provisional);
-
-            // Invariant 1: every contract action still physically exists in
-            // Ledger.Actions (tombstoning does NOT remove; it only flags).
-            var surviving = new HashSet<string>();
-            foreach (var a in Ledger.Actions)
-            {
-                if (a == null || string.IsNullOrEmpty(a.ActionId)) continue;
-                if (contractActionIds.Contains(a.ActionId))
-                    surviving.Add(a.ActionId);
-            }
-            InGameAssert.AreEqual(contractActionIds.Count, surviving.Count,
-                $"All contract actions must survive in Ledger.Actions; expected {contractActionIds.Count}, got {surviving.Count}");
-
-            // Invariant 2: every subtree contract action has a tombstone.
-            var tombs = scenario.LedgerTombstones ?? new List<LedgerTombstone>();
-            var tombstoned = new HashSet<string>();
-            foreach (var t in tombs)
-            {
-                if (t == null || string.IsNullOrEmpty(t.ActionId)) continue;
-                if (contractActionIds.Contains(t.ActionId))
-                    tombstoned.Add(t.ActionId);
-            }
-            InGameAssert.AreEqual(contractActionIds.Count, tombstoned.Count,
-                $"All contract actions must be tombstoned; expected {contractActionIds.Count}, got {tombstoned.Count}");
-
-            // Invariant 3: no subtree contract action remains in ELS.
-            var els = EffectiveState.ComputeELS();
-            var inEls = new HashSet<string>();
-            foreach (var a in els)
-            {
-                if (a == null || string.IsNullOrEmpty(a.ActionId)) continue;
-                if (contractActionIds.Contains(a.ActionId))
-                    inEls.Add(a.ActionId);
-            }
-            InGameAssert.AreEqual(0, inEls.Count,
-                $"No contract actions may remain in ELS after broad tombstone merge; got {inEls.Count}");
-
-            // Invariant 4 (P9b): a reinstated contract comes back at its AT-REWIND-POINT
-            // state, not at accept-time zero progress. The tombstones just written produce a
-            // per-guid reinstate cutoff; wherever a rewind-point snapshot exists at or
-            // before that cutoff, the patch-side selection MUST choose it over the
-            // accept-time row. Before P9b there was only ever one snapshot per contract and
-            // a half-finished contract came back from a merge with every parameter reset.
-            var cutoffs = LedgerOrchestrator.BuildContractReinstateCutoffsForPatch();
-            int cutoffsResolved = cutoffs?.Count ?? 0;
-            int rpSnapshotsChosen = 0;
-            int acceptTimeChosen = 0;
-            if (cutoffs != null)
-            {
-                foreach (var kvp in cutoffs)
-                {
-                    string guidStr = kvp.Key.ToString();
-                    var chosen = GameStateStore.GetContractSnapshotForPatch(guidStr, kvp.Value);
-                    var acceptTime = GameStateStore.GetContractSnapshot(guidStr);
-
-                    // Does a rewind-point row exist at or before the cutoff at all? If so,
-                    // the selection is REQUIRED to have picked it.
-                    bool rpRowEligible = false;
-                    var snapshots = GameStateStore.ContractSnapshots;
-                    for (int i = 0; i < snapshots.Count; i++)
-                    {
-                        var snap = snapshots[i];
-                        if (snap.contractGuid != guidStr) continue;
-                        if (string.IsNullOrEmpty(snap.sourceRpId)) continue;
-                        if (snap.contractNode == null) continue;
-                        if (snap.ut <= kvp.Value) { rpRowEligible = true; break; }
-                    }
-
-                    if (rpRowEligible)
-                    {
-                        InGameAssert.IsTrue(chosen != null && !object.ReferenceEquals(chosen, acceptTime),
-                            $"Contract {guidStr} has a rewind-point snapshot at or before its reinstate " +
-                            $"cutoff {kvp.Value:F1} but the patch would rebuild it from the accept-time " +
-                            "snapshot — reinstated progress would be reset to zero");
-                        rpSnapshotsChosen++;
-                    }
-                    else
-                    {
-                        acceptTimeChosen++;
-                    }
-                }
-            }
-
-            ParsekLog.Info("RewindTest",
-                $"ContractTombstonesAcrossSupersede: all {contractActionIds.Count} contract action(s) " +
-                "survive physically in Ledger.Actions, are tombstoned, and are absent from ELS. " +
-                $"Reinstate cutoffs resolved={cutoffsResolved} rpSnapshotChosen={rpSnapshotsChosen} " +
-                $"acceptTimeFallback={acceptTimeChosen}.");
-        }
-
-        private static Recording FindRecording(string recordingId)
-        {
-            if (string.IsNullOrEmpty(recordingId)) return null;
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null) return null;
-            for (int i = 0; i < committed.Count; i++)
-            {
-                var rec = committed[i];
-                if (rec == null) continue;
-                if (rec.RecordingId == recordingId) return rec;
-            }
-            return null;
+                $"ContractTombstonesAcrossSupersede: session={marker.SessionId} " +
+                $"retireSet={retire.Count.ToString(ic)} closure={closureCount.ToString(ic)} contractRows=0 " +
+                $"contractSystem={(system != null ? "present" : "absent")} " +
+                $"activeChecked={activeChecked.ToString(ic)} acceptedLater=0 nowUT={nowUT.ToString("F1", ic)}");
         }
     }
 }

@@ -470,6 +470,21 @@ namespace Parsek.Tests
             Assert.Equal(expected, TestCommandKscAction.ContractGuidMatches(guid, arg));
         }
 
+        [Theory]
+        [InlineData("offered-first", true)]
+        [InlineData(" Offered-First ", true)]
+        [InlineData("offered", false)]
+        [InlineData("90e4faaf-2029-4c6b-8bc1-40226bb0fc27", false)]
+        [InlineData("", false)]
+        [InlineData(null, false)]
+        public void IsFirstOfferedContractArg_OnlyTheLiteral(string arg, bool expected)
+        {
+            Assert.Equal(expected, TestCommandKscAction.IsFirstOfferedContractArg(arg));
+            // The literal is never mistaken for a guid.
+            Assert.False(TestCommandKscAction.ContractGuidMatches(
+                "90e4faaf-2029-4c6b-8bc1-40226bb0fc27", TestCommandKscAction.FirstOfferedContractArg));
+        }
+
         /// <summary>KB-3 reads each refused click's state, funds and science unchanged from
         /// this line (backreferences over the Before / After pairs), so its shape is pinned,
         /// and it must print invariantly whatever the host culture.</summary>
