@@ -793,7 +793,8 @@ namespace Parsek
                     EffectiveState.ComputeELS(),
                     MilestoneStore.Milestones,
                     GameStateStore.IsEventVisibleToCurrentTimeline,
-                    GetCurrentGameMode());
+                    GetCurrentGameMode(),
+                    EffectiveState.ComputeRetiredLedgerActions());
                 cachedTimelineRecordings = recordings;
                 timelineDirty = false;
                 int droppedHovers = rowHover.MemoCount;

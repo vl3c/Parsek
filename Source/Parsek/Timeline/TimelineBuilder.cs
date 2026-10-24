@@ -29,13 +29,18 @@ namespace Parsek
         /// (<see cref="Recording.Hidden"/>) contribute no rows. Archive is a Recordings-tab
         /// concept and the Timeline has no control over it; the row set is identical in
         /// Basic and Advanced (design `docs/dev/design-ui-basic-advanced.md` section 4.4).
+        /// <paramref name="retiredLedgerActions"/> are the tombstoned ledger rows (the ledger
+        /// minus the ELS): they draw no row, but a legacy event that is their twin is hidden
+        /// too, so a milestone a Re-Fly retired does not come back as a legacy text row
+        /// through a milestone copy still tagged to a visible recording.
         /// </remarks>
         internal static List<TimelineEntry> Build(
             IReadOnlyList<Recording> committedRecordings,
             IReadOnlyList<GameAction> ledgerActions,
             IReadOnlyList<Milestone> milestones,
             Func<GameStateEvent, bool> isLegacyEventVisible,
-            Game.Modes? currentMode = null)
+            Game.Modes? currentMode = null,
+            IReadOnlyList<GameAction> retiredLedgerActions = null)
         {
             // Build recording-id to vessel-name lookup once, shared by both collectors
             var vesselNameById = new Dictionary<string, string>();
@@ -50,6 +55,10 @@ namespace Parsek
             // so we can filter out crew reassignment noise at EVA branch times.
             var evaBranchKeys = BuildEvaBranchKeys(committedRecordings);
             var legacyDuplicateKeys = BuildLegacyDuplicateKeys(ledgerActions);
+            int retiredTwinKeys = AddRetiredLegacyDuplicateKeys(retiredLedgerActions, legacyDuplicateKeys);
+            if (retiredTwinKeys > 0)
+                ParsekLog.Verbose("Timeline",
+                    $"Legacy twins of {retiredTwinKeys.ToString(IC)} tombstoned ledger row(s) hidden");
 
             var entries = new List<TimelineEntry>();
 
@@ -593,6 +602,31 @@ namespace Parsek
                 keys.Add(duplicateKey);
             }
             return keys;
+        }
+
+        /// <summary>
+        /// Adds the legacy-twin key of every tombstoned ledger row to
+        /// <paramref name="keys"/>, regardless of <see cref="GameAction.Effective"/> (a
+        /// retired row is not walked, so the flag says nothing). Returns the number of rows
+        /// that carry a key.
+        /// </summary>
+        internal static int AddRetiredLegacyDuplicateKeys(
+            IReadOnlyList<GameAction> retiredLedgerActions, HashSet<string> keys)
+        {
+            if (retiredLedgerActions == null)
+                return 0;
+            int added = 0;
+            for (int i = 0; i < retiredLedgerActions.Count; i++)
+            {
+                if (retiredLedgerActions[i] == null)
+                    continue;
+                string duplicateKey = GetLegacyDuplicateKey(retiredLedgerActions[i]);
+                if (duplicateKey == null)
+                    continue;
+                keys.Add(duplicateKey);
+                added++;
+            }
+            return added;
         }
 
         private static string GetLegacyDuplicateKey(GameAction action)

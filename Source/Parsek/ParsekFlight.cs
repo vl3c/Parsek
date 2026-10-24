@@ -3051,7 +3051,8 @@ namespace Parsek
         internal void AutoDiscardNoOpNoSessionCommittedResume(string reason)
         {
             RecordingStore.DiscardCommittedTreeRestoreAttempt(
-                "noop-no-session-committed-resume-revert");
+                "noop-no-session-committed-resume-revert",
+                preserveIrreversibleTails: true);
             AutoDiscardActiveTreeWithMessage(
                 reason: reason,
                 screenMessage: "Recording discarded - vessel unchanged after switch",
@@ -3201,7 +3202,8 @@ namespace Parsek
             // no-op revert, the switch-segment discard, the pre-switch dialog discard)
             // or when the tree is another attempt's clone.
             RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
-                activeTree?.Id, "auto-discard dropped the restore clone");
+                activeTree?.Id, "auto-discard dropped the restore clone",
+                preserveIrreversibleTails: true);
             activeTree = null;
 
             // A discarded active tree must not leave an armed switch-segment
@@ -3452,8 +3454,11 @@ namespace Parsek
             // Discarded without a pending stash, so the armed committed-tree restore
             // attempt must be cleared with the tree (id-matched, reads the id before the
             // null below): a stale attempt keeps deferring the OnSave milestone flush.
+            // A suppressed scene exit is the Discard Re-fly / rewind load: the loaded save
+            // reverts KSP, so nothing of the attempt is preserved.
             RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
-                activeTree?.Id, "suppressed scene exit dropped the restore clone");
+                activeTree?.Id, "suppressed scene exit dropped the restore clone",
+                preserveIrreversibleTails: false);
             activeTree = null;
             if (logRecorderState)
                 RecorderStateLog.RecState("FinalizeTreeOnSceneChange:suppressed-post", CaptureRecorderState());
@@ -9590,6 +9595,27 @@ namespace Parsek
                 && restoreMode == ParsekScenario.ActiveTreeRestoreMode.None;
         }
 
+        /// <summary>
+        /// True when the active tree is THIS flight scene's own recording that was started
+        /// and then stopped before stock onFlightReady (a fresh ParsekFlight instance per
+        /// flight scene means a recorder bound to the active tree can only have been
+        /// started here): the reset would drop a tree nothing else holds, so it is kept, as
+        /// <see cref="ShouldIgnoreFlightReadyReset"/> keeps a live one. A pending tree, a
+        /// scheduled restore, or a committed-tree restore clone (whose recorder failed to
+        /// start when it was attached) still takes the reset path.
+        /// </summary>
+        internal static bool ShouldKeepStoppedTreeAcrossFlightReadyReset(
+            bool hasStoppedRecorderBoundToActiveTree,
+            bool activeTreeIsCommittedRestoreClone,
+            bool hasPendingTree,
+            ParsekScenario.ActiveTreeRestoreMode restoreMode)
+        {
+            return hasStoppedRecorderBoundToActiveTree
+                && !activeTreeIsCommittedRestoreClone
+                && !hasPendingTree
+                && restoreMode == ParsekScenario.ActiveTreeRestoreMode.None;
+        }
+
         internal static bool ShouldArmPostSwitchAutoRecord(
             bool autoRecordOnFirstModificationAfterSwitchEnabled,
             bool isRecording,
@@ -13003,6 +13029,22 @@ namespace Parsek
                 return;
             }
 
+            if (ShouldKeepStoppedTreeAcrossFlightReadyReset(
+                hasStoppedRecorderBoundToActiveTree: recorder != null && !recorder.IsRecording
+                    && activeTree != null && object.ReferenceEquals(recorder.ActiveTree, activeTree),
+                activeTreeIsCommittedRestoreClone: activeTree != null
+                    && RecordingStore.IsCommittedTreeRestoreAttemptTree(activeTree.Id),
+                hasPendingTree: RecordingStore.HasPendingTree,
+                restoreMode: restoreMode))
+            {
+                ParsekLog.Info("Flight",
+                    $"OnFlightReady: keeping tree '{activeTree.TreeName}' id={activeTree.Id} " +
+                    $"recordings={activeTree.Recordings.Count.ToString(CultureInfo.InvariantCulture)} " +
+                    "stopped before flight ready in this scene - skipping reset");
+                ConsumeFreshRecordingAfterDiscardedRestore(restoreScheduled: false);
+                return;
+            }
+
             // Reset scene-scoped state from the previous flight BEFORE the restore
             // coroutine runs. ResetFlightReadyState clears activeTree, backgroundRecorder,
             // pendingSplitRecorder, etc. — all scene-scoped state that must
@@ -13244,8 +13286,18 @@ namespace Parsek
             // Clear tree state on flight ready (revert resets everything). When this tree
             // is the armed committed-restore attempt's clone (same tree id), the attempt is
             // cleared with it, so no stale attempt outlives the tree it guarded.
+            if (activeTree != null)
+            {
+                ParsekLog.Info("Flight",
+                    $"ResetFlightReadyState: dropping active tree '{activeTree.TreeName}' id={activeTree.Id} " +
+                    $"recordings={(activeTree.Recordings?.Count ?? 0).ToString(CultureInfo.InvariantCulture)} " +
+                    $"recorderLive={(recorder != null && recorder.IsRecording)}");
+            }
+
+            // The flight scene was just loaded from a save, which KSP's career came from too.
             RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
-                activeTree?.Id, "flight-ready reset dropped the restore clone");
+                activeTree?.Id, "flight-ready reset dropped the restore clone",
+                preserveIrreversibleTails: false);
             activeTree = null;
 
             // Clear split event detection state
@@ -14429,7 +14481,8 @@ namespace Parsek
                     // cleared with it; the clear is id-matched and reads the id here,
                     // before the null.
                     RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
-                        activeTree?.Id, "start-recording cleanup dropped the restore clone");
+                        activeTree?.Id, "start-recording cleanup dropped the restore clone",
+                        preserveIrreversibleTails: true);
                     activeTree = null;
                     ParsekLog.Info("Flight", "Cleaned up single-node tree after StartRecording failure");
                 }

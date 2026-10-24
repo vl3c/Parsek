@@ -1219,7 +1219,7 @@ the attempt discard - it is committed history (child of non-baseline bp=<id> ...
 `ReFlyRevertDialogTests.PruneAttempt_LiveClone_NonBaselineBranchPointChildInCommittedHistory_IsKept`
 (red with the guard disabled).
 
-## RESTORE-CLONE-DISCARD-DROPS-IRREVERSIBLE-CAREER-ACTIONS: a contract completion, milestone or science earned during a discarded committed-tree restore attempt has no ledger row [FILED 2026-10-18 from the PR #2146 review, code read. OPEN, product, low; not reproduced]
+## ~~RESTORE-CLONE-DISCARD-DROPS-IRREVERSIBLE-CAREER-ACTIONS: a contract completion, milestone or science earned during a discarded committed-tree restore attempt has no ledger row~~ [FILED 2026-10-18 from the PR #2146 review, code read. FIXED 2026-10-24 on branch `claude/project-thread-a50btn`, xUnit. product, low; not reproduced]
 
 While a committed tree is resumed as a clone (`TryTakeCommittedTreeForSpawnedVesselRestore`),
 new game-state events are tagged with the committed recording ids. When the attempt is discarded
@@ -1231,6 +1231,21 @@ banked) is never re-homed to the direct ledger, and the post-cutoff tails are th
 than PR #2146, which only made every discard path purge the same tails `DiscardPendingTree`
 already purged. Fix direction: in the re-home step, treat a committed-id event past the armed
 attempt's cutoff for that id as the clone's own and re-home it, before the purge runs.
+
+Fixed: `PurgeCommittedTreeRestoreAttemptEventTails` takes `preserveIrreversibleTails` and, when
+true, first runs `LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard` over the
+armed cutoff map: every irreversible event (`IsIrreversibleLiveGameplayEvent`) and science subject
+on a committed id strictly after its cutoff becomes a direct row (dedup against the ledger, the
+same step 3 as the ordinary re-home, now `AppendRehomedDirectActions`), and the re-homed subjects
+leave the pending list. Committed history at or before a cutoff is untouched. Every caller says
+which kind of drop it is: live (true) for `DiscardPendingTree` with
+`preserveIrreversibleLiveGameplay`, the no-op no-session resume revert, the switch-segment scoped
+discard, the auto-discard drop site, the failed-start cleanup and the pre-switch dialog discard;
+rollback (false) for the Re-Fly start's abandoned-flight discard, the suppressed scene exit (Discard
+Re-fly / rewind load) and `ResetFlightReadyState` (a freshly loaded scene, KSP's career came from
+the same save), and the abandon path of `DiscardPendingTree`. Cells:
+`RestoreAttemptIrreversibleTailsTests` (live re-home with history kept, rollback re-homes nothing,
+the pending-tree path both ways, a source gate on five drop sites' flags).
 
 ---
 
@@ -3035,7 +3050,7 @@ prefix core dropping them, the replay bypass removed.
 
 ---
 
-## TIMELINE-PHANTOM-MILESTONE-AFTER-REFLY-OF-LATER-SEGMENT: a tombstoned milestone can leave a legacy "Milestone" text row on the Timeline [FILED 2026-10-07 from the PR #2042 review. OPEN, display only; the ledger is correct]
+## ~~TIMELINE-PHANTOM-MILESTONE-AFTER-REFLY-OF-LATER-SEGMENT: a tombstoned milestone can leave a legacy "Milestone" text row on the Timeline~~ [FILED 2026-10-07 from the PR #2042 review. FIXED 2026-10-24 on branch `claude/project-thread-a50btn`, xUnit. display only; the ledger is correct]
 
 `MilestoneStore.CreateMilestone` copies made at `CommitTree`, before the optimizer pass, keep the
 first segment's tag. After a Re-Fly of a later segment tombstones that milestone's ledger row, the
@@ -3043,6 +3058,12 @@ Timeline dedups against ELS only, so the copy (still visible through ERS) render
 legacy "Milestone" text row. The Re-Fly splitter had the same shape before (it retags the milestone
 id, not the events inside). Fix: retag the milestone copies with the split (as #2042 does for events
 and pending science), or have the Timeline dedup the legacy row against tombstoned ledger rows too.
+
+Fixed the second way: `TimelineBuilder.Build` takes the tombstoned rows
+(`EffectiveState.ComputeRetiredLedgerActions`, the ledger minus the ELS) and adds their legacy-twin
+keys to the dedup set (`AddRetiredLegacyDuplicateKeys`, whatever their `Effective` flag), so the
+twin of any retired row (milestone, contract, strategy, facility) is hidden; the retired rows draw
+nothing themselves. Cell: `TimelineBuilderTests.LegacyMilestone_WhoseLedgerRowIsTombstoned_IsNotShown`.
 
 ---
 
@@ -3224,7 +3245,7 @@ cells, the end-to-end one red before the fix on all four facts above).
 
 ---
 
-## FLIGHT-READY-RESET-DROPS-STOPPED-UNCOMMITTED-TREE: a recording stopped before stock onFlightReady is silently discarded by the flight-ready reset [FILED 2026-10-07 from the RR-1 harness race, branch `verify-followups`. OPEN, low; seen only through the harness, likely unreachable for a player]
+## ~~FLIGHT-READY-RESET-DROPS-STOPPED-UNCOMMITTED-TREE: a recording stopped before stock onFlightReady is silently discarded by the flight-ready reset~~ [FILED 2026-10-07 from the RR-1 harness race, branch `verify-followups`. FIXED 2026-10-24 on branch `claude/project-thread-a50btn`, xUnit. low; seen only through the harness, likely unreachable for a player]
 
 `2026-10-07_0040_RR-1-relaunch-rewind-keeps-earlier-launch` (INVALID driver-unresolved-handle):
 `LaunchFromEditor` answered before stock onFlightReady, then `StartRecording` (KSP.log
@@ -3238,6 +3259,14 @@ between the scene switch and onFlightReady, which only the seam's back-to-back v
 traced whether any player input is accepted in that window. The lane now waits for flight-ready
 (`ListHandles kind=chains`) before its stop. If it is ever worth fixing: keep a stopped,
 uncommitted tree across the reset (or stash it as pending), and log the drop either way.
+
+Fixed: `OnFlightReady` keeps the tree when `ShouldKeepStoppedTreeAcrossFlightReadyReset` holds (a
+stopped recorder bound to the active tree, which a per-scene `ParsekFlight` can only have started
+in this scene; no pending tree, no scheduled restore, not a committed-tree restore clone), checked
+right after the live-recorder skip and returning the same way (`keeping tree ... stopped before
+flight ready in this scene - skipping reset`). `ResetFlightReadyState` names any tree it drops
+(`dropping active tree '...' id=... recordings=N recorderLive=...`). Cells in
+`AutoRecordDecisionTests` (predicate table, ordering gate in `OnFlightReady`).
 
 ---
 
@@ -3401,7 +3430,15 @@ Once or pause-after-this-run armed after the save). A route CREATED in the windo
 also survives a load back to it (its CreatedUT is below the floor, and the save does not carry it)
 with a reset cursor, so its in-window crossing can charge a second time; before the floor such a
 route went dormant. Needs a save AND an action inside the same 15 s of game time; the load itself can
-come any time later (an F9 to that quicksave much later hits the same thing). Same class as the
+come any time later (an F9 to that quicksave much later hits the same thing).
+Re-checked 2026-10-24 against #2155 / #2167: NOT moot. An in-session load still keys its retire to
+the save's clock raised to the carried floor (`RouteLoadReconcile.ReconcileAtInSessionLoad(kind,
+cutoffUT, loadedSaveUT, ConfigNode)` -> `ApplyRouteStateFloor`), and the dormant split still reads
+`CreatedUT > cutoff`. What changed is the fix's input: since #2167 the save carries its own
+`ROUTE_EVENT_LOG`, so the rows the save kept are readable from the loaded node. A fix would retire
+the rows in (save clock, floor] the saved log does not hold, and send a committed route the saved
+route copy does not hold with `CreatedUT` above the save clock dormant. Left open (low; the
+chain-tip cargo watermark for rows retired below the floor needs its own read first). Same class as the
 UT-only reconcile: an F9 to an in-window save from an abandoned timeline keeps the newer timeline's
 route rows up to the floor. A fix would mark the rows the go-back kept (action ids) instead of a UT.
 Found by the PR #2040 re-review.
@@ -5634,7 +5671,7 @@ both legs logged `partition cross-check ... agrees=False`, confirming the old pa
 
 ---
 
-## LOOP-ROUTE-RESCAN-DOES-NOTHING: the lost-endpoint text tells the player to Re-scan, which a loop route ignores [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. OPEN, product, low]
+## ~~LOOP-ROUTE-RESCAN-DOES-NOTHING: the lost-endpoint text tells the player to Re-scan, which a loop route ignores~~ [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-24 on branch `claude/project-thread-a50btn`, xUnit. product, low]
 
 `LogisticsRoutePresentation.cs:375-379` says "Use Re-scan to find it"; Re-scan only clears
 `NextEligibilityCheckUT` (`LogisticsWindowUI.cs:2420-2440`), which the loop path never reads, and
@@ -5645,6 +5682,24 @@ dispatch).
 
 Fix: make Re-scan re-run the loop route's endpoint resolution, or change the text to name Pause /
 Activate.
+
+How a loop route reaches EndpointLost: `ApplyDelivery`'s endpoint re-resolution at the crossing's
+delivery half (`endpoint-destroyed-at-delivery:*`); an eligibility-time miss only records a hold.
+Fixed: a Re-scan that resolves every stop calls `RouteOrchestrator.TryRecoverEndpointLostAfterRescan`.
+A loop route goes back to its pre-loss status (`PreMissingStatus`, Paused when a rewind derived it),
+and on Active its loop observation restarts at the click UT like `TryActivate` (shared
+`RestartLoopObservation`), a `RouteResumed` row (`endpoint-rescan`) closes the stopped episode, and
+an armed Send Once / pause-after-run stays armed. On a single-stop route the lost cycle was
+dispatched but never completed, so its id was still the next id and the first crossing after any
+restart (Pause + Activate too) met its dispatch row in the single-stop replay backstop and ran
+nothing; the recovery counts it skipped (`SkipUndeliveredLostCycle`; the TryActivate path is
+unchanged, so a Paused-baseline recovery followed by the player's Activate still loses one crossing
+on such a route). A multi-stop route is never skipped: its crossing path resumes a logged dispatch
+and fires only the stops still owed (a skip would debit the origin again and re-deliver stops that
+already received the cycle). A non-loop route only has its retry gate cleared, as before. Cells:
+`RouteEndpointRescanRecoveryTests` (the lost-at-delivery route does not run on its own, restarts on
+the rescan and delivers `cycle-1`; multi-stop partly delivered cycle not skipped; Paused baseline;
+Send Once kept; non-loop; refusals).
 
 ---
 

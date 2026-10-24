@@ -116,7 +116,7 @@ namespace Parsek.Tests
             Assert.False(RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
                 preCutoff));
 
-            RecordingStore.DiscardCommittedTreeRestoreAttempt(DiscardReason);
+            RecordingStore.DiscardCommittedTreeRestoreAttempt(DiscardReason, preserveIrreversibleTails: false);
 
             Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
             Assert.DoesNotContain(GameStateStore.Events, e => e.key == "tail-post");
@@ -149,7 +149,7 @@ namespace Parsek.Tests
                 recordingId: "rec-clone");
             GameStateStore.AddEvent(ref orphan);
 
-            RecordingStore.DiscardCommittedTreeRestoreAttempt(DiscardReason);
+            RecordingStore.DiscardCommittedTreeRestoreAttempt(DiscardReason, preserveIrreversibleTails: false);
 
             Assert.Contains(GameStateStore.Events, e => e.key == "orphan");
             Assert.DoesNotContain(logLines, l =>
@@ -265,7 +265,8 @@ namespace Parsek.Tests
             Assert.Contains(
                 "ClearCommittedTreeRestoreAttemptForDroppedTree(\n" +
                 "                        flight.ActiveTreeForDisplay?.Id,\n" +
-                "                        \"pre-switch-dialog discard (no-session)\")",
+                "                        \"pre-switch-dialog discard (no-session)\",\n" +
+                "                        preserveIrreversibleTails: true)",
                 body.Replace("\r\n", "\n"));
             Assert.True(body.IndexOf("ClearCommittedTreeRestoreAttempt(", StringComparison.Ordinal) < 0,
                 "DiscardActiveRecordingAndSwitchTo calls the bare ClearCommittedTreeRestoreAttempt");

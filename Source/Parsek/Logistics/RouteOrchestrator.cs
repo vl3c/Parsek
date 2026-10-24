@@ -207,28 +207,7 @@ namespace Parsek.Logistics
             // counts in: moving it and resetting the cursor go together.
             long prevObserved = route.LastObservedLoopCycleIndex;
             double prevAnchor = route.LoopAnchorUT;
-            if (route.IsLoopRoute)
-            {
-                route.LastObservedLoopCycleIndex = -1;
-                route.LoopAnchorUT = currentUT;
-                // M4a A3 (OQ3): the per-stop fire sub-gates must reset alongside the
-                // route-level cycle cursor, else a multi-stop route re-activated
-                // after a Pause would see stale LastFiredCycleIndex values and stall
-                // (raised) or jump (lowered) the post-activate windows. -1 means
-                // "no cycle fired yet" so the first post-activate crossing of each
-                // window fires exactly once.
-                ResetStopFireState(route);
-                // M5 (D3): the residual-modulo offset anchor resets wherever the
-                // cycle cursor rebases - the first post-activate crossing on a
-                // windowed route re-anchors and delivers (anchor adoption).
-                route.WindowAnchorCycleIndex = -1;
-                // Deliberately NOT reset: ReaimWindowBasisEngaged. It is the D6
-                // flip-detector's MEMORY, not cycle state - keeping it across
-                // Pause/Activate lets the first post-activate tick still detect
-                // a basis flip that happened while paused and decline
-                // fail-closed (re-baseline, no fire) instead of firing off a
-                // stale index space.
-            }
+            RestartLoopObservation(route, currentUT);
 
             // M6 hold reasons: activation resets loop observation, so a
             // prior-session hold must not present as current. (Pause keeps the
@@ -246,6 +225,149 @@ namespace Parsek.Logistics
                 $"loopRoute={(route.IsLoopRoute ? "1" : "0")} " +
                 $"lastObservedLoopCycleIndex {prevObserved.ToString(IC)}->{route.LastObservedLoopCycleIndex.ToString(IC)} " +
                 $"loopAnchorUT {prevAnchor.ToString("R", IC)}->{route.LoopAnchorUT.ToString("R", IC)}");
+            return true;
+        }
+
+        /// <summary>
+        /// Restarts a loop route's cycle observation at <paramref name="currentUT"/>, the way
+        /// an activation does: -1 means "no cycle observed yet", so the FIRST crossing after
+        /// the restart fires. The field persists through the codec so a save/reload mid-cycle
+        /// does NOT double-fire (the event log is the backstop). <c>LoopAnchorUT</c> is the
+        /// loop clock's phase anchor (RouteBackingMission.BuildMission copies it into the
+        /// backing mission, MissionLoopUnitBuilder takes max(anchor, spanEnd)), so it defines
+        /// the index space <c>LastObservedLoopCycleIndex</c> counts in: moving it and
+        /// resetting the cursor go together, and the crossings the route did not watch while
+        /// it was stopped are rebased away rather than fired as a backlog. No-op for a
+        /// non-loop route.
+        /// </summary>
+        private static void RestartLoopObservation(Route route, double currentUT)
+        {
+            if (!route.IsLoopRoute)
+                return;
+            route.LastObservedLoopCycleIndex = -1;
+            route.LoopAnchorUT = currentUT;
+            // M4a A3 (OQ3): the per-stop fire sub-gates must reset alongside the
+            // route-level cycle cursor, else a multi-stop route restarted after a
+            // stop would see stale LastFiredCycleIndex values and stall (raised) or
+            // jump (lowered) the windows after the restart. -1 means "no cycle fired
+            // yet" so the first crossing of each window after the restart fires
+            // exactly once.
+            ResetStopFireState(route);
+            // M5 (D3): the residual-modulo offset anchor resets wherever the cycle
+            // cursor rebases - the first crossing after the restart on a windowed route
+            // re-anchors and delivers (anchor adoption).
+            route.WindowAnchorCycleIndex = -1;
+            // Deliberately NOT reset: ReaimWindowBasisEngaged. It is the D6
+            // flip-detector's MEMORY, not cycle state - keeping it across a stop
+            // lets the first tick after the restart still detect a basis flip that
+            // happened meanwhile and decline fail-closed (re-baseline, no fire)
+            // instead of firing off a stale index space.
+        }
+
+        /// <summary>
+        /// The cycle a single-stop loop route lost its endpoint in was dispatched but never
+        /// completed, so its id (<c>cycle-{Completed+Skipped}</c>) is still the route's next
+        /// id, and the first crossing after a restart would meet that cycle's dispatch row in
+        /// the single-stop replay backstop and run nothing. Counts it as skipped instead (the
+        /// rewind's cycle-counter rebuild counts a dispatched, undelivered cycle the same
+        /// way), so the next crossing opens a fresh cycle. No-op when the next id has no
+        /// dispatch row, and for a multi-stop route: its crossing path treats a logged
+        /// dispatch as a RESUME of the paid-for cycle and fires only the windows that have
+        /// not delivered, so skipping there would debit the origin again and re-deliver the
+        /// stops that already received this cycle's cargo.
+        /// </summary>
+        private static void SkipUndeliveredLostCycle(Route route)
+        {
+            if (route.Stops != null && route.Stops.Count > 1)
+                return;
+            string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(IC);
+            var events = RouteEventLog.Events;
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (e != null && e.Type == RouteEventType.RouteDispatched
+                    && string.Equals(e.RouteId, route.Id, StringComparison.Ordinal)
+                    && string.Equals(e.RouteCycleId, cycleId, StringComparison.Ordinal))
+                {
+                    route.SkippedCycles += 1;
+                    ParsekLog.Info(Tag,
+                        $"EndpointRescan: route={ShortIdForLog(route)} lost cycle={cycleId} was dispatched, " +
+                        $"not completed - counted skipped (skippedCycles={route.SkippedCycles.ToString(IC)})");
+                    return;
+                }
+            }
+        }
+
+        /// <summary>Transition and marker reason of a stopped route a Re-scan found again.</summary>
+        internal const string EndpointRescanReason = "endpoint-rescan";
+
+        /// <summary>
+        /// The player's "Re-scan for endpoint" found every stop of an
+        /// <see cref="RouteStatus.EndpointLost"/> route again (the caller resolved them).
+        /// A non-loop route only has its retry gate cleared: its dispatch evaluator
+        /// re-resolves the endpoint on the next tick and flips the status itself. A loop
+        /// route has no such retry (its tick skips every route that is not ghost-driving),
+        /// so the re-scan restarts it here: back to the status the route had before it
+        /// stopped (<see cref="Route.PreMissingStatus"/>, which a rewind sets to Paused when
+        /// the kept timeline has the route paused), with the loop observation restarted at
+        /// <paramref name="currentUT"/> like an activation, so the crossings missed while it
+        /// was stopped are not fired as a backlog. A restart to Active writes a
+        /// <see cref="RouteEventType.RouteResumed"/> marker, the Route History row that
+        /// closes the stopped episode. An armed Send Once or pause-after-run stays armed.
+        /// Returns false (Info-logged) for a null route or one that is not EndpointLost.
+        /// </summary>
+        internal static bool TryRecoverEndpointLostAfterRescan(Route route, double currentUT)
+        {
+            if (route == null)
+            {
+                ParsekLog.Info(Tag, "EndpointRescan: route=null");
+                return false;
+            }
+            if (route.Status != RouteStatus.EndpointLost)
+            {
+                ParsekLog.Info(Tag,
+                    $"EndpointRescan: route={ShortIdForLog(route)} status={route.Status} - only an EndpointLost route recovers");
+                return false;
+            }
+
+            route.NextEligibilityCheckUT = null;
+            if (!route.IsLoopRoute)
+            {
+                ParsekLog.Info(Tag,
+                    $"EndpointRescan: route={ShortIdForLog(route)} loopRoute=0 cleared retry gate " +
+                    "(the dispatch evaluator re-resolves and recovers the status)");
+                return true;
+            }
+
+            RouteStatus baseline = route.PreMissingStatus == RouteStatus.Paused
+                ? RouteStatus.Paused
+                : RouteStatus.Active;
+            RouteStatus prevPreMissing = route.PreMissingStatus;
+            route.PreMissingStatus = RouteStatus.Active;
+            long prevObserved = route.LastObservedLoopCycleIndex;
+            double prevAnchor = route.LoopAnchorUT;
+            if (baseline == RouteStatus.Paused)
+            {
+                // The kept timeline has the route paused: the player's later Activate
+                // restarts the loop observation and writes the resume marker.
+                route.TransitionTo(RouteStatus.Paused, EndpointRescanReason);
+            }
+            else
+            {
+                RestartLoopObservation(route, currentUT);
+                SkipUndeliveredLostCycle(route);
+                if (route.NextDispatchUT < currentUT)
+                    route.NextDispatchUT = currentUT;
+                route.ClearHold(EndpointRescanReason);
+                route.TransitionTo(RouteStatus.Active, EndpointRescanReason);
+                EmitRouteLifecycleMarker(route, currentUT, RouteEventType.RouteResumed, EndpointRescanReason);
+            }
+            ParsekLog.Info(Tag,
+                $"EndpointRescan: route={ShortIdForLog(route)} loopRoute=1 EndpointLost->{baseline} " +
+                $"preMissingStatus={prevPreMissing} " +
+                $"lastObservedLoopCycleIndex {prevObserved.ToString(IC)}->{route.LastObservedLoopCycleIndex.ToString(IC)} " +
+                $"loopAnchorUT {prevAnchor.ToString("R", IC)}->{route.LoopAnchorUT.ToString("R", IC)} " +
+                $"sendOnceArmed={(route.SendOnceArmed ? "1" : "0")} pauseAfterRun={(route.PauseAfterCurrentCycle ? "1" : "0")}");
             return true;
         }
 

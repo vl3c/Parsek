@@ -126,7 +126,7 @@ namespace Parsek.Tests
             RecordingStore.ArmCommittedTreeRestoreAttempt(Tree(CloneTreeId), ArmReason);
 
             bool cleared = RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
-                CloneTreeId, ResetReason);
+                CloneTreeId, ResetReason, preserveIrreversibleTails: false);
 
             Assert.True(cleared);
             Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
@@ -150,7 +150,7 @@ namespace Parsek.Tests
             RecordingStore.ArmCommittedTreeRestoreAttempt(Tree(CloneTreeId), ArmReason);
 
             bool cleared = RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
-                OtherTreeId, ResetReason);
+                OtherTreeId, ResetReason, preserveIrreversibleTails: false);
 
             Assert.False(cleared);
             Assert.True(RecordingStore.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
@@ -161,7 +161,7 @@ namespace Parsek.Tests
         public void DroppedTree_WithNoAttemptArmed_IsANoOp()
         {
             bool cleared = RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
-                CloneTreeId, ResetReason);
+                CloneTreeId, ResetReason, preserveIrreversibleTails: false);
 
             Assert.False(cleared);
             Assert.DoesNotContain(logLines, l =>
@@ -175,7 +175,7 @@ namespace Parsek.Tests
             RecordingStore.ArmCommittedTreeRestoreAttempt(Tree(CloneTreeId), ArmReason);
 
             bool cleared = RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
-                null, ResetReason);
+                null, ResetReason, preserveIrreversibleTails: false);
 
             Assert.False(cleared);
             Assert.True(RecordingStore.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
@@ -211,7 +211,7 @@ namespace Parsek.Tests
                 preCutoff));
 
             bool cleared = RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
-                CloneTreeId, ResetReason);
+                CloneTreeId, ResetReason, preserveIrreversibleTails: false);
 
             Assert.True(cleared);
             Assert.False(RecordingStore.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
@@ -243,7 +243,7 @@ namespace Parsek.Tests
             GameStateStore.AddEvent(ref postCutoff);
 
             bool cleared = RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
-                OtherTreeId, ResetReason);
+                OtherTreeId, ResetReason, preserveIrreversibleTails: false);
 
             Assert.False(cleared);
             Assert.True(RecordingStore.IsCommittedTreeRestoreAttemptTree(CloneTreeId));

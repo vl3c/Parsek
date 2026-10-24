@@ -2240,6 +2240,38 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The complement of <see cref="ComputeELS"/>: the ledger actions a
+        /// <see cref="LedgerTombstone"/> retires. Display-only consumers use it to hide what a
+        /// retired row would otherwise leave behind (the Timeline's legacy twin of a
+        /// tombstoned milestone). Not cached: it is read on a Timeline rebuild only. Empty
+        /// when there are no tombstones.
+        /// </summary>
+        public static List<GameAction> ComputeRetiredLedgerActions()
+        {
+            var result = new List<GameAction>();
+            var scenario = ParsekScenario.Instance;
+            var tombstones = object.ReferenceEquals(null, scenario) ? null : scenario.LedgerTombstones;
+            if (tombstones == null || tombstones.Count == 0)
+                return result;
+
+            var retiredIds = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < tombstones.Count; i++)
+            {
+                var t = tombstones[i];
+                if (t != null && !string.IsNullOrEmpty(t.ActionId))
+                    retiredIds.Add(t.ActionId);
+            }
+            var source = Ledger.Actions;
+            for (int i = 0; i < source.Count; i++)
+            {
+                var a = source[i];
+                if (a != null && !string.IsNullOrEmpty(a.ActionId) && retiredIds.Contains(a.ActionId))
+                    result.Add(a);
+            }
+            return result;
+        }
+
+        /// <summary>
         /// Forward-only, merge-guarded closure per design §3.3: starting at
         /// <paramref name="marker"/>'s <c>OriginChildRecordingId</c>, follow
         /// each committed recording's <c>ChildBranchPointId</c> to the

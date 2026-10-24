@@ -1070,6 +1070,48 @@ namespace Parsek.Tests
             Assert.Empty(result);
         }
 
+        // catches: TIMELINE-PHANTOM-MILESTONE-AFTER-REFLY-OF-LATER-SEGMENT. A Re-Fly
+        // tombstoned the milestone's ledger row, so the ELS no longer carries the twin, and
+        // the milestone copy (still tagged to a recording ERS shows) came back as a legacy
+        // "Milestone" text row for an achievement the merged timeline does not have.
+        [Fact]
+        public void LegacyMilestone_WhoseLedgerRowIsTombstoned_IsNotShown()
+        {
+            var milestone = new Milestone
+            {
+                Committed = true,
+                Epoch = 0,
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent { ut = 100, eventType = GameStateEventType.MilestoneAchieved, key = "Mun/Flyby" },
+                    new GameStateEvent { ut = 120, eventType = GameStateEventType.MilestoneAchieved, key = "Mun/Orbit" },
+                }
+            };
+            var retired = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 100,
+                    Type = GameActionType.MilestoneAchievement,
+                    Effective = false,
+                    MilestoneId = "Mun/Flyby",
+                },
+            };
+
+            var withRetired = TimelineBuilder.Build(
+                new List<Recording>(), new List<GameAction>(), new List<Milestone> { milestone },
+                _ => true, null, retired);
+            var without = TimelineBuilder.Build(
+                new List<Recording>(), new List<GameAction>(), new List<Milestone> { milestone },
+                _ => true);
+
+            Assert.Single(withRetired, e => e.Type == TimelineEntryType.LegacyEvent);
+            Assert.Equal(120, withRetired.Single(e => e.Type == TimelineEntryType.LegacyEvent).UT);
+            Assert.Equal(2, without.Count(e => e.Type == TimelineEntryType.LegacyEvent));
+            Assert.Contains(logLines, l => l.Contains("[Timeline]")
+                && l.Contains("Legacy twins of 1 tombstoned ledger row(s) hidden"));
+        }
+
         [Fact]
         public void LegacyMilestoneAndStrategyDuplicates_AreFilteredWhenMatchingGameActionsExist()
         {
