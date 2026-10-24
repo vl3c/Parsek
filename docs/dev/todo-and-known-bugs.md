@@ -2297,7 +2297,8 @@ Each item needs a trace (or a lane) before it is a defect or a non-issue; see
   rescue's dock to that half ends the hold. Cells `CrewMovedIntoStationAtDockTests` (6: a swap
   into another mission's station, a one-way move into an empty one, a same-tree two-parent
   dock, the one-half end snapshot, a later rescue); live witness lane
-  `CX-3-crew-swapped-into-station-at-dock`, never flown.
+  `CX-3-crew-swapped-into-station-at-dock`, LIVE-PROVEN 2026-10-24 (`2026-10-24_2319` PASS attempt 1:
+  Jebediah read Aboard on the Station half, no death or permanent hold).
 - [ ] The Rewind Point quicksave is written one frame after the split: a route crossing at
   exactly a staging event against the strict-after-cutoff retire.
 - [ ] A route loop unit and a foreign Mission partner journey can claim the same recordings;
