@@ -1280,8 +1280,10 @@ namespace Parsek
             ParsekLog.Info(InvokeTag,
                 $"ConsumePostLoad: discarding the committed-tree restore attempt of the pre-rewind " +
                 $"flight tree={armedTreeId} sess={sessionId ?? "<none>"}");
+            // The Re-Fly load reverted KSP to the rewind point: nothing of the attempt stays.
             RecordingStore.DiscardCommittedTreeRestoreAttempt(
-                "refly-start: pre-rewind flight abandoned");
+                "refly-start: pre-rewind flight abandoned",
+                preserveIrreversibleTails: false);
             return true;
         }
 

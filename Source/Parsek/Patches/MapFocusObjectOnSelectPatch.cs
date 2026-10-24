@@ -932,7 +932,8 @@ namespace Parsek.Patches
                     // its tails. No-op when none armed or the ids differ.
                     RecordingStore.ClearCommittedTreeRestoreAttemptForDroppedTree(
                         flight.ActiveTreeForDisplay?.Id,
-                        "pre-switch-dialog discard (no-session)");
+                        "pre-switch-dialog discard (no-session)",
+                        preserveIrreversibleTails: true);
                     flight.AutoDiscardActiveTreeWithMessage(
                         reason: "pre-switch-dialog discard (no-session)",
                         screenMessage: "Recording discarded - switching vessels",

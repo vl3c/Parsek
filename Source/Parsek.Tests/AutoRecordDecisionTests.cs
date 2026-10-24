@@ -457,6 +457,46 @@ namespace Parsek.Tests
             Assert.False(result);
         }
 
+        // catches: FLIGHT-READY-RESET-DROPS-STOPPED-UNCOMMITTED-TREE. A recording started and
+        // stopped in this scene before stock onFlightReady was silently dropped by the reset.
+        [Fact]
+        public void ShouldKeepStoppedTreeAcrossFlightReadyReset_StoppedThisSceneTree_ReturnsTrue()
+        {
+            Assert.True(ParsekFlight.ShouldKeepStoppedTreeAcrossFlightReadyReset(
+                hasStoppedRecorderBoundToActiveTree: true,
+                activeTreeIsCommittedRestoreClone: false,
+                hasPendingTree: false,
+                restoreMode: ParsekScenario.ActiveTreeRestoreMode.None));
+        }
+
+        [Theory]
+        [InlineData(false, false, false, (int)ParsekScenario.ActiveTreeRestoreMode.None)]
+        [InlineData(true, true, false, (int)ParsekScenario.ActiveTreeRestoreMode.None)]
+        [InlineData(true, false, true, (int)ParsekScenario.ActiveTreeRestoreMode.None)]
+        [InlineData(true, false, false, (int)ParsekScenario.ActiveTreeRestoreMode.Quickload)]
+        [InlineData(true, false, false, (int)ParsekScenario.ActiveTreeRestoreMode.VesselSwitch)]
+        public void ShouldKeepStoppedTreeAcrossFlightReadyReset_OtherStates_ReturnFalse(
+            bool stoppedBound, bool restoreClone, bool hasPendingTree, int restoreMode)
+        {
+            Assert.False(ParsekFlight.ShouldKeepStoppedTreeAcrossFlightReadyReset(
+                stoppedBound, restoreClone, hasPendingTree,
+                (ParsekScenario.ActiveTreeRestoreMode)restoreMode));
+        }
+
+        // catches: the keep check moving after ResetFlightReadyState (which nulls the tree it
+        // guards) or before the live-recorder skip.
+        [Fact]
+        public void OnFlightReady_ChecksTheStoppedTreeKeep_AfterTheLiveSkip_BeforeTheReset()
+        {
+            string src = File.ReadAllText(FindParsekFlightSource());
+            int method = src.IndexOf("void OnFlightReady()", StringComparison.Ordinal);
+            int live = src.IndexOf("ShouldIgnoreFlightReadyReset(", method, StringComparison.Ordinal);
+            int keep = src.IndexOf("ShouldKeepStoppedTreeAcrossFlightReadyReset(", method, StringComparison.Ordinal);
+            int reset = src.IndexOf("ResetFlightReadyState();", method, StringComparison.Ordinal);
+            Assert.True(method >= 0 && live > method && keep > live && reset > keep,
+                $"method={method} live={live} keep={keep} reset={reset}");
+        }
+
         private static string FindParsekFlightSource()
         {
             string dir = AppDomain.CurrentDomain.BaseDirectory;

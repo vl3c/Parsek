@@ -80,6 +80,20 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Re-scan restarts a supply route whose destination came back.** When a route stopped because its
+  destination vessel was gone, Re-scan found it again but the route stayed stopped until you paused
+  and activated it. It now restarts at once, and its next run delivers instead of being skipped.
+  (LOOP-ROUTE-RESCAN-DOES-NOTHING)
+- **A contract or science won while resuming a committed flight is kept when you discard.** If you
+  took over a committed vessel, finished a contract, reached a milestone or banked science, and then
+  discarded that flight, stock kept the reward but Parsek dropped it. Parsek now keeps it too.
+  (RESTORE-CLONE-DISCARD-DROPS-IRREVERSIBLE-CAREER-ACTIONS)
+- **A recording stopped right after a launch is no longer thrown away.** A recording started and
+  stopped in the split second before the flight scene finished loading was silently dropped; it is now
+  kept. (FLIGHT-READY-RESET-DROPS-STOPPED-UNCOMMITTED-TREE)
+- **No leftover milestone line on the Timeline after a Re-Fly.** A milestone a Re-Fly removed could
+  still show as a plain "Milestone" text row; it no longer does.
+  (TIMELINE-PHANTOM-MILESTONE-AFTER-REFLY-OF-LATER-SEGMENT)
 - **Cargo you take from another kerbal on EVA is remembered.** Taking a part from (or giving one
   to) a kerbal standing outside during a recorded EVA now makes him part of your flight: after a
   rewind he is kept for it, replayed, and comes back without the part, so it is never lost or

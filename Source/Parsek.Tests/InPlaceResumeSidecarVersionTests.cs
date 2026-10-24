@@ -168,7 +168,7 @@ namespace Parsek.Tests
             Assert.Equal(h2, SidecarContentHash.ComputeFile(HeadPath(RootId)));
 
             // ---- Discard: the clone goes, the committed copy stays readable ----
-            RecordingStore.DiscardCommittedTreeRestoreAttempt("test-discard");
+            RecordingStore.DiscardCommittedTreeRestoreAttempt("test-discard", preserveIrreversibleTails: false);
             RecordingStore.DiscardPendingTree();
             Assert.True(File.Exists(HeadPath(RootId)));
             Assert.True(File.Exists(VersionPath(RootId, h1)));

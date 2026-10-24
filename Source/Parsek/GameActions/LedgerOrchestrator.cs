@@ -6511,28 +6511,8 @@ namespace Parsek
                 return;
             }
 
-            // 3. Dedup against the ledger (defensive: a re-homed event already present is
-            //    credited once), assign KSC sequence numbers, append. NO recalc — the
-            //    caller's post-discard recalc credits these.
-            int beforeDedup = rehomed.Count;
-            rehomed = DeduplicateAgainstLedger(rehomed);
-            int deduped = beforeDedup - rehomed.Count;
-            for (int i = 0; i < rehomed.Count; i++)
-                rehomed[i].Sequence = AllocateKscSequence();
-            Ledger.AddActions(rehomed, LedgerRowWriter.StockApplied);
-
-            // Mirror the committed-science cache for any surviving re-homed ScienceEarning
-            // action so the direct science is treated as committed (subjectId-deduped,
-            // max-not-additive).
-            if (scienceActions != null)
-            {
-                var survivingScience = new List<GameAction>();
-                for (int i = 0; i < rehomed.Count; i++)
-                    if (rehomed[i].Type == GameActionType.ScienceEarning)
-                        survivingScience.Add(rehomed[i]);
-                if (survivingScience.Count > 0)
-                    GameStateStore.CommitScienceActions(survivingScience);
-            }
+            // 3. Dedup against the ledger, append, mirror the committed-science cache.
+            int deduped = AppendRehomedDirectActions(rehomed, scienceActions != null);
 
             // Scoped-remove the re-homed science subjects from the static pending list so
             // the discard's own clear/teardown does not leave them stale or re-process them.
@@ -6543,7 +6523,7 @@ namespace Parsek
 
             ParsekLog.Info(Tag,
                 $"PreserveIrreversibleLiveGameplayOnDiscard ({reason}): re-homed " +
-                $"{rehomed.Count.ToString(CultureInfo.InvariantCulture)} direct action(s) " +
+                $"{(rehomed.Count - deduped).ToString(CultureInfo.InvariantCulture)} direct action(s) " +
                 $"(contract={contractEvents.ToString(CultureInfo.InvariantCulture)}, " +
                 $"milestone={milestoneEvents.ToString(CultureInfo.InvariantCulture)}, " +
                 $"strategyExchange={strategyExchangeEvents.ToString(CultureInfo.InvariantCulture)}, " +
@@ -6554,6 +6534,134 @@ namespace Parsek
                 $"subjectsRemoved={subjectsRemoved.ToString(CultureInfo.InvariantCulture)}, " +
                 $"strategyConversionRowsUntagged={conversionRowsUntagged.ToString(CultureInfo.InvariantCulture)}) " +
                 $"for {idSet.Count.ToString(CultureInfo.InvariantCulture)} discarded id(s)");
+        }
+
+        /// <summary>
+        /// Step 3 of the discard re-home: dedups <paramref name="rehomed"/> against the
+        /// ledger (defensive: a re-homed event already present is credited once), assigns
+        /// KSC sequence numbers, appends the survivors as direct rows and, when
+        /// <paramref name="hasScience"/>, mirrors the committed-science cache for every
+        /// surviving re-homed ScienceEarning so the direct science is treated as committed
+        /// (subjectId-deduped, max-not-additive). NO recalc: the caller's post-discard
+        /// recalc credits these. Returns the number dropped by the dedup.
+        /// </summary>
+        private static int AppendRehomedDirectActions(List<GameAction> rehomed, bool hasScience)
+        {
+            int beforeDedup = rehomed.Count;
+            List<GameAction> kept = DeduplicateAgainstLedger(rehomed);
+            for (int i = 0; i < kept.Count; i++)
+                kept[i].Sequence = AllocateKscSequence();
+            Ledger.AddActions(kept, LedgerRowWriter.StockApplied);
+
+            if (hasScience)
+            {
+                var survivingScience = new List<GameAction>();
+                for (int i = 0; i < kept.Count; i++)
+                    if (kept[i].Type == GameActionType.ScienceEarning)
+                        survivingScience.Add(kept[i]);
+                if (survivingScience.Count > 0)
+                    GameStateStore.CommitScienceActions(survivingScience);
+            }
+            return beforeDedup - kept.Count;
+        }
+
+        /// <summary>
+        /// The committed-tree restore attempt's half of
+        /// <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/>. While a committed tree is
+        /// resumed as a clone, new game-state events and science subjects are tagged with the
+        /// COMMITTED recording ids, which the discard re-home skips as committed history. The
+        /// ones after the attempt's per-recording cutoff (<paramref name="attemptEventCutoffs"/>,
+        /// the recording's end UT at arm time, the same split the attempt's save suppression
+        /// and its tail purge use) are the clone's own. When a LIVE discard drops the attempt,
+        /// KSP keeps what the player did in it (a finished contract, a milestone, banked
+        /// science), so its irreversible events (<see cref="IsIrreversibleLiveGameplayEvent(GameStateEvent)"/>)
+        /// and its science subjects become direct ledger rows here, BEFORE the tail purge
+        /// removes them; the re-homed science subjects leave the pending list. Committed
+        /// history (at or before a cutoff) is never touched. Rollback paths (a rewind, a
+        /// load) must not call this: their reload reverts KSP, so a re-homed row would credit
+        /// what KSP no longer has. Internal static for testability.
+        /// </summary>
+        internal static void PreserveIrreversibleRestoreAttemptTailsOnDiscard(
+            IReadOnlyDictionary<string, double> attemptEventCutoffs, string reason)
+        {
+            if (attemptEventCutoffs == null || attemptEventCutoffs.Count == 0)
+                return;
+
+            Initialize();
+
+            var rehomed = new List<GameAction>();
+            int contractEvents = 0, milestoneEvents = 0, otherEvents = 0;
+            var storeEvents = GameStateStore.Events;
+            for (int i = 0; i < storeEvents.Count; i++)
+            {
+                var e = storeEvents[i];
+                if (string.IsNullOrEmpty(e.recordingId)
+                    || !attemptEventCutoffs.TryGetValue(e.recordingId, out double cutoffUT)
+                    || !(e.ut > cutoffUT))
+                {
+                    continue;
+                }
+                if (!IsIrreversibleLiveGameplayEvent(e))
+                    continue;
+
+                var action = GameStateEventConverter.ConvertEvent(e, recordingId: null);
+                if (action == null)
+                    continue;
+                rehomed.Add(action);
+                if (e.eventType == GameStateEventType.MilestoneAchieved) milestoneEvents++;
+                else if (e.eventType == GameStateEventType.ContractCompleted
+                    || e.eventType == GameStateEventType.ContractFailed
+                    || e.eventType == GameStateEventType.ContractCancelled) contractEvents++;
+                else otherEvents++;
+            }
+
+            double minUT = double.MaxValue, maxUT = double.MinValue;
+            var clearedSubjects = new List<PendingScienceSubject>();
+            var pending = GameStateRecorder.PendingScienceSubjects;
+            for (int i = pending.Count - 1; i >= 0; i--)
+            {
+                var s = pending[i];
+                if (string.IsNullOrEmpty(s.recordingId)
+                    || !attemptEventCutoffs.TryGetValue(s.recordingId, out double cutoffUT)
+                    || !(s.captureUT > cutoffUT))
+                {
+                    continue;
+                }
+                var cleared = s;
+                cleared.recordingId = "";
+                clearedSubjects.Add(cleared);
+                pending.RemoveAt(i);
+                if (s.captureUT < minUT) minUT = s.captureUT;
+                if (s.captureUT > maxUT) maxUT = s.captureUT;
+            }
+            List<GameAction> scienceActions = null;
+            if (clearedSubjects.Count > 0)
+            {
+                clearedSubjects.Reverse();
+                scienceActions = GameStateEventConverter.ConvertScienceSubjects(
+                    clearedSubjects, recordingId: null, minUT - 1.0, maxUT + 1.0);
+                rehomed.AddRange(scienceActions);
+            }
+
+            if (rehomed.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PreserveIrreversibleRestoreAttemptTailsOnDiscard ({reason}): nothing to re-home " +
+                    $"after the cutoffs of {attemptEventCutoffs.Count.ToString(CultureInfo.InvariantCulture)} " +
+                    "committed recording(s)");
+                return;
+            }
+
+            int deduped = AppendRehomedDirectActions(rehomed, scienceActions != null);
+            ParsekLog.Info(Tag,
+                $"PreserveIrreversibleRestoreAttemptTailsOnDiscard ({reason}): re-homed " +
+                $"{(rehomed.Count - deduped).ToString(CultureInfo.InvariantCulture)} direct action(s) " +
+                $"from the discarded restore attempt (contract={contractEvents.ToString(CultureInfo.InvariantCulture)}, " +
+                $"milestone={milestoneEvents.ToString(CultureInfo.InvariantCulture)}, " +
+                $"other={otherEvents.ToString(CultureInfo.InvariantCulture)}, " +
+                $"science={clearedSubjects.Count.ToString(CultureInfo.InvariantCulture)}, " +
+                $"deduped={deduped.ToString(CultureInfo.InvariantCulture)}) " +
+                $"for {attemptEventCutoffs.Count.ToString(CultureInfo.InvariantCulture)} committed recording(s)");
         }
 
         /// <summary>

@@ -2298,18 +2298,17 @@ namespace Parsek
         /// branch (this is the synchronous draw path, not an async dialog callback, so
         /// the QW2 frame-reset-field trap does not apply and an inline action is
         /// correct): it calls <see cref="RouteEndpointResolver.TryResolveEndpoint"/>,
-        /// logs the outcome, and on success clears
-        /// <see cref="Route.NextEligibilityCheckUT"/> so the orchestrator re-attempts
-        /// the cycle on the next tick (instead of waiting out the 30s retry interval),
-        /// then dirties the legibility cache so the destination cell + capacity context
-        /// refresh next frame. It does NOT flip the route status: the orchestrator's
-        /// dispatch evaluator re-resolves the endpoint every retry tick and recovers
-        /// the status itself. A re-scan miss just re-logs and leaves the route
-        /// EndpointLost (the orchestrator keeps retrying on its own clock).
+        /// logs the outcome, and on success hands the route to
+        /// <see cref="RouteOrchestrator.TryRecoverEndpointLostAfterRescan"/>, then dirties
+        /// the legibility cache so the destination cell + capacity context refresh next
+        /// frame. That call restarts a loop route (whose tick skips a stopped route, so
+        /// nothing else would) and only clears a non-loop route's retry gate (its
+        /// dispatch evaluator re-resolves the endpoint and recovers the status itself).
+        /// A re-scan miss just re-logs and leaves the route EndpointLost.
         /// A multi-stop route (GUI-P20) keeps the ONE button: it is offered when any
         /// stop is a recoverable surface endpoint, the click re-scans EVERY stop (the
         /// dispatch gate needs all of them to resolve), logs each stop's outcome on one
-        /// line, and clears the retry gate only when every stop resolved.
+        /// line, and recovers the route only when every stop resolved.
         /// </summary>
         private void DrawEndpointRescan(Route route)
         {
@@ -2329,19 +2328,16 @@ namespace Parsek
             if (LogisticsDeliveryPresentation.ShouldOfferEndpointRescan(route.Status, endpoint))
             {
                 if (GUILayout.Button(new GUIContent("Re-scan for endpoint",
-                        "Search the destination body for a surface vessel near the recorded endpoint, then retry delivery immediately if found."),
+                        "Search the destination body for a surface vessel near the recorded endpoint, then restart the route if found."),
                         GUILayout.Width(180f)))
                 {
                     bool resolved = RouteEndpointResolver.TryResolveEndpoint(
                         endpoint, out Vessel v, out string reason);
                     if (resolved && v != null)
                     {
-                        // Clear the retry rate-limit so the orchestrator re-resolves and
-                        // recovers the status on the very next tick (it owns the status
-                        // flip; we never set Active here).
-                        route.NextEligibilityCheckUT = null;
                         ParsekLog.Info("UI",
-                            $"Logistics: endpoint re-scan route={ShortId(route.Id)} resolved=true name='{v.vesselName}' (cleared retry gate)");
+                            $"Logistics: endpoint re-scan route={ShortId(route.Id)} resolved=true name='{v.vesselName}' (recovering)");
+                        RouteOrchestrator.TryRecoverEndpointLostAfterRescan(route, TryGetCurrentUT());
                     }
                     else
                     {
@@ -2392,7 +2388,7 @@ namespace Parsek
             if (LogisticsDeliveryPresentation.ShouldOfferRouteEndpointRescan(route.Status, route.Stops))
             {
                 if (GUILayout.Button(new GUIContent("Re-scan for endpoint",
-                        "Search each stop's body for a surface vessel near its recorded endpoint, then retry delivery immediately if every stop is found."),
+                        "Search each stop's body for a surface vessel near its recorded endpoint, then restart the route if every stop is found."),
                         GUILayout.Width(180f)))
                 {
                     var results = new List<LogisticsDeliveryPresentation.RescanStopResult>(route.Stops.Count);
@@ -2405,12 +2401,12 @@ namespace Parsek
                             i, ok && v != null, ok && v != null ? v.vesselName : null, reason));
                     }
                     bool allResolved = LogisticsDeliveryPresentation.AllStopsResolved(results);
-                    if (allResolved)
-                        route.NextEligibilityCheckUT = null;
                     ParsekLog.Info("UI",
                         $"Logistics: endpoint re-scan route={ShortId(route.Id)} " +
                         LogisticsDeliveryPresentation.FormatRescanOutcome(results) +
-                        (allResolved ? " (cleared retry gate)" : " (still EndpointLost)"));
+                        (allResolved ? " (recovering)" : " (still EndpointLost)"));
+                    if (allResolved)
+                        RouteOrchestrator.TryRecoverEndpointLostAfterRescan(route, TryGetCurrentUT());
                     lastLegibilityComputeRealtime = -1f;
                 }
                 // Push the Interact slot to the right edge (the label branch already expands).

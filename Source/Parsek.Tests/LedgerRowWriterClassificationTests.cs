@@ -43,9 +43,9 @@ namespace Parsek.Tests
                 ["GameActions/LedgerOrchestrator.cs::TryAddKscSpendingAction"] = new[] { Stock },
                 // A strategy currency exchange stock already made.
                 ["GameActions/LedgerOrchestrator.cs::OnStrategyCurrencyConversion"] = new[] { Stock },
-                // An ordinary Discard keeps awards stock already paid during the discarded flight
-                // (review case N1: not authoritative, stock-applied).
-                ["GameActions/LedgerOrchestrator.cs::PreserveIrreversibleLiveGameplayOnDiscard"] = new[] { Stock },
+                // An ordinary Discard, and a discarded restore attempt's tails, keep awards stock
+                // already paid during the discarded flight (review case N1: not authoritative, stock-applied).
+                ["GameActions/LedgerOrchestrator.cs::AppendRehomedDirectActions"] = new[] { Stock },
                 // KSC science (a recovery / transmission credit) stock already credited.
                 ["GameActions/LedgerOrchestrator.cs::TryRecordKscScienceSubject"] = new[] { Stock },
                 // Recovery crew experience (no pool), filed with the recovery stock made.
