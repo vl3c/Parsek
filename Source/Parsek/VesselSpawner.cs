@@ -1771,6 +1771,8 @@ namespace Parsek
                     {
                         rec.VesselSpawned = true;
                         rec.SpawnAbandoned = true;
+                        SpawnWarpOutcomeWatch.NoteAbandonReason(
+                            rec, SpawnWarpOutcomeWatch.ReasonNoLivingCrew);
                         var classified = ClassifySnapshotCrew(snapshotCrew);
                         ParsekLog.Warn("Spawner",
                             $"Spawn ABANDONED for #{index} ({rec.VesselName}): no spawnable crew — " +
@@ -5226,6 +5228,8 @@ namespace Parsek
             rec.SpawnedVesselPersistentId = 0;
             rec.VesselSpawned = true;
             rec.SpawnAbandoned = true;
+            SpawnWarpOutcomeWatch.NoteAbandonReason(
+                rec, SpawnWarpOutcomeWatch.ReasonInvalidSnapshot);
             ParsekLog.Warn("Spawner",
                 $"Spawn ABANDONED for {DescribeSpawnValidationContext(rec, logContext)}: {reason} - " +
                 "recording remains ghost-only instead of retrying corrupt materialization (#620)");

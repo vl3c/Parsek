@@ -1277,10 +1277,16 @@ Status words (`SpawnCandidateStatus`), in priority order, with the hover each ca
 | `Too fast` | plain | greyed | `Spawns only below 2 m/s relative speed; it is passing at 8.1 m/s` |
 | `Leaves` | countdown amber | live | `Leaves this orbit on <date> for Mun; it does not spawn here`; the Warp hover is `Warps to just before <craft> leaves orbit on <date>; it does not spawn here.` |
 | `Leaving` | orange | greyed | `Leaving this orbit now for Mun; it does not spawn here` |
-| `Ready` | green | live | `Close and slow enough to spawn; it spawns here on <date>`; the Warp hover is `Warps to <date>, when <craft> spawns here.` |
+| `Ready` | green | live | `Close and slow enough to spawn; it is due to spawn here on <date>`; the Warp hover is `Warps to <date>, when <craft> is due to spawn here.` |
 | `Passed` | plain | greyed | `Its spawn time, <date>, has passed` |
 
-A greyed `Warp` carries its row's Status reason through `DisabledHoverEcho`. The departure
+A greyed `Warp` carries its row's Status reason through `DisabledHoverEcho`. A `Ready` Warp
+can still end without a vessel: the list hides every refusal it can see ahead of time
+(`GhostPlaybackLogic.IsNearbySpawnCandidateEligible`, which includes a latched terminal-orbit
+refusal and an exhausted load), and a refusal found only at spawn time is told once, after the
+Warp, by `SpawnWarpOutcomeWatch` (`<craft> did not spawn: <reason>.` or `<craft> has not
+spawned yet: <reason>.`; a spawn that works keeps the spawner's `has appeared!` and adds
+nothing). The departure
 destination is words, never a raw value (`SelectiveSpawnUI.FormatDepartureDestination` over
 `DepartureKind`): `for Mun` (another body), `for a new orbit` (same body), `to land on Kerbin`
 (Landed or Splashed terminal), `to come down on Kerbin` (Destroyed terminal). A surface
@@ -1297,7 +1303,7 @@ verbose summary counts the ghosts it hid by distance (`hidden beyond spawn radiu
 main window's `Real Spawn Control (N)` counts the same list.
 
 Footer: the single-line tooltip echo strip, then `Warp to Next Spawn` (expands; greyed when no
-row is inside both warp gates; its hover, `Warps to when <craft> spawns here, in 56s.` or
+row is inside both warp gates; its hover, `Warps to when <craft> is due to spawn here, in 56s.` or
 `Warps to just before <craft> leaves orbit in 2m 0s; it does not spawn here.`, is handed to
 the strip explicitly, because the button draws below it) and `Close` (132 px), the resize
 handle and drag.
@@ -1463,7 +1469,7 @@ window's own `new TooltipEchoBox(...)`. Runtime-built hovers are pinned by cells
 builders (the Timeline row hovers, the Career-mode slot sentences, the Logistics hold and cost
 texts).
 
-### 3.14 Screen messages (87 producers)
+### 3.14 Screen messages (88 producers)
 
 The whole non-window notification budget, grouped by trigger class: 91 producing call sites of
 `ParsekLog.ScreenMessage` / `ScreenMessages.PostScreenMessage` outside `InGameTests/` and
@@ -1473,7 +1479,8 @@ since (87 measured 2026-10-05): the two `All ... wiped` toasts (2026-09-26), and
 Gloops toasts (`Gloops Recording STARTED`, `... auto-saved (vessel switched)`, `... too
 short - discarded`, `... discarded`, `Gloops Preview STARTED`, and `DeleteGhostOnlyRecording`'s
 `Ghost recording ... deleted`) with the Gloops recorder (2026-10-05), which also retires the
-table's Gloops class.
+table's Gloops class. One has joined (88, 2026-10-24): the Real Spawn Control Warp outcome
+(P4).
 
 | trigger class | producers | notes |
 |---|---|---|
@@ -1487,7 +1494,7 @@ table's Gloops class.
 | Logistics | 9 (`RouteOrchestrator` 4, `RouteStore`, `RouteRunPrompt`, `RouteEndpointTransfer`, `UI/LogisticsWindowUI.cs` 2) | |
 | Missions tab | 3 (`UI/MissionsWindowUI.cs`) | the loop-moved notice, the double-clock advisory, the `Warp to...` landing |
 | Recordings table / group picker | 6 (`UI/RecordingsTableUI.cs` 5, `UI/GroupPickerUI.cs` 1) | |
-| Spawning / proximity | 3 (`VesselSpawner` 2, `ParsekFlight` 1) | the proximity toast drops its "open that window" call to action when Real Spawn Control is unreachable (`ParsekUI.IsSpawnControlReachable`) |
+| Spawning / proximity | 4 (`VesselSpawner` 2, `ParsekFlight` 2) | the proximity toast drops its "open that window" call to action when Real Spawn Control is unreachable (`ParsekUI.IsSpawnControlReachable`); the Warp outcome (`ParsekFlight.TickSpawnWarpWatch`) posts only when a Warp-to-spawn ends without a vessel, naming why |
 | Crew | 1 (`CrewReservationManager`) | posted only when a reserved kerbal is actually swapped out of a seat |
 | Save lifecycle / pre-Parsek backup | 2 (`PreParsekBackup`) | |
 | Ledger | **1** (`GameActions/KspStatePatcher.cs`, latched once per session) | the only player-visible signal that the reconstructed ledger disagreed with the live pool |
@@ -1671,7 +1678,7 @@ the full rows; the per-subsystem row counts are in the table above.
 | D11 | `UIMode.TrackingStation` is never constructed, so `CanOfferGhostOnlyDelete`'s TS branch is dead | `UI/RecordingsTableUI.cs:4613`, `ParsekUI.cs:11` |
 | P1 | The per-recording playback checkbox: the map icon, orbit line, TS row and the KSC terminal-vessel spawn all ignore `PlaybackEnabled` (bug #433). RULED + FIXED 2026-09-14 on the RENDER surfaces (see 5.2); the KSC terminal-vessel spawn stays, by the same ruling | tooltip `UI/RecordingsTableUI.cs:1849`; `GhostMapPresence*.cs` / `ParsekTrackingStation.cs` never read it; `ParsekKSC.cs:373-396` |
 | P2 | The Period cell shows the typed value, not the cadence being flown. FIXED 2026-10-01 (see H10): the read-out is the flown cadence, the hover says `Period raised from 5s to 6s to fit the overlap cap - at most 20 copies of this flight can play at once.` | header tooltip `UI/RecordingsTableUI.cs:1341`, engine `GhostPlaybackLogic.WarpLoopPolicy.cs:469` |
-| P4 | Real Spawn Control's row `Warp` (on a `Ready` row) performs a time jump only; whether a vessel appears is then decided by 15 silent refusals, and an invalid jump is itself silent | `UI/SpawnControlPresentation.cs:104`, `ParsekFlight.WarpToRecordingEnd:27367`, `:27384-27389` |
+| P4 | ~~Real Spawn Control's row `Warp` (on a `Ready` row) performs a time jump only; whether a vessel appears is then decided by 15 silent refusals, and an invalid jump is itself silent~~ FIXED 2026-10-24: the button reads `Warp`, the hovers say `is due to spawn`, rows the spawner always refuses are not listed, and a spawn-time refusal is told once after the Warp (`SpawnWarpOutcomeWatch`); the invalid jump stays log-only (a `Ready` row's spawn time is ahead of the clock, and a refused jump changes nothing) | `UI/SpawnControlPresentation.cs`, `ParsekFlight.WarpToRecordingEnd`, `SpawnWarpOutcome.cs` |
 | P13 | ~~The Gloops idle label says `Ghost-only - loops by default` while the code sets `LoopPlayback = false`; the class doc says the opposite of the label~~ RESOLVED 2026-10-05: the window is deleted (5.2) | `UI/GloopsRecorderUI.cs:333`, `ParsekFlight.cs:17090`, doc `:8-10` |
 
 **7. Settings, diagnostics, test runner, automation seams** (18 HIDDEN, 3 DEAD, 3 promised)
@@ -1840,7 +1847,7 @@ One line each for the rest:
 |---|---|
 | P2 | The 20-clone cap silently raises the loop period while the Period cell shows the typed value: show the effective period with a tooltip, or leave the cap invisible? DECIDED + FIXED 2026-10-01: show it, typed value and reason on the hover |
 | P3 | The route Interval field snaps to `N x transit` and overwrites the typed value: show the snapped value and why in the existing tooltip, or accept the silent rewrite? DECIDED + FIXED (flat hover already explained the snap; windowed field greyed with the reason 2026-10-24) |
-| P4 | Real Spawn Control's row `Warp` has 15 silent refusals behind it: put the refusal reason in the existing disabled-hover echo, or rename the button to the action it performs? |
+| P4 | Real Spawn Control's row `Warp` has 15 silent refusals behind it: put the refusal reason in the existing disabled-hover echo, or rename the button to the action it performs? DECIDED + FIXED 2026-10-24 (owner: one message after the Warp): renamed `Warp` earlier; the refusals found only at spawn time cannot use the hover (the row leaves the list once the spawn time passes), so one message after the Warp names them |
 | P9 | Rename refusals (mission, group, re-parent) discard the typed name with a Warn: keep the field content and show the reason in the row tooltip, or leave it? DECIDED + FIXED 2026-10-24 (owner: go with the recommendation): the rule in the existing folder hover and a mission header hover; the field still closes; re-parent needs nothing (the picker offers no cycle-making parent) |
 | P10 | The mission `Log` is built from the tree and ignores the mission's include set, so clones render identical logs under different titles: is that the intended contract? DECIDED + FIXED 2026-10-01: no; the Log follows the mission's include set (MISSION-LOG-REWORK) |
 | P11 | `Merged, but could not seal - seal it from the Timeline window` names a control that cannot exist in exactly that state: reword, or make the control exist? DECIDED + FIXED 2026-10-24: reworded to `Merged, but the Re-Fly slot could not be sealed` |

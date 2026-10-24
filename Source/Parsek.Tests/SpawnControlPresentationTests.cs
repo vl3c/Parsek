@@ -153,10 +153,10 @@ namespace Parsek.Tests
 
             Assert.Equal(SpawnCandidateStatus.Ready, row.Status);
             Assert.Equal("Ready", row.StatusText);
-            Assert.Equal("Close and slow enough to spawn; it spawns here on D500", row.StatusHover);
+            Assert.Equal("Close and slow enough to spawn; it is due to spawn here on D500", row.StatusHover);
             Assert.Equal("Warp", row.WarpButtonLabel);
             Assert.True(row.WarpButtonEnabled);
-            Assert.Equal("Warps to D500, when Station spawns here.", row.WarpButtonHover);
+            Assert.Equal("Warps to D500, when Station is due to spawn here.", row.WarpButtonHover);
             Assert.Equal(string.Empty, row.WarpButtonDisabledReason);
             Assert.True(row.ConditionsMet);
             Assert.False(row.UsesDepartureWarp);

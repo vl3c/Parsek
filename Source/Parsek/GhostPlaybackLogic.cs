@@ -8742,6 +8742,10 @@ namespace Parsek
         {
             if (rec == null || rec.EndUT <= currentUT)
                 return false;
+            // The spawner skips these outright (VesselSpawner.SpawnOrRecoverIfTooClose), so a
+            // Warp to them could only move the clock.
+            if (IsSpawnSettledUnspawnable(rec))
+                return false;
             var (needsSpawn, _) = ShouldSpawnAtRecordingEnd(
                 rec, isActiveChainMember: false, treeContext: null,
                 ResolveRewindSuppressionLiveLaunchPresence(rec));
@@ -8749,6 +8753,19 @@ namespace Parsek
                 return false;
             var (suppressed, _) = ShouldSuppressSpawnForChain(chains, rec);
             return !suppressed;
+        }
+
+        /// <summary>
+        /// True when the spawner will refuse the recording before trying: the terminal orbit
+        /// is latched as unable to spawn safely, or the load already failed
+        /// <see cref="VesselSpawner.MaxSpawnAttempts"/> times. Neither is part of
+        /// <see cref="ShouldSpawnAtRecordingEnd"/>, which keeps them out of the list.
+        /// </summary>
+        internal static bool IsSpawnSettledUnspawnable(Recording rec)
+        {
+            return rec != null
+                && (rec.TerminalSpawnCannotSpawnSafely
+                    || rec.SpawnAttempts >= VesselSpawner.MaxSpawnAttempts);
         }
 
         /// <summary>
