@@ -16,6 +16,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A Rewind-to-Launch no longer undoes a merged Re-Fly.** A re-flown stage you merged but left
+  open (for example a booster that crashed again) used to vanish at a rewind to before its
+  separation, with the original flight back in its place. The rewind now only moves the clock: the
+  re-fly stays, and its slot stays open to re-fly. (REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY)
 - **A drill or converter already running when a vessel splits off keeps its later mining.** The
   new branch's recording now notes the running converter, so the end of that recording is no longer
   trimmed away and its mined resources no longer arrive early on a spawn.
