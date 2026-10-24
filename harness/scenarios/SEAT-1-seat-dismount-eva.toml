@@ -1,0 +1,161 @@
+schema = 1
+id = "SEAT-1-seat-dismount-eva"
+# =====================================================================================
+# SEAT-1: A KERBAL LEAVING AN EXTERNAL COMMAND SEAT IS RECORDED AS AN EVA, NEVER AN UNDOCK
+# (owner ruling 2026-10-24: "a kerbal leaving an external seat is an EVA, as we get a vehicle
+# and a kerbal; undock is between vehicles, as we get two vehicles at the end").
+# LIVE-PROVEN 2026-10-24: 2026-10-24_1048 PASS attempt 1, 0 mismatches (branch claude/project-thread-lo926k,
+# PR #2206). The guesses below held: the craft stood, Jeb crewed the pod, the board ran at 1.11 m.
+# Measured: board complete ut~14.2, leave at ut=44.90, StopRecording ut~54.9, wall 105 s.
+#
+# THE HOST is `seat-pad` (built by `harness/tools/build_seat_pad.py`): an empty sandbox pad
+# and, in the VAB, `SEAT1 Seat Pod` = a Mk1 Command Pod (the root, one seat) with an EAS-1
+# External Command Seat surface-attached upright on its top. GUESSED, the first flight
+# confirms: the seat's srfAttach offset (taken as 0, so the seat base sits at the pod's top
+# node height; a gap or overlap is cosmetic), that the craft stands on the pad, and that
+# the VAB crews the pod with Jebediah Kerman (fresh-sandbox's first pilot; the seat has no
+# crew capacity, so it launches empty).
+#
+# THE FLIGHT, every step a player's:
+#   (a) VAB launch, a 10 s pad settle, then recording on the pad.
+#   (b) EvaExit release=true settleSeconds=3: Jeb out through the pod's hatch and down to
+#       the pad (the ordinary hatch EVA branch, EVA-1's shape).
+#   (c) EvaSeatBoard: Jeb takes the seat through stock's own KerbalEVA.BoardSeat. The couple
+#       destroys his EVA vessel and Parsek records a dock merge into the pod's vessel.
+#   (d) A 1x wait so the merged recording carries real samples.
+#   (e) EvaSeatLeave: Jeb leaves through stock's own KerbalEVA.OnDeboardSeat
+#       (EjectFromSeat -> part.Undock -> onVesselsUndocking(pod, kerbal) -> the focus moves
+#       to the kerbal). THE SUBJECT.
+#   (f) A 1x wait, then stop, commit, save, quit.
+#
+# BEFORE THE FIX (ccb8a33's message and code read): OnVesselsUndocking treated the dismount
+# as a vehicle split, so a pod-cored vehicle recorded `Tree branch created: type=Undock` and
+# authored a Rewind Point at the dismount (`RewindPoint begin:`), and a seat-only vehicle
+# was resumed as debris (`undocked vessel is debris`). AFTER: `OnVesselsUndocking: kerbal
+# left vehicle, recording as EVA (kerbal='Jebediah Kerman' ...`, the deferred EVA branch
+# (`Tree branch created: type=EVA, ... evaCrew=Jebediah Kerman`) and no Rewind Point (an EVA
+# split is refused in RewindPointAuthor.Begin, or never reaches it when only one side is
+# controllable). The dismount-side contracts are ORDERED after `evaseatleave start` with
+# [\s\S]*? so the hatch EVA at (b), which writes the same branch line, cannot satisfy them.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse: no committed lane flies a seat; EVA-1 boards through a hatch on gloops-airshow,
+#     which has no seat, so this is a new flight on a new fixture.
+#   2 waits: explicit-UT WarpToUT only. The two post-move waits are maxRate=1 (a landed pod
+#     with a kerbal on it stays in physics). Their UTs (45 / 55) are GUESSES with margin over
+#     the measured-nowhere UT at which (c) and (e) land (launch at UT ~0, the 10 s settle,
+#     a hatch EVA of a few game seconds): a WarpToUT behind the clock is refused
+#     `backward-warp`, so the first flight should read the seam's UTs and tighten both.
+#   3 dwells: no dwell keys. 4 burns: none. 5 b5 coasts: none (no orbit).
+#   6 fail fast: the seam verbs refuse in one frame and time out at the 60 s default; retry
+#     once because the stock FSM and the VAB launch are live-state dependent.
+#   7 count: derived exactly below; re-pin from the first flight if it reads otherwise.
+#   8 tier: nightly by the CX-2 cost class (one VAB launch, no orbit); re-tier by p50.
+#   9 run tools/flight_efficiency.py on the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "External command seat dismount is an EVA (owner ruling 2026-10-24): on seat-pad a VAB launch of SEAT1 Seat Pod (Mk1 pod with an external command seat on top), recording on the pad, Jeb out through the hatch, into the seat (stock KerbalEVA.BoardSeat, a dock merge) and out of it again (stock KerbalEVA.OnDeboardSeat, an undock), a commit. Pins that the dismount records an EVA branch with Jeb as its crew, never an Undock, a debris resume or a Rewind Point."
+instanceProfile = "stock-minimal"
+tags = ["SEAT-1", "eva", "seat", "external-command-seat", "eva-branch", "dock-merge",
+        "undock", "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/seat-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  # LOAD-BEARING: the EVA-detection, dock-merge and kerbal-left-vehicle branch lines are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  # (a) The VAB launch, the pad settle, the recording.
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "SEAT1 Seat Pod" },        expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                             expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "10" },                                         expect = "OK", budget = 120 },
+  { cmd = "StartRecording", label = "sr",                                                 expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  # (b) Jeb out through the hatch and down to the pad. `kerbal=` pins the VAB crew guess (a
+  # different pilot refuses kerbal-not-aboard at once); the 3 s settle lets him land, since
+  # stock's seat board runs only from an idle / ladder / swim FSM state and returns false
+  # (evaseatboard-refused) from a fall or a landing.
+  { cmd = "EvaExit",        args = { kerbal = "Jebediah Kerman", release = "true", settleSeconds = "3" }, expect = "OK", budget = 120 },
+  # (c) Into the seat.
+  { cmd = "MissionMark",    args = { label = "seat1-board" },                             expect = "OK" },
+  { cmd = "EvaSeatBoard",                                                                 expect = "OK" },
+  # (d) Let the merged recording sample the seated kerbal.
+  { cmd = "WarpToUT",       args = { ut = "45", maxRate = "1" },                          expect = "OK", budget = 120 },
+  # (e) Out of the seat: the dismount under test.
+  { cmd = "MissionMark",    args = { label = "seat1-leave" },                             expect = "OK" },
+  { cmd = "EvaSeatLeave",                                                                 expect = "OK" },
+  # (f) Let the dismount's EVA branch sample, then close.
+  { cmd = "WarpToUT",       args = { ut = "55", maxRate = "1" },                          expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "CommitTree",                                                                   expect = "OK", budget = 120 },
+  { cmd = "SaveGame",       args = { name = "persistent" },                               expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+[dimensionsCovered]
+D5  = ["eva-branch", "dock-merge-same-tree"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# DERIVED, not yet measured: the root pod recording (1); the hatch EVA ends it with two
+# children, the pod continuing in the background and Jeb's EVA (3, EVA-1's measured shape);
+# the seat board's dock merge ends both and opens one merged child, the pod with Jeb seated
+# (4); the dismount EVA ends that one with two children, the pod and Jeb's EVA (6). Every
+# required line below needs that whole chain, so 6 is the only count a green run can read.
+# Before the fix the dismount's Undock branch made 6 too, which is why the forbidden lines,
+# not this count, are the fix's guard; a debris resume would read 4 or 5.
+count = { min = 6, max = 6 }
+
+[expectations.logContracts]
+required = [
+  "Recording started",
+  # (b) The hatch EVA, the ordinary branch.
+  "Mid-recording EVA detected: 'Jebediah Kerman'",
+  # (c) The seat board through the seam, the couple recorded as a dock merge, then the
+  # completion that held past the merge.
+  "evaseatboard start kerbal='Jebediah Kerman' targetPid=[0-9]+ seatPart=seatExternalCmd seatId=[0-9]+ dist=",
+  "evaseatboard start kerbal='Jebediah Kerman'[\\s\\S]*?onPartCouple \\(tree(?:, retroactive)?\\): dock merge pending[\\s\\S]*?Tree dock merge completed",
+  "evaseatboard complete kerbal='Jebediah Kerman' vesselPid=[0-9]+ seatPart=seatExternalCmd seatId=[0-9]+",
+  # (e) THE FIX: the dismount is classified as a kerbal leaving a vehicle and branches as an
+  # EVA with Jeb as its crew, after the leave began (so the hatch EVA cannot satisfy it).
+  "evaseatleave start kerbal='Jebediah Kerman' vehiclePid=[0-9]+ seatPart=seatExternalCmd",
+  "evaseatleave start kerbal='Jebediah Kerman'[\\s\\S]*?OnVesselsUndocking: kerbal left vehicle, recording as EVA \\(kerbal='Jebediah Kerman'",
+  "evaseatleave start kerbal='Jebediah Kerman'[\\s\\S]*?Kerbal left vehicle through an undock: 'Jebediah Kerman' - starting deferred EVA branch",
+  "evaseatleave start kerbal='Jebediah Kerman'[\\s\\S]*?Tree branch created: type=EVA, [^\\r\\n]*evaCrew=Jebediah Kerman",
+  # ...and no Rewind Point: the EVA refusal in RewindPointAuthor.Begin, or the
+  # single-controllable skip before it (an uncrewed Mk1 pod may not count as controllable).
+  "evaseatleave start kerbal='Jebediah Kerman'[\\s\\S]*?(?:Split type=EVA: no Rewind Point \\(Re-Fly is for vessel separations only\\)|Single-controllable split: no RP \\(bp=[^ ]+ type=EVA )",
+  "evaseatleave complete kerbal='Jebediah Kerman' kerbalPid=[0-9]+ vehiclePid=[0-9]+",
+  "committree committed=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The bug's three shapes: an Undock branch, a debris resume, a Rewind Point at the
+  # dismount (no split in this lane may author one: the hatch EVA and the dismount are both
+  # EVA splits).
+  "Tree branch created: type=Undock",
+  "undocked vessel is debris",
+  "RewindPoint begin: ",
+]
+
+[runtime]
+# 1500 >= 300 LoadGame + 120 GoToEditor + 180 LaunchFromEditor + 3 x 120 WarpToUT + 180
+# StartRecording + 120 EvaExit + 2 x 60 seat verbs (default budget) + 120 CommitTree + 120
+# SaveGame + the fast verbs; the CX-2 cost class.
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

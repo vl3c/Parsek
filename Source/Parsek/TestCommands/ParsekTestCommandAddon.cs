@@ -1093,6 +1093,18 @@ namespace Parsek.TestCommands
                 TryCompleteCrewTransfer(now);
                 return;
             }
+            // The external command seat pair, in the .EvaSeat.cs partial: OK once the seat
+            // move landed and held past Parsek's dock-merge confirmation window.
+            if (completionVerb == TestCommandEvaSeat.BoardVerb)
+            {
+                TryCompleteEvaSeatBoard(now);
+                return;
+            }
+            if (completionVerb == TestCommandEvaSeat.LeaveVerb)
+            {
+                TryCompleteEvaSeatLeave(now);
+                return;
+            }
 
             bool done = false;
             string verdict = null;
@@ -1302,6 +1314,8 @@ namespace Parsek.TestCommands
             // A CrewTransfer prompt must never outlive its command either: it holds a control
             // lock until dismissed.
             RemoveCrewTransferState();
+            // A seat move's references must never outlive its command either.
+            ResetEvaSeatState();
             // A multi-category RunTests that ends by TIMEOUT or by a completion
             // exception must not leave its token queue armed for the next RunTests to
             // inherit; the sequence is over the moment the two-phase state is.
@@ -1680,6 +1694,11 @@ namespace Parsek.TestCommands
         // the switch run synchronously), so no TryComplete*.
         void ITestCommandExecutor.CycleVessel(ParsedCommand cmd) => CycleVesselImpl(cmd);
 
+        // EvaSeatBoard / EvaSeatLeave: bodies + two-phase completions in
+        // ParsekTestCommandAddon.EvaSeat.cs.
+        void ITestCommandExecutor.EvaSeatBoard(ParsedCommand cmd) => EvaSeatBoardImpl(cmd);
+        void ITestCommandExecutor.EvaSeatLeave(ParsedCommand cmd) => EvaSeatLeaveImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             // Batch-baseline latch clear (finding 1). Any verb that can change state a
@@ -1753,6 +1772,8 @@ namespace Parsek.TestCommands
                 case "ReadVesselResources": exec.ReadVesselResources(cmd); break;
                 case "CrewTransfer": exec.CrewTransfer(cmd); break;
                 case "CycleVessel": exec.CycleVessel(cmd); break;
+                case "EvaSeatBoard": exec.EvaSeatBoard(cmd); break;
+                case "EvaSeatLeave": exec.EvaSeatLeave(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

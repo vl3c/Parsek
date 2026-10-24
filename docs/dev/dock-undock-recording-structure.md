@@ -147,6 +147,8 @@ In the 2026-05-18 playtest, the undock didn't actually split the recording (we'l
 
 These are also split branch points (`Type = EVA`, `Type = Breakup`). The structural mechanics are the same — one parent, multiple children — but their `SplitCause` / `BreakupCause` fields differ, and they don't carry route windows.
 
+An undock whose two ends are a vehicle and an EVA kerbal is an EVA, not an Undock (owner ruling 2026-10-24: undock is between vehicles, a vehicle plus a kerbal is an EVA). Stock reaches `onVesselsUndocking` this way when a kerbal leaves an external command seat (`KerbalEVA.EjectFromSeat` undocks the kerbal's own part) and when a claw releases a grabbed kerbal (`ModuleGrappleNode.Release` undocks the grabbed part), and fires no `onCrewOnEva`. `OnVesselsUndocking` classifies the shape first (`SegmentBoundaryLogic.ClassifyUndockShape`) and sends `KerbalLeftVehicle` to the hatch EVA's deferred branch (`HandleKerbalLeftVehicleUndock` -> `DeferredEvaBranch`): `Type = EVA`, the crew name on the kerbal child, the vehicle backgrounded whatever its crew or command state, no route window and no Rewind Point. Taking the seat stays a Dock merge.
+
 ---
 
 ## 5. Snapshots: what gets captured when
