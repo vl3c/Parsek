@@ -16,7 +16,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## SEAM-DRIVER-KEEPS-DRIVING-AFTER-A-REFUSED-STEP: a seam step whose verdict misses its `expect` does not stop the attempt, so a deterministic refusal burns every later step's timeout and then the retry [FILED 2026-10-24 from IR-2 `2026-10-24_0934` / `_0946_a2` (INVALID, driver-gate, both attempts), flown for PR #2193. OPEN, low. harness]
+## ~~SEAM-DRIVER-KEEPS-DRIVING-AFTER-A-REFUSED-STEP: a seam step whose verdict misses its `expect` does not stop the attempt, so a deterministic refusal burns every later step's timeout and then the retry~~ [FILED 2026-10-24 from IR-2 `2026-10-24_0934` / `_0946_a2` (INVALID, driver-gate, both attempts), flown for PR #2193. FIXED 2026-10-24 (harness unit + fake-KSP smoke), branch `claude/project-thread-irj9um`. low. harness]
 
 **Symptom.** IR-2's `LaunchFromEditor` came back REJECTED (`launchfromeditor-site-obstructed`, a
 spec bug fixed in PR #2197), and `run.py` went on sending the remaining 20 steps from the editor:
@@ -29,6 +29,18 @@ classifies the attempt there as driver-stage INVALID) and record the rest in
 `driver.skippedTailSteps` with a reason such as `step-unmet`, then go straight to FlushAndQuit.
 Consider also skipping the retry when the unmet verdict is a REJECTED gate refusal, which a re-boot
 cannot change.
+
+**Fixed.** After each unmet seam step run.py asks `missionverify.drive_stop_subkind`, which runs
+`compose_driver_validity` over the steps driven so far; when the stage is already driver-INVALID it
+plans the rest with `hlib.plan_unmet_step_tail` (cleanup verbs only, a later mission step skipped),
+records `driver.skippedTailSteps` with reason `step-unmet` and `verifiers.unmetStepTail.stoppedAt`,
+and drives `FlushAndQuit`. Verdict and subkind are unchanged (proof in design-autotest-harness-core
+"The unmet-step stop"). A post-mission miss that leaves the stage valid (a flight-outcome ERROR, a
+non-refusal recording miss) still drives on, and an unmet mission keeps its own tail policy. The
+retry part is NOT taken: the closed `DETERMINISTIC_SEAM_ERROR_REASONS` veto stays evidence-gated per
+reason, since gate refusals read live state; the stop alone cuts IR-2's ~711 s attempt to the boot
+plus 11 steps. Tests: `test_drive_stop.py`, `UnmetStepStopSmokeTests`, and the refused-producer and
+failed-LoadGame smoke cells updated (both now stop at the failing step).
 
 ## ~~DISCARD-REFLY-LANDS-WITHOUT-REWIND-HOLDS: after a Discard Re-fly, a vessel the committed future uses is a live vessel again~~ [FILED 2026-10-24 from the item-7 re-check of the 10-16 audit's suspected defects, code read on main f3a22ce, not reproduced. Split out of the "Not covered" note of REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE. FIXED 2026-10-24 (xUnit), branch `claude/project-thread-mh6nli`, PR #2201; LIVE-PROVEN by QL-5 `2026-10-24_1026` (held=2, `source=discard-refly`). medium, physical paradox]
 

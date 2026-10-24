@@ -16,7 +16,8 @@ Covered here (design docs/dev/design-autotest-harness-core.md):
   - verdict classification (``classify_verdict`` + ``should_retry`` +
     ``classify_expected_fail`` + ``resolve_terminal``)
   - the unmet-mission tail decision (``SEAM_VERB_TAIL_ROLE`` +
-    ``plan_unmet_mission_tail`` + ``spec_skips_tail_on_unmet_mission``)
+    ``plan_unmet_mission_tail`` + ``spec_skips_tail_on_unmet_mission``), and the
+    same cleanup-only tail after a refused seam step (``plan_unmet_step_tail``)
   - expectations evaluation (``evaluate_expectations``)
   - the in-game batch anti-vacuity gate (``batch_contract_vacuity_gap`` +
     ``vacuous_batch_complete_probes``), enforced by ``validate_spec``; for a
@@ -12577,6 +12578,15 @@ class UnmetTailPlan:
     summary: str
 
 
+# Why a tail step was not driven, carried as ``reason`` on every
+# ``driver.skippedTailSteps`` row. ``mission-unmet``: the mission step came back
+# UNMET (plan_unmet_mission_tail). ``step-unmet``: a SEAM step missed its ``expect``
+# in a way that already made the attempt a terminal driver-stage INVALID
+# (plan_unmet_step_tail; the decision is missionverify.drive_stop_subkind).
+TAIL_SKIP_REASON_MISSION_UNMET = "mission-unmet"
+TAIL_SKIP_REASON_STEP_UNMET = "step-unmet"
+
+
 def plan_unmet_mission_tail(steps: Sequence[Dict], mission_index: int,
                             skip_tail: bool = SKIP_TAIL_ON_UNMET_MISSION_DEFAULT
                             ) -> UnmetTailPlan:
@@ -12646,6 +12656,41 @@ def plan_unmet_mission_tail(steps: Sequence[Dict], mission_index: int,
                                 for d in dispositions if d.run) or "none"))
     return UnmetTailPlan(bool(skip_tail), tuple(dispositions),
                          tuple(run_indices), tuple(skipped_indices), summary)
+
+
+def plan_unmet_step_tail(steps: Sequence[Dict], unmet_index: int) -> UnmetTailPlan:
+    """Decide which steps still run after the seam step at ``unmet_index`` missed its
+    ``expect`` and thereby made the attempt a terminal driver-stage INVALID
+    (todo SEAM-DRIVER-KEEPS-DRIVING-AFTER-A-REFUSED-STEP).
+
+    Motivating incident (IR-2, 2026-10-24 ``_0934`` / ``_0946_a2``): ``LaunchFromEditor``
+    came back REJECTED and the harness drove the remaining 20 steps from the editor
+    anyway; every scene-gated verb deferred to its own timeout, about 711 s per
+    attempt for a verdict known at step 11.
+
+    Same rule as the unmet-mission tail: drive the CLEANUP verbs only (so
+    ``FlushAndQuit`` still brings KSP down cleanly and the attempt is never turned
+    into a KILLED, which would outrank and mask the step's own subkind), skip the
+    rest. A later mission-kind step is skipped too (world-mutating: it flies a
+    vessel), so a refused pre-mission step spends no mission budget. Nothing the
+    skip drops could move the verdict: the caller only plans this tail once the
+    driven prefix is already driver-INVALID, which outranks every save-reading
+    verifier. There is no spec opt-out; the steps after a refused one only show the
+    cascade."""
+    plan = plan_unmet_mission_tail(steps, unmet_index, skip_tail=True)
+    if not plan.dispositions:
+        summary = "no steps after the unmet step"
+    elif not plan.skipped_indices:
+        summary = "the rest is cleanup-only (%d step(s)); nothing to skip" % len(plan.run_indices)
+    else:
+        summary = ("skipping %d of %d remaining step(s) [%s]; driving cleanup [%s]"
+                   % (len(plan.skipped_indices), len(plan.dispositions),
+                      ", ".join("%s:%s(%s)" % (d.step_id, d.cmd or "mission", d.role)
+                                for d in plan.dispositions if not d.run),
+                      ", ".join("%s:%s" % (d.step_id, d.cmd)
+                                for d in plan.dispositions if d.run) or "none"))
+    return UnmetTailPlan(plan.skip_enabled, plan.dispositions, plan.run_indices,
+                         plan.skipped_indices, summary)
 
 
 # ---------------------------------------------------------------------------
