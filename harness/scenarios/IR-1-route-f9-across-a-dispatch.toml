@@ -3,7 +3,7 @@ id = "IR-1-route-f9-across-a-dispatch"
 tier = "nightly"
 # =====================================================================================
 # IR-1 (roadmap "The logistics integration program", Phase B): a supply route x an F9
-# back across a dispatch. AUTHORED 2026-10-24, NEVER FLOWN.
+# back across a dispatch. AUTHORED 2026-10-24, LIVE-PROVEN 2026-10-24.
 #
 # THE STORY. The player creates and activates a route, presses F5, warps until the route
 # dispatches and delivers, then presses F9. The F9 is a save-file load, so it classifies
@@ -42,10 +42,9 @@ tier = "nightly"
 # `TimeJump ut=1600` crosses many loop periods and fires ONCE (measured on RVR-2:
 # `warp jump=21 ... firing ONCE and snapping forward`).
 # =====================================================================================
-description = "IR-1, AUTHORED 2026-10-24, never flown: create and activate the rover route on rover-route-recorded, F5, TimeJump across a dispatch (one 97.6 LiquidFuel delivery, endpoint 297.6 -> 395.2), F9 (a Cold save-file load). The new route read-back (ListHandles kind=routes) must show the quicksave's route (Active, cursor -1, no cycle, no route event), the endpoint tank must read 297.6 again, and the next crossing must dispatch and deliver exactly once (395.2, dispatched=1 delivered=1). Pins the 2026-10-07 A1 fix (ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD) for the F9 half now that an F9 is a cold load."
+description = "IR-1, LIVE-PROVEN 2026-10-24: create and activate the rover route on rover-route-recorded, F5, TimeJump across a dispatch (one 97.6 LiquidFuel delivery, endpoint 297.6 -> 395.2), F9 (a Cold save-file load). The new route read-back (ListHandles kind=routes) must show the quicksave's route (Active, cursor -1, no cycle, no route event), the endpoint tank must read 297.6 again, and the next crossing must dispatch and deliver exactly once (395.2, dispatched=1 delivered=1). Pins the 2026-10-07 A1 fix (ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD) for the F9 half now that an F9 is a cold load."
 instanceProfile = "stock-minimal"
-tags = ["IR-1", "logistics", "route", "quickload", "timeline-ops", "recorded-fixture",
-        "pending-flight"]
+tags = ["IR-1", "logistics", "route", "quickload", "timeline-ops", "recorded-fixture"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/rover-route-recorded"
