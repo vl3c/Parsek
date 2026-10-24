@@ -41,6 +41,7 @@ namespace Parsek.Tests
 
         [Theory]
         [InlineData("SwitchIntentTrackingStationFlyPatch", "vessel switch recording")]
+        [InlineData("AlarmJumpSwitchPatch", "vessel switch recording")]
         [InlineData("GhostTrackingFlyPatch", "ghost vessels")]
         [InlineData("TechResearchPatch", "tech tree reservations")]
         [InlineData("RDTechPurchasePartPatch", "tech tree reservations")]
@@ -56,6 +57,7 @@ namespace Parsek.Tests
         [InlineData("PartVesselNamingAcceptCapturePatch", "vessel names")]
         [InlineData("ResourceScanUnlockPlanetPatch", "resource scan recording")]
         [InlineData("ResourceScanUnlockBiomePatch", "resource scan recording")]
+        [InlineData("ClaimedVesselLaunchSiteTestPatch", "ghost vessels")]
         [InlineData("CanAffordLaunchTestPatch", "launch cost reservations")]
         [InlineData("VesselSpawnDialogLaunchButtonPatch", "launch cost reservations")]
         [InlineData("LaunchSiteFlyoutPointerEnterPatch", "launch cost reservations")]

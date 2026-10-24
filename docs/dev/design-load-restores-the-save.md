@@ -506,7 +506,8 @@ once per process.
 
 | File | Collected when |
 |---|---|
-| `_versions/<id>.<hash><suffix>` | no referrer and no memory recording names `(id, hash)` |
+| `_versions/<id>.<hash><suffix>` | no referrer and no memory recording names `(id, hash)`; moved to `_versions/_quarantine/<yyyy-MM-dd>/`, never deleted at that point (GC-15) |
+| `_versions/_quarantine/<yyyy-MM-dd>/<file>` | still named by no referrer and no memory 14 whole UTC days after its folder's date |
 | `_versions/<id><suffix>.incoming.<guid>` | always filed first: hashed and renamed (4.4), then judged as above |
 | head `<id><suffix>` (all kinds) | no referrer and no memory names `id`; moved to `_quarantine/<yyyy-MM-dd>/` (the UTC day it was quarantined), never deleted at that point |
 | `_quarantine/<yyyy-MM-dd>/<file>` | still named by no referrer and no memory 14 whole UTC days after its folder's date (`ParsekFileCollector.QuarantineGraceDays`); an empty dated folder goes with it |
@@ -532,12 +533,15 @@ still there, a save that names the recording again brings the file back to its p
 - a file quarantined into the folder's root (before the folders were dated) is filed into
   today's folder, so its 14 days start then.
 
-Only the head of a recording is quarantined; its unnamed `_versions` copies go at once, as above.
-A save brought back that names an older copy of a recording than the quarantined head therefore
-still reads that recording as unresolved, and a restored head whose hash differs from the one a
-save names is promoted aside into `_versions` like any other replaced head, where an unnamed
-version goes at the next collection without a grace. The zero-known-ids guard counts quarantined
-ids as well as heads, and it and the unreadable-referrer guard skip the whole run, the quarantine
+An unnamed `_versions` copy gets the same grace (GC-15, owner question 2026-10-24): it moves into
+`_versions/_quarantine/yyyy-MM-dd/` under its own name (which carries its hash), goes back to
+`_versions` when a save or memory names that (recording id, hash) again (at the cold-load restore
+before hydration, and at every collection), and is deleted after the 14 days; a copy already
+waiting under the same name holds the same bytes, so the newcomer goes at once. This closes the
+swap-back case: a save restored from outside the folder promotes its own copy and moves the newer
+head aside into `_versions`, and the newer save swapped back within the grace finds it again.
+
+The zero-known-ids guard counts quarantined ids as well as heads, and it and the unreadable-referrer guard skip the whole run, the quarantine
 sweep included.
 
 The rewind point reaper keeps deciding WHEN a point is done (all slots sealed); it removes the
@@ -790,7 +794,7 @@ cache cannot be stale). Not part of this design until measured.
 - `[RecordingStore] Sidecar version resolved: rec=<id> kind=<prec|vessel|ghost> hash=<h> source=<head|version> promoted=<bool>` (Verbose per recording; one Info summary per load with counts by source).
 - `[RecordingStore] Sidecar retained: rec=<id> kind=<k> hash=<h> reason=<rewrite|delete> outcome=<filed|identical-exists|same-as-head|left-incoming>` (Verbose; batch summary per OnSave / flush).
 - `[RecordingStore] Sidecar version read without promote: rec=<id> kind=<k> hash=<h> reason=<multiple-owners|promote-failed>` (Info), and `... annotation cache dropped: rec=<id> reason=version-read` (Verbose).
-- `[FileCollector] Collection: referrers=<n> scanned=<n> cached=<n> versionsDeleted=<n> headsQuarantined=<n> rewindPointFilesDeleted=<n> rewindSavesDeleted=<n> bytesFreed=<n> ms=<n>` (Info), and `... skipped reason=<unreadable-referrer path=...|journal-open|rewind|...>` (Warn for unreadable, Verbose otherwise).
+- `[FileCollector] Collection: referrers=<n> scanned=<n> cached=<n> incomingFiled=<n> versionsDeleted=<n> versionsQuarantined=<n> versionsRestored=<n> versionsPurged=<n> headsQuarantined=<n> rewindPointFilesDeleted=<n> rewindSavesDeleted=<n> bytesFreed=<n> ms=<n>` (Info), and `... skipped reason=<unreadable-referrer path=...|journal-open|rewind|...>` (Warn for unreadable, Verbose otherwise).
 - `[MergeDialog] Quicksave not refreshed after <merge|discard> (the player's F5 point is kept)` (Verbose).
 
 ---

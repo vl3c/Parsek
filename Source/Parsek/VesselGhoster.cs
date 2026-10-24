@@ -318,9 +318,7 @@ namespace Parsek
                     out spawnAlt);
 
                 CelestialBody spawnBody = VesselSpawner.ResolveSpawnRotationBody(tipRecording, tipPoint);
-                bool useRecordedTerminalOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(
-                    tipRecording,
-                    !string.IsNullOrEmpty(tipRecording.EvaCrewName));
+                bool useRecordedTerminalOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(tipRecording);
                 Vector3d spawnVelocity;
                 Orbit orbitOverride = null;
                 if (shifted.Resolved)
@@ -538,9 +536,7 @@ namespace Parsek
             CelestialBody spawnBody = VesselSpawner.ResolveSpawnRotationBody(tipRecording, tipPoint);
             if (spawnBody != null)
             {
-                bool useRecordedTerminalOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(
-                    tipRecording,
-                    !string.IsNullOrEmpty(tipRecording.EvaCrewName));
+                bool useRecordedTerminalOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(tipRecording);
                 double spawnLat = 0.0;
                 double spawnLon = 0.0;
                 double spawnAlt = 0.0;
@@ -1284,8 +1280,7 @@ namespace Parsek
         {
             var result = default(JumpShiftedTipSpawn);
             if (tip == null
-                || !VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(
-                    tip, !string.IsNullOrEmpty(tip.EvaCrewName))
+                || !VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(tip)
                 || !TimeJumpTerminalOrbitShift.TryGetShift(tip.RecordingId, ut, out _))
                 return result;
 

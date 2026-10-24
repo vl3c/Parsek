@@ -19,9 +19,10 @@ namespace Parsek
     /// continues through the session) and its own crew on EVA. Every player-initiated switch
     /// to any other vessel is refused at its stock entry point: the map Switch-To / focus Fly
     /// (<c>MapFocusObjectOnSelectPatch</c>), the Tracking Station Fly
-    /// (<c>GhostTrackingFlyPatch</c>), the KSC marker Fly (<c>KscVesselMarkerFlyPatch</c>)
-    /// and the <c>[</c> / <c>]</c> vessel cycle (<c>VesselCycleReFlySwitchPatch</c> on stock
-    /// <c>VesselSwitching.Update</c>). <c>FlightGlobals.SetActiveVessel</c> itself is never
+    /// (<c>GhostTrackingFlyPatch</c>), the KSC marker Fly (<c>KscVesselMarkerFlyPatch</c>),
+    /// the <c>[</c> / <c>]</c> vessel cycle (<c>VesselCycleReFlySwitchPatch</c> on stock
+    /// <c>VesselSwitching.Update</c>) and the stock alarm dialog's Jump
+    /// (<c>AlarmJumpSwitchPatch</c>). <c>FlightGlobals.SetActiveVessel</c> itself is never
     /// gated: stock calls it for an EVA, a board, a dock and an undock, and those are not
     /// switches.
     /// </summary>
@@ -33,6 +34,7 @@ namespace Parsek
         internal const string PathTrackingStationFly = "tsFly";
         internal const string PathKscMarkerFly = "kscMarkerFly";
         internal const string PathVesselCycle = "vesselCycle";
+        internal const string PathAlarmJump = "alarmJump";
 
         internal const string ReasonNoSession = "noSession";
         internal const string ReasonSessionVessel = "sessionVessel";

@@ -7239,7 +7239,7 @@ namespace Parsek.Tests
             Assert.Equal(SinglePointHoldProbeSma, reloaded.TerminalOrbitSemiMajorAxis);
             Assert.Equal(SinglePointHoldSaveUT, reloaded.TerminalOrbitEpoch);
             Assert.Equal(TerminalState.Orbiting, rec.TerminalStateValue);
-            Assert.True(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva: false));
+            Assert.True(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec));
             Assert.NotNull(rec.VesselSnapshot);
             Assert.True(SpawnCollisionDetector.ComputeVesselBounds(rec.VesselSnapshot).extents.x >= 150f);
             Assert.Equal(SinglePointHoldProbeMna + SinglePointHoldMnaLead,
@@ -7756,7 +7756,7 @@ namespace Parsek.Tests
                 Assert.Contains(logLines, l => l.Contains("[Spawner]")
                     && l.Contains("Corrected unsafe snapshot situation: FLYING -> LANDED (terminal=Landed)"));
                 // A Landed terminal never takes the terminal-orbit spawn route.
-                Assert.False(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva: false));
+                Assert.False(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec));
             }
             finally
             {
@@ -7773,7 +7773,7 @@ namespace Parsek.Tests
             Assert.Single(rec.Points);
             Assert.Single(rec.OrbitSegments);
             Assert.Equal(SinglePointHoldSaveUT + TerminalOrbitWindowSeconds, rec.EndUT);
-            Assert.True(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva: false));
+            Assert.True(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec));
             Recording reloaded = RoundTripTreeRecord(rec);
             Assert.Equal(TerminalState.Orbiting, reloaded.TerminalStateValue);
             Assert.Equal("Kerbin", reloaded.TerminalOrbitBody);
@@ -9930,7 +9930,7 @@ namespace Parsek.Tests
                 // An end-of-recording spawn candidate on the recorded terminal orbit, with no
                 // departure before the end: the row Real Spawn Control draws as "Ready".
                 Assert.True(GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(tip, false).needsSpawn);
-                Assert.True(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(tip, false));
+                Assert.True(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(tip));
                 Assert.False(SelectiveSpawnUI.ComputeDepartureInfo(tip, SinglePointHoldSaveUT + 6.0).willDepart);
                 Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
                     && l.Contains("Chain built: vessel="

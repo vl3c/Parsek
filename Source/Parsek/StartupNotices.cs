@@ -35,8 +35,8 @@ namespace Parsek
         // switch-intent Fly patch is "vessel switch recording", not "ghost vessels".
         private static readonly (string[] prefixes, string feature)[] FeatureRules =
         {
-            (new[] { "SwitchIntent", "MapFocusObject", "KscVesselMarkerFly" }, "vessel switch recording"),
-            (new[] { "Ghost", "FlightStateGhostBudget", "SunLateUpdateGuard", "ClaimedVesselDisposal" }, "ghost vessels"),
+            (new[] { "SwitchIntent", "MapFocusObject", "KscVesselMarkerFly", "AlarmJump" }, "vessel switch recording"),
+            (new[] { "Ghost", "FlightStateGhostBudget", "SunLateUpdateGuard", "ClaimedVesselDisposal", "ClaimedVesselLaunchSite" }, "ghost vessels"),
             (new[] { "Tech", "RnD", "RDTech", "PartListTooltip" }, "tech tree reservations"),
             (new[] { "Facility" }, "facility upgrade reservations"),
             (new[] { "Contract", "MissionControl" }, "contract reservations"),

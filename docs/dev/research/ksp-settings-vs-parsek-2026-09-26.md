@@ -53,7 +53,7 @@ saves. Cheats are process-static, never saved.
 | IndestructibleFacilities / BuildingImpactDamageMult | destruction read from stock ScenarioDestructibles; recorded destruction rows replay as recorded | OK |
 | ResourceAbundance | not read; routes replay recorded amounts | OK (new-game-only) |
 | ReentryHeatScale | thermal only; ghost reentry FX derived from recorded speed/density; overheat destruction recorded as events | OK |
-| EnableCommNet | only read in `GhostCommNetRelay` (dead code, todo GUI-D3); ghosts CommNet-inert in every setting | OK in effect; ruling already pending under GUI-D3. If the relay is ever wired: null-guard `HighLogic.CurrentGame` and re-evaluate on difficulty change |
+| EnableCommNet | 2026-10-24 correction: ghosts relay per design 15.6 (`GhostCommNet` / `GhostCommNetManager`); with CommNet off no `CommNetScenario` exists, `GhostCommNetMath.DecideAvailability` answers CommNetDisabled and the manager removes every ghost node (`GhostCommNetRelay` is gone) | OK |
 | AllowOtherLaunchSites (MH) | launch-site capture exists; alt-site replay/spawn with the setting off untested (registry D17 unflown) | CHECK (low). 2026-09-27: every stock site now retires an ending like KSC, and the stale-site tag is fixed (todo KSP-SETTINGS-FOLLOWUPS-RECORDING-2026-09-27) |
 | AutoHireCrews | stock hires before flight; Parsek reservations hire replacements | CHECK (low): confirm the auto-hire path emits the same hire event Parsek's ledger captures |
 | persistKerbalInventories | traced 2026-09-27: a spawned-at-end vessel gave each kerbal his current roster inventory (duplicated or lost cargo; the flag widens the duplication). Fixed by capturing crew inventories with the snapshot and restoring them at spawn (todo KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN); logistics pickups walk part modules only, unaffected | FIXED |
@@ -66,7 +66,7 @@ saves. Cheats are process-static, never saved.
 | AllowNegativeCurrency (Mod/Hard true) | CHECK: displayed pool is Total - Reserved; with negatives allowed stock lets the player spend money reserved for the committed future. Parsek's stock click-blocks read CommittedFutureIndex, not stock affordability, so likely covered for tech/facility/hire; plain part purchases and other spends not traced. Route dispatch refuses `funds < cost` regardless (stricter than stock, acceptable). |
 | EnableKerbalExperience / ImmediateLevelUp | OK: Parsek appends careerLog and delegates to stock `UpdateExperience`, which applies both flags |
 | PressurePartLimits, GPartLimits, GKerbalLimits, KerbalGToleranceMult, ResourceTransferObeyCrossfeed, ActionGroupsAlways, PartUpgradesIn*, EnableFullSAS* | OK: live physics / editor only, recordings capture outcomes |
-| requireSignalForControl, plasmaBlackout, range/DSN/occlusion modifiers, enableGroundStations | OK: affect live vessels only; ghosts are CommNet-inert (see EnableCommNet) |
+| requireSignalForControl, plasmaBlackout, range/DSN/occlusion modifiers, enableGroundStations | OK: affect live vessels only; since ghost relays shipped a live probe can depend on a ghost node for control (2026-10-24 correction, GC-14 trace in the todo) |
 
 ### 2.4 Flight / Editor / TrackingStation / SpaceCenter params
 

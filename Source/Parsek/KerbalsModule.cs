@@ -52,6 +52,64 @@ namespace Parsek
             ParsekLog.Verbose("Kerbals", "terminal stamp observer installed");
         }
 
+        // -- Tourist passengers --
+
+        /// <summary>
+        /// The <see cref="GameAction.KerbalRole"/> a tourist's KerbalAssignment row carries
+        /// (stock <c>KerbalRoster.touristTrait</c>). The row is the durable record that the
+        /// seat was a tourist's: stock deletes the kerbal when his contract ends or his
+        /// vessel is recovered, and a rewind to before the offer leaves no kerbal at all.
+        /// </summary>
+        internal const string TouristRole = "Tourist";
+
+        /// <summary>
+        /// The tourist hold policy, the ONE place it is decided: true holds a tourist that a
+        /// committed future flight still carries for that flight (greyed in the crew dialog
+        /// until the flight ends, so after a rewind he never rides two vessels at once);
+        /// false never holds a tourist. Either way a tourist gets no slot, no stand-in and no
+        /// replacement kerbal (<see cref="PostWalk"/>), and his rows stay tourist evidence
+        /// for the spawn path (<see cref="IsTouristPassenger"/>).
+        /// </summary>
+        internal static readonly bool TouristsHeldByCommittedFlights = true;
+
+        /// <summary>True when <paramref name="role"/> is the tourist role. Pure.</summary>
+        internal static bool IsTouristRole(string role)
+        {
+            return string.Equals(role, TouristRole, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Whether a KerbalAssignment row of <paramref name="role"/> holds its kerbal under
+        /// the hold policy <paramref name="touristsHeld"/>: every crew role does, a tourist
+        /// only when tourists are held. Pure.
+        /// </summary>
+        internal static bool RoleHoldsKerbal(string role, bool touristsHeld)
+        {
+            return touristsHeld || !IsTouristRole(role);
+        }
+
+        /// <summary><see cref="RoleHoldsKerbal(string, bool)"/> under the shipped policy.</summary>
+        internal static bool RoleHoldsKerbal(string role)
+        {
+            return RoleHoldsKerbal(role, TouristsHeldByCommittedFlights);
+        }
+
+        /// <summary>
+        /// Names on the walk's tourist KerbalAssignment rows, held or not. Rebuilt every walk
+        /// (cleared in <see cref="Reset"/>).
+        /// </summary>
+        private readonly HashSet<string> touristPassengers =
+            new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// True when an effective KerbalAssignment row of the last walk names
+        /// <paramref name="kerbalName"/> as a tourist.
+        /// </summary>
+        internal bool IsTouristPassenger(string kerbalName)
+        {
+            return !string.IsNullOrEmpty(kerbalName) && touristPassengers.Contains(kerbalName);
+        }
+
         // ── Derived state (recomputed on every recalculation walk) ──
         private Dictionary<string, KerbalReservation> reservations
             = new Dictionary<string, KerbalReservation>();
@@ -268,7 +326,8 @@ namespace Parsek
         /// A Dock / Board branch point (any tree) whose target is a recorded vessel, or an
         /// InventoryTransfer branch point adopting a foreign cargo partner: the claim's UT,
         /// the target's pid and launch guid, and the merged child (or member) recording that
-        /// carries the claimed vessel on. Built in <see cref="PrePass"/>.
+        /// carries the claimed vessel on. Also a recording whose vessel JOINED its tree
+        /// (<see cref="ForeignVesselRecording"/>). Built in <see cref="PrePass"/>.
         /// </summary>
         internal struct DockClaim
         {
@@ -278,6 +337,31 @@ namespace Parsek
             public uint TargetPid;
             public string TargetGuid;
             public string MergedChildRecordingId;
+            /// <summary>
+            /// The claim is a recording whose vessel joined its tree rather than coming out of
+            /// it (the tree's root, a parentless recording, or a post-switch Launch branch
+            /// point's child): a later mission picking up a vessel an earlier one left, e.g.
+            /// by a `]` switch that arms no stock-action intent. Claim UT = the recording's
+            /// start, target = its own vessel. It claims holds of OTHER trees only: a tree's
+            /// own vessel lines hand crew on through its split and chain rules.
+            /// </summary>
+            public bool ForeignVesselRecording;
+        }
+
+        /// <summary>
+        /// True when a recording whose parent branch point is <paramref name="parentBranchPointId"/>
+        /// (type <paramref name="parentBranchPointType"/>, null when the tree does not list it)
+        /// carries a vessel that JOINED its tree: no parent (the root, a parentless post-switch
+        /// recording, a standalone switch segment) or a post-switch Launch branch point. A
+        /// split, dock, board or switch-continuation child carries a vessel of the tree's own
+        /// lineage. Pure.
+        /// </summary>
+        internal static bool IsJoinedVesselRecording(
+            string parentBranchPointId, BranchPointType? parentBranchPointType)
+        {
+            if (string.IsNullOrEmpty(parentBranchPointId))
+                return true;
+            return parentBranchPointType == BranchPointType.Launch;
         }
 
         /// <summary>
@@ -322,12 +406,16 @@ namespace Parsek
         /// +inf. The claim may live in any tree: a rescue mission docks to a station another
         /// mission left him on (design 9.3: a STRANDED hold stays open "until a rescue
         /// recording closes it"). The held recording's own outgoing branch point is the
-        /// in-tree split hand-off, never a claim on itself. Pure.
+        /// in-tree split hand-off, never a claim on itself. A
+        /// <see cref="DockClaim.ForeignVesselRecording"/> claim counts only when it lives in
+        /// a tree other than <paramref name="holdTreeId"/> (an unknown tree on either side
+        /// claims nothing). Pure.
         /// </summary>
         internal static double ResolveDockClaimHandoffUT(
             IReadOnlyList<DockClaim> claims,
             IReadOnlyDictionary<string, HashSet<string>> carriedBy,
             string recordingId,
+            string holdTreeId,
             uint holdVesselPid,
             string holdVesselGuid,
             double holdEndUT,
@@ -345,6 +433,10 @@ namespace Parsek
                 DockClaim c = claims[i];
                 if (string.IsNullOrEmpty(c.MergedChildRecordingId)
                     || string.Equals(c.MergedChildRecordingId, recordingId, StringComparison.Ordinal))
+                    continue;
+                if (c.ForeignVesselRecording
+                    && (string.IsNullOrEmpty(c.TreeId) || string.IsNullOrEmpty(holdTreeId)
+                        || string.Equals(c.TreeId, holdTreeId, StringComparison.Ordinal)))
                     continue;
                 if (!DockClaimHandsOffHold(holdVesselPid, holdVesselGuid, holdEndUT,
                         c.TargetPid, c.TargetGuid, c.DockUT))
@@ -501,6 +593,11 @@ namespace Parsek
             /// the stand-in decision; the reservation dict is rebuilt every walk.
             /// </summary>
             public bool LossAtWalkClock;
+            /// <summary>
+            /// A tourist row contributed to this hold: the kerbal is a passenger, so
+            /// <see cref="PostWalk"/> creates no slot and demands no stand-in for him.
+            /// </summary>
+            public bool IsTouristPassenger;
         }
 
         /// <summary>
@@ -1058,6 +1155,7 @@ namespace Parsek
             splitChainStartByRecording.Clear();
             dockClaims.Clear();
             rowKerbalsByRecording.Clear();
+            touristPassengers.Clear();
         }
 
         /// <summary>
@@ -1203,10 +1301,12 @@ namespace Parsek
         /// Fills <see cref="dockClaims"/> from the committed trees' Dock / Board branch points
         /// that name a target vessel (a Board's is its merged child's vessel) and a merged
         /// child, plus every InventoryTransfer branch point (the claimed cargo partner is its
-        /// member recording's own vessel, which the member carries on), and <see cref="rowKerbalsByRecording"/>
-        /// from the walk's non-tourist KerbalAssignment rows (the walk's actions are the
+        /// member recording's own vessel, which the member carries on), plus every crewed
+        /// recording whose vessel joined its tree (<see cref="IsJoinedVesselRecording"/>,
+        /// claiming its own vessel at its start), and <see cref="rowKerbalsByRecording"/>
+        /// from the walk's holding KerbalAssignment rows (<see cref="RoleHoldsKerbal(string)"/>; the walk's actions are the
         /// effective ledger, so a superseded docked recording carries nobody). Returns the
-        /// claims collected.
+        /// branch-point claims collected (the joined-vessel claims log their own count).
         /// </summary>
         private int CollectDockClaims(IReadOnlyList<RecordingTree> trees, List<GameAction> actions)
         {
@@ -1217,7 +1317,7 @@ namespace Parsek
                     var a = actions[i];
                     if (a == null || a.Type != GameActionType.KerbalAssignment) continue;
                     if (string.IsNullOrEmpty(a.KerbalName) || string.IsNullOrEmpty(a.RecordingId)) continue;
-                    if (string.Equals(a.KerbalRole, "Tourist", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!RoleHoldsKerbal(a.KerbalRole)) continue;
                     HashSet<string> set;
                     if (!rowKerbalsByRecording.TryGetValue(a.RecordingId, out set))
                     {
@@ -1286,7 +1386,70 @@ namespace Parsek
                     collected++;
                 }
             }
+
+            int joinedClaims = 0;
+            int joinedSkippedUncrewed = 0;
+            for (int t = 0; t < trees.Count; t++)
+            {
+                RecordingTree tree = trees[t];
+                if (tree?.Recordings == null || string.IsNullOrEmpty(tree.Id)) continue;
+                foreach (var kvp in tree.Recordings)
+                {
+                    string recId = kvp.Key;
+                    RecordingMeta meta;
+                    if (string.IsNullOrEmpty(recId) || !recordingMeta.TryGetValue(recId, out meta))
+                        continue;
+                    if (meta.VesselPid == 0 || double.IsNaN(meta.StartUT) || double.IsInfinity(meta.StartUT))
+                        continue;
+                    BranchPointType? parentType = null;
+                    if (!string.IsNullOrEmpty(meta.ParentBranchPointId))
+                    {
+                        BranchPoint parentBp = FindBranchPoint(tree, meta.ParentBranchPointId);
+                        if (parentBp != null) parentType = parentBp.Type;
+                    }
+                    if (!IsJoinedVesselRecording(meta.ParentBranchPointId, parentType))
+                        continue;
+                    // A recording whose rows name nobody can hand no hold on.
+                    HashSet<string> carried;
+                    if (!rowKerbalsByRecording.TryGetValue(recId, out carried)
+                        || carried == null || carried.Count == 0)
+                    {
+                        joinedSkippedUncrewed++;
+                        continue;
+                    }
+                    dockClaims.Add(new DockClaim
+                    {
+                        TreeId = tree.Id,
+                        BranchPointId = meta.ParentBranchPointId,
+                        DockUT = meta.StartUT,
+                        TargetPid = meta.VesselPid,
+                        TargetGuid = meta.VesselGuid,
+                        MergedChildRecordingId = recId,
+                        ForeignVesselRecording = true,
+                    });
+                    joinedClaims++;
+                }
+            }
+            if (joinedClaims > 0 || joinedSkippedUncrewed > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PrePass: {joinedClaims.ToString(CultureInfo.InvariantCulture)} crewed recording(s) of a " +
+                    "vessel that joined its tree can end another tree's open-ended hold on that vessel " +
+                    $"(uncrewed skipped={joinedSkippedUncrewed.ToString(CultureInfo.InvariantCulture)})");
+            }
             return collected;
+        }
+
+        private static BranchPoint FindBranchPoint(RecordingTree tree, string branchPointId)
+        {
+            if (tree?.BranchPoints == null || string.IsNullOrEmpty(branchPointId)) return null;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                BranchPoint bp = tree.BranchPoints[i];
+                if (bp != null && string.Equals(bp.Id, branchPointId, StringComparison.Ordinal))
+                    return bp;
+            }
+            return null;
         }
 
         /// <summary>
@@ -1391,8 +1554,8 @@ namespace Parsek
         /// <summary>
         /// Fills <see cref="splitHandoffs"/> from the walk's KerbalAssignment rows whose
         /// recording is a child of a branch point, looped or not (the child row is what carries
-        /// the kerbal on, under the same reverse-mapped name the parent's row uses). Tourist
-        /// rows hold nothing and are skipped. Returns the rows recorded.
+        /// the kerbal on, under the same reverse-mapped name the parent's row uses). Rows that
+        /// hold nobody (<see cref="RoleHoldsKerbal(string)"/>) are skipped. Returns the rows recorded.
         /// </summary>
         private int CollectSplitHandoffs(List<GameAction> actions)
         {
@@ -1403,7 +1566,7 @@ namespace Parsek
                 var a = actions[i];
                 if (a == null || a.Type != GameActionType.KerbalAssignment) continue;
                 if (string.IsNullOrEmpty(a.KerbalName) || string.IsNullOrEmpty(a.RecordingId)) continue;
-                if (string.Equals(a.KerbalRole, "Tourist", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!RoleHoldsKerbal(a.KerbalRole)) continue;
 
                 RecordingMeta meta;
                 if (!recordingMeta.TryGetValue(a.RecordingId, out meta)) continue;
@@ -1454,7 +1617,13 @@ namespace Parsek
             if (action.Type != GameActionType.KerbalAssignment)
                 return;
 
-            if (string.Equals(action.KerbalRole, "Tourist", System.StringComparison.OrdinalIgnoreCase))
+            // A tourist row is tourist evidence whether or not it holds him: the spawn path
+            // re-creates a missing tourist as a tourist, never as hired crew.
+            bool touristRow = IsTouristRole(action.KerbalRole);
+            if (touristRow && !string.IsNullOrEmpty(action.KerbalName))
+                touristPassengers.Add(action.KerbalName);
+
+            if (!RoleHoldsKerbal(action.KerbalRole))
                 return;
 
             string recordingId = action.RecordingId;
@@ -1590,22 +1759,30 @@ namespace Parsek
             // A later dock claims the vessel this recording left the kerbal on, and the
             // docked recording carries him on (a rescue that docks and takes him aboard, in
             // this tree or another): the hold ends at the dock and the docking mission's own
-            // rows decide the rest (CROSS-TREE-CREW-TRANSFER-STRANDS-RESERVATION).
+            // rows decide the rest (CROSS-TREE-CREW-TRANSFER-STRANDS-RESERVATION). A later
+            // mission that records the vessel itself (it joined that mission's tree, e.g.
+            // after a `]` switch) claims it the same way at that recording's start
+            // (GC6-FOREIGN-TREE-RECORDING-KEEPS-OPEN-HOLD).
             if (!permanent && !handedOff
                 && (endState == KerbalEndState.Aboard || endState == KerbalEndState.Unknown))
             {
                 DockClaim claim;
                 double dockUT = ResolveDockClaimHandoffUT(
-                    dockClaims, rowKerbalsByRecording, recordingId,
+                    dockClaims, rowKerbalsByRecording, recordingId, meta.TreeId,
                     meta.VesselPid, meta.VesselGuid, meta.EndUT, name, out claim);
                 if (!double.IsPositiveInfinity(dockUT))
                 {
                     endUT = dockUT;
                     handedOff = true;
                     ParsekLog.Verbose(Tag,
-                        $"Reservation bounded by cross-tree dock handoff: '{name}' recording '{recordingId}' " +
-                        $"({endState}) endUT={dockUT.ToString("F1", CultureInfo.InvariantCulture)} " +
-                        $"bp='{claim.BranchPointId}' tree='{claim.TreeId}' child='{claim.MergedChildRecordingId}'");
+                        claim.ForeignVesselRecording
+                            ? $"Reservation bounded by foreign recording of the vessel: '{name}' recording '{recordingId}' " +
+                              $"({endState}) endUT={dockUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                              $"tree='{claim.TreeId}' child='{claim.MergedChildRecordingId}' " +
+                              $"pid={claim.TargetPid.ToString(CultureInfo.InvariantCulture)}"
+                            : $"Reservation bounded by cross-tree dock handoff: '{name}' recording '{recordingId}' " +
+                              $"({endState}) endUT={dockUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                              $"bp='{claim.BranchPointId}' tree='{claim.TreeId}' child='{claim.MergedChildRecordingId}'");
                 }
             }
 
@@ -1637,6 +1814,7 @@ namespace Parsek
                 // Merge: take max endUT, permanent wins, latest respawn instant kept,
                 // earliest open-ended co-row start kept
                 if (permanent) existing.IsPermanent = true;
+                if (touristRow) existing.IsTouristPassenger = true;
                 if (!double.IsNaN(openEndedStartUT)
                     && (double.IsNaN(existing.OpenEndedCoRowStartUT)
                         || openEndedStartUT < existing.OpenEndedCoRowStartUT))
@@ -1660,13 +1838,15 @@ namespace Parsek
                     ReservedUntilUT = endUT,
                     IsPermanent = permanent,
                     DeathRespawnUT = deathRespawnUT,
-                    OpenEndedCoRowStartUT = openEndedStartUT
+                    OpenEndedCoRowStartUT = openEndedStartUT,
+                    IsTouristPassenger = touristRow
                 };
                 ParsekLog.Verbose(Tag,
                     $"Reservation: '{name}' endUT={( permanent ? "INDEFINITE" : endUT.ToString("F1") )} " +
                     $"({endState}" +
                     $"{(dead && !permanent ? ", respawn at " + FormatClockUT(deathRespawnUT) : "")}), " +
-                    $"recording '{recordingId}'");
+                    $"recording '{recordingId}'" +
+                    (touristRow ? " (tourist passenger: held, no stand-in)" : ""));
             }
         }
 
@@ -1710,8 +1890,8 @@ namespace Parsek
         /// the kerbal's open-ended hold from the retired recording itself and from the
         /// earlier segments of the same flight (same tree, ended by then) at EndUT, exactly
         /// as a <see cref="GameActionType.KerbalRecovered"/> row would, while a later flight
-        /// keeps its own hold. Dead / Recovered rows and tourists are untouched, no ledger
-        /// row is written, and one closure is added per (kerbal, recording). Returns the
+        /// keeps its own hold. Dead / Recovered rows and rows that hold nobody
+        /// (<see cref="RoleHoldsKerbal(string)"/>) are untouched, no ledger row is written, and one closure is added per (kerbal, recording). Returns the
         /// closures added. Pure.
         /// </summary>
         internal static int CollectKscRetirementClosures(
@@ -1731,7 +1911,7 @@ namespace Parsek
                 var a = actions[i];
                 if (a == null || a.Type != GameActionType.KerbalAssignment) continue;
                 if (string.IsNullOrEmpty(a.KerbalName) || string.IsNullOrEmpty(a.RecordingId)) continue;
-                if (string.Equals(a.KerbalRole, "Tourist", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!RoleHoldsKerbal(a.KerbalRole)) continue;
                 if (a.KerbalEndStateField != KerbalEndState.Aboard
                     && a.KerbalEndStateField != KerbalEndState.Unknown)
                     continue;
@@ -1843,6 +2023,7 @@ namespace Parsek
             int releasedReservations = 0;
             int respawnPendingReservations = 0;
             int slotsCreated = 0;
+            int touristHolds = 0;
             foreach (var kvp in reservations)
             {
                 if (kvp.Value.IsPermanent)
@@ -1894,6 +2075,18 @@ namespace Parsek
                     continue;
                 }
 
+                // A tourist is a passenger of the flight that carried him: the hold keeps
+                // him off a second vessel, but nobody stands in for him (a stand-in would be
+                // a free hired kerbal, GC-12).
+                if (kvp.Value.IsTouristPassenger)
+                {
+                    touristHolds++;
+                    ParsekLog.Verbose(Tag,
+                        $"Tourist hold: '{kvp.Key}' held until " +
+                        $"{FormatClockUT(kvp.Value.ReservedUntilUT)} - passenger, no slot or stand-in");
+                    continue;
+                }
+
                 // Ensure slot exists
                 KerbalSlot slot;
                 if (!slots.TryGetValue(kvp.Key, out slot))
@@ -1937,6 +2130,9 @@ namespace Parsek
                     slotsCreated,
                     releasedReservations,
                     respawnPendingReservations)
+                + (touristHolds > 0
+                    ? " touristHolds=" + touristHolds.ToString(CultureInfo.InvariantCulture)
+                    : "")
                 + (provisional ? " provisional=True" : "")
                 + " walkClockUT=" + FormatClockUT(walkClockUT)
                 + " nextReleaseUT=" + FormatClockUT(nextReservationReleaseUT));
@@ -2852,23 +3048,41 @@ namespace Parsek
             return allRecordingCrew.Contains(kerbalName);
         }
 
+        /// <summary>What the live roster knows about a kerbal, for <see cref="ResolveTraitForKerbal"/>.</summary>
+        internal enum RosterKerbalKind
+        {
+            /// <summary>Not in the roster, no roster, or a type the trait lookup ignores
+            /// (applicant, unowned).</summary>
+            Absent,
+            Crew,
+            Tourist
+        }
+
         /// <summary>
-        /// Find the experience trait for a kerbal by checking KSP roster (if available).
-        /// Falls back to "Pilot" if not found or outside KSP runtime.
+        /// Find the experience trait for a kerbal: the live roster first (a crew member's
+        /// trait, or "Tourist" for a tourist, whom stock's <c>roster.Crew</c> leaves out),
+        /// then the walk's tourist rows, then the latest baseline that names him, then
+        /// "Pilot". Outside KSP (tests) the roster read fails and the fallbacks answer.
         /// </summary>
         internal static string FindTraitForKerbal(string kerbalName)
         {
-            // In production, read from KSP roster if available.
-            // Outside KSP (tests), HighLogic won't exist — fall back to "Pilot".
+            RosterKerbalKind kind = RosterKerbalKind.Absent;
+            string crewTrait = null;
             try
             {
                 var roster = HighLogic.CurrentGame?.CrewRoster;
-                if (roster != null)
+                ProtoCrewMember pcm = roster != null && !string.IsNullOrEmpty(kerbalName)
+                    ? roster[kerbalName] : null;
+                if (pcm != null)
                 {
-                    foreach (ProtoCrewMember pcm in roster.Crew)
+                    if (pcm.type == ProtoCrewMember.KerbalType.Crew)
                     {
-                        if (pcm.name == kerbalName)
-                            return pcm.experienceTrait?.TypeName ?? "Pilot";
+                        kind = RosterKerbalKind.Crew;
+                        crewTrait = pcm.experienceTrait?.TypeName;
+                    }
+                    else if (pcm.type == ProtoCrewMember.KerbalType.Tourist)
+                    {
+                        kind = RosterKerbalKind.Tourist;
                     }
                 }
             }
@@ -2877,7 +3091,35 @@ namespace Parsek
                 // HighLogic not available (unit test environment)
             }
 
-            var baselines = GameStateStore.Baselines;
+            var kerbals = LedgerOrchestrator.Kerbals;
+            return ResolveTraitForKerbal(
+                kerbalName, kind, crewTrait,
+                kerbals != null ? (Func<string, bool>)kerbals.IsTouristPassenger : null,
+                GameStateStore.Baselines);
+        }
+
+        /// <summary>
+        /// The decision behind <see cref="FindTraitForKerbal"/>. A tourist answers "Tourist"
+        /// from the roster, from an effective tourist row (the durable record once stock
+        /// has deleted him), or from a baseline; a roster crew member answers his trait
+        /// ("Pilot" when it is unreadable). Pure.
+        /// </summary>
+        internal static string ResolveTraitForKerbal(
+            string kerbalName,
+            RosterKerbalKind rosterKind,
+            string rosterCrewTrait,
+            Func<string, bool> isTouristPassenger,
+            IReadOnlyList<GameStateBaseline> baselines)
+        {
+            if (rosterKind == RosterKerbalKind.Crew)
+                return rosterCrewTrait ?? "Pilot";
+            if (rosterKind == RosterKerbalKind.Tourist)
+                return TouristRole;
+
+            if (isTouristPassenger != null && !string.IsNullOrEmpty(kerbalName)
+                && isTouristPassenger(kerbalName))
+                return TouristRole;
+
             if (baselines != null)
             {
                 for (int i = baselines.Count - 1; i >= 0; i--)
@@ -2895,6 +3137,21 @@ namespace Parsek
             }
 
             return "Pilot";
+        }
+
+        /// <summary>
+        /// True when the timeline says <paramref name="kerbalName"/> rode as a tourist: an
+        /// effective tourist row of the last walk, or a baseline that captured him as one.
+        /// The roster is not consulted; the spawn path asks this for a name the roster lacks.
+        /// </summary>
+        internal static bool HasTouristEvidence(string kerbalName)
+        {
+            if (string.IsNullOrEmpty(kerbalName)) return false;
+            var kerbals = LedgerOrchestrator.Kerbals;
+            return IsTouristRole(ResolveTraitForKerbal(
+                kerbalName, RosterKerbalKind.Absent, null,
+                kerbals != null ? (Func<string, bool>)kerbals.IsTouristPassenger : null,
+                GameStateStore.Baselines));
         }
 
         /// <summary>
@@ -4437,6 +4694,7 @@ namespace Parsek
             recordingMeta.Clear();
             loopingChainIds.Clear();
             careerEntriesByKerbal.Clear();
+            touristPassengers.Clear();
             ReFlySessionActiveOverrideForTesting = null;
             walkClockUT = double.NaN;
             nextReservationReleaseUT = double.PositiveInfinity;

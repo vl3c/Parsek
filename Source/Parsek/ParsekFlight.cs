@@ -5923,15 +5923,26 @@ namespace Parsek
         /// <summary>
         /// The branch-point partner stamp: the couple-event partner identity, decoupled
         /// from route eligibility (design-dock-event-graph.md 6.1). Applies the same
-        /// self/zero filtering and EVA-grab suppression as the route pid but NOT the
-        /// snapshot/known-recording disjunct, so a route-ineligible dock still records
-        /// who it docked with (derivable retroactively once the partner's tree
-        /// commits). Pure; both OnPartCouple paths log the result on their resolve line.
+        /// self/zero filtering as the route pid but NOT the snapshot/known-recording
+        /// disjunct, so a route-ineligible dock still records who it docked with
+        /// (derivable retroactively once the partner's tree commits).
+        ///
+        /// <para>
+        /// The EVA suppression keys on the PARTNER side only
+        /// (<paramref name="partnerIsEva"/>, from
+        /// <see cref="ConnectionProducerClassifier.PartnerIsEvaVessel"/>): a claw grabbing
+        /// a kerbal must not mint a claim keyed on the kerbal's pid, but a kerbal taking a
+        /// stock external command seat (<c>KerbalEVA</c> <c>On_seatBoard</c> couples the
+        /// kerbal's own part onto the seat part) is an EVA recorder merging into the
+        /// partner vessel, and that vessel's stamp is the claim the chain walker and the
+        /// rewind hold read. Pure; both OnPartCouple paths log the result on their
+        /// resolve line.
+        /// </para>
         /// </summary>
         internal static uint ResolveBranchPartnerStampPid(
-            uint partnerPidFromEvent, uint selfVesselPid, bool involvesEva)
+            uint partnerPidFromEvent, uint selfVesselPid, bool partnerIsEva)
         {
-            if (involvesEva || partnerPidFromEvent == 0u
+            if (partnerIsEva || partnerPidFromEvent == 0u
                 || partnerPidFromEvent == selfVesselPid)
                 return 0u;
             return partnerPidFromEvent;
@@ -6029,9 +6040,11 @@ namespace Parsek
         ///
         /// <para>
         /// The EVA-grab carve-out survives the switch: both
-        /// <see cref="ResolveBranchPartnerStampPid"/> and
-        /// <see cref="SuppressRouteWindowForEvaGrab"/> zero their pid for an EVA couple,
-        /// so a claw / kerbal grab still suppresses nothing.
+        /// <see cref="ResolveBranchPartnerStampPid"/> (when the partner is the EVA kerbal)
+        /// and <see cref="SuppressRouteWindowForEvaGrab"/> zero their pid, so a claw grab of
+        /// a kerbal still suppresses nothing. A kerbal taking an external seat stamps the
+        /// seat's vessel, which survives as the merged vessel, so it suppresses nothing
+        /// either (the merged-pid check below).
         /// </para>
         /// </summary>
         internal static uint ResolveDockMergeSpawnSuppressionPid(
@@ -12322,8 +12335,10 @@ namespace Parsek
                     uint routeTargetPid = SuppressRouteWindowForEvaGrab(
                         partnerEligible ? partnerPidFromEvent : 0u,
                         coupleInvolvesEva, coupleTransferKind, pathLabel: "");
+                    bool partnerIsEva = ConnectionProducerClassifier.PartnerIsEvaVessel(
+                        data.from, data.to, partnerPidFromEvent);
                     uint partnerStampPid = ResolveBranchPartnerStampPid(
-                        partnerPidFromEvent, recorder.RecordingVesselId, coupleInvolvesEva);
+                        partnerPidFromEvent, recorder.RecordingVesselId, partnerIsEva);
                     string partnerStampGuid = ResolveDockPartnerGuidFromEvent(
                         partnerStampPid,
                         fromPid, AnchorDetector.TryReadLiveVesselGuid(data.from?.vessel),
@@ -12335,7 +12350,7 @@ namespace Parsek
                         $"partnerPidFromEvent={partnerPidFromEvent} " +
                         $"partnerSnapshotCaptured={partnerSnapshotCaptured} partnerKnown={partnerKnown} " +
                         $"partnerEligible={partnerEligible} routeTargetPid={routeTargetPid} " +
-                        $"partnerPidStamped={partnerStampPid} " +
+                        $"partnerIsEva={partnerIsEva} partnerPidStamped={partnerStampPid} " +
                         $"partnerGuidStamped={partnerStampGuid ?? "(none)"}");
 
                     CapturePendingDockRouteEndpointProof(data, routeTargetPid);
@@ -12445,8 +12460,10 @@ namespace Parsek
                     uint routeTargetPid = SuppressRouteWindowForEvaGrab(
                         partnerEligibleR ? partnerPidFromEventR : 0u,
                         coupleInvolvesEva, coupleTransferKind, pathLabel: " (retroactive)");
+                    bool partnerIsEvaR = ConnectionProducerClassifier.PartnerIsEvaVessel(
+                        data.from, data.to, partnerPidFromEventR);
                     uint partnerStampPidR = ResolveBranchPartnerStampPid(
-                        partnerPidFromEventR, recorder.RecordingVesselId, coupleInvolvesEva);
+                        partnerPidFromEventR, recorder.RecordingVesselId, partnerIsEvaR);
                     string partnerStampGuidR = ResolveDockPartnerGuidFromEvent(
                         partnerStampPidR,
                         fromPidR, AnchorDetector.TryReadLiveVesselGuid(data.from?.vessel),
@@ -12458,7 +12475,7 @@ namespace Parsek
                         $"absorbedPid={absorbedPid} partnerPidFromEvent={partnerPidFromEventR} " +
                         $"partnerSnapshotCaptured={partnerSnapshotCapturedR} partnerKnown={partnerKnownR} " +
                         $"partnerEligible={partnerEligibleR} routeTargetPid={routeTargetPid} " +
-                        $"partnerPidStamped={partnerStampPidR} " +
+                        $"partnerIsEva={partnerIsEvaR} partnerPidStamped={partnerStampPidR} " +
                         $"partnerGuidStamped={partnerStampGuidR ?? "(none)"}");
 
                     CapturePendingDockRouteEndpointProof(data, routeTargetPid);

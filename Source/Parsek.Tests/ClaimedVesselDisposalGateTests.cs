@@ -6,6 +6,7 @@ using System.Reflection;
 using HarmonyLib;
 using KSP.UI.Screens;
 using Parsek.Patches;
+using PreFlightTests;
 using Xunit;
 
 namespace Parsek.Tests
@@ -177,6 +178,12 @@ namespace Parsek.Tests
         [InlineData(typeof(SpaceTracking), "OnVesselDeleteConfirm")]
         [InlineData(typeof(KSCVesselMarker), "Create")]
         [InlineData(typeof(KSCVesselMarkers), "RecoverVessel")]
+        [InlineData(typeof(LaunchSiteClear), "Test")]
+        [InlineData(typeof(LaunchSiteClear), "GetProceedOption")]
+        [InlineData(typeof(LaunchSiteClear), "GetWarningDescription")]
+        [InlineData(typeof(LaunchSiteFacility), "shipSelected")]
+        [InlineData(typeof(LaunchSiteFacility), "ClearSite")]
+        [InlineData(typeof(LaunchSiteFacility), "launchChecks")]
         public void StockTarget_IsPatched_AndExists(Type stockType, string method)
         {
             Assert.Contains(HarmonyTargets(), x => x.target == stockType && x.method == method);

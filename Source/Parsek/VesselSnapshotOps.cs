@@ -773,6 +773,36 @@ namespace Parsek
             return remapCount;
         }
 
+        /// <summary>
+        /// Carries regenerated part flightIDs (<paramref name="uidMap"/>: old -> new, from
+        /// <see cref="RegeneratePartIdentities"/>) into every stock external command seat's
+        /// <c>occupantID</c>. Stock <c>KerbalSeat.OnSave</c> writes the seated kerbal's part
+        /// <c>flightID</c> there and <c>OnStart</c> resolves it through the vessel's
+        /// flightID indexer, so a stale value loads the seat empty (Board offered again, the
+        /// seat no longer a control source). A zero value or one the map does not hold is
+        /// left alone. Returns the values rewritten. Pure.
+        /// </summary>
+        internal static int RemapSeatOccupantUids(ConfigNode spawnNode, Dictionary<uint, uint> uidMap)
+        {
+            if (spawnNode == null || uidMap == null || uidMap.Count == 0) return 0;
+            int count = 0;
+            foreach (ConfigNode partNode in spawnNode.GetNodes("PART"))
+            {
+                foreach (ConfigNode moduleNode in partNode.GetNodes("MODULE"))
+                {
+                    if (moduleNode.GetValue("name") != "KerbalSeat")
+                        continue;
+                    string raw = moduleNode.GetValue("occupantID");
+                    if (raw == null
+                        || !uint.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out uint oldUid)
+                        || oldUid == 0u)
+                        continue;
+                    RemapPidValue(moduleNode, "occupantID", uidMap, ref count);
+                }
+            }
+            return count;
+        }
+
         private static void RemapPidValue(ConfigNode node, string key,
             Dictionary<uint, uint> pidMap, ref int count)
         {

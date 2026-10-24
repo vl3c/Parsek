@@ -353,6 +353,232 @@ namespace Parsek.Tests
             Assert.False(kerbals.IsReservedNow(Jeb));
         }
 
+        private const string LaterTree = "tree-later";
+        private const string ShipTRec = "rec-ship-t";
+        private const string StationLaterRec = "rec-station-later";
+        private const double LaterStartUT = 2000.0;
+        private const double LaterEndUT = 2100.0;
+        private const double RespawnSeconds = 7200.0;
+
+        /// <summary>
+        /// Mission 1 for the foreign-recording shape: the station left in orbit with Jeb
+        /// aboard, then spawned at its recording's end under a fresh pid and guid joined to
+        /// the recorded launch by a Spawn link.
+        /// </summary>
+        private static void CommitSpawnedStationMission()
+        {
+            var tree = new RecordingTree
+            {
+                Id = StationTree,
+                TreeName = "Station",
+                RootRecordingId = StationRec,
+                ActiveRecordingId = StationRec,
+            };
+            var station = Rec(StationRec, StationTree, StationPid, StationGuid, 100.0, 1000.0,
+                TerminalState.Orbiting, new[] { Jeb }, new[] { Jeb });
+            station.SpawnedVesselPersistentId = SpawnPid;
+            CommitTree(tree, station);
+            Assert.True(VesselNameStore.AddLink(SpawnGuid, StationGuid, VesselIdentityLinkKind.Spawn, "test"));
+        }
+
+        /// <summary>
+        /// Mission 2: ship T launched with Bob; the player switched to the station with no
+        /// stock-action intent (the `]` key), which records the station as a fresh PARENTLESS
+        /// recording inside this tree, on the vessel in the game then (<paramref name="pid"/> /
+        /// <paramref name="guid"/>) and carrying <paramref name="stationCrew"/>.
+        /// </summary>
+        private static void CommitForeignStationRecording(
+            uint pid, string guid, string[] stationCrew, TerminalState terminal,
+            bool? deathRespawns = null, bool launchParented = false)
+        {
+            var tree = new RecordingTree
+            {
+                Id = LaterTree,
+                TreeName = "Ship T",
+                RootRecordingId = ShipTRec,
+                ActiveRecordingId = StationLaterRec,
+            };
+            var shipT = Rec(ShipTRec, LaterTree, TugPid, TugGuid, 1900.0, 1950.0,
+                TerminalState.Orbiting, new[] { Bob }, new[] { Bob });
+            var stationLater = Rec(StationLaterRec, LaterTree, pid, guid, LaterStartUT, LaterEndUT,
+                terminal, stationCrew,
+                terminal == TerminalState.Destroyed || terminal == TerminalState.Recovered
+                    ? null : stationCrew);
+            if (deathRespawns.HasValue)
+            {
+                stationLater.CrewDeathRespawns = deathRespawns;
+                stationLater.CrewDeathRespawnSeconds = RespawnSeconds;
+            }
+            if (launchParented)
+            {
+                // The switch happened while T was recording: the post-switch start hangs the
+                // station's recording under T at a Launch branch point.
+                tree.BranchPoints.Add(new BranchPoint
+                {
+                    Id = "bp-joined",
+                    UT = LaterStartUT,
+                    Type = BranchPointType.Launch,
+                    ParentRecordingIds = new List<string> { ShipTRec },
+                    ChildRecordingIds = new List<string> { StationLaterRec },
+                });
+                shipT.ChildBranchPointId = "bp-joined";
+                stationLater.ParentBranchPointId = "bp-joined";
+            }
+            CommitTree(tree, shipT, stationLater);
+        }
+
+        // catches: GC6. A later mission records the station's SPAWN as a fresh parentless
+        // recording (a `]` switch), the station is destroyed with Jeb aboard and stock's
+        // lost-crew respawn is on; the station mission's open-ended Aboard row was never
+        // closed, so it turned the death into a permanent loss ("respawn suppressed:
+        // open-ended co-row") while stock respawns Jeb.
+        [Fact]
+        public void ForeignTreeRecordingOfASpawnedStation_DeathRespawnsAsStock()
+        {
+            CommitSpawnedStationMission();
+            CommitForeignStationRecording(SpawnPid, SpawnGuid, new[] { Jeb },
+                TerminalState.Destroyed, deathRespawns: true);
+
+            KerbalsModule kerbals = Walk(5000.0);
+
+            KerbalsModule.KerbalReservation jeb = kerbals.Reservations[Jeb];
+            Assert.False(jeb.IsPermanent);
+            Assert.Equal(LaterEndUT + RespawnSeconds, jeb.ReservedUntilUT);
+            Assert.True(kerbals.IsReservedNow(Jeb));
+            Assert.DoesNotContain(logLines, l => l.Contains("respawn suppressed: open-ended co-row"));
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("Reservation bounded by foreign recording of the vessel: 'Jebediah Kerman'")
+                && l.Contains("recording '" + StationRec + "'")
+                && l.Contains("tree='" + LaterTree + "'")
+                && l.Contains("child='" + StationLaterRec + "'"));
+
+            kerbals = Walk(LaterEndUT + RespawnSeconds + 1.0);
+            Assert.False(kerbals.IsReservedNow(Jeb));
+        }
+
+        // catches: GC6's recovered twin. The later mission brings the station home with Jeb
+        // aboard and the station mission's hold stayed open forever.
+        [Fact]
+        public void ForeignTreeRecordingOfASpawnedStation_RecoveredFreesJeb()
+        {
+            CommitSpawnedStationMission();
+            CommitForeignStationRecording(SpawnPid, SpawnGuid, new[] { Jeb }, TerminalState.Recovered);
+
+            KerbalsModule kerbals = Walk(10000.0);
+
+            Assert.Equal(LaterEndUT, kerbals.Reservations[Jeb].ReservedUntilUT);
+            Assert.False(kerbals.IsReservedNow(Jeb));
+        }
+
+        // catches: the same take-over when the station joined the later tree at a post-switch
+        // Launch branch point (the switch happened while ship T was recording).
+        [Fact]
+        public void ForeignTreeRecordingJoinedAtALaunchBranchPoint_RecoveredFreesJeb()
+        {
+            CommitSpawnedStationMission();
+            CommitForeignStationRecording(SpawnPid, SpawnGuid, new[] { Jeb }, TerminalState.Recovered,
+                launchParented: true);
+
+            KerbalsModule kerbals = Walk(10000.0);
+
+            Assert.Equal(LaterEndUT, kerbals.Reservations[Jeb].ReservedUntilUT);
+            Assert.False(kerbals.IsReservedNow(Jeb));
+            Assert.Contains(logLines, l => l.Contains("Reservation bounded by foreign recording of the vessel: 'Jebediah Kerman'"));
+        }
+
+        // Pure: only a vessel that joined its tree claims; a lineage child does not.
+        [Theory]
+        [InlineData(null, null, true)]
+        [InlineData("bp", BranchPointType.Launch, true)]
+        [InlineData("bp", BranchPointType.Undock, false)]
+        [InlineData("bp", BranchPointType.Dock, false)]
+        [InlineData("bp", BranchPointType.VesselSwitchContinuation, false)]
+        [InlineData("bp", null, false)]
+        public void IsJoinedVesselRecording_OnlyRootsParentlessAndLaunchChildren(
+            string parentBp, BranchPointType? parentType, bool expected)
+        {
+            Assert.Equal(expected, KerbalsModule.IsJoinedVesselRecording(parentBp, parentType));
+        }
+
+        // catches: the foreign-recording claim reaching a fresh launch of the same craft (the
+        // craft-baked pid matches, the launch guid differs): the station hold must stay open.
+        [Fact]
+        public void FreshLaunchOfTheSameCraftInAnotherTree_KeepsTheStationHold()
+        {
+            CommitSpawnedStationMission();
+            CommitForeignStationRecording(StationPid, "ffffffffffffffffffffffffffffffff",
+                new[] { Jeb }, TerminalState.Recovered);
+
+            KerbalsModule kerbals = Walk(10000.0);
+
+            Assert.True(double.IsPositiveInfinity(kerbals.Reservations[Jeb].ReservedUntilUT));
+            Assert.True(kerbals.IsReservedNow(Jeb));
+            Assert.DoesNotContain(logLines, l => l.Contains("Reservation bounded by foreign recording"));
+        }
+
+        // catches: a foreign recording of the station that does not carry Jeb handing his hold
+        // off to rows that never name him.
+        [Fact]
+        public void ForeignTreeRecordingWithoutTheKerbal_KeepsTheStationHold()
+        {
+            CommitSpawnedStationMission();
+            CommitForeignStationRecording(SpawnPid, SpawnGuid, new[] { Bob }, TerminalState.Recovered);
+
+            KerbalsModule kerbals = Walk(10000.0);
+
+            Assert.True(double.IsPositiveInfinity(kerbals.Reservations[Jeb].ReservedUntilUT));
+            Assert.True(kerbals.IsReservedNow(Jeb));
+            Assert.DoesNotContain(logLines, l => l.Contains("Reservation bounded by foreign recording"));
+        }
+
+        // catches: the mirror direction. A foreign recording of the station that STARTED
+        // before the station mission ended must not take the hold (it cannot carry on a kerbal
+        // the station still held after it began), and the later mission's own open-ended row
+        // must not be handed back to the earlier mission.
+        [Fact]
+        public void ForeignTreeRecordingStartingBeforeTheHoldEnds_HandsOffNothing()
+        {
+            CommitSpawnedStationMission();
+            var tree = new RecordingTree
+            {
+                Id = LaterTree,
+                TreeName = "Ship T",
+                RootRecordingId = StationLaterRec,
+                ActiveRecordingId = StationLaterRec,
+            };
+            CommitTree(tree, Rec(StationLaterRec, LaterTree, SpawnPid, SpawnGuid, 500.0, 600.0,
+                TerminalState.Recovered, new[] { Jeb }, null));
+
+            KerbalsModule kerbals = Walk(10000.0);
+
+            Assert.True(double.IsPositiveInfinity(kerbals.Reservations[Jeb].ReservedUntilUT));
+            Assert.DoesNotContain(logLines, l => l.Contains("Reservation bounded by foreign recording"));
+        }
+
+        // catches: a later recording of the same vessel in the SAME tree claiming that tree's
+        // own hold (in-tree hand-offs belong to the split / chain rules, never this claim).
+        [Fact]
+        public void SameTreeLaterRecordingOfTheVessel_DoesNotClaim()
+        {
+            var tree = new RecordingTree
+            {
+                Id = StationTree,
+                TreeName = "Station",
+                RootRecordingId = StationRec,
+                ActiveRecordingId = StationLaterRec,
+            };
+            CommitTree(tree,
+                Rec(StationRec, StationTree, StationPid, StationGuid, 100.0, 1000.0,
+                    TerminalState.Orbiting, new[] { Jeb }, new[] { Jeb }),
+                Rec(StationLaterRec, StationTree, StationPid, StationGuid, LaterStartUT, LaterEndUT,
+                    TerminalState.Recovered, new[] { Jeb }, null));
+
+            KerbalsModule kerbals = Walk(10000.0);
+
+            Assert.True(double.IsPositiveInfinity(kerbals.Reservations[Jeb].ReservedUntilUT));
+            Assert.DoesNotContain(logLines, l => l.Contains("Reservation bounded by foreign recording"));
+        }
+
         // Pure: the identity rule with a link reader. A linked claim guid matches whatever its
         // pid; an unlinked one needs the pid and a guid that does not conclusively differ.
         [Theory]

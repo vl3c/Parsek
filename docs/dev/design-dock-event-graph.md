@@ -444,7 +444,7 @@ On GO: a design addendum to this doc specifying `ClassifyUndockChildProvenance` 
 ## 10. Edge Cases
 
 1. **Old recording, target = 0.** Node = UnstampedZero; every consumer degrades per section 6.4; behavior identical to today. Guarded by dedicated degradation tests.
-2. **EVA grab couple.** Stamp suppressed (Q2); node UnstampedZero; EVA narrative comes from the EVA branch type.
+2. **EVA grab couple.** Stamp suppressed (Q2) when the PARTNER is the EVA kerbal (a claw grabbing him); node UnstampedZero; EVA narrative comes from the EVA branch type. A kerbal taking a stock external command seat couples his own EVA part onto the seat (`KerbalEVA` `On_seatBoard`), so the EVA side is the recorder and the seat's vessel is stamped like any dock partner (GC-11, `ConnectionProducerClassifier.PartnerIsEvaVessel`).
 3. **Claw grab (`MergeCause="DOCK"`, Grapple kind).** Stamped like any dock; digest verb stays "Docked with" in v1 (the known cosmetic `MergeCause` gap, `todo-and-known-bugs.md` M-MIS-10 note, is not widened here).
 4. **Board merge.** Unstamped in v1 (Q1); digest verb "Boarded" from branch type.
 5. **Partner survived as the merged vessel (mergedPid == partner pid).** The same-tree guard (6.2 guard 2) prevents the merged child claiming itself; cross-tree resolution is unaffected (the claimed recording lives in the other tree and starts before the dock).

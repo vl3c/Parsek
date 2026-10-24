@@ -20,7 +20,9 @@ namespace Parsek
     /// their stock tooltip (<see cref="StockUiReasonTooltip"/>). Every greyed control ships
     /// with a click-block reading the same predicate (the stock-control annotation rule);
     /// the hooks are <c>Patches/ClaimedVesselDisposalPatches.cs</c> and the two Tracking
-    /// Station confirm prefixes in <c>Patches/GhostTrackingStationPatch.cs</c>.</para>
+    /// Station confirm prefixes in <c>Patches/GhostTrackingStationPatch.cs</c>. Stock's
+    /// launch-site clear (the editor's and the Space Center's "Recover and launch") is held
+    /// the same way by <c>Patches/ClaimedVesselLaunchSitePatches.cs</c> (GC-9).</para>
     /// </summary>
     internal static class ClaimedVesselDisposalGate
     {
@@ -90,6 +92,83 @@ namespace Parsek
                     + " - treating the vessel as not held");
                 claiming = null;
                 return false;
+            }
+        }
+
+        /// <summary>One vessel a committed future flight holds, as a launch-site clear found it.</summary>
+        internal struct HeldVessel
+        {
+            internal uint Pid;
+            internal string Name;
+            internal GhostChain Claiming;
+        }
+
+        /// <summary>One vessel standing at a launch site (a stock <c>ProtoVessel</c>'s identity).</summary>
+        internal struct SiteVessel
+        {
+            internal uint Pid;
+            internal string Guid;
+            internal string Name;
+        }
+
+        /// <summary>
+        /// Pure: the vessels in <paramref name="candidates"/> a chain holds back at
+        /// <paramref name="currentUT"/>, each by <see cref="IsHeldByCommittedFuture"/> with its
+        /// own launch guid (<paramref name="otherGuidOf"/> answers any other pid; may be null).
+        /// </summary>
+        internal static List<HeldVessel> SelectHeld(
+            IReadOnlyDictionary<uint, GhostChain> chains, double currentUT,
+            IList<SiteVessel> candidates, Func<uint, string> otherGuidOf)
+        {
+            var held = new List<HeldVessel>();
+            if (chains == null || candidates == null) return held;
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                SiteVessel c = candidates[i];
+                bool isHeld = IsHeldByCommittedFuture(chains, c.Pid, currentUT,
+                    p => p == c.Pid ? c.Guid : (otherGuidOf != null ? otherGuidOf(p) : null),
+                    out GhostChain claiming);
+                if (isHeld)
+                    held.Add(new HeldVessel { Pid = c.Pid, Name = c.Name, Claiming = claiming });
+            }
+            return held;
+        }
+
+        /// <summary>
+        /// Live: the stock <c>ProtoVessel</c>s (a launch-site clear's obstructions) a committed
+        /// future flight holds right now; one chain walk for the whole list. Never throws; a
+        /// failure reads as "none held", the pre-existing behaviour.
+        /// </summary>
+        internal static List<HeldVessel> FindHeldLive(IList<ProtoVessel> vessels, string site)
+        {
+            var none = new List<HeldVessel>();
+            if (vessels == null || vessels.Count == 0) return none;
+            try
+            {
+                var candidates = new List<SiteVessel>(vessels.Count);
+                for (int i = 0; i < vessels.Count; i++)
+                {
+                    ProtoVessel pv = vessels[i];
+                    if (pv == null || pv.persistentId == 0u) continue;
+                    if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) continue;
+                    candidates.Add(new SiteVessel
+                    {
+                        Pid = pv.persistentId,
+                        Guid = pv.vesselID != Guid.Empty ? pv.vesselID.ToString("N") : null,
+                        Name = pv.vesselName
+                    });
+                }
+                if (candidates.Count == 0) return none;
+                Dictionary<uint, GhostChain> chains = ReadChains();
+                if (chains == null || chains.Count == 0) return none;
+                return SelectHeld(chains, ReadUT(), candidates, LiveGuidOf);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.WarnRateLimited(Tag, "held-site-check-threw-" + (site ?? "?"),
+                    "Claimed-vessel launch-site check threw " + ex.GetType().Name + ": " + ex.Message
+                    + " site=" + (site ?? "?") + " - treating the site's vessels as not held");
+                return none;
             }
         }
 

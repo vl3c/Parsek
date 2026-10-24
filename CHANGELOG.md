@@ -10,10 +10,15 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **A kerbal left aboard a station is freed when a later flight takes the station over.** If you
+  switch to the station from another flight (for example with the `]` key) and fly it, that
+  flight now decides his fate: brought home, he is free; killed with lost-crew respawn on, he
+  comes back when stock respawns him instead of staying reserved forever.
+  (GC6-FOREIGN-TREE-RECORDING-KEEPS-OPEN-HOLD)
 - **Recordings no save uses any more are cleaned up after 14 days.** Flights recorded after a save
-  you loaded, and never saved since, wait 14 days in a quarantine folder and are then deleted. If a
-  save that uses one comes back into the folder first (copied in or restored from a backup), the
-  recording is put back and the save loads whole. (RECORDING-QUARANTINE-NEVER-EMPTIED)
+  you loaded, and never saved since, wait 14 days in a quarantine folder and are then deleted, and so
+  do older copies of a changed flight. If a save that uses one comes back into the folder first
+  (copied in or restored from a backup), it is put back and the save loads whole. (GC-15)
 - **Your funds are no longer held back or taken back by mistake.** Reserved money returns when no
   longer needed, open contract penalties are not held out, a gain after a failure stock stopped at
   0 is kept, a missed deadline never charges twice, a Re-Fly never brings back a penalty a merge
@@ -80,10 +85,26 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **The alarm's Jump button follows the same rules as every other switch.** Jumping from a fired
+  stock alarm never flies a ghost, is refused during a Re-Fly for any vessel but the re-flown one,
+  asks to merge or discard an open recording first like Switch-To, and from the Tracking Station
+  no longer lands you in the wrong vessel. The button is hidden when the jump is refused. (GC-13)
+- **Tourists stay tourists.** A tourist whose contract had ended, or who did not exist yet after a
+  rewind, came back with the vessel as a free hired pilot, engineer or scientist who stayed in the
+  Astronaut Complex. Tourists now return as tourists and go home when the vessel is recovered. A
+  tourist a future flight still carries stays greyed out until it ends, and gets no stand-in. (GC-12)
 - **Re-scan restarts a supply route whose destination came back.** When a route stopped because its
   destination vessel was gone, Re-scan found it again but the route stayed stopped until you paused
   and activated it. It now restarts at once, and its next run delivers instead of being skipped.
   (LOOP-ROUTE-RESCAN-DOES-NOTHING)
+- **Taking a seat on a rover from another mission claims it like a dock does.** A kerbal sitting in
+  another mission's external command seat now marks that rover as used by his flight, so after a
+  rewind to before he sat down the rover is held back for that flight instead of staying live and
+  being spawned a second time. (FOREIGN-SEAT-BOARD-LEAVES-NO-GHOST-CLAIM)
+- **A spawned rover keeps the kerbal sitting in its seat.** When a recording ends with a kerbal in
+  an external command seat, the spawned vessel now loads with him seated, instead of the seat
+  reading as empty (offering Board again and no longer steering the rover).
+  (SEAT-OCCUPANT-LINK-LOST-ON-SPAWN)
 - **A contract or science won while resuming a committed flight is kept when you discard.** If you
   took over a committed vessel, finished a contract, reached a milestone or banked science, and then
   discarded that flight, stock kept the reward but Parsek dropped it. Parsek now keeps it too.
@@ -161,6 +182,10 @@ _(unreleased - entries accumulate here per commit)_
 - **A station a later flight docks with can't be recovered early.** After a rewind, the Tracking
   Station greys Recover and Delete, and the Space Center greys Recover, on a vessel a recorded later
   flight still docks with, so it can't come back as a duplicate and be paid for twice. (GC-2)
+- **Clearing the runway or pad no longer recovers a vessel a later flight uses.** When a vessel a
+  recorded later flight boards or docks with stands on the launch site, the launch-site warning
+  says why it stays and offers no Recover (the Space Center greys it), so it can't come back as a
+  duplicate and be paid for twice. (GC9-LAUNCH-SITE-CLEAR-RECOVERS-CLAIMED-VESSEL)
 - **The vessel-cycle keys skip ghosts.** Pressing `[` or `]` near a replaying ghost no longer makes
   its map marker the active vessel. (GC-4)
 - **Loading another save starts clean after a rewind that never finished.** If a rewind or a
@@ -400,6 +425,10 @@ _(unreleased - entries accumulate here per commit)_
   it, and an older launch's vessel no longer counts as alive because the relaunch shares its
   craft. Vessels Parsek spawned and you flew again are still recognised, in older saves too.
   (ADOPTION-STAMP-READ-AS-UNIQUE-SPAWN-PID)
+- **A kerbal left floating in orbit now appears beside his ship after a time warp.** When a flight
+  ended with a kerbal on EVA in orbit and you warped past its end, the ship appeared on its orbit
+  but the kerbal appeared far away on a different orbit. He now appears on his own recorded orbit,
+  next to the ship. (GC5-ORBITING-EVA-SPAWN-USES-STALE-SURFACE-POINT)
 
 ### Dev
 
