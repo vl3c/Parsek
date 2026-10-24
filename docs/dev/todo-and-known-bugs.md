@@ -45,6 +45,132 @@ repaired (no compatibility work before the public release). Unit: `RewindSuperse
 `Rollback_SelfRewindOnImmutableFork_KeepsIncomingSupersede`; the demotion cells now anchor on a
 `NotCommitted` fork). Lane RB-4 (RF-4 without the seal) pins it live.
 
+---
+
+## ~~REFLY-SESSION-SHOWS-CONTRACT-ACCEPTED-LATER: a Re-Fly session restores a contract the player accepted after the rewind point as Active~~ [FILED AND FIXED 2026-10-24, branch `claude/project-thread-dkcvpn`, career under timeline operations]
+
+The Re-Fly invoke walks the whole ledger (`RewindInvoker` runs `RecalculateAndPatch(double.MaxValue,
+deadlineClockUT: <session UT>)`, design 6.8 step 5: the session shows the committed career). A
+contract accepted at the Space Center after the separation is active at the end of that walk, and
+`KspStatePatcher.PatchContracts` restored it Active at the session's earlier clock. The re-flown
+vessel could then complete or fail a contract before it was accepted: the walk credits a completion
+with no accept before it (`ContractsModule.ProcessComplete`) and the later accept makes the contract
+Active again (`ProcessAccept`), a time-travel paradox and a possible double reward.
+
+**Fix.** `PatchContracts` keeps a walk-active contract out of stock's active list while its committed
+accept is still ahead of the clock (pure `KspStatePatcher.SelectContractsAcceptedByNow`, 1 s
+tolerance; `ContractsModule.GetActiveContractAcceptUT`). The clock is the walk's
+(`ResolveContractAcceptClockUT`): a cutoff walk needs no filter, a walk past the clock uses its
+caller's clock (the invoke's session UT) or else the live clock, and none while OnLoad runs, since
+stock sets the clock after the scenario modules load (review finding: a stale clock removed a
+genuinely Active contract and reset its progress). One
+Info line names them: `PatchContracts: kept N contract(s) out of stock's active list until the clock
+reaches their committed accept: [ids]`. Crossing the accept later (the Space Center, any clock
+recalculation) restores it as before. Cells: `ContractAcceptedLaterPatchTests`. In-game: the Rewind
+cell `ContractTombstonesAcrossSupersede` (rewritten 2026-10-24) asserts no stock Active contract is
+accepted after the session clock. Lane: RF-C1 (never flown).
+
+---
+
+## ~~REFLY-DEADLINE-EXPIRY-REFUSES-THE-MERGE: a Re-Fly that outlives an accepted contract's deadline is refused as a loss~~ [FILED AND FIXED 2026-10-24, branch `claude/project-thread-dkcvpn`]
+
+A contract accepted before the separation (an open accept in the committed career) whose deadline
+falls inside the re-flown window: stock fails it during the attempt, and that ContractFail row is the
+attempt's own. `ReFlyMergeDominance.Evaluate` walked L (the baseline without the attempt) against L'
+(with it), and L has no fail at all (a synthetic deadline fail moves contract state only), so the
+penalty read as a loss the attempt caused and the merge was refused (`refused at pool=funds`). Design
+3.13: the committed timeline holds the same expiry, so the deadline is no one's choice.
+
+**Fix.** `ReFlyMergeDominance.SharedDeadlineExpiries` picks the attempt's ContractFail rows that are
+deadline expiries of an open accepted contract (accept at or before the fail, a plausible
+`DeadlineUT`, fail at or after the deadline minus 1 s, no baseline Complete / Fail / Cancel for that
+contract after the accept) and adds them to the BEFORE walk only, so both sides carry the same
+penalty; a fail before the deadline still counts. Cells: `ReFlyMergeDominanceTests`
+(`Evaluate_StockDeadlineExpiryDuringTheAttempt_*`, `Evaluate_AttemptFailBeforeTheDeadline_*`,
+`SharedDeadlineExpiries_*`). Rule reading taken from design 3.13, not a new ruling; raised with the
+owner in the thread.
+
+---
+
+## ~~LEDGER-GROUND-TRUTH-WALKS-PAST-THE-CLOCK: the ledger ground-truth check reads a committed future row as a divergence after a rewind or a Re-Fly~~ [FILED AND FIXED 2026-10-24, branch `claude/project-thread-dkcvpn`, dev tooling]
+
+`LedgerGroundTruthHarness` step 5 ran a cutoff-less `RecalculateAndPatch()`, so with committed rows
+ahead of the clock it compared end-of-timeline values against the save's values at now: a committed
+future reputation loss read as a hard divergence on a correct pool, and a future gain was hidden. It
+had only ever run with nothing ahead of the clock (L8 after Rewind-to-Launch).
+
+**Fix.** The harness recalculates through
+`LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions` at the current timeline UT
+(reason `ledger-ground-truth`), as every production patch does. Cells:
+`LedgerGroundTruthAfterRewindTests` (the cutoff walk matches the save, the old full walk diverges, a
+source gate on the harness call). Lane: L13 (never flown).
+
+---
+
+## STRATEGY-ACTIVATION-CROSSED-IN-FLIGHT-NOT-APPLIED: a committed strategy activation the clock reaches during a flight is not switched on until the next scene change [FILED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`. OPEN; medium]
+
+After a rewind to before a committed Space Center strategy activation, a flight that runs past the
+activation's UT keeps the strategy off in stock: stock's `StrategySystem.Update` calls `Update()` only
+on active strategies, so `StrategyExpiryGate` (which applies committed deactivations on time) never
+sees it, and `StrategyStatePatcher.PatchStrategies` runs only from a ledger recalculation (scene
+entry, commit). Meanwhile the flight's awards are not diverted by the strategy the committed timeline
+has on, so the flight earns in a career state the committed timeline never had. Not reproduced.
+Fix direction: a per-frame check on the cached committed-future index for strategies whose committed
+state turns on at now (same shape as the expiry gate), or a `StrategySystem.Update` postfix that
+switches on a strategy whose committed activation was reached. Lane once fixed: activate at the Space
+Center, rewind before it, fly across it, read the strategy state and the award split.
+
+---
+
+## STRATEGY-PATCH-CUTOFF-LESS-WALK-READS-THE-LATER-ACTIVATION: a walk past the clock hands `ComputePlan` a strategy's future re-activation [FILED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`. OPEN; low]
+
+`StrategyStatePatcher.ComputePlan` guards a walk that ran past now with `FutureDated` and
+`FutureDeactivation`, but the snapshot it reads carries only the LAST activation. A strategy on at
+now through an earlier activation, switched off later and re-activated after that, reads as
+`FutureDated` and is not switched on when stock has it off at now. Reachable only through a
+cutoff-less patch (see TREE-COMMIT-WALKS-PAST-THE-CLOCK). Fix direction: compute the plan from the
+committed rows at now (`CommittedFutureIndex.StrategyRows(id).LastAtOrBefore(now)`) rather than from
+the end-of-walk snapshot.
+
+---
+
+## STRATEGY-EXPIRY-LOST-WITH-A-DISCARDED-FLIGHT: discarding a flight drops the strategy expiry stock applied during it [FILED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`. OPEN; low]
+
+A strategy that expires during a flight is switched off live by stock and its `StrategyDeactivate`
+row is tagged to the flight's recording (`GameStateEventConverter.ConvertStrategyDeactivated`). When
+the flight is discarded the row goes with it, so the ledger has the strategy on while stock has it
+off; the next `PatchStrategies` switches it back on with its original activation date, and stock
+expires it again on the next frame, writing a second deactivation at a later UT. Self-heals with a
+moved expiry UT; no value is reduced. Fix direction: an expiry is not the flight's choice, so file it
+untagged (Space Center origin) like the expiry the clock produces at the Space Center.
+
+---
+
+## TREE-COMMIT-WALKS-PAST-THE-CLOCK: the tree-commit ledger walks patch committed future rows into KSP [FILED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`. OPEN; low]
+
+`LedgerOrchestrator.NotifyLedgerTreeCommitted` and `OnRecordingCommitted` end with a cutoff-less
+`RecalculateAndPatch()`; their callers are the merge dialog (`MergeDialog.Commit.cs`), the outside-
+flight auto-commit and the OnSave safety net (`ParsekScenario.cs`). With committed rows ahead of the
+clock (after a rewind) that patch applies end-of-timeline state; the state patchers carry their own
+future guards (contracts now, strategies, purchases), and the in-flight commit already uses the
+current-UT helper (`flight-tree-commit`). Low reach in shipping; each pool still needs a check before
+the walk is cut. Fix direction: route the commit walks through
+`RecalculateAndPatchForCurrentTimelineIfFutureActions`, keeping the derived fields the post-walk
+reconciliation reads.
+
+---
+
+## CONTRACT-EVENT-OF-A-BACKGROUND-VESSEL-TAGGED-TO-THE-ACTIVE-RECORDING [FILED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`. OPEN; low]
+
+A contract completed or failed by a background vessel (a booster under canopy while the upper stage
+is active) is converted with the active recording's id, so a Re-Fly of that booster cannot retire
+it and a Re-Fly of the active stage would. Rule 1 seals both slots anyway (a contract row is a sealing
+row), so nothing is wrongly retired today; it matters once a contract row can be re-flown. Fix
+direction: resolve the cause vessel through the event's vessel pid, as the strategy conversion door
+does (`GameStateRecorder.ResolveStrategyConversionRecordingTag`).
+
+---
+
 ## FOREIGN-BOARD-TARGET-STRIPPED-AT-REWIND: a vessel a kerbal boarded or took a seat on from another mission is removed at a rewind instead of held, so it has no ghost until the boarding [FILED 2026-10-24 while writing lanes EVA-14 / SEAT-3 (branch `claude/project-thread-d0rqqc`), code read on main f46545d, not reproduced. SUSPECTED; lane EVA-14 quarantines it. low, visual]
 
 A kerbal whose recording boards a vessel outside his tree (a hatch Board, or a seat, which is a
@@ -1417,15 +1543,15 @@ or a ghost's shape. The items below are code reads, not reproductions; each beco
 with a red test once confirmed.
 
 - [x] ~~STRATEGY-CONVERSION-ROWS-SURVIVE-F9-AND-REFLY (suspected defect): conversion legs are written untagged (`LedgerOrchestrator.cs:5260-5439`) while the award they divert is flight-tagged, and F9 / a Re-Fly merge retire only tagged rows (`ParsekScenario.Trim.cs:1210-1235`, `TombstoneEligibility.cs:56-117`), so the leg would outlive its award. Roadmap XS-1.~~ Same defect as STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD, fixed 2026-10-16 in PR #2123 (the door tags its rows like the award, `GameStateRecorder.ResolveStrategyConversionRecordingTag`; live-proven by QL-2c `2026-10-16_2239`). Re-checked 2026-10-24 on main f3a22ce: the F9 half is moot since save-file loads are cold (PR #2155; the save's own ledger never held the share, QL-2c reshaped), and the Re-Fly half holds (`TombstoneEligibility.IsSupersedeTombstoneEligible` takes every tagged conversion row type; `StrategyConversionTimelineTests.ReFlyMerge_TombstonesTheConvertedShareOfTheSupersededFlight`).
-- [ ] Strategies across any timeline operation: no lane activates a strategy and then rewinds, re-flies, F9s or reverts; Bail-Out Grant, Aggressive Negotiations and Recovery Transponder never ran in game. Roadmap XS-1, GP-1.
+- [ ] Strategies across any timeline operation: no lane activates a strategy and then rewinds, re-flies, F9s or reverts; Bail-Out Grant, Aggressive Negotiations and Recovery Transponder never ran in game. Roadmap XS-1, GP-1. Traced 2026-10-24 (branch `claude/project-thread-dkcvpn`): rewind / F9 / revert hold through the expiry gate and the patch's future guards; three gaps filed, STRATEGY-ACTIVATION-CROSSED-IN-FLIGHT-NOT-APPLIED, STRATEGY-PATCH-CUTOFF-LESS-WALK-READS-THE-LATER-ACTIVATION, STRATEGY-EXPIRY-LOST-WITH-A-DISCARDED-FLIGHT.
 - [ ] Resource amounts: nothing checks origin-out == destination-in for routes, fuel moved while docked, or a spawned vessel's tanks. Roadmap TC-1 / TC-2, RC-1. Progress 2026-10-16: the `ReadVesselResources` verb and `resourceq.py` landed, and RC-1 reads both spawned tanks after a docked transfer and two rewinds; routes are still unchecked.
-- [ ] Career x repeated rewinds, and LedgerGroundTruth after a rewind, Re-Fly or F9: never run. Roadmap TC-4, GP-1.
+- [ ] Career x repeated rewinds, and LedgerGroundTruth after a rewind, Re-Fly or F9: never run. Roadmap TC-4, GP-1. Progress 2026-10-24: L8 covers repeated rewinds; the harness walked past the clock (LEDGER-GROUND-TRUTH-WALKS-PAST-THE-CLOCK, fixed), and L13 runs it after a Re-Fly merge and an F9 (never flown).
 - [ ] Stale lanes: H38 / H39 / H40 / HV-1 not green since the 10-07 and 10-15 logistics changes; H58 and EVA-5 re-pinned, never re-flown. Roadmap XS-2.
 - [x] ~~EVA-CONSTRUCTION-GHOST-SHAPE-NEVER-CHANGES (suspected defect): playback never reads `SegmentEventType.PartAdded / PartRemoved` (only `GhostingTriggerClassifier` and `ForeignInventoryTransfer` name them), though the flight-recorder design says the ghost renders the part from that UT. Roadmap XS-3.~~ Same defect as CONSTRUCTION-GHOST-NEVER-CHANGES-SHAPE, fixed 2026-10-16 (live-proven by EVA-11 `2026-10-16_2322`); re-confirmed by code reading 2026-10-23.
 - [x] ~~CLAIMED-VESSEL-HAS-NO-GHOST-BEFORE-ITS-MEMBER (suspected defect): `VesselGhoster.GhostVessel` despawns the claimed vessel and creates no ghost (`VesselGhoster.cs:155-168`), so it is missing after a rewind until its member recording starts. Roadmap XS-3.~~ Same defect as CLAIMED-VESSEL-VANISHES-BEFORE-ITS-CLAIM, fixed 2026-10-16 (`ParsekFlight.UpdateClaimedVesselHoldGhosts`; live-proven by EVA-11 `2026-10-16_2322`). Re-checked 2026-10-24 on main f3a22ce against PR #2181: the plain rewind's holds feed the same hold ghost on every flight load (`RestoreRewindVesselHolds`; EVA-11 / RC-6 `2026-10-22_1431` / `_1432`), and outside flight a held vessel is hidden by owner ruling 2026-10-22. The two cases still uncovered are filed on their own: REWIND-HOLD-MISSES-CROSS-TREE-ADOPTED-VESSEL and DISCARD-REFLY-LANDS-WITHOUT-REWIND-HOLDS.
 - [x] ~~Lab science and the ledger: science reaches the ledger only with a subject (`GameStateEventConverter.cs:326-345`, `GameStateRecorder.cs:1063`, `:1153`); whether stock's lab transmit carries one needs a decompile. Roadmap XS-4, XS-5 (GC-8).~~ Decompiled 2026-10-17: it carries none; filed and fixed as LAB-SCIENCE-NEVER-LEDGERED (xUnit; lane LAB-1 live-proven 2026-10-17).
 - [x] ~~TA-6 outside the physics bubble: see TIMEJUMP-CONVERTER-POLICY-DIFFERS-BY-JUMP-KIND. Roadmap MINE-3.~~ Fixed 2026-10-17 (xUnit; lane LAB-1 live-proven 2026-10-17).
-- [ ] Contracts x Re-Fly never executes (the in-game cell skips on every host). Roadmap XS-6.
+- [x] ~~Contracts x Re-Fly never executes (the in-game cell skips on every host). Roadmap XS-6.~~ 2026-10-24: the state it looked for is unreachable by design (a contract row seals its slot, design 2.12) and it drove the legacy `CommitSupersede`; the cell is rewritten to assert today's rule in a live session (no contract row in the retire set, nothing accepted after the clock Active). The trace found REFLY-SESSION-SHOWS-CONTRACT-ACCEPTED-LATER and REFLY-DEADLINE-EXPIRY-REFUSES-THE-MERGE (both fixed); lane RF-C1.
 - [ ] EVA hop across 2-3 vessels and a crew transfer while docked then undock: never flown (no spec passes `EvaBoard targetPid`, no crew-transfer verb); a crew transfer is not recorded by design (`SwitchSegmentNoOpClassifier.cs:146-161`), and a kerbal moved into another tree's vessel keeps the first tree's hold (`KerbalsModule.cs:1318-1335`). Roadmap XS-7.
 
 Fix: the register in `docs/dev/autotest-roadmap.md` ("The cross-system gap program (2026-10-16)"),
@@ -2174,8 +2300,12 @@ fresh branch (it would also start the ghost's running loop there)~~ - promotion 
 (`ResolveChainPromotionSeedUT`). A recording that already carries a converter edge keeps its own
 state. Still open: the in-vessel transfer half (owner's call), a background vessel recorded only on
 rails (a later promotion of it now seeds, the background recording itself does not), and the
-decoupled-converter missed trim. Live witness owed: a fresh-branch split off a vessel with a drill
-running, then a commit whose tail stays (no lane flies it yet).
+decoupled-converter missed trim. Live witness: the in-game cell
+`PromotionConverterSeedInGameTest.PromotionSeedsRunningConverters` (category `PromotionConverterSeed`,
+lane `MINE-15-promotion-converter-seed`, authored 2026-10-24, never flown) runs the promotion seed
+pass over `miner-rover-landed`'s rover with its drills and ISRU running, so stock's own `BaseConverter`
+state feeds the seed detection: one seed per running converter part on a fresh recording, none on a
+recording that already carries a converter edge.
 
 ---
 
@@ -2540,7 +2670,12 @@ four neighbours keep the old geometry; none is flown:
   FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit: `TrySpawnBlockedChain` skips the walkback while the
   tip resolves a jump-shifted spawn (`VesselGhoster.ShouldWalkBackBlockedTip`, Verbose
   `Chain tip walkback skipped: ... jump-shifted orbit`); the tip stays blocked until the shifted
-  position clears. Live witness owed: a held tip blocked more than 5 s after a jump.
+  position clears. No live lane, by choice (2026-10-24): a witness needs a new orbital preset whose
+  tip spawns inside the active vessel after the jump (CI-9's `chain-tip-dock` shape with a near-zero
+  lead and a second trajectory point, since the walkback also needs two points), and the only end
+  state a seam lane can reach is a `RealSpawn` that times out with an ERROR while the tip stays
+  blocked (moving the blocker needs a kRPC mission). The gate is one pure branch with its log line
+  pinned in xUnit (`TimeJumpTerminalOrbitShiftTests`).
 - **A second jump before an armed tip spawns, when the tip is not held.** Accumulation reads
   the held blocked-tip ghosts; a tip armed by a first jump that has neither spawned nor been
   blocked (its plain ghost is not held) is not re-captured, so a second jump in that window

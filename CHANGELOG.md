@@ -27,6 +27,17 @@ _(unreleased - entries accumulate here per commit)_
 - **A held end-of-flight vessel frozen by a time jump no longer spawns away from its ghost.** While
   the vessel spawns from its jump-shifted orbit, a blocked spawn waits for the spot to clear instead
   of walking back along the unshifted path. (REALSPAWN-JUMP-SHIFT-RESIDUE)
+- **A Re-Fly no longer shows a contract you accepted later as active.** A contract accepted at the
+  Space Center after the Re-Fly's rewind point stays unaccepted during the Re-Fly, so the re-flown
+  stage can no longer complete or fail it before you accepted it. (REFLY-SESSION-SHOWS-CONTRACT-ACCEPTED-LATER)
+- **A Re-Fly that outlives a contract's deadline can be merged.** The expiry is the one your
+  committed career already holds, so it no longer reads as a loss the Re-Fly caused and the merge
+  is no longer refused. (REFLY-DEADLINE-EXPIRY-REFUSES-THE-MERGE)
+
+### Dev
+
+- **The ledger ground-truth check works after a rewind or a Re-Fly.** It compares the career at the
+  current time instead of the end of the committed timeline. (LEDGER-GROUND-TRUTH-WALKS-PAST-THE-CLOCK)
 
 ---
 

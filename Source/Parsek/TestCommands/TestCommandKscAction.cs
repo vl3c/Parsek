@@ -950,14 +950,30 @@ namespace Parsek.TestCommands
             return string.Equals(guid, a, System.StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>The <c>contract=</c> value that names the first Offered contract in stock's
+        /// list instead of a guid, for a host whose offers stock generates at run time (the
+        /// accepted guid comes back in the OK payload as <c>contract</c>).</summary>
+        internal const string FirstOfferedContractArg = "offered-first";
+
+        /// <summary>Pure: whether the arg asks for the first Offered contract.</summary>
+        internal static bool IsFirstOfferedContractArg(string arg)
+        {
+            return !string.IsNullOrEmpty(arg)
+                && string.Equals(arg.Trim(), FirstOfferedContractArg, System.StringComparison.OrdinalIgnoreCase);
+        }
+
         private static Contracts.Contract ResolveContract(string arg)
         {
             var system = Contracts.ContractSystem.Instance;
             if (system == null || system.Contracts == null) return null;
+            bool firstOffered = IsFirstOfferedContractArg(arg);
             for (int i = 0; i < system.Contracts.Count; i++)
             {
                 var c = system.Contracts[i];
-                if (c != null && ContractGuidMatches(c.ContractGuid.ToString(), arg))
+                if (c == null) continue;
+                if (firstOffered
+                    ? c.ContractState == Contracts.Contract.State.Offered
+                    : ContractGuidMatches(c.ContractGuid.ToString(), arg))
                     return c;
             }
             return null;
@@ -1002,9 +1018,12 @@ namespace Parsek.TestCommands
 
             double fundsAfter = LiveFunds();
             string observed = fundsAfter.ToString("R", CultureInfo.InvariantCulture);
-            LogApplied(action, contractArg, d.ManifestKind, "state=Active funds=" + observed);
+            string acceptedGuid = contract.ContractGuid.ToString();
+            LogApplied(action, contractArg, d.ManifestKind,
+                "state=Active funds=" + observed + " contract=" + acceptedGuid);
             var payload = OkPayload(action, contractArg, "state", "Active");
             payload.Add(new KeyValuePair<string, string>("fundsAfter", observed));
+            payload.Add(new KeyValuePair<string, string>("contract", acceptedGuid));
             return KscActionExecOutcome.Ok(payload);
         }
 

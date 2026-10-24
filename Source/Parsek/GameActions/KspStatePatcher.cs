@@ -72,7 +72,8 @@ namespace Parsek
             IReadOnlyList<GameAction> partPurchaseActions = null,
             double? walkUtCutoff = null,
             IReadOnlyCollection<string> committedTechUnlockIds = null,
-            double? committedTechUnlockLiveUt = null)
+            double? committedTechUnlockLiveUt = null,
+            double? deadlineClockUT = null)
         {
             using (SuppressionGuard.ResourcesAndReplay())
             {
@@ -111,7 +112,8 @@ namespace Parsek
                 }
                 PatchFacilities(facilities);
                 PatchMilestones(milestones, authoritativeRepeatableRecordState);
-                PatchContracts(contracts);
+                PatchContracts(contracts, ResolveContractAcceptClockUT(walkUtCutoff, deadlineClockUT,
+                    ParsekScenario.IsOnLoadInProgress, ParsekScenario.GetCurrentTimelineUTForLedgerRecalc));
                 // After funds (the walk already charged the setup cost; this path charges
                 // nothing) and facilities (the Administration level). Null skips it, which
                 // is what callers that do not own a strategies module pass.
@@ -3854,7 +3856,7 @@ namespace Parsek
         /// CRITICAL: Contract.Load mutates the input ConfigNode by removing the "type"
         /// value, so we always clone the snapshot before passing it to the load pipeline.
         /// </summary>
-        internal static void PatchContracts(ContractsModule contracts)
+        internal static void PatchContracts(ContractsModule contracts, double acceptClockUT = double.NaN)
         {
             if (ContractSystem.Instance == null)
             {
@@ -3870,8 +3872,21 @@ namespace Parsek
                 return;
             }
 
-            // Get the set of contract IDs that should be active after the ledger walk
-            var activeIds = contracts.GetActiveContractIds();
+            // Get the set of contract IDs that should be active after the ledger walk,
+            // less any the committed timeline accepts only after the clock (a walk past
+            // the clock; NaN filters nothing, see ResolveContractAcceptClockUT).
+            List<string> acceptedLater;
+            var activeIds = SelectContractsAcceptedByNow(
+                contracts.GetActiveContractIds(),
+                contracts.GetActiveContractAcceptUT,
+                acceptClockUT,
+                out acceptedLater);
+            if (acceptedLater.Count > 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"PatchContracts: kept {acceptedLater.Count.ToString(IC)} contract(s) out of stock's active list " +
+                    $"until the clock reaches their committed accept: [{string.Join(", ", acceptedLater.ToArray())}]");
+            }
             var activeIdSet = new HashSet<Guid>();
             foreach (var idStr in activeIds)
             {
@@ -4231,6 +4246,73 @@ namespace Parsek
             public bool IsActive;
             public bool IsTerminal;
             public Contract.State State;
+        }
+
+        /// <summary>Slack between an accept row's UT and the clock read that follows it.</summary>
+        internal const double ContractAcceptClockToleranceSeconds = 1.0;
+
+        /// <summary>
+        /// The clock <see cref="PatchContracts"/> holds later accepts against, or NaN for no
+        /// filter. A walk with a real cutoff already left out every accept after it, so it
+        /// needs none. A walk past the clock judges against the clock its caller named (the
+        /// Re-Fly invoke's session UT); without one it reads the live clock, except while
+        /// ParsekScenario.OnLoad runs: stock loads the scenario modules before it sets the
+        /// clock from the save, so the live clock can still be the previous game's, and a
+        /// stale clock would remove a contract that really is Active. A later patch at the
+        /// save's clock (the OnLoad cutoff walk, or the next recalculation) holds it then.
+        /// </summary>
+        internal static double ResolveContractAcceptClockUT(
+            double? walkUtCutoff, double? callerClockUT, bool onLoadInProgress, Func<double> liveClockUT)
+        {
+            if (walkUtCutoff.HasValue && !double.IsNaN(walkUtCutoff.Value)
+                && !double.IsInfinity(walkUtCutoff.Value)
+                && !KerbalsModule.IsNoTimeFilterCutoff(walkUtCutoff.Value))
+                return double.NaN;
+            if (callerClockUT.HasValue && !double.IsNaN(callerClockUT.Value)
+                && !double.IsInfinity(callerClockUT.Value)
+                && !KerbalsModule.IsNoTimeFilterCutoff(callerClockUT.Value))
+                return callerClockUT.Value;
+            if (onLoadInProgress || liveClockUT == null)
+                return double.NaN;
+            return liveClockUT();
+        }
+
+        /// <summary>
+        /// Pure: the ledger-active contracts stock may hold Active at <paramref name="nowUT"/>.
+        /// A walk that ran past now (the Re-Fly invoke walks the whole ledger so the session
+        /// shows the committed career, design section 6.8 step 5) leaves a contract active
+        /// whose accept the committed timeline makes later, at the Space Center after the
+        /// rewind point. Restored Active, a re-fly could complete or fail it before it was
+        /// accepted, and the walk would then credit the completion with no accept before it
+        /// and make the contract Active again at its accept (a time-travel paradox, todo
+        /// REFLY-SESSION-SHOWS-CONTRACT-ACCEPTED-LATER). Those go to
+        /// <paramref name="acceptedLater"/>; stock keeps whatever the loaded save holds for
+        /// them (the Offered copy) until the clock reaches the accept. A clock that is not
+        /// ready (not positive, not finite, or the walk-everything sentinel) filters nothing.
+        /// </summary>
+        internal static List<string> SelectContractsAcceptedByNow(
+            IEnumerable<string> activeIds,
+            Func<string, double> acceptUT,
+            double nowUT,
+            out List<string> acceptedLater)
+        {
+            var kept = new List<string>();
+            acceptedLater = new List<string>();
+            if (activeIds == null) return kept;
+            bool clockReady = !double.IsNaN(nowUT) && !double.IsInfinity(nowUT)
+                && nowUT > 0.0 && !KerbalsModule.IsNoTimeFilterCutoff(nowUT);
+            foreach (string id in activeIds)
+            {
+                if (string.IsNullOrEmpty(id)) continue;
+                double ut = clockReady && acceptUT != null ? acceptUT(id) : double.NaN;
+                if (!double.IsNaN(ut) && ut > nowUT + ContractAcceptClockToleranceSeconds)
+                    acceptedLater.Add(id);
+                else
+                    kept.Add(id);
+            }
+            kept.Sort(StringComparer.Ordinal);
+            acceptedLater.Sort(StringComparer.Ordinal);
+            return kept;
         }
 
         internal struct ContractRemovalKey
