@@ -1444,13 +1444,14 @@ namespace Parsek
         /// <summary>
         /// Pure: whether a recording's flat <c>Points</c> list may be read as body-fixed
         /// lat/lon/alt. The readers here fall back to that list only when the recording has
-        /// no track sections, which for a live recording means its first section is still
-        /// open in the recorder. The list mirrors that section's frames, and a parent-anchored
-        /// recording's first section is Relative to its parent whenever the seed opened in
-        /// range, so its flat points carry anchor-local metre offsets that cannot be told
-        /// apart from body-fixed values (a booster 300 m up reads as altitude 0.0). Such a
-        /// recording has no body-fixed sample to offer until that section closes into
-        /// <c>bodyFixedFrames</c>.
+        /// no track sections, which for a live background recording means none has been
+        /// flushed yet: the recorder keeps its open and closed sections to itself until a
+        /// flush (commit, scene exit, going on rails, leaving the background). The list
+        /// mirrors their frames, and a parent-anchored recording's first section is Relative
+        /// to its parent whenever the seed opened in range, so its flat points carry
+        /// anchor-local metre offsets that cannot be told apart from body-fixed values (a
+        /// booster 300 m up reads as altitude 0.0). Until the flush such a recording offers
+        /// no recorded point, and the live-orbit verdict stands for that pass.
         /// </summary>
         internal static bool CanReadFlatPointsAsBodyFixed(Recording recording)
         {

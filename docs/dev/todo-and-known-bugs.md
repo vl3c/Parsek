@@ -122,11 +122,30 @@ resolve the section frame.
 fallback of the surface-point search, the predicted-tail anchor search and the predecessor /
 successor lookups is refused for a parent-anchored recording (Verbose `Recorded-point read refused
 flat Points for parent-anchored recording ... reader=`). With no readable point that pass keeps the
-live-orbit verdict, which a later pass replaces once the section closes. No extra at-or-below-surface
-seed guard: a real body-fixed sample never read 0.0 here. Unit tests in
+live-orbit verdict (a no-solver Destroyed cache stamped at the refresh UT). That holds until the
+background recorder first flushes its sections into the recording (commit, scene exit, on-rails,
+leaving the background); review traced that such a cache cannot reach a saved terminal
+(`RejectedTerminalBeforeLastSample` once a later sample exists, the confirmed-destruction clamp,
+`SkipPredictedDestroyedWhileAlive`, and scene exit flushing before its own pass). No extra
+at-or-below-surface seed guard: a real body-fixed sample never read 0.0 here. The same blind spot
+remains for a NON-parent-anchored background vessel that enters Relative mode through the
+nearest-anchor search before its first flush: filed as FINALIZER-READS-UNFLUSHED-RELATIVE-POINTS. Unit tests in
 `SceneExitFinalizationIntegrationTests` (`..._ParentAnchoredFlatRelativeSeed_NotReadAsSurfacePoint`,
 `..._ParentAnchoredFlatPoints_Refused`).
 
+
+## FINALIZER-READS-UNFLUSHED-RELATIVE-POINTS: a background recording's finalizer pass cannot see its unflushed sections [FILED 2026-10-24 from the PR #2190 review. OPEN, low. product]
+
+`IncompleteBallisticSceneExitFinalizer` reads recorded points from `Recording.TrackSections` and falls
+back to the flat `Points` list only when there are none. `BackgroundRecorder` keeps a loaded
+vessel's open and closed sections in its own state until `FlushTrackSectionsToRecording` (commit,
+scene exit, on-rails, leaving the background), so a periodic cache refresh before that sees only
+the flat list, which mirrors frames in whatever frame they were sampled. PR #2190 refuses that list
+for parent-anchored recordings; a non-parent-anchored vessel that entered Relative mode through the
+nearest-anchor search (`UpdateBackgroundAnchorDetection`) still has its anchor-local offsets read
+as body-fixed in that window. No saved terminal is known to be affected. Fix direction: hand the
+finalizer the recorder's unflushed sections (their `bodyFixedFrames` included) for the refresh,
+instead of more flat-list guards.
 ## ~~SCENE-EXIT-FINALIZER-CRASHES-A-CHUTE-DESCENT: leaving the flight finalizes a booster still descending under its parachute as Destroyed~~ [FILED 2026-10-22 from RF-L2 `2026-10-22_0734` (PARSEK-FAIL, expectations), flown for PR #2173, and the same on plain main 9dbf9c2 (`2026-10-22_0817`). FIXED 2026-10-22 in PR #2176 (RF-L2 `2026-10-22_1026` PASS attempt 1), exposed by PR #2154 (REMAINING-RECORDED-VELOCITY-SEEDS). product]
 
 RF-L2's first flight exits to the Space Center at UT 124.4 while the booster probe hangs under its
