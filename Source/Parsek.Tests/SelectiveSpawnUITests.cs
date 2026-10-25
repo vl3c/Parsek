@@ -210,6 +210,25 @@ namespace Parsek.Tests
             Assert.Equal("B", result.Value.vesselName);
         }
 
+        // catches: Warp to Next Spawn jumping to a Leaves row whose own Warp is greyed.
+        [Fact]
+        public void FindNextSpawnCandidate_SkipsALeavesRowWhoseMoveIsRefused()
+        {
+            var candidates = new List<NearbySpawnCandidate>
+            {
+                new NearbySpawnCandidate { vesselName = "Refused", endUT = 900, willDepart = true,
+                    departureUT = 150, moveRefusal = MoveRefusal.Burns },
+                new NearbySpawnCandidate { vesselName = "Moves", endUT = 900, willDepart = true,
+                    departureUT = 250 },
+                new NearbySpawnCandidate { vesselName = "Ready", endUT = 300 }
+            };
+
+            var result = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, 100, Radius, MaxRelSpeed);
+
+            Assert.NotNull(result);
+            Assert.Equal("Moves", result.Value.vesselName);
+        }
+
         [Fact]
         public void FindNextSpawnCandidate_AllPast_ReturnsNull()
         {

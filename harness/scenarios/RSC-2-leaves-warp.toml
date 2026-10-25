@@ -1,0 +1,139 @@
+schema = 1
+id = "RSC-2-leaves-warp"
+tier = "nightly"
+# Real Spawn Control's Leaves Warp in ORBIT keeps the player's group beside the ghost
+# (docs/dev/design-realspawn-time-jump-move.md, plan Step 1). Before the move, the Warp
+# froze the player while the ghost kept playing, so after the ~280 s skip the ghost was
+# about 650 km away (2.28 km/s x 285 s) and its departure burn played out of sight.
+#
+# THE HOST. CI-9's `eva2-lko-crewed` (focused Kerbal X pid 3620499050 at ~101.7 km, the
+# Kerbal X Probe pid 2614652043 ~16 m away at ~0.2 m/s, so itself a group member) plus the
+# `leaves-departure` preset: ONE committed single-recording tree whose probe rides the
+# Kerbal X's own orbit ~140 m ahead, burns 20 m/s prograde 300 s after load (UT 721.19)
+# and ends 900 s after load (UT 1321.19). Its row reads Leaves; the Warp jumps to 15 s
+# before the burn (UT 706.19) and must place the Kerbal X and the Probe at the same spot
+# beside the ghost they held at the press.
+#
+# THE PRESS. `UiAction op=warp window=spawncontrol` runs the row button's own click body
+# (`SpawnControlUI.ExecuteRowWarp`) and refuses on a disabled button
+# (`warp-button-disabled`, forbidden below), so a move gate that greyed the row reds here.
+# `StartRecording` on the Kerbal X before the press drives the recorder facet: the jump is
+# recorded as a same-body teleport (`cause=time-jump`), the pre-jump segment closes at the
+# placement, a fresh one opens on the placed orbit and closes at stock's unpack with a
+# non-zero length, and the vessel at the unpack stands on that segment.
+#
+# THE NUMBERS (never flown; windows to tighten after the first flight): the ghost-to-Kerbal
+# X distance after the unpack within 5 m of the click (`refDrift`), the Probe's distance to
+# the Kerbal X within 1 m (`toActiveDrift`), the ghost within 1 km of the Kerbal X at its
+# departure, and the departure burn's engine FX applied to the ghost (part pid 101111).
+# Negative control: on a DLL without the move none of the `Placement` lines exist and the
+# old `Epoch-shifted vessel` lines (forbidden) appear instead.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) no existing flight is a prefix of this one
+# (CI-9 / GC-4 share the host but press nothing or RealSpawn a chain tip); (2) both waits
+# are explicit-UT 1x `WarpToUT` (428: two proximity sightings; 725: past the burn at
+# 721.19); (3) the second wait is the minimum that sees the burn and the departure check;
+# (4) no burn of the player's own; (5) no SOI coast; (6) no mission, nothing to fail fast
+# on; (7) count windows are the derived minimum and get tightened after the first flight;
+# (8) tier by measured p50 after the first flights; (9) `flight_efficiency.py` after the
+# first green flight.
+description = "Real Spawn Control Leaves Warp in orbit: over eva2-lko-crewed plus the leaves-departure preset (a committed recording on the Kerbal X's orbit ~140 m ahead that burns away 300 s after load), start a recording, press the Leaves row's Warp, and require the group placement beside the ghost (Kerbal X and Probe), the recorder's time-jump re-capture, the distances kept through stock's unpack, and the ghost's departure burn seen from beside it."
+instanceProfile = "stock-minimal"
+tags = ["RSC-2", "real-spawn-control", "time-jump", "ui-seam", "injected-recordings",
+        "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "leaves-departure"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  # Real Spawn Control's launcher is Advanced-only.
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  # 1x to UT 428 (~6.8 s after the save UT 421.19): two proximity sightings 1.5 s apart.
+  { cmd = "WarpToUT", args = { ut = "428", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "StartRecording", expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "spawncontrol" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "rsc2-before-warp" }, expect = "OK" },
+  # THE PRESS.
+  { cmd = "UiAction", args = { op = "warp", window = "spawncontrol" }, expect = "OK", budget = 120 },
+  # 1x past the departure burn at UT 721.19 (the jump lands at 706.19).
+  { cmd = "WarpToUT", args = { ut = "725", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "CaptureScreenshot", args = { label = "rsc2-after-departure" }, expect = "OK" },
+  { cmd = "CommitTree", expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# A second witness of D13 real-spawn-control (RSC-1 holds the landed Ready Warp): the
+# Leaves Warp of an orbital row. No registry value names the time-jump move itself.
+D13 = ["real-spawn-control"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+# The injected recording plus the Kerbal X's own (an optimizer split would add one).
+[expectations.recordings]
+count = { min = 2, max = 3 }
+
+[expectations.logContracts]
+required = [
+  # The row: a Leaves candidate inside both gates, pressed through its own button.
+  "\\[Flight\\] Proximity notification: 'LDP Target' recording #0 distance=1[0-9]{2}m endUT=1321\\.2",
+  "\\[Flight\\] StartRecording succeeded: pid=3620499050, tree=True",
+  "uiaction open window=spawncontrol open=true",
+  "\\[Parsek\\]\\[INFO\\]\\[UI\\] Real Spawn Control: warp to departure 'LDP Target' recording #0 depUT=721\\.2",
+  "uiaction warp window=spawncontrol vessel=LDP Target recording=0 departure=true",
+  "WarpToDeparture: jumping to UT=706\\.2 for 'LDP Target' \\(delta=2[0-9]{2}\\.[0-9]s, departUT=721\\.2, endUT=1321\\.2, mode=placement\\)",
+  # Frame F: the gates pass at the click, both vessels pack, the clock moves.
+  "\\[TimeJump\\] Placement jump armed: ref=ldp-target-rec kind=Leaves T0=4[23][0-9]\\.[0-9] T1=706\\.2 group=2 hold=60 frame=[0-9]+",
+  # Frame F+1: each member placed at its T0 local offset, then the one summary line.
+  "\\[TimeJump\\] Placed vessel: pid=3620499050 name=Kerbal X offsetT0=\\(-?[0-9]+\\.[0-9],-?[0-9]+\\.[0-9],-?[0-9]+\\.[0-9]\\) offsetT1=\\(-?[0-9]+\\.[0-9],-?[0-9]+\\.[0-9],-?[0-9]+\\.[0-9]\\) dvRel=[0-9]+\\.[0-9]{2}",
+  "\\[TimeJump\\] Placed vessel: pid=2614652043 name=Kerbal X Probe offsetT0=\\(",
+  "\\[TimeJump\\] Placement jump: ref=ldp-target-rec kind=Leaves T0=4[23][0-9]\\.[0-9] T1=706\\.2 placeUT=706\\.[0-9]{2} group=2 moved=3620499050,2614652043 refGapToDrawn=[0-9]{1,2}\\.[0-9]m slide=0\\.0m recorder=OnRailsRecapture bgRecaptured=0",
+  # The recorder: the jump is a same-body teleport on rails; the re-captured segment
+  # closes at stock's unpack with a non-zero length, the vessel standing on it.
+  "\\[Recorder\\] Teleport detected \\(Real Spawn Control time jump\\): vessel='Kerbal X' pid=3620499050 from=Kerbin to=Kerbin ut=706\\.[0-9]{2} action=OnRailsRecapture cause=time-jump",
+  "\\[Recorder\\] Time jump: orbit segment re-captured on rails \\(body=Kerbin\\) at UT=706\\.[0-9]{2}",
+  "\\[Recorder\\] Time jump: re-captured orbit segment closed at go-off-rails UT=70[67]\\.[0-9]{2} start=706\\.[0-9]{2} length=(?!0\\.00s)[0-9]+\\.[0-9]{2}s boundaryGapToSegment=[0-4]\\.[0-9]m",
+  # Stock's unpack: the ghost stays where it was (within 5 m), the Probe stays beside the
+  # Kerbal X (within 1 m).
+  "\\[TimeJump\\] Placement unpacked: pid=3620499050 name=Kerbal X ut=70[67]\\.[0-9]{2} refDistanceT0=1[0-9]{2}\\.[0-9]m refDistanceNow=1[0-9]{2}\\.[0-9]m refDrift=[0-4]\\.[0-9]m ",
+  "\\[TimeJump\\] Placement unpacked: pid=2614652043 name=Kerbal X Probe ut=70[67]\\.[0-9]{2} [^\\r\\n]* toActiveDrift=0\\.[0-9]m ",
+  # The departure, seen from beside the ghost.
+  "\\[TimeJump\\] Placement departure check: ref=ldp-target-rec ut=72[1-5]\\.[0-9]{2} departureUT=721\\.19 refDistance=1[0-9]{2}\\.[0-9]m",
+  "\\[GhostPartEvents\\] apply family=EngineIgnited surface=engine-fx rec=0 pid=101111 applied=[1-9]",
+  "\\[TimeJump\\] Placement watch complete: ref=ldp-target-rec ut=72[1-5]\\.[0-9]{2} reason=done unpackPending=0",
+  "(?m)listhandles kind=committed count=[23] truncated=false$",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "warp-button-disabled",
+  "warp-no-candidate-row",
+  "Placement jump refused",
+  "Placement jump dropped",
+  # The old freeze-in-place jump.
+  "Epoch-shifted vessel",
+  # The recording ends at 1321.2; nothing spawns before the quit.
+  "\\[Spawner\\] Vessel spawn for #[0-9]+ \\(LDP Target\\)",
+]
+
+[runtime]
+# The deferred worst case run.py waits: LoadGame max(300,600)+60 = 660, two WarpToUT
+# max(120,600)+60 = 660 each, plus 240 for the non-deferred steps -> 2220.
+budgetSeconds = 2220
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

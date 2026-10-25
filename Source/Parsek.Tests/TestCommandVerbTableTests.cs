@@ -69,6 +69,7 @@ namespace Parsek.Tests
         [InlineData("CycleVessel")]
         [InlineData("EvaSeatBoard")]
         [InlineData("EvaSeatLeave")]
+        [InlineData("NewGame")]
         [InlineData("AlarmJump")]
         [InlineData("LaunchSiteProbe")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
@@ -219,7 +220,9 @@ namespace Parsek.Tests
             // pressed through stock's own OnJump (GC-13).
             // LaunchSiteProbe is ADDITIVE (57 -> 58; reserved unchanged at 4): Launch pressed on
             // an obstructed site and stock's launch-site-clear dialog answered (LS-1, GC-9).
-            Assert.Equal(58, TestCommandVerbs.ImplementedVerbNames.Count);
+            // NewGame is ADDITIVE (58 -> 59; reserved unchanged at 4): a genuine stock new game
+            // under the loaded save's name (the scripted campaign program's CS-0 host).
+            Assert.Equal(59, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

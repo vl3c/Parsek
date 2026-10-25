@@ -29,6 +29,13 @@ of the recording the flight produces deterministically above `RecordingOptimizer
 5.0 s split floor, which the natural dwell straddles. Block note above
 `mlib.sbr_recover_dwell_satisfied`.
 
+THREE MORE OPTIONAL KNOBS FOR A STOCK SCIENCE GAME, which has no funds pool:
+`recoverCreditPool = "science"` (+ `recoverMinScienceGain`) measures the RECOVERED
+terminal on the science pool instead of funds, and `transmitMaxExperiments` caps the
+TRANSMIT verb at N experiments over the run so the rest is still aboard to be
+credited on recovery. Absent, the machine is the funds-measured, transmit-everything
+one. Block note above `mlib.SBR_CREDIT_POOLS`.
+
 WHAT MAKES THE THREE NEW VERBS HONEST. All three are the exact
 commanded-vs-observed shape that produced the B11 executor, the B-DOCK docking-AP
 and the EVA-4 ladder defects. `Experiment.Run()` succeeds on a module whose
