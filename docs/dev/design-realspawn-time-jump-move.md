@@ -149,11 +149,18 @@ recordings actually had.
 
 ### 4.6 Recording during the jump
 
-A recording on A (or on a group vessel recorded in the background) gets the jump as a seam:
-the section closes at T0 and a fresh one opens at T1. On a later replay the vessel coasts on
-its own T0 orbit through the skipped span and then cuts to its placed spot at T1 (a jump of at
-most the drift the jump cancelled), instead of interpolating across the gap. Today's TIME_JUMP
-event stays. Background-recorded group vessels get the same marker (today they get none).
+The jump reuses the recorder's existing teleport handling (`FlightRecorder.CheatTeleport.cs`,
+the path a stock Alt+F12 Set Orbit takes; owner ruling 2026-10-25: "we have a system which
+fills up jumps like this so recordings look natural, we should use it"). Packing A at T0 fires
+the ordinary go-on-rails capture, which opens an orbit segment on A's own T0 orbit. After the
+placement at T1 the jump calls the same bookkeeping as an on-rails same-body teleport
+(`CheatTeleportAction.OnRailsRecapture`): the T0 segment closes at T1, so the skipped span is a
+natural coast, and a fresh segment opens on the placed orbit. On a later replay the vessel
+coasts on its own orbit through the skipped span and then steps to its placed spot at T1, a
+step of at most the drift the jump cancelled. Today's TIME_JUMP event stays. The log line names
+the cause (`cause=time-jump`), not a cheat. A group vessel recorded by the background recorder
+gets the same re-capture (the background recorder has no teleport handling today; Step 1 adds
+the one call).
 
 ### 4.7 What does not change
 

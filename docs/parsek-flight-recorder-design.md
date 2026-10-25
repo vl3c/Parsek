@@ -1636,7 +1636,7 @@ The time jump is a specialized mechanism for a specific scenario: **the player h
 
 **Other ghosts during a jump:** Every ghost, looped ghosts included, is drawn where its recording puts it at T1. Co-orbital ghosts near the chosen one stay near it by the drift their recordings had.
 
-**Interaction with active recording:** If the player is recording during a time jump, a TIME_JUMP SegmentEvent is stored and the jump is a section seam; a background-recorded group vessel gets the same marker. On replay the vessel coasts on its own orbit through the skipped span and cuts to its placed spot at T1.
+**Interaction with active recording:** If the player is recording during a time jump, a TIME_JUMP SegmentEvent is stored and the recorder treats the placement like an on-rails same-body teleport (the existing cheat-teleport bookkeeping): the orbit segment opened at go-on-rails closes at T1, so the skipped span replays as a natural coast on the vessel's own orbit, and a fresh segment opens on the placed orbit. A background-recorded group vessel gets the same re-capture.
 
 **Automation seam:** the automation-only `TimeJump` verb has no chosen ghost and keeps the plain epoch-shift freeze.
 
