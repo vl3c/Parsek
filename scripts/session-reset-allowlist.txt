@@ -32,6 +32,7 @@ GameStateRecorder.TagResolverForTesting test seam
 GameStateRecorder.IsReplayingActions scoped SuppressionGuard flag, restored by its own Dispose
 GameStateRecorder.SuppressCrewEvents scoped SuppressionGuard flag, restored by its own Dispose
 GameStateRecorder.SuppressResourceEvents scoped SuppressionGuard flag, restored by its own Dispose
+GameStateRecorder.clockCauseDepth scoped by ContractEarlyFailPatch around one stock SetState call, closed by its own Finalizer
 LedgerOrchestrator.clockAdvanceRecalcInProgress scoped in-progress flag of one clock-advance recalculation (try/finally)
 LedgerOrchestrator.CurrencyPoolProbeForTesting test seam
 LedgerOrchestrator.DeferOneFrameForTesting test seam

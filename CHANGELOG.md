@@ -30,9 +30,14 @@ _(unreleased - entries accumulate here per commit)_
 - **A Re-Fly no longer shows a contract you accepted later as active.** A contract accepted at the
   Space Center after the Re-Fly's rewind point stays unaccepted during the Re-Fly, so the re-flown
   stage can no longer complete or fail it before you accepted it. (REFLY-SESSION-SHOWS-CONTRACT-ACCEPTED-LATER)
-- **A Re-Fly that outlives a contract's deadline can be merged.** The expiry is the one your
-  committed career already holds, so it no longer reads as a loss the Re-Fly caused and the merge
-  is no longer refused. (REFLY-DEADLINE-EXPIRY-REFUSES-THE-MERGE)
+- **A contract deadline that runs out during a flight is no longer tied to that flight.** The
+  expiry is the clock's, so a Re-Fly that outlives the deadline can be merged, and discarding the
+  flight no longer takes the penalty away. A contract the game ends because its requirements no
+  longer hold is filed the same way. (REFLY-DEADLINE-EXPIRY-REFUSES-THE-MERGE)
+- **Strategies follow the committed timeline exactly after a rewind.** A strategy your committed
+  career switches on later now turns on at that moment, even mid-flight, and one that runs out
+  during a flight stays ended if you discard it. A one-time grant such as Bail-Out Grant is never
+  paid twice. (STRATEGY-ACTIVATION-CROSSED-IN-FLIGHT-NOT-APPLIED)
 
 ### Dev
 

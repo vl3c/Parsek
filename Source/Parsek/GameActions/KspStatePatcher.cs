@@ -112,13 +112,17 @@ namespace Parsek
                 }
                 PatchFacilities(facilities);
                 PatchMilestones(milestones, authoritativeRepeatableRecordState);
-                PatchContracts(contracts, ResolveContractAcceptClockUT(walkUtCutoff, deadlineClockUT,
-                    ParsekScenario.IsOnLoadInProgress, ParsekScenario.GetCurrentTimelineUTForLedgerRecalc));
+                // One clock rule for both committed-row filters: NaN for a cutoff walk (its
+                // state is already the state at the cutoff) and while OnLoad runs (the live
+                // clock is still the pre-load one there).
+                double committedRowClockUT = ResolveContractAcceptClockUT(walkUtCutoff, deadlineClockUT,
+                    ParsekScenario.IsOnLoadInProgress, ParsekScenario.GetCurrentTimelineUTForLedgerRecalc);
+                PatchContracts(contracts, committedRowClockUT);
                 // After funds (the walk already charged the setup cost; this path charges
                 // nothing) and facilities (the Administration level). Null skips it, which
                 // is what callers that do not own a strategies module pass.
                 if (strategies != null)
-                    PatchStrategies(strategies);
+                    PatchStrategies(strategies, committedRowClockUT);
 
                 VerboseStablePatchState("patch-all-complete", "complete", "PatchAll complete");
             }
@@ -2645,9 +2649,9 @@ namespace Parsek
         /// Wrapper for the strategy state patch; behavior lives in
         /// <see cref="StrategyStatePatcher.PatchStrategies"/>.
         /// </summary>
-        internal static void PatchStrategies(StrategiesModule strategies)
+        internal static void PatchStrategies(StrategiesModule strategies, double committedRowClockUT = double.NaN)
         {
-            StrategyStatePatcher.PatchStrategies(strategies);
+            StrategyStatePatcher.PatchStrategies(strategies, committedRowClockUT);
         }
 
         /// <summary>

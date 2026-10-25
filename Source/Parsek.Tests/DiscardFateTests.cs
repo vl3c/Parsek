@@ -963,6 +963,7 @@ namespace Parsek.Tests
             {
                 "bool ShouldForwardFacilityLedgerEvent(",
                 "bool ShouldForwardDirectScienceSubject(",
+                "bool ShouldForwardFailToLedger(",
             };
 
             var offenders = new List<string>();

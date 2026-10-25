@@ -67,15 +67,40 @@ namespace Parsek.Patches
                 new[] { typeof(Contracts.Contract.State) });
         }
 
-        static bool Prefix(Contracts.Contract __instance, Contracts.Contract.State newState)
+        static bool Prefix(Contracts.Contract __instance, Contracts.Contract.State newState, out bool __state)
         {
+            __state = false;
             if (!IsEarlyEndState(newState)) return true;
             if (ParsekGameModeGate.CheckInert("ContractEarlyFailPatch.Prefix")) return true; // S9 game-mode gate
             if (__instance == null) return true;
-            if (__instance.ContractState != Contracts.Contract.State.Active) return true;
+            bool allow = __instance.ContractState != Contracts.Contract.State.Active
+                || ShouldAllowFail(__instance.ContractGuid.ToString(),
+                    __instance.Title ?? __instance.ContractGuid.ToString(), newState.ToString(),
+                    __instance.DateAccepted);
+            if (allow && IsClockCausedEndState(newState))
+            {
+                GameStateRecorder.EnterClockCauseScope("Contract.SetState(" + newState + ")");
+                __state = true;
+            }
+            return allow;
+        }
 
-            string key = __instance.ContractGuid.ToString();
-            return ShouldAllowFail(key, __instance.Title ?? key, newState.ToString(), __instance.DateAccepted);
+        static Exception Finalizer(Exception __exception, bool __state)
+        {
+            if (__state) GameStateRecorder.ExitClockCauseScope("Contract.SetState");
+            return __exception;
+        }
+
+        /// <summary>
+        /// The end states the clock causes, whatever a flight does: a deadline running out,
+        /// and an offer (or an Active contract's requirements) expiring. Everything stock
+        /// does inside such a <c>SetState</c> (the penalty, its strategy conversions, the
+        /// contract's own expiry code) is filed under no flight (owner ruling 2026-10-24).
+        /// </summary>
+        internal static bool IsClockCausedEndState(Contracts.Contract.State newState)
+        {
+            return newState == Contracts.Contract.State.DeadlineExpired
+                || newState == Contracts.Contract.State.OfferExpired;
         }
 
         /// <summary>

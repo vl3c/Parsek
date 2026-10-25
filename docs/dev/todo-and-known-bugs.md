@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY: a Rewind-to-Launch to before a separation undid a merged but unsealed Re-Fly and brought the original flight back [FILED + FIXED 2026-10-24 on branch `fix-rewind-keeps-unsealed-refly`; lane RB-4 owed a first flight]
+## ~~REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY: a Rewind-to-Launch to before a separation undid a merged but unsealed Re-Fly and brought the original flight back~~ [FILED + FIXED 2026-10-24 on branch `fix-rewind-keeps-unsealed-refly` (PR #2230); LIVE-PROVEN 2026-10-25 by RB-4 `2026-10-25_0121` PASS, RF-4 `_0124` PASS]
 
 Owner ruling (V, 2026-10-24, answering the open question of
 RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT): "rewind to launch just takes the timeline to that
@@ -81,14 +81,20 @@ attempt's own. `ReFlyMergeDominance.Evaluate` walked L (the baseline without the
 penalty read as a loss the attempt caused and the merge was refused (`refused at pool=funds`). Design
 3.13: the committed timeline holds the same expiry, so the deadline is no one's choice.
 
-**Fix.** `ReFlyMergeDominance.SharedDeadlineExpiries` picks the attempt's ContractFail rows that are
-deadline expiries of an open accepted contract (accept at or before the fail, a plausible
-`DeadlineUT`, fail at or after the deadline minus 1 s, no baseline Complete / Fail / Cancel for that
-contract after the accept) and adds them to the BEFORE walk only, so both sides carry the same
-penalty; a fail before the deadline still counts. Cells: `ReFlyMergeDominanceTests`
-(`Evaluate_StockDeadlineExpiryDuringTheAttempt_*`, `Evaluate_AttemptFailBeforeTheDeadline_*`,
-`SharedDeadlineExpiries_*`). Rule reading taken from design 3.13, not a new ruling; raised with the
-owner in the thread.
+**Fix (owner ruling 2026-10-24: "its an independent unique ledger event, it should not be linked to
+any flight recording").** A deadline expiry is the clock's, not a flight's: `OnContractFailed` files a
+fail whose state is `DeadlineExpired` untagged (`GameStateRecorder.EmitUntagged`) and writes it to the
+ledger at once, in flight too (`ShouldForwardFailToLedger`; a commit converts only its own tag). Both
+dominance walks then carry the same penalty, a discard keeps it, and after a rewind the committed
+expiry refuses stock's repeat through `ContractEarlyFailPatch`. A fail before the deadline stays the
+flight's own loss. Everything stock does inside that `SetState(DeadlineExpired)` (or `OfferExpired`) is filed untagged
+too: `ContractEarlyFailPatch` opens `GameStateRecorder`'s clock-cause scope around an allowed call,
+so the penalty's currency changes, a strategy's conversion of them (Leadership Initiative) and the
+contract's own expiry code (a rescue offer removing its kerbal) never take the live tag, while a fail
+the flight causes in the same frame keeps it. Cells:
+`ContractDeadlineExpiryUntaggedTests`, `ReFlyMergeDominanceTests`
+(`Evaluate_UntaggedDeadlineExpiryDuringTheAttempt_*`, `Evaluate_TaggedDeadlineExpiry_*`,
+`Evaluate_AttemptFailBeforeTheDeadline_*`).
 
 ---
 
@@ -107,7 +113,84 @@ source gate on the harness call). Lane: L13 (never flown).
 
 ---
 
-## STRATEGY-ACTIVATION-CROSSED-IN-FLIGHT-NOT-APPLIED: a committed strategy activation the clock reaches during a flight is not switched on until the next scene change [FILED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`. OPEN; medium]
+## BATCH-ISOLATION-CAPTURE-FAILS-IN-THE-EDITOR: a LedgerGroundTruth batch started in the VAB logs an ERROR (DirectoryNotFoundException on Parsek/Recordings) [FILED 2026-10-25 from L13's first flight `2026-10-25_0016`, branch `claude/project-thread-dkcvpn`. OPEN; low]
+
+L13's first batch ran in EDITOR (the probe launch had been refused) and logged `Batch isolation
+capture FAILED (mode=InMemoryAndDisk) ... DirectoryNotFoundException ...\Parsek\Recordings\`.
+Not reproduced headless; read the capture's directory resolution in EDITOR (`InGameTestRunner.
+CaptureBatchBaseline`) against the collected KSP.log in the results archive.
+
+---
+
+## DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS: a lane whose seam steps time out still reads driver-valid [FILED 2026-10-25 from the dkcvpn flights, branch `claude/project-thread-dkcvpn`. OPEN; low, harness]
+
+`2026-10-25_0016` (L13) reported `driverValidity` PASS with four unmet steps (`allMet=False`:
+ExitToSpaceCenter TIMEOUT `not-in-flight`, LaunchFromEditor REJECTED, two WarpToUT TIMEOUTs), so
+the run classified PARSEK-FAIL on its log contract instead of driver-INVALID; RF-C1 `_0007` passed
+with one unmet ExitToSpaceCenter. Read how `hlib` folds a step whose `expect` was missed into the
+driver verdict.
+
+---
+
+## ~~STRATEGY-ACTIVATION-REPLAY-REPAYS-A-ONE-SHOT-EXCHANGER: switching on a committed Bail-Out Grant pays its exchange again~~ [FILED AND FIXED 2026-10-25 from a code audit, branch `claude/project-thread-dkcvpn`]
+
+Stock's `CurrencyExchanger` (Bail-Out Grant, Research Rights Sell-Out) pays the whole exchange in
+`OnRegister` and deactivates itself one frame later; `Strategy.Load` ends in `Register()`, so the
+`StrategyActivationGate` crossing replay (and, in a one-frame window, `PatchStrategies`) paid it a
+second time, and the self-deactivation (no duration, so not an expiry) took the live flight's tag.
+**Fix.** `StrategyStatePatcher.IsOneShotExchanger`: neither path ever switches such a strategy on;
+its exchange is already a ledger row.
+
+---
+
+## LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT: mod-driven background awards are filed under the live flight [FILED 2026-10-25 from a code audit, branch `claude/project-thread-dkcvpn`. OPEN; low, mod-only]
+
+Three cases a stock install never reaches: a Contract Configurator `autoAccept` contract accepted by
+a mid-flight contract refresh, science a background vessel transmits (and the body science milestone
+it reaches; Kerbalism-style mods), and a background resource-scan unlock (SCANsat). Each is tagged
+to the live recording, so a discard drops it and a Re-Fly reads it as the attempt's. Fix direction:
+the same clock-cause rule (file untagged when the vessel named is not the flown one), once a mod
+lane exists to prove it.
+
+---
+
+## ~~CONTRACT-REQUIREMENTS-LOST-TAGGED-TO-THE-FLIGHT: an Active contract stock ends for lost requirements is filed under the live flight~~ [FILED AND FIXED 2026-10-24 from a code audit, branch `claude/project-thread-dkcvpn`]
+
+Stock's `Contract.Update` ends an Active contract as `OfferExpired` when `MeetRequirements()` fails
+(a progress node or a facility level it needs no longer holds, often Parsek's own recalculation
+rolling one back), every frame, in flight too. `OnActiveContractOfferExpired` filed the unpenalized
+`ContractCancel` with the live tag, so a discard dropped it (the ledger kept a contract Active that
+stock had ended) and a Re-Fly read it as the attempt's own row. **Fix** (owner ruling 2026-10-24, an
+event no flight causes is filed under no flight): `EmitUntagged` and a direct ledger write.
+
+---
+
+## CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT: a contract a ground station or a comet scan completes is filed under the live flight [FILED 2026-10-24 from a code audit, branch `claude/project-thread-dkcvpn`. OPEN; medium]
+
+Stock completes `CollectDeployedScience` from a Breaking Ground ground station's transmission
+(`DeployedScienceExperiment.FixedUpdate` -> `SubmitScienceData`, no vessel) and
+`CometDetectionParameter` from `SentinelScenario`'s background scan; both fire mid-flight.
+`OnContractCompleted` tags the completion to the live recording, while the deployed science it
+rides on is untagged by the 2026-09-26 ruling. A discard drops a reward stock already paid (the next
+recalculation claws it back), and a Re-Fly reads it as the attempt's gain and seals. Fix direction:
+recognise a completion with no vessel cause (the current science event is a deployed subject, or a
+Sentinel detection is in progress) and file it untagged with a direct ledger write. Mod contracts
+with timer parameters are the same class.
+
+---
+
+## STRATEGY-CONVERSION-OF-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT: a strategy's cut of ground-station science is filed under the live flight [FILED 2026-10-24 from a code audit, branch `claude/project-thread-dkcvpn`. OPEN; low]
+
+With a science-converting strategy active (Patents Licensing), stock's
+`ResearchAndDevelopment.AddScience` for a ground-station transmission fires the conversion before
+`OnScienceRecieved`; `GameStateRecorder.ResolveStrategyConversionRecordingTag` gives the
+`StrategyScienceDebit` / `Credit` rows the live tag while the award is untagged. A discard refunds the
+conversion and keeps the science. Fix direction: the conversion follows its award, so untagged when
+the award is deployed science.
+
+---
+
+## ~~STRATEGY-ACTIVATION-CROSSED-IN-FLIGHT-NOT-APPLIED: a committed strategy activation the clock reaches during a flight is not switched on until the next scene change~~ [FILED AND FIXED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`]
 
 After a rewind to before a committed Space Center strategy activation, a flight that runs past the
 activation's UT keeps the strategy off in stock: stock's `StrategySystem.Update` calls `Update()` only
@@ -115,34 +198,44 @@ on active strategies, so `StrategyExpiryGate` (which applies committed deactivat
 sees it, and `StrategyStatePatcher.PatchStrategies` runs only from a ledger recalculation (scene
 entry, commit). Meanwhile the flight's awards are not diverted by the strategy the committed timeline
 has on, so the flight earns in a career state the committed timeline never had. Not reproduced.
-Fix direction: a per-frame check on the cached committed-future index for strategies whose committed
-state turns on at now (same shape as the expiry gate), or a `StrategySystem.Update` postfix that
-switches on a strategy whose committed activation was reached. Lane once fixed: activate at the Space
-Center, rewind before it, fly across it, read the strategy state and the award split.
+**Fix.** `StrategyActivationGate` (`Patches/StrategyActivationGate.cs`), a postfix on the private
+`StrategySystem.Update()`: when the clock crosses a committed activation's UT (dated after the last
+frame's clock, at or before this one's, and still the latest committed row), it switches the
+strategy on the way the patch does (`Strategy.Load` with the committed date and commitment, no cost,
+no capture). A strategy stock has off for another reason is never fought every frame; the frame path
+is one compare against the cached next activation UT. Cells: `StrategyActivationGateTests`. Lane
+still owed: activate at the Space Center, rewind before it, fly across it, read the state.
 
 ---
 
-## STRATEGY-PATCH-CUTOFF-LESS-WALK-READS-THE-LATER-ACTIVATION: a walk past the clock hands `ComputePlan` a strategy's future re-activation [FILED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`. OPEN; low]
+## ~~STRATEGY-PATCH-CUTOFF-LESS-WALK-READS-THE-LATER-ACTIVATION: a walk past the clock hands `ComputePlan` a strategy's future re-activation~~ [FILED AND FIXED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`]
 
 `StrategyStatePatcher.ComputePlan` guards a walk that ran past now with `FutureDated` and
 `FutureDeactivation`, but the snapshot it reads carries only the LAST activation. A strategy on at
 now through an earlier activation, switched off later and re-activated after that, reads as
 `FutureDated` and is not switched on when stock has it off at now. Reachable only through a
-cutoff-less patch (see TREE-COMMIT-WALKS-PAST-THE-CLOCK). Fix direction: compute the plan from the
-committed rows at now (`CommittedFutureIndex.StrategyRows(id).LastAtOrBefore(now)`) rather than from
-the end-of-walk snapshot.
+cutoff-less patch (see TREE-COMMIT-WALKS-PAST-THE-CLOCK). **Fix.**
+`StrategyStatePatcher.ResolveLedgerActiveAtNow` rebuilds the active set at now from the committed rows
+(the latest row at or before now decides, with that row's commitment) before `ComputePlan` runs; an id
+with no committed rows keeps the walk's state. The clock is the contract patch's
+(`ResolveContractAcceptClockUT`): none for a cutoff walk or while OnLoad runs, whose live clock is
+still the pre-load one (a review found a Discard Re-fly landing before an activation would otherwise
+switch it on early). Cells: `StrategyActivationGateTests`
+(`ResolveLedgerActiveAtNow_*`, `ResolvedStateIntoComputePlan_*`).
 
 ---
 
-## STRATEGY-EXPIRY-LOST-WITH-A-DISCARDED-FLIGHT: discarding a flight drops the strategy expiry stock applied during it [FILED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`. OPEN; low]
+## ~~STRATEGY-EXPIRY-LOST-WITH-A-DISCARDED-FLIGHT: discarding a flight drops the strategy expiry stock applied during it~~ [FILED AND FIXED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`]
 
 A strategy that expires during a flight is switched off live by stock and its `StrategyDeactivate`
 row is tagged to the flight's recording (`GameStateEventConverter.ConvertStrategyDeactivated`). When
 the flight is discarded the row goes with it, so the ledger has the strategy on while stock has it
 off; the next `PatchStrategies` switches it back on with its original activation date, and stock
 expires it again on the next frame, writing a second deactivation at a later UT. Self-heals with a
-moved expiry UT; no value is reduced. Fix direction: an expiry is not the flight's choice, so file it
-untagged (Space Center origin) like the expiry the clock produces at the Space Center.
+moved expiry UT; no value is reduced. **Fix** (same owner ruling as the deadline expiry): a
+deactivation at or past `DateActivated + LongestDuration` (`GameStateRecorder.IsStrategyExpiry`) is
+filed untagged and written to the ledger at once, so a discard keeps it. Cells:
+`StrategyActivationGateTests.IsStrategyExpiry_*`.
 
 ---
 
@@ -1543,7 +1636,7 @@ or a ghost's shape. The items below are code reads, not reproductions; each beco
 with a red test once confirmed.
 
 - [x] ~~STRATEGY-CONVERSION-ROWS-SURVIVE-F9-AND-REFLY (suspected defect): conversion legs are written untagged (`LedgerOrchestrator.cs:5260-5439`) while the award they divert is flight-tagged, and F9 / a Re-Fly merge retire only tagged rows (`ParsekScenario.Trim.cs:1210-1235`, `TombstoneEligibility.cs:56-117`), so the leg would outlive its award. Roadmap XS-1.~~ Same defect as STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD, fixed 2026-10-16 in PR #2123 (the door tags its rows like the award, `GameStateRecorder.ResolveStrategyConversionRecordingTag`; live-proven by QL-2c `2026-10-16_2239`). Re-checked 2026-10-24 on main f3a22ce: the F9 half is moot since save-file loads are cold (PR #2155; the save's own ledger never held the share, QL-2c reshaped), and the Re-Fly half holds (`TombstoneEligibility.IsSupersedeTombstoneEligible` takes every tagged conversion row type; `StrategyConversionTimelineTests.ReFlyMerge_TombstonesTheConvertedShareOfTheSupersededFlight`).
-- [ ] Strategies across any timeline operation: no lane activates a strategy and then rewinds, re-flies, F9s or reverts; Bail-Out Grant, Aggressive Negotiations and Recovery Transponder never ran in game. Roadmap XS-1, GP-1. Traced 2026-10-24 (branch `claude/project-thread-dkcvpn`): rewind / F9 / revert hold through the expiry gate and the patch's future guards; three gaps filed, STRATEGY-ACTIVATION-CROSSED-IN-FLIGHT-NOT-APPLIED, STRATEGY-PATCH-CUTOFF-LESS-WALK-READS-THE-LATER-ACTIVATION, STRATEGY-EXPIRY-LOST-WITH-A-DISCARDED-FLIGHT.
+- [ ] Strategies across any timeline operation: no lane activates a strategy and then rewinds, re-flies, F9s or reverts; Bail-Out Grant, Aggressive Negotiations and Recovery Transponder never ran in game. Roadmap XS-1, GP-1. Traced 2026-10-24 (branch `claude/project-thread-dkcvpn`): rewind / F9 / revert hold through the expiry gate and the patch's future guards; three gaps found and fixed, STRATEGY-ACTIVATION-CROSSED-IN-FLIGHT-NOT-APPLIED, STRATEGY-PATCH-CUTOFF-LESS-WALK-READS-THE-LATER-ACTIVATION, STRATEGY-EXPIRY-LOST-WITH-A-DISCARDED-FLIGHT; no lane flies a strategy across a timeline operation yet.
 - [ ] Resource amounts: nothing checks origin-out == destination-in for routes, fuel moved while docked, or a spawned vessel's tanks. Roadmap TC-1 / TC-2, RC-1. Progress 2026-10-16: the `ReadVesselResources` verb and `resourceq.py` landed, and RC-1 reads both spawned tanks after a docked transfer and two rewinds; routes are still unchecked.
 - [ ] Career x repeated rewinds, and LedgerGroundTruth after a rewind, Re-Fly or F9: never run. Roadmap TC-4, GP-1. Progress 2026-10-24: L8 covers repeated rewinds; the harness walked past the clock (LEDGER-GROUND-TRUTH-WALKS-PAST-THE-CLOCK, fixed), and L13 runs it after a Re-Fly merge and an F9 (never flown).
 - [ ] Stale lanes: H38 / H39 / H40 / HV-1 not green since the 10-07 and 10-15 logistics changes; H58 and EVA-5 re-pinned, never re-flown. Roadmap XS-2.
@@ -2302,7 +2395,8 @@ state. Still open: the in-vessel transfer half (owner's call), a background vess
 rails (a later promotion of it now seeds, the background recording itself does not), and the
 decoupled-converter missed trim. Live witness: the in-game cell
 `PromotionConverterSeedInGameTest.PromotionSeedsRunningConverters` (category `PromotionConverterSeed`,
-lane `MINE-15-promotion-converter-seed`, authored 2026-10-24, never flown) runs the promotion seed
+lane `MINE-15-promotion-converter-seed`, LIVE-PROVEN 2026-10-24 on its first flight `2026-10-24_2357`:
+five running converters, five seeds) runs the promotion seed
 pass over `miner-rover-landed`'s rover with its drills and ISRU running, so stock's own `BaseConverter`
 state feeds the seed detection: one seed per running converter part on a fresh recording, none on a
 recording that already carries a converter edge.
@@ -2455,7 +2549,8 @@ Each item needs a trace (or a lane) before it is a defect or a non-issue; see
   rescue's dock to that half ends the hold. Cells `CrewMovedIntoStationAtDockTests` (6: a swap
   into another mission's station, a one-way move into an empty one, a same-tree two-parent
   dock, the one-half end snapshot, a later rescue); live witness lane
-  `CX-3-crew-swapped-into-station-at-dock`, never flown.
+  `CX-3-crew-swapped-into-station-at-dock`, LIVE-PROVEN 2026-10-24 (`2026-10-24_2319` PASS attempt 1:
+  Jebediah read Aboard on the Station half, no death or permanent hold).
 - [ ] The Rewind Point quicksave is written one frame after the split: a route crossing at
   exactly a staging event against the strict-after-cutoff retire.
 - [ ] A route loop unit and a foreign Mission partner journey can claim the same recordings;
@@ -7741,8 +7836,14 @@ is the pure `CurrencyReservationOverlay.ShowsCurrencyTooltipInScene` (SPACECENTE
 cells in `CurrencyReservationOverlayTests`). No double subtraction: the tooltip anchors on the live
 `Funding.Instance.Funds` the widget draws, and the editor's vessel cost readout is separate stock
 text. Unverified in game: that the editor's funds number is a `FundsWidget` the refresh loop finds
-(if it is not, the gate is inert there). Live witness owed: a GUI census photo of the editor funds
-hover (`[CurrencyOverlay] CurrencyOverlay: initialised for scene=EDITOR` then `located Funds widget`).
+(if it is not, the gate is inert there). Read 2026-10-24 on ZF-1's VAB visit (reading run
+`2026-10-24_2359`, PASS attempt 1; a hover cannot paint under automation, so the log is the
+witness): the editor's funds number IS a `FundsWidget` (`located Funds widget`), but stock started
+THREE controllers there (an EveryScene addon is started once per editor startup phase), each about
+to draw the same tooltip stacked. Fixed the same day: only the first live controller of a scene
+draws (`CurrencyReservationOverlay.IsDuplicateController`), the others log `another controller is
+already active for scene=EDITOR - this one stays idle`; ZF-1 pins all three lines, the idle one
+owed its first flight.
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass, before the fix above): (a) still real, now partly
 mitigated. `CurrencyReservationOverlay.Start` still idles outside SPACECENTER / FLIGHT, and

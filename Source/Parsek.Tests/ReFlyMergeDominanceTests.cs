@@ -227,21 +227,23 @@ namespace Parsek.Tests
             Assert.True(v.Pass);
         }
 
-        private static GameAction AttemptDeadlineFail(double ut) => new GameAction
+        private static GameAction DeadlineFail(double ut, string recordingId) => new GameAction
         {
-            ActionId = "fail_c2_attempt", Type = GameActionType.ContractFail, UT = ut,
-            ContractId = "c2", RecordingId = NewRec, FundsPenalty = 1000f, RepPenalty = 5f,
+            ActionId = "fail_c2", Type = GameActionType.ContractFail, UT = ut,
+            ContractId = "c2", RecordingId = recordingId, FundsPenalty = 1000f, RepPenalty = 5f,
         };
 
-        // catches: L walking only its penalty-free synthetic expiry while L' charges stock's
-        // real one, so every re-fly that outlives an open contract's deadline is refused
-        // (todo REFLY-DEADLINE-EXPIRY-REFUSES-THE-MERGE).
+        // catches: a stock deadline expiry during the attempt filed under the attempt, so
+        // L walks only its penalty-free synthetic expiry while L' charges the real one and
+        // every re-fly that outlives an open deadline is refused (todo
+        // REFLY-DEADLINE-EXPIRY-REFUSES-THE-MERGE). The expiry is filed untagged
+        // (`GameStateRecorder.IsDeadlineExpiryFire`), so it is in L as well.
         [Fact]
-        public void Evaluate_StockDeadlineExpiryDuringTheAttempt_IsTheCommittedTimelinesOwnExpiry_Passes()
+        public void Evaluate_UntaggedDeadlineExpiryDuringTheAttempt_IsInBothWalks_Passes()
         {
             List<GameAction> attemptRows;
             var els = DeadlineContractL(out attemptRows);
-            attemptRows.Add(AttemptDeadlineFail(400.5));
+            els.Add(DeadlineFail(400.5, null));
             var inputs = Inputs(els, attemptRows, null);
             inputs.DeadlineClockUT = 450.0;
 
@@ -250,14 +252,12 @@ namespace Parsek.Tests
             Assert.True(v.Pass, "refused at pool=" + v.Pool + " ut=" + v.UT);
         }
 
-        // A fail BEFORE the deadline is the attempt's own loss, not the expiry: it stays a
-        // loss L does not have.
         [Fact]
-        public void Evaluate_AttemptFailBeforeTheDeadline_StaysTheAttemptsOwnLoss_Refused()
+        public void Evaluate_TaggedDeadlineExpiry_DocumentsWhyTheExpiryIsFiledUntagged_Refused()
         {
             List<GameAction> attemptRows;
             var els = DeadlineContractL(out attemptRows);
-            attemptRows.Add(AttemptDeadlineFail(350.0));
+            attemptRows.Add(DeadlineFail(400.5, NewRec));
             var inputs = Inputs(els, attemptRows, null);
             inputs.DeadlineClockUT = 450.0;
 
@@ -267,28 +267,21 @@ namespace Parsek.Tests
             Assert.Equal("funds", v.Pool);
         }
 
+        // A fail BEFORE the deadline is the attempt's own (a parameter it failed), filed
+        // under it, and stays a loss L does not have.
         [Fact]
-        public void SharedDeadlineExpiries_OnlyAnOpenAcceptedContractPastItsDeadline()
+        public void Evaluate_AttemptFailBeforeTheDeadline_StaysTheAttemptsOwnLoss_Refused()
         {
             List<GameAction> attemptRows;
             var els = DeadlineContractL(out attemptRows);
-            var atDeadline = AttemptDeadlineFail(399.5);
-            var early = AttemptDeadlineFail(300.0);
-            var other = AttemptDeadlineFail(500.0);
-            other.ContractId = "never-accepted";
+            attemptRows.Add(DeadlineFail(350.0, NewRec));
+            var inputs = Inputs(els, attemptRows, null);
+            inputs.DeadlineClockUT = 450.0;
 
-            Assert.Equal(new[] { atDeadline },
-                ReFlyMergeDominance.SharedDeadlineExpiries(els, new List<GameAction> { atDeadline }));
-            Assert.Empty(ReFlyMergeDominance.SharedDeadlineExpiries(els, new List<GameAction> { early }));
-            Assert.Empty(ReFlyMergeDominance.SharedDeadlineExpiries(els, new List<GameAction> { other }));
+            var v = ReFlyMergeDominance.Evaluate(inputs);
 
-            // L already resolves the contract (a committed completion): not an open expiry.
-            els.Add(new GameAction
-            {
-                ActionId = "complete_c2", Type = GameActionType.ContractComplete, UT = 200.0,
-                ContractId = "c2", RecordingId = LaterRec,
-            });
-            Assert.Empty(ReFlyMergeDominance.SharedDeadlineExpiries(els, new List<GameAction> { atDeadline }));
+            Assert.False(v.Pass);
+            Assert.Equal("funds", v.Pool);
         }
 
         [Fact]
