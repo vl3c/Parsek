@@ -2627,6 +2627,7 @@ namespace Parsek
 
             // After the flush: a flag planted this flight is still in the recorder buffer before it.
             if (TreeHasPlantedFlagsForIdle(activeTree, "IsActiveTreeIdleOnPad")
+                || TreeMovesHeldKerbalForIdle(activeTree, "IsActiveTreeIdleOnPad")
                 || TreeHasConverterWorkForIdle(activeTree, "IsActiveTreeIdleOnPad")
                 || TreeHasLabPayoutsForIdle(activeTree, "IsActiveTreeIdleOnPad")
                 || TreeHasPendingLabRecoveryForIdle(activeTree, "IsActiveTreeIdleOnPad"))
@@ -21910,7 +21911,8 @@ namespace Parsek
                 return false;
 
             if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreePadFailure")
-                || TreeHasPlantedFlagsForIdle(tree, "IsTreePadFailure"))
+                || TreeHasPlantedFlagsForIdle(tree, "IsTreePadFailure")
+                || TreeMovesHeldKerbalForIdle(tree, "IsTreePadFailure"))
                 return false;
 
             foreach (var rec in tree.Recordings.Values)
@@ -22104,6 +22106,50 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Test seam for <see cref="TreeMovesHeldKerbalForIdle"/>: replaces the "does the
+        /// committed timeline hold this kerbal now" read (default
+        /// <see cref="KerbalsModule.IsReservedNow"/> on <see cref="LedgerOrchestrator.Kerbals"/>).
+        /// </summary>
+        internal static Func<string, bool> HeldKerbalProbeForTesting;
+
+        /// <summary>
+        /// The first EVA recording of <paramref name="tree"/> whose kerbal
+        /// <paramref name="isHeld"/> reports held, or null. Pure, null-safe.
+        /// </summary>
+        internal static Recording FindEvaOfHeldKerbal(RecordingTree tree, Func<string, bool> isHeld)
+        {
+            if (tree?.Recordings == null || isHeld == null) return null;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (rec == null || string.IsNullOrEmpty(rec.EvaCrewName)) continue;
+                if (isHeld(rec.EvaCrewName)) return rec;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Idle-on-pad veto for a held kerbal leaving his vessel: a kerbal the committed
+        /// timeline holds (an earlier mission left him aboard, so his hold is open-ended)
+        /// stepped out on EVA in this flight. Only this flight's recordings can end that
+        /// hold (the joined-vessel claim, then the EVA's own recovery or end), and stock has
+        /// already moved him, so discarding it would leave him held forever (owner ruling
+        /// 2026-10-25, todo CX4-IDLE-DISCARDED-FLIGHT-LEAVES-THE-HOLD-OPEN). Logs the veto;
+        /// returns true when the tree must not be classified idle.
+        /// </summary>
+        internal static bool TreeMovesHeldKerbalForIdle(RecordingTree tree, string caller)
+        {
+            Func<string, bool> isHeld = HeldKerbalProbeForTesting
+                ?? (name => LedgerOrchestrator.Kerbals?.IsReservedNow(name) ?? false);
+            Recording eva = FindEvaOfHeldKerbal(tree, isHeld);
+            if (eva == null) return false;
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "{0}: not idle - held kerbal '{1}' left his vessel on EVA (recording {2}) tree='{3}'",
+                    caller, eva.EvaCrewName, eva.RecordingId ?? "(none)", tree?.TreeName ?? "<unnamed>"));
+            return true;
+        }
+
+        /// <summary>
         /// Idle-on-pad veto shared by <see cref="IsTreeIdleOnPad(RecordingTree)"/> and
         /// <see cref="IsActiveTreeIdleOnPad"/>: a tree whose kerbal placed ground parts
         /// created vessels, so it is player work even when nothing moved 30 m (a
@@ -22133,6 +22179,7 @@ namespace Parsek
 
             if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreeIdleOnPad")
                 || TreeHasPlantedFlagsForIdle(tree, "IsTreeIdleOnPad")
+                || TreeMovesHeldKerbalForIdle(tree, "IsTreeIdleOnPad")
                 || TreeHasConverterWorkForIdle(tree, "IsTreeIdleOnPad")
                 || TreeHasLabPayoutsForIdle(tree, "IsTreeIdleOnPad")
                 || TreeHasPendingLabRecoveryForIdle(tree, "IsTreeIdleOnPad"))
