@@ -472,6 +472,9 @@ namespace Parsek
                 {
                     var ic = CultureInfo.InvariantCulture;
                     double credit = e.valueAfter - e.valueBefore;
+                    string surveyed = ExtractDetailField(detail, "survey");
+                    if (!string.IsNullOrEmpty(surveyed))
+                        return $"Orbital survey of {surveyed}: +{credit.ToString("N1", ic)}";
                     string how = string.Equals(key, "VesselRecovery", StringComparison.Ordinal)
                         ? "recovered" : "transmitted";
                     return $"Lab science {how}: +{credit.ToString("N1", ic)}";

@@ -1611,10 +1611,13 @@ namespace Parsek
                     return (a.RecordingId ?? "") + ":" +
                            a.ScienceAwarded.ToString("R", CultureInfo.InvariantCulture);
                 // Science lab credit: no subject, so the method and the amount are the only
-                // disambiguators between two labs paying out at one UT.
+                // disambiguators between two labs paying out at one UT. An orbital survey's
+                // bonus also names the surveyed body (absent on a lab row, so a lab key keeps
+                // its shape).
                 case GameActionType.ScienceLabEarning:
                     return (a.RecordingId ?? "") + ":" + (int)a.Method + ":" +
-                           a.ScienceAwarded.ToString("R", CultureInfo.InvariantCulture);
+                           a.ScienceAwarded.ToString("R", CultureInfo.InvariantCulture) +
+                           (string.IsNullOrEmpty(a.ScanBodyName) ? "" : ":survey=" + a.ScanBodyName);
                 // The query-family reputation OUTPUT leg. Same shape and same two honest
                 // limitations as the science rows above: no strategy identity is available
                 // at that seam and the KSC clock is FROZEN, so the pre-curve NominalRep is

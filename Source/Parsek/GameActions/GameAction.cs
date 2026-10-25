@@ -205,6 +205,9 @@ namespace Parsek
         /// a lab transmission (<c>ModuleScienceLab.OnTransmissionComplete</c>,
         /// <see cref="ScienceMethod.Transmitted"/>) or the lab's stored science paid out on
         /// recovery (<c>ModuleScienceLab.RecoverScienceLabs</c>, <see cref="ScienceMethod.Recovered"/>).
+        /// Also the orbital survey's bonus (<c>ModuleOrbitalSurveyor.CompleteSurvey</c>,
+        /// <see cref="ScienceMethod.Transmitted"/>, with the surveyed body in
+        /// <see cref="GameAction.ScanBodyName"/>), the one other subject-less science stock pays.
         /// Stock adds it straight through <c>AddScience</c>, so no <c>OnScienceRecieved</c>
         /// and no <see cref="ScienceEarning"/> row exist for it (decompiled KSP 1.12.5).
         /// Carries the pool credit in <see cref="GameAction.ScienceAwarded"/> and is applied
@@ -827,8 +830,9 @@ namespace Parsek
 
         /// <summary>
         /// Name of the scanned body on a <see cref="GameActionType.ResourceScanUnlocked"/> row
-        /// (<c>CelestialBody.bodyName</c>; resolved to the stock planet id at patch time).
-        /// Null on every other action type.
+        /// (<c>CelestialBody.bodyName</c>; resolved to the stock planet id at patch time), and
+        /// the surveyed body on a <see cref="GameActionType.ScienceLabEarning"/> row that holds
+        /// an orbital survey's science bonus. Null on every other row.
         /// </summary>
         public string ScanBodyName;
 
@@ -1811,17 +1815,21 @@ namespace Parsek
             a.ScanBiomeName = string.IsNullOrEmpty(biome) ? null : biome;
         }
 
-        // ScienceLabEarning: the pool credit and how the lab paid it out; no subject.
+        // ScienceLabEarning: the pool credit and how the lab paid it out; no subject. An
+        // orbital survey's bonus also carries the surveyed body (absent on a lab row).
         private void SerializeScienceLabEarning(ConfigNode n)
         {
             n.AddValue("scienceAwarded", ScienceAwarded.ToString("R", IC));
             n.AddValue("method", ((int)Method).ToString(IC));
+            if (!string.IsNullOrEmpty(ScanBodyName)) n.AddValue("scanBody", ScanBodyName);
         }
 
         private static void DeserializeScienceLabEarning(ConfigNode n, GameAction a)
         {
             TryParseFloat(n, "scienceAwarded", out a.ScienceAwarded);
             TryParseEnum(n, "method", out a.Method);
+            string body = n.GetValue("scanBody");
+            a.ScanBodyName = string.IsNullOrEmpty(body) ? null : body;
         }
 
         // StockPoolAdjustment: the pool and the signed amount.

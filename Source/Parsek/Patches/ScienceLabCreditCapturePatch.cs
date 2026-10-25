@@ -91,7 +91,69 @@ namespace Parsek.Patches
         }
     }
 
-    /// <summary>Shared pool read and report for the two lab credit patches.</summary>
+    /// <summary>
+    /// Harmony prefix / postfix on <c>ModuleOrbitalSurveyor.CompleteSurvey</c>, the M700's
+    /// survey completion. Decompiled KSP 1.12.5: once the survey's triggered transmission
+    /// lands, stock calls <c>AddScience(SciBonus * mainBody.scienceValues.RecoveryValue,
+    /// ScienceTransmission)</c> with no science subject, the same bare credit the lab pays,
+    /// and then unlocks the body's resource map. Without this capture the bonus had no
+    /// ledger row: the pool check kept it later as an untagged adjustment ("Kept your
+    /// earned science"), dated to that check and tied to no flight. The bonus is recorded
+    /// through the lab channel, as a <see cref="GameStateEventType.ScienceLabCredited"/>
+    /// event that names the surveyed body, so it is tagged to the flight that ran the
+    /// survey. A call that returned early (another part's data, an aborted transmission,
+    /// no R&amp;D) moves no science and is ignored. Never rethrows into the stock call.
+    /// </summary>
+    [HarmonyPatch(typeof(ModuleOrbitalSurveyor), "CompleteSurvey")]
+    internal static class OrbitalSurveyCreditPatch
+    {
+        private const string Tag = "ScienceLabCapture";
+
+        internal static void Prefix(ModuleOrbitalSurveyor __instance, out ScienceLabCreditCapture.CallState __state)
+        {
+            float gross = 0f;
+            try
+            {
+                if (__instance != null && __instance.vessel != null && __instance.vessel.mainBody != null
+                    && __instance.vessel.mainBody.scienceValues != null)
+                    gross = SurveyBonus(__instance.SciBonus, __instance.vessel.mainBody.scienceValues.RecoveryValue);
+            }
+            catch (Exception)
+            {
+                gross = 0f;
+            }
+            __state = new ScienceLabCreditCapture.CallState
+            {
+                PoolBefore = ScienceLabCreditCapture.ReadPool(),
+                Gross = gross,
+            };
+        }
+
+        internal static void Postfix(ModuleOrbitalSurveyor __instance, ScienceLabCreditCapture.CallState __state)
+        {
+            if (ParsekGameModeGate.CheckInert("OrbitalSurveyCreditPatch.Postfix")) return; // S9 game-mode gate
+            try
+            {
+                Vessel v = __instance != null ? __instance.vessel : null;
+                string vesselName = v != null ? Recording.ResolveLocalizedName(v.vesselName) : null;
+                string bodyName = v != null && v.mainBody != null ? v.mainBody.bodyName : null;
+                ScienceLabCreditCapture.Report(__state, "ScienceTransmission", vesselName,
+                    v != null ? v.persistentId : 0u, string.IsNullOrEmpty(bodyName) ? "?" : bodyName);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag, $"CompleteSurvey postfix threw while capturing the survey bonus: {ex}");
+            }
+        }
+
+        /// <summary>Pure: the bonus stock pays for a survey, computed the way stock computes it.</summary>
+        internal static float SurveyBonus(int sciBonus, float recoveryValue)
+        {
+            return (float)sciBonus * recoveryValue;
+        }
+    }
+
+    /// <summary>Shared pool read and report for the lab and orbital survey credit patches.</summary>
     internal static class ScienceLabCreditCapture
     {
         /// <summary>What a prefix reads before the stock lab call.</summary>
@@ -193,18 +255,19 @@ namespace Parsek.Patches
         /// Reports the lab's gross payout. The event carries the pool before the call and
         /// that pool plus the gross, so its delta is the credit before any strategy take.
         /// </summary>
-        internal static void Report(CallState state, string reasonKey, string vesselName, uint vesselPersistentId = 0u)
+        internal static void Report(CallState state, string reasonKey, string vesselName, uint vesselPersistentId = 0u,
+            string surveyBodyName = null)
         {
             float after = ReadPool();
             if (!IsCredit(state.PoolBefore, after, state.Gross))
                 return;
             if (Math.Abs((after - state.PoolBefore) - state.Gross) > 0.01f)
                 ParsekLog.Verbose("ScienceLabCapture",
-                    $"Lab payout net of a strategy take: gross={state.Gross.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"{(surveyBodyName != null ? "Survey bonus" : "Lab payout")} net of a strategy take: gross={state.Gross.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
                     $"poolDelta={(after - state.PoolBefore).ToString("R", System.Globalization.CultureInfo.InvariantCulture)} reason='{reasonKey}'");
             GameStateRecorder.OnScienceLabCredited(
                 Planetarium.GetUniversalTime(), state.PoolBefore, state.PoolBefore + state.Gross,
-                reasonKey, vesselName, vesselPersistentId);
+                reasonKey, vesselName, vesselPersistentId, surveyBodyName);
         }
     }
 }
