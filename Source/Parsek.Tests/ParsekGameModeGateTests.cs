@@ -256,6 +256,7 @@ namespace Parsek.Tests
             "Parsek.Patches.EditorLaunchMark.Apply",
             "Parsek.Patches.LaunchSiteButtonsMark.Apply",
             "Parsek.Patches.SentinelDetectionScopePatch.Prefix",
+            "Parsek.Patches.ResourceScannerScopePatch.Prefix",
             "Parsek.Patches.VesselSpawnDialogLaunchButtonPatch.Postfix",
             "Parsek.Patches.ContractConfiguratorContractTitlePatch.Postfix",
             "Parsek.Patches.ContractConfiguratorListRebuildPatch.Postfix",

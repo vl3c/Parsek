@@ -26,6 +26,7 @@ GameStateStore.SuppressLogging test logging switch
 GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting test seam
 GameStateRecorder.HasActiveUncommittedTreeProviderForTesting test seam
 GameStateRecorder.HasLiveRecorderProviderForTesting test seam
+GameStateRecorder.LiveFlightVesselProviderForTesting test seam
 GameStateRecorder.ScienceGainMultiplierProviderForTesting test seam
 GameStateRecorder.TagResolverForTesting test seam
 GameStateRecorder.IsReplayingActions scoped SuppressionGuard flag, restored by its own Dispose

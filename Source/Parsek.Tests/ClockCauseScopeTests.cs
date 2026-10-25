@@ -35,10 +35,12 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             GameStateRecorder.ResetForTesting();
+            ResourceScannerScopePatch.ResetForTesting();
         }
 
         public void Dispose()
         {
+            ResourceScannerScopePatch.ResetForTesting();
             GameStateStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             RecordingStore.ResetForTesting();
@@ -63,10 +65,18 @@ namespace Parsek.Tests
             return subject;
         }
 
-        private static bool InvokeSubmitPrefix(ScienceSubject subject)
+        private static ProtoVessel Source(uint pid, string name)
+        {
+            var pv = (ProtoVessel)FormatterServices.GetUninitializedObject(typeof(ProtoVessel));
+            pv.persistentId = pid;
+            pv.vesselName = name;
+            return pv;
+        }
+
+        private static bool InvokeSubmitPrefix(ScienceSubject subject, ProtoVessel source = null)
         {
             var prefix = typeof(DeployedScienceSubmitScopePatch).GetMethod("Prefix", BindingFlags.Static | BindingFlags.NonPublic);
-            var args = new object[] { subject, 1f, null, false };
+            var args = new object[] { subject, 1f, source, false };
             prefix.Invoke(null, args);
             return (bool)args[3];
         }
@@ -295,6 +305,192 @@ namespace Parsek.Tests
             Assert.Empty(GameStateRecorder.PendingScienceSubjects);
             Assert.Contains(logLines, l => l.Contains("Science subject captured: deployedSeismicSensor@MunSrfLanded")
                 && l.Contains("reason='ScienceTransmission'") && l.Contains("tag=''") && l.Contains("deployed=True"));
+        }
+    
+        // ================================================================
+        // Mod background sources (LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT,
+        // owner ruling 2026-10-25: unit tests only)
+        // ================================================================
+
+        // catches: a vessel event filed untagged while the flight itself caused it, inside a
+        // recovery (whose scope names the owner), with no recorder to claim it at all, or on a
+        // LOADED vessel outside the tree (row 3: the flight's EVA kerbal runs and transmits
+        // that vessel's experiment, still the flight's doing).
+        [Theory]
+        [InlineData(true, false, false, false, true)]
+        [InlineData(true, false, false, true, false)]
+        [InlineData(true, false, true, false, false)]
+        [InlineData(true, true, false, false, false)]
+        [InlineData(false, false, false, false, false)]
+        public void IsVesselEventOutsideTheFlight_TruthTable(
+            bool hasLiveRecorder, bool recoveryScopeOpen, bool vesselLoaded, bool vesselInFlight, bool expected)
+        {
+            Assert.Equal(expected, GameStateRecorder.IsVesselEventOutsideTheFlight(
+                hasLiveRecorder, recoveryScopeOpen, vesselLoaded, vesselInFlight));
+        }
+
+        // catches: Kerbalism-style background science from a vessel the flight does not fly
+        // (and the body milestone it reaches) tagged to the live recording.
+        [Fact]
+        public void SubmitPrefix_UnloadedSourceVesselOutsideTheFlight_OpensTheScope()
+        {
+            InFlightWithALiveRecorder();
+            GameStateRecorder.LiveFlightVesselProviderForTesting = pid => pid == 1001u;
+            bool scoped = InvokeSubmitPrefix(Subject("temperatureScan@MunInSpaceHigh"), Source(2002u, "Relay Probe"));
+            Assert.True(scoped);
+            Assert.True(GameStateRecorder.InClockCauseScope);
+            Assert.Null(GameStateRecorder.GroundStationSubmissionReasonKey);
+            InvokeSubmitFinalizer(scoped);
+            Assert.False(GameStateRecorder.InClockCauseScope);
+            Assert.Contains(logLines, l => l.Contains("[GameStateRecorder]")
+                && l.Contains("Clock-caused transition begins: science temperatureScan@MunInSpaceHigh from unloaded vessel 'Relay Probe' pid=2002, which the live flight does not record"));
+        }
+
+        // catches: the flight's own transmission (active or a background member of its tree)
+        // losing its tag, and a transmission with no live recorder opening a scope.
+        [Fact]
+        public void SubmitPrefix_SourceVesselInTheFlight_OrNoRecorder_LeavesTheScopeClosed()
+        {
+            InFlightWithALiveRecorder();
+            GameStateRecorder.LiveFlightVesselProviderForTesting = pid => pid == 1001u;
+            Assert.False(InvokeSubmitPrefix(Subject("temperatureScan@MunInSpaceHigh"), Source(1001u, "Mun Lander")));
+            GameStateRecorder.HasLiveRecorderProviderForTesting = () => false;
+            Assert.False(InvokeSubmitPrefix(Subject("temperatureScan@MunInSpaceHigh"), Source(2002u, "Relay Probe")));
+            Assert.False(GameStateRecorder.InClockCauseScope);
+        }
+
+        // catches: a background vessel's award parked for the live flight's commit, so a
+        // discard drops science stock already paid.
+        [Fact]
+        public void VesselSubject_InsideTheScope_IsUntaggedAndInTheLedgerAtOnce()
+        {
+            InFlightWithALiveRecorder();
+            var recorder = new GameStateRecorder();
+            GameStateRecorder.EnterClockCauseScope("test background vessel");
+            try
+            {
+                recorder.SetLatestScienceChangeCaptureForTesting(new GameStateRecorder.RecentScienceChangeCapture
+                {
+                    Ut = 600.0,
+                    ReasonKey = "ScienceTransmission",
+                    Delta = 4f,
+                    RecordingId = "",
+                    Valid = true
+                });
+                recorder.CaptureScienceSubject(4f, "temperatureScan@MunInSpaceHigh", 4f, 20f, 1f, 600.0,
+                    vesselName: "Relay Probe", launchGuid: null);
+            }
+            finally
+            {
+                GameStateRecorder.ExitClockCauseScope("test background vessel");
+            }
+
+            Assert.Empty(GameStateRecorder.PendingScienceSubjects);
+            Assert.Contains(logLines, l => l.Contains("Science subject captured: temperatureScan@MunInSpaceHigh")
+                && l.Contains("tag=''") && l.Contains("directLedger=True"));
+            var row = Ledger.Actions.Single(a => a.Type == GameActionType.ScienceEarning
+                && a.SubjectId == "temperatureScan@MunInSpaceHigh");
+            Assert.True(string.IsNullOrEmpty(row.RecordingId));
+        }
+
+        // catches: a Contract Configurator auto-accept contract accepted by a mid-flight
+        // refresh filed under the live flight, and a player's accept losing its tag.
+        [Theory]
+        [InlineData(true, Contracts.Contract.State.Active, Contracts.Contract.State.Offered, true)]
+        [InlineData(false, Contracts.Contract.State.Active, Contracts.Contract.State.Offered, false)]
+        [InlineData(true, Contracts.Contract.State.Completed, Contracts.Contract.State.Active, false)]
+        [InlineData(true, Contracts.Contract.State.Active, Contracts.Contract.State.Active, false)]
+        public void IsClockCausedAccept_OnlyAnAutoAcceptContractsAccept(
+            bool autoAccept, Contracts.Contract.State newState, Contracts.Contract.State current, bool expected)
+        {
+            Assert.Equal(expected, ContractEarlyFailPatch.IsClockCausedAccept(newState, current, autoAccept));
+        }
+
+        // catches: a stock scanner signature drift leaving every stock scan to read as a mod's.
+        [Fact]
+        public void ScannerTargets_ResolveAgainstStock()
+        {
+            var targets = ResourceScannerScopePatch.ResolveTargetMethodsForTesting();
+            Assert.Equal(2, targets.Count);
+            Assert.Contains(targets, m => m.Name == "CompleteSurvey" && m.DeclaringType == typeof(ModuleOrbitalSurveyor));
+            Assert.Contains(targets, m => m.Name == "RunAnalysis" && m.DeclaringType == typeof(ModuleBiomeScanner));
+        }
+
+        [Theory]
+        [InlineData(true, false, false, true)]
+        [InlineData(true, false, true, false)]
+        [InlineData(true, true, false, false)]
+        [InlineData(false, false, false, false)]
+        public void IsUnlockByNoFlight_TruthTable(bool hasLiveRecorder, bool recoveryScopeOpen, bool stockScannerOpen, bool expected)
+        {
+            Assert.Equal(expected, ResourceScannerScopePatch.IsUnlockByNoFlight(hasLiveRecorder, recoveryScopeOpen, stockScannerOpen));
+        }
+
+        // catches: SCANsat's background coverage unlocking a body while a flight records,
+        // filed under that flight (a discard drops the unlock, a Re-Fly reads it as the
+        // attempt's).
+        [Fact]
+        public void ScanUnlock_WithNoStockScanner_IsUntaggedAndInTheLedgerAtOnce()
+        {
+            InFlightWithALiveRecorder();
+            ResourceScannerScopePatch.CaptureUnlock(700.0, "Minmus", null);
+
+            var stored = GameStateStore.Events.Single(e => e.eventType == GameStateEventType.ResourceScanCompleted);
+            Assert.Equal("", stored.recordingId ?? "");
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.ResourceScanUnlocked && string.IsNullOrEmpty(a.RecordingId));
+            Assert.False(GameStateRecorder.InClockCauseScope);
+            Assert.Contains(logLines, l => l.Contains("Clock-caused transition begins: resource scan of Minmus with no stock scanner (a mod's scan)"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Emit drift"));
+        }
+
+        // catches: the flight's own surveyor losing its tag, and (review of this fix) the
+        // flight's EVA kerbal running "Perform Analysis" on a loaded lander outside the tree
+        // (an EVA auto-record tree holds only the kerbal) filed untagged: a stock scan stays
+        // the flight's whichever vessel carries the scanner.
+        [Fact]
+        public void ScanUnlock_InsideAStockScanner_KeepsTheFlightTag()
+        {
+            InFlightWithALiveRecorder();
+            GameStateRecorder.LiveFlightVesselProviderForTesting = pid => pid == 1001u;
+            ResourceScannerScopePatch.EnterScannerCall();
+            try
+            {
+                Assert.False(GameStateRecorder.InClockCauseScope);
+                ResourceScannerScopePatch.CaptureUnlock(700.0, "Mun", "Midlands");
+            }
+            finally
+            {
+                ResourceScannerScopePatch.ExitScannerCall();
+            }
+
+            var stored = GameStateStore.Events.Single(e => e.eventType == GameStateEventType.ResourceScanCompleted);
+            Assert.Equal("rec-live", stored.recordingId);
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.ResourceScanUnlocked);
+            Assert.Equal(0, ResourceScannerScopePatch.OpenScannerCalls);
+            Assert.DoesNotContain(logLines, l => l.Contains("Clock-caused transition begins: resource scan"));
+        }
+
+        [Fact]
+        public void ScannerPrefix_MarksTheCall_FinalizerClearsIt()
+        {
+            var prefix = typeof(ResourceScannerScopePatch).GetMethod("Prefix", BindingFlags.Static | BindingFlags.NonPublic);
+            var finalizer = typeof(ResourceScannerScopePatch).GetMethod("Finalizer", BindingFlags.Static | BindingFlags.NonPublic);
+            var args = new object[] { false };
+            prefix.Invoke(null, args);
+            Assert.True((bool)args[0]);
+            Assert.Equal(1, ResourceScannerScopePatch.OpenScannerCalls);
+            finalizer.Invoke(null, new object[] { null, true });
+            Assert.Equal(0, ResourceScannerScopePatch.OpenScannerCalls);
+        }
+
+        // catches: the KSC / no-recorder behaviour moving (an ownerless scan is already
+        // untagged and forwarded there).
+        [Fact]
+        public void ScanUnlock_WithNoLiveRecorder_OpensNoScope()
+        {
+            ResourceScannerScopePatch.CaptureUnlock(700.0, "Duna", null);
+            Assert.DoesNotContain(logLines, l => l.Contains("Clock-caused transition begins: resource scan"));
+            Assert.Single(GameStateStore.Events.Where(e => e.eventType == GameStateEventType.ResourceScanCompleted));
         }
     }
 }
