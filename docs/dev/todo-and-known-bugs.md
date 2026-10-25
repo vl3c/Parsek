@@ -51,6 +51,36 @@ to the new line.
 
 ---
 
+## ROUTE-MULTISTOP-LATER-WINDOW-OVERFLOW: a multi-stop route's later stop can fill between dispatch and its window, and the excess is lost [FILED 2026-10-25, branch `wip-routefix`, from ROUTE-INTERACTION-SEAMS-TO-VERIFY. OPEN, owner decision]
+
+A multi-stop route checks room at every stop once, at dispatch (window 0,
+`RouteDestinationCapacityCheck.HasCapacityForAllStops`), and debits the origin for the whole
+run. Its later windows fire unconditionally (OQ4, `RouteOrchestrator` multi-stop path: a
+delivered stop is never discarded by a later re-check). If a later stop's tanks or inventory
+fill in between (another route delivering there, ISRU, the player moving fuel in), that
+window's apply-time clamp writes what fits and the rest is gone: the origin keeps the full
+debit (real cargo for a vessel origin; nothing for a KSC origin, since logistics has no money).
+What the player sees: the Logistics detail reads "Last delivery was partial: ..." (appended per
+window within the cycle) and the log reads `Delivery: route .. cycle=.. PARTIAL - undelivered
+remainder is lost`. Nothing is created from nothing and no earned value is reduced after the
+fact; the loss is bounded by one window's manifest and is shown. Same shape as design 10.13 for
+single-stop routes ("v1 does not reserve shared destination capacity across routes"), but a
+multi-stop gap is a full transit leg long.
+
+Options:
+1. Accept it as designed (recommended): keep the dispatch-only gate and the shown partial
+   report; add one line to design 10.13 naming the multi-stop gap. No code.
+2. Reserve room at dispatch: other routes' capacity gates subtract a pending multi-stop
+   cycle's undelivered stop amounts at that destination (a destination-side twin of the pickup
+   escrow). Stops the route-vs-route case only (ISRU and the player still fill tanks), and it
+   is a new persisted map plus rewind handling.
+3. Re-check room per window and hold the remaining windows until there is room: no loss, but
+   it reverses OQ4 and leaves cargo in transit on a ghost that already flew past the dock.
+
+Fix: owner picks an option.
+
+---
+
 ## ~~ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH: a load back to a save written between a multi-stop route's windows sends the cycle a second time~~ [FILED AND FIXED 2026-10-25, branch `wip-routefix`, found while tracing ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS; reproduced in xUnit on main 802f8e4, not flown. product, medium]
 
 A multi-stop loop route delivers one cycle in several windows under one cycle id, and its later
@@ -2922,7 +2952,10 @@ Each item needs a trace (or a lane) before it is a defect or a non-issue; see
   cargo of the crossings the rewind retired.
 - [ ] (Traced 2026-10-06, not adversarially verified: crossings while an endpoint is absent are BLOCKED with no catch-up - lost service, not lost cargo; see CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO.) Spawns are deferred until warp ends while routes keep ticking: a cycle crossing a
   station's spawn UT during warp is held and its cargo lost.
-- [ ] Multi-stop routes reserve no destination capacity between dispatch and a later window.
+- [x] VERIFIED 2026-10-25 (branch `wip-routefix`), filed as ROUTE-MULTISTOP-LATER-WINDOW-OVERFLOW
+  (an owner decision, not a code fix). Multi-stop routes reserve no destination capacity between
+  dispatch and a later window: the all-stops capacity gate runs at dispatch only (OQ4) and a
+  later window that finds its stop full delivers what fits, with the rest lost.
 - [x] ~~A kerbal swapped into a station during a dock is inferred Dead or held indefinitely
   (`KerbalsModule.cs` around 1786-1821).~~ No defect (traced 2026-10-24, branch
   `claude/project-thread-lzdclu`): the tug's recording ends Docked (never Dead), the docked
@@ -2941,8 +2974,18 @@ Each item needs a trace (or a lane) before it is a defect or a non-issue; see
 - [x] ~~A ghost CommNet relay serving a station drops out during Re-Fly suppression or when its
   spawn is abandoned (`GhostCommNet.cs` around 741-770).~~ By design (GC-14 trace 2026-10-24): the
   re-flown vessel carries its own node, and an abandoned spawn means the vessel never exists.
-- [ ] The every-Nth-window anchor of an inter-body route resets on a rewind
-  (`RouteRewindClassifier.cs:137`), so which windows deliver can change (design 0.9 silent).
+- [x] ~~The every-Nth-window anchor of an inter-body route resets on a rewind
+  (`RouteRewindClassifier.cs:137`), so which windows deliver can change (design 0.9 silent).~~
+  No defect (traced 2026-10-25, branch `wip-routefix`): the reset in
+  `ResetCycleStateForRewind` is undone on every load back in time (F9, go-back rewind, Re-Fly
+  start) by `RouteLoadReconcile.RestoreLoopPositionFromSave`, which puts the save's
+  `WindowAnchorCycleIndex` back with the cursors when the clock definition (cadence multiplier,
+  window basis, dock UTs) is unchanged. The reset stands only for a route the save does not hold
+  (it goes dormant and re-anchors on activation, like a fresh route) or a cadence change after
+  the save (a rebase, which re-anchors on the live path too). Cells
+  `RouteWindowedCadenceLoadTests` (3: F9 and go-back to a save in the gap after an every-2nd
+  window keep the skipped window skipped, a cadence change re-anchors); both load cells go red
+  with the anchor restore line removed. Design 19.4 M5 now says so.
 - [x] VERIFIED 2026-10-06 wrong in the transport-dominant shape, filed as CHAIN-WALK-FOLLOWS-DOMINANT-DOCK-PARTNER (correct on `bdock-recorded`). Residual of the refuted identity claim: confirm that the chain-tip recording's snapshot
   for a dock-undock claim is the station half (carrying the recorded root part id), not the
   transport. FIXED 2026-10-06 (`fix-chain-walk-claimed-identity`): the tip is the undock half
