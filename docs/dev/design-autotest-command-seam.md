@@ -5051,7 +5051,8 @@ to the obstructing vessel, the proceed button running `ClearSite` then `launchCh
 
 **Grammar.** EDITOR: `cmd=LaunchSiteProbe [answer=abort|proceed]`, the craft on the stage at the
 editor's selected site. SPACECENTER: `cmd=LaunchSiteProbe facility=VAB|SPH craft=<name>
-[answer=abort|proceed]` (facility default VAB; `craft` is the picker row's listed name). `answer`
+[answer=abort|proceed]` (facility default VAB; `craft` matches a picker row's listed name or
+its craft file's stem, since stock lists a stock craft as its localized name plus "(Stock)"). `answer`
 defaults to `abort`; `answer=proceed` presses the proceed button even when it is greyed (the
 click-blocks behind it are what the press meets), and presses abort when there is none. Both
 spellings are exact. The key is `answer`, not UiAction's scoped `press`.
@@ -5062,7 +5063,7 @@ scene does not take (`-arg-not-for-scene`, `-craft-arg-missing`), `-wrong-scene`
 gates `-no-ship`, `-launch-locked` (an `EDITOR_LAUNCH` lock that is the only blocker is waited out
 for 10 s first), `-site-clear` (a clear site launches, so it is never pressed; at the Space Center
 read off the picker's site after the row is selected), `-facility-not-found`, `-picker-open`,
-`-craft-not-found` (the row not listed within 10 s). The obstruction count is stock's own
+`-craft-not-found` (the row not listed within 10 s; the reply names up to 8 listed rows). The obstruction count is stock's own
 `ShipConstruction.FindVesselsLandedAt`. Lines: `launchsiteprobe start path= scene= [facility=
 craft=] answer= site= obstructing= first=`; `launchsiteprobe dialog path= name= buttons= labels=[..]
 interactable=1,0,1 proceedOffered= proceedInteractable= title= description=` (text on one line, line

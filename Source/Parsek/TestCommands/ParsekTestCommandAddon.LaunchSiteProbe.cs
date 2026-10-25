@@ -218,11 +218,23 @@ namespace Parsek.TestCommands
                     IList items = picker != null && picker.Visible ? VesselDataItems(picker) : null;
                     int count = items != null ? items.Count : 0;
                     object match = null;
+                    var listedNames = new List<string>();
                     for (int i = 0; i < count; i++)
                     {
                         object item = items[i];
-                        FieldInfo nameField = item != null ? item.GetType().GetField("name") : null;
-                        if (nameField != null && (nameField.GetValue(item) as string) == p.Request.Craft) { match = item; break; }
+                        if (item == null) continue;
+                        FieldInfo nameField = item.GetType().GetField("name");
+                        FieldInfo pathField = item.GetType().GetField("fullFilePath");
+                        string listedName = nameField != null ? nameField.GetValue(item) as string : null;
+                        string listedPath = pathField != null ? pathField.GetValue(item) as string : null;
+                        if (listedNames.Count < 8) listedNames.Add(TestCommandLaunchSiteProbe.Token(listedName));
+                        // A stock craft lists as its localized name plus stock's "(Stock)" suffix,
+                        // so the row also matches on the craft file's stem.
+                        if (TestCommandLaunchSiteProbe.MatchesPickerRow(p.Request.Craft, listedName, listedPath))
+                        {
+                            match = item;
+                            break;
+                        }
                     }
                     if (match != null)
                     {
@@ -246,7 +258,8 @@ namespace Parsek.TestCommands
                         ClosePickerIfOpen("craft not listed");
                         FinishLaunchSiteProbe(p, "REJECTED", TestCommandLaunchSiteProbe.CraftNotFoundReason
                             + " craft=" + TestCommandLaunchSiteProbe.Token(p.Request.Craft) + " listed=" + Int(count)
-                            + " pickerOpen=" + Bool(picker != null && picker.Visible), null, now);
+                            + " pickerOpen=" + Bool(picker != null && picker.Visible)
+                            + " names=[" + string.Join(",", listedNames.ToArray()) + "]", null, now);
                     }
                     return;
                 }

@@ -326,5 +326,18 @@ namespace Parsek.Tests
             Assert.All(all, r => Assert.StartsWith("launchsiteprobe-", r));
             Assert.Equal(new[] { "abort", "proceed" }, TestCommandLaunchSiteProbe.AnswerTokens);
         }
-    }
+
+        [Theory]
+        [InlineData("Jumping Flea", "Jumping Flea (Stock)", "/ksp/Ships/VAB/Jumping Flea.craft", true)]
+        [InlineData("Jumping Flea", "Jumping Flea", null, true)]
+        [InlineData("Jumping Flea", "Kerbal X (Stock)", "/ksp/Ships/VAB/Kerbal X.craft", false)]
+        [InlineData("Jumping Flea", "Jumping Flea (Stock)", null, false)]
+        [InlineData("", "Jumping Flea", "/ksp/Ships/VAB/Jumping Flea.craft", false)]
+        [InlineData("jumping flea", "Jumping Flea", "/ksp/Ships/VAB/Jumping Flea.craft", false)]
+        public void PickerRow_MatchesTheListedNameOrTheCraftFileStem(
+            string craft, string listedName, string listedPath, bool expected)
+        {
+            Assert.Equal(expected, TestCommandLaunchSiteProbe.MatchesPickerRow(craft, listedName, listedPath));
+        }
+}
 }

@@ -538,5 +538,22 @@ namespace Parsek.TestCommands
 
         /// <summary>A one-word token: blank reads <c>-</c>, spaces become underscores.</summary>
         internal static string Token(string s) => string.IsNullOrEmpty(s) ? "-" : s.Replace(' ', '_');
+
+        /// <summary>
+        /// Whether a launch-site picker row is the requested craft: its listed name exactly, or
+        /// its craft file's stem. Stock's <c>VesselDataItem</c> lists a stock craft as the
+        /// localized ship name plus stock's "(Stock)" suffix (decompiled KSP 1.12.5), so the
+        /// name alone never equals "Jumping Flea"; the file is <c>Ships/VAB/Jumping Flea.craft</c>.
+        /// </summary>
+        internal static bool MatchesPickerRow(string craft, string listedName, string listedPath)
+        {
+            if (string.IsNullOrEmpty(craft)) return false;
+            if (string.Equals(listedName, craft, StringComparison.Ordinal)) return true;
+            if (string.IsNullOrEmpty(listedPath)) return false;
+            string stem;
+            try { stem = System.IO.Path.GetFileNameWithoutExtension(listedPath); }
+            catch (ArgumentException) { return false; }
+            return string.Equals(stem, craft, StringComparison.Ordinal);
+        }
     }
 }
