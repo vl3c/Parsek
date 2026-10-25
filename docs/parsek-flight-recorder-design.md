@@ -74,7 +74,7 @@ These principles govern every design decision in the flight recorder. They are l
 
 The time jump is a specialized mechanism for **multi-vessel rendezvous configurations** where the player has set up an approach to a ghosted vessel and needs to skip past its chain tip without losing the alignment. Normal time warp (Section 14.4) remains the default way to advance time — the timeline plays out, ghosts appear and despawn, vessels spawn at their endpoints. The time jump exists only because normal warp destroys carefully aligned approach geometry through differential Keplerian drift.
 
-13. **Nothing moves, the clock jumps.** During a time jump, the entire physics bubble stays frozen in place. Only UT changes. Orbital epochs are adjusted to maintain Keplerian consistency. This eliminates drift by construction.
+13. **The clock jumps, and the group keeps its place beside the chosen ghost.** In orbit, the player's vessel and the loaded vessels close to it on nearly the same orbit are placed so their position, velocity and attitude relative to the chosen ghost's recording are the same as at the click. Everything else, ghosts included, follows the timeline. On the surface nothing moves. A jump that cannot be done this way is refused (owner rulings 2026-10-25, `docs/dev/design-realspawn-time-jump-move.md`).
 
 14. **Selective spawning, chronological constraint.** The player picks which chain tip to jump to. Earlier independent tips are auto-spawned (ghosts cannot exist past their tip). Later tips stay ghost.
 
@@ -1610,50 +1610,35 @@ The time jump is a specialized mechanism for a specific scenario: **the player h
 
 **The Problem:** The player rewinds to T0. Ghost-S is in the physics bubble, chain tip at T1. The player maneuvers vessel A into a rendezvous approach — 80m from ghost-S, velocities matched, docking alignment set up. To interact with S, the player must advance UT past T1. Normal time warp propagates A and ghost-S on their independent Keplerian orbits. Since they are 80m apart, their orbital elements differ slightly. Over the warp interval, differential drift separates them — potentially by hundreds of meters. The carefully set up rendezvous is destroyed.
 
-**The Solution:** A time jump is a discrete UT skip (not a warp) that advances the game clock while keeping every vessel in the physics bubble at its exact current position. No vessel moves. No intermediate physics simulation occurs. Orbital epochs are adjusted so that Keplerian propagation remains consistent with the new UT.
+**The Solution:** A time jump is a discrete UT skip (not a warp) that advances the game clock and places the player's group beside the chosen ghost where the timeline puts it. No intermediate physics simulation occurs. The full contract (gates, group, spawn room, recording seam, walkthroughs) is `docs/dev/design-realspawn-time-jump-move.md`; owner rulings of 2026-10-25 replaced the earlier "nothing moves" freeze, which left every bubble vessel a whole skip's worth of orbit out of step with the timeline (free orbital phasing, a Leaves ghost lost by about 1,100 km, Ready ghosts spawned off their own recordings).
 
 **The Operation:**
 
-1. **Snapshot the bubble.** For every object in the loaded physics bubble (ghosts, real vessels, debris), capture:
+1. **Read the chosen ghost.** Its RECORDED state at the click (T0) and at the target (T1); for a Ready row T1 is its spawn state from the spawner's own resolver. No ghost or recording is modified.
 
-```
-BubbleSnapshot
-  playerVessel:       active vessel
-  jumpDelta:          targetUT - currentUT
-  objects: [
-    {
-      id:               object identifier
-      position:         current absolute position (body-relative)
-      velocity:         current absolute velocity
-      attitude:         rotation quaternion
-      orbitalElements:  current elements (to be epoch-shifted)
-      isGhost:          bool
-      chainTip:         UT of chain tip (if ghost)
-    }
-  ]
-```
+2. **Gate.** Refused (greyed `Warp`, reason in its existing hover) when the player's vessel, a group vessel or the ghost is inside an atmosphere, the ghost changes body before T1, the ghost's recording burns more than 2 m/s equivalent between T0 and T1, or a group vessel's new spot is taken by a real vessel outside the group.
 
-2. **Jump UT.** Set the game clock to the target UT. No physics frames are simulated between T0 and the target UT.
+3. **Capture the group.** The loaded orbital vessels within 250 m and 2 m/s of the player's vessel (the window's own gates), each with its offset, relative velocity and attitude in the ghost's local frame (up, along-track, sideways).
 
-3. **Adjust orbital epochs.** For every vessel in the bubble (including the player's): keep position and velocity vectors unchanged, but recompute orbital elements to be consistent with the new UT at that position. In practice, this means shifting each orbit's mean anomaly at epoch by the jump delta (targetUT - T0). The orbit shapes (SMA, eccentricity, inclination, LAN, argument of periapsis) remain identical. Only the phase reference changes so that Keplerian propagation produces the correct position at the new UT.
+4. **Make room.** For a Ready row, the existing spawn collision guard tests the ghost's spawn box against the group at its placed spots; on an overlap the whole group slides back along the orbit, away from the ghost, until clear. The ghost always spawns on its recorded spot.
 
-4. **Process spawn queue.** For every ghost whose chain tip was crossed during the jump: destroy the ghost, spawn the real vessel at the ghost's current position (which has not moved), apply bounding box overlap check. If overlap, the blocked-spawn resolution of Section 13.5 applies (recovery, trajectory walkback or abandonment; the bounded hold only in its three cases).
+5. **Jump UT and place.** Vessels on rails, clock to T1, each group vessel placed at the ghost's T1 state plus its turned offset (same for velocity and attitude), every other loaded orbital vessel left on its own orbit, vessels off rails.
 
-5. **Process game actions.** Trigger recalculation for the new UT - science, funds, reputation, kerbals, facilities, contracts. Same as warp exit, routed through the ledger game-actions system.
+6. **Process spawns and game actions.** The chosen Ready ghost spawns on its recorded end state; every other ghost whose spawn time was crossed spawns where its own recording puts it, through the ordinary spawn path and collision check (Section 13.5). The ledger recalculates at T1, same as warp exit.
 
-6. **Resume physics.** The player is at the target UT, at the same position and velocity relative to the now-real vessel, with the same approach geometry.
+**What changes visually:** Planet rotation, sun angle, star field. All celestial bodies are at their correct positions. These serve as natural visual cues that the jump occurred.
 
-**What changes visually:** Planet rotation (Kerbin has rotated to the correct angle for the new UT), sun angle (day/night terminator has moved), star field. All celestial bodies are at their correct positions. These serve as natural visual cues that the jump occurred.
+**What does NOT change:** The group's geometry relative to the chosen ghost: distances, directions, relative velocities, attitudes, approach geometry. The only thing the jump gives away is the small drift between the two orbits over the skipped time, which is what the feature exists to remove.
 
-**What does NOT change:** Vessel position vectors, velocity vectors, relative positions within the bubble, relative velocities, vessel attitudes, approach geometry, orbit shapes.
+**Surface case:** Both vessels surface-fixed. The body rotates with UT, carrying both. Nothing is moved. The only visual change is the sun angle.
 
-**Surface case:** Both vessels surface-fixed. The body rotates with UT, carrying both. Relative positions preserved automatically (surface-fixed coordinates don't change). The only visual change is the sun angle.
+**Atmospheric case:** Refused. Atmospheric motion is not a coast, so no placement is consistent with the timeline.
 
-**Atmospheric case:** Epoch-shifting is approximate for atmospheric vessels (trajectory is not Keplerian). Position is preserved exactly, but post-jump orbital elements may not match the atmospheric trajectory that would have occurred. This is acceptable: atmospheric chain tips are rare, relative positions are preserved, and post-jump atmospheric physics resumes immediately.
+**Other ghosts during a jump:** Every ghost, looped ghosts included, is drawn where its recording puts it at T1. Co-orbital ghosts near the chosen one stay near it by the drift their recordings had.
 
-**Looped ghosts during a jump:** Looped ghosts that are in the bubble stay at their current positions. Their loop phase advances to match the new UT — orbital epochs are shifted like everything else. They continue their loop cycle from the correct phase. No spawn occurs (loops beyond the first are visual only).
+**Interaction with active recording:** If the player is recording during a time jump, a TIME_JUMP SegmentEvent is stored and the jump is a section seam; a background-recorded group vessel gets the same marker. On replay the vessel coasts on its own orbit through the skipped span and cuts to its placed spot at T1.
 
-**Interaction with active recording:** If the player is recording during a time jump, a TIME_JUMP SegmentEvent is stored with pre-jump and post-jump state vectors. Playback handles the discontinuity as a visual cut — no interpolation across the gap.
+**Automation seam:** the automation-only `TimeJump` verb has no chosen ghost and keeps the plain epoch-shift freeze.
 
 ### 14.6 Selective Spawning UI (Real Spawn Control)
 
@@ -1671,11 +1656,11 @@ Rover                 210 m   8.1 m/s   T- 1h 5m   Y1, D01, 01:05    Too fast  [
 
 **Status and Warp.** `Ready`: inside both gates, Warp jumps to the recording's end, when the vessel is due to spawn here; a refusal found only at spawn time (a blocked spot, an unsafe orbit, no living crew, a launch-site retirement, a failed load) is told once after the Warp (`SpawnWarpOutcomeWatch`), and a recording the spawner always refuses (a latched terminal-orbit refusal, an exhausted load) is not listed. `Leaves`: the ghost leaves its current orbit (into another body's SOI, onto a new orbit around the same body, or down to the surface) before its recording ends; Warp jumps to just before it leaves (the jump lead), and the hover says it does not spawn here, because the spawn happens later and elsewhere. `Leaving`: that departure is due now (Warp greyed). `Passed`: the spawn time is behind the clock (Warp greyed). `Too fast`: as above. The `Spawns` countdown and `Spawn date` cells show the moment the Warp acts on, and `Warp to Next Spawn` picks the earliest such moment among the rows inside both gates.
 
-**Spawn selection behavior:** the jump spawns the selected ghost's vessel at its chain tip. Any independent chain tips chronologically before the target are also spawned - a ghost cannot remain ghost past its chain tip. Ghosts with chain tips after the target UT remain ghost at their current positions.
+**Spawn selection behavior:** the jump spawns the selected ghost's vessel at its chain tip, on its recorded state. Any independent chain tips chronologically before the target are also spawned, each where its own recording puts it - a ghost cannot remain ghost past its chain tip. Ghosts with chain tips after the target UT remain ghost, drawn at their recorded state for the new UT. A `Leaves` Warp places the group beside the departing ghost 15 s before its burn; nothing spawns.
 
 **Chronological constraint:** The player cannot jump backward - only forward.
 
-**Chained jumps:** The player can perform multiple jumps in sequence. Each jump epoch-shifts whatever is currently in the bubble (including real vessels spawned by previous jumps).
+**Chained jumps:** The player can perform multiple jumps in sequence. Each jump uses its own chosen ghost and moves whatever group is around the player at that click (including real vessels spawned by previous jumps).
 
 ### 14.7 Time Jump Scenario Walkthroughs
 
@@ -1685,7 +1670,7 @@ Rover                 210 m   8.1 m/s   T- 1h 5m   Y1, D01, 01:05    Too fast  [
 |---|---|---|
 | T0=500 | A: real. Ghost-S: 80m away. | Player sets up docking approach. |
 | - | - | Player presses Warp on Station Alpha's `Ready` row (T1=1600) |
-| T1=1600 | A: real, same position. S: real, still 80m away. | UT jumped. Planet rotated. Nothing in the bubble moved. |
+| T1=1600 | A: real, placed 80m from S's recorded end. S: real, on its recorded end state. | UT jumped. Planet rotated. A keeps its offset to S. |
 | T1+ | A docks to real S. | Recording R2 starts. |
 
 **Three vessels, player picks the middle one:**
@@ -1694,10 +1679,10 @@ Physics bubble at T0=500: A (real), Ghost-S1 (tip T1=1600), Ghost-S2 (tip T2=200
 
 | Object | Before jump (T0) | After jump (T2=2000) |
 |---|---|---|
-| A | real | real, same position, epoch-shifted orbit |
-| S1 | ghost (tip T1=1600) | real (tip T1 crossed) at same position |
-| S2 | ghost (tip T2=2000) | real (tip T2 = target) at same position |
-| S3 | ghost (tip T3=5000) | ghost, same position |
+| A | real | real, placed at its T0 offset from S2's recorded end |
+| S1 | ghost (tip T1=1600) | real (tip T1 crossed) where its own recording puts it, near S2 |
+| S2 | ghost (tip T2=2000) | real (tip T2 = target) on its recorded end state |
+| S3 | ghost (tip T3=5000) | ghost, drawn at its recorded state for UT 2000 |
 
 Player docks to S2. Later, if needed, presses Warp on S3's row for another jump.
 
