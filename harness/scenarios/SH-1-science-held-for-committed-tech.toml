@@ -1,0 +1,264 @@
+schema = 1
+id = "SH-1-science-held-for-committed-tech"
+tier = "operator"
+# SCIENCE MODE x REWIND: THE SCIENCE A COMMITTED LATER RESEARCH NEEDS IS HELD BACK, AND THE
+# R&D RESEARCH CLICK IS REFUSED FOR IT. L10 proves the funds reservation in career (its
+# header: "reputation and science have no cost ahead"), KB-3 / KB-4 the committed-row click
+# blocks in career, L8 a career research kept as committed future across three rewinds, and
+# L1-research-node-science one research in Science mode with no rewind. Nothing proved, in
+# a SCIENCE_SANDBOX game, that after a rewind the science pool lets the player spend only
+# what a committed later research leaves, and that the Research click of the committed node
+# itself is refused. AUTHORED 2026-10-25, NEVER FLOWN: operator tier and `pending-flight`
+# until the reading run.
+#
+# THE DESIGNED RULE (source, not a log):
+#   - The pool the player sees is the reserved one. `KspStatePatcher.PatchScience` writes
+#     the walk's projected minimum balance (`GetProjectionMinBalance`, KspStatePatcher.cs
+#     ~296-302) into stock's pool: running science at the clock, minus every committed
+#     spending after it. So after the rewind stock itself holds the reserved value.
+#   - A node a committed future researches is refused at the click:
+#     `TechResearchSpendPatch` (RDTech.ResearchTech prefix, pre-deduction) ->
+#     `TechResearchPatch.TryBlockTechResearch` -> `TryBlockCommittedTech`
+#     (TechResearchPatch.cs:48 / :175, `StockUiReservationPredicates.IsTechResearchBlocked`
+#     over `CommittedFutureIndex`, committed = an ELS row that is KSC-origin or tagged to an
+#     ERS recording). The R&D tree marks the same set (`StockUiDecorationQuery.ForRnD`).
+#   - Any other node passes the affordability half (TechResearchPatch.cs:61,
+#     `IsScienceShort` -> `LedgerOrchestrator.CanAffordScienceSpending`, whose free science
+#     is the same projected minimum, LedgerOrchestrator.cs:9422). Parsek refuses only a
+#     TIMELINE shortage (`IsTimelineScienceShortage`, TechResearchPatch.cs:109: live >= cost
+#     and free < cost). A plain shortage (live < cost) is stock's own refusal.
+# CONSEQUENCE, AND WHY NO LINE BELOW NAMES THE SCIENCE-SHORT DIALOG: because PatchScience
+# writes the free science into the live pool, live == free on the rewound clock, so the
+# timeline-shortage branch (`Blocking tech research: ... - insufficient science`,
+# `ReservationExplanation.ScienceShortage`) cannot fire here; it is a backstop for a frame
+# where live has run ahead of the ledger (only the simulated in-game cell
+# `SpendingGate_RespectsLiveAndBlocksNonDestructively` reaches it). The node that would
+# spend the held science is refused because the pool already lacks it: the seam's
+# pre-check (`TestCommandKscAction.Decide`, `insufficient-science`, the same comparison
+# stock's ResearchTech makes) refuses it, and on a DLL that did not hold the science back
+# (live 100) the same click goes through. The forbidden list pins that the timeline branch
+# stays silent, so a change that let live drift above free reds here.
+#
+# THE HOST. `fresh-science` (SCIENCE_SANDBOX, `sci = 100`, only `start` researched, UT 0, no
+# vessel, no Parsek footprint) with the shared `Jumping Flea` overlaid into Ships/VAB (row
+# added with this lane; every part on the stock start node, so it launches in this tree).
+# Why not `lab-pad-seeded` / `lab-lko-science`: their 30 researched nodes leave only
+# aviation (45) and three 90-cost nodes at or under 100, so no committed node A, refused
+# node B and allowed node C fit one 100-science pool. KscAction research-node does not check
+# parent nodes (RF-L1's note), so the nodes below are picked for their cost alone.
+#
+# THE WALK AND THE ARITHMETIC (science; the stock costs from
+# docs/dev/research/stock-tech-tree-part-unlocks.md, L1 verified the multiplier is 1):
+#   flight A   VAB launch of the Flea, warp the pad to UT 120, record, warp to 1000, stop,
+#              CommitTree, stop, Recover (L8 flight B's shape: a commit before the
+#              recovery, because a tree that never left the pad is discarded at the scene
+#              exit). A pad recovery pays no science (L8's hard oracle read none).
+#   KSC 1      at ~1000: research A = basicScience (45). Pool 100 -> 55
+#              (`observedAfter=science=55`). A KSC-origin ScienceSpending row.
+#   rewind     Rewind-to-Launch from the Space Center: clock ~105 (launch - 15 s). Running
+#              100, committed future -45 at ~1000, so PatchScience writes 55.
+#   R&D        open the tree and capture: exactly one node marked and blocked (A), its
+#              explanation `Researched on ...`.
+#   A again    REFUSED by the committed block: live 55 >= 45 passes the seam pre-check, so
+#              the click reaches TechResearchSpendPatch, which refuses with
+#              `45.0 science reserved for this action` and the blocked dialog; the seam
+#              reads `scienceBefore=55 scienceAfter=55` (the held pool, not 100).
+#   B          advFlightControl (90) REFUSED `insufficient-science`: 90 > 55. Without the
+#              hold the pool would read 100 >= 90 and B would be researched, leaving
+#              100 - 90 = 10 for A's 45.
+#   C          advRocketry (45) ALLOWED: 45 <= 55 = free, `CanAffordScienceSpending:
+#              cost=45.0, available=55.0, effectiveAvailable=55.0, affordable=True`; pool
+#              55 -> 10 (`observedAfter=science=10`), and A still has its 45 (100 - 45 - 45).
+#              B and C bracket the line at 55 from both sides: B at 90 refused, C at 45
+#              allowed.
+#   end        warp the Space Center to UT 300 (still ~700 s before A's row), SaveGame.
+#
+# THE EXPECTATION (rewind-aware ledger oracle, HARD on the science pool). End clock ~300:
+# past = C (-45); future = A (-45). Available = min(100 - 45, 100 - 45 - 45) = 10.
+#
+# NO LedgerGroundTruth BATCH, on purpose. Two of its three cells are career-only and skip in
+# this mode (LedgerGroundTruthHarness.cs `Mode != CAREER` -> Skip "Ledger ground-truth
+# verification is career-only"; CurrencyTooltipLiveInvariantTest.cs:32 the same), so the
+# harness cell never prints `result: hardFailures=`; the batch would also need a second
+# launch (FLIGHT-only). The rewind-aware oracle is the independent pool check that works in
+# Science mode: it re-derives 10 from the manifest and the save's own clock and diffs the
+# produced save.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - no lane on this fixture flies (L1 /
+# GUI-8 / CS-0 never launch), and L8's flight is career; (2) explicit-UT warps only;
+# (3) no dwells; (4) no burns; (5) no coast; (6) every refusal is synchronous, retry `once`
+# until the first flight shows the lane deterministic; (7) recordings pinned {1,1} (flight
+# A); (8) operator until the reading run, expected about 5 min; (9) flight_efficiency.py
+# after the first green flight.
+#
+# WHAT THE READING RUN MUST SETTLE (pre-registered):
+#   - `scienceBefore=55` on A's refusal: another value means the rewound pool is not the
+#     held one (read the post-rewind `PatchScience:` lines); `Allowing tech research:
+#     'basicScience'` after the rewind means the committed row did not block (a PRODUCT
+#     finding, file it before re-pinning).
+#   - B refused `insufficient-science`: an `applied=true` for advFlightControl means the
+#     pool was not held (100); a `blocked-committed` means another row claims it.
+#   - C: a refused C, or `effectiveAvailable` other than 55.0, means the free science is
+#     not the projected minimum.
+#   - The oracle: a science divergence with every token green means a science row the
+#     manifest does not carry (a milestone or recovery award in this mode); compare the
+#     oracle's reserved figure with the last PatchScience target.
+#   - `recover rejected reason=dialog-required` means the re-taken tree raised the merge
+#     modal (L8's identical shape did not); arm `autoMerge` as LAB-14 does. A rewind or
+#     `warptout` refusal, or a `goeditor` refusal for the Flea, is a premise miss (the
+#     overlay row, the pad clock), not a Parsek finding.
+description = "Science mode x rewind: on fresh-science, research Basic Science (45) at the Space Center after a recorded pad flight, then rewind to that launch; the science pool reads 55, not 100, the R&D tree marks Basic Science as researched later, its Research click is refused with the reserved-science explanation, a 90-science node is refused because the held pool cannot pay it, and a 45-science node is allowed and leaves 10, with Basic Science's 45 still reserved."
+instanceProfile = "stock-minimal"
+tags = ["SH-1", "science-mode", "science", "ledger", "rewind", "action-blocking", "stock-ui",
+        "research", "recovery", "editor", "timeline-ops", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/fresh-science"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  # LOAD-BEARING: the Allowing / CanAffordScienceSpending lines are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+
+  # ---- flight A: the Flea on the pad, recorded, committed, recovered ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                              expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "120" },                                         expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "1000" },                                        expect = "OK", budget = 180 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "2905720181" },                                 expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "sh1-a-committed" },                          expect = "OK" },
+
+  # ---- KSC 1: the research the rewind will put in the committed future ----
+  { cmd = "KscAction",      args = { action = "research-node", node = "basicScience" },    expect = "OK", budget = 60 },
+
+  # ---- rewind: A's launch, from the Space Center (clock ~105, the research ahead) ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "sh1-rewound" },                              expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+
+  # ---- the R&D tree marks the committed node ----
+  { cmd = "StockScreen",    args = { screen = "rnd", act = "open" },                       expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "sh1-rnd" },                               expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "rnd", act = "close" },                      expect = "OK" },
+
+  # ---- A again: refused by the committed block, the held pool read on both sides ----
+  { cmd = "KscAction",      args = { action = "research-node", node = "basicScience" },    expect = "REJECTED", budget = 60 },
+  { cmd = "CaptureScreenshot", args = { label = "sh1-a-refused" },                         expect = "OK" },
+  { cmd = "UiAction",       args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+
+  # ---- B: more than the held pool, less than the unheld one: refused ----
+  { cmd = "KscAction",      args = { action = "research-node", node = "advFlightControl" }, expect = "REJECTED", budget = 60 },
+
+  # ---- C: within the held pool: allowed, A still paid for ----
+  { cmd = "KscAction",      args = { action = "research-node", node = "advRocketry" },     expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "sh1-c-researched" },                         expect = "OK" },
+
+  # ---- the produced save at ~300: C past, A still ahead ----
+  { cmd = "WarpToUT",       args = { ut = "300", maxRate = "100" },                        expect = "OK", budget = 120 },
+  { cmd = "SaveGame",       args = { name = "persistent" },                                expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+# Every value is backed by a REQUIRED token below:
+#   science / ksp-state-patcher <- the held pool read by the seam (`scienceBefore=55`) and
+#                                  the oracle's science facet
+#   action-blocking             <- `Blocking tech research: 'basicScience' ... committed future row`
+#   rewind-to-launch            <- `[Rewind] Rewind-to-Launch initiated to UT `
+D8  = ["science", "ksp-state-patcher", "action-blocking"]
+D9  = ["rewind-to-launch"]
+D14 = ["science-mode", "scene-ksc", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Flight A only; the rewind removes no recording and nothing after it records.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  # ---- flight A and KSC 1 ----
+  "kscaction action=research-node target=basicScience applied=true manifestKind=\\S+ observedAfter=science=55\\s",
+  "Game state: TechResearched 'basicScience' \\(cost=45(?:\\.0+)?\\)",
+  "\\[Rewind\\] Rewind-to-Launch initiated to UT ",
+
+  # ---- the R&D tree after the rewind: one node marked and blocked, the committed one ----
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] record label=sh1-rnd screen=RnD tab=Tree items=[0-9]+ marked=1 blocked=1\\s",
+
+  # ---- A again: the committed block, the held pool unchanged, the typed refusal ----
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[Parsek\\]\\[INFO\\]\\[TechResearchPatch\\] Blocking tech research: 'basicScience' \\([^)]*\\) - committed future row ut=\\d+ nowUT=\\d+ recording=\\(ksc\\), 45\\.0 science reserved for this action",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*kscaction research-node not applied: target=basicScience stateBefore=Unavailable stateAfter=Unavailable fundsBefore=0 fundsAfter=0 fundsDelta=0 scienceBefore=55 scienceAfter=55 scienceDelta=0",
+  "kscaction refused action=research-node reason=blocked-committed target=basicScience",
+  # The refused click's dialog body IS the R&D tree's explanation for the node (KB-3 (c)).
+  "record label=sh1-rnd screen=RnD tab=Tree item=basicScience kind=TechResearch marked=true blocked=true why=\"(Researched on [^\"]+)\"[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot research \"[^\"]+\" - \\1 \\(45\\.0 science reserved for this action\\)\\r?\\n",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false",
+
+  # ---- B: the held pool cannot pay it ----
+  "kscaction refused action=research-node reason=insufficient-science target=advFlightControl",
+
+  # ---- C: free science is the held pool; allowed; A still reserved after it ----
+  "Rewind-to-Launch initiated to UT [\\s\\S]*CanAffordScienceSpending: cost=45\\.0, available=55\\.0, effectiveAvailable=55\\.0, affordable=True",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*Allowing tech research: 'advRocketry' \\([^)]*\\) - no committed future row",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*kscaction action=research-node target=advRocketry applied=true manifestKind=\\S+ observedAfter=science=10\\s",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*Game state: TechResearched 'advRocketry' \\(cost=45(?:\\.0+)?\\)",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The timeline-shortage branch stays silent: live never runs ahead of the free science.
+  "Blocking tech research: '[^']*' \\([^)]*\\) - insufficient science",
+  # Only A is ever blocked by Parsek.
+  "Blocking tech research: '(?!basicScience')",
+  # A is researched once (KSC 1), never again after the rewind; B never.
+  "\\A(?:[\\s\\S]*?kscaction action=research-node target=basicScience applied=true){2}",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*Allowing tech research: 'basicScience'",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*Game state: TechResearched '(?!advRocketry')",
+  "kscaction action=research-node target=advFlightControl applied=true",
+  # Only the two refusals the walk names.
+  "kscaction refused action=(?!research-node reason=(?:blocked-committed target=basicScience|insufficient-science target=advFlightControl)\\s)",
+  "recover rejected",
+  "warptout refused",
+]
+
+# The rewind-aware ledger oracle (design-autotest-ledger-oracle.md "The rewind-aware model").
+# End clock ~300 (the SaveGame after the Space Center warp): C is past, A is committed future.
+[expectations.ledger]
+seedFrom     = "template"
+tolerances   = "default"
+timeline     = "rewind-aware"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [1000.0, 1100.0]
+  kind       = "tech-unlock"
+  # A: basicScience at KSC 1, right after flight A's recovery at ~1000 (L8 measured its
+  # KSC 1 rows at 1000.57 / 1000.59 after a recovery at 1000.29).
+  science    = -45.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [100.0, 290.0]
+  kind       = "tech-unlock"
+  # C: advRocketry on the rewound clock (~105 plus the R&D and refusal steps), before the
+  # warp to 300.
+  science    = -45.0
+  provenance = "seam-declared"
+
+[runtime]
+# LoadGame 300, GoToEditor 120, LaunchFromEditor 180, three flight-side warps, CommitTree,
+# Recover 120, the rewind 300, four KscActions at 60 s, the Space Center warp, a SaveGame.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

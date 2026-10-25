@@ -129,4 +129,8 @@
 "cs-career-new" = ["Jumping Flea"]
 "cs-science-new" = ["Jumping Flea"]
 "stock-screen-census" = ["Jumping Flea"]
+# `fresh-science` gains the Flea for SH-1, the one lane on it that launches (a pad flight to
+# rewind to). L1-research-node-science, GUI-8 and CS-0 never open the editor; CS-0 keeps the
+# staged Ships/ folder, and its harvest (harvest_bdock_station.py) strips library craft.
+"fresh-science" = ["Jumping Flea"]
 "stock-screen-census-repair" = ["Jumping Flea"]
