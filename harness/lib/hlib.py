@@ -8402,24 +8402,65 @@ class AdmissionDecision:
     diff: Tuple  # provlib.ManifestDiff tuple
 
 
+# The reference-DLL check (todo HARNESS-MODDED-COMPAT-NEVER-PROVISIONED). Neither
+# run.py nor tools/tier_runner.py provisions an instance, and the manifest check
+# above only catches a DLL changed AFTER that instance's own provision, so a
+# secondary instance (modded-compat) flew whatever Parsek.dll it last received:
+# on 2026-10-12 a two-week-old build. stock-minimal is the instance every routine
+# provision targets (CLAUDE.md, tier_runner's PROVISION_HINT), so its DEPLOYED
+# Parsek.dll stands for the current build: any other instance whose deployed DLL
+# hash differs from it is refused pre-boot as drift. Skipped when either DLL is
+# absent (no reference to compare with) and for the reference instance itself.
+REFERENCE_DLL_PROFILE = "stock-minimal"
+REFERENCE_DLL_DIFF_FIELD = "deployedParsekDll.sha256.vsReference"
+
+
+def provision_command_hint(profile: str) -> str:
+    """The operator command that re-provisions ``profile`` (a HUMAN call)."""
+    return "cd harness && python provision/provision.py --profile %s" % profile
+
+
+def decide_reference_dll_drift(profile: Optional[str], instance_dll_sha: Optional[str],
+                               reference_dll_sha: Optional[str],
+                               same_instance: bool = False) -> Optional["provlib.ManifestDiff"]:
+    """The admission diff entry for a secondary instance whose deployed Parsek.dll
+    differs from the reference instance's, or None (reference profile, the same
+    instance directory, either hash unknown, or a match). ``expected`` is the
+    reference hash, ``actual`` this instance's."""
+    if profile == REFERENCE_DLL_PROFILE or same_instance:
+        return None
+    if not instance_dll_sha or not reference_dll_sha:
+        return None
+    if instance_dll_sha.lower() == reference_dll_sha.lower():
+        return None
+    return provlib.ManifestDiff(REFERENCE_DLL_DIFF_FIELD, reference_dll_sha,
+                               instance_dll_sha, "changed")
+
+
 def admit_instance(
     expected: Dict,
     actual_manifest: Optional[Dict],
     incomplete_marker: bool = False,
+    reference_dll_diff: Optional["provlib.ManifestDiff"] = None,
 ) -> AdmissionDecision:
     """Admit (or refuse) an instance before any KSP launch (design edge 6).
 
     A missing manifest, a ``.provision-incomplete`` marker beside it, or a
     NONEMPTY field-level diff from ``provlib.compare_manifest`` means the instance
     is not the one the scenario assumes -> refuse with INVALID(admission), NO
-    launch. Empty diff (and no marker/missing) -> admit. Classifying this INVALID
-    (not PARSEK-FAIL) keeps environment drift out of the Parsek-defect bucket.
+    launch. ``reference_dll_diff`` (decide_reference_dll_drift) joins that diff:
+    a secondary instance carrying another build than the reference instance is
+    drift too. Empty diff (and no marker/missing) -> admit. Classifying this
+    INVALID (not PARSEK-FAIL) keeps environment drift out of the Parsek-defect
+    bucket.
     """
     if actual_manifest is None:
         return AdmissionDecision(False, "manifest-missing", tuple())
     if incomplete_marker:
         return AdmissionDecision(False, "provision-incomplete", tuple())
     diff = tuple(provlib.compare_manifest(expected, actual_manifest))
+    if reference_dll_diff is not None:
+        diff = diff + (reference_dll_diff,)
     if diff:
         return AdmissionDecision(False, "drift", diff)
     return AdmissionDecision(True, "", tuple())
@@ -10113,6 +10154,10 @@ def capture_cross_check_gates(ledger_block: Optional[Dict]) -> bool:
 # tombstone retired.
 LEDGER_TIMELINE_KEY = "timeline"
 LEDGER_RETIRED_ATTEMPTS_KEY = "retiredAttempts"
+# Optional milestone awards (oracle.decide_optional_award): manifest entries plus a
+# `milestone` id, admitted only when the capture and the produced save both book it.
+LEDGER_OPTIONAL_KEY = "optional"
+LEDGER_OPTIONAL_MILESTONE_KEY = "milestone"
 
 # The one oracle rejection reason a PRE-LAUNCH gate must NOT raise: it reads the
 # captured pool, which is empty by construction before the flight. See the carve-out
@@ -10192,6 +10237,7 @@ def validate_ledger_expectations(ledger_block: Optional[Dict]) -> List[str]:
             if _LEDGER_FUNDS_FILL_MARKER in err:
                 continue
             errs.append("expectations.ledger.manifest" + err.replace("entry[", "[", 1))
+    errs.extend(_validate_ledger_optional(ledger_block))
     if LEDGER_CAPTURE_CROSS_CHECK_KEY in ledger_block:
         mode = ledger_block.get(LEDGER_CAPTURE_CROSS_CHECK_KEY)
         if mode not in LEDGER_CAPTURE_CROSS_CHECK_VALUES:
@@ -10199,6 +10245,40 @@ def validate_ledger_expectations(ledger_block: Optional[Dict]) -> List[str]:
                         % (LEDGER_CAPTURE_CROSS_CHECK_KEY, mode,
                            list(LEDGER_CAPTURE_CROSS_CHECK_VALUES)))
     errs.extend(_validate_ledger_timeline(ledger_block, manifest))
+    return errs
+
+
+def _validate_ledger_optional(ledger_block: Dict) -> List[str]:
+    """The `[[expectations.ledger.optional]]` surface, pre-launch: an array of entry
+    tables, each naming a non-empty `milestone` id and otherwise a manifest entry the
+    oracle's own parser accepts. Refused under the rewind-aware model, which does not
+    model it (an optional award there would be placed on a clock nobody declared)."""
+    if LEDGER_OPTIONAL_KEY not in ledger_block:
+        return []
+    import oracle  # deferred sibling import, as in validate_ledger_expectations
+    raw = ledger_block.get(LEDGER_OPTIONAL_KEY)
+    if not isinstance(raw, list):
+        return ["expectations.ledger.%s: must be an array of entry tables" % LEDGER_OPTIONAL_KEY]
+    errs: List[str] = []
+    if ledger_block.get(LEDGER_TIMELINE_KEY, oracle.TIMELINE_SUM) == oracle.TIMELINE_REWIND_AWARE:
+        errs.append("expectations.ledger.%s: the %r model does not model optional awards"
+                    % (LEDGER_OPTIONAL_KEY, oracle.TIMELINE_REWIND_AWARE))
+    for i, e in enumerate(raw):
+        if not isinstance(e, dict):
+            errs.append("expectations.ledger.%s[%d]: not a table" % (LEDGER_OPTIONAL_KEY, i))
+            continue
+        ms = e.get(LEDGER_OPTIONAL_MILESTONE_KEY)
+        if not isinstance(ms, str) or not ms.strip():
+            errs.append("expectations.ledger.%s[%d].%s: %r must be a non-empty milestone id "
+                        "(for example 'Kerbin/Landing')"
+                        % (LEDGER_OPTIONAL_KEY, i, LEDGER_OPTIONAL_MILESTONE_KEY, ms))
+        for err in oracle.parse_manifest_entries([e]).errors:
+            if _LEDGER_FUNDS_FILL_MARKER in err:
+                errs.append("expectations.ledger.%s[%d]: an optional award needs an "
+                            "author constant (no fill-from-capture)" % (LEDGER_OPTIONAL_KEY, i))
+                continue
+            errs.append(("expectations.ledger.%s[%d]" % (LEDGER_OPTIONAL_KEY, i))
+                        + err.split("]", 1)[1])
     return errs
 
 
@@ -10549,6 +10629,27 @@ class StockCaptureResult:
     captured: Tuple[CapturedAward, ...]
     rejected_balance: int
     stock_lines: int  # award lines matched (before dedupe)
+
+
+# The event-time milestone award line (GameStateRecorder.EnrichPendingMilestoneRewards,
+# the Harmony postfix on stock's ProgressNode.AwardProgress, with stock's real
+# values), the capture side of an `[[expectations.ledger.optional]]` award. Both the
+# Info line and its Verbose store-skipped twin carry the award. A Parsek line, but
+# the values are the ones stock awarded at event time, not a recalc output.
+MILESTONE_AWARD_LINE_RE = re.compile(
+    r"Milestone enriched(?: \(ledger only, store skipped\))?: '(?P<id>[^']+)' "
+    r"funds=(?P<funds>-?[0-9]+(?:\.[0-9]+)?) rep=(?P<rep>-?[0-9]+(?:\.[0-9]+)?) "
+    r"sci=(?P<sci>-?[0-9]+(?:\.[0-9]+)?)")
+
+
+def parse_milestone_award_lines(log_text: str) -> Dict[str, List[Tuple[float, float, float]]]:
+    """Every captured milestone award in a produced KSP.log, by qualified milestone id
+    (``Kerbin/Landing``), as ``(funds, rep, sci)`` in log order (pure)."""
+    out: Dict[str, List[Tuple[float, float, float]]] = {}
+    for m in MILESTONE_AWARD_LINE_RE.finditer(log_text or ""):
+        out.setdefault(m.group("id"), []).append(
+            (float(m.group("funds")), float(m.group("rep")), float(m.group("sci"))))
+    return out
 
 
 def parse_stock_award_lines(log_text: str) -> StockCaptureResult:
@@ -11426,15 +11527,40 @@ EXPECTATION_FORBIDDEN_INVALID_PREFIX = "logContracts.forbidden invalid regex: "
 # line-flushed (the H69 log ends on a complete line at a non-block size), so file
 # growth tracks line output. 90 s of silence is 16x the largest measured gap and
 # 240 s to MAINMENU is 5.7x the slowest measured boot.
+#
+# The main-menu phase (todo VB-1-KSP-HANG-AT-MAIN-MENU). VB-1 2026-10-09: KSP wrote
+# the MAINMENU line and then nothing at all, the seam never logged a `recv id=` for
+# the first command, and the run sat out the whole LoadGame step wait as a
+# non-retried KILLED(budget). Reaching MAINMENU therefore no longer switches the
+# watchdog off: it keeps the no-growth rule (only that rule: the MAINMENU deadline
+# is met) until the seam's first receipt line SEAM_RECEIPT_MARKER appears in this
+# launch's KSP.log, or any seam response line. The seam reads its command file only
+# outside LOADING (ParsekTestCommandAddon.Update), so its receipt of the first
+# command follows MAINMENU within a few frames on every healthy boot; a log that
+# stays silent for BOOT_STALL_NO_GROWTH_SECONDS after MAINMENU with no receipt is a
+# wedged game, rule BOOT_STALL_RULE_NO_SEAM_RECEIPT, the same retryable boot-hang.
+# The watchdog stops at the receipt, not at the response: after it, the seam owns
+# the command (its own deferral budget and terminal verdicts), and a LoadGame may
+# legitimately sit in a quiet deferral.
 # ---------------------------------------------------------------------------
 
 BOOT_HANG_SUBKIND = "boot-hang"
 BOOT_READY_MARKER = "Scene Change : From LOADING to MAINMENU"
+# The seam's per-command receipt (TestCommandDiagnostics.Receipt) as ParsekLog
+# writes it: `[Parsek][INFO][TestCommands] recv id=<id> cmd=<verb> args=<n>`.
+SEAM_RECEIPT_MARKER = "[TestCommands] recv id="
 BOOT_STALL_NO_GROWTH_SECONDS = 90.0
 BOOT_MAINMENU_DEADLINE_SECONDS = 240.0
 
 BOOT_STALL_RULE_NO_GROWTH = "no-growth"
 BOOT_STALL_RULE_NO_MAINMENU = "no-mainmenu"
+BOOT_STALL_RULE_NO_SEAM_RECEIPT = "no-seam-receipt"
+
+# The watchdog's phases: before MAINMENU (both rules), at the main menu before the
+# seam's first receipt (no-growth only, named no-seam-receipt), and off.
+BOOT_WATCH_PHASE_BOOT = "boot"
+BOOT_WATCH_PHASE_MENU = "menu"
+BOOT_WATCH_PHASE_OFF = "off"
 
 
 @dataclass(frozen=True)
@@ -11450,18 +11576,40 @@ class BootStallDecision:
     stall_seconds: float = 0.0
 
 
+def boot_watch_phase(mainmenu_seen: bool, receipt_seen: bool,
+                     response_seen: bool) -> str:
+    """The watchdog phase from what this launch has shown so far. Any seam response
+    switches it off. The seam's receipt switches it off only together with MAINMENU:
+    the seam does not read commands during LOADING, so a receipt without the
+    MAINMENU line is not expected, and the boot rules keep watching if it happens."""
+    if response_seen or (mainmenu_seen and receipt_seen):
+        return BOOT_WATCH_PHASE_OFF
+    if mainmenu_seen:
+        return BOOT_WATCH_PHASE_MENU
+    return BOOT_WATCH_PHASE_BOOT
+
+
 def decide_boot_stall(elapsed_since_launch: float, seconds_since_growth: float,
                       boot_ready: bool,
-                      limits: Optional[BootWatchdogLimits] = None) -> BootStallDecision:
-    """Whether a boot that has not yet reached MAINMENU is stalled.
+                      limits: Optional[BootWatchdogLimits] = None,
+                      at_mainmenu: bool = False) -> BootStallDecision:
+    """Whether a boot the seam has not yet acknowledged is stalled.
 
     ``seconds_since_growth`` counts from the last observed growth of THIS launch's
-    KSP.log, or from launch when the log has not been touched yet. A ready boot is
-    never stalled, whatever the clocks say. The no-growth rule is checked first: it
-    is the more specific diagnosis (the H69 shape), and it names the silence."""
+    KSP.log, or from launch when the log has not been touched yet. A ready boot
+    (watchdog phase off) is never stalled, whatever the clocks say. Before MAINMENU
+    the no-growth rule is checked first: it is the more specific diagnosis (the H69
+    shape), and it names the silence. ``at_mainmenu`` (phase menu: MAINMENU seen, no
+    seam receipt yet) applies the no-growth rule alone, under the rule name
+    no-seam-receipt (the VB-1 shape); the MAINMENU deadline is already met."""
     if boot_ready:
         return BootStallDecision(False)
     lim = limits or BootWatchdogLimits()
+    if at_mainmenu:
+        if seconds_since_growth >= lim.no_growth_seconds:
+            return BootStallDecision(True, BOOT_STALL_RULE_NO_SEAM_RECEIPT,
+                                     float(seconds_since_growth))
+        return BootStallDecision(False)
     if seconds_since_growth >= lim.no_growth_seconds:
         return BootStallDecision(True, BOOT_STALL_RULE_NO_GROWTH, float(seconds_since_growth))
     if elapsed_since_launch >= lim.mainmenu_deadline_seconds:
@@ -11490,16 +11638,26 @@ def boot_log_scan_start(pre_identity: Optional[Tuple[int, int]],
     return 0 if cur_identity[0] < pre_size else pre_size
 
 
-def scan_boot_ready(carry: bytes, chunk: bytes) -> Tuple[bool, bytes]:
-    """Scan a new KSP.log chunk for ``BOOT_READY_MARKER``. ``carry`` is the tail of
-    the previous chunk, so a marker split across two reads is still found. Returns
+def scan_log_marker(marker: str, carry: bytes, chunk: bytes) -> Tuple[bool, bytes]:
+    """Scan a new KSP.log chunk for ``marker``. ``carry`` is the tail of the previous
+    chunk (per marker), so a marker split across two reads is still found. Returns
     ``(found, next_carry)``."""
-    marker = BOOT_READY_MARKER.encode("ascii")
+    needle = marker.encode("ascii")
     buf = carry + chunk
-    if marker in buf:
+    if needle in buf:
         return True, b""
-    keep = len(marker) - 1
+    keep = len(needle) - 1
     return False, buf[-keep:]
+
+
+def scan_boot_ready(carry: bytes, chunk: bytes) -> Tuple[bool, bytes]:
+    """Scan a new KSP.log chunk for ``BOOT_READY_MARKER`` (see scan_log_marker)."""
+    return scan_log_marker(BOOT_READY_MARKER, carry, chunk)
+
+
+def scan_seam_receipt(carry: bytes, chunk: bytes) -> Tuple[bool, bytes]:
+    """Scan a new KSP.log chunk for ``SEAM_RECEIPT_MARKER`` (see scan_log_marker)."""
+    return scan_log_marker(SEAM_RECEIPT_MARKER, carry, chunk)
 
 
 def last_complete_log_line(tail: bytes) -> str:

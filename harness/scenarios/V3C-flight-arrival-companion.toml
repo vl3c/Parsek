@@ -101,6 +101,10 @@ id = "V3C-flight-arrival-companion"
 #     Ike-clear lever is the AIMED ARRIVAL PERIAPSIS: >= ~4,300 km alt
 #     (high band, what run 4 flew naturally) or <= ~1,600 km alt (low
 #     band, ~135 km inside the shell's inner edge) - a follow-up flight.
+#   - THE AIM MOVED 2026-10-25 (todo V3C-CAPTURE-AIMS-INTO-IKE, after
+#     2026-10-09_0731 / _0743_a2 both left Duna's SOI through Ike at an
+#     arrival pe of 2.9 / 2.5 Mm alt): courseCorrectPeriapsisMeters is now
+#     10,000 km altitude, the high band. See the key's own comment below.
 #   SEAM INSTANT RESOLVED (2026-09-07, v3c-seam-instant; the roadmap section
 #   "The re-aim seam instant (V3C): the co-location decision" is the design
 #   record). Re-reading run 3 attempt 1 (_0747, collected as
@@ -324,7 +328,22 @@ ejectionEccFloor           = 1.05
 transferBurnTimeoutSeconds = 20000
 
 # --- Correction rounds (time-to-SOI mode; the B7 shape, B15-sized budget).
-courseCorrectPeriapsisMeters = 300000
+# THE AIM IS THE IKE-CLEAR LEVER (todo V3C-CAPTURE-AIMS-INTO-IKE). B17's 300 km
+# request sits inside Ike's funnel in effect: at req/SOI = 300 km / 47,921 km =
+# 0.63% the corrector delivers a periapsis set by the arrival geometry, not the
+# request (B22's corpus table: k = delivered/requested 0.77 - 2.39 on Duna; this
+# lane's arrivals measured ~283 / 2,081 / 2,500 / 2,877 / 5,330 / 7,000 km alt),
+# and three of the six landed in Ike's shell (~1,734 - 4,026 km alt). 10,000 km alt is req/SOI =
+# 20.9%, beside the corpus's Jool row (24.4%, k 0.974), in the regime where the
+# delivered periapsis tracks the request and the bias runs DOWN; at the corpus's
+# LOWEST k (0.545, the Mun) it still delivers 5,450 km alt, 1,424 km above the
+# shell's outer edge, and an inbound hyperbola whose periapsis clears the shell
+# never enters it at any inclination. The high tail (k ~1) parks near 10 Mm,
+# far inside parkMaxApoapsisMeters (40 Mm) and the SOI. Capture-to-circular at
+# 10 Mm costs ~665 m/s at a 0.8 km/s v-inf vs ~575 at 300 km, inside the DD1
+# reserve. targetPeriapsisFloorMeters stays the atmosphere guard (B22's J1
+# reasoning): a moon clip already ASSERT-FAILs through the left-target-SOI guard.
+courseCorrectPeriapsisMeters = 10000000
 # CYCLE-2 CAP (reading run 2, 2026-08-07_2324, measured): the ghost-cycle
 # window prices the mid-course correction at 522.1 m/s - 16% over B17's
 # cycle-1 cap of 450, so the machine disqualified the plan and the raw

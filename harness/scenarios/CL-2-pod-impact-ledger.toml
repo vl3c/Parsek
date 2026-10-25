@@ -688,6 +688,31 @@ captureCrossCheck = "gate"
   funds      = 29600.0
   provenance = "seam-declared"
 
+# THE ONE OPTIONAL AWARD (2026-10-25, todo CL-2-POD-LANDING-AWARD-VARIANCE).
+# `2026-10-08_1914` read PARSEK-FAIL on funds: expected 529600, parsed 530400. That
+# run's pod touched down long enough to complete `Kerbin/Landing` before the impact
+# broke it up (`Milestone enriched: 'Kerbin/Landing' funds=800 ...`); the green runs
+# never landed it. The award was really earned and really booked, so this is a
+# per-run OUTCOME, not ledger drift, and the mission cannot make the impact
+# deterministic (it is the same craft and the same autopilot every run).
+#
+# An `optional` entry joins the declared set ONLY when the award is booked on BOTH
+# sides: the event-time capture line above (stock's own award values) AND the
+# produced save's ProgressTracking (`Kerbin/Landing` completed). On neither side it is
+# dropped and the totals above stand. Anything else reds hard
+# (`optional-award-disagreement` / `-repeated` / `-amount-mismatch`), and every
+# award not declared here still hard-gates as before. MEASURED amounts: funds 800,
+# rep 0, sci 0 (the recorded `refly-a-recorded` ledger row `milestoneId =
+# Kerbin/Landing milestoneFundsAwarded = 800 milestoneRepAwarded = 0
+# milestoneSciAwarded = 0`, and this lane's +800 residual). No rep entry, because
+# the award carries none; a Landing that ever did would red the rep pool.
+[[expectations.ledger.optional]]
+  milestone  = "Kerbin/Landing"
+  seq        = 4
+  kind       = "milestone"
+  funds      = 800.0
+  provenance = "seam-declared"
+
 # The raw-Unity-exception scan (hlib.scan_unity_exceptions), ARMED AT ZERO on NINE
 # driver-valid readings, all 0: eight green result JSONs plus the fresh
 # `2026-08-04_1324` run. A crewed hop that ends in a pod impact still emits no

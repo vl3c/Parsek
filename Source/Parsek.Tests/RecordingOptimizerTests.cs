@@ -4022,6 +4022,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TrimBoringTail_RunningConverterPartDecoupledAway_TrimsAfterTheDeparture()
+        {
+            // TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES, decoupled-converter residue: the drill
+            // left the vessel at 17200 while running. The recorder's departed-converter stop
+            // ends its run on the parent, so the parent's boring tail trims after it.
+            var rec = MakeSurfaceRecordingWithEvents(
+                MakeConverterEvent(17035, 7, PartEventType.ConverterActivated));
+            var active = new HashSet<uint> { 7u };
+            FlightRecorder.AppendDepartedConverterStopsCore(
+                active, new HashSet<uint> { 1u, 2u }, rec.PartEvents, 17200, "Recorder", "test");
+
+            Assert.True(RecordingOptimizer.TrimBoringTail(rec, new List<Recording> { rec }));
+            Assert.True(rec.EndUT >= 17200, $"EndUT {rec.EndUT} cut before the departure");
+            Assert.True(rec.EndUT <= 17200 + RecordingOptimizer.DefaultTailBufferSeconds,
+                $"EndUT {rec.EndUT} not trimmed after the departed converter's stop");
+        }
+
+        [Fact]
         public void TrimBoringTail_ClampsExplicitEndUTToTrimmedBounds()
         {
             // Regression: commit sets rec.ExplicitEndUT to the scene-exit UT

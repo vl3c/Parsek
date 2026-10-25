@@ -194,16 +194,21 @@ whole step, so the watch re-arms), when the machine state declares
 A KSP that wedges during its own boot used to be noticed only when the first
 LoadGame step's wait ran out: 660 s, then a non-retried `KILLED(budget)` (H69
 `2026-10-12_0623`, KSP.log stopped 1 s in at `Load(Assembly): MechJebLib`).
-`run.py`'s `BootWatch` now tails THIS launch's KSP.log from launch until the boot
-is ready (the `Scene Change : From LOADING to MAINMENU` line, or any seam
-response) and kills the process tree when the log has not grown for 90 s
+`run.py`'s `BootWatch` now tails THIS launch's KSP.log from launch until the seam
+has acknowledged the first command (the `Scene Change : From LOADING to MAINMENU`
+line and then the seam's `[TestCommands] recv id=` receipt, or any seam response)
+and kills the process tree when the log has not grown for 90 s
 (`hlib.BOOT_STALL_NO_GROWTH_SECONDS`) or MAINMENU has not appeared within 240 s
-(`hlib.BOOT_MAINMENU_DEADLINE_SECONDS`). The attempt is `INVALID(boot-hang)`, an
+(`hlib.BOOT_MAINMENU_DEADLINE_SECONDS`). Between MAINMENU and the receipt only the
+90 s no-growth rule applies (rule `no-seam-receipt`): VB-1 `2026-10-09_0755` went
+silent 0.5 s after MAINMENU, the seam never received LoadGame, and the run waited
+out 660 s as a non-retried KILLED. The attempt is `INVALID(boot-hang)`, an
 environment fault retried once like `boot-crash`, so a hung boot costs at most
 240 s plus a retry instead of 660 s and a lost lane. The harness log carries
-`[Boot-Wait] boot-hang: rule=<no-growth|no-mainmenu> stall=<s> ... lastLine=...`,
-and the result JSON a `driver.bootHang` record; a normal boot logs `boot ready
-via=mainmenu elapsed=<s>`, after which the watchdog is off for the attempt. The
+`[Boot-Wait] boot-hang: rule=<no-growth|no-mainmenu|no-seam-receipt> stall=<s> ...
+lastLine=...`, and the result JSON a `driver.bootHang` record; a normal boot logs
+`boot at main menu` and then `boot ready via=seam-receipt elapsed=<s>`, after which
+the watchdog is off for the attempt. The
 previous run's KSP.log (still on disk at launch) is never read as this boot's.
 After this kill (and after a budget kill) the harness waits up to 30 s for KSP to
 actually exit (`run.KILL_EXIT_WAIT_SECONDS`), so the retry's zombie preflight does
@@ -1543,11 +1548,17 @@ What a red means:
 - **INVALID** with subkind `drift` / `manifest-missing` / `provision-incomplete`
   - the instance is not fit; the runner labels the whole invocation
   `NEEDS-PROVISION`. Provision from the intended worktree
-  (`cd harness && python provision/provision.py --profile stock-minimal`).
+  (`cd harness && python provision/provision.py --profile stock-minimal`). A
+  `drift` on the field `deployedParsekDll.sha256.vsReference` means a secondary
+  instance (`modded-compat`) carries another Parsek.dll than `stock-minimal`, the
+  instance routine provisioning keeps current; its `admit refused` line names the
+  command, `python provision/provision.py --profile modded-compat`. Nothing
+  provisions that instance for you, so provision it whenever you provision
+  `stock-minimal` and mean to fly the MC lanes.
 - **KILLED** - a budget kill. Always called out explicitly in the tally so it
   cannot hide behind twenty passes beside it.
-- **INVALID `boot-hang`** - KSP stalled before MAINMENU and the boot-stall
-  watchdog killed it (see "The boot-stall watchdog"). Retried once; two in a row
+- **INVALID `boot-hang`** - KSP stalled before MAINMENU (or at the main menu
+  before the seam's first receipt) and the boot-stall watchdog killed it (see "The boot-stall watchdog"). Retried once; two in a row
   point at the instance (a corrupt plugin, a mod load wedge), not at Parsek.
 - **INVALID with `retrySkipped` in its result JSON** - the attempt failed on a
   deterministic seam error (an `ERROR` / `REJECTED` reply whose reason is in

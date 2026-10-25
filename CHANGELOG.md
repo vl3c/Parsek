@@ -36,9 +36,21 @@ _(unreleased - entries accumulate here per commit)_
   new branch's recording now notes the running converter, so the end of that recording is no longer
   trimmed away and its mined resources no longer arrive early on a spawn.
   (TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES)
+- **Dropping a part with its drill or converter still on no longer keeps a dull recording ending.**
+  When such a part left by decoupling or undocking, the vessel's recording still read the
+  converter as running, so its quiet ending was never trimmed and its spawn waited for no reason.
+  The recording now notes that the converter stopped when the part left.
+  (TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES)
+- **A kerbal whose walk ends on a launch pad or runway end comes back as a real kerbal.** A kerbal
+  recorded after he was already out on EVA, or one picked up as a cargo partner, was treated like a
+  vessel parked on the pad and never reappeared. Only vessels are cleared off the pad now.
+  (EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED)
 - **A held end-of-flight vessel frozen by a time jump no longer spawns away from its ghost.** While
   the vessel spawns from its jump-shifted orbit, a blocked spawn waits for the spot to clear instead
   of walking back along the unshifted path. (REALSPAWN-JUMP-SHIFT-RESIDUE)
+- **Two quick time jumps in a row keep an orbiting end-of-flight vessel beside you.** If a second
+  jump came before a vessel freed by the first had appeared, the vessel used to appear further
+  along its orbit than its ghost stood. Both jumps now count. (REALSPAWN-JUMP-SHIFT-RESIDUE)
 - **A Re-Fly no longer shows a contract you accepted later as active.** A contract accepted at the
   Space Center after the Re-Fly's rewind point stays unaccepted during the Re-Fly, so the re-flown
   stage can no longer complete or fail it before you accepted it. (REFLY-SESSION-SHOWS-CONTRACT-ACCEPTED-LATER)
@@ -71,6 +83,24 @@ _(unreleased - entries accumulate here per commit)_
 - **Automated tests can read the Timeline.** A new read-back lists the Timeline's rows by kind and
   checks that a milestone a Re-Fly removed draws no leftover row, with a lane on a built save that
   holds that case. (TIMELINE-PHANTOM-MILESTONE-AFTER-REFLY-OF-LATER-SEGMENT)
+- **Harness: a game that freezes at the main menu is retried instead of waited out.** A test run
+  whose KSP stopped at the main menu before taking its first command sat out an 11-minute wait
+  and was not retried; it now ends after 90 s of silence and runs again. (VB-1-KSP-HANG-AT-MAIN-MENU)
+- **Harness: the modded test install no longer flies an old Parsek build.** A test lane on the
+  second, modded install now refuses to start when that install carries a different Parsek.dll
+  than the main test install, and names the provisioning command to fix it.
+  (HARNESS-MODDED-COMPAT-NEVER-PROVISIONED)
+- **Harness: the Re-Fly world-preservation lane accepts either clean ending.** Its merge can end
+  before or after the re-flown stage records its first sample, depending on timing the lane cannot
+  control; both endings are correct, so the lane now checks for either one, whole.
+  (REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START)
+- **Harness: a ledger check can name an award a flight may or may not earn.** The crash-landing
+  ledger lane no longer fails when its pod happens to land before breaking up and earns the
+  Kerbin landing milestone; that award now counts only when both the game's award and the saved
+  career show it. (CL-2-POD-LANDING-AWARD-VARIANCE)
+- **Harness: the Duna companion lane aims its arrival clear of Ike.** Its probe now aims to pass
+  Duna 10,000 km up instead of 300 km, above the band where Ike orbits, so the capture no longer
+  drifts through Ike's pull and fails the run. (V3C-CAPTURE-AIMS-INTO-IKE)
 
 ---
 

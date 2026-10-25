@@ -6887,8 +6887,10 @@ class BootStallWatchdogSmokeTests(unittest.TestCase):
     waited out the whole 660 s LoadGame step before a non-retried KILLED(budget).
     Guards: a boot whose KSP.log stops growing before MAINMENU is killed early as a
     RETRIED INVALID(boot-hang), a stale previous-run KSP.log carrying its own MAINMENU
-    line does not disarm it, and a slow but growing boot followed by a long silence
-    AFTER MAINMENU never trips it."""
+    line does not disarm it, a KSP that wedges at the main menu before the seam's
+    first receipt is killed the same way (todo VB-1-KSP-HANG-AT-MAIN-MENU), and a
+    slow but growing boot followed by a long silence AFTER the seam's receipt never
+    trips it."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="parsek-harness-bootwatch-")
@@ -6953,7 +6955,7 @@ class BootStallWatchdogSmokeTests(unittest.TestCase):
         self.assertNotIn("budget exceeded", log)
         self.assertLess(wall, 60.0)
 
-    def test_a_slow_growing_boot_then_post_mainmenu_silence_never_trips(self):
+    def test_a_slow_growing_boot_then_silence_after_the_seam_receipt_never_trips(self):
         spec = _make_spec(self.template, 30, 600)
         rt = _FastBootWatchRuntime("slowboot")
         result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
@@ -6963,11 +6965,39 @@ class BootStallWatchdogSmokeTests(unittest.TestCase):
         self.assertNotIn("bootHang", result["driver"])
         self.assertFalse(result["kspExit"]["killed"])
         log = self._log_text()
-        # Latched at MAINMENU (before the first seam response), and silent after:
-        # the 5 s post-MAINMENU silence exceeds both shrunk thresholds.
-        self.assertIn("boot ready via=mainmenu", log)
+        # Main-menu phase at MAINMENU, latched off at the seam's receipt (before the
+        # first seam response), and silent after: the 5 s silence after the receipt
+        # exceeds both shrunk thresholds.
+        self.assertIn("boot at main menu", log)
+        self.assertIn("boot ready via=seam-receipt", log)
         self.assertNotIn("boot-hang:", log)
         self.assertNotIn("boot ready via=seam-response", log)
+
+    def test_a_ksp_wedged_at_the_main_menu_is_killed_invalid_boot_hang_and_retried(self):
+        """VB-1 2026-10-09 (todo VB-1-KSP-HANG-AT-MAIN-MENU): KSP.log ended just after
+        the MAINMENU line, the seam never logged a receipt, and the run waited out the
+        LoadGame step as a non-retried KILLED(budget). The main-menu phase now kills
+        it on the no-growth rule as a RETRIED INVALID(boot-hang)."""
+        spec = _make_spec(self.template, 30, 25)
+        rt = _FastBootWatchRuntime("menuhang")
+        started = time.time()
+        result = run._run_scenario_with_retry(spec, self.instance, self.tmp, rt, self.logger)
+        wall = time.time() - started
+
+        self.assertEqual(2, rt.launch_count, "a main-menu hang must be retried once")
+        self.assertEqual((hlib.VERDICT_INVALID, hlib.BOOT_HANG_SUBKIND),
+                         (result["verdict"], result["subkind"]))
+        self.assertTrue(result["kspExit"]["killed"])
+        hang = result["driver"]["bootHang"]
+        self.assertEqual(hlib.BOOT_STALL_RULE_NO_SEAM_RECEIPT, hang["rule"])
+        self.assertIn("MAINMENU", hang["lastLine"])
+        self.assertGreaterEqual(hang["stallSeconds"], 2)
+        log = self._log_text()
+        self.assertEqual(2, log.count("boot at main menu"))
+        self.assertEqual(2, log.count("boot-hang: rule=no-seam-receipt"))
+        self.assertNotIn("boot ready via=", log)
+        self.assertNotIn("budget exceeded", log)
+        self.assertLess(wall, 60.0)
 
     def test_a_slowly_dying_killed_ksp_is_waited_for_so_the_retry_still_boots(self):
         """`taskkill /F` returns before KSP is gone. Without the post-kill wait, attempt
@@ -7008,6 +7038,90 @@ class BootStallWatchdogSmokeTests(unittest.TestCase):
         self.assertEqual(2, log.count("[Boot-Wait] killed process exited after"))
         self.assertNotIn("instance-busy", log)
         self.assertNotIn("still alive after", log)
+
+
+class ReferenceDllAdmissionSmokeTests(unittest.TestCase):
+    """The reference-DLL admit check end to end (todo
+    HARNESS-MODDED-COMPAT-NEVER-PROVISIONED). 2026-10-12: the MC lanes on
+    modded-compat flew a two-week-old Parsek.dll because nothing provisions that
+    instance and admit compared its DLL only with its own manifest. Guards: a
+    secondary instance whose deployed DLL differs from stock-minimal's is refused
+    pre-boot (no launch) as INVALID(drift) naming the provision command; a match,
+    or no reference DLL to compare with, admits and flies."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-refdll-")
+        self.instance = os.path.join(self.tmp, "automation", "modded-compat")
+        self.reference = os.path.join(self.tmp, "automation", "stock-minimal")
+        _write_manifest(self.instance, "modded-compat")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "refdll_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    @staticmethod
+    def _deploy(instance_dir, payload):
+        path = os.path.join(instance_dir, run.PARSEK_DLL_REL)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as fh:
+            fh.write(payload)
+
+    def _attempt(self, profile="modded-compat"):
+        spec = _make_spec(self.template, 30, 600)
+        spec["instanceProfile"] = profile
+        rt = FakeRuntime("pass")
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            return result, rt, fh.read()
+
+    def test_a_secondary_instance_on_another_build_is_refused_before_boot(self):
+        self._deploy(self.instance, b"parsek build of 2026-09-26")
+        self._deploy(self.reference, b"parsek build of today")
+        result, rt, log = self._attempt()
+        self.assertEqual(0, rt.launch_count, "a stale instance must never boot")
+        self.assertEqual((hlib.VERDICT_INVALID, "drift"),
+                         (result["verdict"], result["subkind"]))
+        fields = [d["field"] for d in result["admission"]["diff"]]
+        self.assertEqual([hlib.REFERENCE_DLL_DIFF_FIELD], fields)
+        self.assertIn("provision/provision.py --profile modded-compat", result["note"])
+        self.assertIn("provision/provision.py --profile modded-compat", log)
+        self.assertIn("admit parsek-dll vs stock-minimal: DRIFT", log)
+        self.assertIn("admit refused: instance=modded-compat", log)
+        # tier_runner reads this run as NEEDS-PROVISION, not as a product finding.
+        self.assertIn("admit drift field=%s" % hlib.REFERENCE_DLL_DIFF_FIELD, log)
+        self.assertIn("result=DRIFT", log)
+
+    def test_a_secondary_instance_on_the_reference_build_flies(self):
+        self._deploy(self.instance, b"parsek build of today")
+        self._deploy(self.reference, b"parsek build of today")
+        result, rt, log = self._attempt()
+        self.assertEqual(1, rt.launch_count)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        self.assertIn("admit parsek-dll vs stock-minimal: match", log)
+
+    def test_no_reference_dll_admits_on_the_manifest_alone(self):
+        self._deploy(self.instance, b"parsek build of 2026-09-26")
+        result, rt, log = self._attempt()
+        self.assertEqual(1, rt.launch_count)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        self.assertIn("admit parsek-dll vs stock-minimal: skipped (no reference instance DLL", log)
+
+    def test_the_reference_instance_is_never_compared_with_itself(self):
+        self._deploy(self.instance, b"one build")
+        self._deploy(self.reference, b"another build")
+        result, rt, log = self._attempt(profile="stock-minimal")
+        self.assertEqual(1, rt.launch_count)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        self.assertNotIn("admit parsek-dll vs", log)
 
 
 # ---------------------------------------------------------------------------

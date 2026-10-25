@@ -318,6 +318,7 @@ def _expected(expectations: Dict, seed_block: Dict, log_text: str,
     except ValueError:
         return None
     seam, _cap, _err, _m = ledgerverify.build_manifest(led, log_text, seed, "")
+    seam = tuple(seam) + ledgerverify.resolve_optional_awards(led, log_text, career_block).admitted
     if ledgerverify.timeline_model(led) == oracle.TIMELINE_REWIND_AWARE:
         end_ut = ledgerverify.career_save_clock(career_block)
         if end_ut is None:

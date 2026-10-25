@@ -430,6 +430,82 @@ namespace Parsek.Tests
             Assert.Equal(53.8, shift.LagSeconds, 9);
         }
 
+        // ------------------------------------- a second jump, tip armed but neither spawned nor held
+
+        [Fact]
+        public void PendingRecordingIdsNotIn_ListsArmedTipsNoGhostWalkSaw_InIdOrder()
+        {
+            var b = MakeOrbitingRecording("b-tip", 470.0);
+            var a = MakeOrbitingRecording("a-tip", 471.0);
+            var c = MakeOrbitingRecording("c-tip", 472.0);
+            TimeJumpTerminalOrbitShift.CaptureForJump(
+                new List<KeyValuePair<Recording, double>>
+                {
+                    new KeyValuePair<Recording, double>(b, 10.0),
+                    new KeyValuePair<Recording, double>(a, 20.0),
+                    new KeyValuePair<Recording, double>(c, 30.0),
+                },
+                427.4, 481.2, Bubble);
+
+            Assert.Equal(new[] { "a-tip", "b-tip" },
+                TimeJumpTerminalOrbitShift.PendingRecordingIdsNotIn(new HashSet<string> { "c-tip" }));
+            Assert.Equal(new[] { "a-tip", "b-tip", "c-tip" },
+                TimeJumpTerminalOrbitShift.PendingRecordingIdsNotIn(null));
+        }
+
+        [Fact]
+        public void PendingRecordingIdsNotIn_EmptyStore_IsEmpty()
+        {
+            Assert.Empty(TimeJumpTerminalOrbitShift.PendingRecordingIdsNotIn(new HashSet<string>()));
+        }
+
+        [Theory]
+        [InlineData(true, false, true, true, 140.0, TimeJumpTerminalOrbitShift.RecaptureAdd)]
+        [InlineData(true, false, true, true, 0.0, TimeJumpTerminalOrbitShift.RecaptureAdd)]
+        [InlineData(false, false, true, true, 140.0, TimeJumpTerminalOrbitShift.RecaptureMissingRecording)]
+        [InlineData(true, true, true, true, 140.0, TimeJumpTerminalOrbitShift.RecaptureAlreadySpawned)]
+        [InlineData(true, false, false, true, 140.0, TimeJumpTerminalOrbitShift.RecaptureShiftNotLive)]
+        [InlineData(true, false, true, false, 140.0, TimeJumpTerminalOrbitShift.RecapturePositionUnresolved)]
+        [InlineData(true, false, true, true, double.NaN, TimeJumpTerminalOrbitShift.RecapturePositionUnresolved)]
+        [InlineData(true, false, true, true, -1.0, TimeJumpTerminalOrbitShift.RecapturePositionUnresolved)]
+        [InlineData(true, false, true, true, 5000.0, TimeJumpTerminalOrbitShift.RecaptureOutsideBubble)]
+        public void ClassifyPendingRecapture_Table(
+            bool found, bool spawned, bool live, bool resolved, double separation, string expected)
+        {
+            Assert.Equal(expected, TimeJumpTerminalOrbitShift.ClassifyPendingRecapture(
+                found, spawned, live, resolved, separation, Bubble));
+        }
+
+        [Fact]
+        public void SecondJump_ArmedTipNotHeld_RecapturedAtItsShiftedPosition_AccumulatesTheLag()
+        {
+            // REALSPAWN-JUMP-SHIFT-RESIDUE: jump 1 arms the tip; before it spawns (and with no
+            // held ghost) jump 2 fires. The collector hands the tip back at the separation of its
+            // jump-shifted orbit, so the second jump's delta joins the lag.
+            var tip = MakeOrbitingRecording("ctd-tip-rec", 481.2);
+            TimeJumpTerminalOrbitShift.CaptureForJump(
+                new List<KeyValuePair<Recording, double>> { new KeyValuePair<Recording, double>(tip, 140.0) },
+                427.4, 481.2, Bubble);
+
+            var walkedGhosts = new List<KeyValuePair<Recording, double>>();
+            var seen = new HashSet<string>();
+            foreach (string id in TimeJumpTerminalOrbitShift.PendingRecordingIdsNotIn(seen))
+            {
+                bool live = TimeJumpTerminalOrbitShift.TryGetShift(id, 481.3, out _);
+                if (TimeJumpTerminalOrbitShift.ClassifyPendingRecapture(
+                        true, tip.VesselSpawned, live, true, 142.0, Bubble)
+                    == TimeJumpTerminalOrbitShift.RecaptureAdd)
+                    walkedGhosts.Add(new KeyValuePair<Recording, double>(tip, 142.0));
+            }
+            Assert.Single(walkedGhosts);
+
+            TimeJumpTerminalOrbitShift.CaptureForJump(walkedGhosts, 481.3, 581.3, Bubble);
+
+            Assert.True(TimeJumpTerminalOrbitShift.TryGetShift("ctd-tip-rec", 581.3, out var shift));
+            Assert.Equal(53.8 + 100.0, shift.LagSeconds, 6);
+            Assert.Equal(142.0, shift.GhostSeparationMeters);
+        }
+
         // ---------------------------------------------------------------- the one-shot log
 
         [Fact]
