@@ -1616,13 +1616,13 @@ The time jump is a specialized mechanism for a specific scenario: **the player h
 
 1. **Read the chosen ghost.** Its RECORDED state at the click (T0) and at the target (T1); for a Ready row T1 is its spawn state from the spawner's own resolver. No ghost or recording is modified.
 
-2. **Gate.** Refused (greyed `Warp`, reason in its existing hover) when the player's vessel, a group vessel or the ghost is inside an atmosphere, the ghost changes body before T1, the ghost's recording burns more than 2 m/s equivalent between T0 and T1, or a group vessel's new spot is taken by a real vessel outside the group.
+2. **Gate.** Refused (greyed `Warp`, reason in its existing hover) when the player's vessel, a group vessel or the ghost is inside an atmosphere, the ghost changes body before T1, the ghost's own burns between T0 and T1 change its orbit by more than 2 m/s, or a group vessel's new spot is taken by a real vessel outside the group.
 
 3. **Capture the group.** The loaded orbital vessels within 250 m and 2 m/s of the player's vessel (the window's own gates), each with its offset, relative velocity and attitude in the ghost's local frame (up, along-track, sideways).
 
 4. **Make room.** For a Ready row, the existing spawn collision guard tests the ghost's spawn box against the group at its placed spots; on an overlap the whole group slides back along the orbit, away from the ghost, until clear. The ghost always spawns on its recorded spot.
 
-5. **Jump UT and place.** Vessels on rails, clock to T1, each group vessel placed at the ghost's T1 state plus its turned offset (same for velocity and attitude), every other loaded orbital vessel left on its own orbit, vessels off rails.
+5. **Jump UT and place.** Vessels on rails with the unpack held, clock to T1; on the next physics frame each group vessel is placed at the ghost's T1 state plus its turned offset (same for velocity; attitude relative to the ghost's orbital frame), every other loaded orbital vessel is left on its own orbit, and stock unpacks after the hold. A landed or splashed player vessel keeps the plain epoch-shift path.
 
 6. **Process spawns and game actions.** The chosen Ready ghost spawns on its recorded end state; every other ghost whose spawn time was crossed spawns where its own recording puts it, through the ordinary spawn path and collision check (Section 13.5). The ledger recalculates at T1, same as warp exit.
 

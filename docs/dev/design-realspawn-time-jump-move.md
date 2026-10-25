@@ -96,13 +96,17 @@ These replace rule 13 of the flight recorder design (Section 2.3) and Section 14
 4. Check the gates (Section 4.3). They were already evaluated for the greyed state; they are
    re-checked here and a failure aborts the jump with nothing changed (logged).
 5. Clear the reference's spawn spot (Section 4.4).
-6. Put loaded vessels on rails, set the clock to T1, apply the converter policy (as today).
-7. Place each group vessel at the reference's T1 state plus its offset, turned with the local
-   frame; same for velocity and attitude. Every other loaded orbital vessel is left on its own
-   orbit, which carries it to its natural T1 position.
-8. Take the vessels off rails; the ledger recalculates at T1 (as today).
-9. Next frame: a `Ready` reference spawns on its recorded end state through the ordinary spawn
-   path; other crossed ghosts spawn as in Section 4.5.
+6. Put loaded vessels on rails and hold the unpack, set the clock to T1, apply the converter
+   policy (as today).
+7. On the next physics frame, once body rotation and the frame have caught up with T1:
+   resolve the reference's T1 state, then place each group vessel at it plus its offset,
+   turned with the local frame; same for velocity. Attitude is carried relative to the
+   reference's orbital frame (the recorder's `orbitalFrameRotation` convention), never as a
+   rotation of a world quaternion. Every other loaded orbital vessel is left on its own orbit,
+   which carries it to its natural T1 position.
+8. Stock unpacks the vessels after the hold; the ledger recalculates at T1 (as today).
+9. A `Ready` reference then spawns on its recorded end state through the ordinary spawn path;
+   other crossed ghosts spawn as in Section 4.5.
 
 ### 4.2 Which vessels move (ruling Q2)
 
@@ -120,7 +124,7 @@ Evaluated on the window's 1.5 s scan for each row, and again at the click.
 |---|---|---|
 | Space | A, a group vessel, or the reference at T0 or T1 is inside an atmosphere | `Can't warp here: inside the atmosphere.` |
 | Same body | the reference's recording changes body between T0 and T1 | `Can't warp: {name} changes orbit body first.` |
-| Coasting (ruling Q6) | the reference's recorded motion from T0 to T1 differs from a plain coast by more than 2 m/s equivalent (its own burns) | `Can't warp: {name} burns before it spawns here.` |
+| Coasting (ruling Q6) | the reference's own burns between T0 and T1 add up to more than 2 m/s, measured as the change of its orbit (size, shape, plane), not as a position difference at T1, which along-track drift would inflate | `Can't warp: {name} burns before it spawns here.` |
 | Destination | a group vessel's new spot overlaps a real vessel outside the group at T1 (B itself is handled by 4.4) | `Can't warp: the spot beside {name} is taken then.` |
 
 A `Leaves` reference always passes the coasting gate: T1 lies on the one orbit it coasts until
@@ -222,7 +226,7 @@ retries B on its recorded spot, not 1,000 km away.
 |---|---|
 | Ghosts never change game state | No ghost or recording is touched. The reference's recording is read to place the player's own vessels only (ruling Q4). |
 | Ledger never reduced | No ledger rows are written; the recalculation at T1 is today's. No change of body and no atmosphere (gates), so no flyby, SOI or altitude milestone can be earned by the move. |
-| No paradox | Forward only. Every spawned vessel is on its own record, so later flights that meet it agree on replay. |
+| No paradox | Forward only. Every spawned vessel is on its own record, so later flights that meet it agree on replay. One residual: a group member that a committed future flight meets (a real station the player parked beside) is moved by the cancelled drift, so it sits up to that drift away from where the future flight's ghost meets it. Today's freeze displaces it by the whole skip's orbit instead. |
 | Append-only | No committed data changes. |
 | Exploit bound | The move cancels drift between orbits inside the 250 m / 2 m/s gate, plus at most 2 m/s of the reference's own burns. The free phasing of today's freeze is gone. |
 
@@ -233,11 +237,13 @@ retries B on its recorded spot, not 1,000 km away.
 **Step 1, Leaves.** Pure core (local-frame map, group builder, gates, slide), the
 pack / clock / place / unpack shell in `TimeJumpManager`, the greyed reasons, the recording
 seam, used only by `WarpToDeparture`. Lanes: a new `Leaves` lane (a host whose orbital ghost
-departs 5-10 min after load; the ghost must be within the T0 distance after the jump), a group
-lane (scenario c). Ready keeps today's shift until Step 2.
+departs 5 min after load; the ghost must be within the T0 distance after the jump, and the
+host's nearby probe, a group member, keeps its offset: scenario c), with a recording facet for
+4.6. Ready keeps today's shift until Step 2.
 
-**Step 2, Ready.** `WarpToRecordingEnd` and `Warp to Next Spawn` move to the same path, with the
-reference at T1 from the spawn resolver and the slide of 4.4. CI-9 re-armed (teleport lines in
+**Step 2, Ready.** `WarpToRecordingEnd` and `Warp to Next Spawn` move to the same path for an
+orbital player vessel (a landed one keeps today's path, rule 5), with the reference at T1 from
+the spawn resolver and the slide of 4.4. CI-9 re-armed (teleport lines in
 place of the shift lines, scenario a's orbit facet), VN-4 and VN-10 re-flown, a replay lane for
 (g). Only after those fly green and the results archive shows no seam lane relying on the
 shift: delete `TimeJumpTerminalOrbitShift` and its spawn, collision, walkback and held-ghost
@@ -251,8 +257,10 @@ m/s passes, 5 m/s and a phasing ghost refuse), every gate, the group builder, th
 
 ## 8. Open Points for the Plan
 
-- How KSP keeps attitude for a packed vessel across a placement (decided by the first flight;
-  the attitude is encoded against the reference's velocity and up directions, so a world-frame
-  rotation cancels).
+- How KSP keeps attitude for a packed vessel across a placement and the unpack hold (decided
+  by the first flight; the attitude is encoded against the reference's velocity and up
+  directions, so a world-frame rotation cancels).
+- Build order, file map and the review findings it absorbed:
+  `docs/dev/plans/realspawn-time-jump-move-implementation.md`.
 - Robotics and docking-port drift on the one extra rails cycle (KSPCommunityFixes covers the
   stock bugs; noted, not designed around).
