@@ -1950,12 +1950,16 @@ namespace Parsek.InGameTests
             }
         }
 
-        private static string CreateBatchFlightBaselineSlotName()
+        internal const string BatchBaselineSlotPrefix = "ptb-";
+
+        // Kept short: the save-scoped Parsek snapshot is copied beside the save as
+        // `<slot>-parsek`, and its deepest files sit five folders below it
+        // (`Recordings/_versions/_quarantine/<date>/<id>.<hash>_vessel.craft`). KSP's
+        // runtime refuses a path past 259 characters on Windows, so a long slot name fails
+        // the whole capture on a deep install (a harness instance under a user folder).
+        internal static string CreateBatchFlightBaselineSlotName()
         {
-            return "parsek-test-batch-baseline-"
-                + DateTime.UtcNow.ToString("yyyyMMdd-HHmmssfff", CultureInfo.InvariantCulture)
-                + "-"
-                + Guid.NewGuid().ToString("N").Substring(0, 8);
+            return BatchBaselineSlotPrefix + Guid.NewGuid().ToString("N").Substring(0, 8);
         }
 
         private static string CaptureBatchFlightParsekSaveSnapshot(string slotName)
