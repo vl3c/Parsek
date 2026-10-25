@@ -2317,18 +2317,24 @@ namespace Parsek
                 activeConverterParts.Remove(pid);
 
                 string name = null;
+                bool destroyed = false;
                 if (recordedEvents != null)
                 {
                     for (int i = recordedEvents.Count - 1; i >= 0; i--)
                     {
-                        if (recordedEvents[i].partPersistentId == pid
-                            && !string.IsNullOrEmpty(recordedEvents[i].partName))
-                        {
+                        if (recordedEvents[i].partPersistentId != pid) continue;
+                        if (recordedEvents[i].eventType == PartEventType.Destroyed)
+                            destroyed = true;
+                        if (name == null && !string.IsNullOrEmpty(recordedEvents[i].partName))
                             name = recordedEvents[i].partName;
-                            break;
-                        }
                     }
                 }
+
+                // A destroyed part already ends its run (Destroyed is final for the tail-trim
+                // witness); a second edge would only read as a player toggle to the idle-on-pad
+                // veto (ParsekFlight.CountPlayerConverterToggles).
+                if (destroyed)
+                    continue;
 
                 stops.Add(new PartEvent
                 {

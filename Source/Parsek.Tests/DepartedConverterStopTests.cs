@@ -50,6 +50,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Collect_DestroyedPart_DropsItWithoutAStop()
+        {
+            var active = new HashSet<uint> { 10u, 20u };
+            var present = new HashSet<uint> { 10u, 30u };
+            var recorded = new List<PartEvent>
+            {
+                Activated(50.0, 20u, "FuelCell"),
+                new PartEvent { ut = 90.0, partPersistentId = 20u, eventType = PartEventType.Destroyed, partName = "FuelCell" }
+            };
+
+            var stops = FlightRecorder.CollectDepartedConverterStops(active, present, recorded, 100.0);
+
+            Assert.Empty(stops);
+            Assert.DoesNotContain(20u, active);
+            Assert.Contains(10u, active);
+        }
+
+        [Fact]
         public void Collect_DepartedPart_StopsItAndDropsItFromTheSet()
         {
             var active = new HashSet<uint> { 10u, 20u };
