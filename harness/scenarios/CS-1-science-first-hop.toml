@@ -4,10 +4,13 @@ id = "CS-1-science-first-hop"
 # program", owner decisions 2026-10-06). The first thing a player does in a brand-new
 # stock Science game: build the stock Jumping Flea in the VAB (every part is on the stock
 # start node: Mk1 pod, Mk16 chute, RT-5 Flea, three basic fins, two Mystery Goo units),
-# launch it, hop, run both Goo units on the ground, transmit one experiment (the cap is 1;
-# with the pod's own crew report aboard the first reading run names which one went),
-# recover the craft so the data still aboard is credited on recovery, and let Parsek
-# auto-commit the flight.
+# take a reading in every situation the hop passes through (each new situation pays its
+# own science): one Goo unit on the pad before ignition, the other Goo unit and the pod's
+# crew report in low flight at burnout, then land, recover the craft so every reading is
+# credited on recovery, and let Parsek auto-commit the flight. No transmit: stock never
+# sends science through a capsule's built-in antenna (CommNetVessel.CanScience needs a
+# non-INTERNAL antenna; the reading run below measured it), and the first antenna part,
+# the Communotron 16, is on Engineering 101. Researching it and transmitting is CS-2.
 #
 # THE HOST. `cs-science-new`, CS-0-new-science-game's produced save: a genuine stock New
 # Game (Science, Normal preset, created through stock's own GamePersistence.CreateNewGame
@@ -20,15 +23,22 @@ id = "CS-1-science-first-hop"
 # WHAT IT PROVES. The VAB launch then an autopilot mission step in one lane (no committed
 # lane flew that shape before), Parsek's first recording in a new Science save, the
 # science-mode pool read (`recoverCreditPool = "science"`: kRPC's Funds raises in a
-# Science game, so the recovery is proven by the recovered Goo's science credit), and the
-# scene-exit auto-commit of a recovered flight.
+# Science game, so the recovery is proven by the science credit of the readings aboard),
+# the staged readings (`stagedScienceObserved`: the pad reading observed before ignition,
+# all three observed while airborne), and the scene-exit auto-commit of a recovered flight.
+# The recovery floor is 5.0, Engineering 101's cost, so a green flight proves CS-2 can
+# afford its node; the readings are worth about 13.5 (Goo 10 x 0.3 landed + 10 x 0.7
+# flying low, crew report 5 x 0.7), and the floor is a floor, never that number.
 #
 # STATUS: `cs-science-new` harvested 2026-10-25 (CS-0 run `2026-10-25_1743`). First flight
 # `2026-10-25_1752` / `_1753_a2` INVALID on GoToEditor (the save's asteroid booted LoadGame
-# into FLIGHT); LoadGame now forces the Space Center. `operator` until the first green
+# into FLIGHT); LoadGame now forces the Space Center. Re-flight `2026-10-25_1805` /
+# `_1814_a2` INVALID at TRANSMIT ("No transmitters available"; diagnostic run 4's kRPC
+# probe read a Home path with can_transmit_science=False on the pod's INTERNAL antenna), so
+# the lane was re-cut to the staged, recover-only shape. `operator` until the first green
 # flight, PROMOTE to nightly after it. The log contract stays conservative until then.
 tier = "operator"
-description = "Scripted campaign stage 1 (Science): in a genuine stock new Science game, launch the stock Jumping Flea from the VAB, hop, run both Goo units, transmit one experiment, recover the craft (the data still aboard credits on recovery) and auto-commit the recorded flight."
+description = "Scripted campaign stage 1 (Science): in a genuine stock new Science game, launch the stock Jumping Flea from the VAB, run a Goo unit on the pad, the other Goo unit and the crew report in low flight, land, recover the craft (every reading credits on recovery) and auto-commit the recorded flight."
 instanceProfile = "stock-tree"
 tags = ["campaign", "CS-1", "science-mode", "editor", "science", "recovery", "auto-commit",
         "pending-flight"]
@@ -42,9 +52,9 @@ craft = []
 kind    = "autopilot"
 mission = "science_bench_recover"
 
-# Budget arithmetic: missionBudget 1320 = L3's (same craft, same hop, same tail); runtime
-# 2400 >= 300 LoadGame + 120 GoToEditor + 180 LaunchFromEditor + 1320 mission + SaveGame +
-# FlushAndQuit + margin.
+# Budget arithmetic: missionBudget 1380 = L3's 1320 (same craft, same hop, same tail) + the
+# 60 s pad collect; runtime 2400 >= 300 LoadGame + 120 GoToEditor + 180 LaunchFromEditor +
+# 1380 mission + SaveGame + FlushAndQuit + margin.
 steps = [
   # scene = "spacecenter": a genuine new game can hold a stock-spawned asteroid (the first
   # harvest did, `Ast. IYH-096`), and a save with a focusable vessel would otherwise boot
@@ -55,7 +65,7 @@ steps = [
   { cmd = "SetSetting",       args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
   { cmd = "GoToEditor",       args = { facility = "VAB", craft = "Jumping Flea" },    expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor",                                                         expect = "OK", budget = 180 },
-  { phase = "mission",                                                                expect = "MISSION-OK", budget = 1320 },
+  { phase = "mission",                                                                expect = "MISSION-OK", budget = 1380 },
   # The recovery leaves FLIGHT, so the tree auto-commits at the scene exit and there is
   # no active tree left to commit by hand (L3's shape).
   { cmd = "CommitTree",                                                               expect = "REJECTED" },
@@ -75,16 +85,23 @@ landedSituations         = ["LANDED", "SPLASHED"]
 ascentTimeoutSeconds     = 90
 coastTimeoutSeconds      = 180
 descentTimeoutSeconds    = 360
-# Both Goo units must hold data before the transmit: one experiment is sent, and what
-# stays aboard is the recovery's science credit.
-collectMinExperiments = 2
+# Staged readings (mlib block note above SBR_PAD_COLLECT). The pad list holds ignition
+# until its data is observed; the flight list runs at burnout, in low flight.
+padExperiments           = ["mysteryGoo"]
+padCollectTimeoutSeconds = 60
+flightExperiments        = ["mysteryGoo", "crewReport"]
+# All three readings must be aboard on the ground (the landed sweep runs nothing new).
+collectMinExperiments = 3
 collectTimeoutSeconds = 120
-transmitMaxExperiments = 1
+# 0 = no TRANSMIT (the pod's built-in antenna cannot send science). The two transmit keys
+# are still required by the schema and are not consulted.
+transmitMaxExperiments = 0
 transmitMinScienceGain = 0.5
 transmitTimeoutSeconds = 120
-# Science game: no funds pool. The recovery is proven by the science pool rising across it.
+# Science game: no funds pool. The recovery is proven by the science pool rising across it,
+# by at least Engineering 101's 5.0.
 recoverCreditPool     = "science"
-recoverMinScienceGain = 0.5
+recoverMinScienceGain = 5.0
 recoverMinFundsGain   = 0.0
 recoverTimeoutSeconds = 180
 

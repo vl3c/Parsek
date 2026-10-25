@@ -2272,8 +2272,14 @@ in the craft library, and the lanes CS-0-new-science-game / CS-0-new-career-game
 builders) and CS-1-science-first-hop (pending its `cs-science-new` fixture). Flown 2026-10-25:
 both CS-0 lanes PASS (`2026-10-25_1743` / `_1744`), harvested as `cs-science-new` / `cs-career-new`;
 CS-1 `_1752` INVALID because the new Science save held a stock asteroid and LoadGame booted into
-FLIGHT on it (now `scene = "spacecenter"`), owes a re-flight. A stock-tree flight needs BOTH
-instances provisioned from one worktree (the reference-DLL admission check).
+FLIGHT on it (now `scene = "spacecenter"`). Re-flight `_1805` / `_1814_a2` INVALID at TRANSMIT:
+stock never sends science through a capsule's INTERNAL antenna (`CommNetVessel.CanScience`; a kRPC
+probe read a Home link with `can_transmit_science=False`), and no antenna part is on the start
+node. So `science_bench_recover` gained staged readings (`padExperiments`, `flightExperiments`,
+`transmitMaxExperiments = 0`) and CS-1 reads Goo on the pad, Goo and the crew report in low
+flight, and recovers; it owes a re-flight. CS-2 researches Engineering 101 and adds a Communotron
+16 to transmit. A stock-tree flight needs BOTH instances provisioned from one worktree (the
+reference-DLL admission check).
 
 ---
 

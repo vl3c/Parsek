@@ -1166,6 +1166,39 @@ L3's with `recoverCreditPool = "funds"` spelled out, over a success flight and t
 failure flights through this module and through the copy at the pinned pre-change sha
 `b8de091`, comparing every phase, action, reason string and assertion row.
 
+**A third AMENDMENT, 2026-10-25: staged science (all optional).** CS-1's first two
+flights measured that a start-node craft cannot transmit science at all: the Mk1 pod's
+built-in antenna is INTERNAL, and stock's `CommNetVessel.CanScience` needs a non-INTERNAL
+one, so kRPC's `Experiment.Transmit` raises "No transmitters available" even on a clean
+Home link (a kRPC probe read `can_communicate=True`, `can_transmit_science=False`). A
+first flight earns its science by taking a reading in every situation it passes through
+and recovering them, so three knobs and one relaxed bound make that shape flyable:
+
+- **`padExperiments`** (list of experiment names as the part config spells them,
+  `mysteryGoo`, `crewReport`; one module per entry). The machine starts in
+  `PAD_COLLECT`, runs that list, and HOLDS the delegated B1 leg (no throttle, no stage)
+  until the data channel observes that many experiments holding data, debounced; the
+  same frame then goes to B1, which ignites. Holding ignition is the point: stock
+  gathers the data after the module's deploy animation, so a reading taken while the
+  craft lifts off would name the wrong situation. Budget **`padCollectTimeoutSeconds`**
+  (default 60); new terminals `pad-collect-produced-no-data` and `vessel-lost-on-pad`
+  (ASSERT-FAIL) and `science-channel-dark` scoped to `PAD_COLLECT` too (FLAKE).
+- **`flightExperiments`** (same shape) runs on the frame the leg enters COAST (burnout,
+  low flight on a pad hop), with its own bounded re-emit while COAST lasts.
+- The run action carries the names in `Action.text`; the runner runs one eligible
+  module per name in kRPC enumeration order, and a module already holding data never
+  consumes a name, so a re-emit runs only what is still missing.
+- **`transmitMaxExperiments = 0`** (the schema floor was 1) skips TRANSMIT: COLLECT goes
+  straight to RECOVER, and the `scienceTransmittedObserved` row is not emitted.
+- Either list adds the **`stagedScienceObserved`** row: the pad count observed on the
+  pad, and pad + flight observed on airborne frames (ASCENT / COAST / DESCENT, a MAX).
+  The landed COLLECT would otherwise make up a failed in-flight run on the ground and
+  still satisfy `collectMinExperiments`, so this row is what keeps "in flight" honest.
+
+Absent keys are the landed-only machine; the default-surface and pre-change replay
+cells above stay green unchanged, and `test_science_bench_recover_staged.py` holds the
+new cells.
+
 Verdict semantics, and the split is the CL-1 split exactly - a wrong OUTCOME is
 not retryable, a broken CHANNEL is:
 
