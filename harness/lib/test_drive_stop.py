@@ -90,6 +90,13 @@ class DriveStopSubkindTests(unittest.TestCase):
                  {0: ("OK", ""), 2: ("ERROR", "")})
         self.assertEqual("", missionverify.drive_stop_subkind(ev, _mission(1)))
 
+    def test_post_mission_recording_timeout_stops_the_drive(self):
+        # DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS: the seam never reached a terminal, so
+        # the stage is a driver-INVALID and only the cleanup tail is worth driving.
+        ev = _ev([(0, "LoadGame", "OK"), (2, "ExitToSpaceCenter", "OK")],
+                 {0: ("OK", ""), 2: ("TIMEOUT", "not-in-flight")})
+        self.assertEqual("seam-timeout", missionverify.drive_stop_subkind(ev, _mission(1)))
+
     def test_an_unmet_mission_leaves_the_tail_to_the_mission_policy(self):
         ev = _ev([(0, "LoadGame", "OK"), (2, "StopRecording", "OK")],
                  {0: ("OK", ""), 2: ("TIMEOUT", "")})

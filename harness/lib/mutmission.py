@@ -207,7 +207,8 @@ def run_chain(base: MissionBaseline, result_text: Optional[str],
               "batch_crashed": False, "valid": dv.driver_valid,
               "stage_subkind": dv.stage_subkind or "driver-stage"}
     verifiers = {"killed": False, "batch_expected": False, "batch_present": True,
-                 "mission_outcome_unmet": dv.mission_outcome_unmet}
+                 "mission_outcome_unmet": dv.mission_outcome_unmet,
+                 "unmet_step": dv.unmet_step}
     v = hlib.classify_verdict(driver, verifiers, {}, 1, "once")
     reason = str((obj or {}).get("reason") or "")
     return ChainVerdict(v.verdict, v.subkind, mv, reason, dv)

@@ -388,6 +388,99 @@ class MultiCategoryBatchCompleteTests(unittest.TestCase):
         self.assertIsNone(sel.failed)
 
 
+class RepeatedBatchGateTests(unittest.TestCase):
+    """HARNESS-GATES-ON-THE-FIRST-OF-TWO-SAME-CATEGORY-BATCHES. L13 drives
+    LedgerGroundTruth twice; the batch row read the first BATCH_COMPLETE only, so the
+    second batch's failed=1 never reached it. Every matching line now gates: failed is
+    the sum, a missing later line is a defined fault, and the results-file cross-check
+    reads only the count the file can corroborate (its last status per test per scene)."""
+
+    def _batches(self, *lines):
+        return hlib.find_batch_complete_lines("\n".join(lines))
+
+    def test_second_batch_failure_gates(self):
+        sel = hlib.resolve_batch_complete(
+            self._batches(_bc_line("A", 0), _bc_line("A", 1)), "A", expected_runs=2)
+        self.assertTrue(sel.present)
+        self.assertEqual(1, sel.failed)
+        self.assertEqual((2, 2, False), (sel.matched_runs, sel.expected_runs, sel.runs_short))
+        self.assertEqual(1, sel.results_comparable_failed)
+
+    def test_first_batch_failure_gates_but_the_file_shows_only_the_second(self):
+        sel = hlib.resolve_batch_complete(
+            self._batches(_bc_line("A", 2), _bc_line("A", 0)), "A", expected_runs=2)
+        self.assertEqual(2, sel.failed)
+        self.assertEqual(0, sel.results_comparable_failed)
+
+    def test_two_scenes_both_reach_the_file(self):
+        sel = hlib.resolve_batch_complete(
+            self._batches(_bc_line("A", 1, scene="SPACECENTER"), _bc_line("A", 2)),
+            "A", expected_runs=2)
+        self.assertEqual((3, 3), (sel.failed, sel.results_comparable_failed))
+
+    def test_a_missing_later_batch_is_a_defined_fault(self):
+        sel = hlib.resolve_batch_complete(self._batches(_bc_line("A", 0)), "A",
+                                          expected_runs=2)
+        self.assertFalse(sel.present)
+        self.assertTrue(sel.runs_short)
+        self.assertEqual((1, 2), (sel.matched_runs, sel.expected_runs))
+
+    def test_single_run_extra_line_still_sums(self):
+        # One step but two matching lines: the extra line's failures are not dropped.
+        sel = hlib.resolve_batch_complete(
+            self._batches(_bc_line("A", 0), _bc_line("A", 3)), "A")
+        self.assertTrue(sel.present)
+        self.assertEqual(3, sel.failed)
+
+    def test_spec_resolution_counts_repeats_and_combines_distinct(self):
+        b = self._batches(_bc_line("A", 0), _bc_line("B", 1), _bc_line("A", 0))
+        same = hlib.resolve_spec_batch_complete(b, ["A", "A"])
+        self.assertEqual((True, 0, 2), (same.present, same.failed, same.matched_runs))
+        both = hlib.resolve_spec_batch_complete(b, ["A", "B", "A"])
+        self.assertTrue(both.present)
+        self.assertEqual(1, both.failed)
+        self.assertEqual("A,B", both.category)
+        self.assertEqual((3, 3), (both.matched_runs, both.expected_runs))
+        missing = hlib.resolve_spec_batch_complete(b, ["A", "C"])
+        self.assertFalse(missing.present)
+        self.assertIsNone(missing.failed)
+        short = hlib.resolve_spec_batch_complete(b, ["B", "B"])
+        self.assertFalse(short.present)
+        self.assertTrue(short.runs_short)
+
+    def test_spec_resolution_one_step_and_none(self):
+        b = self._batches(_bc_line("A", 0), _bc_line("B", 2))
+        self.assertEqual(2, hlib.resolve_spec_batch_complete(b, ["B"]).failed)
+        seam_only = hlib.resolve_spec_batch_complete(b, [])
+        self.assertTrue(seam_only.present)
+        self.assertEqual("A", seam_only.category)
+
+    def test_spec_batch_selectors_reads_every_step(self):
+        spec = {"driver": {"steps": [
+            {"cmd": "LoadGame"}, {"cmd": "RunTests", "args": {"category": "A"}},
+            {"cmd": "SaveGame"}, {"cmd": "RunTests", "args": {"category": "A"}}]}}
+        self.assertEqual(["A", "A"], hlib.spec_batch_selectors(spec))
+        self.assertEqual(["X,Y"], hlib.spec_batch_selectors(
+            {"driver": {"autorun": {"tests": "X,Y"}}}))
+        self.assertEqual([], hlib.spec_batch_selectors({"driver": {"steps": []}}))
+
+    def test_l13_selectors_are_both_batches(self):
+        spec = load_spec("L13-career-ground-truth-after-refly-and-f9.toml")
+        self.assertEqual(["LedgerGroundTruth", "LedgerGroundTruth"],
+                         hlib.spec_batch_selectors(spec))
+
+    def test_repeated_run_tests_must_name_one_category_each(self):
+        spec = copy.deepcopy(load_spec("L13-career-ground-truth-after-refly-and-f9.toml"))
+        reg = load_registry()
+        self.assertTrue(hlib.validate_spec(spec, reg).ok)
+        run_tests = [s for s in spec["driver"]["steps"] if s.get("cmd") == "RunTests"]
+        run_tests[1]["args"]["category"] = "LedgerGroundTruth,GhostPlayback"
+        v = hlib.validate_spec(spec, reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("must name ONE category on every step" in e for e in v.errors),
+                        list(v.errors))
+
+
 class RetryScopeClassifierTests(unittest.TestCase):
     """M-A5.1: classify_retry_scope routes a verifier-stage outcome to a subprocess
     retry / whole-attempt fallback / no retry. Regressions guarded: (1) a Parsek

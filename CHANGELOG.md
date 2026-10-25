@@ -58,6 +58,12 @@ _(unreleased - entries accumulate here per commit)_
   batch. (LEDGER-GROUND-TRUTH-WALKS-PAST-THE-CLOCK)
 - **A test batch's save backup no longer fails on a deep install.** The backup folder name is
   shorter, so its deepest copy stays under Windows' path limit. (BATCH-ISOLATION-CAPTURE-FAILS-IN-THE-EDITOR)
+- **Harness: a lane that runs one test batch twice is judged on both.** A failure in the second
+  batch, or a second batch that never finished, now turns the run red; before, only the first
+  batch counted. (HARNESS-GATES-ON-THE-FIRST-OF-TWO-SAME-CATEGORY-BATCHES)
+- **Harness: a lane with a test step that timed out can no longer pass.** A step after the flight
+  that timed out or got no answer now marks the run invalid and retries it, and one that failed
+  outright turns it red. (DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS)
 
 ---
 
