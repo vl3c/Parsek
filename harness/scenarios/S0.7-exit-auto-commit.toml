@@ -14,12 +14,9 @@ tier = "daily"
 # Finalized PENDING tree, and the verb's deferred terminal fires only once SPACECENTER
 # has settled with a game loaded.
 #
-# It does NOT prove the pending tree's AUTO-COMMIT on arrival, and that is a measured
-# limitation rather than an oversight. See the [expectations.recordings] note: with the
-# primitives a seam spec has today the recorded tree is always trivial, and a trivial
-# tree is correctly idle-discarded before the autoMerge commit branch. The auto-commit
-# half belongs to the CL-1 extension (a mission driver that actually FLIES), which is a
-# separate follow-up.
+# Since the 2026-10-18 pad-evidence rule it also proves the AUTO-COMMIT on arrival: an
+# orbiting host carries no pad evidence, so the one-point tree is no longer idle-discarded
+# and the autoMerge branch commits it silently (see the [expectations.recordings] note).
 description = "Drive the live FLIGHT -> SPACECENTER exit through ExitToSpaceCenter under autoMerge: the wedge guard passes on live state, the stock exit path runs, the live tree is finalized and stashed as a pending tree on the transition, and the verb terminates only once the Space Center has settled."
 instanceProfile = "stock-minimal"
 tags = ["scene-exit", "auto-merge", "live-recording", "S0.7", "R12"]
@@ -65,10 +62,10 @@ steps = [
 # scene to be settled with a game loaded. No committed spec had ever landed a driven
 # run at the Space Center from flight before this verb existed.
 #
-# D1 is deliberately EMPTY. commit-scene-exit and auto-merge were both drafted here and
-# both REMOVED after the live runs: this cell's tree is idle-discarded rather than
-# committed (see [expectations.recordings]), so neither value has a proving token in
-# the log and claiming either would be exactly the claim-is-not-gate error.
+# D1 was EMPTY until 2026-10-25: the tree used to be idle-discarded, so commit-scene-exit
+# and auto-merge had no proving token. Both are gated now by the "Silent full-fidelity
+# auto-commit (scene-exit)" line pinned below.
+D1 = ["commit-scene-exit", "auto-merge"]
 D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
 
 [expectations]
@@ -79,33 +76,21 @@ D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# ZERO, and this number is the honest measured outcome rather than a placeholder.
-# MEASURED 2026-07-30:
+# ONE, measured 2026-10-25_1038 (re-pinned from ZERO, measured 2026-07-30).
 #
-#   Recording started ... 18:28:44.168   (vessel still ON RAILS at record start)
-#   exittospacecenter start ... 18:28:44.301
 #   FinalizeTreeRecordings: points=1 orbitSegs=1 terminal=Orbiting maxDist=0m
 #   Stashed pending tree 'Kerbal X' (1 recordings, state=Finalized)
-#   IsTreeIdleOnPad ... -> DiscardPendingTree: scene-exit idle-on-pad auto-discard
+#   IsTreeIdleOnPad: tree='Kerbal X' ... pad evidence=none
+#   Silent full-fidelity auto-commit (scene-exit): tree='Kerbal X' recordings=1 spawnable=1
 #
 # A seam round trip is ~130 ms and the recorder's minimum sample interval is 200 ms, so
-# a StartRecording -> ExitToSpaceCenter pair records exactly ONE point no matter what
-# the vessel is doing, and a one-point recording has maxDist = 0 BY CONSTRUCTION. That
-# makes the tree idle-on-pad (IsIdleOnPad is a pure sub-30 m distance rule that never
-# consults the situation), and ParsekScenario.OnLoad discards a Finalized idle pending
-# tree BEFORE the autoMerge commit branch. Discarding a 0.13-second recording is
-# CORRECT product behaviour, so this pin is stable, not a quarantine.
-#
-# THE DWELL PROBLEM, recorded so the next author does not re-derive it. No seam verb
-# provides dwell WHILE recording: TimeJump is an epoch shift with FROZEN relative
-# positions (it advances the clock without moving the vessel a metre), and EvaExit's
-# `settleSeconds` - the only spec-authorable dwell in the harness - was tried here and
-# recorded ZERO points across 10 s of orbital EVA because the per-physics-frame
-# RefreshFinalizationCache threw 501 unhandled ArithmeticExceptions out of
-# BallisticExtrapolator.SolveHyperbolicKepler (see docs/dev/todo-and-known-bugs.md).
-# Proving the auto-commit therefore needs a driver that genuinely FLIES; that is the
-# CL-1 extension, not this cell.
-count = { min = 0, max = 0 }
+# a StartRecording -> ExitToSpaceCenter pair records exactly ONE point, and a one-point
+# recording has maxDist = 0 by construction. Until 2026-10-18 that alone made the tree
+# idle-on-pad and it was discarded before the autoMerge branch (the old ZERO pin). The
+# pad-evidence rule now also requires the flight to have started or ended on the ground
+# (launch site, Prelaunch / Landed / Splashed); this host is a ~100 km orbit, so the
+# tree is not idle and auto-commits. Todo S07-PIN-PREDATES-PAD-EVIDENCE.
+count = { min = 1, max = 1 }
 
 [expectations.logContracts]
 # Ordered as the verb's own gate -> action -> pipeline -> terminal.
@@ -136,6 +121,8 @@ required  = [
   "Stashed pending tree '.+' \\(1 recordings, state=Finalized\\)",
   "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
   "Recording started",
+  "IsTreeIdleOnPad: tree='Kerbal X' .*pad evidence=none",
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='Kerbal X' recordings=1 ",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

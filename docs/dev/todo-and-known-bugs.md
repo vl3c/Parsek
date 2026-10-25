@@ -73,6 +73,22 @@ player flow this lane can fly removes a held tourist before her spawn.
 
 ---
 
+## ~~S07-PIN-PREDATES-PAD-EVIDENCE: S0.7 still pins the idle discard its orbiting host no longer gets~~ [FILED AND FIXED 2026-10-25, branch `claude/project-thread-ssl7ge`]
+
+Found flying the regression set for IDLE-DISCARD-DROPS-FOREIGN-VESSEL-INTERACTION: S0.7
+(`2026-10-25_1038`) read PARSEK-FAIL `recordings.count 1 > max 0`, and the same read holds on
+main. Its pin dates from 2026-07-30, when a one-point tree (maxDist 0) was idle-discarded
+anywhere. The 2026-10-18 pad-evidence rule requires the flight to have started or ended on the
+ground; S0.7's host orbits at ~100 km, so the log reads `IsTreeIdleOnPad: tree='Kerbal X' ...
+pad evidence=none` and the tree auto-commits (`Silent full-fidelity auto-commit (scene-exit):
+tree='Kerbal X' recordings=1`). Product behaviour is right; the spec was stale (S0.7 last flew
+2026-10-14, before the rule).
+
+Fix: count re-pinned to {1,1} from that run, both lines required, D1 `commit-scene-exit` and
+`auto-merge` claimed (now gated by the commit token). A re-flight on the re-pinned spec is owed.
+
+---
+
 ## ~~IDLE-DISCARD-DROPS-FOREIGN-VESSEL-INTERACTION: a flight that boards, seats on, docks with or moves cargo to a vessel outside it is discarded as idle when nothing moved 30 m~~ [FILED AND FIXED 2026-10-25, branch `claude/project-thread-ssl7ge`, owner ruling]
 
 Owner question from CX4-IDLE-DISCARDED-FLIGHT-LEAVES-THE-HOLD-OPEN (V, 2026-10-25): rocket V idle
@@ -93,7 +109,8 @@ with a vessel outside the flight (bp=<id> targetPid=<pid>) tree='<name>'`. Known
 a kerbal who stepped out UNRECORDED and then boards his own rocket with a recording on him reads
 the rocket as foreign (the tree never carried it); keeping that short flight is harmless. Tests:
 `ForeignInteractionNotIdleTests` (4 of 7 cells red with the veto stubbed). Lane
-`CX-6-idle-flight-seat-foreign-rover-kept`, authored, never flown.
+`CX-6-idle-flight-seat-foreign-rover-kept` LIVE-PROVEN on its first flight
+(`2026-10-25_1035` PASS; SEAT-3 regression PASS `2026-10-25_1036`).
 
 ---
 

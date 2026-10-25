@@ -5,7 +5,8 @@ id = "CX-6-idle-flight-seat-foreign-rover-kept"
 # Todo IDLE-DISCARD-DROPS-FOREIGN-VESSEL-INTERACTION (owner ruling 2026-10-25, V: rocket V
 # idle on the pad, kerbal K steps out and boards / takes a seat on / docks with / moves cargo
 # to vessel A: the interaction is recorded and the flight is kept, V as K's origin).
-# AUTHORED 2026-10-25 (branch `claude/project-thread-ssl7ge`), never flown.
+# AUTHORED 2026-10-25 (branch `claude/project-thread-ssl7ge`). LIVE-PROVEN on its first flight,
+# `2026-10-25_1035` PASS attempt 1 (the veto line, recordings=2 and count-2 all measured).
 #
 # THE DEFECT. The scene exit's idle-on-pad rule (`ParsekFlight.IsTreeIdleOnPad`, the
 # pre-transition `IsActiveTreeIdleOnPad`, and `IsTreePadFailure`) keeps or drops a whole
