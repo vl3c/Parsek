@@ -772,6 +772,15 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     kerbalPid= vehiclePid=` once the active vessel is that kerbal's EVA vessel, unseated.
     "EvaSeatBoard",
     "EvaSeatLeave",
+    # ADDITIVE (56 -> 57 implemented, reserved unchanged at 4), the scripted campaign
+    # program's CS-0 host.
+    #   NewGame mode=<SCIENCE_SANDBOX|CAREER|SANDBOX> preset=<Easy|Normal|Moderate|Hard>
+    #     save=<${runSave}>, Space Center only, TWO-PHASE, 300 s: replaces the loaded save with
+    #     a GENUINE stock new game under the same name (quit to the main menu, delete the save
+    #     keeping Ships/, GamePersistence.CreateNewGame + onGameNewStart + Game.Start). OK
+    #     `mode= preset= save= scene= seed=` plus `funds= science= rep=` where the mode keeps
+    #     them, once the Space Center settled on the new game with ParsekScenario loaded.
+    "NewGame",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1033,9 +1042,14 @@ STEP_WAIT_MARGIN_SECONDS = 60
 # quicksave-copy + GamePersistence.LoadGame + scene load (into the Space Center or the
 # editor) and its Retry is InvokeRewind's flight reload, so its terminal is gated on a
 # whole world load settling and its 300 s budget sits under the cap.
+#
+# NewGame joins for LoadGame's reason: its terminal is gated on two scene loads and a save
+# written by CreateNewGame then re-read by the Space Center bootstrap, a whole world load,
+# and its 300 s budget sits under the cap.
 DEFERRED_SEAM_VERBS: Tuple[str, ...] = ("RunTests", "LoadGame", "InvokeRewind", "TimeJump",
                                         "EvaChuteDeploy", "StartLoopPlayback",
-                                        "InvokeRewindToLaunch", "WarpToUT", "ReFlyRevert")
+                                        "InvokeRewindToLaunch", "WarpToUT", "ReFlyRevert",
+                                        "NewGame")
 
 # Per-verb seam-side DISPATCH deferral budgets (seconds), mirroring the C#
 # DeferralBudget.BudgetSeconds table (TestCommands/TestCommandDispatcher.cs). A verb
@@ -1139,6 +1153,10 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # then a quicksave LoadGame + scene load (Discard) or a flight reload (Retry). The
     # InvokeRewind / InvokeRewindToLaunch size.
     "ReFlyRevert": 300.0,
+    # DeferralBudget.NewGameSeconds: the quit-to-main-menu save and load, the old save's
+    # delete, CreateNewGame's persistent.sfs and the Space Center bootstrap that re-reads it.
+    # The LoadGame size.
+    "NewGame": 300.0,
     # DeferralBudget.RevertToLaunchSeconds: stock's flight reload from the post-init state,
     # a FLIGHT bootstrap that reads no save off disk (the LaunchFromEditor size). Not a
     # DEFERRED_SEAM_VERB: no spec declares a budget over the cap for it.
@@ -1395,6 +1413,8 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # The seat pair couples / undocks a kerbal's part (stock state a save captures).
     "EvaSeatBoard": TAIL_ROLE_WORLD_MUTATING,
     "EvaSeatLeave": TAIL_ROLE_WORLD_MUTATING,
+    # NewGame replaces the loaded world and the save under its name (LoadGame's row).
+    "NewGame": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1612,6 +1632,9 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # EVA branch), never a mission outcome on its own.
     "EvaSeatBoard": POST_MISSION_ROLE_RECORDING,
     "EvaSeatLeave": POST_MISSION_ROLE_RECORDING,
+    # NewGame is `recording` for LoadGame's reason: harness plumbing (the save a lane starts
+    # from), never a mission outcome.
+    "NewGame": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -4240,6 +4263,77 @@ EVASEAT_ERROR_REASONS: Tuple[str, ...] = (
     "evaseatboard-threw", "evaseatboard-timeout",
     "evaseatleave-threw", "evaseatleave-timeout",
 )
+
+
+# NewGame: mirrored from TestCommands/TestCommandNewGame.cs (NewGameSourceSyncTests). All
+# three args are REQUIRED. `mode` CANNOT ride VERB_SCOPED_CLOSED_ARGS: that table keys one
+# verb per arg name and UiAction already owns `mode` (the interface mode), so validate_spec
+# skips the table's owner check for NewGame's own keys and validate_new_game_step checks the
+# values. `save` must name the run save, the folder the boot LoadGame loaded, because the
+# verb refuses any other (newgame-save-mismatch) and the produced-save harvest reads
+# saves/<runSave>.
+NEWGAME_VERB = "NewGame"
+NEWGAME_MODE_KEY = "mode"
+NEWGAME_PRESET_KEY = "preset"
+NEWGAME_SAVE_KEY = "save"
+NEWGAME_ARG_KEYS: Tuple[str, ...] = (NEWGAME_MODE_KEY, NEWGAME_PRESET_KEY, NEWGAME_SAVE_KEY)
+NEWGAME_MODE_VALUES: Tuple[str, ...] = ("SCIENCE_SANDBOX", "CAREER", "SANDBOX")
+NEWGAME_PRESET_VALUES: Tuple[str, ...] = ("Easy", "Normal", "Moderate", "Hard")
+# The save sub-folder the verb's delete keeps (the craft a later GoToEditor craft= loads).
+NEWGAME_PRESERVED_SAVE_ENTRY = "Ships"
+NEWGAME_REASONS: Tuple[str, ...] = (
+    "newgame-mode-arg-missing", "newgame-mode-arg-invalid",
+    "newgame-preset-arg-missing", "newgame-preset-arg-invalid",
+    "newgame-save-arg-missing", "newgame-save-arg-invalid",
+    "newgame-wrong-scene", "newgame-save-mismatch", "newgame-main-menu-locked",
+    "newgame-recorder-live", "newgame-active-tree", "newgame-pending-tree",
+    "newgame-merge-dialog-pending", "newgame-refly-session",
+    "newgame-switch-segment-session", "newgame-merge-journal",
+)
+# Post-exit terminals (ERROR): the verb left the Space Center and the new game did not land.
+# NOT mapped to a refusal subkind (nothing was refused).
+NEWGAME_ERROR_REASONS: Tuple[str, ...] = (
+    "newgame-exit-timeout", "newgame-delete-failed", "newgame-create-failed",
+    "newgame-returned-to-menu", "newgame-mismatch", "newgame-start-timeout",
+)
+
+
+def validate_new_game_step(index: int, step_args: Dict, run_save_name: Optional[str]) -> List[str]:
+    """Pre-launch shape check for one ``NewGame`` step: ``mode=`` and ``preset=`` REQUIRED and
+    in their closed, case-sensitive sets; ``save=`` REQUIRED and either ``${runSave}`` or the
+    literal runSaveName (the LoadGame boot handshake's rule); no other key (the verb reads
+    none, so it would be sent and silently ignored)."""
+    errors: List[str] = []
+    for key, values in ((NEWGAME_MODE_KEY, NEWGAME_MODE_VALUES),
+                        (NEWGAME_PRESET_KEY, NEWGAME_PRESET_VALUES)):
+        raw = step_args.get(key)
+        if raw is None:
+            errors.append(
+                "driver.steps[%d].args.%s: NewGame REQUIRES it (one of %s); the seam answers "
+                "REJECTED newgame-%s-arg-missing"
+                % (index, key, " or ".join(repr(v) for v in values), key))
+        elif raw not in values:
+            errors.append(
+                "driver.steps[%d].args.%s: %r must be one of %s (case-sensitive); the seam "
+                "answers REJECTED newgame-%s-arg-invalid"
+                % (index, key, raw, " or ".join(repr(v) for v in values), key))
+    save = step_args.get(NEWGAME_SAVE_KEY)
+    allowed_saves = [RUN_SAVE_TOKEN] + ([run_save_name] if run_save_name else [])
+    if save is None:
+        errors.append(
+            "driver.steps[%d].args.%s: NewGame REQUIRES it ('%s'); the seam answers REJECTED "
+            "newgame-save-arg-missing" % (index, NEWGAME_SAVE_KEY, RUN_SAVE_TOKEN))
+    elif save not in allowed_saves:
+        errors.append(
+            "driver.steps[%d].args.%s: %r must be '%s' or runSaveName %r: the new game replaces "
+            "the save the boot LoadGame loaded (the seam answers REJECTED newgame-save-mismatch "
+            "for any other) and the produced-save harvest reads saves/<runSave>"
+            % (index, NEWGAME_SAVE_KEY, save, RUN_SAVE_TOKEN, run_save_name))
+    extra = sorted(str(k) for k in step_args if k not in NEWGAME_ARG_KEYS)
+    if extra:
+        errors.append("driver.steps[%d].args: NewGame reads only %s, so %s would be silently "
+                      "ignored" % (index, ", ".join(NEWGAME_ARG_KEYS), ", ".join(extra)))
+    return errors
 
 
 def validate_eva_seat_step(index: int, cmd: str, step_args: Dict) -> List[str]:
@@ -7384,6 +7478,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                         "and silently ignored" % (i, key, arg_key))
             if arg_key not in step_args:
                 continue
+            # NewGame reads its own `mode=` (UiAction owns the table row); its value set
+            # is checked by validate_new_game_step.
+            if cmd == NEWGAME_VERB and arg_key in NEWGAME_ARG_KEYS:
+                continue
             if cmd != owner_verb:
                 errors.append(
                     "driver.steps[%d].args.%s: only the %s verb reads it, but this "
@@ -7447,6 +7545,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_cycle_vessel_step(i, step_args))
         elif cmd in (EVASEAT_BOARD_VERB, EVASEAT_LEAVE_VERB):
             errors.extend(validate_eva_seat_step(i, cmd, step_args))
+        elif cmd == NEWGAME_VERB:
+            errors.extend(validate_new_game_step(i, step_args, run_save_name))
         # LoadGame focusPid= (any verb: the validator flags it on a verb that ignores it).
         if LOADGAME_FOCUS_PID_KEY in step_args:
             errors.extend(validate_loadgame_focus_step(i, cmd, step_args))
@@ -11745,6 +11845,25 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "evaseatleave-not-seated": "driver-gate",
     "evaseatleave-seated-ambiguous": "driver-gate",
     "evaseatleave-tourist": "driver-gate",
+    # NewGame: the six arg refusals are the spec's fault; the rest are a live state the new
+    # game would not start from (the wrong scene, another save loaded, stock's main-menu
+    # lock, Parsek state a lane must resolve first) (NewGameSourceSyncTests).
+    "newgame-mode-arg-missing": "driver-arg",
+    "newgame-mode-arg-invalid": "driver-arg",
+    "newgame-preset-arg-missing": "driver-arg",
+    "newgame-preset-arg-invalid": "driver-arg",
+    "newgame-save-arg-missing": "driver-arg",
+    "newgame-save-arg-invalid": "driver-arg",
+    "newgame-wrong-scene": "driver-gate",
+    "newgame-save-mismatch": "driver-arg",
+    "newgame-main-menu-locked": "driver-gate",
+    "newgame-recorder-live": "driver-gate",
+    "newgame-active-tree": "driver-gate",
+    "newgame-pending-tree": "driver-gate",
+    "newgame-merge-dialog-pending": "driver-gate",
+    "newgame-refly-session": "driver-gate",
+    "newgame-switch-segment-session": "driver-gate",
+    "newgame-merge-journal": "driver-gate",
     # SimulateStockSwitchClick, arg half: site / selector spellings and target resolution.
     # target-not-found / -name-ambiguous / -is-ghost are arg-class because each one means
     # the SPEC named the wrong thing, the same call `unknown-target` gets for KscAction.
