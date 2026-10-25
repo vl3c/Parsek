@@ -5,8 +5,9 @@ tier = "nightly"
 # CLK-1: A CONTRACT A GROUND STATION'S SCIENCE COMPLETES IS FILED UNDER NO FLIGHT
 # (todos CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT and
 # STRATEGY-CONVERSION-OF-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT, owner ruling 2026-10-24,
-# game-actions design 3.14). AUTHORED 2026-10-25 (branch `claude/project-thread-86u4df`),
-# NEVER FLOWN.
+# game-actions design 3.14). AUTHORED 2026-10-25 (branch `claude/project-thread-86u4df`).
+# LIVE-PROVEN 2026-10-25 on its second flight: `2026-10-25_0959` PASS attempt 1 (head
+# 8cc218a, automation DLL sha256 7c9f6c6b...).
 #
 # THE DEFECT. Stock's `CollectDeployedScience` completes its contract inside the
 # `OnScienceRecieved` fire of `ResearchAndDevelopment.SubmitScienceData` (decompiled

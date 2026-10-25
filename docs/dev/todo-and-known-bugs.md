@@ -276,7 +276,7 @@ event no flight causes is filed under no flight): `EmitUntagged` and a direct le
 
 ---
 
-## ~~CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT: a contract a ground station or a comet scan completes is filed under the live flight~~ [FILED 2026-10-24 from a code audit, branch `claude/project-thread-dkcvpn`. FIXED 2026-10-25 on branch `claude/project-thread-86u4df`; medium]
+## ~~CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT: a contract a ground station or a comet scan completes is filed under the live flight~~ [FILED 2026-10-24 from a code audit, branch `claude/project-thread-dkcvpn`. FIXED 2026-10-25 on branch `claude/project-thread-86u4df`; LIVE-PROVEN by CLK-1 `2026-10-25_0959` PASS; medium]
 
 Stock completes `CollectDeployedScience` from a Breaking Ground ground station's transmission
 (`DeployedScienceExperiment.FixedUpdate` -> `SubmitScienceData`, no vessel) and
