@@ -1826,6 +1826,14 @@ the science-mode pool read; per-situation science actions (EVA report, surface s
 contract-offer listing / accept-by-type verb; a Mun ascent + trans-Kerbin injection machine; a
 stage-to-fixture promotion tool.
 
+Progress 2026-10-25 (branch `claude/project-thread-25edvc`): built the `stock-tree` provision
+profile, the stock tech-tree listing (`harness/tools/list_tech_unlocks.py` ->
+`docs/dev/research/stock-tech-tree-part-unlocks.md`), the science-mode pool read in
+`science_bench_recover` (`recoverCreditPool`, `transmitMaxExperiments`), the harvest's
+`--allow-no-vessel` / `--expect-mode` for a vessel-less new-game save, the shared Jumping Flea
+in the craft library, and the lanes CS-0-new-science-game / CS-0-new-career-game (fixture
+builders) and CS-1-science-first-hop (pending its `cs-science-new` fixture). None flown yet.
+
 ---
 
 ## ~~QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN: F9 back into a Discarded flight must record again~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-quickload-into-discarded`; the in-flight discards followed 2026-10-16, branch `claude/lanes-rc6-ql6-ir5-nh7w10` (live-proven by lane QL-6, `2026-10-16_0649` PASS attempt 1)]

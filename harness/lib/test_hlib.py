@@ -10299,6 +10299,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # THE SCRIPTED CAMPAIGN FIXTURE BUILDERS, 2026-10-25.
+        "CS-0-new-science-game.toml": "tier=operator as a FIXTURE BUILDER, NOT debt: it creates a genuine stock New Game (Science, Normal) through the NewGame seam verb on the stock-tree instance, and its produced save is harvested once as `cs-science-new`, the host of CS-1. Its value is the harvested fixture, not a regression floor. Owed: the first flight and the harvest",
+        "CS-0-new-career-game.toml": "tier=operator as a FIXTURE BUILDER, NOT debt: CS-0-new-science-game's Career twin; its produced save is harvested once as `cs-career-new`, the host of the Career half of the campaign ladder. Owed: the first flight and the harvest",
         # THE GC-3 INERT-TREE LANE, 2026-10-22.
         "GC-3-other-generation-tree-kept-inert.toml": "tier=operator by the calibration discipline, NOT debt: the live proof of GC-3 (PR #2158, todo GC3-SCHEMA-REJECTED-TREES-LOSE-EARNED-VALUE) on the derived `career-earned-pad-oldgen` fixture (tree-level generation 3): the tree is set aside inert on a cold boot, written back verbatim by a SaveGame, and set aside again by a cold save-file reload, with its tagged ledger rows kept. AUTHORED 2026-10-22, LIVE-PROVEN on its first flight `2026-10-22_1226`; every pinned count is derived from source and the fixture bytes (kept equal by test_career_earned_pad_oldgen.GC3SpecFixtureSyncTests)",
         # THE REWIND READ-BACK GUARD PAIR, 2026-09-27.
@@ -24234,6 +24237,9 @@ class SharedShipsManifestTests(unittest.TestCase):
     # so the two entries were deleted in the same commit - the discipline this
     # cell enforces, and it DID fire red first, for the second time.
     PENDING_FIXTURE_LANES = {
+        # THE SCRIPTED CAMPAIGN (2026-10-25): stage 1 is hosted on stage 0's produced
+        # save, harvested from the first green CS-0-new-science-game flight.
+        "CS-1-science-first-hop.toml": "cs-science-new",
     }
 
     def test_the_pending_fixture_exemption_retires_itself(self):

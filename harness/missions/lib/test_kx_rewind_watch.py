@@ -46,11 +46,11 @@ import kx_rewind_watch             # noqa: E402
 
 SCHEMA_PATH = os.path.join(_MISSIONS, "kx_rewind_watch.schema.toml")
 CRAFT_PATH = os.path.join(_HARNESS, "fixtures", "ships", "Kerbal X.craft")
-# The WATCHER craft, which lives in the lane's save template rather than the
-# shared ships dir. Read by a cell below: its `ship = ` line is the name the live
-# WATCHER-READY gate has to match, and stock shipped it as a #autoLOC token.
-WATCHER_CRAFT_PATH = os.path.join(_HARNESS, "fixtures", "saves",
-                                  "gs1-two-stage-pad", "Ships", "VAB",
+# The WATCHER craft, which lives in the shared craft library (fixtures/ships,
+# staged into the lane's save through fixtures/shared-ships.toml). Read by a cell
+# below: its `ship = ` line is the name the live WATCHER-READY gate has to match,
+# and stock shipped it as a #autoLOC token.
+WATCHER_CRAFT_PATH = os.path.join(_HARNESS, "fixtures", "ships",
                                   "Jumping Flea.craft")
 MLIB_PATH = os.path.join(_HERE, "mlib.py")
 

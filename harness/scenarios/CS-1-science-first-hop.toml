@@ -1,0 +1,106 @@
+schema = 1
+id = "CS-1-science-first-hop"
+# THE SCRIPTED CAMPAIGN, STAGE 1 (docs/dev/autotest-roadmap.md, "The scripted campaign
+# program", owner decisions 2026-10-06). The first thing a player does in a brand-new
+# stock Science game: build the stock Jumping Flea in the VAB (every part is on the stock
+# start node: Mk1 pod, Mk16 chute, RT-5 Flea, three basic fins, two Mystery Goo units),
+# launch it, hop, run both Goo units on the ground, transmit one, recover the craft so
+# the second unit's data is credited on recovery, and let Parsek auto-commit the flight.
+#
+# THE HOST. `cs-science-new`, CS-0-new-science-game's produced save: a genuine stock New
+# Game (Science, Normal preset, created through stock's own GamePersistence.CreateNewGame
+# by the NewGame seam verb) on the `stock-tree` instance, harvested with
+# `harvest_bdock_station.py --allow-no-vessel --expect-mode SCIENCE_SANDBOX`. No vessel,
+# science 0, the stock start node only. The craft comes from the shared library
+# (`fixtures/shared-ships.toml`). The produced save of this lane is the next stage's host.
+#
+# WHAT IT PROVES. The VAB launch then an autopilot mission step in one lane (no committed
+# lane flew that shape before), Parsek's first recording in a new Science save, the
+# science-mode pool read (`recoverCreditPool = "science"`: kRPC's Funds raises in a
+# Science game, so the recovery is proven by the recovered Goo's science credit), and the
+# scene-exit auto-commit of a recovered flight.
+#
+# STATUS: NEVER FLOWN. Tier `pending-fixture` until `cs-science-new` is harvested; then
+# `operator` until the first green flight (an expensive unflown lane), PROMOTE to nightly
+# after it. The log contract below is conservative until a reading run pins it.
+tier = "pending-fixture"
+description = "Scripted campaign stage 1 (Science): in a genuine stock new Science game, launch the stock Jumping Flea from the VAB, hop, run both Goo units, transmit one, recover the craft (the other Goo credits on recovery) and auto-commit the recorded flight."
+instanceProfile = "stock-tree"
+tags = ["campaign", "CS-1", "science-mode", "editor", "science", "recovery", "auto-commit",
+        "pending-fixture", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-science-new"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind    = "autopilot"
+mission = "science_bench_recover"
+
+# Budget arithmetic: missionBudget 1320 = L3's (same craft, same hop, same tail); runtime
+# 2400 >= 300 LoadGame + 120 GoToEditor + 180 LaunchFromEditor + 1320 mission + SaveGame +
+# FlushAndQuit + margin.
+steps = [
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent" },    expect = "OK", budget = 300 },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoMerge",          value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "Jumping Flea" },    expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                         expect = "OK", budget = 180 },
+  { phase = "mission",                                                                expect = "MISSION-OK", budget = 1320 },
+  # The recovery leaves FLIGHT, so the tree auto-commits at the scene exit and there is
+  # no active tree left to commit by hand (L3's shape).
+  { cmd = "CommitTree",                                                               expect = "REJECTED" },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "SaveGame",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+# The flight half is L3's, key for key (the same stock Jumping Flea off the same pad); see
+# L3-career-science-recover.toml and b1_pad_hop.schema.toml for each key's rationale.
+[driver.missionParams]
+throttle                 = 1.0
+apoapsisWindowMeters     = { min = 6000, max = 30000 }
+chuteArmMaxRateMps       = 30
+chuteFullDeployAltMeters = 2500
+landedSituations         = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds     = 90
+coastTimeoutSeconds      = 180
+descentTimeoutSeconds    = 360
+# Both Goo units must hold data before the transmit: one is sent, the other stays aboard
+# and is the recovery's science credit.
+collectMinExperiments = 2
+collectTimeoutSeconds = 120
+transmitMaxExperiments = 1
+transmitMinScienceGain = 0.5
+transmitTimeoutSeconds = 120
+# Science game: no funds pool. The recovery is proven by the science pool rising across it.
+recoverCreditPool     = "science"
+recoverMinScienceGain = 0.5
+recoverMinFundsGain   = 0.0
+recoverTimeoutSeconds = 180
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 2 }
+
+[expectations.logContracts]
+required = [
+  "launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  "Recording started",
+  "CommitTreeSceneExit: finalizing tree at UT=[0-9.]+[\\s\\S]{0,8000}?Recording stopped\\. ",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

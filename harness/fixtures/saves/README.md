@@ -543,8 +543,8 @@ gets its mark or block. What the builder adds:
   sibling), a `STRATEGY` node for `AppreciationCampaignCfg` (stock's name / date /
   factor shape), `probeCoreSphere.v2` removed from the `start` node's purchased parts,
   `BypassEntryPurchaseAfterResearch = False` (the part block is inert with it on), and
-  `Ships/VAB/Jumping Flea.craft` copied from `gs1-two-stage-pad` for the launch-site
-  picker and the VAB.
+  the shared `Jumping Flea` craft (`fixtures/ships`, staged through
+  `fixtures/shared-ships.toml`) for the launch-site picker and the VAB.
 
 Mission Control and Administration stay at level 1 (two contract slots, one strategy),
 so the one Active contract plus the committed accept fill both slots at UT 50000 and

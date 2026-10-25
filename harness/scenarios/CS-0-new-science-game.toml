@@ -1,0 +1,70 @@
+schema = 1
+id = "CS-0-new-science-game"
+# THE SCRIPTED CAMPAIGN, STAGE 0, SCIENCE (docs/dev/autotest-roadmap.md, "The scripted
+# campaign program", owner decisions 2026-10-06: a GENUINE stock New Game at Normal
+# difficulty, made by a fixture builder rather than the pinned `fresh-*` saves, on the
+# stock tech tree). This lane IS that builder. It boots any valid save, then the NewGame
+# seam verb does what a player does at the main menu: quit the Space Center to the main
+# menu (stock's pause-menu save + MAINMENU load), overwrite the save of the same name
+# (stock's OverWriteNewGame delete; the staged Ships/ folder is kept) and run
+# MainMenu.CreateAndStartGame's calls - GamePersistence.CreateNewGame with
+# GameParameters.GetDefaultParameters(SCIENCE_SANDBOX, Normal), onGameNewStart, Game.Start - landing
+# in the new game's Space Center with Parsek loaded on it. SaveGame writes it out.
+#
+# HARVEST (the stage-to-fixture promotion, by hand once per re-cut):
+#   python harness/tools/harvest_bdock_station.py --save-dir harness/results/<runId>_save \
+#       --target-name cs-science-new --allow-no-vessel --expect-mode SCIENCE_SANDBOX
+# then add the `"cs-science-new" = ["Jumping Flea"]` row to fixtures/shared-ships.toml.
+#
+# THE TEMPLATE. `fresh-science` only because LoadGame needs a valid save to boot into; NewGame
+# deletes it (and the Parsek footprint its load wrote) before the new game is created, so
+# none of it reaches the produced save. The new game takes the template's folder name; the
+# harvest renames it.
+#
+# STATUS: NEVER FLOWN. Operator tier: a fixture builder, flown on request when the campaign
+# needs a fresh start, never on a cadence.
+tier = "operator"
+description = "Scripted campaign stage 0 (SCIENCE): create a genuine stock New Game (SCIENCE_SANDBOX, Normal preset) through stock's own main-menu path and save it, the starting save of the scripted campaign ladder (harvested as cs-science-new)."
+instanceProfile = "stock-tree"
+tags = ["campaign", "CS-0", "fixture", "new-game", "science-mode", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/fresh-science"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "verboseLogging", value = "true" },   expect = "OK" },
+  { cmd = "NewGame",      args = { mode = "SCIENCE_SANDBOX", preset = "Normal", save = "${runSave}" }, expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# Conservative until the reading run pins the pools: the Normal preset's starting values
+# are KSP's own (GameParameters.GetDefaultParameters), never authored here.
+required = [
+  "newgame start mode=SCIENCE_SANDBOX preset=Normal save=fresh-science scene=SPACECENTER",
+  "newgame create mode=SCIENCE_SANDBOX preset=Normal save=fresh-science ",
+  "newgame complete mode=SCIENCE_SANDBOX preset=Normal save=fresh-science scene=SPACECENTER seed=[0-9]+ ",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]", "newgame error"]
+
+
+[runtime]
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
