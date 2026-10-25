@@ -19685,6 +19685,18 @@ namespace Parsek
                 return;
             }
 
+            // A Ready placement jump armed for this recording places the player's group next
+            // frame; the spawn waits for it so its collision check sees the placed group (the
+            // policy holds the ghost and retries).
+            if (TimeJumpManager.IsSpawnDeferredForPendingPlacement(rec?.RecordingId))
+            {
+                ParsekLog.InfoRateLimited("Spawner",
+                    "placement-pending-spawn|" + rec.RecordingId,
+                    $"Spawn deferred for #{index} ({rec.VesselName}) rec={rec.RecordingId}: " +
+                    "Ready placement pending (the group is placed first)");
+                return;
+            }
+
             // Defense-in-depth: the spawn gate re-hydrates the vessel snapshot
             // from the sidecar, but a deferred (warp-queued) spawn can execute
             // frames later, after an intervening OnSave nulled the in-memory copy
@@ -29524,11 +29536,17 @@ namespace Parsek
                     admittedOverSpeed++;
 
                 var depInfo = SelectiveSpawnUI.ComputeDepartureInfo(rec, currentUT);
-                // A Leaves row's Warp moves the player's group (design 4.3); its gates are
-                // evaluated here so the button greys before the click.
-                MoveGateVerdict moveGate = depInfo.willDepart && depInfo.departureUT > currentUT
-                    ? EvaluateLeavesMoveGateForScan(rec, currentUT, depInfo.departureUT)
-                    : MoveGateVerdict.Pass;
+                // A Leaves or Ready row's Warp moves an orbital player's group (design 4.3);
+                // its gates are evaluated here so the button greys before the click.
+                MoveGateVerdict moveGate;
+                if (depInfo.willDepart)
+                    moveGate = depInfo.departureUT > currentUT
+                        ? EvaluateLeavesMoveGateForScan(rec, currentUT, depInfo.departureUT)
+                        : MoveGateVerdict.Pass;
+                else
+                    moveGate = rec.EndUT > currentUT
+                        ? EvaluateReadyMoveGateForScan(rec, currentUT)
+                        : MoveGateVerdict.Pass;
                 nearbySpawnCandidates.Add(new NearbySpawnCandidate
                 {
                     moveRefusal = moveGate.Refusal,
@@ -29613,8 +29631,11 @@ namespace Parsek
 
         /// <summary>
         /// Executes a time jump to a recording's EndUT so it becomes a real craft.
-        /// Called from ParsekUI when the player clicks a "Warp" button.
-        /// Passes null chains to ExecuteJump — spawning is handled by the engine playback loop.
+        /// Called from ParsekUI when the player clicks a "Warp" button. An orbital player
+        /// vessel moves with its group beside the ghost's recorded end state (design
+        /// docs/dev/design-realspawn-time-jump-move.md 4.1); a landed, splashed or prelaunch
+        /// one keeps the epoch-shift jump, which passes null chains to ExecuteJump. Either way
+        /// the engine playback loop spawns the vessel on its recorded end.
         /// </summary>
         internal void WarpToRecordingEnd(int recordingIndex)
         {
@@ -29640,10 +29661,25 @@ namespace Parsek
                 return;
             }
 
+            Vessel active = FlightGlobals.ActiveVessel;
+            bool moveGroup = active != null && TimeJumpPlacement.IsOrbitalPlayerVessel(active.situation);
             ParsekLog.Info("Flight",
                 string.Format(CultureInfo.InvariantCulture,
-                    "WarpToRecordingEnd: jumping to UT={0:F1} for '{1}' (delta={2:F1}s)",
-                    targetUT, rec.VesselName, targetUT - currentUT));
+                    "WarpToRecordingEnd: jumping to UT={0:F1} for '{1}' (delta={2:F1}s, mode={3})",
+                    targetUT, rec.VesselName, targetUT - currentUT,
+                    moveGroup ? "placement" : "epoch-shift"));
+
+            if (moveGroup)
+            {
+                // Orbital player vessel: the group is placed beside the ghost's recorded end
+                // at the new clock, and the ghost spawns on its record (design 4.1, rule 4).
+                // A refusal leaves everything as it was.
+                if (!TryWarpToRecordingEndWithPlacement(rec, active))
+                    return;
+                RefreshBlockedChainTipGhostOrbitsAfterJump();
+                ArmSpawnWarpWatch(rec, targetUT);
+                return;
+            }
 
             TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
             // Pass null chains — let the engine playback loop handle spawn naturally

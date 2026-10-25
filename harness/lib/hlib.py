@@ -423,7 +423,21 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # injector refuses a target save at
                                         # another UT. No RP. Consumer:
                                         # RSC-2-leaves-warp.
-                                        "leaves-departure")
+                                        "leaves-departure",
+                                        # spawn-room: ONE committed
+                                        # single-recording tree on
+                                        # eva2-lko-crewed: a probe (its own
+                                        # derived pid and launch guid, absent
+                                        # from the save) on the focused Kerbal
+                                        # X's own orbit ~6 m ahead that ends
+                                        # Orbiting 60 s after load, so its Real
+                                        # Spawn Control row reads Ready and its
+                                        # spawn spot is inside the Kerbal X.
+                                        # `--filter InjectSpawnRoom`; the
+                                        # injector refuses a target save at
+                                        # another UT. No RP. Consumer:
+                                        # RSC-3-ready-spawn-room.
+                                        "spawn-room")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")

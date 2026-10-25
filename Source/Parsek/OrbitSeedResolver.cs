@@ -442,7 +442,7 @@ namespace Parsek
             return null;
         }
 
-        private static List<TrajectoryPoint> SelectAbsoluteFramesList(
+        internal static List<TrajectoryPoint> SelectAbsoluteFramesList(
             TrackSection section,
             out string frameSource)
         {

@@ -6718,7 +6718,27 @@ namespace Parsek
         internal static bool TryBuildRecordedTerminalOrbitForSpawn(
             Recording rec, CelestialBody body, double ut, double phaseLagSeconds, out Orbit orbit)
         {
+            return TryBuildRecordedTerminalOrbitForSpawn(
+                rec, body, ut, phaseLagSeconds, out orbit, out _);
+        }
+
+        /// <summary>The trajectory-tail seed (built from body-fixed samples with the
+        /// body's live rotation) as <c>seedSource</c>.</summary>
+        internal const string TerminalOrbitSeedTrajectoryTail = "trajectory-tail";
+        internal const string TerminalOrbitSeedStoredSegment = "stored-segment";
+
+        /// <summary>
+        /// <see cref="TryBuildRecordedTerminalOrbitForSpawn(Recording, CelestialBody, double, double, out Orbit)"/>
+        /// that also names the seed it used (<see cref="TerminalOrbitSeedTrajectoryTail"/> or
+        /// <see cref="TerminalOrbitSeedStoredSegment"/>; null when no seed was found). The Real Spawn
+        /// Control Ready move reads it: only a tail seed turns with the body's live rotation.
+        /// </summary>
+        internal static bool TryBuildRecordedTerminalOrbitForSpawn(
+            Recording rec, CelestialBody body, double ut, double phaseLagSeconds, out Orbit orbit,
+            out string seedSource)
+        {
             orbit = null;
+            seedSource = null;
 
             if (body == null)
                 return false;
@@ -6731,7 +6751,6 @@ namespace Parsek
             double meanAnomalyAtEpoch;
             double epoch;
             string orbitBodyName;
-            string seedSource;
 
             // Trajectory tail takes precedence when its UT is later than every stored
             // OrbitSegment for the same body — the stored segment's elements have been
@@ -6752,7 +6771,7 @@ namespace Parsek
                 out string tailDeclineReason);
             if (tailWon)
             {
-                seedSource = "trajectory-tail";
+                seedSource = TerminalOrbitSeedTrajectoryTail;
             }
             else if (TryGetEndpointAlignedRecordedOrbitSeedForSpawn(
                 rec,
@@ -6765,7 +6784,7 @@ namespace Parsek
                 out epoch,
                 out orbitBodyName))
             {
-                seedSource = "stored-segment";
+                seedSource = TerminalOrbitSeedStoredSegment;
             }
             else
             {

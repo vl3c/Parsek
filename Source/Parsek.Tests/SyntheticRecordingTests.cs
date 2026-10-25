@@ -10734,6 +10734,156 @@ namespace Parsek.Tests
                 });
         }
 
+        // ---------------------------------------------------------------------------------
+        // spawn-room preset (RSC-3-ready-spawn-room): ONE committed single-recording tree on
+        // eva2-lko-crewed (CI-9's host) whose ghost is a Real Spawn Control `Ready` row IN
+        // ORBIT parked about 6 m ahead of the focused Kerbal X (design-realspawn-time-jump-
+        // move.md scenario d). The recording rides the Kerbal X's own orbit and ends Orbiting
+        // 60 s after load (UT 481.19, CI-9's end), so its spawn spot at the end is inside the
+        // Kerbal X: the Ready Warp must slide the group back along the orbit until the spawn
+        // has room, and the vessel then spawns on its recorded spot with no walkback. Its
+        // vessel is absent from the save (its own derived pid and launch guid). One point
+        // only, so the load-time tail trim leaves it whole.
+        // ---------------------------------------------------------------------------------
+
+        internal const string SpawnRoomName = "SRM Target";
+        internal const string SpawnRoomRecordingId = "srm-target-rec";
+        /// <summary>Seconds after the save UT at which the recording ends (its spawn UT).</summary>
+        internal const double SpawnRoomEndOffsetSeconds = 60.0;
+        /// <summary>The ghost's mean-anomaly lead over the Kerbal X: about 6 m along the orbit.</summary>
+        internal const double SpawnRoomMnaLead = 8.6e-6;
+
+        internal static uint SpawnRoomPid =>
+            ScenarioWriter.DeriveVesselPersistentId(SpawnRoomRecordingId);
+        internal static string SpawnRoomGuid =>
+            ScenarioWriter.DeriveVesselLaunchGuid(SpawnRoomRecordingId);
+
+        /// <summary>The whole recording: the Kerbal X's orbit, led by about 6 m.</summary>
+        internal static OrbitSegment SpawnRoomCoast(double baseUT)
+        {
+            return new OrbitSegment
+            {
+                startUT = baseUT,
+                endUT = baseUT + SpawnRoomEndOffsetSeconds,
+                inclination = ChainTipDockKerbalXInc,
+                eccentricity = ChainTipDockKerbalXEcc,
+                semiMajorAxis = ChainTipDockKerbalXSma,
+                longitudeOfAscendingNode = ChainTipDockKerbalXLan,
+                argumentOfPeriapsis = ChainTipDockKerbalXLpe,
+                meanAnomalyAtEpoch = ChainTipDockKerbalXMna + SpawnRoomMnaLead,
+                epoch = SinglePointHoldSaveUT,
+                bodyName = "Kerbin",
+            };
+        }
+
+        internal static RecordingBuilder SpawnRoomRecording(double baseUT)
+        {
+            OrbitSegment coast = SpawnRoomCoast(baseUT);
+            var b = new RecordingBuilder(SpawnRoomName)
+                .WithRecordingId(SpawnRoomRecordingId)
+                .WithVesselPersistentId(SpawnRoomPid)
+                .WithRecordedVesselGuid(SpawnRoomGuid);
+            b.AddPoint(baseUT, ChainTipDockKerbalXLat, ChainTipDockKerbalXLon, ChainTipDockKerbalXAlt);
+            b.AddOrbitSegment(coast.startUT, coast.endUT,
+                inc: coast.inclination, ecc: coast.eccentricity, sma: coast.semiMajorAxis,
+                lan: coast.longitudeOfAscendingNode, argPe: coast.argumentOfPeriapsis,
+                mna: coast.meanAnomalyAtEpoch, epoch: coast.epoch);
+            b.WithTerminalState((int)TerminalState.Orbiting);
+            b.WithTerminalOrbit("Kerbin", coast.semiMajorAxis, coast.eccentricity,
+                coast.inclination, coast.longitudeOfAscendingNode, coast.argumentOfPeriapsis,
+                coast.meanAnomalyAtEpoch, coast.epoch);
+            b.WithGhostVisualSnapshot(SpawnRoomSnapshot(coast));
+            b.WithVesselSnapshot(SpawnRoomSnapshot(coast));
+            return b;
+        }
+
+        private static VesselSnapshotBuilder SpawnRoomSnapshot(OrbitSegment terminal)
+        {
+            return VesselSnapshotBuilder.FlatProbeLander(SpawnRoomName, SpawnRoomPid)
+                .WithType("Probe")
+                .WithLaunchGuid(SpawnRoomGuid)
+                .AsOrbiting(terminal.semiMajorAxis, terminal.eccentricity, terminal.inclination,
+                    lan: terminal.longitudeOfAscendingNode, argPe: terminal.argumentOfPeriapsis,
+                    mna: terminal.meanAnomalyAtEpoch, epoch: terminal.epoch);
+        }
+
+        // catches: a preset whose row is not a Ready row at the press (a departure, an end
+        // already past), or whose ghost is not parked inside the Kerbal X's spawn room.
+        [Fact]
+        public void SpawnRoom_IsAReadyRowParkedBesideTheKerbalX()
+        {
+            RecordingTree tree = MaterializeBackgroundClaimTree(
+                new[] { SpawnRoomRecording(SinglePointHoldSaveUT) });
+            Recording rec = tree.Recordings[SpawnRoomRecordingId];
+            Assert.Equal(SpawnRoomRecordingId, tree.RootRecordingId);
+            Assert.Single(rec.OrbitSegments);
+            Assert.Equal(SinglePointHoldSaveUT + SpawnRoomEndOffsetSeconds, rec.EndUT, 6);
+            Assert.Equal(TerminalState.Orbiting, rec.TerminalStateValue);
+
+            double pressUT = SinglePointHoldSaveUT + 7.0;
+            Assert.False(SelectiveSpawnUI.ComputeDepartureInfo(rec, pressUT).willDepart);
+
+            // About 6 m ahead along the orbit, at the press and at the end alike (same orbit).
+            OrbitSegment coast = SpawnRoomCoast(SinglePointHoldSaveUT);
+            OrbitSegment kerbalX = coast;
+            kerbalX.meanAnomalyAtEpoch = ChainTipDockKerbalXMna;
+            foreach (double ut in new[] { pressUT, rec.EndUT })
+            {
+                Assert.True(BallisticExtrapolator.TryPropagate(coast, KerbinGravParameter, ut,
+                    out Vector3d rGhost, out Vector3d vGhost));
+                Assert.True(BallisticExtrapolator.TryPropagate(kerbalX, KerbinGravParameter, ut,
+                    out Vector3d rKerbalX, out _));
+                Vector3d d = rGhost - rKerbalX;
+                Assert.InRange(d.magnitude, 4.0, 8.0);
+                // Ahead: along the ghost's velocity.
+                Assert.True(Vector3d.Dot(d.normalized, vGhost.normalized) > 0.99);
+            }
+
+            // The spawn spot is taken by any member box at the Kerbal X's offset, so the Warp
+            // must slide (the slide clears it a few tens of metres back).
+            double spawnHalf = TimeJumpPlacement.EnclosingHalfExtent(
+                SpawnCollisionDetector.ComputeVesselBounds(SpawnRoomSnapshot(coast).Build()));
+            Assert.True(spawnHalf > 0.0);
+            var members = new List<SpawnRoomMember>
+            {
+                new SpawnRoomMember { Offset = new Vector3d(0.0, -6.0, 0.0), HalfExtent = 3.0, Name = "Kerbal X" },
+            };
+            Assert.True(TimeJumpPlacement.OverlapsSpawnAtShift(
+                spawnHalf, members, 0.0, (float)VesselGhoster.SpawnCollisionPadding, out _));
+            SlideResult slide = TimeJumpPlacement.ComputeReadySpawnRoomSlide(
+                spawnHalf, members, -6.0, (float)VesselGhoster.SpawnCollisionPadding);
+            Assert.True(slide.Cleared);
+            Assert.InRange(slide.ShiftMeters, -99.0, -10.0);
+        }
+
+        /// <summary>
+        /// Injects ONLY <see cref="SpawnRoomRecording"/> (the <c>spawn-room</c> preset behind
+        /// <c>RSC-3-ready-spawn-room</c>): one committed single-recording tree, no RewindPoint
+        /// sidecar. Authored against <c>eva2-lko-crewed</c>'s focused Kerbal X, so a target
+        /// save at any other UT is refused.
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [InjectTargetFact("spawn-room-fixture")]
+        public void InjectSpawnRoom()
+        {
+            InjectSingleSubjectPreset("spawn-room-fixture",
+                (writer, baseUT) =>
+                {
+                    Assert.True(Math.Abs(baseUT - SinglePointHoldSaveUT) < 1e-3,
+                        "spawn-room is authored against eva2-lko-crewed (UT="
+                        + SinglePointHoldSaveUT.ToString("R", CultureInfo.InvariantCulture)
+                        + "); target save UT is "
+                        + baseUT.ToString("R", CultureInfo.InvariantCulture));
+                    writer.AddRecordingAsTree(SpawnRoomRecording(baseUT));
+                },
+                content =>
+                {
+                    Assert.Contains("persistentId = "
+                        + ChainTipDockKerbalXPid.ToString(CultureInfo.InvariantCulture), content);
+                    Assert.Contains(SpawnRoomRecordingId, content);
+                });
+        }
+
         [Trait("Category", "Manual")]
         [InjectTargetFact("test career")]
         public void InjectAllRecordings()

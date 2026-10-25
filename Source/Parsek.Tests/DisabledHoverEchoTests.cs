@@ -127,6 +127,13 @@ namespace Parsek.Tests
                 SpawnControlBudget, "Spawn row warp - move no orbit to follow");
             yield return Row(LeavesMoveReason(MoveRefusal.DestinationTaken),
                 SpawnControlBudget, "Spawn row warp - move destination taken");
+            // The same gates on a Ready row (plan Step 2).
+            yield return Row(ReadyMoveReason(MoveRefusal.Burns),
+                SpawnControlBudget, "Spawn row warp - Ready move burns");
+            yield return Row(ReadyMoveReason(MoveRefusal.Degenerate),
+                SpawnControlBudget, "Spawn row warp - Ready move no orbit to follow");
+            yield return Row(ReadyMoveReason(MoveRefusal.DestinationTaken),
+                SpawnControlBudget, "Spawn row warp - Ready move destination taken");
 
             yield return Row(TimelineWindowUI.WarpToTimeDisabledReason(false, null, false, false),
                 TimelineBudget, "Timeline warp - no plan reason");
@@ -225,6 +232,22 @@ namespace Parsek.Tests
                 departureUT = 400,
                 departureKind = DepartureKind.OtherBody,
                 destination = "Kerbin",
+                moveRefusal = refusal
+            };
+            return SpawnControlPresentation.BuildRowPresentation(
+                cand, 100, ParsekFlight.NearbySpawnRadius, ParsekFlight.MaxRelativeSpeed,
+                ut => "Y12, D426, 05:59").WarpButtonDisabledReason;
+        }
+
+        /// <summary>A refused Ready row's reason, with the long test vessel name.</summary>
+        internal static string ReadyMoveReason(MoveRefusal refusal)
+        {
+            var cand = new NearbySpawnCandidate
+            {
+                vesselName = "Spawn Control Target",
+                endUT = 5000,
+                distance = 100,
+                relativeSpeed = 0.5,
                 moveRefusal = refusal
             };
             return SpawnControlPresentation.BuildRowPresentation(

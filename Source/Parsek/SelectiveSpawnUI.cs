@@ -20,7 +20,7 @@ namespace Parsek
         public double departureUT;     // UT when ghost departs (0 if !willDepart)
         public DepartureKind departureKind; // where it goes when it leaves (None if !willDepart)
         public string destination;     // the body named by departureKind (null if !willDepart)
-        public MoveRefusal moveRefusal; // why a Leaves Warp cannot move the player's group (None = it can)
+        public MoveRefusal moveRefusal; // why a Leaves / Ready Warp cannot move the player's group (None = it can)
         public string moveRefusalDetail; // the gate's numeric detail, for the log
     }
 
@@ -155,8 +155,9 @@ namespace Parsek
                     continue;
                 if (c.relativeSpeed > maxRelativeSpeed)
                     continue;
-                // A Leaves row whose move is refused has a greyed Warp; skip it (design 4.3).
-                if (c.willDepart && c.moveRefusal != MoveRefusal.None)
+                // A Leaves or Ready row whose move is refused has a greyed Warp; skip it
+                // (design 4.3).
+                if (c.moveRefusal != MoveRefusal.None)
                     continue;
                 // The > currentUT filter also skips departing candidates whose departure is
                 // already in the past.

@@ -14,6 +14,11 @@ _(unreleased - entries accumulate here per commit)_
   that leaves its orbit now moves your vessel, and the vessels flying with you, to the same spot
   beside the ghost at the new time, so you watch it burn away instead of finding it gone. When
   that move is not safe the Warp is greyed and its hover says why. (REALSPAWN-TIME-JUMP-MOVE-PLAYER)
+- **A Ready Warp in orbit keeps you beside the ghost too.** Pressing Warp on a row that is due to
+  spawn now moves your vessel, and the vessels flying with you, to where you stood beside the
+  ghost, and the vessel spawns on its own recorded spot. If that spot is where you are, your group
+  moves back along the orbit to make room; an unsafe move greys the Warp.
+  (REALSPAWN-TIME-JUMP-MOVE-PLAYER)
 - **The VAB and SPH explain the funds number too.** Hovering the funds number in the editor now
   shows the same Total / Reserved breakdown as at the Space Center and in flight, so money held
   back for committed flights is no longer a mystery where you spend it. (RESERVATION-OVERLAY-GAPS)

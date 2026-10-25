@@ -88,6 +88,18 @@ namespace Parsek
         public string Name;
     }
 
+    /// <summary>
+    /// A group member at its placed spot for the spawn-room slide (design 4.4): its offset
+    /// from the reference's spawn spot in the reference's local frame (radial, along-track,
+    /// normal; metres) and the half-size of a cube that encloses it under any rotation.
+    /// </summary>
+    internal struct SpawnRoomMember
+    {
+        public Vector3d Offset;
+        public double HalfExtent;
+        public string Name;
+    }
+
     /// <summary>Outcome of <see cref="TimeJumpPlacement.ComputeSpawnRoomSlide"/>.</summary>
     internal struct SlideResult
     {
@@ -367,6 +379,218 @@ namespace Parsek
                 return new SlideResult { Cleared = true, ShiftMeters = chosen, StepsTried = k + 1 };
             }
             return new SlideResult { Cleared = false, ShiftMeters = 0.0, StepsTried = maxSteps + 1 };
+        }
+
+        /// <summary>
+        /// Half-size of the cube that encloses <paramref name="bounds"/> (vessel-local, as
+        /// <see cref="SpawnCollisionDetector.ComputeVesselBounds"/> builds it) under ANY
+        /// rotation about the vessel's origin: |center| + |extents|. The spawn-room test runs
+        /// in the reference's local frame, where neither box's orientation is known, so both
+        /// sides are made rotation-safe (conservative: a real overlap is never missed).
+        /// </summary>
+        internal static double EnclosingHalfExtent(Bounds bounds)
+        {
+            Vector3 c = bounds.center;
+            Vector3 e = bounds.extents;
+            double r = Math.Sqrt((double)c.x * c.x + (double)c.y * c.y + (double)c.z * c.z)
+                + Math.Sqrt((double)e.x * e.x + (double)e.y * e.y + (double)e.z * e.z);
+            return IsFinite(r) && r > 0.0 ? r : 0.0;
+        }
+
+        /// <summary>
+        /// Spawn-room predicate (design 4.4): whether any group member, slid
+        /// <paramref name="alongTrackShift"/> metres along track, overlaps the reference's
+        /// spawn box at the local origin. The test is the spawn collision guard's own
+        /// <see cref="SpawnCollisionDetector.BoundsOverlap"/> with the guard's padding, on
+        /// rotation-safe cubes. <paramref name="first"/> names the first overlapping member.
+        /// </summary>
+        internal static bool OverlapsSpawnAtShift(
+            double spawnHalfExtent, IList<SpawnRoomMember> members, double alongTrackShift,
+            float padding, out string first)
+        {
+            first = null;
+            if (members == null)
+                return false;
+            var spawnCube = new Bounds(Vector3.zero, Vector3.one * (float)(2.0 * Math.Max(0.0, spawnHalfExtent)));
+            for (int i = 0; i < members.Count; i++)
+            {
+                SpawnRoomMember m = members[i];
+                var memberCube = new Bounds(Vector3.zero, Vector3.one * (float)(2.0 * Math.Max(0.0, m.HalfExtent)));
+                Vector3d at = m.Offset + new Vector3d(0.0, alongTrackShift, 0.0);
+                if (SpawnCollisionDetector.BoundsOverlap(spawnCube, Vector3d.zero, memberCube, at, padding))
+                {
+                    first = m.Name;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Spawn room for a Ready move (design 4.4): the smallest along-track slide of the
+        /// whole group, away from the reference along <paramref name="alongTrackOffset"/>
+        /// (the player's own along-track offset; behind the reference when it is zero), that
+        /// clears every member from the spawn box, plus the margin. Not cleared within
+        /// <see cref="SlideCapMeters"/> means the spot is taken.
+        /// </summary>
+        internal static SlideResult ComputeReadySpawnRoomSlide(
+            double spawnHalfExtent, IList<SpawnRoomMember> members, double alongTrackOffset,
+            float padding)
+        {
+            return ComputeSpawnRoomSlide(alongTrackOffset,
+                shift => OverlapsSpawnAtShift(spawnHalfExtent, members, shift, padding, out _));
+        }
+
+        /// <summary>The same relative state slid <paramref name="alongTrackShift"/> metres
+        /// along track; the local-frame velocity is unchanged (design 4.4).</summary>
+        internal static RelativeState ShiftAlongTrack(RelativeState s, double alongTrackShift)
+        {
+            return new RelativeState
+            {
+                Offset = new Vector3d(s.Offset.x, s.Offset.y + alongTrackShift, s.Offset.z),
+                Velocity = s.Velocity,
+            };
+        }
+
+        /// <summary>
+        /// Degrees to add to the node longitude of an orbit seeded from body-fixed recorded
+        /// samples (the spawner's tail pair, <c>OrbitReseed.TryFromRecordedTailPair</c>),
+        /// built at <paramref name="builtAtUT"/>, so it reads as if built at
+        /// <paramref name="rotationUT"/>. The pair converts recorded lat/lon with the body's
+        /// LIVE rotation, so the seed turns with the body about its spin axis (the reference
+        /// plane normal), which moves the node line and nothing else: a, e and inclination are
+        /// unchanged (plan Step 2 item 1). Zero for any other seed (stored elements carry no
+        /// rotation) and for a body that does not rotate.
+        /// </summary>
+        internal static double TailSeedLanCorrectionDegrees(
+            bool seedFromBodyFixedSamples, bool bodyRotates, double rotationPeriod,
+            double builtAtUT, double rotationUT)
+        {
+            if (!seedFromBodyFixedSamples || !bodyRotates)
+                return 0.0;
+            if (!IsFinite(rotationPeriod) || Math.Abs(rotationPeriod) < 1e-9
+                || !IsFinite(builtAtUT) || !IsFinite(rotationUT))
+                return 0.0;
+            return 360.0 * (rotationUT - builtAtUT) / rotationPeriod;
+        }
+
+        /// <summary>An angle in degrees folded into [0, 360).</summary>
+        internal static double NormalizeDegrees(double degrees)
+        {
+            if (!IsFinite(degrees))
+                return degrees;
+            double d = degrees % 360.0;
+            if (d < 0.0)
+                d += 360.0;
+            return d;
+        }
+
+        /// <summary>
+        /// The recorded pair that brackets <paramref name="ut"/> for a Ready reference whose
+        /// recording has no orbit segment there (plan Step 2 item 1, T0): two consecutive
+        /// samples of the ballistic coast section covering <paramref name="ut"/>, from its
+        /// body-fixed list (Absolute frames, or a Relative section's body-fixed shadow; never
+        /// the anchor-local Relative offsets), on one body. Their velocities are never read
+        /// here; the pair resolver fits the motion from the positions.
+        /// </summary>
+        internal static bool TryFindBracketingCoastPair(
+            List<TrackSection> sections, double ut,
+            out TrajectoryPoint previous, out TrajectoryPoint next, out string reason)
+        {
+            previous = default(TrajectoryPoint);
+            next = default(TrajectoryPoint);
+            int idx = TrajectoryMath.FindTrackSectionForUT(sections, ut);
+            if (idx < 0)
+            {
+                reason = "no-section-at-t0";
+                return false;
+            }
+            TrackSection section = sections[idx];
+            if (section.environment != SegmentEnvironment.ExoBallistic)
+            {
+                reason = "not-coasting-at-t0";
+                return false;
+            }
+            List<TrajectoryPoint> frames = OrbitSeedResolver.SelectAbsoluteFramesList(section, out _);
+            if (frames == null || frames.Count < 2)
+            {
+                reason = "no-body-fixed-pair-at-t0";
+                return false;
+            }
+            for (int i = 0; i + 1 < frames.Count; i++)
+            {
+                TrajectoryPoint a = frames[i];
+                TrajectoryPoint b = frames[i + 1];
+                if (!(a.ut <= ut && ut <= b.ut) || !(b.ut > a.ut))
+                    continue;
+                if (string.IsNullOrEmpty(a.bodyName)
+                    || !string.Equals(a.bodyName, b.bodyName, StringComparison.Ordinal))
+                {
+                    reason = "pair-body-mismatch";
+                    return false;
+                }
+                previous = a;
+                next = b;
+                reason = null;
+                return true;
+            }
+            reason = "no-bracketing-pair-at-t0";
+            return false;
+        }
+
+        /// <summary>The spawn-room line, logged once at the click (design 4.4).</summary>
+        internal static string FormatSpawnRoomLine(
+            string recordingId, SlideResult slide, int members, double spawnHalfExtent,
+            float padding, string firstOverlap)
+        {
+            return "Placement spawn room: ref=" + (recordingId ?? "(null)")
+                + " slide=" + slide.ShiftMeters.ToString("F1", IC) + "m"
+                + " cleared=" + (slide.Cleared ? "true" : "false")
+                + " steps=" + slide.StepsTried.ToString(IC)
+                + " members=" + members.ToString(IC)
+                + " spawnHalfExtent=" + FormatMeters(spawnHalfExtent) + "m"
+                + " padding=" + padding.ToString("F1", IC) + "m"
+                + " firstOverlap=" + (firstOverlap ?? "none");
+        }
+
+        /// <summary>
+        /// The Ready reference resolved in frame F+1 from the spawner's own resolver, against
+        /// the click-time estimate the burn gate and the slide used.
+        /// </summary>
+        internal static string FormatReadyReferenceLine(
+            string recordingId, string seedSource, string bodyName, double placeUT,
+            double sma, double ecc, double gapToClickEstimate)
+        {
+            return "Placement reference: ref=" + (recordingId ?? "(null)")
+                + " kind=Ready source=" + (seedSource ?? "?")
+                + " body=" + (bodyName ?? "?")
+                + " placeUT=" + placeUT.ToString("F2", IC)
+                + " sma=" + sma.ToString("F1", IC)
+                + " ecc=" + ecc.ToString("F5", IC)
+                + " gapToClickEstimate=" + FormatMeters(gapToClickEstimate) + "m";
+        }
+
+        /// <summary>
+        /// The Ready reference's spawn, read once it is a real vessel: its distance from the
+        /// player's vessel against the placed distance, and its gap to the reference's T1
+        /// orbit (near zero when it spawned on its recorded spot, design rule 4).
+        /// </summary>
+        internal static string FormatReadySpawnCheckLine(
+            string recordingId, uint spawnedPid, double ut, double toActive,
+            double expectedToActive, double orbitGap, bool spawnedBeforePlacement,
+            double toActiveOrbit = double.NaN)
+        {
+            double drift = IsFinite(toActive) && IsFinite(expectedToActive)
+                ? Math.Abs(toActive - expectedToActive) : double.NaN;
+            return "Placement spawn check: ref=" + (recordingId ?? "(null)")
+                + " pid=" + spawnedPid.ToString(IC)
+                + " ut=" + ut.ToString("F2", IC)
+                + " toActive=" + FormatMeters(toActive) + "m"
+                + " expected=" + FormatMeters(expectedToActive) + "m"
+                + " drift=" + FormatMeters(drift) + "m"
+                + " orbitGap=" + FormatMeters(orbitGap) + "m"
+                + " spawnedBeforePlacement=" + (spawnedBeforePlacement ? "true" : "false")
+                + " toActiveOrbit=" + FormatMeters(toActiveOrbit) + "m";
         }
 
         /// <summary>
