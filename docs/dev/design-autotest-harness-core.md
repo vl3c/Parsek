@@ -1934,9 +1934,20 @@ runs sequentially and each script builds for itself.
    sibling is empty. It is a BUDGET, not a floor of zero, because several paths
    legitimately produce a low count (parent-anchored debris trim, time warp -
    the recorder samples no flat points on rails - and an unbound Re-Fly
-   provisional observed on S4.1). All facets dedupe by recording id first:
-   production writes the still-active tree a second time, which would otherwise
-   double a summed facet run-to-run within one spec. The
+   provisional observed on S4.1). The points facets dedupe by recording id
+   first: production writes the still-active tree a second time, which would
+   otherwise double a summed facet run-to-run within one spec. The structure
+   census reads each committed tree ONCE for the same reason
+   (`saveparse.in_flight_copy_trees`): a non-committed tree whose id is a
+   committed tree's id is its in-flight copy (the copy-on-write restore attempt
+   a flight keeps recording into after an in-flight commit, written on purpose
+   since #2169, or a resumed Re-Fly session tree), so `trees`, `recordings`,
+   `terminalStates` and `branchPoints` skip the copy's rows that repeat a
+   committed id and count only what it adds. Any other repeat (two committed
+   nodes, one tree, two non-committed trees) stays counted twice;
+   `committedTrees` stays the raw committed-node count, and the measured-only
+   `treeNodes` / `inFlightCopyTrees` / `duplicateRecordingIds` keep the copy
+   visible. The
    points block is a SIBLING of structure, not a key inside it, precisely because
    gating is per-block: folding it in would have auto-armed every points window
    on any spec that had already armed structure. Its source is the save's own

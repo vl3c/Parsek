@@ -3885,6 +3885,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         self.assertEqual(
             {"trees": 0, "committedTrees": 0, "recordings": 0,
              "terminalStates": {}, "branchPoints": {},
+             "treeNodes": 0, "inFlightCopyTrees": 0,
              "duplicateRecordingIds": [], "ghostChainNodes": 0,
              # The vessel census is NOT a Parsek surface: the host save's own craft
              # counts, and no committed recording means no spawned vessel.
@@ -4380,6 +4381,147 @@ class PointsFacetTests(unittest.TestCase):
             {"recordings": {"points": {"gating": True, "largest": {"min": 2}}}}, snap)
         self.assertEqual(saveparse.STATUS_FAIL, r.status)
         self.assertEqual(("recordings.points.largest 0 < min 2",), r.armed_mismatches)
+
+
+def _census_tree(tree_id, recs, bps=(), marker=""):
+    """One RECORDING_TREE node: recs = [(recordingId, terminalStateIndex|None,
+    pointCount)], bps = [(bpId, typeIndex)], marker = "" | "isActive" | "isPending"."""
+    lines = ["\t\tRECORDING_TREE", "\t\t{", "\t\t\tid = %s" % tree_id,
+             "\t\t\ttreeName = %s" % tree_id, "\t\t\ttreeFormatVersion = 0",
+             "\t\t\trecordingSchemaGeneration = 4"]
+    if marker:
+        lines.append("\t\t\t%s = True" % marker)
+    for rid, terminal, points in recs:
+        lines += ["\t\t\tRECORDING", "\t\t\t{", "\t\t\t\trecordingId = %s" % rid,
+                  "\t\t\t\tvesselName = %s" % rid, "\t\t\t\tpointCount = %d" % points]
+        if terminal is not None:
+            lines.append("\t\t\t\tterminalState = %d" % terminal)
+        lines.append("\t\t\t}")
+    for bp_id, bp_type in bps:
+        lines += ["\t\t\tBRANCH_POINT", "\t\t\t{", "\t\t\t\tid = %s" % bp_id,
+                  "\t\t\t\ttype = %d" % bp_type, "\t\t\t}"]
+    lines.append("\t\t}")
+    return "\n".join(lines)
+
+
+def _census_save(*trees):
+    return ("GAME\n{\n\tSCENARIO\n\t{\n\t\tname = ParsekScenario\n"
+            + "\n".join(trees) + "\n\t}\n}\n")
+
+
+ORBITING = saveparse.TERMINAL_STATE_NAMES.index("Orbiting")
+DESTROYED = saveparse.TERMINAL_STATE_NAMES.index("Destroyed")
+JOINT_BREAK = saveparse.BRANCH_TYPE_NAMES.index("JointBreak")
+
+# The V3C produced-save shape (`2026-10-25_1046`, main ef863bd54): the injected
+# looped tree, the committed DD1 tree (two chain segments from the in-flight
+# commit's optimizer split, plus its JointBreak debris), and the DD1 tree a second
+# time as the copy-on-write restore attempt the flight kept recording into after
+# the commit, repeating the committed tree's three recording ids and its branch point.
+V3C_INJECTED = _census_tree("tree-loopedinterp", [("rec-injected", ORBITING, 400)])
+V3C_DD1 = [("rec-dd1-seg0", None, 146), ("rec-dd1-seg1", ORBITING, 369),
+           ("rec-dd1-debris", DESTROYED, 40)]
+V3C_DD1_BPS = [("bp-dd1-jointbreak", JOINT_BREAK)]
+V3C_COMMITTED = _census_tree("tree-dd1", V3C_DD1, V3C_DD1_BPS)
+V3C_ATTEMPT = _census_tree(
+    "tree-dd1", [V3C_DD1[0], ("rec-dd1-seg1", ORBITING, 420), V3C_DD1[2]],
+    V3C_DD1_BPS, marker="isActive")
+
+
+class InFlightCopyCensusTests(unittest.TestCase):
+    """The structure census reads a committed tree once when the save also holds its
+    in-flight copy (saveparse.in_flight_copy_trees)."""
+
+    def _structure(self, text):
+        snap = saveparse.parse_parsek_scenario(text)
+        self.assertTrue(snap.parsed, snap.error)
+        return saveparse.observed_structure_facets(snap)["recordings"]["structure"]
+
+    def test_the_v3c_shape_reads_the_committed_topology(self):
+        doubled = self._structure(_census_save(V3C_INJECTED, V3C_COMMITTED, V3C_ATTEMPT))
+        single = self._structure(_census_save(V3C_INJECTED, V3C_COMMITTED))
+        for key in ("trees", "committedTrees", "recordings", "terminalStates",
+                    "branchPoints"):
+            self.assertEqual(single[key], doubled[key], key)
+        self.assertEqual(2, doubled["trees"])
+        self.assertEqual(4, doubled["recordings"])
+        self.assertEqual({"Orbiting": 2, "Destroyed": 1}, doubled["terminalStates"])
+        self.assertEqual({"JointBreak": 1}, doubled["branchPoints"])
+        # The copy stays visible to triage.
+        self.assertEqual(3, doubled["treeNodes"])
+        self.assertEqual(1, doubled["inFlightCopyTrees"])
+        self.assertEqual(["rec-dd1-seg0", "rec-dd1-seg1", "rec-dd1-debris"],
+                         doubled["duplicateRecordingIds"])
+        self.assertEqual(0, single["inFlightCopyTrees"])
+
+    def test_the_v3c_spec_windows_pass_on_the_doubled_save(self):
+        # The flight's red: trees 3 > 2, recordings 7 > 4, Orbiting 3 > 2,
+        # Destroyed 2 > 1, JointBreak 2 > 1 - every one of them the attempt's copy.
+        with open(os.path.join(SCENARIOS_DIR, "V3C-flight-arrival-companion.toml"), "rb") as fh:
+            spec = tomllib.load(fh)
+        exp = spec["expectations"]
+        snap = saveparse.parse_parsek_scenario(
+            _census_save(V3C_INJECTED, V3C_COMMITTED, V3C_ATTEMPT))
+        self.assertEqual(7, len(snap.recordings), "raw rows should carry the copy")
+        r = saveparse.evaluate_save_structure(exp, snap)
+        self.assertEqual(saveparse.STATUS_PASS, r.status, r.mismatches)
+
+    def test_what_the_copy_adds_still_counts(self):
+        # A recording and a branch point the attempt made after the resume carry
+        # fresh ids: they are new structure, not a repeat.
+        attempt = _census_tree(
+            "tree-dd1", V3C_DD1 + [("rec-dd1-new-debris", DESTROYED, 12)],
+            V3C_DD1_BPS + [("bp-dd1-new", JOINT_BREAK)], marker="isActive")
+        s = self._structure(_census_save(V3C_INJECTED, V3C_COMMITTED, attempt))
+        self.assertEqual(5, s["recordings"])
+        self.assertEqual({"Orbiting": 2, "Destroyed": 2}, s["terminalStates"])
+        self.assertEqual({"JointBreak": 2}, s["branchPoints"])
+        self.assertEqual(2, s["trees"])
+
+    def test_the_committed_row_is_read_whatever_the_document_order(self):
+        # The copy's resumed member may carry a different terminal state; the census
+        # reads the committed row, also when a hand-ordered save puts the copy first.
+        attempt = _census_tree(
+            "tree-dd1", [V3C_DD1[0], ("rec-dd1-seg1", DESTROYED, 500), V3C_DD1[2]],
+            V3C_DD1_BPS, marker="isActive")
+        for text in (_census_save(V3C_COMMITTED, attempt),
+                     _census_save(attempt, V3C_COMMITTED)):
+            s = self._structure(text)
+            self.assertEqual({"Orbiting": 1, "Destroyed": 1}, s["terminalStates"])
+            self.assertEqual(3, s["recordings"])
+            self.assertEqual(1, s["trees"])
+
+    def test_a_pending_copy_of_a_committed_tree_is_collapsed_too(self):
+        attempt = _census_tree("tree-dd1", V3C_DD1, V3C_DD1_BPS, marker="isPending")
+        s = self._structure(_census_save(V3C_COMMITTED, attempt))
+        self.assertEqual((1, 3, 1), (s["trees"], s["recordings"], s["inFlightCopyTrees"]))
+
+    def test_a_fresh_active_tree_is_counted(self):
+        live = _census_tree("tree-live", [("rec-live", None, 3)], marker="isActive")
+        s = self._structure(_census_save(V3C_COMMITTED, live))
+        self.assertEqual((2, 1, 4, 0), (s["trees"], s["committedTrees"], s["recordings"],
+                                        s["inFlightCopyTrees"]))
+
+    def test_shapes_the_writer_does_not_produce_stay_doubled(self):
+        # Two COMMITTED nodes sharing an id: both counted, so the windows red.
+        s = self._structure(_census_save(V3C_COMMITTED, V3C_COMMITTED))
+        self.assertEqual((2, 2, 6), (s["trees"], s["committedTrees"], s["recordings"]))
+        self.assertEqual({"JointBreak": 2}, s["branchPoints"])
+        # Two non-committed trees sharing an id with no committed copy: both counted.
+        a = _census_tree("tree-x", [("rec-x", None, 3)], marker="isActive")
+        p = _census_tree("tree-x", [("rec-x", None, 3)], marker="isPending")
+        s = self._structure(_census_save(a, p))
+        self.assertEqual((2, 2, 0), (s["trees"], s["recordings"], s["inFlightCopyTrees"]))
+        # A repeated id inside one committed tree: both counted.
+        dup = _census_tree("tree-y", [("rec-y", ORBITING, 3), ("rec-y", ORBITING, 3)])
+        s = self._structure(_census_save(dup))
+        self.assertEqual((2, {"Orbiting": 2}), (s["recordings"], s["terminalStates"]))
+
+    def test_a_copy_row_with_an_empty_id_is_counted(self):
+        attempt = _census_tree("tree-dd1", V3C_DD1 + [("", None, 2)], V3C_DD1_BPS,
+                               marker="isActive")
+        s = self._structure(_census_save(V3C_COMMITTED, attempt))
+        self.assertEqual(4, s["recordings"])
 
 
 class Gate12CalibrationTests(unittest.TestCase):

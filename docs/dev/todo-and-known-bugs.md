@@ -1164,7 +1164,7 @@ pinned to the C# receipt literal) and the smoke cell
 
 ---
 
-## ~~V3C-CAPTURE-AIMS-INTO-IKE: V3C's capture leaves Duna's SOI through Ike on both attempts~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells; flight owed: V3C-flight-arrival-companion (MISSION-OK with the first in-SOI `telemetry ... pe=` frame above 4,026 km altitude). mission]
+## ~~V3C-CAPTURE-AIMS-INTO-IKE: V3C's capture leaves Duna's SOI through Ike on both attempts~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells. LIVE-PROVEN 2026-10-25 by `2026-10-25_1046` (MISSION-OK, first in-SOI periapsis 13,613 km); that run's PARSEK-FAIL(save-structure) was a stale harness census, fixed offline on branch `wip-v3cfix`, flight owed. mission]
 
 `V3C-flight-arrival-companion` `2026-10-09_0731` / `_0743_a2` both read INVALID (mission):
 `MISSION-ASSERT-FAIL ... left the target SOI during CAPTURE-BURN without a committed park:
@@ -1189,6 +1189,35 @@ capture-to-circular costs ~665 m/s vs ~575. `targetPeriapsisFloorMeters` stays t
 guard (B22's J1 reasoning). The replan-on-`nextBody=Ike` option was not taken: it is a machine
 change with no flown precedent. Proven offline by `b5_params_from_dict` loading the spec and the
 `missions/lib` and `lib` suites; the delivered periapsis is what the flight must read.
+
+Flown 2026-10-25 (`2026-10-25_1046`, main ef863bd54, attempt 1): MISSION-OK, the first in-SOI
+`telemetry ... pe=` frame at 13,613 km, no Ike encounter, so the mission fix holds. The run
+classified PARSEK-FAIL(save-structure) on the armed structure block alone: trees 3 > max 2,
+recordings 7 > max 4, Orbiting 3 > 2, Destroyed 2 > 1, JointBreak 2 > 1. The produced save holds
+the tree "DD1 Duna Direct Probe" twice: the committed copy and an `isActive = True` copy
+repeating 3 of its recording ids and its branch point. That copy is the copy-on-write
+committed-tree restore attempt `ParsekFlight.TryRestoreCommittedTreeForSpawnedActiveVessel`
+arms on the next Update after the mid-mission CommitTree ("Armed committed-tree restore attempt
+... copy-on-write"), so the flight keeps recording the live probe. Before #2169 (e0eb2da1c,
+2026-10-21) `PlanActiveTreeSidecarSaves` skipped that whole node while a resumed-in-place member
+was dirty (`skippedCommittedRestoreOverlap`, the 2026-10-12 green run); since then it is written
+on purpose (design-load-restores-the-save.md 4.3). Not a Parsek defect: on load,
+`ParsekScenario.TryRestoreActiveTreeNode` either re-arms the attempt and keeps the committed
+original beside the clone (the intended attempt shape, `TryRearmSaveAttemptForRestoredTree` /
+`ShouldLiveAttemptKeepCommittedCopy`) or detaches the committed copy
+(`RecordingStore.RemoveCommittedTreeById`), so no load leaves two committed trees with one id.
+Fix (harness, `harness/lib/saveparse.py`): the structure census reads a committed tree once. A
+non-committed tree whose id is a committed tree's id is its in-flight copy
+(`in_flight_copy_trees`), and `trees` / `recordings` / `terminalStates` / `branchPoints` skip the
+copy's rows that repeat a committed id, counting only what it adds; any other repeat stays
+counted twice, `committedTrees` stays raw, and the measured-only `treeNodes` /
+`inFlightCopyTrees` keep the copy visible. The binding design text already said every facet
+dedupes; only the points facet did. `mutsave` reaches the committed row and takes the repeat
+with it, so an offline inversion over such a save is not read VACUOUS. V3C's windows are
+unchanged and pass on a V3C-shaped doubled save (`InFlightCopyCensusTests`). Every other armed
+structure window was measured on a save without a copy, so the change moves none of them; B17,
+the same mission, was predicted red the same way (not flown since #2169). Flight owed:
+V3C-flight-arrival-companion PASS with `inFlightCopyTrees` 1 in the saveParse facets.
 
 ---
 
