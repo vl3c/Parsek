@@ -2,12 +2,16 @@ schema = 1
 id = "CS-1-science-first-hop"
 # THE SCRIPTED CAMPAIGN, STAGE 1 (docs/dev/autotest-roadmap.md, "The scripted campaign
 # program", owner decisions 2026-10-06). The first thing a player does in a brand-new
-# stock Science game: build the stock Jumping Flea in the VAB (every part is on the stock
-# start node: Mk1 pod, Mk16 chute, RT-5 Flea, three basic fins, two Mystery Goo units),
-# take a reading in every situation the hop passes through (each new situation pays its
-# own science): one Goo unit on the pad before ignition, the other Goo unit and the pod's
-# crew report in low flight at burnout, then land, recover the craft so every reading is
-# credited on recovery, and let Parsek auto-commit the flight. No transmit: stock never
+# stock Science game: build the CS Flea in the VAB (the stock Jumping Flea with a third
+# Mystery Goo unit; every part is on the stock start node: Mk1 pod, Mk16 chute, RT-5 Flea,
+# three basic fins, three Goo units), launch it, and take a reading in every situation the
+# hop passes through (each new situation pays its own science): a Goo unit on the pad
+# before ignition, a Goo unit and the crew report in low flight at burnout, a Goo unit
+# after landing. The crew report reads once: each experiment holds one reading, and the
+# Mk1 pod's science container takes data only from an EVA kerbal (no `canTransferInVessel`,
+# so its "Container: Collect All" event never shows), so there is no way to empty it in
+# between. Then recover the craft so every reading is credited on recovery, and let Parsek
+# auto-commit the flight. No transmit: stock never
 # sends science through a capsule's built-in antenna (CommNetVessel.CanScience needs a
 # non-INTERNAL antenna; the reading run below measured it), and the first antenna part,
 # the Communotron 16, is on Engineering 101. Researching it and transmitting is CS-2.
@@ -17,28 +21,33 @@ id = "CS-1-science-first-hop"
 # by the NewGame seam verb) on the `stock-tree` instance, harvested with
 # `harvest_bdock_station.py --allow-no-vessel --expect-mode SCIENCE_SANDBOX`. No craft of
 # its own (stock spawned one asteroid, `Ast. IYH-096`, ORBITING, during the CS-0 flight),
-# science 0, the stock start node only. The craft comes from the shared library
-# (`fixtures/shared-ships.toml`). The produced save of this lane is the next stage's host.
+# science 0, the stock start node only. The craft lives in the fixture's own
+# `Ships/VAB/` (below). The produced save of this lane is the next stage's host.
 #
 # WHAT IT PROVES. The VAB launch then an autopilot mission step in one lane (no committed
 # lane flew that shape before), Parsek's first recording in a new Science save, the
 # science-mode pool read (`recoverCreditPool = "science"`: kRPC's Funds raises in a
 # Science game, so the recovery is proven by the science credit of the readings aboard),
 # the staged readings (`stagedScienceObserved`: the pad reading observed before ignition,
-# all three observed while airborne), and the scene-exit auto-commit of a recovered flight.
-# The recovery floor is 5.0, Engineering 101's cost, so a green flight proves CS-2 can
-# afford its node; the readings are worth about 13.5 (Goo 10 x 0.3 landed + 10 x 0.7
-# flying low, crew report 5 x 0.7), and the floor is a floor, never that number.
+# all three observed while airborne), the landed Goo, and the scene-exit auto-commit of a
+# recovered flight. The recovery floor is 5.0, Engineering 101's cost, so a green flight
+# proves CS-2 can afford its node; run `2026-10-25_2152` recovered 18.5 from the pad Goo
+# and the two flight readings, the landed Goo adds a few more, and the floor is a floor,
+# never that number. The craft is DERIVED (`harness/tools/build_cs_flea_craft.py`,
+# byte-gated by `harness/lib/test_cs_flea_craft.py`) and lives in the fixture's own
+# `Ships/VAB/` (one consumer).
 #
 # STATUS: `cs-science-new` harvested 2026-10-25 (CS-0 run `2026-10-25_1743`). First flight
 # `2026-10-25_1752` / `_1753_a2` INVALID on GoToEditor (the save's asteroid booted LoadGame
 # into FLIGHT); LoadGame now forces the Space Center. Re-flight `2026-10-25_1805` /
 # `_1814_a2` INVALID at TRANSMIT ("No transmitters available"; diagnostic run 4's kRPC
 # probe read a Home path with can_transmit_science=False on the pod's INTERNAL antenna), so
-# the lane was re-cut to the staged, recover-only shape. `operator` until the first green
-# flight, PROMOTE to nightly after it. The log contract stays conservative until then.
+# the lane was re-cut to the staged, recover-only shape, which flew PASS on attempt 1 as
+# `2026-10-25_2152` (two Goo units; pad 1/1, airborne 3/3, science 0 -> 18.5). Re-cut
+# again to the three-Goo CS Flea with the landed Goo; `operator` until that cut flies
+# green, PROMOTE to nightly after it.
 tier = "operator"
-description = "Scripted campaign stage 1 (Science): in a genuine stock new Science game, launch the stock Jumping Flea from the VAB, run a Goo unit on the pad, the other Goo unit and the crew report in low flight, land, recover the craft (every reading credits on recovery) and auto-commit the recorded flight."
+description = "Scripted campaign stage 1 (Science): in a genuine stock new Science game, launch the three-Goo CS Flea from the VAB, take a Goo reading on the pad, a Goo and a crew report in low flight and a Goo after landing, recover the craft (every reading credits on recovery) and auto-commit the recorded flight."
 instanceProfile = "stock-tree"
 tags = ["campaign", "CS-1", "science-mode", "editor", "science", "recovery", "auto-commit",
         "pending-flight"]
@@ -52,9 +61,9 @@ craft = []
 kind    = "autopilot"
 mission = "science_bench_recover"
 
-# Budget arithmetic: missionBudget 1380 = L3's 1320 (same craft, same hop, same tail) + the
-# 60 s pad collect; runtime 2400 >= 300 LoadGame + 120 GoToEditor + 180 LaunchFromEditor +
-# 1380 mission + SaveGame + FlushAndQuit + margin.
+# Budget arithmetic: missionBudget 1440 = L3's 1320 (same hop, same tail) + the 60 s pad
+# collect + 60 s for the landed Goo's own deploy; runtime 2400 >= 300 LoadGame + 120 GoToEditor + 180
+# LaunchFromEditor + 1440 mission + SaveGame + FlushAndQuit + margin.
 steps = [
   # scene = "spacecenter": a genuine new game can hold a stock-spawned asteroid (the first
   # harvest did, `Ast. IYH-096`), and a save with a focusable vessel would otherwise boot
@@ -63,9 +72,9 @@ steps = [
   { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
   { cmd = "SetSetting",       args = { name = "autoMerge",          value = "true" }, expect = "OK" },
   { cmd = "SetSetting",       args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
-  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "Jumping Flea" },    expect = "OK", budget = 120 },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "CS Flea" },         expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor",                                                         expect = "OK", budget = 180 },
-  { phase = "mission",                                                                expect = "MISSION-OK", budget = 1380 },
+  { phase = "mission",                                                                expect = "MISSION-OK", budget = 1440 },
   # The recovery leaves FLIGHT, so the tree auto-commits at the scene exit and there is
   # no active tree left to commit by hand (L3's shape).
   { cmd = "CommitTree",                                                               expect = "REJECTED" },
@@ -74,7 +83,7 @@ steps = [
   { cmd = "FlushAndQuit",                                                             expect = "OK" },
 ]
 
-# The flight half is L3's, key for key (the same stock Jumping Flea off the same pad); see
+# The flight half is L3's, key for key (the stock Jumping Flea plus one Goo, same pad); see
 # L3-career-science-recover.toml and b1_pad_hop.schema.toml for each key's rationale.
 [driver.missionParams]
 throttle                 = 1.0
@@ -86,12 +95,14 @@ ascentTimeoutSeconds     = 90
 coastTimeoutSeconds      = 180
 descentTimeoutSeconds    = 360
 # Staged readings (mlib block note above SBR_PAD_COLLECT). The pad list holds ignition
-# until its data is observed; the flight list runs at burnout, in low flight.
+# until its data is observed; the flight list runs at burnout, in low flight; the landed
+# list runs on the ground. Every reading stays in its experiment, so the landed COLLECT
+# needs all four (1 pad + 2 flight + 1 landed).
 padExperiments           = ["mysteryGoo"]
 padCollectTimeoutSeconds = 60
 flightExperiments        = ["mysteryGoo", "crewReport"]
-# All three readings must be aboard on the ground (the landed sweep runs nothing new).
-collectMinExperiments = 3
+landedExperiments        = ["mysteryGoo"]
+collectMinExperiments = 4
 collectTimeoutSeconds = 120
 # 0 = no TRANSMIT (the pod's built-in antenna cannot send science). The two transmit keys
 # are still required by the schema and are not consulted.
@@ -113,7 +124,7 @@ count = { min = 1, max = 2 }
 
 [expectations.logContracts]
 required = [
-  "launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  "launchfromeditor complete scene=FLIGHT vessel=CS Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
   "Recording started",
   "CommitTreeSceneExit: finalizing tree at UT=[0-9.]+[\\s\\S]{0,8000}?Recording stopped\\. ",
 ]
