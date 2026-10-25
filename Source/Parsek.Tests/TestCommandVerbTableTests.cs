@@ -70,6 +70,7 @@ namespace Parsek.Tests
         [InlineData("EvaSeatBoard")]
         [InlineData("EvaSeatLeave")]
         [InlineData("AlarmJump")]
+        [InlineData("LaunchSiteProbe")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -216,7 +217,9 @@ namespace Parsek.Tests
             // EVA kerbal takes an external command seat and leaves it (the seat-dismount EVA).
             // AlarmJump is ADDITIVE (56 -> 57; reserved unchanged at 4): a stock alarm's Jump
             // pressed through stock's own OnJump (GC-13).
-            Assert.Equal(57, TestCommandVerbs.ImplementedVerbNames.Count);
+            // LaunchSiteProbe is ADDITIVE (57 -> 58; reserved unchanged at 4): Launch pressed on
+            // an obstructed site and stock's launch-site-clear dialog answered (LS-1, GC-9).
+            Assert.Equal(58, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

@@ -373,7 +373,24 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # InjectChainTipDock`; the injector
                                         # refuses a target save at another UT.
                                         # No RP. Consumer: CI-9-chain-tip-dock.
-                                        "chain-tip-dock")
+                                        "chain-tip-dock",
+                                        # launch-site-claim: ONE committed
+                                        # two-recording tree on pad-runway-pair:
+                                        # a Destroyed root ended before the
+                                        # save, and a PARENTLESS background
+                                        # recording of the save's REAL Logi
+                                        # Cargo Rig on the LaunchPad (its pid
+                                        # 2200110038 and launch guid) with an
+                                        # engine ignite / shutdown, ending
+                                        # Landed an hour out, so the walker
+                                        # claims the live Rig via
+                                        # BACKGROUND_EVENT and the GC-2 gate
+                                        # holds it outside flight. `--filter
+                                        # InjectLaunchSiteClaim`; the injector
+                                        # refuses a target save at another UT.
+                                        # No RP. Consumer:
+                                        # LS-1-launch-site-clear-claimed-vessel.
+                                        "launch-site-claim")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
@@ -780,6 +797,16 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     targetIsGhost= targetLoaded= alarmId= stockWouldShowJump= jumpShown= decision= jump=
     #     pressed= before= after= switched= sceneLoadRequested= alarmRemoved=`.
     "AlarmJump",
+    # ADDITIVE (57 -> 58 implemented, reserved unchanged at 4), the LS-1 host (todo
+    # GC9-LAUNCH-SITE-CLEAR-RECOVERS-CLAIMED-VESSEL).
+    #   LaunchSiteProbe, EDITOR (`[answer=abort|proceed]`) or SPACECENTER (`facility=VAB|SPH
+    #     craft=<name> [answer=]`), TWO-PHASE, default 60 s: presses Launch on an OBSTRUCTED
+    #     site through stock's own buttons (EditorLogic.launchVessel / the picker's Launch),
+    #     reads stock's launch-site-clear dialog (TestWarning / LaunchSiteWarning), presses
+    #     one of its buttons through the button's own callback and reports the facts. OK
+    #     `path= site= dialog= buttons= proceedOffered= proceedInteractable= pressed= outcome=
+    #     obstructingBefore= obstructingAfter=`; the lane judges them in its log contract.
+    "LaunchSiteProbe",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1405,6 +1432,8 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     "EvaSeatLeave": TAIL_ROLE_WORLD_MUTATING,
     # AlarmJump may switch the active vessel (stock state a save captures).
     "AlarmJump": TAIL_ROLE_WORLD_MUTATING,
+    # LaunchSiteProbe can recover the site's vessels and launch (stock state a save captures).
+    "LaunchSiteProbe": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1625,6 +1654,9 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # AlarmJump is `recording` for CycleVessel's reason: its OK is a statement about Parsek's
     # switch rules (whether the Jump was shown and whether it switched), never a mission outcome.
     "AlarmJump": POST_MISSION_ROLE_RECORDING,
+    # LaunchSiteProbe is `recording`: its OK reports what Parsek's launch-site hold left on
+    # stock's dialog (a Parsek claim), never a mission outcome.
+    "LaunchSiteProbe": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -4334,6 +4366,68 @@ def validate_eva_seat_step(index: int, cmd: str, step_args: Dict) -> List[str]:
         return ["driver.steps[%d].args: %s reads no args, so %s would be silently ignored"
                 % (index, cmd, ", ".join(extra))]
     return []
+
+
+# LaunchSiteProbe: mirrored from TestCommands/TestCommandLaunchSiteProbe.cs
+# (LaunchSiteProbeSourceSyncTests). `facility` / `craft` are spelled like GoToEditor's keys
+# (and `answer` avoids UiAction's scoped `press`), so the shape check is hand-written.
+LAUNCHSITEPROBE_VERB = "LaunchSiteProbe"
+LAUNCHSITEPROBE_FACILITY_KEY = "facility"
+LAUNCHSITEPROBE_CRAFT_KEY = "craft"
+LAUNCHSITEPROBE_ANSWER_KEY = "answer"
+LAUNCHSITEPROBE_ANSWER_VALUES: Tuple[str, ...] = ("abort", "proceed")
+LAUNCHSITEPROBE_FACILITY_VALUES: Tuple[str, ...] = ("VAB", "SPH")
+LAUNCHSITEPROBE_REASONS: Tuple[str, ...] = (
+    "launchsiteprobe-answer-arg-invalid",
+    "launchsiteprobe-facility-arg-invalid",
+    "launchsiteprobe-craft-arg-invalid",
+    "launchsiteprobe-wrong-scene",
+    "launchsiteprobe-arg-not-for-scene",
+    "launchsiteprobe-craft-arg-missing",
+    "launchsiteprobe-no-ship",
+    "launchsiteprobe-launch-locked",
+    "launchsiteprobe-site-clear",
+    "launchsiteprobe-facility-not-found",
+    "launchsiteprobe-picker-open",
+    "launchsiteprobe-craft-not-found",
+)
+LAUNCHSITEPROBE_ERROR_REASONS: Tuple[str, ...] = (
+    "launchsiteprobe-no-dialog",
+    "launchsiteprobe-other-dialog",
+    "launchsiteprobe-dialog-shape",
+    "launchsiteprobe-not-settled",
+    "launchsiteprobe-threw",
+)
+
+
+def validate_launch_site_probe_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``LaunchSiteProbe`` step: ``answer=`` (when present) one
+    of abort / proceed, ``facility=`` (when present) VAB / SPH (both matched exactly, as the
+    seam does), ``craft=`` (when present) not blank, and no other key (it would be sent and silently ignored). Which keys the step's
+    SCENE takes (the editor takes only ``answer``; the Space Center needs ``craft``) is the
+    seam's own REJECTED gate: the spec does not know the scene a step lands in."""
+    errors: List[str] = []
+    known = (LAUNCHSITEPROBE_FACILITY_KEY, LAUNCHSITEPROBE_CRAFT_KEY, LAUNCHSITEPROBE_ANSWER_KEY)
+    extra = sorted(str(k) for k in step_args if k not in known)
+    if extra:
+        errors.append("driver.steps[%d].args: LaunchSiteProbe reads only %s, so %s would be "
+                      "silently ignored" % (index, "/".join(known), ", ".join(extra)))
+    if LAUNCHSITEPROBE_ANSWER_KEY in step_args:
+        v = str(step_args[LAUNCHSITEPROBE_ANSWER_KEY])
+        if v not in LAUNCHSITEPROBE_ANSWER_VALUES:
+            errors.append("driver.steps[%d].args.answer: %r is not one of %s"
+                          % (index, step_args[LAUNCHSITEPROBE_ANSWER_KEY],
+                             "/".join(LAUNCHSITEPROBE_ANSWER_VALUES)))
+    if LAUNCHSITEPROBE_FACILITY_KEY in step_args:
+        v = str(step_args[LAUNCHSITEPROBE_FACILITY_KEY])
+        if v not in LAUNCHSITEPROBE_FACILITY_VALUES:
+            errors.append("driver.steps[%d].args.facility: %r is not one of %s"
+                          % (index, step_args[LAUNCHSITEPROBE_FACILITY_KEY],
+                             "/".join(LAUNCHSITEPROBE_FACILITY_VALUES)))
+    if LAUNCHSITEPROBE_CRAFT_KEY in step_args:
+        if not str(step_args[LAUNCHSITEPROBE_CRAFT_KEY]).strip():
+            errors.append("driver.steps[%d].args.craft: blank" % index)
+    return errors
 
 
 def validate_cycle_vessel_step(index: int, step_args: Dict) -> List[str]:
@@ -7524,6 +7618,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_eva_seat_step(i, cmd, step_args))
         elif cmd == ALARMJUMP_VERB:
             errors.extend(validate_alarm_jump_step(i, step_args))
+        elif cmd == LAUNCHSITEPROBE_VERB:
+            errors.extend(validate_launch_site_probe_step(i, step_args))
         # LoadGame focusPid= (any verb: the validator flags it on a verb that ignores it).
         if LOADGAME_FOCUS_PID_KEY in step_args:
             errors.extend(validate_loadgame_focus_step(i, cmd, step_args))
@@ -11832,6 +11928,22 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "alarmjump-no-alarm-clock": "driver-gate",
     "alarmjump-target-not-found": "driver-arg",
     "alarmjump-target-ambiguous": "driver-arg",
+    # LaunchSiteProbe: arg spellings and an arg the step's scene does not take are the SPEC's
+    # fault; the rest is a live state the probe would not press in (wrong scene, no ship, a
+    # held launch lock, a site with nothing on it, no building / an open picker / no such
+    # craft row) (LaunchSiteProbeSourceSyncTests).
+    "launchsiteprobe-answer-arg-invalid": "driver-arg",
+    "launchsiteprobe-facility-arg-invalid": "driver-arg",
+    "launchsiteprobe-craft-arg-invalid": "driver-arg",
+    "launchsiteprobe-arg-not-for-scene": "driver-arg",
+    "launchsiteprobe-craft-arg-missing": "driver-arg",
+    "launchsiteprobe-wrong-scene": "driver-gate",
+    "launchsiteprobe-no-ship": "driver-gate",
+    "launchsiteprobe-launch-locked": "driver-gate",
+    "launchsiteprobe-site-clear": "driver-gate",
+    "launchsiteprobe-facility-not-found": "driver-gate",
+    "launchsiteprobe-picker-open": "driver-gate",
+    "launchsiteprobe-craft-not-found": "driver-gate",
     # SimulateStockSwitchClick, arg half: site / selector spellings and target resolution.
     # target-not-found / -name-ambiguous / -is-ghost are arg-class because each one means
     # the SPEC named the wrong thing, the same call `unknown-target` gets for KscAction.

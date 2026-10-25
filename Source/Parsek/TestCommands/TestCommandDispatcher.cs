@@ -310,6 +310,9 @@ namespace Parsek.TestCommands
         // ----- AlarmJump (a stock alarm on a named vessel fires its message dialog, whose
         // Jump is pressed through stock's own OnJump) -----
         void AlarmJump(ParsedCommand cmd);
+        // ----- LaunchSiteProbe (Launch pressed on an obstructed site; stock's launch-site-clear
+        // dialog read and answered through its own buttons) -----
+        void LaunchSiteProbe(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -705,6 +708,11 @@ namespace Parsek.TestCommands
                 // (SetActiveVessel); the Tracking Station / Space Center branch saves and loads
                 // a new scene, which a single-phase answer cannot follow. Default budget.
                 ["AlarmJump"] = VerbSceneRequirement.RequiresFlight,
+                // LaunchSiteProbe: the GoToEditor / LaunchFromEditor row. Valid in the editor
+                // and at the Space Center, which no requirement kind names, so the executor
+                // refuses every other scene (launchsiteprobe-wrong-scene). Default budget (no
+                // scene load; both dialogs spawn inside the press's own call stack).
+                ["LaunchSiteProbe"] = VerbSceneRequirement.RequiresGameLoaded,
             };
 
         /// <summary>

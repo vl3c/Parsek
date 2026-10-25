@@ -354,7 +354,7 @@ save load, including a `LoadGame`.
 Reserving the phase-3 names now means the envelope (id/cmd/args, percent-encoding,
 journal, verdicts) is designed once and the later commands slot in without a format break.
 
-The table today is **57 implemented / 4 reserved**. `TestCommandVerbs.cs` is the authority
+The table today is **58 implemented / 4 reserved**. `TestCommandVerbs.cs` is the authority
 (`hlib.IMPLEMENTED_SEAM_VERBS` mirrors it as an ordered list, and a cell pins both lengths);
 the updates below record how each verb arrived.
 
@@ -630,6 +630,14 @@ the updates below record how each verb arrived.
 > `EvaSeatLeave` makes the seated kerbal of the active vessel leave through
 > stock's own `KerbalEVA.OnDeboardSeat`. Neither takes an arg. Full contract below
 > (`#### EvaSeatBoard / EvaSeatLeave`); lane `SEAT-1-seat-dismount-eva`.
+
+> Update (LaunchSiteProbe, 2026-10-25): one ADDITIVE verb, taking the table to **58 implemented / 4
+> reserved**, to live-prove GC-9 (todo GC9-LAUNCH-SITE-CLEAR-RECOVERS-CLAIMED-VESSEL: stock's
+> launch-site clear recovered a vessel a committed future flight holds). `LaunchSiteProbe` presses
+> Launch on an OBSTRUCTED site through stock's own buttons (the editor's, or the Space Center
+> launch-site picker's), reads the launch-site-clear dialog stock raises and presses one of its
+> buttons through the button's own callback. Full contract below (`#### LaunchSiteProbe`); lane
+> `LS-1-launch-site-clear-claimed-vessel`.
 
 > Update (ReadVesselResources, 2026-10-16): one ADDITIVE verb, taking the table to **52 implemented /
 > 4 reserved**, the first read of what is really in a vessel's tanks (todo
@@ -5008,6 +5016,57 @@ jump pressed before after switched sceneLoadRequested alarmRemoved`. Line `alarm
 the payload as `key=value`. Pure half `TestCommandAlarmJump`, applier
 `ParsekTestCommandAddon.AlarmJump.cs`, mirrored by `AlarmJumpSourceSyncTests`.
 
+#### LaunchSiteProbe (additive; stock's launch-site-clear dialog, read and pressed)
+
+**Why.** Stock recovers every vessel landed at the launch site from its launch-site-clear dialog,
+and GC-9 holds that recovery for a vessel a committed future flight claims. `LaunchFromEditor`
+refuses an obstructed site (`launchfromeditor-site-obstructed`, its proceed branch recovers) and
+`StockScreen screen=launchsite` cannot press Launch, so nothing reached the dialog.
+
+**Stock ground truth (decompiled KSP 1.12.5).** Editor: `EditorLogic.launchVessel` builds a
+`PreFlightCheck` whose last test is `LaunchSiteClear`; a failed test spawns
+`MultiOptionDialog("TestWarning", GetWarningDescription(), GetWarningTitle(), ...)` with a proceed
+button (`GetProceedOption()`, Recover and launch) and an abort button (`GetAbortOption()`), or the
+abort button alone when `GetProceedOption()` is null. Space Center: the building click opens the
+picker (`VesselSpawnDialog`); its Launch button reaches `LaunchSiteFacility.shipSelected`, which runs
+the same test and on a failure spawns `"LaunchSiteWarning"` with three buttons in a fixed order (go
+to the obstructing vessel, the proceed button running `ClearSite` then `launchChecks`, Cancel).
+`DialogGUIButton.OptionSelected()` is the button's own click body minus the interactable check.
+
+**Grammar.** EDITOR: `cmd=LaunchSiteProbe [answer=abort|proceed]`, the craft on the stage at the
+editor's selected site. SPACECENTER: `cmd=LaunchSiteProbe facility=VAB|SPH craft=<name>
+[answer=abort|proceed]` (facility default VAB; `craft` is the picker row's listed name). `answer`
+defaults to `abort`; `answer=proceed` presses the proceed button even when it is greyed (the
+click-blocks behind it are what the press meets), and presses abort when there is none. Both
+spellings are exact. The key is `answer`, not UiAction's scoped `press`.
+
+**Behavior.** Every gate refuses before anything is pressed (REJECTED): the arg spellings
+(`launchsiteprobe-answer-arg-invalid`, `-facility-arg-invalid`, `-craft-arg-invalid`), an arg the
+scene does not take (`-arg-not-for-scene`, `-craft-arg-missing`), `-wrong-scene`, and the live
+gates `-no-ship`, `-launch-locked` (an `EDITOR_LAUNCH` lock that is the only blocker is waited out
+for 10 s first), `-site-clear` (a clear site launches, so it is never pressed; at the Space Center
+read off the picker's site after the row is selected), `-facility-not-found`, `-picker-open`,
+`-craft-not-found` (the row not listed within 10 s). The obstruction count is stock's own
+`ShipConstruction.FindVesselsLandedAt`. Lines: `launchsiteprobe start path= scene= [facility=
+craft=] answer= site= obstructing= first=`; `launchsiteprobe dialog path= name= buttons= labels=[..]
+interactable=1,0,1 proceedOffered= proceedInteractable= title= description=` (text on one line, line
+breaks as a literal `\n`, capped); `launchsiteprobe press path= requested= pressed= label=
+interactable=`; `launchsiteprobe complete path= site= dialog= buttons= proceedOffered=
+proceedInteractable= pressed= outcome=stayed|launched obstructingBefore= obstructingAfter= firstAfter=
+lockHeld= elapsed=`. The interactable state is stock's own `OptionInteractableCondition`. A launch
+with no dialog completes OK `dialog=none outcome=launched`. ERROR only when Launch was pressed and
+the dialog could not be read or settled: `-no-dialog` (10 s), `-other-dialog` (another pre-flight
+test failed first; its last button is pressed), `-dialog-shape`, `-not-settled`, `-threw`. The
+picker is closed through its own Close button whenever the probe ends with it still open.
+
+**Phases.** TWO-PHASE, `RequiresGameLoaded` (the scene is the parse's gate), default 60 s budget,
+world-mutating tail role, `recording` post-mission role. After the press the probe settles until
+the dialog is gone and the scene stayed 30 frames and 1 s (`outcome=stayed`), or the scene left
+(`outcome=launched`). OK payload `path site dialog buttons proceedOffered proceedInteractable
+pressed outcome obstructingBefore obstructingAfter`: the facts; the lane judges them. Pure half
+`TestCommandLaunchSiteProbe`, applier `ParsekTestCommandAddon.LaunchSiteProbe.cs`, mirrored by
+`LaunchSiteProbeSourceSyncTests`.
+
 ### Addon lifecycle
 
 `ParsekTestCommandAddon` mirrors `TestRunnerShortcut`: `[KSPAddon(KSPAddon.Startup.Instantly, true)]`
@@ -5137,6 +5196,7 @@ wall-clock. Some verbs need a different bound and override the default:
 | `CycleVessel` | (default) 60 s | SINGLE-PHASE: the press and a switch between loaded vessels run inside the call; the budget only bounds the not-in-flight dispatch defer |
 | `AlarmJump` | (default) 60 s | SINGLE-PHASE: the alarm is added, fired, its Jump pressed and its dialog closed inside the call; a far switch only requests its scene load there |
 | `EvaSeatBoard` / `EvaSeatLeave` | (default) 60 s | TWO-PHASE: stock's board and leave land within a frame and the completion holds 10 polls past Parsek's dock merge; each ends ERROR `-timeout` rather than letting the pump convert it |
+| `LaunchSiteProbe` | (default) 60 s | TWO-PHASE: no scene load on the designed path; the picker list wait, the dialog wait (each up to 10 s) and a 1 s settle; a settle that never ends is ERROR `-not-settled` |
 | `ReFlyRevert` | 300 s | TWO-PHASE, the `InvokeRewind` / `InvokeRewindToLaunch` size: the resume settle (up to 30 s) and the stock menus, then Discard's quicksave `LoadGame` plus the Space Center / editor load or Retry's flight reload; a `DEFERRED_SEAM_VERB` |
 | `AnswerMergeDialog` | 60 s | MEASURED 2026-10-06 over 859 collected runs (2026-09-10 to 2026-10-05): OK n=65, p50 3.3 s, p99 6.6 s, max 7.2 s. 4x the OK max is 29 s; the floor is twice `TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds` (30 s), which the re-fly fallback spends before the driven exit (unit-guarded). Was 120 s; all 6 non-OK outcomes (4 `no-refly-dialog` TIMEOUT, 2 `answer-timeout` ERROR) waited the full 120 s and none was a slow success |
 | `EvaGroundScience` | 60 s | MEASURED 2026-10-06 over the same corpus: OK n=412, p50 0.9 s, p99 5.5 s, max 5.5 s (step 3.3, take 0.5, place 3.6, pickup 5.5). Each action is its own command, so the budget bounds one action. 4x the OK max is only 22 s, but the place ladder counts frames (about 1,000 worst case), so 60 s keeps it inside the budget down to about 17 fps. Was 120 s (the EvaExit size); all 37 timeouts (27 `step-timeout`, 5 `placement-timeout`, 3 `place-gate-timeout`, 2 `pickup-timeout`) waited the full 120 s, 4,440 s in all |

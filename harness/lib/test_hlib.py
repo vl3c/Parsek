@@ -1217,7 +1217,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # kerbal takes an external command seat and leaves it (SEAT-1, the seat-dismount EVA).
         # 57 / 4 after AlarmJump, an ADDITION by one: a stock alarm's Jump pressed through
         # stock's own OnJump (AJ-1, GC-13).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 57)
+        # 58 / 4 after LaunchSiteProbe, an ADDITION by one: Launch pressed on an obstructed
+        # site and stock's launch-site-clear dialog read and pressed (LS-1).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 58)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -17850,6 +17852,83 @@ class EvaSeatSourceSyncTests(unittest.TestCase):
         self.assertEqual(1, len(errs), errs)
         self.assertIn("driver.steps[3]", errs[0])
         self.assertIn("silently ignored", errs[0])
+
+
+class LaunchSiteProbeSourceSyncTests(unittest.TestCase):
+    """`LaunchSiteProbe`. Reads OUTSIDE harness/: the verb, the three arg keys, the press
+    tokens and the refusal / error reasons (IN ORDER) of the comment-stripped
+    TestCommands/TestCommandLaunchSiteProbe.cs, and the applier's presses through stock's own
+    Launch buttons, so the pre-launch validator and a spec's pinned reasons cannot drift from
+    what the seam answers."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# LaunchSiteProbe tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_keys_and_reasons_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandLaunchSiteProbe.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.LAUNCHSITEPROBE_VERB, text)
+        self.assertIn('internal const string FacilityArg = "%s";'
+                      % hlib.LAUNCHSITEPROBE_FACILITY_KEY, text)
+        self.assertIn('internal const string CraftArg = "%s";' % hlib.LAUNCHSITEPROBE_CRAFT_KEY,
+                      text)
+        self.assertIn('internal const string AnswerArg = "%s";' % hlib.LAUNCHSITEPROBE_ANSWER_KEY,
+                      text)
+        self.assertEqual(list(hlib.LAUNCHSITEPROBE_ANSWER_VALUES),
+                         StockScreenSourceSyncTests._cs_string_array(text, "AnswerTokens"))
+        route = self._source("TestCommands", "TestCommandEditorRoute.cs")
+        self.assertEqual(list(hlib.LAUNCHSITEPROBE_FACILITY_VALUES),
+                         StockScreenSourceSyncTests._cs_string_array(route, "FacilityTokens"))
+        self.assertEqual(list(hlib.LAUNCHSITEPROBE_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        self.assertEqual(list(hlib.LAUNCHSITEPROBE_ERROR_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "ErrorReasons"))
+        arg_reasons = {"launchsiteprobe-answer-arg-invalid", "launchsiteprobe-facility-arg-invalid",
+                       "launchsiteprobe-craft-arg-invalid", "launchsiteprobe-arg-not-for-scene",
+                       "launchsiteprobe-craft-arg-missing"}
+        for reason in hlib.LAUNCHSITEPROBE_REASONS:
+            expected = "driver-arg" if reason in arg_reasons else "driver-gate"
+            self.assertEqual(expected, hlib._SEAM_REFUSAL_SUBKINDS.get(reason), reason)
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        for reason in hlib.LAUNCHSITEPROBE_ERROR_REASONS:
+            self.assertNotIn(reason, hlib._SEAM_REFUSAL_SUBKINDS, reason)
+
+    def test_the_applier_presses_stocks_own_launch_buttons(self):
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.LaunchSiteProbe.cs")
+        # The editor path is stock's Launch button handler (pre-flight checks included); the
+        # Space Center path is the building's own entry, then the picker's own Launch button.
+        self.assertIn("EditorLogic.fetch.launchVessel();", applier)
+        self.assertIn("facility.EnterBuilding();", applier)
+        self.assertIn("launch.onClick.Invoke();", applier)
+        # The dialog button is pressed through its own callback, never a Parsek shortcut.
+        self.assertIn("DialogGuiButtonOptionSelectedMethod", applier)
+        self.assertNotIn("ClearSite(", applier)
+        self.assertNotIn("proceedWithVesselLaunch(", applier)
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.LAUNCHSITEPROBE_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(60.0, hlib.dispatch_deferral_budget(verb))
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertFalse(hlib.post_mission_step_gates(verb))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_launch_site_probe_step
+        self.assertEqual([], v(0, {}))
+        self.assertEqual([], v(0, {"answer": "abort"}))
+        self.assertEqual([], v(0, {"facility": "SPH", "craft": "Kerbal X", "answer": "proceed"}))
+        for bad in ({"answer": "Proceed"}, {"answer": "recover"}, {"press": "OK"}, {"facility": "vab"},
+                    {"craft": "  "}, {"site": "LaunchPad"}):
+            with self.subTest(args=bad):
+                errs = v(4, bad)
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("driver.steps[4]", errs[0])
 
 
 class AlarmJumpSourceSyncTests(unittest.TestCase):
