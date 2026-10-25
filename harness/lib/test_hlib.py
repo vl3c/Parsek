@@ -8101,6 +8101,62 @@ class BootStallWatchdogTests(unittest.TestCase):
         self.assertFalse(hlib.scan_boot_ready(
             b"", b"Scene Change : From MAINMENU to SPACECENTER\n")[0])
 
+    def test_watch_phase_runs_from_launch_through_the_main_menu_to_the_receipt(self):
+        """VB-1-KSP-HANG-AT-MAIN-MENU: MAINMENU alone no longer switches the watchdog
+        off; the seam's receipt (with MAINMENU) or any response does."""
+        P = hlib
+        self.assertEqual(P.BOOT_WATCH_PHASE_BOOT, P.boot_watch_phase(False, False, False))
+        self.assertEqual(P.BOOT_WATCH_PHASE_MENU, P.boot_watch_phase(True, False, False))
+        self.assertEqual(P.BOOT_WATCH_PHASE_OFF, P.boot_watch_phase(True, True, False))
+        # A response ends it in any phase.
+        for menu, receipt in ((False, False), (True, False), (False, True)):
+            self.assertEqual(P.BOOT_WATCH_PHASE_OFF, P.boot_watch_phase(menu, receipt, True))
+        # A receipt without MAINMENU is not expected (the seam does not read commands
+        # during LOADING); the boot rules keep watching.
+        self.assertEqual(P.BOOT_WATCH_PHASE_BOOT, P.boot_watch_phase(False, True, False))
+
+    def test_a_silent_main_menu_stalls_on_no_seam_receipt_only(self):
+        d = hlib.decide_boot_stall(400.0, 90.0, False, self.LIM, at_mainmenu=True)
+        self.assertEqual((True, hlib.BOOT_STALL_RULE_NO_SEAM_RECEIPT, 90.0),
+                         (d.stalled, d.rule, d.stall_seconds))
+        # The MAINMENU deadline is met in this phase: a growing log never stalls,
+        # however long the main menu has been up.
+        self.assertFalse(hlib.decide_boot_stall(10000.0, 89.0, False, self.LIM,
+                                                at_mainmenu=True).stalled)
+        # The VB-1 measurement: MAINMENU to the seam receipt is 0.65 s on a real boot.
+        self.assertFalse(hlib.decide_boot_stall(25.0, 0.65, False, self.LIM,
+                                                at_mainmenu=True).stalled)
+        self.assertFalse(hlib.decide_boot_stall(10000.0, 10000.0, True, self.LIM,
+                                                at_mainmenu=True).stalled)
+        self.assertIn(hlib.BOOT_STALL_RULE_NO_SEAM_RECEIPT, hlib.format_boot_hang_line(
+            hlib.BootStallDecision(True, hlib.BOOT_STALL_RULE_NO_SEAM_RECEIPT, 90.0),
+            120.0, 9000, "MAINMENU"))
+
+    def test_receipt_scan_matches_the_line_the_seam_writes(self):
+        # The receipt line from a real collected KSP.log (flighteff_b11 excerpt).
+        line = (b"[LOG 15:31:30.563] [Parsek][INFO][TestCommands] recv id=0001 "
+                b"cmd=LoadGame args=2\n")
+        cut = line.index(b"recv") + 2
+        found, carry = hlib.scan_seam_receipt(b"", line[:cut])
+        self.assertFalse(found)
+        self.assertTrue(hlib.scan_seam_receipt(carry, line[cut:])[0])
+        # Other seam lines and other subsystems' recv-like text are not a receipt.
+        self.assertFalse(hlib.scan_seam_receipt(
+            b"", b"[Parsek][INFO][TestCommands] armed session=x pid=1\n")[0])
+        self.assertFalse(hlib.scan_seam_receipt(b"", b"[Parsek][INFO][Net] recv id=3\n")[0])
+
+    def test_receipt_marker_is_the_csharp_receipt_literal(self):
+        """The marker tracks TestCommandDiagnostics.Receipt and its Tag; a reworded
+        receipt would make every healthy boot read as a main-menu hang."""
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        path = os.path.join(root, "Source", "Parsek", "TestCommands",
+                            "TestCommandDiagnostics.cs")
+        with open(path, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn('internal const string Tag = "TestCommands";', src)
+        self.assertIn('ParsekLog.Info(Tag, $"recv id={id} ', src)
+        self.assertEqual("[TestCommands] recv id=", hlib.SEAM_RECEIPT_MARKER)
+
     def test_last_line_and_hang_line(self):
         tail = b"[LOG 1] a\r\n[LOG 2] Load(Assembly): MechJeb2/Plugins/MechJebLib\r\n\r\n"
         last = hlib.last_complete_log_line(tail)

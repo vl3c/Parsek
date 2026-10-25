@@ -6887,8 +6887,10 @@ class BootStallWatchdogSmokeTests(unittest.TestCase):
     waited out the whole 660 s LoadGame step before a non-retried KILLED(budget).
     Guards: a boot whose KSP.log stops growing before MAINMENU is killed early as a
     RETRIED INVALID(boot-hang), a stale previous-run KSP.log carrying its own MAINMENU
-    line does not disarm it, and a slow but growing boot followed by a long silence
-    AFTER MAINMENU never trips it."""
+    line does not disarm it, a KSP that wedges at the main menu before the seam's
+    first receipt is killed the same way (todo VB-1-KSP-HANG-AT-MAIN-MENU), and a
+    slow but growing boot followed by a long silence AFTER the seam's receipt never
+    trips it."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="parsek-harness-bootwatch-")
@@ -6953,7 +6955,7 @@ class BootStallWatchdogSmokeTests(unittest.TestCase):
         self.assertNotIn("budget exceeded", log)
         self.assertLess(wall, 60.0)
 
-    def test_a_slow_growing_boot_then_post_mainmenu_silence_never_trips(self):
+    def test_a_slow_growing_boot_then_silence_after_the_seam_receipt_never_trips(self):
         spec = _make_spec(self.template, 30, 600)
         rt = _FastBootWatchRuntime("slowboot")
         result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
@@ -6963,11 +6965,39 @@ class BootStallWatchdogSmokeTests(unittest.TestCase):
         self.assertNotIn("bootHang", result["driver"])
         self.assertFalse(result["kspExit"]["killed"])
         log = self._log_text()
-        # Latched at MAINMENU (before the first seam response), and silent after:
-        # the 5 s post-MAINMENU silence exceeds both shrunk thresholds.
-        self.assertIn("boot ready via=mainmenu", log)
+        # Main-menu phase at MAINMENU, latched off at the seam's receipt (before the
+        # first seam response), and silent after: the 5 s silence after the receipt
+        # exceeds both shrunk thresholds.
+        self.assertIn("boot at main menu", log)
+        self.assertIn("boot ready via=seam-receipt", log)
         self.assertNotIn("boot-hang:", log)
         self.assertNotIn("boot ready via=seam-response", log)
+
+    def test_a_ksp_wedged_at_the_main_menu_is_killed_invalid_boot_hang_and_retried(self):
+        """VB-1 2026-10-09 (todo VB-1-KSP-HANG-AT-MAIN-MENU): KSP.log ended just after
+        the MAINMENU line, the seam never logged a receipt, and the run waited out the
+        LoadGame step as a non-retried KILLED(budget). The main-menu phase now kills
+        it on the no-growth rule as a RETRIED INVALID(boot-hang)."""
+        spec = _make_spec(self.template, 30, 25)
+        rt = _FastBootWatchRuntime("menuhang")
+        started = time.time()
+        result = run._run_scenario_with_retry(spec, self.instance, self.tmp, rt, self.logger)
+        wall = time.time() - started
+
+        self.assertEqual(2, rt.launch_count, "a main-menu hang must be retried once")
+        self.assertEqual((hlib.VERDICT_INVALID, hlib.BOOT_HANG_SUBKIND),
+                         (result["verdict"], result["subkind"]))
+        self.assertTrue(result["kspExit"]["killed"])
+        hang = result["driver"]["bootHang"]
+        self.assertEqual(hlib.BOOT_STALL_RULE_NO_SEAM_RECEIPT, hang["rule"])
+        self.assertIn("MAINMENU", hang["lastLine"])
+        self.assertGreaterEqual(hang["stallSeconds"], 2)
+        log = self._log_text()
+        self.assertEqual(2, log.count("boot at main menu"))
+        self.assertEqual(2, log.count("boot-hang: rule=no-seam-receipt"))
+        self.assertNotIn("boot ready via=", log)
+        self.assertNotIn("budget exceeded", log)
+        self.assertLess(wall, 60.0)
 
     def test_a_slowly_dying_killed_ksp_is_waited_for_so_the_retry_still_boots(self):
         """`taskkill /F` returns before KSP is gone. Without the post-kill wait, attempt

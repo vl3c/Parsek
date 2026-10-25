@@ -11243,15 +11243,40 @@ EXPECTATION_FORBIDDEN_INVALID_PREFIX = "logContracts.forbidden invalid regex: "
 # line-flushed (the H69 log ends on a complete line at a non-block size), so file
 # growth tracks line output. 90 s of silence is 16x the largest measured gap and
 # 240 s to MAINMENU is 5.7x the slowest measured boot.
+#
+# The main-menu phase (todo VB-1-KSP-HANG-AT-MAIN-MENU). VB-1 2026-10-09: KSP wrote
+# the MAINMENU line and then nothing at all, the seam never logged a `recv id=` for
+# the first command, and the run sat out the whole LoadGame step wait as a
+# non-retried KILLED(budget). Reaching MAINMENU therefore no longer switches the
+# watchdog off: it keeps the no-growth rule (only that rule: the MAINMENU deadline
+# is met) until the seam's first receipt line SEAM_RECEIPT_MARKER appears in this
+# launch's KSP.log, or any seam response line. The seam reads its command file only
+# outside LOADING (ParsekTestCommandAddon.Update), so its receipt of the first
+# command follows MAINMENU within a few frames on every healthy boot; a log that
+# stays silent for BOOT_STALL_NO_GROWTH_SECONDS after MAINMENU with no receipt is a
+# wedged game, rule BOOT_STALL_RULE_NO_SEAM_RECEIPT, the same retryable boot-hang.
+# The watchdog stops at the receipt, not at the response: after it, the seam owns
+# the command (its own deferral budget and terminal verdicts), and a LoadGame may
+# legitimately sit in a quiet deferral.
 # ---------------------------------------------------------------------------
 
 BOOT_HANG_SUBKIND = "boot-hang"
 BOOT_READY_MARKER = "Scene Change : From LOADING to MAINMENU"
+# The seam's per-command receipt (TestCommandDiagnostics.Receipt) as ParsekLog
+# writes it: `[Parsek][INFO][TestCommands] recv id=<id> cmd=<verb> args=<n>`.
+SEAM_RECEIPT_MARKER = "[TestCommands] recv id="
 BOOT_STALL_NO_GROWTH_SECONDS = 90.0
 BOOT_MAINMENU_DEADLINE_SECONDS = 240.0
 
 BOOT_STALL_RULE_NO_GROWTH = "no-growth"
 BOOT_STALL_RULE_NO_MAINMENU = "no-mainmenu"
+BOOT_STALL_RULE_NO_SEAM_RECEIPT = "no-seam-receipt"
+
+# The watchdog's phases: before MAINMENU (both rules), at the main menu before the
+# seam's first receipt (no-growth only, named no-seam-receipt), and off.
+BOOT_WATCH_PHASE_BOOT = "boot"
+BOOT_WATCH_PHASE_MENU = "menu"
+BOOT_WATCH_PHASE_OFF = "off"
 
 
 @dataclass(frozen=True)
@@ -11267,18 +11292,40 @@ class BootStallDecision:
     stall_seconds: float = 0.0
 
 
+def boot_watch_phase(mainmenu_seen: bool, receipt_seen: bool,
+                     response_seen: bool) -> str:
+    """The watchdog phase from what this launch has shown so far. Any seam response
+    switches it off. The seam's receipt switches it off only together with MAINMENU:
+    the seam does not read commands during LOADING, so a receipt without the
+    MAINMENU line is not expected, and the boot rules keep watching if it happens."""
+    if response_seen or (mainmenu_seen and receipt_seen):
+        return BOOT_WATCH_PHASE_OFF
+    if mainmenu_seen:
+        return BOOT_WATCH_PHASE_MENU
+    return BOOT_WATCH_PHASE_BOOT
+
+
 def decide_boot_stall(elapsed_since_launch: float, seconds_since_growth: float,
                       boot_ready: bool,
-                      limits: Optional[BootWatchdogLimits] = None) -> BootStallDecision:
-    """Whether a boot that has not yet reached MAINMENU is stalled.
+                      limits: Optional[BootWatchdogLimits] = None,
+                      at_mainmenu: bool = False) -> BootStallDecision:
+    """Whether a boot the seam has not yet acknowledged is stalled.
 
     ``seconds_since_growth`` counts from the last observed growth of THIS launch's
-    KSP.log, or from launch when the log has not been touched yet. A ready boot is
-    never stalled, whatever the clocks say. The no-growth rule is checked first: it
-    is the more specific diagnosis (the H69 shape), and it names the silence."""
+    KSP.log, or from launch when the log has not been touched yet. A ready boot
+    (watchdog phase off) is never stalled, whatever the clocks say. Before MAINMENU
+    the no-growth rule is checked first: it is the more specific diagnosis (the H69
+    shape), and it names the silence. ``at_mainmenu`` (phase menu: MAINMENU seen, no
+    seam receipt yet) applies the no-growth rule alone, under the rule name
+    no-seam-receipt (the VB-1 shape); the MAINMENU deadline is already met."""
     if boot_ready:
         return BootStallDecision(False)
     lim = limits or BootWatchdogLimits()
+    if at_mainmenu:
+        if seconds_since_growth >= lim.no_growth_seconds:
+            return BootStallDecision(True, BOOT_STALL_RULE_NO_SEAM_RECEIPT,
+                                     float(seconds_since_growth))
+        return BootStallDecision(False)
     if seconds_since_growth >= lim.no_growth_seconds:
         return BootStallDecision(True, BOOT_STALL_RULE_NO_GROWTH, float(seconds_since_growth))
     if elapsed_since_launch >= lim.mainmenu_deadline_seconds:
@@ -11307,16 +11354,26 @@ def boot_log_scan_start(pre_identity: Optional[Tuple[int, int]],
     return 0 if cur_identity[0] < pre_size else pre_size
 
 
-def scan_boot_ready(carry: bytes, chunk: bytes) -> Tuple[bool, bytes]:
-    """Scan a new KSP.log chunk for ``BOOT_READY_MARKER``. ``carry`` is the tail of
-    the previous chunk, so a marker split across two reads is still found. Returns
+def scan_log_marker(marker: str, carry: bytes, chunk: bytes) -> Tuple[bool, bytes]:
+    """Scan a new KSP.log chunk for ``marker``. ``carry`` is the tail of the previous
+    chunk (per marker), so a marker split across two reads is still found. Returns
     ``(found, next_carry)``."""
-    marker = BOOT_READY_MARKER.encode("ascii")
+    needle = marker.encode("ascii")
     buf = carry + chunk
-    if marker in buf:
+    if needle in buf:
         return True, b""
-    keep = len(marker) - 1
+    keep = len(needle) - 1
     return False, buf[-keep:]
+
+
+def scan_boot_ready(carry: bytes, chunk: bytes) -> Tuple[bool, bytes]:
+    """Scan a new KSP.log chunk for ``BOOT_READY_MARKER`` (see scan_log_marker)."""
+    return scan_log_marker(BOOT_READY_MARKER, carry, chunk)
+
+
+def scan_seam_receipt(carry: bytes, chunk: bytes) -> Tuple[bool, bytes]:
+    """Scan a new KSP.log chunk for ``SEAM_RECEIPT_MARKER`` (see scan_log_marker)."""
+    return scan_log_marker(SEAM_RECEIPT_MARKER, carry, chunk)
 
 
 def last_complete_log_line(tail: bytes) -> str:

@@ -925,7 +925,7 @@ Work:
 
 ---
 
-## VB-1-KSP-HANG-AT-MAIN-MENU: KSP stalled at the main menu before the seam received `LoadGame`, and the watchdog only killed it at 660 s [FILED 2026-10-09 from the nightly release check. OPEN, harness]
+## ~~VB-1-KSP-HANG-AT-MAIN-MENU: KSP stalled at the main menu before the seam received `LoadGame`, and the watchdog only killed it at 660 s~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells; flight owed: any lane (a healthy boot must log `boot ready via=seam-receipt` and PASS; the hang itself is not reproducible on demand). harness]
 
 `VB-1-ghost-vessel-budget` `2026-10-09_0755` read KILLED (budget) after 674 s: the collected
 `KSP.log` (`logs/2026-10-09_1107_VB-1-ghost-vessel-budget`) ends ~0.5 s after `Scene Change : From
@@ -940,6 +940,21 @@ deferred step budget. 2026-10-12: HARNESS-BOOT-HANG-KILLED-BUDGET added a boot-s
 (`INVALID(boot-hang)`), but it covers only the boot BEFORE MAINMENU and is latched off at the
 MAINMENU line, so this post-MAINMENU shape is still open; a follow-up could extend the same
 no-growth rule up to the first seam response.
+
+Fixed (2026-10-25): the watchdog now has a main-menu phase. `BootWatch` keeps tailing this
+launch's KSP.log after MAINMENU until the seam's receipt of the first command
+(`hlib.SEAM_RECEIPT_MARKER`, `[TestCommands] recv id=`, the `TestCommandDiagnostics.Receipt` line)
+or any seam response, and in that phase applies the 90 s no-growth rule alone as rule
+`no-seam-receipt` (`hlib.boot_watch_phase`, `decide_boot_stall(at_mainmenu=True)`). The kill is
+the same retryable `INVALID(boot-hang)`, so VB-1's shape now costs about 90 s plus a retry. It
+stops at the receipt, not at the response: the seam reads commands only outside LOADING, so the
+receipt follows MAINMENU within a second (0.65 s in the collected `flighteff_b11` log), and after
+it the seam owns the command and a LoadGame may sit in a quiet deferral. Cells:
+`BootStallWatchdogTests` (phase table, the no-seam-receipt rule, the receipt scan, the marker
+pinned to the C# receipt literal) and the smoke cell
+`test_a_ksp_wedged_at_the_main_menu_is_killed_invalid_boot_hang_and_retried` (new fake mode
+`menuhang`; mutation-checked: with MAINMENU switching the watchdog off it ends KILLED(budget));
+`slowboot` now logs a receipt and still never trips.
 
 ---
 

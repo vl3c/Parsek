@@ -1676,11 +1676,14 @@ def _ksp_log_identity(path: str) -> Optional[Tuple[int, int]]:
 
 
 class BootWatch:
-    """The boot-stall watchdog's I/O half (decisions: hlib.decide_boot_stall,
-    hlib.boot_log_scan_start, hlib.scan_boot_ready). Watches THIS launch's KSP.log
-    from launch until the boot is READY - hlib.BOOT_READY_MARKER seen, or any seam
-    response line - and then latches off for the rest of the attempt, so it can never
-    fire after MAINMENU. Growth is measured on file size; KSP.log is line-flushed."""
+    """The boot-stall watchdog's I/O half (decisions: hlib.boot_watch_phase,
+    hlib.decide_boot_stall, hlib.boot_log_scan_start, hlib.scan_boot_ready,
+    hlib.scan_seam_receipt). Watches THIS launch's KSP.log from launch through the
+    main menu until the seam has acknowledged the first command - hlib.BOOT_READY_MARKER
+    AND hlib.SEAM_RECEIPT_MARKER seen, or any seam response line - and then latches
+    off for the rest of the attempt. Between MAINMENU and the receipt only the
+    no-growth rule applies (rule no-seam-receipt, todo VB-1-KSP-HANG-AT-MAIN-MENU).
+    Growth is measured on file size; KSP.log is line-flushed."""
 
     TAIL_KEEP_BYTES = 4096
 
@@ -1694,7 +1697,10 @@ class BootWatch:
         self.size = 0
         self.last_growth = launch_time
         self.carry = b""
+        self.receipt_carry = b""
         self.tail = b""
+        self.mainmenu = False
+        self.receipt = False
         self.ready = False
         self.ready_via = ""
         self.next_poll = launch_time
@@ -1708,49 +1714,65 @@ class BootWatch:
                                  "boot-stall watchdog off for this attempt"
                     % (via, now - self.launch_time, self.size))
 
-    def _read_new(self, now: float) -> bool:
-        """Read this launch's new KSP.log bytes; True when the MAINMENU marker is
-        among them. A size change (either way) counts as growth."""
+    def _mark_mainmenu(self, now: float, logger: "HarnessLogger") -> None:
+        self.mainmenu = True
+        logger.info("Boot-Wait", "boot at main menu elapsed=%.1fs kspLogBytes=%d; "
+                                 "watching until the seam's first receipt (rule %s)"
+                    % (now - self.launch_time, self.size,
+                       hlib.BOOT_STALL_RULE_NO_SEAM_RECEIPT))
+
+    def _read_new(self, now: float) -> Tuple[bool, bool]:
+        """Read this launch's new KSP.log bytes; returns (MAINMENU marker among them,
+        seam receipt marker among them). A size change (either way) counts as growth."""
         ident = _ksp_log_identity(self.log_path)
         if self.offset is None:
             start = hlib.boot_log_scan_start(self.pre_identity, ident)
             if start is None:
-                return False
+                return False, False
             self.offset = start
             self.size = ident[0]
             self.last_growth = now
         elif ident is None:
-            return False
+            return False, False
         else:
             if ident[0] != self.size:
                 self.last_growth = now
             if ident[0] < self.offset:
                 self.offset = 0
                 self.carry = b""
+                self.receipt_carry = b""
             self.size = ident[0]
         if self.size <= self.offset:
-            return False
+            return False, False
         try:
             with open(self.log_path, "rb") as fh:
                 fh.seek(self.offset)
                 chunk = fh.read(self.size - self.offset)
         except OSError:
-            return False
+            return False, False
         self.offset += len(chunk)
         self.tail = (self.tail + chunk)[-self.TAIL_KEEP_BYTES:]
-        found, self.carry = hlib.scan_boot_ready(self.carry, chunk)
-        return found
+        found_menu, self.carry = hlib.scan_boot_ready(self.carry, chunk)
+        found_receipt, self.receipt_carry = hlib.scan_seam_receipt(self.receipt_carry, chunk)
+        return found_menu, found_receipt
 
     def poll(self, now: float, logger: "HarnessLogger") -> Optional["hlib.BootStallDecision"]:
         """A stalled decision, or None (ready, not yet due, or not stalled)."""
         if self.ready or now < self.next_poll:
             return None
         self.next_poll = now + BOOT_WATCH_POLL_SECONDS
-        if self._read_new(now):
-            self.mark_ready("mainmenu", now, logger)
+        found_menu, found_receipt = self._read_new(now)
+        if found_menu and not self.mainmenu:
+            self._mark_mainmenu(now, logger)
+        if found_receipt:
+            self.receipt = True
+        phase = hlib.boot_watch_phase(self.mainmenu, self.receipt, False)
+        if phase == hlib.BOOT_WATCH_PHASE_OFF:
+            self.mark_ready("seam-receipt", now, logger)
             return None
         decision = hlib.decide_boot_stall(now - self.launch_time, now - self.last_growth,
-                                          False, self.limits)
+                                          False, self.limits,
+                                          at_mainmenu=(phase == hlib.BOOT_WATCH_PHASE_MENU))
         return decision if decision.stalled else None
 
     def last_line(self) -> str:
@@ -2375,10 +2397,11 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                 return result
 
             now = runtime.now()
-            # Boot-stall watchdog: only until the boot is ready (MAINMENU in this
-            # launch's KSP.log, or any seam response), then latched off. A boot
-            # crash (exit above) outranks it; it fires long before the 660 s
-            # LoadGame wait would have.
+            # Boot-stall watchdog: only until the seam has acknowledged the first
+            # command (MAINMENU and the seam's receipt line in this launch's
+            # KSP.log, or any seam response), then latched off. A boot crash (exit
+            # above) outranks it; it fires long before the 660 s LoadGame wait
+            # would have.
             if boot_watch is not None and not boot_watch.ready:
                 if any_response_seen:
                     boot_watch.mark_ready("seam-response", now, logger)
