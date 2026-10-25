@@ -77,8 +77,12 @@ class TouristSplashdownCareerFixtureTests(unittest.TestCase):
         self.assertEqual("cancel-contract", cancel[0]["args"]["action"])
         self.assertEqual(self.builder.CONTRACT_GUID, cancel[0]["args"]["contract"])
         required = "\n".join(spec["expectations"]["logContracts"]["required"])
-        self.assertIn("Created missing tourist '%s'" % self.builder.TOURIST, required)
         self.assertIn("Tourist hold: '%s'" % self.builder.TOURIST, required)
+        # Owner ruling 2026-10-25: the spawn seats the still-rostered tourist as she is, so
+        # every creation line for her name is forbidden.
+        forbidden = "\n".join(spec["expectations"]["logContracts"]["forbidden"])
+        self.assertIn("Created missing tourist '%s'" % self.builder.TOURIST, forbidden)
+        self.assertIn("Created missing crew '%s'" % self.builder.TOURIST, forbidden)
 
     def test_the_tourist_is_named_only_in_the_live_save(self):
         # The Kerbal X recordings carry Jebediah only: the tourist rides the one flight
