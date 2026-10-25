@@ -101,7 +101,9 @@ required = [
   # The reload is the COLD path: stores rebuilt from the file, the .prec re-read from disk.
   # sidecarEpoch=4 is the on-disk file's epoch; the crashed staged write carried epoch 5
   # (OnSave bumps it before writing and SaveRecordingFiles restores it on failure).
-  "OnLoad: initial load .* loading external files",
+  # Reworded by the GAME_STATE node change (`LoadExternalFiles` now logs "loading game
+  # state"); the first re-flight 2026-10-24_2341 red on the old "loading external files".
+  "OnLoad: initial load - loading game state",
   "OnLoad initial: cleared CommittedTrees, loading 1 tree\\(s\\)",
   "TryProbeTrajectorySidecar: encoding=BinaryV0 .* recording=1d611e7533a64508ae6f3b305a51615e sidecarEpoch=4",
   "ReadBinaryTrajectoryFile: recording=1d611e7533a64508ae6f3b305a51615e .* rebuiltPoints=510 ",

@@ -329,5 +329,63 @@ namespace Parsek.Tests
             Assert.Same(root, resolved);
             Assert.Equal("parsek_rw_eva_parent", resolved.RewindSaveFileName);
         }
+
+        [Fact]
+        public void MergeFlush_RootDocksBeforeAnySplit_KeepsRewindSaveOnRoot()
+        {
+            // A tree whose first boundary is a dock / board merge: the root's own recorder
+            // stops into CaptureAtStop (which alone holds the rewind save) and the merged
+            // child's recorder starts as a promotion without one.
+            var tree = MakeTree();
+            var recorder = new FlightRecorder();
+            SetRecorderProperty(recorder, nameof(FlightRecorder.CaptureAtStop),
+                MakeCaptureAtStop("parsek_rw_merge_first", funds: 1500, sci: 40, rep: 9));
+
+            var parent = ParsekFlight.FlushStoppedRecorderIntoMergeParent(
+                tree, tree.RootRecordingId, recorder, BranchPointType.Board, 120.0);
+
+            var root = tree.Recordings[tree.RootRecordingId];
+            Assert.Same(root, parent);
+            Assert.Equal(TerminalState.Boarded, root.TerminalStateValue);
+            Assert.Equal("parsek_rw_merge_first", root.RewindSaveFileName);
+            Assert.Equal(1500, root.RewindReservedFunds);
+            Assert.Same(root, RecordingStore.GetRewindRecording(root, new List<RecordingTree> { tree }));
+            Assert.Contains(logLines, l => l.Contains("[Flight]")
+                && l.Contains("CreateMergeBranch: copied rewind save 'parsek_rw_merge_first'"));
+        }
+
+        [Fact]
+        public void MergeFlush_RootAlreadyHasRewindSave_FirstWins()
+        {
+            var tree = MakeTree(rootRewindSave: "parsek_rw_original", rootRewindFunds: 100);
+            var recorder = new FlightRecorder();
+            SetRecorderProperty(recorder, nameof(FlightRecorder.CaptureAtStop),
+                MakeCaptureAtStop("parsek_rw_later", funds: 999));
+
+            ParsekFlight.FlushStoppedRecorderIntoMergeParent(
+                tree, tree.RootRecordingId, recorder, BranchPointType.Dock, 50.0);
+
+            var root = tree.Recordings[tree.RootRecordingId];
+            Assert.Equal(TerminalState.Docked, root.TerminalStateValue);
+            Assert.Equal("parsek_rw_original", root.RewindSaveFileName);
+            Assert.Equal(100, root.RewindReservedFunds);
+        }
+
+        [Fact]
+        public void MergeFlush_ParentNotInTree_ReturnsNullAndWarns()
+        {
+            var tree = MakeTree();
+            var recorder = new FlightRecorder();
+            SetRecorderProperty(recorder, nameof(FlightRecorder.CaptureAtStop),
+                MakeCaptureAtStop("parsek_rw_orphan"));
+
+            var parent = ParsekFlight.FlushStoppedRecorderIntoMergeParent(
+                tree, "missing_parent", recorder, BranchPointType.Dock, 50.0);
+
+            Assert.Null(parent);
+            Assert.Null(tree.Recordings[tree.RootRecordingId].RewindSaveFileName);
+            Assert.Contains(logLines, l => l.Contains("[WARN]") && l.Contains("[Flight]")
+                && l.Contains("active parent 'missing_parent' not in tree"));
+        }
     }
 }

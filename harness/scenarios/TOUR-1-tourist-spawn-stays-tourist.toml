@@ -4,7 +4,25 @@ id = "TOUR-1-tourist-spawn-stays-tourist"
 # TOUR-1: A TOURIST STOCK REMOVED COMES BACK AT A SPAWN AS A TOURIST, NEVER AS HIRED CREW
 # (todo GC12-TOURISTS-REBORN-AS-HIRED-CREW and its GC-12 trace, fixed 2026-10-24 on branch
 # claude/project-thread-q9rwbh, commit 9e81c8b, unit tests only before this lane).
-# AUTHORED 2026-10-24 (branch lanes-gc12), NEVER FLOWN.
+# AUTHORED 2026-10-24 (branch lanes-gc12).
+#
+# FLOWN ONCE: `2026-10-24_2323` (automation DLL from main 6aae72758) PARSEK-FAIL, ONE mismatch:
+# the (f) chain. Every other pin held: DEFECT (2) IS LIVE-PROVEN (`Tourist hold:` and
+# `touristHolds=1` printed, the produced ledger row reads `kerbalRole = Tourist`, G5), the
+# rewind, the cancel (`applied=true ... state=Cancelled`) and both count marks (10). The KSC
+# spawn ran (`Vessel spawned for #9 Kerbal X ... sit=LANDED`) but printed no `Created missing
+# tourist`: Masel was still in the roster (type Tourist, state Assigned), so the spawn seated
+# her as she was. G2 MISSED, and not by stock alone. Stock's cancel is
+# `TourismContract.OnCancelled -> ClearKerbalsSoft` (decompiled 1.12.5): a tourist of type
+# Tourist whose rosterStatus is Assigned is KEPT (only `hasToured = true`); every other one is
+# removed (`ClearKerbalsHard`, which removes unconditionally, runs only on Withdrawn /
+# Declined / OfferExpired / GenerateFailed). After the rewind strip Masel is Assigned to no
+# vessel, because `CrewReservationManager.RescueOrphanedCrew` (the #116 rescue the rewind runs
+# after the strip) loops `roster.Crew`, which stock filters to type Crew: a stripped vessel's
+# crew is freed to Available, its tourist is not. So no player step this lane can take
+# between the rewind and the spawn removes her, and defect (1)'s subject cannot print on
+# this flow while that rescue skips tourists (an owner question, filed with the triage, not
+# a spec change). NOT RE-FLOWN; the spec is unchanged below this note.
 #
 # THE TWO DEFECTS THE LANE FLIES.
 #   (1) Every spawn route ran VesselSpawner.EnsureCrewExistInRoster, which re-created a crew

@@ -16,6 +16,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A flight that docks or boards before it ever separates keeps its Rewind button.** A launch
+  that docks before staging, or a kerbal on EVA who climbs into a seat or a hatch, used to commit
+  with no rewind save, so its mission could not be rewound to launch.
+  (MERGE-FIRST-ROOT-LOSES-REWIND-SAVE)
 - **A drill or converter already running when a vessel splits off keeps its later mining.** The
   new branch's recording now notes the running converter, so the end of that recording is no longer
   trimmed away and its mined resources no longer arrive early on a spawn.

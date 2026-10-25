@@ -4,7 +4,21 @@ id = "SEAT-3-foreign-seat-claim-rewind"
 # SEAT-3: A RECORDED KERBAL TAKING THE SEAT OF A FOREIGN ROVER CLAIMS THAT ROVER
 # (todo FOREIGN-SEAT-BOARD-LEAVES-NO-GHOST-CLAIM, fixed 2026-10-24 on branch
 # claude/project-thread-q9rwbh, commit 8cd9e08, unit tests only until this lane).
-# AUTHORED 2026-10-24, NEVER FLOWN: its first flight is a reading run (guesses below).
+# AUTHORED 2026-10-24. FIRST FLIGHTS 2026-10-24_2329 and _2330_a2 (automation DLL from main
+# 6aae72758): INVALID driver-gate on both attempts, no expectation ran. Step 0021
+# InvokeRewindToLaunch was REJECTED `rewind-gate No rewind save available` (tree=7b972842
+# rec=819c6cdc, Bill's EVA root). The recorder on Bill DID capture its rewind save at
+# StartRecording, but the seat couple is the root's first boundary and it is a MERGE:
+# `ParsekFlight.CreateMergeBranch` flushes the stopped recorder's CaptureAtStop into the root
+# through `AppendCapturedDataToRecording`, which carries no rewind save, and, unlike
+# `CreateSplitBranch` / `TryAppendCapturedToTree`, never calls `CopyRewindSaveToRoot`; the
+# commit's `FinalizeTreeRecordings` copy then reads the merged child's recorder, a promotion
+# with no save. So a tree whose root ends in a Dock / Board merge before any split commits
+# with no Rewind-to-Launch: todo MERGE-FIRST-ROOT-LOSES-REWIND-SAVE, fixed on the same branch
+# as this re-cut (`CreateMergeBranch` now copies the stopped recorder's save to the root).
+# This lane now proves that fix too: no F5 before the couple, a required pin that the merge
+# itself copies the save to the root, and the rewind loads that save. Re-flights need a DLL
+# carrying the fix. Everything below is still a reading run.
 #
 # THE BUG. Stock `KerbalEVA.On_seatBoard` runs `part.Couple(seat.part)`: `onPartCouple`
 # fires with from = the kerbal's EVA part and to = the seat part, and the rover survives as
@@ -185,6 +199,8 @@ required = [
   "evagroundscience step complete kerbal=Bill Kerman anchor=rover fuel 0 ",
   "startrecording recordingId=[0-9a-f]+ already=false",
   "Captured rewind save at UT ([0-9.]+): vessel \"Bill Kerman\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
+  # MERGE-FIRST-ROOT-LOSES-REWIND-SAVE: the seat couple (a merge) copies the save to the root.
+  "Captured rewind save at UT [0-9.]+: vessel \"Bill Kerman\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*MISSIONMARK label=seat3-board[\\s\\S]*CreateMergeBranch: copied rewind save '\\1' to root recording '[0-9a-f]+'",
   # ACT 2: the recorded seat board is a couple of Bill's EVA part onto the seat part.
   "MISSIONMARK label=seat3-board[\\s\\S]*evaseatboard start kerbal='Bill Kerman' targetPid=1871615455 seatPart=seatExternalCmd seatId=[0-9]+ dist=",
   "MISSIONMARK label=seat3-board[\\s\\S]*OnPartCouple producer classified: kind=[A-Za-z]+ fromPart=kerbalEVA toPart=seatExternalCmd involvesEva=True",

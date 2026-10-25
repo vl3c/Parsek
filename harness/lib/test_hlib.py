@@ -17726,7 +17726,12 @@ class EvaSeatSourceSyncTests(unittest.TestCase):
 
     def test_the_applier_calls_stocks_own_seat_methods(self):
         applier = self._source("TestCommands", "ParsekTestCommandAddon.EvaSeat.cs")
-        self.assertIn("accepted = evaCtl.BoardSeat(bestSeat);", applier)
+        # The board is the seat's own "Board" action, which records the seat's occupant;
+        # KerbalEVA.BoardSeat alone leaves it null and every saved seat empty (SEAT-2's first
+        # flight, 2026-10-24_2327, seatOccupantsRemapped=0).
+        self.assertIn("bestSeat.BoardSeat();", applier)
+        self.assertIn("accepted = bestSeat.Occupant != null;", applier)
+        self.assertNotIn("evaCtl.BoardSeat(", applier)
         self.assertIn("seatedKerbal.OnDeboardSeat();", applier)
 
     def test_the_verbs_are_registered_on_every_axis(self):

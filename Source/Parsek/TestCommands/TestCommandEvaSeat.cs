@@ -27,8 +27,12 @@ namespace Parsek.TestCommands
     /// seat). They exist for the owner ruling of 2026-10-24: a kerbal leaving an external
     /// command seat is an EVA (a vehicle and a kerbal at the end), never an Undock.
     ///
-    /// <para><b>Stock ground truth (decompiled KSP 1.12.5).</b> Taking a seat is
-    /// <c>KerbalEVA.BoardSeat(KerbalSeat)</c>: it runs the FSM's <c>On_seatBoard</c> event,
+    /// <para><b>Stock ground truth (decompiled KSP 1.12.5).</b> Taking a seat is the seat's
+    /// "Board" part action <c>KerbalSeat.BoardSeat()</c>: it checks the seat bounds, calls
+    /// <c>KerbalEVA.BoardSeat(KerbalSeat)</c> and, only when that returns true, sets the seat's
+    /// <c>occupant</c> (the part <c>KerbalSeat.OnSave</c> writes as <c>occupantID</c>; calling
+    /// <c>KerbalEVA.BoardSeat</c> alone leaves it null, so every saved snapshot holds an empty
+    /// seat). <c>KerbalEVA.BoardSeat</c> runs the FSM's <c>On_seatBoard</c> event,
     /// whose body moves the kerbal onto the seat pivot, couples the kerbal's part to the seat
     /// part (<c>Part.Couple</c>: the EVA vessel is destroyed and the kerbal part joins the
     /// seat's vessel, which Parsek records as a dock merge) and force-activates the merged
