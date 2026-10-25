@@ -622,7 +622,7 @@ and its spawn state resets, so the tip spawns again at the member's end; a membe
 re-producing another tree's spawned vessel of the same pid; and the OnLoad launch-identity strip
 leaves the members and their adoption holders out of its match set
 (`ForeignInventoryTransfer.ExcludeForeignAdoptions`). A pid another holder genuinely re-produces is
-still stripped. Live finding: EVA-11's reading run 2026-10-15_2302.
+still stripped. Live finding: EVA-11's reading run 2026-10-15_2302. The same holds for two more ways a mission reaches a vessel it did not launch: a kerbal who boards a foreign vessel's hatch or takes a seat on it leaves a merged child the in-flight commit adoption-stamps with that vessel's pid, which counts as an adoption member like an InventoryTransfer member in both strips (`ForeignInventoryTransfer.IsForeignMergeAdoptionChild`, 2026-10-25, todo FOREIGN-BOARD-TARGET-STRIPPED-AT-REWIND); and a vessel that one tree spawned and a later tree adopted is never read as re-produced by the adopting member's replay (`RecordingStore.FliesTransferAdoptedVessel`, 2026-10-24, todo REWIND-HOLD-MISSES-CROSS-TREE-ADOPTED-VESSEL). Either way the vessel stays in the rewind save and the plain-rewind hold draws its hold ghost until the later flight reaches it (rewind design section 10.13).
 
 **EVA construction on a foreign vessel (todo EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED,
 2026-10-15).** A part the kerbal attaches to or detaches from a foreign vessel in construction mode
@@ -908,6 +908,8 @@ Detected by `FlightRecorder.OnSoiChange()` when a vessel transitions between cel
 #### D. EVA Exit (Vessel → EVA)
 
 When a Kerbal goes EVA, the recording tree branches at an EVA branch point: the Kerbal becomes the active child recording and the vessel keeps recording as a background child of the same tree.
+
+A kerbal leaving an external command seat, or released by a claw, is an EVA too (owner ruling 2026-10-24: "a kerbal leaving an external seat is an EVA, as we get a vehicle and a kerbal; undock is between vehicles"). Stock reaches Parsek through `Part.Undock` with no `onCrewOnEva` there, so `OnVesselsUndocking` classifies the shape first and sends a vehicle-plus-kerbal split to the same deferred EVA branch: no Rewind Point, never a Re-Fly slot, and with nothing recording it arms the hatch-EVA auto-record once the kerbal holds focus. Only a vehicle-plus-vehicle split is an Undock (`docs/dev/dock-undock-recording-structure.md` section 4.1).
 
 #### E. EVA Boarding (EVA → Vessel)
 
@@ -1562,6 +1564,12 @@ Committed recordings are permanent — they survive rewind. Rewinding moves the 
 Each committed recording has an associated quicksave taken at its launch UT. This quicksave captures the game state needed to resume from that point.
 
 **Timeline immutability (append-only):** Committed recordings are not edited or deleted in place. The player's decision at recording end is commit to timeline or discard. Immutability is append-only rather than absolute: a committed subtree can be superseded by a re-flown fork (Rewind-to-Separation, Section 14.9) - the original rows are retained and marked superseded, never mutated or removed. Nothing in the UI deletes a committed recording or wipes the timeline (the Wipe All buttons and the table's delete button were removed in 0.10.5); to stop seeing a recording the player ticks its Archive checkbox in the Recordings tab instead. Deletion is disallowed because it could orphan spawned vessels, break chain continuity, or create inconsistent ghost playback.
+
+**What a rewind changes (owner rulings 2026-10-22 and 2026-10-24).** V: "rewind to launch just takes the timeline to that moment, it does not unseal anything". A Rewind-to-Launch moves the clock and the world, nothing else:
+
+- Committed recordings, ledger rows, Re-Fly merges and seals all stay. A sealed slot stays sealed, an open slot stays open, and a merged re-fly stays the slot's tip whether it was sealed or not (rewind design section 8, "Rewind-to-launch"; todo REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY).
+- The game lands in the rewind save's own world, not in the latest one.
+- A vessel the committed future flies, docks with, boards, moves cargo with or recovers after the rewind UT is held back: it leaves the world with its crew freed, flight draws it as a hold ghost in its rewind-time form, the Space Center and the Tracking Station show nothing for it until its committed flight's own ghost appears, and that flight's end spawn brings it back (rewind design section 10.13). A vessel another mission reaches this way is held, never removed (Section 4.12).
 
 ### 14.2 Rewind Procedure
 
