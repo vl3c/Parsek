@@ -354,7 +354,7 @@ save load, including a `LoadGame`.
 Reserving the phase-3 names now means the envelope (id/cmd/args, percent-encoding,
 journal, verdicts) is designed once and the later commands slot in without a format break.
 
-The table today is **58 implemented / 4 reserved**. `TestCommandVerbs.cs` is the authority
+The table today is **59 implemented / 4 reserved**. `TestCommandVerbs.cs` is the authority
 (`hlib.IMPLEMENTED_SEAM_VERBS` mirrors it as an ordered list, and a cell pins both lengths);
 the updates below record how each verb arrived.
 
@@ -614,6 +614,13 @@ the updates below record how each verb arrived.
 > the cycle Prefix's own body after its key read (`VesselCycleReFlySwitchPatch.RunCycle`); the
 > optional `forceGhost=true` then calls `ForceSetActiveVessel` on a ghost marker to witness the
 > backstop. Full contract below (`#### CycleVessel`); lane `GC-4-vessel-cycle-skips-ghost-marker`.
+
+> Update (NewGame, 2026-10-25): one ADDITIVE verb, taking the table to **59 implemented / 4
+> reserved**, so stage CS-0 of the scripted campaign program can start from a genuine stock New
+> Game. `NewGame mode=SCIENCE_SANDBOX|CAREER|SANDBOX preset=Easy|Normal|Moderate|Hard save=` quits
+> the Space Center to the main menu the way its pause menu does, replaces `saves/<save>` (keeping
+> `Ships/`) and runs the main menu's own four create-and-start calls with
+> `GameParameters.GetDefaultParameters(mode, preset)`. Full contract below (`#### NewGame`).
 
 > Update (AlarmJump, 2026-10-25): one ADDITIVE verb, taking the table to **57 implemented / 4
 > reserved**, to live-prove GC-13 (todo GC13-ALARM-JUMP-BYPASSES-SWITCH-RULES: the stock Alarm
@@ -4981,6 +4988,82 @@ vehiclePid`); otherwise ERROR `evaseatboard-timeout` / `evaseatleave-timeout`. P
 `TestCommandEvaSeat`, applier `ParsekTestCommandAddon.EvaSeat.cs`, mirrored by
 `EvaSeatSourceSyncTests`.
 
+#### NewGame (additive; a genuine stock New Game over the run's own save)
+
+**Why.** Stage CS-0 of the scripted campaign program needs a career (or science / sandbox game)
+created the way the player creates one, at a named difficulty preset, so every later stage starts
+from stock's own default parameters, pools and facility levels instead of a hand-built fixture.
+
+**Stock ground truth (decompiled KSP 1.12.5).** The Space Center pause menu's "Quit to Main Menu"
+saves `persistent` (`GamePersistence.SaveGame("persistent", HighLogic.SaveFolder,
+SaveMode.OVERWRITE)`) and calls `HighLogic.LoadScene(GameScenes.MAINMENU)`; it is offered only when
+`GameParameters.SpaceCenter.CanLeaveToMainMenu`. The New Game dialog's Start button, for a save
+name that already exists, confirms an overwrite that runs `MainMenu.DeleteDirectory` over
+`saves/<name>` (clear attributes, delete files, recurse, remove the directory), then
+`MainMenu.CreateAndStartGame`: `HighLogic.CurrentGame = GamePersistence.CreateNewGame(name, mode,
+parameters, flagURL, GameScenes.SPACECENTER, EditorFacility.None)`, an internal analytics call
+(`AnalyticsUtil.LogSaveGameCreated`), `GameEvents.onGameNewStart.Fire()` and
+`HighLogic.CurrentGame.Start()`. `CreateNewGame` writes `persistent.sfs`, including every
+`AddToAllGames` scenario module (ParsekScenario among them), and `SpaceCenterMain.Start` reads it
+back from disk.
+
+**Grammar.** `cmd=NewGame mode=<M> preset=<P> save=<S>`, issued at the Space Center. `mode` is one
+of `SCIENCE_SANDBOX`, `CAREER`, `SANDBOX` and `preset` one of `Easy`, `Normal`, `Moderate`, `Hard`
+(stock's `Game.Modes` / `GameParameters.Preset` names, case-sensitive, fail-closed: `Custom` and
+the other modes are refused). `save` is required and must equal the loaded save folder, so the verb
+can only replace the run's own save; the pre-launch validator accepts `${runSave}` or the literal
+run save name and nothing else, and rejects any other key. NewGame's `mode` shares a key name with
+`UiAction`'s closed `mode` row; hlib's closed-args loop exempts NewGame's own three keys and
+`validate_new_game_step` owns them.
+
+**Behavior.** Dispatch is `RequiresGameLoaded` and rejects `load-in-flight`. The executor refuses
+(REJECTED, no side effect) in this order: the arg reasons `newgame-mode-arg-missing`,
+`-mode-arg-invalid`, `-preset-arg-missing`, `-preset-arg-invalid`, `-save-arg-missing`,
+`-save-arg-invalid` (a path separator, `..`, `:`, a leading `#`, surrounding spaces or an invalid
+filename char), then the gates `newgame-wrong-scene` (not SPACECENTER), `-save-mismatch`,
+`-main-menu-locked` (`CanLeaveToMainMenu` false), `-recorder-live`, `-active-tree`, `-pending-tree`,
+`-merge-dialog-pending`, `-refly-session`, `-switch-segment-session`, `-merge-journal`. The
+SPACECENTER -> MAINMENU exit raises no Parsek modal (the scene-exit interceptor handles exits from
+FLIGHT only); the Parsek-state gates are quiescence checks, so a run never throws away a recording
+or a merge in flight without saying so. A live GUI mock session refuses `save-refused-gui-mock`.
+Accepted, it logs the start line, runs the pause menu's save and scene request, and waits.
+
+**Ships/ is kept.** The only deviation from stock's overwrite: the top-level `Ships/` folder of
+`saves/<save>` survives the delete. The harness stages the fixture's craft and the shared ship
+library into `saves/<runSave>/Ships/VAB`, which `GoToEditor craft=` reads; stock would delete
+them, and a later stage could not build anything. Nothing else the harness needs lives in the save
+folder (the command channel files sit at the KSP root, the seed baseline in the results dir), so
+everything else is deleted, Parsek's sidecars included: a new game has no recordings. The applier's
+four delete sites are pinned in `scripts/parsek-file-deletes-allowlist.txt` (the one whole-folder
+entry there: every save that could name a sidecar goes with the folder, so `ParsekFileCollector`'s
+rule has nothing left to protect).
+
+**Phases.** TWO-PHASE, 300 s budget, a `DEFERRED_SEAM_VERB`, world-mutating tail role, `recording`
+post-mission role. Exiting: the completion polls until the main menu is up (MAINMENU loaded, no
+current game, a `MainMenu` object) for 5 consecutive settled polls, then deletes the save, takes the
+menu's `DefaultFlagURL` (fallback `Squad/Flags/default`), runs stock's calls (the analytics call
+skipped, it is internal) and moves to Starting. Starting: OK once the Space Center is loaded with a
+game whose save folder, mode and preset match, ParsekScenario present and the mode's pools up
+(Funding, R&D and Reputation in CAREER, R&D in SCIENCE_SANDBOX), held 3 consecutive polls. A
+return to the main menu is ERROR `newgame-returned-to-menu`, a game of another mode or preset
+`newgame-mismatch`; other failures are `newgame-delete-failed`, `newgame-create-failed`,
+`newgame-exit-timeout` and `newgame-start-timeout`. `ParsekScenario.OnMainMenuTransition` resets the
+save-folder tracking on the way out, so the next OnLoad is Cold and the first-contact backup skips
+with `brand-new-empty`.
+
+**Lines and payload.** `newgame start mode= preset= save= scene=SPACECENTER - quitting to the main
+menu the way the Space Center's pause menu does`; `newgame quit to main menu: persisted= save=
+analytics=skipped(internal) - requesting MAINMENU`; `newgame create mode= preset= save= flag=
+deletedFiles= deletedDirs= preserved=Ships|none`; `newgame created title='..' saveFolder= seed=
+onGameNewStart=fired - starting the game (Game.Start -> SPACECENTER)`; the rate-limited `newgame
+wait phase= ...`; and `newgame complete mode= preset= save= scene=SPACECENTER seed= [funds=]
+[science=] [rep=] elapsed=X.Xs` (pools in `R` invariant form, CAREER all three, SCIENCE_SANDBOX
+science only). OK payload keys: `mode preset save scene seed`, plus `funds science rep` in CAREER
+and `science` in SCIENCE_SANDBOX (`-` when the pool could not be read). A refusal logs `newgame
+rejected reason=<reason> ...`; an error logs `newgame error <reason> ... elapsed=X.Xs`. Pure half
+`TestCommandNewGame`, applier `ParsekTestCommandAddon.NewGame.cs`, xUnit `TestCommandNewGameTests`,
+mirrored by hlib's `NewGameSourceSyncTests`.
+
 #### AlarmJump (additive; GC-13, the stock alarm dialog's Jump)
 
 **Why.** Decompiled `AlarmClockMessageDialog.OnJump` (KSP 1.12.5) calls
@@ -5213,6 +5296,7 @@ wall-clock. Some verbs need a different bound and override the default:
 | `CycleVessel` | (default) 60 s | SINGLE-PHASE: the press and a switch between loaded vessels run inside the call; the budget only bounds the not-in-flight dispatch defer |
 | `AlarmJump` | (default) 60 s | SINGLE-PHASE: the alarm is added, fired, its Jump pressed and its dialog closed inside the call; a far switch only requests its scene load there |
 | `EvaSeatBoard` / `EvaSeatLeave` | (default) 60 s | TWO-PHASE: stock's board and leave land within a frame and the completion holds 10 polls past Parsek's dock merge; each ends ERROR `-timeout` rather than letting the pump convert it |
+| `NewGame` | 300 s | TWO-PHASE, the `ReFlyRevert` size: the pause menu's save and the main menu load, a 5-poll menu settle, the delete and stock's create, then the Space Center load from the new `persistent.sfs`; a `DEFERRED_SEAM_VERB` |
 | `LaunchSiteProbe` | (default) 60 s | TWO-PHASE: no scene load on the designed path; the picker list wait, the dialog wait (each up to 10 s) and a 1 s settle; a settle that never ends is ERROR `-not-settled` |
 | `ReFlyRevert` | 300 s | TWO-PHASE, the `InvokeRewind` / `InvokeRewindToLaunch` size: the resume settle (up to 30 s) and the stock menus, then Discard's quicksave `LoadGame` plus the Space Center / editor load or Retry's flight reload; a `DEFERRED_SEAM_VERB` |
 | `AnswerMergeDialog` | 60 s | MEASURED 2026-10-06 over 859 collected runs (2026-09-10 to 2026-10-05): OK n=65, p50 3.3 s, p99 6.6 s, max 7.2 s. 4x the OK max is 29 s; the floor is twice `TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds` (30 s), which the re-fly fallback spends before the driven exit (unit-guarded). Was 120 s; all 6 non-OK outcomes (4 `no-refly-dialog` TIMEOUT, 2 `answer-timeout` ERROR) waited the full 120 s and none was a slow success |

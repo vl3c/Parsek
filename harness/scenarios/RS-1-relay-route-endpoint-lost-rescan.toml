@@ -66,10 +66,10 @@ tier = "nightly"
 # loss at UT 1163.66 with `reason=no-candidate-after-transport-exclusion` (both C and B are
 # route transports: B's pid is a source recording's too), the first Re-scan's miss, and the
 # listing at the loss `status=EndpointLost completed=1 ... dispatched=1 debited=0
-# pickedUp=1 delivered=0 paused=0 resumed=1`. `completed=1` with `delivered=0` is the
+# pickedUp=1 delivered=0 paused=0 resumed=1`. `completed=1` with `delivered=0` was the
 # multi-stop crossing counting a cycle whose delivery lost its endpoint (todo
-# LOOP-ROUTE-LOST-DELIVERY-COUNTED-COMPLETED); the pins accept either count so the fix of
-# that bug does not red this lane.
+# LOOP-ROUTE-LOST-DELIVERY-COUNTED-COMPLETED, fixed the same day): the loss now pins
+# `completed=0 skipped=1`.
 #
 # GUESSES (not measured; read a first red against these):
 #   * The append loads as a fourth committed tree with the relay's trees untouched (the
@@ -172,8 +172,8 @@ required  = [
   # THE LOSS: stop 1's delivery re-resolves and finds nothing; the route stops.
   "(?s)MISSIONMARK label=rs1-recovered (?:(?!MISSIONMARK label=rs1-lost ).)*Delivery: route [0-9a-f]{8} cycle=cycle-0 endpoint lost at delivery reason=no-candidate-after-transport-exclusion",
   "EndpointLost: route [0-9a-f]{8} reason=endpoint-destroyed-at-delivery:no-candidate-after-transport-exclusion \\(at delivery\\)",
-  # completed=1 skipped=0 measured; 0/1 once LOOP-ROUTE-LOST-DELIVERY-COUNTED-COMPLETED is fixed.
-  "(?s)MISSIONMARK label=rs1-lost (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RS1 Relay' status=EndpointLost (?:completed=1 skipped=0|completed=0 skipped=1) [^\\r\\n]* dispatched=1 [^\\r\\n]* delivered=0 paused=0 resumed=1 ",
+  # The lost, undelivered cycle counts skipped (LOOP-ROUTE-LOST-DELIVERY-COUNTED-COMPLETED).
+  "(?s)MISSIONMARK label=rs1-lost (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RS1 Relay' status=EndpointLost completed=0 skipped=1 [^\\r\\n]* dispatched=1 [^\\r\\n]* delivered=0 paused=0 resumed=1 ",
   # RE-SCAN #1, THE MISS: the button's own line, stop 0 found, stop 1 not.
   "\\[UI\\] Logistics: endpoint re-scan route=[0-9a-f]{8} stops=2 resolved=1/2 \\[1:'B' 2:unresolved\\('(?:no-candidate-after-transport-exclusion|no-vessel-within-radius)'\\)\\] \\(still EndpointLost\\)",
   "routecommand complete action=rescan route=\\S+ name='RS1 Relay' match=name stops=2 resolved=1/2 allResolved=false recovered=false statusBefore=EndpointLost status=EndpointLost",

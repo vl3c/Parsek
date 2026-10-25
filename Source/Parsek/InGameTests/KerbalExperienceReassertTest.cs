@@ -47,11 +47,25 @@ namespace Parsek.InGameTests
                 return;
             }
 
+            // The re-assert below walks to the clock when committed rows lie ahead of it (a
+            // rewind leaves a later recovery's XP row in the committed future), so a row past
+            // the clock is not owed to the live roster yet. Same cutoff as the recalc: none
+            // while the clock is not ready.
+            double clockUT = ParsekScenario.GetCurrentTimelineUTForLedgerRecalc();
+            double expectedCutoffUT = LedgerOrchestrator.IsCurrentUtReadyForCutoff(clockUT)
+                ? clockUT : double.NaN;
+            int aheadOfClock = 0;
+
             var expectedByKerbal = new Dictionary<string, HashSet<KerbalCareerLogEntry>>();
             foreach (var action in els)
             {
                 if (action == null) continue;
                 if (action.Type != GameActionType.KerbalExperience) continue;
+                if (!LedgerGroundTruthHarness.IsAtOrBeforeClock(action, expectedCutoffUT))
+                {
+                    aheadOfClock++;
+                    continue;
+                }
                 if (string.IsNullOrEmpty(action.KerbalName)) continue;
                 if (string.IsNullOrEmpty(action.KerbalCareerEntries)) continue;
 
@@ -68,8 +82,8 @@ namespace Parsek.InGameTests
             if (expectedByKerbal.Count == 0)
             {
                 InGameAssert.Skip(
-                    "No KerbalExperience rows in the effective ledger — recover a crewed vessel "
-                    + "first, then rerun. (A superseded-only recovery correctly produces none, "
+                    $"No KerbalExperience rows at or before the clock in the effective ledger (aheadOfClock={aheadOfClock}) "
+                    + "— recover a crewed vessel first, then rerun. (A superseded-only recovery correctly produces none, "
                     + "which is the other half of this check and is asserted by the ELS walk itself.)");
                 return;
             }
@@ -79,7 +93,7 @@ namespace Parsek.InGameTests
             // clock when committed rows lie ahead of it, as every production patch does, so
             // committed future earnings never reach the live pools a sibling cell reads.
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
-                ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(), "kerbal-experience-reassert");
+                clockUT, "kerbal-experience-reassert");
 
             int kerbalsChecked = 0;
             int entriesChecked = 0;
@@ -127,7 +141,7 @@ namespace Parsek.InGameTests
 
             ParsekLog.Info("LedgerGroundTruth",
                 $"KerbalExperienceReassert: kerbals={kerbalsChecked} entries={entriesChecked} "
-                + $"absent={absentKerbals} missing={missingReport.Count}");
+                + $"absent={absentKerbals} missing={missingReport.Count} aheadOfClock={aheadOfClock}");
 
             InGameAssert.AreEqual(0, missingReport.Count,
                 "Every career-log entry the surviving ledger credits must be present on the live "

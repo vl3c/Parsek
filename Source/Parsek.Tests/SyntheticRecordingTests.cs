@@ -10532,6 +10532,208 @@ namespace Parsek.Tests
                 });
         }
 
+        // ---------------------------------------------------------------------------------
+        // leaves-departure preset (RSC-2-leaves-warp): ONE committed single-recording tree on
+        // eva2-lko-crewed (CI-9's host) whose ghost is a Real Spawn Control `Leaves` row IN
+        // ORBIT. The recording rides the focused Kerbal X's own orbit about 140 m ahead
+        // (CI-9's lead) for five minutes, then burns 20 m/s prograde onto a higher orbit and
+        // ends ten minutes after that, so its row reads Leaves and its Warp jumps to just
+        // before the burn (design-realspawn-time-jump-move.md). Its vessel is absent from the
+        // save (its own derived pid and launch guid), so nothing claims it and nothing
+        // spawns before its end. One point only, so the load-time tail trim leaves it whole.
+        // ---------------------------------------------------------------------------------
+
+        internal const string LeavesDepartureName = "LDP Target";
+        internal const string LeavesDepartureRecordingId = "ldp-target-rec";
+        /// <summary>Seconds after the save UT at which the recording burns off the orbit.</summary>
+        internal const double LeavesDepartureBurnOffsetSeconds = 300.0;
+        /// <summary>Seconds after the save UT at which the recording ends (its spawn UT).</summary>
+        internal const double LeavesDepartureEndOffsetSeconds = 900.0;
+        internal const double LeavesDepartureBurnDeltaV = 20.0;
+        internal const double LeavesDepartureBurnSeconds = 2.0;
+
+        internal static uint LeavesDeparturePid =>
+            ScenarioWriter.DeriveVesselPersistentId(LeavesDepartureRecordingId);
+        internal static string LeavesDepartureGuid =>
+            ScenarioWriter.DeriveVesselLaunchGuid(LeavesDepartureRecordingId);
+
+        /// <summary>The coast before the burn: the Kerbal X's orbit, led by CI-9's lead.</summary>
+        internal static OrbitSegment LeavesDepartureCoast(double baseUT)
+        {
+            return new OrbitSegment
+            {
+                startUT = baseUT,
+                endUT = baseUT + LeavesDepartureBurnOffsetSeconds,
+                inclination = ChainTipDockKerbalXInc,
+                eccentricity = ChainTipDockKerbalXEcc,
+                semiMajorAxis = ChainTipDockKerbalXSma,
+                longitudeOfAscendingNode = ChainTipDockKerbalXLan,
+                argumentOfPeriapsis = ChainTipDockKerbalXLpe,
+                meanAnomalyAtEpoch = ChainTipDockKerbalXMna + ChainTipDockMnaLead,
+                epoch = SinglePointHoldSaveUT,
+                bodyName = "Kerbin",
+            };
+        }
+
+        /// <summary>
+        /// The orbit after an impulsive <see cref="LeavesDepartureBurnDeltaV"/> prograde burn
+        /// at the end of the coast. Both conversions run through the extrapolator's element
+        /// I/O with the same (headless) element-frame angle, so the result is in the coast's
+        /// own element frame.
+        /// </summary>
+        internal static OrbitSegment LeavesDepartureRaisedOrbit(double baseUT)
+        {
+            OrbitSegment coast = LeavesDepartureCoast(baseUT);
+            double burnUT = coast.endUT;
+            Assert.True(BallisticExtrapolator.TwoBodyOrbit.TryCreateFromSegment(
+                coast, KerbinGravParameter, out BallisticExtrapolator.TwoBodyOrbit before));
+            before.GetStateAtUT(burnUT, out Vector3d r, out Vector3d v);
+            Vector3d v1 = v + v.normalized * LeavesDepartureBurnDeltaV;
+            Assert.True(BallisticExtrapolator.TwoBodyOrbit.TryCreate(
+                r, v1, KerbinGravParameter, burnUT, out BallisticExtrapolator.TwoBodyOrbit after));
+            double zup = BallisticExtrapolator.GetStockElementFrameZupAngleRadians();
+            double lanRad = after.LongitudeOfAscendingNode + zup;
+            lanRad %= 2.0 * Math.PI;
+            if (lanRad < 0.0) lanRad += 2.0 * Math.PI;
+            return new OrbitSegment
+            {
+                startUT = burnUT,
+                endUT = baseUT + LeavesDepartureEndOffsetSeconds,
+                inclination = after.Inclination * 180.0 / Math.PI,
+                eccentricity = after.Eccentricity,
+                semiMajorAxis = after.SemiMajorAxis,
+                longitudeOfAscendingNode = lanRad * 180.0 / Math.PI,
+                argumentOfPeriapsis = after.ArgumentOfPeriapsis * 180.0 / Math.PI,
+                meanAnomalyAtEpoch = after.MeanAnomalyAtEpoch,
+                epoch = after.Epoch,
+                bodyName = "Kerbin",
+            };
+        }
+
+        internal static RecordingBuilder LeavesDepartureRecording(double baseUT)
+        {
+            OrbitSegment coast = LeavesDepartureCoast(baseUT);
+            OrbitSegment raised = LeavesDepartureRaisedOrbit(baseUT);
+            var b = new RecordingBuilder(LeavesDepartureName)
+                .WithRecordingId(LeavesDepartureRecordingId)
+                .WithVesselPersistentId(LeavesDeparturePid)
+                .WithRecordedVesselGuid(LeavesDepartureGuid);
+            b.AddPoint(baseUT, ChainTipDockKerbalXLat, ChainTipDockKerbalXLon, ChainTipDockKerbalXAlt);
+            b.AddOrbitSegment(coast.startUT, coast.endUT,
+                inc: coast.inclination, ecc: coast.eccentricity, sma: coast.semiMajorAxis,
+                lan: coast.longitudeOfAscendingNode, argPe: coast.argumentOfPeriapsis,
+                mna: coast.meanAnomalyAtEpoch, epoch: coast.epoch);
+            // The departure burn: the FX a player sees right after the Leaves Warp.
+            b.AddPartEvent(coast.endUT, ChainTipDockEnginePartPid, (int)PartEventType.EngineIgnited,
+                "liquidEngineMini.v2", value: 1f);
+            b.AddPartEvent(coast.endUT + LeavesDepartureBurnSeconds, ChainTipDockEnginePartPid,
+                (int)PartEventType.EngineShutdown, "liquidEngineMini.v2");
+            b.AddOrbitSegment(raised.startUT, raised.endUT,
+                inc: raised.inclination, ecc: raised.eccentricity, sma: raised.semiMajorAxis,
+                lan: raised.longitudeOfAscendingNode, argPe: raised.argumentOfPeriapsis,
+                mna: raised.meanAnomalyAtEpoch, epoch: raised.epoch);
+            b.WithTerminalState((int)TerminalState.Orbiting);
+            b.WithTerminalOrbit("Kerbin", raised.semiMajorAxis, raised.eccentricity,
+                raised.inclination, raised.longitudeOfAscendingNode, raised.argumentOfPeriapsis,
+                raised.meanAnomalyAtEpoch, raised.epoch);
+            b.WithGhostVisualSnapshot(LeavesDepartureSnapshot(raised));
+            b.WithVesselSnapshot(LeavesDepartureSnapshot(raised));
+            return b;
+        }
+
+        private static VesselSnapshotBuilder LeavesDepartureSnapshot(OrbitSegment terminal)
+        {
+            return VesselSnapshotBuilder.FlatProbeLander(LeavesDepartureName, LeavesDeparturePid)
+                .WithType("Probe")
+                .WithLaunchGuid(LeavesDepartureGuid)
+                .AsOrbiting(terminal.semiMajorAxis, terminal.eccentricity, terminal.inclination,
+                    lan: terminal.longitudeOfAscendingNode, argPe: terminal.argumentOfPeriapsis,
+                    mna: terminal.meanAnomalyAtEpoch, epoch: terminal.epoch);
+        }
+
+        // catches: a raised orbit that does not start where the coast ends (the ghost would
+        // jump at the burn), or a burn that is not the authored prograde 20 m/s.
+        [Fact]
+        public void LeavesDeparture_TheBurnIsAContinuousProgradeRaise()
+        {
+            double baseUT = SinglePointHoldSaveUT;
+            OrbitSegment coast = LeavesDepartureCoast(baseUT);
+            OrbitSegment raised = LeavesDepartureRaisedOrbit(baseUT);
+            double burnUT = coast.endUT;
+            Assert.True(BallisticExtrapolator.TryPropagate(coast, KerbinGravParameter, burnUT,
+                out Vector3d r0, out Vector3d v0));
+            Assert.True(BallisticExtrapolator.TryPropagate(raised, KerbinGravParameter, burnUT,
+                out Vector3d r1, out Vector3d v1));
+            Assert.True((r1 - r0).magnitude < 0.5, "position jump at the burn " + (r1 - r0).magnitude);
+            Vector3d dv = v1 - v0;
+            Assert.Equal(LeavesDepartureBurnDeltaV, dv.magnitude, 2);
+            Assert.True(Vector3d.Dot(dv.normalized, v0.normalized) > 0.9999);
+            Assert.True(raised.semiMajorAxis > coast.semiMajorAxis + 10000.0);
+            Assert.Equal(coast.inclination, raised.inclination, 4);
+        }
+
+        // catches: a preset whose row is not a Leaves row at the press (no departure, a
+        // departure at the wrong UT, or a ghost outside the warp radius).
+        [Fact]
+        public void LeavesDeparture_IsALeavesRowInsideTheWarpRadius()
+        {
+            RecordingTree tree = MaterializeBackgroundClaimTree(
+                new[] { LeavesDepartureRecording(SinglePointHoldSaveUT) });
+            Recording rec = tree.Recordings[LeavesDepartureRecordingId];
+            Assert.Equal(LeavesDepartureRecordingId, tree.RootRecordingId);
+            Assert.Equal(2, rec.OrbitSegments.Count);
+            Assert.Equal(SinglePointHoldSaveUT + LeavesDepartureEndOffsetSeconds, rec.EndUT, 6);
+
+            double pressUT = SinglePointHoldSaveUT + 7.0;
+            var dep = SelectiveSpawnUI.ComputeDepartureInfo(rec, pressUT);
+            Assert.True(dep.willDepart);
+            Assert.Equal(DepartureKind.NewOrbit, dep.kind);
+            Assert.Equal(SinglePointHoldSaveUT + LeavesDepartureBurnOffsetSeconds, dep.departureUT, 6);
+            // The Warp lands RewindToLaunchLeadTimeSeconds before the burn, on the coast.
+            double t1 = TimeJumpManager.ResolveJumpLeadTarget(dep.departureUT, pressUT);
+            Assert.Equal(dep.departureUT - RecordingStore.RewindToLaunchLeadTimeSeconds, t1, 6);
+            Assert.True(TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, t1).HasValue);
+
+            // Same along-track lead as CI-9's target: inside the button radius, clear of the
+            // 16 m Kerbal X Probe.
+            OrbitSegment coast = LeavesDepartureCoast(SinglePointHoldSaveUT);
+            OrbitSegment kerbalX = coast;
+            kerbalX.meanAnomalyAtEpoch = ChainTipDockKerbalXMna;
+            Assert.True(BallisticExtrapolator.TryPropagate(coast, KerbinGravParameter, pressUT,
+                out Vector3d rGhost, out _));
+            Assert.True(BallisticExtrapolator.TryPropagate(kerbalX, KerbinGravParameter, pressUT,
+                out Vector3d rKerbalX, out _));
+            Assert.InRange((rGhost - rKerbalX).magnitude, 50.0, ParsekFlight.NearbySpawnRadius - 50.0);
+        }
+
+        /// <summary>
+        /// Injects ONLY <see cref="LeavesDepartureRecording"/> (the <c>leaves-departure</c>
+        /// preset behind <c>RSC-2-leaves-warp</c>): one committed single-recording tree, no
+        /// RewindPoint sidecar. Authored against <c>eva2-lko-crewed</c>'s focused Kerbal X, so
+        /// a target save at any other UT is refused.
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [InjectTargetFact("leaves-departure-fixture")]
+        public void InjectLeavesDeparture()
+        {
+            InjectSingleSubjectPreset("leaves-departure-fixture",
+                (writer, baseUT) =>
+                {
+                    Assert.True(Math.Abs(baseUT - SinglePointHoldSaveUT) < 1e-3,
+                        "leaves-departure is authored against eva2-lko-crewed (UT="
+                        + SinglePointHoldSaveUT.ToString("R", CultureInfo.InvariantCulture)
+                        + "); target save UT is "
+                        + baseUT.ToString("R", CultureInfo.InvariantCulture));
+                    writer.AddRecordingAsTree(LeavesDepartureRecording(baseUT));
+                },
+                content =>
+                {
+                    Assert.Contains("persistentId = "
+                        + ChainTipDockKerbalXPid.ToString(CultureInfo.InvariantCulture), content);
+                    Assert.Contains(LeavesDepartureRecordingId, content);
+                });
+        }
+
         [Trait("Category", "Manual")]
         [InjectTargetFact("test career")]
         public void InjectAllRecordings()

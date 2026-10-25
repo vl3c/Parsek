@@ -1219,7 +1219,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # stock's own OnJump (AJ-1, GC-13).
         # 58 / 4 after LaunchSiteProbe, an ADDITION by one: Launch pressed on an obstructed
         # site and stock's launch-site-clear dialog read and pressed (LS-1).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 58)
+        # 59 / 4 after NewGame, an ADDITION by one: a genuine stock new game under the loaded
+        # save's name (the scripted campaign program's CS-0 host).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 59)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -10395,6 +10397,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # THE SCRIPTED CAMPAIGN FIXTURE BUILDERS, 2026-10-25.
+        "CS-0-new-science-game.toml": "tier=operator as a FIXTURE BUILDER, NOT debt: it creates a genuine stock New Game (Science, Normal) through the NewGame seam verb on the stock-tree instance, and its produced save is harvested once as `cs-science-new`, the host of CS-1. Its value is the harvested fixture, not a regression floor. Owed: the first flight and the harvest",
+        "CS-0-new-career-game.toml": "tier=operator as a FIXTURE BUILDER, NOT debt: CS-0-new-science-game's Career twin; its produced save is harvested once as `cs-career-new`, the host of the Career half of the campaign ladder. Owed: the first flight and the harvest",
         # THE GC-3 INERT-TREE LANE, 2026-10-22.
         "GC-3-other-generation-tree-kept-inert.toml": "tier=operator by the calibration discipline, NOT debt: the live proof of GC-3 (PR #2158, todo GC3-SCHEMA-REJECTED-TREES-LOSE-EARNED-VALUE) on the derived `career-earned-pad-oldgen` fixture (tree-level generation 3): the tree is set aside inert on a cold boot, written back verbatim by a SaveGame, and set aside again by a cold save-file reload, with its tagged ledger rows kept. AUTHORED 2026-10-22, LIVE-PROVEN on its first flight `2026-10-22_1226`; every pinned count is derived from source and the fixture bytes (kept equal by test_career_earned_pad_oldgen.GC3SpecFixtureSyncTests)",
         # THE REWIND READ-BACK GUARD PAIR, 2026-09-27.
@@ -10955,9 +10960,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Strategies across timeline operations (todo CROSS-SYSTEM-COVERAGE-GAPS-2026-10-16,
         # owner 2026-10-24: strategy activation must be exact); operator by the same
         # reading-run discipline.
-        "STR-1-strategies-across-rewind-and-f9.toml": "operator by the reading-run discipline; AUTHORED 2026-10-25, NEVER FLOWN (career-pad-craft: Bail-Out Grant and Appreciation Campaign activated at the Space Center, Rewind-to-Launch, the activations crossed in flight twice around an F9; the gate switches Appreciation on at its UT both times and never re-pays the one-shot grant, then LedgerGroundTruth after a cold load); the batch split and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
-        "STR-2-strategy-crossed-in-refly.toml": "operator by the reading-run discipline; AUTHORED 2026-10-25, NEVER FLOWN (L13's host and Re-Fly: Appreciation Campaign activated at the Space Center after the separation stays off in stock from the invoke until the session's clock reaches it, the gate switches it on during the re-flown descent, then LedgerGroundTruth after the merge); the batch split and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
-        "STR-3-revert-takes-back-strategy-share.toml": "operator by the reading-run discipline; AUTHORED 2026-10-25, NEVER FLOWN (QL-2c's hop under Leadership Initiative, then Revert to Launch: the strategy's tagged share rows are pruned with the reverted flight and LedgerGroundTruth on the pad finds no divergence); the batch split and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        "STR-1-strategies-across-rewind-and-f9.toml": "operator by the reading-run discipline; AUTHORED 2026-10-25, LIVE-PROVEN on its first flight 2026-10-25_1151 (career-pad-craft: Bail-Out Grant and Appreciation Campaign activated at the Space Center, Rewind-to-Launch, the activations crossed in flight twice around an F9; the gate switches Appreciation on at its UT both times and never re-pays the one-shot grant, then LedgerGroundTruth after a cold load); pinned whole off that flight, the tier is promoted by its measured p50",
+        "STR-2-strategy-crossed-in-refly.toml": "operator by the reading-run discipline; AUTHORED 2026-10-25, LIVE-PROVEN on its first flight 2026-10-25_1153 (L13's host and Re-Fly: Appreciation Campaign activated at the Space Center after the separation stays off in stock from the invoke until the session's clock reaches it, the gate switches it on during the re-flown descent, then LedgerGroundTruth after the merge); pinned whole off that flight, the tier is promoted by its measured p50",
+        "STR-3-revert-takes-back-strategy-share.toml": "operator by the reading-run discipline; AUTHORED 2026-10-25, LIVE-PROVEN on its first flight 2026-10-25_1148 (QL-2c's hop under Leadership Initiative, then Revert to Launch: the strategy's tagged share rows are pruned with the reverted flight and LedgerGroundTruth on the pad finds no divergence); pinned whole off that flight, the tier is promoted by its measured p50",
         "RF-L2-booster-refly-lands-recovery-added.toml": "operator by the reading-run discipline; AUTHORED 2026-10-20, NEVER FLOWN (design 2.12, the purpose of Re-Fly survives: GS-1's hop in career-gs1-two-stage-pad commits with the booster under canopy and its slot open, the booster is re-flown, lands, merges and is recovered from the Tracking Station: a new funds earning, nothing tombstoned); the landing under the RP's staged chute, the seal reason and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
         "AJ-1-alarm-jump-refused-in-refly.toml": "operator by the reading-run discipline; AUTHORED 2026-10-25, NEVER FLOWN (GC-13: RF-L3's host and chain with the switch click replaced by the new AlarmJump verb, a stock alarm on the unrelated station fires with its Jump button hidden and a press of stock's OnJump is refused on the alarmJump path, then the merge dialog's Discard); the header's guesses are re-pinned off the first flight, then the tier is promoted by its measured p50",
         "RF-L3-refly-switch-refused.toml": "operator by the reading-run discipline; AUTHORED 2026-10-20, NEVER FLOWN (design 2.12 Rule 3: S4.3's Re-Fly of the world-preservation booster slot, a map Switch-To click on the unrelated station the rewind point kept is REJECTED refly-switch-refused:notSessionVessel and logged Switch refused path=mapSwitchTo, then the merge dialog's Discard); the refusal reason is re-pinned off the first flight, then the tier is promoted by its measured p50",
@@ -13963,6 +13968,18 @@ class SweepStepVocabularyTests(unittest.TestCase):
         # declaration keeps its type-only check.
         self.assertEqual([], hlib._check_param_type("x", ["anything"],
                                                     {"type": "list"}))
+
+    def test_hlib_rejects_an_unknown_string_enum_member_at_admit(self):
+        # The same closed vocabulary on a STRING param (science_bench_recover's
+        # recoverCreditPool): a typo must die at ADMIT, not select a default.
+        decl = {"type": "string", "values": ["funds", "science"]}
+        self.assertEqual([], hlib._check_param_type("recoverCreditPool", "science", decl))
+        errs = hlib._check_param_type("recoverCreditPool", "Science", decl)
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("allowed: funds,science", errs[0])
+        self.assertNotEqual([], hlib._check_param_type("recoverCreditPool", 1, decl))
+        # A string param with NO `values` keeps its type-only check.
+        self.assertEqual([], hlib._check_param_type("x", "anything", {"type": "string"}))
 
 
 class GhostLifecycleVerifierWiringTests(unittest.TestCase):
@@ -17952,6 +17969,119 @@ class EvaSeatSourceSyncTests(unittest.TestCase):
         self.assertEqual(1, len(errs), errs)
         self.assertIn("driver.steps[3]", errs[0])
         self.assertIn("silently ignored", errs[0])
+
+
+class NewGameSourceSyncTests(unittest.TestCase):
+    """`NewGame`. Reads OUTSIDE harness/: the verb, the three arg keys, the mode and preset
+    tokens, the kept save entry and the refusal / error reasons (IN ORDER) of the
+    comment-stripped TestCommands/TestCommandNewGame.cs, the applier's calls into stock's own
+    new-game path, and the C# budget, so the pre-launch validator and a spec's pinned reasons
+    cannot drift from what the seam answers."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# NewGame tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_vocabularies_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandNewGame.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.NEWGAME_VERB, text)
+        self.assertIn('internal const string ModeArg = "%s";' % hlib.NEWGAME_MODE_KEY, text)
+        self.assertIn('internal const string PresetArg = "%s";' % hlib.NEWGAME_PRESET_KEY, text)
+        self.assertIn('internal const string SaveArg = "%s";' % hlib.NEWGAME_SAVE_KEY, text)
+        self.assertIn('internal const string PreservedSaveEntry = "%s";'
+                      % hlib.NEWGAME_PRESERVED_SAVE_ENTRY, text)
+        sync = StockScreenSourceSyncTests._cs_string_array
+        self.assertEqual(list(hlib.NEWGAME_MODE_VALUES), sync(text, "ModeTokens"))
+        self.assertEqual(list(hlib.NEWGAME_PRESET_VALUES), sync(text, "PresetTokens"))
+        self.assertEqual(list(hlib.NEWGAME_REASONS), sync(text, "Reasons"))
+        self.assertEqual(list(hlib.NEWGAME_ERROR_REASONS), sync(text, "ErrorReasons"))
+        for reason in hlib.NEWGAME_REASONS:
+            self.assertIn(hlib._SEAM_REFUSAL_SUBKINDS.get(reason), ("driver-arg", "driver-gate"),
+                          reason)
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        for reason in hlib.NEWGAME_ERROR_REASONS:
+            self.assertNotIn(reason, hlib._SEAM_REFUSAL_SUBKINDS, reason)
+
+    def test_the_applier_runs_stocks_own_new_game_path(self):
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.NewGame.cs")
+        for call in ('GamePersistence.SaveGame("persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);',
+                     "HighLogic.LoadScene(GameScenes.MAINMENU);",
+                     "GameParameters.GetDefaultParameters(stockMode, ToStockPreset(p.Preset));",
+                     "HighLogic.CurrentGame = GamePersistence.CreateNewGame(",
+                     "GameEvents.onGameNewStart.Fire();",
+                     "HighLogic.CurrentGame.Start();"):
+            self.assertIn(call, applier)
+        # The four new-game calls run in stock's order (MainMenu.CreateAndStartGame).
+        order = [applier.index(c) for c in ("GamePersistence.CreateNewGame(",
+                                            "GameEvents.onGameNewStart.Fire();",
+                                            "HighLogic.CurrentGame.Start();")]
+        self.assertEqual(sorted(order), order)
+
+    def test_the_budget_mirrors_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandDispatcher.cs")
+        m = re.search(r"internal const double NewGameSeconds = ([0-9.]+);", text)
+        self.assertIsNotNone(m, "DeferralBudget.NewGameSeconds moved")
+        self.assertEqual(float(m.group(1)), hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS[hlib.NEWGAME_VERB])
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.NEWGAME_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(300.0, hlib.dispatch_deferral_budget(verb))
+        self.assertLessEqual(hlib.dispatch_deferral_budget(verb), hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS)
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertFalse(hlib.post_mission_step_gates(verb))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_new_game_step
+        ok = {"mode": "SCIENCE_SANDBOX", "preset": "Normal", "save": "${runSave}"}
+        self.assertEqual([], v(1, ok, "camp"))
+        self.assertEqual([], v(1, dict(ok, save="camp"), "camp"))
+        for mode in hlib.NEWGAME_MODE_VALUES:
+            for preset in hlib.NEWGAME_PRESET_VALUES:
+                self.assertEqual([], v(1, dict(ok, mode=mode, preset=preset), "camp"))
+        cases = (
+            ({"preset": "Normal", "save": "${runSave}"}, "newgame-mode-arg-missing"),
+            (dict(ok, mode="career"), "newgame-mode-arg-invalid"),
+            (dict(ok, mode="MISSION"), "newgame-mode-arg-invalid"),
+            ({"mode": "CAREER", "save": "${runSave}"}, "newgame-preset-arg-missing"),
+            (dict(ok, preset="Custom"), "newgame-preset-arg-invalid"),
+            ({"mode": "CAREER", "preset": "Normal"}, "newgame-save-arg-missing"),
+            (dict(ok, save="other"), "newgame-save-mismatch"),
+            (dict(ok, scene="spacecenter"), "silently ignored"),
+        )
+        for args, needle in cases:
+            with self.subTest(args=args):
+                errs = v(4, args, "camp")
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("driver.steps[4]", errs[0])
+                self.assertIn(needle, errs[0])
+
+    def test_validate_spec_admits_a_new_game_step_and_mode_is_not_uiactions(self):
+        # `mode` is UiAction's VERB_SCOPED_CLOSED_ARGS row; a NewGame step must not be told
+        # the arg belongs to UiAction or that CAREER is not an interface mode.
+        spec = load_spec("L1-research-node-science.toml")
+        steps = spec["driver"]["steps"]
+        steps.insert(1, {"cmd": "NewGame", "expect": "OK", "budget": 300,
+                         "args": {"mode": "SCIENCE_SANDBOX", "preset": "Normal",
+                                  "save": "${runSave}"}})
+        self.assertEqual((), tuple(hlib.validate_spec(spec, load_registry()).errors))
+        steps[1]["args"]["mode"] = "Career"
+        steps[1]["args"]["save"] = "elsewhere"
+        errors = hlib.validate_spec(spec, load_registry()).errors
+        self.assertEqual(2, len(errors), errors)
+        self.assertTrue(any("newgame-mode-arg-invalid" in e for e in errors), errors)
+        self.assertTrue(any("newgame-save-mismatch" in e for e in errors), errors)
+        self.assertFalse(any("UiAction" in e for e in errors), errors)
+        # A UiAction step still owns the row.
+        steps[1] = {"cmd": "MissionMark", "args": {"label": "x", "mode": "Basic"}}
+        errors = hlib.validate_spec(spec, load_registry()).errors
+        self.assertTrue(any("only the UiAction verb reads it" in e for e in errors), errors)
 
 
 class LaunchSiteProbeSourceSyncTests(unittest.TestCase):
@@ -24364,6 +24494,9 @@ class SharedShipsManifestTests(unittest.TestCase):
     # so the two entries were deleted in the same commit - the discipline this
     # cell enforces, and it DID fire red first, for the second time.
     PENDING_FIXTURE_LANES = {
+        # THE SCRIPTED CAMPAIGN (2026-10-25): stage 1 is hosted on stage 0's produced
+        # save, harvested from the first green CS-0-new-science-game flight.
+        "CS-1-science-first-hop.toml": "cs-science-new",
     }
 
     def test_the_pending_fixture_exemption_retires_itself(self):

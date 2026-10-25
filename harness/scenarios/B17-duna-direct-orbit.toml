@@ -333,6 +333,7 @@ tombstones    = { max = 0 }
 # commit, written on purpose since #2169), and this lane has not flown since #2169.
 # The census now reads a committed tree once (saveparse.in_flight_copy_trees), so
 # that copy no longer moves trees / recordings / terminalStates / branchPoints here.
+# Flown `2026-10-25_1227` PASS attempt 1 with the copy present (inFlightCopyTrees 1).
 gating = true
 trees          = { min = 1, max = 2 }
 committedTrees = { min = 1, max = 1 }

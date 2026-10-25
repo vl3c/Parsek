@@ -116,6 +116,17 @@ namespace Parsek.Tests
             yield return Row(SpawnRowReason(distance: 100, speed: 0.5, departureUT: 50,
                     kind: DepartureKind.Crash, body: "Kerbin"),
                 SpawnControlBudget, "Spawn row warp - leaving now");
+            // The Leaves move gates (design-realspawn-time-jump-move.md 4.3).
+            yield return Row(LeavesMoveReason(MoveRefusal.Atmosphere),
+                SpawnControlBudget, "Spawn row warp - move inside the atmosphere");
+            yield return Row(LeavesMoveReason(MoveRefusal.BodyChange),
+                SpawnControlBudget, "Spawn row warp - move body change");
+            yield return Row(LeavesMoveReason(MoveRefusal.Burns),
+                SpawnControlBudget, "Spawn row warp - move burns");
+            yield return Row(LeavesMoveReason(MoveRefusal.Degenerate),
+                SpawnControlBudget, "Spawn row warp - move no orbit to follow");
+            yield return Row(LeavesMoveReason(MoveRefusal.DestinationTaken),
+                SpawnControlBudget, "Spawn row warp - move destination taken");
 
             yield return Row(TimelineWindowUI.WarpToTimeDisabledReason(false, null, false, false),
                 TimelineBudget, "Timeline warp - no plan reason");
@@ -195,6 +206,26 @@ namespace Parsek.Tests
                 departureUT = departureUT,
                 departureKind = kind,
                 destination = body
+            };
+            return SpawnControlPresentation.BuildRowPresentation(
+                cand, 100, ParsekFlight.NearbySpawnRadius, ParsekFlight.MaxRelativeSpeed,
+                ut => "Y12, D426, 05:59").WarpButtonDisabledReason;
+        }
+
+        /// <summary>A refused Leaves row's reason, with the long test vessel name.</summary>
+        internal static string LeavesMoveReason(MoveRefusal refusal)
+        {
+            var cand = new NearbySpawnCandidate
+            {
+                vesselName = "Spawn Control Target",
+                endUT = 5000,
+                distance = 100,
+                relativeSpeed = 0.5,
+                willDepart = true,
+                departureUT = 400,
+                departureKind = DepartureKind.OtherBody,
+                destination = "Kerbin",
+                moveRefusal = refusal
             };
             return SpawnControlPresentation.BuildRowPresentation(
                 cand, 100, ParsekFlight.NearbySpawnRadius, ParsekFlight.MaxRelativeSpeed,

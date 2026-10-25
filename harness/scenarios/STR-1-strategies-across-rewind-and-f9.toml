@@ -4,8 +4,13 @@ tier = "operator"
 # STRATEGIES x REWIND-TO-LAUNCH x F9 (todo CROSS-SYSTEM-COVERAGE-GAPS-2026-10-16, "strategies
 # across any timeline operation"; todo STRATEGY-ACTIVATION-CROSSED-IN-FLIGHT, "lane still owed";
 # owner 2026-10-24: strategy activation must be exact, "to not cause compounding errors").
-# AUTHORED 2026-10-25 (branch `claude/project-thread-eo3rd8`). NEVER FLOWN: its first flight is
-# a reading run.
+# AUTHORED 2026-10-25 (branch `claude/project-thread-eo3rd8`, PR #2252). LIVE-PROVEN on its first
+# flight, `2026-10-25_1151` PASS attempt 1 (automation DLL sha256 prefix b3101e76): the grant paid
+# once at the Space Center (`fundsDelta=12189.3262`, `FundsChanged +12189 (StrategyOutput)`) and
+# never after the rewind; Appreciation `setupFunds=70750` at factor 0.05; the gate fired in both
+# windows (activateUT 200.5, nowUT 200.7 and 200.6); every PatchStrategies line `no change`; the
+# ground truth `passed=3 skipped=0`, `facetsCompared=10`, strategy facet `managed=[Appreciation
+# CampaignCfg,BailoutGrant] ... diverged=0`; recordings 1. Pinned whole off that flight.
 #
 # THE HOST. `career-pad-craft` (L8's host: funds 500000, science 100, rep 0, the Jumping Flea
 # on the pad at UT 9.06, pid 2905720181, Administration level 0 = one strategy slot) plus the
@@ -74,8 +79,8 @@ tier = "operator"
 #     the double payment.
 #
 # FAST-LANE CHECKLIST: (1) reuse - L8's flight A and check launch; (2) explicit-UT warps only;
-# (3)-(5) no dwells, burns or coasts; (6) retry `once`; (7) count window {1,2} until the
-# reading run pins it (flight A only; the probe is unrecorded); (8) operator until green,
+# (3)-(5) no dwells, burns or coasts; (6) retry `once`; (7) count pinned {1,1} (flight A
+# only; the probe is unrecorded); (8) operator until green,
 # about 8 min expected; (9) flight_efficiency.py after the first green flight.
 description = "STR-1 (strategies x Rewind-to-Launch x F9): on career-pad-craft record and recover the Flea, activate Bail-Out Grant (a one-shot paid at once) and then Appreciation Campaign, rewind to the launch, and cross the activations in flight twice around an F9; the gate switches Appreciation on at its UT both times, never re-pays the grant, and LedgerGroundTruth after a cold load finds the pools and the strategy list exact."
 instanceProfile = "stock-minimal"
@@ -149,21 +154,22 @@ D14 = ["career", "scene-ksc", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 1, max = 2 }
+# Flight A only (measured 1 on `2026-10-25_1151`); the probe is unrecorded.
+count = { min = 1, max = 1 }
 
 [expectations.logContracts]
 required = [
   # --- KSC: the grant paid once, then Appreciation in the freed slot ---
   "kscaction action=activate-strategy target=BailoutGrant applied=true manifestKind=strategy-activate observedAfter=factor=[0-9.]+ slots=1/1 [^\\r\\n]*fundsDelta=[1-9][0-9.]*",
   "(?s)MISSIONMARK label=str1-ksc .*?Game state: FundsChanged \\+[1-9][0-9]* \\(StrategyOutput\\).*?MISSIONMARK label=str1-rewind ",
-  "kscaction action=activate-strategy target=AppreciationCampaignCfg applied=true manifestKind=strategy-activate observedAfter=factor=[0-9.]+ slots=1/1 setupFunds=[1-9][0-9.]* ",
+  "kscaction action=activate-strategy target=AppreciationCampaignCfg applied=true manifestKind=strategy-activate observedAfter=factor=[0-9.]+ slots=1/1 setupFunds=70750 setupSci=0 setupRep=0 fundsDelta=-70750 ",
   # --- the rewind ---
   "\\[Rewind\\] Rewind-to-Launch initiated to UT ",
   # --- the gate switches Appreciation on in each crossing window ---
   "(?s)MISSIONMARK label=str1-cross1 (?:(?!MISSIONMARK label=str1-f9 ).)*?Committed strategy activation reached: strategy=AppreciationCampaignCfg activateUT=[0-9.]+ factor=[0-9.]+ nowUT=[0-9.]+ \\(switched on without cost or capture\\)",
   "(?s)MISSIONMARK label=str1-cross2 (?:(?!MISSIONMARK label=str1-reload ).)*?Committed strategy activation reached: strategy=AppreciationCampaignCfg activateUT=[0-9.]+ factor=[0-9.]+ nowUT=[0-9.]+ \\(switched on without cost or capture\\)",
   # --- the check ---
-  "(?s)MISSIONMARK label=str1-check .*?BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "(?s)MISSIONMARK label=str1-check .*?BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
   "(?s)MISSIONMARK label=str1-check .*?result: hardFailures=0 ",
   "(?s)MISSIONMARK label=str1-check .*?CompareStrategies: managed=\\[[^\\]]*AppreciationCampaignCfg[^\\]]*\\] ledgerActive=\\[AppreciationCampaignCfg\\] saveActive=\\[AppreciationCampaignCfg\\] diverged=0 \\[\\]",
 ]

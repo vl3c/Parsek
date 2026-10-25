@@ -794,5 +794,95 @@ namespace Parsek.Tests.Logistics
             Assert.True(RouteOrchestrator.IsPickupAlreadyLogged("route-y", "cycle-0", 0));
             Assert.False(RouteOrchestrator.IsPickupAlreadyLogged("route-y", "cycle-0", 1));
         }
+
+        // ==================================================================
+        // A cycle that lost its endpoint and delivered nothing counts as skipped
+        // ==================================================================
+
+        // catches LOOP-ROUTE-LOST-DELIVERY-COUNTED-COMPLETED: the last-dock crossing
+        // counting a cycle whose windows lost their endpoint and delivered nothing as
+        // completed. No row emitter, so the REAL delivery path re-resolves each stop;
+        // the env resolves no vessel, so both windows lose their endpoint.
+        [Fact]
+        public void LastDockReached_EndpointLostNothingDelivered_CountsSkipped()
+        {
+            var route = Build2StopRoute();
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            var env = new EligibleEnv();
+
+            RouteOrchestrator.Tick(1350.0, env);
+
+            Assert.Equal(RouteStatus.EndpointLost, route.Status);
+            Assert.Empty(Delivered());
+            Assert.Single(Dispatched());
+            Assert.Equal(0, route.CompletedCycles);
+            Assert.Equal(1, route.SkippedCycles);
+            // The cycle still closes: marker snapped, next id advances past cycle-0.
+            Assert.Equal(0, route.LastObservedLoopCycleIndex);
+            Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("last dock reached")
+                && l.Contains("completedCycles=0") && l.Contains("skippedCycles=1")
+                && l.Contains("lostUndelivered=1"));
+        }
+
+        // The mirror: a cycle that delivered at one stop and lost the other stays
+        // completed (the rewind's counter rebuild counts any delivered cycle id).
+        [Fact]
+        public void LastDockReached_EndpointLostAfterAnEarlierDelivery_StaysCompleted()
+        {
+            var route = Build2StopRoute(stop0LastFired: 0);
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            var env = new EligibleEnv();
+            RouteEventLog.Add(new RouteEvent
+            {
+                Type = RouteEventType.RouteDispatched, UT = 1150.0, RouteId = route.Id,
+                RouteCycleId = "cycle-0", RouteStopIndex = 0, Sequence = 0,
+            });
+            RouteEventLog.Add(new RouteEvent
+            {
+                Type = RouteEventType.RouteCargoDelivered, UT = 1150.0, RouteId = route.Id,
+                RouteCycleId = "cycle-0", RouteStopIndex = 0,
+                Sequence = 0 * RouteOrchestrator.SeqStride + 3,
+            });
+
+            RouteOrchestrator.Tick(1350.0, env);
+
+            Assert.Equal(RouteStatus.EndpointLost, route.Status);
+            Assert.Single(Delivered());
+            Assert.Equal(1, route.CompletedCycles);
+            Assert.Equal(0, route.SkippedCycles);
+            Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("last dock reached")
+                && l.Contains("lostUndelivered=0"));
+        }
+
+        [Fact]
+        public void IsLostUndeliveredMultiStopCycle_NeedsALostEndpointAndNoDeliveredRow()
+        {
+            var lost = new Route { Id = "route-z", Status = RouteStatus.EndpointLost };
+            var active = new Route { Id = "route-z", Status = RouteStatus.Active };
+            // A pure-pickup or otherwise undelivered cycle on a running route stays completed.
+            Assert.False(RouteOrchestrator.IsLostUndeliveredMultiStopCycle(active, "cycle-0"));
+            Assert.True(RouteOrchestrator.IsLostUndeliveredMultiStopCycle(lost, "cycle-0"));
+            // Another route's or another cycle's delivery does not count.
+            RouteEventLog.Add(new RouteEvent
+            {
+                Type = RouteEventType.RouteCargoDelivered, RouteId = "route-other",
+                RouteCycleId = "cycle-0", RouteStopIndex = 0,
+            });
+            RouteEventLog.Add(new RouteEvent
+            {
+                Type = RouteEventType.RouteCargoDelivered, RouteId = "route-z",
+                RouteCycleId = "cycle-1", RouteStopIndex = 1,
+            });
+            Assert.True(RouteOrchestrator.IsLostUndeliveredMultiStopCycle(lost, "cycle-0"));
+            RouteEventLog.Add(new RouteEvent
+            {
+                Type = RouteEventType.RouteCargoDelivered, RouteId = "route-z",
+                RouteCycleId = "cycle-0", RouteStopIndex = 1,
+            });
+            Assert.False(RouteOrchestrator.IsLostUndeliveredMultiStopCycle(lost, "cycle-0"));
+            Assert.False(RouteOrchestrator.IsLostUndeliveredMultiStopCycle(null, "cycle-0"));
+        }
     }
 }

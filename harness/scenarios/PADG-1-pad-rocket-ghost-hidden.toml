@@ -1,0 +1,145 @@
+schema = 1
+id = "PADG-1-pad-rocket-ghost-hidden"
+# =====================================================================================
+# PADG-1: A ROCKET THAT NEVER LEAVES THE PAD SHOWS NO GHOST AFTER A REWIND.
+# Todo PAD-VESSEL-GHOST-HOLDS-THE-PAD (owner ruling 2026-10-25, V: "the pad vessel ghost
+# should not block the pad for a long time"; card pick "Never show it").
+# AUTHORED 2026-10-25 (branch `claude/project-thread-ssl7ge`). LIVE-PROVEN 2026-10-25 on its
+# first flight: `2026-10-25_1333` PASS attempt 1, 0 mismatches (157 s); the three guesses below
+# held (count 3, Bill's KSC ghost entered range at recUT=[39.9,55.0], recordings=2).
+#
+# THE GAP. A kerbal steps out of a rocket on the pad and walks off; the rocket never
+# launches. The flight is kept (the kerbal moved), the rocket's end is retired on the pad
+# (2026-09-23 ruling, so no real vessel ever comes back there), but its GHOST played from
+# the start of the flight until the end of its recording: every minute the player waited on
+# the pad before the EVA was a minute the ghost sat on the pad after a rewind.
+#
+# THE FIX. `LaunchSiteOnlyGhost` (derived from the committed trees, never stored): a
+# vessel whose every recording stays inside a launch-site circle (home world, Absolute
+# sections only, no orbit segment) and whose recordings that carry a terminal state are all
+# retired at a launch site shows no ghost. `Recording.GhostVisible` folds it into the
+# player's PlaybackEnabled toggle; the flight, Space Center and map hosts read it, with the
+# same visual-only contract (past-end completion still fires, so retirement, crew and ledger
+# run as for a visible ghost). The EVA kerbal's recording is never hidden. Log line
+# `[LaunchSiteGhost] Ghost hidden: vessel '<name>' pid=<pid> never left the launch site
+# (<site> <zone>) tree='<tree>' recordings=<n> ids=[...]`.
+#
+# THE HOST is `seat-rover-pad` (SEAT-3 / CX-6): the pad Kerbal X with Jeb, Bill and Bob, UT
+# 25.4, and the crewless rover `rover fuel 0` (pid 1871615455) LANDED 153 m off. Stepping
+# Bill to the rover takes him 150 m, so the flight is never idle-discarded.
+#
+# THE FLIGHT:
+#   (0) boot hygiene; autoRecordOnLaunch / autoRecordOnEva off; autoMerge ON.
+#   (1) StartRecording on the pad Kerbal X (the rewind save is captured here), 1x to UT 40
+#       (the pad wait before the EVA).
+#   (2) Bill out (EVA branch: rocket root + rocket continuation + Bill), stepped to the
+#       rover (150 m, recorded). 1x to UT 75.
+#   (3) ExitToSpaceCenter: the flight auto-commits with its 3 recordings; the Space Center
+#       ghost loop builds the rule and prints the hidden line for Kerbal X (2 recordings).
+#   (4) InvokeRewindToLaunch: back to UT ~26 at the Space Center; 1x to UT 60. Without the
+#       fix the rocket root [26, 40] and its continuation [40, ~50 after the boring-tail
+#       trim] enter the KSC ghost range; with it only Bill does.
+#
+# GUESSES THE FIRST FLIGHT CONFIRMED: the committed count 3 (an optimizer split would add
+# one); that Bill's EVA recording is KSC-ghost eligible ("entered range"); the hidden line's
+# recordings=2.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) CX-6's host and act, a pad recording in
+# front; (2) explicit-UT 1x waits only; (3)-(5) no burns or coasts; (6) seam-only;
+# (7) exact count 3; (8) nightly, expected ~3 min.
+# =====================================================================================
+tier = "nightly"
+description = "A rocket that never leaves the pad shows no ghost after a rewind (owner ruling 2026-10-25): on seat-rover-pad the pad Kerbal X is recorded for a pad wait, Bill steps out and is set down by the rover 150 m off, the Space Center exit auto-commits the flight, the launch-site ghost rule hides the rocket's two recordings, and after Rewind-to-Launch only Bill's ghost enters the Space Center ghost range."
+instanceProfile = "stock-minimal"
+tags = ["PADG-1", "eva", "launch-pad", "ghost-visibility", "rewind-to-launch",
+        "scene-exit", "auto-merge", "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/seat-rover-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                       expect = "OK" },
+  { cmd = "DiscardTree",                                                         expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoMerge",          value = "true" },  expect = "OK" },
+  { cmd = "MissionMark", args = { label = "padg1-boot" },                        expect = "OK" },
+  # (1) the pad wait, recorded on the rocket.
+  { cmd = "StartRecording",                                                      expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "40", maxRate = "1" },                     expect = "OK", budget = 120 },
+  # (2) Bill steps out and is set down by the rover, 150 m off.
+  { cmd = "MissionMark", args = { label = "padg1-eva" },                         expect = "OK" },
+  { cmd = "EvaExit",    args = { kerbal = "Bill Kerman", release = "true" },     expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "1871615455", distance = "4" }, expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",   args = { ut = "75", maxRate = "1" },                     expect = "OK", budget = 120 },
+  # (3) the scene exit commits the flight.
+  { cmd = "MissionMark", args = { label = "padg1-exit" },                        expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                   expect = "OK", budget = 180 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0",            expect = "OK" },
+  { cmd = "MissionMark", args = { label = "padg1-committed-count-${c0.count}" }, expect = "OK" },
+  # (4) back to the launch and replay the window at the Space Center.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                    expect = "OK", budget = 300 },
+  { cmd = "MissionMark", args = { label = "padg1-rewound" },                     expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "60", maxRate = "1" },                     expect = "OK", budget = 180 },
+  { cmd = "MissionMark", args = { label = "padg1-replayed" },                    expect = "OK" },
+  { cmd = "FlushAndQuit",                                                        expect = "OK" },
+]
+
+[dimensionsCovered]
+D1  = ["commit-scene-exit", "auto-merge"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "warp-1x"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Rocket root (pad wait) + rocket continuation after the EVA + Bill's EVA.
+count = { min = 3, max = 3 }
+
+[expectations.logContracts]
+required = [
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "MISSIONMARK label=padg1-eva[\\s\\S]*evaexit complete kerbal=Bill Kerman ",
+  "evagroundscience step complete kerbal=Bill Kerman anchor=rover fuel 0 ",
+  "MISSIONMARK label=padg1-exit[\\s\\S]*full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='Kerbal X' recordings=3 ",
+  "exittospacecenter complete scene=SPACECENTER ",
+  "MISSIONMARK label=padg1-committed-count-3 ",
+  # THE FIX LINE: the rocket's two recordings are hidden, the kerbal is not named.
+  "MISSIONMARK label=padg1-exit[\\s\\S]*\\[LaunchSiteGhost\\] Ghost hidden: vessel 'Kerbal X' pid=[0-9]+ never left the launch site \\(KSC pad\\) tree='Kerbal X' recordings=2 ",
+  "Rewind-to-Launch initiated to UT ",
+  # The kerbal keeps his ghost after the rewind.
+  "MISSIONMARK label=padg1-rewound[\\s\\S]*\\[KSCGhost\\] Ghost #[0-9]+ \"Bill Kerman\" entered range",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "startrecording start-refused",
+  "evaexit refused",
+  "evaexit timeout",
+  "exittospacecenter refused",
+  "warptout refused",
+  "Idle on pad at scene exit",
+  "Idle on pad detected",
+  "idle-on-pad auto-discard",
+  # THE DEFECT: the rocket's ghost on the pad after the rewind.
+  "\\[KSCGhost\\] Ghost #[0-9]+ \"Kerbal X\" entered range",
+  "Ghost hidden: vessel 'Bill Kerman'",
+]
+
+[runtime]
+# LoadGame 300, StartRecording 180, EvaExit / step / WarpToUT 120 each, ExitToSpaceCenter
+# 180, InvokeRewindToLaunch 300, the KSC WarpToUT 180, the rest on the default.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

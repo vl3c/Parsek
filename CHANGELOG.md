@@ -10,6 +10,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **A Leaves Warp in orbit keeps you beside the ghost.** Pressing Warp on a Real Spawn Control row
+  that leaves its orbit now moves your vessel, and the vessels flying with you, to the same spot
+  beside the ghost at the new time, so you watch it burn away instead of finding it gone. When
+  that move is not safe the Warp is greyed and its hover says why. (REALSPAWN-TIME-JUMP-MOVE-PLAYER)
 - **The VAB and SPH explain the funds number too.** Hovering the funds number in the editor now
   shows the same Total / Reserved breakdown as at the Space Center and in flight, so money held
   back for committed flights is no longer a mystery where you spend it. (RESERVATION-OVERLAY-GAPS)
@@ -20,6 +24,14 @@ _(unreleased - entries accumulate here per commit)_
   survey paid science that Parsek only noticed later and kept as an unexplained adjustment. It is
   now its own entry at the survey's time, "Orbital survey of <body>", filed under that flight, so
   rewinds and discards treat it like any other science you earned. (ORBITAL-SURVEY-SCIENCE-NEVER-LEDGERED)
+- **A rocket that never leaves the pad no longer shows a ghost.** When a kerbal steps out of a
+  rocket on the pad and it never launches, its ghost used to sit on the pad after a rewind for as
+  long as you had waited there. It now never appears; the kerbal's own ghost still plays.
+  (PAD-VESSEL-GHOST-HOLDS-THE-PAD)
+- **A supply run that lost its stop no longer counts as completed.** When a vessel a multi-stop
+  route delivered to was gone and the run delivered nothing, the Logistics window and Route History
+  counted that run as completed; it now counts as skipped, as a one-stop route already did.
+  (LOOP-ROUTE-LOST-DELIVERY-COUNTED-COMPLETED)
 - **Boarding, docking or moving cargo with another vessel is never an idle flight.** A kerbal who
   stepped out of a rocket on the pad and took a seat on, boarded, docked with or moved cargo to a
   nearby vessel had the whole flight thrown away at scene exit if nothing moved 30 m. The flight
