@@ -83,7 +83,10 @@ namespace Parsek.TestCommands
     /// per-route operations the window's row buttons and the in-game
     /// <c>RouteRewindTimeline</c> cells drive: <c>send-once</c>, <c>pause</c>,
     /// <c>activate</c>. The round-trip and cadence lane adds three more in the same
-    /// route-addressed shape: <c>link</c>, <c>unlink</c>, <c>set-cadence</c>.</para>
+    /// route-addressed shape: <c>link</c>, <c>unlink</c>, <c>set-cadence</c>. The
+    /// endpoint lane adds <c>rescan</c>, the Logistics window's "Re-scan for endpoint"
+    /// button, which exists only while the button is drawn
+    /// (<see cref="RescanNotOfferedReason"/>).</para>
     ///
     /// <para><b>EVERY STORE REFUSAL GETS ITS OWN TOKEN.</b> The three production methods
     /// behind the new actions (<c>RouteStore.LinkRoutes</c> / <c>UnlinkRoute</c> /
@@ -112,13 +115,14 @@ namespace Parsek.TestCommands
         internal const string ActionLink = "link";
         internal const string ActionUnlink = "unlink";
         internal const string ActionSetCadence = "set-cadence";
+        internal const string ActionRescan = "rescan";
 
         /// <summary>The action vocabulary, in wire spelling. Case-sensitive and
         /// exact, like every other fail-closed arg parse on this seam.</summary>
         internal static readonly string[] KnownActions =
         {
             ActionCreate, ActionSendOnce, ActionPause, ActionActivate,
-            ActionLink, ActionUnlink, ActionSetCadence
+            ActionLink, ActionUnlink, ActionSetCadence, ActionRescan
         };
 
         // ---- arg keys ----
@@ -206,7 +210,8 @@ namespace Parsek.TestCommands
             return IsStatusOperation(action)
                 || string.Equals(action, ActionLink, StringComparison.Ordinal)
                 || string.Equals(action, ActionUnlink, StringComparison.Ordinal)
-                || string.Equals(action, ActionSetCadence, StringComparison.Ordinal);
+                || string.Equals(action, ActionSetCadence, StringComparison.Ordinal)
+                || string.Equals(action, ActionRescan, StringComparison.Ordinal);
         }
 
         /// <summary>True for the three actions that hand the route to
@@ -501,6 +506,12 @@ namespace Parsek.TestCommands
         /// <c>ApplyMultiplier</c> no-ops false on this, which is not a failure - the route
         /// is already where the lane asked for.</summary>
         internal const string CadenceUnchangedReason = "cadence-unchanged";
+
+        /// <summary><c>action=rescan</c> on a route whose Logistics row draws no enabled
+        /// "Re-scan for endpoint" button (<c>LogisticsEndpointRescan.IsOffered</c>: the
+        /// route is not EndpointLost, or no stop is a surface endpoint with a body). The
+        /// player cannot press it there, so neither can the seam.</summary>
+        internal const string RescanNotOfferedReason = "rescan-not-offered";
 
         /// <summary>Compound msg for an orchestrator decline. Pure.</summary>
         internal static string ActionRefusedMsg(string action)

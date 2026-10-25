@@ -19608,12 +19608,14 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         # that makes a sync cell pass against a table it never read.
         actions = re.findall(r"\bAction([A-Z]\w*)", block)
         self.assertEqual(
-            ["Create", "SendOnce", "Pause", "Activate", "Link", "Unlink", "SetCadence"],
+            ["Create", "SendOnce", "Pause", "Activate", "Link", "Unlink", "SetCadence",
+             "Rescan"],
             actions,
             "the C# KnownActions order moved; hlib's comment at ROUTECOMMAND_ACTIONS_DOC "
             "and harness/README.md name this set")
         self.assertEqual(
-            ("create", "send-once", "pause", "activate", "link", "unlink", "set-cadence"),
+            ("create", "send-once", "pause", "activate", "link", "unlink", "set-cadence",
+             "rescan"),
             hlib.ROUTECOMMAND_ACTIONS)
 
     def test_every_new_routecommand_refusal_maps_to_a_finer_subkind(self):
@@ -19624,7 +19626,7 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         arg_half = ("unknown-partner", "partner-ambiguous", "cadence-arg-missing",
                     "cadence-arg-invalid")
         gate_half = ("link-self", "link-already-linked", "link-no-candidate",
-                     "route-not-linked", "cadence-unchanged")
+                     "route-not-linked", "cadence-unchanged", "rescan-not-offered")
         for token in arg_half:
             with self.subTest(token=token):
                 self.assertEqual("driver-arg",

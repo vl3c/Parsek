@@ -1347,7 +1347,7 @@ window's row buttons and the in-game `RouteRewindTimeline` cells call.
 
 | arg | values | meaning |
 |---|---|---|
-| `action` | `create` \| `send-once` \| `pause` \| `activate` | required; fail-closed and case-sensitive |
+| `action` | `create` \| `send-once` \| `pause` \| `activate` \| `link` \| `unlink` \| `set-cadence` \| `rescan` | required; fail-closed and case-sensitive |
 | `tree` | committed `RecordingTree.Id` | `create` only; the candidate tree |
 | `name` | route name (percent-encoded ON THE WIRE; a spec carries the RAW name) | `create` only; absent lets `RouteBuilder` generate one |
 | `interval` | seconds, InvariantCulture, finite and > 0 | `create` only; absent = the route's snapped minimum |
@@ -1387,6 +1387,7 @@ picking.
 | REJECTED | `route-arg-missing` | an operation without `route=` |
 | REJECTED | `unknown-route` | no stored route matched the selector |
 | REJECTED | `route-ambiguous` | more than one stored route matched |
+| REJECTED | `rescan-not-offered` | `rescan` on a route whose row draws no enabled Re-scan button |
 | ERROR | `route-action-refused <action>` | the orchestrator declined (wrong status for the action) |
 
 **The create refusals are walked in `RouteCandidateFinder.DeriveCandidates`' OWN gate
@@ -1413,6 +1414,21 @@ assertion vacuous.
 `action`, `route`, `name`, `match` (which selector tier hit), `applied`, `statusBefore`,
 `status`. The before/after status pair is not decoration - it is what turns a silent
 no-op into something a lane can assert on.
+
+**`action=rescan route=<sel>` (added 2026-10-25 for lane RS-1)** is the Logistics window's
+"Re-scan for endpoint" button. The button's click body moved into
+`LogisticsEndpointRescan.Run` (`UI/LogisticsEndpointRescan.cs`) and both the button and
+this action call it, so they print the same `[UI]` `Logistics: endpoint re-scan route=...`
+line and hand a full hit to the same `RouteOrchestrator.TryRecoverEndpointLostAfterRescan`.
+A single-stop route re-scans its one stop; a multi-stop route re-scans every stop and
+recovers only when all resolve. The action is refused `REJECTED rescan-not-offered`
+(gate-class, `driver-gate`) when the route's row would not draw the ENABLED button
+(`LogisticsEndpointRescan.IsOffered`: not EndpointLost, or no surface stop with a body). A
+scan that misses is still OK: it is a press the player can make. Payload: `action`, `route`,
+`name`, `match`, `stops`, `resolved` (stops found), `allResolved`, `recovered` (the recovery
+accepted the route), `statusBefore`, `status`; closing line `Info` "routecommand complete
+action=rescan route= name= match= stops= resolved=N/M allResolved= recovered= statusBefore=
+status=". It dirties the window's legibility cache like the other actions.
 
 **What v1 leaves for later:** `delete` / `dismiss` / `link` / cadence edits. Each is a
 separate production surface with its own confirmation dialog and none is on the

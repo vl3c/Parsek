@@ -1171,6 +1171,12 @@ pre-action ones. Nine typed refusals: `unknown-partner`, `partner-ambiguous`,
 finer `driver-*` subkind; `route-action-refused` deliberately does not, being a POST-ACT
 ERROR.
 
+`action=rescan route=<sel>` (2026-10-25, lane RS-1) is the Logistics window's "Re-scan for
+endpoint" button through its own click body (`LogisticsEndpointRescan.Run`, shared with the
+button): a miss answers OK with `allResolved=false`, a full hit hands the route to
+`RouteOrchestrator.TryRecoverEndpointLostAfterRescan` (`recovered=true`). A route whose row
+draws no enabled button is refused `rescan-not-offered` (gate-class).
+
 `StockScreen` IS A VERB, NOT A `UiAction` OP, and it is the census route onto the STOCK
 KSP screens Parsek annotates (R&D, the Astronaut Complex from the KSC and from the VAB,
 Mission Control, Administration, a KSC facility's right-click menu, the launch-site crew

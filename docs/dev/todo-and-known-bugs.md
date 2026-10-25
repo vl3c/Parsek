@@ -2618,7 +2618,18 @@ already received the cycle). A non-loop route only has its retry gate cleared, a
 the rescan and delivers `cycle-1`; multi-stop partly delivered cycle not skipped; Paused baseline;
 Send Once kept; non-loop; refusals).
 
-No lane yet (2026-10-24): the Re-scan for endpoint button is an IMGUI click no verb presses (`UiAction` synthesizes no clicks; `RouteCommand` has no rescan), and no lane or verb puts a loop route into EndpointLost (the endpoint must vanish between dispatch and delivery). Needs a `RouteCommand action=rescan` verb plus an endpoint-loss setup.
+Lane (2026-10-25, branch `lane/rs1-loop-route-rescan`, never flown): `RS-1-relay-route-endpoint-lost-rescan`
+proves the reachable half only. The button's click body moved into `LogisticsEndpointRescan.Run` (shared
+by the button and the new seam action `RouteCommand action=rescan`). On `rover-relay-c-recorded` the
+two-stop relay goes EndpointLost at stop 1's delivery after A is recovered between the windows, and a
+rescan that misses leaves it EndpointLost. A single-stop loop route cannot reach EndpointLost live: its
+gate and its delivery resolve the same endpoint through the same resolver in the same tick, so a missing
+endpoint is a gate hold (only a multi-stop route gates once at its first window). The FIX is still not
+live-proven: a lost endpoint comes back only by identity (a chain-held base respawned after a rewind) or
+by a new non-transport surface vessel within 500 m of the recorded point, and no seam verb can place one
+next to any committed fixture's lost stop (runway threshold about 703 m from relay-c's stop 1, uncrewed
+rovers, DriveVessel has no steering). Needs a host that can do that; RS-1's header names the assertions
+to add.
 
 ---
 

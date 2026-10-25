@@ -520,7 +520,7 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #   RouteCommand is the Logistics window's Create Route button (through the shared
     #     RouteCreationService funnel) plus the three row operations, dispatched by an
     #     `action=` arg the way KscAction dispatches its sub-actions:
-    #     create / send-once / pause / activate / link / unlink / set-cadence
+    #     create / send-once / pause / activate / link / unlink / set-cadence / rescan
     #     (ROUTECOMMAND_ACTIONS is the mirrored tuple, pinned against the C# KnownActions).
     # Both SINGLE-PHASE (synchronous state mutation, read-back is a final answer), so
     # neither joins DEFERRED_SEAM_VERBS and both ride the 60 s default budget - which
@@ -3258,12 +3258,12 @@ UIACTION_AWAIT_VALUES: Tuple[str, ...] = ("true", "false")
 # only when Unity's focused control name ALREADY matches, so writing their two fields
 # would draw an unfocused text box - a picture no click can produce. Filed in
 # docs/dev/todo-and-known-bugs.md rather than faked.
-# `RouteCommand action=`: the seven the C# KnownActions carries, in its order. NOT a
+# `RouteCommand action=`: the eight the C# KnownActions carries, in its order. NOT a
 # VERB_SCOPED_CLOSED_ARGS row - that table admits one owner verb per arg key and `action`
 # is also KscAction's - so nothing else would catch a spec naming an action the seam does
 # not know. Mirrored here so a cell can compare the two mechanically.
 ROUTECOMMAND_ACTIONS: Tuple[str, ...] = (
-    "create", "send-once", "pause", "activate", "link", "unlink", "set-cadence")
+    "create", "send-once", "pause", "activate", "link", "unlink", "set-cadence", "rescan")
 
 UIACTION_EDIT_FIELD_KEY = "field"
 UIACTION_EDIT_FIELDS: Dict[str, Tuple[str, ...]] = {
@@ -12084,6 +12084,10 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "link-no-candidate": "driver-gate",
     "route-not-linked": "driver-gate",
     "cadence-unchanged": "driver-gate",
+    #   `rescan-not-offered` (RS-1): the route's Logistics row draws no enabled Re-scan
+    #     button (not EndpointLost, or no surface stop), so the fix is an earlier step that
+    #     loses the endpoint, never a better spelling.
+    "rescan-not-offered": "driver-gate",
     # The editor scene route. Arg half: the spec named something wrong (a facility, a
     # craft that is not in either Ships folder or the stock craft, a site this editor does
     # not offer). Gate half: the run is in a state the click does not drive - the wrong
