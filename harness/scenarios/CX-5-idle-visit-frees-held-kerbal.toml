@@ -3,7 +3,9 @@ id = "CX-5-idle-visit-frees-held-kerbal"
 # =====================================================================================
 # CX-5: AN IDLE VISIT WHOSE HELD KERBAL STEPS OUT IS KEPT, SO HIS HOLD CLOSES
 # (todo CX4-IDLE-DISCARDED-FLIGHT-LEAVES-THE-HOLD-OPEN, owner ruling 2026-10-25).
-# AUTHORED 2026-10-25 (branch `claude/project-thread-ssl7ge`), never flown.
+# AUTHORED 2026-10-25 (branch `claude/project-thread-ssl7ge`). LIVE-PROVEN on its first flight
+# `2026-10-25_0937` (DLL sha256 prefix ac9d3ccd): the veto printed from `IsTreeIdleOnPad`
+# (the scene exit's check), tree B committed, Jeb released; 12 recordings.
 #
 # CX-4's flight WITHOUT the flag. CX-4's first flight (`2026-10-24_2336`) measured the
 # defect: tree B (a fresh recording of tree A's landed capsule, Jeb steps out and is
@@ -30,7 +32,7 @@ id = "CX-5-idle-visit-frees-held-kerbal"
 # reload reads Jeb held until INDEFINITE (forbidden). No flag is planted, so the existing
 # flag veto cannot be what kept B (`planted flag` is forbidden).
 #
-# GUESSES THE FIRST FLIGHT CONFIRMS: which idle predicate logs the veto first (the
+# GUESSES (CONFIRMED by the first flight: `IsTreeIdleOnPad`, 12 recordings): which idle predicate logs the veto first (the
 # pre-transition `IsActiveTreeIdleOnPad` or the scene exit's `IsTreeIdleOnPad`; the pin
 # accepts any caller), and the recordings count (CX-4's window).
 #

@@ -90,8 +90,8 @@ committed timeline holds now (`KerbalsModule.IsReservedNow`; test seam
 Log line `<caller>: not idle - held kerbal '<name>' left his vessel on EVA (recording <id>)`. An
 EVA of a free kerbal on a fresh pad rollout stays idle (L8, S0.7). Tests: `HeldKerbalEvaNotIdleTests`,
 `CrewAcrossVesselsHandoffTests.IdleVisitWhoseEvaTakesAHeldKerbalOff_IsNotIdle` (a real walk) and
-its free-kerbal negative. Lane `CX-5-idle-visit-frees-held-kerbal` (CX-4 without the flag),
-authored, never flown.
+its free-kerbal negative. Lane `CX-5-idle-visit-frees-held-kerbal` (CX-4 without the flag)
+LIVE-PROVEN `2026-10-25_0937` on its first flight; CX-4 re-flew green on the same DLL.
 
 ---
 
