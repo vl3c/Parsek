@@ -3,8 +3,12 @@ id = "STR-3-revert-takes-back-strategy-share"
 tier = "operator"
 # STRATEGIES x STOCK REVERT (todo CROSS-SYSTEM-COVERAGE-GAPS-2026-10-16, "strategies across any
 # timeline operation"; roadmap XS-1 / GP-1; owner 2026-10-24: strategies must be exact, "to not
-# cause compounding errors"). AUTHORED 2026-10-25 (branch `claude/project-thread-eo3rd8`). NEVER
-# FLOWN: its first flight is a reading run.
+# cause compounding errors"). AUTHORED 2026-10-25 (branch `claude/project-thread-eo3rd8`, PR
+# #2252). LIVE-PROVEN on its first flight, `2026-10-25_1148` PASS attempt 1 (automation DLL sha256
+# prefix b3101e76): five shares captured tagged (four funds 360/60/360/360, one reputation 0.075,
+# UT 28.1-33.6), `Revert: pruned 5 strategy conversion row(s) of the reverted flight after UT
+# 25.66`, the ground truth `passed=2 skipped=1` (`facetsCompared=7`, the strategy facet a census:
+# Leadership Initiative is unmanaged); recordings 2. Pinned whole off that flight.
 #
 # THE STORY. QL-2c's host and flight: GS-1's two-stage hop on `career-gs1-leadership-pad`
 # (Leadership Initiative active since before the career had a ledger), recorded. The ascent's
@@ -37,8 +41,8 @@ tier = "operator"
 #     the seed read the pre-revert pool; read the facet line.
 #
 # FAST-LANE CHECKLIST: (1) reuse - QL-2c's flight verbatim up to MISSION-OK; (2) no waits but
-# the batch; (3)-(5) none beyond the hop; (6) retry `once`; (7) count window {0,8}: nothing
-# commits (the revert soft-unstashes the tree), the reading run pins it; (8) operator until
+# the batch; (3)-(5) none beyond the hop; (6) retry `once`; (7) count pinned {2,2}: nothing
+# commits (the revert soft-unstashes the tree); (8) operator until
 # green, about 6 min expected; (9) flight_efficiency.py after the first green flight.
 description = "STR-3 (strategies x stock revert): GS-1's career hop under Leadership Initiative writes the strategy's shares of the ascent's rewards as rows tagged to the flight; Revert to Launch prunes them with the flight, no patch lifts the reverted funds, and LedgerGroundTruth on the pad finds no divergence."
 instanceProfile = "stock-minimal"
@@ -102,7 +106,8 @@ D14 = ["kerbin", "career", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 0, max = 8 }
+# Measured 2 on `2026-10-25_1148` (the revert soft-unstashes the tree; nothing commits).
+count = { min = 2, max = 2 }
 
 [expectations.logContracts]
 required = [
@@ -114,10 +119,10 @@ required = [
   "GameEvents\\.OnRevertToLaunchFlightState fired; armed RevertKind\\.Launch for next OnLoad",
   "(?s)MISSIONMARK label=str3-revert .*?Load classified: early=\\w+ refined=StockRevert scene=FLIGHT",
   # THE GATE: the reverted flight's shares go with it.
-  "(?s)MISSIONMARK label=str3-revert .*?Revert: pruned [1-9][0-9]* strategy conversion row\\(s\\) of the reverted flight after UT ",
+  "(?s)MISSIONMARK label=str3-revert .*?Revert: pruned 5 strategy conversion row\\(s\\) of the reverted flight after UT ",
   "reverttolaunch complete pid=[0-9]+ name='[^']+' situation=PRELAUNCH elapsed=",
   # --- THE CHECK: the save against the walk ---
-  "(?s)MISSIONMARK label=str3-check .*?BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "(?s)MISSIONMARK label=str3-check .*?BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT",
   "(?s)MISSIONMARK label=str3-check .*?result: hardFailures=0 ",
 ]
 forbidden = [

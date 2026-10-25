@@ -64,6 +64,12 @@ tier = "nightly"
 # `af5cc097...`): endUt 199.87, past 1 / future 8, funds 216769 (reserved 282931), science 90,
 # rep 0, all equal to the produced save; the hire charged once with no guard clamp and no
 # reconcile warning; LedgerGroundTruth passed=3 skipped=0, so the batch line is pinned whole.
+# RE-PINNED 2026-10-25 (branch `claude/project-thread-eo3rd8`, todo
+# KERBAL-XP-REASSERT-CELL-EXPECTS-ROWS-AHEAD-OF-CLOCK): `2026-10-25_1200` PARSEK-FAIL `passed=2
+# failed=1` on KerbalExperienceReassertTest, which still expected Jeb's flight-A Recover entry
+# (UT 1000.1) on the roster although the re-assert now walks to the clock (199.87) and rightly
+# leaves it off. The cell now expects only rows at or before the clock, so after the third
+# rewind it has nothing owed and skips: the batch line is `passed=2 failed=0 skipped=1`.
 #
 # PRE-REGISTERED READINGS (what to check first if the next flight reds):
 #   - `recover rejected reason=recover-button-locked`: the craft was still settling; a
@@ -180,7 +186,8 @@ required = [
   "kscaction refused action=upgrade-facility reason=blocked-committed target=SpaceCenter/MissionControl",
   "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false){3}",
   "OnKscSpending: deferring the reconcile and recalc one frame for KerbalHire",
-  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT",
+  "SKIPPED: KerbalExperienceReassertTest\\.SurvivingCareerLogEntriesAreOnTheLiveRoster[^\\r\\n]*No KerbalExperience rows at or before the clock in the effective ledger \\(aheadOfClock=[1-9][0-9]*\\)",
   "result: hardFailures=0 ",
 ]
 forbidden = [
