@@ -470,7 +470,7 @@ count = { min = 4, max = 4 }
 # run). The census now reads a committed tree once (saveparse.in_flight_copy_trees),
 # so the save measures trees 2 / recordings 4 / Orbiting 2 / Destroyed 1 /
 # JointBreak 1 again, every window as armed; `treeNodes` / `inFlightCopyTrees` record
-# the copy in the run JSON. Not re-flown.
+# the copy in the run JSON. Re-flown `2026-10-25_1213` PASS attempt 1 (inFlightCopyTrees 1).
 gating         = true
 trees          = { min = 2, max = 2 }
 committedTrees = { min = 2, max = 2 }

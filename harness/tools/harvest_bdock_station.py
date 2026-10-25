@@ -20,6 +20,10 @@ not assumed anywhere in this tool:
   FORGE-eva2-lko      (forge_lko)      --target-name eva2-lko-crewed
       a CREWED orbital stage parked in a ~100 km circular Kerbin orbit
       (ORBITING, not PRELAUNCH).
+  CS-0-new-science-game (NewGame)    --target-name cs-science-new
+      --allow-no-vessel --expect-mode SCIENCE_SANDBOX: the scripted campaign's
+      genuine stock New Game, a Space Center start with no vessel at all (a
+      later campaign stage adds --keep-parsek to carry its recordings on).
   FORGE-gs1-two-stage (forge_station)  --target-name gs1-two-stage-pad
       the GS-1 two-stage auto-chute booster on the LaunchPad (PRELAUNCH), one
       named crew. NO NEW TOOL was written for it: `--target-name` and
@@ -386,8 +390,23 @@ def orphan_sidecars(sidecar_names, sfs_text):
     return orphans
 
 
+def check_game_mode(sfs_text: str, expected_mode: str):
+    """(ok, detail) for the OPTIONAL `--expect-mode` gate. Off (ok) when no mode is
+    expected; otherwise the GAME node's Mode must equal it exactly, so a campaign
+    stage promoted from the wrong lane's save cannot stamp a Science ladder with a
+    Career save."""
+    if not expected_mode:
+        return True, ""
+    actual = read_game_mode(sfs_text)
+    want = expected_mode.strip().upper()
+    if actual != want:
+        return False, "GAME Mode is %r, expected %r" % (actual or "<unreadable>", want)
+    return True, "GAME Mode %s" % actual
+
+
 def harvest(save_dir: str, target_name: str, title: str, force: bool,
-            expected_situations=(), keep_parsek: bool = False) -> int:
+            expected_situations=(), keep_parsek: bool = False,
+            allow_no_vessel: bool = False, expected_mode: str = "") -> int:
     if not os.path.isdir(save_dir):
         raise SystemExit("harvest: produced save dir not found: %s" % save_dir)
     src_sfs = os.path.join(save_dir, "persistent.sfs")
@@ -409,12 +428,27 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
         active_name, active_sit = records[active]
     log("produced save: activeVessel=%s vessels=%d active=%r situation=%s"
         % (active, vessels, active_name, active_sit or "<unreadable>"))
-    if active is None or active < 0 or vessels < 1:
+    if allow_no_vessel:
+        # A Space Center start (the scripted campaign's new game, or a stage that
+        # recovered everything it flew): LoadGame routes a save with no VESSEL
+        # node to SPACECENTER, so no focusable vessel is required. A vessel that
+        # IS present is still fine and still logged above.
+        log("--allow-no-vessel: a Space Center start fixture (vessels=%d)" % vessels)
+    elif active is None or active < 0 or vessels < 1:
         msg = ("produced save is not focusable (activeVessel=%s vessels=%d): the "
                "forge run did not leave a usable vessel" % (active, vessels))
         if not force:
             raise SystemExit("harvest: " + msg + " (pass --force to write anyway)")
         log("warning: " + msg + " (writing anyway, --force)")
+
+    mode_ok, mode_detail = check_game_mode(sfs_text, expected_mode)
+    if not mode_ok:
+        msg = "mode gate failed: %s" % mode_detail
+        if not force:
+            raise SystemExit("harvest: " + msg + " (pass --force to write anyway)")
+        log("warning: " + msg + " (writing anyway, --force)")
+    elif expected_mode:
+        log("mode gate passed: %s" % mode_detail)
 
     # Sanity 2 (OPTIONAL, off unless --expect-situation is passed): the active
     # vessel must be in one of the expected situations. This is what makes an
@@ -691,6 +725,13 @@ def build_parser() -> argparse.ArgumentParser:
                         ".parsek-backup* staging dirs are still pruned. Fails "
                         "unless Parsek/Recordings carries at least one sidecar "
                         "(--force overrides)")
+    p.add_argument("--allow-no-vessel", action="store_true",
+                   help="a Space Center start fixture (a new game, or a campaign "
+                        "stage that recovered everything): no focusable vessel is "
+                        "required. Composes with --keep-parsek")
+    p.add_argument("--expect-mode", default=None,
+                   help="the GAME Mode the produced save must carry "
+                        "(SANDBOX / SCIENCE_SANDBOX / CAREER). Omitted = gate off")
     p.add_argument("--force", action="store_true",
                    help="write the fixture even if the produced save is not "
                         "focusable or fails the situation gate (diagnostics only)")
@@ -703,7 +744,9 @@ def main(argv=None) -> int:
     title = args.title or args.target_name
     return harvest(save_dir, args.target_name, title, args.force,
                    parse_expected_situations(args.expect_situation),
-                   keep_parsek=args.keep_parsek)
+                   keep_parsek=args.keep_parsek,
+                   allow_no_vessel=args.allow_no_vessel,
+                   expected_mode=args.expect_mode or "")
 
 
 if __name__ == "__main__":

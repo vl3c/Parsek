@@ -207,7 +207,7 @@ tags = ["GS6", "part-events", "ghost-render", "applier", "rewind-to-launch", "wa
 [fixture]
 # gs1-two-stage-pad, exactly as GS-4 uses it: the pad-scene sandbox world with the
 # inert SCENARIO node (the CL-1 trap), `Kerbal X` arriving through the shared-ships
-# overlay and `Jumping Flea.craft` committed physically for the watcher. NO fixture
+# overlay and the watcher `Jumping Flea` staged from the shared craft library. NO fixture
 # change is made by this lane - the sweep is a params list, not a new world.
 saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
 injectedRecordings = "none"

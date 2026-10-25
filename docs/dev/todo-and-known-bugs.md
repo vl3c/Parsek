@@ -1164,7 +1164,7 @@ pinned to the C# receipt literal) and the smoke cell
 
 ---
 
-## ~~V3C-CAPTURE-AIMS-INTO-IKE: V3C's capture leaves Duna's SOI through Ike on both attempts~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells. LIVE-PROVEN 2026-10-25 by `2026-10-25_1046` (MISSION-OK, first in-SOI periapsis 13,613 km); that run's PARSEK-FAIL(save-structure) was a stale harness census, fixed offline on branch `wip-v3cfix`, flight owed. mission]
+## ~~V3C-CAPTURE-AIMS-INTO-IKE: V3C's capture leaves Duna's SOI through Ike on both attempts~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells. LIVE-PROVEN 2026-10-25 by `2026-10-25_1046` (MISSION-OK, first in-SOI periapsis 13,613 km); that run's PARSEK-FAIL(save-structure) was a stale harness census, fixed in PR #2256, LIVE-PROVEN 2026-10-25 by `2026-10-25_1213` (V3C) and `_1227` (B17), both PASS attempt 1 with `inFlightCopyTrees=1`. mission]
 
 `V3C-flight-arrival-companion` `2026-10-09_0731` / `_0743_a2` both read INVALID (mission):
 `MISSION-ASSERT-FAIL ... left the target SOI during CAPTURE-BURN without a committed park:
@@ -1216,8 +1216,16 @@ dedupes; only the points facet did. `mutsave` reaches the committed row and take
 with it, so an offline inversion over such a save is not read VACUOUS. V3C's windows are
 unchanged and pass on a V3C-shaped doubled save (`InFlightCopyCensusTests`). Every other armed
 structure window was measured on a save without a copy, so the change moves none of them; B17,
-the same mission, was predicted red the same way (not flown since #2169). Flight owed:
-V3C-flight-arrival-companion PASS with `inFlightCopyTrees` 1 in the saveParse facets.
+the same mission, was predicted red the same way (not flown since #2169).
+
+Re-flown 2026-10-25 on main 08d0c6f21 (PR #2256 merged, stock-minimal DLL a9be4b78):
+`V3C-flight-arrival-companion` `2026-10-25_1213` PASS attempt 1, MISSION-OK, first in-SOI
+periapsis 17,133 km, saveParse PASS with trees 2 / committedTrees 2 / treeNodes 3 /
+inFlightCopyTrees 1 / recordings 4 / Orbiting 2 / Destroyed 1 / JointBreak 1.
+`B17-duna-direct-orbit` `2026-10-25_1227` PASS attempt 1, MISSION-OK, first in-SOI periapsis
+1,120 km, saveParse PASS (rewind, structure and points armed) with trees 1 / committedTrees 1 /
+treeNodes 2 / inFlightCopyTrees 1 / recordings 3 / Orbiting 1 / Destroyed 1 / JointBreak 1. Both
+saves held the in-flight copy and the census read it once.
 
 ---
 
@@ -2185,10 +2193,20 @@ point, using stock and fixture craft for inspiration, and the owner verifies in 
 
 Fix: the ladder CS-0..CS-7, CS-V and CS-ALL in `docs/dev/autotest-roadmap.md` ("The scripted
 campaign program"). Known building blocks to make first: the stock-tree profile and a per-node
-part-unlock listing; the new-game builder; `LaunchFromEditor` then a mission step in one lane;
+part-unlock listing; the new-game builder (its seam verb `NewGame` built 2026-10-25, branch
+`cs-newgame-verb`: a stock New Game over the run's save at a named mode and preset; no lane flies it
+yet); `LaunchFromEditor` then a mission step in one lane;
 the science-mode pool read; per-situation science actions (EVA report, surface sample); a
 contract-offer listing / accept-by-type verb; a Mun ascent + trans-Kerbin injection machine; a
 stage-to-fixture promotion tool.
+
+Progress 2026-10-25 (branch `claude/project-thread-25edvc`): built the `stock-tree` provision
+profile, the stock tech-tree listing (`harness/tools/list_tech_unlocks.py` ->
+`docs/dev/research/stock-tech-tree-part-unlocks.md`), the science-mode pool read in
+`science_bench_recover` (`recoverCreditPool`, `transmitMaxExperiments`), the harvest's
+`--allow-no-vessel` / `--expect-mode` for a vessel-less new-game save, the shared Jumping Flea
+in the craft library, and the lanes CS-0-new-science-game / CS-0-new-career-game (fixture
+builders) and CS-1-science-first-hop (pending its `cs-science-new` fixture). None flown yet.
 
 ---
 

@@ -239,6 +239,54 @@ class TitleSuffixModeTests(unittest.TestCase):
             self.assertEqual("CAREER", harvest.read_game_mode(fh.read()))
 
 
+class SpaceCenterStartTests(unittest.TestCase):
+    """--allow-no-vessel and --expect-mode: the scripted campaign's fixtures
+    (CS-0's genuine New Game, later stages that recovered everything they flew)
+    start at the Space Center with no VESSEL node, which the focusable gate
+    would otherwise refuse, and a stage must never be promoted from a save of
+    the wrong game mode."""
+
+    NEW_GAME = ("GAME\n{\n\tTitle = cs (SCIENCE_SANDBOX)\n\tMode = SCIENCE_SANDBOX\n"
+                "\tFLIGHTSTATE\n\t{\n\t\tversion = 1.12.5\n\t\tUT = 0\n"
+                "\t\tactiveVessel = 0\n\t}\n}\n")
+
+    def _save(self):
+        import tempfile
+        save = tempfile.mkdtemp()
+        with open(os.path.join(save, "persistent.sfs"), "w") as fh:
+            fh.write(self.NEW_GAME)
+        return save
+
+    def _harvest(self, save, **kw):
+        import tempfile
+        out_root = tempfile.mkdtemp()
+        orig = harvest._FIXTURES_SAVES
+        harvest._FIXTURES_SAVES = out_root
+        try:
+            return harvest.harvest(save, "cs-new", "cs-new", force=False, **kw), out_root
+        finally:
+            harvest._FIXTURES_SAVES = orig
+
+    def test_a_vesselless_save_is_refused_without_the_flag(self):
+        with self.assertRaises(SystemExit):
+            self._harvest(self._save())
+
+    def test_a_vesselless_save_harvests_with_the_flag(self):
+        rc, out_root = self._harvest(self._save(), allow_no_vessel=True,
+                                     expected_mode="SCIENCE_SANDBOX")
+        self.assertEqual(0, rc)
+        self.assertTrue(os.path.isfile(os.path.join(out_root, "cs-new", "persistent.sfs")))
+
+    def test_the_mode_gate_refuses_the_wrong_mode_before_writing(self):
+        with self.assertRaises(SystemExit):
+            self._harvest(self._save(), allow_no_vessel=True, expected_mode="CAREER")
+
+    def test_check_game_mode_is_off_when_nothing_is_expected(self):
+        self.assertEqual((True, ""), harvest.check_game_mode("garbage", ""))
+        ok, detail = harvest.check_game_mode(self.NEW_GAME, "science_sandbox")
+        self.assertTrue(ok, detail)
+
+
 class KeepParsekModeTests(unittest.TestCase):
     """--keep-parsek: the RECORDED-STATE fixture mode (the B17 duna-direct
     recording fixture). The save's Parsek/ dir (recording sidecars) must
