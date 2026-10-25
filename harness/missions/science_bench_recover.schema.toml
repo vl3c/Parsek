@@ -354,3 +354,9 @@ max = 600.0
 [params.flightExperiments]
 required = false
 type = "list"
+
+# OPTIONAL. Narrows the landed COLLECT sweep to these experiment names (absent =
+# every eligible module).
+[params.landedExperiments]
+required = false
+type = "list"

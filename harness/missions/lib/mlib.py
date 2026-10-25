@@ -6931,6 +6931,11 @@ def evaluate_cl1_assertions(frames, params: Cl1Params,
 #                      `stagedScienceObserved` assertion requires the pad count on
 #                      the pad and pad + flight while airborne, so a run that
 #                      failed in flight and was only made up on the ground reds.
+#   landedExperiments  narrows the landed COLLECT sweep to these names (absent =
+#                      every eligible module, the historical sweep). Data stays in
+#                      the experiments for the whole flight (the Mk1 pod's science
+#                      container takes data only from an EVA kerbal), so
+#                      collectMinExperiments counts pad + flight + landed readings.
 #   transmitMaxExperiments = 0  skips TRANSMIT: COLLECT goes straight to RECOVER
 #                      and the `scienceTransmittedObserved` row is not emitted.
 #                      A capsule's built-in antenna never transmits science in
@@ -7151,6 +7156,7 @@ class SbrParams:
     pad_experiments: Tuple[str, ...] = ()
     pad_collect_timeout: float = 60.0
     flight_experiments: Tuple[str, ...] = ()
+    landed_experiments: Tuple[str, ...] = ()
 
     @property
     def transmit_skipped(self) -> bool:
@@ -7181,6 +7187,7 @@ def sbr_params_from_dict(params: Dict) -> SbrParams:
         pad_experiments=tuple(str(n) for n in (params.get("padExperiments") or ())),
         pad_collect_timeout=float(params.get("padCollectTimeoutSeconds", 60.0)),
         flight_experiments=tuple(str(n) for n in (params.get("flightExperiments") or ())),
+        landed_experiments=tuple(str(n) for n in (params.get("landedExperiments") or ())),
     )
 
 
@@ -7653,7 +7660,7 @@ def sbr_decide(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState, 
         if _is_finite(snapshot.ut):
             state = replace(state, landed_ut=float(snapshot.ut))
         return (replace(state, action_emits=1, frames_since_emit=0),
-                actions + [Action(ACTION_RUN_SCIENCE_EXPERIMENTS)])
+                actions + [_sbr_landed_run_action(state.params)])
 
     # --- 3. the dark science channel (FLAKE) ------------------------------
     # SCOPED TO COLLECT, which is the only phase that READS this channel, and the
@@ -7731,6 +7738,13 @@ def _sbr_reemit(state: SbrState, action_kind: str,
         return (replace(state, action_emits=state.action_emits + 1, frames_since_emit=0),
                 [Action(action_kind, value=value, text=text)])
     return replace(state, frames_since_emit=frames), []
+
+
+def _sbr_landed_run_action(params: SbrParams) -> Action:
+    """The landed COLLECT sweep: the landedExperiments filter, or every module."""
+    if params.landed_experiments:
+        return _sbr_run_action(params.landed_experiments)
+    return Action(ACTION_RUN_SCIENCE_EXPERIMENTS)
 
 
 def _sbr_run_action(names: Tuple[str, ...]) -> Action:
@@ -7847,7 +7861,8 @@ def _sbr_collect(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState
                          % (params.collect_timeout, params.collect_min_experiments,
                             _sbr_evidence(state)))), []
 
-    return _sbr_reemit(state, ACTION_RUN_SCIENCE_EXPERIMENTS)
+    landed = _sbr_landed_run_action(params)
+    return _sbr_reemit(state, ACTION_RUN_SCIENCE_EXPERIMENTS, text=landed.text)
 
 
 def _sbr_transmit(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState, List[Action]]:
