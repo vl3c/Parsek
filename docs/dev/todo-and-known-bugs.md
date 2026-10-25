@@ -3245,6 +3245,21 @@ Left open: a part shed because its parent part DIED (`Part.Die` decouples childr
 force 0) still reads "Decoupled" when no crash child joins the window. Telling it apart
 needs `onPartWillDie`, which fires before those decouples; not done here.
 
+## REALSPAWN-TIME-JUMP-MOVE-PLAYER: the Real Spawn Control Warp moves the player beside the ghost [FILED 2026-10-25, thread "Redesign time jump to move the player", branch `claude/project-thread-1gkt0y`. OPEN; product, design approved pending]
+
+Today's Warp freezes the player's bubble while ghosts keep playing, so a `Leaves` Warp in orbit
+loses its ghost (about 1,100 km after a 10 minute skip in LKO, never flown), a `Ready` ghost must
+spawn on a time-shifted copy of its orbit (off its own recording: replay mismatch after a dock,
+lost on a quickload while blocked), and the player gets free orbital phasing. Owner rulings
+2026-10-25 (Q1-Q7): refuse an unsafe move with a greyed Warp; move only loaded vessels within
+250 m / 2 m/s of the player; other crossed ghosts spawn on their recordings; a player action may
+read a ghost's recording to place the player's own vessels; rewrite flight recorder rule 13 and
+Section 14.5; 2 m/s burn limit on the chosen ghost; offset from the recorded state; the existing
+spawn collision guard is reused before the jump and the player's group slides back along the
+orbit instead of blocking the spawn. Design: `docs/dev/design-realspawn-time-jump-move.md`.
+Plan: Step 1 `Leaves`, Step 2 `Ready`; Step 2 deletes `TimeJumpTerminalOrbitShift` after CI-9,
+VN-4 and VN-10 fly green, which closes REALSPAWN-JUMP-SHIFT-RESIDUE.
+
 ## REALSPAWN-JUMP-SHIFT-RESIDUE: what the orbital-tip jump shift does not cover [FILED 2026-10-03 from the REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST fix, branch `fix-orbital-tip-spawn`. OPEN; product, low. Walkback item FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit. Second-jump item FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit]
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): all four residues still stand; later
