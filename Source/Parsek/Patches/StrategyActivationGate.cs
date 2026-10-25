@@ -136,7 +136,9 @@ namespace Parsek.Patches
                 string id = s?.Config?.Name;
                 if (string.IsNullOrEmpty(id) || byId.ContainsKey(id)) continue;
                 byId[id] = s;
-                if (!s.IsActive) inactive.Add(id);
+                // A one-shot exchanger's exchange is already a ledger row; switching it on
+                // would pay it again (StrategyStatePatcher.IsOneShotExchanger).
+                if (!s.IsActive && !StrategyStatePatcher.IsOneShotExchanger(s)) inactive.Add(id);
             }
 
             var crossed = SelectCrossedActivations(inactive, index.StrategyRows, previous, now);

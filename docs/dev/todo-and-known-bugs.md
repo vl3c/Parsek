@@ -57,8 +57,11 @@ fail whose state is `DeadlineExpired` untagged (`GameStateRecorder.EmitUntagged`
 ledger at once, in flight too (`ShouldForwardFailToLedger`; a commit converts only its own tag). Both
 dominance walks then carry the same penalty, a discard keeps it, and after a rewind the committed
 expiry refuses stock's repeat through `ContractEarlyFailPatch`. A fail before the deadline stays the
-flight's own loss. The penalty's funds / reputation changes from the same frame are untagged with it
-(`UntagContractPenaltyChanges`), so the commit reconcile does not read them as unledgered. Cells:
+flight's own loss. Everything stock does inside that `SetState(DeadlineExpired)` (or `OfferExpired`) is filed untagged
+too: `ContractEarlyFailPatch` opens `GameStateRecorder`'s clock-cause scope around an allowed call,
+so the penalty's currency changes, a strategy's conversion of them (Leadership Initiative) and the
+contract's own expiry code (a rescue offer removing its kerbal) never take the live tag, while a fail
+the flight causes in the same frame keeps it. Cells:
 `ContractDeadlineExpiryUntaggedTests`, `ReFlyMergeDominanceTests`
 (`Evaluate_UntaggedDeadlineExpiryDuringTheAttempt_*`, `Evaluate_TaggedDeadlineExpiry_*`,
 `Evaluate_AttemptFailBeforeTheDeadline_*`).
@@ -77,6 +80,47 @@ had only ever run with nothing ahead of the clock (L8 after Rewind-to-Launch).
 (reason `ledger-ground-truth`), as every production patch does. Cells:
 `LedgerGroundTruthAfterRewindTests` (the cutoff walk matches the save, the old full walk diverges, a
 source gate on the harness call). Lane: L13 (never flown).
+
+---
+
+## BATCH-ISOLATION-CAPTURE-FAILS-IN-THE-EDITOR: a LedgerGroundTruth batch started in the VAB logs an ERROR (DirectoryNotFoundException on Parsek/Recordings) [FILED 2026-10-25 from L13's first flight `2026-10-25_0016`, branch `claude/project-thread-dkcvpn`. OPEN; low]
+
+L13's first batch ran in EDITOR (the probe launch had been refused) and logged `Batch isolation
+capture FAILED (mode=InMemoryAndDisk) ... DirectoryNotFoundException ...\Parsek\Recordings\`.
+Not reproduced headless; read the capture's directory resolution in EDITOR (`InGameTestRunner.
+CaptureBatchBaseline`) against the collected KSP.log in the results archive.
+
+---
+
+## DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS: a lane whose seam steps time out still reads driver-valid [FILED 2026-10-25 from the dkcvpn flights, branch `claude/project-thread-dkcvpn`. OPEN; low, harness]
+
+`2026-10-25_0016` (L13) reported `driverValidity` PASS with four unmet steps (`allMet=False`:
+ExitToSpaceCenter TIMEOUT `not-in-flight`, LaunchFromEditor REJECTED, two WarpToUT TIMEOUTs), so
+the run classified PARSEK-FAIL on its log contract instead of driver-INVALID; RF-C1 `_0007` passed
+with one unmet ExitToSpaceCenter. Read how `hlib` folds a step whose `expect` was missed into the
+driver verdict.
+
+---
+
+## ~~STRATEGY-ACTIVATION-REPLAY-REPAYS-A-ONE-SHOT-EXCHANGER: switching on a committed Bail-Out Grant pays its exchange again~~ [FILED AND FIXED 2026-10-25 from a code audit, branch `claude/project-thread-dkcvpn`]
+
+Stock's `CurrencyExchanger` (Bail-Out Grant, Research Rights Sell-Out) pays the whole exchange in
+`OnRegister` and deactivates itself one frame later; `Strategy.Load` ends in `Register()`, so the
+`StrategyActivationGate` crossing replay (and, in a one-frame window, `PatchStrategies`) paid it a
+second time, and the self-deactivation (no duration, so not an expiry) took the live flight's tag.
+**Fix.** `StrategyStatePatcher.IsOneShotExchanger`: neither path ever switches such a strategy on;
+its exchange is already a ledger row.
+
+---
+
+## LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT: mod-driven background awards are filed under the live flight [FILED 2026-10-25 from a code audit, branch `claude/project-thread-dkcvpn`. OPEN; low, mod-only]
+
+Three cases a stock install never reaches: a Contract Configurator `autoAccept` contract accepted by
+a mid-flight contract refresh, science a background vessel transmits (and the body science milestone
+it reaches; Kerbalism-style mods), and a background resource-scan unlock (SCANsat). Each is tagged
+to the live recording, so a discard drops it and a Re-Fly reads it as the attempt's. Fix direction:
+the same clock-cause rule (file untagged when the vessel named is not the flown one), once a mod
+lane exists to prove it.
 
 ---
 

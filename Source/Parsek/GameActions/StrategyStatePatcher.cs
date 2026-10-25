@@ -315,6 +315,19 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True for a strategy with a stock <c>CurrencyExchanger</c> effect: its
+        /// <c>OnRegister</c> pays the whole exchange and it deactivates itself one frame later
+        /// (KSP 1.12.5, decompiled), so registering it again repeats the payment.
+        /// </summary>
+        internal static bool IsOneShotExchanger(Strategies.Strategy strategy)
+        {
+            if (strategy == null || strategy.Effects == null) return false;
+            for (int i = 0; i < strategy.Effects.Count; i++)
+                if (strategy.Effects[i] is Strategies.CurrencyExchanger) return true;
+            return false;
+        }
+
+        /// <summary>
         /// The commitment factor of the effective ledger's StrategyActivate row for
         /// <paramref name="strategyId"/> at <paramref name="activateUT"/>, or
         /// <paramref name="fallback"/> when none matches.
@@ -613,6 +626,16 @@ namespace Parsek
             {
                 if (SwitchOffWithoutCapture(byId[plan.ToDeactivate[i]], "PatchStrategies")) deactivated++;
                 else failed++;
+            }
+            // A one-shot exchanger (Bail-Out Grant, Research Rights Sell-Out) pays its whole
+            // exchange in OnRegister and switches itself off a frame later; its exchange is
+            // already a ledger row, so a Load here would pay it a second time.
+            for (int i = plan.ToActivate.Count - 1; i >= 0; i--)
+            {
+                if (!IsOneShotExchanger(byId[plan.ToActivate[i]])) continue;
+                ParsekLog.Info(Tag, "PatchStrategies: left one-shot exchanger strategy=" + plan.ToActivate[i]
+                                    + " off (its exchange is already in the ledger; switching it on would pay it again)");
+                plan.ToActivate.RemoveAt(i);
             }
             for (int i = 0; i < plan.ToActivate.Count; i++)
             {

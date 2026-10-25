@@ -32,7 +32,8 @@ _(unreleased - entries accumulate here per commit)_
   longer hold is filed the same way. (REFLY-DEADLINE-EXPIRY-REFUSES-THE-MERGE)
 - **Strategies follow the committed timeline exactly after a rewind.** A strategy your committed
   career switches on later now turns on at that moment, even mid-flight, and one that runs out
-  during a flight stays ended if you discard it. (STRATEGY-ACTIVATION-CROSSED-IN-FLIGHT-NOT-APPLIED)
+  during a flight stays ended if you discard it. A one-time grant such as Bail-Out Grant is never
+  paid twice. (STRATEGY-ACTIVATION-CROSSED-IN-FLIGHT-NOT-APPLIED)
 
 ### Dev
 
