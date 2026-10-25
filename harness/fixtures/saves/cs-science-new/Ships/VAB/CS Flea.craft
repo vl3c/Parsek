@@ -36,6 +36,7 @@ PART
 	link = parachuteSingle_4294458546
 	link = GooExperiment_4294442852
 	link = GooExperiment_4294442798
+	link = GooExperiment_4294442744
 	link = solidBooster.sm.v2_4294392496
 	attN = bottom,solidBooster.sm.v2_4294392496_0|-0.4050379|0
 	attN = top,parachuteSingle_4294458546_0|0.6423756|0
