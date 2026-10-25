@@ -2994,6 +2994,38 @@ holds three committed trees (the `2 trees` / `committedTrees=2` pins assumed H58
 lost listing read `completed=1 delivered=0` where the lane pinned `completed=0`. Being reworked so the
 endpoint comes back without a committed claim on it.
 
+Reworked 2026-10-25 (never flown in this shape): no rewind. The new injected preset `rescan-substitute`
+APPENDS one committed single-recording tree to the host's own ParsekScenario (new
+`ScenarioWriter.AppendTreesIntoExistingScenario`; the relay's three trees stay, the injector never cleans
+or purges): a landed probe `RS1 Substitute` 44 m north of A, its own derived pid and launch guid,
+recorded UT 1185-1200, which the Space Center spawns at its end. The lane warps to 1180 (the loss),
+the first rescan misses, a warp to 1230 spawns the substitute, and the second rescan rebinds stop 1 to
+it at the proximity step (`Route endpoint transferred: ... step=proximity`) and restarts the route
+(`EndpointRescan`, `RouteResumed reason=endpoint-rescan`, `recovered=true status=Active`); a warp to
+1300 then requires the restarted loop's next pickup window (a dispatch or a gate BLOCKED line). The
+lost-listing pin accepts `completed=1 skipped=0` (measured) or `completed=0 skipped=1` (the fix of
+LOOP-ROUTE-LOST-DELIVERY-COUNTED-COMPLETED).
+
+---
+
+## LOOP-ROUTE-LOST-DELIVERY-COUNTED-COMPLETED: a multi-stop loop cycle whose delivery lost its endpoint counts as completed [FILED 2026-10-25 from RS-1's first flight `2026-10-25_1116`. product, low]
+
+At RS-1's loss the route listing read `status=EndpointLost completed=1 ... dispatched=1 ...
+delivered=0`: the cycle's delivery found no endpoint, yet the cycle counts as completed. The
+multi-stop crossing bumps `CompletedCycles` whenever the cycle's last dock is reached
+(`RouteOrchestrator.cs:1662`, `if (cycleLastDockReached) { route.CompletedCycles += 1; ...`), whether
+or not that window delivered. Two other paths disagree with it: a rewind's counter rebuild
+(`RouteRewindClassifier.ReconstructCycleCounters`, `RouteRewindClassifier.cs:476`) counts completed
+as distinct cycle ids with a `RouteCargoDelivered` row and a dispatched-but-undelivered cycle as
+skipped, and the single-stop recovery counts its lost cycle skipped (`SkipUndeliveredLostCycle`).
+So the same multi-stop history reads `completed=1` live and `skipped=1` after a go-back. The
+next cycle id (`cycle-{C+S}`) is the same either way. Only the counters the Logistics window and
+the Route History show are off.
+
+Fix: in the multi-stop crossing, count the cycle skipped instead of completed when its last window
+lost its endpoint, or make the rebuild match the live rule. Either one changes counters that lanes
+pin (RS-1 accepts both readings).
+
 ---
 
 ## INTEGRATION-COVERAGE-LOGISTICS-REWIND-LEDGER: supply routes are tested almost only in isolation [FILED 2026-10-06 from the integration-coverage research, branch `ccr-77f23eb2-dbqh6i`. OPEN; test program]
