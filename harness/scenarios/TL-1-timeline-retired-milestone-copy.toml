@@ -5,7 +5,7 @@ tier = "nightly"
 # THE TIMELINE PHANTOM, READ LIVE (todo TIMELINE-PHANTOM-MILESTONE-AFTER-REFLY-OF-LATER-
 # SEGMENT, fixed 2026-10-24 on `claude/project-thread-a50btn`, xUnit
 # TimelineBuilderTests.LegacyMilestone_WhoseLedgerRowIsTombstoned_IsNotShown). AUTHORED
-# 2026-10-25 (branch `lane/tl1-timeline-phantom`), NEVER FLOWN.
+# 2026-10-25 (branch `claude/project-thread-u5m7su`), NEVER FLOWN.
 #
 # THE DEFECT. `MilestoneStore.CreateMilestone` copies a flight's game-state events at
 # CommitTree with their capture tag. When a Re-Fly merge tombstoned a milestone's ledger row
@@ -47,8 +47,11 @@ tier = "nightly"
 #                                 hide it (computed from the store, not from the built rows);
 #   retiredTwinRows=0             the built Timeline draws no legacy row for it;
 #   legacyMilestoneRows=0         and no legacy Milestone row at all.
+# legacyRows=1 is MEASURED (first flight 2026-10-25_1014, the only mismatch of that
+# PARSEK-FAIL, a spec pin): the live career draws one non-milestone legacy row the headless
+# cells do not model, so the pin is the measured 1, never 0.
 # A build without AddRetiredLegacyDuplicateKeys reads retiredTwinRows=1 legacyMilestoneRows=1
-# legacyRows=1 (mutation-checked headless: TestCommandTimelineReadbackTests and the
+# and one more legacy row (mutation-checked headless: TestCommandTimelineReadbackTests and the
 # TimelineBuilderTests cell red with the call removed), and loses the Verbose
 # `Legacy twins of 1 tombstoned ledger row(s) hidden` line, so three required tokens red.
 # A SaveGame then round-trips the tombstone (saveParse tombstones=1, report-only).
@@ -57,7 +60,7 @@ tier = "nightly"
 #   - the cold load installs the save's LEDGER_TOMBSTONES (LoadReconcilePolicy Cold) and the
 #     load-time sweep keeps it (its orphan check matches the action id, which exists);
 #   - all four milestone rows of this career read Effective after the load's recalculation,
-#     so legacyRows=0 / legacyMilestoneRows=0 / actionRows>=1 hold. A non-zero
+#     so legacyMilestoneRows=0 / actionRows>=1 hold. A non-zero
 #     legacyMilestoneRows with retiredTwinRows=0 is another milestone row the walk left not
 #     effective (a premise miss of this host, not the defect): read the `Filtered N duplicate
 #     legacy event(s)` line;
@@ -116,7 +119,7 @@ required = [
   # THE FIX, three ways: the builder hid the retired row's twin, the summary reads the
   # copy present and no row for it, and the retired row's own line says the same.
   "\\[Timeline\\] Legacy twins of 1 tombstoned ledger row\\(s\\) hidden",
-  "listhandles timeline count=[1-9][0-9]* recordingRows=[0-9]+ actionRows=[1-9][0-9]* legacyRows=0 milestoneRows=[1-9][0-9]* legacyMilestoneRows=0 retired=1 retiredWithTwin=1 retiredTwinCopies=1 retiredTwinRows=0",
+  "listhandles timeline count=[1-9][0-9]* recordingRows=[0-9]+ actionRows=[1-9][0-9]* legacyRows=1 milestoneRows=[1-9][0-9]* legacyMilestoneRows=0 retired=1 retiredWithTwin=1 retiredTwinCopies=1 retiredTwinRows=0",
   "listhandles timeline retired index=0 type=MilestoneAchievement subject=Kerbin/Science ut=346\\.0799999999752 twinCopies=1 twinRows=0",
   # The save afterwards still holds the tree.
   "OnSave: saving 1 committed tree\\(s\\)",

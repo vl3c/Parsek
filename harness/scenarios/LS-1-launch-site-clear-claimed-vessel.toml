@@ -37,7 +37,7 @@
 # nothing ghosts it. xUnit facts: LaunchSiteClaim_* (the fixture's sites, the chain, the
 # gate's selection holding the Rig and not the rover).
 #
-# NEVER FLOWN (authored 2026-10-25, branch `lane/ls1-launch-site-clear`). Guesses a first red
+# NEVER FLOWN (authored 2026-10-25, branch `claude/project-thread-u5m7su`). Guesses a first red
 # should be read against:
 #   - Kerbal X passes every pre-flight test but LaunchSiteClear from both editors (SE-1 / CI-6
 #     launch it from the SPH; one lane loads it in the VAB). A different failed test reads
