@@ -124,11 +124,13 @@ def drive_stop_subkind(ev: "hlib.ResponseEvaluation", mission: Optional[Dict]) -
       - seam-only, and any step before the mission: the first unmet step owns the
         subkind and every later step is behind it;
       - after a MET mission: an outcome step's driver-fault miss owns it when it is
-        the first unmet outcome step, and a refused recording step owns it when it is
-        the first unmet post-mission step; both are fixed once driven. A post-mission
-        miss that does NOT invalidate the stage (a flight-outcome ERROR, which reds
-        PARSEK-FAIL(mission-outcome), or a non-refusal recording miss) answers "",
-        so the tail the verifiers read is still driven.
+        the first unmet outcome step, and a recording step the seam did not carry out
+        (refused, timed out, unanswered) owns it when it is the first unmet
+        post-mission step; both are fixed once driven. A post-mission miss that does
+        NOT invalidate the stage (a flight-outcome ERROR, which reds
+        PARSEK-FAIL(mission-outcome), or a recording verb's own ERROR, which reds
+        PARSEK-FAIL(unmet-step)) answers "", so the tail the verifiers read is still
+        driven.
     An UNMET mission answers "": the unmet-mission tail (with its spec opt-out) owns
     that tail."""
     if mission is not None and not mission.get("met"):
