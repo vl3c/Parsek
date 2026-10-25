@@ -226,6 +226,56 @@ namespace Parsek
             return armed + accumulated;
         }
 
+        internal const string RecaptureAdd = "recapture";
+        internal const string RecaptureMissingRecording = "missing-recording";
+        internal const string RecaptureAlreadySpawned = "already-spawned";
+        internal const string RecaptureShiftNotLive = "shift-not-live";
+        internal const string RecapturePositionUnresolved = "position-unresolved";
+        internal const string RecaptureOutsideBubble = "outside-bubble";
+
+        /// <summary>
+        /// The recordings holding an armed shift that are not in <paramref name="excluded"/>,
+        /// in ordinal id order. The bubble-ghost collector uses it to find a tip a previous
+        /// jump armed that has neither spawned nor been held (its plain ghost is past its end,
+        /// so no ghost walk sees it), so a second jump in that window still accumulates its lag.
+        /// </summary>
+        internal static List<string> PendingRecordingIdsNotIn(ICollection<string> excluded)
+        {
+            var ids = new List<string>();
+            foreach (string id in pending.Keys)
+            {
+                if (excluded != null && excluded.Contains(id))
+                    continue;
+                ids.Add(id);
+            }
+            ids.Sort(StringComparer.Ordinal);
+            return ids;
+        }
+
+        /// <summary>
+        /// Pure: should an armed, not-yet-spawned tip with no drawn ghost be handed to
+        /// <see cref="CaptureForJump"/> for the next jump? Its stand-in position is the
+        /// jump-shifted terminal orbit at the current UT (where it would spawn and where a
+        /// held ghost of it is drawn), so the bubble test is the same one a drawn ghost gets.
+        /// Returns <see cref="RecaptureAdd"/> or the skip reason.
+        /// </summary>
+        internal static string ClassifyPendingRecapture(
+            bool recordingFound, bool alreadySpawned, bool shiftLive,
+            bool positionResolved, double separationMeters, double bubbleMeters)
+        {
+            if (!recordingFound)
+                return RecaptureMissingRecording;
+            if (alreadySpawned)
+                return RecaptureAlreadySpawned;
+            if (!shiftLive)
+                return RecaptureShiftNotLive;
+            if (!positionResolved || !IsFiniteValue(separationMeters) || separationMeters < 0.0)
+                return RecapturePositionUnresolved;
+            if (separationMeters > bubbleMeters)
+                return RecaptureOutsideBubble;
+            return RecaptureAdd;
+        }
+
         /// <summary>
         /// The live shift for <paramref name="recordingId"/> at <paramref name="currentUT"/>.
         /// A shift left behind by a rewind is dropped here.

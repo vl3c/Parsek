@@ -2386,14 +2386,14 @@ The live proof, lane RC-5, is not flown.
 
 ---
 
-## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; LIVE-PROVEN by EVA-11 `2026-10-15_2343`. FOREIGN EVA KERBAL HALF FIXED 2026-10-23, branch `claude/project-thread-y4esmb`; xUnit; LIVE-PROVEN by EVA-12 `2026-10-23_2257`. Still open: a part detached and dropped on the ground]
+## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; LIVE-PROVEN by EVA-11 `2026-10-15_2343`. FOREIGN EVA KERBAL HALF FIXED 2026-10-23, branch `claude/project-thread-y4esmb`; xUnit; LIVE-PROVEN by EVA-12 `2026-10-23_2257`. KSC-retirement side note FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit. Still open: a part detached and dropped on the ground]
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): the unfixed half (a part detached
 from a foreign vessel and then dropped) is still real, low: only attach and detach are handled
 (`ParsekFlight.ForeignInventoryTransfer.cs`), and new-vessel adoption exists only for inventory
 ground placement (`ParsekFlight.GroundPartPlacement.cs`), so the dropped part is gone after a rewind
 or replay. Needs a decompile of the construction drop path and a live reading (EVA-11 shape) before
-a fix. The KSC-retirement side note (only `EvaCrewName` exempts) is also still true.
+a fix. The KSC-retirement side note (only `EvaCrewName` exempts) is fixed (2026-10-25, below).
 
 The inventory fix records a stored part moved into or out of a foreign vessel's container, but two
 neighbours of the same defect remain. `EVAConstructionModeEditor` fires
@@ -2497,15 +2497,21 @@ Bob Kerman as the partner): LIVE-PROVEN 2026-10-23 on its first flight, `2026-10
 (Bob held through the rewind, spawned with `storedParts=0`; Bill spawned with the kit).
 
 Still OPEN: a part detached from a foreign vessel and then dropped on the ground (a new vessel no
-recording carries). Also noticed, not fixed (pre-existing, filed here rather than widened): KSC
-end-of-flight retirement exempts only recordings with `EvaCrewName`
-(`VesselSpawner.EvaluateKscEndOfFlightRetirement`), so a kerbal recording without it (an adopted
-cargo-partner kerbal, or a recording started on an EVA kerbal) whose endpoint lies inside the KSC
-exclusion circle would be retired and not respawn. EVA-12 parks its kerbals 153 m from the pad.
+recording carries). ~~Also noticed (pre-existing): KSC end-of-flight retirement exempts only
+recordings with `EvaCrewName` (`VesselSpawner.EvaluateKscEndOfFlightRetirement`), so a kerbal
+recording without it (an adopted cargo-partner kerbal, or a recording started on an EVA kerbal)
+whose endpoint lies inside the KSC exclusion circle would be retired and not respawn.~~ FIXED
+2026-10-25, branch `claude/project-thread-re9fpq`, xUnit (`KscPadRetirementTests.EvaKerbal_*`,
+`CrewSide_DroppedKerbalSnapshotOnThePad_IsNotRetired_BothSides`): the EVA exemption is now
+`VesselSpawner.IsEvaKerbalRecordingForRetirement`, true for `EvaCrewName` or an END vessel snapshot
+of stock type `EVA` (the precedent of `CoexistingTreeSiblingSpawn.ClassifySpawningMember`, minus
+its start-situation arm: only the spawn form counts, so a recording that ends as a vessel is never
+exempted), re-checked after a dropped snapshot is re-hydrated from its sidecar. EVA-12 parks its
+kerbals 153 m from the pad, so no committed lane exercises the circle with such a kerbal.
 
 ---
 
-## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness. Fresh-branch promotion residue FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit. Background-leg item CLOSED 2026-10-07, branch `release-rulings`, by the converter-event witness. Supply-route item CLOSED 2026-10-07, branch `chain-tip-cargo-all-spawns`, by END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO (owner ruling: trimming stays)]
+## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness. Fresh-branch promotion residue FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit. Decoupled-converter missed trim FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit. Background-leg item CLOSED 2026-10-07, branch `release-rulings`, by the converter-event witness. Supply-route item CLOSED 2026-10-07, branch `chain-tip-cargo-all-spawns`, by END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO (owner ruling: trimming stays)]
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): still real, low. The witnesses are
 still a harvest window and a running converter (`RecordingOptimizer.TailTrim.cs`). The in-vessel
@@ -2529,8 +2535,10 @@ resources still arrive early with the commit-time snapshot:
   snapshot is spawned only after the timeline went back, and every such load retires the route
   rows after its cutoff, except a cold load into an older save
   (COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE);
-- an in-vessel transfer (crossfeed, a docked pair's fuel transfer): vessel totals do not move, so no
-  manifest sees it, but the per-part split in the snapshot still arrives early.
+- ~~an in-vessel transfer (crossfeed, a docked pair's fuel transfer): vessel totals do not move, so no
+  manifest sees it, but the per-part split in the snapshot still arrives early~~ - ACCEPTED 2026-10-25
+  (owner ruling: totals are exact, no ledger value moves; stated in flight recorder design 'Fuel moved
+  inside the vessel during a trimmed tail').
 
 ~~A converter running on a BACKGROUND leg~~ - CLOSED 2026-10-07 (branch `release-rulings`):
 `BackgroundRecorder` emits the same `ConverterActivated` / `ConverterDeactivated` part events
@@ -2548,20 +2556,31 @@ the vessel by decouple or undock keeps reading "running" on the parent recording
 `CheckConverterState` walks only `v.parts` and the `Decoupled` event carries the pid of the part
 that came off, not the converter's, so that parent's tail is never trimmed (a missed trim, never
 early resources; no recording in the fixture, dev-save or collected-log corpus ends with a
-converter running). A destroyed part is final (fixed in the same PR).
+converter running). A destroyed part is final (fixed in the same PR). ~~Decoupled-converter
+missed trim~~ FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit (`DepartedConverterStopTests`,
+`RecordingOptimizerTests.TrimBoringTail_RunningConverterPartDecoupledAway_TrimsAfterTheDeparture`):
+both converter polls (`FlightRecorder.CheckConverterState`, `BackgroundRecorder.CheckConverterState`)
+count the tracked running converter pids they saw on the vessel; when fewer were seen than the
+tracking set holds, `FlightRecorder.AppendDepartedConverterStops` writes a `ConverterDeactivated`
+at the poll UT for each tracked pid no longer in `Vessel.parts` and drops it from the set (one
+Info line `Converter part(s) left the vessel while running`). A read with no parts proves nothing
+and writes nothing. The departed part's own recording seeds its running state from the live part
+(the background `InitializeLoadedState` seed for a fresh child, the promotion converter seed for
+an active-side branch). On the parent ghost the stop only ends the running loop of a part the
+decouple already hid.
 
 Fix options: ~~(1) give the optimizer pass the ledger's route rows whose endpoint is the recording's
 vessel and treat a row inside the tail as interesting~~ (not taken, see the closed route item);
-(2) accept the in-vessel case; ~~(3) for the residues, emit a converter seed on a promotion into a
+(2) accept the in-vessel case (TAKEN 2026-10-25, owner ruling); ~~(3) for the residues, emit a converter seed on a promotion into a
 fresh branch (it would also start the ghost's running loop there)~~ - promotion residue FIXED
 2026-10-24, branch `claude/project-thread-u9w386`, xUnit (`ConverterPromotionSeedTests`): the promotion path of
 `FlightRecorder.ResetPartEventTrackingState` now emits `ConverterActivated` seeds
 (`PartStateSeeder.EmitConverterSeedEvents`) when the active recording has no converter edge yet
 (`ChainPromotionShouldEmitConverterSeeds`, the engine gate's shape), at the engine seeds' UT
 (`ResolveChainPromotionSeedUT`). A recording that already carries a converter edge keeps its own
-state. Still open: the in-vessel transfer half (owner's call), a background vessel recorded only on
-rails (a later promotion of it now seeds, the background recording itself does not), and the
-decoupled-converter missed trim. Live witness: the in-game cell
+state. Still open: a background vessel recorded only
+on rails (a later promotion of it now seeds, the background recording itself does not); the
+decoupled-converter missed trim is fixed (above). Live witness: the in-game cell
 `PromotionConverterSeedInGameTest.PromotionSeedsRunningConverters` (category `PromotionConverterSeed`,
 lane `MINE-15-promotion-converter-seed`, LIVE-PROVEN 2026-10-24 on its first flight `2026-10-24_2357`:
 five running converters, five seeds) runs the promotion seed
@@ -2908,7 +2927,7 @@ Left open: a part shed because its parent part DIED (`Part.Die` decouples childr
 force 0) still reads "Decoupled" when no crash child joins the window. Telling it apart
 needs `onPartWillDie`, which fires before those decouples; not done here.
 
-## REALSPAWN-JUMP-SHIFT-RESIDUE: what the orbital-tip jump shift does not cover [FILED 2026-10-03 from the REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST fix, branch `fix-orbital-tip-spawn`. OPEN; product, low. Walkback item FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit]
+## REALSPAWN-JUMP-SHIFT-RESIDUE: what the orbital-tip jump shift does not cover [FILED 2026-10-03 from the REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST fix, branch `fix-orbital-tip-spawn`. OPEN; product, low. Walkback item FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit. Second-jump item FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit]
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): all four residues still stand; later
 commits widened the shifted cases without closing these. The walkback item is the one with a small
@@ -2939,11 +2958,22 @@ four neighbours keep the old geometry; none is flown:
   state a seam lane can reach is a `RealSpawn` that times out with an ERROR while the tip stays
   blocked (moving the blocker needs a kRPC mission). The gate is one pure branch with its log line
   pinned in xUnit (`TimeJumpTerminalOrbitShiftTests`).
-- **A second jump before an armed tip spawns, when the tip is not held.** Accumulation reads
+- ~~**A second jump before an armed tip spawns, when the tip is not held.** Accumulation reads
   the held blocked-tip ghosts; a tip armed by a first jump that has neither spawned nor been
   blocked (its plain ghost is not held) is not re-captured, so a second jump in that window
   leaves its lag at the first jump's value. Unlikely: the spawn normally follows the jump at
-  once (found by the PR #1995 follow-up review).
+  once (found by the PR #1995 follow-up review).~~ FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit
+  (`TimeJumpTerminalOrbitShiftTests.PendingRecordingIdsNotIn_*`, `ClassifyPendingRecapture_Table`,
+  `SecondJump_ArmedTipNotHeld_*`): after its two ghost walks,
+  `ParsekFlight.CollectBubbleGhostsForTimeJump` takes every recording still holding an armed shift
+  that neither walk saw (`TimeJumpTerminalOrbitShift.PendingRecordingIdsNotIn`), places it on its
+  jump-shifted terminal orbit at the current UT (the same body and orbit the shifted spawn and a
+  held ghost use) and hands it to `CaptureForJump` at that separation when
+  `ClassifyPendingRecapture` says so (found, unspawned, shift live, position resolved, inside the
+  bubble), so the existing accumulate branch adds the second jump's delta. One Verbose line per
+  such tip with its decision, and `pendingRecaptured` / `pendingSkipped` on the collector summary.
+  No live lane: the window between a jump and the tip's spawn is a frame or two, which no seam
+  lane can hit with a second jump.
 
 ---
 
