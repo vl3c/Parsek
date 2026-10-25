@@ -396,6 +396,26 @@ count = { min = 1 }
 #  - `outcome=concluded-no-supersede` is the CONCLUSION: rows=0, tombstones=0,
 #    marker cleared HERE rather than by the next load's sweep. Without it the run
 #    could still emit the refusal and then strand the marker.
+#
+# EITHER CONCLUSION ROUTE (2026-10-25, todo
+# REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START). The three tokens above hold
+# only when the merge concludes before the re-fly recorder's first sample, and this
+# lane cannot schedule that: FlightRecorder's Re-Fly post-load settle holds samples
+# only until the restored vessel unpacks plus two frames (about 1.05 s, measured on
+# S4.4's `2026-10-07_1947`), the batch takes about 1.1 s (`2026-10-07_2239`: recorder
+# start 44.290, batch end 45.396, merge 45.509), and the batch must precede the merge
+# because the merge reaps rp_wp_root, the ground truth the cells read. A
+# `RecordingState awaitRecorderLive=refly` wait (S4.4's fix) answers inside the hold,
+# but the batch after it still outlives the hold. So the provisional is sometimes
+# empty at the merge (`2026-08-11_2111`) and usually carries the samples recorded
+# while the batch ran (`2026-10-07_2239`, `2026-10-12_0850`, both PARSEK-FAIL on the
+# three tokens alone, the merge correctly writing `Added 1 supersede relations`).
+# Both are clean conclusions of the live session and neither is a defect; the
+# unflown route stays pinned on its own by S4.1 (no batch) and CI-2. The required
+# line therefore accepts either route WHOLE: the unflown route's three tokens in
+# order, or the flown route's supersede row for `wp-booster-a` followed by the
+# journal's `End reason=merged` (S4.4's measured flown route, `2026-10-20_2205`, same
+# fixture and slot). A mixed or partial route matches neither alternative.
 # The two `forbidden` additions are the pre-fix cascade, verbatim from run
 # 2026-08-11_1057: the bail WARN and the next-load marker rejection. This fixture
 # runs exactly one Re-Fly session, so neither line has an innocent source here. If
@@ -409,9 +429,9 @@ required  = [
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
   "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
   "Restored: recs=.* pendingScience=",
-  "outcome=retired-empty-provisional",
-  "AppendRelations outcome=refused-unflown-provisional",
-  "outcome=concluded-no-supersede",
+  # THE CONCLUSION ROUTE, either one, each route's tokens in order (2026-10-25, todo
+  # REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START). See the note above.
+  "(?:outcome=retired-empty-provisional[\\s\\S]*AppendRelations outcome=refused-unflown-provisional[\\s\\S]*outcome=concluded-no-supersede|Added [1-9][0-9]* supersede relations for subtree rooted at wp-booster-a\\b[\\s\\S]*End reason=merged sess=)",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

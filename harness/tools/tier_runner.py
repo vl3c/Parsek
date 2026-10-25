@@ -195,7 +195,8 @@ INSTANCE_LOCKED_MARKERS: Tuple[str, ...] = (
 PROVISION_HINT = (
     "instance not fit -- provision is a HUMAN call (a worktree build may be "
     "WIP); run `cd harness && python provision/provision.py --profile "
-    "stock-minimal` from the intended worktree")
+    "stock-minimal` (or the profile an `admit refused` line names) from the "
+    "intended worktree")
 
 TIER_RUN_LOG_KEEP_DAYS = 60
 LOG_STAMP_FORMAT = "%Y-%m-%d_%H%M%S"

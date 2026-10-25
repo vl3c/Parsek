@@ -80,6 +80,24 @@ _(unreleased - entries accumulate here per commit)_
 - **Harness: a lane with a test step that timed out can no longer pass.** A step after the flight
   that timed out or got no answer now marks the run invalid and retries it, and one that failed
   outright turns it red. (DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS)
+- **Harness: a game that freezes at the main menu is retried instead of waited out.** A test run
+  whose KSP stopped at the main menu before taking its first command sat out an 11-minute wait
+  and was not retried; it now ends after 90 s of silence and runs again. (VB-1-KSP-HANG-AT-MAIN-MENU)
+- **Harness: the modded test install no longer flies an old Parsek build.** A test lane on the
+  second, modded install now refuses to start when that install carries a different Parsek.dll
+  than the main test install, and names the provisioning command to fix it.
+  (HARNESS-MODDED-COMPAT-NEVER-PROVISIONED)
+- **Harness: the Re-Fly world-preservation lane accepts either clean ending.** Its merge can end
+  before or after the re-flown stage records its first sample, depending on timing the lane cannot
+  control; both endings are correct, so the lane now checks for either one, whole.
+  (REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START)
+- **Harness: a ledger check can name an award a flight may or may not earn.** The crash-landing
+  ledger lane no longer fails when its pod happens to land before breaking up and earns the
+  Kerbin landing milestone; that award now counts only when both the game's award and the saved
+  career show it. (CL-2-POD-LANDING-AWARD-VARIANCE)
+- **Harness: the Duna companion lane aims its arrival clear of Ike.** Its probe now aims to pass
+  Duna 10,000 km up instead of 300 km, above the band where Ike orbits, so the capture no longer
+  drifts through Ike's pull and fails the run. (V3C-CAPTURE-AIMS-INTO-IKE)
 
 ---
 

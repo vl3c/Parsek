@@ -856,7 +856,7 @@ Parsek-spawned vessel (whose resumed recording keeps the pre-spawn guid, a `Resu
 reads as a different launch on both the absorbed and the surviving path; the identity links are
 not consulted by `VesselLaunchIdentity`. Older saves stay pid-only until re-recorded.
 
-## HARNESS-MODDED-COMPAT-NEVER-PROVISIONED: the MC lanes on modded-compat fly whatever Parsek.dll that instance last received [FILED 2026-10-12 from the operator tier. OPEN, harness]
+## ~~HARNESS-MODDED-COMPAT-NEVER-PROVISIONED: the MC lanes on modded-compat fly whatever Parsek.dll that instance last received~~ [FILED 2026-10-12 from the operator tier. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells; flight owed: MC-1 on a stale `modded-compat` (refused pre-boot) and again after `provision.py --profile modded-compat` (flies). harness]
 
 Four MC lanes (`MC-1`..`MC-3` nightly, `MC-5` operator; MC-4 is `instanceProfile =
 "stock-minimal"`) run on `automation/modded-compat`, but neither `run.py` nor
@@ -870,6 +870,21 @@ night: MC-1..MC-3 PASS, MC-5 then red on a shrunk watch window (fixed in #2083, 
 HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS). Fix options: provision every profile a tier selects
 (tier_runner), or have admit refuse an instance whose deployed DLL hash differs from
 stock-minimal's after a provision.
+
+Fixed (2026-10-25, the second option): `run.py`'s ADMIT hashes the deployed `Parsek.dll` of the
+instance and of `stock-minimal` (`hlib.REFERENCE_DLL_PROFILE`, the instance every routine
+provision targets) for any other profile, and `hlib.decide_reference_dll_drift` adds a diff entry
+`deployedParsekDll.sha256.vsReference` when they differ, so `hlib.admit_instance` refuses the run
+pre-boot as terminal `INVALID(drift)`. The harness log carries `admit refused: instance=<profile>
+... provision it (a HUMAN call): cd harness && python provision/provision.py --profile <profile>`
+and the result JSON the same hint as its `note`; `tier_runner` reads the `admit drift field=` line
+as NEEDS-PROVISION (its hint now also points at the profile an `admit refused` line names).
+Skipped, with one Info line, for `stock-minimal` itself and when either DLL is absent. Auto-
+provisioning stays out (tier_runner POLICY 2: which build an instance carries is a human call).
+Not covered: a `stock-minimal` that is itself stale. Cells: `ReferenceDllAdmissionTests`
+(hlib) and `ReferenceDllAdmissionSmokeTests` (refused with no launch, a match flies, no reference
+flies, the reference is never compared with itself; mutation-checked by dropping the diff from the
+admit call).
 
 ## KB-STRATEGY-SLOT-NEEDED-NO-LIVE-LANE: the Administration Accept refusal for a strategy that would take the slot a committed activation needs has never been pressed in game [FILED 2026-10-10 from the branch cleanup. OPEN, harness, low]
 
@@ -925,7 +940,7 @@ Work:
 
 ---
 
-## VB-1-KSP-HANG-AT-MAIN-MENU: KSP stalled at the main menu before the seam received `LoadGame`, and the watchdog only killed it at 660 s [FILED 2026-10-09 from the nightly release check. OPEN, harness]
+## ~~VB-1-KSP-HANG-AT-MAIN-MENU: KSP stalled at the main menu before the seam received `LoadGame`, and the watchdog only killed it at 660 s~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells; flight owed: any lane (a healthy boot must log `boot ready via=seam-receipt` and PASS; the hang itself is not reproducible on demand). harness]
 
 `VB-1-ghost-vessel-budget` `2026-10-09_0755` read KILLED (budget) after 674 s: the collected
 `KSP.log` (`logs/2026-10-09_1107_VB-1-ghost-vessel-budget`) ends ~0.5 s after `Scene Change : From
@@ -941,9 +956,24 @@ deferred step budget. 2026-10-12: HARNESS-BOOT-HANG-KILLED-BUDGET added a boot-s
 MAINMENU line, so this post-MAINMENU shape is still open; a follow-up could extend the same
 no-growth rule up to the first seam response.
 
+Fixed (2026-10-25): the watchdog now has a main-menu phase. `BootWatch` keeps tailing this
+launch's KSP.log after MAINMENU until the seam's receipt of the first command
+(`hlib.SEAM_RECEIPT_MARKER`, `[TestCommands] recv id=`, the `TestCommandDiagnostics.Receipt` line)
+or any seam response, and in that phase applies the 90 s no-growth rule alone as rule
+`no-seam-receipt` (`hlib.boot_watch_phase`, `decide_boot_stall(at_mainmenu=True)`). The kill is
+the same retryable `INVALID(boot-hang)`, so VB-1's shape now costs about 90 s plus a retry. It
+stops at the receipt, not at the response: the seam reads commands only outside LOADING, so the
+receipt follows MAINMENU within a second (0.65 s in the collected `flighteff_b11` log), and after
+it the seam owns the command and a LoadGame may sit in a quiet deferral. Cells:
+`BootStallWatchdogTests` (phase table, the no-seam-receipt rule, the receipt scan, the marker
+pinned to the C# receipt literal) and the smoke cell
+`test_a_ksp_wedged_at_the_main_menu_is_killed_invalid_boot_hang_and_retried` (new fake mode
+`menuhang`; mutation-checked: with MAINMENU switching the watchdog off it ends KILLED(budget));
+`slowboot` now logs a receipt and still never trips.
+
 ---
 
-## V3C-CAPTURE-AIMS-INTO-IKE: V3C's capture leaves Duna's SOI through Ike on both attempts [FILED 2026-10-09 from the nightly release check. OPEN, mission]
+## ~~V3C-CAPTURE-AIMS-INTO-IKE: V3C's capture leaves Duna's SOI through Ike on both attempts~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells; flight owed: V3C-flight-arrival-companion (MISSION-OK with the first in-SOI `telemetry ... pe=` frame above 4,026 km altitude). mission]
 
 `V3C-flight-arrival-companion` `2026-10-09_0731` / `_0743_a2` both read INVALID (mission):
 `MISSION-ASSERT-FAIL ... left the target SOI during CAPTURE-BURN without a committed park:
@@ -955,6 +985,19 @@ rounds aim `courseCorrectPeriapsisMeters = 300000` (300 km, dead centre of the f
 aim the arrival periapsis at >= 4,300 km altitude (the high band run 4 flew naturally), or replan
 the capture when the patched conics report `nextBody=Ike` before the burn. A mission fix, not a
 Parsek defect (a mission that did not fly is driver-INVALID).
+
+Fixed (2026-10-25, the first option, spec only): `courseCorrectPeriapsisMeters` in
+`harness/scenarios/V3C-flight-arrival-companion.toml` moved 300000 -> 10000000 (10,000 km
+altitude). At 300 km the request is 0.63% of Duna's SOI, the regime where the corrector delivers
+a periapsis set by the arrival geometry rather than the request (B22's corpus table; this lane's
+six arrivals spread 283 - 7,000 km, three inside Ike's shell). 10,000 km is 20.9% of the SOI,
+beside B22's Jool row (k 0.974); at the corpus's lowest k (0.545, the Mun) it still delivers
+5,450 km, 1,424 km above the shell's outer edge, and a hyperbola whose periapsis clears the shell
+never enters it. The high tail parks near 10 Mm, inside the 40 Mm park apoapsis window;
+capture-to-circular costs ~665 m/s vs ~575. `targetPeriapsisFloorMeters` stays the atmosphere
+guard (B22's J1 reasoning). The replan-on-`nextBody=Ike` option was not taken: it is a machine
+change with no flown precedent. Proven offline by `b5_params_from_dict` loading the spec and the
+`missions/lib` and `lib` suites; the delivered periapsis is what the flight must read.
 
 ---
 
@@ -1008,7 +1051,7 @@ A tree that does not start on the pad (a Re-Fly or switch continuation that star
 no launch site) and is destroyed or left within the pad thresholds is now kept for the merge dialog
 instead of discarded; this is intended.
 
-## CL-2-POD-LANDING-AWARD-VARIANCE: CL-2's pod sometimes earns Kerbin/Landing before it breaks up, and the oracle hard-gates the award [FILED 2026-10-08 from CL-2's regression flight on the PR #2055 DLL. OPEN, harness]
+## ~~CL-2-POD-LANDING-AWARD-VARIANCE: CL-2's pod sometimes earns Kerbin/Landing before it breaks up, and the oracle hard-gates the award~~ [FILED 2026-10-08 from CL-2's regression flight on the PR #2055 DLL. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells; flight owed: CL-2-pod-impact-ledger (green whether or not the pod lands; a landed run shows `optional-award milestone=Kerbin/Landing decision=admitted`). harness]
 
 `CL-2-pod-impact-ledger` `2026-10-08_1914` reads PARSEK-FAIL on the ledger oracle: funds
 expected 529600, parsed 530400 (+800). This run's pod touched down long enough to complete
@@ -1018,6 +1061,24 @@ award (its capture cross-check), so a per-run outcome difference reads as ledger
 product defect (the award was really earned and really booked). Fix: decide whether the oracle
 model admits `Kerbin/Landing` when the pod's recording shows a surface contact, or make the
 mission's impact deterministic.
+
+Fixed (2026-10-25): the oracle had no such knob, so it gained one. `[[expectations.ledger.optional]]`
+entries are ordinary manifest entries plus a `milestone` id. `ledgerverify.resolve_optional_awards`
+admits them into the declared set (summed into EXPECTED, and a corroboration target for the
+stock-award cross-check) only when the award was booked on BOTH sides: the event-time capture
+(`hlib.parse_milestone_award_lines` over `GameStateRecorder`'s `Milestone enriched: '<id>' funds=
+rep= sci=` line, stock's own AwardProgress values) and the produced save (`<id>` in
+`careerSave.completedMilestoneIds`, the ProgressTracking state Parsek's recalc patched). Booked on
+neither side, it is dropped. One side only, a repeat, or a captured funds / science amount other
+than the declared one is a HARD divergence (`optional-award-disagreement` / `-repeated` /
+`-amount-mismatch`, `oracle.decide_optional_award`), and an admitted award missing from the pool
+still reds the pool diff, since the declared constant, never the captured amount, joins EXPECTED.
+Every award not declared optional still hard-gates. Refused pre-launch under the rewind-aware model
+and with a null amount. CL-2 declares `Kerbin/Landing` funds 800 (rep 0, sci 0, measured on the
+`refly-a-recorded` ledger row); the mission was not changed (an impact cannot be made to land or
+not land deterministically). Cells: `harness/lib/test_ledger_optional.py` (decision table, the
+capture parser pinned to the C# literal, spec validation, the verifier end to end incl. the
+cross-check and the mutation planner; mutation-checked by never admitting).
 
 ---
 
@@ -1059,7 +1120,7 @@ inert-step settle is now a 1x `WarpToUT maxRate=1` to a UT read off the logs:
 
 ---
 
-## REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START: S4.2 and S4.4 need the re-fly recorder live (or not yet) while the provisional is still empty, a window of a few frames [FILED 2026-10-07 from the F9 verification flights, branch `ql-lanes`, measured. S4.4 FIXED 2026-10-08 by a named-condition seam wait (branch `s44-refly-wait`), LIVE-PROVEN 2026-10-08: three flights `2026-10-08_1806`, `_1812`, `_1814`, each PASS attempt 1 with the wait answering `points=0 ... reFlyMarker=true`, the bare reload refused `recording-active` and the empty-provisional conclusion. OPEN for S4.2, harness]
+## ~~REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START: S4.2 and S4.4 need the re-fly recorder live (or not yet) while the provisional is still empty, a window of a few frames~~ [FILED 2026-10-07 from the F9 verification flights, branch `ql-lanes`, measured. S4.4 FIXED 2026-10-08 by a named-condition seam wait (branch `s44-refly-wait`), LIVE-PROVEN 2026-10-08: three flights `2026-10-08_1806`, `_1812`, `_1814`, each PASS attempt 1 with the wait answering `points=0 ... reFlyMarker=true`, the bare reload refused `recording-active` and the empty-provisional conclusion. S4.2 FIXED 2026-10-25 in the spec, branch `claude/project-thread-re9fpq`, spec only; flight owed: S4.2-refly-world-preservation. harness]
 
 Two lanes gate on an UNFLOWN Re-Fly provisional, and both race the re-fly recorder's start, which
 happens when `RestoreActiveTreeFromPending` runs from the re-fly scene's OnFlightReady:
@@ -1101,6 +1162,23 @@ at-save`, the shape this race produces.
 
 
 Data point 2026-10-12 (operator tier): S4.4 2026-10-12_2128 PARSEK-FAIL on `outcome=retired-empty-provisional` / `AppendRelations outcome=refused-unflown-provisional` missing: the same race (operator tier, attempt 1, PARSEK-FAIL is not retried).
+
+S4.2 fixed (2026-10-25, spec only): no step order keeps S4.2's provisional empty at the merge. The
+batch must run before the merge (the merge reaps `rp_wp_root`, the RP quicksave the cells compare
+against; after it every cell skips "RP no longer resolves") and after InvokeRewind (every cell
+needs the live marker), and it takes about 1.1 s while FlightRecorder's Re-Fly post-load settle
+holds samples only until the vessel unpacks plus two frames (about 1.05 s). S4.4's
+`awaitRecorderLive=refly` wait answers inside the hold, but the batch after it still outlives
+it. A deterministic flown conclusion (a 1x `WarpToUT` past the hold before the batch) would need
+the post-rewind UT measured from a flight (`WarpToUT` takes only an absolute `ut`), and would move
+the lane onto the merge-journal route on purpose. So the spec takes S4.4's 2026-10-20 precedent
+(same fixture and slot): the one required conclusion line accepts either WHOLE route, the unflown
+route's three tokens in order, or `Added N supersede relations for subtree rooted at wp-booster-a`
+followed by `End reason=merged sess=` (measured flown route, S4.4 `2026-10-20_2205`); a mixed or
+partial route matches neither. The unflown route stays pinned on its own by S4.1 (no batch) and
+CI-2. The batch tally, the preservation pins and the forbidden pre-fix cascade lines are
+unchanged. Cells: the spec loads and validates in the harness suites; a flight of S4.2 must still
+show one of the two routes.
 
 ---
 
