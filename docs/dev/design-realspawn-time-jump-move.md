@@ -1,6 +1,7 @@
 # Parsek Real Spawn Control Time Jump: Move the Player - Design Note
 
-*Status: DRAFT for owner approval (2026-10-25). Replaces the "nothing moves" freeze of the
+*Status: DRAFT for owner approval (2026-10-25); Step 1 (`Leaves`) built on branch `claude/project-thread-1gkt0y`,
+lane `RSC-2-leaves-warp` authored, not yet flown. Replaces the "nothing moves" freeze of the
 Real Spawn Control Warp in orbit. Owner rulings: interview of 2026-10-25, thread "Redesign time
 jump to move the player". Source analysis (code trace, numbers, alternatives):
 `time-jump-move-player-2026-10-25.md` in the project files.*

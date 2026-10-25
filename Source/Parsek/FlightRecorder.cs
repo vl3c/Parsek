@@ -12022,6 +12022,7 @@ namespace Parsek
             OrbitSegments.Add(currentOrbitSegment);
             AddOrbitSegmentToCurrentTrackSection(currentOrbitSegment);
             isOnRails = false;
+            LogTimeJumpRecaptureCloseIfAny(v, currentOrbitSegment);
 
             // Reference frame transition: ORBITAL_CHECKPOINT -> ABSOLUTE
             double offRailsUT = Planetarium.GetUniversalTime();

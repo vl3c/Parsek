@@ -408,7 +408,21 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # another UT and never cleans or
                                         # purges. No RP. Consumer:
                                         # RS-1-relay-route-endpoint-lost-rescan.
-                                        "rescan-substitute")
+                                        "rescan-substitute",
+                                        # leaves-departure: ONE committed
+                                        # single-recording tree on
+                                        # eva2-lko-crewed: a probe (its own
+                                        # derived pid and launch guid, absent
+                                        # from the save) on the focused Kerbal
+                                        # X's own orbit ~140 m ahead that burns
+                                        # 20 m/s prograde 300 s after load and
+                                        # ends 900 s after load, so its Real
+                                        # Spawn Control row reads Leaves.
+                                        # `--filter InjectLeavesDeparture`; the
+                                        # injector refuses a target save at
+                                        # another UT. No RP. Consumer:
+                                        # RSC-2-leaves-warp.
+                                        "leaves-departure")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")

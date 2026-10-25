@@ -3349,7 +3349,7 @@ Left open: a part shed because its parent part DIED (`Part.Die` decouples childr
 force 0) still reads "Decoupled" when no crash child joins the window. Telling it apart
 needs `onPartWillDie`, which fires before those decouples; not done here.
 
-## REALSPAWN-TIME-JUMP-MOVE-PLAYER: the Real Spawn Control Warp moves the player beside the ghost [FILED 2026-10-25, thread "Redesign time jump to move the player", branch `claude/project-thread-1gkt0y`. OPEN; product, design approved pending]
+## REALSPAWN-TIME-JUMP-MOVE-PLAYER: the Real Spawn Control Warp moves the player beside the ghost [FILED 2026-10-25, thread "Redesign time jump to move the player", branch `claude/project-thread-1gkt0y`. OPEN; product. Step 1 (Leaves) BUILT 2026-10-25, branch `claude/project-thread-1gkt0y`, xUnit + lane RSC-2 authored, never flown]
 
 Today's Warp freezes the player's bubble while ghosts keep playing, so a `Leaves` Warp in orbit
 loses its ghost (about 1,100 km after a 10 minute skip in LKO, never flown), a `Ready` ghost must
@@ -3363,6 +3363,24 @@ spawn collision guard is reused before the jump and the player's group slides ba
 orbit instead of blocking the spawn. Design: `docs/dev/design-realspawn-time-jump-move.md`.
 Plan: Step 1 `Leaves`, Step 2 `Ready`; Step 2 deletes `TimeJumpTerminalOrbitShift` after CI-9,
 VN-4 and VN-10 fly green, which closes REALSPAWN-JUMP-SHIFT-RESIDUE.
+
+Step 1 built (branch `claude/project-thread-1gkt0y`, plan `docs/dev/plans/realspawn-time-jump-move-implementation.md`):
+`WarpToDeparture` with an orbital player vessel calls `TimeJumpManager.TryStartLeavesPlacementJump`
+(`TimeJumpManager.Placement.cs`, pure core `TimeJumpPlacement.cs`). Frame F: gates, group from orbit
+states, capture against the reference segment (`TimeJumpReference`), pack, `HoldVesselUnpack(60)`,
+clock set, converter policy and ledger recalc (the ledger moved into frame F so a dropped placement
+is a complete plain forward jump). Frame F+1 (first `ParsekFlight.Update` after a FixedUpdate):
+fresh reference orbit at the current UT, per member `SetRotation` + `UpdateFromStateVectors` +
+`updateFromParameters`, `FloatingOrigin.SetOffset`, `CheckReferenceFrame`, `HoldVesselUnpack(10)`;
+recorder `OnCheatTeleport(cause=TimeJump)` with the orbital-frame attitude encoded against the
+placed state, `BackgroundRecorder.RecaptureOnRailsOrbit` for background members. Lines:
+`Placement jump armed:`, `Placed vessel:`, `Placement jump:`, `Placement unpacked:` (with
+`refDrift` / `toActiveDrift` / attitude re-assert above 2 deg), `Placement departure check:`,
+`Placement jump refused:` / `dropped:`. The scan greys a refused Leaves row (`MoveRefusal`,
+`VerboseOnChange` per recording) and `Warp to Next Spawn` skips it. `ComputeSpawnRoomSlide` is
+built and tested, not wired (Step 2). Lane `RSC-2-leaves-warp` (preset `leaves-departure`) is
+authored and never flown; RSC-1 is the landed regression guard. Not modelled: surface vessels in
+the destination check (the atmosphere gate keeps an orbital group well above Kerbin's).
 
 ## REALSPAWN-JUMP-SHIFT-RESIDUE: what the orbital-tip jump shift does not cover [FILED 2026-10-03 from the REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST fix, branch `fix-orbital-tip-spawn`. OPEN; product, low. Walkback item FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit. Second-jump item FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit]
 

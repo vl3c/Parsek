@@ -11,7 +11,7 @@ namespace Parsek
     /// Nothing moves. Orbital epochs are adjusted so Keplerian propagation at the
     /// new UT produces the same position.
     /// </summary>
-    internal static class TimeJumpManager
+    internal static partial class TimeJumpManager
     {
         private const string Tag = "TimeJump";
         // Keep the transient under a fraction of a second, but long enough to cover the
@@ -303,10 +303,8 @@ namespace Parsek
         internal static double ApplyJumpLead(double eventUT, double currentUT)
         {
             double lead = RecordingStore.RewindToLaunchLeadTimeSeconds;
-            double target = eventUT - lead;
-            bool clamped = target <= currentUT;
-            if (clamped)
-                target = eventUT;
+            double target = ResolveJumpLeadTarget(eventUT, currentUT);
+            bool clamped = target == eventUT;
 
             ParsekLog.Verbose(Tag,
                 string.Format(ic,
@@ -314,6 +312,16 @@ namespace Parsek
                     eventUT, currentUT, lead, target, clamped));
 
             return target;
+        }
+
+        /// <summary>
+        /// Quiet <see cref="ApplyJumpLead"/>: the same target with no log line, for the Real
+        /// Spawn Control scan, which evaluates it every 1.5 s.
+        /// </summary>
+        internal static double ResolveJumpLeadTarget(double eventUT, double currentUT)
+        {
+            double target = eventUT - RecordingStore.RewindToLaunchLeadTimeSeconds;
+            return target <= currentUT ? eventUT : target;
         }
 
         /// <summary>

@@ -112,6 +112,82 @@ namespace Parsek.Tests
             Assert.Contains("action=NoLiveRecording", line);
         }
 
+        [Fact]
+        public void FormatLogLine_NamesTheCause()
+        {
+            string cheat = CheatTeleportDecision.FormatLogLine(
+                CheatTeleportAction.OnRailsRecapture, "Flea", 42u, "Kerbin", "Kerbin", 10.0);
+            Assert.EndsWith("action=OnRailsRecapture cause=cheat", cheat);
+            string jump = CheatTeleportDecision.FormatLogLine(
+                CheatTeleportAction.OnRailsRecapture, "Kerbal X", 7u, "Kerbin", "Kerbin", 706.25,
+                TeleportCause.TimeJump);
+            Assert.Equal(
+                "Teleport detected (Real Spawn Control time jump): vessel='Kerbal X' pid=7 from=Kerbin "
+                + "to=Kerbin ut=706.25 action=OnRailsRecapture cause=time-jump", jump);
+        }
+
+        // catches: a time-jump re-capture written under the cheat label, or one that does not
+        // mark its segment for the go-off-rails close line.
+        [Fact]
+        public void OnRailsSameBody_TimeJumpCause_RecapturesUnderItsOwnLabel_AndMarksTheSegment()
+        {
+            recorder.StartNewTrackSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.OrbitalCheckpoint,
+                428.0, TrackSectionSource.Checkpoint);
+            recorder.SetOnRailsStateForTesting(true, Seg(428.0, "Kerbin"));
+
+            recorder.ApplyCheatTeleportBookkeeping(
+                CheatTeleportAction.OnRailsRecapture, 706.21, SegmentEnvironment.ExoBallistic,
+                "Kerbin", "Kerbin", Seg(706.21, "Kerbin"), TeleportCause.TimeJump);
+
+            Assert.Single(recorder.OrbitSegments);
+            Assert.Equal(706.21, recorder.OrbitSegments[0].endUT);
+            Assert.Contains(logLines, l => l.Contains("[Recorder]")
+                && l.Contains("Time jump: orbit segment re-captured on rails (body=Kerbin) at UT=706.21"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Cheat teleport: orbit segment re-captured"));
+            Assert.Equal(706.21, recorder.TimeJumpRecaptureStartUTForTesting);
+
+            // The go-off-rails close of THAT segment consumes the mark once.
+            Assert.False(recorder.ConsumeTimeJumpRecapture(Seg(428.0, "Kerbin")));
+            Assert.True(double.IsNaN(recorder.TimeJumpRecaptureStartUTForTesting));
+        }
+
+        [Fact]
+        public void TimeJumpRecapture_MarkMatchesOnlyTheRecapturedSegment()
+        {
+            recorder.StartNewTrackSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.OrbitalCheckpoint,
+                428.0, TrackSectionSource.Checkpoint);
+            recorder.SetOnRailsStateForTesting(true, Seg(428.0, "Kerbin"));
+            recorder.ApplyCheatTeleportBookkeeping(
+                CheatTeleportAction.OnRailsRecapture, 706.21, SegmentEnvironment.ExoBallistic,
+                "Kerbin", "Kerbin", Seg(706.21, "Kerbin"), TeleportCause.TimeJump);
+            Assert.True(recorder.ConsumeTimeJumpRecapture(Seg(706.21, "Kerbin")));
+            Assert.False(recorder.ConsumeTimeJumpRecapture(Seg(706.21, "Kerbin")));
+        }
+
+        [Fact]
+        public void CheatCause_LeavesNoTimeJumpMark()
+        {
+            recorder.StartNewTrackSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.OrbitalCheckpoint,
+                100.0, TrackSectionSource.Checkpoint);
+            recorder.SetOnRailsStateForTesting(true, Seg(100.0, "Kerbin"));
+            recorder.ApplyCheatTeleportBookkeeping(
+                CheatTeleportAction.OnRailsRecapture, 110.0, SegmentEnvironment.ExoBallistic,
+                "Kerbin", "Kerbin", Seg(110.0, "Kerbin"));
+            Assert.True(double.IsNaN(recorder.TimeJumpRecaptureStartUTForTesting));
+            Assert.Contains(logLines, l => l.Contains("Cheat teleport: orbit segment re-captured on rails"));
+        }
+
+        [Fact]
+        public void TimeJumpRecaptureCloseLine_IsInvariant()
+        {
+            Assert.Equal(
+                "Time jump: re-captured orbit segment closed at go-off-rails UT=706.42 start=706.21 "
+                + "length=0.21s boundaryGapToSegment=0.4m",
+                FlightRecorder.FormatTimeJumpRecaptureCloseLine(706.21, 706.42, 0.36));
+            Assert.Contains("boundaryGapToSegment=n/am",
+                FlightRecorder.FormatTimeJumpRecaptureCloseLine(1, 2, double.NaN));
+        }
+
         // ---------------- no live recording: log only ----------------
 
         [Fact]
