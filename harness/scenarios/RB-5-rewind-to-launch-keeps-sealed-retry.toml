@@ -32,8 +32,9 @@ id = "RB-5-rewind-to-launch-keeps-sealed-retry"
 # tip before filing. IF THE SECOND `InvokeRewind` REFUSES: the slot did not stay open after
 # the first merge (RB-4's reading says it does); that is a host re-cut, not this lane's defect.
 #
-# STATUS: AUTHORED 2026-10-25, NEVER FLOWN. Needs a DLL with
-# `LogSupersedesKeptAcrossRewind` (branch `claude/project-thread-mikdfx` or main after it).
+# STATUS: LIVE-PROVEN 2026-10-25 on its first flight (`2026-10-25_1002` PASS attempt 1,
+# DLL 19207fb7): `rows=2 forks=2 sealed=1 open=1 dangling=0`; the second InvokeRewind was
+# accepted, so the slot stayed open after the first merge as predicted.
 # =====================================================================================
 tier = "nightly"
 description = "Rewind-to-LAUNCH keeps a SEALED re-fly that follows an OPEN re-fly of the same slot (owner ruling 2026-10-24; todo REWIND-KEEPS-EVERY-SUPERSEDE-ROW): fly RF-1's two-stage profile, re-fly the open slot and merge (crashes, stays open), re-fly it again and merge, seal it, rewind the whole tree to launch, and pin that both forks are kept (one sealed, one open) and nothing is retired."

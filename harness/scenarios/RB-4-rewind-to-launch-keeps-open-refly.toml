@@ -39,8 +39,8 @@ id = "RB-4-rewind-to-launch-keeps-open-refly"
 # re-cut, not a defect.
 #
 # STATUS: LIVE-PROVEN 2026-10-25 (`2026-10-25_0121` PASS attempt 1) on the #2230 tokens;
-# RE-PINNED 2026-10-25 to the audit line, owed a re-flight on a DLL that carries
-# `LogSupersedesKeptAcrossRewind` (an older DLL has no such line and the lane reds by design).
+# RE-PINNED 2026-10-25 to the audit line and RE-FLOWN green on it (`2026-10-25_1005` PASS
+# attempt 1, DLL 19207fb7). An older DLL has no such line and the lane reds by design.
 # =====================================================================================
 tier = "nightly"
 description = "Rewind-to-LAUNCH keeps a merged Re-Fly whose slot is still OPEN (todo REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY, owner ruling 2026-10-24): fly RF-1's two-stage profile so a real launch mints a rewind quicksave and leaves an open slot, re-fly that slot and merge it WITHOUT sealing, then rewind the whole tree to launch and pin that the supersede rollback kept the open fork (no drop, no retirement, mergeState still CommittedProvisional)."

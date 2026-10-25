@@ -112,7 +112,7 @@ id = "RF-4-rewind-to-launch-after-merge"
 # =====================================================================================
 # RE-PINNED 2026-10-25 to `Rewind keeps supersede rows:` / `Kept re-fly fork across rewind:`
 # (the rewind keeps every row; the two token paragraphs above describe the old rollback's
-# lines, which the archived greens read). Owed a re-flight on a DLL carrying them.
+# lines, which the archived greens read). RE-FLOWN green on it: `2026-10-25_1008` PASS attempt 1.
 #
 # STATUS: LIVE-PROVEN IN THIS SHAPE. GREEN ON `2026-09-09_1645` (PASS attempt 1, wall
 # 151 s, MISSION-OK, expectations mismatches=0, analyzer red=0) and again on

@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~REWIND-KEEPS-EVERY-SUPERSEDE-ROW: a Rewind-to-Launch still dropped a supersede row whose re-fly recording was missing, and its Pass 2 could still unseal a sealed re-fly~~ [FILED + FIXED 2026-10-25 on branch `claude/project-thread-mikdfx`; lanes RB-5 (new), RB-4 and RF-4 (re-pinned) owe flights]
+## ~~REWIND-KEEPS-EVERY-SUPERSEDE-ROW: a Rewind-to-Launch still dropped a supersede row whose re-fly recording was missing, and its Pass 2 could still unseal a sealed re-fly~~ [FILED + FIXED 2026-10-25 on branch `claude/project-thread-mikdfx` (PR #2244); LIVE-PROVEN 2026-10-25 by RB-5 `2026-10-25_1002` PASS (first flight), RB-4 `_1005` and RF-4 `_1008` PASS on the re-pin]
 
 Follow-up of REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY. After #2230 the rewind rollback still dropped a
 row whose fork was missing from the committed set (its recording failed to load) or `NotCommitted`,
