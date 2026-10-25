@@ -323,6 +323,12 @@ inventory transfer or a board / dock (member=<child>)`, `Foreign adoption member
 transferMembers=N foreignMergeChildren=M`. Cells: `ForeignMergeAdoptionRewindStripTests`. EVA-14
 drops its `[expectedFail]`; SEAT-3 arms its hold pins and forbids the strip line.
 
+Left open (review 2026-10-25, out of scope, low): a foreign partner that is ABSORBED by the active
+vessel is not covered. When it is a Parsek-spawned leaf of another tree,
+`MarkTerminalSpawnSupersededByDockMerge` links that leaf to the merge child, which flies the active
+vessel's pid and so is no adoption member; the leaf still strips via
+`superseding-continuation-replays`, and the partner has no hold copy before the dock.
+
 ---
 
 ## ~~STALE-OFFER-RE-ACCEPTABLE-AFTER-FLIGHT-PASSES-COMMITTED-RESOLUTION: after a rewind to before a committed accept, a flight that runs past the committed resolution leaves the contract Offered and acceptable again~~ [FILED 2026-10-24 from the PR #2218 review, code read, not reproduced. FIXED 2026-10-24 in PR #2218 (V: "in this one"); xUnit + in-game cell, lane L12 `2026-10-24_1657` PASS. low, product]
