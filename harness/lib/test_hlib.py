@@ -13859,6 +13859,18 @@ class SweepStepVocabularyTests(unittest.TestCase):
         self.assertEqual([], hlib._check_param_type("x", ["anything"],
                                                     {"type": "list"}))
 
+    def test_hlib_rejects_an_unknown_string_enum_member_at_admit(self):
+        # The same closed vocabulary on a STRING param (science_bench_recover's
+        # recoverCreditPool): a typo must die at ADMIT, not select a default.
+        decl = {"type": "string", "values": ["funds", "science"]}
+        self.assertEqual([], hlib._check_param_type("recoverCreditPool", "science", decl))
+        errs = hlib._check_param_type("recoverCreditPool", "Science", decl)
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("allowed: funds,science", errs[0])
+        self.assertNotEqual([], hlib._check_param_type("recoverCreditPool", 1, decl))
+        # A string param with NO `values` keeps its type-only check.
+        self.assertEqual([], hlib._check_param_type("x", "anything", {"type": "string"}))
+
 
 class GhostLifecycleVerifierWiringTests(unittest.TestCase):
     """The ghost-lifecycle verifier's hlib-side wiring: spec-surface validation

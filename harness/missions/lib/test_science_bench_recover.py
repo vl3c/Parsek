@@ -1718,7 +1718,9 @@ class CareerPoolReadTests(unittest.TestCase):
                 c._read_career_pools(_FakePoolsSpaceCenter(raises=True))
         finally:
             mission_runner._stdout_sink = orig
-        self.assertEqual(1, len([l for l in lines if "career pools UNREADABLE" in l]))
+        # One Warn PER POOL (they are read independently), each latched once.
+        self.assertEqual(1, len([l for l in lines if "career funds pool UNREADABLE" in l]))
+        self.assertEqual(1, len([l for l in lines if "career science pool UNREADABLE" in l]))
 
 
 class RecoverableReadTests(unittest.TestCase):
