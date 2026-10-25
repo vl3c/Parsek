@@ -284,6 +284,7 @@ namespace Parsek
         {
             if (v == null || v.parts == null) return;
 
+            int presentActive = 0;
             for (int i = 0; i < v.parts.Count; i++)
             {
                 Part p = v.parts[i];
@@ -298,7 +299,15 @@ namespace Parsek
                     ParsekLog.Verbose("BgRecorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
                         $"pid={evt.Value.partPersistentId} (bg vessel {state.vesselPid}, converter)");
                 }
+                if (state.activeConverterParts.Contains(p.persistentId))
+                    presentActive++;
             }
+
+            // A running converter part that left this vessel (decouple, undock, death) gets a
+            // stop here, or the recording reads it as running to its end.
+            FlightRecorder.AppendDepartedConverterStops(v, state.activeConverterParts, presentActive,
+                treeRec.PartEvents, ut, "BgRecorder",
+                $"bg vessel pid={state.vesselPid} rec={state.recordingId}");
         }
 
         /// <summary>

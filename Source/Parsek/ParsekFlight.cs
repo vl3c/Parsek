@@ -29793,11 +29793,95 @@ namespace Parsek
                 heldInBubble++;
             }
 
+            // Tips an earlier jump armed that have neither spawned nor been held: their plain
+            // ghost is past its end, so neither walk above sees them, yet a second jump freezes
+            // them as well. Their stand-in position is the jump-shifted terminal orbit now.
+            int pendingRecaptured = 0;
+            int pendingSkipped = 0;
+            List<string> pendingIds = TimeJumpTerminalOrbitShift.PendingRecordingIdsNotIn(seen);
+            if (pendingIds.Count > 0)
+            {
+                double currentUT = Planetarium.GetUniversalTime();
+                for (int p = 0; p < pendingIds.Count; p++)
+                {
+                    string recId = pendingIds[p];
+                    Recording rec = null;
+                    for (int i = 0; i < committed.Count; i++)
+                    {
+                        if (committed[i] != null && committed[i].RecordingId == recId)
+                        {
+                            rec = committed[i];
+                            break;
+                        }
+                    }
+
+                    bool shiftLive = false;
+                    bool positionResolved = false;
+                    double dist = double.NaN;
+                    if (rec != null && !rec.VesselSpawned)
+                    {
+                        shiftLive = TimeJumpTerminalOrbitShift.TryGetShift(
+                            recId, currentUT, out TerminalOrbitJumpShift shift);
+                        if (shiftLive)
+                        {
+                            positionResolved = TryResolveJumpShiftedTipWorldPosition(
+                                rec, currentUT, shift.LagSeconds, out Vector3d tipPos);
+                            if (positionResolved)
+                                dist = Vector3d.Distance(activePos, tipPos);
+                        }
+                    }
+
+                    string decision = TimeJumpTerminalOrbitShift.ClassifyPendingRecapture(
+                        rec != null, rec != null && rec.VesselSpawned, shiftLive,
+                        positionResolved, dist, DistanceThresholds.PhysicsBubbleMeters);
+                    if (decision == TimeJumpTerminalOrbitShift.RecaptureAdd)
+                    {
+                        result.Add(new KeyValuePair<Recording, double>(rec, dist));
+                        seen.Add(recId);
+                        pendingRecaptured++;
+                    }
+                    else
+                    {
+                        pendingSkipped++;
+                    }
+                    ParsekLog.Verbose("Flight",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "CollectBubbleGhostsForTimeJump: armed unspawned tip rec={0} decision={1} separation={2:F1}m",
+                            recId, decision, dist));
+                }
+            }
+
             ParsekLog.Verbose("Flight",
                 string.Format(CultureInfo.InvariantCulture,
-                    "CollectBubbleGhostsForTimeJump: inBubble={0} heldInBubble={1} beyondBubble={2} bubble={3:F0}m",
-                    result.Count, heldInBubble, beyondBubble, DistanceThresholds.PhysicsBubbleMeters));
+                    "CollectBubbleGhostsForTimeJump: inBubble={0} heldInBubble={1} pendingRecaptured={2} pendingSkipped={3} beyondBubble={4} bubble={5:F0}m",
+                    result.Count, heldInBubble, pendingRecaptured, pendingSkipped, beyondBubble,
+                    DistanceThresholds.PhysicsBubbleMeters));
             return result;
+        }
+
+        /// <summary>
+        /// World position, at <paramref name="currentUT"/>, of an armed tip's jump-shifted
+        /// terminal orbit: the body and orbit the jump-shifted spawn resolves, so the same place
+        /// a held ghost of the tip is drawn (<c>CaptureBlockedChainTipGhost</c>).
+        /// </summary>
+        private static bool TryResolveJumpShiftedTipWorldPosition(
+            Recording rec, double currentUT, double lagSeconds, out Vector3d worldPos)
+        {
+            worldPos = Vector3d.zero;
+            if (rec == null)
+                return false;
+            TrajectoryPoint? lastPoint = rec.Points != null && rec.Points.Count > 0
+                ? (TrajectoryPoint?)rec.Points[rec.Points.Count - 1]
+                : null;
+            CelestialBody body = VesselSpawner.ResolveSpawnRotationBody(rec, lastPoint);
+            if (body == null
+                || !VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn(rec, body, currentUT, lagSeconds, out Orbit orbit)
+                || orbit == null)
+                return false;
+            worldPos = orbit.getPositionAtUT(currentUT);
+            return !double.IsNaN(worldPos.x) && !double.IsNaN(worldPos.y) && !double.IsNaN(worldPos.z)
+                && !double.IsInfinity(worldPos.x) && !double.IsInfinity(worldPos.y)
+                && !double.IsInfinity(worldPos.z);
         }
 
         /// <summary>

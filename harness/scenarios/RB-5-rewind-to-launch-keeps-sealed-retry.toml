@@ -1,0 +1,165 @@
+schema = 1
+id = "RB-5-rewind-to-launch-keeps-sealed-retry"
+# =====================================================================================
+# A REWIND-TO-LAUNCH KEEPS A SEALED RE-FLY THAT FOLLOWS AN OPEN ONE ON THE SAME SLOT
+# (the 2026-10-24 report behind todo REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY, and
+# REWIND-KEEPS-EVERY-SUPERSEDE-ROW).
+#
+# The likeliest shape of what the owner saw: a stage re-flown, the re-fly crashed again
+# (fork A1, OPEN), re-flown a second time and sealed (fork A2, SEALED), then the whole flight
+# rewound to launch. From PR #774 to PR #2230 the rewind dropped the A->A1 row because A1 was
+# open, then DEMOTED the A1->A2 row because its source had just been retired, so the sealed
+# A2 vanished and the original stage came back as an open slot. RF-4 pins a single sealed
+# re-fly and RB-4 a single open one; neither has a chain, so neither could see the cascade.
+# Since the 2026-10-25 change a rewind keeps every supersede row and the cascade is gone.
+#
+# THE FLIGHT IS RB-4's WITH ITS RE-FLY DONE TWICE AND RF-4's SEAL ON THE SECOND. Act 2 is
+# RB-4's act 2 run twice (each re-fly of this profile crashes, so each merge leaves the slot
+# open, RB-4's measured reading); act 3 is RF-4's act 3 (reload, recorder stop, SealSlot on
+# the slot, whose effective tip is now A2); act 4 is the bare rewind both lanes drive.
+#
+# THE SUBJECT TOKENS, from `RecordingStore.LogSupersedesKeptAcrossRewind`:
+#   `Rewind keeps supersede rows: rows=N forks=2 sealed=1 open=1 dangling=0` - both forks
+#   kept, A1 still open and A2 still sealed.
+#   `Kept re-fly fork across rewind: rec=... mergeState=Immutable` and the same line with
+#   `mergeState=CommittedProvisional` - one per fork.
+#   `Retired rewound-out fork` / `Demoted fork preservation to drop` FORBIDDEN - the old
+#   rollback's retirement and its cascade.
+# And the save-side form: `supersedeRows min 2` after the rewind (pre-fix: 0).
+#
+# IF `forks=1`: the second invoke re-flew a different tip or the first merge sealed the slot;
+# read the two merges' `mergeState=<old>-><new>` lines and the second `InvokeRewind`'s slot
+# tip before filing. IF THE SECOND `InvokeRewind` REFUSES: the slot did not stay open after
+# the first merge (RB-4's reading says it does); that is a host re-cut, not this lane's defect.
+#
+# STATUS: LIVE-PROVEN 2026-10-25 on its first flight (`2026-10-25_1002` PASS attempt 1,
+# DLL 19207fb7): `rows=2 forks=2 sealed=1 open=1 dangling=0`; the second InvokeRewind was
+# accepted, so the slot stayed open after the first merge as predicted.
+# =====================================================================================
+tier = "nightly"
+description = "Rewind-to-LAUNCH keeps a SEALED re-fly that follows an OPEN re-fly of the same slot (owner ruling 2026-10-24; todo REWIND-KEEPS-EVERY-SUPERSEDE-ROW): fly RF-1's two-stage profile, re-fly the open slot and merge (crashes, stays open), re-fly it again and merge, seal it, rewind the whole tree to launch, and pin that both forks are kept (one sealed, one open) and nothing is retired."
+instanceProfile = "stock-minimal"
+tags = ["RB-5", "rewind", "rewind-to-launch", "refly", "supersede", "seal",
+        "runtime-handles", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+# RF-4's and RB-4's host: the only fixture shape whose LAUNCH mints the `parsek_rw_*`
+# quicksave AND authors a RewindPoint in the same tree.
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "gs1_auto_chute_booster"
+
+# `steps` MUST stay in [driver], ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",           args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",         args = { name = "autoRecordOnLaunch", value = "true" },  expect = "OK" },
+  { cmd = "SetSetting",         args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",         args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { phase = "mission",                                                                    expect = "MISSION-OK", budget = 900 },
+  { cmd = "ExitToSpaceCenter",                                                            expect = "OK", budget = 120 },
+  # Save before the reload: RB-4's header has the reason (the tree commits after the
+  # exit's own write, so a reload straight after the exit resumes the pre-commit tree).
+  { cmd = "SaveGame",           args = { name = "persistent" },                          expect = "OK" },
+  # --- ACT 2a: the first re-fly, merged OPEN (fork A1) --------------------------------
+  { cmd = "LoadGame",           args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",         args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "ListHandles",        args = { kind = "rewindpoints" }, label = "handles",      expect = "OK" },
+  { cmd = "InvokeRewind",       args = { rp = "${handles.rp0}", slot = "1" },             expect = "OK", budget = 300 },
+  { cmd = "AnswerMergeDialog",  args = { choice = "merge" },                              expect = "OK", budget = 120 },
+  # --- ACT 2b: the same slot re-flown again from its point (fork A2 over A1) ----------
+  { cmd = "LoadGame",           args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",         args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "ListHandles",        args = { kind = "rewindpoints" }, label = "handles2",     expect = "OK" },
+  { cmd = "InvokeRewind",       args = { rp = "${handles2.rp0}", slot = "1" },            expect = "OK", budget = 300 },
+  { cmd = "AnswerMergeDialog",  args = { choice = "merge" },                              expect = "OK", budget = 120 },
+  # --- ACT 3: RF-4's act 3, the seal of the slot's tip (A2) ---------------------------
+  { cmd = "LoadGame",           args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",         args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "ListHandles",        args = { kind = "rewindpoints" }, label = "handles3",     expect = "OK" },
+  { cmd = "SealSlot",           args = { rp = "${handles3.rp0}", slot = "1" },            expect = "OK", budget = 120 },
+  # --- ACT 4: rewind the WHOLE tree to launch over the open-then-sealed chain ---------
+  { cmd = "InvokeRewindToLaunch",                                                         expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+# RB-4's (= RF-4's = RF-1's) params VERBATIM.
+[driver.missionParams]
+throttle = 1.0
+stagingApoapsisMeters = 700
+stagingMaxAltMeters = 1500
+apoapsisWindowMeters = { min = 600, max = 1600 }
+stageSettleFrames = 2
+chuteArmMaxRateMps = 30
+chuteFullDeployAltMeters = 600
+landedSituations = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds = 90
+coastTimeoutSeconds = 120
+stageTimeoutSeconds = 60
+descentTimeoutSeconds = 300
+siblingVesselName = "GS1 Auto-Chute Booster Probe"
+# THE INVERSION. The run concludes on an OBSERVATION (the booster read airborne twice) and
+# stays MISSION-OK, which is what leaves the non-focus slot open and its point unreaped.
+siblingAirborneAtExit = true
+siblingDownTimeoutSeconds = 240
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# RB-4's window plus one more re-fly; a first reading measures the real count.
+count = { min = 3, max = 16 }
+
+[expectations.logContracts]
+required = [
+  # Preconditions (RB-4's): a two-controllable split authored a point, the non-focus slot was
+  # promoted open, two re-flies started and completed, and the seal closed the slot.
+  "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
+  "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=stableLeafUnconcluded to CommittedProvisional",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
+  "Invocation complete",
+  "sealslot complete mode=slot rp=\\S+ slot=1 tip=\\S+ alreadySealed=False",
+  "invokerewindtolaunch target resolved tree=\\S+ resolvedBy=\\S+",
+  # THE SUBJECT.
+  "Rewind keeps supersede rows: rows=[1-9][0-9]* forks=2 sealed=1 open=1 dangling=0 ",
+  "Kept re-fly fork across rewind: rec=\\S+ mergeState=Immutable ",
+  "Kept re-fly fork across rewind: rec=\\S+ mergeState=CommittedProvisional ",
+  "rewindtolaunch complete",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The old rollback: an open fork retired, then the sealed fork behind it demoted.
+  "Retired rewound-out fork",
+  "Demoted fork preservation to drop",
+  "Skipping retirement for committed fork",
+]
+
+[expectations.rewind]
+# REPORT-ONLY (no `gating`), derived:
+#   supersedeRows at least 2: both merges' rows survive the rewind (pre-fix: both dropped).
+#   tombstones    0: nobody dies on this profile (RF-4's reading).
+#   rewindPoints  not pinned: the seal reaps the point when its last open slot closes
+#                 (RF-4 reads 0); a first reading measures it.
+supersedeRows = { min = 2 }
+tombstones    = { max = 0 }
+
+[runtime]
+# RB-4's 5760 + a second re-fly (LoadGame 660 + SetSetting 120 + StopRecording 120
+#   + ListHandles 120 + InvokeRewind 660 + AnswerMergeDialog 180 = 1860) + RF-4's
+#   ListHandles 120 + SealSlot 180 = 7920. 8100 clears it by 180.
+budgetSeconds = 8100
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

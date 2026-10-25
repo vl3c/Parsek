@@ -61,8 +61,8 @@ namespace Parsek
         // list and would also re-emit the Verbose cascade log on every call.
         // Same versioning shape as the ERS cache (StateVersion +
         // SupersedeStateVersion) because every retirement-list mutation site
-        // (EnsureRewindRetirementsForRollback, LoadTimeSweep,
-        // TreeDiscardPurge) bumps SupersedeStateVersion alongside the write.
+        // (LoadTimeSweep, TreeDiscardPurge) bumps SupersedeStateVersion
+        // alongside the write.
         private static int retiredCacheStoreVersion = int.MinValue;
         private static int retiredCacheSupersedeVersion = int.MinValue;
         private static HashSet<string> retiredCache;
@@ -703,10 +703,8 @@ namespace Parsek
         /// inherits the retirement and does not render as an orphan ghost
         /// alongside the restored recording's own debris.</para>
         ///
-        /// <para>Retirement-writing paths
-        /// (<c>EnsureRewindRetirementsForRollback</c>) keep using the raw
-        /// per-retirement overload: their working set deduplicates rows being
-        /// written, not visibility-derived cascade ids.</para>
+        /// <para>The raw per-retirement overload stays the cascade's seed: it
+        /// reads rows, not visibility-derived cascade ids.</para>
         /// </summary>
         internal static HashSet<string> ComputeRewindRetiredRecordingIds(
             IReadOnlyList<Recording> recordings,

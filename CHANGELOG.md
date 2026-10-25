@@ -32,6 +32,10 @@ _(unreleased - entries accumulate here per commit)_
   open (for example a booster that crashed again) used to vanish at a rewind to before its
   separation, with the original flight back in its place. The rewind now only moves the clock: the
   re-fly stays, and its slot stays open to re-fly. (REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY)
+- **A Rewind-to-Launch keeps a Re-Fly whose recording failed to load.** The rewind used to bring
+  the replaced flight back in its place, and could unseal a sealed re-fly of a later stage with it.
+  Now it keeps every Re-Fly as it is, matching what the career already counts.
+  (REWIND-KEEPS-EVERY-SUPERSEDE-ROW)
 - **A flight that docks or boards before it ever separates keeps its Rewind button.** A launch
   that docks before staging, or a kerbal on EVA who climbs into a seat or a hatch, used to commit
   with no rewind save, so its mission could not be rewound to launch.
@@ -40,12 +44,28 @@ _(unreleased - entries accumulate here per commit)_
   new branch's recording now notes the running converter, so the end of that recording is no longer
   trimmed away and its mined resources no longer arrive early on a spawn.
   (TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES)
+- **Dropping a part with its drill or converter still on no longer keeps a dull recording ending.**
+  When such a part left by decoupling or undocking, the vessel's recording still read the
+  converter as running, so its quiet ending was never trimmed and its spawn waited for no reason.
+  The recording now notes that the converter stopped when the part left.
+  (TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES)
+- **A kerbal whose walk ends on a launch pad or runway end comes back as a real kerbal.** A kerbal
+  recorded after he was already out on EVA, or one picked up as a cargo partner, was treated like a
+  vessel parked on the pad and never reappeared. Only vessels are cleared off the pad now.
+  (EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED)
 - **A held end-of-flight vessel frozen by a time jump no longer spawns away from its ghost.** While
   the vessel spawns from its jump-shifted orbit, a blocked spawn waits for the spot to clear instead
   of walking back along the unshifted path. (REALSPAWN-JUMP-SHIFT-RESIDUE)
+- **Two quick time jumps in a row keep an orbiting end-of-flight vessel beside you.** If a second
+  jump came before a vessel freed by the first had appeared, the vessel used to appear further
+  along its orbit than its ghost stood. Both jumps now count. (REALSPAWN-JUMP-SHIFT-RESIDUE)
 - **A Re-Fly no longer shows a contract you accepted later as active.** A contract accepted at the
   Space Center after the Re-Fly's rewind point stays unaccepted during the Re-Fly, so the re-flown
   stage can no longer complete or fail it before you accepted it. (REFLY-SESSION-SHOWS-CONTRACT-ACCEPTED-LATER)
+- **A contract a ground station or a Sentinel telescope completes is no longer tied to your flight.**
+  Discarding or reverting the flight in progress no longer takes back its reward, and a Re-Fly no
+  longer counts it as the attempt's gain. A strategy's cut of ground-station science stays with that
+  science the same way. (CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT)
 - **A contract deadline that runs out during a flight is no longer tied to that flight.** The
   expiry is the clock's, so a Re-Fly that outlives the deadline can be merged, and discarding the
   flight no longer takes the penalty away. A contract the game ends because its requirements no
@@ -72,6 +92,24 @@ _(unreleased - entries accumulate here per commit)_
 - **Harness: a lane with a test step that timed out can no longer pass.** A step after the flight
   that timed out or got no answer now marks the run invalid and retries it, and one that failed
   outright turns it red. (DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS)
+- **Harness: a game that freezes at the main menu is retried instead of waited out.** A test run
+  whose KSP stopped at the main menu before taking its first command sat out an 11-minute wait
+  and was not retried; it now ends after 90 s of silence and runs again. (VB-1-KSP-HANG-AT-MAIN-MENU)
+- **Harness: the modded test install no longer flies an old Parsek build.** A test lane on the
+  second, modded install now refuses to start when that install carries a different Parsek.dll
+  than the main test install, and names the provisioning command to fix it.
+  (HARNESS-MODDED-COMPAT-NEVER-PROVISIONED)
+- **Harness: the Re-Fly world-preservation lane accepts either clean ending.** Its merge can end
+  before or after the re-flown stage records its first sample, depending on timing the lane cannot
+  control; both endings are correct, so the lane now checks for either one, whole.
+  (REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START)
+- **Harness: a ledger check can name an award a flight may or may not earn.** The crash-landing
+  ledger lane no longer fails when its pod happens to land before breaking up and earns the
+  Kerbin landing milestone; that award now counts only when both the game's award and the saved
+  career show it. (CL-2-POD-LANDING-AWARD-VARIANCE)
+- **Harness: the Duna companion lane aims its arrival clear of Ike.** Its probe now aims to pass
+  Duna 10,000 km up instead of 300 km, above the band where Ike orbits, so the capture no longer
+  drifts through Ike's pull and fails the run. (V3C-CAPTURE-AIMS-INTO-IKE)
 
 ---
 

@@ -2276,6 +2276,135 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: the ConverterDeactivated stops for tracked running converter parts that are no
+        /// longer on the recorded vessel. A running converter part that leaves by decouple,
+        /// undock, EVA-construction detach or death gets no off edge from the poll (the poll
+        /// walks only the vessel's own parts), so without a stop the recording reads the
+        /// converter as running to its end and the tail-trim converter witness
+        /// (<see cref="RecordingOptimizer.CountConvertersRunningAtEnd"/>) never lets the tail
+        /// trim. The part's own new recording seeds its running state from the live part.
+        ///
+        /// Removes every departed pid from <paramref name="activeConverterParts"/>. The part
+        /// name comes from the latest event in <paramref name="recordedEvents"/> naming that
+        /// pid ("unknown" when none). Stops are returned in pid order so the output is
+        /// deterministic. Returns an empty list when nothing departed or when
+        /// <paramref name="presentPartPids"/> is empty (a vessel read with no parts proves
+        /// nothing about departure).
+        /// </summary>
+        internal static List<PartEvent> CollectDepartedConverterStops(
+            HashSet<uint> activeConverterParts, HashSet<uint> presentPartPids,
+            List<PartEvent> recordedEvents, double ut)
+        {
+            var stops = new List<PartEvent>();
+            if (activeConverterParts == null || activeConverterParts.Count == 0
+                || presentPartPids == null || presentPartPids.Count == 0)
+                return stops;
+
+            List<uint> departed = null;
+            foreach (uint pid in activeConverterParts)
+            {
+                if (presentPartPids.Contains(pid)) continue;
+                if (departed == null) departed = new List<uint>();
+                departed.Add(pid);
+            }
+            if (departed == null)
+                return stops;
+
+            departed.Sort();
+            for (int d = 0; d < departed.Count; d++)
+            {
+                uint pid = departed[d];
+                activeConverterParts.Remove(pid);
+
+                string name = null;
+                bool destroyed = false;
+                if (recordedEvents != null)
+                {
+                    for (int i = recordedEvents.Count - 1; i >= 0; i--)
+                    {
+                        if (recordedEvents[i].partPersistentId != pid) continue;
+                        if (recordedEvents[i].eventType == PartEventType.Destroyed)
+                            destroyed = true;
+                        if (name == null && !string.IsNullOrEmpty(recordedEvents[i].partName))
+                            name = recordedEvents[i].partName;
+                    }
+                }
+
+                // A destroyed part already ends its run (Destroyed is final for the tail-trim
+                // witness); a second edge would only read as a player toggle to the idle-on-pad
+                // veto (ParsekFlight.CountPlayerConverterToggles).
+                if (destroyed)
+                    continue;
+
+                stops.Add(new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = pid,
+                    eventType = PartEventType.ConverterDeactivated,
+                    partName = name ?? "unknown"
+                });
+            }
+
+            return stops;
+        }
+
+        /// <summary>
+        /// Live half shared by the flight and background converter polls: when fewer tracked
+        /// running converter pids were seen on the vessel this poll than the tracking set holds,
+        /// collects the vessel's part pids and appends a stop for each departed one (see
+        /// <see cref="CollectDepartedConverterStops"/>). The common case (nothing departed) costs
+        /// one integer compare. Logs one Info line per departure poll (bounded: departures are
+        /// rare structural events).
+        /// </summary>
+        internal static int AppendDepartedConverterStops(
+            Vessel v, HashSet<uint> activeConverterParts, int presentActiveCount,
+            List<PartEvent> recordedEvents, double ut, string logTag, string context)
+        {
+            if (activeConverterParts == null || presentActiveCount >= activeConverterParts.Count)
+                return 0;
+            if (v == null || v.parts == null || v.parts.Count == 0 || recordedEvents == null)
+                return 0;
+
+            var present = new HashSet<uint>();
+            for (int i = 0; i < v.parts.Count; i++)
+                if (v.parts[i] != null) present.Add(v.parts[i].persistentId);
+
+            return AppendDepartedConverterStopsCore(
+                activeConverterParts, present, recordedEvents, ut, logTag, context);
+        }
+
+        /// <summary>
+        /// Testable core of <see cref="AppendDepartedConverterStops"/>: appends the stops from
+        /// <see cref="CollectDepartedConverterStops"/> to <paramref name="recordedEvents"/> and
+        /// logs one Info summary when any were written. Returns the number written.
+        /// </summary>
+        internal static int AppendDepartedConverterStopsCore(
+            HashSet<uint> activeConverterParts, HashSet<uint> presentPartPids,
+            List<PartEvent> recordedEvents, double ut, string logTag, string context)
+        {
+            if (recordedEvents == null)
+                return 0;
+            List<PartEvent> stops = CollectDepartedConverterStops(
+                activeConverterParts, presentPartPids, recordedEvents, ut);
+            if (stops.Count == 0)
+                return 0;
+
+            recordedEvents.AddRange(stops);
+            var pids = new System.Text.StringBuilder();
+            for (int i = 0; i < stops.Count; i++)
+            {
+                if (i > 0) pids.Append(',');
+                pids.Append(stops[i].partPersistentId.ToString(CultureInfo.InvariantCulture));
+            }
+            ParsekLog.Info(logTag,
+                $"Converter part(s) left the vessel while running: {context} " +
+                $"stopped={stops.Count.ToString(CultureInfo.InvariantCulture)} pids=[{pids}] " +
+                $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"(ConverterDeactivated written so this recording no longer reads them as running)");
+            return stops.Count;
+        }
+
+        /// <summary>
         /// S7 flight-side poll. DELIBERATELY SEPARATE from the harvest-window machinery
         /// (<see cref="PollHarvestActivity"/>), which is vessel-scoped, owns rails-entry /
         /// rails-exit funnels and exists to attribute harvested resources. This one is per-PART and
@@ -2287,6 +2416,7 @@ namespace Parsek
             if (v == null || v.parts == null) return;
 
             double ut = Planetarium.GetUniversalTime();
+            int presentActive = 0;
             for (int i = 0; i < v.parts.Count; i++)
             {
                 Part p = v.parts[i];
@@ -2301,7 +2431,12 @@ namespace Parsek
                     ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
                         $"pid={evt.Value.partPersistentId} (converter)");
                 }
+                if (activeConverterParts.Contains(p.persistentId))
+                    presentActive++;
             }
+
+            AppendDepartedConverterStops(v, activeConverterParts, presentActive, PartEvents, ut,
+                "Recorder", $"vessel pid={v.persistentId}");
         }
 
         /// <summary>

@@ -2536,6 +2536,27 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The EVA exemption of the KSC end-of-flight retirement (an EVA kerbal has no vessel to
+        /// park and its pad spawn was never blocked): true when the recording is an EVA branch
+        /// (<see cref="Recording.EvaCrewName"/>) or its own vessel is a kerbal on EVA, read from
+        /// the end vessel snapshot's stock vessel type (<c>type = EVA</c>). The second form
+        /// covers kerbal recordings with no <c>EvaCrewName</c>: an adopted foreign cargo-partner
+        /// kerbal's member recording and a recording started on a kerbal already out on EVA.
+        /// Only the END snapshot is read (the spawn form), never the start situation or the
+        /// ghost snapshot, so a recording whose spawn form is a vessel is never exempted. Pure
+        /// over the recording; null snapshot reads "not a kerbal".
+        /// </summary>
+        internal static bool IsEvaKerbalRecordingForRetirement(Recording rec)
+        {
+            if (rec == null)
+                return false;
+            if (!string.IsNullOrEmpty(rec.EvaCrewName))
+                return true;
+            string snapshotType = rec.VesselSnapshot != null ? rec.VesselSnapshot.GetValue("type") : null;
+            return string.Equals(snapshotType, "EVA", StringComparison.Ordinal);
+        }
+
+        /// <summary>
         /// Recording-level form of <see cref="SpawnCollisionDetector.DecideKscEndOfFlightRetirement"/>:
         /// resolves the effective terminal, the EVA flag, the spawn position
         /// (<see cref="SelectSpawnCoordinates(Recording, TrajectoryPoint?, out string, out double, out double, out double, out bool, out double, out double)"/>,
@@ -2560,7 +2581,7 @@ namespace Parsek
             if (rec == null)
                 return decision;
 
-            bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
+            bool isEva = IsEvaKerbalRecordingForRetirement(rec);
             TerminalState? terminal = ResolveEffectiveTerminalForRetirement(rec);
             decision.EffectiveTerminal = terminal;
             // Cheap gates first: the predicate would say no anyway, and skipping them keeps
@@ -2605,6 +2626,9 @@ namespace Parsek
                 if (rec.VesselSnapshot == null && !rec.IsDebris
                     && RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec))
                 {
+                    // The re-hydrated snapshot may show the recording's vessel is a kerbal.
+                    if (IsEvaKerbalRecordingForRetirement(rec))
+                        return decision;
                     source = SelectSpawnCoordinates(
                         rec, lastPt, out endpointBodyName,
                         out lat, out lon, out _,

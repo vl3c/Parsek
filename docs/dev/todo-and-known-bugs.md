@@ -17,6 +17,40 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REWIND-KEEPS-EVERY-SUPERSEDE-ROW: a Rewind-to-Launch still dropped a supersede row whose re-fly recording was missing, and its Pass 2 could still unseal a sealed re-fly~~ [FILED + FIXED 2026-10-25 on branch `claude/project-thread-mikdfx` (PR #2244); LIVE-PROVEN 2026-10-25 by RB-5 `2026-10-25_1002` PASS (first flight), RB-4 `_1005` and RF-4 `_1008` PASS on the re-pin]
+
+Follow-up of REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY. After #2230 the rewind rollback still dropped a
+row whose fork was missing from the committed set (its recording failed to load) or `NotCommitted`,
+which brought the replaced recording back as the slot's tip; its Pass 2 then demoted any kept
+fork whose replaced recording that drop had retired and wrote a
+`rewound-out-supersede-fork-demoted-canon` retirement for it, sealed or open, so one unloadable
+re-fly could still unseal and hide a sealed re-fly of the next stage. That contradicts design section 2.2 (a one-sided orphan row
+is kept and the walk stops at it, the load-time sweep's own rule) and owner ruling O3 (a recording
+that fails to load keeps its ledger rows): the career still holds the re-fly's rows and the
+replaced flight's tombstones, so bringing the replaced flight back shows a timeline the career
+does not match.
+
+Decision: a rewind keeps every row. The dangling row keeps hiding the replaced flight exactly as
+every load does, and nothing is retired. If the missing recording loads again later, it is the tip
+again with nothing to repair.
+
+Fix: the rollback is gone (`DropSupersedesRewoundOutOfExistence*`,
+`ReapplyRewindSupersedeDropAfterLoad`, `EnsureRewindRetirementsForRollback` and the OnLoad
+`supersede-rewind-reapply` phase). `ExecuteRewindSaveLoad` now only runs a read-only audit,
+`RecordingStore.AuditSupersedesKeptAcrossRewindPure`, and logs `Rewind keeps supersede rows:
+rows=N forks=N sealed=N open=N dangling=N` plus one `Kept re-fly fork across rewind: rec=..
+mergeState=..|<missing>` line per fork. Nothing in the mod writes a `RecordingRewindRetirement`
+any more; its readers and the load-time sweep's legacy handling stay for old saves, which are not
+repaired (no compatibility work before the public release). Old saves: no committed fixture
+(`harness/fixtures/`, `Source/Parsek.Tests/Fixtures/`) carries a rewind retirement, so no lane
+reads the old bad state; `RewindKeepsSupersedeRowsTests.Fixtures_CarryNoRewindRetirement` keeps it
+that way and `Source_NothingOutsideTheLoaderBuildsARewindRetirement` keeps the writer gone. Unit:
+`RewindKeepsSupersedeRowsTests`, `RewindStagedListsCarryTests`. Lanes: RB-5 (re-fly the booster
+twice, seal the second slot, Rewind-to-Launch: `forks=2 sealed=1 open=1`), RB-4 and RF-4 re-pinned
+to the new line.
+
+---
+
 ## ~~REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY: a Rewind-to-Launch to before a separation undid a merged but unsealed Re-Fly and brought the original flight back~~ [FILED + FIXED 2026-10-24 on branch `fix-rewind-keeps-unsealed-refly` (PR #2230); LIVE-PROVEN 2026-10-25 by RB-4 `2026-10-25_0121` PASS, RF-4 `_0124` PASS]
 
 Owner ruling (V, 2026-10-24, answering the open question of
@@ -39,11 +73,10 @@ forks; `skippedImmutable=N` still counts the sealed ones) and renames `demotedIm
 `demoted=`; the per-fork `Preserved canon fork across parent rewind:` line prints the fork's real
 MergeState. The forced self-rewind drop and its result field are gone. The re-fly's tombstones were
 never dropped, which now matches the rule. Old saves that already carry a fork retirement are not
-repaired (no compatibility work before the public release). Unit: `RewindSupersedeRollbackTests`
-(`LiveRollback_KeepsCommittedProvisionalFork_AcrossParentRewind`,
-`Rollback_KeepsRelation_WhenForkIsCommittedProvisional`,
-`Rollback_SelfRewindOnImmutableFork_KeepsIncomingSupersede`; the demotion cells now anchor on a
-`NotCommitted` fork). Lane RB-4 (RF-4 without the seal) pins it live.
+repaired (no compatibility work before the public release). Lane RB-4 (RF-4 without the seal)
+pins it live. SUPERSEDED 2026-10-25 by REWIND-KEEPS-EVERY-SUPERSEDE-ROW: the dangling drop and the
+Pass 2 demotion are gone too, the rollback with them, and its unit tests are now
+`RewindKeepsSupersedeRowsTests`.
 
 ---
 
@@ -332,7 +365,7 @@ its exchange is already a ledger row.
 
 ---
 
-## LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT: mod-driven background awards are filed under the live flight [FILED 2026-10-25 from a code audit, branch `claude/project-thread-dkcvpn`. OPEN; low, mod-only]
+## LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT: mod-driven background awards are filed under the live flight [FILED 2026-10-25 from a code audit, branch `claude/project-thread-dkcvpn`. OPEN; low, mod-only. Owner ruling 2026-10-25: unit tests only, no modded lane]
 
 Three cases a stock install never reaches: a Contract Configurator `autoAccept` contract accepted by
 a mid-flight contract refresh, science a background vessel transmits (and the body science milestone
@@ -354,7 +387,7 @@ event no flight causes is filed under no flight): `EmitUntagged` and a direct le
 
 ---
 
-## CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT: a contract a ground station or a comet scan completes is filed under the live flight [FILED 2026-10-24 from a code audit, branch `claude/project-thread-dkcvpn`. OPEN; medium]
+## ~~CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT: a contract a ground station or a comet scan completes is filed under the live flight~~ [FILED 2026-10-24 from a code audit, branch `claude/project-thread-dkcvpn`. FIXED 2026-10-25 on branch `claude/project-thread-86u4df`; LIVE-PROVEN by CLK-1 `2026-10-25_0959` PASS; medium]
 
 Stock completes `CollectDeployedScience` from a Breaking Ground ground station's transmission
 (`DeployedScienceExperiment.FixedUpdate` -> `SubmitScienceData`, no vessel) and
@@ -365,10 +398,28 @@ recalculation claws it back), and a Re-Fly reads it as the attempt's gain and se
 recognise a completion with no vessel cause (the current science event is a deployed subject, or a
 Sentinel detection is in progress) and file it untagged with a direct ledger write. Mod contracts
 with timer parameters are the same class.
+**Fix** (owner ruling 2026-10-24, an event no flight causes is filed under no flight): stock completes
+both inside one call (decompiled 1.12.5: `CollectDeployedScience.OnScience` -> `SetComplete` ->
+`Contract.OnParameterStateChange` -> `SetState(Completed)` inside the `OnScienceRecieved` fire of
+`ResearchAndDevelopment.SubmitScienceData`; `CometDetectionParameter.CometDetected` inside
+`SentinelScenario.SpawnComet(Vessel, CometOrbitType)`; `SentinelParameter.DiscoverAsteroid` for the
+asteroid contract). `Patches/ClockCauseScopePatches.cs` opens the recorder's clock-cause scope around
+the six-argument `SubmitScienceData` when the subject is a deployed experiment's and no vessel
+submits it (a ground station's data a kerbal carried aboard is transmitted or recovered by that
+vessel, and what it completes stays the flight's), and around both Sentinel methods; inside it `Emit` files every event untagged and the #405 doors write it at once
+(`GameStateRecorder.HasClaimingLiveRecorder`: no live recorder claims an event inside the scope), so
+the completion and its reward are untagged ledger rows. A Sentinel the flight in progress launched
+counts as already in place. Drift B no longer warns inside the scope. A contract another subscriber
+of the same fire completes pays its science reward first and clears the award's `ScienceChanged`
+capture, so the award takes the reason the open submission files under
+(`GroundStationSubmissionReasonKey`; lane CLK-1's first flight `2026-10-25_0945` read the reconcile
+ERROR this fixes). Cells:
+`ClockCauseScopeTests`. Mod contracts with timer parameters stay open under
+LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT.
 
 ---
 
-## STRATEGY-CONVERSION-OF-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT: a strategy's cut of ground-station science is filed under the live flight [FILED 2026-10-24 from a code audit, branch `claude/project-thread-dkcvpn`. OPEN; low]
+## ~~STRATEGY-CONVERSION-OF-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT: a strategy's cut of ground-station science is filed under the live flight~~ [FILED 2026-10-24 from a code audit, branch `claude/project-thread-dkcvpn`. FIXED 2026-10-25 on branch `claude/project-thread-86u4df`; low]
 
 With a science-converting strategy active (Patents Licensing), stock's
 `ResearchAndDevelopment.AddScience` for a ground-station transmission fires the conversion before
@@ -376,6 +427,11 @@ With a science-converting strategy active (Patents Licensing), stock's
 `StrategyScienceDebit` / `Credit` rows the live tag while the award is untagged. A discard refunds the
 conversion and keeps the science. Fix direction: the conversion follows its award, so untagged when
 the award is deployed science.
+**Fix.** The conversion fires inside the same `SubmitScienceData` call, which
+`DeployedScienceSubmitScopePatch` wraps in the clock-cause scope for a deployed subject, so
+`ResolveStrategyConversionRecordingTag` returns none and the rows are untagged like the award. Inside
+the scope the subject capture also compares against the untagged `ScienceChanged` capture, so the award
+keeps its reason key. Cells: `ClockCauseScopeTests`.
 
 ---
 
@@ -897,7 +953,7 @@ Parsek-spawned vessel (whose resumed recording keeps the pre-spawn guid, a `Resu
 reads as a different launch on both the absorbed and the surviving path; the identity links are
 not consulted by `VesselLaunchIdentity`. Older saves stay pid-only until re-recorded.
 
-## HARNESS-MODDED-COMPAT-NEVER-PROVISIONED: the MC lanes on modded-compat fly whatever Parsek.dll that instance last received [FILED 2026-10-12 from the operator tier. OPEN, harness]
+## ~~HARNESS-MODDED-COMPAT-NEVER-PROVISIONED: the MC lanes on modded-compat fly whatever Parsek.dll that instance last received~~ [FILED 2026-10-12 from the operator tier. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells; flight owed: MC-1 on a stale `modded-compat` (refused pre-boot) and again after `provision.py --profile modded-compat` (flies). harness]
 
 Four MC lanes (`MC-1`..`MC-3` nightly, `MC-5` operator; MC-4 is `instanceProfile =
 "stock-minimal"`) run on `automation/modded-compat`, but neither `run.py` nor
@@ -911,6 +967,21 @@ night: MC-1..MC-3 PASS, MC-5 then red on a shrunk watch window (fixed in #2083, 
 HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS). Fix options: provision every profile a tier selects
 (tier_runner), or have admit refuse an instance whose deployed DLL hash differs from
 stock-minimal's after a provision.
+
+Fixed (2026-10-25, the second option): `run.py`'s ADMIT hashes the deployed `Parsek.dll` of the
+instance and of `stock-minimal` (`hlib.REFERENCE_DLL_PROFILE`, the instance every routine
+provision targets) for any other profile, and `hlib.decide_reference_dll_drift` adds a diff entry
+`deployedParsekDll.sha256.vsReference` when they differ, so `hlib.admit_instance` refuses the run
+pre-boot as terminal `INVALID(drift)`. The harness log carries `admit refused: instance=<profile>
+... provision it (a HUMAN call): cd harness && python provision/provision.py --profile <profile>`
+and the result JSON the same hint as its `note`; `tier_runner` reads the `admit drift field=` line
+as NEEDS-PROVISION (its hint now also points at the profile an `admit refused` line names).
+Skipped, with one Info line, for `stock-minimal` itself and when either DLL is absent. Auto-
+provisioning stays out (tier_runner POLICY 2: which build an instance carries is a human call).
+Not covered: a `stock-minimal` that is itself stale. Cells: `ReferenceDllAdmissionTests`
+(hlib) and `ReferenceDllAdmissionSmokeTests` (refused with no launch, a match flies, no reference
+flies, the reference is never compared with itself; mutation-checked by dropping the diff from the
+admit call).
 
 ## KB-STRATEGY-SLOT-NEEDED-NO-LIVE-LANE: the Administration Accept refusal for a strategy that would take the slot a committed activation needs has never been pressed in game [FILED 2026-10-10 from the branch cleanup. OPEN, harness, low]
 
@@ -943,7 +1014,7 @@ block-after-rewind` on a new host `stock-screen-census-strategy`. To rebuild it:
 
 ---
 
-## GUI-MIRROR-PAGE-AUDIT: go through every page of the GUI mirror, delete the redundant or obsolete ones, and refresh the structure and in-game images of the rest [FILED 2026-10-10 at the owner's request after the 0.10.5 release. OPEN, tooling]
+## GUI-MIRROR-PAGE-AUDIT: go through every page of the GUI mirror, delete the redundant or obsolete ones, and refresh the structure and in-game images of the rest [FILED 2026-10-10 at the owner's request after the 0.10.5 release. OPEN, tooling. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
 
 The mirror (`harness/tools/gui_mirror.py`, design `docs/dev/design-gui-mirror.md`) is one generated page of
 every Parsek window and its captured states. The copy in use (`gui-mirror.html`, served on port 8765 from a
@@ -966,7 +1037,7 @@ Work:
 
 ---
 
-## VB-1-KSP-HANG-AT-MAIN-MENU: KSP stalled at the main menu before the seam received `LoadGame`, and the watchdog only killed it at 660 s [FILED 2026-10-09 from the nightly release check. OPEN, harness]
+## ~~VB-1-KSP-HANG-AT-MAIN-MENU: KSP stalled at the main menu before the seam received `LoadGame`, and the watchdog only killed it at 660 s~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells; flight owed: any lane (a healthy boot must log `boot ready via=seam-receipt` and PASS; the hang itself is not reproducible on demand). harness]
 
 `VB-1-ghost-vessel-budget` `2026-10-09_0755` read KILLED (budget) after 674 s: the collected
 `KSP.log` (`logs/2026-10-09_1107_VB-1-ghost-vessel-budget`) ends ~0.5 s after `Scene Change : From
@@ -982,9 +1053,24 @@ deferred step budget. 2026-10-12: HARNESS-BOOT-HANG-KILLED-BUDGET added a boot-s
 MAINMENU line, so this post-MAINMENU shape is still open; a follow-up could extend the same
 no-growth rule up to the first seam response.
 
+Fixed (2026-10-25): the watchdog now has a main-menu phase. `BootWatch` keeps tailing this
+launch's KSP.log after MAINMENU until the seam's receipt of the first command
+(`hlib.SEAM_RECEIPT_MARKER`, `[TestCommands] recv id=`, the `TestCommandDiagnostics.Receipt` line)
+or any seam response, and in that phase applies the 90 s no-growth rule alone as rule
+`no-seam-receipt` (`hlib.boot_watch_phase`, `decide_boot_stall(at_mainmenu=True)`). The kill is
+the same retryable `INVALID(boot-hang)`, so VB-1's shape now costs about 90 s plus a retry. It
+stops at the receipt, not at the response: the seam reads commands only outside LOADING, so the
+receipt follows MAINMENU within a second (0.65 s in the collected `flighteff_b11` log), and after
+it the seam owns the command and a LoadGame may sit in a quiet deferral. Cells:
+`BootStallWatchdogTests` (phase table, the no-seam-receipt rule, the receipt scan, the marker
+pinned to the C# receipt literal) and the smoke cell
+`test_a_ksp_wedged_at_the_main_menu_is_killed_invalid_boot_hang_and_retried` (new fake mode
+`menuhang`; mutation-checked: with MAINMENU switching the watchdog off it ends KILLED(budget));
+`slowboot` now logs a receipt and still never trips.
+
 ---
 
-## V3C-CAPTURE-AIMS-INTO-IKE: V3C's capture leaves Duna's SOI through Ike on both attempts [FILED 2026-10-09 from the nightly release check. OPEN, mission]
+## ~~V3C-CAPTURE-AIMS-INTO-IKE: V3C's capture leaves Duna's SOI through Ike on both attempts~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells; flight owed: V3C-flight-arrival-companion (MISSION-OK with the first in-SOI `telemetry ... pe=` frame above 4,026 km altitude). mission]
 
 `V3C-flight-arrival-companion` `2026-10-09_0731` / `_0743_a2` both read INVALID (mission):
 `MISSION-ASSERT-FAIL ... left the target SOI during CAPTURE-BURN without a committed park:
@@ -996,6 +1082,19 @@ rounds aim `courseCorrectPeriapsisMeters = 300000` (300 km, dead centre of the f
 aim the arrival periapsis at >= 4,300 km altitude (the high band run 4 flew naturally), or replan
 the capture when the patched conics report `nextBody=Ike` before the burn. A mission fix, not a
 Parsek defect (a mission that did not fly is driver-INVALID).
+
+Fixed (2026-10-25, the first option, spec only): `courseCorrectPeriapsisMeters` in
+`harness/scenarios/V3C-flight-arrival-companion.toml` moved 300000 -> 10000000 (10,000 km
+altitude). At 300 km the request is 0.63% of Duna's SOI, the regime where the corrector delivers
+a periapsis set by the arrival geometry rather than the request (B22's corpus table; this lane's
+six arrivals spread 283 - 7,000 km, three inside Ike's shell). 10,000 km is 20.9% of the SOI,
+beside B22's Jool row (k 0.974); at the corpus's lowest k (0.545, the Mun) it still delivers
+5,450 km, 1,424 km above the shell's outer edge, and a hyperbola whose periapsis clears the shell
+never enters it. The high tail parks near 10 Mm, inside the 40 Mm park apoapsis window;
+capture-to-circular costs ~665 m/s vs ~575. `targetPeriapsisFloorMeters` stays the atmosphere
+guard (B22's J1 reasoning). The replan-on-`nextBody=Ike` option was not taken: it is a machine
+change with no flown precedent. Proven offline by `b5_params_from_dict` loading the spec and the
+`missions/lib` and `lib` suites; the delivered periapsis is what the flight must read.
 
 ---
 
@@ -1049,7 +1148,7 @@ A tree that does not start on the pad (a Re-Fly or switch continuation that star
 no launch site) and is destroyed or left within the pad thresholds is now kept for the merge dialog
 instead of discarded; this is intended.
 
-## CL-2-POD-LANDING-AWARD-VARIANCE: CL-2's pod sometimes earns Kerbin/Landing before it breaks up, and the oracle hard-gates the award [FILED 2026-10-08 from CL-2's regression flight on the PR #2055 DLL. OPEN, harness]
+## ~~CL-2-POD-LANDING-AWARD-VARIANCE: CL-2's pod sometimes earns Kerbin/Landing before it breaks up, and the oracle hard-gates the award~~ [FILED 2026-10-08 from CL-2's regression flight on the PR #2055 DLL. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells; flight owed: CL-2-pod-impact-ledger (green whether or not the pod lands; a landed run shows `optional-award milestone=Kerbin/Landing decision=admitted`). harness]
 
 `CL-2-pod-impact-ledger` `2026-10-08_1914` reads PARSEK-FAIL on the ledger oracle: funds
 expected 529600, parsed 530400 (+800). This run's pod touched down long enough to complete
@@ -1059,6 +1158,24 @@ award (its capture cross-check), so a per-run outcome difference reads as ledger
 product defect (the award was really earned and really booked). Fix: decide whether the oracle
 model admits `Kerbin/Landing` when the pod's recording shows a surface contact, or make the
 mission's impact deterministic.
+
+Fixed (2026-10-25): the oracle had no such knob, so it gained one. `[[expectations.ledger.optional]]`
+entries are ordinary manifest entries plus a `milestone` id. `ledgerverify.resolve_optional_awards`
+admits them into the declared set (summed into EXPECTED, and a corroboration target for the
+stock-award cross-check) only when the award was booked on BOTH sides: the event-time capture
+(`hlib.parse_milestone_award_lines` over `GameStateRecorder`'s `Milestone enriched: '<id>' funds=
+rep= sci=` line, stock's own AwardProgress values) and the produced save (`<id>` in
+`careerSave.completedMilestoneIds`, the ProgressTracking state Parsek's recalc patched). Booked on
+neither side, it is dropped. One side only, a repeat, or a captured funds / science amount other
+than the declared one is a HARD divergence (`optional-award-disagreement` / `-repeated` /
+`-amount-mismatch`, `oracle.decide_optional_award`), and an admitted award missing from the pool
+still reds the pool diff, since the declared constant, never the captured amount, joins EXPECTED.
+Every award not declared optional still hard-gates. Refused pre-launch under the rewind-aware model
+and with a null amount. CL-2 declares `Kerbin/Landing` funds 800 (rep 0, sci 0, measured on the
+`refly-a-recorded` ledger row); the mission was not changed (an impact cannot be made to land or
+not land deterministically). Cells: `harness/lib/test_ledger_optional.py` (decision table, the
+capture parser pinned to the C# literal, spec validation, the verifier end to end incl. the
+cross-check and the mutation planner; mutation-checked by never admitting).
 
 ---
 
@@ -1100,7 +1217,7 @@ inert-step settle is now a 1x `WarpToUT maxRate=1` to a UT read off the logs:
 
 ---
 
-## REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START: S4.2 and S4.4 need the re-fly recorder live (or not yet) while the provisional is still empty, a window of a few frames [FILED 2026-10-07 from the F9 verification flights, branch `ql-lanes`, measured. S4.4 FIXED 2026-10-08 by a named-condition seam wait (branch `s44-refly-wait`), LIVE-PROVEN 2026-10-08: three flights `2026-10-08_1806`, `_1812`, `_1814`, each PASS attempt 1 with the wait answering `points=0 ... reFlyMarker=true`, the bare reload refused `recording-active` and the empty-provisional conclusion. OPEN for S4.2, harness]
+## ~~REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START: S4.2 and S4.4 need the re-fly recorder live (or not yet) while the provisional is still empty, a window of a few frames~~ [FILED 2026-10-07 from the F9 verification flights, branch `ql-lanes`, measured. S4.4 FIXED 2026-10-08 by a named-condition seam wait (branch `s44-refly-wait`), LIVE-PROVEN 2026-10-08: three flights `2026-10-08_1806`, `_1812`, `_1814`, each PASS attempt 1 with the wait answering `points=0 ... reFlyMarker=true`, the bare reload refused `recording-active` and the empty-provisional conclusion. S4.2 FIXED 2026-10-25 in the spec, branch `claude/project-thread-re9fpq`, spec only; flight owed: S4.2-refly-world-preservation. harness]
 
 Two lanes gate on an UNFLOWN Re-Fly provisional, and both race the re-fly recorder's start, which
 happens when `RestoreActiveTreeFromPending` runs from the re-fly scene's OnFlightReady:
@@ -1142,6 +1259,23 @@ at-save`, the shape this race produces.
 
 
 Data point 2026-10-12 (operator tier): S4.4 2026-10-12_2128 PARSEK-FAIL on `outcome=retired-empty-provisional` / `AppendRelations outcome=refused-unflown-provisional` missing: the same race (operator tier, attempt 1, PARSEK-FAIL is not retried).
+
+S4.2 fixed (2026-10-25, spec only): no step order keeps S4.2's provisional empty at the merge. The
+batch must run before the merge (the merge reaps `rp_wp_root`, the RP quicksave the cells compare
+against; after it every cell skips "RP no longer resolves") and after InvokeRewind (every cell
+needs the live marker), and it takes about 1.1 s while FlightRecorder's Re-Fly post-load settle
+holds samples only until the vessel unpacks plus two frames (about 1.05 s). S4.4's
+`awaitRecorderLive=refly` wait answers inside the hold, but the batch after it still outlives
+it. A deterministic flown conclusion (a 1x `WarpToUT` past the hold before the batch) would need
+the post-rewind UT measured from a flight (`WarpToUT` takes only an absolute `ut`), and would move
+the lane onto the merge-journal route on purpose. So the spec takes S4.4's 2026-10-20 precedent
+(same fixture and slot): the one required conclusion line accepts either WHOLE route, the unflown
+route's three tokens in order, or `Added N supersede relations for subtree rooted at wp-booster-a`
+followed by `End reason=merged sess=` (measured flown route, S4.4 `2026-10-20_2205`); a mixed or
+partial route matches neither. The unflown route stays pinned on its own by S4.1 (no batch) and
+CI-2. The batch tally, the preservation pins and the forbidden pre-fix cascade lines are
+unchanged. Cells: the spec loads and validates in the harness suites; a flight of S4.2 must still
+show one of the two routes.
 
 ---
 
@@ -2427,14 +2561,14 @@ The live proof, lane RC-5, is not flown.
 
 ---
 
-## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; LIVE-PROVEN by EVA-11 `2026-10-15_2343`. FOREIGN EVA KERBAL HALF FIXED 2026-10-23, branch `claude/project-thread-y4esmb`; xUnit; LIVE-PROVEN by EVA-12 `2026-10-23_2257`. Still open: a part detached and dropped on the ground]
+## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; LIVE-PROVEN by EVA-11 `2026-10-15_2343`. FOREIGN EVA KERBAL HALF FIXED 2026-10-23, branch `claude/project-thread-y4esmb`; xUnit; LIVE-PROVEN by EVA-12 `2026-10-23_2257`. KSC-retirement side note FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit. Still open: a part detached and dropped on the ground]
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): the unfixed half (a part detached
 from a foreign vessel and then dropped) is still real, low: only attach and detach are handled
 (`ParsekFlight.ForeignInventoryTransfer.cs`), and new-vessel adoption exists only for inventory
 ground placement (`ParsekFlight.GroundPartPlacement.cs`), so the dropped part is gone after a rewind
 or replay. Needs a decompile of the construction drop path and a live reading (EVA-11 shape) before
-a fix. The KSC-retirement side note (only `EvaCrewName` exempts) is also still true.
+a fix. The KSC-retirement side note (only `EvaCrewName` exempts) is fixed (2026-10-25, below).
 
 The inventory fix records a stored part moved into or out of a foreign vessel's container, but two
 neighbours of the same defect remain. `EVAConstructionModeEditor` fires
@@ -2538,15 +2672,21 @@ Bob Kerman as the partner): LIVE-PROVEN 2026-10-23 on its first flight, `2026-10
 (Bob held through the rewind, spawned with `storedParts=0`; Bill spawned with the kit).
 
 Still OPEN: a part detached from a foreign vessel and then dropped on the ground (a new vessel no
-recording carries). Also noticed, not fixed (pre-existing, filed here rather than widened): KSC
-end-of-flight retirement exempts only recordings with `EvaCrewName`
-(`VesselSpawner.EvaluateKscEndOfFlightRetirement`), so a kerbal recording without it (an adopted
-cargo-partner kerbal, or a recording started on an EVA kerbal) whose endpoint lies inside the KSC
-exclusion circle would be retired and not respawn. EVA-12 parks its kerbals 153 m from the pad.
+recording carries). ~~Also noticed (pre-existing): KSC end-of-flight retirement exempts only
+recordings with `EvaCrewName` (`VesselSpawner.EvaluateKscEndOfFlightRetirement`), so a kerbal
+recording without it (an adopted cargo-partner kerbal, or a recording started on an EVA kerbal)
+whose endpoint lies inside the KSC exclusion circle would be retired and not respawn.~~ FIXED
+2026-10-25, branch `claude/project-thread-re9fpq`, xUnit (`KscPadRetirementTests.EvaKerbal_*`,
+`CrewSide_DroppedKerbalSnapshotOnThePad_IsNotRetired_BothSides`): the EVA exemption is now
+`VesselSpawner.IsEvaKerbalRecordingForRetirement`, true for `EvaCrewName` or an END vessel snapshot
+of stock type `EVA` (the precedent of `CoexistingTreeSiblingSpawn.ClassifySpawningMember`, minus
+its start-situation arm: only the spawn form counts, so a recording that ends as a vessel is never
+exempted), re-checked after a dropped snapshot is re-hydrated from its sidecar. EVA-12 parks its
+kerbals 153 m from the pad, so no committed lane exercises the circle with such a kerbal.
 
 ---
 
-## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness. Fresh-branch promotion residue FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit. Background-leg item CLOSED 2026-10-07, branch `release-rulings`, by the converter-event witness. Supply-route item CLOSED 2026-10-07, branch `chain-tip-cargo-all-spawns`, by END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO (owner ruling: trimming stays)]
+## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness. Fresh-branch promotion residue FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit. Decoupled-converter missed trim FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit. Background-leg item CLOSED 2026-10-07, branch `release-rulings`, by the converter-event witness. Supply-route item CLOSED 2026-10-07, branch `chain-tip-cargo-all-spawns`, by END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO (owner ruling: trimming stays)]
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): still real, low. The witnesses are
 still a harvest window and a running converter (`RecordingOptimizer.TailTrim.cs`). The in-vessel
@@ -2570,8 +2710,10 @@ resources still arrive early with the commit-time snapshot:
   snapshot is spawned only after the timeline went back, and every such load retires the route
   rows after its cutoff, except a cold load into an older save
   (COLD-LOAD-INTO-OLDER-FLIGHT-SAVE-KEEPS-ABANDONED-FUTURE);
-- an in-vessel transfer (crossfeed, a docked pair's fuel transfer): vessel totals do not move, so no
-  manifest sees it, but the per-part split in the snapshot still arrives early.
+- ~~an in-vessel transfer (crossfeed, a docked pair's fuel transfer): vessel totals do not move, so no
+  manifest sees it, but the per-part split in the snapshot still arrives early~~ - ACCEPTED 2026-10-25
+  (owner ruling: totals are exact, no ledger value moves; stated in flight recorder design 'Fuel moved
+  inside the vessel during a trimmed tail').
 
 ~~A converter running on a BACKGROUND leg~~ - CLOSED 2026-10-07 (branch `release-rulings`):
 `BackgroundRecorder` emits the same `ConverterActivated` / `ConverterDeactivated` part events
@@ -2589,20 +2731,31 @@ the vessel by decouple or undock keeps reading "running" on the parent recording
 `CheckConverterState` walks only `v.parts` and the `Decoupled` event carries the pid of the part
 that came off, not the converter's, so that parent's tail is never trimmed (a missed trim, never
 early resources; no recording in the fixture, dev-save or collected-log corpus ends with a
-converter running). A destroyed part is final (fixed in the same PR).
+converter running). A destroyed part is final (fixed in the same PR). ~~Decoupled-converter
+missed trim~~ FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit (`DepartedConverterStopTests`,
+`RecordingOptimizerTests.TrimBoringTail_RunningConverterPartDecoupledAway_TrimsAfterTheDeparture`):
+both converter polls (`FlightRecorder.CheckConverterState`, `BackgroundRecorder.CheckConverterState`)
+count the tracked running converter pids they saw on the vessel; when fewer were seen than the
+tracking set holds, `FlightRecorder.AppendDepartedConverterStops` writes a `ConverterDeactivated`
+at the poll UT for each tracked pid no longer in `Vessel.parts` and drops it from the set (one
+Info line `Converter part(s) left the vessel while running`). A read with no parts proves nothing
+and writes nothing. The departed part's own recording seeds its running state from the live part
+(the background `InitializeLoadedState` seed for a fresh child, the promotion converter seed for
+an active-side branch). On the parent ghost the stop only ends the running loop of a part the
+decouple already hid.
 
 Fix options: ~~(1) give the optimizer pass the ledger's route rows whose endpoint is the recording's
 vessel and treat a row inside the tail as interesting~~ (not taken, see the closed route item);
-(2) accept the in-vessel case; ~~(3) for the residues, emit a converter seed on a promotion into a
+(2) accept the in-vessel case (TAKEN 2026-10-25, owner ruling); ~~(3) for the residues, emit a converter seed on a promotion into a
 fresh branch (it would also start the ghost's running loop there)~~ - promotion residue FIXED
 2026-10-24, branch `claude/project-thread-u9w386`, xUnit (`ConverterPromotionSeedTests`): the promotion path of
 `FlightRecorder.ResetPartEventTrackingState` now emits `ConverterActivated` seeds
 (`PartStateSeeder.EmitConverterSeedEvents`) when the active recording has no converter edge yet
 (`ChainPromotionShouldEmitConverterSeeds`, the engine gate's shape), at the engine seeds' UT
 (`ResolveChainPromotionSeedUT`). A recording that already carries a converter edge keeps its own
-state. Still open: the in-vessel transfer half (owner's call), a background vessel recorded only on
-rails (a later promotion of it now seeds, the background recording itself does not), and the
-decoupled-converter missed trim. Live witness: the in-game cell
+state. Still open: a background vessel recorded only
+on rails (a later promotion of it now seeds, the background recording itself does not); the
+decoupled-converter missed trim is fixed (above). Live witness: the in-game cell
 `PromotionConverterSeedInGameTest.PromotionSeedsRunningConverters` (category `PromotionConverterSeed`,
 lane `MINE-15-promotion-converter-seed`, LIVE-PROVEN 2026-10-24 on its first flight `2026-10-24_2357`:
 five running converters, five seeds) runs the promotion seed
@@ -2949,7 +3102,7 @@ Left open: a part shed because its parent part DIED (`Part.Die` decouples childr
 force 0) still reads "Decoupled" when no crash child joins the window. Telling it apart
 needs `onPartWillDie`, which fires before those decouples; not done here.
 
-## REALSPAWN-JUMP-SHIFT-RESIDUE: what the orbital-tip jump shift does not cover [FILED 2026-10-03 from the REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST fix, branch `fix-orbital-tip-spawn`. OPEN; product, low. Walkback item FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit]
+## REALSPAWN-JUMP-SHIFT-RESIDUE: what the orbital-tip jump shift does not cover [FILED 2026-10-03 from the REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST fix, branch `fix-orbital-tip-spawn`. OPEN; product, low. Walkback item FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit. Second-jump item FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit]
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): all four residues still stand; later
 commits widened the shifted cases without closing these. The walkback item is the one with a small
@@ -2980,11 +3133,22 @@ four neighbours keep the old geometry; none is flown:
   state a seam lane can reach is a `RealSpawn` that times out with an ERROR while the tip stays
   blocked (moving the blocker needs a kRPC mission). The gate is one pure branch with its log line
   pinned in xUnit (`TimeJumpTerminalOrbitShiftTests`).
-- **A second jump before an armed tip spawns, when the tip is not held.** Accumulation reads
+- ~~**A second jump before an armed tip spawns, when the tip is not held.** Accumulation reads
   the held blocked-tip ghosts; a tip armed by a first jump that has neither spawned nor been
   blocked (its plain ghost is not held) is not re-captured, so a second jump in that window
   leaves its lag at the first jump's value. Unlikely: the spawn normally follows the jump at
-  once (found by the PR #1995 follow-up review).
+  once (found by the PR #1995 follow-up review).~~ FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit
+  (`TimeJumpTerminalOrbitShiftTests.PendingRecordingIdsNotIn_*`, `ClassifyPendingRecapture_Table`,
+  `SecondJump_ArmedTipNotHeld_*`): after its two ghost walks,
+  `ParsekFlight.CollectBubbleGhostsForTimeJump` takes every recording still holding an armed shift
+  that neither walk saw (`TimeJumpTerminalOrbitShift.PendingRecordingIdsNotIn`), places it on its
+  jump-shifted terminal orbit at the current UT (the same body and orbit the shifted spawn and a
+  held ghost use) and hands it to `CaptureForJump` at that separation when
+  `ClassifyPendingRecapture` says so (found, unspawned, shift live, position resolved, inside the
+  bubble), so the existing accumulate branch adds the second jump's delta. One Verbose line per
+  such tip with its decision, and `pendingRecaptured` / `pendingSkipped` on the collector summary.
+  No live lane: the window between a jump and the tip's spawn is a frame or two, which no seam
+  lane can hit with a second jump.
 
 ---
 
@@ -4067,7 +4231,7 @@ completion after the stale cleanup destroyed the slot (the completed-state bookk
 slot whose ghost was never live), and a headless engine test that crosses EndUT once in warp and
 asserts one delivery.
 
-## STOCK-UI-CENSUS-GUI-28-FINDINGS: what the first photographs of the stock-screen annotations show [FILED 2026-09-25 off `GUI-28-census-stock-screens` reading run `2026-09-25_2055` (branch `stock-screen-census`). OPEN; for the overlay program (`STOCK-UI-RESERVATION-OVERLAYS-2026-09-25`)]
+## STOCK-UI-CENSUS-GUI-28-FINDINGS: what the first photographs of the stock-screen annotations show [FILED 2026-09-25 off `GUI-28-census-stock-screens` reading run `2026-09-25_2055` (branch `stock-screen-census`). OPEN; for the overlay program (`STOCK-UI-RESERVATION-OVERLAYS-2026-09-25`). PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
 
 The first real-game look at the annotations: 25 PNGs on the committed `stock-screen-census`
 fixture, each capture logged with its decision records (`[StockUiOverlay] record label=...`)
@@ -4156,7 +4320,7 @@ as drawn until the next of those.
 
 ---
 
-## ARCH-STOCK-UI-RESERVATION-CYCLES-2026-09-25: the stock-UI reservation layer added eight types to the kernel knot and a new 7-type knot [FILED 2026-09-25 when `scripts/arch/modules.toml` classified the layer; OPEN, low; architecture debt, no behavior defect]
+## ARCH-STOCK-UI-RESERVATION-CYCLES-2026-09-25: the stock-UI reservation layer added eight types to the kernel knot and a new 7-type knot [FILED 2026-09-25 when `scripts/arch/modules.toml` classified the layer; OPEN, low; architecture debt, no behavior defect. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
 **What the map shows** (`python scripts/arch/archview.py --check`, canaries in
 `scripts/arch/test_archview.py`):
@@ -4917,7 +5081,7 @@ and, for the links before it, the non-leaf rule. Either delete the arm or route 
 terminated case somewhere it can run; until then no lane can witness the line, and
 `chain-terminated-destruction-recovery` is not owed it.
 
-## GUI-MOCK-P1-RESIDUE-2026-09-22: three product findings and three deferrals from the GUI state gallery's first phase [FILED 2026-09-22 with the P1 + P1b build, EXTENDED the same day after the clean review. SIX items. Items 1 to 3 are PRODUCT findings, each verified at its source site and pinned by a cell; items 4 to 6 are deferrals with a named owning phase. OPEN]
+## GUI-MOCK-P1-RESIDUE-2026-09-22: three product findings and three deferrals from the GUI state gallery's first phase [FILED 2026-09-22 with the P1 + P1b build, EXTENDED the same day after the clean review. SIX items. Items 1 to 3 are PRODUCT findings, each verified at its source site and pinned by a cell; items 4 to 6 are deferrals with a named owning phase. OPEN. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
 
 **Where this came from.** Building the catalogue of synthetic GUI states
 (`docs/dev/design-gui-state-gallery.md`, P1) meant constructing each state's INPUTS and
@@ -4995,7 +5159,7 @@ at one.
 
 ---
 
-## GUI-CENSUS-WAVE6-RESIDUE-2026-09-22: seven states the new seam ops still cannot photograph unaided, and one product finding [FILED 2026-09-22 with the GUI-census seam-op wave (GUI-24..GUI-27). EIGHT items. 1 to 4 are FIXTURE gaps (4 measured by GUI-24's first flight); 5 and 6 are INSTRUMENT gaps measured by GUI-25's and GUI-26's first flights; 7 is an OP-SCOPE correction to the wave's own lane plan; 8 IS a product finding, verified at its source site and deliberately not fixed in that PR. OPEN; each names what it needs]
+## GUI-CENSUS-WAVE6-RESIDUE-2026-09-22: seven states the new seam ops still cannot photograph unaided, and one product finding [FILED 2026-09-22 with the GUI-census seam-op wave (GUI-24..GUI-27). EIGHT items. 1 to 4 are FIXTURE gaps (4 measured by GUI-24's first flight); 5 and 6 are INSTRUMENT gaps measured by GUI-25's and GUI-26's first flights; 7 is an OP-SCOPE correction to the wave's own lane plan; 8 IS a product finding, verified at its source site and deliberately not fixed in that PR. OPEN; each names what it needs. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
 
 **Read 5 and 6 before authoring any census lane.** Both are cases where every log contract
 PASSED over a picture that showed the wrong thing, which is the failure mode a census is
@@ -5136,7 +5300,7 @@ obvious fix: either ASCII-ise the arrow in the composed name (which changes the 
 surfaces too, where it currently looks right), or substitute at the two dialog-body sites
 only. Not fixed here - this PR adds no C#.
 
-## GUI-STATE-COVERAGE-RESIDUE-2026-09-21: two dead draw branches, eleven window states the census still cannot reach, and five product findings the flights turned up [FILED 2026-09-21 with the GUI-census state-coverage wave (GUI-13..GUI-23), extended 2026-09-22 after the flights and the PR review. EIGHTEEN items. 1 and 2 are DEAD CODE verified from source; 3 to 13 are INSTRUMENT or FIXTURE gaps, not product defects; 14 to 18 ARE product findings, each verified at its source site and deliberately not fixed in that PR. OPEN; each names what it needs]
+## GUI-STATE-COVERAGE-RESIDUE-2026-09-21: two dead draw branches, eleven window states the census still cannot reach, and five product findings the flights turned up [FILED 2026-09-21 with the GUI-census state-coverage wave (GUI-13..GUI-23), extended 2026-09-22 after the flights and the PR review. EIGHTEEN items. 1 and 2 are DEAD CODE verified from source; 3 to 13 are INSTRUMENT or FIXTURE gaps, not product defects; 14 to 18 ARE product findings, each verified at its source site and deliberately not fixed in that PR. OPEN; each names what it needs. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
 
 **Where this came from.** A read-only audit enumerated every visibly distinct draw branch
 of the 14 IMGUI windows from the source and checked each against the `.gui.json` control-
@@ -5420,7 +5584,7 @@ op that wave shipped, so read that entry before acting on one of those. And
 This entry is the residue of the states a flight CAN reach, plus what the eleven-lane
 wave (GUI-13..GUI-23) measured while reaching them.
 
-## GUI-SEAM-WAVE6-RESIDUE-2026-09-21: six of the nine in-place text editors, every hover string, and the Gloops window are still unreachable by the census [FILED 2026-09-21 with the wave-6 seam additions. OPEN; each needs a mechanism the wave deliberately did not build]
+## GUI-SEAM-WAVE6-RESIDUE-2026-09-21: six of the nine in-place text editors and every hover string are still unreachable by the census [FILED 2026-09-21 with the wave-6 seam additions. OPEN; each needs a mechanism the wave deliberately did not build. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
 
 **What landed.** `UiAction op=state` / `op=sort` / `op=select` / `op=edit`, three new
 `op=raise` rows, `op=run await=false`, `RouteCommand action=link|unlink|set-cadence`, and
@@ -5461,19 +5625,7 @@ smallest remaining surfaces are `op=pointer inject=true` feeding IMGUI a synthet
 do not spend lanes on hover states, and do not read the four existing hover captures as
 coverage - they are text-identical to their un-hovered siblings.
 
-**3. [MOOT 2026-10-06: the Gloops window, its seam verbs and `op=open window=gloops` are deleted, PR #2022]** The Gloops Flight Recorder's Recording / Saved / Previewing states are diagnostic
-only, because no player can open that window.** `UiSurfaceVisibility.IsRetired` answers true
-for `MainButtonGloops` and is tested BEFORE the mode switch, so the launcher draws in
-neither complexity mode; the only production writer that raises the flag sits behind that
-gate, and its own comment already says the block never draws. There is also no preview-start
-path in the seam at all (`GloopsStart` / `GloopsStop` exist; `PreviewGhost` does not, and
-`StopPlayback` is deliberately reserved). A census CAN open the window through
-`op=open window=gloops`, which is exactly why a lane aimed at it would be photographing a
-surface no reviewer should judge the product by. Fix: nothing, unless the launcher is
-un-retired - at which point a `PreviewGhost` verb is three lines over
-`ParsekFlight.PreviewGloopsRecording`.
-
-**4. Smaller states a tiny accessor would still reach, left out of this wave.** The Group
+**3. Smaller states a tiny accessor would still reach, left out of this wave.** The Group
 Picker cannot be COLLAPSED by the seam (`GroupPickerPresentation.BuildExpandedGroups`
 defaults everything expanded, and every node in every picker capture is `v`), and the
 picker cannot be opened on a CHAIN (`op=picker` covers group and recording only).
@@ -5486,7 +5638,7 @@ divergence layout, which needs a career whose timeline ends later than now, so a
 photographing them needs a rewound career first.
 
 ---
-## GUI-STATE-GALLERY-2026-09-21: ~312 of ~480 enumerated GUI states are unphotographed, most of them unreachable by flying, so the mirror shows a product that never fails [FILED 2026-09-21 off the state-coverage audit. DESIGN LANDED (`docs/dev/design-gui-state-gallery.md`), P1, P1b and the mirror half of P2 built. OPEN; all seven owner questions answered YES 2026-09-21 (design section 16), remainder is P2's `GalleryRun` verb and lanes, then P3-P7]
+## GUI-STATE-GALLERY-2026-09-21: ~312 of ~480 enumerated GUI states are unphotographed, most of them unreachable by flying, so the mirror shows a product that never fails [FILED 2026-09-21 off the state-coverage audit. DESIGN LANDED (`docs/dev/design-gui-state-gallery.md`), P1, P1b and the mirror half of P2 built. OPEN; all seven owner questions answered YES 2026-09-21 (design section 16), remainder is P2's `GalleryRun` verb and lanes, then P3-P7. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
 
 **PART LANDED 2026-09-22 (the MIRROR half of phase P2, owner rulings 1, 5 and
 7).** Three things the loop needed, all in `harness/tools/gui_mirror.py`, all
@@ -5781,7 +5933,7 @@ the two things its row model could not answer off existing data.
 Neither of the first two blocks anything. All five are recorded because the window now has
 columns whose blanks are visible, where the old outline simply said nothing.
 
-## ARCH-FINDINGS-REPORT: the architecture findings report and how to regenerate its numbers [FILED 2026-09-15. A POINTER, not a defect. OPEN as the entry point for the refactoring work that follows]
+## ARCH-FINDINGS-REPORT: the architecture findings report and how to regenerate its numbers [FILED 2026-09-15. A POINTER, not a defect. OPEN as the entry point for the refactoring work that follows. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
 **What is true.**
 - The findings report IS the regenerated atlas: run `python scripts/arch/archview.py --check`,
@@ -5853,7 +6005,7 @@ name set is false, and a null or empty set is false with a live transform. Addin
 category a committed harness spec pins moves that spec's `BATCH_COMPLETE total=` tally
 (`CommittedBatchTallySourceSyncTests`), so pick the category with that in mind.
 
-## ARCH-PARSEKFLIGHT-CHANGE-HUB: ParsekFlight.cs is 27,591 lines and on one side of every top cross-module co-change pair [FILED 2026-09-14 off the architecture program (`docs/dev/research/architecture-opportunities-2026-09-14.md` item 1). A STRUCTURAL debt, not a defect. OPEN; the largest item on the list and the last to start]
+## ARCH-PARSEKFLIGHT-CHANGE-HUB: ParsekFlight.cs is 27,591 lines and on one side of every top cross-module co-change pair [FILED 2026-09-14 off the architecture program (`docs/dev/research/architecture-opportunities-2026-09-14.md` item 1). A STRUCTURAL debt, not a defect. OPEN; the largest item on the list and the last to start. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
 **What is true.**
 - Touched in 1,125 of the 5,127 commits since 2025-03-01 (22 percent of every commit to
@@ -5871,7 +6023,7 @@ hookup (`FlightRecorder` / `BackgroundRecorder`), playback hosting, spawning, th
 of the same shape. Do this AFTER ARCH-KNOT-CHEAP-CUTS and ARCH-RECORDINGSTORE-GOD-OBJECT, which
 make the types it touches easier to reason about.
 
-## ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type [FILED 2026-09-14 off the architecture program (item 4). OPEN; the first item with real design content, after the cheap cuts]
+## ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type [FILED 2026-09-14 off the architecture program (item 4). OPEN; the first item with real design content, after the cheap cuts. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
 **What is true.**
 - 6,970 lines plus partials, fan-in 91 files, touched in 408 commits (third most churned file);
@@ -5887,7 +6039,7 @@ make the types it touches easier to reason about.
 (optimizer, purge, sidecar commit, session merge) as services on top that the scenario module
 calls directly. One service per PR; the co-change with `ParsekScenario.cs` is the measure.
 
-## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5]
+## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
 **What is true.**
 - `VesselSpawner.cs` (6,897 lines, 163 commits, co-changes with `ParsekFlight.cs` 63 times)
@@ -5904,7 +6056,7 @@ recover half (Controllers); move the Recording-aware half of the extrapolator in
 move the route structure list into Logistics or read it through an interface Missions owns.
 Update `modules.toml` in the same commits so the placement report stays true.
 
-## ARCH-TOOLING-ROSLYN-AND-CI: the architecture checker is a text scan that gates nothing [FILED 2026-09-14 off the architecture program (phases 5 and 6). OPEN; tooling, no product change until the namespace tidy]
+## ARCH-TOOLING-ROSLYN-AND-CI: the architecture checker is a text scan that gates nothing [FILED 2026-09-14 off the architecture program (phases 5 and 6). OPEN; tooling, no product change until the namespace tidy. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
 **What is true.**
 - `scripts/arch/archview.py` matches identifiers against declared type names after stripping
@@ -6256,7 +6408,7 @@ its refusal reasons at about 1 Hz and already owns a disabled-hover echo; the sh
 carry the reason into that echo for the button the player just pressed, not to add 46
 messages. That is one design decision about one window, so it is filed as one item.
 
-## GUI-INVENTORY-STOCKUIOVERLAY-BADGES-ARE-INVISIBLE-TO-BOTH-CENSUS-INSTRUMENTS [FILED 2026-09-11 by the GUI fix batch; a TOOLING entry]
+## GUI-INVENTORY-STOCKUIOVERLAY-BADGES-ARE-INVISIBLE-TO-BOTH-CENSUS-INSTRUMENTS [FILED 2026-09-11 by the GUI fix batch; a TOOLING entry. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
 
 **Evidence.** `StockUiOverlayController.cs:49` hooks `RDController.OnRDTreeSpawn`,
 `GameEvents.onGUIAstronautComplexSpawn` and `GameEvents.onGUIMissionControlSpawn`
@@ -6401,7 +6553,7 @@ Filed 2026-09-23 by the D3 `relative-loop` lane (register item C5, branch `d3-re
 
 **Fix direction (not taken).** Seed `loadedAnchorVessels` from the already-loaded vessels (at least `FlightGlobals.ActiveVessel`) when `ParsekFlight` starts or on `onFlightReady`, skipping ghost map vessels the same way `OnVesselLoaded` does. Needs a unit cell on the seeding decision and an RL-1 variant anchored to the active vessel as the live witness.
 
-## U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER: the GUI census's only viable host carries 25 pre-existing analyzer FAILs; the lanes now declare the analyzer row REPORT-ONLY, and what those 25 findings ARE is still open
+## U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER: the GUI census's only viable host carries 25 pre-existing analyzer FAILs; the lanes now declare the analyzer row REPORT-ONLY, and what those 25 findings ARE is still open [PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
 
 MEASURED 2026-09-10 while authoring the GUI census (branch `gui-census`), not predicted.
 The offline analyzer over the operator's `c1` career - the lane's host, staged as
@@ -6484,7 +6636,7 @@ they are an artifact of a since-changed writer, the report-only row is the right
 answer for a census host. Either way that reading is an investigation, not a re-run, and
 the census lanes are no longer blocked on it.
 
-## GUI-CENSUS-FOURTEEN-DIALOGS-NEED-LIVE-STATE-TO-RAISE: the 14 modals `op=raise` deliberately does not reach, each named with what it would need [Filed 2026-09-15 as the successor to the entry above, which is closed. Not a defect and not a backlog item to clear blindly: a dialog raised over synthetic state photographs a screen the game cannot be in]
+## GUI-CENSUS-FOURTEEN-DIALOGS-NEED-LIVE-STATE-TO-RAISE: the 14 modals `op=raise` deliberately does not reach, each named with what it would need [Filed 2026-09-15 as the successor to the entry above, which is closed. Not a defect and not a backlog item to clear blindly: a dialog raised over synthetic state photographs a screen the game cannot be in. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
 
 The raise table admits a dialog only when its spawn is reachable by a pure in-process call
 with data the host already carries. What the other fourteen need, read off their spawn sites
@@ -6572,7 +6724,7 @@ and section 6.2 originally named `ShowWipeRecordingsConfirmation` alongside them
 that one entry point would raise a modal with no scene transition and no lock interaction
 at all, which makes it the obvious first dialog to photograph.
 
-## GUI-CENSUS-ONLY-THE-GLOBAL-RUNNER-TELLS-THE-PLAYER-RESULTS-ARE-AUTO-EXPORTED: the two identically titled Test Runner windows carry different footer text, and the one a player reaches from Settings is the one missing the hint [Filed 2026-09-15 off the GUI-12 dumps. Not a defect and not a fix to apply blindly: it is a WORDING gap on an existing surface]
+## GUI-CENSUS-ONLY-THE-GLOBAL-RUNNER-TELLS-THE-PLAYER-RESULTS-ARE-AUTO-EXPORTED: the two identically titled Test Runner windows carry different footer text, and the one a player reaches from Settings is the one missing the hint [Filed 2026-09-15 off the GUI-12 dumps. Not a defect and not a fix to apply blindly: it is a WORDING gap on an existing surface. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
 
 MEASURED off `2026-09-15_2057_GUI-12-census-testrunners` (the two `-collapsed-advanced`
 dumps, read as text rather than as pixels). The GLOBAL Ctrl+Shift+T window draws TWO
@@ -6599,7 +6751,7 @@ has a search / filter bar and the global one does not, which is exactly 3 GUI-tr
 between the two windows at every state (4217 vs 4214 idle, 473 vs 470 collapsed, 479 vs 476
 with one category expanded). `design-gui-inventory.md` section 3.11 owns that table.
 
-## GUI-MIRROR-THREE-STATES-LEAVE-A-FOLD-CLICK-AMBIGUOUS: in the GUI mirror a fold control can only be resolved where the census photographed exactly two states of that tab, so the Logistics folds flash instead of toggling
+## GUI-MIRROR-THREE-STATES-LEAVE-A-FOLD-CLICK-AMBIGUOUS: in the GUI mirror a fold control can only be resolved where the census photographed exactly two states of that tab, so the Logistics folds flash instead of toggling [PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
 
 FILED 2026-09-15 with the mirror (`harness/tools/gui_mirror.py`,
 `docs/dev/design-gui-mirror.md` section 2). A fold control carries a glyph, not a
@@ -6625,7 +6777,7 @@ its tab chips fall back to the seam token (`rewindff` rather than `Rewind / FF`)
 Clicking them works - the text match finds them - only the chip label is the
 automation name. Fixable by deriving the name from whichever control token-matched.
 
-## GUI-CENSUS-PICKER-POPUPS-ARE-PHOTOGRAPHABLE-BUT-NOT-FINDABLE: a row-armed picker's contents never enter a GUI-tree dump, so `op=find` cannot reach a control inside one [Filed 2026-09-11 off the review of the six census ops. Not a defect: a structural property of uGUI, recorded so a lane author does not spend a boot discovering it]
+## GUI-CENSUS-PICKER-POPUPS-ARE-PHOTOGRAPHABLE-BUT-NOT-FINDABLE: a row-armed picker's contents never enter a GUI-tree dump, so `op=find` cannot reach a control inside one [Filed 2026-09-11 off the review of the six census ops. Not a defect: a structural property of uGUI, recorded so a lane author does not spend a boot discovering it. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
 
 `op=picker` opens a `PopupDialog`-hosted popup (Set Parent Group, Manage Groups, the
 Logistics round-trip link picker). `GuiTreeRecorder` patches `GUI.DoWindow` and the other
@@ -6645,7 +6797,7 @@ reader is a second capture pipeline - walk the popup's `RectTransform` tree and 
 same node shape the IMGUI recorder does - for three popups whose contents a PNG already
 carries. Not worth it on today's evidence.
 
-## GUI-CENSUS-EXPAND-ANSWERS-OK-OVER-A-SURFACE-THE-MODE-IS-NOT-DRAWING: `op=expand` in Basic toggles Recordings-tab state the window is not showing, so a capture paired with it shows nothing moved [Filed 2026-09-11 off the same review. By design; the LANE owns the fix]
+## GUI-CENSUS-EXPAND-ANSWERS-OK-OVER-A-SURFACE-THE-MODE-IS-NOT-DRAWING: `op=expand` in Basic toggles Recordings-tab state the window is not showing, so a capture paired with it shows nothing moved [Filed 2026-09-11 off the same review. By design; the LANE owns the fix. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
 
 The settle's host-visibility gate is per OP (`TestCommandUiAction.SettleChecksHostShowUi`:
 `open` and `rect` alone, because those two read back a FIELD that a hidden host would let
@@ -6663,7 +6815,7 @@ today) and would refuse the legitimate case of arranging state now and photograp
 after a later mode switch. Recorded beside `SettleChecksHostShowUi` and in
 `design-autotest-command-seam.md` -> "REVIEW FOLLOW-UPS (2026-09-11)"; no behaviour change.
 
-## GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT: `op=pointer` puts the OS cursor on the resolved control and Unity reads it back there, but IMGUI's hover never fires, so all four census hover captures photograph an un-hovered window [Filed 2026-09-11 off the wave-2 reading runs. The op does what it says; what it cannot do is make IMGUI believe it. STILL OPEN 2026-09-15, and now with a CAUSE and both pre-registered candidates RETIRED - see the update at the head of this entry]
+## GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT: `op=pointer` puts the OS cursor on the resolved control and Unity reads it back there, but IMGUI's hover never fires, so all four census hover captures photograph an un-hovered window [Filed 2026-09-11 off the wave-2 reading runs. The op does what it says; what it cannot do is make IMGUI believe it. STILL OPEN 2026-09-15, and now with a CAUSE and both pre-registered candidates RETIRED - see the update at the head of this entry. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
 
 **UPDATE 2026-09-15: BOTH CANDIDATE FIXES WERE BUILT, FLOWN AND REFUTED, and the flight
 measured the cause instead.** Run `2026-09-15_1539` (GUI-7, PASS attempt 1, 63 s, deployed
@@ -14042,7 +14194,7 @@ broader audit work stays with the Observability Audit section above.
 
 Create a `.netkan` file or submit to CKAN indexer so users can install Parsek via CKAN. Requires a stable release URL pattern.
 
-**Priority:** Nice-to-have
+**Priority:** Nice-to-have. Not yet (owner, 2026-10-25).
 
 ---
 

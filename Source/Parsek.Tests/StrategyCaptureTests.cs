@@ -1042,7 +1042,7 @@ namespace Parsek.Tests
             string collapsed = Regex.Replace(body, @"\s+", " ");
             Assert.Contains(
                 "if (reason == TransactionReasons.StrategyInput && " +
-                "ShouldForwardDirectLedgerEvent(sciEvt.recordingId, HasLiveRecorder())) " +
+                "ShouldForwardDirectLedgerEvent(sciEvt.recordingId, HasClaimingLiveRecorder())) " +
                 "LedgerOrchestrator.OnKscSpending(sciEvt);",
                 collapsed);
         }
