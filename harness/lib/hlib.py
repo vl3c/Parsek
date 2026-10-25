@@ -771,6 +771,15 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     kerbalPid= vehiclePid=` once the active vessel is that kerbal's EVA vessel, unseated.
     "EvaSeatBoard",
     "EvaSeatLeave",
+    # ADDITIVE (56 -> 57 implemented, reserved unchanged at 4), the AJ-1 host (GC-13: the stock
+    # alarm dialog's Jump bypassed every Parsek switch rule).
+    #   AlarmJump vessel=<name>|pid=<pid> [jump=shown|always|never], FLIGHT, SINGLE-PHASE,
+    #     default 60 s: a stock AlarmTypeRaw bound to the vessel is added, fired through stock's
+    #     own TriggerAlarm (its message dialog spawns), and the dialog's Jump is pressed through
+    #     stock's own OnJump, then the dialog is closed with Delete. OK `targetPid=
+    #     targetIsGhost= targetLoaded= alarmId= stockWouldShowJump= jumpShown= decision= jump=
+    #     pressed= before= after= switched= sceneLoadRequested= alarmRemoved=`.
+    "AlarmJump",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1394,6 +1403,8 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # The seat pair couples / undocks a kerbal's part (stock state a save captures).
     "EvaSeatBoard": TAIL_ROLE_WORLD_MUTATING,
     "EvaSeatLeave": TAIL_ROLE_WORLD_MUTATING,
+    # AlarmJump may switch the active vessel (stock state a save captures).
+    "AlarmJump": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1611,6 +1622,9 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # EVA branch), never a mission outcome on its own.
     "EvaSeatBoard": POST_MISSION_ROLE_RECORDING,
     "EvaSeatLeave": POST_MISSION_ROLE_RECORDING,
+    # AlarmJump is `recording` for CycleVessel's reason: its OK is a statement about Parsek's
+    # switch rules (whether the Jump was shown and whether it switched), never a mission outcome.
+    "AlarmJump": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -4239,6 +4253,60 @@ EVASEAT_ERROR_REASONS: Tuple[str, ...] = (
     "evaseatboard-threw", "evaseatboard-timeout",
     "evaseatleave-threw", "evaseatleave-timeout",
 )
+
+
+# AlarmJump: mirrored from TestCommands/TestCommandAlarmJump.cs (AlarmJumpSourceSyncTests).
+# Exactly one of `vessel=` / `pid=` (a positive base-10 uint); `jump=` optional, exact.
+ALARMJUMP_VERB = "AlarmJump"
+ALARMJUMP_VESSEL_KEY = "vessel"
+ALARMJUMP_PID_KEY = "pid"
+ALARMJUMP_JUMP_KEY = "jump"
+ALARMJUMP_JUMP_VALUES: Tuple[str, ...] = ("shown", "always", "never")
+ALARMJUMP_REASONS: Tuple[str, ...] = (
+    "alarmjump-target-arg-missing", "alarmjump-target-arg-conflict",
+    "alarmjump-pid-arg-invalid", "alarmjump-jump-arg-invalid",
+    "alarmjump-no-alarm-clock", "alarmjump-target-not-found", "alarmjump-target-ambiguous",
+)
+ALARMJUMP_ERROR_REASONS: Tuple[str, ...] = (
+    "alarmjump-add-failed", "alarmjump-trigger-failed", "alarmjump-no-dialog",
+    "alarmjump-jump-threw",
+)
+ALARMJUMP_DECISIONS: Tuple[str, ...] = ("leave-to-stock", "refuse-ghost", "refuse-refly", "inert")
+
+
+def validate_alarm_jump_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``AlarmJump`` step: exactly one of ``vessel=`` /
+    ``pid=`` (a positive integer), ``jump=`` (when present) one of shown / always / never,
+    and no other key (the verb reads none, so it would be sent and silently ignored)."""
+    errors: List[str] = []
+    vessel = step_args.get(ALARMJUMP_VESSEL_KEY)
+    pid = step_args.get(ALARMJUMP_PID_KEY)
+    has_vessel = vessel is not None and str(vessel) != ""
+    has_pid = pid is not None and str(pid) != ""
+    if not has_vessel and not has_pid:
+        errors.append("driver.steps[%d].args: %s REQUIRES one of %s / %s; the seam answers "
+                      "REJECTED alarmjump-target-arg-missing"
+                      % (index, ALARMJUMP_VERB, ALARMJUMP_VESSEL_KEY, ALARMJUMP_PID_KEY))
+    elif has_vessel and has_pid:
+        errors.append("driver.steps[%d].args: %s takes only one of %s / %s; the seam answers "
+                      "REJECTED alarmjump-target-arg-conflict"
+                      % (index, ALARMJUMP_VERB, ALARMJUMP_VESSEL_KEY, ALARMJUMP_PID_KEY))
+    elif has_pid and (isinstance(pid, bool) or not str(pid).isdigit() or int(str(pid)) <= 0
+                      or int(str(pid)) > 0xFFFFFFFF):
+        errors.append("driver.steps[%d].args.%s: %r is not a positive uint; the seam answers "
+                      "REJECTED alarmjump-pid-arg-invalid" % (index, ALARMJUMP_PID_KEY, pid))
+    if ALARMJUMP_JUMP_KEY in step_args and str(step_args.get(ALARMJUMP_JUMP_KEY)) \
+            not in ALARMJUMP_JUMP_VALUES:
+        errors.append("driver.steps[%d].args.%s: %r is not one of %s; the seam answers REJECTED "
+                      "alarmjump-jump-arg-invalid"
+                      % (index, ALARMJUMP_JUMP_KEY, step_args.get(ALARMJUMP_JUMP_KEY),
+                         "/".join(ALARMJUMP_JUMP_VALUES)))
+    known = (ALARMJUMP_VESSEL_KEY, ALARMJUMP_PID_KEY, ALARMJUMP_JUMP_KEY)
+    extra = sorted(str(k) for k in step_args if k not in known)
+    if extra:
+        errors.append("driver.steps[%d].args: %s reads only %s, so %s would be silently ignored"
+                      % (index, ALARMJUMP_VERB, ", ".join(known), ", ".join(extra)))
+    return errors
 
 
 def validate_eva_seat_step(index: int, cmd: str, step_args: Dict) -> List[str]:
@@ -7437,6 +7505,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_cycle_vessel_step(i, step_args))
         elif cmd in (EVASEAT_BOARD_VERB, EVASEAT_LEAVE_VERB):
             errors.extend(validate_eva_seat_step(i, cmd, step_args))
+        elif cmd == ALARMJUMP_VERB:
+            errors.extend(validate_alarm_jump_step(i, step_args))
         # LoadGame focusPid= (any verb: the validator flags it on a verb that ignores it).
         if LOADGAME_FOCUS_PID_KEY in step_args:
             errors.extend(validate_loadgame_focus_step(i, cmd, step_args))
@@ -11735,6 +11805,16 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "evaseatleave-not-seated": "driver-gate",
     "evaseatleave-seated-ambiguous": "driver-gate",
     "evaseatleave-tourist": "driver-gate",
+    # AlarmJump: an arg the spec misspelled or a target it misnamed is the SPEC's fault; no
+    # running Alarm Clock scenario is a live state the verb would not act in
+    # (AlarmJumpSourceSyncTests).
+    "alarmjump-target-arg-missing": "driver-arg",
+    "alarmjump-target-arg-conflict": "driver-arg",
+    "alarmjump-pid-arg-invalid": "driver-arg",
+    "alarmjump-jump-arg-invalid": "driver-arg",
+    "alarmjump-no-alarm-clock": "driver-gate",
+    "alarmjump-target-not-found": "driver-arg",
+    "alarmjump-target-ambiguous": "driver-arg",
     # SimulateStockSwitchClick, arg half: site / selector spellings and target resolution.
     # target-not-found / -name-ambiguous / -is-ghost are arg-class because each one means
     # the SPEC named the wrong thing, the same call `unknown-target` gets for KscAction.

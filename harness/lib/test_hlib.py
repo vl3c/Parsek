@@ -1215,7 +1215,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # cycle through the cycle Prefix's own body (GC-4, a ghost marker in range).
         # 56 / 4 after the EvaSeatBoard / EvaSeatLeave pair, an ADDITION by two: an EVA
         # kerbal takes an external command seat and leaves it (SEAT-1, the seat-dismount EVA).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 56)
+        # 57 / 4 after AlarmJump, an ADDITION by one: a stock alarm's Jump pressed through
+        # stock's own OnJump (AJ-1, GC-13).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 57)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -10855,6 +10857,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "RF-C1-refly-hides-contract-accepted-later.toml": "operator by the reading-run discipline; AUTHORED 2026-10-24, NEVER FLOWN (roadmap XS-6, todo REFLY-SESSION-SHOWS-CONTRACT-ACCEPTED-LATER: RF-L2's hop, a contract accepted at the Space Center at UT 1000, the booster re-flown and merged; the invoke's patch holds the later contract out of stock and crossing the accept restores it); the offered contract, the recordings count and the patch tallies are re-pinned off the first flight, then the tier is promoted by its measured p50",
         "L13-career-ground-truth-after-refly-and-f9.toml": "operator by the reading-run discipline; AUTHORED 2026-10-24, NEVER FLOWN (todo LEDGER-GROUND-TRUTH-WALKS-PAST-THE-CLOCK: LedgerGroundTruth after a Re-Fly merge with Space Center rows ahead of the clock, and again after an F9); the batch tallies and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
         "RF-L2-booster-refly-lands-recovery-added.toml": "operator by the reading-run discipline; AUTHORED 2026-10-20, NEVER FLOWN (design 2.12, the purpose of Re-Fly survives: GS-1's hop in career-gs1-two-stage-pad commits with the booster under canopy and its slot open, the booster is re-flown, lands, merges and is recovered from the Tracking Station: a new funds earning, nothing tombstoned); the landing under the RP's staged chute, the seal reason and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        "AJ-1-alarm-jump-refused-in-refly.toml": "operator by the reading-run discipline; AUTHORED 2026-10-25, NEVER FLOWN (GC-13: RF-L3's host and chain with the switch click replaced by the new AlarmJump verb, a stock alarm on the unrelated station fires with its Jump button hidden and a press of stock's OnJump is refused on the alarmJump path, then the merge dialog's Discard); the header's guesses are re-pinned off the first flight, then the tier is promoted by its measured p50",
         "RF-L3-refly-switch-refused.toml": "operator by the reading-run discipline; AUTHORED 2026-10-20, NEVER FLOWN (design 2.12 Rule 3: S4.3's Re-Fly of the world-preservation booster slot, a map Switch-To click on the unrelated station the rewind point kept is REJECTED refly-switch-refused:notSessionVessel and logged Switch refused path=mapSwitchTo, then the merge dialog's Discard); the refusal reason is re-pinned off the first flight, then the tier is promoted by its measured p50",
         "RF-L4-refly-retry-after-earning-restores-ledger.toml": "operator by the reading-run discipline; AUTHORED 2026-10-20, NEVER FLOWN (design 2.12 Rule 3: LAB-10b's chain with a Retry from Rewind Point between the attempt's transmit and the Discard Re-Fly; the retried attempt's own transmit must land on 112.5, not 125, on lab-lko-seeded-transmit); the retry repair line, the pool witness and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
         # Science-lab process-while-joined, tender separation and transmit (LAB-13 reduced: no
@@ -17846,6 +17849,79 @@ class EvaSeatSourceSyncTests(unittest.TestCase):
         errs = v(3, "EvaSeatBoard", {"targetPid": "1"})
         self.assertEqual(1, len(errs), errs)
         self.assertIn("driver.steps[3]", errs[0])
+        self.assertIn("silently ignored", errs[0])
+
+
+class AlarmJumpSourceSyncTests(unittest.TestCase):
+    """`AlarmJump`. Reads OUTSIDE harness/: the verb, its arg keys, the jump values and the
+    refusal / error / decision vocabularies (IN ORDER) of the comment-stripped
+    TestCommands/TestCommandAlarmJump.cs, and the applier's calls into stock's own alarm
+    fire and Jump, so the pre-launch validator and a spec's pinned tokens cannot drift from
+    what the seam answers."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# AlarmJump tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_tables_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandAlarmJump.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.ALARMJUMP_VERB, text)
+        self.assertIn('internal const string VesselKey = "%s";' % hlib.ALARMJUMP_VESSEL_KEY, text)
+        self.assertIn('internal const string PidKey = "%s";' % hlib.ALARMJUMP_PID_KEY, text)
+        self.assertIn('internal const string JumpKey = "%s";' % hlib.ALARMJUMP_JUMP_KEY, text)
+        for value in hlib.ALARMJUMP_JUMP_VALUES:
+            self.assertIn('= "%s";' % value, text)
+        self.assertEqual(list(hlib.ALARMJUMP_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        self.assertEqual(list(hlib.ALARMJUMP_ERROR_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "ErrorReasons"))
+        self.assertEqual(list(hlib.ALARMJUMP_DECISIONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Decisions"))
+        for reason in hlib.ALARMJUMP_REASONS:
+            self.assertIn(hlib._SEAM_REFUSAL_SUBKINDS.get(reason), ("driver-arg", "driver-gate"),
+                          reason)
+        for reason in hlib.ALARMJUMP_ERROR_REASONS:
+            self.assertNotIn(reason, hlib._SEAM_REFUSAL_SUBKINDS, reason)
+
+    def test_the_applier_drives_stocks_own_alarm(self):
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.AlarmJump.cs")
+        self.assertIn("AlarmClockScenario.AddAlarm(alarm)", applier)
+        self.assertIn('AccessTools.Method(typeof(AlarmTypeBase), "TriggerAlarm")', applier)
+        self.assertIn('AccessTools.Method(typeof(AlarmClockMessageDialog), "OnJump")', applier)
+        self.assertIn('"OnDeleteOnClose"', applier)
+        self.assertNotIn("SetActiveVessel", applier)
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.ALARMJUMP_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(60.0, hlib.dispatch_deferral_budget(verb))
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertFalse(hlib.post_mission_step_gates(verb))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_alarm_jump_step
+        self.assertEqual([], v(0, {"vessel": "WP Orbital Station", "jump": "always"}))
+        self.assertEqual([], v(0, {"pid": "4242"}))
+        self.assertEqual([], v(0, {"pid": 4242, "jump": "never"}))
+        for args, token in (({}, "alarmjump-target-arg-missing"),
+                            ({"vessel": "A", "pid": "1"}, "alarmjump-target-arg-conflict"),
+                            ({"pid": "0"}, "alarmjump-pid-arg-invalid"),
+                            ({"pid": "x1"}, "alarmjump-pid-arg-invalid"),
+                            ({"pid": "4294967296"}, "alarmjump-pid-arg-invalid"),
+                            ({"vessel": "A", "jump": "Always"}, "alarmjump-jump-arg-invalid")):
+            with self.subTest(args=args):
+                errs = v(2, args)
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn(token, errs[0])
+                self.assertIn("driver.steps[2]", errs[0])
+        errs = v(3, {"vessel": "A", "targetPid": "1"})
+        self.assertEqual(1, len(errs), errs)
         self.assertIn("silently ignored", errs[0])
 
 

@@ -1699,6 +1699,10 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.EvaSeatBoard(ParsedCommand cmd) => EvaSeatBoardImpl(cmd);
         void ITestCommandExecutor.EvaSeatLeave(ParsedCommand cmd) => EvaSeatLeaveImpl(cmd);
 
+        // AlarmJump: body in ParsekTestCommandAddon.AlarmJump.cs. Single-phase (the alarm is
+        // added, fired, its Jump pressed and its dialog closed inside the call).
+        void ITestCommandExecutor.AlarmJump(ParsedCommand cmd) => AlarmJumpImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             // Batch-baseline latch clear (finding 1). Any verb that can change state a
@@ -1774,6 +1778,7 @@ namespace Parsek.TestCommands
                 case "CycleVessel": exec.CycleVessel(cmd); break;
                 case "EvaSeatBoard": exec.EvaSeatBoard(cmd); break;
                 case "EvaSeatLeave": exec.EvaSeatLeave(cmd); break;
+                case "AlarmJump": exec.AlarmJump(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

@@ -354,7 +354,7 @@ save load, including a `LoadGame`.
 Reserving the phase-3 names now means the envelope (id/cmd/args, percent-encoding,
 journal, verdicts) is designed once and the later commands slot in without a format break.
 
-The table today is **56 implemented / 4 reserved**. `TestCommandVerbs.cs` is the authority
+The table today is **57 implemented / 4 reserved**. `TestCommandVerbs.cs` is the authority
 (`hlib.IMPLEMENTED_SEAM_VERBS` mirrors it as an ordered list, and a cell pins both lengths);
 the updates below record how each verb arrived.
 
@@ -614,6 +614,13 @@ the updates below record how each verb arrived.
 > the cycle Prefix's own body after its key read (`VesselCycleReFlySwitchPatch.RunCycle`); the
 > optional `forceGhost=true` then calls `ForceSetActiveVessel` on a ghost marker to witness the
 > backstop. Full contract below (`#### CycleVessel`); lane `GC-4-vessel-cycle-skips-ghost-marker`.
+
+> Update (AlarmJump, 2026-10-25): one ADDITIVE verb, taking the table to **57 implemented / 4
+> reserved**, to live-prove GC-13 (todo GC13-ALARM-JUMP-BYPASSES-SWITCH-RULES: the stock Alarm
+> Clock dialog's Jump switched vessels outside every Parsek switch rule). `AlarmJump
+> vessel=|pid= [jump=shown|always|never]` adds a stock alarm bound to the vessel, fires it through
+> stock's own `TriggerAlarm` (the message dialog spawns), reads the Jump button and presses stock's
+> own `OnJump`. Full contract below (`#### AlarmJump`); lane `AJ-1-alarm-jump-refused-in-refly`.
 
 > Update (EvaSeatBoard / EvaSeatLeave, 2026-10-24): two ADDITIVE verbs, taking the table to **56
 > implemented / 4 reserved**, to live-prove the owner ruling of 2026-10-24 (a kerbal leaving an
@@ -4925,6 +4932,57 @@ vehiclePid`); otherwise ERROR `evaseatboard-timeout` / `evaseatleave-timeout`. P
 `TestCommandEvaSeat`, applier `ParsekTestCommandAddon.EvaSeat.cs`, mirrored by
 `EvaSeatSourceSyncTests`.
 
+#### AlarmJump (additive; GC-13, the stock alarm dialog's Jump)
+
+**Why.** Decompiled `AlarmClockMessageDialog.OnJump` (KSP 1.12.5) calls
+`FlightGlobals.SetActiveVessel(alarm.Vessel)` in FLIGHT and `GamePersistence.SaveGame` +
+`FlightDriver.StartAndFocusVessel(FlightGlobals.Vessels.IndexOf(alarm.Vessel))` elsewhere, and none
+of Parsek's switch patches sat on that path. The fix (`Patches/AlarmJumpSwitchPatch.cs`) prefixes
+`OnJump` and postfixes `Spawn` (the button mark); no seam could fire an alarm or press its Jump, so
+neither was ever flown.
+
+**Stock ground truth (decompiled KSP 1.12.5).** An alarm is an `AlarmTypeBase` holding only the
+vessel's pid (`vesselId`); `AlarmTypeRaw` is the plain timed one. `AlarmClockScenario.AddAlarm`
+lists it; the scenario's update loop fires a due alarm through the internal
+`AlarmTypeBase.TriggerAlarm`, which spawns `AlarmClockMessageDialog.Spawn(alarm, ActionAlarm)`
+(kept in the private `dialogObject`) when the alarm shows a message. `Spawn` shows the Jump button
+only when the pid is in `FlightGlobals.PersistentVesselIds` and is not the active vessel's; the
+button's listener, `OnJump`, is added in `Start`, a frame later. `OnDeleteOnClose` (the Delete
+button) sets `deleteWhenDone`, runs `ActionAlarm` (which deletes the alarm) and destroys the dialog.
+
+**Grammar.** `cmd=AlarmJump vessel=<exact name>|pid=<persistentId> [jump=shown|always|never]`,
+issued in FLIGHT. Exactly one of `vessel=` / `pid=` (`alarmjump-target-arg-missing`,
+`-target-arg-conflict`; a pid is a positive base-10 uint, `-pid-arg-invalid`); `jump=` exact and
+lower-case (`-jump-arg-invalid`), absent means `shown`. All deterministic, arg-class.
+
+**Behavior.** Refuses with no running Alarm Clock scenario (`alarmjump-no-alarm-clock`,
+gate-class). Resolves the target over `FlightGlobals.Vessels` WITH ghost map vessels counted (an
+alarm on a ghost's orbit node is a case the fix refuses): none is `alarmjump-target-not-found`, two
+or more `-target-ambiguous` (arg-class). Logs `alarmjump start targetPid= vessel='..' targetIsGhost=
+targetLoaded= active= stockWouldShowJump= decision= jump=`, where `decision` is
+`AlarmJumpSwitchPatch.DecideLive(pid, log: false)` (`leave-to-stock`, `refuse-ghost`,
+`refuse-refly`, or `inert` under the game-mode gate). It builds an `AlarmTypeRaw` an hour ahead
+(so the scenario's own loop cannot fire it a second time) with warp `DoNothing`, message `Yes`, no
+sound and delete-when-done, adds it with `AddAlarm` (false or a throw is ERROR
+`alarmjump-add-failed`), fires it through `TriggerAlarm` (a throw is ERROR `-trigger-failed`, no
+dialog `-no-dialog`), and reads `jumpButton.gameObject.activeSelf` after Parsek's Spawn postfix ran.
+`jump=shown` presses only a shown button, `always` presses it even hidden (the block behind the
+mark), `never` never. The press logs `alarmjump press OnJump alarmId= targetPid= jumpShown=` and
+invokes `OnJump` directly (the listener is not attached yet in the spawn frame), so the Harmony
+Prefix runs as on a click; `onGameSceneLoadRequested` is watched during the call (a far switch
+REQUESTS a scene load, which `after=` alone cannot see); a throw is ERROR `-jump-threw`. Every
+path then closes the dialog through `OnDeleteOnClose` and deletes the alarm if it is still listed.
+The verb never calls `SetActiveVessel` itself.
+
+**Phases.** SINGLE-PHASE, `RequiresFlight` (v1 drives the FLIGHT branch; the Tracking Station and
+Space Center branch saves and loads a new scene, which needs a two-phase answer and its own scene
+gate), default 60 s budget, `load-in-flight` / `merge-journal-in-flight` refused at dispatch as for
+`SimulateStockSwitchClick`, world-mutating tail role, `recording` post-mission role. OK payload in
+this order: `targetPid targetIsGhost targetLoaded alarmId stockWouldShowJump jumpShown decision
+jump pressed before after switched sceneLoadRequested alarmRemoved`. Line `alarmjump result` plus
+the payload as `key=value`. Pure half `TestCommandAlarmJump`, applier
+`ParsekTestCommandAddon.AlarmJump.cs`, mirrored by `AlarmJumpSourceSyncTests`.
+
 ### Addon lifecycle
 
 `ParsekTestCommandAddon` mirrors `TestRunnerShortcut`: `[KSPAddon(KSPAddon.Startup.Instantly, true)]`
@@ -5052,6 +5110,7 @@ wall-clock. Some verbs need a different bound and override the default:
 | `DriveVessel` | (default) 60 s | TWO-PHASE, at most 30 game seconds of drive; the completion ends ERROR `drivevessel-timeout` rather than letting the pump convert it |
 | `CrewTransfer` | (default) 60 s | TWO-PHASE: stock moves the kerbal synchronously and dismisses one frame later; the completion ends ERROR `crewtransfer-timeout` rather than letting the pump convert it |
 | `CycleVessel` | (default) 60 s | SINGLE-PHASE: the press and a switch between loaded vessels run inside the call; the budget only bounds the not-in-flight dispatch defer |
+| `AlarmJump` | (default) 60 s | SINGLE-PHASE: the alarm is added, fired, its Jump pressed and its dialog closed inside the call; a far switch only requests its scene load there |
 | `EvaSeatBoard` / `EvaSeatLeave` | (default) 60 s | TWO-PHASE: stock's board and leave land within a frame and the completion holds 10 polls past Parsek's dock merge; each ends ERROR `-timeout` rather than letting the pump convert it |
 | `ReFlyRevert` | 300 s | TWO-PHASE, the `InvokeRewind` / `InvokeRewindToLaunch` size: the resume settle (up to 30 s) and the stock menus, then Discard's quicksave `LoadGame` plus the Space Center / editor load or Retry's flight reload; a `DEFERRED_SEAM_VERB` |
 | `AnswerMergeDialog` | 60 s | MEASURED 2026-10-06 over 859 collected runs (2026-09-10 to 2026-10-05): OK n=65, p50 3.3 s, p99 6.6 s, max 7.2 s. 4x the OK max is 29 s; the floor is twice `TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds` (30 s), which the re-fly fallback spends before the driven exit (unit-guarded). Was 120 s; all 6 non-OK outcomes (4 `no-refly-dialog` TIMEOUT, 2 `answer-timeout` ERROR) waited the full 120 s and none was a slow success |

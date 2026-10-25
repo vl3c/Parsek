@@ -307,6 +307,9 @@ namespace Parsek.TestCommands
         // and a seated kerbal leaves it: stock's own KerbalEVA.BoardSeat / OnDeboardSeat) -----
         void EvaSeatBoard(ParsedCommand cmd);
         void EvaSeatLeave(ParsedCommand cmd);
+        // ----- AlarmJump (a stock alarm on a named vessel fires its message dialog, whose
+        // Jump is pressed through stock's own OnJump) -----
+        void AlarmJump(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -698,6 +701,10 @@ namespace Parsek.TestCommands
                 // frame; the completion then holds a few frames past Parsek's dock merge).
                 ["EvaSeatBoard"] = VerbSceneRequirement.RequiresFlight,
                 ["EvaSeatLeave"] = VerbSceneRequirement.RequiresFlight,
+                // AlarmJump. RequiresFlight: v1 drives the FLIGHT branch of stock's OnJump
+                // (SetActiveVessel); the Tracking Station / Space Center branch saves and loads
+                // a new scene, which a single-phase answer cannot follow. Default budget.
+                ["AlarmJump"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>
@@ -1039,6 +1046,16 @@ namespace Parsek.TestCommands
                     // (OnVesselsUndocking logs a split skip on pendingSplitInProgress).
                     if (state.StructuralSplitPending)
                         return DispatchResult.Defer("split-pending");
+                    break;
+
+                case "AlarmJump":
+                    // SimulateStockSwitchClick's pair, for its reasons: a Jump is a vessel
+                    // switch (an unloaded target's is a scene reload), so it must not race a
+                    // LoadGame's scene change or a re-fly merge journal mid-finalize.
+                    if (state.LoadInFlight)
+                        return DispatchResult.Reject("load-in-flight");
+                    if (state.MergeJournalInFlight)
+                        return DispatchResult.Reject("merge-journal-in-flight");
                     break;
 
                 case "PlantFlag":

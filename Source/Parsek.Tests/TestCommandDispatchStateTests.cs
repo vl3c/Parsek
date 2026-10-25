@@ -74,6 +74,7 @@ namespace Parsek.Tests
             public void CycleVessel(ParsedCommand cmd) => Calls.Add("CycleVessel");
             public void EvaSeatBoard(ParsedCommand cmd) => Calls.Add("EvaSeatBoard");
             public void EvaSeatLeave(ParsedCommand cmd) => Calls.Add("EvaSeatLeave");
+            public void AlarmJump(ParsedCommand cmd) => Calls.Add("AlarmJump");
         }
 
         [Fact]
@@ -210,6 +211,8 @@ namespace Parsek.Tests
         // The external command seat pair: a live kerbal and a live seat part.
         [InlineData("EvaSeatBoard", "RequiresFlight")]
         [InlineData("EvaSeatLeave", "RequiresFlight")]
+        // AlarmJump: v1 drives the FLIGHT branch of stock's OnJump.
+        [InlineData("AlarmJump", "RequiresFlight")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -276,6 +279,7 @@ namespace Parsek.Tests
             fake.CycleVessel(cmd);
             fake.EvaSeatBoard(cmd);
             fake.EvaSeatLeave(cmd);
+            fake.AlarmJump(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();
