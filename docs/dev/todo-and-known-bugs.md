@@ -3349,7 +3349,7 @@ Left open: a part shed because its parent part DIED (`Part.Die` decouples childr
 force 0) still reads "Decoupled" when no crash child joins the window. Telling it apart
 needs `onPartWillDie`, which fires before those decouples; not done here.
 
-## REALSPAWN-TIME-JUMP-MOVE-PLAYER: the Real Spawn Control Warp moves the player beside the ghost [FILED 2026-10-25, thread "Redesign time jump to move the player", branch `claude/project-thread-1gkt0y`. OPEN; product. Step 1 (Leaves) BUILT 2026-10-25, branch `claude/project-thread-1gkt0y`, xUnit + lane RSC-2 authored, never flown]
+## REALSPAWN-TIME-JUMP-MOVE-PLAYER: the Real Spawn Control Warp moves the player beside the ghost [FILED 2026-10-25, thread "Redesign time jump to move the player", branch `claude/project-thread-1gkt0y`. OPEN; product. Step 1 (Leaves) LIVE-PROVEN 2026-10-25, branch `claude/project-thread-1gkt0y`, lane RSC-2 `2026-10-25_1302` PASS attempt 1. Step 2 (Ready) open]
 
 Today's Warp freezes the player's bubble while ghosts keep playing, so a `Leaves` Warp in orbit
 loses its ghost (about 1,100 km after a 10 minute skip in LKO, never flown), a `Ready` ghost must
