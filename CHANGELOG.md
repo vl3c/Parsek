@@ -16,6 +16,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A kerbal stepping out is never thrown away as an idle flight.** Visiting a landed vessel that
+  another mission left a kerbal aboard, stepping him out and recovering him without moving 30 m
+  used to be discarded as "idle on the pad", leaving him reserved by the old mission forever. The
+  flight is now kept, so he is free again. (CX4-IDLE-DISCARDED-FLIGHT-LEAVES-THE-HOLD-OPEN)
 - **A vessel a kerbal boarded from another mission stays visible after a rewind.** If a recorded
   kerbal boarded a hatch or took a seat on a vessel that was not part of his flight, a
   Rewind-to-Launch removed that vessel until the boarding; it now waits where it was, drawn as a

@@ -67,7 +67,7 @@ learn tourists so the VAB cannot seat a held tourist). TOUR-1 waits on the answe
 
 ---
 
-## CX4-IDLE-DISCARDED-FLIGHT-LEAVES-THE-HOLD-OPEN: a flight idle-discarded at scene exit after its EVA kerbal was really recovered leaves another tree's open hold on him [FILED 2026-10-24 from CX-4's first flight triage; low, owner call]
+## ~~CX4-IDLE-DISCARDED-FLIGHT-LEAVES-THE-HOLD-OPEN: a flight idle-discarded at scene exit after its EVA kerbal was really recovered leaves another tree's open hold on him~~ [FILED 2026-10-24 from CX-4's first flight triage; low. FIXED 2026-10-25, branch `claude/project-thread-ssl7ge`]
 
 `CX-4-foreign-tree-recording-closes-hold` (`2026-10-24_2336`) read 9 recordings and one tree:
 tree B (a Landed capsule, Jeb EVAs a few metres and is recovered) never committed because the
@@ -76,7 +76,22 @@ tree", `ParsekFlight.IsTreeIdleOnPad`, `PadEvidenceReason` counts Landed anywher
 evidence) discarded it first. That rule is intended (L8, S0.7), so the lane now plants a flag to
 veto it. But the discarded flight's kerbal WAS recovered in stock, and tree A's open-ended hold on
 him (GC6) is then never closed: the GC6 symptom reached by another route. Whether an idle-discarded
-flight should still close a foreign hold on a kerbal it recovered is an owner question.
+flight should still close a foreign hold on a kerbal it recovered was an owner question.
+
+Owner ruling 2026-10-25 (V): an EVA is an action that is always recorded, so the flight is kept.
+Reach: the normal visit (Tracking Station / Space Center Fly, map Switch-To) resumes tree A, whose
+own original flight is never idle and whose EVA segment is meaningful, so only a separate fresh
+flight hits this (a `]` switch from an idle vessel, or a discarded resume then a fresh start).
+
+Fix: `ParsekFlight.TreeMovesHeldKerbalForIdle` vetoes `IsTreeIdleOnPad`, `IsActiveTreeIdleOnPad`
+and `IsTreePadFailure` when the tree carries an EVA recording (`EvaCrewName`) of a kerbal the
+committed timeline holds now (`KerbalsModule.IsReservedNow`; test seam
+`HeldKerbalProbeForTesting`). The tree commits and the GC-6 foreign-recording claim ends A's hold.
+Log line `<caller>: not idle - held kerbal '<name>' left his vessel on EVA (recording <id>)`. An
+EVA of a free kerbal on a fresh pad rollout stays idle (L8, S0.7). Tests: `HeldKerbalEvaNotIdleTests`,
+`CrewAcrossVesselsHandoffTests.IdleVisitWhoseEvaTakesAHeldKerbalOff_IsNotIdle` (a real walk) and
+its free-kerbal negative. Lane `CX-5-idle-visit-frees-held-kerbal` (CX-4 without the flag),
+authored, never flown.
 
 ---
 
