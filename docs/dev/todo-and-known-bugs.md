@@ -2910,7 +2910,7 @@ Left open: a part shed because its parent part DIED (`Part.Die` decouples childr
 force 0) still reads "Decoupled" when no crash child joins the window. Telling it apart
 needs `onPartWillDie`, which fires before those decouples; not done here.
 
-## REALSPAWN-JUMP-SHIFT-RESIDUE: what the orbital-tip jump shift does not cover [FILED 2026-10-03 from the REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST fix, branch `fix-orbital-tip-spawn`. OPEN; product, low. Walkback item FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit]
+## REALSPAWN-JUMP-SHIFT-RESIDUE: what the orbital-tip jump shift does not cover [FILED 2026-10-03 from the REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST fix, branch `fix-orbital-tip-spawn`. OPEN; product, low. Walkback item FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit. Second-jump item FIXED 2026-10-25, branch `wip-residue`, xUnit]
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): all four residues still stand; later
 commits widened the shifted cases without closing these. The walkback item is the one with a small
@@ -2941,11 +2941,22 @@ four neighbours keep the old geometry; none is flown:
   state a seam lane can reach is a `RealSpawn` that times out with an ERROR while the tip stays
   blocked (moving the blocker needs a kRPC mission). The gate is one pure branch with its log line
   pinned in xUnit (`TimeJumpTerminalOrbitShiftTests`).
-- **A second jump before an armed tip spawns, when the tip is not held.** Accumulation reads
+- ~~**A second jump before an armed tip spawns, when the tip is not held.** Accumulation reads
   the held blocked-tip ghosts; a tip armed by a first jump that has neither spawned nor been
   blocked (its plain ghost is not held) is not re-captured, so a second jump in that window
   leaves its lag at the first jump's value. Unlikely: the spawn normally follows the jump at
-  once (found by the PR #1995 follow-up review).
+  once (found by the PR #1995 follow-up review).~~ FIXED 2026-10-25, branch `wip-residue`, xUnit
+  (`TimeJumpTerminalOrbitShiftTests.PendingRecordingIdsNotIn_*`, `ClassifyPendingRecapture_Table`,
+  `SecondJump_ArmedTipNotHeld_*`): after its two ghost walks,
+  `ParsekFlight.CollectBubbleGhostsForTimeJump` takes every recording still holding an armed shift
+  that neither walk saw (`TimeJumpTerminalOrbitShift.PendingRecordingIdsNotIn`), places it on its
+  jump-shifted terminal orbit at the current UT (the same body and orbit the shifted spawn and a
+  held ghost use) and hands it to `CaptureForJump` at that separation when
+  `ClassifyPendingRecapture` says so (found, unspawned, shift live, position resolved, inside the
+  bubble), so the existing accumulate branch adds the second jump's delta. One Verbose line per
+  such tip with its decision, and `pendingRecaptured` / `pendingSkipped` on the collector summary.
+  No live lane: the window between a jump and the tip's spawn is a frame or two, which no seam
+  lane can hit with a second jump.
 
 ---
 
