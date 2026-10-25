@@ -3461,7 +3461,10 @@ orbit (`Placement spawn room:`, Info when it slides; a slide that cannot clear r
 (`Spawn deferred ... Ready placement pending`; the policy holds the ghost without spending its
 retry, so it spawns in the frame the group is placed: a throttled retry a second later would
 rebuild a trajectory-tail end orbit at a turned body, ~200 m off at LKO), and the
-watch logs `Placement spawn check:` (distance to the player, `orbitGap` to the T1 orbit,
+watch logs `Placement spawn check:` once every member is unpacked (a packed vessel's
+`GetWorldPos3D` is its cached CoM and read the pre-placement spot on RSC-3's first flight
+`2026-10-25` PARSEK-FAIL: toActive=6.0m against a placed 22.0m, drift equal to the slide;
+the line now also carries `toActiveOrbit=`) (distance to the player, `orbitGap` to the T1 orbit,
 `spawnedBeforePlacement`). Other crossed ghosts spawn on their recordings. Lanes: CI-9 re-armed
 (placement lines replace the two jump-shift lines, which are now forbidden) and the new
 `RSC-3-ready-spawn-room` (preset `spawn-room`, scenario d); both never flown. VN-4 / VN-10 pin

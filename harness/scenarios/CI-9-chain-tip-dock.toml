@@ -191,7 +191,7 @@ required  = [
   # The tip spawns on its recorded orbit (design rule 4), beside the Kerbal X where its
   # ghost stood at the click.
   "\\[Ghoster\\] Chain tip spawn: pid=3156176881 vessel=CTD Target preserveIdentity=true",
-  "\\[TimeJump\\] Placement spawn check: ref=ctd-tip-rec pid=3156176881 ut=48[1-9]\\.[0-9]{2} toActive=1[0-9]{2}\\.[0-9]m expected=1[0-9]{2}\\.[0-9]m drift=[0-9]{1,2}\\.[0-9]m orbitGap=[0-9]\\.[0-9]m ",
+  "\\[TimeJump\\] Placement spawn check: ref=ctd-tip-rec pid=3156176881 ut=48[1-9]\\.[0-9]{2} toActive=1[0-9]{2}\\.[0-9]m expected=1[0-9]{2}\\.[0-9]m drift=[0-9]{1,2}\\.[0-9]m orbitGap=[0-9]\\.[0-9]m spawnedBeforePlacement=false toActiveOrbit=1[0-9]{2}\\.[0-9]m",
   "realspawn complete rec=ctd-tip-rec pid=3156176881 vessel=CTD Target ",
   "\\[Flight\\] StartRecording succeeded: pid=3620499050, tree=True",
   # Act 2: a docking-port couple onto the spawned tip. The Kerbal X survives as the merged

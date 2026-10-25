@@ -1148,13 +1148,15 @@ namespace Parsek
         }
 
         /// <summary>
-        /// A Ready move's spawn check (design rule 4): once the reference is a real vessel,
-        /// its distance from the player's vessel against the placed distance and its gap to
-        /// the reference's T1 orbit. Logged once.
+        /// A Ready move's spawn check (design rule 4): once the reference is a real vessel and
+        /// every member is unpacked, its distance from the player's vessel against the placed
+        /// distance and its gap to the reference's T1 orbit. Logged once. A packed vessel's
+        /// <c>GetWorldPos3D</c> (its cached CoM) can still read the pre-placement spot, so the
+        /// world distance waits for the unpack, and the orbit distance is logged beside it.
         /// </summary>
-        private static void TickReadySpawnCheck(PlacementPlan plan, Vessel active, double now)
+        private static void TickReadySpawnCheck(PlacementPlan plan, Vessel active, double now, int pendingUnpack)
         {
-            if (!plan.IsReady || plan.SpawnChecked)
+            if (!plan.IsReady || plan.SpawnChecked || pendingUnpack > 0)
                 return;
             Recording rec = RecordingStore.TryFindCommittedRecordingById(plan.RecordingId);
             if (rec == null || rec.SpawnAbandoned || rec.TerminalSpawnCannotSpawnSafely)
@@ -1172,18 +1174,26 @@ namespace Parsek
             plan.SpawnChecked = true;
             Vessel spawned = FlightRecorder.FindVesselByPid(rec.SpawnedVesselPersistentId);
             double toActive = double.NaN;
+            double toActiveOrbit = double.NaN;
             double orbitGap = double.NaN;
             if (spawned != null)
             {
                 if (active != null)
+                {
                     toActive = (spawned.GetWorldPos3D() - active.GetWorldPos3D()).magnitude;
+                    if (spawned.orbit != null && active.orbit != null
+                        && ReferenceEquals(spawned.orbit.referenceBody, active.orbit.referenceBody))
+                        toActiveOrbit = (spawned.orbit.getRelativePositionAtUT(now)
+                            - active.orbit.getRelativePositionAtUT(now)).magnitude;
+                }
                 if (spawned.orbit != null
                     && TryEvaluateReferenceAfterPlacement(plan, now, out Vector3d rRef, out _))
                     orbitGap = (spawned.orbit.getRelativePositionAtUT(now) - rRef).magnitude;
             }
             ParsekLog.Info(PlacementTag, TimeJumpPlacement.FormatReadySpawnCheckLine(
                 plan.RecordingId, rec.SpawnedVesselPersistentId, now, toActive,
-                plan.ExpectedSpawnDistance, orbitGap, plan.ReferenceSpawnedBeforePlacement));
+                plan.ExpectedSpawnDistance, orbitGap, plan.ReferenceSpawnedBeforePlacement,
+                toActiveOrbit));
         }
 
         /// <summary>
@@ -1237,7 +1247,7 @@ namespace Parsek
                     attErr, reasserted));
             }
 
-            TickReadySpawnCheck(plan, active, now);
+            TickReadySpawnCheck(plan, active, now, pendingUnpack);
 
             if (!plan.IsReady && !plan.DepartureChecked && now >= plan.DepartureUT)
             {

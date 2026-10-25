@@ -101,8 +101,8 @@ required = [
   "\\[TimeJump\\] Placed vessel: pid=2614652043 name=Kerbal X Probe offsetT0=\\(",
   "\\[TimeJump\\] Placement jump: ref=srm-target-rec kind=Ready T0=4[23][0-9]\\.[0-9] T1=481\\.2 placeUT=481\\.[0-9]{2} group=2 moved=3620499050,2614652043 refGapToDrawn=[0-9]{1,2}\\.[0-9]m slide=-[1-9][0-9]\\.[0-9]m recorder=[A-Za-z]+ bgRecaptured=[0-9]+",
   # The spawn: on its recorded spot, after the placement, at the slid distance.
-  "\\[Spawner\\] Vessel spawn for #0 \\(SRM Target\\) pid=[0-9]+ sit=ORBITING",
-  "\\[TimeJump\\] Placement spawn check: ref=srm-target-rec pid=[0-9]+ ut=48[1-9]\\.[0-9]{2} toActive=[1-9][0-9]\\.[0-9]m expected=[1-9][0-9]\\.[0-9]m drift=[0-9]\\.[0-9]m orbitGap=[0-9]\\.[0-9]m spawnedBeforePlacement=false",
+  "\\[Spawner\\] Orbital vessel spawn for #0 \\(SRM Target\\) pid=[0-9]+ lat=-?[0-9]+\\.[0-9]+ lon=-?[0-9]+\\.[0-9]+ alt=[0-9]+\\.[0-9] terminal=Orbiting",
+  "\\[TimeJump\\] Placement spawn check: ref=srm-target-rec pid=[0-9]+ ut=48[1-9]\\.[0-9]{2} toActive=[1-9][0-9]\\.[0-9]m expected=[1-9][0-9]\\.[0-9]m drift=[0-9]\\.[0-9]m orbitGap=[0-9]\\.[0-9]m spawnedBeforePlacement=false toActiveOrbit=[1-9][0-9]\\.[0-9]m",
   "(?m)listhandles kind=committed count=1 truncated=false$",
 ]
 forbidden = [

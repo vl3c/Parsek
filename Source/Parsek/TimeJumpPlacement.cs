@@ -577,7 +577,8 @@ namespace Parsek
         /// </summary>
         internal static string FormatReadySpawnCheckLine(
             string recordingId, uint spawnedPid, double ut, double toActive,
-            double expectedToActive, double orbitGap, bool spawnedBeforePlacement)
+            double expectedToActive, double orbitGap, bool spawnedBeforePlacement,
+            double toActiveOrbit = double.NaN)
         {
             double drift = IsFinite(toActive) && IsFinite(expectedToActive)
                 ? Math.Abs(toActive - expectedToActive) : double.NaN;
@@ -588,7 +589,8 @@ namespace Parsek
                 + " expected=" + FormatMeters(expectedToActive) + "m"
                 + " drift=" + FormatMeters(drift) + "m"
                 + " orbitGap=" + FormatMeters(orbitGap) + "m"
-                + " spawnedBeforePlacement=" + (spawnedBeforePlacement ? "true" : "false");
+                + " spawnedBeforePlacement=" + (spawnedBeforePlacement ? "true" : "false")
+                + " toActiveOrbit=" + FormatMeters(toActiveOrbit) + "m";
         }
 
         /// <summary>

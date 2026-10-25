@@ -368,9 +368,10 @@ namespace Parsek.Tests
                         481.2131, 699813.7695, 0.0095322, 0.0));
                 Assert.Equal(
                     "Placement spawn check: ref=ctd-tip-rec pid=3156176881 ut=481.25 toActive=139.6m"
-                    + " expected=139.5m drift=0.1m orbitGap=0.0m spawnedBeforePlacement=false",
+                    + " expected=139.5m drift=0.1m orbitGap=0.0m spawnedBeforePlacement=false"
+                    + " toActiveOrbit=139.5m",
                     TimeJumpPlacement.FormatReadySpawnCheckLine("ctd-tip-rec", 3156176881u, 481.25,
-                        139.6, 139.5, 0.0, false));
+                        139.6, 139.5, 0.0, false, 139.52));
             }
             finally
             {
@@ -379,6 +380,8 @@ namespace Parsek.Tests
             Assert.Contains("firstOverlap=none", TimeJumpPlacement.FormatSpawnRoomLine(
                 null, default(SlideResult), 0, double.NaN, 5f, null));
             Assert.Contains("drift=n/am orbitGap=n/am", TimeJumpPlacement.FormatReadySpawnCheckLine(
+                "r", 0u, 0.0, double.NaN, 1.0, double.NaN, true));
+            Assert.EndsWith("toActiveOrbit=n/am", TimeJumpPlacement.FormatReadySpawnCheckLine(
                 "r", 0u, 0.0, double.NaN, 1.0, double.NaN, true));
         }
 
