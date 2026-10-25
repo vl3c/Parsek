@@ -16,6 +16,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A vessel a kerbal boarded from another mission stays visible after a rewind.** If a recorded
+  kerbal boarded a hatch or took a seat on a vessel that was not part of his flight, a
+  Rewind-to-Launch removed that vessel until the boarding; it now waits where it was, drawn as a
+  ghost, until the kerbal's replay reaches it. (FOREIGN-BOARD-TARGET-STRIPPED-AT-REWIND)
 - **A flight that docks or boards before it ever separates keeps its Rewind button.** A launch
   that docks before staging, or a kerbal on EVA who climbs into a seat or a hatch, used to commit
   with no rewind save, so its mission could not be rewound to launch.

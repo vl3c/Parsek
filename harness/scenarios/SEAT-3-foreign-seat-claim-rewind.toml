@@ -88,7 +88,8 @@ id = "SEAT-3-foreign-seat-claim-rewind"
 # vessel outside the tree has none. The C# change: treat a holder whose spawned pid is the
 # stamped partner (`TargetVesselPersistentId`) of a Dock / Board branch point of its own tree,
 # with the merged child flying that pid, as a foreign adoption in the strip scope. With that
-# change, arm these (all derived from the format strings):
+# change, arm these (all derived from the format strings; ARMED 2026-10-25 with the fix,
+# branch `fix-foreign-board-target-hold`, never flown armed):
 #   "Captured 1 rewind-save copy\\(ies\\) of 1 vessel\\(s\\) a committed future claims",
 #   "\\[RewindHold\\] Rewind held vessel for its committed future: pid=1871615455 name='rover fuel 0' guid=9892740591b9b500ab14bbc687377a0b [^\\r\\n]*snapshot=yes",
 #   "\\[RewindHold\\] Rewind vessel hold: survivors=[0-9]+ held=1 ",
@@ -221,6 +222,13 @@ required = [
   "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=1",
   "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
   "Tree merge created: type=Dock, [^\\r\\n]*child=([0-9a-f]+) \\(pid=1871615455\\)[\\s\\S]*invokerewindtolaunch complete [\\s\\S]*listhandles chain index=[0-9]+ pid=1871615455 links=1 trees=1 treeIds=[0-9a-f]{32} tip=\\1",
+  # FOREIGN-BOARD-TARGET-STRIPPED-AT-REWIND (fixed 2026-10-25): the seated rover stays in the
+  # rewind save and is held, with a hold ghost, until Bill's ghost takes the seat.
+  "Rewind-to-Launch initiated to UT [\\s\\S]*Captured 1 rewind-save copy\\(ies\\) of 1 vessel\\(s\\) a committed future claims",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind held vessel for its committed future: pid=1871615455 name='rover fuel 0' guid=9892740591b9b500ab14bbc687377a0b [^\\r\\n]*snapshot=yes",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind vessel hold: survivors=[0-9]+ held=1 ",
+  "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Held vessel tracked without a live vessel: pid=1871615455 name=rover fuel 0",
+  "invokerewindtolaunch complete [\\s\\S]*\\[ClaimedHoldGhost\\] Claimed vessel hold ghost shown: pid=1871615455 name='rover fuel 0' chain=1871615455 source=snapshot-surface body=Kerbin parts=17 ",
   "Tree merge created: type=Dock, [^\\r\\n]*child=([0-9a-f]+) \\(pid=1871615455\\)[\\s\\S]*MISSIONMARK label=seat3-reloaded-chains-[1-9][^\\r\\n]*-\\1-false-",
   # ACT 4: the tip spawns at the rover's own pid, preserve identity, Bill seated (18 parts).
   "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Chain tip spawn: pid=1871615455 vessel=rover fuel 0 preserveIdentity=true [^\\r\\n]*parts=18",
@@ -246,6 +254,8 @@ forbidden = [
   "Spawn RETIRED",
   "Spawn ABANDONED",
   "Spawn FAILED",
+  # FOREIGN-BOARD-TARGET-STRIPPED-AT-REWIND: the rover is held, never stripped.
+  "Rewind strip scope: strip spawned pid=1871615455 ",
   # One tip spawn only.
   "Chain tip spawn: pid=1871615455 [\\s\\S]*Chain tip spawn: pid=1871615455 ",
 ]

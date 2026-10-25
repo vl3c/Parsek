@@ -74,6 +74,12 @@ id = "EVA-14-foreign-board-claim-rewind"
 # and `Claimed vessel hold ghost shown: pid=3620499050 ... parts=86 ... from=rewind-save`
 # until Bill's ghost boards.
 #
+# FIXED 2026-10-25 (branch `fix-foreign-board-target-hold`): the [expectedFail] quarantine is
+# removed. `ForeignInventoryTransfer.IsForeignMergeAdoptionChild` makes the board child an
+# adoption member, so the strip scope leaves Kerbal X for the hold (`leave spawned
+# pid=3620499050 ... adopted by inventory transfer or a board / dock (member=<child>)`). The
+# confirming flight `2026-10-25_0131` hit every signature line the paragraph below predicted.
+#
 # PREDICTED RED, BY CODE READ (2026-10-24, main f46545d), ON THE HOLD PINS ONLY. The in-flight
 # commit adoption-stamps the board child (`CommitTreeFlight`: the active recording gets
 # `SpawnedVesselPersistentId` = Kerbal X's pid), and at the rewind
@@ -203,8 +209,9 @@ required = [
   # ACT 3: the rewind.
   "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=1",
   "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
-  # The hold the stamp feeds (PREDICTED RED by code read, see header): Kerbal X stays in the
-  # rewind save, is held for its committed future, and is drawn until Bill's ghost boards.
+  # The hold the stamp feeds (FOREIGN-BOARD-TARGET-STRIPPED-AT-REWIND, confirmed by
+  # `2026-10-25_0131` and fixed 2026-10-25): Kerbal X stays in the rewind save, is held for
+  # its committed future, and is drawn until Bill's ghost boards.
   "Rewind-to-Launch initiated to UT [\\s\\S]*Captured [1-9][0-9]* rewind-save copy\\(ies\\) of [1-9][0-9]* vessel\\(s\\) a committed future claims",
   "Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind held vessel for its committed future: pid=3620499050 name='Kerbal X' [^\\r\\n]*evidence=(?:chain|changes|flies) [^\\r\\n]*snapshot=yes",
   "Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind vessel hold: survivors=[0-9]+ held=1 ",
@@ -251,21 +258,3 @@ budgetSeconds = 1500
 
 [retry]
 policy = "once"
-
-[expectedFail]
-# THE HOLD HALF IS QUARANTINED on the suspected defect FOREIGN-BOARD-TARGET-STRIPPED-AT-REWIND
-# (filed 2026-10-24 by code read, see the header's PREDICTED RED paragraph). The demotion is
-# EXACT: only a run whose expectation mismatches are precisely the six hold pins plus the
-# strip line reads EXPECTED-FAIL. Any other red (the stamp, the claim, the chain, the KSC
-# retirement, a duplicate) stays PARSEK-FAIL, and a run where the hold works reads XPASS.
-bugId = "FOREIGN-BOARD-TARGET-STRIPPED-AT-REWIND"
-subkind = "expectation"
-mismatches = [
-  "logContracts.required not matched: Rewind-to-Launch initiated to UT [\\s\\S]*Captured [1-9][0-9]* rewind-save copy\\(ies\\) of [1-9][0-9]* vessel\\(s\\) a committed future claims",
-  "logContracts.required not matched: Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind held vessel for its committed future: pid=3620499050 name='Kerbal X' [^\\r\\n]*evidence=(?:chain|changes|flies) [^\\r\\n]*snapshot=yes",
-  "logContracts.required not matched: Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind vessel hold: survivors=[0-9]+ held=1 ",
-  "logContracts.required not matched: invokerewindtolaunch complete [\\s\\S]*\\[ClaimedHoldGhost\\] Rewind vessel holds restored on flight load: saved=1 restored=1 ",
-  "logContracts.required not matched: invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Held vessel tracked without a live vessel: pid=3620499050 [\\s\\S]*\\[ClaimedHoldGhost\\] Claimed vessel hold ghost shown: pid=3620499050 name='Kerbal X' chain=3620499050 source=snapshot-surface body=Kerbin parts=86 firstClaimUT=[0-9.]+ UT=[0-9.]+ from=rewind-save",
-  "logContracts.required not matched: Claimed vessel hold ghost shown: pid=3620499050 [\\s\\S]*Claimed vessel hold ghost released: pid=3620499050 name='Kerbal X' reason=(claimed|covered-by-recording) ",
-  "logContracts.forbidden matched: Rewind strip scope: strip spawned pid=3620499050 ",
-]

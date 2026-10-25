@@ -21,7 +21,8 @@ namespace Parsek
             internal readonly HashSet<string> KeptHolderRecordingIds = new HashSet<string>(StringComparer.Ordinal);
 
             /// <summary>
-            /// Pids of foreign vessels a tree adopted by inventory transfer: never stripped by
+            /// Pids of foreign vessels a tree adopted (inventory transfer, or a board / dock onto
+            /// the vessel, <see cref="ForeignInventoryTransfer.CollectForeignAdoptedVesselMemberRecordingIds"/>): never stripped by
             /// their holder, and their holder's spawn state resets so the chain re-spawns the tip.
             /// </summary>
             internal readonly HashSet<uint> ForeignAdoptedPids = new HashSet<uint>();
@@ -147,8 +148,8 @@ namespace Parsek
         /// (committed history: the vessel exists at the rewind target and nothing that replays
         /// will spawn it again, so stripping it would lose it for good). A pid is stripped when
         /// ANY holder's vessel is re-produced. A holder whose spawn is a foreign vessel its tree
-        /// adopted by inventory transfer (<see cref="ForeignInventoryTransfer.FindAdoptedForeignVesselMember"/>)
-        /// neither strips nor keeps its pid: that vessel existed before the tree, so the rewind
+        /// adopted by inventory transfer or a board / dock onto it
+        /// (<see cref="ForeignInventoryTransfer.FindAdoptedForeignVesselMember"/>) neither strips nor keeps its pid: that vessel existed before the tree, so the rewind
         /// save holds its pre-adoption self, which the chain walker claims and ghosts, and the
         /// holder's spawn state resets so the chain tip spawns again at its end.
         /// </summary>
@@ -175,7 +176,7 @@ namespace Parsek
                         ParsekLog.Verbose("Rewind",
                             string.Format(CultureInfo.InvariantCulture,
                                 "Rewind strip scope: leave spawned pid={0} of '{1}' (id={2}) in the rewind save: " +
-                                "a foreign vessel its tree adopted by inventory transfer (member={3}), " +
+                                "a foreign vessel its tree adopted by inventory transfer or a board / dock (member={3}), " +
                                 "so its chain ghosts the real vessel and spawns the tip again",
                                 pid, holder.VesselName ?? "<unnamed>",
                                 holder.RecordingId ?? "<no-id>",
@@ -273,7 +274,7 @@ namespace Parsek
         {
             RewindSpawnStripScope scope = ResolveRewindSpawnStripScope(
                 CollectAllCommittedRecordings(), adjustedUT,
-                ForeignInventoryTransfer.CollectTransferMemberRecordingIds(CommittedTrees));
+                ForeignInventoryTransfer.CollectForeignAdoptedVesselMemberRecordingIds(CommittedTrees));
             RewindContext.SetHistoricalSpawnKeepRecordingIds(scope.KeptHolderRecordingIds);
             return scope.StripPids;
         }
