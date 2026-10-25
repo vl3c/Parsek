@@ -210,6 +210,9 @@ namespace Parsek
         // false = hide ghost during playback. Visual-only: does not affect ledger
         // actions, vessel spawn, crew reservations, or resource budget. (bug #433)
         public bool PlaybackEnabled = true;
+        // The player's toggle plus the derived launch-site-only hide (LaunchSiteOnlyGhost):
+        // what every ghost host reads. Same visual-only contract as PlaybackEnabled.
+        internal bool GhostVisible => PlaybackEnabled && !LaunchSiteOnlyGhost.IsHidden(this);
         public bool Hidden;                  // true = hidden from recordings list (unless Show Hidden is on)
 
         // EVA child recording linkage
@@ -1480,7 +1483,7 @@ namespace Parsek
         TerminalState? IPlaybackTrajectory.TerminalStateValue => TerminalStateValue;
         SurfacePosition? IPlaybackTrajectory.SurfacePos => SurfacePos;
         double IPlaybackTrajectory.TerrainHeightAtEnd => TerrainHeightAtEnd;
-        bool IPlaybackTrajectory.PlaybackEnabled => PlaybackEnabled;
+        bool IPlaybackTrajectory.PlaybackEnabled => GhostVisible;
         bool IPlaybackTrajectory.IsDebris => IsDebris;
         string IPlaybackTrajectory.ParentAnchorRecordingId => ParentAnchorRecordingId;
         string IPlaybackTrajectory.TerminalOrbitBody => TerminalOrbitBody;

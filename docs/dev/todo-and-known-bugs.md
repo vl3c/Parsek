@@ -196,6 +196,35 @@ Fix: count re-pinned to {1,1} from that run, both lines required, D1 `commit-sce
 
 ---
 
+## ~~PAD-VESSEL-GHOST-HOLDS-THE-PAD: a rocket that never leaves the pad keeps its ghost on the pad for as long as the player waited there~~ [FILED AND FIXED 2026-10-25, branch `claude/project-thread-ssl7ge`, owner ruling]
+
+Owner question (V, 2026-10-25): a kerbal steps out of a rocket on the pad and walks off, or stays
+on its ladder; "we should not have the pad vessel ghost block the pad for a long time". Traced:
+no real vessel ever comes back on the pad (2026-09-23 retirement), a ghost has no collision and
+stock's launch-site clear never sees one, and the boring-tail trim ends the rocket's
+post-EVA recording about 10 s after its last activity. But the rocket's recording BEFORE the EVA
+is not a leaf and keeps all its pad time, so a long wait on the pad replayed as a long-lived
+ghost on the pad after a rewind. Ruling (card, 2026-10-25): "Never show it".
+
+Fix: `LaunchSiteOnlyGhost` hides every recording of a vessel (one tree's non-EVA recordings
+sharing a vessel pid) whose recordings all stay inside a launch-site circle (home world, Absolute
+sections only, no orbit segment) and within 15 m of the vessel's lowest point (`GroundBandMeters`;
+a hop that lands back on the pad keeps its ghost, found by the PR review) and whose recordings that carry a terminal state are all retired
+at a launch site (`VesselSpawner.EvaluateKscEndOfFlightRetirement`). Derived from the committed
+trees on each `StateVersion` change, never stored: a later commit that takes the vessel off the pad
+shows it again, and the player's `PlaybackEnabled` toggle is never written. `Recording.GhostVisible`
+(toggle AND not hidden) is what the flight, Space Center and map hosts read, through
+`IPlaybackTrajectory.PlaybackEnabled` and the direct `ParsekFlight` / `ParsekKSC` sites; it keeps
+the bug #433 visual-only contract, so past-end completion still fires and retirement, crew and
+ledger run as before. A destroyed, recovered, docked or boarded end keeps the ghost. Log line
+`[LaunchSiteGhost] Ghost hidden: vessel '<name>' pid=<pid> never left the launch site (<site>
+<zone>) ...`, printed when the hidden set changes. Tests: `LaunchSiteOnlyGhostTests` (15 cells; 4
+of the first 13 red with the rule stubbed). Lane `PADG-1-pad-rocket-ghost-hidden` LIVE-PROVEN on its
+first flight, `2026-10-25_1333` PASS (the rocket's 2 recordings hidden, only Bill's KSC ghost
+entered range after Rewind-to-Launch); the ground band is unit-tested only.
+
+---
+
 ## ~~IDLE-DISCARD-DROPS-FOREIGN-VESSEL-INTERACTION: a flight that boards, seats on, docks with or moves cargo to a vessel outside it is discarded as idle when nothing moved 30 m~~ [FILED AND FIXED 2026-10-25, branch `claude/project-thread-ssl7ge`, owner ruling]
 
 Owner question from CX4-IDLE-DISCARDED-FLIGHT-LEAVES-THE-HOLD-OPEN (V, 2026-10-25): rocket V idle
@@ -537,7 +566,7 @@ the roster; the cell still built its expected set from the whole effective ledge
 the roster was right. **Fix.** The cell keeps only KerbalExperience rows at or before the same clock
 the recalc cuts at (`LedgerGroundTruthHarness.IsAtOrBeforeClock`, no cutoff while the clock is not
 ready) and logs `aheadOfClock=`; with nothing owed it skips. L8 re-pinned to `passed=2 failed=0
-skipped=1` plus the skip line; re-flight owed.
+skipped=1` plus the skip line; re-flown green `2026-10-25_1409` (the cell skipped with `aheadOfClock=1`).
 
 ---
 
