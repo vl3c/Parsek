@@ -1,0 +1,146 @@
+schema = 1
+id = "CS-2-science-engineering101"
+# THE SCRIPTED CAMPAIGN, STAGE 2 (docs/dev/autotest-roadmap.md, "The scripted campaign
+# program"). CS-1 ended a brand-new Science game with 18.5 science after the first Jumping
+# Flea hop, and measured that the Flea cannot transmit: the Mk1 pod's built-in antenna is
+# INTERNAL, and stock's CommNetVessel.CanScience needs a non-INTERNAL antenna. So the first
+# thing this stage buys is Engineering 101 (5 science), the node that unlocks the
+# Communotron 16 / 16-S and the 2HOT Thermometer; then it flies the Flea with both.
+#
+# THE HOST. `cs-science-flea`: CS-1's produced save (run `2026-10-25_2152`, PASS), harvested
+# with `harvest_bdock_station.py --keep-parsek --allow-no-vessel --expect-mode
+# SCIENCE_SANDBOX`. Science 18.5, Engineering 101 locked, CS-1's committed hop recording
+# (one tree) kept, no vessel of its own beyond stock's asteroid. The craft `Flea Antenna`
+# lives in the fixture (one consumer), DERIVED from the shared Jumping Flea by
+# `harness/tools/build_cs_flea_antenna_craft.py` (a Communotron 16-S and a 2HOT Thermometer
+# radial on the Flea booster), byte-gated by `lib/test_cs_flea_antenna_craft.py`.
+#
+# THE WALK. In the Space Center: research Engineering 101 (`KscAction research-node`, the
+# L1-research-node-science step). Build the Flea Antenna in the VAB and launch it (stock
+# refuses a craft with a locked part, so a launch that answers OK also proves the unlock).
+# The mission: on the pad, the crew report and the thermometer (two new LaunchPad
+# subjects); in low flight, one Goo (KerbinFlyingLow, partly earned by CS-1); on landing,
+# the sweep runs the other Goo wherever the hop came down; transmit ONE experiment (the
+# pod's crew report, first in part order: 5 Mits, 30 EC through the 16-S, inside the pod's
+# 50 EC); recover the rest; the recovery leaves FLIGHT and auto-commits the tree. Then the
+# LEDGER GROUND TRUTH: autoRecordOnLaunch off, launch the Flea Antenna again (a Science game
+# charges no rollout), run LedgerGroundTruth in that FLIGHT scene (no live or pending tree;
+# NON-circular: the recalc against KSP's own quicksave, the science pool HARD), recover the
+# pad craft through stock's button, save.
+#
+# THE SCIENCE-MODE GROUND TRUTH. Until this stage the harness Skipped outside CAREER, so a
+# Science game's ledger was never checked against stock. `GroundTruthModeSkipReason` now
+# runs it in SCIENCE_SANDBOX with the R&D singleton alone; stock writes no Funding or
+# Reputation scenario in a Science save, so the parsed save carries no funds or rep facet
+# and the diff compares the science pool, the per-subject science, milestones and the
+# recovery consistency. The required `ground-truth game mode=SCIENCE_SANDBOX` line proves
+# the test RAN rather than skipped.
+#
+# STATUS: written 2026-10-26, never flown. `operator` until the first green flight, then
+# PROMOTE to nightly. The batch tally is pinned `total=3` with `passed` / `skipped`
+# regexed until the reading run (CurrencyTooltipLiveInvariant Skips outside CAREER).
+tier = "operator"
+description = "Scripted campaign stage 2 (Science): on CS-1's produced save, research Engineering 101, launch the Flea with a Communotron 16-S and a 2HOT Thermometer, take pad / flight / landed readings, transmit the crew report, recover, auto-commit, then run the ledger ground truth against KSP's own Science save."
+instanceProfile = "stock-tree"
+tags = ["campaign", "CS-2", "science-mode", "editor", "science", "transmit", "recovery",
+        "auto-commit", "research", "ledger", "ground-truth", "ingame-batch", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-science-flea"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind    = "autopilot"
+mission = "science_bench_recover"
+
+# Budget arithmetic: runtime 3600 >= 300 LoadGame + 60 research + 120 GoToEditor + 180
+# LaunchFromEditor + 1440 mission + 120 GoToEditor + 180 LaunchFromEditor + 540 RunTests +
+# 120 Recover + 120 SaveGame + FlushAndQuit + margin.
+steps = [
+  # scene = "spacecenter": the host holds stock's asteroid, which would otherwise boot the
+  # load into FLIGHT on it (CS-1's first flight).
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoMerge",          value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "KscAction",        args = { action = "research-node", node = "engineering101" }, expect = "OK", budget = 60 },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "Flea Antenna" },    expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                         expect = "OK", budget = 180 },
+  { phase = "mission",                                                                expect = "MISSION-OK", budget = 1440 },
+  # The recovery leaves FLIGHT, so the tree auto-commits at the scene exit.
+  { cmd = "CommitTree",                                                               expect = "REJECTED" },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "Flea Antenna" },    expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "probe",    expect = "OK", budget = 180 },
+  { cmd = "RunTests",         args = { category = "LedgerGroundTruth" },              expect = "OK", budget = 540 },
+  { cmd = "MissionMark",      args = { label = "cs2-groundtruth-done" },              expect = "OK" },
+  # Leave no craft on the pad in the produced save (it is CS-3's host).
+  { cmd = "Recover",          args = { pid = "${probe.pid}" },                        expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "SaveGame",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+# The flight half is CS-1's, key for key (the same hop off the same pad); the extra parts
+# add 0.01 t to a 1.5 t craft.
+[driver.missionParams]
+throttle                 = 1.0
+apoapsisWindowMeters     = { min = 6000, max = 30000 }
+chuteArmMaxRateMps       = 30
+chuteFullDeployAltMeters = 2500
+landedSituations         = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds     = 90
+coastTimeoutSeconds      = 180
+descentTimeoutSeconds    = 360
+# Staged readings: two new LaunchPad subjects on the pad, one Goo in low flight; the
+# landed sweep runs the other Goo.
+padExperiments           = ["crewReport", "temperatureScan"]
+padCollectTimeoutSeconds = 60
+flightExperiments        = ["mysteryGoo"]
+collectMinExperiments    = 4
+collectTimeoutSeconds    = 120
+# One send, in part order: the pod's crew report (the craft's first experiment).
+transmitMaxExperiments = 1
+transmitMinScienceGain = 0.5
+transmitTimeoutSeconds = 120
+# Science game: the recovery is proven on the science pool. The pad thermometer alone is
+# worth 2.4 on recovery (8 x Kerbin's 0.3 landed factor).
+recoverCreditPool     = "science"
+recoverMinScienceGain = 2.0
+recoverMinFundsGain   = 0.0
+recoverTimeoutSeconds = 180
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# CS-1's committed hop plus this stage's hop; the ground-truth launch is unrecorded.
+count = { min = 2, max = 3 }
+
+[expectations.logContracts]
+required = [
+  "kscaction action=research-node .* applied=true",
+  "Game state: TechResearched",
+  "launchfromeditor complete scene=FLIGHT vessel=Flea Antenna pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  "Recording started",
+  "CommitTreeSceneExit: finalizing tree at UT=[0-9.]+[\\s\\S]{0,8000}?Recording stopped\\. ",
+  "ground-truth game mode=SCIENCE_SANDBOX pools=science",
+  "result: hardFailures=0 ",
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+]
+
+[runtime]
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

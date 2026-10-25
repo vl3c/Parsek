@@ -3673,6 +3673,25 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "rec_d4b696b61b544c1e8013073c611c8477"],
             "schemaGeneration": 4,
         },
+        # --- THE SCRIPTED CAMPAIGN'S FIRST RECORDED STAGE ----------------
+        # PROVENANCE: cs-science-flea <- CS-1-science-first-hop, run
+        # 2026-10-25_2152, PASS attempt 1, harvested --keep-parsek
+        # --allow-no-vessel --expect-mode SCIENCE_SANDBOX. A genuine stock new
+        # Science game after its first flight: one Jumping Flea hop, recovered, so
+        # the one recording is a RECOVERED leaf with no `_vessel.craft` (the
+        # recovery left nothing to spawn; see CommittedFixtureMirrorTests shape
+        # four) and three authoritative sidecars (.prec, .pann, _ghost.craft).
+        # CS-2's host.
+        "cs-science-flea": {
+            "trees": 1, "committedTrees": 1, "recordings": 1,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Recovered": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 3,
+            "recordingIds": ["08a7d6e71e3e408f915fc0f3098a0e67"],
+            "schemaGeneration": 4,
+        },
     }
     # --- THE CAREER ROUTE COPIES (H74-H79) ---------------------------------
     # Built by harness/tools/build_route_career.py from the four recorded route hosts

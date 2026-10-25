@@ -343,6 +343,25 @@ class KeepParsekModeTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self._harvest_into_temp(save, "recorded-fx", keep_parsek=True)
 
+    def test_keep_parsek_prunes_the_retained_versions_and_the_quarantine(self):
+        # Both are file-collector exhaust no fixture referrer names (persistent.sfs
+        # names only the head hashes); the head sidecar beside them is the payload.
+        import tempfile
+        save = tempfile.mkdtemp()
+        self._make_save(save)
+        recordings = os.path.join(save, "Parsek", "Recordings")
+        for sub in ("_versions", "_quarantine"):
+            os.makedirs(os.path.join(recordings, sub))
+            with open(os.path.join(recordings, sub, "abc.0123456789abcdef.prec"), "w") as fh:
+                fh.write("old")
+        rc, target = self._harvest_into_temp(save, "recorded-versions",
+                                             keep_parsek=True)
+        self.assertEqual(rc, 0)
+        kept = os.path.join(target, "Parsek", "Recordings")
+        self.assertTrue(os.path.isfile(os.path.join(kept, "abc.prec")))
+        self.assertFalse(os.path.isdir(os.path.join(kept, "_versions")))
+        self.assertFalse(os.path.isdir(os.path.join(kept, "_quarantine")))
+
     def test_default_mode_still_prunes_parsek_entirely(self):
         import tempfile
         save = tempfile.mkdtemp()

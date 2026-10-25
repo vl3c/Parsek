@@ -256,7 +256,8 @@ One `[InGameTest]` method, `LedgerGroundTruthHarness.VerifyReconstructionAgainst
       + "the reconstruction against the parsed save (funds/science/rep/per-subject/facilities/"
       + "contracts/milestones + vessel-recovery consistency). Unlike TopBarReflectsLedgerAfterRecalc "
       + "(which compares module-getter vs live-singleton AFTER patch and is therefore a tautology), "
-      + "this compares recalc output to KSP's own on-disk serialization. Career-only; skips if a "
+      + "this compares recalc output to KSP's own on-disk serialization. Career or Science (science "
+      + "pool only); skips if a "
       + "live/pending tree would defer patching. Stop recording before running.",
     AllowBatchExecution = true,
     RestoreBatchFlightBaselineAfterExecution = true)]
@@ -266,9 +267,11 @@ Flow:
 
 1. **Guards (Skip, mirror `TopBarReflectsLedgerAfterRecalc` + the full deferral set):**
    - `HighLogic.CurrentGame == null` -> Skip.
-   - `HighLogic.CurrentGame.Mode != Game.Modes.CAREER` -> Skip.
-   - `Funding.Instance == null || ResearchAndDevelopment.Instance == null ||
-     Reputation.Instance == null` -> Skip.
+   - `GroundTruthModeSkipReason(mode, Funding, R&D, Reputation)` non-null -> Skip. CAREER needs
+     all three singletons; SCIENCE_SANDBOX needs only `ResearchAndDevelopment.Instance` (added
+     2026-10-26 for the scripted campaign's CS-2: stock creates no Funding or Reputation scenario
+     in a Science game, so the parsed save carries no funds or rep facet and the diff skips both,
+     leaving the science pool HARD); any other mode Skips naming it.
    - `RecordingStore.HasPendingTree || GameStateRecorder.HasActiveUncommittedTree() ||
      GameStateRecorder.HasLiveRecorder()` -> Skip. (Note: `GetKspPatchDeferralReason`
      checks all THREE; the existing in-game test omits `HasLiveRecorder`. We include it,

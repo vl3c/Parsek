@@ -2281,6 +2281,18 @@ flight, and recovers; it owes a re-flight. CS-2 researches Engineering 101 and a
 16 to transmit. A stock-tree flight needs BOTH instances provisioned from one worktree (the
 reference-DLL admission check).
 
+Progress 2026-10-26 (branch `cs2-engineering101`): CS-1 flew GREEN `2026-10-25_2152` (staged
+readings, 18.5 science recovered) and its produced save is the fixture `cs-science-flea`. CS-2
+(`CS-2-science-engineering101`) authored, not yet flown: research Engineering 101 at the KSC, fly
+the `Flea Antenna` (Jumping Flea + Communotron 16-S + 2HOT Thermometer, derived by
+`build_cs_flea_antenna_craft.py`; the 16-S because the 16 is retracted as built and no mission
+action extends it), transmit the crew report, recover, then `LedgerGroundTruth` in FLIGHT. That
+batch used to Skip outside CAREER; it now runs in a Science game on the science pool alone
+(`LedgerGroundTruthHarness.GroundTruthModeSkipReason`). The harvest also prunes
+`Parsek/Recordings/_versions` (file-collector versions no fixture referrer names), and the fixture
+mirror gate admits a RECOVERED leaf, which has no `_vessel.craft`. Still open: EVA report /
+surface sample actions, and the CS-3 contract verbs.
+
 ---
 
 ## ~~QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN: F9 back into a Discarded flight must record again~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-quickload-into-discarded`; the in-flight discards followed 2026-10-16, branch `claude/lanes-rc6-ql6-ir5-nh7w10` (live-proven by lane QL-6, `2026-10-16_0649` PASS attempt 1)]
