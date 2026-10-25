@@ -182,6 +182,8 @@ RP_SIDECAR_BY_PRESET = {
     "launch-site-claim": None,
     # RS-1's substitute: one committed tree APPENDED to a recorded host, no RP.
     "rescan-substitute": None,
+    # RSC-2's leaves-departure recording: one committed single-recording tree, no RP.
+    "leaves-departure": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 

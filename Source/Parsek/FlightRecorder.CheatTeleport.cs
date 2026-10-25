@@ -1,5 +1,7 @@
 using System;
 using System.Globalization;
+using System.Runtime.CompilerServices;
+using UnityEngine;
 
 namespace Parsek
 {
@@ -35,6 +37,14 @@ namespace Parsek
         OffRailsSameBody,
         /// <summary>Not on rails, body changed: split the section by body now.</summary>
         OffRailsCrossBody,
+    }
+
+    /// <summary>What moved the vessel: the stock cheat menu, or a Real Spawn Control
+    /// placement jump (<see cref="TimeJumpManager.TickPendingPlacement"/>).</summary>
+    internal enum TeleportCause
+    {
+        CheatMenu = 0,
+        TimeJump,
     }
 
     internal static class CheatTeleportDecision
@@ -100,15 +110,31 @@ namespace Parsek
             uint vesselPid,
             string fromBody,
             string toBody,
-            double ut)
+            double ut,
+            TeleportCause cause = TeleportCause.CheatMenu)
         {
-            return "Cheat teleport detected (Alt+F12 Set Orbit / Rendezvous / Set Position): "
+            string head = cause == TeleportCause.TimeJump
+                ? "Teleport detected (Real Spawn Control time jump): "
+                : "Cheat teleport detected (Alt+F12 Set Orbit / Rendezvous / Set Position): ";
+            return head
                 + "vessel='" + (vesselName ?? "(null)") + "' pid="
                 + vesselPid.ToString(CultureInfo.InvariantCulture)
                 + " from=" + (fromBody ?? "(null)")
                 + " to=" + (toBody ?? "(null)")
                 + " ut=" + ut.ToString("F2", CultureInfo.InvariantCulture)
-                + " action=" + action;
+                + " action=" + action
+                + " cause=" + CauseToken(cause);
+        }
+
+        internal static string CauseToken(TeleportCause cause)
+        {
+            return cause == TeleportCause.TimeJump ? "time-jump" : "cheat";
+        }
+
+        /// <summary>The prefix of the recorder's bookkeeping lines for one cause.</summary>
+        internal static string BookkeepingPrefix(TeleportCause cause)
+        {
+            return cause == TeleportCause.TimeJump ? "Time jump" : "Cheat teleport";
         }
     }
 
@@ -120,6 +146,11 @@ namespace Parsek
         private bool cheatTeleportSeamPending;
         private double cheatTeleportPendingUT = double.NaN;
         private bool cheatTeleportReseedPending;
+        // Start UT of an orbit segment a time-jump placement re-captured; NaN otherwise.
+        // Read once at the go-off-rails that closes it, for the boundary-gap line.
+        private double timeJumpRecaptureStartUT = double.NaN;
+
+        internal double TimeJumpRecaptureStartUTForTesting => timeJumpRecaptureStartUT;
 
         internal bool CheatTeleportSeamPendingForTesting => cheatTeleportSeamPending;
 
@@ -137,10 +168,13 @@ namespace Parsek
         /// active vessel stock just moved; <paramref name="oldBody"/> is PostOrbitSet's
         /// argument.
         /// </summary>
-        internal void OnCheatTeleport(Vessel v, CelestialBody oldBody)
+        internal CheatTeleportAction OnCheatTeleport(
+            Vessel v, CelestialBody oldBody,
+            TeleportCause cause = TeleportCause.CheatMenu,
+            Quaternion? orbitalFrameRotationOverride = null)
         {
             if (v == null)
-                return;
+                return CheatTeleportAction.NoLiveRecording;
             double ut = Planetarium.GetUniversalTime();
             CelestialBody newBody = v.mainBody;
             bool bodyChanged = oldBody != null && newBody != null && !ReferenceEquals(oldBody, newBody);
@@ -160,25 +194,34 @@ namespace Parsek
                 newOrbitIsCoast: coast);
 
             ParsekLog.Info(CheatTeleportDecision.Tag, CheatTeleportDecision.FormatLogLine(
-                action, v.vesselName, v.persistentId, oldBody?.name, newBody?.name, ut));
+                action, v.vesselName, v.persistentId, oldBody?.name, newBody?.name, ut, cause));
 
             if (action == CheatTeleportAction.NoLiveRecording
                 || action == CheatTeleportAction.OtherVessel
                 || action == CheatTeleportAction.CrossBodyHandledBySoi)
-                return;
+                return action;
 
             if (isRelativeMode)
                 ClearRelativeModeForRailsTransition();
 
             OrbitSegment? recaptured = null;
             if (action == CheatTeleportAction.OnRailsRecapture)
-                recaptured = CreateOrbitSegmentWithRotation(v, ut);
+            {
+                OrbitSegment seg = CreateOrbitSegmentWithRotation(v, ut);
+                // Right after a placement the vessel's cached CoM and velocity fields are
+                // still the pre-move ones; the caller encodes against the placed state.
+                if (orbitalFrameRotationOverride.HasValue)
+                    seg.orbitalFrameRotation = orbitalFrameRotationOverride.Value;
+                recaptured = seg;
+            }
 
             SegmentEnvironment env = environmentHysteresis != null
                 ? environmentHysteresis.CurrentEnvironment
                 : SegmentEnvironment.ExoBallistic;
-            ApplyCheatTeleportBookkeeping(action, ut, env, oldBody?.name, newBody?.name, recaptured);
-            RefreshFinalizationCache(v, "cheat_teleport", force: true);
+            ApplyCheatTeleportBookkeeping(action, ut, env, oldBody?.name, newBody?.name, recaptured, cause);
+            RefreshFinalizationCache(v, cause == TeleportCause.TimeJump ? "time_jump_placement" : "cheat_teleport",
+                force: true);
+            return action;
         }
 
         /// <summary>
@@ -191,9 +234,11 @@ namespace Parsek
             SegmentEnvironment env,
             string fromBody,
             string toBody,
-            OrbitSegment? recapturedSegment)
+            OrbitSegment? recapturedSegment,
+            TeleportCause cause = TeleportCause.CheatMenu)
         {
             string utText = ut.ToString("F2", CultureInfo.InvariantCulture);
+            string prefix = CheatTeleportDecision.BookkeepingPrefix(cause);
             switch (action)
             {
                 case CheatTeleportAction.OnRailsRecapture:
@@ -204,8 +249,11 @@ namespace Parsek
                     CloseCurrentTrackSection(ut);
                     StartNewTrackSection(env, ReferenceFrame.OrbitalCheckpoint, ut,
                         TrackSectionSource.Checkpoint);
+                    timeJumpRecaptureStartUT = cause == TeleportCause.TimeJump && recapturedSegment.HasValue
+                        ? ut
+                        : double.NaN;
                     ParsekLog.Info("Recorder",
-                        $"Cheat teleport: orbit segment re-captured on rails (body={toBody ?? "(null)"}) at UT={utText}");
+                        $"{prefix}: orbit segment re-captured on rails (body={toBody ?? "(null)"}) at UT={utText}");
                     return;
                 }
                 case CheatTeleportAction.OnRailsToAbsolute:
@@ -217,7 +265,7 @@ namespace Parsek
                     bool bodyChanged = !string.Equals(fromBody, toBody, StringComparison.Ordinal);
                     ArmCheatTeleportPending(ut, seam: CheatTeleportDecision.UsesSeamSection(bodyChanged));
                     ParsekLog.Info("Recorder",
-                        $"Cheat teleport: new orbit is not a coast (body={toBody ?? "(null)"}) - left rails " +
+                        $"{prefix}: new orbit is not a coast (body={toBody ?? "(null)"}) - left rails " +
                         $"bookkeeping, Absolute section at UT={utText}, seam={(bodyChanged ? 0 : 1)} pending go-off-rails");
                     return;
                 }
@@ -225,7 +273,7 @@ namespace Parsek
                 {
                     ArmCheatTeleportPending(ut, seam: true);
                     ParsekLog.Info("Recorder",
-                        $"Cheat teleport: seam section pending go-off-rails (body={toBody ?? "(null)"}) at UT={utText}");
+                        $"{prefix}: seam section pending go-off-rails (body={toBody ?? "(null)"}) at UT={utText}");
                     return;
                 }
                 case CheatTeleportAction.OffRailsCrossBody:
@@ -236,13 +284,69 @@ namespace Parsek
                     SoiChangeFromBody = fromBody;
                     ArmCheatTeleportPending(ut, seam: false);
                     ParsekLog.Info("Recorder",
-                        $"Cheat teleport: section split by body {fromBody ?? "(null)"} -> {toBody ?? "(null)"} " +
+                        $"{prefix}: section split by body {fromBody ?? "(null)"} -> {toBody ?? "(null)"} " +
                         $"at UT={utText} (SOI change flagged)");
                     return;
                 }
                 default:
                     return;
             }
+        }
+
+        /// <summary>
+        /// Pure: the line written when the go-off-rails closes a segment a time-jump placement
+        /// re-captured (plan 1.5 recording facet): its length, and how far the live vessel
+        /// stands from that segment's own prediction at the unpack UT.
+        /// </summary>
+        internal static string FormatTimeJumpRecaptureCloseLine(
+            double startUT, double endUT, double boundaryGapMeters)
+        {
+            return "Time jump: re-captured orbit segment closed at go-off-rails UT="
+                + endUT.ToString("F2", CultureInfo.InvariantCulture)
+                + " start=" + startUT.ToString("F2", CultureInfo.InvariantCulture)
+                + " length=" + (endUT - startUT).ToString("F2", CultureInfo.InvariantCulture) + "s"
+                + " boundaryGapToSegment=" + TimeJumpPlacement.FormatMeters(boundaryGapMeters) + "m";
+        }
+
+        /// <summary>
+        /// True when <paramref name="closedSegment"/> is the one a time-jump placement
+        /// re-captured; clears the marker either way.
+        /// </summary>
+        internal bool ConsumeTimeJumpRecapture(OrbitSegment closedSegment)
+        {
+            double start = timeJumpRecaptureStartUT;
+            timeJumpRecaptureStartUT = double.NaN;
+            return !double.IsNaN(start) && Math.Abs(closedSegment.startUT - start) <= 1e-6;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static double MeasureSegmentBoundaryGap(Vessel v, OrbitSegment segment, double ut)
+        {
+            if (v == null || v.mainBody == null)
+                return double.NaN;
+            Orbit orbit = MapRenderProbe.BuildOrbitFromSegment(segment, v.mainBody);
+            if (orbit == null)
+                return double.NaN;
+            Vector3d predicted = v.mainBody.position
+                + TrajectoryMath.SwizzleZupBodyRelativeToWorld(orbit.getRelativePositionAtUT(ut));
+            return (v.GetWorldPos3D() - predicted).magnitude;
+        }
+
+        private void LogTimeJumpRecaptureCloseIfAny(Vessel v, OrbitSegment closedSegment)
+        {
+            if (!ConsumeTimeJumpRecapture(closedSegment))
+                return;
+            double gap = double.NaN;
+            try
+            {
+                gap = MeasureSegmentBoundaryGap(v, closedSegment, closedSegment.endUT);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose("Recorder", "Time jump: boundary gap not measured: " + ex.Message);
+            }
+            ParsekLog.Info("Recorder",
+                FormatTimeJumpRecaptureCloseLine(closedSegment.startUT, closedSegment.endUT, gap));
         }
 
         private void ArmCheatTeleportPending(double ut, bool seam)

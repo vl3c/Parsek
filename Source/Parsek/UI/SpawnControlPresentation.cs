@@ -205,6 +205,7 @@ namespace Parsek
 
             string statusHover;
             string warpHover = string.Empty;
+            string moveRefusalReason = null;
             bool enabled;
             switch (status)
             {
@@ -220,7 +221,8 @@ namespace Parsek
                         "Leaves this orbit on {0}{1}; it does not spawn here",
                         date, destinationClause);
                     warpHover = FormatLeavesWarpHover(name, date);
-                    enabled = true;
+                    moveRefusalReason = MoveRefusalReason(candidate.moveRefusal, name);
+                    enabled = moveRefusalReason == null;
                     break;
                 case SpawnCandidateStatus.Leaving:
                     statusHover = string.Format(IC,
@@ -252,7 +254,7 @@ namespace Parsek
                 WarpButtonLabel = WarpButtonText,
                 WarpButtonEnabled = enabled,
                 WarpButtonHover = warpHover,
-                WarpButtonDisabledReason = enabled ? string.Empty : statusHover,
+                WarpButtonDisabledReason = enabled ? string.Empty : (moveRefusalReason ?? statusHover),
                 UsesDepartureWarp = candidate.willDepart,
                 ConditionsMet = candidate.distance <= proximityRadius
                     && candidate.relativeSpeed <= maxRelativeSpeed
@@ -268,6 +270,31 @@ namespace Parsek
             return string.Format(IC,
                 "Warps to just before {0} leaves orbit on {1}; it does not spawn here.",
                 vesselName, date);
+        }
+
+        /// <summary>
+        /// Pure: why a Leaves Warp cannot move the player's group beside the ghost (design
+        /// 4.3), or null when it can. The design table's wording, in the strip's voice (no
+        /// trailing period).
+        /// </summary>
+        internal static string MoveRefusalReason(MoveRefusal refusal, string vesselName)
+        {
+            string name = vesselName ?? string.Empty;
+            switch (refusal)
+            {
+                case MoveRefusal.None:
+                    return null;
+                case MoveRefusal.Atmosphere:
+                    return "Can't warp here: inside the atmosphere";
+                case MoveRefusal.BodyChange:
+                    return string.Format(IC, "Can't warp: {0} changes orbit body first", name);
+                case MoveRefusal.Burns:
+                    return string.Format(IC, "Can't warp: {0} burns before it spawns here", name);
+                case MoveRefusal.DestinationTaken:
+                    return string.Format(IC, "Can't warp: the spot beside {0} is taken then", name);
+                default:
+                    return string.Format(IC, "Can't warp: {0} is not on an orbit you can follow", name);
+            }
         }
 
         /// <summary>Pure: the Too fast reason, naming the gate and the measured speed.</summary>

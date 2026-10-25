@@ -1463,6 +1463,10 @@ namespace Parsek
             // to prevent ghost spawns and other work into the dying scene.
             if (sceneChangeInProgress) return;
 
+            // Frame F+1 of a Real Spawn Control placement jump: FixedUpdate has run since the
+            // clock set, so body rotation and Zup are the new clock's.
+            TimeJumpManager.TickPendingPlacement(recorder, backgroundRecorder);
+
             // Vessel name decisions re-applied when the committed set moved or (1 Hz) the
             // live tree gained a leg (vessel names design 7.4). Inert with no decision.
             VesselNameStore.SelfHealTick(inFlight: true, realtime: Time.realtimeSinceStartup);
@@ -1509,6 +1513,7 @@ namespace Parsek
                 HandleInput();
                 if (isPlaying) UpdatePlayback();
                 UpdateTimelinePlaybackViaEngine();
+                TimeJumpManager.TickPlacementWatch();
                 TickSpawnWarpWatch();
                 return;
             }
@@ -1523,6 +1528,7 @@ namespace Parsek
             }
 
             UpdateTimelinePlaybackViaEngine();
+            TimeJumpManager.TickPlacementWatch();
             TickSpawnWarpWatch();
             UpdateProximityCheck();
         }
@@ -2293,6 +2299,7 @@ namespace Parsek
             Instance = null;
             PostPhysicsPoseCache.Clear();
             TimeJumpTerminalOrbitShift.Clear("flight-scene-destroyed");
+            TimeJumpManager.DropPendingPlacement("scene-change");
             // #267: clear the static restore-reentrancy guard. The restore coroutines
             // set it true and clear it in a finally, but Unity abandons a running
             // coroutine when the MonoBehaviour is destroyed (scene change) WITHOUT
@@ -29517,8 +29524,15 @@ namespace Parsek
                     admittedOverSpeed++;
 
                 var depInfo = SelectiveSpawnUI.ComputeDepartureInfo(rec, currentUT);
+                // A Leaves row's Warp moves the player's group (design 4.3); its gates are
+                // evaluated here so the button greys before the click.
+                MoveGateVerdict moveGate = depInfo.willDepart && depInfo.departureUT > currentUT
+                    ? EvaluateLeavesMoveGateForScan(rec, currentUT, depInfo.departureUT)
+                    : MoveGateVerdict.Pass;
                 nearbySpawnCandidates.Add(new NearbySpawnCandidate
                 {
+                    moveRefusal = moveGate.Refusal,
+                    moveRefusalDetail = moveGate.Detail,
                     recordingIndex = i,
                     vesselName = rec.VesselName,
                     endUT = rec.EndUT,
@@ -29924,10 +29938,21 @@ namespace Parsek
                 return;
             }
 
+            Vessel active = FlightGlobals.ActiveVessel;
+            bool moveGroup = active != null && TimeJumpPlacement.IsOrbitalPlayerVessel(active.situation);
             ParsekLog.Info("Flight",
                 string.Format(CultureInfo.InvariantCulture,
-                    "WarpToDeparture: jumping to UT={0:F1} for '{1}' (delta={2:F1}s, departUT={3:F1}, endUT={4:F1})",
-                    targetUT, rec.VesselName, targetUT - currentUT, departureUT, rec.EndUT));
+                    "WarpToDeparture: jumping to UT={0:F1} for '{1}' (delta={2:F1}s, departUT={3:F1}, endUT={4:F1}, mode={5})",
+                    targetUT, rec.VesselName, targetUT - currentUT, departureUT, rec.EndUT,
+                    moveGroup ? "placement" : "epoch-shift"));
+
+            if (moveGroup)
+            {
+                // Orbital player vessel: the group is placed beside the ghost at the new clock
+                // (design 4.1). A refusal leaves everything as it was.
+                TryWarpToDepartureWithPlacement(rec, currentUT, targetUT, departureUT, active);
+                return;
+            }
 
             TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
             // Epoch-shifted jump: preserves rendezvous geometry

@@ -10,6 +10,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Changed
 
+- **A Leaves Warp in orbit keeps you beside the ghost.** Pressing Warp on a Real Spawn Control row
+  that leaves its orbit now moves your vessel, and the vessels flying with you, to the same spot
+  beside the ghost at the new time, so you watch it burn away instead of finding it gone. When
+  that move is not safe the Warp is greyed and its hover says why. (REALSPAWN-TIME-JUMP-MOVE-PLAYER)
 - **The VAB and SPH explain the funds number too.** Hovering the funds number in the editor now
   shows the same Total / Reserved breakdown as at the Space Center and in flight, so money held
   back for committed flights is no longer a mystery where you spend it. (RESERVATION-OVERLAY-GAPS)
