@@ -17,6 +17,36 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY: a Rewind-to-Launch to before a separation undid a merged but unsealed Re-Fly and brought the original flight back~~ [FILED + FIXED 2026-10-24 on branch `fix-rewind-keeps-unsealed-refly` (PR #2230); LIVE-PROVEN 2026-10-25 by RB-4 `2026-10-25_0121` PASS, RF-4 `_0124` PASS]
+
+Owner ruling (V, 2026-10-24, answering the open question of
+RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT): "rewind to launch just takes the timeline to that
+moment, it does not unseal anything". A sealed slot stays sealed, an open slot stays open, and a
+merged re-fly stays the slot's tip.
+
+What the code did: `RecordingStore.DropSupersedesRewoundOutOfExistenceDetailedPure` kept a
+supersede row across the rewind only when its fork was `Immutable` (sealed). A
+`CommittedProvisional` fork (a merged re-fly that crashed again, slot still open) had its row
+dropped and a `rewound-out-supersede-fork` retirement written, so the original stage came back as
+the slot's tip and the re-fly vanished. A rewind on the fork itself (self-rewind) force-dropped even
+a sealed fork.
+
+Fix: Pass 1 keeps every row whose fork is a committed recording (`Immutable` or
+`CommittedProvisional`), the self-rewind case included; only a dangling row (fork missing from the
+committed set, or still `NotCommitted`) drops and retires, and the Pass 2 demotion still collapses
+a kept row whose priorTip such a drop retired. The summary line gains `preservedOpen=N` (kept open
+forks; `skippedImmutable=N` still counts the sealed ones) and renames `demotedImmutable=` to
+`demoted=`; the per-fork `Preserved canon fork across parent rewind:` line prints the fork's real
+MergeState. The forced self-rewind drop and its result field are gone. The re-fly's tombstones were
+never dropped, which now matches the rule. Old saves that already carry a fork retirement are not
+repaired (no compatibility work before the public release). Unit: `RewindSupersedeRollbackTests`
+(`LiveRollback_KeepsCommittedProvisionalFork_AcrossParentRewind`,
+`Rollback_KeepsRelation_WhenForkIsCommittedProvisional`,
+`Rollback_SelfRewindOnImmutableFork_KeepsIncomingSupersede`; the demotion cells now anchor on a
+`NotCommitted` fork). Lane RB-4 (RF-4 without the seal) pins it live.
+
+---
+
 ## REWIND-LEAVES-A-STRIPPED-TOURIST-ASSIGNED: after a rewind strips a vessel, its tourist stays Assigned to no vessel, so a stock contract cancel keeps her [FILED 2026-10-24 from TOUR-1's first flight; OWNER QUESTION, low]
 
 `CrewReservationManager.RescueOrphanedCrew` (the #116 rescue the rewind runs after the vessel
@@ -4450,7 +4480,7 @@ would pin). Open:
 - Adding `vessels = { "Kerbal X Debris" = { spawned = { min = 6 } } }` to GS-4's armed block is
   an arming change and wants its own reading run.
 
-## RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT: a Rewind-to-Launch rebuilds the other Re-Fly lists from a stale persistent.sfs [FILED 2026-09-23 from the #1788 review. FIXED 2026-09-26 on branch `fix-rewind-staged-lists` (headless only, not flown). The related open question below stays OPEN]
+## RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT: a Rewind-to-Launch rebuilds the other Re-Fly lists from a stale persistent.sfs [FILED 2026-09-23 from the #1788 review. FIXED 2026-09-26 on branch `fix-rewind-staged-lists` (headless only, not flown). The related open question was ANSWERED 2026-10-24 by owner ruling: see REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY]
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): the open question still stands; PR
 #2181 does not answer it. #2181 changes only which file the Space Center reload reads
@@ -4460,6 +4490,10 @@ retires its fork (`RetiredForkRecordingIds`, honoured by ERS), so a re-flown slo
 fork's ghost" looks unlikely; the origin becomes the slot tip again and its slot reads open, gated
 by `IsRewindPointInFuture`. Still needs the slot-resolution trace or a lane. Low; a product
 question, not a proven defect.
+
+Answered 2026-10-24 (owner ruling): the slot keeps its state and the re-fly stays; the drop of an
+open fork's row was the defect, fixed as REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY with lane RB-4. The
+surviving tombstones below are correct under that rule.
 
 Lane check 2026-10-24 (branch `claude/project-thread-d0rqqc`, roadmap item 2): no lane written. The
 only memory-versus-file divergence a seam verb can produce at a Rewind-to-Launch is this question's
