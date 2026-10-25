@@ -1215,7 +1215,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # cycle through the cycle Prefix's own body (GC-4, a ghost marker in range).
         # 56 / 4 after the EvaSeatBoard / EvaSeatLeave pair, an ADDITION by two: an EVA
         # kerbal takes an external command seat and leaves it (SEAT-1, the seat-dismount EVA).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 56)
+        # 57 / 4 after NewGame, an ADDITION by one: a genuine stock new game under the loaded
+        # save's name (the scripted campaign program's CS-0 host).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 57)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -17847,6 +17849,119 @@ class EvaSeatSourceSyncTests(unittest.TestCase):
         self.assertEqual(1, len(errs), errs)
         self.assertIn("driver.steps[3]", errs[0])
         self.assertIn("silently ignored", errs[0])
+
+
+class NewGameSourceSyncTests(unittest.TestCase):
+    """`NewGame`. Reads OUTSIDE harness/: the verb, the three arg keys, the mode and preset
+    tokens, the kept save entry and the refusal / error reasons (IN ORDER) of the
+    comment-stripped TestCommands/TestCommandNewGame.cs, the applier's calls into stock's own
+    new-game path, and the C# budget, so the pre-launch validator and a spec's pinned reasons
+    cannot drift from what the seam answers."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# NewGame tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_vocabularies_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandNewGame.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.NEWGAME_VERB, text)
+        self.assertIn('internal const string ModeArg = "%s";' % hlib.NEWGAME_MODE_KEY, text)
+        self.assertIn('internal const string PresetArg = "%s";' % hlib.NEWGAME_PRESET_KEY, text)
+        self.assertIn('internal const string SaveArg = "%s";' % hlib.NEWGAME_SAVE_KEY, text)
+        self.assertIn('internal const string PreservedSaveEntry = "%s";'
+                      % hlib.NEWGAME_PRESERVED_SAVE_ENTRY, text)
+        sync = StockScreenSourceSyncTests._cs_string_array
+        self.assertEqual(list(hlib.NEWGAME_MODE_VALUES), sync(text, "ModeTokens"))
+        self.assertEqual(list(hlib.NEWGAME_PRESET_VALUES), sync(text, "PresetTokens"))
+        self.assertEqual(list(hlib.NEWGAME_REASONS), sync(text, "Reasons"))
+        self.assertEqual(list(hlib.NEWGAME_ERROR_REASONS), sync(text, "ErrorReasons"))
+        for reason in hlib.NEWGAME_REASONS:
+            self.assertIn(hlib._SEAM_REFUSAL_SUBKINDS.get(reason), ("driver-arg", "driver-gate"),
+                          reason)
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        for reason in hlib.NEWGAME_ERROR_REASONS:
+            self.assertNotIn(reason, hlib._SEAM_REFUSAL_SUBKINDS, reason)
+
+    def test_the_applier_runs_stocks_own_new_game_path(self):
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.NewGame.cs")
+        for call in ('GamePersistence.SaveGame("persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);',
+                     "HighLogic.LoadScene(GameScenes.MAINMENU);",
+                     "GameParameters.GetDefaultParameters(stockMode, ToStockPreset(p.Preset));",
+                     "HighLogic.CurrentGame = GamePersistence.CreateNewGame(",
+                     "GameEvents.onGameNewStart.Fire();",
+                     "HighLogic.CurrentGame.Start();"):
+            self.assertIn(call, applier)
+        # The four new-game calls run in stock's order (MainMenu.CreateAndStartGame).
+        order = [applier.index(c) for c in ("GamePersistence.CreateNewGame(",
+                                            "GameEvents.onGameNewStart.Fire();",
+                                            "HighLogic.CurrentGame.Start();")]
+        self.assertEqual(sorted(order), order)
+
+    def test_the_budget_mirrors_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandDispatcher.cs")
+        m = re.search(r"internal const double NewGameSeconds = ([0-9.]+);", text)
+        self.assertIsNotNone(m, "DeferralBudget.NewGameSeconds moved")
+        self.assertEqual(float(m.group(1)), hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS[hlib.NEWGAME_VERB])
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.NEWGAME_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(300.0, hlib.dispatch_deferral_budget(verb))
+        self.assertLessEqual(hlib.dispatch_deferral_budget(verb), hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS)
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertFalse(hlib.post_mission_step_gates(verb))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_new_game_step
+        ok = {"mode": "SCIENCE_SANDBOX", "preset": "Normal", "save": "${runSave}"}
+        self.assertEqual([], v(1, ok, "camp"))
+        self.assertEqual([], v(1, dict(ok, save="camp"), "camp"))
+        for mode in hlib.NEWGAME_MODE_VALUES:
+            for preset in hlib.NEWGAME_PRESET_VALUES:
+                self.assertEqual([], v(1, dict(ok, mode=mode, preset=preset), "camp"))
+        cases = (
+            ({"preset": "Normal", "save": "${runSave}"}, "newgame-mode-arg-missing"),
+            (dict(ok, mode="career"), "newgame-mode-arg-invalid"),
+            (dict(ok, mode="MISSION"), "newgame-mode-arg-invalid"),
+            ({"mode": "CAREER", "save": "${runSave}"}, "newgame-preset-arg-missing"),
+            (dict(ok, preset="Custom"), "newgame-preset-arg-invalid"),
+            ({"mode": "CAREER", "preset": "Normal"}, "newgame-save-arg-missing"),
+            (dict(ok, save="other"), "newgame-save-mismatch"),
+            (dict(ok, scene="spacecenter"), "silently ignored"),
+        )
+        for args, needle in cases:
+            with self.subTest(args=args):
+                errs = v(4, args, "camp")
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("driver.steps[4]", errs[0])
+                self.assertIn(needle, errs[0])
+
+    def test_validate_spec_admits_a_new_game_step_and_mode_is_not_uiactions(self):
+        # `mode` is UiAction's VERB_SCOPED_CLOSED_ARGS row; a NewGame step must not be told
+        # the arg belongs to UiAction or that CAREER is not an interface mode.
+        spec = load_spec("L1-research-node-science.toml")
+        steps = spec["driver"]["steps"]
+        steps.insert(1, {"cmd": "NewGame", "expect": "OK", "budget": 300,
+                         "args": {"mode": "SCIENCE_SANDBOX", "preset": "Normal",
+                                  "save": "${runSave}"}})
+        self.assertEqual((), tuple(hlib.validate_spec(spec, load_registry()).errors))
+        steps[1]["args"]["mode"] = "Career"
+        steps[1]["args"]["save"] = "elsewhere"
+        errors = hlib.validate_spec(spec, load_registry()).errors
+        self.assertEqual(2, len(errors), errors)
+        self.assertTrue(any("newgame-mode-arg-invalid" in e for e in errors), errors)
+        self.assertTrue(any("newgame-save-mismatch" in e for e in errors), errors)
+        self.assertFalse(any("UiAction" in e for e in errors), errors)
+        # A UiAction step still owns the row.
+        steps[1] = {"cmd": "MissionMark", "args": {"label": "x", "mode": "Basic"}}
+        errors = hlib.validate_spec(spec, load_registry()).errors
+        self.assertTrue(any("only the UiAction verb reads it" in e for e in errors), errors)
 
 
 class DriveVesselSourceSyncTests(unittest.TestCase):

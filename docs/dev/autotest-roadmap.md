@@ -6523,7 +6523,7 @@ Owner decisions (interview 2026-10-06):
 
 | Stage | Story | Reuses | Must build |
 |---|---|---|---|
-| CS-0 | Fixture builders: a true new Science save and a true new Career save at Normal difficulty on the stock-tree profile | `fresh-*` builder precedent | the stock-tree provision profile; the new-game builder; a per-node part-unlock listing for the profile |
+| CS-0 | Fixture builders: a true new Science save and a true new Career save at Normal difficulty on the stock-tree profile | `fresh-*` builder precedent | the stock-tree provision profile; the new-game builder (seam verb `NewGame` built 2026-10-25, unflown); a per-node part-unlock listing for the profile |
 | CS-1 | Launch a start-node craft from the VAB, hop, recover, auto-commit | ZF-1 editor steps (`GoToEditor` + `LaunchFromEditor`), the b1 / `science_bench_recover` machines | a tier-legal craft; proof that `LaunchFromEditor` then a mission step works (the validator allows it, no committed lane flies it); the science-mode pool read (`_read_career_pools` reads funds and fails closed outside CAREER) |
 | CS-2 | Run experiments, transmit, recover; research a node at the KSC; relaunch with the new part; LedgerGroundTruth in flight | `sbr_decide`, HC-2 step order, L1-research-node | craft v2; per-situation experiment choice (today `run_science_experiments` runs everything at once); EVA report / surface sample actions |
 | CS-3 (career) | Accept a contract, fly to complete it, hire, upgrade a facility | L1-hire, L1-upgrade, L5 | a verb that lists Offered contracts or accepts by type (accept-contract resolves by GUID only; no lane has ever accepted a contract with OK); a gate on a contract completing live |
