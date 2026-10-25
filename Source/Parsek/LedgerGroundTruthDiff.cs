@@ -23,9 +23,11 @@ namespace Parsek
     ///     surface (recon.HasXSurface); with no surface the facet logs the save-side
     ///     census and is left UNCOMPARED rather than diffing against an invented
     ///     reconstruction.
-    ///   - PartPurchase / Strategy: save-side CENSUS ONLY. Nothing on the
-    ///     reconstruction side produces either set, so there is no compare half at
-    ///     all (see the method docs for why an unreachable one is worse than none).
+    ///   - Strategy: REPORT-ONLY, ledger-managed ids only, compared only when the walk
+    ///     manages at least one strategy.
+    ///   - PartPurchase: save-side CENSUS ONLY. Nothing on the reconstruction side
+    ///     produces that set, so there is no compare half at all (see the method doc
+    ///     for why an unreachable one is worse than none).
     ///   - A facet is skipped entirely when the save lacks it (save.HasX FLAG false).
     ///     The flag is the whole gate: an EMPTY parsed collection is a real state (a
     ///     wiped facet) and must still reach the compare, so recon phantoms fire
@@ -1053,19 +1055,28 @@ namespace Parsek
         }
 
         // ----------------------------------------------------------------
-        // Strategies (REPORT-ONLY census; no reconstruction surface exists)
+        // Strategies (REPORT-ONLY)
         // ----------------------------------------------------------------
 
         /// <summary>
-        /// Reports the save's active-strategy set. CENSUS ONLY - there is no compare
-        /// half, for the same reason as <see cref="ComparePartPurchases"/>.
+        /// Compares the strategies the ledger has active at the walk's cutoff against the
+        /// save's active set, both ways, for the ledger-MANAGED ids only (those the walk saw
+        /// a StrategyActivate row for). A strategy stock had on before the save had a
+        /// ledger is not the ledger's to state, so a save-active unmanaged id is counted in
+        /// the log and never emitted. The two directions:
+        ///   - managed, active in the ledger, absent from the save:
+        ///     <see cref="DivergenceKind.PhantomInRecon"/> (a committed activation the
+        ///     clock reached that stock never switched on, or a one-shot exchanger the
+        ///     ledger never saw end);
+        ///   - managed, active in the save, inactive in the ledger:
+        ///     <see cref="DivergenceKind.MissingInRecon"/> (a committed deactivation stock
+        ///     never applied, or an activation switched on before its committed UT).
         ///
-        /// StrategiesModule keeps its active set private (only GetActiveStrategyCount
-        /// / IsStrategyActive are exposed) and the career-ledger plan lands strategies
-        /// SHAPE-ONLY with no coverage claim, so no reconstruction ever declares an
-        /// active-strategy set. A both-ways compare against a surface nothing produces
-        /// is unreachable code that reads like coverage. Add it back WITH the
-        /// producer.
+        /// Compared only when the walk manages at least one strategy, so a career that
+        /// never activated one through the ledger keeps its facet count (no committed spec
+        /// pinning <c>facetsCompared=</c> changes). The save carries a STRATEGY node for a
+        /// strategy stock has on (presence is the active signal), so the save side is
+        /// exact.
         /// </summary>
         private static void CompareStrategies(
             CareerSaveSnapshot save, LedgerReconstructionSnapshot recon,
@@ -1077,11 +1088,61 @@ namespace Parsek
                 return;
             }
 
-            ParsekLog.Verbose(Tag,
-                $"CompareStrategies: save-side census only (saveStrategies=" +
-                $"{save.Strategies.Count.ToString(IC)} saveActive=" +
-                $"{save.ActiveStrategyIds.Count.ToString(IC)}) uncompared " +
-                $"(no reconstruction strategy surface exists)");
+            if (!recon.HasStrategySurface || recon.ManagedStrategyIds.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"CompareStrategies: no ledger-managed strategy -> save-side census only (saveStrategies=" +
+                    $"{save.Strategies.Count.ToString(IC)} saveActive=" +
+                    $"{save.ActiveStrategyIds.Count.ToString(IC)} surface=" +
+                    $"{recon.HasStrategySurface.ToString(IC)}) uncompared");
+                return;
+            }
+            report.FacetsCompared++;
+
+            var managed = new List<string>(recon.ManagedStrategyIds);
+            managed.Sort(StringComparer.Ordinal);
+            var diverged = new List<string>();
+            foreach (string id in managed)
+            {
+                if (string.IsNullOrEmpty(id)) continue;
+                bool ledgerActive = recon.LedgerActiveStrategyIds.Contains(id);
+                bool saveActive = save.ActiveStrategyIds.Contains(id);
+                if (ledgerActive == saveActive) continue;
+                diverged.Add(id);
+                report.All.Add(new LedgerDivergence
+                {
+                    Facet = DivergenceFacet.Strategy,
+                    Kind = ledgerActive ? DivergenceKind.PhantomInRecon : DivergenceKind.MissingInRecon,
+                    Identity = id,
+                    ExpectedFromSave = saveActive ? 1.0 : 0.0,
+                    Reconstructed = ledgerActive ? 1.0 : 0.0,
+                    Detail = ledgerActive
+                        ? "strategy active in the ledger at the clock but not active in the save"
+                        : "strategy active in the save but not active in the ledger at the clock"
+                });
+            }
+
+            int unmanagedSaveActive = 0;
+            foreach (string id in save.ActiveStrategyIds)
+            {
+                if (!recon.ManagedStrategyIds.Contains(id))
+                    unmanagedSaveActive++;
+            }
+
+            ParsekLog.Info(Tag,
+                $"CompareStrategies: managed=[{string.Join(",", managed.ToArray())}] " +
+                $"ledgerActive=[{JoinSorted(recon.LedgerActiveStrategyIds)}] " +
+                $"saveActive=[{JoinSorted(save.ActiveStrategyIds)}] " +
+                $"diverged={diverged.Count.ToString(IC)} [{string.Join(",", diverged.ToArray())}] " +
+                $"unmanagedSaveActive={unmanagedSaveActive.ToString(IC)}");
+        }
+
+        private static string JoinSorted(HashSet<string> ids)
+        {
+            if (ids == null || ids.Count == 0) return "";
+            var list = new List<string>(ids);
+            list.Sort(StringComparer.Ordinal);
+            return string.Join(",", list.ToArray());
         }
     }
 }

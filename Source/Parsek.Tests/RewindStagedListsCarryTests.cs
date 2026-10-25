@@ -152,32 +152,27 @@ namespace Parsek.Tests
 
         /// <summary>
         /// The rewind's side of the load, in production order: <c>ExecuteRewindSaveLoad</c>
-        /// captures the RP list, drops the rewound tree's supersedes in memory, captures the
-        /// staged lists; then OnLoad loads the staging state from the (stale) node, runs the
-        /// RP carry, the staged-list carry, and the supersede drop re-apply.
+        /// captures the RP list, logs the rewound tree's supersede rows (keeping all of them),
+        /// captures the staged lists; then OnLoad loads the staging state from the (stale)
+        /// node and runs the RP carry and the staged-list carry.
         /// </summary>
-        private static void SimulateRewindLoad(ParsekScenario scenario, ConfigNode stalePersistent,
-            bool preLoadDrop = true)
+        private static void SimulateRewindLoad(ParsekScenario scenario, ConfigNode stalePersistent)
         {
             RecordingStore.CaptureRewindPointsForRewind(scenario, "Rewind");
-            if (preLoadDrop)
-            {
-                Recording owner = RecordingStore.CommittedRecordings
-                    .First(r => r.RecordingId == RecordingStore.RewindReplayTargetRecordingId);
-                RecordingStore.DropSupersedesRewoundOutOfExistence(owner, RewindAdjustedUT);
-            }
+            Recording owner = RecordingStore.CommittedRecordings
+                .First(r => r.RecordingId == RecordingStore.RewindReplayTargetRecordingId);
+            RecordingStore.LogSupersedesKeptAcrossRewind(owner, RewindAdjustedUT);
             RecordingStore.CaptureRewindStagedListsForRewind(scenario, "Rewind");
             Invoke(scenario, "LoadRewindStagingState", stalePersistent);
             RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(scenario);
             RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad(scenario);
-            RecordingStore.ReapplyRewindSupersedeDropAfterLoad();
         }
 
         /// <summary>
         /// Tree A is rewound to launch; its own Re-Fly (rel_a, an open fork after the rewind
         /// UT, which the rewind keeps) is in memory AND on disk. With
         /// <paramref name="withDanglingRow"/> memory also holds rel_dangle, a tree-A row whose
-        /// fork is in no committed list, which the rollback drops. Tree B's Re-Fly merged after the last persistent write, so
+        /// fork is in no committed list, which the rewind keeps too. Tree B's Re-Fly merged after the last persistent write, so
         /// only memory holds rel_b / tomb_b; a prior rewind's retirement rrt_prior is
         /// memory-only too. rel_gone is on disk but memory already removed it (a tree
         /// discard purge after the last write).
@@ -241,20 +236,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RewindToLaunch_RewoundTreeOpenFork_SurvivesTheReapply_DanglingRowDropped()
+        public void RewindToLaunch_RewoundTreeOpenForkAndDanglingRow_BothSurviveTheLoad()
         {
-            // The OnLoad re-apply runs on the carried list: with no pre-load drop in the
-            // capture it keeps the rewound tree's own open re-fly (rel_a) and drops only
-            // the dangling row whose fork is in no committed list.
+            // A rewind keeps every row of the rewound tree, the open re-fly (rel_a) and the
+            // row whose fork is in no committed list (rel_dangle) alike, and the carry hands
+            // them through the load unchanged.
             var scenario = BuildTwoTreeCase(out ConfigNode stalePersistent, withDanglingRow: true);
             ArmRewindToLaunch("rec_a_root");
 
-            SimulateRewindLoad(scenario, stalePersistent, preLoadDrop: false);
+            SimulateRewindLoad(scenario, stalePersistent);
 
-            Assert.Equal(new[] { "rel_a", "rel_b" }, scenario.RecordingSupersedes.Select(r => r.RelationId));
-            Assert.DoesNotContain(scenario.RecordingRewindRetirements, r => r.RecordingId == "rec_a_fork");
+            Assert.Equal(new[] { "rel_a", "rel_b", "rel_dangle" },
+                scenario.RecordingSupersedes.Select(r => r.RelationId));
+            Assert.Equal(new[] { "rrt_prior" }, scenario.RecordingRewindRetirements.Select(r => r.RetirementId));
             Assert.Contains(logLines, l =>
-                l.Contains("Re-applied supersede drop after LoadScene: dropped 1 relation(s)"));
+                l.Contains("Rewind keeps supersede rows: rows=2 forks=2 sealed=0 open=1 dangling=1"));
         }
 
         [Fact]
@@ -451,34 +447,33 @@ namespace Parsek.Tests
         // ---------- source wiring -----------------------------------------
 
         [Fact]
-        public void ExecuteRewindSaveLoad_CapturesTheStagedLists_AfterTheSupersedeDrop_BeforeTheSceneLoad()
+        public void ExecuteRewindSaveLoad_CapturesTheStagedLists_AfterTheSupersedeAudit_BeforeTheSceneLoad()
         {
             string body = RewindPointSurvivesRewindTests.MethodBody(
                 RewindPointSurvivesRewindTests.ReadSource("RecordingStore.cs"),
                 "private static bool ExecuteRewindSaveLoad(");
-            int drop = body.IndexOf("DropSupersedesRewoundOutOfExistence(dropSupersedeOwner", StringComparison.Ordinal);
+            int audit = body.IndexOf("LogSupersedesKeptAcrossRewind(supersedeAuditOwner", StringComparison.Ordinal);
             int capture = body.IndexOf("CaptureRewindStagedListsForRewind(ParsekScenario.Instance", StringComparison.Ordinal);
             int scene = body.IndexOf("HighLogic.LoadScene(GameScenes.SPACECENTER)", StringComparison.Ordinal);
-            Assert.True(drop >= 0, "the pre-load supersede drop moved");
-            Assert.True(capture > drop, "the staged-list capture must follow the pre-load supersede drop");
+            Assert.True(audit >= 0, "the pre-load supersede audit moved");
+            Assert.True(capture > audit, "the staged-list capture must follow the supersede audit");
             Assert.True(scene > capture, "the staged-list capture must precede the scene load");
+            // A rewind keeps every supersede row: nothing in the load removes one.
+            Assert.DoesNotContain("RecordingSupersedes.Remove", body);
         }
 
         [Fact]
-        public void OnLoad_ReinstallsTheStagedLists_AfterTheStagingLoad_BeforeTheReapplyAndTheRewindBranch()
+        public void OnLoad_ReinstallsTheStagedLists_AfterTheStagingLoad_BeforeTheRewindBranch()
         {
             string body = RewindPointSurvivesRewindTests.MethodBody(
                 RewindPointSurvivesRewindTests.ReadSource("ParsekScenario.cs"),
                 "public override void OnLoad(ConfigNode node)");
             int staging = body.IndexOf("LoadRewindStagingState(node);", StringComparison.Ordinal);
             int reinstall = body.IndexOf("RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad(this);", StringComparison.Ordinal);
-            int reapply = body.IndexOf("RecordingStore.ReapplyRewindSupersedeDropAfterLoad();", StringComparison.Ordinal);
             int rewindBranch = body.IndexOf("HandleRewindOnLoad(node, recordings);", StringComparison.Ordinal);
             Assert.True(staging >= 0 && reinstall > staging,
                 "OnLoad must reinstall the carried staged lists after LoadRewindStagingState");
-            Assert.True(reapply > reinstall,
-                "the supersede drop re-apply must run on the carried list");
-            Assert.True(rewindBranch > reapply);
+            Assert.True(rewindBranch > reinstall);
         }
 
         [Fact]

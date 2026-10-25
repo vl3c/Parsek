@@ -17,6 +17,40 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REWIND-KEEPS-EVERY-SUPERSEDE-ROW: a Rewind-to-Launch still dropped a supersede row whose re-fly recording was missing, and its Pass 2 could still unseal a sealed re-fly~~ [FILED + FIXED 2026-10-25 on branch `claude/project-thread-mikdfx` (PR #2244); LIVE-PROVEN 2026-10-25 by RB-5 `2026-10-25_1002` PASS (first flight), RB-4 `_1005` and RF-4 `_1008` PASS on the re-pin]
+
+Follow-up of REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY. After #2230 the rewind rollback still dropped a
+row whose fork was missing from the committed set (its recording failed to load) or `NotCommitted`,
+which brought the replaced recording back as the slot's tip; its Pass 2 then demoted any kept
+fork whose replaced recording that drop had retired and wrote a
+`rewound-out-supersede-fork-demoted-canon` retirement for it, sealed or open, so one unloadable
+re-fly could still unseal and hide a sealed re-fly of the next stage. That contradicts design section 2.2 (a one-sided orphan row
+is kept and the walk stops at it, the load-time sweep's own rule) and owner ruling O3 (a recording
+that fails to load keeps its ledger rows): the career still holds the re-fly's rows and the
+replaced flight's tombstones, so bringing the replaced flight back shows a timeline the career
+does not match.
+
+Decision: a rewind keeps every row. The dangling row keeps hiding the replaced flight exactly as
+every load does, and nothing is retired. If the missing recording loads again later, it is the tip
+again with nothing to repair.
+
+Fix: the rollback is gone (`DropSupersedesRewoundOutOfExistence*`,
+`ReapplyRewindSupersedeDropAfterLoad`, `EnsureRewindRetirementsForRollback` and the OnLoad
+`supersede-rewind-reapply` phase). `ExecuteRewindSaveLoad` now only runs a read-only audit,
+`RecordingStore.AuditSupersedesKeptAcrossRewindPure`, and logs `Rewind keeps supersede rows:
+rows=N forks=N sealed=N open=N dangling=N` plus one `Kept re-fly fork across rewind: rec=..
+mergeState=..|<missing>` line per fork. Nothing in the mod writes a `RecordingRewindRetirement`
+any more; its readers and the load-time sweep's legacy handling stay for old saves, which are not
+repaired (no compatibility work before the public release). Old saves: no committed fixture
+(`harness/fixtures/`, `Source/Parsek.Tests/Fixtures/`) carries a rewind retirement, so no lane
+reads the old bad state; `RewindKeepsSupersedeRowsTests.Fixtures_CarryNoRewindRetirement` keeps it
+that way and `Source_NothingOutsideTheLoaderBuildsARewindRetirement` keeps the writer gone. Unit:
+`RewindKeepsSupersedeRowsTests`, `RewindStagedListsCarryTests`. Lanes: RB-5 (re-fly the booster
+twice, seal the second slot, Rewind-to-Launch: `forks=2 sealed=1 open=1`), RB-4 and RF-4 re-pinned
+to the new line.
+
+---
+
 ## ~~REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY: a Rewind-to-Launch to before a separation undid a merged but unsealed Re-Fly and brought the original flight back~~ [FILED + FIXED 2026-10-24 on branch `fix-rewind-keeps-unsealed-refly` (PR #2230); LIVE-PROVEN 2026-10-25 by RB-4 `2026-10-25_0121` PASS, RF-4 `_0124` PASS]
 
 Owner ruling (V, 2026-10-24, answering the open question of
@@ -39,11 +73,10 @@ forks; `skippedImmutable=N` still counts the sealed ones) and renames `demotedIm
 `demoted=`; the per-fork `Preserved canon fork across parent rewind:` line prints the fork's real
 MergeState. The forced self-rewind drop and its result field are gone. The re-fly's tombstones were
 never dropped, which now matches the rule. Old saves that already carry a fork retirement are not
-repaired (no compatibility work before the public release). Unit: `RewindSupersedeRollbackTests`
-(`LiveRollback_KeepsCommittedProvisionalFork_AcrossParentRewind`,
-`Rollback_KeepsRelation_WhenForkIsCommittedProvisional`,
-`Rollback_SelfRewindOnImmutableFork_KeepsIncomingSupersede`; the demotion cells now anchor on a
-`NotCommitted` fork). Lane RB-4 (RF-4 without the seal) pins it live.
+repaired (no compatibility work before the public release). Lane RB-4 (RF-4 without the seal)
+pins it live. SUPERSEDED 2026-10-25 by REWIND-KEEPS-EVERY-SUPERSEDE-ROW: the dangling drop and the
+Pass 2 demotion are gone too, the rollback with them, and its unit tests are now
+`RewindKeepsSupersedeRowsTests`.
 
 ---
 
@@ -313,7 +346,7 @@ event no flight causes is filed under no flight): `EmitUntagged` and a direct le
 
 ---
 
-## CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT: a contract a ground station or a comet scan completes is filed under the live flight [FILED 2026-10-24 from a code audit, branch `claude/project-thread-dkcvpn`. OPEN; medium]
+## ~~CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT: a contract a ground station or a comet scan completes is filed under the live flight~~ [FILED 2026-10-24 from a code audit, branch `claude/project-thread-dkcvpn`. FIXED 2026-10-25 on branch `claude/project-thread-86u4df`; LIVE-PROVEN by CLK-1 `2026-10-25_0959` PASS; medium]
 
 Stock completes `CollectDeployedScience` from a Breaking Ground ground station's transmission
 (`DeployedScienceExperiment.FixedUpdate` -> `SubmitScienceData`, no vessel) and
@@ -324,10 +357,28 @@ recalculation claws it back), and a Re-Fly reads it as the attempt's gain and se
 recognise a completion with no vessel cause (the current science event is a deployed subject, or a
 Sentinel detection is in progress) and file it untagged with a direct ledger write. Mod contracts
 with timer parameters are the same class.
+**Fix** (owner ruling 2026-10-24, an event no flight causes is filed under no flight): stock completes
+both inside one call (decompiled 1.12.5: `CollectDeployedScience.OnScience` -> `SetComplete` ->
+`Contract.OnParameterStateChange` -> `SetState(Completed)` inside the `OnScienceRecieved` fire of
+`ResearchAndDevelopment.SubmitScienceData`; `CometDetectionParameter.CometDetected` inside
+`SentinelScenario.SpawnComet(Vessel, CometOrbitType)`; `SentinelParameter.DiscoverAsteroid` for the
+asteroid contract). `Patches/ClockCauseScopePatches.cs` opens the recorder's clock-cause scope around
+the six-argument `SubmitScienceData` when the subject is a deployed experiment's and no vessel
+submits it (a ground station's data a kerbal carried aboard is transmitted or recovered by that
+vessel, and what it completes stays the flight's), and around both Sentinel methods; inside it `Emit` files every event untagged and the #405 doors write it at once
+(`GameStateRecorder.HasClaimingLiveRecorder`: no live recorder claims an event inside the scope), so
+the completion and its reward are untagged ledger rows. A Sentinel the flight in progress launched
+counts as already in place. Drift B no longer warns inside the scope. A contract another subscriber
+of the same fire completes pays its science reward first and clears the award's `ScienceChanged`
+capture, so the award takes the reason the open submission files under
+(`GroundStationSubmissionReasonKey`; lane CLK-1's first flight `2026-10-25_0945` read the reconcile
+ERROR this fixes). Cells:
+`ClockCauseScopeTests`. Mod contracts with timer parameters stay open under
+LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT.
 
 ---
 
-## STRATEGY-CONVERSION-OF-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT: a strategy's cut of ground-station science is filed under the live flight [FILED 2026-10-24 from a code audit, branch `claude/project-thread-dkcvpn`. OPEN; low]
+## ~~STRATEGY-CONVERSION-OF-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT: a strategy's cut of ground-station science is filed under the live flight~~ [FILED 2026-10-24 from a code audit, branch `claude/project-thread-dkcvpn`. FIXED 2026-10-25 on branch `claude/project-thread-86u4df`; low]
 
 With a science-converting strategy active (Patents Licensing), stock's
 `ResearchAndDevelopment.AddScience` for a ground-station transmission fires the conversion before
@@ -335,6 +386,11 @@ With a science-converting strategy active (Patents Licensing), stock's
 `StrategyScienceDebit` / `Credit` rows the live tag while the award is untagged. A discard refunds the
 conversion and keeps the science. Fix direction: the conversion follows its award, so untagged when
 the award is deployed science.
+**Fix.** The conversion fires inside the same `SubmitScienceData` call, which
+`DeployedScienceSubmitScopePatch` wraps in the clock-cause scope for a deployed subject, so
+`ResolveStrategyConversionRecordingTag` returns none and the rows are untagged like the award. Inside
+the scope the subject capture also compares against the untagged `ScienceChanged` capture, so the award
+keeps its reason key. Cells: `ClockCauseScopeTests`.
 
 ---
 
@@ -351,8 +407,10 @@ has on, so the flight earns in a career state the committed timeline never had. 
 frame's clock, at or before this one's, and still the latest committed row), it switches the
 strategy on the way the patch does (`Strategy.Load` with the committed date and commitment, no cost,
 no capture). A strategy stock has off for another reason is never fought every frame; the frame path
-is one compare against the cached next activation UT. Cells: `StrategyActivationGateTests`. Lane
-still owed: activate at the Space Center, rewind before it, fly across it, read the state.
+is one compare against the cached next activation UT. Cells: `StrategyActivationGateTests`. Lanes
+(authored 2026-10-25, branch `claude/project-thread-eo3rd8`): `STR-1-strategies-across-rewind-and-f9`
+crosses the activation in flight after a Rewind-to-Launch and again after an F9, `STR-2-strategy-crossed-in-refly`
+inside a Re-Fly session.
 
 ---
 
@@ -1899,7 +1957,7 @@ or a ghost's shape. The items below are code reads, not reproductions; each beco
 with a red test once confirmed.
 
 - [x] ~~STRATEGY-CONVERSION-ROWS-SURVIVE-F9-AND-REFLY (suspected defect): conversion legs are written untagged (`LedgerOrchestrator.cs:5260-5439`) while the award they divert is flight-tagged, and F9 / a Re-Fly merge retire only tagged rows (`ParsekScenario.Trim.cs:1210-1235`, `TombstoneEligibility.cs:56-117`), so the leg would outlive its award. Roadmap XS-1.~~ Same defect as STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD, fixed 2026-10-16 in PR #2123 (the door tags its rows like the award, `GameStateRecorder.ResolveStrategyConversionRecordingTag`; live-proven by QL-2c `2026-10-16_2239`). Re-checked 2026-10-24 on main f3a22ce: the F9 half is moot since save-file loads are cold (PR #2155; the save's own ledger never held the share, QL-2c reshaped), and the Re-Fly half holds (`TombstoneEligibility.IsSupersedeTombstoneEligible` takes every tagged conversion row type; `StrategyConversionTimelineTests.ReFlyMerge_TombstonesTheConvertedShareOfTheSupersededFlight`).
-- [ ] Strategies across any timeline operation: no lane activates a strategy and then rewinds, re-flies, F9s or reverts; Bail-Out Grant, Aggressive Negotiations and Recovery Transponder never ran in game. Roadmap XS-1, GP-1. Traced 2026-10-24 (branch `claude/project-thread-dkcvpn`): rewind / F9 / revert hold through the expiry gate and the patch's future guards; three gaps found and fixed, STRATEGY-ACTIVATION-CROSSED-IN-FLIGHT-NOT-APPLIED, STRATEGY-PATCH-CUTOFF-LESS-WALK-READS-THE-LATER-ACTIVATION, STRATEGY-EXPIRY-LOST-WITH-A-DISCARDED-FLIGHT; no lane flies a strategy across a timeline operation yet.
+- [ ] Strategies across any timeline operation: no lane activates a strategy and then rewinds, re-flies, F9s or reverts; Bail-Out Grant, Aggressive Negotiations and Recovery Transponder never ran in game. Roadmap XS-1, GP-1. Traced 2026-10-24 (branch `claude/project-thread-dkcvpn`): rewind / F9 / revert hold through the expiry gate and the patch's future guards; three gaps found and fixed, STRATEGY-ACTIVATION-CROSSED-IN-FLIGHT-NOT-APPLIED, STRATEGY-PATCH-CUTOFF-LESS-WALK-READS-THE-LATER-ACTIVATION, STRATEGY-EXPIRY-LOST-WITH-A-DISCARDED-FLIGHT. Lanes authored 2026-10-25 (branch `claude/project-thread-eo3rd8`): STR-1 (Bail-Out Grant + Appreciation Campaign across a Rewind-to-Launch and an F9), STR-2 (an activation crossed inside a Re-Fly), STR-3 (Leadership Initiative's shares taken back by a stock revert); QL-2c already covers the share across an F9, and LedgerGroundTruth now compares the strategy list. Still open: expiry across a timeline operation (stock 1.12.5 durations read 0 without KSPCF, so no stock-only lane can reach an expiry), Aggressive Negotiations and Recovery Transponder.
 - [ ] Resource amounts: nothing checks origin-out == destination-in for routes, fuel moved while docked, or a spawned vessel's tanks. Roadmap TC-1 / TC-2, RC-1. Progress 2026-10-16: the `ReadVesselResources` verb and `resourceq.py` landed, and RC-1 reads both spawned tanks after a docked transfer and two rewinds; routes are still unchecked.
 - [x] ~~Career x repeated rewinds, and LedgerGroundTruth after a rewind, Re-Fly or F9: never run.~~ Roadmap TC-4, GP-1. DONE 2026-10-25: L8 covers repeated rewinds; the harness walked past the clock (LEDGER-GROUND-TRUTH-WALKS-PAST-THE-CLOCK, fixed), and L13 runs it after a Re-Fly merge and an F9, live-proven `2026-10-25_0228` after its second flight found EDITOR-LOAD-WALKS-PAST-THE-CLOCK.
 - [ ] Stale lanes: H38 / H39 / H40 / HV-1 not green since the 10-07 and 10-15 logistics changes; H58 and EVA-5 re-pinned, never re-flown. Roadmap XS-2.

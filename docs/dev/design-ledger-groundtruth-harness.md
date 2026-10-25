@@ -343,6 +343,7 @@ adjust per the Plan agent's finding):
 | Facilities | REPORT-ONLY (incl. phantom) | delta-only; a pre-Parsek upgrade legitimately diverges |
 | Contracts | REPORT-ONLY (incl. phantom) | delta-only; an untracked accept/complete/expire legitimately diverges |
 | Milestones | REPORT-ONLY (incl. phantom) | delta-only; an untracked milestone legitimately diverges |
+| Strategy | REPORT-ONLY (incl. phantom), compared only when the walk manages a strategy | the active set, over the ids the ledger manages (an unmanaged strategy active in the save, e.g. one active before the career had a ledger, is counted, never a divergence); a career with no strategy row stays a save-side census and adds nothing to `facetsCompared=` |
 | Vessel | HARD (recovery consistency, guid-corroborated) + report-only sanity | see below |
 
 **Plan-review correction (strictness).** The per-identity facets are REPORT-ONLY by default,

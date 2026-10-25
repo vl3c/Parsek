@@ -55,40 +55,6 @@ namespace Parsek
     /// </summary>
     public static partial class RecordingStore
     {
-        internal sealed class RewindSupersedeRollbackResult
-        {
-            public readonly List<RecordingSupersedeRelation> DroppedRelations =
-                new List<RecordingSupersedeRelation>();
-            public readonly HashSet<string> RestoredRecordingIds =
-                new HashSet<string>(StringComparer.Ordinal);
-            public readonly HashSet<string> RetiredForkRecordingIds =
-                new HashSet<string>(StringComparer.Ordinal);
-
-            /// <summary>
-            /// Committed forks (<see cref="MergeState.Immutable"/> or
-            /// <see cref="MergeState.CommittedProvisional"/>) whose supersede
-            /// relation was preserved across this rewind. The fork stays the
-            /// slot's tip with its MergeState unchanged; its priorTip stays
-            /// superseded.
-            /// </summary>
-            public readonly HashSet<string> PreservedForkRecordingIds =
-                new HashSet<string>(StringComparer.Ordinal);
-
-            /// <summary>
-            /// Preservation candidates (Pass 1) that were demoted to drops in
-            /// Pass 2 because their <c>OldRecordingId</c> was itself being
-            /// retired in this same batch (a dangling row upstream). The fork
-            /// has nothing to stand in for (its priorTip is gone), so the chain
-            /// must collapse to preserve the no-double-materialization invariant.
-            /// </summary>
-            public readonly HashSet<string> DemotedPreservationIds =
-                new HashSet<string>(StringComparer.Ordinal);
-
-            public int DroppedRelationCount => DroppedRelations.Count;
-            public int PreservedForkCount => PreservedForkRecordingIds.Count;
-            public int DemotedPreservationCount => DemotedPreservationIds.Count;
-        }
-
         // The schema constants themselves live on RecordingSchema so the Recording data
         // type can stamp itself without referencing this store; these two forward them
         // under the names every existing caller and the docs use.
@@ -139,7 +105,6 @@ namespace Parsek
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
         internal static bool? WriteReadableSidecarMirrorsOverrideForTesting;
-        internal static Func<double> CurrentUniversalTimeForRewindRetirementOverrideForTesting;
 
         // PID of the active vessel at scene entry. Used by SpawnVesselOrChainTip to
         // bypass PID dedup statelessly — if a recording's VesselPersistentId matches
@@ -4952,7 +4917,6 @@ namespace Parsek
             CleanOrphanFilesDirectoryOverrideForTesting = null;
             SkipSidecarCurrencyCheckForTesting = false;
             WriteReadableSidecarMirrorsOverrideForTesting = null;
-            CurrentUniversalTimeForRewindRetirementOverrideForTesting = null;
             SceneEntryActiveVesselPid = 0;
             SceneEntryActiveVesselGuid = null;
             SceneEntryFreshRolloutVesselPid = 0;
@@ -5607,9 +5571,9 @@ namespace Parsek
                     $"Rewind via tree root: branch '{rec.VesselName}' -> root '{owner.VesselName}' " +
                     $"save={owner.RewindSaveFileName}");
 
-            // Refuse rewind during an active re-fly merge journal. The supersede drop
-            // below mutates the same RecordingSupersedes list the merge journal is in
-            // the middle of writing; running both concurrently could leave the ledger
+            // Refuse rewind during an active re-fly merge journal. The rewind carries the
+            // RecordingSupersedes list the merge journal is in the middle of writing
+            // across the load; running both concurrently could leave the ledger
             // half-committed across the LoadGame boundary. Half-fix is worse than
             // no-fix — let MergeJournalOrchestrator.RunFinisher resolve the journal
             // on the next OnLoad first, then the user can rewind.
@@ -5635,11 +5599,11 @@ namespace Parsek
             BeginRewindForOwner(owner);
 
             // Shared load: pre-process (strip + lead-time windback) keyed by the owner, and
-            // drop supersede relations rewound out of existence for the owner's tree.
+            // log the owner tree's supersede rows the rewind keeps.
             bool loaded = ExecuteRewindSaveLoad(
                 owner.RewindSaveFileName,
                 preProcessOwner: owner,
-                dropSupersedeOwner: owner,
+                supersedeAuditOwner: owner,
                 messageLabel: "Rewind");
             if (!loaded)
                 UndoLiveTreeDropAfterFailedRewind(droppedLiveTreeId, droppedTreeRestored, "Rewind");
@@ -5709,15 +5673,16 @@ namespace Parsek
         /// with that owner's strip set plus the rewind-to-launch lead-time windback. Null skips
         /// pre-processing (the pristine career-start snapshot, which must not be wound back
         /// below UT 0).</param>
-        /// <param name="dropSupersedeOwner">When non-null, drops supersede relations rewound
-        /// out of existence for that owner's tree once the adjusted UT is known. Null skips the
-        /// drop (the career-start path refuses up front when any supersede relation exists).</param>
+        /// <param name="supersedeAuditOwner">When non-null, logs the supersede rows of that
+        /// owner's tree the rewind reaches once the adjusted UT is known; every row is kept.
+        /// Null skips the audit (the career-start path refuses up front when any supersede
+        /// relation exists).</param>
         /// <param name="messageLabel">Message-text prefix for the adjusted-UT / failure logs
         /// ("Rewind" vs "Warp-to-game-start"); the subsystem tag stays "Rewind" either way.</param>
         private static bool ExecuteRewindSaveLoad(
             string saveFileName,
             Recording preProcessOwner,
-            Recording dropSupersedeOwner,
+            Recording supersedeAuditOwner,
             string messageLabel)
         {
             string tempCopyName = null;
@@ -5786,23 +5751,14 @@ namespace Parsek
                         $"{messageLabel}: adjustedUT={RewindAdjustedUT:F1}, " +
                         $"rewindUT={RewindUT:F1}, flags=[IsRewinding={IsRewinding}]");
 
-                if (dropSupersedeOwner != null)
-                {
-                    // Classify the owner tree's supersede relations whose forks start in
-                    // the rewound-out future: committed forks are kept (a rewind unseals
-                    // and undoes nothing), dangling rows drop. Runs AFTER SetAdjustedUT so
-                    // the comparison `fork.StartUT >= rewindAdjustedUT` uses the post-load UT.
-                    int droppedSupersedes = DropSupersedesRewoundOutOfExistence(dropSupersedeOwner, RewindAdjustedUT);
-                    if (droppedSupersedes > 0 && !SuppressLogging)
-                        ParsekLog.Info("Rewind",
-                            $"Dropped {droppedSupersedes} supersede relation(s) rewound out of existence " +
-                            $"(rewindUT={RewindAdjustedUT:F1} owner='{dropSupersedeOwner.VesselName}')");
-                }
+                // A rewind moves the clock and keeps every supersede row of the rewound tree
+                // (owner ruling 2026-10-24): log what it keeps. Runs AFTER SetAdjustedUT so the
+                // scope reads the post-load UT.
+                if (supersedeAuditOwner != null)
+                    LogSupersedesKeptAcrossRewind(supersedeAuditOwner, RewindAdjustedUT);
 
                 // Same stale-persistent reason as the RP capture above, for the supersede,
-                // rewind-retirement and tombstone lists and the merge journal. Taken AFTER the
-                // supersede drop so the capture already holds this rewind's drop and
-                // retirements; the OnLoad re-apply then finds nothing left to do on it.
+                // rewind-retirement and tombstone lists and the merge journal.
                 CaptureRewindStagedListsForRewind(ParsekScenario.Instance, messageLabel);
 
                 // Same reason, for the rewind save's own route copy: OnLoad will read persistent's
@@ -5853,7 +5809,7 @@ namespace Parsek
         ///
         /// <para>Refuses when re-fly supersede relations exist: a UT-0 reset would otherwise
         /// leave superseded originals hidden. The caller selects the earliest-launch rewind
-        /// path instead in that case (its owner-keyed supersede drop is the tested route).</para>
+        /// path instead in that case (the owner-keyed rewind is the tested route).</para>
         /// </summary>
         internal static bool InitiateRewindToCareerStart(string saveFileName)
         {
@@ -5902,12 +5858,12 @@ namespace Parsek
                     "recordings as future ghosts; NOT a Re-Fly.");
 
             // Pristine snapshot: no PreProcessRewindSave (no future vessels to strip, and it
-            // must NOT be wound back below UT 0) and no supersede drop (refused above when any
+            // must NOT be wound back below UT 0) and no supersede audit (refused above when any
             // supersede relation exists).
             bool loaded = ExecuteRewindSaveLoad(
                 saveFileName,
                 preProcessOwner: null,
-                dropSupersedeOwner: null,
+                supersedeAuditOwner: null,
                 messageLabel: "Warp-to-game-start");
             if (!loaded)
                 UndoLiveTreeDropAfterFailedRewind(droppedLiveTreeId, droppedTreeRestored, "Warp-to-game-start");
@@ -6112,54 +6068,6 @@ namespace Parsek
             return id.Length > 8 ? id.Substring(0, 8) : id;
         }
 
-        /// <summary>
-        /// Re-applies the rewind-time supersede drop after <see cref="ParsekScenario.OnLoad"/>
-        /// has reloaded <see cref="ParsekScenario.RecordingSupersedes"/> from the scenario
-        /// node. Without this, the in-memory drop performed in <see cref="InitiateRewind"/>
-        /// is reverted by KSP's scenario-state restoration across the LoadScene boundary,
-        /// leaving the rewound source's branch ghosts (e.g. an upper-stage Probe at #7)
-        /// suppressed via <c>reason=superseded-by-relation</c> for the rest of the
-        /// session.
-        ///
-        /// <para>
-        /// Mechanism: the rewound owner's id is preserved across LoadScene in the static
-        /// <see cref="RewindReplayTargetRecordingId"/> (set by
-        /// <see cref="SetRewindReplayTargetScope"/> inside <see cref="BeginRewindForOwner"/>).
-        /// After load, we resolve the owner from committed state and re-run the drop
-        /// against the freshly-loaded supersede list using
-        /// <see cref="RewindContext.RewindAdjustedUT"/> as the threshold.
-        /// </para>
-        ///
-        /// <para>
-        /// Callers: <see cref="ParsekScenario.OnLoad"/>, immediately after
-        /// <see cref="ParsekScenario.LoadRewindStagingState"/>, gated on
-        /// <see cref="RewindContext.IsRewinding"/>.
-        /// </para>
-        ///
-        /// Returns the number of relations dropped on this re-apply pass.
-        /// </summary>
-        internal static int ReapplyRewindSupersedeDropAfterLoad()
-        {
-            if (!RewindContext.IsRewinding) return 0;
-            string ownerId = RewindReplayTargetRecordingId;
-            if (string.IsNullOrEmpty(ownerId)) return 0;
-            Recording owner = TryFindCommittedRecordingById(ownerId);
-            if (owner == null)
-            {
-                if (!SuppressLogging)
-                    ParsekLog.Verbose("Rewind",
-                        $"ReapplyRewindSupersedeDropAfterLoad: skipped — owner id '{ownerId}' "
-                        + "not found in committed recordings post-load (recording deleted?).");
-                return 0;
-            }
-            int dropped = DropSupersedesRewoundOutOfExistence(owner, RewindContext.RewindAdjustedUT);
-            if (dropped > 0 && !SuppressLogging)
-                ParsekLog.Info("Rewind",
-                    $"Re-applied supersede drop after LoadScene: dropped {dropped} relation(s) "
-                    + $"(rewindUT={RewindContext.RewindAdjustedUT:F1} owner='{owner.VesselName}')");
-            return dropped;
-        }
-
         // ==================================================================
         // Rewind points carried across a plain rewind (operator ruling 2026-09-23)
         // ==================================================================
@@ -6280,8 +6188,7 @@ namespace Parsek
         /// Rewind OnLoad half of the RP carry-over: replaces the just-loaded
         /// <see cref="ParsekScenario.RewindPoints"/> with the list captured when the rewind
         /// started, then consumes the capture. Called from <c>ParsekScenario.OnLoad</c>
-        /// right after <c>LoadRewindStagingState</c>, next to
-        /// <see cref="ReapplyRewindSupersedeDropAfterLoad"/>. A load that is not a rewind
+        /// right after <c>LoadRewindStagingState</c>. A load that is not a rewind
         /// leaves the loaded list alone and drops any stranded capture. Returns the number
         /// of RPs installed, or -1 when nothing was installed.
         /// </summary>
@@ -6337,13 +6244,15 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Live entry point that resolves the owner's tree + live-recordings dict from
-        /// the static <see cref="committedTrees"/> + <see cref="committedRecordings"/>
-        /// and the <see cref="ParsekScenario.Instance.RecordingSupersedes"/> list, then
-        /// delegates to <see cref="DropSupersedesRewoundOutOfExistencePure"/>.
+        /// Live audit of the supersede rows a plain rewind of <paramref name="owner"/>
+        /// reaches. Resolves the owner's tree and the committed recordings, delegates to
+        /// <see cref="AuditSupersedesKeptAcrossRewindPure"/> and logs what it found. Changes
+        /// nothing: a rewind moves the clock and keeps every supersede row, so a sealed
+        /// re-fly stays sealed, an open one stays open, and a row whose fork failed to load
+        /// keeps hiding the flight it replaced (design section 2.2; owner ruling 2026-10-24).
+        /// Returns the number of rows in scope.
         /// </summary>
-        internal static int DropSupersedesRewoundOutOfExistence(
-            Recording owner, double rewindAdjustedUT)
+        internal static int LogSupersedesKeptAcrossRewind(Recording owner, double rewindAdjustedUT)
         {
             if (owner == null) return 0;
             var scenario = ParsekScenario.Instance;
@@ -6351,51 +6260,24 @@ namespace Parsek
                 || scenario.RecordingSupersedes.Count == 0)
                 return 0;
 
-            // Resolve the owner's tree by id. If the owner is a pre-tree-mode
-            // standalone recording (null/empty TreeId — see `Recording.TreeId`'s
-            // "null = standalone (pre-tree recording)" doc), there is no tree to
-            // walk and the drop falls back to owner-only matching. Log it so the
-            // degradation is visible in playtest diagnostics rather than silently
-            // missing branch supersedes.
-            RecordingTree ownerTree = null;
-            if (string.IsNullOrEmpty(owner.TreeId))
-            {
-                if (!SuppressLogging)
-                    ParsekLog.Verbose("Rewind",
-                        $"DropSupersedesRewoundOutOfExistence: owner '{owner.VesselName}' (id={owner.RecordingId}) "
-                        + "has no TreeId; falling back to owner-only supersede drop "
-                        + "(no tree-walk for branch recordings).");
-            }
-            else
+            List<Recording> ownerTreeRecordings = null;
+            if (!string.IsNullOrEmpty(owner.TreeId))
             {
                 for (int t = 0; t < committedTrees.Count; t++)
                 {
-                    if (committedTrees[t] == null) continue;
-                    if (string.Equals(committedTrees[t].Id, owner.TreeId, StringComparison.Ordinal))
+                    var tree = committedTrees[t];
+                    if (tree == null || tree.Recordings == null) continue;
+                    if (!string.Equals(tree.Id, owner.TreeId, StringComparison.Ordinal)) continue;
+                    ownerTreeRecordings = new List<Recording>(tree.Recordings.Count);
+                    foreach (var kvp in tree.Recordings)
                     {
-                        ownerTree = committedTrees[t];
-                        break;
+                        if (kvp.Value != null)
+                            ownerTreeRecordings.Add(kvp.Value);
                     }
+                    break;
                 }
             }
 
-            List<Recording> ownerTreeRecordings = null;
-            if (ownerTree?.Recordings != null && ownerTree.Recordings.Count > 0)
-            {
-                ownerTreeRecordings = new List<Recording>(ownerTree.Recordings.Count);
-                foreach (var kvp in ownerTree.Recordings)
-                {
-                    if (kvp.Value != null)
-                        ownerTreeRecordings.Add(kvp.Value);
-                }
-            }
-
-            // Live-recordings dict is committed-only by design. Re-Fly forks
-            // commit before Rewind is reachable (the merge-journal precondition
-            // above refuses Rewind during an in-flight commit), so the committed
-            // list is the authoritative "currently visible" set for supersede
-            // compute. Pending/uncommitted recordings aren't yet superseding
-            // anything, so excluding them is the right behavior.
             var liveById = new Dictionary<string, Recording>(StringComparer.Ordinal);
             for (int i = 0; i < committedRecordings.Count; i++)
             {
@@ -6404,392 +6286,40 @@ namespace Parsek
                     liveById[liveRec.RecordingId] = liveRec;
             }
 
-            RewindSupersedeRollbackResult rollback = DropSupersedesRewoundOutOfExistenceDetailedPure(
-                owner,
-                rewindAdjustedUT,
-                ownerTreeRecordings,
-                liveById,
-                scenario.RecordingSupersedes);
-            int dropped = rollback.DroppedRelationCount;
-            RewindRetirementCounts retirementCounts = EnsureRewindRetirementsForRollback(
-                scenario,
-                rollback,
-                rewindAdjustedUT,
-                liveById,
-                owner.RecordingId);
-            int retired = retirementCounts.ForksAdded;
-            int retiredOldSides = retirementCounts.OldSidesAdded;
-            int skippedNonImmutableOldSides = retirementCounts.OldSidesSkippedNonImmutable;
-            int restoredCount = rollback.RestoredRecordingIds.Count;
+            RewindSupersedeAudit audit = AuditSupersedesKeptAcrossRewindPure(
+                owner, rewindAdjustedUT, ownerTreeRecordings, liveById, scenario.RecordingSupersedes);
 
-            // Invalidate the EffectiveState ERS cache. EffectiveState.ComputeERS
-            // keys its cache on ParsekScenario.SupersedeStateVersion — without the
-            // bump, any cached effective view stays stale until a later load or
-            // unrelated mutation. Every other production supersede mutation
-            // (SupersedeCommit) bumps this counter; the rewind drop must too.
-            //
-            // PreservedForkCount alone (no drops, no retirements) does NOT
-            // require a cache bump: RecordingSupersedes and
-            // RecordingRewindRetirements are both unchanged, so cached ERS stays
-            // correct. The summary log still fires so the audit trail records
-            // what the predicate decided.
-            //
-            // Invariant: the Pass-1 defense path in EnsureRewindRetirementsForRollback
-            // (committed id in RetiredForkRecordingIds without explicit demotion)
-            // performs a remove-then-restore round-trip on RecordingSupersedes —
-            // the apply-drops loop above already removed the relation, and the
-            // defense re-adds the same instance. The supersede list ends up
-            // byte-identical to its pre-call state for that relation, so no
-            // cache bump is strictly required for the defense alone. If a
-            // future change relaxes the apply-drops loop's removal so the
-            // defense becomes a net-add, this guard needs to grow a defense-
-            // path counter (or track scenario.RecordingSupersedes.Count
-            // changes explicitly) to keep ERS coherent.
-            int skippedImmutable = 0;
-            int preservedOpen = 0;
-            foreach (string preservedId in rollback.PreservedForkRecordingIds)
+            if (SuppressLogging)
+                return audit.Rows;
+
+            string ut = rewindAdjustedUT.ToString("F1", CultureInfo.InvariantCulture);
+            if (audit.Rows == 0)
             {
-                Recording preservedRec;
-                if (liveById.TryGetValue(preservedId, out preservedRec)
-                    && preservedRec != null
-                    && preservedRec.MergeState == MergeState.Immutable)
-                    skippedImmutable++;
-                else
-                    preservedOpen++;
+                ParsekLog.Verbose("Rewind",
+                    $"Rewind keeps supersede rows: none in scope rewindUT={ut} owner='{owner.VesselName}' " +
+                    $"treeResolved={(ownerTreeRecordings != null).ToString()}");
+                return 0;
             }
-            int demoted = rollback.DemotedPreservationCount;
-            // Route-timeline events: DELIBERATELY the silent bump, not the Live
-            // variant. Both callers are rewind seams - ExecuteRewindSaveLoad
-            // (mid-rewind, pre-LoadScene: Planetarium still reports the
-            // pre-rewind UT, and a row stamped there would land in the
-            // rewound-out future while the route set is about to be wholesale
-            // reinstalled by ReconciliationBundle.Restore) and
-            // ReapplyRewindSupersedeDropAfterLoad (OnLoad). Any resulting
-            // silent flip is repaired by the revalidation catch-up net on the
-            // next live pass.
-            if (dropped > 0 || retired > 0 || retiredOldSides > 0)
-                scenario.BumpSupersedeStateVersion();
 
-            if ((dropped > 0 || retired > 0 || retiredOldSides > 0
-                    || skippedImmutable > 0 || preservedOpen > 0 || demoted > 0
-                    || skippedNonImmutableOldSides > 0)
-                && !SuppressLogging)
+            ParsekLog.Info("Rewind",
+                $"Rewind keeps supersede rows: rows={audit.Rows.ToString(CultureInfo.InvariantCulture)} " +
+                $"forks={audit.Forks.ToString(CultureInfo.InvariantCulture)} " +
+                $"sealed={audit.Sealed.ToString(CultureInfo.InvariantCulture)} " +
+                $"open={audit.Open.ToString(CultureInfo.InvariantCulture)} " +
+                $"dangling={audit.Dangling.ToString(CultureInfo.InvariantCulture)} " +
+                $"rewindUT={ut} owner='{owner.VesselName}'");
+
+            // One line per distinct fork; a rewound tree carries a handful at most.
+            for (int i = 0; i < audit.ForkIds.Count; i++)
             {
+                string forkId = audit.ForkIds[i];
+                liveById.TryGetValue(forkId, out Recording forkRec);
                 ParsekLog.Info("Rewind",
-                    $"Rewind supersede rollback: dropped={dropped.ToString(CultureInfo.InvariantCulture)} " +
-                    $"retiredForks={retired.ToString(CultureInfo.InvariantCulture)} " +
-                    $"retiredOldSides={retiredOldSides.ToString(CultureInfo.InvariantCulture)} " +
-                    $"skippedNonImmutableOldSides={skippedNonImmutableOldSides.ToString(CultureInfo.InvariantCulture)} " +
-                    $"restored={restoredCount.ToString(CultureInfo.InvariantCulture)} " +
-                    $"skippedImmutable={skippedImmutable.ToString(CultureInfo.InvariantCulture)} " +
-                    $"preservedOpen={preservedOpen.ToString(CultureInfo.InvariantCulture)} " +
-                    $"demoted={demoted.ToString(CultureInfo.InvariantCulture)} " +
-                    $"rewindUT={rewindAdjustedUT.ToString("F1", CultureInfo.InvariantCulture)} " +
-                    $"owner='{owner.VesselName}'");
-
-                // Per-fork preserve / demote audit lines. Bounded by the
-                // number of preserved/demoted forks in this batch (rare event,
-                // typically 0-2 entries) so no rate-limit needed.
-                foreach (string preservedId in rollback.PreservedForkRecordingIds)
-                {
-                    Recording preservedRec;
-                    liveById.TryGetValue(preservedId, out preservedRec);
-                    ParsekLog.Info("Rewind",
-                        $"Preserved canon fork across parent rewind: rec={preservedId} " +
-                        $"mergeState={(preservedRec != null ? preservedRec.MergeState.ToString() : "<missing>")} rewindUT={rewindAdjustedUT.ToString("F1", CultureInfo.InvariantCulture)} " +
-                        $"owner='{owner.VesselName}'");
-                }
-                foreach (string demotedId in rollback.DemotedPreservationIds)
-                {
-                    ParsekLog.Info("Rewind",
-                        $"Demoted fork preservation to drop (priorTip retired): rec={demotedId} " +
-                        $"rewindUT={rewindAdjustedUT.ToString("F1", CultureInfo.InvariantCulture)} " +
-                        $"owner='{owner.VesselName}'");
-                }
+                    $"Kept re-fly fork across rewind: rec={forkId} " +
+                    $"mergeState={(forkRec != null ? forkRec.MergeState.ToString() : "<missing>")} " +
+                    $"rewindUT={ut} owner='{owner.VesselName}'");
             }
-            return dropped;
-        }
-
-        internal struct RewindRetirementCounts
-        {
-            public int ForksAdded;
-            public int OldSidesAdded;
-            // Pass-2 old-side retirements skipped because the dropped supersede's
-            // fork was not Immutable. The priorTip stays
-            // visible so spawn-at-endpoint replays it. See
-            // docs/dev/plans/fix-tree-rewind-supersede-old-side.md.
-            public int OldSidesSkippedNonImmutable;
-        }
-
-        private static RewindRetirementCounts EnsureRewindRetirementsForRollback(
-            ParsekScenario scenario,
-            RewindSupersedeRollbackResult rollback,
-            double rewindAdjustedUT,
-            IReadOnlyDictionary<string, Recording> liveRecordingsById,
-            string ownerRecordingId)
-        {
-            var counts = default(RewindRetirementCounts);
-            if (object.ReferenceEquals(null, scenario) || rollback == null)
-                return counts;
-
-            bool hasForks = rollback.RetiredForkRecordingIds.Count > 0;
-            bool hasOldSides = rollback.RestoredRecordingIds.Count > 0;
-            if (!hasForks && !hasOldSides)
-                return counts;
-
-            if (scenario.RecordingRewindRetirements == null)
-                scenario.RecordingRewindRetirements = new List<RecordingRewindRetirement>();
-
-            // Local scratch — we mutate this set in both passes so a fork retired
-            // in pass 1 is not re-retired as an old side in pass 2 (and a previous
-            // crash-recovery / re-apply iteration that already wrote a row for the
-            // same id is a no-op). ComputeRewindRetiredRecordingIds returns a
-            // fresh HashSet, so mutating it doesn't leak back into the scenario.
-            var seenRetiredIds = EffectiveState.ComputeRewindRetiredRecordingIds(scenario.RecordingRewindRetirements);
-
-            // Pass 1 — fork side (NewRecordingId of every dropped supersede).
-            // These are the Re-Fly result recordings that need to disappear after
-            // the rewind. Retire when the fork's StartUT >= rewindAdjustedUT (so a
-            // fork that started exactly at the rewind boundary still retires; the
-            // owner case is handled by the OldRecordingId never matching the
-            // owner here).
-            foreach (string retiredId in rollback.RetiredForkRecordingIds)
-            {
-                if (string.IsNullOrEmpty(retiredId) || seenRetiredIds.Contains(retiredId))
-                    continue;
-
-                Recording retiredRec = null;
-                if (liveRecordingsById == null
-                    || !liveRecordingsById.TryGetValue(retiredId, out retiredRec)
-                    || retiredRec == null
-                    || retiredRec.StartUT < rewindAdjustedUT)
-                {
-                    continue;
-                }
-
-                // Look up the source relation up front so the Immutable defense
-                // path (next) can re-insert it into RecordingSupersedes.
-                // Without that re-insert, a maintainer-error path that fed an
-                // Immutable id into RetiredForkRecordingIds would leave the
-                // relation already removed from supersedes (the upstream apply
-                // loop mutates the live list), the canon fork un-retired by
-                // this defense, and the priorTip un-superseded — i.e. exactly
-                // the double-materialization regression that PR #776/#777
-                // existed to prevent. Restoring the relation here re-supersedes
-                // the priorTip so only the canon fork is visible.
-                RecordingSupersedeRelation sourceRel = null;
-                for (int i = 0; i < rollback.DroppedRelations.Count; i++)
-                {
-                    var rel = rollback.DroppedRelations[i];
-                    if (rel != null && string.Equals(rel.NewRecordingId, retiredId, StringComparison.Ordinal))
-                    {
-                        sourceRel = rel;
-                        break;
-                    }
-                }
-
-                // Defence-in-depth: the predicate-classifier upstream already
-                // routes every committed fork into preservations (or, when its
-                // priorTip is itself retired in the same batch, demotes it
-                // explicitly). Refuse to write a retirement for a committed
-                // recording the upstream classifier did NOT explicitly demote:
-                // that path indicates a maintainer-error code path populated
-                // RetiredForkRecordingIds with a fork a rewind must keep.
-                bool wasExplicitlyDemoted =
-                    rollback.DemotedPreservationIds.Contains(retiredId);
-                if (retiredRec.MergeState != MergeState.NotCommitted
-                    && !wasExplicitlyDemoted)
-                {
-                    bool restoredSupersedeLink = false;
-                    if (sourceRel != null
-                        && scenario.RecordingSupersedes != null
-                        && !scenario.RecordingSupersedes.Contains(sourceRel))
-                    {
-                        scenario.RecordingSupersedes.Add(sourceRel);
-                        restoredSupersedeLink = true;
-
-                        // Pass 2 (old-side, below) iterates RestoredRecordingIds
-                        // and would otherwise write a RewoundOutOldSideReason
-                        // retirement for sourceRel.OldRecordingId. With the
-                        // relation re-inserted here, the priorTip is logically
-                        // superseded again — retiring it would be a redundant
-                        // row that adds noise to the audit log and bumps the
-                        // cache version for nothing. Remove it from the set so
-                        // the old-side pass sees the correct semantic state.
-                        if (!string.IsNullOrEmpty(sourceRel.OldRecordingId))
-                            rollback.RestoredRecordingIds.Remove(sourceRel.OldRecordingId);
-                    }
-                    if (!SuppressLogging)
-                        ParsekLog.Warn("Rewind",
-                            $"Skipping retirement for committed fork rec={retiredId} mergeState={retiredRec.MergeState} " +
-                            (restoredSupersedeLink
-                                ? $"and re-inserting supersede relation {sourceRel.RelationId ?? "<no-id>"} (priorTip stays superseded) "
-                                : "(no source relation to restore — priorTip may render alongside canon, investigate) ") +
-                            $"— predicate-classifier should have preserved or explicitly demoted this. " +
-                            $"Investigate the upstream Pass 1/Pass 2 logic.");
-                    continue;
-                }
-
-                // A demoted fork carries a distinct Reason so LoadTimeSweep's
-                // legacy-Immutable sweep can tell an intentional retirement
-                // apart from pre-fix bad state; without the tag a legitimate
-                // Pass-2 demotion saved to disk would be undone on next load.
-                string retirementReason;
-                if (wasExplicitlyDemoted)
-                    retirementReason = RecordingRewindRetirement.DemotedCanonReason;
-                else
-                    retirementReason = RecordingRewindRetirement.DefaultReason;
-                var retirement = new RecordingRewindRetirement
-                {
-                    RetirementId = "rrt_" + Guid.NewGuid().ToString("N"),
-                    RecordingId = retiredId,
-                    RestoredRecordingId = sourceRel?.OldRecordingId,
-                    SourceSupersedeRelationId = sourceRel?.RelationId,
-                    RewindUT = rewindAdjustedUT,
-                    CreatedUT = CurrentUniversalTimeForRewindRetirement(),
-                    CreatedRealTime = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
-                    Reason = retirementReason,
-                };
-                scenario.RecordingRewindRetirements.Add(retirement);
-                seenRetiredIds.Add(retiredId);
-                counts.ForksAdded++;
-
-                if (!SuppressLogging)
-                    ParsekLog.Info("Rewind",
-                        $"Retired rewound-out fork rec={retiredId} " +
-                        $"restored={retirement.RestoredRecordingId ?? "<none>"} " +
-                        $"sourceRel={retirement.SourceSupersedeRelationId ?? "<none>"} " +
-                        $"rewindUT={rewindAdjustedUT.ToString("F1", CultureInfo.InvariantCulture)}");
-            }
-
-            // Pass 2 — old side (OldRecordingId of every dropped supersede that
-            // was not also a fork). When the rewind lands BEFORE every recording
-            // in the rewound subtree, the originals that were superseded by the
-            // (now-retired) fork are themselves "rewound out of existence" only
-            // when the supersede was a *permanent* (canon Immutable) replacement.
-            // For non-canon supersedes — CommittedProvisional, NotCommitted,
-            // or orphan-fallback drops — the priorTip stays visible: the
-            // supersede was a tentative re-fly attempt the rewind rolled back,
-            // and spawn-at-endpoint replays the original ghost as the active
-            // vessel reaches its endpoint (see
-            // docs/dev/plans/fix-tree-rewind-supersede-old-side.md, and
-            // logs/2026-05-13_2335_kerbal-x-booster-ghost-missing for the
-            // reproduction). Use STRICT `>` against rewindAdjustedUT so
-            // recordings whose StartUT equals the rewind boundary stay visible
-            // (the "rewind to launch" pattern modeled by
-            // DetailedRollback_MultiGenerationalChain_RetiresForksAndRestoresOnlyOrigin).
-            // Skip the owner explicitly: the owner's StartUT can exceed
-            // rewindAdjustedUT due to RewindToLaunchLeadTimeSeconds, but the
-            // owner is the recording the rewind lands AT, not future content to
-            // hide.
-            foreach (string oldSideId in rollback.RestoredRecordingIds)
-            {
-                if (string.IsNullOrEmpty(oldSideId) || seenRetiredIds.Contains(oldSideId))
-                    continue;
-
-                if (!string.IsNullOrEmpty(ownerRecordingId)
-                    && string.Equals(oldSideId, ownerRecordingId, StringComparison.Ordinal))
-                {
-                    if (!SuppressLogging)
-                        ParsekLog.Verbose("Rewind",
-                            $"Old-side retirement skipped for owner rec={oldSideId} " +
-                            $"(rewind target — owner stays visible)");
-                    continue;
-                }
-
-                Recording oldSideRec = null;
-                if (liveRecordingsById == null
-                    || !liveRecordingsById.TryGetValue(oldSideId, out oldSideRec)
-                    || oldSideRec == null
-                    || oldSideRec.StartUT <= rewindAdjustedUT)
-                {
-                    continue;
-                }
-
-                // The priorTip only stays permanently retired when at least
-                // one dropped relation targeting it represented a permanent
-                // (canon Immutable, reachable only through a demotion) supersede. For
-                // non-canon supersedes the rewind rolls them back: the
-                // priorTip is the restored canonical state.
-                if (!AnyDroppedRelationRetiresPriorTipPermanently(
-                        oldSideId, rollback, liveRecordingsById))
-                {
-                    counts.OldSidesSkippedNonImmutable++;
-                    if (!SuppressLogging)
-                        ParsekLog.Verbose("Rewind",
-                            $"Old-side retirement skipped for rec={oldSideId} " +
-                            $"reason=fork-non-immutable " +
-                            $"rewindUT={rewindAdjustedUT.ToString("F1", CultureInfo.InvariantCulture)} " +
-                            $"(provisional re-fly rolled back; priorTip stays visible for spawn-at-endpoint)");
-                    continue;
-                }
-
-                var retirement = new RecordingRewindRetirement
-                {
-                    RetirementId = "rrt_" + Guid.NewGuid().ToString("N"),
-                    RecordingId = oldSideId,
-                    // Old-side rows have no "thing they were superseded by" to
-                    // restore — they ARE the original. LoadTimeSweep +
-                    // TreeDiscardPurge gate on null RestoredRecordingId.
-                    RestoredRecordingId = null,
-                    // An old-side row can be the OldRecordingId of multiple
-                    // dropped relations (fan-in into a single fork); picking one
-                    // is misleading. Null says "no single source rel".
-                    SourceSupersedeRelationId = null,
-                    RewindUT = rewindAdjustedUT,
-                    CreatedUT = CurrentUniversalTimeForRewindRetirement(),
-                    CreatedRealTime = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
-                    Reason = RecordingRewindRetirement.RewoundOutOldSideReason,
-                };
-                scenario.RecordingRewindRetirements.Add(retirement);
-                seenRetiredIds.Add(oldSideId);
-                counts.OldSidesAdded++;
-
-                // Verbose per-row: a wide rewound subtree can produce many
-                // old-side retirements in one rollback; the summary line
-                // (`retiredOldSides=N` in the rollback summary) carries the
-                // count at INFO. Per CLAUDE.md batch-counting convention.
-                if (!SuppressLogging)
-                    ParsekLog.Verbose("Rewind",
-                        $"Retired rewound-out old-side rec={oldSideId} " +
-                        $"startUT={oldSideRec.StartUT.ToString("F1", CultureInfo.InvariantCulture)} " +
-                        $"rewindUT={rewindAdjustedUT.ToString("F1", CultureInfo.InvariantCulture)}");
-            }
-
-            return counts;
-        }
-
-        private static double CurrentUniversalTimeForRewindRetirement()
-        {
-            try
-            {
-                if (CurrentUniversalTimeForRewindRetirementOverrideForTesting != null)
-                    return CurrentUniversalTimeForRewindRetirementOverrideForTesting();
-                return Planetarium.GetUniversalTime();
-            }
-            catch (Exception ex)
-            {
-                double fallback = RewindContext.RewindAdjustedUT;
-                if (RewindContext.IsRewinding && IsFinite(fallback))
-                {
-                    if (!SuppressLogging)
-                        ParsekLog.Verbose("Rewind",
-                            "Retirement createdUT fallback to rewindAdjustedUT=" +
-                            fallback.ToString("F1", CultureInfo.InvariantCulture) +
-                            $" after UT read failed ({ex.GetType().Name})");
-                    return fallback;
-                }
-
-                if (!SuppressLogging)
-                    ParsekLog.Verbose("Rewind",
-                        $"Retirement createdUT unavailable; writing NaN after UT read failed ({ex.GetType().Name})");
-                return double.NaN;
-            }
-        }
-
-        private static bool IsFinite(double value)
-        {
-            return !double.IsNaN(value) && !double.IsInfinity(value);
+            return audit.Rows;
         }
 
         private static void DeleteTemporaryRewindSaveCopy(string tempCopyName)
