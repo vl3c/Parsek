@@ -60,6 +60,12 @@ Modes:
              category than per-category lines present (a category batch cut off before
              its BATCH_COMPLETE) -- the SF2 count-mismatch defined fault the harness must
              red batch-incomplete instead of reading green off the mis-counted aggregate.
+  repeatfail like pass, but every RunTests AFTER the first emits failed=1 and writes a
+             results file with one FAIL row: L13's second-batch failure, which the
+             batch row used to miss by reading only the first same-category line.
+  repeatcut  like pass, but every RunTests after the first answers OK and emits NO
+             BATCH_COMPLETE (a later batch cut off before its summary): the harness
+             must red batch-incomplete, never pass off the earlier line.
   scene-route-wrong
              R12 negative control. Like `pass`, but the boot LoadGame IGNORES its
              scene= argument: it still answers verdict=OK (with scene=SPACECENTER in the
@@ -142,6 +148,7 @@ def main(argv=None):
                                  "autopilot", "autopilot-loadfail",
                                  "autopilot-kerballost", "autopilot-evarefused",
                                  "multipass", "multinoagg", "multimismatch",
+                                 "repeatfail", "repeatcut",
                                  "scene-route-wrong"])
     parser.add_argument("--max-seconds", type=float, default=120.0)
     args = parser.parse_args(argv)
@@ -178,6 +185,7 @@ def main(argv=None):
     # stamps its BATCH_COMPLETE line -- the same coupling a real run has, and the whole
     # reason a wrong-scene boot is observable at all.
     landing_scene = DEFAULT_LANDING_SCENE
+    run_tests_seen = 0
 
     while time.time() < deadline:
         for line in _read_commands(os.path.join(root, COMMANDS)):
@@ -222,7 +230,18 @@ def main(argv=None):
                     _append(log_path, "[LOG] [Parsek][INFO][Recorder] Recording stopped\n")
             if cmd == "RunTests":
                 category = fields.get("category", "RecordingInvariants")
-                if args.mode in ("multipass", "multinoagg", "multimismatch"):
+                run_tests_seen += 1
+                repeat = run_tests_seen > 1
+                if args.mode == "repeatcut" and repeat:
+                    pass  # the later batch never prints its summary
+                elif args.mode == "repeatfail" and repeat:
+                    _append(log_path,
+                            "[LOG] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=5 "
+                            "passed=4 failed=1 skipped=0 category=%s scene=%s\n"
+                            % (category, landing_scene))
+                    _write_results(os.path.join(root, RESULTS), category, failed=True)
+                    category = None
+                elif args.mode in ("multipass", "multinoagg", "multimismatch"):
                     _emit_multi_batch(log_path, category,
                                       emit_aggregate=(args.mode != "multinoagg"),
                                       count_delta=(1 if args.mode == "multimismatch" else 0))
@@ -240,7 +259,8 @@ def main(argv=None):
                             "[LOG] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=5 "
                             "passed=5 failed=0 skipped=0 category=%s scene=%s\n"
                             % (category, landing_scene))
-                _write_results(os.path.join(root, RESULTS), category)
+                if category is not None:
+                    _write_results(os.path.join(root, RESULTS), category)
             if eva_refused:
                 _append(responses_path,
                         "id=%s cmd=%s verdict=REJECTED seq=%d msg=kerbal-not-aboard\n"
@@ -430,17 +450,30 @@ def _emit_multi_batch(log_path, category, emit_aggregate, count_delta=0):
                 % (total, total, len(cats) + count_delta))
 
 
-def _write_results(path, category):
-    text = (
-        "PARSEK TEST RESULTS\n"
-        "===================\n"
-        "ALL RESULTS (grouped by scene)\n"
-        "  FLIGHT\n"
-        "    PASSED  %s.SomeTest\n"
-        "\n"
-        "FAILURES (grouped by scene)\n"
-        "  (none)\n"
-    ) % category
+def _write_results(path, category, failed=False):
+    if failed:
+        text = (
+            "PARSEK TEST RESULTS\n"
+            "===================\n"
+            "ALL RESULTS (grouped by scene)\n"
+            "  FLIGHT\n"
+            "    FAILED  %s.SomeTest\n"
+            "\n"
+            "FAILURES (grouped by scene)\n"
+            "  FLIGHT\n"
+            "    FAIL  %s.SomeTest\n"
+        ) % (category, category)
+    else:
+        text = (
+            "PARSEK TEST RESULTS\n"
+            "===================\n"
+            "ALL RESULTS (grouped by scene)\n"
+            "  FLIGHT\n"
+            "    PASSED  %s.SomeTest\n"
+            "\n"
+            "FAILURES (grouped by scene)\n"
+            "  (none)\n"
+        ) % category
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(text)
 

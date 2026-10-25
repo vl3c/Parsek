@@ -102,6 +102,11 @@ class DriverValidity:
     gating_verbs: List[str] = field(default_factory=list)
     recording_refusal: Optional["hlib.StepOutcome"] = None
     recording_refusal_subkind: str = ""
+    # A VALID driver stage with a driven seam step that still missed its expect: after
+    # DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS only a post-mission recording verb's own
+    # ERROR (or an outcome ERROR, already mission_outcome_unmet) leaves the stage valid,
+    # and classify_verdict reds this PARSEK-FAIL(unmet-step) so no such run reads PASS.
+    unmet_step: bool = False
 
 
 def drive_stop_subkind(ev: "hlib.ResponseEvaluation", mission: Optional[Dict]) -> str:
@@ -119,11 +124,13 @@ def drive_stop_subkind(ev: "hlib.ResponseEvaluation", mission: Optional[Dict]) -
       - seam-only, and any step before the mission: the first unmet step owns the
         subkind and every later step is behind it;
       - after a MET mission: an outcome step's driver-fault miss owns it when it is
-        the first unmet outcome step, and a refused recording step owns it when it is
-        the first unmet post-mission step; both are fixed once driven. A post-mission
-        miss that does NOT invalidate the stage (a flight-outcome ERROR, which reds
-        PARSEK-FAIL(mission-outcome), or a non-refusal recording miss) answers "",
-        so the tail the verifiers read is still driven.
+        the first unmet outcome step, and a recording step the seam did not carry out
+        (refused, timed out, unanswered) owns it when it is the first unmet
+        post-mission step; both are fixed once driven. A post-mission miss that does
+        NOT invalidate the stage (a flight-outcome ERROR, which reds
+        PARSEK-FAIL(mission-outcome), or a recording verb's own ERROR, which reds
+        PARSEK-FAIL(unmet-step)) answers "", so the tail the verifiers read is still
+        driven.
     An UNMET mission answers "": the unmet-mission tail (with its spec opt-out) owns
     that tail."""
     if mission is not None and not mission.get("met"):
@@ -143,14 +150,18 @@ def compose_driver_validity(ev: "hlib.ResponseEvaluation", mission: Optional[Dic
     if mission is None:
         # Seam-only driver: every seam step gates validity (unchanged M-A5).
         driver_valid = ev.all_expected_met and not boot_crashed and not batch_crashed
-        return DriverValidity(driver_valid, stage_subkind_for(ev.first_unmet))
+        return DriverValidity(driver_valid, stage_subkind_for(ev.first_unmet),
+                              unmet_step=driver_valid and _any_unmet(ev))
     # Autopilot driver (design classification carve-out): validity is gated by
     # the steps UP TO AND INCLUDING the mission handoff -- LoadGame/SetSetting
-    # (pre-mission seam steps) plus the mission verdict. Post-mission seam steps
-    # (CommitTree/FlushAndQuit) are RECORDED but NON-gating on a MISSION-OK run:
-    # a good flight Parsek then failed to record is a PARSEK-FAIL(expectation),
-    # NOT a driver-INVALID a retry would paper over. When the mission itself did
-    # NOT return MISSION-OK, its subkind drives the driver-INVALID.
+    # (pre-mission seam steps) plus the mission verdict. A post-mission RECORDING
+    # step's own ERROR (CommitTree/FlushAndQuit acted and failed) does not invalidate
+    # the stage on a MISSION-OK run: a good flight Parsek then failed to record is a
+    # PARSEK-FAIL, NOT a driver-INVALID a retry would paper over (unmet_step below
+    # makes sure it is never a PASS). A post-mission step the seam did not carry out
+    # (no reply, TIMEOUT, a refusal) is a driver fault, see the first-post-unmet
+    # rule below. When the mission itself did NOT return MISSION-OK, its subkind
+    # drives the driver-INVALID.
     mission_id = mission["id"]
     pre_steps = [s for s in ev.steps if s.step_id < mission_id]
     pre_unmet = next((s for s in pre_steps if not s.met), None)
@@ -190,11 +201,13 @@ def compose_driver_validity(ev: "hlib.ResponseEvaluation", mission: Optional[Dic
     if outcome_driver_subkind:
         driver_valid = False
         stage_subkind = outcome_driver_subkind
-    # The same rule for a post-mission RECORDING step the seam REFUSED, when it is the
-    # FIRST unmet post-mission step (QL-2-RECOVER-REFUSED-WHILE-SLIDING): the refusal is
-    # the cause and every later miss its cascade, so the run is the refusal's
+    # The same rule for a post-mission RECORDING step the seam REFUSED, timed out on or
+    # never answered, when it is the FIRST unmet post-mission step
+    # (QL-2-RECOVER-REFUSED-WHILE-SLIDING, DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS): that
+    # miss is the cause and every later miss its cascade, so the run is the step's
     # driver-INVALID (retryable) rather than a PARSEK-FAIL(expectation) read off the
-    # tokens the refused step never let print. Being first, it precedes any outcome miss.
+    # tokens the step never let print, or a PASS when no token was pinned. Being first,
+    # it precedes any outcome miss.
     first_post_unmet = hlib.first_unmet_post_mission_step(ev.steps, mission_id)
     # Only on an otherwise valid pre-mission stage: an unmet pre-mission step keeps
     # its own subkind.
@@ -238,4 +251,11 @@ def compose_driver_validity(ev: "hlib.ResponseEvaluation", mission: Optional[Dic
                           detail_mission, detail_outcome, outcome_unmet,
                           is_flight_outcome, outcome_driver_subkind, gating_verbs,
                           first_post_unmet if recording_refusal_subkind else None,
-                          recording_refusal_subkind)
+                          recording_refusal_subkind,
+                          unmet_step=driver_valid and _any_unmet(ev))
+
+
+def _any_unmet(ev: "hlib.ResponseEvaluation") -> bool:
+    """True when any DRIVEN seam step missed its expect (the mission step is not a seam
+    step and never appears in ``ev.steps``)."""
+    return any(not s.met for s in ev.steps)

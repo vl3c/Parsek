@@ -3482,6 +3482,69 @@ class MultiCategoryBatchSmokeTests(unittest.TestCase):
         self.assertEqual(2, bc["perCategoryCount"])
 
 
+class RepeatedBatchSmokeTests(unittest.TestCase):
+    """HARNESS-GATES-ON-THE-FIRST-OF-TWO-SAME-CATEGORY-BATCHES over the REAL run loop:
+    a spec driving one category twice (L13's shape) gates on BOTH batch lines. A
+    failing second batch reaches the batch row's `failed`, and a second batch cut off
+    before its BATCH_COMPLETE reds batch-incomplete instead of passing off the first
+    line. The spec here pins only `failed=0\\b`, which the passing first line satisfies,
+    so the batch row is the only gate that can see either fault."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-repeatbatch-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "repeatbatch_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _repeat_spec(self):
+        spec = _make_spec(self.template, 30, 600)
+        spec["id"] = "SMOKE-repeat"
+        steps = spec["driver"]["steps"]
+        idx = next(i for i, s in enumerate(steps) if s.get("cmd") == "RunTests")
+        steps.insert(idx + 1, copy.deepcopy(steps[idx]))
+        return spec
+
+    def _run(self, mode):
+        return run.run_attempt(self._repeat_spec(), self.instance, self.tmp,
+                               FakeRuntime(mode), attempt=1, prior_boot_crashed=False,
+                               logger=self.logger)
+
+    def test_two_passing_batches_pass(self):
+        result = self._run("pass")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"],
+                         "expected PASS, got %s (%s)" % (result["verdict"], result.get("subkind")))
+        bc = result["verifiers"]["batchComplete"]
+        self.assertEqual((2, 2, False), (bc["matchedRuns"], bc["expectedRuns"], bc["runsShort"]))
+
+    def test_a_failing_second_batch_reaches_the_batch_row(self):
+        result = self._run("repeatfail")
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, result["verdict"])
+        self.assertEqual("results", result["subkind"])
+        self.assertEqual(1, result["verifiers"]["batchComplete"]["failed"])
+        self.assertEqual(1, result["verifiers"]["testResults"]["batchFailed"])
+
+    def test_a_cut_off_second_batch_reds_batch_incomplete(self):
+        result = self._run("repeatcut")
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, result["verdict"])
+        self.assertEqual("batch-crashed", result["subkind"])
+        bc = result["verifiers"]["batchComplete"]
+        self.assertEqual("FAIL", bc["status"])
+        self.assertTrue(bc["runsShort"])
+        self.assertEqual((1, 2), (bc["matchedRuns"], bc["expectedRuns"]))
+
+
 class SceneRoutedBootSmokeTests(unittest.TestCase):
     """R12 over the REAL run loop (fake runtime). Two things are proven here.
 

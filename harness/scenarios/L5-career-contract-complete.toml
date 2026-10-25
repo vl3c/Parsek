@@ -137,9 +137,9 @@ mission = "science_bench_recover"
 #     measured it a third time on this fixture. Since 2026-10-03 the seam answers
 #     that shape at once with `REJECTED not-in-flight`
 #     (`TestCommandDispatcher.RejectOutsideFlightVerbs`; todo
-#     HARNESS-POST-FLIGHT-DIALOG-STALLS). `hlib.SEAM_VERB_POST_MISSION_ROLE` files
-#     the verb as `recording`, which is NON-GATING on a MISSION-OK run. Keeping it
-#     means a future change to the recovery teardown reds here rather than passing
+#     HARNESS-POST-FLIGHT-DIALOG-STALLS). Since 2026-10-25 an unmet post-mission
+#     recording step never reads PASS (DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS), so
+#     keeping it means a future change to the recovery teardown reds here rather than passing
 #     silently.
 steps = [
   { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },    expect = "OK", budget = 300 },

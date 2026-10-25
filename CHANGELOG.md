@@ -16,6 +16,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A kerbal stepping out is never thrown away as an idle flight.** Visiting a landed vessel that
+  another mission left a kerbal aboard, stepping him out and recovering him without moving 30 m
+  used to be discarded as "idle on the pad", leaving him reserved by the old mission forever. The
+  flight is now kept, so he is free again. (CX4-IDLE-DISCARDED-FLIGHT-LEAVES-THE-HOLD-OPEN)
 - **A vessel a kerbal boarded from another mission stays visible after a rewind.** If a recorded
   kerbal boarded a hatch or took a seat on a vessel that was not part of his flight, a
   Rewind-to-Launch removed that vessel until the boarding; it now waits where it was, drawn as a
@@ -62,6 +66,12 @@ _(unreleased - entries accumulate here per commit)_
   batch. (LEDGER-GROUND-TRUTH-WALKS-PAST-THE-CLOCK)
 - **A test batch's save backup no longer fails on a deep install.** The backup folder name is
   shorter, so its deepest copy stays under Windows' path limit. (BATCH-ISOLATION-CAPTURE-FAILS-IN-THE-EDITOR)
+- **Harness: a lane that runs one test batch twice is judged on both.** A failure in the second
+  batch, or a second batch that never finished, now turns the run red; before, only the first
+  batch counted. (HARNESS-GATES-ON-THE-FIRST-OF-TWO-SAME-CATEGORY-BATCHES)
+- **Harness: a lane with a test step that timed out can no longer pass.** A step after the flight
+  that timed out or got no answer now marks the run invalid and retries it, and one that failed
+  outright turns it red. (DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS)
 
 ---
 
