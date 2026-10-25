@@ -133,7 +133,14 @@ _PRUNE_PARSEK_SUBDIRS = ("Saves",)
 # whole recorded payload the fixture exists for. Mirrors the `Parsek/Saves`
 # clause below and is gated the same way, by
 # `CommittedFixtureQuarantineTests` in harness/lib/test_hlib.py.
-_PRUNE_RECORDINGS_SUBDIRS = ("_quarantine",)
+# `_versions` is `ParsekFileCollector`'s retained-version store
+# (`_versions/<id>.<hash><suffix>`): earlier sidecar versions kept only while a
+# referrer save (`*.sfs`, `Backup/*.sfs`) names their (id, hash). A harvest copies
+# persistent.sfs alone, whose RECORDING rows name the HEAD hashes, so every retained
+# version in a fixture is unnamed and the collector would delete it on the first
+# load. Found by `cs-science-flea` (CS-1's produced save, 2026-10-26): three
+# versions of its one recording, each a .prec with no readable mirror.
+_PRUNE_RECORDINGS_SUBDIRS = ("_quarantine", "_versions")
 
 
 def log(msg: str) -> None:
@@ -666,7 +673,7 @@ def _ignore_pruned_keep_parsek(directory, names):
     # is untouched.
     if os.path.basename(directory) == "Parsek":
         pruned |= set(n for n in names if n in _PRUNE_PARSEK_SUBDIRS)
-    # Drop Parsek/Recordings/_quarantine wholesale (see
+    # Drop Parsek/Recordings/_quarantine and _versions wholesale (see
     # _PRUNE_RECORDINGS_SUBDIRS). Matched on BOTH path components rather than on
     # the leaf name alone, exactly as the Parsek/Saves clause above is: a
     # same-named directory elsewhere in the tree is untouched.

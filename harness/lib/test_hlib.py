@@ -10401,6 +10401,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "CS-0-new-science-game.toml": "tier=operator as a FIXTURE BUILDER, NOT debt: it creates a genuine stock New Game (Science, Normal) through the NewGame seam verb on the stock-tree instance, and its produced save is harvested once as `cs-science-new`, the host of CS-1. Its value is the harvested fixture, not a regression floor. FLOWN PASS `2026-10-25_1743` and harvested; owed: nothing but the ordinary promotion call",
         "CS-1-science-first-hop.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 1 on the harvested `cs-science-new` new game; its first flight `2026-10-25_1752` was INVALID on the save's stock asteroid (LoadGame now forces the Space Center). Owed: the re-flight, then the ordinary promotion call",
         "SCI-1-science-reearned-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: science re-earned after a Rewind-to-Launch on career-science-pad (L3's pad Goo hop committed, rewound, the Goo re-run unrecorded on the pad, then the LedgerGroundTruth batch); authored 2026-10-25, NEVER FLOWN, predicted from source to red on todo SCIENCE-REEARN-AFTER-REWIND-TAKES-FULL-CREDIT. Owed: the first flight, then the ordinary promotion call",
+        "CS-2-science-engineering101.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 2 on `cs-science-flea` (CS-1's produced save): research Engineering 101, fly the Flea with a Communotron 16-S and a 2HOT Thermometer, transmit, recover, then the first SCIENCE-mode LedgerGroundTruth. Written 2026-10-26, never flown. Owed: the reading run, then the batch-tally pin and the ordinary promotion call",
         "CS-0-new-career-game.toml": "tier=operator as a FIXTURE BUILDER, NOT debt: CS-0-new-science-game's Career twin; its produced save is harvested once as `cs-career-new`, the host of the Career half of the campaign ladder. FLOWN PASS `2026-10-25_1744` and harvested; owed: nothing but the ordinary promotion call",
         # THE GC-3 INERT-TREE LANE, 2026-10-22.
         "GC-3-other-generation-tree-kept-inert.toml": "tier=operator by the calibration discipline, NOT debt: the live proof of GC-3 (PR #2158, todo GC3-SCHEMA-REJECTED-TREES-LOSE-EARNED-VALUE) on the derived `career-earned-pad-oldgen` fixture (tree-level generation 3): the tree is set aside inert on a cold boot, written back verbatim by a SaveGame, and set aside again by a cold save-file reload, with its tagged ledger rows kept. AUTHORED 2026-10-22, LIVE-PROVEN on its first flight `2026-10-22_1226`; every pinned count is derived from source and the fixture bytes (kept equal by test_career_earned_pad_oldgen.GC3SpecFixtureSyncTests)",
@@ -24582,10 +24583,10 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
     asserts BOTH halves, so a later sweep cannot quietly take the cited surface
     with it.
 
-    THREE EXEMPTIONS, and all three are facts about what Parsek WRITES rather than
+    FOUR EXEMPTIONS, and all four are facts about what Parsek WRITES rather than
     concessions. `RecordingSidecarStore.SaveRecordingFiles` writes a
     `_vessel.craft` only when the recording carries a `VesselSnapshot`, and there
-    are three shapes where it legitimately does not:
+    are four shapes where it legitimately does not:
 
       * a chain CONTINUATION recording (`chainIndex > 0`) is the same physical
         vessel as its chain head and reuses the head's snapshot. See
@@ -24599,10 +24600,15 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
         `rover-relay-c-recorded`, where the guid correlator above cannot see a
         shape the sibling fixture only passes by luck of which half won the merged
         vessel's identity.
+      * a RECOVERED leaf (`terminalState = 5`): stock removed the craft, so there is
+        nothing to spawn and only the `_ghost.craft` is written. See
+        `_recovered_leaves_without_own_snapshot`, added 2026-10-26 with
+        `cs-science-flea`.
 
-    All three are unioned in `_stems_exempt_from_vessel_snapshot`, and all three
-    are narrow in the same way: the exemption exists only when the snapshot the
-    pruned mirror would be rebuilt from IS committed somewhere in that fixture."""
+    All four are unioned in `_stems_exempt_from_vessel_snapshot`, and each is
+    narrow: the exemption exists only when the snapshot the pruned mirror would be
+    rebuilt from IS committed somewhere in that fixture, or (shapes three and four)
+    when no mirror ever existed and the committed sidecar beside it is named."""
 
     SNAPSHOT_MIRROR_SUFFIXES = ("_vessel.craft.txt", "_ghost.craft.txt")
 
@@ -24658,7 +24664,46 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
         """The union of the three legitimate shapes; see the class docstring."""
         return (self._chain_continuations_without_own_snapshot(committed)
                 | self._same_launch_recordings_without_own_snapshot(committed)
-                | self._dock_merge_parents_without_own_snapshot(committed))
+                | self._dock_merge_parents_without_own_snapshot(committed)
+                | self._recovered_leaves_without_own_snapshot(committed))
+
+    _TERMINAL_STATE_RE = re.compile(r"^\s*terminalState = (\d+)\s*$", re.MULTILINE)
+    # TerminalState.Recovered (Source/Parsek/TerminalState.cs).
+    _TERMINAL_RECOVERED = "5"
+
+    def _recovered_leaves_without_own_snapshot(self, committed):
+        """Stems a missing `_vessel.craft` is legitimate for, shape FOUR.
+
+        A RECOVERED recording has no vessel to spawn: stock removed the craft, so the
+        merge's vessel decision reads `terminal=Recovered hasSnapshot=False
+        canPersist=False` and `RecordingSidecarStore.SaveRecordingFiles` writes only its
+        `_ghost.craft`. As with shape three NOTHING IS PRUNED here: the
+        `_vessel.craft.txt` mirror never existed either.
+
+        FOUND BY `cs-science-flea` (2026-10-26), CS-1's produced save: the scripted
+        campaign's first hop ends in a recovery and the save's one recording
+        (`08a7d6e7...`, `terminalState = 5`) carries no vessel snapshot in the run's own
+        save (`LoadRecordingFiles: ... hasVesselSnapshot=False hasGhostSnapshot=True`).
+
+        NARROW: the recording's RECORDING node must say `terminalState = 5` AND its
+        `_ghost.craft` must be committed, so a recovered recording that lost its ghost
+        geometry still reds."""
+        exempt = set()
+        for name in sorted(os.listdir(FIXTURE_SAVES_DIR)):
+            sfs = os.path.join(FIXTURE_SAVES_DIR, name, "persistent.sfs")
+            if not os.path.isfile(sfs):
+                continue
+            with open(sfs, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+            prefix = "%s/Parsek/Recordings/" % name
+            for block in self._RECORDING_BLOCK_RE.split(text)[1:]:
+                rid = self._RECORDING_ID_RE.search(block)
+                state = self._TERMINAL_STATE_RE.search(block)
+                if rid is None or state is None or state.group(1) != self._TERMINAL_RECOVERED:
+                    continue
+                if (prefix + rid.group(1) + "_ghost.craft") in committed:
+                    exempt.add(prefix + rid.group(1))
+        return exempt
 
     def _chain_continuations_without_own_snapshot(self, committed):
         """Stems a missing `_vessel.craft` is LEGITIMATE for.

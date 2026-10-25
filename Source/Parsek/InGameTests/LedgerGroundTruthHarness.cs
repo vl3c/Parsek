@@ -58,13 +58,45 @@ namespace Parsek.InGameTests
 
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
+        /// <summary>
+        /// Null when the ground truth can run in <paramref name="mode"/> with the live pool
+        /// singletons present, else the Skip reason. A Science game has only the science
+        /// pool (stock creates no Funding / Reputation scenario there, so the parsed save
+        /// carries no funds or rep facet and the diff skips both); a Sandbox game has no
+        /// pool at all.
+        /// </summary>
+        internal static string GroundTruthModeSkipReason(
+            Game.Modes mode, bool hasFunding, bool hasResearch, bool hasReputation)
+        {
+            if (mode == Game.Modes.CAREER)
+            {
+                return hasFunding && hasResearch && hasReputation
+                    ? null
+                    : "Funding/R&D/Reputation singletons are not all initialized";
+            }
+            if (mode == Game.Modes.SCIENCE_SANDBOX)
+            {
+                return hasResearch
+                    ? null
+                    : "R&D singleton is not initialized";
+            }
+            return $"Ledger ground-truth verification needs a career or science game (mode={mode})";
+        }
+
+        /// <summary>The pools the live game holds in <paramref name="mode"/>, for the log line.</summary>
+        internal static string GroundTruthPoolsForMode(Game.Modes mode)
+        {
+            return mode == Game.Modes.CAREER ? "funds,science,reputation" : "science";
+        }
+
         [InGameTest(Category = "LedgerGroundTruth", Scene = GameScenes.FLIGHT,
             Description = "NON-CIRCULAR closed loop: quicksaves the live career at the current UT, "
               + "parses that .sfs INDEPENDENTLY of the ledger, runs RecalculateAndPatch, and diffs "
               + "the reconstruction against the parsed save (funds/science/rep/per-subject/facilities/"
               + "contracts/milestones + vessel-recovery consistency). Unlike TopBarReflectsLedgerAfterRecalc "
               + "(which compares module-getter vs live-singleton AFTER patch and is therefore a tautology), "
-              + "this compares recalc output to KSP's own on-disk serialization. Career-only; skips if a "
+              + "this compares recalc output to KSP's own on-disk serialization. Career or Science (science "
+              + "pool only); skips if a "
               + "live/pending tree would defer patching. Stop recording before running.",
             AllowBatchExecution = true,
             RestoreBatchFlightBaselineAfterExecution = true)]
@@ -78,22 +110,19 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("HighLogic.CurrentGame is null");
                 return;
             }
-            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            Game.Modes mode = HighLogic.CurrentGame.Mode;
+            string modeSkip = GroundTruthModeSkipReason(
+                mode,
+                Funding.Instance != null,
+                ResearchAndDevelopment.Instance != null,
+                Reputation.Instance != null);
+            if (modeSkip != null)
             {
-                ParsekLog.Verbose(Tag,
-                    $"Skip: ground-truth verification is career-only (mode={HighLogic.CurrentGame.Mode})");
-                InGameAssert.Skip(
-                    $"Ledger ground-truth verification is career-only (mode={HighLogic.CurrentGame.Mode})");
+                ParsekLog.Verbose(Tag, $"Skip: {modeSkip}");
+                InGameAssert.Skip(modeSkip);
                 return;
             }
-            if (Funding.Instance == null
-                || ResearchAndDevelopment.Instance == null
-                || Reputation.Instance == null)
-            {
-                ParsekLog.Verbose(Tag, "Skip: Funding/R&D/Reputation singletons not all initialized");
-                InGameAssert.Skip("Funding/R&D/Reputation singletons are not all initialized");
-                return;
-            }
+            ParsekLog.Info(Tag, $"ground-truth game mode={mode} pools={GroundTruthPoolsForMode(mode)}");
             if (RecordingStore.HasPendingTree
                 || GameStateRecorder.HasActiveUncommittedTree()
                 || GameStateRecorder.HasLiveRecorder())
