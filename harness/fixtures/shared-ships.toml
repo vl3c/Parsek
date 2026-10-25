@@ -58,6 +58,9 @@
 "career-pad-craft-zero-funds" = ["Settings Probe"]
 # L8 launches the probe twice on L2's host after its rewinds strip the Jumping Flea.
 "career-pad-craft" = ["Settings Probe"]
+# SCI-1 launches the library Jumping Flea twice from the VAB after its Rewind-to-Launch
+# strips the host's own Flea (the host carries its craft on the pad, nothing in the VAB).
+"career-science-pad" = ["Jumping Flea"]
 # L13 launches the probe from the VAB for its ground-truth window after the Re-Fly merge
 # (the host carries its GS-1 craft on the pad, nothing in the VAB).
 "career-gs1-two-stage-pad" = ["Settings Probe"]
