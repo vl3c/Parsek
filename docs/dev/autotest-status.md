@@ -1915,7 +1915,7 @@ git).
 `docs/dev/research/harness-dwell-and-shared-flight-audit-2026-10-14.md` section B): each flew a prefix of its host's flight, so its gates and claims moved to the host and its row moved to the uncounted "Absorbed into a host flight" table below the live-proven one.
 The "Parsek surface verified" column is the reason the case exists.
 
-### Live-proven (302)
+### Live-proven (303)
 
 | Test case | Tier | Parsek surface verified | Coverage cells |
 |---|---|---|---|
