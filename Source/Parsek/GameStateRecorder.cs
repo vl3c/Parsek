@@ -215,6 +215,13 @@ namespace Parsek
         /// completes.</summary>
         internal static bool InClockCauseScope => clockCauseDepth > 0;
 
+        /// <summary>The reason stock files the open ground-station submission's award under
+        /// (set by <c>DeployedScienceSubmitScopePatch</c> for the length of the call), or null.
+        /// The subject capture falls back to it when the award's <c>ScienceChanged</c> capture
+        /// was cleared before <c>OnScienceRecieved</c> reached the recorder: a contract that
+        /// another subscriber of the same fire completes pays its own science reward first.</summary>
+        internal static string GroundStationSubmissionReasonKey;
+
         internal static void EnterClockCauseScope(string what)
         {
             clockCauseDepth++;
@@ -449,6 +456,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             clockCauseDepth = 0;
+            GroundStationSubmissionReasonKey = null;
             TagResolverForTesting = null;
             HasLiveRecorderProviderForTesting = null;
             HasActiveUncommittedTreeProviderForTesting = null;
@@ -1437,6 +1445,13 @@ namespace Parsek
                 subjectRecordingId = "";
                 if (matchedScienceChange && !string.IsNullOrEmpty(matchedCapture.RecordingId))
                     UntagDeployedScienceChangeEvent(matchedCapture, subjectId);
+                if (!matchedScienceChange && !string.IsNullOrEmpty(GroundStationSubmissionReasonKey))
+                {
+                    reasonKey = GroundStationSubmissionReasonKey;
+                    ParsekLog.Verbose("GameStateRecorder",
+                        $"OnScienceReceived: deployed-experiment subject '{subjectId}' had no ScienceChanged " +
+                        $"capture left to match; reason taken from the open ground-station submission ('{reasonKey}')");
+                }
             }
 
             // SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT: store the increment this callback

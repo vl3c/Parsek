@@ -293,11 +293,16 @@ both inside one call (decompiled 1.12.5: `CollectDeployedScience.OnScience` -> `
 `ResearchAndDevelopment.SubmitScienceData`; `CometDetectionParameter.CometDetected` inside
 `SentinelScenario.SpawnComet(Vessel, CometOrbitType)`; `SentinelParameter.DiscoverAsteroid` for the
 asteroid contract). `Patches/ClockCauseScopePatches.cs` opens the recorder's clock-cause scope around
-the six-argument `SubmitScienceData` when the subject is a deployed experiment's, and around both
-Sentinel methods; inside it `Emit` files every event untagged and the #405 doors write it at once
+the six-argument `SubmitScienceData` when the subject is a deployed experiment's and no vessel
+submits it (a ground station's data a kerbal carried aboard is transmitted or recovered by that
+vessel, and what it completes stays the flight's), and around both Sentinel methods; inside it `Emit` files every event untagged and the #405 doors write it at once
 (`GameStateRecorder.HasClaimingLiveRecorder`: no live recorder claims an event inside the scope), so
-the completion, its reward and any body milestone are untagged ledger rows. A Sentinel the flight in
-progress launched counts as already in place. Drift B no longer warns inside the scope. Cells:
+the completion and its reward are untagged ledger rows. A Sentinel the flight in progress launched
+counts as already in place. Drift B no longer warns inside the scope. A contract another subscriber
+of the same fire completes pays its science reward first and clears the award's `ScienceChanged`
+capture, so the award takes the reason the open submission files under
+(`GroundStationSubmissionReasonKey`; lane CLK-1's first flight `2026-10-25_0945` read the reconcile
+ERROR this fixes). Cells:
 `ClockCauseScopeTests`. Mod contracts with timer parameters stay open under
 LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT.
 

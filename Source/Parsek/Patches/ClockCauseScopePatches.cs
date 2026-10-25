@@ -21,8 +21,9 @@ namespace Parsek.Patches
     /// the 2026-09-26 deployed-science ruling; the scope files the conversion, the contract
     /// completion and its reward the same way, whatever the order stock's subscribers run in.</para>
     /// <para>A deployed subject id starts with <c>deployed</c>
-    /// (<see cref="GameStateRecorder.IsDeployedScienceSubjectId"/>); every other submission
-    /// (a transmission or recovery of a vessel's own science) is left alone.</para>
+    /// (<see cref="GameStateRecorder.IsDeployedScienceSubjectId"/>), and the ground station
+    /// submits with no source vessel; every submission a vessel makes (its own science, or a
+    /// ground station's data a kerbal carried aboard) is left alone.</para>
     /// </summary>
     [HarmonyPatch]
     internal static class DeployedScienceSubmitScopePatch
@@ -46,26 +47,44 @@ namespace Parsek.Patches
                 new[] { typeof(float), typeof(float), typeof(ScienceSubject), typeof(float), typeof(ProtoVessel), typeof(bool) });
         }
 
-        /// <summary>True when a submission is a ground station's: the subject is a deployed
-        /// experiment's. Pure.</summary>
-        internal static bool IsGroundStationSubmission(string subjectId)
+        /// <summary>True when a submission is a ground station's own: the subject is a
+        /// deployed experiment's and no vessel submits it. A kerbal can also gather a ground
+        /// station's data into a vessel's container (<c>ModuleGroundPart</c>); that vessel's
+        /// transmission or recovery passes its <c>ProtoVessel</c> as the source, and whatever
+        /// it completes (a body science milestone) stays the flight's. Pure.</summary>
+        internal static bool IsGroundStationSubmission(string subjectId, bool hasSourceVessel)
         {
-            return GameStateRecorder.IsDeployedScienceSubjectId(subjectId);
+            return !hasSourceVessel && GameStateRecorder.IsDeployedScienceSubjectId(subjectId);
         }
 
-        static void Prefix(ScienceSubject subject, out bool __state)
+        /// <summary>The reason stock's <c>AddScience</c> gives a submission (decompiled:
+        /// <c>xmitScalar != 1</c> is ScienceTransmission, otherwise VesselRecovery; a ground
+        /// station submits with the default 1). Pure.</summary>
+        internal static string SubmissionReasonKey(float xmitScalar)
+        {
+            return xmitScalar != 1f
+                ? TransactionReasons.ScienceTransmission.ToString()
+                : TransactionReasons.VesselRecovery.ToString();
+        }
+
+        static void Prefix(ScienceSubject subject, float xmitScalar, ProtoVessel source, out bool __state)
         {
             __state = false;
             if (ParsekGameModeGate.CheckInert("DeployedScienceSubmitScopePatch.Prefix")) return; // S9 game-mode gate
             string subjectId = subject != null ? subject.id : null;
-            if (!IsGroundStationSubmission(subjectId)) return;
+            if (!IsGroundStationSubmission(subjectId, source != null)) return;
             GameStateRecorder.EnterClockCauseScope("ground-station science " + subjectId);
+            GameStateRecorder.GroundStationSubmissionReasonKey = SubmissionReasonKey(xmitScalar);
             __state = true;
         }
 
         static Exception Finalizer(Exception __exception, bool __state)
         {
-            if (__state) GameStateRecorder.ExitClockCauseScope("ground-station science");
+            if (__state)
+            {
+                GameStateRecorder.GroundStationSubmissionReasonKey = null;
+                GameStateRecorder.ExitClockCauseScope("ground-station science");
+            }
             return __exception;
         }
     }

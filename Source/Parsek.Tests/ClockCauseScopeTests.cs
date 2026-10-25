@@ -66,9 +66,9 @@ namespace Parsek.Tests
         private static bool InvokeSubmitPrefix(ScienceSubject subject)
         {
             var prefix = typeof(DeployedScienceSubmitScopePatch).GetMethod("Prefix", BindingFlags.Static | BindingFlags.NonPublic);
-            var args = new object[] { subject, false };
+            var args = new object[] { subject, 1f, null, false };
             prefix.Invoke(null, args);
-            return (bool)args[1];
+            return (bool)args[3];
         }
 
         private static void InvokeSubmitFinalizer(bool scoped)
@@ -93,16 +93,22 @@ namespace Parsek.Tests
             Assert.Contains(sentinel, m => m.Name == "DiscoverAsteroid" && m.DeclaringType == typeof(SentinelMission.SentinelParameter));
         }
 
+        // catches (second row): a ground station's data a kerbal carried aboard and the
+        // vessel transmits or recovers losing its flight's tag, with any body science
+        // milestone it completes.
         [Theory]
-        [InlineData("deployedSeismicSensor@MunSrfLandedMidlands", true)]
-        [InlineData("deployedWeatherReport@DunaSrfLanded", true)]
-        [InlineData("crewReport@KerbinSrfLandedLaunchPad", false)]
-        [InlineData("DeployedSeismicSensor@Mun", false)]
-        [InlineData("", false)]
-        [InlineData(null, false)]
-        public void IsGroundStationSubmission_OnlyForADeployedSubject(string subjectId, bool expected)
+        [InlineData("deployedSeismicSensor@MunSrfLandedMidlands", false, true)]
+        [InlineData("deployedSeismicSensor@MunSrfLandedMidlands", true, false)]
+        [InlineData("deployedWeatherReport@DunaSrfLanded", false, true)]
+        [InlineData("crewReport@KerbinSrfLandedLaunchPad", false, false)]
+        [InlineData("crewReport@KerbinSrfLandedLaunchPad", true, false)]
+        [InlineData("DeployedSeismicSensor@Mun", false, false)]
+        [InlineData("", false, false)]
+        [InlineData(null, false, false)]
+        public void IsGroundStationSubmission_OnlyForADeployedSubjectNoVesselSubmits(
+            string subjectId, bool hasSourceVessel, bool expected)
         {
-            Assert.Equal(expected, DeployedScienceSubmitScopePatch.IsGroundStationSubmission(subjectId));
+            Assert.Equal(expected, DeployedScienceSubmitScopePatch.IsGroundStationSubmission(subjectId, hasSourceVessel));
         }
 
         [Fact]
@@ -115,6 +121,54 @@ namespace Parsek.Tests
             Assert.False(GameStateRecorder.InClockCauseScope);
             Assert.Contains(logLines, l => l.Contains("[GameStateRecorder]")
                 && l.Contains("Clock-caused transition begins: ground-station science deployedGooObservation@MunSrfLanded"));
+        }
+
+        [Theory]
+        [InlineData(1f, "VesselRecovery")]
+        [InlineData(0.5f, "ScienceTransmission")]
+        public void SubmissionReasonKey_FollowsStocksXmitScalarRule(float xmitScalar, string expected)
+        {
+            Assert.Equal(expected, DeployedScienceSubmitScopePatch.SubmissionReasonKey(xmitScalar));
+        }
+
+        [Fact]
+        public void SubmitPrefix_DeployedSubject_SetsTheSubmissionReason_FinalizerClearsIt()
+        {
+            bool scoped = InvokeSubmitPrefix(Subject("deployedGooObservation@MunSrfLanded"));
+            Assert.Equal("VesselRecovery", GameStateRecorder.GroundStationSubmissionReasonKey);
+            InvokeSubmitFinalizer(scoped);
+            Assert.Null(GameStateRecorder.GroundStationSubmissionReasonKey);
+        }
+
+        // catches: CLK-1 2026-10-25_0945 - a contract completed by another subscriber of the
+        // same OnScienceRecieved fire pays its science reward first, which clears the award's
+        // ScienceChanged capture; the subject then filed with no reason, a Transmitted row the
+        // post-walk reconcile could not pair with stock's VesselRecovery event (ERROR dump).
+        [Fact]
+        public void DeployedSubject_CaptureClearedByANestedReward_TakesTheSubmissionReason()
+        {
+            InFlightWithALiveRecorder();
+            var recorder = new GameStateRecorder();
+            GameStateRecorder.EnterClockCauseScope("test ground station");
+            GameStateRecorder.GroundStationSubmissionReasonKey = "VesselRecovery";
+            try
+            {
+                recorder.SetLatestScienceChangeCaptureForTesting(default(GameStateRecorder.RecentScienceChangeCapture));
+                recorder.CaptureScienceSubject(0.3f, "deployedSeismicSensor@KerbinSrfLanded", 0.3f, 30f, 1f, 411.2,
+                    vesselName: null, launchGuid: null);
+            }
+            finally
+            {
+                GameStateRecorder.GroundStationSubmissionReasonKey = null;
+                GameStateRecorder.ExitClockCauseScope("test ground station");
+            }
+
+            Assert.Contains(logLines, l => l.Contains("Science subject captured: deployedSeismicSensor@KerbinSrfLanded")
+                && l.Contains("reason='VesselRecovery'") && l.Contains("tag=''"));
+            var row = Ledger.Actions.Single(a => a.Type == GameActionType.ScienceEarning
+                && a.SubjectId == "deployedSeismicSensor@KerbinSrfLanded");
+            Assert.Equal(ScienceMethod.Recovered, row.Method);
+            Assert.Equal("VesselRecovery", LedgerOrchestrator.GetScienceChangedReasonKey(row));
         }
 
         // catches: a vessel's own transmission or recovery losing its flight's tag.
