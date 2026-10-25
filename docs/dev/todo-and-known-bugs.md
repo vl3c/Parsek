@@ -1089,7 +1089,7 @@ inert-step settle is now a 1x `WarpToUT maxRate=1` to a UT read off the logs:
 
 ---
 
-## REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START: S4.2 and S4.4 need the re-fly recorder live (or not yet) while the provisional is still empty, a window of a few frames [FILED 2026-10-07 from the F9 verification flights, branch `ql-lanes`, measured. S4.4 FIXED 2026-10-08 by a named-condition seam wait (branch `s44-refly-wait`), LIVE-PROVEN 2026-10-08: three flights `2026-10-08_1806`, `_1812`, `_1814`, each PASS attempt 1 with the wait answering `points=0 ... reFlyMarker=true`, the bare reload refused `recording-active` and the empty-provisional conclusion. OPEN for S4.2, harness]
+## ~~REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START: S4.2 and S4.4 need the re-fly recorder live (or not yet) while the provisional is still empty, a window of a few frames~~ [FILED 2026-10-07 from the F9 verification flights, branch `ql-lanes`, measured. S4.4 FIXED 2026-10-08 by a named-condition seam wait (branch `s44-refly-wait`), LIVE-PROVEN 2026-10-08: three flights `2026-10-08_1806`, `_1812`, `_1814`, each PASS attempt 1 with the wait answering `points=0 ... reFlyMarker=true`, the bare reload refused `recording-active` and the empty-provisional conclusion. S4.2 FIXED 2026-10-25 in the spec, branch `claude/project-thread-re9fpq`, spec only; flight owed: S4.2-refly-world-preservation. harness]
 
 Two lanes gate on an UNFLOWN Re-Fly provisional, and both race the re-fly recorder's start, which
 happens when `RestoreActiveTreeFromPending` runs from the re-fly scene's OnFlightReady:
@@ -1131,6 +1131,23 @@ at-save`, the shape this race produces.
 
 
 Data point 2026-10-12 (operator tier): S4.4 2026-10-12_2128 PARSEK-FAIL on `outcome=retired-empty-provisional` / `AppendRelations outcome=refused-unflown-provisional` missing: the same race (operator tier, attempt 1, PARSEK-FAIL is not retried).
+
+S4.2 fixed (2026-10-25, spec only): no step order keeps S4.2's provisional empty at the merge. The
+batch must run before the merge (the merge reaps `rp_wp_root`, the RP quicksave the cells compare
+against; after it every cell skips "RP no longer resolves") and after InvokeRewind (every cell
+needs the live marker), and it takes about 1.1 s while FlightRecorder's Re-Fly post-load settle
+holds samples only until the vessel unpacks plus two frames (about 1.05 s). S4.4's
+`awaitRecorderLive=refly` wait answers inside the hold, but the batch after it still outlives
+it. A deterministic flown conclusion (a 1x `WarpToUT` past the hold before the batch) would need
+the post-rewind UT measured from a flight (`WarpToUT` takes only an absolute `ut`), and would move
+the lane onto the merge-journal route on purpose. So the spec takes S4.4's 2026-10-20 precedent
+(same fixture and slot): the one required conclusion line accepts either WHOLE route, the unflown
+route's three tokens in order, or `Added N supersede relations for subtree rooted at wp-booster-a`
+followed by `End reason=merged sess=` (measured flown route, S4.4 `2026-10-20_2205`); a mixed or
+partial route matches neither. The unflown route stays pinned on its own by S4.1 (no batch) and
+CI-2. The batch tally, the preservation pins and the forbidden pre-fix cascade lines are
+unchanged. Cells: the spec loads and validates in the harness suites; a flight of S4.2 must still
+show one of the two routes.
 
 ---
 

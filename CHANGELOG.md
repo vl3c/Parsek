@@ -87,6 +87,10 @@ _(unreleased - entries accumulate here per commit)_
   second, modded install now refuses to start when that install carries a different Parsek.dll
   than the main test install, and names the provisioning command to fix it.
   (HARNESS-MODDED-COMPAT-NEVER-PROVISIONED)
+- **Harness: the Re-Fly world-preservation lane accepts either clean ending.** Its merge can end
+  before or after the re-flown stage records its first sample, depending on timing the lane cannot
+  control; both endings are correct, so the lane now checks for either one, whole.
+  (REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START)
 
 ---
 
