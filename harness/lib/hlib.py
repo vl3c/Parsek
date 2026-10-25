@@ -390,7 +390,25 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # refuses a target save at another UT.
                                         # No RP. Consumer:
                                         # LS-1-launch-site-clear-claimed-vessel.
-                                        "launch-site-claim")
+                                        "launch-site-claim",
+                                        # rescan-substitute: ONE committed
+                                        # single-recording tree APPENDED to
+                                        # rover-relay-c-recorded's own
+                                        # ParsekScenario (its three trees
+                                        # stay): a stationary landed probe
+                                        # 44 m north of the relay's base A
+                                        # (its own derived pid and launch
+                                        # guid, absent from the save), UT
+                                        # 1185-1200, so the Space Center
+                                        # spawns it at 1200: a new surface
+                                        # vessel inside stop 1's 500 m
+                                        # proximity radius. `--filter
+                                        # InjectRescanSubstitute`; the
+                                        # injector refuses a target save at
+                                        # another UT and never cleans or
+                                        # purges. No RP. Consumer:
+                                        # RS-1-relay-route-endpoint-lost-rescan.
+                                        "rescan-substitute")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
