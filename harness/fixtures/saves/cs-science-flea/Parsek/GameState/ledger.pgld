@@ -1,0 +1,202 @@
+version = 0
+recordingSchemaGeneration = 4
+GAME_ACTION
+{
+	ut = 0
+	type = 21
+	actionId = act_ae71487cb1a8471786ede2a93a460476
+	initialScience = 0
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 22
+	actionId = act_fc11d56544054cfaa12adf7cc9686ea6
+	initialReputation = 0
+}
+GAME_ACTION
+{
+	ut = 4.1599999999999993
+	type = 4
+	actionId = act_73f367d5737b4e2a8eb110759764ae24
+	recordingId = 08a7d6e71e3e408f915fc0f3098a0e67
+	seq = 1
+	cseq = 2
+	milestoneId = RecordsSpeed
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+	milestoneRecordThresholds = 3
+}
+GAME_ACTION
+{
+	ut = 4.7399999999999869
+	type = 4
+	actionId = act_2ecec164039e46adb48cf980024bb2c0
+	recordingId = 08a7d6e71e3e408f915fc0f3098a0e67
+	seq = 2
+	cseq = 3
+	milestoneId = FirstLaunch
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 7.5599999999999268
+	type = 4
+	actionId = act_e79c078ef11f48189462914aabad15cc
+	recordingId = 08a7d6e71e3e408f915fc0f3098a0e67
+	seq = 3
+	cseq = 4
+	milestoneId = RecordsAltitude
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+	milestoneRecordThresholds = 3
+}
+GAME_ACTION
+{
+	ut = 342.43999999997851
+	type = 4
+	actionId = act_96b5b92918134fc79e3ca4d5376a6c10
+	recordingId = 08a7d6e71e3e408f915fc0f3098a0e67
+	seq = 4
+	cseq = 5
+	milestoneId = Kerbin/Landing
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 3.6200000000000028
+	type = 11
+	actionId = act_455166df341d46398b5b58e2d092f20b
+	recordingId = 08a7d6e71e3e408f915fc0f3098a0e67
+	seq = 1
+	cseq = 6
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 3.62
+	endUT = 344.72
+	endState = 2
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 344.87999999997629
+	type = 4
+	actionId = act_2a6485b9c8224820886a822b34e724ff
+	recordingId = 08a7d6e71e3e408f915fc0f3098a0e67
+	seq = 1
+	cseq = 7
+	milestoneId = FirstCrewToSurvive
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 344.87999999997629
+	type = 35
+	actionId = act_f12f20fdf70d4c6888a362be7c92e617
+	recordingId = 08a7d6e71e3e408f915fc0f3098a0e67
+	seq = 2
+	cseq = 8
+	vesselName = Jumping Flea
+	vesselPid = 2905720181
+}
+GAME_ACTION
+{
+	ut = 344.87999999997629
+	type = 31
+	actionId = act_d50d0677182146209a8aa4355d375e36
+	recordingId = 08a7d6e71e3e408f915fc0f3098a0e67
+	seq = 3
+	cseq = 10
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	careerEntries = 0,Flight,Kerbin|0,Land,Kerbin|0,Recover,
+}
+GAME_ACTION
+{
+	ut = 344.87999999997629
+	type = 4
+	actionId = act_0d8e123ba8f74e93a1e7d8396c8283e5
+	recordingId = 08a7d6e71e3e408f915fc0f3098a0e67
+	seq = 4
+	cseq = 12
+	milestoneId = Kerbin/Science
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 344.87999999997629
+	type = 0
+	actionId = act_93dbde50a3c94e159ead7f72f482997e
+	recordingId = 08a7d6e71e3e408f915fc0f3098a0e67
+	seq = 5
+	cseq = 13
+	subjectId = crewReport@KerbinFlyingLowShores
+	scienceAwarded = 3.5
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 3.5
+	startUT = 344.88
+	endUT = 344.88
+}
+GAME_ACTION
+{
+	ut = 344.87999999997629
+	type = 0
+	actionId = act_4861dead2ae441e2b9be80143a8ef162
+	recordingId = 08a7d6e71e3e408f915fc0f3098a0e67
+	seq = 6
+	cseq = 14
+	subjectId = mysteryGoo@KerbinSrfLandedLaunchPad
+	scienceAwarded = 3
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 3.9
+	startUT = 344.88
+	endUT = 344.88
+}
+GAME_ACTION
+{
+	ut = 344.87999999997629
+	type = 0
+	actionId = act_ede1848c5fce4cd288aa99a28c90c3e7
+	recordingId = 08a7d6e71e3e408f915fc0f3098a0e67
+	seq = 7
+	cseq = 15
+	subjectId = mysteryGoo@KerbinFlyingLow
+	scienceAwarded = 7
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 9.099999
+	startUT = 344.88
+	endUT = 344.88
+}
+GAME_ACTION
+{
+	ut = 344.87999999997629
+	type = 0
+	actionId = act_71f58a455961413f82834a85d64f1d6b
+	recordingId = 08a7d6e71e3e408f915fc0f3098a0e67
+	seq = 8
+	cseq = 16
+	subjectId = recovery@KerbinFlew
+	scienceAwarded = 5
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 6
+	startUT = 344.88
+	endUT = 344.88
+}
+PROGRESS_SEED
+{
+	captured = True
+}
