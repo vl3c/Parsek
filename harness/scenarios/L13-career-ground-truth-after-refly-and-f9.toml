@@ -87,9 +87,14 @@ steps = [
   { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "1" },            expect = "OK", budget = 300 },
   { cmd = "ListHandles",       args = { kind = "chains" },                              expect = "OK" },
   { cmd = "RecordingState",    args = { awaitRecorderLive = "refly" },                  expect = "OK" },
+  # The booster's VESSEL pid: it lands beside the pad and blocks the probe launch below.
+  { cmd = "PartAction",        args = { button = "inspect", part = "probeCoreOcto2.v2" }, label = "bst", expect = "OK" },
   { cmd = "WarpToUT",          args = { ut = "400", maxRate = "2", ladder = "phys" },   expect = "OK", budget = 540 },
   { cmd = "AnswerMergeDialog", args = { choice = "merge" },                             expect = "OK", budget = 240 },
-  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  # The merge leaves the flight scene (first flight 2026-10-25_0016: ExitToSpaceCenter
+  # timed out not-in-flight, then the launch was refused launchfromeditor-site-obstructed
+  # by the landed booster). Recover it from the Tracking Station, RF-L2's act 3.
+  { cmd = "TrackingStationRecover", args = { pid = "${bst.pid}" },                      expect = "OK", budget = 120 },
   # ---- CHECK 1: after the Re-Fly merge, rows ahead of the clock ----
   { cmd = "GoToEditor",        args = { facility = "VAB", craft = "Settings Probe" },   expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor",                                                           expect = "OK", budget = 180 },
@@ -148,6 +153,7 @@ required = [
   "kscaction action=accept-contract target=offered-first applied=true",
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_[0-9a-f]{32} slot=1",
   "answermergedialog complete choice=merge result=committed",
+  "launchfromeditor complete scene=FLIGHT ",
   # Check 1 walks at the clock: rows lie ahead of it.
   "(?s)MISSIONMARK label=l13-check1 .*?Current-UT ledger recalculation: reason=ledger-ground-truth cutoffUT=",
   "\\A(?:[\\s\\S]*?BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT){2}",
@@ -164,7 +170,7 @@ forbidden = [
 ]
 
 [runtime]
-# LoadGame x3 (660 each), mission 900, ExitToSpaceCenter x2 (180 each), WarpToUT x4 (240
+# LoadGame x3 (660 each), mission 900, ExitToSpaceCenter 180, TrackingStationRecover 180, WarpToUT x4 (240
 # each) plus the descent 540, KscAction x2 (120 each), SaveGame x3 (120 each), InvokeRewind
 # 660, AnswerMergeDialog 300, GoToEditor 180, LaunchFromEditor 240, RunTests x2 (600 each),
 # about 10 inert steps at 120: about 9,100 s.

@@ -75,30 +75,6 @@ namespace Parsek.Tests
             Assert.Equal("", stored[0].recordingId ?? "");
         }
 
-        // catches: the expiry's penalty currency changes staying tagged to the flight, so
-        // the commit reconcile warns about a funds / reputation change with no ledger row.
-        [Fact]
-        public void UntagContractPenaltyChanges_UntagsOnlyThatFramesPenaltyChanges()
-        {
-            GameStateRecorder.TagResolverForTesting = () => "rec-live";
-            var funds = new GameStateEvent { ut = 400.5, eventType = GameStateEventType.FundsChanged, key = "ContractPenalty", detail = "" };
-            var rep = new GameStateEvent { ut = 400.5, eventType = GameStateEventType.ReputationChanged, key = "ContractPenalty", detail = "" };
-            var otherReason = new GameStateEvent { ut = 400.5, eventType = GameStateEventType.FundsChanged, key = "ContractReward", detail = "" };
-            var otherFrame = new GameStateEvent { ut = 350.0, eventType = GameStateEventType.FundsChanged, key = "ContractPenalty", detail = "" };
-            GameStateRecorder.Emit(ref funds, "test");
-            GameStateRecorder.Emit(ref rep, "test");
-            GameStateRecorder.Emit(ref otherReason, "test");
-            GameStateRecorder.Emit(ref otherFrame, "test");
-
-            Assert.Equal(2, GameStateRecorder.UntagContractPenaltyChanges(400.5));
-
-            var stored = new List<GameStateEvent>(GameStateStore.Events);
-            Assert.Equal("", stored.Find(e => e.ut == 400.5 && e.key == "ContractPenalty" && e.eventType == GameStateEventType.FundsChanged).recordingId ?? "");
-            Assert.Equal("", stored.Find(e => e.eventType == GameStateEventType.ReputationChanged).recordingId ?? "");
-            Assert.Equal("rec-live", stored.Find(e => e.key == "ContractReward").recordingId);
-            Assert.Equal("rec-live", stored.Find(e => e.ut == 350.0).recordingId);
-        }
-
         [Fact]
         public void Emit_InFlightWithALiveTag_TagsTheEvent_DocumentsWhyTheExpiryBypassesIt()
         {

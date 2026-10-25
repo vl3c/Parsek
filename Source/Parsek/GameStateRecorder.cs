@@ -144,15 +144,22 @@ namespace Parsek
         internal static void Emit(ref GameStateEvent evt, string source, out RecoveryEventOwner recoveryOwner)
         {
             recoveryOwner = RecoveryEventOwner.NoOwner("not-consulted");
-            string tag = ResolveCurrentRecordingTag();
+            // Inside a stock transition the clock causes (a contract's deadline or offer
+            // running out), every event is that transition's: filed under no flight.
+            string tag = InClockCauseScope ? "" : ResolveCurrentRecordingTag();
             // Design section 2.12 Rule 3: inside a vessel recovery during a Re-Fly session,
             // the event is filed under the recovered vessel's own session recording.
             string causeTag;
-            if (ReFlyAwardTagging.TryResolveCauseTag(RecoveryDispatchScope.CurrentPersistentId, tag, out causeTag))
+            if (!InClockCauseScope
+                && ReFlyAwardTagging.TryResolveCauseTag(RecoveryDispatchScope.CurrentPersistentId, tag, out causeTag))
                 tag = causeTag;
             if (string.IsNullOrEmpty(evt.recordingId))
             {
-                if (string.IsNullOrEmpty(tag))
+                if (InClockCauseScope)
+                {
+                    evt.recordingId = "";
+                }
+                else if (string.IsNullOrEmpty(tag))
                 {
                     recoveryOwner = RecoveryDispatchScope.ResolveOwnerForEvent(evt.eventType, evt.key, evt.ut);
                     evt.recordingId = recoveryOwner.HasOwner ? recoveryOwner.RecordingId : "";
@@ -195,6 +202,29 @@ namespace Parsek
         /// would tag it to the live recording, and a discard, a Re-Fly merge check or a
         /// supersede would then treat the clock's own event as that flight's.
         /// </summary>
+        private static int clockCauseDepth;
+
+        /// <summary>True while a stock transition the clock causes runs (owner ruling
+        /// 2026-10-24: an event no flight causes is filed under no flight). Entered and left
+        /// by <c>ContractEarlyFailPatch</c> around <c>Contract.SetState(DeadlineExpired /
+        /// OfferExpired)</c>, which applies the penalty, fires the events and runs the
+        /// contract's own expiry code inside one call.</summary>
+        internal static bool InClockCauseScope => clockCauseDepth > 0;
+
+        internal static void EnterClockCauseScope(string what)
+        {
+            clockCauseDepth++;
+            ParsekLog.Verbose("GameStateRecorder",
+                $"Clock-caused transition begins: {what ?? "(unnamed)"} (depth={clockCauseDepth}); its events are filed untagged");
+        }
+
+        internal static void ExitClockCauseScope(string what)
+        {
+            if (clockCauseDepth > 0) clockCauseDepth--;
+            ParsekLog.Verbose("GameStateRecorder",
+                $"Clock-caused transition ends: {what ?? "(unnamed)"} (depth={clockCauseDepth})");
+        }
+
         internal static void EmitUntagged(ref GameStateEvent evt, string source)
         {
             evt.recordingId = "";
@@ -230,6 +260,9 @@ namespace Parsek
         /// </summary>
         internal static string ResolveStrategyConversionRecordingTag(string reason, double ut)
         {
+            // A conversion inside a clock-caused transition diverts that transition's
+            // currency change (a deadline penalty), which is filed under no flight.
+            if (InClockCauseScope) return null;
             string tag = ResolveCurrentRecordingTag();
             // Same cause tag as Emit, so the conversion follows its award inside a recovery
             // during a Re-Fly session.
@@ -400,6 +433,7 @@ namespace Parsek
 
         internal static void ResetForTesting()
         {
+            clockCauseDepth = 0;
             TagResolverForTesting = null;
             HasLiveRecorderProviderForTesting = null;
             HasActiveUncommittedTreeProviderForTesting = null;

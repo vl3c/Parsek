@@ -65,13 +65,84 @@ namespace Parsek.Tests
             protected override string GetTitle() => title;
         }
 
+        // catches: the penalty, its strategy conversion or the contract's own expiry code
+        // inside SetState(DeadlineExpired / OfferExpired) taking the live flight's tag
+        // (owner ruling 2026-10-24: an event no flight causes is filed under no flight).
+        [Theory]
+        [InlineData(Contract.State.DeadlineExpired, true)]
+        [InlineData(Contract.State.OfferExpired, true)]
+        [InlineData(Contract.State.Failed, false)]
+        public void Prefix_AllowedClockCausedEnd_OpensTheUntaggedScope_FinalizerClosesIt(
+            Contract.State newState, bool expectScope)
+        {
+            var active = new FakeContract("Active one", Guid.NewGuid(), Contract.State.Active);
+            bool scoped;
+            Assert.True(InvokePrefix(active, newState, out scoped));
+            Assert.Equal(expectScope, scoped);
+            Assert.Equal(expectScope, GameStateRecorder.InClockCauseScope);
+            InvokeFinalizer(scoped);
+            Assert.False(GameStateRecorder.InClockCauseScope);
+        }
+
+        [Fact]
+        public void Prefix_RefusedDeadlineExpiry_OpensNoScope()
+        {
+            var guid = Guid.NewGuid();
+            Ledger.AddAction(Row(GameActionType.ContractAccept, 10, guid.ToString()));
+            Ledger.AddAction(Row(GameActionType.ContractComplete, 500, guid.ToString()));
+            var active = new FakeContract("Active one", guid, Contract.State.Active);
+            bool scoped;
+            Assert.False(InvokePrefix(active, Contract.State.DeadlineExpired, out scoped));
+            Assert.False(scoped);
+            Assert.False(GameStateRecorder.InClockCauseScope);
+        }
+
+        [Fact]
+        public void InsideTheScope_EmitAndTheConversionTag_AreUntagged()
+        {
+            GameStateRecorder.TagResolverForTesting = () => "rec-live";
+            GameStateRecorder.EnterClockCauseScope("test");
+            try
+            {
+                var funds = new GameStateEvent { ut = 400.5, eventType = GameStateEventType.FundsChanged, key = "ContractPenalty", detail = "" };
+                GameStateRecorder.Emit(ref funds, "test");
+                Assert.Equal("", funds.recordingId);
+                Assert.Null(GameStateRecorder.ResolveStrategyConversionRecordingTag("ContractPenalty", 400.5));
+            }
+            finally
+            {
+                GameStateRecorder.ExitClockCauseScope("test");
+            }
+            var after = new GameStateEvent { ut = 401.0, eventType = GameStateEventType.FundsChanged, key = "ContractReward", detail = "" };
+            GameStateRecorder.Emit(ref after, "test");
+            Assert.Equal("rec-live", after.recordingId);
+            Assert.Equal("rec-live", GameStateRecorder.ResolveStrategyConversionRecordingTag("ContractReward", 401.0));
+        }
+
         private static GameAction Row(GameActionType type, double ut, string id, string recordingId = null) =>
             new GameAction { UT = ut, Type = type, ContractId = id, RecordingId = recordingId };
 
         private static bool InvokePrefix(Contract contract, Contract.State newState)
         {
+            bool scoped;
+            bool allowed = InvokePrefix(contract, newState, out scoped);
+            InvokeFinalizer(scoped);
+            return allowed;
+        }
+
+        private static bool InvokePrefix(Contract contract, Contract.State newState, out bool scoped)
+        {
             var prefix = typeof(ContractEarlyFailPatch).GetMethod("Prefix", BindingFlags.Static | BindingFlags.NonPublic);
-            return (bool)prefix.Invoke(null, new object[] { contract, newState });
+            var args = new object[] { contract, newState, false };
+            bool allowed = (bool)prefix.Invoke(null, args);
+            scoped = (bool)args[2];
+            return allowed;
+        }
+
+        private static void InvokeFinalizer(bool scoped)
+        {
+            var finalizer = typeof(ContractEarlyFailPatch).GetMethod("Finalizer", BindingFlags.Static | BindingFlags.NonPublic);
+            finalizer.Invoke(null, new object[] { null, scoped });
         }
 
         [Theory]
