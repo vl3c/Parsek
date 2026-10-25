@@ -1164,6 +1164,8 @@ A discard WITHOUT a load - the merge dialog's Discard and Re-Fly discard, the tr
 **Scenario:** Two routes deliver to the same base on the same scheduler tick. The destination can accept one delivery but not both.
 **Behavior:** v1 processes route events in deterministic FIFO order: `NextDispatchUT`, then route `Id` as a stable tie-breaker. (As implemented, the deterministic order is `RouteStore` commit-list order — see the 10.12 note.) Each route recomputes capacity immediately before its own delivery. The first route may fill the destination, causing the later route to partially deliver or report undelivered cargo. v1 does not reserve shared destination capacity across routes.
 
+**Multi-stop routes (owner ruling 2026-10-25).** Each stop gets its recorded amount. Room at every stop is checked once, at dispatch; a later stop that filled between dispatch and its window (another route, ISRU, the player) takes what fits, the rest is lost and shown as a partial delivery ("Last delivery was partial"). Deliveries are free, so no reservation or re-check is made (todo ROUTE-MULTISTOP-LATER-WINDOW-OVERFLOW).
+
 ### 10.14 Linked route partner paused
 **Scenario:** Route A and B linked. Player pauses B.
 **Behavior:** A dispatches on its own schedule (the chain constraint is bypassed for any partner that is not ghost-driving — Paused / EndpointLost / MissingSourceRecording / SourceChanged — or unresolved, since such a partner never completes a cycle). B resumes its alternation when unpaused. **SHIPPED (M4c):** the bypass is `!RouteStatusPolicy.GhostDriving(partner.Status)` plus an unresolved partner, in `RouteDispatchEvaluator.PartnerConstraintSatisfied`.

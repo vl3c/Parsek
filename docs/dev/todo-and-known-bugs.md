@@ -53,6 +53,10 @@ to the new line.
 
 ## ROUTE-MULTISTOP-LATER-WINDOW-OVERFLOW: a multi-stop route's later stop can fill between dispatch and its window, and the excess is lost [FILED 2026-10-25, branch `wip-routefix`, from ROUTE-INTERACTION-SEAMS-TO-VERIFY. OPEN, owner decision]
 
+---
+
+## ~~ROUTE-MULTISTOP-LATER-WINDOW-OVERFLOW: a multi-stop route's later stop can fill between dispatch and its window, and the excess is lost~~ [FILED 2026-10-25, branch `wip-routefix`, from ROUTE-INTERACTION-SEAMS-TO-VERIFY. ACCEPTED (owner ruling 2026-10-25): option 1, as designed]
+
 A multi-stop route checks room at every stop once, at dispatch (window 0,
 `RouteDestinationCapacityCheck.HasCapacityForAllStops`), and debits the origin for the whole
 run. Its later windows fire unconditionally (OQ4, `RouteOrchestrator` multi-stop path: a
@@ -77,7 +81,10 @@ Options:
 3. Re-check room per window and hold the remaining windows until there is room: no loss, but
    it reverses OQ4 and leaves cargo in transit on a ghost that already flew past the dock.
 
-Fix: owner picks an option.
+Ruling (V, 2026-10-25): option 1, accept as designed: "we respect the recorded amounts and
+actions ... considering that deliveries are free (no funds), we don't care if a delivery is
+partial and the rest of the recorded amount is lost". Design 10.13 now states the multi-stop
+rule. No code change.
 
 ---
 
@@ -2970,7 +2977,7 @@ Each item needs a trace (or a lane) before it is a defect or a non-issue; see
 - [ ] (Traced 2026-10-06, not adversarially verified: crossings while an endpoint is absent are BLOCKED with no catch-up - lost service, not lost cargo; see CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO.) Spawns are deferred until warp ends while routes keep ticking: a cycle crossing a
   station's spawn UT during warp is held and its cargo lost.
 - [x] VERIFIED 2026-10-25 (branch `wip-routefix`), filed as ROUTE-MULTISTOP-LATER-WINDOW-OVERFLOW
-  (an owner decision, not a code fix). Multi-stop routes reserve no destination capacity between
+  (ACCEPTED as designed, owner ruling 2026-10-25). Multi-stop routes reserve no destination capacity between
   dispatch and a later window: the all-stops capacity gate runs at dispatch only (OQ4) and a
   later window that finds its stop full delivers what fits, with the rest lost.
 - [x] ~~A kerbal swapped into a station during a dock is inferred Dead or held indefinitely
