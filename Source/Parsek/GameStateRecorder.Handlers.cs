@@ -226,14 +226,79 @@ namespace Parsek
                 key = contract.ContractGuid.ToString(),
                 detail = detail
             };
-            Emit(ref evt, "ContractFailed");
+            // A deadline expiry is the clock's, not a flight's (owner ruling 2026-10-24): it
+            // goes to the ledger untagged at once, in flight too, so no discard, Re-Fly merge
+            // check or supersede reads it as the live flight's loss.
+            bool deadlineExpiry = IsDeadlineExpiryFire(contract.ContractState);
+            if (deadlineExpiry)
+            {
+                EmitUntagged(ref evt, "ContractFailed");
+                // Stock's PenalizeFailure ran just before this fire, so its funds /
+                // reputation / science changes were captured this frame with the live tag;
+                // they belong with the untagged fail, or the commit reconcile reads them as a
+                // currency change with no ledger row.
+                UntagContractPenaltyChanges(evt.ut);
+            }
+            else
+                Emit(ref evt, "ContractFailed");
             ParsekLog.Info("GameStateRecorder",
-                $"Game state: ContractFailed '{title}' (fundsPenalty={fundsPenalty}, repPenalty={repPenalty})");
+                $"Game state: ContractFailed '{title}' (fundsPenalty={fundsPenalty}, repPenalty={repPenalty}" +
+                (deadlineExpiry ? ", deadline expiry, filed untagged" : "") + ")");
 
             // #405: route to ledger immediately when there is no recording owner.
-            // #431 gate: see OnContractAccepted.
-            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
+            // #431 gate: see OnContractAccepted. An untagged expiry is never converted at a
+            // commit (the commit converts only its own tag), so it is written here even with
+            // a live recorder.
+            if (ShouldForwardFailToLedger(deadlineExpiry, evt.recordingId, HasLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
+        /// Untags the currency-change events stock's <c>PenalizeFailure</c> produced at
+        /// <paramref name="ut"/> (reason <c>ContractPenalty</c>). Returns how many it untagged.
+        /// </summary>
+        internal static int UntagContractPenaltyChanges(double ut)
+        {
+            var targets = new List<GameStateEvent>();
+            var events = GameStateStore.Events;
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (e.ut != ut || string.IsNullOrEmpty(e.recordingId)) continue;
+                if (!string.Equals(e.key, "ContractPenalty", StringComparison.Ordinal)) continue;
+                if (e.eventType != GameStateEventType.FundsChanged
+                    && e.eventType != GameStateEventType.ReputationChanged
+                    && e.eventType != GameStateEventType.ScienceChanged) continue;
+                targets.Add(e);
+            }
+            int untagged = 0;
+            for (int i = 0; i < targets.Count; i++)
+                if (GameStateStore.UpdateEventRecordingId(targets[i], "")) untagged++;
+            if (untagged > 0)
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"ContractFailed: untagged {untagged} ContractPenalty currency change(s) at " +
+                    $"ut={ut.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} with the deadline expiry");
+            return untagged;
+        }
+
+        /// <summary>
+        /// Stock's <c>SetState(DeadlineExpired)</c> sets the state and then fires
+        /// <c>onFailed</c> (KSP 1.12.5, decompiled), so a fail fire reading DeadlineExpired is
+        /// the contract's deadline passing, not something a vessel did.
+        /// </summary>
+        internal static bool IsDeadlineExpiryFire(Contract.State state)
+        {
+            return state == Contract.State.DeadlineExpired;
+        }
+
+        /// <summary>
+        /// Whether a ContractFailed event goes straight to the ledger: always for a deadline
+        /// expiry (untagged, and no commit would ever convert it), otherwise by the #405 /
+        /// #431 rule (<see cref="ShouldForwardDirectLedgerEvent"/>).
+        /// </summary>
+        internal static bool ShouldForwardFailToLedger(bool deadlineExpiry, string recordingTag, bool hasLiveRecorder)
+        {
+            return deadlineExpiry || ShouldForwardDirectLedgerEvent(recordingTag, hasLiveRecorder);
         }
 
         private void OnContractCancelled(Contract contract)
@@ -292,13 +357,17 @@ namespace Parsek
                 key = contract.ContractGuid.ToString(),
                 detail = detail
             };
-            Emit(ref evt, "ContractOfferExpired");
+            // Owner ruling 2026-10-24: an event no flight causes is filed under no flight.
+            // Stock ends the contract because a progress node or a facility level it requires
+            // no longer holds (often Parsek's own recalculation rolling one back), never
+            // because of the vessel being flown, so it is untagged and goes to the ledger at
+            // once, in flight too (a commit converts only its own tag).
+            EmitUntagged(ref evt, "ContractOfferExpired");
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: Active contract '{title}' ended by stock as OfferExpired (requirements no longer met) - " +
-                $"filed as an unpenalized end (contract {contract.ContractGuid})");
+                $"filed as an unpenalized end, untagged (contract {contract.ContractGuid})");
 
-            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
-                LedgerOrchestrator.OnKscSpending(evt);
+            LedgerOrchestrator.OnKscSpending(evt);
         }
 
         /// <summary>
@@ -1567,20 +1636,40 @@ namespace Parsek
                 key = key,
                 detail = BuildStrategyDeactivateDetail(title, dept, factor, activeDurationSec)
             };
-            Emit(ref evt, "StrategyDeactivated");
+            // A strategy's expiry is the clock's, not a flight's (owner ruling 2026-10-24,
+            // the same rule as a contract's deadline expiry): filed untagged, written now.
+            bool expiry = IsStrategyExpiry(strategy.LongestDuration, strategy.DateActivated, now);
+            if (expiry)
+                EmitUntagged(ref evt, "StrategyDeactivated");
+            else
+                Emit(ref evt, "StrategyDeactivated");
 
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: StrategyDeactivated '{key}' title='{title}' dept='{dept}' " +
                 $"factor={factor.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} " +
-                $"activeDurationSec={activeDurationSec.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}");
+                $"activeDurationSec={activeDurationSec.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}" +
+                (expiry ? " expiry=true (filed untagged)" : ""));
 
             // Mirror the KSC-forwarding path even though StrategyDeactivate is a
             // NoResourceImpact action — the ledger still needs the StrategyDeactivate row
             // so StrategiesModule can pair activate/deactivate during the walk.
             // #553 follow-up: gate on ShouldForwardDirectLedgerEvent so untagged
-            // pre-recording FLIGHT strategy deactivations reach the ledger too.
-            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
+            // pre-recording FLIGHT strategy deactivations reach the ledger too. An expiry
+            // is untagged and no commit converts it, so it is written even with a live
+            // recorder.
+            if (expiry || ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>
+        /// Stock's <c>Strategy.Update()</c> deactivates a strategy on the first frame with
+        /// <c>DateActivated + LongestDuration &lt;= now</c> (a zero duration never expires),
+        /// so a deactivation at or past that point is the expiry, not the player's click.
+        /// </summary>
+        internal static bool IsStrategyExpiry(double longestDuration, double dateActivated, double nowUT)
+        {
+            return longestDuration > 0.0 && !double.IsNaN(dateActivated) && !double.IsNaN(nowUT)
+                && dateActivated + longestDuration <= nowUT;
         }
 
         /// <summary>
