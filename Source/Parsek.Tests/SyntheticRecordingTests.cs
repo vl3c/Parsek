@@ -9736,6 +9736,517 @@ namespace Parsek.Tests
         }
 
         // ---------------------------------------------------------------------------------
+        // launch-site-claim preset (LS-1-launch-site-clear-claimed-vessel): ONE committed
+        // two-recording tree on pad-runway-pair whose chain claims the save's REAL vessel on
+        // the LaunchPad, `Logi Cargo Rig`. Same production shape as background-claim (a
+        // PARENTLESS background recording carrying a ghosting-trigger part event, claimed by
+        // GhostChainWalker.ScanBackgroundEventClaims), with the recording's pid and launch guid
+        // the Rig's own, so the chain key IS the live Rig and the GC-2 predicate
+        // (ClaimedVesselDisposalGate) holds it outside flight until the tip's end an hour out.
+        // The lane never enters flight before its probes, so nothing ghosts the Rig: the Space
+        // Center and the editor keep it on the pad, which is what stock's launch-site clear
+        // finds. The runway's `rover fuel 0` is NOT claimed: the negative control.
+        // ---------------------------------------------------------------------------------
+
+        internal const double LaunchSiteClaimSaveUT = 25.25999999999955;
+        internal const uint LaunchSiteClaimRigPid = 2200110038u;
+        internal const string LaunchSiteClaimRigGuid = "8d1ab330ba6b4a94834aa0f75bbaa76e";
+        internal const string LaunchSiteClaimRigName = "Logi Cargo Rig";
+        internal const double LaunchSiteClaimRigLat = -0.097207801750065659;
+        internal const double LaunchSiteClaimRigLon = -74.557674910757655;
+        internal const double LaunchSiteClaimRigAlt = 77.276109321392141;
+        internal const uint LaunchSiteClaimRunwayRoverPid = 95298807u;
+        internal const string LaunchSiteClaimCarrierName = "LSC Carrier";
+        internal const string LaunchSiteClaimRootRecordingId = "lsc-carrier-rec";
+        internal const string LaunchSiteClaimSubjectRecordingId = "lsc-rig-rec";
+        internal const double LaunchSiteClaimStartOffsetSeconds = 1.0;
+
+        /// <summary>
+        /// Seconds the claimed recording runs. The chain's spawn UT is its end, and the hold
+        /// applies only while that is ahead, so it must outlast the lane by a wide margin.
+        /// </summary>
+        internal const double LaunchSiteClaimDurationSeconds = 3600.0;
+
+        /// <summary>The engine part pid inside the claimed recording's snapshot.</summary>
+        internal const uint LaunchSiteClaimEnginePartPid = 101111u;
+
+        /// <summary>
+        /// The tree's ROOT: a sounding flight east of the KSC destroyed 20 s before the save,
+        /// so it neither plays nor spawns in the lane and claims nothing.
+        /// </summary>
+        internal static RecordingBuilder LaunchSiteClaimCarrier(double baseUT)
+        {
+            var b = new RecordingBuilder(LaunchSiteClaimCarrierName)
+                .WithRecordingId(LaunchSiteClaimRootRecordingId);
+            b.AddPoint(baseUT - 40.0, -0.20, -74.00, 6000.0);
+            b.AddPoint(baseUT - 20.0, -0.20, -73.98, 8000.0);
+            b.WithTerminalState((int)TerminalState.Destroyed);
+            b.WithVesselSnapshot(VesselSnapshotBuilder.ProbeShip(LaunchSiteClaimCarrierName, pid: 71000401));
+            return b;
+        }
+
+        /// <summary>
+        /// The claimed recording: the Rig recorded in the BACKGROUND where it stands, parentless,
+        /// with an engine ignite / shutdown pair (the trigger), in progress at the save's UT and
+        /// ending Landed an hour out. Its pid and launch guid are the live Rig's.
+        /// </summary>
+        internal static RecordingBuilder LaunchSiteClaimRig(double baseUT)
+        {
+            double t0 = baseUT + LaunchSiteClaimStartOffsetSeconds;
+            double tEnd = t0 + LaunchSiteClaimDurationSeconds;
+            var b = new RecordingBuilder(LaunchSiteClaimRigName)
+                .WithRecordingId(LaunchSiteClaimSubjectRecordingId)
+                .WithVesselPersistentId(LaunchSiteClaimRigPid)
+                .WithRecordedVesselGuid(LaunchSiteClaimRigGuid)
+                .WithDefaultRotation(-0.700997293f, -0.0922072232f, -0.0972563922f, 0.700458407f);
+            const int pointCount = 10;
+            for (int i = 0; i <= pointCount; i++)
+            {
+                double ut = t0 + i * (LaunchSiteClaimDurationSeconds / pointCount);
+                b.AddPoint(ut, LaunchSiteClaimRigLat, LaunchSiteClaimRigLon, LaunchSiteClaimRigAlt);
+            }
+            b.AddPartEvent(t0 + 2.0, LaunchSiteClaimEnginePartPid, (int)PartEventType.EngineIgnited,
+                "liquidEngineMini.v2", value: 1f);
+            b.AddPartEvent(t0 + 4.0, LaunchSiteClaimEnginePartPid, (int)PartEventType.EngineShutdown,
+                "liquidEngineMini.v2");
+            b.AddTrackSection(
+                SegmentEnvironment.SurfaceStationary, ReferenceFrame.Absolute,
+                TrackSectionSource.Background, t0, tEnd, sampleRateHz: 1.0f);
+            b.WithTerminalState((int)TerminalState.Landed);
+            b.WithTerrainHeightAtEnd(LaunchSiteClaimRigAlt - 2.0);
+            b.WithGhostVisualSnapshot(LaunchSiteClaimRigSnapshot());
+            b.WithVesselSnapshot(LaunchSiteClaimRigSnapshot());
+            return b;
+        }
+
+        private static VesselSnapshotBuilder LaunchSiteClaimRigSnapshot()
+        {
+            return VesselSnapshotBuilder.FlatProbeLander(LaunchSiteClaimRigName, LaunchSiteClaimRigPid)
+                .WithLaunchGuid(LaunchSiteClaimRigGuid)
+                .AsLanded(LaunchSiteClaimRigLat, LaunchSiteClaimRigLon, LaunchSiteClaimRigAlt);
+        }
+
+        internal static RecordingBuilder[] LaunchSiteClaimTree(double baseUT)
+        {
+            return new[] { LaunchSiteClaimCarrier(baseUT), LaunchSiteClaimRig(baseUT) };
+        }
+
+        [Fact]
+        public void LaunchSiteClaim_HostFixtureHasTheRigOnThePadAndTheRoverOnTheRunway()
+        {
+            string path = Path.Combine(ProjectRoot, "harness", "fixtures", "saves",
+                "pad-runway-pair", "persistent.sfs");
+            Assert.True(File.Exists(path), path);
+            ConfigNode root = ConfigNode.Load(path);
+            ConfigNode game = root.GetNode("GAME") ?? root;
+            Assert.Equal(LaunchSiteClaimSaveUT,
+                double.Parse(game.GetNode("FLIGHTSTATE").GetValue("UT"), CultureInfo.InvariantCulture));
+            ConfigNode rig = null, rover = null;
+            foreach (ConfigNode v in game.GetNode("FLIGHTSTATE").GetNodes("VESSEL"))
+            {
+                if (v.GetValue("persistentId") == LaunchSiteClaimRigPid.ToString(CultureInfo.InvariantCulture)) rig = v;
+                if (v.GetValue("persistentId") == LaunchSiteClaimRunwayRoverPid.ToString(CultureInfo.InvariantCulture)) rover = v;
+            }
+            Assert.NotNull(rig);
+            Assert.NotNull(rover);
+            Assert.Equal(LaunchSiteClaimRigName, rig.GetValue("name"));
+            Assert.Equal(LaunchSiteClaimRigGuid, rig.GetValue("pid"));
+            Assert.Equal("LaunchPad", rig.GetValue("landedAt"));
+            Assert.Equal("Probe", rig.GetValue("type"));
+            Assert.Equal(LaunchSiteClaimRigLat, double.Parse(rig.GetValue("lat"), CultureInfo.InvariantCulture));
+            Assert.Equal(LaunchSiteClaimRigLon, double.Parse(rig.GetValue("lon"), CultureInfo.InvariantCulture));
+            Assert.Equal(LaunchSiteClaimRigAlt, double.Parse(rig.GetValue("alt"), CultureInfo.InvariantCulture));
+            // Stock's LaunchSiteClear passes a site whose only vessels are Debris, so the
+            // negative control needs a non-debris vessel on the runway.
+            Assert.Equal("Runway", rover.GetValue("landedAt"));
+            Assert.NotEqual("Debris", rover.GetValue("type"));
+            // The editors' default sites are the ones each probe meets.
+            Assert.Equal("LaunchPad", game.GetValue("defaultVABLaunchSite"));
+            Assert.Equal("Runway", game.GetValue("defaultSPHLaunchSite"));
+        }
+
+        [Fact]
+        public void LaunchSiteClaim_WalkerClaimsTheRigAndTheGateHoldsItButNotTheRover()
+        {
+            ParsekLog.ResetRateLimitsForTesting();
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            try
+            {
+                RecordingTree tree = MaterializeBackgroundClaimTree(LaunchSiteClaimTree(LaunchSiteClaimSaveUT));
+                Assert.Equal(LaunchSiteClaimRootRecordingId, tree.RootRecordingId);
+                Assert.Empty(tree.BranchPoints);
+                Recording rig = tree.Recordings[LaunchSiteClaimSubjectRecordingId];
+                Assert.Null(rig.ParentBranchPointId);
+                Assert.True(GhostingTriggerClassifier.HasGhostingTriggerEvents(rig));
+                Assert.False(GhostChainWalker.IsTreeFullyTerminated(tree));
+
+                var chains = GhostChainWalker.ComputeAllGhostChains(
+                    new List<RecordingTree> { tree }, LaunchSiteClaimSaveUT);
+                Assert.Single(chains);
+                GhostChain chain = chains[LaunchSiteClaimRigPid];
+                Assert.Equal("BACKGROUND_EVENT", chain.Links[0].interactionType);
+                Assert.Equal(LaunchSiteClaimSubjectRecordingId, chain.TipRecordingId);
+                Assert.False(chain.IsTerminated);
+                Assert.Equal(LaunchSiteClaimSaveUT + LaunchSiteClaimStartOffsetSeconds
+                    + LaunchSiteClaimDurationSeconds, chain.SpawnUT, 6);
+                Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
+                    && l.Contains("Chain built: vessel=2200110038 links=1 tip=lsc-rig-rec spawnUT=3626.3 terminated=False"));
+
+                // The launch-site gate's own selection over both site vessels, with their live guids.
+                var candidates = new List<ClaimedVesselDisposalGate.SiteVessel>
+                {
+                    new ClaimedVesselDisposalGate.SiteVessel
+                        { Pid = LaunchSiteClaimRigPid, Guid = LaunchSiteClaimRigGuid, Name = LaunchSiteClaimRigName },
+                    new ClaimedVesselDisposalGate.SiteVessel
+                        { Pid = LaunchSiteClaimRunwayRoverPid, Guid = "590c039f9f44e5121bd80d6d7a458dd5", Name = "rover fuel 0" },
+                };
+                var held = ClaimedVesselDisposalGate.SelectHeld(chains, LaunchSiteClaimSaveUT + 120.0,
+                    candidates, null);
+                Assert.Single(held);
+                Assert.Equal(LaunchSiteClaimRigPid, held[0].Pid);
+                Assert.Equal(LaunchSiteClaimSubjectRecordingId, held[0].Claiming.TipRecordingId);
+                // Past the tip's end the hold lifts (stock may recover it then).
+                Assert.Empty(ClaimedVesselDisposalGate.SelectHeld(chains, chain.SpawnUT + 1.0,
+                    candidates, null));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void LaunchSiteClaim_TreeRecordCodecKeepsTheRigIdentity()
+        {
+            RecordingTree tree = MaterializeBackgroundClaimTree(LaunchSiteClaimTree(LaunchSiteClaimSaveUT));
+            Recording rig = tree.Recordings[LaunchSiteClaimSubjectRecordingId];
+            var recNode = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(recNode, rig);
+            var reloaded = new Recording();
+            RecordingTreeRecordCodec.LoadRecordingFrom(recNode, reloaded);
+            Assert.Equal(LaunchSiteClaimRigPid, reloaded.VesselPersistentId);
+            Assert.Equal(LaunchSiteClaimRigGuid, reloaded.RecordedVesselGuid);
+            Assert.Equal(TerminalState.Landed, reloaded.TerminalStateValue);
+            Assert.Equal(LaunchSiteClaimRigPid.ToString(CultureInfo.InvariantCulture),
+                rig.VesselSnapshot.GetValue("persistentId"));
+            Assert.Equal(LaunchSiteClaimRigGuid, rig.VesselSnapshot.GetValue("pid"));
+        }
+
+        /// <summary>
+        /// Injects ONLY <see cref="LaunchSiteClaimTree"/> (the <c>launch-site-claim</c> preset
+        /// behind <c>LS-1-launch-site-clear-claimed-vessel</c>): one committed two-recording
+        /// tree, no RewindPoint sidecar. Authored against <c>pad-runway-pair</c>'s Rig, so a
+        /// target save at any other UT or without the Rig is refused before anything is written.
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [InjectTargetFact("launch-site-claim-fixture")]
+        public void InjectLaunchSiteClaim()
+        {
+            string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
+                ?? "launch-site-claim-fixture";
+            string targetSave = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_TARGET_SAVE")
+                ?? "1.sfs";
+            string targetPath = Path.Combine(ResolveKspRoot(), "saves", saveName, targetSave);
+            Assert.True(File.Exists(targetPath), "target save vanished after discovery: " + targetPath);
+            double saveUT = ReadUTFromSave(targetPath);
+            Assert.True(Math.Abs(saveUT - LaunchSiteClaimSaveUT) < 1e-3,
+                "launch-site-claim is authored against pad-runway-pair (UT="
+                + LaunchSiteClaimSaveUT.ToString("R", CultureInfo.InvariantCulture)
+                + "); target save UT is " + saveUT.ToString("R", CultureInfo.InvariantCulture));
+            Assert.Contains("persistentId = "
+                + LaunchSiteClaimRigPid.ToString(CultureInfo.InvariantCulture),
+                File.ReadAllText(targetPath));
+
+            InjectSingleSubjectPreset("launch-site-claim-fixture",
+                (writer, baseUT) => writer.AddRecordingsAsTree(LaunchSiteClaimTree(baseUT)),
+                content =>
+                {
+                    Assert.Contains("vesselName = " + LaunchSiteClaimCarrierName, content);
+                    Assert.Contains(LaunchSiteClaimSubjectRecordingId, content);
+                });
+        }
+
+        // ---------------------------------------------------------------------------------
+        // rescan-substitute preset (RS-1-relay-route-endpoint-lost-rescan): ONE committed
+        // single-recording tree APPENDED to rover-relay-c-recorded's own ParsekScenario (its
+        // three committed trees stay; ScenarioWriter.AppendTreesIntoExistingScenario). The
+        // subject is a stationary landed probe 44 m north of the relay's delivery base A (the
+        // route's stop 1), with its own derived pid and launch guid, absent from the save. Its
+        // recording starts after the save's clock, so the boot latches it into replay scope,
+        // and it ends at UT 1200 Landed with a vessel snapshot: the Space Center spawns it
+        // there. RS-1 recovers A, warps across stop 1's delivery window (~1163.7) so the loop
+        // route goes EndpointLost, and the spawn is the new surface vessel within the 500 m
+        // proximity radius that the endpoint Re-scan rebinds stop 1 to. Nothing claims A, so
+        // nothing holds it, and nothing is ever rewound.
+        // ---------------------------------------------------------------------------------
+
+        internal const double RescanSubstituteSaveUT = 410.3999999999167;
+        internal const string RescanSubstituteHostTreeId = "88c012a6eed94bf09ff73397a4a31410";
+        internal const uint RescanSubstituteBaseAPid = 4280917262u;
+        internal const double RescanSubstituteBaseALat = -0.087423365074258408;
+        internal const double RescanSubstituteBaseALon = -74.779385325976648;
+        internal const uint RescanSubstituteRoverCPid = 612987736u;
+        internal const double RescanSubstituteRoverCLat = -0.064453379744608366;
+        internal const double RescanSubstituteRoverCLon = -74.798514914700476;
+        internal const string RescanSubstituteVesselName = "RS1 Substitute";
+        internal const string RescanSubstituteRecordingId = "rs1-substitute-rec";
+        internal const double RescanSubstituteLat = -0.0832;
+        internal const double RescanSubstituteLon = RescanSubstituteBaseALon;
+        internal const double RescanSubstituteAlt = 66.0;
+
+        /// <summary>
+        /// The recording's window. It starts after the save's clock (the boot's replay-scope
+        /// latch) and after the loss at ~1163.7 plus the lane's first warp to 1180, and it ends
+        /// (the Space Center spawn) before the lane's second warp target, 1230.
+        /// </summary>
+        internal const double RescanSubstituteStartUT = 1185.0;
+        internal const double RescanSubstituteEndUT = 1200.0;
+
+        internal static RecordingBuilder RescanSubstituteRecording()
+        {
+            string id = RescanSubstituteRecordingId;
+            uint pid = ScenarioWriter.DeriveVesselPersistentId(id);
+            string guid = ScenarioWriter.DeriveVesselLaunchGuid(id);
+            var b = new RecordingBuilder(RescanSubstituteVesselName)
+                .WithRecordingId(id)
+                .WithRecordedVesselGuid(guid)
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithRecordingGroup("Synthetic");
+            const int pointCount = 10;
+            double span = RescanSubstituteEndUT - RescanSubstituteStartUT;
+            for (int i = 0; i <= pointCount; i++)
+            {
+                double ut = RescanSubstituteStartUT + i * (span / pointCount);
+                b.AddPoint(ut, RescanSubstituteLat, RescanSubstituteLon, RescanSubstituteAlt);
+            }
+            b.AddTrackSection(
+                SegmentEnvironment.SurfaceStationary, ReferenceFrame.Absolute,
+                TrackSectionSource.Active, RescanSubstituteStartUT, RescanSubstituteEndUT,
+                sampleRateHz: 1.0f);
+            b.WithTerminalState((int)TerminalState.Landed);
+            b.WithTerrainHeightAtEnd(RescanSubstituteAlt - 2.0);
+            b.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.ProbeShip(RescanSubstituteVesselName, pid: pid)
+                    .WithLaunchGuid(guid)
+                    .AsLanded(RescanSubstituteLat, RescanSubstituteLon, RescanSubstituteAlt));
+            b.WithVesselSnapshot(
+                VesselSnapshotBuilder.ProbeShip(RescanSubstituteVesselName, pid: pid)
+                    .WithLaunchGuid(guid)
+                    .AsLanded(RescanSubstituteLat, RescanSubstituteLon, RescanSubstituteAlt));
+            return b;
+        }
+
+        private static string RescanSubstituteHostSavePath()
+        {
+            return Path.Combine(ProjectRoot, "harness", "fixtures", "saves",
+                "rover-relay-c-recorded", "persistent.sfs");
+        }
+
+        [Fact]
+        public void RescanSubstitute_HostFixtureHasTheRelayTreeAndALandedBaseA()
+        {
+            string path = RescanSubstituteHostSavePath();
+            Assert.True(File.Exists(path), path);
+            ConfigNode root = ConfigNode.Load(path);
+            ConfigNode game = root.GetNode("GAME") ?? root;
+            ConfigNode flightState = game.GetNode("FLIGHTSTATE");
+            Assert.Equal(RescanSubstituteSaveUT,
+                double.Parse(flightState.GetValue("UT"), CultureInfo.InvariantCulture));
+            ConfigNode a = null, c = null;
+            uint substitutePid = ScenarioWriter.DeriveVesselPersistentId(RescanSubstituteRecordingId);
+            foreach (ConfigNode v in flightState.GetNodes("VESSEL"))
+            {
+                string vpid = v.GetValue("persistentId");
+                if (vpid == RescanSubstituteBaseAPid.ToString(CultureInfo.InvariantCulture)) a = v;
+                if (vpid == RescanSubstituteRoverCPid.ToString(CultureInfo.InvariantCulture)) c = v;
+                Assert.NotEqual(substitutePid.ToString(CultureInfo.InvariantCulture), vpid);
+            }
+            Assert.NotNull(a);
+            Assert.NotNull(c);
+            Assert.Equal("A", a.GetValue("name"));
+            Assert.Equal("LANDED", a.GetValue("sit"));
+            Assert.Equal(RescanSubstituteBaseALat, double.Parse(a.GetValue("lat"), CultureInfo.InvariantCulture));
+            Assert.Equal(RescanSubstituteBaseALon, double.Parse(a.GetValue("lon"), CultureInfo.InvariantCulture));
+            Assert.Equal(RescanSubstituteRoverCLat, double.Parse(c.GetValue("lat"), CultureInfo.InvariantCulture));
+            Assert.Equal(RescanSubstituteRoverCLon, double.Parse(c.GetValue("lon"), CultureInfo.InvariantCulture));
+
+            ConfigNode scenario = null;
+            foreach (ConfigNode s in game.GetNodes("SCENARIO"))
+                if (s.GetValue("name") == "ParsekScenario") scenario = s;
+            Assert.NotNull(scenario);
+            ConfigNode[] hostTrees = scenario.GetNodes("RECORDING_TREE");
+            Assert.Equal(3, hostTrees.Length);
+            Assert.Contains(hostTrees, t => t.GetValue("id") == RescanSubstituteHostTreeId);
+        }
+
+        [Fact]
+        public void RescanSubstitute_SitsInsideTheProximityRadiusOfBaseAAndNearerThanTheTransport()
+        {
+            const double kerbinRadius = 600000.0;
+            double toA = SpawnCollisionDetector.SurfaceDistance(
+                RescanSubstituteLat, RescanSubstituteLon,
+                RescanSubstituteBaseALat, RescanSubstituteBaseALon, kerbinRadius);
+            double toC = SpawnCollisionDetector.SurfaceDistance(
+                RescanSubstituteLat, RescanSubstituteLon,
+                RescanSubstituteRoverCLat, RescanSubstituteRoverCLon, kerbinRadius);
+            Assert.InRange(toA, 30.0, 60.0);
+            Assert.True(toA < Parsek.Logistics.RouteOrchestrator.SurfaceProximityRadiusMeters - 400.0);
+            // C (the route's transport, excluded by the resolver anyway) stays far behind.
+            Assert.True(toC > toA + 200.0, "toC=" + toC.ToString("F1", CultureInfo.InvariantCulture));
+            // Clear of the KSC pad / runway retirement circles.
+            Assert.False(SpawnCollisionDetector.IsWithinKscExclusionZone(
+                RescanSubstituteLat, RescanSubstituteLon, kerbinRadius,
+                SpawnCollisionDetector.DefaultKscExclusionRadiusMeters));
+        }
+
+        [Fact]
+        public void RescanSubstitute_IsALandedSpawnableRecordingThatStartsAfterTheBootAndEndsAfterTheLoss()
+        {
+            ConfigNode node = RescanSubstituteRecording().Build();
+            Assert.Equal(RescanSubstituteVesselName, node.GetValue("vesselName"));
+            Assert.Equal(((int)TerminalState.Landed).ToString(CultureInfo.InvariantCulture),
+                node.GetValue("terminalState"));
+            Assert.Equal("False", node.GetValue("loopPlayback"));
+            Assert.NotNull(node.GetNode("VESSEL_SNAPSHOT"));
+
+            Recording rec = MaterializeSpawnSafetyRecording(
+                RescanSubstituteRecording(), RescanSubstituteRecordingId);
+            Assert.True(ParsekKSC.IsKscStructurallyEligible(rec));
+            Assert.Equal(RescanSubstituteStartUT, rec.StartUT, 6);
+            Assert.Equal(RescanSubstituteEndUT, rec.EndUT, 6);
+            // The boot UT sits before the start (the replay-scope latch), and the window
+            // falls after stop 1's delivery loss (~1163.7 with the lane's activation at 1000).
+            Assert.True(RescanSubstituteSaveUT
+                < RescanSubstituteStartUT - PlaybackScopeTracker.ActivationToleranceSeconds);
+            Assert.InRange(RescanSubstituteStartUT, 1180.0, RescanSubstituteEndUT);
+            Assert.InRange(RescanSubstituteEndUT, 1190.0, 1230.0);
+            Assert.Equal(ScenarioWriter.DeriveVesselPersistentId(RescanSubstituteRecordingId),
+                rec.VesselPersistentId);
+            Assert.Equal(rec.RecordedVesselGuid, rec.VesselSnapshot.GetValue("pid"));
+        }
+
+        [Fact]
+        public void RescanSubstitute_AppendKeepsTheHostScenarioAndAddsOneTree()
+        {
+            string original = File.ReadAllText(RescanSubstituteHostSavePath());
+            var writer = new ScenarioWriter().WithV3Format();
+            writer.AddRecordingAsTree(RescanSubstituteRecording());
+            string appended = writer.AppendTreesIntoExistingScenario(original);
+
+            // Every original line survives, in order, and nothing else moves.
+            string[] before = original.Split('\n');
+            string[] after = appended.Split('\n');
+            int closeIdx = ScenarioWriter.FindParsekScenarioCloseLine(before);
+            Assert.True(closeIdx > 0);
+            int added = after.Length - before.Length;
+            Assert.True(added > 10, "added=" + added.ToString(CultureInfo.InvariantCulture));
+            for (int i = 0; i < closeIdx; i++)
+                Assert.Equal(before[i], after[i]);
+            for (int i = closeIdx; i < before.Length; i++)
+                Assert.Equal(before[i], after[i + added]);
+            Assert.Equal("\t\tRECORDING_TREE", after[closeIdx].TrimEnd('\r'));
+
+            string dir = Path.Combine(Path.GetTempPath(), "parsek-rs1-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try
+            {
+                string path = Path.Combine(dir, "persistent.sfs");
+                File.WriteAllText(path, appended);
+                ConfigNode root = ConfigNode.Load(path);
+                ConfigNode game = root.GetNode("GAME") ?? root;
+                ConfigNode scenario = null;
+                foreach (ConfigNode s in game.GetNodes("SCENARIO"))
+                    if (s.GetValue("name") == "ParsekScenario") scenario = s;
+                Assert.NotNull(scenario);
+                ConfigNode[] trees = scenario.GetNodes("RECORDING_TREE");
+                Assert.Equal(4, trees.Length);
+                Assert.Contains(trees, t => t.GetValue("id") == RescanSubstituteHostTreeId);
+                ConfigNode last = trees[3].GetNode("RECORDING");
+                Assert.NotNull(last);
+                Assert.Equal(RescanSubstituteRecordingId, last.GetValue("recordingId"));
+                Assert.Equal(3, scenario.GetNodes("MILESTONE_STATE").Length);
+                Assert.Equal(RescanSubstituteSaveUT,
+                    double.Parse(game.GetNode("FLIGHTSTATE").GetValue("UT"), CultureInfo.InvariantCulture));
+            }
+            finally
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+
+            // A second append of the same tree, and a save with no ParsekScenario, are refused.
+            Assert.Throws<InvalidOperationException>(() => writer.AppendTreesIntoExistingScenario(appended));
+            Assert.Throws<InvalidOperationException>(() => writer.AppendTreesIntoExistingScenario(
+                "GAME\n{\n\tFLIGHTSTATE\n\t{\n\t\tUT = 1\n\t}\n}\n"));
+        }
+
+        /// <summary>
+        /// Injects <see cref="RescanSubstituteRecording"/> (the <c>rescan-substitute</c> preset
+        /// behind <c>RS-1-relay-route-endpoint-lost-rescan</c>) by APPENDING one committed
+        /// single-recording tree to the host's existing ParsekScenario: the relay's three
+        /// trees stay. Never cleans the save and never purges a sidecar (the host's own
+        /// sidecars are the route's sources), so <c>PARSEK_INJECT_CLEAN_START</c> is ignored.
+        /// Authored against <c>rover-relay-c-recorded</c>: a target save at another UT, or
+        /// without the relay tree and base A, is refused before anything is written.
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [InjectTargetFact("rescan-substitute-fixture")]
+        public void InjectRescanSubstitute()
+        {
+            string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
+                ?? "rescan-substitute-fixture";
+            string targetSave = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_TARGET_SAVE")
+                ?? "1.sfs";
+            string kspRoot = ResolveKspRoot();
+            string saveDir = Path.Combine(kspRoot, "saves", saveName);
+            string targetPath = Path.Combine(saveDir, targetSave);
+            Assert.True(File.Exists(targetPath), "target save vanished after discovery: " + targetPath);
+            double saveUT = ReadUTFromSave(targetPath);
+            Assert.True(Math.Abs(saveUT - RescanSubstituteSaveUT) < 1e-3,
+                "rescan-substitute is authored against rover-relay-c-recorded (UT="
+                + RescanSubstituteSaveUT.ToString("R", CultureInfo.InvariantCulture)
+                + "); target save UT is " + saveUT.ToString("R", CultureInfo.InvariantCulture));
+            string targetText = File.ReadAllText(targetPath);
+            Assert.Contains("id = " + RescanSubstituteHostTreeId, targetText);
+            Assert.Contains("persistentId = "
+                + RescanSubstituteBaseAPid.ToString(CultureInfo.InvariantCulture), targetText);
+
+            // The KSP.log lock probe only (saveDir null: nothing is purged).
+            var guard = new ScenarioWriter();
+            if (!guard.TryPurgeRecordingSidecarsForInject(
+                    null, Path.Combine(kspRoot, "KSP.log"), out string refusalMessage))
+                throw new Xunit.Sdk.SkipException(refusalMessage);
+
+            var writer = new ScenarioWriter().WithV3Format();
+            writer.AddRecordingAsTree(RescanSubstituteRecording());
+            foreach (string file in new[] { "persistent.sfs", targetSave })
+            {
+                string savePath = Path.Combine(saveDir, file);
+                if (!File.Exists(savePath))
+                    continue;
+                string tempPath = savePath + ".tmp";
+                try
+                {
+                    writer.AppendIntoSaveFile(savePath, tempPath);
+                    string content = File.ReadAllText(tempPath);
+                    Assert.Contains("name = ParsekScenario", content);
+                    Assert.Contains("id = " + RescanSubstituteHostTreeId, content);
+                    Assert.Contains("vesselName = " + RescanSubstituteVesselName, content);
+                    Assert.Contains(RescanSubstituteRecordingId, content);
+                    File.Copy(tempPath, savePath, overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
+            }
+            Assert.True(File.Exists(Path.Combine(saveDir, "Parsek", "Recordings",
+                RescanSubstituteRecordingId + ".prec")));
+        }
+
+        // ---------------------------------------------------------------------------------
         // chain-tip-dock preset (CI-9-chain-tip-dock): ONE committed two-recording tree on
         // eva2-lko-crewed (CI-5's host) whose chain tip is a Real Spawn Control candidate IN
         // ORBIT. Same production shape as background-claim and chain-tip-recovery (a

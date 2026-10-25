@@ -217,6 +217,7 @@ namespace Parsek.Tests
         [InlineData("link")]
         [InlineData("unlink")]
         [InlineData("set-cadence")]
+        [InlineData("rescan")]
         public void IsKnownAction_AcceptsTheRoundTripAndCadenceActions(string action)
         {
             Assert.True(TestCommandRouteCommand.IsKnownAction(action));
@@ -227,7 +228,7 @@ namespace Parsek.Tests
         {
             Assert.False(TestCommandRouteCommand.IsRouteOperation("create"));
             foreach (string action in new[] { "send-once", "pause", "activate",
-                                              "link", "unlink", "set-cadence" })
+                                              "link", "unlink", "set-cadence", "rescan" })
             {
                 Assert.True(TestCommandRouteCommand.IsRouteOperation(action),
                     action + " addresses an existing route and needs route=");
@@ -242,16 +243,17 @@ namespace Parsek.Tests
             Assert.False(TestCommandRouteCommand.IsStatusOperation("link"));
             Assert.False(TestCommandRouteCommand.IsStatusOperation("unlink"));
             Assert.False(TestCommandRouteCommand.IsStatusOperation("set-cadence"));
+            Assert.False(TestCommandRouteCommand.IsStatusOperation("rescan"));
             Assert.False(TestCommandRouteCommand.IsStatusOperation("create"));
             Assert.False(TestCommandRouteCommand.IsStatusOperation(null));
         }
 
         [Fact]
-        public void TheActionVocabularyIsExactlyTheSevenTokens()
+        public void TheActionVocabularyIsExactlyTheEightTokens()
         {
             Assert.Equal(
                 new[] { "create", "send-once", "pause", "activate",
-                        "link", "unlink", "set-cadence" },
+                        "link", "unlink", "set-cadence", "rescan" },
                 TestCommandRouteCommand.KnownActions);
             // Every admitted action is either create or a route operation - no token can
             // pass IsKnownAction and then fall through both appliers.

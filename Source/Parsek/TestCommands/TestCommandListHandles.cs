@@ -27,6 +27,11 @@ namespace Parsek.TestCommands
         /// <summary><c>kind=routes</c>: every committed supply route's live state
         /// (<c>RouteStore.CommittedRoutes</c>) and its route event counts.</summary>
         Routes = 5,
+
+        /// <summary><c>kind=timeline</c>: the Timeline's rows over the live state, counted
+        /// by source and kind and checked against the tombstoned ledger rows
+        /// (<see cref="TestCommandTimelineReadback"/>).</summary>
+        Timeline = 6,
     }
 
     /// <summary>One child slot of a rewind point, already resolved to open/closed.</summary>
@@ -197,6 +202,9 @@ namespace Parsek.TestCommands
         /// <summary>Wire literal for <see cref="ListHandlesKind.Routes"/>.</summary>
         internal const string RoutesKindToken = "routes";
 
+        /// <summary>Wire literal for <see cref="ListHandlesKind.Timeline"/>.</summary>
+        internal const string TimelineKindToken = "timeline";
+
         /// <summary>Prefix of the one Info line the applier writes per ENUMERATED route
         /// (the route read-back a reload lane pins between steps; the wire alone is not
         /// in KSP.log).</summary>
@@ -264,7 +272,7 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// Parses the REQUIRED <c>kind=</c> arg. Fail-closed and case-sensitive: only the
-        /// five lowercase literals are accepted, so <c>Rewindpoints</c> / <c>RP</c> /
+        /// six lowercase literals are accepted, so <c>Rewindpoints</c> / <c>RP</c> /
         /// an empty value are all <see cref="KindArgInvalidReason"/> rather than a
         /// tolerated spelling. Absent is its own reason so a spec author reads "you did
         /// not ask for a family" separately from "that is not a family".
@@ -299,6 +307,10 @@ namespace Parsek.TestCommands
                     kind = ListHandlesKind.Routes;
                     rejectReason = null;
                     return true;
+                case TimelineKindToken:
+                    kind = ListHandlesKind.Timeline;
+                    rejectReason = null;
+                    return true;
                 default:
                     rejectReason = KindArgInvalidReason;
                     return false;
@@ -315,6 +327,7 @@ namespace Parsek.TestCommands
                 case ListHandlesKind.Active: return ActiveKindToken;
                 case ListHandlesKind.Chains: return ChainsKindToken;
                 case ListHandlesKind.Routes: return RoutesKindToken;
+                case ListHandlesKind.Timeline: return TimelineKindToken;
                 default: return string.Empty;
             }
         }

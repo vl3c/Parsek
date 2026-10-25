@@ -2324,7 +2324,8 @@ namespace Parsek
         /// branch (this is the synchronous draw path, not an async dialog callback, so
         /// the QW2 frame-reset-field trap does not apply and an inline action is
         /// correct): it calls <see cref="RouteEndpointResolver.TryResolveEndpoint"/>,
-        /// logs the outcome, and on success hands the route to
+        /// logs the outcome (the click body is <see cref="LogisticsEndpointRescan.Run(Route, double)"/>,
+        /// which the seam's <c>RouteCommand action=rescan</c> also runs), and on success hands the route to
         /// <see cref="RouteOrchestrator.TryRecoverEndpointLostAfterRescan"/>, then dirties
         /// the legibility cache so the destination cell + capacity context refresh next
         /// frame. That call restarts a loop route (whose tick skips a stopped route, so
@@ -2357,19 +2358,8 @@ namespace Parsek
                         "Search the destination body for a surface vessel near the recorded endpoint, then restart the route if found."),
                         GUILayout.Width(180f)))
                 {
-                    bool resolved = RouteEndpointResolver.TryResolveEndpoint(
-                        endpoint, out Vessel v, out string reason);
-                    if (resolved && v != null)
-                    {
-                        ParsekLog.Info("UI",
-                            $"Logistics: endpoint re-scan route={ShortId(route.Id)} resolved=true name='{v.vesselName}' (recovering)");
-                        RouteOrchestrator.TryRecoverEndpointLostAfterRescan(route, TryGetCurrentUT());
-                    }
-                    else
-                    {
-                        ParsekLog.Info("UI",
-                            $"Logistics: endpoint re-scan route={ShortId(route.Id)} resolved=false reason='{reason}' (still EndpointLost)");
-                    }
+                    // The click body is shared with the seam's RouteCommand action=rescan.
+                    LogisticsEndpointRescan.Run(route, TryGetCurrentUT());
                     // Refresh the destination cell + capacity context next frame.
                     lastLegibilityComputeRealtime = -1f;
                 }
@@ -2400,7 +2390,7 @@ namespace Parsek
         /// (<see cref="LogisticsDeliveryPresentation.ShouldOfferRouteEndpointRescan"/>).
         /// The click re-scans every non-null stop, logs one summary line naming each
         /// stop's outcome (<see cref="LogisticsDeliveryPresentation.FormatRescanOutcome"/>),
-        /// and clears the retry gate only when every stop resolved, because the
+        /// and recovers the route only when every stop resolved, because the
         /// dispatch gate refuses the cycle while any stop is lost.
         /// </summary>
         private void DrawMultiStopEndpointRescan(Route route)
@@ -2417,22 +2407,8 @@ namespace Parsek
                         "Search each stop's body for a surface vessel near its recorded endpoint, then restart the route if every stop is found."),
                         GUILayout.Width(180f)))
                 {
-                    var results = new List<LogisticsDeliveryPresentation.RescanStopResult>(route.Stops.Count);
-                    for (int i = 0; i < route.Stops.Count; i++)
-                    {
-                        RouteStop s = route.Stops[i];
-                        if (s == null) continue;
-                        bool ok = RouteEndpointResolver.TryResolveEndpoint(s.Endpoint, out Vessel v, out string reason);
-                        results.Add(new LogisticsDeliveryPresentation.RescanStopResult(
-                            i, ok && v != null, ok && v != null ? v.vesselName : null, reason));
-                    }
-                    bool allResolved = LogisticsDeliveryPresentation.AllStopsResolved(results);
-                    ParsekLog.Info("UI",
-                        $"Logistics: endpoint re-scan route={ShortId(route.Id)} " +
-                        LogisticsDeliveryPresentation.FormatRescanOutcome(results) +
-                        (allResolved ? " (recovering)" : " (still EndpointLost)"));
-                    if (allResolved)
-                        RouteOrchestrator.TryRecoverEndpointLostAfterRescan(route, TryGetCurrentUT());
+                    // The click body is shared with the seam's RouteCommand action=rescan.
+                    LogisticsEndpointRescan.Run(route, TryGetCurrentUT());
                     lastLegibilityComputeRealtime = -1f;
                 }
                 // Push the Interact slot to the right edge (the label branch already expands).
@@ -4666,7 +4642,7 @@ namespace Parsek
             return LogisticsDeliveryPresentation.FormatWouldDeliver(resources, inventory);
         }
 
-        private static string ShortId(string id)
+        internal static string ShortId(string id)
         {
             if (string.IsNullOrEmpty(id)) return "<none>";
             return id.Length > 8 ? id.Substring(0, 8) : id;

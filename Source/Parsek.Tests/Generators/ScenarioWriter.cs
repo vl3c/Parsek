@@ -589,6 +589,101 @@ namespace Parsek.Tests.Generators
         }
 
         /// <summary>
+        /// Appends this writer's RECORDING_TREE nodes to the save's EXISTING ParsekScenario
+        /// block, just before its closing brace, and leaves every other line of the save as it
+        /// was. <see cref="InjectIntoSave"/> replaces the whole block, which is right for a
+        /// synthetic host and wrong for a RECORDED one: the host's committed trees, milestone
+        /// state and settings live in that block. Trees only: a writer carrying crew
+        /// replacements, milestones, a group hierarchy or rewind points is refused, as is a
+        /// save with no ParsekScenario block or one that already names a tree id this writer
+        /// would add. The block's own line ending is kept.
+        /// </summary>
+        public string AppendTreesIntoExistingScenario(string saveContent)
+        {
+            if (saveContent == null)
+                throw new ArgumentNullException(nameof(saveContent));
+            if (crewReplacements.Count > 0 || milestones.Count > 0 || rawMilestoneStates.Count > 0
+                || groupHierarchyEntries.Count > 0 || rewindPoints.Count > 0)
+                throw new InvalidOperationException(
+                    "append mode carries recording trees only (crew replacements, milestones, "
+                    + "group hierarchy and rewind points need the whole-block InjectIntoSave)");
+            if (trees.Count == 0)
+                throw new InvalidOperationException("append mode has no recording tree to add");
+
+            var lines = saveContent.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+            int closeIdx = FindParsekScenarioCloseLine(lines);
+            if (closeIdx < 0)
+                throw new InvalidOperationException(
+                    "append mode needs an existing ParsekScenario block; the save has none");
+
+            foreach (var tree in trees)
+            {
+                string id = tree.GetValue("id");
+                if (!string.IsNullOrEmpty(id)
+                    && Array.Exists(lines, l => l.Trim() == "id = " + id))
+                    throw new InvalidOperationException(
+                        "append mode refuses a tree id the save already carries: " + id);
+            }
+
+            var sb = new StringBuilder();
+            foreach (var tree in trees)
+                WriteNode(sb, tree, "RECORDING_TREE", 2);
+            string[] added = sb.ToString().Replace("\r\n", "\n").TrimEnd('\n').Split('\n');
+
+            var result = new List<string>(lines.Length + added.Length);
+            for (int i = 0; i < closeIdx; i++)
+                result.Add(lines[i]);
+            result.AddRange(added);
+            for (int i = closeIdx; i < lines.Length; i++)
+                result.Add(lines[i]);
+
+            string sep = saveContent.Contains("\r\n") ? "\r\n" : "\n";
+            return string.Join(sep, result);
+        }
+
+        /// <summary>
+        /// <see cref="AppendTreesIntoExistingScenario"/> over a file, plus this writer's own
+        /// recording sidecars (v3 only) next to it. Existing sidecars are never purged.
+        /// </summary>
+        public void AppendIntoSaveFile(string inputPath, string outputPath)
+        {
+            string content = File.ReadAllText(inputPath);
+            File.WriteAllText(outputPath, AppendTreesIntoExistingScenario(content));
+            if (useV3Format)
+                WriteSidecarFiles(Path.GetDirectoryName(outputPath));
+        }
+
+        /// <summary>
+        /// The index of the closing-brace line of the save's ParsekScenario SCENARIO block, or
+        /// -1 when there is none. Same brace walk as <see cref="RemoveExistingScenario"/>.
+        /// </summary>
+        internal static int FindParsekScenarioCloseLine(string[] lines)
+        {
+            for (int i = 0; i + 2 < lines.Length; i++)
+            {
+                if (lines[i].TrimStart('\t', ' ') != "SCENARIO"
+                    || lines[i + 1].TrimStart('\t', ' ') != "{"
+                    || !lines[i + 2].TrimStart('\t', ' ').StartsWith(
+                        "name = ParsekScenario", StringComparison.Ordinal))
+                    continue;
+                int depth = 0;
+                for (int j = i + 1; j < lines.Length; j++)
+                {
+                    string lt = lines[j].TrimStart('\t', ' ');
+                    if (lt.StartsWith("{")) depth++;
+                    if (lt.StartsWith("}"))
+                    {
+                        depth--;
+                        if (depth == 0)
+                            return j;
+                    }
+                }
+                return -1;
+            }
+            return -1;
+        }
+
+        /// <summary>
         /// Number of v3 recording builders registered with this writer —
         /// used by InjectAllRecordings to compute the exact expected sidecar
         /// file count without maintaining a brittle magic number.

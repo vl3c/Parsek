@@ -310,6 +310,12 @@ namespace Parsek.TestCommands
         // ----- NewGame (a stock new game under the loaded save's name, through the Space
         // Center's quit to the main menu and stock's own new-game calls) -----
         void NewGame(ParsedCommand cmd);
+        // ----- AlarmJump (a stock alarm on a named vessel fires its message dialog, whose
+        // Jump is pressed through stock's own OnJump) -----
+        void AlarmJump(ParsedCommand cmd);
+        // ----- LaunchSiteProbe (Launch pressed on an obstructed site; stock's launch-site-clear
+        // dialog read and answered through its own buttons) -----
+        void LaunchSiteProbe(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -706,6 +712,15 @@ namespace Parsek.TestCommands
                 // is its own typed REJECTED (newgame-wrong-scene). The dispatch row only waits
                 // out a scene still loading its game.
                 ["NewGame"] = VerbSceneRequirement.RequiresGameLoaded,
+                // AlarmJump. RequiresFlight: v1 drives the FLIGHT branch of stock's OnJump
+                // (SetActiveVessel); the Tracking Station / Space Center branch saves and loads
+                // a new scene, which a single-phase answer cannot follow. Default budget.
+                ["AlarmJump"] = VerbSceneRequirement.RequiresFlight,
+                // LaunchSiteProbe: the GoToEditor / LaunchFromEditor row. Valid in the editor
+                // and at the Space Center, which no requirement kind names, so the executor
+                // refuses every other scene (launchsiteprobe-wrong-scene). Default budget (no
+                // scene load; both dialogs spawn inside the press's own call stack).
+                ["LaunchSiteProbe"] = VerbSceneRequirement.RequiresGameLoaded,
             };
 
         /// <summary>
@@ -1054,6 +1069,16 @@ namespace Parsek.TestCommands
                     // (OnVesselsUndocking logs a split skip on pendingSplitInProgress).
                     if (state.StructuralSplitPending)
                         return DispatchResult.Defer("split-pending");
+                    break;
+
+                case "AlarmJump":
+                    // SimulateStockSwitchClick's pair, for its reasons: a Jump is a vessel
+                    // switch (an unloaded target's is a scene reload), so it must not race a
+                    // LoadGame's scene change or a re-fly merge journal mid-finalize.
+                    if (state.LoadInFlight)
+                        return DispatchResult.Reject("load-in-flight");
+                    if (state.MergeJournalInFlight)
+                        return DispatchResult.Reject("merge-journal-in-flight");
                     break;
 
                 case "PlantFlag":

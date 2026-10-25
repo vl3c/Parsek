@@ -132,6 +132,81 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// The window half of a load of a save written inside a go-back rewind's lead-time
+        /// window (todo ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS): removes the events in
+        /// (<paramref name="saveUT"/>, <paramref name="floorUT"/>] that the loaded save's own log
+        /// (<paramref name="savedEvents"/>) does not hold
+        /// (<see cref="RouteEventRetire.SelectUnheldWindowRows"/>) and hands them back. The
+        /// ordinary retire above the floor runs after it.
+        ///
+        /// <para>The removed events are NOT handed to the chain-tip cargo capture. They were
+        /// written after the save, inside its 15 s window, so the only snapshots that can hold
+        /// their cargo are ones committed inside that same window, while every older snapshot
+        /// captured past their UT (a later recording of the route's endpoint) would match them by
+        /// UT and lose cargo it never had. Leaving them out keeps every snapshot as recorded,
+        /// which is what the code did before (it kept these events).</para>
+        /// One Info line when anything is removed, Verbose otherwise. Returns the count.
+        /// </summary>
+        internal static int RetireUnheldWindowRows(
+            double saveUT, double floorUT, IReadOnlyList<RouteEvent> savedEvents,
+            out List<RouteEvent> retiredRows)
+        {
+            retiredRows = RouteEventRetire.SelectUnheldWindowRows(events, saveUT, floorUT, savedEvents);
+            if (retiredRows.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    "RetireUnheldWindowRows: every route event in (" + saveUT.ToString("R", IC) + ", " +
+                    floorUT.ToString("R", IC) + "] is held by the loaded save " +
+                    $"(saved={(savedEvents?.Count ?? 0).ToString(IC)} total={events.Count.ToString(IC)})");
+                return 0;
+            }
+            var drop = new HashSet<RouteEvent>(retiredRows);
+            events.RemoveAll(e => e != null && drop.Contains(e));
+            Bump();
+            var routes = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < retiredRows.Count; i++)
+                routes.Add(retiredRows[i].RouteId);
+            ParsekLog.Info(Tag,
+                $"RetireUnheldWindowRows: removed {retiredRows.Count.ToString(IC)} route event(s) in (" +
+                saveUT.ToString("R", IC) + ", " + floorUT.ToString("R", IC) + "] the loaded save does not hold " +
+                $"(written after it) for {routes.Count.ToString(IC)} route(s); total={events.Count.ToString(IC)}");
+            return retiredRows.Count;
+        }
+
+        /// <summary>
+        /// The events a saved PARSEK scenario node's <c>ROUTE_EVENT_LOG</c> child carries, decoded
+        /// WITHOUT touching the log (none: empty; unreadable events dropped, as a cold load drops
+        /// them). The in-session load reads the loaded save's own log from it.
+        /// </summary>
+        internal static List<RouteEvent> ReadSavedEvents(ConfigNode parsekNode)
+        {
+            return ReadEventsFrom(parsekNode?.GetNode(NodeName), out _, out _);
+        }
+
+        private static List<RouteEvent> ReadEventsFrom(ConfigNode node, out int dropped, out string firstReject)
+        {
+            var read = new List<RouteEvent>();
+            dropped = 0;
+            firstReject = null;
+            if (node == null)
+                return read;
+            ConfigNode[] eventNodes = node.GetNodes(RouteEvent.NodeName);
+            for (int i = 0; i < eventNodes.Length; i++)
+            {
+                RouteEvent e = RouteEvent.DeserializeFrom(eventNodes[i], out string reject);
+                if (e == null)
+                {
+                    dropped++;
+                    if (firstReject == null)
+                        firstReject = reject;
+                    continue;
+                }
+                read.Add(e);
+            }
+            return read;
+        }
+
+        /// <summary>
         /// True when the log holds an event the rewind retire would remove at
         /// <paramref name="cutoffUT"/> (same predicate and strict boundary). Read-only: the
         /// in-session load reconcile reads it as evidence that a load went back past route activity.
@@ -202,24 +277,7 @@ namespace Parsek.Logistics
             events.Clear();
             Bump();
             ConfigNode node = parsekNode?.GetNode(NodeName);
-            int dropped = 0;
-            string firstReject = null;
-            if (node != null)
-            {
-                ConfigNode[] eventNodes = node.GetNodes(RouteEvent.NodeName);
-                for (int i = 0; i < eventNodes.Length; i++)
-                {
-                    RouteEvent e = RouteEvent.DeserializeFrom(eventNodes[i], out string reject);
-                    if (e == null)
-                    {
-                        dropped++;
-                        if (firstReject == null)
-                            firstReject = reject;
-                        continue;
-                    }
-                    events.Add(e);
-                }
-            }
+            events.AddRange(ReadEventsFrom(node, out int dropped, out string firstReject));
             if (dropped > 0)
             {
                 ParsekLog.Warn(Tag,

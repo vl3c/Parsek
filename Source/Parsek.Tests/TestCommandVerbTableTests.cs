@@ -70,6 +70,8 @@ namespace Parsek.Tests
         [InlineData("EvaSeatBoard")]
         [InlineData("EvaSeatLeave")]
         [InlineData("NewGame")]
+        [InlineData("AlarmJump")]
+        [InlineData("LaunchSiteProbe")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -214,9 +216,13 @@ namespace Parsek.Tests
             // [ / ] vessel cycle through the cycle Prefix's own body (GC-4).
             // EvaSeatBoard / EvaSeatLeave are ADDITIVE (54 -> 56; reserved unchanged at 4): an
             // EVA kerbal takes an external command seat and leaves it (the seat-dismount EVA).
-            // NewGame is ADDITIVE (56 -> 57; reserved unchanged at 4): a genuine stock new game
+            // AlarmJump is ADDITIVE (56 -> 57; reserved unchanged at 4): a stock alarm's Jump
+            // pressed through stock's own OnJump (GC-13).
+            // LaunchSiteProbe is ADDITIVE (57 -> 58; reserved unchanged at 4): Launch pressed on
+            // an obstructed site and stock's launch-site-clear dialog answered (LS-1, GC-9).
+            // NewGame is ADDITIVE (58 -> 59; reserved unchanged at 4): a genuine stock new game
             // under the loaded save's name (the scripted campaign program's CS-0 host).
-            Assert.Equal(57, TestCommandVerbs.ImplementedVerbNames.Count);
+            Assert.Equal(59, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

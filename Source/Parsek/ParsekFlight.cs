@@ -303,6 +303,16 @@ namespace Parsek
             => Instance != null && Instance.activeTree != null && Instance.recorder != null && Instance.recorder.IsRecording;
 
         /// <summary>
+        /// True when <paramref name="persistentId"/> is the live recorder's vessel or a
+        /// background member of the active tree; false off-flight or for 0.
+        /// </summary>
+        internal static bool IsLiveFlightVesselForTagging(uint persistentId)
+            => persistentId != 0u && Instance != null && Instance.activeTree != null
+                && ((Instance.recorder != null && Instance.recorder.RecordingVesselId == persistentId)
+                    || (Instance.activeTree.BackgroundMap != null
+                        && Instance.activeTree.BackgroundMap.ContainsKey(persistentId)));
+
+        /// <summary>
         /// #466: returns true whenever the flight scene is carrying an uncommitted tree,
         /// including outsider-state restores where <see cref="recorder"/> is intentionally
         /// null until the player returns to a tracked vessel.
@@ -2628,6 +2638,7 @@ namespace Parsek
             // After the flush: a flag planted this flight is still in the recorder buffer before it.
             if (TreeHasPlantedFlagsForIdle(activeTree, "IsActiveTreeIdleOnPad")
                 || TreeMovesHeldKerbalForIdle(activeTree, "IsActiveTreeIdleOnPad")
+                || TreeInteractsWithForeignVesselForIdle(activeTree, "IsActiveTreeIdleOnPad")
                 || TreeHasConverterWorkForIdle(activeTree, "IsActiveTreeIdleOnPad")
                 || TreeHasLabPayoutsForIdle(activeTree, "IsActiveTreeIdleOnPad")
                 || TreeHasPendingLabRecoveryForIdle(activeTree, "IsActiveTreeIdleOnPad"))
@@ -21912,7 +21923,8 @@ namespace Parsek
 
             if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreePadFailure")
                 || TreeHasPlantedFlagsForIdle(tree, "IsTreePadFailure")
-                || TreeMovesHeldKerbalForIdle(tree, "IsTreePadFailure"))
+                || TreeMovesHeldKerbalForIdle(tree, "IsTreePadFailure")
+                || TreeInteractsWithForeignVesselForIdle(tree, "IsTreePadFailure"))
                 return false;
 
             foreach (var rec in tree.Recordings.Values)
@@ -22150,6 +22162,65 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The first branch point of <paramref name="tree"/> at which the flight interacted
+        /// with a vessel from outside the tree, or null: an InventoryTransfer (always a foreign
+        /// partner), or a Dock / Board whose stamped target is no vessel the tree carried
+        /// before the merge (no recording outside the branch point's own children has its
+        /// pid). A board or dock back onto the tree's own vessel stamps no target or names a
+        /// tree vessel, so it is not an interaction. Pure, null-safe.
+        /// </summary>
+        internal static BranchPoint FindForeignVesselInteraction(RecordingTree tree)
+        {
+            if (tree?.BranchPoints == null) return null;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                BranchPoint bp = tree.BranchPoints[i];
+                if (bp == null) continue;
+                if (bp.Type == BranchPointType.InventoryTransfer)
+                    return bp;
+                if (bp.Type != BranchPointType.Dock && bp.Type != BranchPointType.Board)
+                    continue;
+                if (bp.TargetVesselPersistentId == 0)
+                    continue;
+                if (!TreeCarriesVesselOutsideChildren(tree, bp, bp.TargetVesselPersistentId))
+                    return bp;
+            }
+            return null;
+        }
+
+        private static bool TreeCarriesVesselOutsideChildren(RecordingTree tree, BranchPoint bp, uint pid)
+        {
+            if (tree.Recordings == null) return false;
+            foreach (var kvp in tree.Recordings)
+            {
+                Recording rec = kvp.Value;
+                if (rec == null || rec.VesselPersistentId != pid) continue;
+                if (bp.ChildRecordingIds != null && bp.ChildRecordingIds.Contains(kvp.Key)) continue;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Idle-on-pad veto for an interaction with another vessel: a kerbal of this flight
+        /// boarded or took a seat on, docked with, or moved cargo to or from a vessel outside
+        /// the tree (owner ruling 2026-10-25: the interaction is player work even when nothing
+        /// moved 30 m; the vessel the kerbal came from stays recorded as his origin). Logs the
+        /// veto; returns true when the tree must not be classified idle.
+        /// </summary>
+        internal static bool TreeInteractsWithForeignVesselForIdle(RecordingTree tree, string caller)
+        {
+            BranchPoint bp = FindForeignVesselInteraction(tree);
+            if (bp == null) return false;
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "{0}: not idle - {1} with a vessel outside the flight (bp={2} targetPid={3}) tree='{4}'",
+                    caller, bp.Type, bp.Id ?? "(none)", bp.TargetVesselPersistentId,
+                    tree?.TreeName ?? "<unnamed>"));
+            return true;
+        }
+
+        /// <summary>
         /// Idle-on-pad veto shared by <see cref="IsTreeIdleOnPad(RecordingTree)"/> and
         /// <see cref="IsActiveTreeIdleOnPad"/>: a tree whose kerbal placed ground parts
         /// created vessels, so it is player work even when nothing moved 30 m (a
@@ -22180,6 +22251,7 @@ namespace Parsek
             if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreeIdleOnPad")
                 || TreeHasPlantedFlagsForIdle(tree, "IsTreeIdleOnPad")
                 || TreeMovesHeldKerbalForIdle(tree, "IsTreeIdleOnPad")
+                || TreeInteractsWithForeignVesselForIdle(tree, "IsTreeIdleOnPad")
                 || TreeHasConverterWorkForIdle(tree, "IsTreeIdleOnPad")
                 || TreeHasLabPayoutsForIdle(tree, "IsTreeIdleOnPad")
                 || TreeHasPendingLabRecoveryForIdle(tree, "IsTreeIdleOnPad"))

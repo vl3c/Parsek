@@ -1113,6 +1113,14 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // LaunchSiteProbe, in the .LaunchSiteProbe.cs partial: OK once a dialog button was
+            // pressed and the result settled.
+            if (completionVerb == TestCommandLaunchSiteProbe.Verb)
+            {
+                TryCompleteLaunchSiteProbe(now);
+                return;
+            }
+
             bool done = false;
             string verdict = null;
             List<KeyValuePair<string, string>> payload = null;
@@ -1325,6 +1333,8 @@ namespace Parsek.TestCommands
             ResetEvaSeatState();
             // So must a new game's phase state.
             ResetNewGameState();
+            // A launch-site probe's references must never outlive its command either.
+            ResetLaunchSiteProbeState();
             // A multi-category RunTests that ends by TIMEOUT or by a completion
             // exception must not leave its token queue armed for the next RunTests to
             // inherit; the sequence is over the moment the two-phase state is.
@@ -1710,6 +1720,11 @@ namespace Parsek.TestCommands
 
         // NewGame: body + two-phase completion in ParsekTestCommandAddon.NewGame.cs.
         void ITestCommandExecutor.NewGame(ParsedCommand cmd) => NewGameImpl(cmd);
+        // AlarmJump: body in ParsekTestCommandAddon.AlarmJump.cs. Single-phase (the alarm is
+        // added, fired, its Jump pressed and its dialog closed inside the call).
+        void ITestCommandExecutor.AlarmJump(ParsedCommand cmd) => AlarmJumpImpl(cmd);
+        // LaunchSiteProbe: body + two-phase completion in ParsekTestCommandAddon.LaunchSiteProbe.cs.
+        void ITestCommandExecutor.LaunchSiteProbe(ParsedCommand cmd) => LaunchSiteProbeImpl(cmd);
 
         private void InvokeExecutor(ParsedCommand cmd)
         {
@@ -1787,6 +1802,8 @@ namespace Parsek.TestCommands
                 case "EvaSeatBoard": exec.EvaSeatBoard(cmd); break;
                 case "EvaSeatLeave": exec.EvaSeatLeave(cmd); break;
                 case "NewGame": exec.NewGame(cmd); break;
+                case "AlarmJump": exec.AlarmJump(cmd); break;
+                case "LaunchSiteProbe": exec.LaunchSiteProbe(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

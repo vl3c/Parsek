@@ -36,6 +36,8 @@ $injectFilterByPreset = @{
     "vessel-budget"         = "InjectVesselBudget"
     "chain-tip-recovery"    = "InjectChainTipRecovery"
     "chain-tip-dock"        = "InjectChainTipDock"
+    "launch-site-claim"     = "InjectLaunchSiteClaim"
+    "rescan-substitute"     = "InjectRescanSubstitute"
 }
 
 # Per-preset default save name, applied only when -SaveName is not given. Keeps a
@@ -64,6 +66,8 @@ $defaultSaveByPreset = @{
     "vessel-budget"         = "vessel-budget-fixture"
     "chain-tip-recovery"    = "chain-tip-recovery-fixture"
     "chain-tip-dock"        = "chain-tip-dock-fixture"
+    "launch-site-claim"     = "launch-site-claim-fixture"
+    "rescan-substitute"     = "rescan-substitute-fixture"
 }
 
 $ErrorActionPreference = "Stop"

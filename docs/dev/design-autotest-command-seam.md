@@ -354,7 +354,7 @@ save load, including a `LoadGame`.
 Reserving the phase-3 names now means the envelope (id/cmd/args, percent-encoding,
 journal, verdicts) is designed once and the later commands slot in without a format break.
 
-The table today is **56 implemented / 4 reserved**. `TestCommandVerbs.cs` is the authority
+The table today is **59 implemented / 4 reserved**. `TestCommandVerbs.cs` is the authority
 (`hlib.IMPLEMENTED_SEAM_VERBS` mirrors it as an ordered list, and a cell pins both lengths);
 the updates below record how each verb arrived.
 
@@ -615,12 +615,19 @@ the updates below record how each verb arrived.
 > optional `forceGhost=true` then calls `ForceSetActiveVessel` on a ghost marker to witness the
 > backstop. Full contract below (`#### CycleVessel`); lane `GC-4-vessel-cycle-skips-ghost-marker`.
 
-> Update (NewGame, 2026-10-25): one ADDITIVE verb, taking the table to **57 implemented / 4
+> Update (NewGame, 2026-10-25): one ADDITIVE verb, taking the table to **59 implemented / 4
 > reserved**, so stage CS-0 of the scripted campaign program can start from a genuine stock New
 > Game. `NewGame mode=SCIENCE_SANDBOX|CAREER|SANDBOX preset=Easy|Normal|Moderate|Hard save=` quits
 > the Space Center to the main menu the way its pause menu does, replaces `saves/<save>` (keeping
 > `Ships/`) and runs the main menu's own four create-and-start calls with
 > `GameParameters.GetDefaultParameters(mode, preset)`. Full contract below (`#### NewGame`).
+
+> Update (AlarmJump, 2026-10-25): one ADDITIVE verb, taking the table to **57 implemented / 4
+> reserved**, to live-prove GC-13 (todo GC13-ALARM-JUMP-BYPASSES-SWITCH-RULES: the stock Alarm
+> Clock dialog's Jump switched vessels outside every Parsek switch rule). `AlarmJump
+> vessel=|pid= [jump=shown|always|never]` adds a stock alarm bound to the vessel, fires it through
+> stock's own `TriggerAlarm` (the message dialog spawns), reads the Jump button and presses stock's
+> own `OnJump`. Full contract below (`#### AlarmJump`); lane `AJ-1-alarm-jump-refused-in-refly`.
 
 > Update (EvaSeatBoard / EvaSeatLeave, 2026-10-24): two ADDITIVE verbs, taking the table to **56
 > implemented / 4 reserved**, to live-prove the owner ruling of 2026-10-24 (a kerbal leaving an
@@ -630,6 +637,14 @@ the updates below record how each verb arrived.
 > `EvaSeatLeave` makes the seated kerbal of the active vessel leave through
 > stock's own `KerbalEVA.OnDeboardSeat`. Neither takes an arg. Full contract below
 > (`#### EvaSeatBoard / EvaSeatLeave`); lane `SEAT-1-seat-dismount-eva`.
+
+> Update (LaunchSiteProbe, 2026-10-25): one ADDITIVE verb, taking the table to **58 implemented / 4
+> reserved**, to live-prove GC-9 (todo GC9-LAUNCH-SITE-CLEAR-RECOVERS-CLAIMED-VESSEL: stock's
+> launch-site clear recovered a vessel a committed future flight holds). `LaunchSiteProbe` presses
+> Launch on an OBSTRUCTED site through stock's own buttons (the editor's, or the Space Center
+> launch-site picker's), reads the launch-site-clear dialog stock raises and presses one of its
+> buttons through the button's own callback. Full contract below (`#### LaunchSiteProbe`); lane
+> `LS-1-launch-site-clear-claimed-vessel`.
 
 > Update (ReadVesselResources, 2026-10-16): one ADDITIVE verb, taking the table to **52 implemented /
 > 4 reserved**, the first read of what is really in a vessel's tanks (todo
@@ -1339,7 +1354,7 @@ window's row buttons and the in-game `RouteRewindTimeline` cells call.
 
 | arg | values | meaning |
 |---|---|---|
-| `action` | `create` \| `send-once` \| `pause` \| `activate` | required; fail-closed and case-sensitive |
+| `action` | `create` \| `send-once` \| `pause` \| `activate` \| `link` \| `unlink` \| `set-cadence` \| `rescan` | required; fail-closed and case-sensitive |
 | `tree` | committed `RecordingTree.Id` | `create` only; the candidate tree |
 | `name` | route name (percent-encoded ON THE WIRE; a spec carries the RAW name) | `create` only; absent lets `RouteBuilder` generate one |
 | `interval` | seconds, InvariantCulture, finite and > 0 | `create` only; absent = the route's snapped minimum |
@@ -1379,6 +1394,7 @@ picking.
 | REJECTED | `route-arg-missing` | an operation without `route=` |
 | REJECTED | `unknown-route` | no stored route matched the selector |
 | REJECTED | `route-ambiguous` | more than one stored route matched |
+| REJECTED | `rescan-not-offered` | `rescan` on a route whose row draws no enabled Re-scan button |
 | ERROR | `route-action-refused <action>` | the orchestrator declined (wrong status for the action) |
 
 **The create refusals are walked in `RouteCandidateFinder.DeriveCandidates`' OWN gate
@@ -1405,6 +1421,21 @@ assertion vacuous.
 `action`, `route`, `name`, `match` (which selector tier hit), `applied`, `statusBefore`,
 `status`. The before/after status pair is not decoration - it is what turns a silent
 no-op into something a lane can assert on.
+
+**`action=rescan route=<sel>` (added 2026-10-25 for lane RS-1)** is the Logistics window's
+"Re-scan for endpoint" button. The button's click body moved into
+`LogisticsEndpointRescan.Run` (`UI/LogisticsEndpointRescan.cs`) and both the button and
+this action call it, so they print the same `[UI]` `Logistics: endpoint re-scan route=...`
+line and hand a full hit to the same `RouteOrchestrator.TryRecoverEndpointLostAfterRescan`.
+A single-stop route re-scans its one stop; a multi-stop route re-scans every stop and
+recovers only when all resolve. The action is refused `REJECTED rescan-not-offered`
+(gate-class, `driver-gate`) when the route's row would not draw the ENABLED button
+(`LogisticsEndpointRescan.IsOffered`: not EndpointLost, or no surface stop with a body). A
+scan that misses is still OK: it is a press the player can make. Payload: `action`, `route`,
+`name`, `match`, `stops`, `resolved` (stops found), `allResolved`, `recovered` (the recovery
+accepted the route), `statusBefore`, `status`; closing line `Info` "routecommand complete
+action=rescan route= name= match= stops= resolved=N/M allResolved= recovered= statusBefore=
+status=". It dirties the window's legibility cache like the other actions.
 
 **What v1 leaves for later:** `delete` / `dismiss` / `link` / cadence edits. Each is a
 separate production surface with its own confirmation dialog and none is on the
@@ -1553,7 +1584,7 @@ No side effects, so every refusal is `REJECTED` and there is no `ERROR` terminal
 
 | arg | values | meaning |
 |---|---|---|
-| `kind` | `rewindpoints` \| `committed` \| `active` \| `chains` \| `routes` | REQUIRED. Which handle family to enumerate. Fail-closed, case-sensitive (the `LoadGame scene=` rule): absent is `REJECTED kind-arg-missing`, anything else is `REJECTED kind-arg-invalid kind=<raw>`. Mirrored in `hlib.VERB_SCOPED_CLOSED_ARGS` so a typo is INVALID(spec-invalid) before a boot. |
+| `kind` | `rewindpoints` \| `committed` \| `active` \| `chains` \| `routes` \| `timeline` | REQUIRED. Which handle family to enumerate. Fail-closed, case-sensitive (the `LoadGame scene=` rule): absent is `REJECTED kind-arg-missing`, anything else is `REJECTED kind-arg-invalid kind=<raw>`. Mirrored in `hlib.VERB_SCOPED_CLOSED_ARGS` so a typo is INVALID(spec-invalid) before a boot. |
 | `expectDigest` | eight lowercase hex digits | OPTIONAL, `kind=chains` only. The digest of an earlier chains capture, normally `${<label>.digest}`; the answer then carries `expected=` and `match=`. On any other family `REJECTED expect-digest-kind-mismatch`; any other shape (including an unsubstituted `${...}`) `REJECTED expect-digest-invalid`. Checked pre-launch by `hlib.validate_list_handles_expect_digest`. |
 
 **Payload grammar.** Every value is `InvariantCulture` and percent-encoded on the wire
@@ -1614,7 +1645,7 @@ The digest exists so the D18 `chain-state-rederived` readback can be compared
   false, or no `ParsekFlight` yet), the dispatcher answers `DEFER ghost-chains-pending`,
   because `LoadGame` completes on the scene switch a second or more before
   `OnFlightReady` derives the chains, and an undeferred read would observe the previous
-  instant. The other four families are untouched by it.
+  instant. The other five families are untouched by it.
 - `kind=routes count=<n> truncated=<b> dormant=<n> route<i>=<RouteId> route<i>name=<name>
   route<i>status=<RouteStatus> route<i>completed=<n> route<i>skipped=<n>
   route<i>cursor=<LastObservedLoopCycleIndex> route<i>windowAnchor=<n>
@@ -1635,6 +1666,31 @@ The digest exists so the D18 `chain-state-rederived` readback can be compared
   route index=<i> id=.. name='..' status=.. completed=.. ...` (the keys in
   `TestCommandListHandles.RouteLogLineKeys` order, read out of the built payload), and the
   summary line gains ` dormant=<n>`.
+- `kind=timeline count=<n> truncated=<b> recordingRows=<n> actionRows=<n> legacyRows=<n>
+  milestoneRows=<n> legacyMilestoneRows=<n> retired=<n> retiredWithTwin=<n>
+  retiredTwinCopies=<n> retiredTwinRows=<n> retired<i>type=<GameActionType>
+  retired<i>subject=<twin key subject or empty> retired<i>ut=<UT, "R"> retired<i>twinCopies=<n>
+  retired<i>twinRows=<n>` (`TestCommandListHandlesTimeline.cs`, pure `TestCommandTimelineReadback`).
+  `count` and the `*Rows` counts are over the Timeline the window would draw, built by
+  `TimelineWindowUI.BuildFromLiveState` (the window's own call: ERS, ELS, the milestone store,
+  `GameStateStore.IsEventVisibleToCurrentTimeline`, the game mode, the tombstoned rows), split by
+  `TimelineEntry.Source`; `legacyMilestoneRows` counts legacy rows whose event is
+  `MilestoneAchieved`. `retired` is `EffectiveState.ComputeRetiredLedgerActions` (the ledger
+  minus the ELS), `retiredWithTwin` those with a legacy-twin key
+  (`TimelineBuilder.GetLegacyDuplicateKey`). `retiredTwinCopies` is computed from the STORE,
+  not from the built rows: committed milestone-store events that would be legacy-row candidates
+  (`TimelineBuilder.IsLegacyRowCandidate`), carry a retired twin key and no effective row's key;
+  `retiredTwinRows` is the built legacy rows carrying a retired twin key
+  (`TimelineEntry.LegacyKey`). So copies > 0 with rows = 0 is the phantom fix observed
+  (todo TIMELINE-PHANTOM-MILESTONE-AFTER-REFLY-OF-LATER-SEGMENT; rows > 0 is the phantom).
+  Retired rows are listed in ledger order, capped at 16 (`truncated`; the counts cover all);
+  the per-row twin counts are attributed to the first retired row carrying that twin. The
+  summary Info line is `listhandles timeline <the summary keys in
+  TestCommandTimelineReadback.TimelineLogLineKeys order>` and each listed row writes `listhandles
+  timeline retired index=<i> type=.. subject=.. ut=.. twinCopies=.. twinRows=..`, both read out of
+  the built payload and mirrored in `hlib.LISTHANDLES_TIMELINE_LOG_KEYS` /
+  `LISTHANDLES_TIMELINE_RETIRED_LOG_KEYS` (`ListHandlesSourceSyncTests`). Scene-agnostic (every
+  input is a process static). First consumer: TL-1.
 
 **Observability.** One Info line per call, `listhandles kind=<k> count=<n>
 truncated=<b>`, with the chains family appending ` evaluated=<b> digest=<hex8>` and, when
@@ -5008,6 +5064,109 @@ rejected reason=<reason> ...`; an error logs `newgame error <reason> ... elapsed
 `TestCommandNewGame`, applier `ParsekTestCommandAddon.NewGame.cs`, xUnit `TestCommandNewGameTests`,
 mirrored by hlib's `NewGameSourceSyncTests`.
 
+#### AlarmJump (additive; GC-13, the stock alarm dialog's Jump)
+
+**Why.** Decompiled `AlarmClockMessageDialog.OnJump` (KSP 1.12.5) calls
+`FlightGlobals.SetActiveVessel(alarm.Vessel)` in FLIGHT and `GamePersistence.SaveGame` +
+`FlightDriver.StartAndFocusVessel(FlightGlobals.Vessels.IndexOf(alarm.Vessel))` elsewhere, and none
+of Parsek's switch patches sat on that path. The fix (`Patches/AlarmJumpSwitchPatch.cs`) prefixes
+`OnJump` and postfixes `Spawn` (the button mark); no seam could fire an alarm or press its Jump, so
+neither was ever flown.
+
+**Stock ground truth (decompiled KSP 1.12.5).** An alarm is an `AlarmTypeBase` holding only the
+vessel's pid (`vesselId`); `AlarmTypeRaw` is the plain timed one. `AlarmClockScenario.AddAlarm`
+lists it; the scenario's update loop fires a due alarm through the internal
+`AlarmTypeBase.TriggerAlarm`, which spawns `AlarmClockMessageDialog.Spawn(alarm, ActionAlarm)`
+(kept in the private `dialogObject`) when the alarm shows a message. `Spawn` shows the Jump button
+only when the pid is in `FlightGlobals.PersistentVesselIds` and is not the active vessel's; the
+button's listener, `OnJump`, is added in `Start`, a frame later. `OnDeleteOnClose` (the Delete
+button) sets `deleteWhenDone`, runs `ActionAlarm` (which deletes the alarm) and destroys the dialog.
+
+**Grammar.** `cmd=AlarmJump vessel=<exact name>|pid=<persistentId> [jump=shown|always|never]`,
+issued in FLIGHT. Exactly one of `vessel=` / `pid=` (`alarmjump-target-arg-missing`,
+`-target-arg-conflict`; a pid is a positive base-10 uint, `-pid-arg-invalid`); `jump=` exact and
+lower-case (`-jump-arg-invalid`), absent means `shown`. All deterministic, arg-class.
+
+**Behavior.** Refuses with no running Alarm Clock scenario (`alarmjump-no-alarm-clock`,
+gate-class). Resolves the target over `FlightGlobals.Vessels` WITH ghost map vessels counted (an
+alarm on a ghost's orbit node is a case the fix refuses): none is `alarmjump-target-not-found`, two
+or more `-target-ambiguous` (arg-class). Logs `alarmjump start targetPid= vessel='..' targetIsGhost=
+targetLoaded= active= stockWouldShowJump= decision= jump=`, where `decision` is
+`AlarmJumpSwitchPatch.DecideLive(pid, log: false)` (`leave-to-stock`, `refuse-ghost`,
+`refuse-refly`, or `inert` under the game-mode gate). It builds an `AlarmTypeRaw` an hour ahead
+(so the scenario's own loop cannot fire it a second time) with warp `DoNothing`, message `Yes`, no
+sound and delete-when-done, adds it with `AddAlarm` (false or a throw is ERROR
+`alarmjump-add-failed`), fires it through `TriggerAlarm` (a throw is ERROR `-trigger-failed`, no
+dialog `-no-dialog`), and reads `jumpButton.gameObject.activeSelf` after Parsek's Spawn postfix ran.
+`jump=shown` presses only a shown button, `always` presses it even hidden (the block behind the
+mark), `never` never. The press logs `alarmjump press OnJump alarmId= targetPid= jumpShown=` and
+invokes `OnJump` directly (the listener is not attached yet in the spawn frame), so the Harmony
+Prefix runs as on a click; `onGameSceneLoadRequested` is watched during the call (a far switch
+REQUESTS a scene load, which `after=` alone cannot see); a throw is ERROR `-jump-threw`. Every
+path then closes the dialog through `OnDeleteOnClose` and deletes the alarm if it is still listed.
+The verb never calls `SetActiveVessel` itself.
+
+**Phases.** SINGLE-PHASE, `RequiresFlight` (v1 drives the FLIGHT branch; the Tracking Station and
+Space Center branch saves and loads a new scene, which needs a two-phase answer and its own scene
+gate), default 60 s budget, `load-in-flight` / `merge-journal-in-flight` refused at dispatch as for
+`SimulateStockSwitchClick`, world-mutating tail role, `recording` post-mission role. OK payload in
+this order: `targetPid targetIsGhost targetLoaded alarmId stockWouldShowJump jumpShown decision
+jump pressed before after switched sceneLoadRequested alarmRemoved`. Line `alarmjump result` plus
+the payload as `key=value`. Pure half `TestCommandAlarmJump`, applier
+`ParsekTestCommandAddon.AlarmJump.cs`, mirrored by `AlarmJumpSourceSyncTests`.
+
+#### LaunchSiteProbe (additive; stock's launch-site-clear dialog, read and pressed)
+
+**Why.** Stock recovers every vessel landed at the launch site from its launch-site-clear dialog,
+and GC-9 holds that recovery for a vessel a committed future flight claims. `LaunchFromEditor`
+refuses an obstructed site (`launchfromeditor-site-obstructed`, its proceed branch recovers) and
+`StockScreen screen=launchsite` cannot press Launch, so nothing reached the dialog.
+
+**Stock ground truth (decompiled KSP 1.12.5).** Editor: `EditorLogic.launchVessel` builds a
+`PreFlightCheck` whose last test is `LaunchSiteClear`; a failed test spawns
+`MultiOptionDialog("TestWarning", GetWarningDescription(), GetWarningTitle(), ...)` with a proceed
+button (`GetProceedOption()`, Recover and launch) and an abort button (`GetAbortOption()`), or the
+abort button alone when `GetProceedOption()` is null. Space Center: the building click opens the
+picker (`VesselSpawnDialog`); its Launch button reaches `LaunchSiteFacility.shipSelected`, which runs
+the same test and on a failure spawns `"LaunchSiteWarning"` with three buttons in a fixed order (go
+to the obstructing vessel, the proceed button running `ClearSite` then `launchChecks`, Cancel).
+`DialogGUIButton.OptionSelected()` is the button's own click body minus the interactable check.
+
+**Grammar.** EDITOR: `cmd=LaunchSiteProbe [answer=abort|proceed]`, the craft on the stage at the
+editor's selected site. SPACECENTER: `cmd=LaunchSiteProbe facility=VAB|SPH craft=<name>
+[answer=abort|proceed]` (facility default VAB; `craft` matches a picker row's listed name or
+its craft file's stem, since stock lists a stock craft as its localized name plus "(Stock)"). `answer`
+defaults to `abort`; `answer=proceed` presses the proceed button even when it is greyed (the
+click-blocks behind it are what the press meets), and presses abort when there is none. Both
+spellings are exact. The key is `answer`, not UiAction's scoped `press`.
+
+**Behavior.** Every gate refuses before anything is pressed (REJECTED): the arg spellings
+(`launchsiteprobe-answer-arg-invalid`, `-facility-arg-invalid`, `-craft-arg-invalid`), an arg the
+scene does not take (`-arg-not-for-scene`, `-craft-arg-missing`), `-wrong-scene`, and the live
+gates `-no-ship`, `-launch-locked` (an `EDITOR_LAUNCH` lock that is the only blocker is waited out
+for 10 s first), `-site-clear` (a clear site launches, so it is never pressed; at the Space Center
+read off the picker's site after the row is selected), `-facility-not-found`, `-picker-open`,
+`-craft-not-found` (the row not listed within 10 s; the reply names up to 8 listed rows). The obstruction count is stock's own
+`ShipConstruction.FindVesselsLandedAt`. Lines: `launchsiteprobe start path= scene= [facility=
+craft=] answer= site= obstructing= first=`; `launchsiteprobe dialog path= name= buttons= labels=[..]
+interactable=1,0,1 proceedOffered= proceedInteractable= title= description=` (text on one line, line
+breaks as a literal `\n`, capped); `launchsiteprobe press path= requested= pressed= label=
+interactable=`; `launchsiteprobe complete path= site= dialog= buttons= proceedOffered=
+proceedInteractable= pressed= outcome=stayed|launched obstructingBefore= obstructingAfter= firstAfter=
+lockHeld= elapsed=`. The interactable state is stock's own `OptionInteractableCondition`. A launch
+with no dialog completes OK `dialog=none outcome=launched`. ERROR only when Launch was pressed and
+the dialog could not be read or settled: `-no-dialog` (10 s), `-other-dialog` (another pre-flight
+test failed first; its last button is pressed), `-dialog-shape`, `-not-settled`, `-threw`. The
+picker is closed through its own Close button whenever the probe ends with it still open.
+
+**Phases.** TWO-PHASE, `RequiresGameLoaded` (the scene is the parse's gate), default 60 s budget,
+world-mutating tail role, `recording` post-mission role. After the press the probe settles until
+the dialog is gone and the scene stayed 30 frames and 1 s (`outcome=stayed`), or the scene left
+(`outcome=launched`). OK payload `path site dialog buttons proceedOffered proceedInteractable
+pressed outcome obstructingBefore obstructingAfter`: the facts; the lane judges them. Pure half
+`TestCommandLaunchSiteProbe`, applier `ParsekTestCommandAddon.LaunchSiteProbe.cs`, mirrored by
+`LaunchSiteProbeSourceSyncTests`.
+
 ### Addon lifecycle
 
 `ParsekTestCommandAddon` mirrors `TestRunnerShortcut`: `[KSPAddon(KSPAddon.Startup.Instantly, true)]`
@@ -5135,8 +5294,10 @@ wall-clock. Some verbs need a different bound and override the default:
 | `DriveVessel` | (default) 60 s | TWO-PHASE, at most 30 game seconds of drive; the completion ends ERROR `drivevessel-timeout` rather than letting the pump convert it |
 | `CrewTransfer` | (default) 60 s | TWO-PHASE: stock moves the kerbal synchronously and dismisses one frame later; the completion ends ERROR `crewtransfer-timeout` rather than letting the pump convert it |
 | `CycleVessel` | (default) 60 s | SINGLE-PHASE: the press and a switch between loaded vessels run inside the call; the budget only bounds the not-in-flight dispatch defer |
+| `AlarmJump` | (default) 60 s | SINGLE-PHASE: the alarm is added, fired, its Jump pressed and its dialog closed inside the call; a far switch only requests its scene load there |
 | `EvaSeatBoard` / `EvaSeatLeave` | (default) 60 s | TWO-PHASE: stock's board and leave land within a frame and the completion holds 10 polls past Parsek's dock merge; each ends ERROR `-timeout` rather than letting the pump convert it |
 | `NewGame` | 300 s | TWO-PHASE, the `ReFlyRevert` size: the pause menu's save and the main menu load, a 5-poll menu settle, the delete and stock's create, then the Space Center load from the new `persistent.sfs`; a `DEFERRED_SEAM_VERB` |
+| `LaunchSiteProbe` | (default) 60 s | TWO-PHASE: no scene load on the designed path; the picker list wait, the dialog wait (each up to 10 s) and a 1 s settle; a settle that never ends is ERROR `-not-settled` |
 | `ReFlyRevert` | 300 s | TWO-PHASE, the `InvokeRewind` / `InvokeRewindToLaunch` size: the resume settle (up to 30 s) and the stock menus, then Discard's quicksave `LoadGame` plus the Space Center / editor load or Retry's flight reload; a `DEFERRED_SEAM_VERB` |
 | `AnswerMergeDialog` | 60 s | MEASURED 2026-10-06 over 859 collected runs (2026-09-10 to 2026-10-05): OK n=65, p50 3.3 s, p99 6.6 s, max 7.2 s. 4x the OK max is 29 s; the floor is twice `TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds` (30 s), which the re-fly fallback spends before the driven exit (unit-guarded). Was 120 s; all 6 non-OK outcomes (4 `no-refly-dialog` TIMEOUT, 2 `answer-timeout` ERROR) waited the full 120 s and none was a slow success |
 | `EvaGroundScience` | 60 s | MEASURED 2026-10-06 over the same corpus: OK n=412, p50 0.9 s, p99 5.5 s, max 5.5 s (step 3.3, take 0.5, place 3.6, pickup 5.5). Each action is its own command, so the budget bounds one action. 4x the OK max is only 22 s, but the place ladder counts frames (about 1,000 worst case), so 60 s keeps it inside the budget down to about 17 fps. Was 120 s (the EvaExit size); all 37 timeouts (27 `step-timeout`, 5 `placement-timeout`, 3 `place-gate-timeout`, 2 `pickup-timeout`) waited the full 120 s, 4,440 s in all |

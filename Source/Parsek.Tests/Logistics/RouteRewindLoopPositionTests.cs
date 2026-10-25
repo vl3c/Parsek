@@ -688,7 +688,8 @@ namespace Parsek.Tests.Logistics
             // the clock.
             string flat = System.Text.RegularExpressions.Regex.Replace(body, @"\s+", " ");
             Assert.Contains("Logistics.RouteLoadReconcile.ReconcileAtGoBackRewind( "
-                + "RewindContext.RewindAdjustedUT, RewindContext.RewindSaveRoutes, RewindContext.RewindSaveClockUT);",
+                + "RewindContext.RewindAdjustedUT, RewindContext.RewindSaveRoutes, RewindContext.RewindSaveClockUT, "
+                + "RewindContext.RewindSaveOwnClockUT, RewindContext.RewindSaveEvents);",
                 flat);
             Assert.Contains("GameStateStore.PruneBaselinesAfterUT(RewindContext.RewindAdjustedUT);", flat);
             Assert.Contains("LedgerOrchestrator.RecalculateAndPatch( RewindContext.RewindAdjustedUT,", flat);
@@ -729,7 +730,10 @@ namespace Parsek.Tests.Logistics
             string consume = Between(ReadSource("RewindInvoker.cs"),
                 "internal static void ConsumePostLoad(", "private static void RunStripActivateMarker(");
             Assert.Contains("RouteStore.ReadSavedCommittedRoutes(loadedScenarioNode)", consume);
-            Assert.Contains("ReconciliationBundle.Restore(bundle, retireCutoffUT, loadedSaveRoutes, loadedSaveUT)", consume);
+            Assert.Contains("ReconciliationBundle.Restore( bundle, retireCutoffUT, loadedSaveRoutes, loadedSaveUT, "
+                + "loadedClockUT, loadedSaveEvents);",
+                System.Text.RegularExpressions.Regex.Replace(consume, @"\s+", " "));
+            Assert.Contains("RouteEventLog.ReadSavedEvents(loadedScenarioNode)", consume);
 
             string scenario = ReadSource("ParsekScenario.cs");
             string dispatch = Between(scenario,

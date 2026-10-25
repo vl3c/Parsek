@@ -75,6 +75,8 @@ namespace Parsek.Tests
             public void EvaSeatBoard(ParsedCommand cmd) => Calls.Add("EvaSeatBoard");
             public void EvaSeatLeave(ParsedCommand cmd) => Calls.Add("EvaSeatLeave");
             public void NewGame(ParsedCommand cmd) => Calls.Add("NewGame");
+            public void AlarmJump(ParsedCommand cmd) => Calls.Add("AlarmJump");
+            public void LaunchSiteProbe(ParsedCommand cmd) => Calls.Add("LaunchSiteProbe");
         }
 
         [Fact]
@@ -213,6 +215,10 @@ namespace Parsek.Tests
         [InlineData("EvaSeatLeave", "RequiresFlight")]
         // NewGame: Space Center only, the wrong scene its own typed REJECTED.
         [InlineData("NewGame", "RequiresGameLoaded")]
+        // AlarmJump: v1 drives the FLIGHT branch of stock's OnJump.
+        [InlineData("AlarmJump", "RequiresFlight")]
+        // LaunchSiteProbe: the editor-route row (EDITOR or SPACECENTER, checked by the executor).
+        [InlineData("LaunchSiteProbe", "RequiresGameLoaded")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -280,6 +286,8 @@ namespace Parsek.Tests
             fake.EvaSeatBoard(cmd);
             fake.EvaSeatLeave(cmd);
             fake.NewGame(cmd);
+            fake.AlarmJump(cmd);
+            fake.LaunchSiteProbe(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();
