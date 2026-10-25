@@ -1,0 +1,146 @@
+schema = 1
+id = "STR-3-revert-takes-back-strategy-share"
+tier = "operator"
+# STRATEGIES x STOCK REVERT (todo CROSS-SYSTEM-COVERAGE-GAPS-2026-10-16, "strategies across any
+# timeline operation"; roadmap XS-1 / GP-1; owner 2026-10-24: strategies must be exact, "to not
+# cause compounding errors"). AUTHORED 2026-10-25 (branch `claude/project-thread-eo3rd8`). NEVER
+# FLOWN: its first flight is a reading run.
+#
+# THE STORY. QL-2c's host and flight: GS-1's two-stage hop on `career-gs1-leadership-pad`
+# (Leadership Initiative active since before the career had a ledger), recorded. The ascent's
+# world records pay Progression rewards, and the strategy's share of each is written as a ledger
+# row tagged to the live pod recording at once (`LedgerOrchestrator.OnStrategyCurrencyConversion`;
+# QL-2c measured four funds shares and one reputation share, UT 27.9-33.4). The awards
+# themselves are events of the uncommitted flight. Then the player's Revert to Launch: stock
+# reloads the post-init state (funds 500000, reputation 0, science 100), and Parsek must drop the
+# shares with the flight. The awards are filtered by recording-id visibility; the shares are
+# rows, and the plain revert prune keeps tagged rows, so the revert branch prunes them by their
+# own rule (`LedgerOrchestrator.PruneRevertedFlightStrategyConversionRows`, xUnit only until this
+# lane). Then LedgerGroundTruth on the pad: the save (stock's reverted pools) against the ledger
+# walk. A share that survived the revert reads as a hard funds divergence there (the walk pays
+# 1140 funds stock no longer has), and as a positive PatchFunds after the revert.
+#
+# THE GATES: the shares are captured tagged; the revert classifies StockRevert and prunes N >= 1
+# conversion rows; no funds patch lifts the pool after the revert and no guard clamps anywhere;
+# the ground truth passes with `hardFailures=0`. Leadership Initiative is unmanaged (no ledger
+# activation), so the new strategy facet stays a census here (STR-1 and STR-2 compare it).
+#
+# PRE-REGISTERED READINGS:
+#   - `reverttolaunch rejected reason=reverttolaunch-unavailable`: stock did not offer the
+#     revert after the hop (the fixture's PRELAUNCH load should set CanRevertToPostInit, as
+#     LAB-9b and VN-5 measured on pad craft); a premise miss.
+#   - no `Revert: pruned` line but the shares were captured: the defect is live; read the
+#     `Strategy conversion recorded` UTs against the prune cutoff (`loadedUT`, the launch UT).
+#   - LedgerGroundTruth skipped (`live or pending tree`): the revert left a recorder armed;
+#     read `recordingstate` after the revert.
+#   - `result: hardFailures=1` on reputation: the share's reputation leg (0.075) survived or
+#     the seed read the pre-revert pool; read the facet line.
+#
+# FAST-LANE CHECKLIST: (1) reuse - QL-2c's flight verbatim up to MISSION-OK; (2) no waits but
+# the batch; (3)-(5) none beyond the hop; (6) retry `once`; (7) count window {0,8}: nothing
+# commits (the revert soft-unstashes the tree), the reading run pins it; (8) operator until
+# green, about 6 min expected; (9) flight_efficiency.py after the first green flight.
+description = "STR-3 (strategies x stock revert): GS-1's career hop under Leadership Initiative writes the strategy's shares of the ascent's rewards as rows tagged to the flight; Revert to Launch prunes them with the flight, no patch lifts the reverted funds, and LedgerGroundTruth on the pad finds no divergence."
+instanceProfile = "stock-minimal"
+tags = ["STR-3", "strategy", "stock-revert", "career", "ledger", "ledger-groundtruth", "GS1",
+        "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/career-gs1-leadership-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "gs1_auto_chute_booster_career"
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" },  expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  # ---- THE FLIGHT: QL-2c's hop, the shares written tagged to the pod recording ----
+  { phase = "mission",                                                                  expect = "MISSION-OK", budget = 900 },
+  { cmd = "MissionMark",       args = { label = "str3-revert" },                        expect = "OK" },
+  # ---- THE REVERT: stock's Revert to Launch with the recorder live ----
+  { cmd = "RevertToLaunch",                                                             expect = "OK", budget = 180 },
+  # inert-wait: the post-load passes run on the first host ticks after onFlightReady.
+  { cmd = "RecordingState",                                                             expect = "OK" },
+  { cmd = "RecordingState",                                                             expect = "OK" },
+  { cmd = "RecordingState",                                                             expect = "OK" },
+  { cmd = "RecordingState",                                                             expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # ---- THE CHECK: the save after the revert against the ledger walk ----
+  { cmd = "SaveGame",          args = { name = "persistent" },                          expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "str3-check" },                         expect = "OK" },
+  { cmd = "RunTests",          args = { category = "LedgerGroundTruth" },               expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[driver.missionParams]
+# QL-2c's (QL-4's) values VERBATIM.
+throttle = 1.0
+stagingApoapsisMeters = 700
+stagingMaxAltMeters = 1500
+apoapsisWindowMeters = { min = 600, max = 1600 }
+stageSettleFrames = 2
+chuteArmMaxRateMps = 30
+chuteFullDeployAltMeters = 600
+landedSituations = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds = 90
+coastTimeoutSeconds = 120
+stageTimeoutSeconds = 60
+descentTimeoutSeconds = 300
+siblingVesselName = "GS1 Auto-Chute Booster Probe"
+siblingAirborneAtExit = true
+siblingDownTimeoutSeconds = 240
+
+[dimensionsCovered]
+D8  = ["funds", "strategies", "recalc-engine", "ksp-state-patcher"]
+D14 = ["kerbin", "career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 8 }
+
+[expectations.logContracts]
+required = [
+  # --- THE FLIGHT: the strategy's shares, tagged to the live recording ---
+  "Recording started",
+  "Strategy conversion recorded: type=FundsEarning, currency=Funds, delta=[0-9][0-9.E+-]*, UT=[0-9.]+, reason=Progression, recordingId=[0-9a-f]{32}",
+  # --- THE REVERT ---
+  "Prefix: no active re-fly session [^\\r\\n]*allowing stock RevertToLaunch",
+  "GameEvents\\.OnRevertToLaunchFlightState fired; armed RevertKind\\.Launch for next OnLoad",
+  "(?s)MISSIONMARK label=str3-revert .*?Load classified: early=\\w+ refined=StockRevert scene=FLIGHT",
+  # THE GATE: the reverted flight's shares go with it.
+  "(?s)MISSIONMARK label=str3-revert .*?Revert: pruned [1-9][0-9]* strategy conversion row\\(s\\) of the reverted flight after UT ",
+  "reverttolaunch complete pid=[0-9]+ name='[^']+' situation=PRELAUNCH elapsed=",
+  # --- THE CHECK: the save against the walk ---
+  "(?s)MISSIONMARK label=str3-check .*?BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "(?s)MISSIONMARK label=str3-check .*?result: hardFailures=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "reverttolaunch rejected",
+  "reverttolaunch error",
+  "result: hardFailures=[1-9]",
+  "GUARDED (?:UPLIFT|DRAWDOWN) clamped resource=(?:Funds|Reputation)",
+  # A share left in the walk after the revert lifts KSP's pool back up.
+  "(?s)MISSIONMARK label=str3-revert .*?\\[KspStatePatcher\\] PatchFunds: [0-9.]+ -> [0-9.]+ \\(delta=[0-9]",
+  # A revert is never a quickload, and nothing commits.
+  "Load classified: early=\\w+ refined=QuickloadFlight ",
+  "full-fidelity auto-commit",
+  "committree committed=true",
+]
+
+[runtime]
+# LoadGame 660, the hop 900, the revert 240, SaveGame 120, RunTests 600, about 10 inert steps
+# at 120: about 3,700 s.
+budgetSeconds = 4200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

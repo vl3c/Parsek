@@ -350,10 +350,28 @@ namespace Parsek.InGameTests
             recon.ResearchedTechIds = ScanResearchedTechIds(clockUT, out bool hasTechSurface);
             recon.HasTechSurface = hasTechSurface;
 
-            // NO purchased-part or active-strategy reconstruction surface exists (the
-            // recalc has no purchased-part set - part unlock is derived at patch time
-            // from KSP's own part list - and StrategiesModule keeps its active set
-            // private), so both facets are save-side CENSUSES in the diff, with no
+            // Active-strategy surface (report-only facet): the strategies the walk has on
+            // at its cutoff, and every id it saw an activation for (only those are
+            // compared; a strategy stock had on before the ledger is not the ledger's).
+            var strategies = LedgerOrchestrator.Strategies;
+            if (strategies != null)
+            {
+                recon.HasStrategySurface = true;
+                foreach (string id in strategies.GetActiveStrategyIds())
+                {
+                    if (!string.IsNullOrEmpty(id))
+                        recon.LedgerActiveStrategyIds.Add(id);
+                }
+                foreach (string id in strategies.GetManagedStrategyIds())
+                {
+                    if (!string.IsNullOrEmpty(id))
+                        recon.ManagedStrategyIds.Add(id);
+                }
+            }
+
+            // NO purchased-part reconstruction surface exists (the recalc has no
+            // purchased-part set - part unlock is derived at patch time from KSP's own
+            // part list), so that facet is a save-side CENSUS in the diff, with no
             // compare half and no snapshot field to fill.
 
             ParsekLog.Verbose(Tag,
@@ -369,7 +387,10 @@ namespace Parsek.InGameTests
                 $"permanentlyGoneKerbals={recon.PermanentlyGoneKerbals.Count.ToString(IC)} " +
                 $"techSurface={recon.HasTechSurface.ToString(IC)} " +
                 $"researchedTech={recon.ResearchedTechIds.Count.ToString(IC)} " +
-                $"kerbalCareerLogs={recon.KerbalCareerLog.Count.ToString(IC)}");
+                $"kerbalCareerLogs={recon.KerbalCareerLog.Count.ToString(IC)} " +
+                $"strategySurface={recon.HasStrategySurface.ToString(IC)} " +
+                $"ledgerActiveStrategies={recon.LedgerActiveStrategyIds.Count.ToString(IC)} " +
+                $"managedStrategies={recon.ManagedStrategyIds.Count.ToString(IC)}");
 
             return recon;
         }
@@ -749,7 +770,9 @@ namespace Parsek.InGameTests
                 ParsekLog.Info(Tag,
                     $"strategies saveStrategies={save.Strategies.Count.ToString(IC)} " +
                     $"saveActive={save.ActiveStrategyIds.Count.ToString(IC)} " +
-                    $"(save-side census only; no reconstruction strategy surface exists)");
+                    $"reconSurface={recon.HasStrategySurface.ToString(IC)} " +
+                    $"reconActive={recon.LedgerActiveStrategyIds.Count.ToString(IC)} " +
+                    $"reconManaged={recon.ManagedStrategyIds.Count.ToString(IC)}");
             }
         }
 

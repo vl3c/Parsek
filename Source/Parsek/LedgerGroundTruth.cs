@@ -270,12 +270,30 @@ namespace Parsek
         /// </summary>
         public HashSet<string> ResearchedTechIds = new HashSet<string>(StringComparer.Ordinal);
 
-        // NO purchased-part or active-strategy surface, deliberately: the recalc
-        // models tech-node RESEARCH (part unlock is derived at patch time from KSP's
-        // own part list, KspStatePatcher.AddPurchasedPartsForTech) and StrategiesModule
-        // keeps its active set private. Both facets are save-side CENSUS ONLY in
-        // LedgerGroundTruthDiff; a field nothing ever fills would only make an
+        // NO purchased-part surface, deliberately: the recalc models tech-node RESEARCH
+        // (part unlock is derived at patch time from KSP's own part list,
+        // KspStatePatcher.AddPurchasedPartsForTech), so that facet is save-side CENSUS
+        // ONLY in LedgerGroundTruthDiff; a field nothing ever fills would only make an
         // unreachable compare half look reachable.
+
+        /// <summary>
+        /// True when the reconstruction has an active-strategy surface (the
+        /// StrategiesModule resolved). False leaves the strategy facet UNCOMPARED.
+        /// </summary>
+        public bool HasStrategySurface;
+
+        /// <summary>
+        /// Strategy ids active at the walk's cutoff
+        /// (StrategiesModule.GetActiveStrategyIds()).
+        /// </summary>
+        public HashSet<string> LedgerActiveStrategyIds = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Strategy ids the walk saw a StrategyActivate row for, active or not
+        /// (StrategiesModule.GetManagedStrategyIds()). Only these are compared: a strategy
+        /// stock had on before the save had a ledger is not the ledger's to state.
+        /// </summary>
+        public HashSet<string> ManagedStrategyIds = new HashSet<string>(StringComparer.Ordinal);
 
         /// <summary>
         /// Per-kerbal career-log entries the reconstruction credits, read off the
@@ -333,11 +351,14 @@ namespace Parsek
         Roster,
 
         /// <summary>ResearchAndDevelopment Tech unlock set (report-only).</summary>
-        TechNode
+        TechNode,
 
-        // NO PartPurchase / Strategy members: those two facets are save-side census
-        // only (no reconstruction surface produces either set), so no divergence can
-        // ever be tagged with them. Add a member back WITH the producer.
+        /// <summary>StrategySystem active set, ledger-managed ids only (report-only).</summary>
+        Strategy
+
+        // NO PartPurchase member: that facet is save-side census only (no
+        // reconstruction surface produces the set), so no divergence can ever be tagged
+        // with it. Add a member back WITH the producer.
     }
 
     /// <summary>What kind of disagreement a divergence represents.</summary>
@@ -426,7 +447,7 @@ namespace Parsek
         ///
         /// When <paramref name="strict"/> is true, ALSO promotes the report-only
         /// per-identity facets (SubjectScience / Facility / Contract / Milestone /
-        /// KerbalXp / Roster / TechNode / PartPurchase / Strategy), phantoms, and
+        /// KerbalXp / Roster / TechNode / Strategy), phantoms, and
         /// uncorroborated (pid-only) recovery Consistency entries.
         /// </summary>
         internal List<LedgerDivergence> HardFailures(bool strict)
