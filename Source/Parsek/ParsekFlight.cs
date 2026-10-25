@@ -7100,6 +7100,41 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Step 2 of <see cref="CreateMergeBranch"/>: flushes the stopped recorder's captured
+        /// data into the active parent recording, stamps its Docked / Boarded terminal state,
+        /// and copies the recorder's rewind save to the tree root. The rewind save lives only
+        /// in CaptureAtStop once the recorder stops, and the merged child's recorder starts as
+        /// a promotion without one, so a tree whose first boundary is a dock or board merge
+        /// keeps its R button only through this copy (the split path copies at the same seam).
+        /// Returns the parent recording, or null when the tree does not hold it.
+        /// </summary>
+        internal static Recording FlushStoppedRecorderIntoMergeParent(
+            RecordingTree tree,
+            string activeParentRecordingId,
+            FlightRecorder stoppedRecorder,
+            BranchPointType branchType,
+            double mergeUT)
+        {
+            if (tree == null || string.IsNullOrEmpty(activeParentRecordingId)) return null;
+            Recording activeParentRec;
+            if (!tree.Recordings.TryGetValue(activeParentRecordingId, out activeParentRec))
+            {
+                ParsekLog.Warn("Flight",
+                    $"CreateMergeBranch: active parent '{activeParentRecordingId}' not in tree " +
+                    $"'{tree.Id}'; captured data not flushed");
+                return null;
+            }
+
+            AppendCapturedDataToRecording(activeParentRec, stoppedRecorder?.CaptureAtStop, mergeUT);
+            activeParentRec.StampTerminalState(
+                (branchType == BranchPointType.Dock)
+                    ? TerminalState.Docked : TerminalState.Boarded,
+                "MergeBranch.activeParent");
+            CopyRewindSaveToRoot(tree, stoppedRecorder, logTag: "CreateMergeBranch");
+            return activeParentRec;
+        }
+
+        /// <summary>
         /// Creates a tree merge branch point for a dock or board event.
         /// Ends parent recordings, creates child recording for the merged vessel,
         /// and starts a new FlightRecorder for the child.
@@ -7126,16 +7161,8 @@ namespace Parsek
                 parentIds.Add(backgroundParentRecordingId);
 
             // 2. Flush captured data from stopped recorder into the active parent recording
-            Recording activeParentRec = null;
-            if (activeTree.Recordings.TryGetValue(activeParentRecordingId, out activeParentRec))
-            {
-                AppendCapturedDataToRecording(activeParentRec, stoppedRecorder.CaptureAtStop, mergeUT);
-                // Set terminal state based on merge type
-                activeParentRec.StampTerminalState(
-                    (branchType == BranchPointType.Dock)
-                        ? TerminalState.Docked : TerminalState.Boarded,
-                    "MergeBranch.activeParent");
-            }
+            Recording activeParentRec = FlushStoppedRecorderIntoMergeParent(
+                activeTree, activeParentRecordingId, stoppedRecorder, branchType, mergeUT);
 
             // 3. End background parent recording (if two-parent merge)
             // Per Fix 3: derive background vessel PID from the recording's VesselPersistentId

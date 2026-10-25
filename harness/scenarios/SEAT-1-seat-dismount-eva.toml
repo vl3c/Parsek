@@ -20,8 +20,10 @@ id = "SEAT-1-seat-dismount-eva"
 #   (a) VAB launch, a 10 s pad settle, then recording on the pad.
 #   (b) EvaExit release=true settleSeconds=3: Jeb out through the pod's hatch and down to
 #       the pad (the ordinary hatch EVA branch, EVA-1's shape).
-#   (c) EvaSeatBoard: Jeb takes the seat through stock's own KerbalEVA.BoardSeat. The couple
-#       destroys his EVA vessel and Parsek records a dock merge into the pod's vessel.
+#   (c) EvaSeatBoard: Jeb takes the seat through stock's own KerbalSeat.BoardSeat (the
+#       seat's Board action, which runs KerbalEVA.BoardSeat and records the occupant; seam
+#       change 2026-10-25). The couple destroys his EVA vessel and Parsek records a dock
+#       merge into the pod's vessel.
 #   (d) A 1x wait so the merged recording carries real samples.
 #   (e) EvaSeatLeave: Jeb leaves through stock's own KerbalEVA.OnDeboardSeat
 #       (EjectFromSeat -> part.Undock -> onVesselsUndocking(pod, kerbal) -> the focus moves
@@ -54,7 +56,7 @@ id = "SEAT-1-seat-dismount-eva"
 #   9 run tools/flight_efficiency.py on the first green flight.
 # =====================================================================================
 tier = "nightly"
-description = "External command seat dismount is an EVA (owner ruling 2026-10-24): on seat-pad a VAB launch of SEAT1 Seat Pod (Mk1 pod with an external command seat on top), recording on the pad, Jeb out through the hatch, into the seat (stock KerbalEVA.BoardSeat, a dock merge) and out of it again (stock KerbalEVA.OnDeboardSeat, an undock), a commit. Pins that the dismount records an EVA branch with Jeb as its crew, never an Undock, a debris resume or a Rewind Point."
+description = "External command seat dismount is an EVA (owner ruling 2026-10-24): on seat-pad a VAB launch of SEAT1 Seat Pod (Mk1 pod with an external command seat on top), recording on the pad, Jeb out through the hatch, into the seat (stock KerbalSeat.BoardSeat, a dock merge) and out of it again (stock KerbalEVA.OnDeboardSeat, an undock), a commit. Pins that the dismount records an EVA branch with Jeb as its crew, never an Undock, a debris resume or a Rewind Point."
 instanceProfile = "stock-minimal"
 tags = ["SEAT-1", "eva", "seat", "external-command-seat", "eva-branch", "dock-merge",
         "undock", "kerbin", "sandbox"]
