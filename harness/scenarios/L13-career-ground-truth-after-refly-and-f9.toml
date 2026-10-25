@@ -5,7 +5,7 @@ tier = "operator"
 # CROSS-SYSTEM-COVERAGE-GAPS-2026-10-16, "LedgerGroundTruth after a rewind, Re-Fly or F9: never
 # run"; roadmap TC-4 / GP-1). L8 runs the ground truth after three Rewind-to-Launch; nothing
 # runs it after a Re-Fly merge or after an F9. AUTHORED 2026-10-24 (branch
-# `claude/project-thread-dkcvpn`), NEVER FLOWN.
+# `claude/project-thread-dkcvpn`). LIVE-PROVEN on its third flight, 2026-10-25_0228.
 #
 # WHY NOW. The ground-truth harness walked the whole ledger, so with committed rows ahead of
 # the clock (after a rewind or a Re-Fly) it compared end-of-timeline values against the save's
