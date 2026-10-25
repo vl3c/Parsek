@@ -149,8 +149,9 @@ namespace Parsek.InGameTests
                 // career at now, and a walk to the end of the timeline reads committed future
                 // earnings and losses as if they had happened.
                 LedgerOrchestrator.Initialize();
+                double clockUT = ParsekScenario.GetCurrentTimelineUTForLedgerRecalc();
                 LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
-                    ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(), GroundTruthRecalcReason);
+                    clockUT, GroundTruthRecalcReason);
 
                 if (LedgerOrchestrator.Funds == null
                     || LedgerOrchestrator.Science == null
@@ -168,7 +169,7 @@ namespace Parsek.InGameTests
 
                 // ---- Step 6: build the reconstruction snapshot from the RAW
                 // running readers (see design reader-choice note). ----
-                var recon = BuildReconstructionSnapshot();
+                var recon = BuildReconstructionSnapshot(clockUT);
 
                 // ---- Step 7: build the facility maxLevel map from live KSP. ----
                 var facilityMaxLevels = BuildFacilityMaxLevels();
@@ -239,7 +240,7 @@ namespace Parsek.InGameTests
         // Reconstruction read-out
         // ----------------------------------------------------------------
 
-        private static LedgerReconstructionSnapshot BuildReconstructionSnapshot()
+        private static LedgerReconstructionSnapshot BuildReconstructionSnapshot(double clockUT)
         {
             var recon = new LedgerReconstructionSnapshot();
 
@@ -317,7 +318,7 @@ namespace Parsek.InGameTests
             }
 
             // Recovery credits (vessel facet input).
-            recon.RecoveryCredits = ScanRecoveryCredits();
+            recon.RecoveryCredits = ScanRecoveryCredits(clockUT);
 
             // Roster surface (report-only facet): the KerbalsModule's DELTA claims -
             // kerbals the ledger created, and kerbals it holds permanently reserved
@@ -346,7 +347,7 @@ namespace Parsek.InGameTests
             }
 
             // Researched-tech surface (report-only facet), DELTA-only.
-            recon.ResearchedTechIds = ScanResearchedTechIds(out bool hasTechSurface);
+            recon.ResearchedTechIds = ScanResearchedTechIds(clockUT, out bool hasTechSurface);
             recon.HasTechSurface = hasTechSurface;
 
             // NO purchased-part or active-strategy reconstruction surface exists (the
@@ -371,6 +372,17 @@ namespace Parsek.InGameTests
                 $"kerbalCareerLogs={recon.KerbalCareerLog.Count.ToString(IC)}");
 
             return recon;
+        }
+
+        /// <summary>
+        /// Pure: true when a row has happened by the clock the walk cut off at. The ELS scans
+        /// below read rows straight off the ledger, so a committed row ahead of the clock
+        /// (after a rewind or a Re-Fly) must be left out exactly as the walk leaves it out:
+        /// the save holds the career at now. NaN keeps every row.
+        /// </summary>
+        internal static bool IsAtOrBeforeClock(GameAction action, double clockUT)
+        {
+            return action != null && (double.IsNaN(clockUT) || action.UT <= clockUT);
         }
 
         /// <summary>
@@ -419,7 +431,7 @@ namespace Parsek.InGameTests
         /// disagreement by adding unaffordable rows to the claim set: that would hide the
         /// shortfall behind an agreeing diff.</para>
         /// </summary>
-        private static HashSet<string> ScanResearchedTechIds(out bool hasSurface)
+        private static HashSet<string> ScanResearchedTechIds(double clockUT, out bool hasSurface)
         {
             var ids = new HashSet<string>(System.StringComparer.Ordinal);
 
@@ -434,12 +446,18 @@ namespace Parsek.InGameTests
             hasSurface = true;
             int unaffordable = 0;
             int refusedByWalk = 0;
+            int aheadOfClock = 0;
             List<string> unaffordableNodeIds = null;
             foreach (var a in els)
             {
                 if (a == null) continue;
                 if (a.Type != GameActionType.ScienceSpending) continue;
                 if (string.IsNullOrEmpty(a.NodeId)) continue;
+                if (!IsAtOrBeforeClock(a, clockUT))
+                {
+                    aheadOfClock++;
+                    continue;
+                }
                 if (!a.Affordable)
                 {
                     unaffordable++;
@@ -459,7 +477,8 @@ namespace Parsek.InGameTests
             ParsekLog.Verbose(Tag,
                 $"ScanResearchedTechIds: researchedNodeIds={ids.Count.ToString(IC)} " +
                 $"unaffordableSkipped={unaffordable.ToString(IC)} " +
-                $"refusedByWalk={refusedByWalk.ToString(IC)}");
+                $"refusedByWalk={refusedByWalk.ToString(IC)} " +
+                $"aheadOfClock={aheadOfClock.ToString(IC)}");
 
             if (unaffordable > 0)
             {
@@ -484,7 +503,7 @@ namespace Parsek.InGameTests
         /// carrying RecordingId + FundsAwarded. GameAction has no VesselName, so
         /// identity (name / launch guid / craft-baked pid) comes from the Recording.
         /// </summary>
-        private static List<RecoveryCredit> ScanRecoveryCredits()
+        private static List<RecoveryCredit> ScanRecoveryCredits(double clockUT)
         {
             var credits = new List<RecoveryCredit>();
 
@@ -513,6 +532,7 @@ namespace Parsek.InGameTests
                 if (a == null) continue;
                 if (a.Type != GameActionType.FundsEarning) continue;
                 if (a.FundsSource != FundsEarningSource.Recovery) continue;
+                if (!IsAtOrBeforeClock(a, clockUT)) continue;
                 scanned++;
 
                 var credit = new RecoveryCredit

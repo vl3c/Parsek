@@ -79,16 +79,66 @@ had only ever run with nothing ahead of the clock (L8 after Rewind-to-Launch).
 `LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions` at the current timeline UT
 (reason `ledger-ground-truth`), as every production patch does. Cells:
 `LedgerGroundTruthAfterRewindTests` (the cutoff walk matches the save, the old full walk diverges, a
-source gate on the harness call). Lane: L13 (never flown).
+source gate on the harness call). Lane: L13.
+
+**Follow-up 2026-10-25 (L13 run `2026-10-25_0144`).** The batch's other two cells still walked
+cutoff-less: `CurrencyTooltipLiveInvariantTest` wrote the committed future contract advance (+6750)
+onto the live funds after the F9, the batch-baseline restore that normally undoes it had failed
+(BATCH-ISOLATION-CAPTURE-FAILS-IN-THE-EDITOR), and the ground-truth cell that ran next saved the
+career and reported a hard funds divergence of exactly 6750 (`expected=527639.83 recon=520889.83`).
+Both cells (`KerbalExperienceReassertTest` too) now walk through the same current-timeline helper
+(reasons `currency-tooltip-live`, `kerbal-experience-reassert`). Cell:
+`LedgerGroundTruthAfterRewindTests.EveryLedgerGroundTruthCell_WalksThroughTheCurrentTimelineHelper`
+(scans every `LedgerGroundTruth` cell for a cutoff-less walk; mutation-checked). The same run's
+report-only `TechNode PhantomInRecon basicRocketry` had the same cause one level down: the
+reconstruction's ELS scans for researched tech and recovery credits read every row, so a tech
+committed at UT 1000 read as researched at UT 450. Both scans now leave out rows ahead of the walk
+clock (`LedgerGroundTruthHarness.IsAtOrBeforeClock`). Cells: `ElsScans_LeaveOutRowsAheadOfTheClock`,
+`Harness_ElsScansTakeTheWalkClock`.
 
 ---
 
-## BATCH-ISOLATION-CAPTURE-FAILS-IN-THE-EDITOR: a LedgerGroundTruth batch started in the VAB logs an ERROR (DirectoryNotFoundException on Parsek/Recordings) [FILED 2026-10-25 from L13's first flight `2026-10-25_0016`, branch `claude/project-thread-dkcvpn`. OPEN; low]
+## ~~EDITOR-LOAD-WALKS-PAST-THE-CLOCK: entering the VAB / SPH after a rewind or a Re-Fly adds committed future earnings to the funds~~ [FILED AND FIXED 2026-10-25 from L13 run `2026-10-25_0144`, branch `claude/project-thread-dkcvpn`]
 
-L13's first batch ran in EDITOR (the probe launch had been refused) and logged `Batch isolation
-capture FAILED (mode=InMemoryAndDisk) ... DirectoryNotFoundException ...\Parsek\Recordings\`.
-Not reproduced headless; read the capture's directory resolution in EDITOR (`InGameTestRunner.
-CaptureBatchBaseline`) against the collected KSP.log in the results archive.
+`ParsekScenario.IsCurrentUtCutoffSupportedScene` left EDITOR on the plain walk (no recorded
+reason; the Tracking Station had been aligned on 2026-10-15 and the editor left behind), so the
+in-session load into the VAB walked the whole ledger and `PatchFunds` wrote a committed future
+contract advance into the live funds (`521189.8 -> 527939.8` at UT 400, the advance being
+committed at UT 1000). The editor let the player build with it until the launch's FLIGHT load
+patched it back down, which turns the build into debt and spends money the career earns later
+(a paradox under the ledger rulings).
+
+**Fix.** EDITOR takes the current-UT cutoff like FLIGHT, the Space Center and the Tracking Station
+(in-session load, cold load reconcile and the deferred seed all read the same predicate). The
+editor clock does not move, so it needs no clock cursor; a revert to the editor still walks plain
+(`isRevert`). Cells: `RewindUtCutoffTests.CurrentUtCutoffSupportedScene_AcceptsFlightSpaceCenterTrackingStationAndEditor`,
+`EditorLoadLedgerCutoffTests` (mutation-checked). Lane: L13 requires the editor load's
+`useCurrentUtCutoff=True ... loadedScene=EDITOR` line.
+
+---
+
+## ~~BATCH-ISOLATION-CAPTURE-FAILS-IN-THE-EDITOR: a LedgerGroundTruth batch's save backup fails with DirectoryNotFoundException~~ [FILED 2026-10-25 from L13's first flight `2026-10-25_0016`, ROOT-CAUSED AND FIXED 2026-10-25 from run `2026-10-25_0144`, branch `claude/project-thread-dkcvpn`; dev tooling]
+
+Not an editor problem: the capture copies the save-scoped Parsek folder beside the save as
+`<slot>-parsek`, and its deepest file (`Recordings/_versions/_quarantine/<date>/<id>.<hash>_vessel.craft`)
+reached 261 characters on the harness instance (`...\automation\stock-minimal\saves\career-gs1-two-stage-pad\
+parsek-test-batch-baseline-20261025-015053504-8c73fe65-parsek\...`), past Windows' 259-character
+limit, so `CopyDirectoryRecursive` threw and the batch ran without its baseline restore (one
+`[ERROR]`). Both L13 flights hit it once a version had been quarantined.
+
+**Fix.** `InGameTestRunner.CreateBatchFlightBaselineSlotName` is `ptb-<8 hex>` (12 characters
+instead of 54), which leaves that path at 219. Cell:
+`TestBatchIsolationTests.SlotName_KeepsTheSnapshotsDeepestCopyUnderTheWindowsPathLimit`.
+
+---
+
+## HARNESS-GATES-ON-THE-FIRST-OF-TWO-SAME-CATEGORY-BATCHES: a lane that runs one category twice gates its batch row on the first BATCH_COMPLETE only [FILED 2026-10-25 from L13 run `2026-10-25_0144`, branch `claude/project-thread-dkcvpn`. OPEN; low, harness]
+
+`hlib.resolve_batch_complete` returns the first line whose category matches a single-category
+selector, so L13's second batch (`failed=1`) was not read by the batch row; the run still classified
+PARSEK-FAIL through the results-count mismatch (`failures=1` against `batchFailed=0`) and through
+the lane's own whole pins. Fix direction: for a single-category selector, sum `failed` over every
+matching line (the multi-category branch already takes the larger of the aggregate and the sum).
 
 ---
 

@@ -27,10 +27,16 @@ tier = "operator"
 #   F9        quicksave there, warp to 500, load the quicksave as the player's load (a cold
 #             save-file load), LedgerGroundTruth again: the first ground truth after an F9.
 #
-# THE GATES: both batches pass whole (`total=3 passed=3 failed=0 skipped=0`, L8's measured
-# tally), `result: hardFailures=0` twice, no hard failure anywhere, and the patch the harness
-# runs logs its current-UT recalculation (`reason=ledger-ground-truth`) at least for check 1,
-# where rows lie ahead of the clock.
+# THE GATES: both batches pass whole (`total=3 passed=2 failed=0 skipped=1`, read off run
+# 2026-10-25_0144: KerbalExperienceReassertTest skips on this uncrewed host, which has no
+# KerbalExperience row; L8's crewed host passes all 3), `result: hardFailures=0` twice, no
+# hard failure anywhere, and the patch the harness runs logs its current-UT recalculation
+# (`reason=ledger-ground-truth`) at least for check 1, where rows lie ahead of the clock. The
+# currency tooltip cell's own walk logs `reason=currency-tooltip-live` after the F9: in run
+# 2026-10-25_0144 it walked past the clock there, wrote the committed future contract advance
+# (6750) onto the live funds, and the ground-truth cell that ran next saved the career and read
+# it as a hard funds divergence. The same run's VAB load walked past the clock in production
+# (EDITOR-LOAD-WALKS-PAST-THE-CLOCK): the lane requires that load's cutoff decision line.
 #
 # NOT COVERED: a committed future reputation loss (the discriminating headless case; no cheap
 # Space Center reputation loss on this host avoids the filed cancel-penalty lerp defect
@@ -41,8 +47,8 @@ tier = "operator"
 # PRE-REGISTERED READINGS:
 #   - `kscaction refused action=accept-contract reason=unknown-contract`: stock offered nothing
 #     at the Space Center by UT 1000 (RF-C1 shares the premise); drop the accept.
-#   - LedgerGroundTruth `skipped=1`: read its skip text (a live or pending tree after the probe
-#     launch means autoRecordOnLaunch was not off).
+#   - LedgerGroundTruth `skipped=2`: read the second skip text (a live or pending tree after
+#     the probe launch means autoRecordOnLaunch was not off).
 #   - `result: hardFailures=1` on reputation or funds: read the facet line and the
 #     `Current-UT ledger recalculation: reason=ledger-ground-truth` cutoff; a divergence with
 #     the cutoff present is a product finding, file it.
@@ -147,18 +153,20 @@ count = { min = 3, max = 8 }
 # run.py probes only the first; the second is gated here by its own whole pin after the
 # l13-check2 mark, and the count-2 pins below read both.
 batchVacuityOptOut = true
-batchVacuityOptOutReason = "two LedgerGroundTruth batches, before and after an F9 in one flight; each is pinned whole (total=3 passed=3 failed=0 skipped=0) by its own required pattern, the second anchored after the l13-check2 mark"
+batchVacuityOptOutReason = "two LedgerGroundTruth batches, before and after an F9 in one flight; each is pinned whole (total=3 passed=2 failed=0 skipped=1) by its own required pattern, the second anchored after the l13-check2 mark"
 required = [
   "kscaction action=research-node target=basicRocketry applied=true",
   "kscaction action=accept-contract target=offered-first applied=true",
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_[0-9a-f]{32} slot=1",
   "answermergedialog complete choice=merge result=committed",
   "launchfromeditor complete scene=FLIGHT ",
+  "OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff=True \\S+ \\S+ isRevert=False loadedScene=EDITOR ",
   # Check 1 walks at the clock: rows lie ahead of it.
   "(?s)MISSIONMARK label=l13-check1 .*?Current-UT ledger recalculation: reason=ledger-ground-truth cutoffUT=",
-  "\\A(?:[\\s\\S]*?BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT){2}",
+  "\\A(?:[\\s\\S]*?BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT){2}",
   "\\A(?:[\\s\\S]*?result: hardFailures=0 ){2}",
-  "(?s)MISSIONMARK label=l13-check2 .*?BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
+  "(?s)MISSIONMARK label=l13-check2 .*?Current-UT ledger recalculation: reason=currency-tooltip-live cutoffUT=",
+  "(?s)MISSIONMARK label=l13-check2 .*?BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

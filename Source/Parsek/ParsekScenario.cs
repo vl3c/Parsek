@@ -864,13 +864,16 @@ namespace Parsek
         /// rows instead of pruning them. The Tracking Station is aligned with FLIGHT and the
         /// Space Center (owner ruling 2026-10-06); like the Space Center it applies a crossed
         /// action as its clock moves (<see cref="CareerLedgerClockCursor"/>). The editor
-        /// stays on the plain walk.
+        /// takes the cutoff too: a plain walk there writes committed future earnings onto the
+        /// live funds, and the VAB / SPH would let the player build with them. Its clock does
+        /// not move, so it needs no cursor.
         /// </summary>
         internal static bool IsCurrentUtCutoffSupportedScene(GameScenes scene)
         {
             return scene == GameScenes.FLIGHT
                 || scene == GameScenes.SPACECENTER
-                || scene == GameScenes.TRACKSTATION;
+                || scene == GameScenes.TRACKSTATION
+                || scene == GameScenes.EDITOR;
         }
 
         /// <summary>

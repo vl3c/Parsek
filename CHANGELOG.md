@@ -34,11 +34,18 @@ _(unreleased - entries accumulate here per commit)_
   career switches on later now turns on at that moment, even mid-flight, and one that runs out
   during a flight stays ended if you discard it. A one-time grant such as Bail-Out Grant is never
   paid twice. (STRATEGY-ACTIVATION-CROSSED-IN-FLIGHT-NOT-APPLIED)
+- **The VAB and SPH no longer let you spend money you earn later.** After a rewind or a Re-Fly,
+  entering the editor added committed future earnings (a contract advance accepted later) to your
+  funds until the next launch took them back. The editor now shows the funds at the current time,
+  like the Space Center. (EDITOR-LOAD-WALKS-PAST-THE-CLOCK)
 
 ### Dev
 
 - **The ledger ground-truth check works after a rewind or a Re-Fly.** It compares the career at the
-  current time instead of the end of the committed timeline. (LEDGER-GROUND-TRUTH-WALKS-PAST-THE-CLOCK)
+  current time instead of the end of the committed timeline, and so do the other checks in its
+  batch. (LEDGER-GROUND-TRUTH-WALKS-PAST-THE-CLOCK)
+- **A test batch's save backup no longer fails on a deep install.** The backup folder name is
+  shorter, so its deepest copy stays under Windows' path limit. (BATCH-ISOLATION-CAPTURE-FAILS-IN-THE-EDITOR)
 
 ---
 

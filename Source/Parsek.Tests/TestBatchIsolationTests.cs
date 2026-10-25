@@ -100,6 +100,25 @@ namespace Parsek.Tests
                 InGameTestRunner.ShouldRunFinalBatchRestore(hasInMemoryBaseline, stateDirty, aborted));
         }
 
+        // ----- CreateBatchFlightBaselineSlotName -----
+
+        // catches: a slot name long enough that the Parsek snapshot's deepest copy passes
+        // Windows' 259-character path limit on a harness instance (L13 run 2026-10-25_0144:
+        // 261 characters, the capture failed and the batch ran without its baseline restore).
+        [Fact]
+        public void SlotName_KeepsTheSnapshotsDeepestCopyUnderTheWindowsPathLimit()
+        {
+            string slot = InGameTestRunner.CreateBatchFlightBaselineSlotName();
+            Assert.StartsWith(InGameTestRunner.BatchBaselineSlotPrefix, slot);
+            Assert.NotEqual(slot, InGameTestRunner.CreateBatchFlightBaselineSlotName());
+
+            string deepest = @"C:\Users\vlad3\Documents\Code\Parsek\automation\stock-minimal\saves\"
+                + @"career-gs1-two-stage-pad\" + slot + @"-parsek\Recordings\_versions\_quarantine\"
+                + @"2026-10-25\cd5c33922b074dc2842dd2359951d6b6.245f080aa8a45c20_vessel.craft";
+            Assert.True(deepest.Length <= 259 - 30,
+                "the snapshot's deepest copy is " + deepest.Length + " characters; keep 30 spare");
+        }
+
         // ----- BuildRestoreDegradedAlertMessage -----
 
         [Fact]

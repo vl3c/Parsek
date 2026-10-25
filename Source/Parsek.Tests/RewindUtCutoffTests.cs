@@ -858,14 +858,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CurrentUtCutoffSupportedScene_AcceptsFlightSpaceCenterAndTrackingStation()
+        public void CurrentUtCutoffSupportedScene_AcceptsFlightSpaceCenterTrackingStationAndEditor()
         {
             // Owner ruling 2026-10-06: the Tracking Station takes the cutoff like FLIGHT and
-            // the Space Center, cold or in-session. The editor stays on the plain walk.
+            // the Space Center, cold or in-session. EDITOR-LOAD-WALKS-PAST-THE-CLOCK: so does
+            // the editor (L13 run 2026-10-25_0144: entering the VAB after a Re-Fly merge wrote
+            // a committed future contract advance onto the live funds).
             Assert.True(ParsekScenario.IsCurrentUtCutoffSupportedScene(GameScenes.FLIGHT));
             Assert.True(ParsekScenario.IsCurrentUtCutoffSupportedScene(GameScenes.SPACECENTER));
             Assert.True(ParsekScenario.IsCurrentUtCutoffSupportedScene(GameScenes.TRACKSTATION));
-            Assert.False(ParsekScenario.IsCurrentUtCutoffSupportedScene(GameScenes.EDITOR));
+            Assert.True(ParsekScenario.IsCurrentUtCutoffSupportedScene(GameScenes.EDITOR));
             Assert.False(ParsekScenario.IsCurrentUtCutoffSupportedScene(GameScenes.MAINMENU));
         }
 
