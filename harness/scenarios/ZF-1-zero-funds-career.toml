@@ -126,6 +126,15 @@ required  = [
   "PatchFunds: no change needed \\(current=3882\\.0, target=3882\\.0\\)",
   "BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT",
   "result: hardFailures=0 reportOnly=0 facetsCompared=8 strict=False",
+  # The funds tooltip in the VAB (RESERVATION-OVERLAY-GAPS (a), owner ruling 2026-10-24).
+  # Hover cannot paint under automation, so the controller's own lines are the witness.
+  # Reading run `2026-10-24_2359` (PASS attempt 1): the VAB started THREE controllers and
+  # each located the stock FundsWidget, the only scene of this flight that locates one (the
+  # Space Center visit is 2 s long). The duplicate guard keeps one; the idle line is new and
+  # owed its first flight.
+  "CurrencyOverlay: initialised for scene=EDITOR - starting widget refresh loop",
+  "CurrencyOverlay: another controller is already active for scene=EDITOR - this one stays idle",
+  "CurrencyOverlay: located Funds widget",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

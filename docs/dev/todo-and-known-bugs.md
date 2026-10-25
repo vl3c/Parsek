@@ -2321,7 +2321,8 @@ state. Still open: the in-vessel transfer half (owner's call), a background vess
 rails (a later promotion of it now seeds, the background recording itself does not), and the
 decoupled-converter missed trim. Live witness: the in-game cell
 `PromotionConverterSeedInGameTest.PromotionSeedsRunningConverters` (category `PromotionConverterSeed`,
-lane `MINE-15-promotion-converter-seed`, authored 2026-10-24, never flown) runs the promotion seed
+lane `MINE-15-promotion-converter-seed`, LIVE-PROVEN 2026-10-24 on its first flight `2026-10-24_2357`:
+five running converters, five seeds) runs the promotion seed
 pass over `miner-rover-landed`'s rover with its drills and ISRU running, so stock's own `BaseConverter`
 state feeds the seed detection: one seed per running converter part on a fresh recording, none on a
 recording that already carries a converter edge.
@@ -7757,8 +7758,14 @@ is the pure `CurrencyReservationOverlay.ShowsCurrencyTooltipInScene` (SPACECENTE
 cells in `CurrencyReservationOverlayTests`). No double subtraction: the tooltip anchors on the live
 `Funding.Instance.Funds` the widget draws, and the editor's vessel cost readout is separate stock
 text. Unverified in game: that the editor's funds number is a `FundsWidget` the refresh loop finds
-(if it is not, the gate is inert there). Live witness owed: a GUI census photo of the editor funds
-hover (`[CurrencyOverlay] CurrencyOverlay: initialised for scene=EDITOR` then `located Funds widget`).
+(if it is not, the gate is inert there). Read 2026-10-24 on ZF-1's VAB visit (reading run
+`2026-10-24_2359`, PASS attempt 1; a hover cannot paint under automation, so the log is the
+witness): the editor's funds number IS a `FundsWidget` (`located Funds widget`), but stock started
+THREE controllers there (an EveryScene addon is started once per editor startup phase), each about
+to draw the same tooltip stacked. Fixed the same day: only the first live controller of a scene
+draws (`CurrencyReservationOverlay.IsDuplicateController`), the others log `another controller is
+already active for scene=EDITOR - this one stays idle`; ZF-1 pins all three lines, the idle one
+owed its first flight.
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass, before the fix above): (a) still real, now partly
 mitigated. `CurrencyReservationOverlay.Start` still idles outside SPACECENTER / FLIGHT, and
