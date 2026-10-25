@@ -2283,7 +2283,8 @@ reference-DLL admission check).
 
 Progress 2026-10-26 (branch `cs2-engineering101`): CS-1 flew GREEN `2026-10-25_2152` (staged
 readings, 18.5 science recovered) and its produced save is the fixture `cs-science-flea`. CS-2
-(`CS-2-science-engineering101`) authored, not yet flown: research Engineering 101 at the KSC, fly
+(`CS-2-science-engineering101`) LIVE-PROVEN on its first flight `2026-10-25_2235` (science
+13.5 after the research, 22.85 after transmit + recovery, ground truth `hardFailures=0`): research Engineering 101 at the KSC, fly
 the `Flea Antenna` (Jumping Flea + Communotron 16-S + 2HOT Thermometer, derived by
 `build_cs_flea_antenna_craft.py`; the 16-S because the 16 is retracted as built and no mission
 action extends it), transmit the crew report, recover, then `LedgerGroundTruth` in FLIGHT. That

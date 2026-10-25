@@ -36,14 +36,16 @@ id = "CS-2-science-engineering101"
 # recovery consistency. The required `ground-truth game mode=SCIENCE_SANDBOX` line proves
 # the test RAN rather than skipped.
 #
-# STATUS: written 2026-10-26, never flown. `operator` until the first green flight, then
-# PROMOTE to nightly. The batch tally is pinned `total=3` with `passed` / `skipped`
-# regexed until the reading run (CurrencyTooltipLiveInvariant Skips outside CAREER).
+# STATUS: LIVE-PROVEN 2026-10-26, run `2026-10-25_2235` PASS attempt 1 (415 s, DLL 42addb56):
+# research 18.5 -> 13.5, transmit +1.5 (the crew report), recovery +7.85, final 22.85;
+# `sciencePool save=22.8487167 recon=22.84871768951416`, `hardFailures=0 ... facetsCompared=6`.
+# The batch tally is pinned whole off that reading (CurrencyTooltipLiveInvariant Skips
+# outside CAREER, so skipped=1). `operator` until the promotion call.
 tier = "operator"
 description = "Scripted campaign stage 2 (Science): on CS-1's produced save, research Engineering 101, launch the Flea with a Communotron 16-S and a 2HOT Thermometer, take pad / flight / landed readings, transmit the crew report, recover, auto-commit, then run the ledger ground truth against KSP's own Science save."
 instanceProfile = "stock-tree"
 tags = ["campaign", "CS-2", "science-mode", "editor", "science", "transmit", "recovery",
-        "auto-commit", "research", "ledger", "ground-truth", "ingame-batch", "pending-flight"]
+        "auto-commit", "research", "ledger", "ground-truth", "ingame-batch", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/cs-science-flea"
@@ -128,7 +130,8 @@ required = [
   "CommitTreeSceneExit: finalizing tree at UT=[0-9.]+[\\s\\S]{0,8000}?Recording stopped\\. ",
   "ground-truth game mode=SCIENCE_SANDBOX pools=science",
   "result: hardFailures=0 ",
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "kscaction action=research-node target=engineering101 applied=true manifestKind=tech-unlock observedAfter=science=13\\.5",
+  "BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
