@@ -17,6 +17,30 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## SCIENCE-REEARN-AFTER-REWIND-TAKES-FULL-CREDIT: after a Rewind-to-Launch, re-earning a subject the committed future already credits pays the re-run in full and caps the committed flight [FILED 2026-10-25 on branch `sci1-local`, PREDICTED FROM SOURCE, NOT FLOWN; witness lane SCI-1-science-reearned-after-rewind; NEEDS AN OWNER RULING]
+
+Owner rule as briefed: after a rewind, `ScienceSubjectPatch` raises `ScienceSubject.science` to the
+ledger's credited value, so stock pays a re-run only the remainder and the committed flight keeps
+its full effective credit. Source (main 54037b4) predicts the opposite. The patch reads
+`LedgerOrchestrator.Science.GetSubjectCredited`, and after the rewind that module comes from a
+CUTOFF walk (`ApplyRewindResourceAdjustment` -> `RecalculateAndPatch(adjustedUT)`). Every later
+recalc while committed rows lie ahead of the clock is a cutoff walk too. A subject whose only
+credit is a committed future earning therefore reads 0, the patch raises nothing, and stock pays
+the re-run the full first-reading value. The full walk (`ScienceModule.ProcessEarning`, earlier
+UT first) then gives the untagged re-run row priority and caps the committed earning (`Earning (cap
+hit):`). Design `docs/parsek-game-actions-and-resources-recorder-design.md` sections 12.6 / 12.7
+call this redistribution intended ("Committing T0 retroactively reduced T1's effective from 10 to
+5"), which conflicts with the briefed rule, so the owner rules before either side changes.
+
+Fix (if the owner rule stands): the patch reads the subject's credit from the committed future
+too, not only from rows before the clock: a full-timeline per-subject credit cache, the
+`BuildCommittedScienceSubjectCredits` shape. Then decide whether the walk still lets an earlier
+untagged row take headroom from a committed later one. Also key the patch's `apply-committed`
+rate limit per subject id: one shared key lets one subject's raise hide another's line for 30 s,
+which makes SCI-1's (B) contract racy on a fixed build. Lane SCI-1 pins the rule; first flight owed.
+
+---
+
 ## ~~REWIND-KEEPS-EVERY-SUPERSEDE-ROW: a Rewind-to-Launch still dropped a supersede row whose re-fly recording was missing, and its Pass 2 could still unseal a sealed re-fly~~ [FILED + FIXED 2026-10-25 on branch `claude/project-thread-mikdfx` (PR #2244); LIVE-PROVEN 2026-10-25 by RB-5 `2026-10-25_1002` PASS (first flight), RB-4 `_1005` and RF-4 `_1008` PASS on the re-pin]
 
 Follow-up of REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY. After #2230 the rewind rollback still dropped a
