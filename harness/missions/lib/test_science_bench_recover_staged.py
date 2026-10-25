@@ -5,7 +5,8 @@ The shape is CS-1-science-first-hop's after its first reading runs: a start-node
 Jumping Flea in a new Science game cannot transmit science (stock's
 CommNetVessel.CanScience needs a non-INTERNAL antenna and the Mk1 pod carries only
 an INTERNAL one), so the lane takes a reading in every situation the hop passes
-through - Goo on the pad, Goo and a crew report in low flight - and recovers it all.
+through - Goo on the pad, Goo and a crew report in low flight, and (the CS Flea's
+third Goo, `landedExperiments`) Goo after landing - and recovers it all.
 
 Every cell drives the pure machine or the runner's perform seam; nothing here
 needs kRPC. ASCII only.
@@ -382,6 +383,50 @@ class StagedSchemaTests(unittest.TestCase):
                     {"padCollectTimeoutSeconds": 5.0}):
             self.assertNotEqual([], hlib._validate_mission_params(stparams(**bad),
                                                                   self.schema), bad)
+
+
+class LandedExperimentsTests(unittest.TestCase):
+    """landedExperiments narrows the landed COLLECT sweep (the CS Flea's third Goo)."""
+
+    def test_the_landed_list_filters_the_landing_run(self):
+        state, actions = flown()
+        self.assertIsNone(actions[-1].text, "absent list: the bare historical sweep")
+        state, actions = mlib.sbr_decide(fresh(landedExperiments=["mysteryGoo"],
+                                               collectMinExperiments=4), pad(100.0, 0))
+        state, _ = mlib.sbr_decide(state, pad(101.0, 1))
+        state, _ = mlib.sbr_decide(state, pad(102.0, 1))
+        state, emitted = base_t.drive_actions(state, *hop_frames())
+        state, actions = mlib.sbr_decide(state, landed(109.0, 3))
+        self.assertEqual(mlib.SBR_COLLECT, state.phase)
+        self.assertEqual(mlib.ACTION_RUN_SCIENCE_EXPERIMENTS, actions[-1].kind)
+        self.assertEqual("mysteryGoo", actions[-1].text)
+
+    def test_the_collect_re_emit_keeps_the_filter_and_four_readings_finish(self):
+        state, _ = mlib.sbr_decide(fresh(landedExperiments=["mysteryGoo"],
+                                         collectMinExperiments=4), pad(100.0, 0))
+        state, _ = mlib.sbr_decide(state, pad(101.0, 1))
+        state, _ = mlib.sbr_decide(state, pad(102.0, 1))
+        state, _ = base_t.drive_actions(state, *hop_frames())
+        state, _ = mlib.sbr_decide(state, landed(109.0, 3))
+        reemits = []
+        for i in range(mlib.SBR_ACTION_REEMIT_FRAMES + 1):
+            state, actions = mlib.sbr_decide(state, landed(110.0 + i, 3))
+            reemits.extend(a for a in actions
+                           if a.kind == mlib.ACTION_RUN_SCIENCE_EXPERIMENTS)
+        self.assertEqual(["mysteryGoo"], [a.text for a in reemits])
+        self.assertEqual(mlib.SBR_COLLECT, state.phase, "3 of 4 readings: still collecting")
+        state = base_t.drive(state, landed(150.0, 4), landed(151.0, 4))
+        self.assertEqual(mlib.SBR_RECOVER, state.phase)
+
+    def test_the_schema_takes_the_landed_list(self):
+        import hlib
+        with open(base_t.SCHEMA_PATH, "rb") as fh:
+            schema = tomllib.load(fh)
+        self.assertFalse(schema["params"]["landedExperiments"]["required"])
+        self.assertEqual([], hlib._validate_mission_params(
+            stparams(landedExperiments=["mysteryGoo"]), schema))
+        self.assertNotEqual([], hlib._validate_mission_params(
+            stparams(landedExperiments="mysteryGoo"), schema))
 
 
 if __name__ == "__main__":

@@ -1185,6 +1185,12 @@ and recovering them, so three knobs and one relaxed bound make that shape flyabl
   (ASSERT-FAIL) and `science-channel-dark` scoped to `PAD_COLLECT` too (FLAKE).
 - **`flightExperiments`** (same shape) runs on the frame the leg enters COAST (burnout,
   low flight on a pad hop), with its own bounded re-emit while COAST lasts.
+- **`landedExperiments`** (same shape) narrows the landed COLLECT sweep, and its
+  re-emit, to that list (absent = every eligible module, the historical sweep). Every
+  reading stays in its experiment for the whole flight (the Mk1 pod's science
+  container takes data only from an EVA kerbal: no `canTransferInVessel`, so stock
+  never shows its "Container: Collect All" event), so `collectMinExperiments` counts
+  pad + flight + landed readings, and an experiment such as the crew report reads once.
 - The run action carries the names in `Action.text`; the runner runs one eligible
   module per name in kRPC enumeration order, and a module already holding data never
   consumes a name, so a re-emit runs only what is still missing.
