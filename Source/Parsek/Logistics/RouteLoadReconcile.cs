@@ -357,7 +357,7 @@ namespace Parsek.Logistics
             IReadOnlyList<Route> keptRoutes, IReadOnlyList<Route> savedRoutes,
             double cutoffUT, double loadedSaveUT,
             out int definitionChanged, out int missingFromSave,
-            string logTag = LogTag)
+            string logTag = LogTag, ICollection<string> keepRebuiltCountersRouteIds = null)
         {
             definitionChanged = 0;
             missingFromSave = 0;
@@ -378,6 +378,7 @@ namespace Parsek.Logistics
             int anchorsRestored = 0;
             int partnerCursorsRestored = 0;
             int countersRestored = 0;
+            int countersKeptRebuilt = 0;
             for (int i = 0; i < keptRoutes.Count; i++)
             {
                 Route kept = keptRoutes[i];
@@ -430,17 +431,50 @@ namespace Parsek.Logistics
                     if (kept.Stops[s] != null && saved.Stops[s] != null)
                         kept.Stops[s].LastFiredCycleIndex = saved.Stops[s].LastFiredCycleIndex;
                 }
-                if (RestoreCycleCountersFromSave(kept, saved, logTag))
+                if (keepRebuiltCountersRouteIds != null && keepRebuiltCountersRouteIds.Contains(kept.Id))
+                {
+                    countersKeptRebuilt++;
+                    ParsekLog.Verbose(logTag,
+                        $"Route reconcile: route {RouteIds.Short(kept.Id)} cycle counters stay rebuilt " +
+                        $"(completed={kept.CompletedCycles.ToString(IC)} skipped={kept.SkippedCycles.ToString(IC)}, " +
+                        $"saved completed={saved.CompletedCycles.ToString(IC)} skipped={saved.SkippedCycles.ToString(IC)}): " +
+                        "rows kept after the save's own clock that the save does not hold");
+                }
+                else if (RestoreCycleCountersFromSave(kept, saved, logTag))
                     countersRestored++;
                 restored++;
             }
             ParsekLog.Verbose(logTag,
                 $"Route reconcile: restored from the save cursors={restored.ToString(IC)} " +
                 $"anchors={anchorsRestored.ToString(IC)} partnerCursors={partnerCursorsRestored.ToString(IC)} " +
-                $"counters={countersRestored.ToString(IC)} " +
+                $"counters={countersRestored.ToString(IC)} countersKeptRebuilt={countersKeptRebuilt.ToString(IC)} " +
                 $"clockChanged={definitionChanged.ToString(IC)} " +
                 $"missingFromSave={missingFromSave.ToString(IC)}");
             return restored;
+        }
+
+        /// <summary>
+        /// The routes whose cycle counters must stay as the reconcile rebuilt them from the kept
+        /// rows instead of going back to the loaded save's: a route with a kept row stamped after
+        /// the save's own clock (<paramref name="saveClockUT"/>, before any floor raise) and at or
+        /// before the effective cutoff (<paramref name="cutoffUT"/>) that the save's own
+        /// <c>ROUTE_EVENT_LOG</c> (<paramref name="savedEvents"/>) does not hold. That row was
+        /// written after the save (a save inside a go-back's window, loaded by an exit that keys
+        /// its cutoff to the floor and runs no window retire), so the save's counters do not
+        /// count it: restoring them would reissue its cycle id and resume a dispatch the loaded
+        /// world never paid for. Null <paramref name="savedEvents"/> counts every such row as
+        /// not held. Empty when the cutoff is not above the save clock. Pure.
+        /// </summary>
+        internal static HashSet<string> SelectRoutesWithUnheldRowsAfterSaveClock(
+            IReadOnlyList<RouteEvent> keptEvents, double saveClockUT, double cutoffUT,
+            IReadOnlyList<RouteEvent> savedEvents)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            List<RouteEvent> unheld = RouteEventRetire.SelectUnheldWindowRows(
+                keptEvents, saveClockUT, cutoffUT, savedEvents ?? new List<RouteEvent>());
+            for (int i = 0; i < unheld.Count; i++)
+                ids.Add(unheld[i].RouteId);
+            return ids;
         }
 
         /// <summary>
@@ -506,7 +540,7 @@ namespace Parsek.Logistics
         /// </summary>
         internal static int RestoreLoopPositionAtRewindExit(
             IReadOnlyList<Route> savedRoutes, double cutoffUT, double loadedSaveUT,
-            string logTag, string logPrefix)
+            string logTag, string logPrefix, ICollection<string> keepRebuiltCountersRouteIds = null)
         {
             int keptCount = RouteStore.CommittedRoutes.Count;
             string cutoffText = cutoffUT.ToString("R", IC);
@@ -528,13 +562,14 @@ namespace Parsek.Logistics
             int restored = RestoreLoopPositionFromSave(
                 RouteStore.CommittedRoutes, savedRoutes, cutoffUT, loadedSaveUT,
                 out int definitionChanged, out int missingFromSave,
-                logTag);
+                logTag, keepRebuiltCountersRouteIds);
             ParsekLog.Info(logTag,
                 logPrefix + ": loop position restored from the loaded save at cutoff=" + cutoffText +
                 $" loadedSaveUT={saveText} keptRoutes={keptCount.ToString(IC)} " +
                 $"savedRoutes={savedRoutes.Count.ToString(IC)} loopPositionsRestored={restored.ToString(IC)} " +
                 $"clockChanged={definitionChanged.ToString(IC)} " +
-                $"missingFromSave={missingFromSave.ToString(IC)}");
+                $"missingFromSave={missingFromSave.ToString(IC)} " +
+                $"countersKeptRebuilt={(keepRebuiltCountersRouteIds?.Count ?? 0).ToString(IC)}");
             return restored;
         }
 
@@ -588,10 +623,14 @@ namespace Parsek.Logistics
         /// <c>InstallRoutesAtRewind</c> replaces the lists), then gives each kept route its loop
         /// position back from the rewind save's own copy. The cutoff is
         /// <see cref="ResolveGoBackRouteCutoffUT"/>. Writes no route event (it runs inside OnLoad).
-        /// Returns the cutoff used.
+        /// Returns the cutoff used. <paramref name="rewindSaveOwnClockUT"/> (the save's clock
+        /// before its floor raise, NaN when unknown) and <paramref name="rewindSaveEvents"/> (its
+        /// own route events) decide which routes keep their rebuilt cycle counters
+        /// (<see cref="SelectRoutesWithUnheldRowsAfterSaveClock"/>).
         /// </summary>
         internal static double ReconcileAtGoBackRewind(
-            double rewindAdjustedUT, IReadOnlyList<Route> rewindSaveRoutes, double rewindSaveUT)
+            double rewindAdjustedUT, IReadOnlyList<Route> rewindSaveRoutes, double rewindSaveUT,
+            double rewindSaveOwnClockUT = double.NaN, IReadOnlyList<RouteEvent> rewindSaveEvents = null)
         {
             double cutoffUT = ResolveGoBackRouteCutoffUT(
                 rewindAdjustedUT, rewindSaveRoutes, rewindSaveUT, out string cutoffSource);
@@ -618,10 +657,20 @@ namespace Parsek.Logistics
                 keptEvents,
                 logTag: "Rewind",
                 logPrefix: "OnLoad go-back");
+            HashSet<string> keepRebuiltCounters = SelectRoutesWithUnheldRowsAfterSaveClock(
+                keptEvents, rewindSaveOwnClockUT, cutoffUT, rewindSaveEvents);
+            if (keepRebuiltCounters.Count > 0)
+                ParsekLog.Info("Rewind",
+                    "OnLoad go-back: rewind save written inside an earlier go-back window " +
+                    $"ownClockUT={rewindSaveOwnClockUT.ToString("R", IC)} cutoff={cutoffUT.ToString("R", IC)} " +
+                    $"savedEvents={(rewindSaveEvents == null ? "unknown" : rewindSaveEvents.Count.ToString(IC))}: " +
+                    $"{keepRebuiltCounters.Count.ToString(IC)} route(s) keep rebuilt cycle counters " +
+                    "(rows kept after the save's own clock that it does not hold)");
             RestoreLoopPositionAtRewindExit(
                 rewindSaveRoutes, cutoffUT, rewindSaveUT,
                 logTag: "Rewind",
-                logPrefix: "OnLoad go-back");
+                logPrefix: "OnLoad go-back",
+                keepRebuiltCountersRouteIds: keepRebuiltCounters);
             return cutoffUT;
         }
 
@@ -657,13 +706,49 @@ namespace Parsek.Logistics
             // route copy describes the later moment.
             double carriedFloor = RouteStore.ReadSavedRouteStateFloorUTFromScenarios(scenarios);
             double routeStateUT = ApplyRouteStateFloor(rewindSaveUT, carriedFloor);
-            RewindContext.SetRewindSaveRoutes(saved, routeStateUT);
+            List<RouteEvent> savedEvents = null;
+            if (saved != null)
+            {
+                try
+                {
+                    savedEvents = ReadSavedEventsFromScenarios(scenarios);
+                }
+                catch (Exception ex)
+                {
+                    savedEvents = null;
+                    ParsekLog.Warn("Rewind",
+                        $"{label}: reading the rewind save's route events threw {ex.GetType().Name}: {ex.Message}; " +
+                        "every route row after its own clock counts as not held");
+                }
+            }
+            RewindContext.SetRewindSaveRoutes(saved, routeStateUT, rewindSaveUT, savedEvents);
             ParsekLog.Info("Rewind",
                 $"{label}: rewind save's own route copy read for the loop-position restore: " +
                 $"routes={(saved == null ? "unknown (no ParsekScenario in the save)" : saved.Count.ToString(IC))} " +
                 $"saveUT={rewindSaveUT.ToString("R", IC)} " +
                 $"carriedFloor={(double.IsNaN(carriedFloor) ? "none" : carriedFloor.ToString("R", IC))} " +
-                $"routeStateUT={routeStateUT.ToString("R", IC)}");
+                $"routeStateUT={routeStateUT.ToString("R", IC)} " +
+                $"savedEvents={(savedEvents == null ? "none" : savedEvents.Count.ToString(IC))}");
+        }
+
+        /// <summary>
+        /// <see cref="RouteEventLog.ReadSavedEvents"/> over a parsed game's own
+        /// <c>ParsekScenario</c> proto (the go-back rewind's parsed save); null without one.
+        /// </summary>
+        internal static List<RouteEvent> ReadSavedEventsFromScenarios(IList<ProtoScenarioModule> scenarios)
+        {
+            if (scenarios == null)
+                return null;
+            for (int i = 0; i < scenarios.Count; i++)
+            {
+                ProtoScenarioModule proto = scenarios[i];
+                if (proto != null
+                    && string.Equals(proto.moduleName, nameof(ParsekScenario), StringComparison.Ordinal))
+                {
+                    return RouteEventLog.ReadSavedEvents(proto.GetData());
+                }
+            }
+            return null;
         }
 
         /// <summary>

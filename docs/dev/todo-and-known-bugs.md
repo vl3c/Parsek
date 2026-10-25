@@ -105,6 +105,21 @@ windows resume cycle-0 with one dispatch, and so does a Re-Fly start; control be
 rebuild; the pure pair restore). A lane is owed: no committed route lane flies a multi-stop route
 across a load.
 
+Follow-up (review, 2026-10-25): the two exits that still key their cutoff to the floor alone (a
+go-back to a rewind save written inside an earlier go-back's window, a Re-Fly start from an RP
+quicksave written inside one) keep rows in (save clock, floor] that were written after the save.
+Restoring the save's counters there reissued such a row's cycle id: a multi-stop route's later
+stop resumed a dispatch the loaded world never paid for (cargo from nothing) and a single-stop
+route lost the crossing to the dedup. A route with a kept row after the save's own clock that the
+save's `ROUTE_EVENT_LOG` does not hold now keeps the rebuilt counters
+(`RouteLoadReconcile.SelectRoutesWithUnheldRowsAfterSaveClock`; the go-back reads the rewind
+save's events with its route copy into `RewindContext`, the Re-Fly start reads the RP
+quicksave's); a row the save holds (the earlier go-back's settled rows) still restores them. Logs:
+Info `... written inside ... go-back window ... N route(s) keep rebuilt cycle counters`, Verbose
+`cycle counters stay rebuilt`, summary `countersKeptRebuilt=N`. xUnit:
+`RouteResidualWindowExitCountersTests` (10: both exits x multi-stop and single-stop, the held-row
+control, the pure selector); without the guard 4 red, matching without the saved log 2 red.
+
 ---
 
 ## ~~REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY: a Rewind-to-Launch to before a separation undid a merged but unsealed Re-Fly and brought the original flight back~~ [FILED + FIXED 2026-10-24 on branch `fix-rewind-keeps-unsealed-refly` (PR #2230); LIVE-PROVEN 2026-10-25 by RB-4 `2026-10-25_0121` PASS, RF-4 `_0124` PASS]
@@ -1708,7 +1723,9 @@ unchanged, a forward scene change, and the pure rules); mutation-checked (no win
 retiring the whole window regardless of the saved log: 5 red, the multi-stop resume among them).
 Not covered: a go-back rewind to a rewind save written inside an earlier window, and a Re-Fly start
 from an RP quicksave written inside one, still key to the floor alone (both need a launch or a
-separation within 15 s of a go-back, then a route action, then that exact rewind); the UT-only
+separation within 15 s of a go-back, then a route action, then that exact rewind; a route with a
+row there the save does not hold keeps its rebuilt cycle counters, see
+ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH); the UT-only
 class (an F9 into an in-window save from an abandoned timeline) is unchanged. Found with it:
 ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH (fixed first; the multi-stop cell needs it).
 
