@@ -1105,6 +1105,21 @@ namespace Parsek.TestCommands
                 TryCompleteEvaSeatLeave(now);
                 return;
             }
+            // NewGame, in the .NewGame.cs partial: the main menu settles (create the game),
+            // then the Space Center settles on it.
+            if (completionVerb == TestCommandNewGame.Verb)
+            {
+                TryCompleteNewGame(now);
+                return;
+            }
+
+            // LaunchSiteProbe, in the .LaunchSiteProbe.cs partial: OK once a dialog button was
+            // pressed and the result settled.
+            if (completionVerb == TestCommandLaunchSiteProbe.Verb)
+            {
+                TryCompleteLaunchSiteProbe(now);
+                return;
+            }
 
             bool done = false;
             string verdict = null;
@@ -1316,6 +1331,10 @@ namespace Parsek.TestCommands
             RemoveCrewTransferState();
             // A seat move's references must never outlive its command either.
             ResetEvaSeatState();
+            // So must a new game's phase state.
+            ResetNewGameState();
+            // A launch-site probe's references must never outlive its command either.
+            ResetLaunchSiteProbeState();
             // A multi-category RunTests that ends by TIMEOUT or by a completion
             // exception must not leave its token queue armed for the next RunTests to
             // inherit; the sequence is over the moment the two-phase state is.
@@ -1699,6 +1718,14 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.EvaSeatBoard(ParsedCommand cmd) => EvaSeatBoardImpl(cmd);
         void ITestCommandExecutor.EvaSeatLeave(ParsedCommand cmd) => EvaSeatLeaveImpl(cmd);
 
+        // NewGame: body + two-phase completion in ParsekTestCommandAddon.NewGame.cs.
+        void ITestCommandExecutor.NewGame(ParsedCommand cmd) => NewGameImpl(cmd);
+        // AlarmJump: body in ParsekTestCommandAddon.AlarmJump.cs. Single-phase (the alarm is
+        // added, fired, its Jump pressed and its dialog closed inside the call).
+        void ITestCommandExecutor.AlarmJump(ParsedCommand cmd) => AlarmJumpImpl(cmd);
+        // LaunchSiteProbe: body + two-phase completion in ParsekTestCommandAddon.LaunchSiteProbe.cs.
+        void ITestCommandExecutor.LaunchSiteProbe(ParsedCommand cmd) => LaunchSiteProbeImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             // Batch-baseline latch clear (finding 1). Any verb that can change state a
@@ -1774,6 +1801,9 @@ namespace Parsek.TestCommands
                 case "CycleVessel": exec.CycleVessel(cmd); break;
                 case "EvaSeatBoard": exec.EvaSeatBoard(cmd); break;
                 case "EvaSeatLeave": exec.EvaSeatLeave(cmd); break;
+                case "NewGame": exec.NewGame(cmd); break;
+                case "AlarmJump": exec.AlarmJump(cmd); break;
+                case "LaunchSiteProbe": exec.LaunchSiteProbe(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

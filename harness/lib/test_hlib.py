@@ -1215,7 +1215,13 @@ class SpecValidationRejectTests(unittest.TestCase):
         # cycle through the cycle Prefix's own body (GC-4, a ghost marker in range).
         # 56 / 4 after the EvaSeatBoard / EvaSeatLeave pair, an ADDITION by two: an EVA
         # kerbal takes an external command seat and leaves it (SEAT-1, the seat-dismount EVA).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 56)
+        # 57 / 4 after AlarmJump, an ADDITION by one: a stock alarm's Jump pressed through
+        # stock's own OnJump (AJ-1, GC-13).
+        # 58 / 4 after LaunchSiteProbe, an ADDITION by one: Launch pressed on an obstructed
+        # site and stock's launch-site-clear dialog read and pressed (LS-1).
+        # 59 / 4 after NewGame, an ADDITION by one: a genuine stock new game under the loaded
+        # save's name (the scripted campaign program's CS-0 host).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 59)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -10391,6 +10397,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # THE SCRIPTED CAMPAIGN FIXTURE BUILDERS, 2026-10-25.
+        "CS-0-new-science-game.toml": "tier=operator as a FIXTURE BUILDER, NOT debt: it creates a genuine stock New Game (Science, Normal) through the NewGame seam verb on the stock-tree instance, and its produced save is harvested once as `cs-science-new`, the host of CS-1. Its value is the harvested fixture, not a regression floor. Owed: the first flight and the harvest",
+        "CS-0-new-career-game.toml": "tier=operator as a FIXTURE BUILDER, NOT debt: CS-0-new-science-game's Career twin; its produced save is harvested once as `cs-career-new`, the host of the Career half of the campaign ladder. Owed: the first flight and the harvest",
         # THE GC-3 INERT-TREE LANE, 2026-10-22.
         "GC-3-other-generation-tree-kept-inert.toml": "tier=operator by the calibration discipline, NOT debt: the live proof of GC-3 (PR #2158, todo GC3-SCHEMA-REJECTED-TREES-LOSE-EARNED-VALUE) on the derived `career-earned-pad-oldgen` fixture (tree-level generation 3): the tree is set aside inert on a cold boot, written back verbatim by a SaveGame, and set aside again by a cold save-file reload, with its tagged ledger rows kept. AUTHORED 2026-10-22, LIVE-PROVEN on its first flight `2026-10-22_1226`; every pinned count is derived from source and the fixture bytes (kept equal by test_career_earned_pad_oldgen.GC3SpecFixtureSyncTests)",
         # THE REWIND READ-BACK GUARD PAIR, 2026-09-27.
@@ -10955,6 +10964,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "STR-2-strategy-crossed-in-refly.toml": "operator by the reading-run discipline; AUTHORED 2026-10-25, NEVER FLOWN (L13's host and Re-Fly: Appreciation Campaign activated at the Space Center after the separation stays off in stock from the invoke until the session's clock reaches it, the gate switches it on during the re-flown descent, then LedgerGroundTruth after the merge); the batch split and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
         "STR-3-revert-takes-back-strategy-share.toml": "operator by the reading-run discipline; AUTHORED 2026-10-25, NEVER FLOWN (QL-2c's hop under Leadership Initiative, then Revert to Launch: the strategy's tagged share rows are pruned with the reverted flight and LedgerGroundTruth on the pad finds no divergence); the batch split and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
         "RF-L2-booster-refly-lands-recovery-added.toml": "operator by the reading-run discipline; AUTHORED 2026-10-20, NEVER FLOWN (design 2.12, the purpose of Re-Fly survives: GS-1's hop in career-gs1-two-stage-pad commits with the booster under canopy and its slot open, the booster is re-flown, lands, merges and is recovered from the Tracking Station: a new funds earning, nothing tombstoned); the landing under the RP's staged chute, the seal reason and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        "AJ-1-alarm-jump-refused-in-refly.toml": "operator by the reading-run discipline; AUTHORED 2026-10-25, NEVER FLOWN (GC-13: RF-L3's host and chain with the switch click replaced by the new AlarmJump verb, a stock alarm on the unrelated station fires with its Jump button hidden and a press of stock's OnJump is refused on the alarmJump path, then the merge dialog's Discard); the header's guesses are re-pinned off the first flight, then the tier is promoted by its measured p50",
         "RF-L3-refly-switch-refused.toml": "operator by the reading-run discipline; AUTHORED 2026-10-20, NEVER FLOWN (design 2.12 Rule 3: S4.3's Re-Fly of the world-preservation booster slot, a map Switch-To click on the unrelated station the rewind point kept is REJECTED refly-switch-refused:notSessionVessel and logged Switch refused path=mapSwitchTo, then the merge dialog's Discard); the refusal reason is re-pinned off the first flight, then the tier is promoted by its measured p50",
         "RF-L4-refly-retry-after-earning-restores-ledger.toml": "operator by the reading-run discipline; AUTHORED 2026-10-20, NEVER FLOWN (design 2.12 Rule 3: LAB-10b's chain with a Retry from Rewind Point between the attempt's transmit and the Discard Re-Fly; the retried attempt's own transmit must land on 112.5, not 125, on lab-lko-seeded-transmit); the retry repair line, the pool witness and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
         # Science-lab process-while-joined, tender separation and transmit (LAB-13 reduced: no
@@ -13958,6 +13968,18 @@ class SweepStepVocabularyTests(unittest.TestCase):
         # declaration keeps its type-only check.
         self.assertEqual([], hlib._check_param_type("x", ["anything"],
                                                     {"type": "list"}))
+
+    def test_hlib_rejects_an_unknown_string_enum_member_at_admit(self):
+        # The same closed vocabulary on a STRING param (science_bench_recover's
+        # recoverCreditPool): a typo must die at ADMIT, not select a default.
+        decl = {"type": "string", "values": ["funds", "science"]}
+        self.assertEqual([], hlib._check_param_type("recoverCreditPool", "science", decl))
+        errs = hlib._check_param_type("recoverCreditPool", "Science", decl)
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("allowed: funds,science", errs[0])
+        self.assertNotEqual([], hlib._check_param_type("recoverCreditPool", 1, decl))
+        # A string param with NO `values` keeps its type-only check.
+        self.assertEqual([], hlib._check_param_type("x", "anything", {"type": "string"}))
 
 
 class GhostLifecycleVerifierWiringTests(unittest.TestCase):
@@ -17949,6 +17971,269 @@ class EvaSeatSourceSyncTests(unittest.TestCase):
         self.assertIn("silently ignored", errs[0])
 
 
+class NewGameSourceSyncTests(unittest.TestCase):
+    """`NewGame`. Reads OUTSIDE harness/: the verb, the three arg keys, the mode and preset
+    tokens, the kept save entry and the refusal / error reasons (IN ORDER) of the
+    comment-stripped TestCommands/TestCommandNewGame.cs, the applier's calls into stock's own
+    new-game path, and the C# budget, so the pre-launch validator and a spec's pinned reasons
+    cannot drift from what the seam answers."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# NewGame tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_vocabularies_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandNewGame.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.NEWGAME_VERB, text)
+        self.assertIn('internal const string ModeArg = "%s";' % hlib.NEWGAME_MODE_KEY, text)
+        self.assertIn('internal const string PresetArg = "%s";' % hlib.NEWGAME_PRESET_KEY, text)
+        self.assertIn('internal const string SaveArg = "%s";' % hlib.NEWGAME_SAVE_KEY, text)
+        self.assertIn('internal const string PreservedSaveEntry = "%s";'
+                      % hlib.NEWGAME_PRESERVED_SAVE_ENTRY, text)
+        sync = StockScreenSourceSyncTests._cs_string_array
+        self.assertEqual(list(hlib.NEWGAME_MODE_VALUES), sync(text, "ModeTokens"))
+        self.assertEqual(list(hlib.NEWGAME_PRESET_VALUES), sync(text, "PresetTokens"))
+        self.assertEqual(list(hlib.NEWGAME_REASONS), sync(text, "Reasons"))
+        self.assertEqual(list(hlib.NEWGAME_ERROR_REASONS), sync(text, "ErrorReasons"))
+        for reason in hlib.NEWGAME_REASONS:
+            self.assertIn(hlib._SEAM_REFUSAL_SUBKINDS.get(reason), ("driver-arg", "driver-gate"),
+                          reason)
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        for reason in hlib.NEWGAME_ERROR_REASONS:
+            self.assertNotIn(reason, hlib._SEAM_REFUSAL_SUBKINDS, reason)
+
+    def test_the_applier_runs_stocks_own_new_game_path(self):
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.NewGame.cs")
+        for call in ('GamePersistence.SaveGame("persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);',
+                     "HighLogic.LoadScene(GameScenes.MAINMENU);",
+                     "GameParameters.GetDefaultParameters(stockMode, ToStockPreset(p.Preset));",
+                     "HighLogic.CurrentGame = GamePersistence.CreateNewGame(",
+                     "GameEvents.onGameNewStart.Fire();",
+                     "HighLogic.CurrentGame.Start();"):
+            self.assertIn(call, applier)
+        # The four new-game calls run in stock's order (MainMenu.CreateAndStartGame).
+        order = [applier.index(c) for c in ("GamePersistence.CreateNewGame(",
+                                            "GameEvents.onGameNewStart.Fire();",
+                                            "HighLogic.CurrentGame.Start();")]
+        self.assertEqual(sorted(order), order)
+
+    def test_the_budget_mirrors_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandDispatcher.cs")
+        m = re.search(r"internal const double NewGameSeconds = ([0-9.]+);", text)
+        self.assertIsNotNone(m, "DeferralBudget.NewGameSeconds moved")
+        self.assertEqual(float(m.group(1)), hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS[hlib.NEWGAME_VERB])
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.NEWGAME_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(300.0, hlib.dispatch_deferral_budget(verb))
+        self.assertLessEqual(hlib.dispatch_deferral_budget(verb), hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS)
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertFalse(hlib.post_mission_step_gates(verb))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_new_game_step
+        ok = {"mode": "SCIENCE_SANDBOX", "preset": "Normal", "save": "${runSave}"}
+        self.assertEqual([], v(1, ok, "camp"))
+        self.assertEqual([], v(1, dict(ok, save="camp"), "camp"))
+        for mode in hlib.NEWGAME_MODE_VALUES:
+            for preset in hlib.NEWGAME_PRESET_VALUES:
+                self.assertEqual([], v(1, dict(ok, mode=mode, preset=preset), "camp"))
+        cases = (
+            ({"preset": "Normal", "save": "${runSave}"}, "newgame-mode-arg-missing"),
+            (dict(ok, mode="career"), "newgame-mode-arg-invalid"),
+            (dict(ok, mode="MISSION"), "newgame-mode-arg-invalid"),
+            ({"mode": "CAREER", "save": "${runSave}"}, "newgame-preset-arg-missing"),
+            (dict(ok, preset="Custom"), "newgame-preset-arg-invalid"),
+            ({"mode": "CAREER", "preset": "Normal"}, "newgame-save-arg-missing"),
+            (dict(ok, save="other"), "newgame-save-mismatch"),
+            (dict(ok, scene="spacecenter"), "silently ignored"),
+        )
+        for args, needle in cases:
+            with self.subTest(args=args):
+                errs = v(4, args, "camp")
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("driver.steps[4]", errs[0])
+                self.assertIn(needle, errs[0])
+
+    def test_validate_spec_admits_a_new_game_step_and_mode_is_not_uiactions(self):
+        # `mode` is UiAction's VERB_SCOPED_CLOSED_ARGS row; a NewGame step must not be told
+        # the arg belongs to UiAction or that CAREER is not an interface mode.
+        spec = load_spec("L1-research-node-science.toml")
+        steps = spec["driver"]["steps"]
+        steps.insert(1, {"cmd": "NewGame", "expect": "OK", "budget": 300,
+                         "args": {"mode": "SCIENCE_SANDBOX", "preset": "Normal",
+                                  "save": "${runSave}"}})
+        self.assertEqual((), tuple(hlib.validate_spec(spec, load_registry()).errors))
+        steps[1]["args"]["mode"] = "Career"
+        steps[1]["args"]["save"] = "elsewhere"
+        errors = hlib.validate_spec(spec, load_registry()).errors
+        self.assertEqual(2, len(errors), errors)
+        self.assertTrue(any("newgame-mode-arg-invalid" in e for e in errors), errors)
+        self.assertTrue(any("newgame-save-mismatch" in e for e in errors), errors)
+        self.assertFalse(any("UiAction" in e for e in errors), errors)
+        # A UiAction step still owns the row.
+        steps[1] = {"cmd": "MissionMark", "args": {"label": "x", "mode": "Basic"}}
+        errors = hlib.validate_spec(spec, load_registry()).errors
+        self.assertTrue(any("only the UiAction verb reads it" in e for e in errors), errors)
+
+
+class LaunchSiteProbeSourceSyncTests(unittest.TestCase):
+    """`LaunchSiteProbe`. Reads OUTSIDE harness/: the verb, the three arg keys, the press
+    tokens and the refusal / error reasons (IN ORDER) of the comment-stripped
+    TestCommands/TestCommandLaunchSiteProbe.cs, and the applier's presses through stock's own
+    Launch buttons, so the pre-launch validator and a spec's pinned reasons cannot drift from
+    what the seam answers."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# LaunchSiteProbe tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_keys_and_reasons_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandLaunchSiteProbe.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.LAUNCHSITEPROBE_VERB, text)
+        self.assertIn('internal const string FacilityArg = "%s";'
+                      % hlib.LAUNCHSITEPROBE_FACILITY_KEY, text)
+        self.assertIn('internal const string CraftArg = "%s";' % hlib.LAUNCHSITEPROBE_CRAFT_KEY,
+                      text)
+        self.assertIn('internal const string AnswerArg = "%s";' % hlib.LAUNCHSITEPROBE_ANSWER_KEY,
+                      text)
+        self.assertEqual(list(hlib.LAUNCHSITEPROBE_ANSWER_VALUES),
+                         StockScreenSourceSyncTests._cs_string_array(text, "AnswerTokens"))
+        route = self._source("TestCommands", "TestCommandEditorRoute.cs")
+        self.assertEqual(list(hlib.LAUNCHSITEPROBE_FACILITY_VALUES),
+                         StockScreenSourceSyncTests._cs_string_array(route, "FacilityTokens"))
+        self.assertEqual(list(hlib.LAUNCHSITEPROBE_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        self.assertEqual(list(hlib.LAUNCHSITEPROBE_ERROR_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "ErrorReasons"))
+        arg_reasons = {"launchsiteprobe-answer-arg-invalid", "launchsiteprobe-facility-arg-invalid",
+                       "launchsiteprobe-craft-arg-invalid", "launchsiteprobe-arg-not-for-scene",
+                       "launchsiteprobe-craft-arg-missing"}
+        for reason in hlib.LAUNCHSITEPROBE_REASONS:
+            expected = "driver-arg" if reason in arg_reasons else "driver-gate"
+            self.assertEqual(expected, hlib._SEAM_REFUSAL_SUBKINDS.get(reason), reason)
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        for reason in hlib.LAUNCHSITEPROBE_ERROR_REASONS:
+            self.assertNotIn(reason, hlib._SEAM_REFUSAL_SUBKINDS, reason)
+
+    def test_the_applier_presses_stocks_own_launch_buttons(self):
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.LaunchSiteProbe.cs")
+        # The editor path is stock's Launch button handler (pre-flight checks included); the
+        # Space Center path is the building's own entry, then the picker's own Launch button.
+        self.assertIn("EditorLogic.fetch.launchVessel();", applier)
+        self.assertIn("facility.EnterBuilding();", applier)
+        self.assertIn("launch.onClick.Invoke();", applier)
+        # The dialog button is pressed through its own callback, never a Parsek shortcut.
+        self.assertIn("DialogGuiButtonOptionSelectedMethod", applier)
+        self.assertNotIn("ClearSite(", applier)
+        self.assertNotIn("proceedWithVesselLaunch(", applier)
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.LAUNCHSITEPROBE_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(60.0, hlib.dispatch_deferral_budget(verb))
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertFalse(hlib.post_mission_step_gates(verb))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_launch_site_probe_step
+        self.assertEqual([], v(0, {}))
+        self.assertEqual([], v(0, {"answer": "abort"}))
+        self.assertEqual([], v(0, {"facility": "SPH", "craft": "Kerbal X", "answer": "proceed"}))
+        for bad in ({"answer": "Proceed"}, {"answer": "recover"}, {"press": "OK"}, {"facility": "vab"},
+                    {"craft": "  "}, {"site": "LaunchPad"}):
+            with self.subTest(args=bad):
+                errs = v(4, bad)
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("driver.steps[4]", errs[0])
+
+
+class AlarmJumpSourceSyncTests(unittest.TestCase):
+    """`AlarmJump`. Reads OUTSIDE harness/: the verb, its arg keys, the jump values and the
+    refusal / error / decision vocabularies (IN ORDER) of the comment-stripped
+    TestCommands/TestCommandAlarmJump.cs, and the applier's calls into stock's own alarm
+    fire and Jump, so the pre-launch validator and a spec's pinned tokens cannot drift from
+    what the seam answers."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# AlarmJump tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_tables_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandAlarmJump.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.ALARMJUMP_VERB, text)
+        self.assertIn('internal const string VesselKey = "%s";' % hlib.ALARMJUMP_VESSEL_KEY, text)
+        self.assertIn('internal const string PidKey = "%s";' % hlib.ALARMJUMP_PID_KEY, text)
+        self.assertIn('internal const string JumpKey = "%s";' % hlib.ALARMJUMP_JUMP_KEY, text)
+        for value in hlib.ALARMJUMP_JUMP_VALUES:
+            self.assertIn('= "%s";' % value, text)
+        self.assertEqual(list(hlib.ALARMJUMP_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        self.assertEqual(list(hlib.ALARMJUMP_ERROR_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "ErrorReasons"))
+        self.assertEqual(list(hlib.ALARMJUMP_DECISIONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Decisions"))
+        for reason in hlib.ALARMJUMP_REASONS:
+            self.assertIn(hlib._SEAM_REFUSAL_SUBKINDS.get(reason), ("driver-arg", "driver-gate"),
+                          reason)
+        for reason in hlib.ALARMJUMP_ERROR_REASONS:
+            self.assertNotIn(reason, hlib._SEAM_REFUSAL_SUBKINDS, reason)
+
+    def test_the_applier_drives_stocks_own_alarm(self):
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.AlarmJump.cs")
+        self.assertIn("AlarmClockScenario.AddAlarm(alarm)", applier)
+        self.assertIn('AccessTools.Method(typeof(AlarmTypeBase), "TriggerAlarm")', applier)
+        self.assertIn('AccessTools.Method(typeof(AlarmClockMessageDialog), "OnJump")', applier)
+        self.assertIn('"OnDeleteOnClose"', applier)
+        self.assertNotIn("SetActiveVessel", applier)
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.ALARMJUMP_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(60.0, hlib.dispatch_deferral_budget(verb))
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertFalse(hlib.post_mission_step_gates(verb))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_alarm_jump_step
+        self.assertEqual([], v(0, {"vessel": "WP Orbital Station", "jump": "always"}))
+        self.assertEqual([], v(0, {"pid": "4242"}))
+        self.assertEqual([], v(0, {"pid": 4242, "jump": "never"}))
+        for args, token in (({}, "alarmjump-target-arg-missing"),
+                            ({"vessel": "A", "pid": "1"}, "alarmjump-target-arg-conflict"),
+                            ({"pid": "0"}, "alarmjump-pid-arg-invalid"),
+                            ({"pid": "x1"}, "alarmjump-pid-arg-invalid"),
+                            ({"pid": "4294967296"}, "alarmjump-pid-arg-invalid"),
+                            ({"vessel": "A", "jump": "Always"}, "alarmjump-jump-arg-invalid")):
+            with self.subTest(args=args):
+                errs = v(2, args)
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn(token, errs[0])
+                self.assertIn("driver.steps[2]", errs[0])
+        errs = v(3, {"vessel": "A", "targetPid": "1"})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("silently ignored", errs[0])
+
+
 class DriveVesselSourceSyncTests(unittest.TestCase):
     """`DriveVessel`. Reads OUTSIDE harness/: the verb, the two arg keys, the seconds cap and
     the refusal / error reasons (IN ORDER) of the comment-stripped
@@ -19553,12 +19838,14 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         # that makes a sync cell pass against a table it never read.
         actions = re.findall(r"\bAction([A-Z]\w*)", block)
         self.assertEqual(
-            ["Create", "SendOnce", "Pause", "Activate", "Link", "Unlink", "SetCadence"],
+            ["Create", "SendOnce", "Pause", "Activate", "Link", "Unlink", "SetCadence",
+             "Rescan"],
             actions,
             "the C# KnownActions order moved; hlib's comment at ROUTECOMMAND_ACTIONS_DOC "
             "and harness/README.md name this set")
         self.assertEqual(
-            ("create", "send-once", "pause", "activate", "link", "unlink", "set-cadence"),
+            ("create", "send-once", "pause", "activate", "link", "unlink", "set-cadence",
+             "rescan"),
             hlib.ROUTECOMMAND_ACTIONS)
 
     def test_every_new_routecommand_refusal_maps_to_a_finer_subkind(self):
@@ -19569,7 +19856,7 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         arg_half = ("unknown-partner", "partner-ambiguous", "cadence-arg-missing",
                     "cadence-arg-invalid")
         gate_half = ("link-self", "link-already-linked", "link-no-candidate",
-                     "route-not-linked", "cadence-unchanged")
+                     "route-not-linked", "cadence-unchanged", "rescan-not-offered")
         for token in arg_half:
             with self.subTest(token=token):
                 self.assertEqual("driver-arg",
@@ -24207,6 +24494,9 @@ class SharedShipsManifestTests(unittest.TestCase):
     # so the two entries were deleted in the same commit - the discipline this
     # cell enforces, and it DID fire red first, for the second time.
     PENDING_FIXTURE_LANES = {
+        # THE SCRIPTED CAMPAIGN (2026-10-25): stage 1 is hosted on stage 0's produced
+        # save, harvested from the first green CS-0-new-science-game flight.
+        "CS-1-science-first-hop.toml": "cs-science-new",
     }
 
     def test_the_pending_fixture_exemption_retires_itself(self):
@@ -26016,6 +26306,26 @@ class ListHandlesSourceSyncTests(unittest.TestCase):
                          self.consts["ChainTreesKeySuffix"])
         self.assertEqual(hlib.LISTHANDLES_CHAIN_TREE_IDS_KEY,
                          self.consts["ChainTreeIdsKeySuffix"])
+
+    def test_the_timeline_log_line_prefix_and_keys_are_byte_equal(self):
+        """kind=timeline's lines are written by `TestCommandTimelineReadback`, a sibling
+        file; read it as code the same way."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands",
+                            "TestCommandListHandlesTimeline.cs")
+        self.assertTrue(os.path.isfile(path), "the timeline read-back moved: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            raw = fh.read().replace("\r\n", "\n")
+        code = "\n".join(strip_cs_line_comment(l) for l in raw.split("\n"))
+        consts = dict(re.findall(r'\bconst\s+string\s+(\w+)\s*=\s*"([^"\\]*)"\s*;', code))
+        self.assertEqual(hlib.LISTHANDLES_TIMELINE_LOG_PREFIX, consts["TimelineLogLinePrefix"])
+        self.assertEqual(hlib.LISTHANDLES_TIMELINE_RETIRED_WORD, consts["RetiredLogLineWord"])
+        for name, want in (("TimelineLogLineKeys", hlib.LISTHANDLES_TIMELINE_LOG_KEYS),
+                           ("RetiredLogLineKeys", hlib.LISTHANDLES_TIMELINE_RETIRED_LOG_KEYS)):
+            head = re.search(r"\b%s\s*=\s*\{" % name, code)
+            self.assertIsNotNone(head, "%s declaration not found" % name)
+            body = code[head.end():code.index("};", head.end())]
+            self.assertEqual(want, tuple(re.findall(r'"([^"\\]*)"', body)), name)
+        self.assertEqual("timeline", self.consts["TimelineKindToken"])
 
     def test_the_route_log_line_prefix_and_keys_are_byte_equal(self):
         self.assertEqual(hlib.LISTHANDLES_ROUTE_LOG_PREFIX,

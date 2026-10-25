@@ -178,6 +178,10 @@ RP_SIDECAR_BY_PRESET = {
     "chain-tip-recovery": None,
     # CI-9's chain-tip-dock tree: one committed two-recording tree, no RP.
     "chain-tip-dock": None,
+    # LS-1's launch-site-claim tree: one committed two-recording tree, no RP.
+    "launch-site-claim": None,
+    # RS-1's substitute: one committed tree APPENDED to a recorded host, no RP.
+    "rescan-substitute": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 
@@ -188,6 +192,13 @@ INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 # construction, so the proof is the preset's own tree id in the staged persistent.sfs.
 SAVE_TOKEN_BY_METADATA_ONLY_PRESET = {
     "drill-harvest-route": "tree-drill-harvest-m2",
+}
+
+# Presets that APPEND a tree to a RECORDED host, whose own Parsek/Recordings/ is
+# already non-empty, so that half of the postcondition proves nothing. The proof is
+# the preset's own trajectory sidecar.
+SIDECAR_BY_APPENDED_PRESET = {
+    "rescan-substitute": "rs1-substitute-rec.prec",
 }
 
 # Per-step wait default when a step names no budget (a non-deferred verb resolves
@@ -1254,7 +1265,10 @@ def _inject_postcondition_missing(save_dir: str, preset: str) -> List[str]:
       under the ``isActive`` marker, no RP; the S0.9 auto-merge fixture).
     - a METADATA-ONLY preset (``SAVE_TOKEN_BY_METADATA_ONLY_PRESET``, e.g.
       ``drill-harvest-route``) -> its tree id in the staged ``persistent.sfs``, since
-      its recordings carry no trajectory and write no sidecar."""
+      its recordings carry no trajectory and write no sidecar.
+    - an APPENDED preset (``SIDECAR_BY_APPENDED_PRESET``, e.g. ``rescan-substitute``)
+      -> its own ``.prec`` under ``Parsek/Recordings/``, since the recorded host's
+      sidecars already fill that directory."""
     missing: List[str] = []
     token = SAVE_TOKEN_BY_METADATA_ONLY_PRESET.get(preset)
     if token:
@@ -1268,6 +1282,11 @@ def _inject_postcondition_missing(save_dir: str, preset: str) -> List[str]:
             missing.append("persistent.sfs carrying %s" % token)
         return missing
     rec_dir = os.path.join(save_dir, "Parsek", "Recordings")
+    appended = SIDECAR_BY_APPENDED_PRESET.get(preset)
+    if appended:
+        if not os.path.isfile(os.path.join(rec_dir, appended)):
+            missing.append("Parsek/Recordings/%s" % appended)
+        return missing
     try:
         has_recordings = os.path.isdir(rec_dir) and bool(os.listdir(rec_dir))
     except OSError:

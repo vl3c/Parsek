@@ -121,6 +121,8 @@ namespace Parsek
         internal static System.Func<string> TagResolverForTesting;
         internal static System.Func<bool> HasLiveRecorderProviderForTesting;
         internal static System.Func<bool> HasActiveUncommittedTreeProviderForTesting;
+        /// <summary>Test hook for <see cref="IsLiveFlightVessel"/>.</summary>
+        internal static System.Func<uint, bool> LiveFlightVesselProviderForTesting;
 
         /// <summary>
         /// #431: central funnel for every <see cref="GameStateEvent"/> the recorder produces.
@@ -316,6 +318,36 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when <paramref name="persistentId"/> names a vessel the live flight records:
+        /// the active recorder's vessel or a background member of the active tree. A live
+        /// vessel's persistentId is unique among live vessels (stock regenerates it on a
+        /// collision), so a pid match against the live flight's own members is an identity
+        /// match here.
+        /// </summary>
+        internal static bool IsLiveFlightVessel(uint persistentId)
+        {
+            var provider = LiveFlightVesselProviderForTesting;
+            if (provider != null)
+                return provider(persistentId);
+
+            return ParsekFlight.IsLiveFlightVesselForTagging(persistentId);
+        }
+
+        /// <summary>
+        /// Pure (todo LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT): true when
+        /// an event a known vessel causes belongs to no flight, so it is filed untagged. Only
+        /// while a live recorder would otherwise claim it, never inside a recovery (the
+        /// recovery scope names its own owner), and only for an UNLOADED vessel the live flight
+        /// does not record: a background vessel's transmission under a mod. A loaded vessel
+        /// outside the tree stays the flight's, since the flight's EVA kerbal can act on it.
+        /// </summary>
+        internal static bool IsVesselEventOutsideTheFlight(
+            bool hasLiveRecorder, bool recoveryScopeOpen, bool vesselLoaded, bool vesselInFlight)
+        {
+            return hasLiveRecorder && !recoveryScopeOpen && !vesselLoaded && !vesselInFlight;
+        }
+
+        /// <summary>
         /// #431: true when a flight recorder is currently live on the active tree. Used by
         /// <see cref="Emit"/>'s drift-warn branch to flag "in-flight, should have a tag, doesn't."
         /// </summary>
@@ -460,6 +492,7 @@ namespace Parsek
             TagResolverForTesting = null;
             HasLiveRecorderProviderForTesting = null;
             HasActiveUncommittedTreeProviderForTesting = null;
+            LiveFlightVesselProviderForTesting = null;
             ReFlyAwardTagging.ResetForTesting();
             ClearPendingMilestoneEvents("ResetForTesting");
             ClearContractCompletionDedup("ResetForTesting");

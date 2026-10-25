@@ -488,6 +488,19 @@ nothing in the harness requires it (H71 flew green without it). Drift-gated by
 `harness/lib/test_career_earned_ksc.py` (`--check` byte identity, shape, and the pad
 sibling's ledger extending this one by exactly its accept row).
 
+## career-earned-ksc-retired-milestone (GAME Mode = CAREER, 0 VESSELS, 2 recordings)
+
+`career-earned-ksc` plus ONE `LEDGER_TOMBSTONES` entry (the ParsekScenario node's last
+child) retiring the `Kerbin/Science` milestone row (`act_9483fb3b...`, UT 346.08, tagged to
+`1d611e75...`), the TL-1 host. Its milestone-store copy in
+`Parsek/GameState/milestones.pgsm` keeps the same, visible, tag, which is the display state of
+todo TIMELINE-PHANTOM-MILESTONE-AFTER-REFLY-OF-LATER-SEGMENT. No flight on the current build
+writes it (a milestone is a sealing row under design 2.12 Rule 1, so no merge can tombstone
+one); it stands for the saves a pre-ruling merge wrote. Built by
+`harness/tools/build_career_earned_ksc_retired_milestone.py` and drift-gated by
+`harness/lib/test_career_earned_ksc_retired_milestone.py` (`--check` byte identity, shape,
+the tombstone block as the only change from the base, and the identities TL-1 quotes).
+
 ## recording-quarantine-ksc (GAME Mode = CAREER, 0 VESSELS, 2 recordings)
 
 `career-earned-ksc` with its `Parsek/Recordings/` rearranged into every state
@@ -543,8 +556,8 @@ gets its mark or block. What the builder adds:
   sibling), a `STRATEGY` node for `AppreciationCampaignCfg` (stock's name / date /
   factor shape), `probeCoreSphere.v2` removed from the `start` node's purchased parts,
   `BypassEntryPurchaseAfterResearch = False` (the part block is inert with it on), and
-  `Ships/VAB/Jumping Flea.craft` copied from `gs1-two-stage-pad` for the launch-site
-  picker and the VAB.
+  the shared `Jumping Flea` craft (`fixtures/ships`, staged through
+  `fixtures/shared-ships.toml`) for the launch-site picker and the VAB.
 
 Mission Control and Administration stay at level 1 (two contract slots, one strategy),
 so the one Active contract plus the committed accept fill both slots at UT 50000 and

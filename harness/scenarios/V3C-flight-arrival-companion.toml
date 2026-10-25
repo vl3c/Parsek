@@ -460,6 +460,17 @@ count = { min = 4, max = 4 }
 # #1931 split above (the chain's first segment carries no terminal state, so the
 # terminal and branch-point windows are the _1906 integers unchanged). Every bound
 # inverted offline against that save red on exactly its window.
+# WINDOWS UNCHANGED 2026-10-25 after `2026-10-25_1046` (main ef863bd54, MISSION-OK,
+# PARSEK-FAIL(save-structure) attempt 1) red here only: trees 3 > 2, recordings 7 > 4,
+# Orbiting 3 > 2, Destroyed 2 > 1, JointBreak 2 > 1. The save held the DD1 tree twice:
+# the committed copy plus the copy-on-write restore attempt the flight kept recording
+# into after the mid-mission commit (`isActive = True`, repeating the committed
+# tree's 3 recording ids and its branch point). That copy is written on purpose since
+# #2169 (it was skipped as `skippedCommittedRestoreOverlap` on the 2026-10-12 green
+# run). The census now reads a committed tree once (saveparse.in_flight_copy_trees),
+# so the save measures trees 2 / recordings 4 / Orbiting 2 / Destroyed 1 /
+# JointBreak 1 again, every window as armed; `treeNodes` / `inFlightCopyTrees` record
+# the copy in the run JSON. Re-flown `2026-10-25_1213` PASS attempt 1 (inFlightCopyTrees 1).
 gating         = true
 trees          = { min = 2, max = 2 }
 committedTrees = { min = 2, max = 2 }

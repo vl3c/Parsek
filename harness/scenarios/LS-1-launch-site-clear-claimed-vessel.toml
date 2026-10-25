@@ -1,0 +1,164 @@
+# LS-1: stock's launch-site clear must not recover a vessel a committed future flight holds
+# (todo GC9-LAUNCH-SITE-CLEAR-RECOVERS-CLAIMED-VESSEL, fix 2026-10-24,
+# Patches/ClaimedVesselLaunchSitePatches.cs). Stock recovers every vessel landed at the site
+# from two dialogs: the editor's pre-flight LaunchSiteClear test ("Recover and launch",
+# EditorLogic.proceedWithVesselLaunch) and the Space Center launch-site picker's own
+# LaunchSiteWarning (LaunchSiteFacility.shipSelected -> ClearSite -> launchChecks).
+#
+# WHAT IT PROVES, through the new seam verb LaunchSiteProbe (presses stock's own Launch
+# button, reads the dialog stock raises, presses one of its buttons through the button's own
+# callback and reports the facts):
+#   (a) EDITOR (VAB, LaunchPad, the claimed Rig): the dialog has ONE button (no proceed), its
+#       description ends with the hold sentence for 'Logi Cargo Rig', and the test postfix
+#       logs `Blocked launch-site clear (stock test fails, no Recover)`. Reverted fix: two
+#       buttons, `proceedOffered=1`, no hold sentence, no Blocked line -> PARSEK-FAIL.
+#   (b) SPACE CENTER (VAB picker, LaunchPad): the three-button dialog's proceed button is
+#       greyed (`interactable=?,0,?`, `proceedInteractable=0`) with the hold sentence; the
+#       probe presses it ANYWAY through its own callback (a player's click cannot land on a
+#       greyed button, so this reaches the click-blocks behind it): `ClearSite` refuses the
+#       recovery and `launchChecks` cancels the launch (both Blocked lines), the scene stays
+#       (`outcome=stayed`) and the Rig still stands on the pad (`obstructingAfter=1
+#       firstAfter=Logi_Cargo_Rig`), with no recovery row. Reverted fix: the button is live,
+#       the press recovers the Rig and launches (`outcome=launched`, the Rig's recovery row,
+#       `obstructingAfter=0`) -> PARSEK-FAIL.
+#   (c) NEGATIVE CONTROL (SPH, Runway, the UNCLAIMED rover `rover fuel 0`): stock's own
+#       two-button dialog, proceed offered and live, no hold sentence, no Blocked line for
+#       the rover. Reds a fix that over-blocks. The probe presses abort, so nothing recovers.
+#   The produced save still holds the Rig (report-only structure block).
+#
+# HOST: committed fixture `pad-runway-pair` (sandbox, UT 25.26, `Logi Cargo Rig` pid
+# 2200110038 PRELAUNCH on the LaunchPad, `rover fuel 0` pid 95298807 on the Runway) plus the
+# new injected preset `launch-site-claim` (SyntheticRecordingTests.LaunchSiteClaimTree, fact
+# InjectLaunchSiteClaim): one committed tree whose PARENTLESS background recording carries
+# the Rig's own pid and launch guid and an engine ignite / shutdown, ending Landed at UT
+# ~3626, so GhostChainWalker claims the live Rig via BACKGROUND_EVENT and the GC-2 predicate
+# holds it. Reached by a COLD `LoadGame scene=spacecenter`: no plain-rewind hold (#2181)
+# moves the Rig out of the world, and the lane never enters FLIGHT before the probes, so
+# nothing ghosts it. xUnit facts: LaunchSiteClaim_* (the fixture's sites, the chain, the
+# gate's selection holding the Rig and not the rover).
+#
+# NEVER FLOWN (authored 2026-10-25, branch `claude/project-thread-u5m7su`). Guesses a first red
+# should be read against:
+#   - Kerbal X passes every pre-flight test but LaunchSiteClear from both editors (SE-1 / CI-6
+#     launch it from the SPH; one lane loads it in the VAB). A different failed test reads
+#     `launchsiteprobe-other-dialog` (ERROR, the dialog's last button pressed).
+#   - The VAB picker lists the stock `Jumping Flea` under that formatted name (GUI-28's
+#     `StockScreen screen=launchsite act=select item=Jumping Flea` found it, 2026-09-25).
+#   - VesselSpawnDialog's Launch reaches shipSelected in the same call (KSPUpgradePipeline
+#     synchronous for a stock craft) and no other confirmation dialog intervenes.
+#   - Stock's Space Center dialog shape (resume / proceed / cancel, decompiled 1.12.5) and the
+#     editor's (proceed + abort, or abort alone) hold; labels and titles are not pinned.
+#   - The 30-frame / 1 s settle is enough for a proceed that launches to leave the scene.
+#   - The KSC ghost of the claimed recording standing at the pad changes nothing stock reads.
+#   - `StockScreen screen=editor act=close` (stock's onExitConfirm) returns to the Space Center
+#     in a sandbox save.
+#
+# FAST-LANE CHECKLIST: (1) no existing flight is a prefix: no lane loads pad-runway-pair with a
+# claim, and the Logistics lanes on this fixture fly; (2) no idle waits (each probe polls its
+# own conditions); (3)-(5) no dwell, burn or coast; (6) every gate refuses before a press and a
+# shape miss is an ERROR at once; retry `once` only for a UI-timing INVALID; (7) counts pinned
+# exactly from the fixture (one vessel per site, two injected recordings); (8)-(9) tier
+# nightly until a measured p50, then `flight_efficiency.py`.
+
+schema = 1
+id = "LS-1-launch-site-clear-claimed-vessel"
+tier = "nightly"
+description = "GC-9 launch-site clear: over pad-runway-pair plus the launch-site-claim preset (a committed future flight claims the live Logi Cargo Rig on the LaunchPad), press Launch through stock's own buttons in the VAB and at the Space Center launch-site picker and require that stock's launch-site-clear dialog offers no usable Recover-and-launch, names the hold, refuses the recovery when its greyed proceed button is pressed anyway, and leaves the Rig on the pad with no recovery row; the SPH launch over the unclaimed runway rover keeps stock's own dialog."
+instanceProfile = "stock-minimal"
+tags = ["LS-1", "GC-9", "launch-site-clear", "claimed-vessel", "ghost-chain", "stock-ui",
+        "injected-recordings", "scene-editor", "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/pad-runway-pair"
+injectedRecordings = "launch-site-claim"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # (c) NEGATIVE CONTROL: the SPH launches onto the Runway, where the unclaimed rover stands.
+  { cmd = "GoToEditor", args = { facility = "SPH", craft = "Kerbal X" }, expect = "OK", budget = 120 },
+  { cmd = "LaunchSiteProbe", args = { answer = "abort" }, expect = "OK", budget = 120 },
+  { cmd = "StockScreen", args = { screen = "editor", act = "close" }, expect = "OK", budget = 120 },
+  # (a) EDITOR: the VAB launches onto the LaunchPad, where the claimed Rig stands.
+  { cmd = "GoToEditor", args = { facility = "VAB", craft = "Kerbal X" }, expect = "OK", budget = 120 },
+  { cmd = "LaunchSiteProbe", args = { answer = "proceed" }, expect = "OK", budget = 120 },
+  { cmd = "StockScreen", args = { screen = "editor", act = "close" }, expect = "OK", budget = 120 },
+  # (b) SPACE CENTER: the VAB's launch-site picker, the greyed proceed pressed through its callback.
+  { cmd = "LaunchSiteProbe", args = { facility = "VAB", craft = "Jumping Flea", answer = "proceed" }, expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# D14 values only, each already covered elsewhere: no coverage increment.
+D14 = ["kerbin", "sandbox", "scene-ksc", "scene-editor"]
+
+[expectations]
+allowedAnomalies = []
+
+# The two injected recordings; the lane records nothing.
+[expectations.recordings]
+count = { min = 2, max = 2 }
+
+# REPORT-ONLY until a reading run (no `gating`): the injected tree unchanged, nothing spawned,
+# the Rig and the rover both still in the produced save.
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2, max = 2 }
+terminalStates = { Landed = { min = 1, max = 1 }, Destroyed = { min = 1, max = 1 } }
+spawnedVessels = { min = 0, max = 0 }
+vesselNames    = { "Logi Cargo Rig" = { min = 1, max = 1 }, "rover fuel 0" = { min = 1, max = 1 } }
+
+[expectations.logContracts]
+required  = [
+  # The claim: the walker builds the Rig's live chain (the gate's own walk).
+  "\\[ChainWalker\\] Chain built: vessel=2200110038 links=1 tip=lsc-rig-rec spawnUT=3626\\.3 terminated=False",
+  # (c) The negative control: stock's own dialog over the unclaimed rover, proceed live.
+  "launchsiteprobe start path=editor scene=EDITOR answer=abort site=Runway obstructing=1 first=rover_fuel_0",
+  "launchsiteprobe dialog path=editor name=TestWarning buttons=2 labels=\\[[^\\]\\r\\n]*\\] interactable=1,1 proceedOffered=1 proceedInteractable=1 ",
+  "launchsiteprobe complete path=editor site=Runway dialog=TestWarning buttons=2 proceedOffered=1 proceedInteractable=1 pressed=abort outcome=stayed obstructingBefore=1 obstructingAfter=1 firstAfter=rover_fuel_0 ",
+  # (a) THE FIX, editor: the test fails for the held Rig, the dialog has no proceed and
+  # carries the hold sentence; answer=proceed finds no proceed and presses abort.
+  "\\[ClaimedVessel\\] Blocked launch-site clear \\(stock test fails, no Recover\\) of claimed vessel 'Logi Cargo Rig' pid=2200110038 chainTip=lsc-rig-rec spawnUT=3626\\.2[0-9]* - a committed future flight holds this vessel until its chain tip spawns",
+  "launchsiteprobe start path=editor scene=EDITOR answer=proceed site=LaunchPad obstructing=1 first=Logi_Cargo_Rig",
+  "launchsiteprobe dialog path=editor name=TestWarning buttons=1 labels=\\[[^|\\]\\r\\n]*\\] interactable=1 proceedOffered=0 proceedInteractable=- title=[^\\r\\n]* description=[^\\r\\n]*'Logi Cargo Rig': Used by a later flight until [^\\r\\n]*, blocked by timeline until then\\.",
+  "launchsiteprobe complete path=editor site=LaunchPad dialog=TestWarning buttons=1 proceedOffered=0 proceedInteractable=- pressed=abort outcome=stayed obstructingBefore=1 obstructingAfter=1 firstAfter=Logi_Cargo_Rig ",
+  # (b) THE FIX, Space Center: the proceed greyed, the hold named, and the press through the
+  # greyed button's own callback refused by both click-blocks.
+  "\\[ClaimedVessel\\] Blocked Space Center launch-site Recover \\(greyed\\) of claimed vessel 'Logi Cargo Rig' pid=2200110038 chainTip=lsc-rig-rec ",
+  "launchsiteprobe dialog path=spacecenter name=LaunchSiteWarning buttons=3 labels=\\[[^\\]\\r\\n]*\\] interactable=[01],0,[01] proceedOffered=1 proceedInteractable=0 title=[^\\r\\n]* description=[^\\r\\n]*'Logi Cargo Rig': Used by a later flight until [^\\r\\n]*, blocked by timeline until then\\.",
+  "launchsiteprobe press path=spacecenter requested=proceed pressed=proceed label=[^\\r\\n]* interactable=0 - through the button's own callback",
+  "\\[ClaimedVessel\\] Blocked Space Center launch-site Recover of claimed vessel 'Logi Cargo Rig' pid=2200110038 chainTip=lsc-rig-rec ",
+  "\\[ClaimedVessel\\] Blocked Space Center launch over a claimed vessel \\(cancelled\\) of claimed vessel 'Logi Cargo Rig' pid=2200110038 chainTip=lsc-rig-rec ",
+  "launchsiteprobe complete path=spacecenter site=LaunchPad dialog=LaunchSiteWarning buttons=3 proceedOffered=1 proceedInteractable=0 pressed=proceed outcome=stayed obstructingBefore=1 obstructingAfter=1 firstAfter=Logi_Cargo_Rig ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "launchsiteprobe rejected",
+  "launchsiteprobe error",
+  "launchsiteprobe launched without a launch-site dialog",
+  "outcome=launched",
+  # THE DEFECT: a recovery of the held Rig (the ledger row, or its skip).
+  "Vessel recovered recorded: vessel='Logi Cargo Rig'",
+  "Vessel recovery row skipped: vessel='Logi Cargo Rig'",
+  # The negative control is never recovered either (the probe pressed abort).
+  "Vessel recovered recorded: vessel='rover fuel 0'",
+  "Vessel recovery row skipped: vessel='rover fuel 0'",
+  # An over-blocking fix: the unclaimed rover held.
+  "of claimed vessel 'rover fuel 0'",
+  "'rover fuel 0': Used by a later flight",
+  # The grey or the hold read failing open.
+  "proceed button not found to grey",
+  "Space Center launch-site proceed grey failed",
+  "Claimed-vessel launch-site check threw",
+  "Launch-site obstructions read failed",
+]
+
+[runtime]
+budgetSeconds = 900
+
+[retry]
+policy = "once"

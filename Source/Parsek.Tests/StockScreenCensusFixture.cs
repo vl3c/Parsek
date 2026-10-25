@@ -55,8 +55,6 @@ namespace Parsek.Tests
     {
         internal const string FixtureName = "stock-screen-census";
         internal const string BaseName = "career-earned-ksc";
-        internal const string CraftDonorName = "gs1-two-stage-pad";
-        internal const string CraftFileName = "Jumping Flea.craft";
 
         internal const string BaseTitle = "career-science-pad (CAREER)";
         internal const string Title = "stock-screen-census (CAREER)";
@@ -129,7 +127,9 @@ namespace Parsek.Tests
 
         /// <summary>
         /// Every file the fixture holds, keyed by its '/'-separated path relative to the
-        /// fixture directory. Pure over the base fixture and the craft donor.
+        /// fixture directory. Pure over the base fixture. The VAB craft is not part of it: the
+        /// harness stages the shared Jumping Flea from <c>harness/fixtures/ships</c> through
+        /// <c>fixtures/shared-ships.toml</c>.
         /// </summary>
         internal static SortedDictionary<string, byte[]> BuildFiles(string repoRoot)
         {
@@ -154,11 +154,6 @@ namespace Parsek.Tests
 
             foreach (var kv in BuildFlightSidecars())
                 files["Parsek/Recordings/" + kv.Key] = kv.Value;
-
-            string craftPath = Path.Combine(SavesDir(repoRoot), CraftDonorName, "Ships", "VAB", CraftFileName);
-            if (!File.Exists(craftPath))
-                throw new InvalidOperationException("craft donor not found: " + craftPath);
-            files["Ships/VAB/" + CraftFileName] = File.ReadAllBytes(craftPath);
 
             return files;
         }

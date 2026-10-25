@@ -441,7 +441,7 @@ The goal: no committed purchase is ever left unpaid, and no pool (funds, science
 
 **Status of the instrument half: built in 0.10.7** (todos CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT, STRATEGY-CONVERSION-OF-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT).
 
-**Known gaps (open todos).** Awards from mods' background sources (a Contract Configurator auto-accept, a background vessel's science under Kerbalism-style mods, a SCANsat background unlock) still file under the flight in progress (LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT), waiting for a mod lane to prove them.
+**Mod background sources, built in 0.10.7** (LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT, proven by unit tests only by owner ruling 2026-10-25). The same scope opens around three more causes no flight has: an `AutoAccept` contract's accept (stock's `ContractSystem` accepts it on its own refresh; Contract Configurator contracts can carry the flag), a science submission from an unloaded vessel the live flight does not record (the recorder's vessel and the active tree's background members are the flight; stock transmits only from loaded vessels, and a loaded vessel outside the tree stays the flight's because the flight's EVA kerbal can run its experiment; a recovery keeps its own owner), and a resource scan no stock scanner makes (a mod's, such as SCANsat's background coverage; a stock scanner keeps the flight's tag on any vessel, for the same EVA reason). A mod contract a timer parameter completes stays tied to the flight: no seam names its cause.
 
 ---
 

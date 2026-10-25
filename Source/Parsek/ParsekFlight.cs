@@ -303,6 +303,16 @@ namespace Parsek
             => Instance != null && Instance.activeTree != null && Instance.recorder != null && Instance.recorder.IsRecording;
 
         /// <summary>
+        /// True when <paramref name="persistentId"/> is the live recorder's vessel or a
+        /// background member of the active tree; false off-flight or for 0.
+        /// </summary>
+        internal static bool IsLiveFlightVesselForTagging(uint persistentId)
+            => persistentId != 0u && Instance != null && Instance.activeTree != null
+                && ((Instance.recorder != null && Instance.recorder.RecordingVesselId == persistentId)
+                    || (Instance.activeTree.BackgroundMap != null
+                        && Instance.activeTree.BackgroundMap.ContainsKey(persistentId)));
+
+        /// <summary>
         /// #466: returns true whenever the flight scene is carrying an uncommitted tree,
         /// including outsider-state restores where <see cref="recorder"/> is intentionally
         /// null until the player returns to a tracked vessel.

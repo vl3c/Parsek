@@ -20,6 +20,10 @@ _(unreleased - entries accumulate here per commit)_
   rocket on the pad and it never launches, its ghost used to sit on the pad after a rewind for as
   long as you had waited there. It now never appears; the kerbal's own ghost still plays.
   (PAD-VESSEL-GHOST-HOLDS-THE-PAD)
+- **A supply run that lost its stop no longer counts as completed.** When a vessel a multi-stop
+  route delivered to was gone and the run delivered nothing, the Logistics window and Route History
+  counted that run as completed; it now counts as skipped, as a one-stop route already did.
+  (LOOP-ROUTE-LOST-DELIVERY-COUNTED-COMPLETED)
 - **Boarding, docking or moving cargo with another vessel is never an idle flight.** A kerbal who
   stepped out of a rocket on the pad and took a seat on, boarded, docked with or moved cargo to a
   nearby vessel had the whole flight thrown away at scene exit if nothing moved 30 m. The flight
@@ -78,6 +82,10 @@ _(unreleased - entries accumulate here per commit)_
   Discarding or reverting the flight in progress no longer takes back its reward, and a Re-Fly no
   longer counts it as the attempt's gain. A strategy's cut of ground-station science stays with that
   science the same way. (CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT)
+- **With mods, awards your flight did not earn are no longer tied to it.** A contract the game
+  accepts on its own, science sent by another vessel in the background, and a resource scan made by
+  a mod such as SCANsat now stay when you discard the flight, and a Re-Fly no longer counts them as
+  its gain. (LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT)
 - **A contract deadline that runs out during a flight is no longer tied to that flight.** The
   expiry is the clock's, so a Re-Fly that outlives the deadline can be merged, and discarding the
   flight no longer takes the penalty away. A contract the game ends because its requirements no
@@ -104,6 +112,9 @@ _(unreleased - entries accumulate here per commit)_
 - **Harness: a lane with a test step that timed out can no longer pass.** A step after the flight
   that timed out or got no answer now marks the run invalid and retries it, and one that failed
   outright turns it red. (DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS)
+- **Automated tests can read the Timeline.** A new read-back lists the Timeline's rows by kind and
+  checks that a milestone a Re-Fly removed draws no leftover row, with a lane on a built save that
+  holds that case. (TIMELINE-PHANTOM-MILESTONE-AFTER-REFLY-OF-LATER-SEGMENT)
 - **Harness: a game that freezes at the main menu is retried instead of waited out.** A test run
   whose KSP stopped at the main menu before taking its first command sat out an 11-minute wait
   and was not retried; it now ends after 90 s of silence and runs again. (VB-1-KSP-HANG-AT-MAIN-MENU)

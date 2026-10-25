@@ -110,5 +110,15 @@ namespace Parsek
         /// after the accept, or null when the ledger has none yet. The hover names its rewards.
         /// </summary>
         public GameAction PairedContractComplete;
+        /// <summary>
+        /// Legacy rows only: the game-state event type the row was drawn from. Runtime only;
+        /// the <c>ListHandles kind=timeline</c> read-back counts legacy rows by it.
+        /// </summary>
+        public GameStateEventType LegacyEventType;
+        /// <summary>
+        /// Legacy rows only: the event's (type, UT, key) identity the ledger dedup compares
+        /// (<see cref="TimelineBuilder.GetLegacyEventKey"/>), null on every other row.
+        /// </summary>
+        public string LegacyKey;
     }
 }

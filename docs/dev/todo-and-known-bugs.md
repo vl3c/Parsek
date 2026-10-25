@@ -208,7 +208,8 @@ ghost on the pad after a rewind. Ruling (card, 2026-10-25): "Never show it".
 
 Fix: `LaunchSiteOnlyGhost` hides every recording of a vessel (one tree's non-EVA recordings
 sharing a vessel pid) whose recordings all stay inside a launch-site circle (home world, Absolute
-sections only, no orbit segment) and whose recordings that carry a terminal state are all retired
+sections only, no orbit segment) and within 15 m of the vessel's lowest point (`GroundBandMeters`;
+a hop that lands back on the pad keeps its ghost, found by the PR review) and whose recordings that carry a terminal state are all retired
 at a launch site (`VesselSpawner.EvaluateKscEndOfFlightRetirement`). Derived from the committed
 trees on each `StateVersion` change, never stored: a later commit that takes the vessel off the pad
 shows it again, and the player's `PlaybackEnabled` toggle is never written. `Recording.GhostVisible`
@@ -217,8 +218,10 @@ shows it again, and the player's `PlaybackEnabled` toggle is never written. `Rec
 the bug #433 visual-only contract, so past-end completion still fires and retirement, crew and
 ledger run as before. A destroyed, recovered, docked or boarded end keeps the ghost. Log line
 `[LaunchSiteGhost] Ghost hidden: vessel '<name>' pid=<pid> never left the launch site (<site>
-<zone>) ...`, printed when the hidden set changes. Tests: `LaunchSiteOnlyGhostTests` (4 of 13
-cells red with the rule stubbed). Lane `PADG-1-pad-rocket-ghost-hidden`, authored, never flown.
+<zone>) ...`, printed when the hidden set changes. Tests: `LaunchSiteOnlyGhostTests` (15 cells; 4
+of the first 13 red with the rule stubbed). Lane `PADG-1-pad-rocket-ghost-hidden` LIVE-PROVEN on its
+first flight, `2026-10-25_1333` PASS (the rocket's 2 recordings hidden, only Bill's KSC ghost
+entered range after Rewind-to-Launch); the ground band is unit-tested only.
 
 ---
 
@@ -465,7 +468,7 @@ its exchange is already a ledger row.
 
 ---
 
-## LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT: mod-driven background awards are filed under the live flight [FILED 2026-10-25 from a code audit, branch `claude/project-thread-dkcvpn`. OPEN; low, mod-only. Owner ruling 2026-10-25: unit tests only, no modded lane]
+## ~~LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT: mod-driven background awards are filed under the live flight~~ [FILED 2026-10-25 from a code audit, branch `claude/project-thread-dkcvpn`. FIXED 2026-10-25, branch `claude/project-thread-86u4df`; unit tests only by owner ruling 2026-10-25]
 
 Three cases a stock install never reaches: a Contract Configurator `autoAccept` contract accepted by
 a mid-flight contract refresh, science a background vessel transmits (and the body science milestone
@@ -473,6 +476,24 @@ it reaches; Kerbalism-style mods), and a background resource-scan unlock (SCANsa
 to the live recording, so a discard drops it and a Re-Fly reads it as the attempt's. Fix direction:
 the same clock-cause rule (file untagged when the vessel named is not the flown one), once a mod
 lane exists to prove it.
+
+**Fix** (owner ruling 2026-10-25: prove it with unit tests, no mod lane): each case opens the
+recorder's clock-cause scope, so `Emit` files it untagged and the #405 doors write it at once.
+(1) `ContractEarlyFailPatch` opens it around `SetState(Active)` of an `AutoAccept` contract still
+Offered (`IsClockCausedAccept`): stock's `ContractSystem` accepts such a contract itself on its
+refresh, so the accept and its advance belong to no flight. (2) `DeployedScienceSubmitScopePatch`
+also opens it when the submission's source vessel is UNLOADED and not one the live flight records
+(`GameStateRecorder.IsLiveFlightVessel`: the recorder's vessel or a background member of the active
+tree; `IsVesselEventOutsideTheFlight` needs a live recorder and no open recovery scope), covering the
+award, the body milestone and any contract completed inside the fire. Stock transmits only from
+loaded vessels, and a loaded vessel outside the tree stays the flight's: the flight's EVA kerbal can
+run and transmit its experiment (`DeployExperimentExternal`). (3) New `ResourceScannerScopePatch`
+marks stock's two scanner calls (`ModuleOrbitalSurveyor.CompleteSurvey`,
+`ModuleBiomeScanner.RunAnalysis`); an unlock with no stock scanner call open is a mod's and is filed
+untagged (`IsUnlockByNoFlight`). A stock scan keeps its tag on any vessel, since both scanner events
+are EVA-usable on a vessel outside the tree (the clean review of this fix caught a first cut that
+untagged those). Not covered: a mod contract a timer parameter completes, where no seam names the
+cause. Cells: `ClockCauseScopeTests`.
 
 ---
 
@@ -514,8 +535,8 @@ of the same fire completes pays its science reward first and clears the award's 
 capture, so the award takes the reason the open submission files under
 (`GroundStationSubmissionReasonKey`; lane CLK-1's first flight `2026-10-25_0945` read the reconcile
 ERROR this fixes). Cells:
-`ClockCauseScopeTests`. Mod contracts with timer parameters stay open under
-LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT.
+`ClockCauseScopeTests`. Mod contracts with timer parameters stay uncovered (see the Fix of
+LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT).
 
 ---
 
@@ -1172,7 +1193,7 @@ pinned to the C# receipt literal) and the smoke cell
 
 ---
 
-## ~~V3C-CAPTURE-AIMS-INTO-IKE: V3C's capture leaves Duna's SOI through Ike on both attempts~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells; flight owed: V3C-flight-arrival-companion (MISSION-OK with the first in-SOI `telemetry ... pe=` frame above 4,026 km altitude). mission]
+## ~~V3C-CAPTURE-AIMS-INTO-IKE: V3C's capture leaves Duna's SOI through Ike on both attempts~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells. LIVE-PROVEN 2026-10-25 by `2026-10-25_1046` (MISSION-OK, first in-SOI periapsis 13,613 km); that run's PARSEK-FAIL(save-structure) was a stale harness census, fixed in PR #2256, LIVE-PROVEN 2026-10-25 by `2026-10-25_1213` (V3C) and `_1227` (B17), both PASS attempt 1 with `inFlightCopyTrees=1`. mission]
 
 `V3C-flight-arrival-companion` `2026-10-09_0731` / `_0743_a2` both read INVALID (mission):
 `MISSION-ASSERT-FAIL ... left the target SOI during CAPTURE-BURN without a committed park:
@@ -1197,6 +1218,43 @@ capture-to-circular costs ~665 m/s vs ~575. `targetPeriapsisFloorMeters` stays t
 guard (B22's J1 reasoning). The replan-on-`nextBody=Ike` option was not taken: it is a machine
 change with no flown precedent. Proven offline by `b5_params_from_dict` loading the spec and the
 `missions/lib` and `lib` suites; the delivered periapsis is what the flight must read.
+
+Flown 2026-10-25 (`2026-10-25_1046`, main ef863bd54, attempt 1): MISSION-OK, the first in-SOI
+`telemetry ... pe=` frame at 13,613 km, no Ike encounter, so the mission fix holds. The run
+classified PARSEK-FAIL(save-structure) on the armed structure block alone: trees 3 > max 2,
+recordings 7 > max 4, Orbiting 3 > 2, Destroyed 2 > 1, JointBreak 2 > 1. The produced save holds
+the tree "DD1 Duna Direct Probe" twice: the committed copy and an `isActive = True` copy
+repeating 3 of its recording ids and its branch point. That copy is the copy-on-write
+committed-tree restore attempt `ParsekFlight.TryRestoreCommittedTreeForSpawnedActiveVessel`
+arms on the next Update after the mid-mission CommitTree ("Armed committed-tree restore attempt
+... copy-on-write"), so the flight keeps recording the live probe. Before #2169 (e0eb2da1c,
+2026-10-21) `PlanActiveTreeSidecarSaves` skipped that whole node while a resumed-in-place member
+was dirty (`skippedCommittedRestoreOverlap`, the 2026-10-12 green run); since then it is written
+on purpose (design-load-restores-the-save.md 4.3). Not a Parsek defect: on load,
+`ParsekScenario.TryRestoreActiveTreeNode` either re-arms the attempt and keeps the committed
+original beside the clone (the intended attempt shape, `TryRearmSaveAttemptForRestoredTree` /
+`ShouldLiveAttemptKeepCommittedCopy`) or detaches the committed copy
+(`RecordingStore.RemoveCommittedTreeById`), so no load leaves two committed trees with one id.
+Fix (harness, `harness/lib/saveparse.py`): the structure census reads a committed tree once. A
+non-committed tree whose id is a committed tree's id is its in-flight copy
+(`in_flight_copy_trees`), and `trees` / `recordings` / `terminalStates` / `branchPoints` skip the
+copy's rows that repeat a committed id, counting only what it adds; any other repeat stays
+counted twice, `committedTrees` stays raw, and the measured-only `treeNodes` /
+`inFlightCopyTrees` keep the copy visible. The binding design text already said every facet
+dedupes; only the points facet did. `mutsave` reaches the committed row and takes the repeat
+with it, so an offline inversion over such a save is not read VACUOUS. V3C's windows are
+unchanged and pass on a V3C-shaped doubled save (`InFlightCopyCensusTests`). Every other armed
+structure window was measured on a save without a copy, so the change moves none of them; B17,
+the same mission, was predicted red the same way (not flown since #2169).
+
+Re-flown 2026-10-25 on main 08d0c6f21 (PR #2256 merged, stock-minimal DLL a9be4b78):
+`V3C-flight-arrival-companion` `2026-10-25_1213` PASS attempt 1, MISSION-OK, first in-SOI
+periapsis 17,133 km, saveParse PASS with trees 2 / committedTrees 2 / treeNodes 3 /
+inFlightCopyTrees 1 / recordings 4 / Orbiting 2 / Destroyed 1 / JointBreak 1.
+`B17-duna-direct-orbit` `2026-10-25_1227` PASS attempt 1, MISSION-OK, first in-SOI periapsis
+1,120 km, saveParse PASS (rewind, structure and points armed) with trees 1 / committedTrees 1 /
+treeNodes 2 / inFlightCopyTrees 1 / recordings 3 / Orbiting 1 / Destroyed 1 / JointBreak 1. Both
+saves held the in-flight copy and the census read it once.
 
 ---
 
@@ -1542,7 +1600,24 @@ keys to the dedup set (`AddRetiredLegacyDuplicateKeys`, whatever their `Effectiv
 twin of any retired row (milestone, contract, strategy, facility) is hidden; the retired rows draw
 nothing themselves. Cell: `TimelineBuilderTests.LegacyMilestone_WhoseLedgerRowIsTombstoned_IsNotShown`.
 
-No lane yet (2026-10-24): no host produces the phantom (an optimizer-split career recording with a milestone in the later segment, then a Re-Fly of that segment), and no seam reads Timeline rows by kind.
+Lane (2026-10-25, branch `claude/project-thread-u5m7su`; LIVE-PROVEN on its second flight `2026-10-25_1113` PASS attempt 1; first flight `2026-10-25_1014` PARSEK-FAIL on a spec pin only: the fix held live, `Legacy twins of 1 tombstoned ledger row(s) hidden`, `retiredTwinRows=0 legacyMilestoneRows=0`, but the lane pinned `legacyRows=0` where the live career draws one non-milestone legacy row; re-pinned to the measured `legacyRows=1`, owes a re-flight):
+`TL-1-timeline-retired-milestone-copy` on a BUILT save, because no flight on the current build can
+produce the precondition. Since the design 2.12 Rule 1 rulings (2026-10-19) a milestone is a
+sealing row (`SupersedeCommit.IsLossRow` lists only crew losses, loss reputation and building
+damage), `RewindInvoker.CanInvoke` precondition 7 (`SupersedeCommit.RetireSetHoldsSealingRow`)
+refuses a slot whose retire set holds one, and `SupersedeCommit.CommitTombstones`, the only writer
+of `LEDGER_TOMBSTONES`, writes exactly that retire set (`BuildRetireSet`, spanning ancestor
+included). So the milestone phantom lives only in saves a 2026-10-07..19 merge wrote. The one twin
+a merge can still retire is FacilityDestruction (xUnit
+`TestCommandTimelineReadbackTests.Facility_destruction_twin_reads_the_same_way`; no host).
+Fixture `career-earned-ksc-retired-milestone` (`harness/tools/build_career_earned_ksc_retired_milestone.py`)
+is `career-earned-ksc` plus one tombstone on the Kerbin/Science row, whose milestone-store copy
+stays tagged to the visible `1d611e75...`. New seam read-back `ListHandles kind=timeline`
+(`TestCommandListHandlesTimeline.cs`) builds the Timeline through `TimelineWindowUI.BuildFromLiveState`
+and reports rows by source plus, per tombstoned row, its twin copies in the store and its drawn
+twin rows; the lane requires `retiredTwinCopies=1 retiredTwinRows=0 legacyMilestoneRows=0`, which
+read `retiredTwinRows=1 legacyMilestoneRows=1` with `AddRetiredLegacyDuplicateKeys` removed
+(mutation-checked headless).
 
 ---
 
@@ -2007,7 +2082,7 @@ traced end to end; each is a question, not a defect.
 - [x] ~~VN8-FOCUS-SWITCH-SPLIT-PARENT-LEG-RECORDS-NEW-VESSEL: a split where the control part leaves on the new vessel records the new vessel into the parent's leg and joins it to the launch identity. Found by `VN-8-control-part-leaves-staging` result `2026-10-12_1418` (log in `harness/results/2026-10-12_1418_VN-8-control-part-leaves-staging_shots/KSP.log`): with Control From Here on GS-1's booster probe core, the decouple stopped the recorder ("chain boundary"); stock's `ModuleDecouple.WaitAndSwitchFocus` renamed the pod "VN8 Alpha Ship" and focused the booster (`Vessel switch detected`) BEFORE `DeferredJointBreakCheck` classified the split; `Recording resumed after false alarm` then reopened the launch recording `2db42e20` on the new ACTIVE vessel, the booster (pid 3363353297), so the launch leg's post-split points are the booster's flight and the booster's own child leg holds one point. The committed launch leg carries `vesselPersistentId = 2200110033` (pod) but `spawnedPid = 3363353297` (booster); the commit's `SpawnTreeLeaves` adopted the live booster and `CommittedSpawnedRestore` added `Link added: kind=Resume guid=05e06e2d... (booster) -> ec23bab2... (pod)`, persisted in `VESSEL_NAMES`. Effect: the pod's post-split flight is never recorded, its ghost replays the booster's path under the pod's leg, and the booster shares the launch identity (a rename of either renames both; ruling 4 says the split child is a new identity). The names VN-8 pins were right only because the live write rule kept the unchosen automatic name.~~ Fix (2026-10-15, branch `claude/project-thread-m8bpl4`): the split's resume stays on the recorded vessel and focus is handed over through the ordinary switch path. `DeferredJointBreakCheck` decides with the pure `ShouldResumeSplitOnRecordedVessel` (recorded vessel alive, active vessel different) and calls `FlightRecorder.ResumeAfterFalseAlarm(keepRecordedVessel: true)`, which resolves the vessel by `RecordingVesselId` instead of `FlightGlobals.ActiveVessel`; after the fallback Decoupled events it replays `OnVesselSwitchComplete` for the active vessel, so the launch leg goes to the background recorder and the booster is a switch to a tracked background member. The in-scene focus hand-offs that clear `ActiveRecordingId` (both `OnVesselSwitchComplete` background branches and `HandleTreeBackgroundFlush`; the far-switch scene-reload stash `StashActiveTreeForVesselSwitch` does not, as before) first call `EmitPendingSplitBeforeFocusLeaves`, which emits the crash coalescer's pending split early (`CrashCoalescer.EmitNow`), because `ProcessBreakupEvent` attaches to the active recording and used to drop a split whose window outlived it (the booster would get no child leg); this also covers a player switch inside the 0.5 s window. `ProcessBreakupEvent` pairs the parent recording with the recorder's vessel (`ResolveBreakupParentVesselPid`), not the active vessel, so the rewind point's slots are pod + booster (VN-8's RP had both slots on the booster). With the launch leg ending on the pod, the commit's spawn adopts the pod and no Resume link joins the booster to the launch identity; the separate guard that a Resume / Spawn link never joins two identities is not added (no production path left that reaches it here). Tests: `SplitFocusSwitchResumeTests`. Live-proven 2026-10-15: VN-8 `2026-10-15_1236` PASS attempt 1 (DLL 3f95a36ddd96a66f) logged the resume on the recorded pod, the early split emit and the hand-off; the launch leg's vesselPersistentId = spawnedPid = the pod, the booster leg is its own, RP slots pod + booster, no `Link added` line. The launch leg now reads stock's automatic `VN8 Alpha Ship` (open when the rename lands, design 7.4 step 3); VN-8's spec is re-pinned to that and forbids `Link added: kind=Resume`.
 - [x] ~~GC-8: The Mobile Processing Lab (data processing over time) across a rewind and a spawn.~~ TRACED 2026-10-24 (branch `claude/project-thread-q9rwbh`). Fine: the spawn carries the end snapshot re-taken at commit, holding the lab's `dataStored` / `storedScience` and its EXPERIMENT_DATA subject list (stock `ModuleScienceLab.OnSave`), so the spawned copy never reprocesses what the flight already transmitted; stock's converter catch-up after a later spawn covers time that really passed, a Parsek time jump removes the jumped time from the snapshot clock (`ConverterJumpPolicy.ApplyToSpawnSnapshot`, owner ruling 2026-10-17), and a snapshot clock in the "future" grants nothing (stock `BaseConverter` resets `lastUpdateTime` to now on a negative slice). Pinned live by LAB-7 (rewind, then a warp spawn and a jump spawn), LAB-6, LAB-9b, LAB-10 and LAB-14.
 - [x] ~~GC-9: A runway landing and a spawn on the runway.~~ TRACED 2026-10-24 (branch `claude/project-thread-q9rwbh`). Fine: a flight that ends parked inside the 50 m circle at the runway start or on the pad is retired and never spawns (`SpawnCollisionDetector.cs` ~270-356, `DecideKscEndOfFlightRetirement` / `DecideLaunchSiteEndOfFlightRetirement`, owner ruling 2026-09-23); Space Center end spawns de-overlap against landed vessels (`ParsekKSC.cs` ~2130-2181, `ComputeDeOverlappedLandedSpawn`); a spawned vessel blocking the next launch meets stock's own `LaunchSiteClear` (fine). Fixed: stock's launch-site clear recovered a vessel a committed future flight holds: GC9-LAUNCH-SITE-CLEAR-RECOVERS-CLAIMED-VESSEL below. Fixed 2026-10-24: GC9-SPAWN-IGNORES-ACTIVE-VESSEL below.
-- [x] ~~GC9-LAUNCH-SITE-CLEAR-RECOVERS-CLAIMED-VESSEL (extends GC2-CLAIMED-VESSEL-RECOVER-OUTSIDE-FLIGHT): stock's launch-site clear recovers every vessel landed at the site through `ShipConstruction.RecoverVesselFromFlight` (decompiled KSP 1.12.5): the editor's pre-flight `LaunchSiteClear` test offers "Recover and launch" (`EditorLogic.proceedWithVesselLaunch`), and the Space Center launch-site picker (`LaunchSiteFacility.shipSelected`) builds its own dialog whose proceed button runs `ClearSite` and then `launchChecks`. The GC-2 gate covered only the Tracking Station and the Space Center marker. A plain rewind holds claimed vessels out of the world since #2181, so the path is a load without that hold (Revert to VAB / SPH, Discard Re-fly, a cold load). Plane V parked on the runway, a later committed recording has a kerbal board V; Revert to SPH, launch a new plane, click Recover: V's value was paid, and at the chain tip V+kerbal spawned with V's parts, so V existed twice and a second recovery paid again.~~ Fix (2026-10-24): `ClaimedVesselDisposalGate.FindHeldLive(IList<ProtoVessel>, site)` (pure `SelectHeld`) reads the GC-2 flight predicate over the test's obstructions; `Patches/ClaimedVesselLaunchSitePatches.cs` fails `LaunchSiteClear.Test` while one is held (so a debris-only site, which stock passes and recovers silently, shows the dialog too), appends the hold sentence per held vessel to `GetWarningDescription`, and nulls `GetProceedOption` (stock `PreFlightCheck` then builds an abort-only dialog). The Space Center dialog keeps the stock label (flag set around `shipSelected`) and greys that button through stock's `DialogGUIBase.OptionInteractableCondition`; its click-blocks are `ClearSite` and `launchChecks` prefixes reading the same predicate (`launchChecks` cancels the launch, which `FlightDriver.Start` would otherwise follow with its own recovery). `FlightDriver.Start` NEW_FROM_FILE recovers unconditionally but stock reaches it only through `FlightDriver.StartWithNewLaunch` after one of those two tests passed, so it is left as is; a mod that calls `StartWithNewLaunch` directly bypasses the test. Tests: `ClaimedVesselLaunchSiteTests`, `ClaimedVesselDisposalGateTests.StockTarget_IsPatched_AndExists` (red first). Not live-proven. No lane yet (2026-10-24): `LaunchFromEditor` refuses an obstructed site before pressing Launch (`launchfromeditor-site-obstructed`), `StockScreen screen=launchsite` cannot press Launch, and `UiAction op=dialog` reads only Parsek dialogs, so lane LS-1 needs a seam verb that drives stock's launch-site-clear dialog.
+- [x] ~~GC9-LAUNCH-SITE-CLEAR-RECOVERS-CLAIMED-VESSEL (extends GC2-CLAIMED-VESSEL-RECOVER-OUTSIDE-FLIGHT): stock's launch-site clear recovers every vessel landed at the site through `ShipConstruction.RecoverVesselFromFlight` (decompiled KSP 1.12.5): the editor's pre-flight `LaunchSiteClear` test offers "Recover and launch" (`EditorLogic.proceedWithVesselLaunch`), and the Space Center launch-site picker (`LaunchSiteFacility.shipSelected`) builds its own dialog whose proceed button runs `ClearSite` and then `launchChecks`. The GC-2 gate covered only the Tracking Station and the Space Center marker. A plain rewind holds claimed vessels out of the world since #2181, so the path is a load without that hold (Revert to VAB / SPH, Discard Re-fly, a cold load). Plane V parked on the runway, a later committed recording has a kerbal board V; Revert to SPH, launch a new plane, click Recover: V's value was paid, and at the chain tip V+kerbal spawned with V's parts, so V existed twice and a second recovery paid again.~~ Fix (2026-10-24): `ClaimedVesselDisposalGate.FindHeldLive(IList<ProtoVessel>, site)` (pure `SelectHeld`) reads the GC-2 flight predicate over the test's obstructions; `Patches/ClaimedVesselLaunchSitePatches.cs` fails `LaunchSiteClear.Test` while one is held (so a debris-only site, which stock passes and recovers silently, shows the dialog too), appends the hold sentence per held vessel to `GetWarningDescription`, and nulls `GetProceedOption` (stock `PreFlightCheck` then builds an abort-only dialog). The Space Center dialog keeps the stock label (flag set around `shipSelected`) and greys that button through stock's `DialogGUIBase.OptionInteractableCondition`; its click-blocks are `ClearSite` and `launchChecks` prefixes reading the same predicate (`launchChecks` cancels the launch, which `FlightDriver.Start` would otherwise follow with its own recovery). `FlightDriver.Start` NEW_FROM_FILE recovers unconditionally but stock reaches it only through `FlightDriver.StartWithNewLaunch` after one of those two tests passed, so it is left as is; a mod that calls `StartWithNewLaunch` directly bypasses the test. Tests: `ClaimedVesselLaunchSiteTests`, `ClaimedVesselDisposalGateTests.StockTarget_IsPatched_AndExists` (red first). Not live-proven. Lane (2026-10-25, branch `claude/project-thread-u5m7su`, never flown): `LS-1-launch-site-clear-claimed-vessel` on `pad-runway-pair` plus the new injected preset `launch-site-claim` (a committed tree whose parentless background recording carries the live `Logi Cargo Rig`'s pid and guid, so the chain holds the Rig on the LaunchPad; cold `LoadGame scene=spacecenter`, no plain-rewind hold). The new seam verb `LaunchSiteProbe` presses stock's own Launch buttons and reads stock's dialog: the VAB dialog must have one button and the hold sentence, the Space Center proceed must be greyed and, pressed anyway through its own callback, refused by the `ClearSite` and `launchChecks` blocks with the Rig still on the pad and no recovery row; the SPH launch over the unclaimed runway rover keeps stock's own two-button dialog (negative control). First flight `2026-10-25_1115` INVALID driver-gate on both attempts, a seam defect: the Space Center picker lists a stock craft as its localized name plus "(Stock)", so `craft="Jumping Flea"` matched no row (`launchsiteprobe-craft-not-found listed=31`); the probe now also matches the craft file stem (`TestCommandLaunchSiteProbe.MatchesPickerRow`) and names the listed rows on a miss. The editor halves already read the fix live: the claimed Rig's VAB dialog had only `Abort the launch` and the hold sentence, after `Blocked launch-site clear (stock test fails, no Recover)`, and the unclaimed SPH rover kept stock's `Clear the Runway and proceed`. Owes a re-flight.
 - [x] ~~GC9-SPAWN-IGNORES-ACTIVE-VESSEL~~: in flight a non-EVA end-of-recording spawn never treats the active vessel as a blocker: `VesselSpawner.CheckSpawnCollisions` passes `skipActive = !isEva` (`VesselSpawner.cs` ~2093), the walkback `TryWalkbackForEndOfRecordingSpawn` the same (~2219), `SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels` skips it (~1108), and `VesselGhoster.cs` ~292 / ~492 use the default `skipActiveVessel = true`. The reason (done-v2 #291: the player's own vessel should not block its recording's spawn) is out of date since `TryAdoptExistingSourceVesselForSpawn` (~1592) adopts a live source vessel before any collision check. Scenario: rewind to before plane P ended Landed mid-runway at UT E, drive a rover onto P's stop point by E: P spawns inside the rover. Proposed fix: treat the active vessel as a blocker for every spawn. Needs a flight to judge the physical effect and the walkback. Fix (2026-10-24, branch `claude/project-thread-osfnco`): the active vessel blocks every spawn. `CheckOverlapAgainstLoadedVessels` lost its `skipActiveVessel` parameter and filters each hit through the pure `SpawnCollisionDetector.ClassifyLoadedVesselHit` (not loaded, ghost map vessel, EVA parent exemption, skipped type; no active-vessel input), so the end-of-recording check, its walkback and the four `VesselGhoster` chain-tip checks all see the vessel the player flies. `ShouldEnterDuplicateBlockerRecovery` now refuses the active vessel (`blockerIsActiveVessel`), so the #112 duplicate recovery can never recover it out from under the player; the walkback moves the spawn instead. xUnit: `SpawnCollisionDetectorTests.ClassifyLoadedVesselHit_*`, `DuplicateBlockerRecoveryTests.DuplicateBlockerRecovery_NeverRecoversTheActiveVessel_GC9`. Live: in-game category `SpawnActiveVesselBlocker` (`NonEvaSpawnWalksBackOffActiveVessel`, an uncrewed copy of the active vessel from a non-EVA Landed recording ending under it) on lane `SB-1-spawn-active-vessel-blocker` over `miner-rover-landed`, LIVE-PROVEN 2026-10-24 (`2026-10-24_1043` PASS attempt 1: the endpoint under the parked `Mining Rover RC` was blocked by it and the walkback placed the copy 12.8 m off it; tally pinned whole). Residual (accepted, review 2026-10-24): a non-EVA recording that never moved and whose whole track sits inside the padded box around a parked active vessel exhausts the walkback and is abandoned for that scene (the old skip spawned it beside the active vessel); an active vessel that is a committed member of the same tree, live at its own recorded spot, is still exempted by `CoexistingTreeSiblingSpawn` (`OverlapBlockerKind.Original`); not checked for a Re-Fly provisional, and no common path was found that reaches the rest.
 - [x] ~~GC-10: Stock asteroid / comet lifetime: an untracked SpaceObject claimed by a committed claw tree expiring or being replaced after a rewind.~~ TRACED 2026-10-24 (branch `claude/project-thread-q9rwbh`). Fine: the claw's Dock branch point stamps the asteroid's pid and claims it (`GhostingTriggerClassifier.IsClaimingBranchPoint`), so a plain rewind holds it out of the world with a copy kept (`RewindVesselHold.CollectChainHolds`, no vessel-type filter) and stock cannot expire it; the grab's dominant vessel is always the craft (`Vessel.GetDominantVessel` ranks `SpaceObject` below every craft type), so the tip never adopts a live bare asteroid; where no hold applies (Revert to editor, Discard Re-fly, a cold load) and stock deletes it, flight ghosting logs "vessel not found" and the tip still brings its parts back from the snapshot; an asteroid that appears only after the rewind UT is simply absent, and stock spawns random replacements, never the same one. Already filed: the held asteroid has no ghost until the claw's recording starts (CLAIMED-VESSEL-HAS-NO-GHOST-BEFORE-ITS-MEMBER).
 - [x] ~~GC-11: External command seats: a kerbal taking a rover seat may be recorded as a dock merge rather than a board (unverified whether stock fires the couple event).~~ TRACED 2026-10-24 (branch `claude/project-thread-q9rwbh`): stock does fire it. Decompiled `KerbalEVA` (KSP 1.12.5) `On_seatBoard` runs `part.Couple(kerbalSeat.part)` (`KerbalEVA.cs` ~9411), and `Part.Couple` fires `onPartCouple(from = the kerbal's EVA part, to = the seat part)` before the merge (`Part.cs` ~6894), with no `onCrewBoardVessel`; the rover survives as the merged vessel. Fine: `ParsekFlight.OnPartCouple` records it as a Dock merge (`HandleTreeDockMerge`), not a Board, with the route window suppressed (`SuppressRouteWindowForEvaGrab`, a seat is never a transfer); accepted as is. Fixed: the Dock branch point stamped no partner, so a seat on another mission's rover left no claim (FOREIGN-SEAT-BOARD-LEAVES-NO-GHOST-CLAIM below), and a spawned rover lost its seated kerbal (SEAT-OCCUPANT-LINK-LOST-ON-SPAWN below). Leaving the seat is now recorded as an EVA (GC11-SEAT-DISMOUNT-RECORDED-AS-UNDOCK below, owner ruling 2026-10-24).
@@ -2017,7 +2092,7 @@ traced end to end; each is a question, not a defect.
 - [x] ~~GC-12: Tourists in a spawn-at-end or chain-tip snapshot after a tourism contract removed them.~~ TRACED 2026-10-24 (branch `claude/project-thread-q9rwbh`), two real defects, fixed with the recommended rule (GC12-TOURISTS-REBORN-AS-HIRED-CREW below); the hold half is one flag (`KerbalsModule.TouristsHeldByCommittedFlights`); owner ruling 2026-10-24: hold a tourist a committed future flight carries, with no stand-in. (1) Every spawn route runs `VesselSpawner.EnsureCrewExistInRoster`, which re-creates a crew name missing from the roster with `GetNewKerbal(KerbalType.Crew)` + `ChangeName`: a tourist stock removed (`TourismContract.ClearKerbalsSoft` / `ClearKerbalsHard` when the contract ends, or a rewind to before the offer) comes back as a free hired Pilot / Engineer / Scientist (stock draws a non-tourist trait, no hire fee, no `KerbalHire` row) and stays in the Astronaut Complex after recovery. (2) `KerbalsModule.FindTraitForKerbal` reads only `roster.Crew`, which stock filters to `type == Crew`, and `GameStateBaseline` captures only `roster.Crew`, so an accepted tourist reads "Pilot" and every Tourist skip (`LedgerOrchestrator.ShouldTrackKerbalRole`, the KerbalsModule row filters) is dead in play: tourists get a Pilot KerbalAssignment row, a hold and a slot that can grow a generated stand-in (`TryCreateGeneratedStandIn`, a free hired kerbal); `CreateKerbalAssignmentActions_TouristCrew_SkipsTourists` is green only because it injects a Tourist baseline production never writes. Not found: double pay (a contract is credited once per guid; a recovered vessel never spawns). Recommended fix: resolve the trait over the whole roster (and capture tourists in the baselines), keep a Tourist row as the record that the seat was a tourist, hold a tourist for its committed flight without a stand-in (so he can never ride two vessels at once after a rewind), and re-create a missing tourist as `KerbalType.Tourist` (stock removes him on recovery), never as a hired kerbal.
 - [x] ~~GC12-TOURISTS-REBORN-AS-HIRED-CREW: every spawn route (`RespawnVessel`, `SpawnAtPosition`, so the VesselGhoster and chain-tip spawns too) ran `VesselSpawner.EnsureCrewExistInRoster`, which re-created a crew name missing from the roster with `GetNewKerbal(KerbalType.Crew)`. A tourist stock removed (TourismContract `ClearKerbalsSoft` / `ClearKerbalsHard`, or `ScenarioContractEvents.TouristDepartures` on recovery), or one that did not exist yet after a rewind to before the offer, came back as a free hired Pilot / Engineer / Scientist (no hire fee, no KerbalHire row) who stayed in the Astronaut Complex. Second defect: `KerbalsModule.FindTraitForKerbal` and the `GameStateBaseline` crew capture read only `roster.Crew`, which stock filters to `type == Crew`, so a tourist read "Pilot" and every Tourist skip was dead in real play: tourists got a Pilot KerbalAssignment row, a hold and a slot whose generated stand-in was another free hired kerbal (`LedgerOrchestratorTests.CreateKerbalAssignmentActions_TouristCrew_SkipsTourists` was green only because it injected a Tourist baseline production never wrote).~~ Fix (2026-10-24, branch `claude/project-thread-q9rwbh`, on the recommended answer to the owner question): a tourist is a passenger of the flight that carried him. Trait: `FindTraitForKerbal` reads the whole roster (type Tourist -> "Tourist"), then the walk's tourist rows, then baselines, through the pure `ResolveTraitForKerbal`; the baseline capture keeps tourists (`GameStateBaseline.TryBuildCrewEntry`). Rows: a tourist keeps his KerbalAssignment row with role "Tourist" (`ShouldTrackKerbalRole` deleted; the kerbal-death count reads the same crew list, so no ledger value moves), and the load repair keeps the role on a row the roster can no longer confirm (`LedgerOrchestrator.CarryTouristRoles`). Hold: one policy, `KerbalsModule.TouristsHeldByCommittedFlights` (true) through `RoleHoldsKerbal`, read by the walk and its dock / split / KSC-retirement filters and by `CrewRecoveryReservationClose.IsOpenEndedHoldRow`; a tourist hold is an ordinary hold (crew dialog, recovery and handoff closes) but `PostWalk` gives it no slot, so no stand-in is ever generated (`touristHolds=N` on the PostWalk summary). Flip the bool to false for "never hold"; the rows stay spawn evidence either way. Spawn: the pure `VesselSpawner.PlanMissingCrew` marks a missing name the timeline knows as a tourist (`KerbalsModule.HasTouristEvidence`: an effective tourist row, or a baseline) and `EnsureCrewExistInRoster` creates him as stock's TourismContract does (`GetNewKerbal(Unowned)`, `type = Tourist`, trait Tourist), Assigned, `hasToured = true` so stock sends him home on recovery; a name with no tourist evidence is still created as Crew. A tourist slot a pre-fix save already holds is left as it is. Tests: `TouristPassengerTests`, `KerbalReservationTests.ProcessAction_TouristKerbalAssignment_HeldWithoutSlotOrStandIn` / `Recalculate_TouristFromCapturedBaseline_HeldNoSlot_CrewmateGetsSlot` / `RoleHoldsKerbal_BothTouristPolicies`, `LedgerOrchestratorTests.CreateKerbalAssignmentActions_TouristCrew_WritesTouristRows`, re-pinned `KscPadRetirementTests`, `KerbalRecoveryReservationCloseTests`, `KerbalLoadDiagnosticsTests`. Left as is (review, low): because a re-created tourist carries `hasToured = true`, a tourist whose stock tourism contract is still active (a rewind to before the offer, the contract re-activated) is removed by stock on a recovery that comes before the tour objectives are met, so that contract can no longer complete; no earned value is lost, only a reward not yet earned. Also unchanged: the crew dialog re-fly carve-out (`ShouldFilterFromCrewDialog`) still searches only `roster.Crew`. Live proof: none, unit tests only. Live proof (2026-10-25): `TOUR-1-tourist-spawn-stays-tourist` `2026-10-25_0907` PASS proves defect 2 live (the commit holds the tourist as a passenger, `touristHolds=1`, no slot or stand-in) and, on the owner's ruling REWIND-LEAVES-A-STRIPPED-TOURIST-ASSIGNED, the spawn seating the kept tourist with no creation line; defect 1's re-creation stays unit-test-only.
 - [x] ~~GC-13: The stock Alarm Clock: alarms bound to vessels that a Re-Fly supersedes or the chain rule despawns, and warp-to-alarm across spawns.~~ TRACED 2026-10-24 (branch `claude/project-thread-q9rwbh`). Fine: an alarm stores only a vessel pid (`AlarmTypeBase.vesselId`, resolved through `FlightGlobals.FindVessel`) and stock never deletes it when its vessel goes, so an alarm on a ghost map vessel (fresh pid per build, stripped from every save) or on a vessel a spawn replaces with a new pid is orphaned and harmless; `AlarmClockScenario` is a ScenarioModule, so a rewind or Re-Fly restores the alarm list of its save; a warp-to-alarm kill-warp is an ordinary warp end and flushes the deferred spawn queue as any other. Real hole: the fire dialog's Jump button, fixed: GC13-ALARM-JUMP-BYPASSES-SWITCH-RULES below.
-- [x] ~~GC13-ALARM-JUMP-BYPASSES-SWITCH-RULES: decompiled `AlarmClockMessageDialog.OnJump` (KSP 1.12.5) calls `FlightGlobals.SetActiveVessel(alarm.Vessel)` in FLIGHT and `GamePersistence.SaveGame` + `FlightDriver.StartAndFocusVessel(FlightGlobals.Vessels.IndexOf(alarm.Vessel))` elsewhere, and none of Parsek's switch patches sits on that path. In a Re-Fly session an alarm set before the separation (it survives in the rewind point's quicksave) jumped to another vessel past design 2.12 Rule 3; outside a session a far jump skipped the pre-switch Merge / Discard dialog (Cases A to C) and armed no intent; in the Tracking Station the live list still held the ghost map vessels the saved file strips, so a ghost ahead of the target flew the wrong vessel (the BUG #1 index drift `SwitchIntentTrackingStationFlyPatch` fixes for Fly), and an alarm set on a ghost's orbit node flew whatever real vessel sat at its index.~~ Fix (2026-10-24, branch `claude/project-thread-q9rwbh`): `Patches/AlarmJumpSwitchPatch.cs` prefixes `OnJump`: a ghost map vessel is refused; the Re-Fly gate refuses with path `alarmJump`; in FLIGHT the jump runs the map Switch-To gates through `MapFocusObjectOnSelectPatch.PrepareOwnedVesselSwitch` (the body of that Prefix after the target is known, extracted; its Postfix body is `ClearUnconsumedIntent`); outside FLIGHT the ghosts are stripped from the live list (`RemoveAllGhostVesselsBeforeStockFly`) before stock's index and save, and the scene's own Fly intent is armed (Tracking Station -> `TrackingStationFly`, Space Center -> `KscMarkerFly`). `AlarmJumpButtonMarkPatch` (a `Spawn` postfix) hides the Jump button for a refused alarm, stock's own way of saying the button does not apply. Tests: `AlarmJumpSwitchPatchTests`, the two entry points in `ParsekGameModeGateTests`. Live proof: none, unit tests only; a lane needs a seam verb that fires an alarm and presses Jump.
+- [x] ~~GC13-ALARM-JUMP-BYPASSES-SWITCH-RULES: decompiled `AlarmClockMessageDialog.OnJump` (KSP 1.12.5) calls `FlightGlobals.SetActiveVessel(alarm.Vessel)` in FLIGHT and `GamePersistence.SaveGame` + `FlightDriver.StartAndFocusVessel(FlightGlobals.Vessels.IndexOf(alarm.Vessel))` elsewhere, and none of Parsek's switch patches sits on that path. In a Re-Fly session an alarm set before the separation (it survives in the rewind point's quicksave) jumped to another vessel past design 2.12 Rule 3; outside a session a far jump skipped the pre-switch Merge / Discard dialog (Cases A to C) and armed no intent; in the Tracking Station the live list still held the ghost map vessels the saved file strips, so a ghost ahead of the target flew the wrong vessel (the BUG #1 index drift `SwitchIntentTrackingStationFlyPatch` fixes for Fly), and an alarm set on a ghost's orbit node flew whatever real vessel sat at its index.~~ Fix (2026-10-24, branch `claude/project-thread-q9rwbh`): `Patches/AlarmJumpSwitchPatch.cs` prefixes `OnJump`: a ghost map vessel is refused; the Re-Fly gate refuses with path `alarmJump`; in FLIGHT the jump runs the map Switch-To gates through `MapFocusObjectOnSelectPatch.PrepareOwnedVesselSwitch` (the body of that Prefix after the target is known, extracted; its Postfix body is `ClearUnconsumedIntent`); outside FLIGHT the ghosts are stripped from the live list (`RemoveAllGhostVesselsBeforeStockFly`) before stock's index and save, and the scene's own Fly intent is armed (Tracking Station -> `TrackingStationFly`, Space Center -> `KscMarkerFly`). `AlarmJumpButtonMarkPatch` (a `Spawn` postfix) hides the Jump button for a refused alarm, stock's own way of saying the button does not apply. Tests: `AlarmJumpSwitchPatchTests`, the two entry points in `ParsekGameModeGateTests`. Live proof: lane `AJ-1-alarm-jump-refused-in-refly`, LIVE-PROVEN on its first flight `2026-10-25_1013` (PASS attempt 1, automation DLL sha256 prefix 1038722f) on the new `AlarmJump` seam verb, which fires a stock alarm through stock's own `TriggerAlarm` and presses stock's own `OnJump`: during a Re-Fly the Jump button is hidden and a press is refused on the `alarmJump` path with no switch and no scene load. Not laned: the Tracking Station index drift and ghost refusal, and the FLIGHT pre-switch dialog outside a session (`AlarmJump` v1 is FLIGHT-only; the non-FLIGHT branch saves and loads a scene and needs a two-phase answer).
 - [x] ~~GC-14: CommNet 'require signal for control' with a ghost relay that drops out (loop end, Re-Fly suppression, chain-spawn handoff); the settings research row 'ghosts are CommNet-inert' is stale since ghost relays shipped.~~ TRACED 2026-10-24 (branch `claude/project-thread-q9rwbh`). Fine: stock applies signal loss only to the ACTIVE vessel (`Vessel` control-level update returns for any other state) and its `vessel_noControl_` lock keeps a running burn's throttle, so a probe on rails or unloaded is unaffected. A loop cycle never gets a node, only the real run (`GhostCommNet` eligibility window; xUnit `Eligibility_LoopRecording_OnlyItsOwnWindow`, lane CN-1), so a cycle restart cannot flicker; Re-Fly suppression excludes the re-flown subtree from the session's first frame (the marker arrives with the rewind's scene reload), and the re-flown vessel carries its own stock node; a spawn deferred by warp holds the ghost node lit at its terminal state (`held-for-spawn`); FLIGHT and the Tracking Station both drive ghost nodes, and KSC has no control consumer. The two stale research rows were corrected (`ksp-settings-vs-parsek-2026-09-26.md`, `ksp-settings-parsek-usage-2026-09-26.md` item 6). Unproven: whether the spawn frame leaves one CommNet rebuild with neither the ghost node (dropped the frame the vessel spawns, measured on CN-3 at ut=371.2) nor the spawned vessel's own node (added in its `CommNetVessel.OnStart`, probably the next frame); worst case a one-frame signal flicker on an active probe whose only path runs through that relay; measure on CN-3's flight before changing anything.
 - [x] ~~GC-15: A restored backup or a copied save folder: an older persistent.sfs against newer sidecars, or two saves sharing recording ids.~~ TRACED 2026-10-24 (branch `claude/project-thread-q9rwbh`). Fine: a rewritten sidecar is detected, not silently used (every RECORDING names `precHash` / `vesselHash` / `ghostHash`, and `SidecarVersionResolution.Resolve` reads the head only on a hash match, else `_versions/<id>.<hash>`, else the recording is unresolved `stale-sidecar-epoch` / `trajectory-missing`); every `*.sfs` in the folder and every `Backup/*.sfs` is a referrer, so a stock backup keeps its versions and rewind point files; a recording that fails to load keeps its ledger rows untagged (ruling O3). A copied save folder is fine: rewind point and rewind-save paths are stored relative and resolved from `HighLogic.SaveFolder` at call time, each folder collects only its own `Parsek/`, and a folder change runs the save-scoped reset. One gap, fixed: GC15-UNNAMED-VERSION-DELETED-WITHOUT-GRACE below.
 - [x] ~~GC15-UNNAMED-VERSION-DELETED-WITHOUT-GRACE: a save restored from OUTSIDE the folder (or from a Backup copy no in-folder file still matches) named an older copy of a changed recording; its cold load promoted that copy and moved the newer head aside into `_versions`, and the same load's collection deleted it at once (unnamed versions had no grace, by design). Swapping the newer save back then read that recording `stale-sidecar-epoch`, and a root recording dropped its whole mission from the timeline (ledger rows kept, untagged), with only a log Warn.~~ Fix (2026-10-24, branch `claude/project-thread-q9rwbh`, on the recommended answer to the owner question posted that night): `ParsekFileCollector.CollectVersions` moves an unnamed version into `_versions/_quarantine/yyyy-MM-dd/` (a copy already waiting under the same name, which carries the hash, holds the same bytes, so the newcomer goes); `SweepVersionQuarantine` restores a quarantined version some save or memory names again and purges it after `QuarantineGraceDays`; `RestoreQuarantinedNamedBy` (the cold-load step before hydration) also restores the versions the loaded save names. Rule in `design-load-restores-the-save.md` ("The quarantine"). Tests: `ParsekFileCollectorTests` (`Versions_*`, `RestoreQuarantinedNamedBy_LoadedSaveNamesAVersion_MovesItBack`; `Collect_DecisionTable` updated). Owner ruling 2026-10-24: versions get the same 14-day quarantine as heads. Live proof: none, unit tests only. Lane (2026-10-24, LIVE-PROVEN on its first flight `2026-10-24_2341`): `QR-1-recording-quarantine-grace-and-expiry` pins a quarantined version restored at cold load (`versionsRestored=1`) and both newer snapshot copies quarantined, not deleted (`versionsQuarantined=2 versionsDeleted=0`; `Version collected:` forbidden).
@@ -2147,10 +2222,20 @@ point, using stock and fixture craft for inspiration, and the owner verifies in 
 
 Fix: the ladder CS-0..CS-7, CS-V and CS-ALL in `docs/dev/autotest-roadmap.md` ("The scripted
 campaign program"). Known building blocks to make first: the stock-tree profile and a per-node
-part-unlock listing; the new-game builder; `LaunchFromEditor` then a mission step in one lane;
+part-unlock listing; the new-game builder (its seam verb `NewGame` built 2026-10-25, branch
+`cs-newgame-verb`: a stock New Game over the run's save at a named mode and preset; no lane flies it
+yet); `LaunchFromEditor` then a mission step in one lane;
 the science-mode pool read; per-situation science actions (EVA report, surface sample); a
 contract-offer listing / accept-by-type verb; a Mun ascent + trans-Kerbin injection machine; a
 stage-to-fixture promotion tool.
+
+Progress 2026-10-25 (branch `claude/project-thread-25edvc`): built the `stock-tree` provision
+profile, the stock tech-tree listing (`harness/tools/list_tech_unlocks.py` ->
+`docs/dev/research/stock-tech-tree-part-unlocks.md`), the science-mode pool read in
+`science_bench_recover` (`recoverCreditPool`, `transmitMaxExperiments`), the harvest's
+`--allow-no-vessel` / `--expect-mode` for a vessel-less new-game save, the shared Jumping Flea
+in the craft library, and the lanes CS-0-new-science-game / CS-0-new-career-game (fixture
+builders) and CS-1-science-first-hop (pending its `cs-science-new` fixture). None flown yet.
 
 ---
 
@@ -2933,7 +3018,65 @@ already received the cycle). A non-loop route only has its retry gate cleared, a
 the rescan and delivers `cycle-1`; multi-stop partly delivered cycle not skipped; Paused baseline;
 Send Once kept; non-loop; refusals).
 
-No lane yet (2026-10-24): the Re-scan for endpoint button is an IMGUI click no verb presses (`UiAction` synthesizes no clicks; `RouteCommand` has no rescan), and no lane or verb puts a loop route into EndpointLost (the endpoint must vanish between dispatch and delivery). Needs a `RouteCommand action=rescan` verb plus an endpoint-loss setup.
+Lane (2026-10-25, branch `claude/project-thread-u5m7su`, never flown): `RS-1-relay-route-endpoint-lost-rescan`.
+The button's click body moved into `LogisticsEndpointRescan.Run`, shared by the button and the new seam
+action `RouteCommand action=rescan`. On `rover-relay-c-recorded` the two-stop relay is activated, a
+one-second subject on C is recorded and committed (a rewind save with A alive, H58's pattern), A is
+recovered between the windows and stop 1's delivery sets EndpointLost; a first rescan misses. Rewind-to-
+Launch the subject: A is back, the route is still EndpointLost (the go-back keeps a validity status), and
+the second rescan finds both stops and restarts the loop route (`EndpointRescan: ... EndpointLost->Active`,
+`RouteResumed reason=endpoint-rescan`, `recovered=true status=Active`), after which one full cycle
+delivers to A (`completed=1`). Every one of those reds with the fix reverted. A single-stop loop route
+cannot reach EndpointLost live (its gate and delivery resolve the same endpoint in the same tick, so a
+missing endpoint is a gate hold), and no seam can bring a new non-transport vessel within 500 m of the lost
+stop, so the endpoint comes back by identity through the rewind. Live proof is owed to the first flight.
+
+First flight `2026-10-25_1116` PARSEK-FAIL (automation DLL sha256 prefix 0549bffd), on the lane's
+premise, not the fix: stop 1's delivery set EndpointLost (`no-candidate-after-transport-exclusion`)
+and the first rescan missed as designed (`resolved=1/2 ... (still EndpointLost)`), but the lane's own
+KSC Recover of A at UT 1060.5 is a committed future event, so after the Rewind-to-Launch A is held
+for it (`[RewindHold] Rewind held vessel for its committed future ... name='A' ... evidence=recovery`)
+and stays unresolvable; the second rescan missed the same way and nothing after it ran. The host also
+holds three committed trees (the `2 trees` / `committedTrees=2` pins assumed H58's host), and the
+lost listing read `completed=1 delivered=0` where the lane pinned `completed=0`. Being reworked so the
+endpoint comes back without a committed claim on it.
+
+Reworked 2026-10-25 (never flown in this shape): no rewind. The new injected preset `rescan-substitute`
+APPENDS one committed single-recording tree to the host's own ParsekScenario (new
+`ScenarioWriter.AppendTreesIntoExistingScenario`; the relay's three trees stay, the injector never cleans
+or purges): a landed probe `RS1 Substitute` 44 m north of A, its own derived pid and launch guid,
+recorded UT 1185-1200, which the Space Center spawns at its end. The lane warps to 1180 (the loss),
+the first rescan misses, a warp to 1230 spawns the substitute, and the second rescan rebinds stop 1 to
+it at the proximity step (`Route endpoint transferred: ... step=proximity`) and restarts the route
+(`EndpointRescan`, `RouteResumed reason=endpoint-rescan`, `recovered=true status=Active`); a warp to
+1300 then requires the restarted loop's next pickup window (a dispatch or a gate BLOCKED line). The
+lost-listing pin accepts `completed=1 skipped=0` (measured) or `completed=0 skipped=1` (the fix of
+LOOP-ROUTE-LOST-DELIVERY-COUNTED-COMPLETED).
+
+---
+
+## ~~LOOP-ROUTE-LOST-DELIVERY-COUNTED-COMPLETED: a multi-stop loop cycle whose delivery lost its endpoint counts as completed~~ [FILED 2026-10-25 from RS-1's first flight `2026-10-25_1116`. product, low. DONE 2026-10-25, branch `claude/project-thread-u5m7su`]
+
+At RS-1's loss the route listing read `status=EndpointLost completed=1 ... dispatched=1 ...
+delivered=0`: the cycle's delivery found no endpoint, yet the cycle counts as completed. The
+multi-stop crossing bumps `CompletedCycles` whenever the cycle's last dock is reached
+(`RouteOrchestrator.cs:1662`, `if (cycleLastDockReached) { route.CompletedCycles += 1; ...`), whether
+or not that window delivered. Two other paths disagree with it: a rewind's counter rebuild
+(`RouteRewindClassifier.ReconstructCycleCounters`, `RouteRewindClassifier.cs:476`) counts completed
+as distinct cycle ids with a `RouteCargoDelivered` row and a dispatched-but-undelivered cycle as
+skipped, and the single-stop recovery counts its lost cycle skipped (`SkipUndeliveredLostCycle`).
+So the same multi-stop history reads `completed=1` live and `skipped=1` after a go-back. The
+next cycle id (`cycle-{C+S}`) is the same either way. Only the counters the Logistics window and
+the Route History show are off.
+
+Fix: the multi-stop crossing counts the cycle skipped instead of completed when the route stopped
+EndpointLost during the cycle's windows and no window of the cycle logged a `RouteCargoDelivered`
+row (`RouteOrchestrator.IsLostUndeliveredMultiStopCycle`). A cycle that delivered at any stop stays
+completed, matching the rebuild, and a cycle with no lost endpoint stays completed whatever it
+delivered (a pure-pickup route). C+S advances by one either way, so cycle ids do not move. The
+`last dock reached` line now names `skippedCycles=` and `lostUndelivered=`. xUnit:
+`RouteMultiStopFireTests.LastDockReached_*` (real delivery path, both directions); RS-1 now pins
+`completed=0 skipped=1` at the loss.
 
 ---
 
@@ -3252,6 +3395,21 @@ anchors / `GhostingTriggerClassifier` on `JointBreak` / `Breakup`, ghost part hi
 Left open: a part shed because its parent part DIED (`Part.Die` decouples children with
 force 0) still reads "Decoupled" when no crash child joins the window. Telling it apart
 needs `onPartWillDie`, which fires before those decouples; not done here.
+
+## REALSPAWN-TIME-JUMP-MOVE-PLAYER: the Real Spawn Control Warp moves the player beside the ghost [FILED 2026-10-25, thread "Redesign time jump to move the player", branch `claude/project-thread-1gkt0y`. OPEN; product, design approved pending]
+
+Today's Warp freezes the player's bubble while ghosts keep playing, so a `Leaves` Warp in orbit
+loses its ghost (about 1,100 km after a 10 minute skip in LKO, never flown), a `Ready` ghost must
+spawn on a time-shifted copy of its orbit (off its own recording: replay mismatch after a dock,
+lost on a quickload while blocked), and the player gets free orbital phasing. Owner rulings
+2026-10-25 (Q1-Q7): refuse an unsafe move with a greyed Warp; move only loaded vessels within
+250 m / 2 m/s of the player; other crossed ghosts spawn on their recordings; a player action may
+read a ghost's recording to place the player's own vessels; rewrite flight recorder rule 13 and
+Section 14.5; 2 m/s burn limit on the chosen ghost; offset from the recorded state; the existing
+spawn collision guard is reused before the jump and the player's group slides back along the
+orbit instead of blocking the spawn. Design: `docs/dev/design-realspawn-time-jump-move.md`.
+Plan: Step 1 `Leaves`, Step 2 `Ready`; Step 2 deletes `TimeJumpTerminalOrbitShift` after CI-9,
+VN-4 and VN-10 fly green, which closes REALSPAWN-JUMP-SHIFT-RESIDUE.
 
 ## REALSPAWN-JUMP-SHIFT-RESIDUE: what the orbital-tip jump shift does not cover [FILED 2026-10-03 from the REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST fix, branch `fix-orbital-tip-spawn`. OPEN; product, low. Walkback item FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit. Second-jump item FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit]
 

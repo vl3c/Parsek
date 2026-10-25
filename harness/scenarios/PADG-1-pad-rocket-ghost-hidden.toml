@@ -4,7 +4,9 @@ id = "PADG-1-pad-rocket-ghost-hidden"
 # PADG-1: A ROCKET THAT NEVER LEAVES THE PAD SHOWS NO GHOST AFTER A REWIND.
 # Todo PAD-VESSEL-GHOST-HOLDS-THE-PAD (owner ruling 2026-10-25, V: "the pad vessel ghost
 # should not block the pad for a long time"; card pick "Never show it").
-# AUTHORED 2026-10-25 (branch `claude/project-thread-ssl7ge`), never flown.
+# AUTHORED 2026-10-25 (branch `claude/project-thread-ssl7ge`). LIVE-PROVEN 2026-10-25 on its
+# first flight: `2026-10-25_1333` PASS attempt 1, 0 mismatches (157 s); the three guesses below
+# held (count 3, Bill's KSC ghost entered range at recUT=[39.9,55.0], recordings=2).
 #
 # THE GAP. A kerbal steps out of a rocket on the pad and walks off; the rocket never
 # launches. The flight is kept (the kerbal moved), the rocket's end is retired on the pad
@@ -38,7 +40,7 @@ id = "PADG-1-pad-rocket-ghost-hidden"
 #       fix the rocket root [26, 40] and its continuation [40, ~50 after the boring-tail
 #       trim] enter the KSC ghost range; with it only Bill does.
 #
-# GUESSES THE FIRST FLIGHT CONFIRMS: the committed count 3 (an optimizer split would add
+# GUESSES THE FIRST FLIGHT CONFIRMED: the committed count 3 (an optimizer split would add
 # one); that Bill's EVA recording is KSC-ghost eligible ("entered range"); the hidden line's
 # recordings=2.
 #

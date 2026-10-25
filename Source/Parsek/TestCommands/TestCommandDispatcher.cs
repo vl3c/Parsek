@@ -307,6 +307,15 @@ namespace Parsek.TestCommands
         // and a seated kerbal leaves it: stock's own KerbalEVA.BoardSeat / OnDeboardSeat) -----
         void EvaSeatBoard(ParsedCommand cmd);
         void EvaSeatLeave(ParsedCommand cmd);
+        // ----- NewGame (a stock new game under the loaded save's name, through the Space
+        // Center's quit to the main menu and stock's own new-game calls) -----
+        void NewGame(ParsedCommand cmd);
+        // ----- AlarmJump (a stock alarm on a named vessel fires its message dialog, whose
+        // Jump is pressed through stock's own OnJump) -----
+        void AlarmJump(ParsedCommand cmd);
+        // ----- LaunchSiteProbe (Launch pressed on an obstructed site; stock's launch-site-clear
+        // dialog read and answered through its own buttons) -----
+        void LaunchSiteProbe(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -698,6 +707,20 @@ namespace Parsek.TestCommands
                 // frame; the completion then holds a few frames past Parsek's dock merge).
                 ["EvaSeatBoard"] = VerbSceneRequirement.RequiresFlight,
                 ["EvaSeatLeave"] = VerbSceneRequirement.RequiresFlight,
+                // NewGame. RequiresGameLoaded, the GoToEditor row: it is issued at the Space
+                // Center only and there is no SpaceCenter requirement kind, so the wrong scene
+                // is its own typed REJECTED (newgame-wrong-scene). The dispatch row only waits
+                // out a scene still loading its game.
+                ["NewGame"] = VerbSceneRequirement.RequiresGameLoaded,
+                // AlarmJump. RequiresFlight: v1 drives the FLIGHT branch of stock's OnJump
+                // (SetActiveVessel); the Tracking Station / Space Center branch saves and loads
+                // a new scene, which a single-phase answer cannot follow. Default budget.
+                ["AlarmJump"] = VerbSceneRequirement.RequiresFlight,
+                // LaunchSiteProbe: the GoToEditor / LaunchFromEditor row. Valid in the editor
+                // and at the Space Center, which no requirement kind names, so the executor
+                // refuses every other scene (launchsiteprobe-wrong-scene). Default budget (no
+                // scene load; both dialogs spawn inside the press's own call stack).
+                ["LaunchSiteProbe"] = VerbSceneRequirement.RequiresGameLoaded,
             };
 
         /// <summary>
@@ -1034,11 +1057,28 @@ namespace Parsek.TestCommands
                         return DispatchResult.Defer("not-eva");
                     break;
 
+                case "NewGame":
+                    // The new game replaces the loaded save, so it must not overlap a load
+                    // still settling (the LoadGame guard, same token).
+                    if (state.LoadInFlight)
+                        return DispatchResult.Reject("load-in-flight");
+                    break;
+
                 case "EvaSeatLeave":
                     // A pending split would make the dismount's undock skip its own branch
                     // (OnVesselsUndocking logs a split skip on pendingSplitInProgress).
                     if (state.StructuralSplitPending)
                         return DispatchResult.Defer("split-pending");
+                    break;
+
+                case "AlarmJump":
+                    // SimulateStockSwitchClick's pair, for its reasons: a Jump is a vessel
+                    // switch (an unloaded target's is a scene reload), so it must not race a
+                    // LoadGame's scene change or a re-fly merge journal mid-finalize.
+                    if (state.LoadInFlight)
+                        return DispatchResult.Reject("load-in-flight");
+                    if (state.MergeJournalInFlight)
+                        return DispatchResult.Reject("merge-journal-in-flight");
                     break;
 
                 case "PlantFlag":
@@ -1249,6 +1289,12 @@ namespace Parsek.TestCommands
         /// bootstrap that re-reads no save off disk (the LaunchFromEditor size).</summary>
         internal const double RevertToLaunchSeconds = 180.0;
 
+        /// <summary>NewGame: the quit-to-main-menu save and the MAINMENU load, the old save's
+        /// delete, stock's CreateNewGame (which writes persistent.sfs) and the Space Center
+        /// bootstrap, which re-reads that file and runs every scenario module's OnLoad. Two
+        /// scene loads and a save written then parsed: the LoadGame size (300 s).</summary>
+        internal const double NewGameSeconds = 300.0;
+
         /// <summary>
         /// The deferral budget (seconds) for <paramref name="verb"/>. For RunTests the
         /// scenario's declared runtime budget is authoritative when supplied via
@@ -1304,6 +1350,8 @@ namespace Parsek.TestCommands
                     return ReFlyRevertSeconds;
                 case "RevertToLaunch":
                     return RevertToLaunchSeconds;
+                case "NewGame":
+                    return NewGameSeconds;
                 // KscAction rides the default 60 s (career-ready / SPACECENTER wait; the
                 // action itself is immediate). SimulateStockSwitchClick rides it too: it is
                 // SINGLE-phase (the switch and its consume are synchronous inside

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Reflection;
 using HarmonyLib;
 
@@ -22,8 +23,16 @@ namespace Parsek.Patches
     /// completion and its reward the same way, whatever the order stock's subscribers run in.</para>
     /// <para>A deployed subject id starts with <c>deployed</c>
     /// (<see cref="GameStateRecorder.IsDeployedScienceSubjectId"/>), and the ground station
-    /// submits with no source vessel; every submission a vessel makes (its own science, or a
-    /// ground station's data a kerbal carried aboard) is left alone.</para>
+    /// submits with no source vessel; a submission a vessel of the live flight makes (its own
+    /// science, or a ground station's data a kerbal carried aboard) is left alone.</para>
+    /// <para>A submission from an UNLOADED vessel the live flight does not record opens the
+    /// same scope (todo LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT): stock
+    /// transmits only from a loaded vessel, but a mod (Kerbalism-style background science)
+    /// transmits from unloaded ones, and the award, the body science milestone it reaches and
+    /// any contract it completes belong to no flight. A loaded vessel outside the tree stays
+    /// the flight's: the flight's EVA kerbal can run and transmit its experiment
+    /// (<c>DeployExperimentExternal</c>). A recovery (its own scope names the owner) and a
+    /// submission with no live recorder are left alone.</para>
     /// </summary>
     [HarmonyPatch]
     internal static class DeployedScienceSubmitScopePatch
@@ -72,9 +81,26 @@ namespace Parsek.Patches
             __state = false;
             if (ParsekGameModeGate.CheckInert("DeployedScienceSubmitScopePatch.Prefix")) return; // S9 game-mode gate
             string subjectId = subject != null ? subject.id : null;
-            if (!IsGroundStationSubmission(subjectId, source != null)) return;
-            GameStateRecorder.EnterClockCauseScope("ground-station science " + subjectId);
-            GameStateRecorder.GroundStationSubmissionReasonKey = SubmissionReasonKey(xmitScalar);
+            if (IsGroundStationSubmission(subjectId, source != null))
+            {
+                GameStateRecorder.EnterClockCauseScope("ground-station science " + subjectId);
+                GameStateRecorder.GroundStationSubmissionReasonKey = SubmissionReasonKey(xmitScalar);
+                __state = true;
+                return;
+            }
+            if (source == null) return;
+            uint pid = source.persistentId;
+            Vessel live = source.vesselRef;
+            uint refPid = live != null ? live.persistentId : 0u;
+            bool loaded = live != null && live.loaded;
+            bool inFlight = GameStateRecorder.IsLiveFlightVessel(pid)
+                || (refPid != 0u && refPid != pid && GameStateRecorder.IsLiveFlightVessel(refPid));
+            if (!GameStateRecorder.IsVesselEventOutsideTheFlight(
+                    GameStateRecorder.HasLiveRecorder(), RecoveryDispatchScope.IsOpen, loaded, inFlight))
+                return;
+            GameStateRecorder.EnterClockCauseScope(string.Format(CultureInfo.InvariantCulture,
+                "science {0} from unloaded vessel '{1}' pid={2}, which the live flight does not record",
+                subjectId ?? "(none)", source.vesselName ?? "", pid));
             __state = true;
         }
 
@@ -83,7 +109,7 @@ namespace Parsek.Patches
             if (__state)
             {
                 GameStateRecorder.GroundStationSubmissionReasonKey = null;
-                GameStateRecorder.ExitClockCauseScope("ground-station science");
+                GameStateRecorder.ExitClockCauseScope("science submitted by no flight");
             }
             return __exception;
         }
@@ -147,6 +173,109 @@ namespace Parsek.Patches
         {
             if (__state) GameStateRecorder.ExitClockCauseScope("Sentinel detection");
             return __exception;
+        }
+    }
+
+    /// <summary>
+    /// Marks the two stock resource scanners' calls (todo
+    /// LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT, the SCANsat half).
+    /// Decompiled KSP 1.12.5: <c>ModuleOrbitalSurveyor.CompleteSurvey</c> pays the survey's
+    /// science and calls <c>ResourceMap.UnlockPlanet</c>, and
+    /// <c>ModuleBiomeScanner.RunAnalysis</c> calls <c>ResourceMap.UnlockBiome</c>; these are
+    /// the only stock callers outside the Making History editor. An unlock with no stock scanner
+    /// call open is a mod's (SCANsat's background coverage), which no flight causes, so
+    /// <see cref="ResourceScanUnlockPlanetPatch"/> / <see cref="ResourceScanUnlockBiomePatch"/>
+    /// file it untagged (<see cref="IsUnlockByNoFlight"/>). A stock scan keeps its flight tag
+    /// whichever vessel carries the scanner: stock runs a scanner only on a loaded vessel, and
+    /// the flight's EVA kerbal can run one on a vessel outside the tree (both events are
+    /// <c>externalToEVAOnly</c>), which is still the flight's doing.
+    /// </summary>
+    [HarmonyPatch]
+    internal static class ResourceScannerScopePatch
+    {
+        private const string Tag = "ClockCauseScope";
+
+        /// <summary>How many stock scanner calls are open (nested only in theory).</summary>
+        internal static int OpenScannerCalls { get; private set; }
+
+        static IEnumerable<MethodBase> TargetMethods()
+        {
+            var targets = ResolveTargetMethodsForTesting();
+            if (targets.Count < 2)
+                ParsekLog.Warn(Tag,
+                    $"Resource scanner targets resolved {targets.Count}/2 - a stock scan may be filed under no flight.");
+            return targets;
+        }
+
+        internal static List<MethodBase> ResolveTargetMethodsForTesting()
+        {
+            var targets = new List<MethodBase>();
+            var survey = AccessTools.Method(typeof(ModuleOrbitalSurveyor), "CompleteSurvey",
+                new[] { typeof(ScienceData), typeof(Vessel), typeof(bool) });
+            if (survey != null) targets.Add(survey);
+            var analysis = AccessTools.Method(typeof(ModuleBiomeScanner), "RunAnalysis", Type.EmptyTypes);
+            if (analysis != null) targets.Add(analysis);
+            return targets;
+        }
+
+        /// <summary>Pure: true when a resource unlock belongs to no flight because no stock
+        /// scanner call is open (a mod's scan), while a live recorder would claim it and no
+        /// recovery owns it.</summary>
+        internal static bool IsUnlockByNoFlight(bool hasLiveRecorder, bool recoveryScopeOpen, bool stockScannerOpen)
+        {
+            return hasLiveRecorder && !recoveryScopeOpen && !stockScannerOpen;
+        }
+
+        static void Prefix(out bool __state)
+        {
+            __state = false;
+            if (ParsekGameModeGate.CheckInert("ResourceScannerScopePatch.Prefix")) return; // S9 game-mode gate
+            EnterScannerCall();
+            __state = true;
+        }
+
+        static Exception Finalizer(Exception __exception, bool __state)
+        {
+            if (__state) ExitScannerCall();
+            return __exception;
+        }
+
+        internal static void EnterScannerCall()
+        {
+            OpenScannerCalls++;
+        }
+
+        internal static void ExitScannerCall()
+        {
+            if (OpenScannerCalls > 0) OpenScannerCalls--;
+        }
+
+        /// <summary>Files one captured unlock: inside the clock-cause scope when no flight
+        /// causes it (<see cref="IsUnlockByNoFlight"/>), else as today.</summary>
+        internal static void CaptureUnlock(double ut, string bodyName, string biomeName)
+        {
+            bool noFlight = IsUnlockByNoFlight(GameStateRecorder.HasLiveRecorder(),
+                RecoveryDispatchScope.IsOpen, OpenScannerCalls > 0);
+            if (!noFlight)
+            {
+                GameStateRecorder.OnResourceScanUnlocked(ut, bodyName, biomeName);
+                return;
+            }
+            GameStateRecorder.EnterClockCauseScope("resource scan of " + (bodyName ?? "?")
+                + " with no stock scanner (a mod's scan)");
+            try
+            {
+                GameStateRecorder.OnResourceScanUnlocked(ut, bodyName, biomeName);
+            }
+            finally
+            {
+                GameStateRecorder.ExitClockCauseScope("resource scan with no stock scanner");
+            }
+        }
+
+        internal static void ResetForTesting()
+        {
+            OpenScannerCalls = 0;
         }
     }
 }

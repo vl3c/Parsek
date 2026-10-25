@@ -224,6 +224,48 @@ def _recordings(sc: SfsNode) -> List[Tuple[SfsNode, SfsNode]]:
     return [(t, r) for t in _trees(sc) for r in t.nodes_named(REC_NODE)]
 
 
+# The in-flight copy of a committed tree (saveparse.in_flight_copy_trees): the
+# structure census skips a copy's rows that repeat a committed row's id, so an edit
+# must reach the committed row, and removing a committed row or tree removes its
+# copy's repeat too (otherwise the repeat stops being one and the facet stands still).
+
+
+def _copy_trees(sc: SfsNode) -> List[SfsNode]:
+    committed = {t.value("id") for t in _trees(sc) if _is_committed_tree(t) and t.value("id")}
+    return [t for t in _trees(sc)
+            if not _is_committed_tree(t) and t.value("id") and t.value("id") in committed]
+
+
+def _census_rows(sc: SfsNode, node_name: str, id_key: str) -> List[Tuple[SfsNode, SfsNode]]:
+    copies = {id(t) for t in _copy_trees(sc)}
+    committed_ids = {r.value(id_key) for t in _trees(sc) if _is_committed_tree(t)
+                     for r in t.nodes_named(node_name) if r.value(id_key)}
+    return [(t, r) for t in _trees(sc) for r in t.nodes_named(node_name)
+            if not (id(t) in copies and r.value(id_key) and r.value(id_key) in committed_ids)]
+
+
+def _copy_repeat_remover(node_name: str, id_key: str) -> Callable[[SfsNode, SfsNode], None]:
+    def drop(sc: SfsNode, removed: SfsNode) -> None:
+        rid = removed.value(id_key)
+        if not rid:
+            return
+        for t in _copy_trees(sc):
+            for r in list(t.nodes_named(node_name)):
+                if r.value(id_key) == rid:
+                    _remove(t, r)
+    return drop
+
+
+def _drop_copies_of_tree(sc: SfsNode, removed: SfsNode) -> None:
+    tid = removed.value("id")
+    if (not tid or not _is_committed_tree(removed)
+            or any(t.value("id") == tid for t in _trees(sc) if _is_committed_tree(t))):
+        return
+    for t in list(_trees(sc)):
+        if not _is_committed_tree(t) and t.value("id") == tid:
+            _remove(sc, t)
+
+
 def _ensure_tree(sc: SfsNode, ctx: _Ctx) -> SfsNode:
     trees = _trees(sc)
     if trees:
@@ -273,9 +315,11 @@ Synth = Callable[[SfsNode, SfsNode, _Ctx], Optional[Tuple[SfsNode, SfsNode]]]
 
 
 def node_count_op(what: str, select: Selector, synth: Synth,
-                  on_clone: Optional[Callable[[SfsNode, _Ctx], None]] = None) -> Op:
+                  on_clone: Optional[Callable[[SfsNode, _Ctx], None]] = None,
+                  on_remove: Optional[Callable[[SfsNode, SfsNode], None]] = None) -> Op:
     """A facet that counts nodes: remove (measured - target) selected nodes, or
-    add (target - measured) clones of the first one (synthesized when none)."""
+    add (target - measured) clones of the first one (synthesized when none).
+    ``on_remove(sc, node)`` runs after each removal."""
 
     def op(root: SfsNode, sc: SfsNode, measured: int, target: int, ctx: _Ctx) -> Optional[str]:
         items = select(root, sc)
@@ -285,6 +329,8 @@ def node_count_op(what: str, select: Selector, synth: Synth,
                 return None
             for parent, node in items[len(items) - k:]:
                 _remove(parent, node)
+                if on_remove is not None:
+                    on_remove(sc, node)
             return "removed %d %s" % (k, what)
         k = target - measured
         if items:
@@ -322,7 +368,9 @@ def _staging_op(parent_name: str, child_name: str, synth_values: Callable[[_Ctx]
 
 def _trees_op(committed_only: bool) -> Op:
     def select(_root: SfsNode, sc: SfsNode) -> List[Tuple[SfsNode, SfsNode]]:
-        return [(sc, t) for t in _trees(sc) if not committed_only or _is_committed_tree(t)]
+        copies = {id(t) for t in _copy_trees(sc)}
+        return [(sc, t) for t in _trees(sc)
+                if id(t) not in copies and (not committed_only or _is_committed_tree(t))]
 
     def synth(_root: SfsNode, sc: SfsNode, ctx: _Ctx) -> Tuple[SfsNode, SfsNode]:
         tree = SfsNode(name=TREE_NODE, values=[("id", ctx.fresh("tree")), ("rootRecordingId", "")])
@@ -333,12 +381,12 @@ def _trees_op(committed_only: bool) -> Op:
         _set(node, "id", ctx.fresh("tree"))
 
     return node_count_op("%sRECORDING_TREE" % ("committed " if committed_only else ""),
-                         select, synth, fresh_tree)
+                         select, synth, fresh_tree, _drop_copies_of_tree)
 
 
 def _recordings_op() -> Op:
     def select(_root: SfsNode, sc: SfsNode) -> List[Tuple[SfsNode, SfsNode]]:
-        return _recordings(sc)
+        return _census_rows(sc, REC_NODE, "recordingId")
 
     def synth(_root: SfsNode, sc: SfsNode, ctx: _Ctx) -> Tuple[SfsNode, SfsNode]:
         return _synth_recording(sc, ctx)
@@ -346,7 +394,8 @@ def _recordings_op() -> Op:
     def fresh_rec(node: SfsNode, ctx: _Ctx) -> None:
         _set(node, "recordingId", ctx.fresh("rec"))
 
-    return node_count_op("RECORDING", select, synth, fresh_rec)
+    return node_count_op("RECORDING", select, synth, fresh_rec,
+                         _copy_repeat_remover(REC_NODE, "recordingId"))
 
 
 def _ghost_chain_op() -> Op:
@@ -451,7 +500,7 @@ def _terminal_state_op(name: str) -> Optional[Op]:
         return None
 
     def op(_root: SfsNode, sc: SfsNode, measured: int, target: int, ctx: _Ctx) -> Optional[str]:
-        recs = [r for _t, r in _recordings(sc)]
+        recs = [r for _t, r in _census_rows(sc, REC_NODE, "recordingId")]
         mine = [r for r in recs if _int(r, "terminalState") == idx]
         if target < measured:
             k = measured - target
@@ -485,7 +534,7 @@ def _branch_point_op(name: str) -> Optional[Op]:
         return _int(bp, "type") is None if unparsed else _int(bp, "type") == idx
 
     def select(_root: SfsNode, sc: SfsNode) -> List[Tuple[SfsNode, SfsNode]]:
-        return [(t, b) for t in _trees(sc) for b in t.nodes_named(BP_NODE) if matches(b)]
+        return [(t, b) for t, b in _census_rows(sc, BP_NODE, "id") if matches(b)]
 
     def synth(_root: SfsNode, sc: SfsNode, ctx: _Ctx) -> Tuple[SfsNode, SfsNode]:
         tree = _ensure_tree(sc, ctx)
@@ -497,7 +546,8 @@ def _branch_point_op(name: str) -> Optional[Op]:
     def fresh_bp(node: SfsNode, ctx: _Ctx) -> None:
         _set(node, "id", ctx.fresh("bp"))
 
-    return node_count_op("BRANCH_POINT type=%s" % name, select, synth, fresh_bp)
+    return node_count_op("BRANCH_POINT type=%s" % name, select, synth, fresh_bp,
+                         _copy_repeat_remover(BP_NODE, "id"))
 
 
 # --- points (values, deduped by recording id the way the facet dedupes) ------

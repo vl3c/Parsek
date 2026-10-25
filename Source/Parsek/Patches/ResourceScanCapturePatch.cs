@@ -16,8 +16,9 @@ namespace Parsek.Patches
     ///
     /// The prefix records whether the target was locked; the postfix emits only for a
     /// locked-to-unlocked transition, so a repeat scan and Parsek's own re-apply (also
-    /// suppressed by <see cref="GameStateRecorder.IsReplayingActions"/>) write nothing.
-    /// Never rethrows into the stock scan.
+    /// suppressed by <see cref="GameStateRecorder.IsReplayingActions"/>) write nothing. An
+    /// unlock no stock scanner makes (a mod's) is filed under no flight
+    /// (<see cref="ResourceScannerScopePatch.CaptureUnlock"/>). Never rethrows into the stock scan.
     /// </summary>
     [HarmonyPatch(typeof(ResourceMap), nameof(ResourceMap.UnlockPlanet))]
     internal static class ResourceScanUnlockPlanetPatch
@@ -68,7 +69,7 @@ namespace Parsek.Patches
                     return;
                 }
 
-                GameStateRecorder.OnResourceScanUnlocked(
+                ResourceScannerScopePatch.CaptureUnlock(
                     Planetarium.GetUniversalTime(), bodyName, null);
             }
             catch (Exception ex)
@@ -128,7 +129,7 @@ namespace Parsek.Patches
                     return;
                 }
 
-                GameStateRecorder.OnResourceScanUnlocked(
+                ResourceScannerScopePatch.CaptureUnlock(
                     Planetarium.GetUniversalTime(), bodyName, biomeName);
             }
             catch (Exception ex)

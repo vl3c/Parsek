@@ -80,6 +80,9 @@ namespace Parsek.TestCommands
                     payload = TestCommandListHandles.BuildRoutesPayload(
                         GatherRouteRows(), Logistics.RouteStore.DormantRoutes.Count);
                     break;
+                case ListHandlesKind.Timeline:
+                    payload = TestCommandTimelineReadback.BuildPayload(GatherTimelineReadback());
+                    break;
                 default:
                     payload = TestCommandListHandles.BuildActivePayload(GatherActiveRow());
                     break;
@@ -97,10 +100,31 @@ namespace Parsek.TestCommands
             List<string> routeLines = TestCommandListHandles.RouteLogLines(payload, kind);
             for (int i = 0; i < routeLines.Count; i++)
                 ParsekLog.Info(Tag, routeLines[i]);
+            List<string> timelineLines = TestCommandTimelineReadback.LogLines(payload, kind);
+            for (int i = 0; i < timelineLines.Count; i++)
+                ParsekLog.Info(Tag, timelineLines[i]);
             SetExecResult("OK", payload, null);
         }
 
         // ----- live walks -----
+
+        /// <summary>
+        /// The Timeline built from the live stores through the window's own builder
+        /// (<see cref="TimelineWindowUI.BuildFromLiveState"/>: ERS, ELS, the milestone
+        /// store, the current-timeline visibility, the mode and the tombstoned rows), counted
+        /// against the same ELS, retired rows and milestone store. Scene-agnostic: every
+        /// input is a process static the loaded save filled.
+        /// </summary>
+        private static TimelineReadback GatherTimelineReadback()
+        {
+            List<TimelineEntry> entries = TimelineWindowUI.BuildFromLiveState(EffectiveState.ComputeERS());
+            return TestCommandTimelineReadback.Count(
+                entries,
+                EffectiveState.ComputeELS(),
+                EffectiveState.ComputeRetiredLedgerActions(),
+                MilestoneStore.Milestones,
+                GameStateStore.IsEventVisibleToCurrentTimeline);
+        }
 
         /// <summary>
         /// Rewind points in list order, each slot's open bit resolved through the SAME

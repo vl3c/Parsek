@@ -328,6 +328,12 @@ tombstones    = { max = 0 }
 # `recordings` RE-PINNED 2 -> 3 on 2026-10-01 for the #1931 chain split above (the
 # chain's first segment carries no terminal state, so the terminal and branch-point
 # windows stand); `2026-10-01_0835` meets every window here after it.
+# 2026-10-25: V3C, which flies this same mission, red its structure windows on the
+# DD1 tree's in-flight copy (the copy-on-write restore attempt after the mid-mission
+# commit, written on purpose since #2169), and this lane has not flown since #2169.
+# The census now reads a committed tree once (saveparse.in_flight_copy_trees), so
+# that copy no longer moves trees / recordings / terminalStates / branchPoints here.
+# Flown `2026-10-25_1227` PASS attempt 1 with the copy present (inFlightCopyTrees 1).
 gating = true
 trees          = { min = 1, max = 2 }
 committedTrees = { min = 1, max = 1 }

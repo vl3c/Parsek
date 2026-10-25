@@ -110,8 +110,9 @@ ON_REQUEST_TIERS: Tuple[str, ...] = ("operator", "longhaul")
 # The long-haul threshold: 30 minutes of measured p50 wall per lane.
 LONGHAUL_MIN_P50_SECONDS: float = 1800.0
 
-# The two provisioned instance profiles (design + M-A6).
-INSTANCE_PROFILES: Tuple[str, ...] = ("stock-minimal", "modded-compat")
+# The provisioned instance profiles (design + M-A6). stock-tree is stock-minimal
+# minus the two tech-tree mods, the scripted campaign program's host.
+INSTANCE_PROFILES: Tuple[str, ...] = ("stock-minimal", "modded-compat", "stock-tree")
 
 # v1 injectedRecordings value set (design S4). Any other value is rejected;
 # broad preset/corpus-scoped injection is DEFERRED to M-A4 / M-B5. Three named fixture
@@ -373,7 +374,42 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # InjectChainTipDock`; the injector
                                         # refuses a target save at another UT.
                                         # No RP. Consumer: CI-9-chain-tip-dock.
-                                        "chain-tip-dock")
+                                        "chain-tip-dock",
+                                        # launch-site-claim: ONE committed
+                                        # two-recording tree on pad-runway-pair:
+                                        # a Destroyed root ended before the
+                                        # save, and a PARENTLESS background
+                                        # recording of the save's REAL Logi
+                                        # Cargo Rig on the LaunchPad (its pid
+                                        # 2200110038 and launch guid) with an
+                                        # engine ignite / shutdown, ending
+                                        # Landed an hour out, so the walker
+                                        # claims the live Rig via
+                                        # BACKGROUND_EVENT and the GC-2 gate
+                                        # holds it outside flight. `--filter
+                                        # InjectLaunchSiteClaim`; the injector
+                                        # refuses a target save at another UT.
+                                        # No RP. Consumer:
+                                        # LS-1-launch-site-clear-claimed-vessel.
+                                        "launch-site-claim",
+                                        # rescan-substitute: ONE committed
+                                        # single-recording tree APPENDED to
+                                        # rover-relay-c-recorded's own
+                                        # ParsekScenario (its three trees
+                                        # stay): a stationary landed probe
+                                        # 44 m north of the relay's base A
+                                        # (its own derived pid and launch
+                                        # guid, absent from the save), UT
+                                        # 1185-1200, so the Space Center
+                                        # spawns it at 1200: a new surface
+                                        # vessel inside stop 1's 500 m
+                                        # proximity radius. `--filter
+                                        # InjectRescanSubstitute`; the
+                                        # injector refuses a target save at
+                                        # another UT and never cleans or
+                                        # purges. No RP. Consumer:
+                                        # RS-1-relay-route-endpoint-lost-rescan.
+                                        "rescan-substitute")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
@@ -503,7 +539,7 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #   RouteCommand is the Logistics window's Create Route button (through the shared
     #     RouteCreationService funnel) plus the three row operations, dispatched by an
     #     `action=` arg the way KscAction dispatches its sub-actions:
-    #     create / send-once / pause / activate / link / unlink / set-cadence
+    #     create / send-once / pause / activate / link / unlink / set-cadence / rescan
     #     (ROUTECOMMAND_ACTIONS is the mirrored tuple, pinned against the C# KnownActions).
     # Both SINGLE-PHASE (synchronous state mutation, read-back is a final answer), so
     # neither joins DEFERRED_SEAM_VERBS and both ride the 60 s default budget - which
@@ -771,6 +807,34 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     kerbalPid= vehiclePid=` once the active vessel is that kerbal's EVA vessel, unseated.
     "EvaSeatBoard",
     "EvaSeatLeave",
+    # ADDITIVE (56 -> 57 implemented, reserved unchanged at 4), the AJ-1 host (GC-13: the stock
+    # alarm dialog's Jump bypassed every Parsek switch rule).
+    #   AlarmJump vessel=<name>|pid=<pid> [jump=shown|always|never], FLIGHT, SINGLE-PHASE,
+    #     default 60 s: a stock AlarmTypeRaw bound to the vessel is added, fired through stock's
+    #     own TriggerAlarm (its message dialog spawns), and the dialog's Jump is pressed through
+    #     stock's own OnJump, then the dialog is closed with Delete. OK `targetPid=
+    #     targetIsGhost= targetLoaded= alarmId= stockWouldShowJump= jumpShown= decision= jump=
+    #     pressed= before= after= switched= sceneLoadRequested= alarmRemoved=`.
+    "AlarmJump",
+    # ADDITIVE (57 -> 58 implemented, reserved unchanged at 4), the LS-1 host (todo
+    # GC9-LAUNCH-SITE-CLEAR-RECOVERS-CLAIMED-VESSEL).
+    #   LaunchSiteProbe, EDITOR (`[answer=abort|proceed]`) or SPACECENTER (`facility=VAB|SPH
+    #     craft=<name> [answer=]`), TWO-PHASE, default 60 s: presses Launch on an OBSTRUCTED
+    #     site through stock's own buttons (EditorLogic.launchVessel / the picker's Launch),
+    #     reads stock's launch-site-clear dialog (TestWarning / LaunchSiteWarning), presses
+    #     one of its buttons through the button's own callback and reports the facts. OK
+    #     `path= site= dialog= buttons= proceedOffered= proceedInteractable= pressed= outcome=
+    #     obstructingBefore= obstructingAfter=`; the lane judges them in its log contract.
+    "LaunchSiteProbe",
+    # ADDITIVE (58 -> 59 implemented, reserved unchanged at 4), the scripted campaign
+    # program's CS-0 host.
+    #   NewGame mode=<SCIENCE_SANDBOX|CAREER|SANDBOX> preset=<Easy|Normal|Moderate|Hard>
+    #     save=<${runSave}>, Space Center only, TWO-PHASE, 300 s: replaces the loaded save with
+    #     a GENUINE stock new game under the same name (quit to the main menu, delete the save
+    #     keeping Ships/, GamePersistence.CreateNewGame + onGameNewStart + Game.Start). OK
+    #     `mode= preset= save= scene= seed=` plus `funds= science= rep=` where the mode keeps
+    #     them, once the Space Center settled on the new game with ParsekScenario loaded.
+    "NewGame",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1032,9 +1096,14 @@ STEP_WAIT_MARGIN_SECONDS = 60
 # quicksave-copy + GamePersistence.LoadGame + scene load (into the Space Center or the
 # editor) and its Retry is InvokeRewind's flight reload, so its terminal is gated on a
 # whole world load settling and its 300 s budget sits under the cap.
+#
+# NewGame joins for LoadGame's reason: its terminal is gated on two scene loads and a save
+# written by CreateNewGame then re-read by the Space Center bootstrap, a whole world load,
+# and its 300 s budget sits under the cap.
 DEFERRED_SEAM_VERBS: Tuple[str, ...] = ("RunTests", "LoadGame", "InvokeRewind", "TimeJump",
                                         "EvaChuteDeploy", "StartLoopPlayback",
-                                        "InvokeRewindToLaunch", "WarpToUT", "ReFlyRevert")
+                                        "InvokeRewindToLaunch", "WarpToUT", "ReFlyRevert",
+                                        "NewGame")
 
 # Per-verb seam-side DISPATCH deferral budgets (seconds), mirroring the C#
 # DeferralBudget.BudgetSeconds table (TestCommands/TestCommandDispatcher.cs). A verb
@@ -1138,6 +1207,10 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # then a quicksave LoadGame + scene load (Discard) or a flight reload (Retry). The
     # InvokeRewind / InvokeRewindToLaunch size.
     "ReFlyRevert": 300.0,
+    # DeferralBudget.NewGameSeconds: the quit-to-main-menu save and load, the old save's
+    # delete, CreateNewGame's persistent.sfs and the Space Center bootstrap that re-reads it.
+    # The LoadGame size.
+    "NewGame": 300.0,
     # DeferralBudget.RevertToLaunchSeconds: stock's flight reload from the post-init state,
     # a FLIGHT bootstrap that reads no save off disk (the LaunchFromEditor size). Not a
     # DEFERRED_SEAM_VERB: no spec declares a budget over the cap for it.
@@ -1394,6 +1467,12 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # The seat pair couples / undocks a kerbal's part (stock state a save captures).
     "EvaSeatBoard": TAIL_ROLE_WORLD_MUTATING,
     "EvaSeatLeave": TAIL_ROLE_WORLD_MUTATING,
+    # NewGame replaces the loaded world and the save under its name (LoadGame's row).
+    "NewGame": TAIL_ROLE_WORLD_MUTATING,
+    # AlarmJump may switch the active vessel (stock state a save captures).
+    "AlarmJump": TAIL_ROLE_WORLD_MUTATING,
+    # LaunchSiteProbe can recover the site's vessels and launch (stock state a save captures).
+    "LaunchSiteProbe": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1611,6 +1690,15 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # EVA branch), never a mission outcome on its own.
     "EvaSeatBoard": POST_MISSION_ROLE_RECORDING,
     "EvaSeatLeave": POST_MISSION_ROLE_RECORDING,
+    # NewGame is `recording` for LoadGame's reason: harness plumbing (the save a lane starts
+    # from), never a mission outcome.
+    "NewGame": POST_MISSION_ROLE_RECORDING,
+    # AlarmJump is `recording` for CycleVessel's reason: its OK is a statement about Parsek's
+    # switch rules (whether the Jump was shown and whether it switched), never a mission outcome.
+    "AlarmJump": POST_MISSION_ROLE_RECORDING,
+    # LaunchSiteProbe is `recording`: its OK reports what Parsek's launch-site hold left on
+    # stock's dialog (a Parsek claim), never a mission outcome.
+    "LaunchSiteProbe": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -2827,7 +2915,7 @@ RUNTESTS_STRICT_VALUES: Tuple[str, ...] = ("true", "false")
 # and a missing key is not a value.
 LISTHANDLES_KIND_KEY = "kind"
 LISTHANDLES_KIND_VALUES: Tuple[str, ...] = ("rewindpoints", "committed", "active",
-                                             "chains", "routes")
+                                             "chains", "routes", "timeline")
 
 # `ListHandles kind=chains expectDigest=<hex8>`: the OPTIONAL readback comparison.
 # NOT a closed-value arg (its value is a digest, normally `${<label>.digest}` from an
@@ -2866,6 +2954,23 @@ LISTHANDLES_ROUTE_LOG_KEYS: Tuple[str, ...] = (
     "segment", "pendingStop", "cycleStartUT", "pendingDeliveryUT", "sendOnce", "pauseAfter",
     "origin", "stops", "stopPids", "stopFired", "dispatched", "debited", "pickedUp",
     "delivered", "paused", "resumed", "held",
+)
+
+# `ListHandles kind=timeline` (TL-1) writes one summary Info line, `listhandles timeline
+# count=.. recordingRows=.. ...` in `LISTHANDLES_TIMELINE_LOG_KEYS` order, then one
+# `listhandles timeline retired index=<i> type=.. subject=.. ut=.. twinCopies=..
+# twinRows=..` per listed tombstoned ledger row. A lane pins the phantom pair
+# (`retiredTwinCopies` >= 1, `retiredTwinRows=0`) off those lines. Byte-equal to
+# `TestCommandTimelineReadback` (pinned by ListHandlesSourceSyncTests).
+LISTHANDLES_TIMELINE_LOG_PREFIX = "listhandles timeline"
+LISTHANDLES_TIMELINE_RETIRED_WORD = "retired"
+LISTHANDLES_TIMELINE_LOG_KEYS: Tuple[str, ...] = (
+    "count", "recordingRows", "actionRows", "legacyRows", "milestoneRows",
+    "legacyMilestoneRows", "retired", "retiredWithTwin", "retiredTwinCopies",
+    "retiredTwinRows",
+)
+LISTHANDLES_TIMELINE_RETIRED_LOG_KEYS: Tuple[str, ...] = (
+    "type", "subject", "ut", "twinCopies", "twinRows",
 )
 
 # arg key -> (the ONLY verb that reads it, its closed value set). Iterated by
@@ -3195,12 +3300,12 @@ UIACTION_AWAIT_VALUES: Tuple[str, ...] = ("true", "false")
 # only when Unity's focused control name ALREADY matches, so writing their two fields
 # would draw an unfocused text box - a picture no click can produce. Filed in
 # docs/dev/todo-and-known-bugs.md rather than faked.
-# `RouteCommand action=`: the seven the C# KnownActions carries, in its order. NOT a
+# `RouteCommand action=`: the eight the C# KnownActions carries, in its order. NOT a
 # VERB_SCOPED_CLOSED_ARGS row - that table admits one owner verb per arg key and `action`
 # is also KscAction's - so nothing else would catch a spec naming an action the seam does
 # not know. Mirrored here so a cell can compare the two mechanically.
 ROUTECOMMAND_ACTIONS: Tuple[str, ...] = (
-    "create", "send-once", "pause", "activate", "link", "unlink", "set-cadence")
+    "create", "send-once", "pause", "activate", "link", "unlink", "set-cadence", "rescan")
 
 UIACTION_EDIT_FIELD_KEY = "field"
 UIACTION_EDIT_FIELDS: Dict[str, Tuple[str, ...]] = {
@@ -4241,6 +4346,131 @@ EVASEAT_ERROR_REASONS: Tuple[str, ...] = (
 )
 
 
+# NewGame: mirrored from TestCommands/TestCommandNewGame.cs (NewGameSourceSyncTests). All
+# three args are REQUIRED. `mode` CANNOT ride VERB_SCOPED_CLOSED_ARGS: that table keys one
+# verb per arg name and UiAction already owns `mode` (the interface mode), so validate_spec
+# skips the table's owner check for NewGame's own keys and validate_new_game_step checks the
+# values. `save` must name the run save, the folder the boot LoadGame loaded, because the
+# verb refuses any other (newgame-save-mismatch) and the produced-save harvest reads
+# saves/<runSave>.
+NEWGAME_VERB = "NewGame"
+NEWGAME_MODE_KEY = "mode"
+NEWGAME_PRESET_KEY = "preset"
+NEWGAME_SAVE_KEY = "save"
+NEWGAME_ARG_KEYS: Tuple[str, ...] = (NEWGAME_MODE_KEY, NEWGAME_PRESET_KEY, NEWGAME_SAVE_KEY)
+NEWGAME_MODE_VALUES: Tuple[str, ...] = ("SCIENCE_SANDBOX", "CAREER", "SANDBOX")
+NEWGAME_PRESET_VALUES: Tuple[str, ...] = ("Easy", "Normal", "Moderate", "Hard")
+# The save sub-folder the verb's delete keeps (the craft a later GoToEditor craft= loads).
+NEWGAME_PRESERVED_SAVE_ENTRY = "Ships"
+NEWGAME_REASONS: Tuple[str, ...] = (
+    "newgame-mode-arg-missing", "newgame-mode-arg-invalid",
+    "newgame-preset-arg-missing", "newgame-preset-arg-invalid",
+    "newgame-save-arg-missing", "newgame-save-arg-invalid",
+    "newgame-wrong-scene", "newgame-save-mismatch", "newgame-main-menu-locked",
+    "newgame-recorder-live", "newgame-active-tree", "newgame-pending-tree",
+    "newgame-merge-dialog-pending", "newgame-refly-session",
+    "newgame-switch-segment-session", "newgame-merge-journal",
+)
+# Post-exit terminals (ERROR): the verb left the Space Center and the new game did not land.
+# NOT mapped to a refusal subkind (nothing was refused).
+NEWGAME_ERROR_REASONS: Tuple[str, ...] = (
+    "newgame-exit-timeout", "newgame-delete-failed", "newgame-create-failed",
+    "newgame-returned-to-menu", "newgame-mismatch", "newgame-start-timeout",
+)
+
+
+def validate_new_game_step(index: int, step_args: Dict, run_save_name: Optional[str]) -> List[str]:
+    """Pre-launch shape check for one ``NewGame`` step: ``mode=`` and ``preset=`` REQUIRED and
+    in their closed, case-sensitive sets; ``save=`` REQUIRED and either ``${runSave}`` or the
+    literal runSaveName (the LoadGame boot handshake's rule); no other key (the verb reads
+    none, so it would be sent and silently ignored)."""
+    errors: List[str] = []
+    for key, values in ((NEWGAME_MODE_KEY, NEWGAME_MODE_VALUES),
+                        (NEWGAME_PRESET_KEY, NEWGAME_PRESET_VALUES)):
+        raw = step_args.get(key)
+        if raw is None:
+            errors.append(
+                "driver.steps[%d].args.%s: NewGame REQUIRES it (one of %s); the seam answers "
+                "REJECTED newgame-%s-arg-missing"
+                % (index, key, " or ".join(repr(v) for v in values), key))
+        elif raw not in values:
+            errors.append(
+                "driver.steps[%d].args.%s: %r must be one of %s (case-sensitive); the seam "
+                "answers REJECTED newgame-%s-arg-invalid"
+                % (index, key, raw, " or ".join(repr(v) for v in values), key))
+    save = step_args.get(NEWGAME_SAVE_KEY)
+    allowed_saves = [RUN_SAVE_TOKEN] + ([run_save_name] if run_save_name else [])
+    if save is None:
+        errors.append(
+            "driver.steps[%d].args.%s: NewGame REQUIRES it ('%s'); the seam answers REJECTED "
+            "newgame-save-arg-missing" % (index, NEWGAME_SAVE_KEY, RUN_SAVE_TOKEN))
+    elif save not in allowed_saves:
+        errors.append(
+            "driver.steps[%d].args.%s: %r must be '%s' or runSaveName %r: the new game replaces "
+            "the save the boot LoadGame loaded (the seam answers REJECTED newgame-save-mismatch "
+            "for any other) and the produced-save harvest reads saves/<runSave>"
+            % (index, NEWGAME_SAVE_KEY, save, RUN_SAVE_TOKEN, run_save_name))
+    extra = sorted(str(k) for k in step_args if k not in NEWGAME_ARG_KEYS)
+    if extra:
+        errors.append("driver.steps[%d].args: NewGame reads only %s, so %s would be silently "
+                      "ignored" % (index, ", ".join(NEWGAME_ARG_KEYS), ", ".join(extra)))
+    return errors
+
+
+# AlarmJump: mirrored from TestCommands/TestCommandAlarmJump.cs (AlarmJumpSourceSyncTests).
+# Exactly one of `vessel=` / `pid=` (a positive base-10 uint); `jump=` optional, exact.
+ALARMJUMP_VERB = "AlarmJump"
+ALARMJUMP_VESSEL_KEY = "vessel"
+ALARMJUMP_PID_KEY = "pid"
+ALARMJUMP_JUMP_KEY = "jump"
+ALARMJUMP_JUMP_VALUES: Tuple[str, ...] = ("shown", "always", "never")
+ALARMJUMP_REASONS: Tuple[str, ...] = (
+    "alarmjump-target-arg-missing", "alarmjump-target-arg-conflict",
+    "alarmjump-pid-arg-invalid", "alarmjump-jump-arg-invalid",
+    "alarmjump-no-alarm-clock", "alarmjump-target-not-found", "alarmjump-target-ambiguous",
+)
+ALARMJUMP_ERROR_REASONS: Tuple[str, ...] = (
+    "alarmjump-add-failed", "alarmjump-trigger-failed", "alarmjump-no-dialog",
+    "alarmjump-jump-threw",
+)
+ALARMJUMP_DECISIONS: Tuple[str, ...] = ("leave-to-stock", "refuse-ghost", "refuse-refly", "inert")
+
+
+def validate_alarm_jump_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``AlarmJump`` step: exactly one of ``vessel=`` /
+    ``pid=`` (a positive integer), ``jump=`` (when present) one of shown / always / never,
+    and no other key (the verb reads none, so it would be sent and silently ignored)."""
+    errors: List[str] = []
+    vessel = step_args.get(ALARMJUMP_VESSEL_KEY)
+    pid = step_args.get(ALARMJUMP_PID_KEY)
+    has_vessel = vessel is not None and str(vessel) != ""
+    has_pid = pid is not None and str(pid) != ""
+    if not has_vessel and not has_pid:
+        errors.append("driver.steps[%d].args: %s REQUIRES one of %s / %s; the seam answers "
+                      "REJECTED alarmjump-target-arg-missing"
+                      % (index, ALARMJUMP_VERB, ALARMJUMP_VESSEL_KEY, ALARMJUMP_PID_KEY))
+    elif has_vessel and has_pid:
+        errors.append("driver.steps[%d].args: %s takes only one of %s / %s; the seam answers "
+                      "REJECTED alarmjump-target-arg-conflict"
+                      % (index, ALARMJUMP_VERB, ALARMJUMP_VESSEL_KEY, ALARMJUMP_PID_KEY))
+    elif has_pid and (isinstance(pid, bool) or not str(pid).isdigit() or int(str(pid)) <= 0
+                      or int(str(pid)) > 0xFFFFFFFF):
+        errors.append("driver.steps[%d].args.%s: %r is not a positive uint; the seam answers "
+                      "REJECTED alarmjump-pid-arg-invalid" % (index, ALARMJUMP_PID_KEY, pid))
+    if ALARMJUMP_JUMP_KEY in step_args and str(step_args.get(ALARMJUMP_JUMP_KEY)) \
+            not in ALARMJUMP_JUMP_VALUES:
+        errors.append("driver.steps[%d].args.%s: %r is not one of %s; the seam answers REJECTED "
+                      "alarmjump-jump-arg-invalid"
+                      % (index, ALARMJUMP_JUMP_KEY, step_args.get(ALARMJUMP_JUMP_KEY),
+                         "/".join(ALARMJUMP_JUMP_VALUES)))
+    known = (ALARMJUMP_VESSEL_KEY, ALARMJUMP_PID_KEY, ALARMJUMP_JUMP_KEY)
+    extra = sorted(str(k) for k in step_args if k not in known)
+    if extra:
+        errors.append("driver.steps[%d].args: %s reads only %s, so %s would be silently ignored"
+                      % (index, ALARMJUMP_VERB, ", ".join(known), ", ".join(extra)))
+    return errors
+
+
 def validate_eva_seat_step(index: int, cmd: str, step_args: Dict) -> List[str]:
     """Pre-launch shape check for one ``EvaSeatBoard`` / ``EvaSeatLeave`` step: neither verb
     reads an arg, so any key would be sent and silently ignored."""
@@ -4249,6 +4479,68 @@ def validate_eva_seat_step(index: int, cmd: str, step_args: Dict) -> List[str]:
         return ["driver.steps[%d].args: %s reads no args, so %s would be silently ignored"
                 % (index, cmd, ", ".join(extra))]
     return []
+
+
+# LaunchSiteProbe: mirrored from TestCommands/TestCommandLaunchSiteProbe.cs
+# (LaunchSiteProbeSourceSyncTests). `facility` / `craft` are spelled like GoToEditor's keys
+# (and `answer` avoids UiAction's scoped `press`), so the shape check is hand-written.
+LAUNCHSITEPROBE_VERB = "LaunchSiteProbe"
+LAUNCHSITEPROBE_FACILITY_KEY = "facility"
+LAUNCHSITEPROBE_CRAFT_KEY = "craft"
+LAUNCHSITEPROBE_ANSWER_KEY = "answer"
+LAUNCHSITEPROBE_ANSWER_VALUES: Tuple[str, ...] = ("abort", "proceed")
+LAUNCHSITEPROBE_FACILITY_VALUES: Tuple[str, ...] = ("VAB", "SPH")
+LAUNCHSITEPROBE_REASONS: Tuple[str, ...] = (
+    "launchsiteprobe-answer-arg-invalid",
+    "launchsiteprobe-facility-arg-invalid",
+    "launchsiteprobe-craft-arg-invalid",
+    "launchsiteprobe-wrong-scene",
+    "launchsiteprobe-arg-not-for-scene",
+    "launchsiteprobe-craft-arg-missing",
+    "launchsiteprobe-no-ship",
+    "launchsiteprobe-launch-locked",
+    "launchsiteprobe-site-clear",
+    "launchsiteprobe-facility-not-found",
+    "launchsiteprobe-picker-open",
+    "launchsiteprobe-craft-not-found",
+)
+LAUNCHSITEPROBE_ERROR_REASONS: Tuple[str, ...] = (
+    "launchsiteprobe-no-dialog",
+    "launchsiteprobe-other-dialog",
+    "launchsiteprobe-dialog-shape",
+    "launchsiteprobe-not-settled",
+    "launchsiteprobe-threw",
+)
+
+
+def validate_launch_site_probe_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``LaunchSiteProbe`` step: ``answer=`` (when present) one
+    of abort / proceed, ``facility=`` (when present) VAB / SPH (both matched exactly, as the
+    seam does), ``craft=`` (when present) not blank, and no other key (it would be sent and silently ignored). Which keys the step's
+    SCENE takes (the editor takes only ``answer``; the Space Center needs ``craft``) is the
+    seam's own REJECTED gate: the spec does not know the scene a step lands in."""
+    errors: List[str] = []
+    known = (LAUNCHSITEPROBE_FACILITY_KEY, LAUNCHSITEPROBE_CRAFT_KEY, LAUNCHSITEPROBE_ANSWER_KEY)
+    extra = sorted(str(k) for k in step_args if k not in known)
+    if extra:
+        errors.append("driver.steps[%d].args: LaunchSiteProbe reads only %s, so %s would be "
+                      "silently ignored" % (index, "/".join(known), ", ".join(extra)))
+    if LAUNCHSITEPROBE_ANSWER_KEY in step_args:
+        v = str(step_args[LAUNCHSITEPROBE_ANSWER_KEY])
+        if v not in LAUNCHSITEPROBE_ANSWER_VALUES:
+            errors.append("driver.steps[%d].args.answer: %r is not one of %s"
+                          % (index, step_args[LAUNCHSITEPROBE_ANSWER_KEY],
+                             "/".join(LAUNCHSITEPROBE_ANSWER_VALUES)))
+    if LAUNCHSITEPROBE_FACILITY_KEY in step_args:
+        v = str(step_args[LAUNCHSITEPROBE_FACILITY_KEY])
+        if v not in LAUNCHSITEPROBE_FACILITY_VALUES:
+            errors.append("driver.steps[%d].args.facility: %r is not one of %s"
+                          % (index, step_args[LAUNCHSITEPROBE_FACILITY_KEY],
+                             "/".join(LAUNCHSITEPROBE_FACILITY_VALUES)))
+    if LAUNCHSITEPROBE_CRAFT_KEY in step_args:
+        if not str(step_args[LAUNCHSITEPROBE_CRAFT_KEY]).strip():
+            errors.append("driver.steps[%d].args.craft: blank" % index)
+    return errors
 
 
 def validate_cycle_vessel_step(index: int, step_args: Dict) -> List[str]:
@@ -6976,8 +7268,8 @@ def _check_param_type(name: str, value, decl: Dict) -> List[str]:
     """Type/range check one declared missionParam value against its schema entry
     (pure). ``decl`` is the mission schema's per-param table
     ``{"type": "<t>", "min": <num?>, "max": <num?>, "values": [<str>...]}``; only the
-    declared facets are enforced, and ``values`` is honoured for ``list`` only (a
-    closed vocabulary, checked at ADMIT - see the list arm). bool is rejected where a number is declared (Python ``bool`` is an
+    declared facets are enforced, and ``values`` is honoured for ``list`` and
+    ``string`` only (a closed vocabulary, checked at ADMIT - see the list arm). bool is rejected where a number is declared (Python ``bool`` is an
     ``int`` subclass, so an unguarded numeric check would silently accept True/False
     as 1/0). The declared ``type`` must be one of ``MISSION_PARAM_TYPES``; an unknown
     spelling rejects the DECLARATION rather than falling through unchecked."""
@@ -7028,6 +7320,15 @@ def _check_param_type(name: str, value, decl: Dict) -> List[str]:
     elif ptype == "string":
         if not isinstance(value, str):
             errs.append("missionParams.%s: expected a string, got %r" % (name, value))
+        elif isinstance(decl.get("values"), (list, tuple)) and decl["values"]:
+            # The same OPTIONAL CLOSED VOCABULARY as the list arm, for a string
+            # param that is an enum (science_bench_recover's recoverCreditPool): a
+            # typo'd member must die at ADMIT rather than silently select a default.
+            allowed = [str(v) for v in decl["values"]]
+            if value not in allowed:
+                errs.append(
+                    "missionParams.%s: unknown value %s; allowed: %s"
+                    % (name, value, ",".join(allowed)))
     elif ptype == "bool":
         if not isinstance(value, bool):
             errs.append("missionParams.%s: expected a bool, got %r" % (name, value))
@@ -7374,6 +7675,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                         "and silently ignored" % (i, key, arg_key))
             if arg_key not in step_args:
                 continue
+            # NewGame reads its own `mode=` (UiAction owns the table row); its value set
+            # is checked by validate_new_game_step.
+            if cmd == NEWGAME_VERB and arg_key in NEWGAME_ARG_KEYS:
+                continue
             if cmd != owner_verb:
                 errors.append(
                     "driver.steps[%d].args.%s: only the %s verb reads it, but this "
@@ -7437,6 +7742,12 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_cycle_vessel_step(i, step_args))
         elif cmd in (EVASEAT_BOARD_VERB, EVASEAT_LEAVE_VERB):
             errors.extend(validate_eva_seat_step(i, cmd, step_args))
+        elif cmd == NEWGAME_VERB:
+            errors.extend(validate_new_game_step(i, step_args, run_save_name))
+        elif cmd == ALARMJUMP_VERB:
+            errors.extend(validate_alarm_jump_step(i, step_args))
+        elif cmd == LAUNCHSITEPROBE_VERB:
+            errors.extend(validate_launch_site_probe_step(i, step_args))
         # LoadGame focusPid= (any verb: the validator flags it on a verb that ignores it).
         if LOADGAME_FOCUS_PID_KEY in step_args:
             errors.extend(validate_loadgame_focus_step(i, cmd, step_args))
@@ -11893,6 +12204,51 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "evaseatleave-not-seated": "driver-gate",
     "evaseatleave-seated-ambiguous": "driver-gate",
     "evaseatleave-tourist": "driver-gate",
+    # NewGame: the six arg refusals are the spec's fault; the rest are a live state the new
+    # game would not start from (the wrong scene, another save loaded, stock's main-menu
+    # lock, Parsek state a lane must resolve first) (NewGameSourceSyncTests).
+    "newgame-mode-arg-missing": "driver-arg",
+    "newgame-mode-arg-invalid": "driver-arg",
+    "newgame-preset-arg-missing": "driver-arg",
+    "newgame-preset-arg-invalid": "driver-arg",
+    "newgame-save-arg-missing": "driver-arg",
+    "newgame-save-arg-invalid": "driver-arg",
+    "newgame-wrong-scene": "driver-gate",
+    "newgame-save-mismatch": "driver-arg",
+    "newgame-main-menu-locked": "driver-gate",
+    "newgame-recorder-live": "driver-gate",
+    "newgame-active-tree": "driver-gate",
+    "newgame-pending-tree": "driver-gate",
+    "newgame-merge-dialog-pending": "driver-gate",
+    "newgame-refly-session": "driver-gate",
+    "newgame-switch-segment-session": "driver-gate",
+    "newgame-merge-journal": "driver-gate",
+    # AlarmJump: an arg the spec misspelled or a target it misnamed is the SPEC's fault; no
+    # running Alarm Clock scenario is a live state the verb would not act in
+    # (AlarmJumpSourceSyncTests).
+    "alarmjump-target-arg-missing": "driver-arg",
+    "alarmjump-target-arg-conflict": "driver-arg",
+    "alarmjump-pid-arg-invalid": "driver-arg",
+    "alarmjump-jump-arg-invalid": "driver-arg",
+    "alarmjump-no-alarm-clock": "driver-gate",
+    "alarmjump-target-not-found": "driver-arg",
+    "alarmjump-target-ambiguous": "driver-arg",
+    # LaunchSiteProbe: arg spellings and an arg the step's scene does not take are the SPEC's
+    # fault; the rest is a live state the probe would not press in (wrong scene, no ship, a
+    # held launch lock, a site with nothing on it, no building / an open picker / no such
+    # craft row) (LaunchSiteProbeSourceSyncTests).
+    "launchsiteprobe-answer-arg-invalid": "driver-arg",
+    "launchsiteprobe-facility-arg-invalid": "driver-arg",
+    "launchsiteprobe-craft-arg-invalid": "driver-arg",
+    "launchsiteprobe-arg-not-for-scene": "driver-arg",
+    "launchsiteprobe-craft-arg-missing": "driver-arg",
+    "launchsiteprobe-wrong-scene": "driver-gate",
+    "launchsiteprobe-no-ship": "driver-gate",
+    "launchsiteprobe-launch-locked": "driver-gate",
+    "launchsiteprobe-site-clear": "driver-gate",
+    "launchsiteprobe-facility-not-found": "driver-gate",
+    "launchsiteprobe-picker-open": "driver-gate",
+    "launchsiteprobe-craft-not-found": "driver-gate",
     # SimulateStockSwitchClick, arg half: site / selector spellings and target resolution.
     # target-not-found / -name-ambiguous / -is-ghost are arg-class because each one means
     # the SPEC named the wrong thing, the same call `unknown-target` gets for KscAction.
@@ -12033,6 +12389,10 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "link-no-candidate": "driver-gate",
     "route-not-linked": "driver-gate",
     "cadence-unchanged": "driver-gate",
+    #   `rescan-not-offered` (RS-1): the route's Logistics row draws no enabled Re-scan
+    #     button (not EndpointLost, or no surface stop), so the fix is an earlier step that
+    #     loses the endpoint, never a better spelling.
+    "rescan-not-offered": "driver-gate",
     # The editor scene route. Arg half: the spec named something wrong (a facility, a
     # craft that is not in either Ships folder or the stock craft, a site this editor does
     # not offer). Gate half: the run is in a state the click does not drive - the wrong
