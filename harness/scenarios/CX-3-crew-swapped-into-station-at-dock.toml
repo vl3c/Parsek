@@ -3,7 +3,8 @@ id = "CX-3-crew-swapped-into-station-at-dock"
 # =====================================================================================
 # CX-3: A KERBAL SWAPPED INTO A STATION DURING A DOCK (todo ROUTE-INTERACTION-SEAMS-TO-VERIFY,
 # item "a kerbal swapped into a station during a dock is inferred Dead or held
-# indefinitely"; branch `claude/project-thread-lzdclu`). AUTHORED 2026-10-24, NEVER FLOWN.
+# indefinitely"; branch `claude/project-thread-lzdclu`). AUTHORED 2026-10-24, LIVE-PROVEN on its first flight
+# (`2026-10-24_2319` PASS attempt 1, 72 s, main 1a682c942, DLL sha256 prefix 4cafdf46, recordings 33).
 #
 # The code trace found no defect: the docked recording ends at the undock with no terminal
 # (Unknown) and hands each kerbal to the undock child carrying him, the station half's own
@@ -32,8 +33,7 @@ id = "CX-3-crew-swapped-into-station-at-dock"
 # FAST-LANE CHECKLIST: (1) CX-1 flies a different prefix (one transfer, an F5); (2) no idle
 # waits, the four RecordingState steps after the undock are the frame settle the deferred undock
 # branch needs (CX-1's); (3)-(5) no EVA, burns or coasts; (6) seam-only, a refusal is
-# immediate; (7) the count is a window until the first flight pins it; (8) nightly, expected
-# under a minute of flight.
+# immediate; (7) the count pinned exactly from the first flight; (8) nightly at 72 s wall.
 # =====================================================================================
 tier = "nightly"
 description = "Crew swapped across a docked pair on bdock-second-dock-recorded: two stock crew transfers swap Valentina (Station -> Kerbal X) and Jebediah (Kerbal X -> Station), the undock leaves Jebediah on the Station half, and the commit reads him Aboard there (never Dead, no death hold, not permanent) with his docked-recording hold handed to the Station half at the undock."
@@ -79,9 +79,9 @@ D14 = ["kerbin", "sandbox", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The fixture's recordings (about 31 after the scene-entry promotion, from CX-1's reading)
-# plus the two undock children. A window until the first flight pins it.
-count = { min = 30, max = 35 }
+# The fixture's recordings after the scene-entry promotion plus the two undock children: 33,
+# pinned exactly from the 2026-10-24_2319 flight.
+count = { min = 33, max = 33 }
 
 [expectations.logContracts]
 required = [
