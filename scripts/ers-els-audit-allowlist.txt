@@ -66,6 +66,10 @@ Source/Parsek/ParsekFlight.cs
 # policy-held slot with its engine ghost (the engine's index-keyed contract), not to
 # decide visibility; supersede is honoured through the policy's hold release.
 Source/Parsek/ParsekFlight.BlockedChainTipGhost.cs
+# The placement-jump partial reads the committed list by INDEX only to find the engine
+# ghost (index-keyed ghostStates) drawing a recording id, the same pairing the proximity
+# scan does; it decides no visibility.
+Source/Parsek/ParsekFlight.PlacementJump.cs
 Source/Parsek/ParsekPlaybackPolicy.cs
 Source/Parsek/ParsekTrackingStation.cs
 Source/Parsek/Diagnostics/DiagnosticsComputation.cs

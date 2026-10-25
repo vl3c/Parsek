@@ -6798,7 +6798,10 @@ def evaluate_cl1_assertions(frames, params: Cl1Params,
 #                       AND the CAREER FUNDS POOL has risen by at least
 #                       recoverMinFundsGain MEASURED ACROSS THE RECOVERY - a
 #                       pre-recover baseline against a reading taken ON a
-#                       vessel-gone frame. SUCCESS.
+#                       vessel-gone frame. SUCCESS. Under the OPTIONAL
+#                       `recoverCreditPool = "science"` the same pair is read off
+#                       the SCIENCE pool against recoverMinScienceGain (block note
+#                       above SBR_CREDIT_POOLS).
 #
 # WHY THE CREDIT MUST STRADDLE THE EVENT (review finding, 2026-08-19; this was a
 # real hole, not a hypothetical). The gate used to compare the baseline against
@@ -6961,6 +6964,51 @@ SBR_RECOVER_ASK_LIMIT = 3
 
 
 # ---------------------------------------------------------------------------
+# THE RECOVERY CREDIT POOL (`recoverCreditPool`, optional, DEFAULT "funds") and
+# THE TRANSMIT CAP (`transmitMaxExperiments`, optional, DEFAULT absent = no cap).
+#
+# WHY THEY EXIST. The scripted campaign program starts in a stock SCIENCE game,
+# and a Science game has no funds: kRPC's SpaceCenter.Funds raises there, so the
+# funds-measured RECOVERED terminal can never certify. What a Science-mode
+# recovery DOES produce is a science credit for the data still aboard, so the
+# terminal can measure that pool instead - provided some data IS still aboard,
+# which is what the transmit cap is for (transmit one Goo unit, recover the other).
+#
+# THE SCIENCE POOL KEEPS EVERY RULE THE FUNDS POOL HAS. The credit straddles the
+# event (a pre-recover baseline against a reading taken ON a vessel-gone frame
+# after the verb was OBSERVED issued), the grace streak is the same, and the
+# dark-channel FLAKE is still checked BEFORE the break-up ASSERT-FAIL. Two
+# differences, both strengtheners:
+#   - the floor is STRICTLY POSITIVE (`recoverMinScienceGain`, schema min 0.001,
+#     and the gate also demands credit > 0 for a hand-built params set). Under the
+#     funds pool a 0.0 floor is legal because the funds credit is not the only
+#     evidence anyone reads; here the science credit IS the only proof the craft
+#     was recovered and not broken up, so "the pool was readable" is not enough.
+#   - the pre-recover science baseline keeps tracking on LIVE RECOVER frames until
+#     the perform seam reports ISSUED, rather than freezing on RECOVER entry the
+#     way funds_baseline does. A transmit credit can land a few seconds after the
+#     TRANSMIT gate let go (stock streams the data in packets), and under this pool
+#     such a late TRANSMIT credit would otherwise be counted as the RECOVERY credit.
+#     Every frame without the ISSUED stamp was read before Recover() was called,
+#     so the baseline can never absorb the recovery's own credit.
+# Under the science pool the funds pool is simply never consulted: a Science game
+# reading NaN funds on every frame blocks nothing.
+#
+# THE CAP is enforced at the PERFORM seam, because only the runner sees a send
+# happen: every TRANSMIT emission carries the cap in `Action.value`, and the
+# runner counts the sends it made over the WHOLE RUN and never exceeds the cap,
+# so the bounded re-emit can retry a send that RAISED but can never send an
+# (N+1)th experiment. Nothing in the machine assumes the craft is empty after a
+# transmit (COLLECT's evidence is a MAX data count, and no later gate reads the
+# data channel), so data left aboard trips nothing.
+# ---------------------------------------------------------------------------
+
+SBR_CREDIT_POOL_FUNDS = "funds"
+SBR_CREDIT_POOL_SCIENCE = "science"
+SBR_CREDIT_POOLS: Tuple[str, ...] = (SBR_CREDIT_POOL_FUNDS, SBR_CREDIT_POOL_SCIENCE)
+
+
+# ---------------------------------------------------------------------------
 # THE PRE-RECOVER DWELL (`preRecoverDwellSeconds`, optional, DEFAULT 0.0).
 #
 # WHAT IT IS. A hold, measured in GAME seconds from the frame the delegated B1
@@ -7057,6 +7105,13 @@ class SbrParams:
     # note above `sbr_recover_dwell_satisfied`. Last field with a default so an
     # existing positional construction of SbrParams cannot break.
     pre_recover_dwell: float = 0.0
+    # OPTIONAL, see the block note above SBR_CREDIT_POOLS. Defaults reproduce the
+    # funds-measured, transmit-everything machine.
+    recover_credit_pool: str = SBR_CREDIT_POOL_FUNDS
+    # Used only under the science pool; strictly positive by the schema.
+    recover_min_science: float = 0.1
+    # None = transmit every experiment holding data.
+    transmit_max_experiments: Optional[int] = None
 
 
 def sbr_params_from_dict(params: Dict) -> SbrParams:
@@ -7076,7 +7131,25 @@ def sbr_params_from_dict(params: Dict) -> SbrParams:
         # ABSENT KEY -> 0.0 -> no hold. The default is the compatibility contract,
         # so it is spelled here rather than left to the dataclass default alone.
         pre_recover_dwell=float(params.get("preRecoverDwellSeconds", 0.0)),
+        recover_credit_pool=_sbr_credit_pool_from(params.get("recoverCreditPool")),
+        recover_min_science=float(params.get("recoverMinScienceGain", 0.1)),
+        transmit_max_experiments=(None if params.get("transmitMaxExperiments") is None
+                                  else int(params["transmitMaxExperiments"])),
     )
+
+
+def _sbr_credit_pool_from(value) -> str:
+    """The declared recovery credit pool. Absent = "funds". An unknown spelling
+    RAISES rather than falling back: hlib refuses it at ADMIT already, and a
+    silent fallback to funds would fly a Science game straight into a terminal
+    that can never certify."""
+    if value is None:
+        return SBR_CREDIT_POOL_FUNDS
+    pool = str(value)
+    if pool not in SBR_CREDIT_POOLS:
+        raise ValueError("recoverCreditPool %r is not one of %s"
+                         % (value, ", ".join(SBR_CREDIT_POOLS)))
+    return pool
 
 
 @dataclass(frozen=True)
@@ -7124,6 +7197,13 @@ class SbrState:
     # vessel_lost frame, certifying a craft that BLEW UP as RECOVERED. None until
     # such a frame lands, which fails the terminal CLOSED.
     post_loss_funds: Optional[float] = None
+    # The science-pool pair of the two fields above, used only under
+    # recoverCreditPool = "science". The baseline tracks the last finite science
+    # reading up to the last LIVE pre-ISSUED frame (see the block note above
+    # SBR_CREDIT_POOLS for why it does not freeze on RECOVER entry); the post-loss
+    # half is the science reading ON a vessel-gone frame after the issue.
+    recover_science_baseline: Optional[float] = None
+    post_loss_science: Optional[float] = None
     # Last finite readings, for the gain computations and the reason strings.
     last_science: Optional[float] = None
     last_funds: Optional[float] = None
@@ -7250,10 +7330,61 @@ def _sbr_recovery_credit(state: SbrState) -> Optional[float]:
     meant no amount of care in a spec could prevent it. Requiring both halves to
     straddle the event makes the floor a STRENGTHENER rather than the only guard:
     even at 0.0 the terminal now says "the pools were readable across the
-    recovery", which is exactly what the schema's prose has always claimed."""
+    recovery", which is exactly what the schema's prose has always claimed.
+
+    POOL-DISPATCHED: under ``recoverCreditPool = "science"`` the same straddled
+    pair is read off the science pool instead (``_sbr_science_recovery_credit``)
+    and the funds pool is not consulted at all."""
+    if state.params.recover_credit_pool == SBR_CREDIT_POOL_SCIENCE:
+        return _sbr_science_recovery_credit(state)
     if state.funds_baseline is None or state.post_loss_funds is None:
         return None
     return state.post_loss_funds - state.funds_baseline
+
+
+def _sbr_science_recovery_credit(state: SbrState) -> Optional[float]:
+    """The science movement measured ACROSS the recovery: the pre-recover science
+    baseline against the science reading taken ON a vessel-gone frame after the
+    verb was issued. None when either half is missing (fails CLOSED)."""
+    if state.recover_science_baseline is None or state.post_loss_science is None:
+        return None
+    return state.post_loss_science - state.recover_science_baseline
+
+
+def _sbr_recover_pool_dark(state: SbrState) -> bool:
+    """True when the declared credit pool lacks a finite reading on either side of
+    the recovery, i.e. the credit could not be computed at all."""
+    if state.params.recover_credit_pool == SBR_CREDIT_POOL_SCIENCE:
+        return state.recover_science_baseline is None or state.post_loss_science is None
+    return state.funds_baseline is None or state.post_loss_funds is None
+
+
+def _sbr_recover_floor(params: SbrParams) -> float:
+    """The declared floor for the declared credit pool."""
+    if params.recover_credit_pool == SBR_CREDIT_POOL_SCIENCE:
+        return params.recover_min_science
+    return params.recover_min_funds
+
+
+def _sbr_recover_credit_met(params: SbrParams, credit: Optional[float]) -> bool:
+    """Does the measured recovery credit satisfy the declared floor? Under the
+    science pool the credit must ALSO be strictly positive whatever the floor
+    says: there it is the only proof of a recovery (see the block note above
+    SBR_CREDIT_POOLS)."""
+    if credit is None:
+        return False
+    if params.recover_credit_pool == SBR_CREDIT_POOL_SCIENCE and not credit > 0.0:
+        return False
+    return credit >= _sbr_recover_floor(params)
+
+
+def _sbr_transmit_action(params: SbrParams) -> Action:
+    """The TRANSMIT emission. With no cap it is the bare action the runner has
+    always performed; with one, the cap rides ``value`` and the runner sends at
+    most that many experiments over the whole run."""
+    if params.transmit_max_experiments is None:
+        return Action(ACTION_TRANSMIT_SCIENCE)
+    return Action(ACTION_TRANSMIT_SCIENCE, value=float(params.transmit_max_experiments))
 
 
 def _sbr_evidence(state: SbrState) -> str:
@@ -7297,7 +7428,26 @@ def _sbr_evidence(state: SbrState) -> str:
                # than `recoverTimeoutSeconds` - an author error, not a driver one.
                # Reads `preRecoverDwell=0.000` on every lane that declares none.
                _fmt_num(state.params.pre_recover_dwell),
-               "UNREAD" if state.landed_ut is None else _fmt_num(state.landed_ut)))
+               "UNREAD" if state.landed_ut is None else _fmt_num(state.landed_ut))
+            + _sbr_evidence_optional(state))
+
+
+def _sbr_evidence_optional(state: SbrState) -> str:
+    """The evidence tokens of the two optional knobs. EMPTY when neither is
+    declared, so a lane on the defaults keeps its reason strings byte-for-byte."""
+    params = state.params
+    if (params.recover_credit_pool == SBR_CREDIT_POOL_FUNDS
+            and params.transmit_max_experiments is None):
+        return ""
+    return (" recoverCreditPool=%s recoverScienceBaseline=%s sciencePostLoss=%s "
+            "transmitMaxExperiments=%s"
+            % (params.recover_credit_pool,
+               "UNREAD" if state.recover_science_baseline is None
+               else _fmt_num(state.recover_science_baseline),
+               "UNREAD" if state.post_loss_science is None
+               else _fmt_num(state.post_loss_science),
+               "ALL" if params.transmit_max_experiments is None
+               else params.transmit_max_experiments))
 
 
 def _fmt_num(value: float) -> str:
@@ -7362,6 +7512,7 @@ def sbr_decide(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState, 
     # baselines correct: the frame that transitions COLLECT -> TRANSMIT is still
     # a PRE-transmit reading and must still move the science baseline.
     phase_at_entry = state.phase
+    seam_result = str(snapshot.recover_request_result or RECOVER_REQUEST_UNREAD)
     if snapshot.science_experiment_count != SCIENCE_COUNT_UNREAD:
         state = replace(state, experiment_count=int(snapshot.science_experiment_count))
     if snapshot.science_available_count != SCIENCE_COUNT_UNREAD:
@@ -7373,6 +7524,15 @@ def sbr_decide(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState, 
         state = replace(state, last_science=float(snapshot.career_science))
         if phase_at_entry not in (SBR_TRANSMIT, SBR_RECOVER, SBR_RECOVERED):
             state = replace(state, science_baseline=float(snapshot.career_science))
+        # The pre-recover science baseline: every frame before RECOVER, and in
+        # RECOVER every LIVE frame read before the perform seam reported ISSUED
+        # (latch not yet set AND this frame's stamp not ISSUED). Carried on every
+        # lane - it is inert evidence unless the science pool is declared.
+        if (phase_at_entry not in (SBR_RECOVER, SBR_RECOVERED)
+                or (phase_at_entry == SBR_RECOVER and not snapshot.vessel_lost
+                    and not state.recover_issued
+                    and seam_result != RECOVER_REQUEST_ISSUED)):
+            state = replace(state, recover_science_baseline=float(snapshot.career_science))
     if _is_finite(snapshot.career_funds):
         state = replace(state, last_funds=float(snapshot.career_funds))
         if phase_at_entry not in (SBR_RECOVER, SBR_RECOVERED):
@@ -7384,7 +7544,6 @@ def sbr_decide(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState, 
     # latch set from it can never be missed by a frame's ordering. Neither latch
     # is ever cleared: "the verb was issued" and "an ask was declined" are facts
     # about the past, and the re-ask allowance is what bounds their consequences.
-    seam_result = str(snapshot.recover_request_result or RECOVER_REQUEST_UNREAD)
     if seam_result == RECOVER_REQUEST_ISSUED:
         state = replace(state, recover_issued=True)
     elif seam_result in RECOVER_REQUEST_DECLINES:
@@ -7479,15 +7638,17 @@ def sbr_decide(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState, 
     return state, []
 
 
-def _sbr_reemit(state: SbrState, action_kind: str) -> Tuple[SbrState, List[Action]]:
+def _sbr_reemit(state: SbrState, action_kind: str,
+                value: Optional[float] = None) -> Tuple[SbrState, List[Action]]:
     """The bounded re-emit tick shared by COLLECT and TRANSMIT: advance the
     frame counter and, if the allowance and the spacing both permit, emit the
-    phase's (idempotent) sweep once more. Returns (new_state, actions)."""
+    phase's (idempotent) sweep once more. ``value`` is the action's argument (the
+    TRANSMIT cap, or None). Returns (new_state, actions)."""
     frames = state.frames_since_emit + 1
     if (state.action_emits <= SBR_ACTION_REEMIT_LIMIT
             and frames >= SBR_ACTION_REEMIT_FRAMES):
         return (replace(state, action_emits=state.action_emits + 1, frames_since_emit=0),
-                [Action(action_kind)])
+                [Action(action_kind, value=value)])
     return replace(state, frames_since_emit=frames), []
 
 
@@ -7501,7 +7662,7 @@ def _sbr_collect(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState
     if state.data_ready_streak >= SBR_OBSERVE_DEBOUNCE_K:
         state = _sbr_enter(state, SBR_TRANSMIT, snapshot.ut)
         return (replace(state, action_emits=1, frames_since_emit=0),
-                [Action(ACTION_TRANSMIT_SCIENCE)])
+                [_sbr_transmit_action(params)])
 
     # no-experiments-aboard: an enumeration that SUCCEEDED and found nothing.
     empty = (snapshot.science_experiment_count == 0)
@@ -7555,7 +7716,8 @@ def _sbr_transmit(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrStat
                          % (params.transmit_timeout, params.transmit_min_science,
                             _sbr_evidence(state)))), []
 
-    return _sbr_reemit(state, ACTION_TRANSMIT_SCIENCE)
+    return _sbr_reemit(state, ACTION_TRANSMIT_SCIENCE,
+                       _sbr_transmit_action(params).value)
 
 
 def _sbr_recover(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState, List[Action]]:
@@ -7575,9 +7737,14 @@ def _sbr_recover(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState
         # the terminal at a 0.0 floor.
         if _is_finite(snapshot.career_funds):
             state = replace(state, post_loss_funds=float(snapshot.career_funds))
+        # The science-pool half, stamped the same way on every lane (inert
+        # evidence unless that pool is declared).
+        if _is_finite(snapshot.career_science):
+            state = replace(state, post_loss_science=float(snapshot.career_science))
         credit = _sbr_recovery_credit(state)
-        if credit is not None and credit >= params.recover_min_funds:
+        if _sbr_recover_credit_met(params, credit):
             return _sbr_enter(state, SBR_RECOVERED, snapshot.ut), []
+        pool = params.recover_credit_pool
         streak = state.lost_without_credit_streak + 1
         state = replace(state, lost_without_credit_streak=streak)
         if streak >= SBR_RECOVER_CREDIT_GRACE_FRAMES:
@@ -7588,23 +7755,24 @@ def _sbr_recover(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState
             # unreadable one is a broken channel (retryable). Condemning a dark
             # channel as a break-up would file a kRPC fault as a Parsek-adjacent
             # flight failure and burn the retry that would have fixed it.
-            if state.funds_baseline is None or state.post_loss_funds is None:
+            if _sbr_recover_pool_dark(state):
                 return replace(
                     state, done=True, verdict=MISSION_FLAKE, flake_phase=state.phase,
                     flake_reason=("career-pool-channel-dark: the craft was gone for %d "
-                                  "consecutive frames and the career funds pool never "
+                                  "consecutive frames and the career %s pool never "
                                   "produced a finite reading on BOTH sides of the "
                                   "recovery, so no credit could be computed at all - "
                                   "the channel is dark, which says nothing about the "
                                   "recovery; %s"
-                                  % (streak, _sbr_evidence(state)))), []
+                                  % (streak, pool, _sbr_evidence(state)))), []
             return replace(
                 state, done=True, verdict=MISSION_ASSERT_FAIL,
                 loss_reason=("vessel-lost-without-recovery-credit: the craft was gone for "
-                             "%d consecutive frames and the career funds pool never rose "
+                             "%d consecutive frames and the career %s pool never rose "
                              "by the required %.3f - which is what a craft that BROKE UP "
                              "looks like, not one that was recovered; %s"
-                             % (streak, params.recover_min_funds, _sbr_evidence(state)))), []
+                             % (streak, pool, _sbr_recover_floor(params),
+                                _sbr_evidence(state)))), []
         return state, []
     state = replace(state, lost_without_credit_streak=0)
 
@@ -7691,9 +7859,10 @@ def evaluate_sbr_assertions(frames, params: SbrParams,
     - ``scienceTransmittedObserved``: the career science pool ROSE by at least
       ``transmitMinScienceGain`` over its pre-transmit baseline.
     - ``vesselRecoveredObserved``: the machine reached RECOVERED, i.e. the craft
-      was OBSERVED gone AND the funds pool had risen. The value is the measured
-      funds gain, so the result JSON records WHAT the recovery was worth rather
-      than merely that one happened.
+      was OBSERVED gone AND the declared credit pool (funds by default, science
+      under ``recoverCreditPool = "science"``) had risen. The value is the
+      measured credit, so the result JSON records WHAT the recovery was worth
+      rather than merely that one happened.
 
     B1'S OWN APOAPSIS / CANOPY ASSERTIONS ARE DELIBERATELY NOT RE-RUN HERE. They
     are B1's contract on B1's fixture, and re-asserting an apoapsis WINDOW would
@@ -7728,18 +7897,35 @@ def evaluate_sbr_assertions(frames, params: SbrParams,
                           "baseline": getattr(state, "science_baseline", None),
                           "final": getattr(state, "last_science", None)}),
         AssertionOutcome("vesselRecoveredObserved", bool(recovered), gain_f,
-                         {"required": params.recover_min_funds,
-                          "baseline": getattr(state, "funds_baseline", None),
-                          "final": getattr(state, "last_funds", None),
-                          # ISSUED, not merely emitted: the perform seam can
-                          # decline, and a row saying "requested" of a verb the
-                          # runner never issued is the misreading this whole
-                          # split exists to prevent. `recoveryAsks` is the
-                          # emission count next to it, so a reader can see a
-                          # declined ask for what it is.
-                          "recoveryIssued": bool(getattr(state, "recover_issued", False)),
-                          "recoveryAsks": int(getattr(state, "recover_asks", 0) or 0)}),
+                         _sbr_recovered_row_detail(params, state)),
     ]
+
+
+def _sbr_recovered_row_detail(params: SbrParams, state: Optional[SbrState]) -> Dict:
+    """The ``vesselRecoveredObserved`` row's detail, read off the DECLARED credit
+    pool. On the funds default it is the historical dict key for key; the science
+    pool reports its own pair and names itself."""
+    if params.recover_credit_pool == SBR_CREDIT_POOL_SCIENCE:
+        baseline = getattr(state, "recover_science_baseline", None)
+        final = getattr(state, "post_loss_science", None)
+        required = params.recover_min_science
+    else:
+        baseline = getattr(state, "funds_baseline", None)
+        final = getattr(state, "last_funds", None)
+        required = params.recover_min_funds
+    detail = {"required": required,
+              "baseline": baseline,
+              "final": final,
+              # ISSUED, not merely emitted: the perform seam can decline, and a
+              # row saying "requested" of a verb the runner never issued is the
+              # misreading this whole split exists to prevent. `recoveryAsks` is
+              # the emission count next to it, so a reader can see a declined ask
+              # for what it is.
+              "recoveryIssued": bool(getattr(state, "recover_issued", False)),
+              "recoveryAsks": int(getattr(state, "recover_asks", 0) or 0)}
+    if params.recover_credit_pool == SBR_CREDIT_POOL_SCIENCE:
+        detail["creditPool"] = SBR_CREDIT_POOL_SCIENCE
+    return detail
 
 
 # ---------------------------------------------------------------------------

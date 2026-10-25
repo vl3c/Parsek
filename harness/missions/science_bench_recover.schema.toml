@@ -24,6 +24,12 @@
 # re-make the mistake `harness/fixtures/saves/README.md` records - a ledger that
 # agrees with a stale spec proves nothing. The floors exist to separate "moved" from
 # "did not move", never to predict a number.
+#
+# FOUR OPTIONAL CAREER KEYS keep the defaults above when absent:
+# `preRecoverDwellSeconds` (a hold before the recovery ask), `recoverCreditPool` +
+# `recoverMinScienceGain` (measure the recovery on the SCIENCE pool, for a stock
+# Science game that has no funds), and `transmitMaxExperiments` (transmit at most N
+# experiments and recover the rest). Each is described at its declaration below.
 
 # ---------------------------------------------------------------------------
 # Flight half (see b1_pad_hop.schema.toml for the rationale on each).
@@ -265,3 +271,60 @@ required = false
 type = "number"
 min = 0.0
 max = 120.0
+
+# OPTIONAL. Which career pool the RECOVERED terminal measures ACROSS the
+# recovery: "funds" (absent = the default, the machine every CAREER lane flies) or
+# "science". A closed vocabulary, refused at ADMIT on any other spelling.
+#
+# WHY "science" EXISTS. A stock SCIENCE game has no funds pool - kRPC's
+# SpaceCenter.Funds raises there - so the funds-measured terminal can never
+# certify a recovery in one. What a Science-mode recovery does produce is a
+# science credit for the data still aboard. Under "science" the terminal is the
+# same observation on the other pool: a pre-recover science baseline (tracked up
+# to the last live frame before the perform seam reported the recovery ISSUED, so
+# a late transmit credit cannot pose as the recovery's) against a science reading
+# taken ON a vessel-gone frame after the issue, the same grace streak, and the
+# same `career-pool-channel-dark` FLAKE vs `vessel-lost-without-recovery-credit`
+# ASSERT-FAIL split, each naming the pool. `recoverMinFundsGain` is still
+# required by this schema but is not consulted; the funds pool is never read for
+# any gate under this value. Pair it with `transmitMaxExperiments` so some data is
+# left aboard to be credited.
+[params.recoverCreditPool]
+required = false
+type = "string"
+values = ["funds", "science"]
+
+# OPTIONAL, used only when `recoverCreditPool = "science"`. Minimum OBSERVED rise
+# in SpaceCenter.Science measured across the recovery before RECOVERED is granted.
+# Absent = 0.1.
+#
+# STRICTLY POSITIVE, unlike `recoverMinFundsGain`, and the asymmetry is the point:
+# under the science pool this credit is the ONLY proof the craft was recovered and
+# did not break up, so "the pool was readable across the event" is not enough on
+# its own. The machine also demands a credit above 0 whatever this says. Size it
+# like `transmitMinScienceGain`: well under the subject's value, to separate
+# "credited something" from "credited nothing" (a Strategies currency converter or
+# a repeat subject's diminishing return can bank much less than the catalogue
+# value).
+[params.recoverMinScienceGain]
+required = false
+type = "number"
+min = 0.001
+max = 10000.0
+
+# OPTIONAL. The most experiments the TRANSMIT verb sends over the WHOLE RUN.
+# Absent = transmit every experiment holding data (the historical machine).
+#
+# The cap rides the TRANSMIT action and is enforced at the runner's perform seam,
+# which counts the sends it actually made and walks the experiments in kRPC's
+# enumeration order, so which module keeps its data is deterministic and a
+# re-emitted TRANSMIT can retry a send that RAISED but never send an extra
+# experiment. The rest stays aboard for the recovery credit. Nothing in the
+# machine assumes the craft is empty after a transmit (COLLECT's evidence is the
+# MAX data count). The floor is 1: a cap of 0 would make TRANSMIT's own
+# science-gain gate unreachable. The ceiling matches `collectMinExperiments`.
+[params.transmitMaxExperiments]
+required = false
+type = "int"
+min = 1
+max = 32

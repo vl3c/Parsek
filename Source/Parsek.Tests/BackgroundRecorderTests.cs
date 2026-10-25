@@ -2143,6 +2143,66 @@ namespace Parsek.Tests
             Assert.False(bgRecorder.GetOnRailsHasOpenSegment(100));
         }
 
+        private static OrbitSegment OpenBgSegment(double startUT)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT,
+                inclination = 0.1,
+                eccentricity = 0.001,
+                semiMajorAxis = 701000.0,
+                longitudeOfAscendingNode = 10.0,
+                argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.5,
+                epoch = startUT,
+                bodyName = "Kerbin"
+            };
+        }
+
+        // catches: a time-jump re-capture that drops the pre-jump coast or leaves the
+        // segment open past the jump (the CheckpointAllVessels close, for one vessel).
+        [Fact]
+        public void RecaptureOnRailsOrbit_ClosesTheOpenSegmentAtTheJumpUT()
+        {
+            var logLines = new List<string>();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            var tree = MakeTree((100, "rec_bg1"), (200, "rec_bg2"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.InjectOpenOrbitSegmentForTesting(100, OpenBgSegment(428.0));
+
+            BackgroundRecaptureOutcome outcome = bgRecorder.RecaptureOnRailsOrbit(100, 706.21, pid => null);
+
+            // No live vessel in xUnit: the coast up to the jump is kept, no new segment opens.
+            Assert.Equal(BackgroundRecaptureOutcome.NoVessel, outcome);
+            Assert.Single(tree.Recordings["rec_bg1"].OrbitSegments);
+            Assert.Equal(428.0, tree.Recordings["rec_bg1"].OrbitSegments[0].startUT);
+            Assert.Equal(706.21, tree.Recordings["rec_bg1"].OrbitSegments[0].endUT);
+            Assert.False(bgRecorder.GetOnRailsHasOpenSegment(100));
+            Assert.Contains(logLines, l => l.Contains("[BgRecorder]")
+                && l.Contains("Time jump: no background re-capture: pid=100 rec=rec_bg1 UT=706.21 outcome=NoVessel"));
+
+            Assert.Equal(BackgroundRecaptureOutcome.NoOpenSegment,
+                bgRecorder.RecaptureOnRailsOrbit(200, 706.21, pid => null));
+            Assert.Equal(BackgroundRecaptureOutcome.NotTracked,
+                bgRecorder.RecaptureOnRailsOrbit(999, 706.21, pid => null));
+            Assert.Empty(tree.Recordings["rec_bg2"].OrbitSegments);
+        }
+
+        [Fact]
+        public void RecaptureOnRailsOrbit_SegmentOpenedAtTheSameUT_IsNotClosedZeroLength()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.InjectOpenOrbitSegmentForTesting(100, OpenBgSegment(706.21));
+
+            Assert.Equal(BackgroundRecaptureOutcome.NoVessel,
+                bgRecorder.RecaptureOnRailsOrbit(100, 706.21, pid => null));
+            Assert.Empty(tree.Recordings["rec_bg1"].OrbitSegments);
+            Assert.True(bgRecorder.GetOnRailsHasOpenSegment(100));
+        }
+
         [Fact]
         public void CheckpointAllVessels_EmptyBackgroundMap_LogsAllZeroSummary()
         {
