@@ -15,7 +15,8 @@ verbatim except for:
     `attRot0` pre-multiplied by the Y rotation. Each Goo's `sym` lines name the other
     two. The third Goo is a fresh part id and persistentId; its tail (EVENTS / ACTIONS
     / PARTDATA / MODULE blocks) is the first Goo's, verbatim, so no module block is
-    invented.
+    invented. The pod gains a `link` line for it: KSP drops a child its parent
+    does not link (CS-1's first three-Goo flight, 2026-10-25, flew with two).
 
 THE ROTATION IS VALIDATED against stock data: rotating the first Goo by 180 degrees
 reproduces the stock craft's second Goo's `pos` and `rot` (to the file's printed
@@ -50,6 +51,7 @@ GOO_A = "GooExperiment_4294442852"   # kept verbatim
 GOO_B = "GooExperiment_4294442798"   # re-placed at +120 deg
 GOO_C = "GooExperiment_4294442744"   # new, at +240 deg
 GOO_C_PERSISTENT_ID = "2716334921"
+POD = "mk1pod.v2_4294466236"         # the Goo units' srfAttach host
 
 
 def _fmt(x: float) -> str:
@@ -153,7 +155,7 @@ def build(base_text: str) -> str:
     header, blocks = _split_parts(base_text.replace("\r\n", "\n"))
     header = re.sub(r"^ship = .*$", "ship = %s" % SHIP_NAME, header, count=1, flags=re.M)
     by_id = {_scalar(b, "part"): i for i, b in enumerate(blocks)}
-    for pid in (GOO_A, GOO_B):
+    for pid in (GOO_A, GOO_B, POD):
         if pid not in by_id:
             raise ValueError("base craft lacks %s" % pid)
     goo_a = blocks[by_id[GOO_A]]
@@ -167,6 +169,14 @@ def build(base_text: str) -> str:
     blocks[by_id[GOO_A]] = a
     blocks[by_id[GOO_B]] = b
     blocks.insert(by_id[GOO_B] + 1, c)
+    # The pod must LINK the new Goo: KSP builds the part tree from the parent's
+    # `link` lines and silently drops a child whose srfN names a host that does
+    # not link it.
+    pod = by_id[POD]
+    pod_link = "\tlink = %s\n" % GOO_B
+    if blocks[pod].count(pod_link) != 1:
+        raise ValueError("pod %s does not link %s" % (POD, GOO_B))
+    blocks[pod] = blocks[pod].replace(pod_link, pod_link + "\tlink = %s\n" % GOO_C)
     out = header + "".join(blocks)
     return out.replace("\n", "\r\n") if crlf else out
 

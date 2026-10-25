@@ -44,8 +44,11 @@ id = "CS-1-science-first-hop"
 # probe read a Home path with can_transmit_science=False on the pod's INTERNAL antenna), so
 # the lane was re-cut to the staged, recover-only shape, which flew PASS on attempt 1 as
 # `2026-10-25_2152` (two Goo units; pad 1/1, airborne 3/3, science 0 -> 18.5). Re-cut
-# again to the three-Goo CS Flea with the landed Goo; `operator` until that cut flies
-# green, PROMOTE to nightly after it.
+# again to the three-Goo CS Flea with the landed Goo. Its first flight (run 6,
+# `2026-10-25` attempts 1 and 2) was INVALID at the landed COLLECT (`experiments=3`):
+# the builder had not added the pod's `link` line for the third Goo, so KSP dropped it
+# at craft load; the builder now links it, gated by test_cs_flea_craft. `operator` until
+# this cut flies green, PROMOTE to nightly after it.
 tier = "operator"
 description = "Scripted campaign stage 1 (Science): in a genuine stock new Science game, launch the three-Goo CS Flea from the VAB, take a Goo reading on the pad, a Goo and a crew report in low flight and a Goo after landing, recover the craft (every reading credits on recovery) and auto-commit the recorded flight."
 instanceProfile = "stock-tree"

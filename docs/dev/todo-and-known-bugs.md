@@ -2279,7 +2279,8 @@ node. So `science_bench_recover` gained staged readings (`padExperiments`, `flig
 `transmitMaxExperiments = 0`) and CS-1 reads Goo on the pad, Goo and the crew report in low
 flight, and recovers: PASS `2026-10-25_2152` (science 0 -> 18.5, enough for Engineering 101).
 Then re-cut to the derived three-Goo CS Flea (`harness/tools/build_cs_flea_craft.py`) with a
-landed Goo (`landedExperiments`); it owes that flight. The crew report reads once: the Mk1
+landed Goo (`landedExperiments`). Its first flight was INVALID: the builder did not link the third
+Goo from the pod, so KSP dropped it at craft load (fixed, cell-gated); it owes a re-flight. The crew report reads once: the Mk1
 pod's container takes data only from an EVA kerbal. CS-2 researches Engineering 101 and adds a Communotron
 16 to transmit. A stock-tree flight needs BOTH instances provisioned from one worktree (the
 reference-DLL admission check).
