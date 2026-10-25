@@ -56,8 +56,10 @@
 # cheapest craft both can.
 "career-science-pad-hard" = ["Settings Probe"]
 "career-pad-craft-zero-funds" = ["Settings Probe"]
-# L8 launches the probe twice on L2's host after its rewinds strip the Jumping Flea.
-"career-pad-craft" = ["Settings Probe"]
+# L8 launches the probe twice on L2's host after its rewinds strip the Jumping Flea. KD-1
+# opens the stock Jumping Flea in the VAB after its rewind to try the dead kerbal in the
+# crew dialog (the fixture's own Flea is a pad VESSEL, not a craft file).
+"career-pad-craft" = ["Jumping Flea", "Settings Probe"]
 # SCI-1 launches the library Jumping Flea twice from the VAB after its Rewind-to-Launch
 # strips the host's own Flea (the host carries its craft on the pad, nothing in the VAB).
 "career-science-pad" = ["Jumping Flea"]
