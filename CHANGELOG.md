@@ -32,6 +32,11 @@ _(unreleased - entries accumulate here per commit)_
   new branch's recording now notes the running converter, so the end of that recording is no longer
   trimmed away and its mined resources no longer arrive early on a spawn.
   (TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES)
+- **Dropping a part with its drill or converter still on no longer keeps a dull recording ending.**
+  When such a part left by decoupling or undocking, the vessel's recording still read the
+  converter as running, so its quiet ending was never trimmed and its spawn waited for no reason.
+  The recording now notes that the converter stopped when the part left.
+  (TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES)
 - **A held end-of-flight vessel frozen by a time jump no longer spawns away from its ghost.** While
   the vessel spawns from its jump-shifted orbit, a blocked spawn waits for the spot to clear instead
   of walking back along the unshifted path. (REALSPAWN-JUMP-SHIFT-RESIDUE)

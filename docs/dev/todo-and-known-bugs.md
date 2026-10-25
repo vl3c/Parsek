@@ -2490,7 +2490,7 @@ exclusion circle would be retired and not respawn. EVA-12 parks its kerbals 153 
 
 ---
 
-## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness. Fresh-branch promotion residue FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit. Background-leg item CLOSED 2026-10-07, branch `release-rulings`, by the converter-event witness. Supply-route item CLOSED 2026-10-07, branch `chain-tip-cargo-all-spawns`, by END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO (owner ruling: trimming stays)]
+## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness. Fresh-branch promotion residue FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit. Decoupled-converter missed trim FIXED 2026-10-25, branch `wip-residue`, xUnit. Background-leg item CLOSED 2026-10-07, branch `release-rulings`, by the converter-event witness. Supply-route item CLOSED 2026-10-07, branch `chain-tip-cargo-all-spawns`, by END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO (owner ruling: trimming stays)]
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): still real, low. The witnesses are
 still a harvest window and a running converter (`RecordingOptimizer.TailTrim.cs`). The in-vessel
@@ -2533,7 +2533,18 @@ the vessel by decouple or undock keeps reading "running" on the parent recording
 `CheckConverterState` walks only `v.parts` and the `Decoupled` event carries the pid of the part
 that came off, not the converter's, so that parent's tail is never trimmed (a missed trim, never
 early resources; no recording in the fixture, dev-save or collected-log corpus ends with a
-converter running). A destroyed part is final (fixed in the same PR).
+converter running). A destroyed part is final (fixed in the same PR). ~~Decoupled-converter
+missed trim~~ FIXED 2026-10-25, branch `wip-residue`, xUnit (`DepartedConverterStopTests`,
+`RecordingOptimizerTests.TrimBoringTail_RunningConverterPartDecoupledAway_TrimsAfterTheDeparture`):
+both converter polls (`FlightRecorder.CheckConverterState`, `BackgroundRecorder.CheckConverterState`)
+count the tracked running converter pids they saw on the vessel; when fewer were seen than the
+tracking set holds, `FlightRecorder.AppendDepartedConverterStops` writes a `ConverterDeactivated`
+at the poll UT for each tracked pid no longer in `Vessel.parts` and drops it from the set (one
+Info line `Converter part(s) left the vessel while running`). A read with no parts proves nothing
+and writes nothing. The departed part's own recording seeds its running state from the live part
+(the background `InitializeLoadedState` seed for a fresh child, the promotion converter seed for
+an active-side branch). On the parent ghost the stop only ends the running loop of a part the
+decouple already hid.
 
 Fix options: ~~(1) give the optimizer pass the ledger's route rows whose endpoint is the recording's
 vessel and treat a row inside the tail as interesting~~ (not taken, see the closed route item);
@@ -2544,9 +2555,9 @@ fresh branch (it would also start the ghost's running loop there)~~ - promotion 
 (`PartStateSeeder.EmitConverterSeedEvents`) when the active recording has no converter edge yet
 (`ChainPromotionShouldEmitConverterSeeds`, the engine gate's shape), at the engine seeds' UT
 (`ResolveChainPromotionSeedUT`). A recording that already carries a converter edge keeps its own
-state. Still open: the in-vessel transfer half (owner's call), a background vessel recorded only on
-rails (a later promotion of it now seeds, the background recording itself does not), and the
-decoupled-converter missed trim. Live witness: the in-game cell
+state. Still open: the in-vessel transfer half (owner's call) and a background vessel recorded only
+on rails (a later promotion of it now seeds, the background recording itself does not); the
+decoupled-converter missed trim is fixed (above). Live witness: the in-game cell
 `PromotionConverterSeedInGameTest.PromotionSeedsRunningConverters` (category `PromotionConverterSeed`,
 lane `MINE-15-promotion-converter-seed`, LIVE-PROVEN 2026-10-24 on its first flight `2026-10-24_2357`:
 five running converters, five seeds) runs the promotion seed
