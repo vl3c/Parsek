@@ -2822,11 +2822,17 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     # own `multi` / `perCategoryCount` fields are what a reader needs to see that the
     # gate was the aggregate rather than a single per-category line. The CONSTITUENTS
     # are gated statically instead, at validation time, one whole pin each.
-    driven_category = _driven_category(spec)
+    # Every RunTests step's batch gates, not only the first
+    # (HARNESS-GATES-ON-THE-FIRST-OF-TWO-SAME-CATEGORY-BATCHES): a category driven twice
+    # owes two lines and its failed counts sum.
+    driven_selectors = hlib.spec_batch_selectors(spec)
+    driven_category = (",".join(str(s) for s in dict.fromkeys(driven_selectors))
+                       if len(set(driven_selectors)) > 1 else _driven_category(spec))
     batches = hlib.find_batch_complete_lines(log_text)
-    sel = hlib.resolve_batch_complete(batches, driven_category)
+    sel = hlib.resolve_spec_batch_complete(batches, driven_selectors)
     batch_present = sel.present
     batch_failed = sel.failed
+    batch_results_comparable_failed = sel.results_comparable_failed
     detail["batchComplete"] = {
         "status": "PASS" if batch_present else ("SKIPPED" if not requires_batch else "FAIL"),
         "found": batch_present, "failed": batch_failed,
@@ -2836,7 +2842,12 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         "duplicateAggregate": sel.duplicate_aggregate,
         "expectedCategoryCount": sel.expected_category_count,
         "perCategoryCount": sel.per_category_count,
+        "matchedRuns": sel.matched_runs, "expectedRuns": sel.expected_runs,
+        "runsShort": sel.runs_short,
     }
+    if sel.runs_short:
+        logger.warn("Verify", "verify batchComplete: selector '%s' is driven by %d RunTests step(s) but only %d matching BATCH_COMPLETE line(s) are present -> runs_short defined fault (a later batch cut off before its BATCH_COMPLETE); reds batch-incomplete, never a pass off the earlier line"
+                    % (driven_category, sel.expected_runs, sel.matched_runs))
     if sel.duplicate_aggregate:
         logger.warn("Verify", "verify batchComplete: multi-category selector '%s' emitted MORE THAN ONE category=multi:<n> aggregate line -> duplicate_aggregate defined fault (the summary emitted twice); reds batch-incomplete, never a silent first-wins (M-A5 integration item 10)"
                     % (driven_category,))
@@ -2846,9 +2857,9 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     if sel.category_count_mismatch:
         logger.warn("Verify", "verify batchComplete: multi-category aggregate category=%s declares %s categor(ies) but %d per-category BATCH_COMPLETE line(s) present -> category_count_mismatch defined fault (a category batch cut off, or an unexpected extra batch); reds batch-incomplete, never a silent pass (M-A5.1 SF2)"
                     % (sel.category, sel.expected_category_count, sel.per_category_count))
-    logger.info("Verify", "verify batchComplete status=%s found=%s failed=%s multi=%s perCategory=%d"
+    logger.info("Verify", "verify batchComplete status=%s found=%s failed=%s multi=%s perCategory=%d runs=%d/%d"
                 % (detail["batchComplete"]["status"], batch_present, batch_failed,
-                   sel.multi, sel.per_category_count))
+                   sel.multi, sel.per_category_count, sel.matched_runs, sel.expected_runs))
 
     verifiers: Dict = {
         "killed": drive.killed,
@@ -2858,6 +2869,10 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         # through all_expected_met) and on every autopilot run whose post-mission
         # outcome steps all answered.
         "mission_outcome_unmet": mission_outcome_unmet,
+        # DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS: a valid stage with a driven step
+        # that missed its expect (a post-mission recording verb's own ERROR) is never
+        # a PASS; classify_verdict reds it last, after every richer verifier.
+        "unmet_step": dv.unmet_step and driver_valid,
     }
     driver_facts: Dict = {
         "spec_valid": True,
@@ -3119,10 +3134,13 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
 
     # 5. Results parse (always parsed for triage; drives verdict when reachable).
     results_failures = _parse_results(instance_dir)
-    results_mismatch = (batch_present and batch_failed is not None
-                        and results_failures != batch_failed)
+    # The results file keeps the last status per test per scene, so the cross-check
+    # reads the count it can corroborate; a repeated batch's earlier failures still
+    # gate through batch_failed below.
+    results_mismatch = (batch_present and batch_results_comparable_failed is not None
+                        and results_failures != batch_results_comparable_failed)
     if driver_valid and not short_circuited:
-        results_failed = results_failures > 0
+        results_failed = results_failures > 0 or bool(batch_present and batch_failed)
         verifiers["results_failed"] = results_failed
         verifiers["results_mismatch"] = results_mismatch
         detail["testResults"] = {"status": "FAIL" if (results_failed or results_mismatch) else "PASS",

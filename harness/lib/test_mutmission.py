@@ -362,11 +362,13 @@ class SharedPathTests(unittest.TestCase):
         # The key is written only when present, so a replay over a run archived before it
         # existed stays byte-equal (prepare_baseline compares the row exactly).
         self.assertNotIn("recordingRefusal", errored.detail_mission_outcome)
-        # An unknown refusal reason is not a known gate: non-gating, as before.
+        # An unknown refusal reason is still a step the seam did not carry out
+        # (DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS): driver-verdict-mismatch.
         unknown = missionverify.compose_driver_validity(
             ev([("0001", "LoadGame", "OK", ""), ("0003", "Recover", "REJECTED",
                  "no-such-reason")]), ok_mission, False, False)
-        self.assertTrue(unknown.driver_valid)
+        self.assertEqual((False, "driver-verdict-mismatch"),
+                         (unknown.driver_valid, unknown.stage_subkind))
         # Only the FIRST post-mission miss is read: an ERROR before a refusal is the cause.
         later = missionverify.compose_driver_validity(
             ev([("0001", "LoadGame", "OK", ""), ("0003", "CommitTree", "ERROR", ""),
@@ -392,6 +394,59 @@ class SharedPathTests(unittest.TestCase):
                                  {"id": "0002", "phase": "mission", "met": True}]},
             "verifiers": {"missionOutcome": refused.detail_mission_outcome}})
         self.assertEqual("Recover", blamed["cmd"])
+
+    def test_an_unmet_post_mission_recording_step_never_reads_pass(self):
+        # DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS: L13 `2026-10-25_0016` read driverValidity
+        # PASS beside ExitToSpaceCenter TIMEOUT `not-in-flight`, and RF-C1 `_0007` classified
+        # PASS with one unmet ExitToSpaceCenter. A step the seam did not carry out is its
+        # driver-INVALID; a recording verb's own ERROR stays valid but reds unmet-step.
+        def ev(rows):
+            lines = ["id=%s cmd=%s verdict=%s%s" % (i, c, v, (" msg=" + m) if m else "")
+                     for i, c, v, m in rows if v]
+            return hlib.evaluate_response_stream(lines, [{"id": i, "cmd": c, "expect": "OK"}
+                                                         for i, c, _v, _m in rows])
+        ok_mission = {"id": "0002", "met": True, "missionVerdict": "MISSION-OK", "subkind": ""}
+
+        def verdict(dv):
+            driver = {"valid": dv.driver_valid, "stage_subkind": dv.stage_subkind or "driver-stage"}
+            return hlib.classify_verdict(
+                driver, {"killed": False, "batch_expected": False, "batch_present": True,
+                         "mission_outcome_unmet": dv.mission_outcome_unmet,
+                         "unmet_step": dv.unmet_step}, {}, 1, "once")
+
+        cases = [
+            ([("0003", "ExitToSpaceCenter", "TIMEOUT", "not-in-flight"),
+              ("0004", "LaunchFromEditor", "REJECTED", "")], "seam-timeout"),
+            ([("0003", "WarpToUT", "REJECTED", "")], "driver-verdict-mismatch"),
+            ([("0003", "CommitTree", None, "")], "driver-stage"),
+            ([("0003", "LoadGame", "ERROR", "")], "load-failed"),
+        ]
+        for rows, subkind in cases:
+            dv = missionverify.compose_driver_validity(
+                ev([("0001", "LoadGame", "OK", "")] + rows), ok_mission, False, False)
+            self.assertEqual((False, subkind, False),
+                             (dv.driver_valid, dv.stage_subkind, dv.unmet_step), rows)
+            self.assertEqual(subkind,
+                             dv.detail_mission_outcome["recordingRefusal"]["driverSubkind"])
+            v = verdict(dv)
+            self.assertEqual((hlib.VERDICT_INVALID, subkind), (v.verdict, v.subkind), rows)
+        errored = missionverify.compose_driver_validity(
+            ev([("0001", "LoadGame", "OK", ""), ("0003", "CommitTree", "ERROR", "")]),
+            ok_mission, False, False)
+        self.assertEqual((True, True), (errored.driver_valid, errored.unmet_step))
+        v = verdict(errored)
+        self.assertEqual((hlib.VERDICT_PARSEK_FAIL, hlib.UNMET_STEP_SUBKIND),
+                         (v.verdict, v.subkind))
+        clean = missionverify.compose_driver_validity(
+            ev([("0001", "LoadGame", "OK", ""), ("0003", "CommitTree", "OK", "")]),
+            ok_mission, False, False)
+        self.assertFalse(clean.unmet_step)
+        self.assertEqual(hlib.VERDICT_PASS, verdict(clean).verdict)
+        # A richer red keeps its subkind: unmet-step is the last red before PASS.
+        v = hlib.classify_verdict(
+            {"valid": True}, {"killed": False, "batch_present": True, "unmet_step": True,
+                              "expectation_mismatch": True}, {}, 1, "once")
+        self.assertEqual("expectation", v.subkind)
 
 
 

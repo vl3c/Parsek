@@ -13,6 +13,10 @@ id = "TOUR-1-tourist-spawn-stays-tourist"
 # name, and any `tourists=[1-9]` creation summary), and never drops her as dead / missing.
 # Defect (1)'s re-creation line cannot print on this flow and stays proven by unit tests
 # (TouristPassengerTests). Defect (2) is unchanged and gates as before.
+# LIVE-PROVEN 2026-10-25 on the re-cut: `2026-10-25_0907` PASS attempt 1, 0 mismatches
+# (automation DLL sha256 prefix f82a16be, branch 40e8e73 on main a71908c): `Reservation:
+# 'Masel Kerman' endUT=Infinity (Aboard) ... (tourist passenger: held, no stand-in)`, the
+# spawn LANDED with zero `Created missing` lines in the whole log.
 #
 # FLOWN ONCE: `2026-10-24_2323` (automation DLL from main 6aae72758) PARSEK-FAIL, ONE mismatch:
 # the (f) chain. Every other pin held: DEFECT (2) IS LIVE-PROVEN (`Tourist hold:` and
