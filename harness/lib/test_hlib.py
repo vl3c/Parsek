@@ -25993,6 +25993,26 @@ class ListHandlesSourceSyncTests(unittest.TestCase):
         self.assertEqual(hlib.LISTHANDLES_CHAIN_TREE_IDS_KEY,
                          self.consts["ChainTreeIdsKeySuffix"])
 
+    def test_the_timeline_log_line_prefix_and_keys_are_byte_equal(self):
+        """kind=timeline's lines are written by `TestCommandTimelineReadback`, a sibling
+        file; read it as code the same way."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands",
+                            "TestCommandListHandlesTimeline.cs")
+        self.assertTrue(os.path.isfile(path), "the timeline read-back moved: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            raw = fh.read().replace("\r\n", "\n")
+        code = "\n".join(strip_cs_line_comment(l) for l in raw.split("\n"))
+        consts = dict(re.findall(r'\bconst\s+string\s+(\w+)\s*=\s*"([^"\\]*)"\s*;', code))
+        self.assertEqual(hlib.LISTHANDLES_TIMELINE_LOG_PREFIX, consts["TimelineLogLinePrefix"])
+        self.assertEqual(hlib.LISTHANDLES_TIMELINE_RETIRED_WORD, consts["RetiredLogLineWord"])
+        for name, want in (("TimelineLogLineKeys", hlib.LISTHANDLES_TIMELINE_LOG_KEYS),
+                           ("RetiredLogLineKeys", hlib.LISTHANDLES_TIMELINE_RETIRED_LOG_KEYS)):
+            head = re.search(r"\b%s\s*=\s*\{" % name, code)
+            self.assertIsNotNone(head, "%s declaration not found" % name)
+            body = code[head.end():code.index("};", head.end())]
+            self.assertEqual(want, tuple(re.findall(r'"([^"\\]*)"', body)), name)
+        self.assertEqual("timeline", self.consts["TimelineKindToken"])
+
     def test_the_route_log_line_prefix_and_keys_are_byte_equal(self):
         self.assertEqual(hlib.LISTHANDLES_ROUTE_LOG_PREFIX,
                          self.consts["RouteLogLinePrefix"])

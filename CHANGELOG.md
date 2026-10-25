@@ -64,6 +64,9 @@ _(unreleased - entries accumulate here per commit)_
 - **Harness: a lane with a test step that timed out can no longer pass.** A step after the flight
   that timed out or got no answer now marks the run invalid and retries it, and one that failed
   outright turns it red. (DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS)
+- **Automated tests can read the Timeline.** A new read-back lists the Timeline's rows by kind and
+  checks that a milestone a Re-Fly removed draws no leftover row, with a lane on a built save that
+  holds that case. (TIMELINE-PHANTOM-MILESTONE-AFTER-REFLY-OF-LATER-SEGMENT)
 
 ---
 

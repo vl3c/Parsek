@@ -1250,7 +1250,24 @@ keys to the dedup set (`AddRetiredLegacyDuplicateKeys`, whatever their `Effectiv
 twin of any retired row (milestone, contract, strategy, facility) is hidden; the retired rows draw
 nothing themselves. Cell: `TimelineBuilderTests.LegacyMilestone_WhoseLedgerRowIsTombstoned_IsNotShown`.
 
-No lane yet (2026-10-24): no host produces the phantom (an optimizer-split career recording with a milestone in the later segment, then a Re-Fly of that segment), and no seam reads Timeline rows by kind.
+Lane (2026-10-25, branch `lane/tl1-timeline-phantom`, AUTHORED, never flown):
+`TL-1-timeline-retired-milestone-copy` on a BUILT save, because no flight on the current build can
+produce the precondition. Since the design 2.12 Rule 1 rulings (2026-10-19) a milestone is a
+sealing row (`SupersedeCommit.IsLossRow` lists only crew losses, loss reputation and building
+damage), `RewindInvoker.CanInvoke` precondition 7 (`SupersedeCommit.RetireSetHoldsSealingRow`)
+refuses a slot whose retire set holds one, and `SupersedeCommit.CommitTombstones`, the only writer
+of `LEDGER_TOMBSTONES`, writes exactly that retire set (`BuildRetireSet`, spanning ancestor
+included). So the milestone phantom lives only in saves a 2026-10-07..19 merge wrote. The one twin
+a merge can still retire is FacilityDestruction (xUnit
+`TestCommandTimelineReadbackTests.Facility_destruction_twin_reads_the_same_way`; no host).
+Fixture `career-earned-ksc-retired-milestone` (`harness/tools/build_career_earned_ksc_retired_milestone.py`)
+is `career-earned-ksc` plus one tombstone on the Kerbin/Science row, whose milestone-store copy
+stays tagged to the visible `1d611e75...`. New seam read-back `ListHandles kind=timeline`
+(`TestCommandListHandlesTimeline.cs`) builds the Timeline through `TimelineWindowUI.BuildFromLiveState`
+and reports rows by source plus, per tombstoned row, its twin copies in the store and its drawn
+twin rows; the lane requires `retiredTwinCopies=1 retiredTwinRows=0 legacyMilestoneRows=0`, which
+read `retiredTwinRows=1 legacyMilestoneRows=1` with `AddRetiredLegacyDuplicateKeys` removed
+(mutation-checked headless).
 
 ---
 

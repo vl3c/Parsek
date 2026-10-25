@@ -2841,7 +2841,7 @@ RUNTESTS_STRICT_VALUES: Tuple[str, ...] = ("true", "false")
 # and a missing key is not a value.
 LISTHANDLES_KIND_KEY = "kind"
 LISTHANDLES_KIND_VALUES: Tuple[str, ...] = ("rewindpoints", "committed", "active",
-                                             "chains", "routes")
+                                             "chains", "routes", "timeline")
 
 # `ListHandles kind=chains expectDigest=<hex8>`: the OPTIONAL readback comparison.
 # NOT a closed-value arg (its value is a digest, normally `${<label>.digest}` from an
@@ -2880,6 +2880,23 @@ LISTHANDLES_ROUTE_LOG_KEYS: Tuple[str, ...] = (
     "segment", "pendingStop", "cycleStartUT", "pendingDeliveryUT", "sendOnce", "pauseAfter",
     "origin", "stops", "stopPids", "stopFired", "dispatched", "debited", "pickedUp",
     "delivered", "paused", "resumed", "held",
+)
+
+# `ListHandles kind=timeline` (TL-1) writes one summary Info line, `listhandles timeline
+# count=.. recordingRows=.. ...` in `LISTHANDLES_TIMELINE_LOG_KEYS` order, then one
+# `listhandles timeline retired index=<i> type=.. subject=.. ut=.. twinCopies=..
+# twinRows=..` per listed tombstoned ledger row. A lane pins the phantom pair
+# (`retiredTwinCopies` >= 1, `retiredTwinRows=0`) off those lines. Byte-equal to
+# `TestCommandTimelineReadback` (pinned by ListHandlesSourceSyncTests).
+LISTHANDLES_TIMELINE_LOG_PREFIX = "listhandles timeline"
+LISTHANDLES_TIMELINE_RETIRED_WORD = "retired"
+LISTHANDLES_TIMELINE_LOG_KEYS: Tuple[str, ...] = (
+    "count", "recordingRows", "actionRows", "legacyRows", "milestoneRows",
+    "legacyMilestoneRows", "retired", "retiredWithTwin", "retiredTwinCopies",
+    "retiredTwinRows",
+)
+LISTHANDLES_TIMELINE_RETIRED_LOG_KEYS: Tuple[str, ...] = (
+    "type", "subject", "ut", "twinCopies", "twinRows",
 )
 
 # arg key -> (the ONLY verb that reads it, its closed value set). Iterated by

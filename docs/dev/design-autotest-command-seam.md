@@ -1553,7 +1553,7 @@ No side effects, so every refusal is `REJECTED` and there is no `ERROR` terminal
 
 | arg | values | meaning |
 |---|---|---|
-| `kind` | `rewindpoints` \| `committed` \| `active` \| `chains` \| `routes` | REQUIRED. Which handle family to enumerate. Fail-closed, case-sensitive (the `LoadGame scene=` rule): absent is `REJECTED kind-arg-missing`, anything else is `REJECTED kind-arg-invalid kind=<raw>`. Mirrored in `hlib.VERB_SCOPED_CLOSED_ARGS` so a typo is INVALID(spec-invalid) before a boot. |
+| `kind` | `rewindpoints` \| `committed` \| `active` \| `chains` \| `routes` \| `timeline` | REQUIRED. Which handle family to enumerate. Fail-closed, case-sensitive (the `LoadGame scene=` rule): absent is `REJECTED kind-arg-missing`, anything else is `REJECTED kind-arg-invalid kind=<raw>`. Mirrored in `hlib.VERB_SCOPED_CLOSED_ARGS` so a typo is INVALID(spec-invalid) before a boot. |
 | `expectDigest` | eight lowercase hex digits | OPTIONAL, `kind=chains` only. The digest of an earlier chains capture, normally `${<label>.digest}`; the answer then carries `expected=` and `match=`. On any other family `REJECTED expect-digest-kind-mismatch`; any other shape (including an unsubstituted `${...}`) `REJECTED expect-digest-invalid`. Checked pre-launch by `hlib.validate_list_handles_expect_digest`. |
 
 **Payload grammar.** Every value is `InvariantCulture` and percent-encoded on the wire
@@ -1614,7 +1614,7 @@ The digest exists so the D18 `chain-state-rederived` readback can be compared
   false, or no `ParsekFlight` yet), the dispatcher answers `DEFER ghost-chains-pending`,
   because `LoadGame` completes on the scene switch a second or more before
   `OnFlightReady` derives the chains, and an undeferred read would observe the previous
-  instant. The other four families are untouched by it.
+  instant. The other five families are untouched by it.
 - `kind=routes count=<n> truncated=<b> dormant=<n> route<i>=<RouteId> route<i>name=<name>
   route<i>status=<RouteStatus> route<i>completed=<n> route<i>skipped=<n>
   route<i>cursor=<LastObservedLoopCycleIndex> route<i>windowAnchor=<n>
@@ -1635,6 +1635,31 @@ The digest exists so the D18 `chain-state-rederived` readback can be compared
   route index=<i> id=.. name='..' status=.. completed=.. ...` (the keys in
   `TestCommandListHandles.RouteLogLineKeys` order, read out of the built payload), and the
   summary line gains ` dormant=<n>`.
+- `kind=timeline count=<n> truncated=<b> recordingRows=<n> actionRows=<n> legacyRows=<n>
+  milestoneRows=<n> legacyMilestoneRows=<n> retired=<n> retiredWithTwin=<n>
+  retiredTwinCopies=<n> retiredTwinRows=<n> retired<i>type=<GameActionType>
+  retired<i>subject=<twin key subject or empty> retired<i>ut=<UT, "R"> retired<i>twinCopies=<n>
+  retired<i>twinRows=<n>` (`TestCommandListHandlesTimeline.cs`, pure `TestCommandTimelineReadback`).
+  `count` and the `*Rows` counts are over the Timeline the window would draw, built by
+  `TimelineWindowUI.BuildFromLiveState` (the window's own call: ERS, ELS, the milestone store,
+  `GameStateStore.IsEventVisibleToCurrentTimeline`, the game mode, the tombstoned rows), split by
+  `TimelineEntry.Source`; `legacyMilestoneRows` counts legacy rows whose event is
+  `MilestoneAchieved`. `retired` is `EffectiveState.ComputeRetiredLedgerActions` (the ledger
+  minus the ELS), `retiredWithTwin` those with a legacy-twin key
+  (`TimelineBuilder.GetLegacyDuplicateKey`). `retiredTwinCopies` is computed from the STORE,
+  not from the built rows: committed milestone-store events that would be legacy-row candidates
+  (`TimelineBuilder.IsLegacyRowCandidate`), carry a retired twin key and no effective row's key;
+  `retiredTwinRows` is the built legacy rows carrying a retired twin key
+  (`TimelineEntry.LegacyKey`). So copies > 0 with rows = 0 is the phantom fix observed
+  (todo TIMELINE-PHANTOM-MILESTONE-AFTER-REFLY-OF-LATER-SEGMENT; rows > 0 is the phantom).
+  Retired rows are listed in ledger order, capped at 16 (`truncated`; the counts cover all);
+  the per-row twin counts are attributed to the first retired row carrying that twin. The
+  summary Info line is `listhandles timeline <the summary keys in
+  TestCommandTimelineReadback.TimelineLogLineKeys order>` and each listed row writes `listhandles
+  timeline retired index=<i> type=.. subject=.. ut=.. twinCopies=.. twinRows=..`, both read out of
+  the built payload and mirrored in `hlib.LISTHANDLES_TIMELINE_LOG_KEYS` /
+  `LISTHANDLES_TIMELINE_RETIRED_LOG_KEYS` (`ListHandlesSourceSyncTests`). Scene-agnostic (every
+  input is a process static). First consumer: TL-1.
 
 **Observability.** One Info line per call, `listhandles kind=<k> count=<n>
 truncated=<b>`, with the chains family appending ` evaluated=<b> digest=<hex8>` and, when
