@@ -2618,18 +2618,18 @@ already received the cycle). A non-loop route only has its retry gate cleared, a
 the rescan and delivers `cycle-1`; multi-stop partly delivered cycle not skipped; Paused baseline;
 Send Once kept; non-loop; refusals).
 
-Lane (2026-10-25, branch `lane/rs1-loop-route-rescan`, never flown): `RS-1-relay-route-endpoint-lost-rescan`
-proves the reachable half only. The button's click body moved into `LogisticsEndpointRescan.Run` (shared
-by the button and the new seam action `RouteCommand action=rescan`). On `rover-relay-c-recorded` the
-two-stop relay goes EndpointLost at stop 1's delivery after A is recovered between the windows, and a
-rescan that misses leaves it EndpointLost. A single-stop loop route cannot reach EndpointLost live: its
-gate and its delivery resolve the same endpoint through the same resolver in the same tick, so a missing
-endpoint is a gate hold (only a multi-stop route gates once at its first window). The FIX is still not
-live-proven: a lost endpoint comes back only by identity (a chain-held base respawned after a rewind) or
-by a new non-transport surface vessel within 500 m of the recorded point, and no seam verb can place one
-next to any committed fixture's lost stop (runway threshold about 703 m from relay-c's stop 1, uncrewed
-rovers, DriveVessel has no steering). Needs a host that can do that; RS-1's header names the assertions
-to add.
+Lane (2026-10-25, branch `lane/rs1-loop-route-rescan`, never flown): `RS-1-relay-route-endpoint-lost-rescan`.
+The button's click body moved into `LogisticsEndpointRescan.Run`, shared by the button and the new seam
+action `RouteCommand action=rescan`. On `rover-relay-c-recorded` the two-stop relay is activated, a
+one-second subject on C is recorded and committed (a rewind save with A alive, H58's pattern), A is
+recovered between the windows and stop 1's delivery sets EndpointLost; a first rescan misses. Rewind-to-
+Launch the subject: A is back, the route is still EndpointLost (the go-back keeps a validity status), and
+the second rescan finds both stops and restarts the loop route (`EndpointRescan: ... EndpointLost->Active`,
+`RouteResumed reason=endpoint-rescan`, `recovered=true status=Active`), after which one full cycle
+delivers to A (`completed=1`). Every one of those reds with the fix reverted. A single-stop loop route
+cannot reach EndpointLost live (its gate and delivery resolve the same endpoint in the same tick, so a
+missing endpoint is a gate hold), and no seam can bring a new non-transport vessel within 500 m of the lost
+stop, so the endpoint comes back by identity through the rewind. Live proof is owed to the first flight.
 
 ---
 
