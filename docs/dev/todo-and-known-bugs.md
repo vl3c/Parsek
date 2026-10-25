@@ -180,6 +180,47 @@ player flow this lane can fly removes a held tourist before her spawn.
 
 ---
 
+## ~~S07-PIN-PREDATES-PAD-EVIDENCE: S0.7 still pins the idle discard its orbiting host no longer gets~~ [FILED AND FIXED 2026-10-25, branch `claude/project-thread-ssl7ge`]
+
+Found flying the regression set for IDLE-DISCARD-DROPS-FOREIGN-VESSEL-INTERACTION: S0.7
+(`2026-10-25_1038`) read PARSEK-FAIL `recordings.count 1 > max 0`, and the same read holds on
+main. Its pin dates from 2026-07-30, when a one-point tree (maxDist 0) was idle-discarded
+anywhere. The 2026-10-18 pad-evidence rule requires the flight to have started or ended on the
+ground; S0.7's host orbits at ~100 km, so the log reads `IsTreeIdleOnPad: tree='Kerbal X' ...
+pad evidence=none` and the tree auto-commits (`Silent full-fidelity auto-commit (scene-exit):
+tree='Kerbal X' recordings=1`). Product behaviour is right; the spec was stale (S0.7 last flew
+2026-10-14, before the rule).
+
+Fix: count re-pinned to {1,1} from that run, both lines required, D1 `commit-scene-exit` and
+`auto-merge` claimed (now gated by the commit token). A re-flight on the re-pinned spec is owed.
+
+---
+
+## ~~IDLE-DISCARD-DROPS-FOREIGN-VESSEL-INTERACTION: a flight that boards, seats on, docks with or moves cargo to a vessel outside it is discarded as idle when nothing moved 30 m~~ [FILED AND FIXED 2026-10-25, branch `claude/project-thread-ssl7ge`, owner ruling]
+
+Owner question from CX4-IDLE-DISCARDED-FLIGHT-LEAVES-THE-HOLD-OPEN (V, 2026-10-25): rocket V idle
+on the pad, kerbal K steps out, goes to vessel A and enters or interacts with it. The idle-on-pad
+rule keeps or drops a whole flight. If A was more than 30 m away, K's walk kept the flight (V's
+pad recording included); within 30 m every recording "never moved" and the whole flight, the
+Board / Dock / InventoryTransfer onto A and its claim included, was discarded at scene exit.
+Ruling (card, 2026-10-25): the interaction counts as an action and the flight is kept, V's
+recording staying as K's origin (dropping it would leave K's ghost appearing from nothing after a
+rewind and V never returning).
+
+Fix: `ParsekFlight.TreeInteractsWithForeignVesselForIdle` vetoes `IsTreeIdleOnPad`,
+`IsActiveTreeIdleOnPad` and `IsTreePadFailure` when the tree has an InventoryTransfer branch point
+(always a foreign partner) or a Dock / Board whose stamped target pid is no vessel the tree carried
+outside that branch point's own children (`FindForeignVesselInteraction`; a board back into the
+kerbal's own rocket stamps no target or names a tree vessel). Log line `<caller>: not idle - <Type>
+with a vessel outside the flight (bp=<id> targetPid=<pid>) tree='<name>'`. Known keep it accepts:
+a kerbal who stepped out UNRECORDED and then boards his own rocket with a recording on him reads
+the rocket as foreign (the tree never carried it); keeping that short flight is harmless. Tests:
+`ForeignInteractionNotIdleTests` (4 of 7 cells red with the veto stubbed). Lane
+`CX-6-idle-flight-seat-foreign-rover-kept` LIVE-PROVEN on its first flight
+(`2026-10-25_1035` PASS; SEAT-3 regression PASS `2026-10-25_1036`).
+
+---
+
 ## ~~CX4-IDLE-DISCARDED-FLIGHT-LEAVES-THE-HOLD-OPEN: a flight idle-discarded at scene exit after its EVA kerbal was really recovered leaves another tree's open hold on him~~ [FILED 2026-10-24 from CX-4's first flight triage; low. FIXED 2026-10-25, branch `claude/project-thread-ssl7ge`]
 
 `CX-4-foreign-tree-recording-closes-hold` (`2026-10-24_2336`) read 9 recordings and one tree:
