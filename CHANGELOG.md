@@ -37,6 +37,10 @@ _(unreleased - entries accumulate here per commit)_
   converter as running, so its quiet ending was never trimmed and its spawn waited for no reason.
   The recording now notes that the converter stopped when the part left.
   (TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES)
+- **A kerbal whose walk ends on a launch pad or runway end comes back as a real kerbal.** A kerbal
+  recorded after he was already out on EVA, or one picked up as a cargo partner, was treated like a
+  vessel parked on the pad and never reappeared. Only vessels are cleared off the pad now.
+  (EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED)
 - **A held end-of-flight vessel frozen by a time jump no longer spawns away from its ghost.** While
   the vessel spawns from its jump-shifted orbit, a blocked spawn waits for the spot to clear instead
   of walking back along the unshifted path. (REALSPAWN-JUMP-SHIFT-RESIDUE)

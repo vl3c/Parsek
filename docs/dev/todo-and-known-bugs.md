@@ -2371,14 +2371,14 @@ The live proof, lane RC-5, is not flown.
 
 ---
 
-## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; LIVE-PROVEN by EVA-11 `2026-10-15_2343`. FOREIGN EVA KERBAL HALF FIXED 2026-10-23, branch `claude/project-thread-y4esmb`; xUnit; LIVE-PROVEN by EVA-12 `2026-10-23_2257`. Still open: a part detached and dropped on the ground]
+## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; LIVE-PROVEN by EVA-11 `2026-10-15_2343`. FOREIGN EVA KERBAL HALF FIXED 2026-10-23, branch `claude/project-thread-y4esmb`; xUnit; LIVE-PROVEN by EVA-12 `2026-10-23_2257`. KSC-retirement side note FIXED 2026-10-25, branch `wip-residue`, xUnit. Still open: a part detached and dropped on the ground]
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): the unfixed half (a part detached
 from a foreign vessel and then dropped) is still real, low: only attach and detach are handled
 (`ParsekFlight.ForeignInventoryTransfer.cs`), and new-vessel adoption exists only for inventory
 ground placement (`ParsekFlight.GroundPartPlacement.cs`), so the dropped part is gone after a rewind
 or replay. Needs a decompile of the construction drop path and a live reading (EVA-11 shape) before
-a fix. The KSC-retirement side note (only `EvaCrewName` exempts) is also still true.
+a fix. The KSC-retirement side note (only `EvaCrewName` exempts) is fixed (2026-10-25, below).
 
 The inventory fix records a stored part moved into or out of a foreign vessel's container, but two
 neighbours of the same defect remain. `EVAConstructionModeEditor` fires
@@ -2482,11 +2482,17 @@ Bob Kerman as the partner): LIVE-PROVEN 2026-10-23 on its first flight, `2026-10
 (Bob held through the rewind, spawned with `storedParts=0`; Bill spawned with the kit).
 
 Still OPEN: a part detached from a foreign vessel and then dropped on the ground (a new vessel no
-recording carries). Also noticed, not fixed (pre-existing, filed here rather than widened): KSC
-end-of-flight retirement exempts only recordings with `EvaCrewName`
-(`VesselSpawner.EvaluateKscEndOfFlightRetirement`), so a kerbal recording without it (an adopted
-cargo-partner kerbal, or a recording started on an EVA kerbal) whose endpoint lies inside the KSC
-exclusion circle would be retired and not respawn. EVA-12 parks its kerbals 153 m from the pad.
+recording carries). ~~Also noticed (pre-existing): KSC end-of-flight retirement exempts only
+recordings with `EvaCrewName` (`VesselSpawner.EvaluateKscEndOfFlightRetirement`), so a kerbal
+recording without it (an adopted cargo-partner kerbal, or a recording started on an EVA kerbal)
+whose endpoint lies inside the KSC exclusion circle would be retired and not respawn.~~ FIXED
+2026-10-25, branch `wip-residue`, xUnit (`KscPadRetirementTests.EvaKerbal_*`,
+`CrewSide_DroppedKerbalSnapshotOnThePad_IsNotRetired_BothSides`): the EVA exemption is now
+`VesselSpawner.IsEvaKerbalRecordingForRetirement`, true for `EvaCrewName` or an END vessel snapshot
+of stock type `EVA` (the precedent of `CoexistingTreeSiblingSpawn.ClassifySpawningMember`, minus
+its start-situation arm: only the spawn form counts, so a recording that ends as a vessel is never
+exempted), re-checked after a dropped snapshot is re-hydrated from its sidecar. EVA-12 parks its
+kerbals 153 m from the pad, so no committed lane exercises the circle with such a kerbal.
 
 ---
 
