@@ -479,9 +479,8 @@ namespace Parsek.Tests
         [Fact]
         public void IsRewindRetired_RawOverload_ReturnsFalseForParentAnchoredChild()
         {
-            // Raw overload (no recordings list) keeps its per-row contract so
-            // EnsureRewindRetirementsForRollback's "seenIds" working set still
-            // dedupes only direct rows being written.
+            // Raw overload (no recordings list) keeps its per-row contract: it
+            // reads direct rows only, never the parent-anchored cascade.
             var child = Rec("rec_child", parentAnchorRecordingId: "rec_parent");
             var retirements = new List<RecordingRewindRetirement> { Retire("rec_parent") };
 

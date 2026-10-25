@@ -17,6 +17,40 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REWIND-KEEPS-EVERY-SUPERSEDE-ROW: a Rewind-to-Launch still dropped a supersede row whose re-fly recording was missing, and its Pass 2 could still unseal a sealed re-fly~~ [FILED + FIXED 2026-10-25 on branch `claude/project-thread-mikdfx`; lanes RB-5 (new), RB-4 and RF-4 (re-pinned) owe flights]
+
+Follow-up of REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY. After #2230 the rewind rollback still dropped a
+row whose fork was missing from the committed set (its recording failed to load) or `NotCommitted`,
+which brought the replaced recording back as the slot's tip; its Pass 2 then demoted any kept
+fork whose replaced recording that drop had retired and wrote a
+`rewound-out-supersede-fork-demoted-canon` retirement for it, sealed or open, so one unloadable
+re-fly could still unseal and hide a sealed re-fly of the next stage. That contradicts design section 2.2 (a one-sided orphan row
+is kept and the walk stops at it, the load-time sweep's own rule) and owner ruling O3 (a recording
+that fails to load keeps its ledger rows): the career still holds the re-fly's rows and the
+replaced flight's tombstones, so bringing the replaced flight back shows a timeline the career
+does not match.
+
+Decision: a rewind keeps every row. The dangling row keeps hiding the replaced flight exactly as
+every load does, and nothing is retired. If the missing recording loads again later, it is the tip
+again with nothing to repair.
+
+Fix: the rollback is gone (`DropSupersedesRewoundOutOfExistence*`,
+`ReapplyRewindSupersedeDropAfterLoad`, `EnsureRewindRetirementsForRollback` and the OnLoad
+`supersede-rewind-reapply` phase). `ExecuteRewindSaveLoad` now only runs a read-only audit,
+`RecordingStore.AuditSupersedesKeptAcrossRewindPure`, and logs `Rewind keeps supersede rows:
+rows=N forks=N sealed=N open=N dangling=N` plus one `Kept re-fly fork across rewind: rec=..
+mergeState=..|<missing>` line per fork. Nothing in the mod writes a `RecordingRewindRetirement`
+any more; its readers and the load-time sweep's legacy handling stay for old saves, which are not
+repaired (no compatibility work before the public release). Old saves: no committed fixture
+(`harness/fixtures/`, `Source/Parsek.Tests/Fixtures/`) carries a rewind retirement, so no lane
+reads the old bad state; `RewindKeepsSupersedeRowsTests.Fixtures_CarryNoRewindRetirement` keeps it
+that way and `Source_NothingOutsideTheLoaderBuildsARewindRetirement` keeps the writer gone. Unit:
+`RewindKeepsSupersedeRowsTests`, `RewindStagedListsCarryTests`. Lanes: RB-5 (re-fly the booster
+twice, seal the second slot, Rewind-to-Launch: `forks=2 sealed=1 open=1`), RB-4 and RF-4 re-pinned
+to the new line.
+
+---
+
 ## ~~REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY: a Rewind-to-Launch to before a separation undid a merged but unsealed Re-Fly and brought the original flight back~~ [FILED + FIXED 2026-10-24 on branch `fix-rewind-keeps-unsealed-refly` (PR #2230); LIVE-PROVEN 2026-10-25 by RB-4 `2026-10-25_0121` PASS, RF-4 `_0124` PASS]
 
 Owner ruling (V, 2026-10-24, answering the open question of
@@ -39,11 +73,10 @@ forks; `skippedImmutable=N` still counts the sealed ones) and renames `demotedIm
 `demoted=`; the per-fork `Preserved canon fork across parent rewind:` line prints the fork's real
 MergeState. The forced self-rewind drop and its result field are gone. The re-fly's tombstones were
 never dropped, which now matches the rule. Old saves that already carry a fork retirement are not
-repaired (no compatibility work before the public release). Unit: `RewindSupersedeRollbackTests`
-(`LiveRollback_KeepsCommittedProvisionalFork_AcrossParentRewind`,
-`Rollback_KeepsRelation_WhenForkIsCommittedProvisional`,
-`Rollback_SelfRewindOnImmutableFork_KeepsIncomingSupersede`; the demotion cells now anchor on a
-`NotCommitted` fork). Lane RB-4 (RF-4 without the seal) pins it live.
+repaired (no compatibility work before the public release). Lane RB-4 (RF-4 without the seal)
+pins it live. SUPERSEDED 2026-10-25 by REWIND-KEEPS-EVERY-SUPERSEDE-ROW: the dangling drop and the
+Pass 2 demotion are gone too, the rollback with them, and its unit tests are now
+`RewindKeepsSupersedeRowsTests`.
 
 ---
 

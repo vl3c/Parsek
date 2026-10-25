@@ -24,6 +24,10 @@ _(unreleased - entries accumulate here per commit)_
   open (for example a booster that crashed again) used to vanish at a rewind to before its
   separation, with the original flight back in its place. The rewind now only moves the clock: the
   re-fly stays, and its slot stays open to re-fly. (REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY)
+- **A Rewind-to-Launch keeps a Re-Fly whose recording failed to load.** The rewind used to bring
+  the replaced flight back in its place, and could unseal a sealed re-fly of a later stage with it.
+  Now it keeps every Re-Fly as it is, matching what the career already counts.
+  (REWIND-KEEPS-EVERY-SUPERSEDE-ROW)
 - **A flight that docks or boards before it ever separates keeps its Rewind button.** A launch
   that docks before staging, or a kerbal on EVA who climbs into a seat or a hatch, used to commit
   with no rewind save, so its mission could not be rewound to launch.

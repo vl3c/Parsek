@@ -18,10 +18,9 @@ namespace Parsek
         /// persistent.sfs as last written (<c>SpaceCenterMain.Start</c> reloads it), while the
         /// recordings and the ledger stay in memory. Loaded from disk, these lists were of
         /// unknown age: a Re-Fly merge in another tree after the last persistent write lost
-        /// its supersede rows and tombstones, and a row memory had already removed (tree
-        /// discard purge, an earlier rewind's drop) came back. Memory wins wholesale; the
-        /// rewound tree's own rows are then dropped by
-        /// <see cref="ReapplyRewindSupersedeDropAfterLoad"/>, which runs on the carried list.
+        /// its supersede rows and tombstones, and a row memory had already removed (a tree
+        /// discard purge) came back. Memory wins wholesale, the rewound tree's own rows
+        /// included: a rewind keeps every supersede row (owner ruling 2026-10-24).
         /// </summary>
         internal sealed class RewindCarriedStagedLists
         {
@@ -151,9 +150,8 @@ namespace Parsek
         /// Rewind OnLoad half of the staged-list carry: replaces the just-loaded supersede,
         /// rewind-retirement and tombstone lists (and, per
         /// <see cref="ShouldCarryMergeJournal"/>, the merge journal) with the capture, then
-        /// consumes it. Called from <c>ParsekScenario.OnLoad</c> after the RP carry and
-        /// BEFORE <see cref="ReapplyRewindSupersedeDropAfterLoad"/>, so the rewound tree's
-        /// rows are dropped from the carried list. A load that is not a rewind leaves the
+        /// consumes it. Called from <c>ParsekScenario.OnLoad</c> after the RP carry. A load
+        /// that is not a rewind leaves the
         /// loaded lists alone and drops any stranded capture. Returns true when installed.
         /// </summary>
         internal static bool ReinstallRewindCarriedStagedListsAfterLoad(ParsekScenario scenario)

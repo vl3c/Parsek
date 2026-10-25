@@ -13,7 +13,6 @@ RecordingStore.CommittedRecordingRemoving committed-list notification event; the
 RecordingStore.RecordingPlaybackEnabledChanged UI notification event subscription, not save state
 RecordingStore.committedRecordings cleared by the cold branch's ClearCommittedInternal with notifications, then filled from the save
 RecordingStore.committedTrees cleared by the cold branch (ClearCommittedInternal, LoadRecordingTrees), then filled from the save
-RecordingStore.CurrentUniversalTimeForRewindRetirementOverrideForTesting test seam
 RecordingStore.LegacyRecordingFileSuffixes constant table
 RecordingStore.RecordingFileSuffixes constant table
 RecordingStore.PostRewindPersistentWriteForTesting test seam

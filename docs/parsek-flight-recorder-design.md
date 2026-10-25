@@ -1567,7 +1567,7 @@ Each committed recording has an associated quicksave taken at its launch UT. Thi
 
 **What a rewind changes (owner rulings 2026-10-22 and 2026-10-24).** V: "rewind to launch just takes the timeline to that moment, it does not unseal anything". A Rewind-to-Launch moves the clock and the world, nothing else:
 
-- Committed recordings, ledger rows, Re-Fly merges and seals all stay. A sealed slot stays sealed, an open slot stays open, and a merged re-fly stays the slot's tip whether it was sealed or not (rewind design section 8, "Rewind-to-launch"; todo REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY).
+- Committed recordings, ledger rows, Re-Fly merges and seals all stay. A sealed slot stays sealed, an open slot stays open, and a merged re-fly stays the slot's tip whether it was sealed or not. Every supersede row stays, including one whose re-fly recording failed to load (rewind design section 8, "Rewind-to-launch"; todos REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY, REWIND-KEEPS-EVERY-SUPERSEDE-ROW).
 - The game lands in the rewind save's own world, not in the latest one.
 - A vessel the committed future flies, docks with, boards, moves cargo with or recovers after the rewind UT is held back: it leaves the world with its crew freed, flight draws it as a hold ghost in its rewind-time form, the Space Center and the Tracking Station show nothing for it until its committed flight's own ghost appears, and that flight's end spawn brings it back (rewind design section 10.13). A vessel another mission reaches this way is held, never removed (Section 4.12).
 

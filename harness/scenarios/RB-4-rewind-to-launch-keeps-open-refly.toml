@@ -20,24 +20,27 @@ id = "RB-4-rewind-to-launch-keeps-open-refly"
 # RF-4's header for why each step is there (the SaveGame before the reload, the
 # StopRecording before `InvokeRewind`, the bare `InvokeRewindToLaunch` auto-select).
 #
-# THE SUBJECT TOKENS, all from the rollback that runs inside the rewind:
-#   `Rewind supersede rollback: dropped=0 retiredForks=0 ... skippedImmutable=0
-#    preservedOpen=[1-9] demoted=0` - nothing dropped, nothing retired, and the kept fork
-#   counted as OPEN. The pre-fix code read `dropped=1 retiredForks=1` here.
-#   `Preserved canon fork across parent rewind: rec=... mergeState=CommittedProvisional`
-#   - which fork was kept, with its MergeState unchanged by the rewind.
+# THE SUBJECT TOKENS, from the audit that runs inside the rewind
+# (`RecordingStore.LogSupersedesKeptAcrossRewind`; re-pinned 2026-10-25 when the rewind
+# stopped dropping any row, todo REWIND-KEEPS-EVERY-SUPERSEDE-ROW):
+#   `Rewind keeps supersede rows: rows=N forks=1 sealed=0 open=1 dangling=0` - the fork
+#   kept and counted as OPEN. The first flight (`2026-10-25_0121`) read the #2230 form,
+#   `Rewind supersede rollback: dropped=0 ... preservedOpen=1 demoted=0`; the pre-#2230
+#   code read `dropped=1 retiredForks=1` there.
+#   `Kept re-fly fork across rewind: rec=... mergeState=CommittedProvisional` - which fork
+#   was kept, with its MergeState unchanged by the rewind.
 #   `Retired rewound-out fork` FORBIDDEN - the pre-fix retirement.
 # And the save-side form: `supersedeRows min 1` after the rewind (pre-fix: 0, the row was
 # dropped). REPORT-ONLY until a reading run lands on the windows.
 #
-# IF `preservedOpen=` READS 0 WITH `skippedImmutable=1`: the merge sealed the fork (the
+# IF `open=` READS 0 WITH `sealed=1`: the merge sealed the fork (the
 # re-fly earned something, section 2.12) and this run measured RF-4's branch, not this
 # one. Read the merge's `mergeState=<old>-><new>` line before filing; that is a host
 # re-cut, not a defect.
 #
-# STATUS: AUTHORED 2026-10-24, NEVER FLOWN. Fly it on a DLL built from the fix branch
-# (`fix-rewind-keeps-unsealed-refly`) or from main after it merges; on an older DLL the
-# summary line has no `preservedOpen=` and the lane reds by design.
+# STATUS: LIVE-PROVEN 2026-10-25 (`2026-10-25_0121` PASS attempt 1) on the #2230 tokens;
+# RE-PINNED 2026-10-25 to the audit line, owed a re-flight on a DLL that carries
+# `LogSupersedesKeptAcrossRewind` (an older DLL has no such line and the lane reds by design).
 # =====================================================================================
 tier = "nightly"
 description = "Rewind-to-LAUNCH keeps a merged Re-Fly whose slot is still OPEN (todo REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY, owner ruling 2026-10-24): fly RF-1's two-stage profile so a real launch mints a rewind quicksave and leaves an open slot, re-fly that slot and merge it WITHOUT sealing, then rewind the whole tree to launch and pin that the supersede rollback kept the open fork (no drop, no retirement, mergeState still CommittedProvisional)."
@@ -136,8 +139,8 @@ required = [
   "Invocation complete",
   "invokerewindtolaunch target resolved tree=\\S+ resolvedBy=\\S+",
   # THE SUBJECT.
-  "Rewind supersede rollback: dropped=0 retiredForks=0 retiredOldSides=0 skippedNonImmutableOldSides=0 restored=0 skippedImmutable=0 preservedOpen=[1-9][0-9]* demoted=0 ",
-  "Preserved canon fork across parent rewind: rec=\\S+ mergeState=CommittedProvisional ",
+  "Rewind keeps supersede rows: rows=[1-9][0-9]* forks=1 sealed=0 open=1 dangling=0 ",
+  "Kept re-fly fork across rewind: rec=\\S+ mergeState=CommittedProvisional ",
   "rewindtolaunch complete",
 ]
 forbidden = [
