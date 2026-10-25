@@ -20,6 +20,10 @@ _(unreleased - entries accumulate here per commit)_
   kerbal boarded a hatch or took a seat on a vessel that was not part of his flight, a
   Rewind-to-Launch removed that vessel until the boarding; it now waits where it was, drawn as a
   ghost, until the kerbal's replay reaches it. (FOREIGN-BOARD-TARGET-STRIPPED-AT-REWIND)
+- **A Rewind-to-Launch no longer undoes a merged Re-Fly.** A re-flown stage you merged but left
+  open (for example a booster that crashed again) used to vanish at a rewind to before its
+  separation, with the original flight back in its place. The rewind now only moves the clock: the
+  re-fly stays, and its slot stays open to re-fly. (REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY)
 - **A flight that docks or boards before it ever separates keeps its Rewind button.** A launch
   that docks before staging, or a kerbal on EVA who climbs into a seat or a hatch, used to commit
   with no rewind save, so its mission could not be rewound to launch.

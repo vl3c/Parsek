@@ -67,6 +67,11 @@ id = "RF-4-rewind-to-launch-after-merge"
 # `CommittedProvisional` - a crash is exactly the thing a player re-flies - so a merge
 # alone leaves the fork OPEN and the rollback would take the drop branch.
 #
+# SINCE 2026-10-24 THERE IS NO DROP BRANCH FOR A COMMITTED FORK (owner ruling: a rewind
+# moves the clock and unseals or undoes nothing). The open fork is now preserved too, and
+# counted as `preservedOpen=` rather than `skippedImmutable=`; RB-4 is that lane. The seal
+# below still decides which counter THIS lane reads, so the pins stand unchanged.
+#
 # So this lane SEALS the slot before rewinding, which is both the mechanism and the story:
 # the player decides the second attempt is the one that counts, seals it, and only then
 # decides the whole flight was wrong. RF-5's reading run measured what the seal does -
@@ -79,7 +84,7 @@ id = "RF-4-rewind-to-launch-after-merge"
 # THE TWO TOKENS, and what each is worth.
 #
 #   `Rewind supersede rollback: dropped=N retiredForks=N retiredOldSides=N
-#    skippedNonImmutableOldSides=N restored=N skippedImmutable=N demotedImmutable=N
+#    skippedNonImmutableOldSides=N restored=N skippedImmutable=N preservedOpen=N demoted=N
 #    rewindUT=F1 owner='...'`                        (Info, RecordingStore.cs)
 #   It is emitted ONLY when at least one of those counters is nonzero, so its PRESENCE is
 #   already the assertion that the rollback found the fork the merge created. A run whose
@@ -90,8 +95,9 @@ id = "RF-4-rewind-to-launch-after-merge"
 #   back must not sit on the route that creates none.
 #
 #   `Preserved canon fork across parent rewind: rec=<id> mergeState=Immutable rewindUT=...`
-#   One line per member of `rollback.SkippedImmutableForkRecordingIds`, i.e. per fork the
-#   rollback DECLINED to drop because it is Immutable. That is the whole safety property of
+#   One line per member of `rollback.PreservedForkRecordingIds` (named
+#   `SkippedImmutableForkRecordingIds` when this was written), i.e. per fork the
+#   rollback DECLINED to drop; on this lane the fork is Immutable. That is the whole safety property of
 #   the pair: a rewind of the parent must not delete history the player already sealed. The
 #   `skippedImmutable=[1-9]` conjunct in the summary above is the same fact as a count, and
 #   the two are required together on purpose - the per-fork line names WHICH recording
@@ -99,8 +105,8 @@ id = "RF-4-rewind-to-launch-after-merge"
 #   would satisfy only one of them.
 #
 # IF `Preserved canon fork` DOES NOT FIRE, read the summary's counters BEFORE filing:
-# `demotedImmutable=[1-9]` with `skippedImmutable=0` means the fork was demoted rather than
-# preserved (a different, documented branch - `Demoted Immutable preservation to drop
+# `demoted=[1-9]` with `skippedImmutable=0` means the fork was demoted rather than
+# preserved (a different, documented branch - `Demoted fork preservation to drop
 # (priorTip retired)`), which is a SPEC-SIDE re-pin, not a defect.
 #
 # =====================================================================================
@@ -291,12 +297,12 @@ required = [
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
-  # The rollback must not DELETE the sealed fork. `Demoted Immutable preservation to drop`
+  # The rollback must not DELETE the sealed fork. `Demoted fork preservation to drop`
   # is the branch that would, and it is legitimate in its own case (a retired priorTip) -
   # forbidden here because on this chain the priorTip is not retired, so its appearance
   # would mean the rollback took a different branch than the one this lane measured. See
   # the header: if it fires, re-read the summary counters before filing.
-  "Demoted Immutable preservation to drop",
+  "Demoted fork preservation to drop",
   # The RF family's standing guard, and on THIS host it is also RF-1's: the profile crosses
   # no environment boundary the optimizer splits on, so a tip that lost its MergeState
   # cannot be produced here unless something gave it one.

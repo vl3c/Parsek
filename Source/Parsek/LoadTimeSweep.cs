@@ -1067,8 +1067,8 @@ namespace Parsek
             // were authored by the deprecated Pass-2 code path that retired
             // priorTips for every dropped supersede regardless of the fork's
             // MergeState. The post-fix Pass 2 only writes such a row when the
-            // dropped relation had an Immutable fork (and isn't a forced
-            // self-rewind); that path is in turn unreachable in production
+            // dropped relation had an Immutable fork; that path is in turn
+            // unreachable in production
             // demotion shapes (the priorTip is itself a Pass-1 fork retirement
             // shadowed by seenRetiredIds). So a live-priorTip non-Immutable
             // RewoundOutOldSideReason row is pre-fix stale state: sweep it so

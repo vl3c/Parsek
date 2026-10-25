@@ -371,14 +371,13 @@ namespace Parsek.Tests
             // production save authors.
             //
             // Under fix-tree-rewind-supersede-old-side the old-side priorTip is
-            // only retired when at least one dropped relation has a non-self-rewound
+            // only retired when at least one dropped relation has an
             // Immutable fork (see AnyDroppedRelationRetiresPriorTipPermanently).
             // With NotCommitted forks the helper returns false for every
             // priorTip and Pass 2 writes zero rows. The priorTips stay visible
             // so spawn-at-endpoint replays them once the active vessel reaches
-            // their endpoints — see LiveRollback_DoesNotRetireOldSide_WhenForkIsCommittedProvisional
-            // for the current canonical playtest regression guard
-            // (logs/2026-05-13_2335_kerbal-x-booster-ghost-missing).
+            // their endpoints. A committed fork is never dropped at all: see
+            // LiveRollback_KeepsCommittedProvisionalFork_AcrossParentRewind.
             var owner = MakeRec("rocket", startUT: 302.0);
             var probeAtmo = MakeRec("P_atmo", startUT: 456.0);
             var probeDestroyed = MakeRec("P_destroyed", startUT: 466.0);
@@ -487,17 +486,14 @@ namespace Parsek.Tests
         // ----------------------------------------------------------------
 
         [Fact]
-        public void LiveRollback_DoesNotRetireOldSide_WhenForkIsCommittedProvisional()
+        public void LiveRollback_KeepsCommittedProvisionalFork_AcrossParentRewind()
         {
-            // Mirrors logs/2026-05-13_2335_kerbal-x-booster-ghost-missing.
-            // Owner Kerbal X (rocket) at StartUT=7.44, rewindAdjustedUT=0.0
-            // (the lead-time gap pulls adjusted UT before owner.StartUT).
-            // PriorTip 'B' is the Kerbal X Probe (CommittedProvisional after
-            // CommitTree promoted the Crashed terminal — Recording.cs Recording
-            // default Immutable is overridden by UnfinishedFlights promotion at
-            // RecordingStore.cs:903). Fork rec_3c0f is CommittedProvisional too.
-            // The user expects B's ghost to be visible in Watch after rewind so
-            // spawn-at-endpoint can replay it.
+            // The shape of logs/2026-05-13_2335_kerbal-x-booster-ghost-missing:
+            // owner Kerbal X at StartUT=7.44, rewindAdjustedUT=0.0, priorTip
+            // the probe, fork rec_3c0f a merged re-fly that crashed again
+            // (CommittedProvisional, its slot still open). A rewind moves the
+            // clock and undoes nothing (owner ruling 2026-10-24): the fork stays
+            // the slot's tip, still open, and nothing is retired.
             var owner = MakeRec("kerbal-x", startUT: 7.44);
             var priorTip = MakeRecWithMergeState("kerbal-x-probe", startUT: 23.6,
                 state: MergeState.CommittedProvisional);
@@ -516,44 +512,39 @@ namespace Parsek.Tests
 
             int dropped = RecordingStore.DropSupersedesRewoundOutOfExistence(owner, 0.0);
 
-            Assert.Equal(1, dropped);
-            Assert.Empty(scenario.RecordingSupersedes);
-            // 1 fork retirement (rec_3c0f) and 0 old-side retirements.
-            RecordingRewindRetirement forkRetirement = Assert.Single(scenario.RecordingRewindRetirements);
-            Assert.Equal("rec_3c0f", forkRetirement.RecordingId);
-            Assert.Equal(RecordingRewindRetirement.DefaultReason, forkRetirement.Reason);
+            Assert.Equal(0, dropped);
+            RecordingSupersedeRelation kept = Assert.Single(scenario.RecordingSupersedes);
+            Assert.Equal("rec_3c0f", kept.NewRecordingId);
+            Assert.Empty(scenario.RecordingRewindRetirements);
+            Assert.Equal(MergeState.CommittedProvisional, fork.MergeState);
+            Assert.False(EffectiveState.IsRewindRetired(fork, scenario.RecordingRewindRetirements));
 
-            // PriorTip stays visible — this is the key behavior the playtest fix is about.
-            Assert.False(EffectiveState.IsRewindRetired(
-                priorTip, scenario.RecordingRewindRetirements));
-
-            // Summary log has skippedNonImmutableOldSides=1, retiredOldSides=0.
             Assert.Contains(logLines, line =>
                 line.Contains("[Rewind]")
-                && line.Contains("Rewind supersede rollback")
-                && line.Contains("retiredOldSides=0")
-                && line.Contains("skippedNonImmutableOldSides=1"));
+                && line.Contains("Rewind supersede rollback: dropped=0 retiredForks=0 retiredOldSides=0")
+                && line.Contains("skippedImmutable=0 preservedOpen=1 demoted=0"));
             Assert.Contains(logLines, line =>
                 line.Contains("[Rewind]")
-                && line.Contains("Old-side retirement skipped for rec=kerbal-x-probe")
-                && line.Contains("reason=fork-non-immutable"));
+                && line.Contains("Preserved canon fork across parent rewind: rec=rec_3c0f mergeState=CommittedProvisional"));
+            Assert.DoesNotContain(logLines, line =>
+                line.Contains("[Rewind]") && line.Contains("Retired rewound-out fork"));
         }
 
         [Fact]
         public void LiveRollback_NoOldSideRetirement_InDemotedImmutableChain()
         {
-            // Real production chain: A (owner) → B(CommittedProvisional) → C(Immutable).
+            // Real production chain: A (owner) -> B(NotCommitted) -> C(Immutable).
             // Pure pass 1 puts A→B into pendingDrops (non-Immutable) and B→C
             // into pendingImmutablePreservations. Pure pass 2's demotion fixpoint
             // notices B is in pendingRetiredNewIds and demotes B→C to a drop
-            // (DemotedImmutablePreservationIds += C). Live Pass 1 retires both
+            // (DemotedPreservationIds += C). Live Pass 1 retires both
             // B (non-Immutable, no defense) and C (intentional drop). The
             // priorTip iteration in Live Pass 2 sees A (owner-skipped) and B
             // (in seenRetiredIds → short-circuited before the new helper).
             // No old-side retirement is written.
             var a = MakeRec("A", startUT: 6.5);
             var b = MakeRecWithMergeState("B", startUT: 30.0,
-                state: MergeState.CommittedProvisional);
+                state: MergeState.NotCommitted);
             var c = MakeRecWithMergeState("C", startUT: 50.0,
                 state: MergeState.Immutable);
             InstallCommittedTreeForTesting("tree-demoted-chain", a, b, c);
@@ -620,20 +611,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LiveRollback_SelfRewindOnCanon_DoesNotRetireOldSide()
+        public void LiveRollback_SelfRewindOnCanon_KeepsTheFork()
         {
-            // User clicks Rewind on the canon fork itself (not its parent).
-            // Pure pass 1 detects newIsSelfRewind (owner.RecordingId ==
-            // rel.NewRecordingId), forces the drop, and tags ForcedSelfRewindDropIds.
-            // Live Pass 1 retires the canon fork as wasForcedSelfRewindDrop.
-            // Live Pass 2 reaches the priorTip; the new helper finds the
-            // relation but its NewRecordingId is in ForcedSelfRewindDropIds →
-            // helper returns false → priorTip stays visible. The user's intent
-            // (undo the canon) is honored: priorTip becomes the new canonical
-            // state.
+            // Rewind on the fork itself (owner == rel.NewRecordingId). A rewind
+            // moves the clock and undoes nothing (owner ruling 2026-10-24), so the
+            // incoming relation stays, the fork stays the slot's tip and nothing
+            // is retired.
             var priorTip = MakeRec("priorTip", startUT: 10.0);
-            // Use Immutable for the canon fork; without canon-forks the test would
-            // also pass, but real self-rewind on canon happens against Immutable.
             var canon = MakeRecWithMergeState("canon", startUT: 30.0,
                 state: MergeState.Immutable);
             InstallCommittedTreeForTesting("tree-self-rewind", priorTip, canon);
@@ -647,24 +631,14 @@ namespace Parsek.Tests
             };
             ParsekScenario.SetInstanceForTesting(scenario);
 
-            // Self-rewind: owner of the rewind == fork id.
             int dropped = RecordingStore.DropSupersedesRewoundOutOfExistence(canon, 15.0);
 
-            Assert.Equal(1, dropped);
-            Assert.Empty(scenario.RecordingSupersedes);
-            RecordingRewindRetirement retirement = Assert.Single(scenario.RecordingRewindRetirements);
-            Assert.Equal("canon", retirement.RecordingId);
-            Assert.Equal(RecordingRewindRetirement.SelfRewoundCanonReason, retirement.Reason);
-            // The defensive Immutable-canon Warn must not fire: the classifier
-            // forced this drop on purpose.
-            Assert.DoesNotContain(logLines, l =>
+            Assert.Equal(0, dropped);
+            Assert.Single(scenario.RecordingSupersedes);
+            Assert.Empty(scenario.RecordingRewindRetirements);
+            Assert.Contains(logLines, l =>
                 l.Contains("[Rewind]") &&
-                l.Contains("Skipping retirement for Immutable canon recording"));
-
-            // PriorTip stays visible — the user explicitly undid the canon, so
-            // priorTip is the new canonical state.
-            Assert.False(EffectiveState.IsRewindRetired(
-                priorTip, scenario.RecordingRewindRetirements));
+                l.Contains("Preserved canon fork across parent rewind: rec=canon mergeState=Immutable"));
         }
 
         [Fact]
@@ -710,13 +684,6 @@ namespace Parsek.Tests
             immRollback.DroppedRelations.Add(MakeRel("B", "forkImm"));
             Assert.True(RecordingStore.AnyDroppedRelationRetiresPriorTipPermanently(
                 "B", immRollback, liveById));
-
-            // Case 4: Immutable fork, marked as ForcedSelfRewindDrop → false.
-            var selfRewindRollback = new RecordingStore.RewindSupersedeRollbackResult();
-            selfRewindRollback.DroppedRelations.Add(MakeRel("B", "forkImm"));
-            selfRewindRollback.ForcedSelfRewindDropIds.Add("forkImm");
-            Assert.False(RecordingStore.AnyDroppedRelationRetiresPriorTipPermanently(
-                "B", selfRewindRollback, liveById));
 
             // Case 5: CommittedProvisional fork → false.
             var provRollback = new RecordingStore.RewindSupersedeRollbackResult();
@@ -1244,13 +1211,13 @@ namespace Parsek.Tests
             Assert.Single(supersedes);
             Assert.Empty(result.RetiredForkRecordingIds);
             Assert.Empty(result.RestoredRecordingIds);
-            Assert.Equal(1, result.SkippedImmutableForkCount);
-            Assert.Contains("canon-fork", result.SkippedImmutableForkRecordingIds);
-            Assert.Equal(0, result.DemotedImmutablePreservationCount);
+            Assert.Equal(1, result.PreservedForkCount);
+            Assert.Contains("canon-fork", result.PreservedForkRecordingIds);
+            Assert.Equal(0, result.DemotedPreservationCount);
         }
 
         [Fact]
-        public void Rollback_DropsRelation_WhenForkIsCommittedProvisional()
+        public void Rollback_KeepsRelation_WhenForkIsCommittedProvisional()
         {
             var owner = MakeRec("orig", startUT: 6.5);
             var fork = MakeRecWithMergeState("fork-cp", startUT: 31.5, MergeState.CommittedProvisional);
@@ -1269,10 +1236,12 @@ namespace Parsek.Tests
                 liveRecordingsById: liveById,
                 supersedes: supersedes);
 
-            Assert.Equal(1, result.DroppedRelationCount);
-            Assert.Empty(supersedes);
-            Assert.Contains("fork-cp", result.RetiredForkRecordingIds);
-            Assert.Equal(0, result.SkippedImmutableForkCount);
+            Assert.Equal(0, result.DroppedRelationCount);
+            Assert.Single(supersedes);
+            Assert.Empty(result.RetiredForkRecordingIds);
+            Assert.Empty(result.RestoredRecordingIds);
+            Assert.Equal(1, result.PreservedForkCount);
+            Assert.Contains("fork-cp", result.PreservedForkRecordingIds);
         }
 
         [Fact]
@@ -1297,18 +1266,18 @@ namespace Parsek.Tests
 
             Assert.Equal(1, result.DroppedRelationCount);
             Assert.Contains("fork-nc", result.RetiredForkRecordingIds);
-            Assert.Equal(0, result.SkippedImmutableForkCount);
+            Assert.Equal(0, result.PreservedForkCount);
         }
 
         [Fact]
         public void Rollback_MixedChain_DemotesImmutablePreservation_WhenPriorTipIsRetired()
         {
-            // A → B(Provisional) → C(Immutable). Rewind past A's start.
+            // A -> B(NotCommitted) -> C(Immutable). Rewind past A's start.
             // Pass 1: A→B drops (B not Immutable), B→C tentatively preserved.
             // Pass 2: B→C's Old is B; B is in pendingRetiredNewIds → demote to drop.
             // Result: A restored, B retired, C retired.
             var a = MakeRec("A", startUT: 6.5);
-            var b = MakeRecWithMergeState("B", startUT: 31.5, MergeState.CommittedProvisional);
+            var b = MakeRecWithMergeState("B", startUT: 31.5, MergeState.NotCommitted);
             var c = MakeRecWithMergeState("C", startUT: 50.0, MergeState.Immutable);
             var liveById = new Dictionary<string, Recording>
             {
@@ -1333,9 +1302,9 @@ namespace Parsek.Tests
             // Restored set excludes anything also in retired (the restore-then-prune step).
             Assert.Contains("A", result.RestoredRecordingIds);
             Assert.DoesNotContain("B", result.RestoredRecordingIds);
-            Assert.Equal(0, result.SkippedImmutableForkCount);
-            Assert.Equal(1, result.DemotedImmutablePreservationCount);
-            Assert.Contains("C", result.DemotedImmutablePreservationIds);
+            Assert.Equal(0, result.PreservedForkCount);
+            Assert.Equal(1, result.DemotedPreservationCount);
+            Assert.Contains("C", result.DemotedPreservationIds);
         }
 
         [Fact]
@@ -1368,10 +1337,10 @@ namespace Parsek.Tests
             Assert.Equal(2, supersedes.Count);
             Assert.Empty(result.RetiredForkRecordingIds);
             Assert.Empty(result.RestoredRecordingIds);
-            Assert.Equal(2, result.SkippedImmutableForkCount);
-            Assert.Contains("B", result.SkippedImmutableForkRecordingIds);
-            Assert.Contains("C", result.SkippedImmutableForkRecordingIds);
-            Assert.Equal(0, result.DemotedImmutablePreservationCount);
+            Assert.Equal(2, result.PreservedForkCount);
+            Assert.Contains("B", result.PreservedForkRecordingIds);
+            Assert.Contains("C", result.PreservedForkRecordingIds);
+            Assert.Equal(0, result.DemotedPreservationCount);
         }
 
         [Fact]
@@ -1433,18 +1402,18 @@ namespace Parsek.Tests
             Assert.Equal(1, result.DroppedRelationCount);
             Assert.Empty(supersedes);
             Assert.Contains("fork-orphan", result.RetiredForkRecordingIds);
-            Assert.Equal(0, result.SkippedImmutableForkCount);
+            Assert.Equal(0, result.PreservedForkCount);
         }
 
         [Fact]
         public void Rollback_ThreeGenChain_TransitiveDemotion_AllNonCanonRetire()
         {
-            // A → B(Provisional) → C(Immutable) → D(Immutable). Rewind past A.
+            // A -> B(NotCommitted) -> C(Immutable) -> D(Immutable). Rewind past A.
             //
             // This chain is the genuine multi-iteration fixpoint case (Pass 1
             // drop is at the START of the chain, so demotions must cascade
             // through C and D in two iterations):
-            //   Pass 1: A→B drop (B Prov), B→C preserve (C Imm), C→D preserve (D Imm).
+            //   Pass 1: A->B drop (B NotCommitted), B->C preserve (C Imm), C->D preserve (D Imm).
             //   Pass 2 init: pendingRetiredNewIds = {B}.
             //   Iter 1 (reverse walk):
             //     C→D Old=C ∉ {B} — keep.
@@ -1460,14 +1429,14 @@ namespace Parsek.Tests
             // double-materialization regression PR #776/#777 fixes. The
             // fixpoint loop is the only thing closing this gap.
             //
-            // Critical to the chain shape: B is Provisional (the Pass-1 drop
-            // anchor), not Immutable. Putting an Immutable B + Provisional C
+            // Critical to the chain shape: B is NotCommitted (the Pass-1 drop
+            // anchor), not Immutable. Putting an Immutable B + NotCommitted C
             // would make C the Pass-1 drop and trivially seed
             // pendingRetiredNewIds={C}, which collapses the cascade to a
             // single iteration and the test no longer distinguishes
             // single-pass from fixpoint.
             var a = MakeRec("A", startUT: 6.5);
-            var b = MakeRecWithMergeState("B", startUT: 31.5, MergeState.CommittedProvisional);
+            var b = MakeRecWithMergeState("B", startUT: 31.5, MergeState.NotCommitted);
             var c = MakeRecWithMergeState("C", startUT: 50.0, MergeState.Immutable);
             var d = MakeRecWithMergeState("D", startUT: 75.0, MergeState.Immutable);
             var liveById = new Dictionary<string, Recording>
@@ -1498,12 +1467,12 @@ namespace Parsek.Tests
             // No canon survives — the chain's first canon link (C) lost its
             // priorTip (B) to a Pass-1 drop, so the entire downstream Imm
             // tail collapses transitively.
-            Assert.Empty(result.SkippedImmutableForkRecordingIds);
-            Assert.Equal(0, result.SkippedImmutableForkCount);
+            Assert.Empty(result.PreservedForkRecordingIds);
+            Assert.Equal(0, result.PreservedForkCount);
             // 2 demotions: B→C in iter 1, C→D in iter 2.
-            Assert.Equal(2, result.DemotedImmutablePreservationCount);
-            Assert.Contains("C", result.DemotedImmutablePreservationIds);
-            Assert.Contains("D", result.DemotedImmutablePreservationIds);
+            Assert.Equal(2, result.DemotedPreservationCount);
+            Assert.Contains("C", result.DemotedPreservationIds);
+            Assert.Contains("D", result.DemotedPreservationIds);
             // A is the priorTip of A→B (the Pass-1 drop). After dropping +
             // pruning retired ids, RestoredRecordingIds = {A}.
             Assert.Contains("A", result.RestoredRecordingIds);
@@ -1512,7 +1481,7 @@ namespace Parsek.Tests
         [Fact]
         public void Rollback_FourGenWithCanonHead_TransitiveDemotionStopsAtCanonBoundary()
         {
-            // A(Imm) → B(Imm) → C(Provisional) → D(Imm). Rewind past A.
+            // A(Imm) -> B(Imm) -> C(NotCommitted) -> D(Imm). Rewind past A.
             //
             //   Pass 1: A→B preserve, B→C drop, C→D preserve.
             //   Pass 2 init: pendingRetiredNewIds = {C}.
@@ -1527,7 +1496,7 @@ namespace Parsek.Tests
             // the user wants to keep B and re-do everything after.
             var a = MakeRecWithMergeState("A", startUT: 6.5, MergeState.Immutable);
             var b = MakeRecWithMergeState("B", startUT: 31.5, MergeState.Immutable);
-            var c = MakeRecWithMergeState("C", startUT: 50.0, MergeState.CommittedProvisional);
+            var c = MakeRecWithMergeState("C", startUT: 50.0, MergeState.NotCommitted);
             var d = MakeRecWithMergeState("D", startUT: 75.0, MergeState.Immutable);
             var liveById = new Dictionary<string, Recording>
             {
@@ -1551,12 +1520,12 @@ namespace Parsek.Tests
             Assert.Single(supersedes);
             Assert.Equal("A", supersedes[0].OldRecordingId);
             Assert.Equal("B", supersedes[0].NewRecordingId);
-            Assert.Contains("B", result.SkippedImmutableForkRecordingIds);
+            Assert.Contains("B", result.PreservedForkRecordingIds);
             Assert.Contains("C", result.RetiredForkRecordingIds);
             Assert.Contains("D", result.RetiredForkRecordingIds);
-            Assert.Equal(1, result.DemotedImmutablePreservationCount);
-            Assert.Contains("D", result.DemotedImmutablePreservationIds);
-            Assert.Equal(1, result.SkippedImmutableForkCount);
+            Assert.Equal(1, result.DemotedPreservationCount);
+            Assert.Contains("D", result.DemotedPreservationIds);
+            Assert.Equal(1, result.PreservedForkCount);
         }
 
         [Fact]
@@ -1577,7 +1546,7 @@ namespace Parsek.Tests
             // double-materialization regression).
             var a = MakeRec("A", startUT: 6.5);
             var b = MakeRecWithMergeState("B", startUT: 31.5, MergeState.Immutable);
-            var c = MakeRecWithMergeState("C", startUT: 50.0, MergeState.CommittedProvisional);
+            var c = MakeRecWithMergeState("C", startUT: 50.0, MergeState.NotCommitted);
             var d = MakeRecWithMergeState("D", startUT: 75.0, MergeState.Immutable);
             InstallCommittedTreeForTesting("tree-3gen", a, b, c, d);
             var scenario = new ParsekScenario
@@ -1596,7 +1565,7 @@ namespace Parsek.Tests
 
             int dropped = RecordingStore.DropSupersedesRewoundOutOfExistence(a, 6.5);
 
-            // Pass 1 forks dropped: B→C drops (C Prov). Pass 2 demote: C→D
+            // Pass 1 forks dropped: B->C drops (C NotCommitted). Pass 2 demote: C->D
             // (Old=C ∈ pendingRetiredNewIds={C}, demoted). Total 2 drops.
             Assert.Equal(2, dropped);
             // A→B preserved (B canon, A→B's New is Imm and its Old A is not
@@ -1607,7 +1576,7 @@ namespace Parsek.Tests
             // B is NOT retired even though it ended up in RestoredRecordingIds
             // during the apply-drops phase (B was Old of dropped B→C). The
             // pure helper's prune step removes ids that are also in
-            // SkippedImmutableForkRecordingIds={B} so the live entry's old-side
+            // PreservedForkRecordingIds={B} so the live entry's old-side
             // pass cannot retire the canon head. Without that prune, B would
             // be retired as old-side and the canon head would render as hidden
             // (A hidden by surviving A→B; B retired) → no canon visible.
@@ -1628,7 +1597,7 @@ namespace Parsek.Tests
             // demoted, so the bypass kicks in and retirement proceeds normally.
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[Rewind]") &&
-                l.Contains("Skipping retirement for Immutable canon recording"));
+                l.Contains("Skipping retirement for committed fork"));
         }
 
         [Fact]
@@ -1644,7 +1613,7 @@ namespace Parsek.Tests
             // tree:
             //
             //   Owner is the rewind owner (StartUT == rewindUT, stays visible).
-            //   Sibling X is in the rewound subtree; X→Y(Provisional) is a
+            //   Sibling X is in the rewound subtree; X->Y(NotCommitted) is a
             //     supersede relation (so Y retires as a fork; X stays visible
             //     under fix-tree-rewind-supersede-old-side because Y is
             //     non-Immutable).
@@ -1652,7 +1621,7 @@ namespace Parsek.Tests
             //     supersede relation (so C preserves as canon, A stays hidden
             //     by the surviving relation — never reaches old-side pass).
             //
-            // Pass 1: X→Y drops (Y Prov), A→C tentatively preserves (C Imm).
+            // Pass 1: X->Y drops (Y NotCommitted), A->C tentatively preserves (C Imm).
             // Pass 2 fixpoint: pendingRetiredNewIds={Y}; A→C's Old=A ∉ {Y} →
             //   preserve. Terminate.
             //
@@ -1668,7 +1637,7 @@ namespace Parsek.Tests
             // preservation. A→C survives in supersedes.
             var owner = MakeRec("Owner", startUT: 0.0);
             var x = MakeRec("X", startUT: 10.0);
-            var y = MakeRecWithMergeState("Y", startUT: 31.5, MergeState.CommittedProvisional);
+            var y = MakeRecWithMergeState("Y", startUT: 31.5, MergeState.NotCommitted);
             var a = MakeRec("A", startUT: 15.0);
             var c = MakeRecWithMergeState("C", startUT: 50.0, MergeState.Immutable);
             InstallCommittedTreeForTesting("tree-hybrid", owner, x, y, a, c);
@@ -1729,7 +1698,7 @@ namespace Parsek.Tests
             // priorTip → canon supersede), making the demoted canon visible
             // again and silently re-introducing the regression in-game.
             var a = MakeRec("A", startUT: 6.5);
-            var b = MakeRecWithMergeState("B", startUT: 31.5, MergeState.CommittedProvisional);
+            var b = MakeRecWithMergeState("B", startUT: 31.5, MergeState.NotCommitted);
             var c = MakeRecWithMergeState("C", startUT: 50.0, MergeState.Immutable);
             InstallCommittedTreeForTesting("tree-mixed", a, b, c);
             var scenario = new ParsekScenario
@@ -1762,27 +1731,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Rollback_SelfRewindOnImmutableFork_DropsIncomingSupersede()
+        public void Rollback_SelfRewindOnImmutableFork_KeepsIncomingSupersede()
         {
-            // The user clicks Rewind on canon B itself (self-rewind on the
-            // canon fork). Topology: A → B(Immutable). Owner=B. A.StartUT is
-            // BEFORE rewindUT (A is the priorTip — it predates B's start);
-            // B.StartUT >= rewindUT (B is the rewind target).
-            //
-            // Pre-fix bug: rewoundOutOldIds = {B} (only owner; A's StartUT <
-            // rewindUT so A is not added). Predicate iterated supersedes and
-            // skipped A→B because A NOT in rewoundOutOldIds. Result: A→B
-            // survived, A stayed hidden by the relation, B was rewound away
-            // — A invisibly orphaned, no canon visible.
-            //
-            // Fix: case (b) "incoming, self-rewind on canon" detects rel.New
-            // == owner.RecordingId and forces drop regardless of MergeState
-            // (the user is explicitly undoing this canon).
-            //
-            // After fix: A→B drops, A becomes RestoredRecordingIds, B becomes
-            // RetiredForkRecordingIds. Live entry's Pass 1 retires B. Pass 2
-            // (old-side) iterates {A}: A.StartUT < rewindUT → strict check
-            // skips A. Final: A visible, B retired, A→B gone.
+            // Rewind on canon B itself. Topology: A -> B(Immutable), owner=B,
+            // A.StartUT before rewindUT, B.StartUT after it. The incoming
+            // relation is in scope (rel.New == owner) and classifies like any
+            // other: B is committed, so the relation stays and nothing is
+            // retired or restored. A rewind undoes nothing, even on the fork.
             var a = MakeRec("A", startUT: 0.0);
             var b = MakeRecWithMergeState("B", startUT: 31.5, MergeState.Immutable);
             var liveById = new Dictionary<string, Recording>
@@ -1794,39 +1749,35 @@ namespace Parsek.Tests
                 MakeRel("A", "B")
             };
 
-            // Owner is B itself. ownerTreeRecordings includes both A and B
-            // (the rewind target's tree); the predicate's tree-walk only
-            // adds tree recordings whose StartUT >= rewindUT, so B is added
-            // and A is filtered out.
             var result = RecordingStore.DropSupersedesRewoundOutOfExistenceDetailedPure(
                 b, rewindAdjustedUT: 25.0,  // before B's start (31.5), after A's start (0.0)
                 ownerTreeRecordings: new List<Recording> { a, b },
                 liveRecordingsById: liveById,
                 supersedes: supersedes);
 
-            Assert.Equal(1, result.DroppedRelationCount);
-            Assert.Empty(supersedes);
-            Assert.Contains("B", result.RetiredForkRecordingIds);
-            Assert.Contains("A", result.RestoredRecordingIds);
-            Assert.Empty(result.SkippedImmutableForkRecordingIds);
-            Assert.Empty(result.DemotedImmutablePreservationIds);
+            Assert.Equal(0, result.DroppedRelationCount);
+            Assert.Single(supersedes);
+            Assert.Empty(result.RetiredForkRecordingIds);
+            Assert.Empty(result.RestoredRecordingIds);
+            Assert.Contains("B", result.PreservedForkRecordingIds);
+            Assert.Empty(result.DemotedPreservationIds);
         }
 
         [Fact]
         public void LiveRollback_FourGenWithCanonHead_PreservedCanonNotRetiredByOldSidePass()
         {
             // Live-path regression guard for the canon-head preservation
-            // bug: A(Imm) → B(Imm) → C(Prov) → D(Imm), rewind past A.
+            // bug: A(Imm) -> B(Imm) -> C(NotCommitted) -> D(Imm), rewind past A.
             //
             // Pass 1 in DropSupersedesRewoundOutOfExistenceDetailedPure:
-            //   A→B preserves (B Imm), B→C drops (C Prov), C→D preserves (D Imm).
+            //   A->B preserves (B Imm), B->C drops (C NotCommitted), C->D preserves (D Imm).
             // Pass 2 fixpoint:
             //   pendingRetiredNewIds={C} → C→D's Old=C ∈ {C} demote.
-            //   pendingDrops=[B→C, C→D]. SkippedImmutableForkRecordingIds={B}.
+            //   pendingDrops=[B->C, C->D]. PreservedForkRecordingIds={B}.
             //
             // Apply-drops loop adds B (from B→C's Old) and C (from C→D's
             // Old) to RestoredRecordingIds. Existing prune removes C (it's
-            // retired). Without the new SkippedImmutableForkRecordingIds
+            // retired). Without the new PreservedForkRecordingIds
             // prune, RestoredRecordingIds={B} — and the live entry's Pass 2
             // (PR #807 old-side pass) would iterate {B}, see B.StartUT >
             // rewindUT, retire B as old-side. End state would be:
@@ -1840,7 +1791,7 @@ namespace Parsek.Tests
             // visible canon head.
             var a = MakeRecWithMergeState("A", startUT: 0.0, MergeState.Immutable);
             var b = MakeRecWithMergeState("B", startUT: 31.5, MergeState.Immutable);
-            var c = MakeRecWithMergeState("C", startUT: 50.0, MergeState.CommittedProvisional);
+            var c = MakeRecWithMergeState("C", startUT: 50.0, MergeState.NotCommitted);
             var d = MakeRecWithMergeState("D", startUT: 75.0, MergeState.Immutable);
             InstallCommittedTreeForTesting("tree-canon-head", a, b, c, d);
             var scenario = new ParsekScenario
@@ -1885,13 +1836,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Rollback_OwnerIsImmutableFork_RewindOnSelfStillDrops()
+        public void Rollback_OwnerIsImmutableFork_DanglingDownstreamStillDrops()
         {
             // Edge case: the owner of the rewind is itself an Immutable canon
-            // fork. Self-rewind. Relations where owner is the Old should still
-            // drop — the user is asking to undo this canon recording. The
-            // Immutable guard protects forks from being retired by a different
-            // recording's rewind, not from self-rewind.
+            // fork, and its outgoing relation points at a NotCommitted
+            // (dangling) recording. That relation drops like any dangling row;
+            // a committed downstream fork would be kept.
             var canonOwner = MakeRecWithMergeState("canon-owner", startUT: 31.5, MergeState.Immutable);
             var downstream = MakeRecWithMergeState("downstream", startUT: 50.0, MergeState.NotCommitted);
             var liveById = new Dictionary<string, Recording>
@@ -1914,7 +1864,7 @@ namespace Parsek.Tests
             Assert.Equal(1, result.DroppedRelationCount);
             Assert.Empty(supersedes);
             Assert.Contains("downstream", result.RetiredForkRecordingIds);
-            Assert.Equal(0, result.SkippedImmutableForkCount);
+            Assert.Equal(0, result.PreservedForkCount);
         }
     }
 }

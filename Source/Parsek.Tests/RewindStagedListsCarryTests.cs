@@ -174,13 +174,16 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Tree A is rewound to launch; its own Re-Fly (rel_a, fork after the rewind UT) is
-        /// in memory AND on disk. Tree B's Re-Fly merged after the last persistent write, so
+        /// Tree A is rewound to launch; its own Re-Fly (rel_a, an open fork after the rewind
+        /// UT, which the rewind keeps) is in memory AND on disk. With
+        /// <paramref name="withDanglingRow"/> memory also holds rel_dangle, a tree-A row whose
+        /// fork is in no committed list, which the rollback drops. Tree B's Re-Fly merged after the last persistent write, so
         /// only memory holds rel_b / tomb_b; a prior rewind's retirement rrt_prior is
         /// memory-only too. rel_gone is on disk but memory already removed it (a tree
         /// discard purge after the last write).
         /// </summary>
-        private ParsekScenario BuildTwoTreeCase(out ConfigNode stalePersistent)
+        private ParsekScenario BuildTwoTreeCase(out ConfigNode stalePersistent,
+            bool withDanglingRow = false)
         {
             InstallTree("tree_a",
                 Rec("rec_a_root", 0.0, MergeState.Immutable),
@@ -199,6 +202,8 @@ namespace Parsek.Tests
             var scenario = NewScenario();
             scenario.RecordingSupersedes.Add(Rel("rel_a", "rec_a_origin", "rec_a_fork", 60.0));
             scenario.RecordingSupersedes.Add(Rel("rel_b", "rec_b_origin", "rec_b_fork", 210.0));
+            if (withDanglingRow)
+                scenario.RecordingSupersedes.Add(Rel("rel_dangle", "rec_a_origin", "rec_a_lost", 65.0));
             scenario.LedgerTombstones.Add(Tomb("tomb_b", "act_b_death", "rec_b_fork", 210.0));
             scenario.RecordingRewindRetirements.Add(Retire("rrt_prior", "rec_old_fork", "rec_old_origin"));
             ParsekScenario.SetInstanceForTesting(scenario);
@@ -217,36 +222,37 @@ namespace Parsek.Tests
             SimulateRewindLoad(scenario, stalePersistent);
 
             // Tree B's merge survives: its supersede row and its tombstone come from memory.
-            Assert.Equal(new[] { "rel_b" }, scenario.RecordingSupersedes.Select(r => r.RelationId));
+            // Tree A's own open re-fly survives the rewind too (a rewind undoes nothing).
+            Assert.Equal(new[] { "rel_a", "rel_b" }, scenario.RecordingSupersedes.Select(r => r.RelationId));
             Assert.Equal(new[] { "tomb_b" }, scenario.LedgerTombstones.Select(t => t.TombstoneId));
-            // The prior rewind's retirement survives, and the rewound tree's fork is retired once.
-            Assert.Contains(scenario.RecordingRewindRetirements, r => r.RetirementId == "rrt_prior");
-            Assert.Single(scenario.RecordingRewindRetirements, r => r.RecordingId == "rec_a_fork");
-            Assert.Equal(2, scenario.RecordingRewindRetirements.Count);
+            // The prior rewind's retirement survives, and nothing new is retired.
+            RecordingRewindRetirement prior = Assert.Single(scenario.RecordingRewindRetirements);
+            Assert.Equal("rrt_prior", prior.RetirementId);
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO][Rewind]")
-                && l.Contains("Rewind: carrying staged lists across the rewind load: supersedes=1 retirements=2 tombstones=1 journal=none"));
+                && l.Contains("Rewind: carrying staged lists across the rewind load: supersedes=2 retirements=1 tombstones=1 journal=none"));
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO][Rewind]")
-                && l.Contains("Staged lists carried across rewind: supersedes installed=1 loadedFromSave=2 restored=1 staleDropped=2")
-                && l.Contains("retirements installed=2 loadedFromSave=0 restored=2 staleDropped=0")
+                && l.Contains("Staged lists carried across rewind: supersedes installed=2 loadedFromSave=2 restored=1 staleDropped=1")
+                && l.Contains("retirements installed=1 loadedFromSave=0 restored=1 staleDropped=0")
                 && l.Contains("tombstones installed=1 loadedFromSave=1 restored=1 staleDropped=1")
                 && l.Contains("journal installed=none loadedFromSave=none"));
             Assert.False(RecordingStore.HasRewindCarriedStagedLists);
         }
 
         [Fact]
-        public void RewindToLaunch_RewoundTreeForkAfterRewindUT_IsDroppedByTheReapply_OnTheCarriedList()
+        public void RewindToLaunch_RewoundTreeOpenFork_SurvivesTheReapply_DanglingRowDropped()
         {
-            // Mirror: carrying must not keep the rewound tree's own Re-Fly alive. With no
-            // pre-load drop in the capture, the OnLoad re-apply drops it from the carried list.
-            var scenario = BuildTwoTreeCase(out ConfigNode stalePersistent);
+            // The OnLoad re-apply runs on the carried list: with no pre-load drop in the
+            // capture it keeps the rewound tree's own open re-fly (rel_a) and drops only
+            // the dangling row whose fork is in no committed list.
+            var scenario = BuildTwoTreeCase(out ConfigNode stalePersistent, withDanglingRow: true);
             ArmRewindToLaunch("rec_a_root");
 
             SimulateRewindLoad(scenario, stalePersistent, preLoadDrop: false);
 
-            Assert.Equal(new[] { "rel_b" }, scenario.RecordingSupersedes.Select(r => r.RelationId));
-            Assert.Single(scenario.RecordingRewindRetirements, r => r.RecordingId == "rec_a_fork");
+            Assert.Equal(new[] { "rel_a", "rel_b" }, scenario.RecordingSupersedes.Select(r => r.RelationId));
+            Assert.DoesNotContain(scenario.RecordingRewindRetirements, r => r.RecordingId == "rec_a_fork");
             Assert.Contains(logLines, l =>
                 l.Contains("Re-applied supersede drop after LoadScene: dropped 1 relation(s)"));
         }
@@ -338,7 +344,7 @@ namespace Parsek.Tests
             SimulateRewindLoad(scenario, stalePersistent);
 
             Assert.Null(scenario.ActiveMergeJournal);   // the stale node held none
-            Assert.Equal(new[] { "rel_b" }, scenario.RecordingSupersedes.Select(r => r.RelationId));
+            Assert.Equal(new[] { "rel_a", "rel_b" }, scenario.RecordingSupersedes.Select(r => r.RelationId));
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN][Rewind]")
                 && l.Contains("Staged-list carry kept the loaded merge journal")
