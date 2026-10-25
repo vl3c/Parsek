@@ -1661,7 +1661,15 @@ namespace Parsek.Logistics
             // cycleId.
             if (cycleLastDockReached)
             {
-                route.CompletedCycles += 1;
+                // A cycle that lost an endpoint in one of its windows and delivered
+                // nothing in any window counts as skipped, as the single-stop path and
+                // the rewind's counter rebuild count it. Either bump advances C+S by
+                // one, so the next cycle id is the same.
+                bool lostUndelivered = IsLostUndeliveredMultiStopCycle(route, cycleId);
+                if (lostUndelivered)
+                    route.SkippedCycles += 1;
+                else
+                    route.CompletedCycles += 1;
                 if (route.LastObservedLoopCycleIndex < cMin)
                     route.LastObservedLoopCycleIndex = cMin;
 
@@ -1701,6 +1709,7 @@ namespace Parsek.Logistics
                     $"LoopRoute(multi): route {ShortIdForLog(route)} cycle={cycleId} cMin={cMin.ToString(IC)} " +
                     $"last dock reached — firedWindows={firedWindows.ToString(IC)} " +
                     $"snapped lastObserved={cMin.ToString(IC)} completedCycles={route.CompletedCycles.ToString(IC)} " +
+                    $"skippedCycles={route.SkippedCycles.ToString(IC)} lostUndelivered={(lostUndelivered ? "1" : "0")} " +
                     $"armedPause={(armedPauseHonored ? "honored" : "none")} " +
                     $"stillDue={(stillDue ? "1" : "0")}");
             }
@@ -5054,6 +5063,33 @@ namespace Parsek.Logistics
         /// event-log read - every other event-log interaction in this file goes
         /// through <see cref="RouteEventLog.Add"/> on the write side.
         /// </summary>
+        /// <summary>
+        /// True when a multi-stop cycle reaching its last dock lost an endpoint in one of
+        /// its windows (the route stopped as <see cref="RouteStatus.EndpointLost"/> this
+        /// pass) and no window of the cycle logged a
+        /// <see cref="RouteEventType.RouteCargoDelivered"/> row. A cycle that delivered at
+        /// any stop stays completed, matching the rewind's counter rebuild; a cycle with no
+        /// lost endpoint stays completed whatever it delivered (a pure-pickup route).
+        /// </summary>
+        internal static bool IsLostUndeliveredMultiStopCycle(Route route, string cycleId)
+        {
+            if (route == null || route.Status != RouteStatus.EndpointLost)
+                return false;
+            if (string.IsNullOrEmpty(cycleId))
+                return false;
+            IReadOnlyList<RouteEvent> els = RouteEventLog.Events;
+            if (els == null) return true;
+            for (int i = 0; i < els.Count; i++)
+            {
+                RouteEvent a = els[i];
+                if (a == null || a.Type != RouteEventType.RouteCargoDelivered) continue;
+                if (!string.Equals(a.RouteId, route.Id, StringComparison.Ordinal)) continue;
+                if (string.Equals(a.RouteCycleId, cycleId, StringComparison.Ordinal))
+                    return false;
+            }
+            return true;
+        }
+
         internal static bool IsDeliveryAlreadyLogged(string routeId, string cycleId, int stopIndex)
         {
             if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(cycleId))

@@ -1178,7 +1178,7 @@ pinned to the C# receipt literal) and the smoke cell
 
 ---
 
-## ~~V3C-CAPTURE-AIMS-INTO-IKE: V3C's capture leaves Duna's SOI through Ike on both attempts~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells. LIVE-PROVEN 2026-10-25 by `2026-10-25_1046` (MISSION-OK, first in-SOI periapsis 13,613 km); that run's PARSEK-FAIL(save-structure) was a stale harness census, fixed offline on branch `wip-v3cfix`, flight owed. mission]
+## ~~V3C-CAPTURE-AIMS-INTO-IKE: V3C's capture leaves Duna's SOI through Ike on both attempts~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells. LIVE-PROVEN 2026-10-25 by `2026-10-25_1046` (MISSION-OK, first in-SOI periapsis 13,613 km); that run's PARSEK-FAIL(save-structure) was a stale harness census, fixed in PR #2256, LIVE-PROVEN 2026-10-25 by `2026-10-25_1213` (V3C) and `_1227` (B17), both PASS attempt 1 with `inFlightCopyTrees=1`. mission]
 
 `V3C-flight-arrival-companion` `2026-10-09_0731` / `_0743_a2` both read INVALID (mission):
 `MISSION-ASSERT-FAIL ... left the target SOI during CAPTURE-BURN without a committed park:
@@ -1230,8 +1230,16 @@ dedupes; only the points facet did. `mutsave` reaches the committed row and take
 with it, so an offline inversion over such a save is not read VACUOUS. V3C's windows are
 unchanged and pass on a V3C-shaped doubled save (`InFlightCopyCensusTests`). Every other armed
 structure window was measured on a save without a copy, so the change moves none of them; B17,
-the same mission, was predicted red the same way (not flown since #2169). Flight owed:
-V3C-flight-arrival-companion PASS with `inFlightCopyTrees` 1 in the saveParse facets.
+the same mission, was predicted red the same way (not flown since #2169).
+
+Re-flown 2026-10-25 on main 08d0c6f21 (PR #2256 merged, stock-minimal DLL a9be4b78):
+`V3C-flight-arrival-companion` `2026-10-25_1213` PASS attempt 1, MISSION-OK, first in-SOI
+periapsis 17,133 km, saveParse PASS with trees 2 / committedTrees 2 / treeNodes 3 /
+inFlightCopyTrees 1 / recordings 4 / Orbiting 2 / Destroyed 1 / JointBreak 1.
+`B17-duna-direct-orbit` `2026-10-25_1227` PASS attempt 1, MISSION-OK, first in-SOI periapsis
+1,120 km, saveParse PASS (rewind, structure and points armed) with trees 1 / committedTrees 1 /
+treeNodes 2 / inFlightCopyTrees 1 / recordings 3 / Orbiting 1 / Destroyed 1 / JointBreak 1. Both
+saves held the in-flight copy and the census read it once.
 
 ---
 
@@ -3022,7 +3030,7 @@ LOOP-ROUTE-LOST-DELIVERY-COUNTED-COMPLETED).
 
 ---
 
-## LOOP-ROUTE-LOST-DELIVERY-COUNTED-COMPLETED: a multi-stop loop cycle whose delivery lost its endpoint counts as completed [FILED 2026-10-25 from RS-1's first flight `2026-10-25_1116`. product, low]
+## ~~LOOP-ROUTE-LOST-DELIVERY-COUNTED-COMPLETED: a multi-stop loop cycle whose delivery lost its endpoint counts as completed~~ [FILED 2026-10-25 from RS-1's first flight `2026-10-25_1116`. product, low. DONE 2026-10-25, branch `claude/project-thread-u5m7su`]
 
 At RS-1's loss the route listing read `status=EndpointLost completed=1 ... dispatched=1 ...
 delivered=0`: the cycle's delivery found no endpoint, yet the cycle counts as completed. The
@@ -3036,9 +3044,14 @@ So the same multi-stop history reads `completed=1` live and `skipped=1` after a 
 next cycle id (`cycle-{C+S}`) is the same either way. Only the counters the Logistics window and
 the Route History show are off.
 
-Fix: in the multi-stop crossing, count the cycle skipped instead of completed when its last window
-lost its endpoint, or make the rebuild match the live rule. Either one changes counters that lanes
-pin (RS-1 accepts both readings).
+Fix: the multi-stop crossing counts the cycle skipped instead of completed when the route stopped
+EndpointLost during the cycle's windows and no window of the cycle logged a `RouteCargoDelivered`
+row (`RouteOrchestrator.IsLostUndeliveredMultiStopCycle`). A cycle that delivered at any stop stays
+completed, matching the rebuild, and a cycle with no lost endpoint stays completed whatever it
+delivered (a pure-pickup route). C+S advances by one either way, so cycle ids do not move. The
+`last dock reached` line now names `skippedCycles=` and `lostUndelivered=`. xUnit:
+`RouteMultiStopFireTests.LastDockReached_*` (real delivery path, both directions); RS-1 now pins
+`completed=0 skipped=1` at the loss.
 
 ---
 
