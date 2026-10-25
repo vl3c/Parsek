@@ -16,6 +16,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A rocket that never leaves the pad no longer shows a ghost.** When a kerbal steps out of a
+  rocket on the pad and it never launches, its ghost used to sit on the pad after a rewind for as
+  long as you had waited there. It now never appears; the kerbal's own ghost still plays.
+  (PAD-VESSEL-GHOST-HOLDS-THE-PAD)
 - **Boarding, docking or moving cargo with another vessel is never an idle flight.** A kerbal who
   stepped out of a rocket on the pad and took a seat on, boarded, docked with or moved cargo to a
   nearby vessel had the whole flight thrown away at scene exit if nothing moved 30 m. The flight

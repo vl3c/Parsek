@@ -19928,7 +19928,7 @@ namespace Parsek
                 rec?.VesselName,
                 reason,
                 hasRenderableData,
-                rec?.PlaybackEnabled ?? false,
+                rec?.GhostVisible ?? false,
                 externalVesselSuppressed,
                 supersededByRelation,
                 rewindRetired);
@@ -19987,7 +19987,7 @@ namespace Parsek
                     ? flags[i].skipReason
                     : ResolveGhostPlaybackSkipReason(
                         GhostPlaybackEngine.HasRenderableGhostData(rec),
-                        rec.PlaybackEnabled,
+                        rec.GhostVisible,
                         externalVesselSuppressed: false);
                 string reason = activeGhost
                     ? "active-ghost"
@@ -20000,7 +20000,7 @@ namespace Parsek
                     warn = !activeGhost,
                     index = i,
                     recordingExists = true,
-                    playbackEnabled = rec.PlaybackEnabled,
+                    playbackEnabled = rec.GhostVisible,
                     activeGhost = activeGhost,
                     skipReason = skipReason,
                     reason = reason,
@@ -20354,7 +20354,7 @@ namespace Parsek
 
                 GhostPlaybackSkipReason skipReason = ResolveGhostPlaybackSkipReason(
                     hasData,
-                    rec.PlaybackEnabled,
+                    rec.GhostVisible,
                     externalVesselSuppressed,
                     supersededByRelation,
                     rewindRetired,
@@ -20468,7 +20468,7 @@ namespace Parsek
                             rec.VesselName,
                             skipReason,
                             hasData,
-                            rec.PlaybackEnabled,
+                            rec.GhostVisible,
                             externalVesselSuppressed,
                             supersededByRelation,
                             rewindRetired),

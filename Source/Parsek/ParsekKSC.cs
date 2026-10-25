@@ -400,7 +400,7 @@ namespace Parsek
                 // but the recording's career effect still applies — so once past-end,
                 // drive the same persistent-vessel spawn path the visible branch would.
                 // Bug #433.
-                if (!rec.PlaybackEnabled)
+                if (!rec.GhostVisible)
                 {
                     if (kscGhosts.ContainsKey(i))
                     {
@@ -1532,7 +1532,7 @@ namespace Parsek
         {
             return !IsTimelineInactiveForKsc(rec, supersedes, retirements, out _)
                 && IsKscStructurallyEligible(rec)
-                && rec.PlaybackEnabled;
+                && rec.GhostVisible;
         }
 
         private static IReadOnlyList<RecordingSupersedeRelation> CurrentRecordingSupersedes()
