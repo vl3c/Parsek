@@ -38,6 +38,7 @@ $injectFilterByPreset = @{
     "chain-tip-dock"        = "InjectChainTipDock"
     "launch-site-claim"     = "InjectLaunchSiteClaim"
     "rescan-substitute"     = "InjectRescanSubstitute"
+    "leaves-departure"      = "InjectLeavesDeparture"
 }
 
 # Per-preset default save name, applied only when -SaveName is not given. Keeps a
@@ -68,6 +69,7 @@ $defaultSaveByPreset = @{
     "chain-tip-dock"        = "chain-tip-dock-fixture"
     "launch-site-claim"     = "launch-site-claim-fixture"
     "rescan-substitute"     = "rescan-substitute-fixture"
+    "leaves-departure"      = "leaves-departure-fixture"
 }
 
 $ErrorActionPreference = "Stop"

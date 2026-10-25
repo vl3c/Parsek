@@ -188,6 +188,36 @@ namespace Parsek.Tests
             Assert.Equal("D220", row.DateText);
         }
 
+        // catches: a Leaves row whose move gate refused still offering a live Warp, or
+        // greying it with the status sentence instead of the gate's reason.
+        [Theory]
+        [InlineData((int)MoveRefusal.Atmosphere, "Can't warp here: inside the atmosphere")]
+        [InlineData((int)MoveRefusal.BodyChange, "Can't warp: Mun Lander changes orbit body first")]
+        [InlineData((int)MoveRefusal.Burns, "Can't warp: Mun Lander burns before it spawns here")]
+        [InlineData((int)MoveRefusal.Degenerate, "Can't warp: Mun Lander is not on an orbit you can follow")]
+        [InlineData((int)MoveRefusal.DestinationTaken, "Can't warp: the spot beside Mun Lander is taken then")]
+        public void Leaves_RefusedMove_GreysTheWarpWithTheGateReason(int refusal, string reason)
+        {
+            var row = Row(new NearbySpawnCandidate
+            {
+                vesselName = "Mun Lander", endUT = 9000, willDepart = true, departureUT = 220,
+                departureKind = DepartureKind.OtherBody, destination = "Mun",
+                distance = 100, relativeSpeed = 0.5, moveRefusal = (MoveRefusal)refusal
+            });
+
+            Assert.Equal(SpawnCandidateStatus.Leaves, row.Status);
+            Assert.False(row.WarpButtonEnabled);
+            Assert.Equal(reason, row.WarpButtonDisabledReason);
+            Assert.True(row.UsesDepartureWarp);
+            Assert.True(row.ConditionsMet);
+        }
+
+        [Fact]
+        public void MoveRefusalReason_NoneIsNull()
+        {
+            Assert.Null(SpawnControlPresentation.MoveRefusalReason(MoveRefusal.None, "X"));
+        }
+
         [Fact]
         public void Leaving_DepartureDueNow_IsGreyed_WithTheDestinationInWords()
         {
