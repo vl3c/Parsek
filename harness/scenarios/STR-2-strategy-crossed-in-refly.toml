@@ -3,8 +3,12 @@ id = "STR-2-strategy-crossed-in-refly"
 tier = "operator"
 # STRATEGIES x RE-FLY (todo CROSS-SYSTEM-COVERAGE-GAPS-2026-10-16, "strategies across any
 # timeline operation"; owner 2026-10-24: strategy activation must be exact, "to not cause
-# compounding errors"). AUTHORED 2026-10-25 (branch `claude/project-thread-eo3rd8`). NEVER
-# FLOWN: its first flight is a reading run.
+# compounding errors"). AUTHORED 2026-10-25 (branch `claude/project-thread-eo3rd8`, PR #2252).
+# LIVE-PROVEN on its first flight, `2026-10-25_1153` PASS attempt 1 (automation DLL sha256 prefix
+# b3101e76): activation at UT 249.9 (`setupFunds=70750`), no PatchStrategies switch anywhere, the
+# gate fired inside the Re-Fly at nowUT 250.0, the dominance check passed on funds, the merge
+# committed, the ground truth `passed=2 skipped=1` (no crew on this host), `facetsCompared=11`,
+# strategy facet exactly Appreciation; recordings 4. Pinned whole off that flight.
 #
 # WHY. A Re-Fly invoke walks the whole ledger (design 6.8 step 5, the session shows the
 # committed career), so at the end of that walk a strategy activated at the Space Center after
@@ -51,7 +55,7 @@ tier = "operator"
 #
 # FAST-LANE CHECKLIST: (1) reuse - L13's act 1, re-fly and check window verbatim; (2)
 # explicit-UT warps only; (3)-(5) no dwells, burns or coasts beyond the descent; (6) retry
-# `once`; (7) count window {3,8} until the reading run pins it; (8) operator until green, about
+# `once`; (7) count pinned {4,4}; (8) operator until green, about
 # 12 min expected; (9) flight_efficiency.py after the first green flight.
 description = "STR-2 (strategies x Re-Fly): GS-1's career hop commits with the booster slot open, Appreciation Campaign is activated at the Space Center later, and re-flying the booster keeps it off in stock until the session's clock reaches the activation, where the gate switches it on; the merge passes and LedgerGroundTruth after the merge finds the strategy list and the pools exact."
 instanceProfile = "stock-minimal"
@@ -138,7 +142,8 @@ D14 = ["kerbin", "career", "scene-flight", "scene-ksc"]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 3, max = 8 }
+# Measured 4 on `2026-10-25_1153`.
+count = { min = 4, max = 4 }
 
 [expectations.logContracts]
 required = [
@@ -146,7 +151,7 @@ required = [
   "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
   "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
   # --- THE ACTIVATION ---
-  "kscaction action=activate-strategy target=AppreciationCampaignCfg applied=true manifestKind=strategy-activate observedAfter=factor=[0-9.]+ slots=1/1 setupFunds=[1-9][0-9.]* ",
+  "kscaction action=activate-strategy target=AppreciationCampaignCfg applied=true manifestKind=strategy-activate observedAfter=factor=[0-9.]+ slots=1/1 setupFunds=70750 setupSci=0 setupRep=0 fundsDelta=-70750 ",
   # --- THE RE-FLY ---
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_[0-9a-f]{32} slot=1",
   "Invocation complete: sess=\\S+ rp=rp_[0-9a-f]{32} slot=1 ",
@@ -157,7 +162,7 @@ required = [
   "Merge dominance check sess=\\S+ result=pass pool=\\S+ ut=\\S+ before=\\S+ after=\\S+ ",
   "answermergedialog complete choice=merge result=committed",
   # --- THE CHECK ---
-  "(?s)MISSIONMARK label=str2-check .*?BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "(?s)MISSIONMARK label=str2-check .*?BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT",
   "(?s)MISSIONMARK label=str2-check .*?result: hardFailures=0 ",
   "(?s)MISSIONMARK label=str2-check .*?CompareStrategies: managed=\\[AppreciationCampaignCfg\\] ledgerActive=\\[AppreciationCampaignCfg\\] saveActive=\\[AppreciationCampaignCfg\\] diverged=0 \\[\\]",
 ]

@@ -527,6 +527,20 @@ keeps its reason key. Cells: `ClockCauseScopeTests`.
 
 ---
 
+## ~~KERBAL-XP-REASSERT-CELL-EXPECTS-ROWS-AHEAD-OF-CLOCK: the in-game kerbal XP re-assert cell expects a recovery the rewind left in the committed future~~ [FILED AND FIXED 2026-10-25 from flight `2026-10-25_1200`, branch `claude/project-thread-eo3rd8`]
+
+L8 went red (`passed=2 failed=1`) on `KerbalExperienceReassertTest.SurvivingCareerLogEntriesAreOnTheLiveRoster`:
+`Missing: [Jebediah Kerman:0,Recover,]`. Since #2236 / #2237 the re-assert walks to the clock when
+committed rows lie ahead of it (`reason=kerbal-experience-reassert cutoffUT=199.87`), so after L8's
+third Rewind-to-Launch Jeb's flight-A recovery (UT 1000.1) is committed future and correctly not on
+the roster; the cell still built its expected set from the whole effective ledger. Test-side only:
+the roster was right. **Fix.** The cell keeps only KerbalExperience rows at or before the same clock
+the recalc cuts at (`LedgerGroundTruthHarness.IsAtOrBeforeClock`, no cutoff while the clock is not
+ready) and logs `aheadOfClock=`; with nothing owed it skips. L8 re-pinned to `passed=2 failed=0
+skipped=1` plus the skip line; re-flight owed.
+
+---
+
 ## ~~STRATEGY-ACTIVATION-CROSSED-IN-FLIGHT-NOT-APPLIED: a committed strategy activation the clock reaches during a flight is not switched on until the next scene change~~ [FILED AND FIXED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`]
 
 After a rewind to before a committed Space Center strategy activation, a flight that runs past the
