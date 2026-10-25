@@ -1,0 +1,143 @@
+schema = 1
+id = "CS-3-career-first-contracts"
+# THE SCRIPTED CAMPAIGN, STAGE 3 (docs/dev/autotest-roadmap.md, "The scripted campaign
+# program"): THE FIRST CONTRACT COMPLETED BY A REAL FLIGHT. The 2026-10-26 coverage audit
+# found that no lane had ever completed a contract by flying it: L5's completion never fired
+# (its header), CLK-1 calls Complete() from an in-game cell on the untagged ground-station
+# path, and the in-game `Contracts` category runs in no lane. So the ledger's contract-
+# reward booking for a flight - the completion TAGGED to the recording that earned it, its
+# funds / rep / science rewards, and the commit that carries them - was only ever proven
+# headlessly.
+#
+# THE HOST. `cs-career-new`, CS-0-new-career-game's produced save: a genuine stock New Game
+# (Career, Normal preset) on the `stock-tree` instance, funds 25000, science 0, every
+# facility at level 0, no craft of its own beyond stock's asteroid. Its Mission Control
+# offers four World-Firsts ExplorationContracts on Kerbin: FIRSTLAUNCH (a5a1f217...),
+# SCIENCE (cae56da0...), REACHSPACE and ORBIT. The stock Jumping Flea is overlaid from the
+# shared craft library (`shared-ships.toml`); every part is on the stock start node.
+#
+# THE WALK. In the Space Center: accept FIRSTLAUNCH and SCIENCE (`KscAction
+# accept-contract`). Build the Jumping Flea in the VAB and launch it (the launch completes
+# FIRSTLAUNCH at liftoff, inside the live recording). The mission is CS-1's two-Goo hop:
+# a Goo on the pad, the other Goo and the crew report in low flight, land, recover (the
+# returned science completes SCIENCE, still inside the recording). The recovery leaves
+# FLIGHT and auto-commits the tree. Then the LEDGER GROUND TRUTH: autoRecordOnLaunch off,
+# launch the Flea again (the rollout is charged), run LedgerGroundTruth in that FLIGHT
+# scene (the recalc against KSP's own quicksave, funds / science / reputation HARD), and
+# recover the pad craft through stock's button.
+#
+# THE ASSERTION THAT MATTERS: each completion is booked as a ContractCompleted event TAGGED
+# to a 32-hex recording id (`AddEvent: ContractCompleted key='<guid>' tag='<rec>'`), not
+# filed untagged, and the ground truth closes with the rewards in the pools.
+#
+# STATUS: reading run `2026-10-25_2257` PARSEK-FAIL attempt 1 ON A REAL FINDING (todo
+# CONTRACT-RESTORED-AT-SCENE-LOAD-PAYS-TWICE): the mission flew MISSION-OK, both completions
+# were booked and tagged, but stock completed FIRSTLAUNCH three times at liftoff and paid
+# each time, the ledger booked one, and LedgerGroundTruth read `hardFailures=3` (funds save
+# 117287.04 / recon 97127.04, science 32.5 / 26.5, rep 23.0 / 16.0; the measured leak rows
+# carried exactly the difference). The pins stay as written; the fix flips this lane green.
+# `operator` (stock-tree is not in the nightly instance set).
+tier = "operator"
+description = "Scripted campaign stage 3 (Career): on a genuine new Career save, accept the FIRSTLAUNCH and SCIENCE World-Firsts contracts, fly the Jumping Flea hop (pad and flight readings, recover) so both complete inside the recorded flight, auto-commit, then run the ledger ground truth against KSP's own career save."
+instanceProfile = "stock-tree"
+tags = ["campaign", "CS-3", "career", "contracts", "contract-complete", "editor", "science",
+        "recovery", "auto-commit", "ledger", "ground-truth", "ingame-batch", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-new"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind    = "autopilot"
+mission = "science_bench_recover"
+
+# Budget arithmetic: runtime 3600 >= 300 LoadGame + 2 x 60 accept + 120 GoToEditor + 180
+# LaunchFromEditor + 1380 mission + 120 GoToEditor + 180 LaunchFromEditor + 540 RunTests +
+# 120 Recover + 120 SaveGame + FlushAndQuit + margin.
+steps = [
+  # scene = "spacecenter": the host holds stock's asteroid (CS-1's first-flight trap).
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoMerge",          value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "KscAction",        args = { action = "accept-contract", contract = "a5a1f217-d79b-4ef9-8122-f051ecdd1681" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",        args = { action = "accept-contract", contract = "cae56da0-8ac5-4381-9e41-7080bf9c0e1b" }, expect = "OK", budget = 60 },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "Jumping Flea" },    expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                         expect = "OK", budget = 180 },
+  { phase = "mission",                                                                expect = "MISSION-OK", budget = 1380 },
+  # The recovery leaves FLIGHT, so the tree auto-commits at the scene exit.
+  { cmd = "CommitTree",                                                               expect = "REJECTED" },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "Jumping Flea" },    expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "probe",    expect = "OK", budget = 180 },
+  { cmd = "RunTests",         args = { category = "LedgerGroundTruth" },              expect = "OK", budget = 540 },
+  { cmd = "MissionMark",      args = { label = "cs3-groundtruth-done" },              expect = "OK" },
+  # Leave no craft on the pad in the produced save (it is the next career stage's host).
+  { cmd = "Recover",          args = { pid = "${probe.pid}" },                        expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "SaveGame",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+# The flight half is CS-1's two-Goo cut, key for key (the same stock Jumping Flea off the
+# same pad); a career recovery credits funds, so the recovery is proven on the funds pool.
+[driver.missionParams]
+throttle                 = 1.0
+apoapsisWindowMeters     = { min = 6000, max = 30000 }
+chuteArmMaxRateMps       = 30
+chuteFullDeployAltMeters = 2500
+landedSituations         = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds     = 90
+coastTimeoutSeconds      = 180
+descentTimeoutSeconds    = 360
+padExperiments           = ["mysteryGoo"]
+padCollectTimeoutSeconds = 60
+flightExperiments        = ["mysteryGoo", "crewReport"]
+collectMinExperiments    = 3
+collectTimeoutSeconds    = 120
+# 0 = no TRANSMIT (the pod's built-in antenna cannot send science).
+transmitMaxExperiments = 0
+transmitMinScienceGain = 0.5
+transmitTimeoutSeconds = 120
+recoverMinFundsGain   = 1.0
+recoverTimeoutSeconds = 180
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The hop (plus, as on L3's career flights, its post-recovery continuation); the
+# ground-truth launch is unrecorded.
+count = { min = 1, max = 2 }
+
+[expectations.logContracts]
+required = [
+  "kscaction action=accept-contract target=a5a1f217-d79b-4ef9-8122-f051ecdd1681 applied=true",
+  "kscaction action=accept-contract target=cae56da0-8ac5-4381-9e41-7080bf9c0e1b applied=true",
+  "launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  "Recording started",
+  # Both completions booked AND tagged to a recording, not filed untagged.
+  "AddEvent: ContractCompleted key='a5a1f217-d79b-4ef9-8122-f051ecdd1681' tag='[0-9a-f]{32}'",
+  "AddEvent: ContractCompleted key='cae56da0-8ac5-4381-9e41-7080bf9c0e1b' tag='[0-9a-f]{32}'",
+  "Game state: ContractCompleted '[^']+' \\(funds=[0-9.]+, rep=[0-9.]+, sci=[0-9.]+",
+  "CommitTreeSceneExit: finalizing tree at UT=[0-9.]+[\\s\\S]{0,8000}?Recording stopped\\. ",
+  "result: hardFailures=0 ",
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  "completed by no flight, filed untagged",
+]
+
+[runtime]
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

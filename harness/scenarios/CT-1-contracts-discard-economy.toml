@@ -1,0 +1,61 @@
+schema = 1
+id = "CT-1-contracts-discard-economy"
+# THE IN-GAME `Contracts` CATEGORY, WIRED FOR THE FIRST TIME (2026-10-26 coverage audit: the
+# category's two cells, `DiscardEconomyPreservationInGameTest`, ran in no lane). They drive
+# the discard-preserves-irreversible-economy fix through the REAL LedgerOrchestrator
+# recalc against the live ContractSystem / Funding, which xUnit cannot: a contract accepted
+# at the KSC and completed inside a recorded flight is seeded, then
+#   - a GENUINE discard must re-home the completion (the contract stays credited, is NOT
+#     re-listed Active, and a direct recording-id-cleared ContractComplete row exists);
+#   - the ABANDON path (quickload / revert) must NOT re-home it.
+# Both cells are self-contained and reversible (they truncate what they seed and restore
+# the pools; RestoreBatchFlightBaselineAfterExecution is the backstop).
+#
+# THE HOST. `career-pad-craft`, L2's: a CAREER save that boots into FLIGHT on a pad craft
+# with no live or pending tree once autoRecordOnLaunch is off, which is every precondition
+# the cells check (career, the three pool singletons, no tree deferring the patch).
+#
+# STATUS: LIVE-PROVEN 2026-10-26, reading run `2026-10-25_2309` PASS attempt 1 (62 s, DLL
+# ba15df39): `total=2 passed=2 failed=0 skipped=0 category=Contracts`, pinned whole; each
+# cell's own `passed` line stays required so a batch of Skips cannot read green.
+tier = "operator"
+description = "Drive the never-run in-game Contracts category on L2's career pad host: a contract completed in a recorded flight is re-homed by a genuine discard and not by the abandon path, through the real recalc against the live ContractSystem."
+instanceProfile = "stock-minimal"
+tags = ["contracts", "career", "ingame-batch", "discard", "ledger", "flown"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-pad-craft"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Contracts" },                  expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                   expect = "OK" },
+]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required = [
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Contracts scene=FLIGHT",
+  "GenuineDiscard_RehomesContractCompletion_NotReListedActive: passed",
+  "AbandonDiscard_DoesNotRehomeContractCompletion: passed",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

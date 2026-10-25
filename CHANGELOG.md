@@ -25,6 +25,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A contract pays its reward once.** Accepting a contract and then changing scenes (to the VAB,
+  then the launch) left extra copies of it behind, so completing it paid the funds, science and
+  reputation two or three times. The reward is now paid once, and the books match it.
+  (CONTRACT-RESTORED-AT-SCENE-LOAD-PAYS-TWICE)
 - **The orbital survey's science bonus belongs to the flight that ran it.** Completing an M700
   survey paid science that Parsek only noticed later and kept as an unexplained adjustment. It is
   now its own entry at the survey's time, "Orbital survey of <body>", filed under that flight, so

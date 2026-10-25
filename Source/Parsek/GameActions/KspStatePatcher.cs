@@ -3862,13 +3862,109 @@ namespace Parsek
         /// </summary>
         internal static void PatchContracts(ContractsModule contracts, double acceptClockUT = double.NaN)
         {
-            if (ContractSystem.Instance == null)
+            ContractPatchTiming timing = DecideContractPatchTiming(
+                ContractSystem.Instance != null, ContractSystem.loaded);
+            if (timing == ContractPatchTiming.Skip)
             {
                 ParsekLog.Verbose(Tag,
                     "PatchContracts: ContractSystem.Instance is null — skipping");
                 return;
             }
+            if (timing == ContractPatchTiming.DeferUntilStockLoaded)
+            {
+                DeferContractPatchUntilStockLoaded(contracts, acceptClockUT);
+                return;
+            }
+            PatchContractsCore(contracts, acceptClockUT);
+        }
 
+        /// <summary>When a contract patch may run against stock's live contract list.</summary>
+        internal enum ContractPatchTiming
+        {
+            Skip,
+            DeferUntilStockLoaded,
+            RunNow
+        }
+
+        /// <summary>
+        /// CONTRACT-RESTORED-AT-SCENE-LOAD-PAYS-TWICE. A scene load reaches the patch from
+        /// <c>ParsekScenario.OnLoad</c>, synchronously, while stock's
+        /// <c>ContractSystem.OnLoadRoutine</c> is still one frame away: <c>OnAwake</c> set
+        /// <c>ContractSystem.loaded = false</c>, and the routine will <c>contracts.Clear()</c>
+        /// WITHOUT <c>Unregister()</c> before loading the save's own copies. A contract the
+        /// patch restored and registered into that list is dropped while still subscribed
+        /// to GameEvents, so it completes and pays alongside stock's copy (three payouts for
+        /// one completion after KSC -> VAB -> launch, CS-3 run 2026-10-25_2257). Until stock
+        /// has loaded, the patch therefore waits for its <c>onContractsLoaded</c>.
+        /// </summary>
+        internal static ContractPatchTiming DecideContractPatchTiming(
+            bool contractSystemPresent, bool stockContractsLoaded)
+        {
+            if (!contractSystemPresent)
+                return ContractPatchTiming.Skip;
+            return stockContractsLoaded
+                ? ContractPatchTiming.RunNow
+                : ContractPatchTiming.DeferUntilStockLoaded;
+        }
+
+        private static bool contractPatchDeferred;
+        private static ContractsModule deferredContractPatchModule;
+        private static double deferredContractPatchClockUT = double.NaN;
+        // A cached lambda, never a static method group: EventVoid.Add rejects a delegate
+        // with a null Target.
+        private static EventVoid.OnEvent stockContractsLoadedHandler;
+
+        private static void DeferContractPatchUntilStockLoaded(
+            ContractsModule contracts, double acceptClockUT)
+        {
+            bool alreadyDeferred = contractPatchDeferred;
+            contractPatchDeferred = true;
+            deferredContractPatchModule = contracts;
+            deferredContractPatchClockUT = acceptClockUT;
+            if (stockContractsLoadedHandler == null)
+            {
+                stockContractsLoadedHandler = () => OnStockContractsLoaded();
+                GameEvents.Contract.onContractsLoaded.Add(stockContractsLoadedHandler);
+            }
+            ParsekLog.Info(Tag,
+                "PatchContracts: deferred - stock ContractSystem has not loaded the save's " +
+                "contracts yet (loaded=False); the patch runs on its onContractsLoaded " +
+                $"(alreadyDeferred={alreadyDeferred.ToString(IC)})");
+        }
+
+        private static void OnStockContractsLoaded()
+        {
+            // Parsek's own Fire inside PatchContractsCore lands here too: nothing pending.
+            if (!contractPatchDeferred)
+                return;
+            contractPatchDeferred = false;
+            ContractsModule module = deferredContractPatchModule;
+            double clockUT = deferredContractPatchClockUT;
+            deferredContractPatchModule = null;
+            deferredContractPatchClockUT = double.NaN;
+            if (ContractSystem.Instance == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    "PatchContracts: deferred patch dropped - ContractSystem.Instance is null at onContractsLoaded");
+                return;
+            }
+            ParsekLog.Info(Tag,
+                "PatchContracts: running the deferred scene-load patch on stock's onContractsLoaded " +
+                $"(kspCurrent={(ContractSystem.Instance.Contracts != null ? ContractSystem.Instance.Contracts.Count : 0).ToString(IC)})");
+            // Stock fires onContractsLoaded before it sets loaded = true, so run the core
+            // directly rather than re-entering the timing gate.
+            PatchContractsCore(module, clockUT);
+        }
+
+        internal static void ResetDeferredContractPatch()
+        {
+            contractPatchDeferred = false;
+            deferredContractPatchModule = null;
+            deferredContractPatchClockUT = double.NaN;
+        }
+
+        private static void PatchContractsCore(ContractsModule contracts, double acceptClockUT)
+        {
             if (contracts == null)
             {
                 ParsekLog.Verbose(Tag,
@@ -5502,6 +5598,8 @@ namespace Parsek
         internal static void ResetForSaveLoad()
         {
             ResetDrawdownGuardSessionLatches();
+            // A contract patch deferred for the previous save must not run against this one.
+            ResetDeferredContractPatch();
         }
 
         internal static void ResetForTesting()

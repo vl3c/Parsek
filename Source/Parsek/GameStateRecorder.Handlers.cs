@@ -174,9 +174,12 @@ namespace Parsek
             float sciReward,
             double completionUt)
         {
-            // Bug 1 (fix-funds-economy-divergence §3.2): debounce a stock contract re-fire.
-            // Stock KSP can fire onCompleted N times for one contract within a few ms (the
-            // observed burst fired 4x at the same UT). RETURN before BOTH the Emit store
+            // Bug 1 (fix-funds-economy-divergence §3.2): debounce a contract re-fire.
+            // onCompleted can fire N times for one contract within a few ms (bursts of 3x
+            // and 4x measured). The source was Parsek's own scene-load contract restore
+            // leaving GameEvents-subscribed copies behind (CONTRACT-RESTORED-AT-SCENE-LOAD-
+            // PAYS-TWICE, now deferred until stock has loaded); the debounce stays as the
+            // backstop for any other duplicate instance. RETURN before BOTH the Emit store
             // write AND the ShouldForwardDirectLedgerEvent -> OnKscSpending forward below,
             // so neither inflation path (tagged-commit via the store, no-owner-direct via
             // OnKscSpending) bakes a duplicate reward. The window is the same coalesce window
