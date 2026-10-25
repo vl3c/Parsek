@@ -47,7 +47,7 @@ repaired (no compatibility work before the public release). Unit: `RewindSuperse
 
 ---
 
-## REWIND-LEAVES-A-STRIPPED-TOURIST-ASSIGNED: after a rewind strips a vessel, its tourist stays Assigned to no vessel, so a stock contract cancel keeps her [FILED 2026-10-24 from TOUR-1's first flight; OWNER QUESTION, low]
+## ~~REWIND-LEAVES-A-STRIPPED-TOURIST-ASSIGNED: after a rewind strips a vessel, its tourist stays Assigned to no vessel, so a stock contract cancel keeps her~~ [FILED 2026-10-24 from TOUR-1's first flight; ANSWERED 2026-10-25 by the owner: keep her Assigned (today's behavior), no code change]
 
 `CrewReservationManager.RescueOrphanedCrew` (the #116 rescue the rewind runs after the vessel
 strip) loops `roster.Crew`, which stock filters to `KerbalType.Crew`: a stripped vessel's crew is
@@ -63,7 +63,13 @@ player sees the right tourist at the spawn either way. The question is only what
 state should be: kept Assigned (today; she cannot be seated anywhere else, which is what the hold
 wants) or freed like crew (then stock's cancel removes her, the spawn re-creates her through the
 GC12 path, and `ShouldFilterFromCrewDialog`, which also searches only `roster.Crew`, would need to
-learn tourists so the VAB cannot seat a held tourist). TOUR-1 waits on the answer.
+learn tourists so the VAB cannot seat a held tourist).
+
+Answer (owner, 2026-10-25): keep her Assigned. A held tourist stays Assigned to no vessel through
+the rewind, a contract cancel keeps her, and the spawn seats her as she is. Nothing changes in the
+code. TOUR-1 is re-cut to pin that flow (no creation line for her at the spawn, never dropped as
+missing); GC12 defect 1 (re-creation as a tourist) stays proven by unit tests only, since no
+player flow this lane can fly removes a held tourist before her spawn.
 
 ---
 
