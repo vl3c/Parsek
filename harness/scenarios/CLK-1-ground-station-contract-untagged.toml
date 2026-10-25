@@ -1,0 +1,108 @@
+schema = 1
+id = "CLK-1-ground-station-contract-untagged"
+tier = "nightly"
+# =====================================================================================
+# CLK-1: A CONTRACT A GROUND STATION'S SCIENCE COMPLETES IS FILED UNDER NO FLIGHT
+# (todos CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT and
+# STRATEGY-CONVERSION-OF-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT, owner ruling 2026-10-24,
+# game-actions design 3.14). AUTHORED 2026-10-25 (branch `claude/project-thread-86u4df`).
+# LIVE-PROVEN 2026-10-25 on its second flight: `2026-10-25_0959` PASS attempt 1 (head
+# 8cc218a, automation DLL sha256 7c9f6c6b...).
+#
+# THE DEFECT. Stock's `CollectDeployedScience` completes its contract inside the
+# `OnScienceRecieved` fire of `ResearchAndDevelopment.SubmitScienceData` (decompiled
+# 1.12.5), while the flight in progress records. `OnContractCompleted` tagged the
+# completion to the live recording, so a discard dropped a reward stock had already paid
+# and a Re-Fly read it as the attempt's gain. THE FIX: `DeployedScienceSubmitScopePatch`
+# opens the recorder's clock-cause scope around the six-argument `SubmitScienceData` for a
+# deployed-experiment subject; inside it every capture is untagged and written to the
+# ledger at once.
+#
+# THE FLIGHT: one in-game cell (`ClockCauseScope`) on `career-earned-pad` in FLIGHT. The
+# cell calls the real `SubmitScienceData` for `deployedSeismicSensor@KerbinSrfLanded` and,
+# from a handler on that same fire, completes the career's Active PartTest (07c8e34d)
+# through stock's public `Complete()` - what `CollectDeployedScience` does on that fire. The
+# recorder's live tag is pinned to a fixture id through the test seam, so the completion
+# would be tagged without the fix even on the pad.
+#
+# WHICH PINS PROVE THE FIX. `Clock-caused transition begins: ground-station science`
+# (the patch's scope line, new), the cell's own result line with `scopeSeen=True` and
+# `eventTag=''` / `rowTag=''`, and the recorder's `completed by no flight, filed untagged`
+# (new). FORBIDDEN: `Emit drift` (an untagged event inside the scope is the design) and
+# any pool clamp.
+#
+# FIRST FLIGHT 2026-10-25_0945 (DLL 4776a84, sha256 d2bb3898...): PARSEK-FAIL on the
+# forbidden ERROR only. The cell passed and every fix pin matched, but the post-walk
+# science reconcile could not pair the award: the contract's science reward, paid by the
+# cell's handler before the recorder's, cleared the award's ScienceChanged capture, so the
+# award filed with no reason (a Transmitted row) against stock's VesselRecovery event. Fixed
+# by `GroundStationSubmissionReasonKey` (the reason the open submission files under); the
+# two pins above and the forbidden dump line hold it.
+#
+# GUESSES THE FIRST FLIGHT CONFIRMS (check these first on a red):
+#   G1 the Breaking Ground experiment `deployedSeismicSensor` is loaded on stock-minimal
+#      (SquadExpansion is junctioned; EVA-9 places the parts). A skip names it.
+#   G2 the Harmony patch lands: `Harmony patch applied: DeployedScienceSubmitScopePatch
+#      targets=1` and `SentinelDetectionScopePatch targets=2`.
+#   G3 `Complete()` on the spliced PartTest succeeds from inside the fire (state Active,
+#      not AutoAccept; L12 reads the same contract Active on this host).
+description = "Career pad flight: a real ground-station science submission completes the career's Active contract inside its own OnScienceRecieved fire; the completion is filed untagged and written to the ledger at once although a flight tag is live."
+instanceProfile = "stock-minimal"
+tags = ["CLK-1", "ingame-batch", "career", "contracts", "clock-cause"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-earned-pad"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "RunTests",   args = { category = "ClockCauseScope" },                 expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                        expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=ClockCauseScope scene=FLIGHT",
+  "Harmony patch applied: DeployedScienceSubmitScopePatch targets=1",
+  "Harmony patch applied: SentinelDetectionScopePatch targets=2",
+  "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] clock cause scope: fixture guid=07c8e34d\\S* title=\"[^\"]+\" subject=deployedSeismicSensor@KerbinSrfLanded ",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[GameStateRecorder\\] Clock-caused transition begins: ground-station science deployedSeismicSensor@KerbinSrfLanded",
+  "\\[Parsek\\]\\[INFO\\]\\[GameStateRecorder\\] Game state: ContractCompleted '[^']+' \\(funds=[0-9.]+, rep=[0-9.]+, sci=[0-9.]+, completed by no flight, filed untagged\\)",
+  "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] clock cause scope: ground station submit value=[0-9.]+ scopeSeen=True claimingRecorderSeen=False completed=True state=Completed eventFound=True eventTag='' ledgerRow=True rowTag='' scopeAfter=False",
+  "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] clock cause scope: cleanup seamsRestored=True ",
+  # The contract's own science reward fires first in this cell and clears the award's
+  # ScienceChanged capture (first flight 2026-10-25_0945); the award takes the reason
+  # from the open submission and pairs with stock's VesselRecovery event.
+  "\\[Parsek\\]\\[VERBOSE\\]\\[GameStateRecorder\\] OnScienceReceived: deployed-experiment subject 'deployedSeismicSensor@KerbinSrfLanded' had no ScienceChanged capture left to match; reason taken from the open ground-station submission \\('VesselRecovery'\\)",
+  "Science subject captured: deployedSeismicSensor@KerbinSrfLanded amount=[0-9.]+ increment=[0-9.]+ total=[0-9.]+ gainMultiplier=[0-9.]+ reason='VesselRecovery' ut=[0-9.]+ tag='' deployed=True directLedger=True",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "Emit drift",
+  "Science reconcile dump",
+  "GUARDED DRAWDOWN clamped",
+  "GUARDED UPLIFT clamped",
+]
+
+[runtime]
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
