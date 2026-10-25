@@ -6907,6 +6907,41 @@ def evaluate_cl1_assertions(frames, params: Cl1Params,
 # the issue - the debounce wait AND the window after a declined ask.
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# STAGED SCIENCE (OPTIONAL, all three knobs absent = the landed-only machine).
+#
+# A player's first flight in a new game takes readings in every situation the
+# craft passes through, because each new situation pays separately: on the pad
+# (KSC LaunchPad, landed), in low flight, and on the ground where it lands.
+#   padExperiments     experiment NAMES (the part-config `name`, e.g.
+#                      `mysteryGoo`, `crewReport`), one module per entry, run on
+#                      the pad BEFORE ignition. The machine starts in PAD_COLLECT
+#                      and holds the delegated B1 leg (no throttle, no stage)
+#                      until the data channel OBSERVES at least that many
+#                      experiments holding data, debounced; then it hands the
+#                      SAME frame to B1, which ignites. Holding ignition is the
+#                      point: stock gathers the data after the module's deploy
+#                      animation, so a reading taken while the craft lifts off
+#                      would name the wrong situation.
+#   padCollectTimeoutSeconds  PAD_COLLECT's budget (default 60).
+#   flightExperiments  run on the frame the delegated leg enters COAST (burnout,
+#                      low flight on a pad hop), with the bounded re-emit while
+#                      COAST lasts. The machine carries the MAX data count read
+#                      on airborne frames (ASCENT / COAST / DESCENT), and the
+#                      `stagedScienceObserved` assertion requires the pad count on
+#                      the pad and pad + flight while airborne, so a run that
+#                      failed in flight and was only made up on the ground reds.
+#   transmitMaxExperiments = 0  skips TRANSMIT: COLLECT goes straight to RECOVER
+#                      and the `scienceTransmittedObserved` row is not emitted.
+#                      A capsule's built-in antenna never transmits science in
+#                      stock (CommNetVessel.CanScience needs a non-INTERNAL
+#                      antenna), so a start-node craft can only recover.
+# The run action carries the names in `Action.text` (comma-separated); the runner
+# runs one not-yet-holding-data module per entry and skips the rest, so the
+# re-emit can never run a module twice.
+# ---------------------------------------------------------------------------
+
+SBR_PAD_COLLECT = "PAD_COLLECT"
 SBR_COLLECT = "COLLECT"
 SBR_TRANSMIT = "TRANSMIT"
 SBR_RECOVER = "RECOVER"
@@ -7110,8 +7145,16 @@ class SbrParams:
     recover_credit_pool: str = SBR_CREDIT_POOL_FUNDS
     # Used only under the science pool; strictly positive by the schema.
     recover_min_science: float = 0.1
-    # None = transmit every experiment holding data.
+    # None = transmit every experiment holding data; 0 = skip TRANSMIT.
     transmit_max_experiments: Optional[int] = None
+    # OPTIONAL staged science, see the block note above SBR_PAD_COLLECT.
+    pad_experiments: Tuple[str, ...] = ()
+    pad_collect_timeout: float = 60.0
+    flight_experiments: Tuple[str, ...] = ()
+
+    @property
+    def transmit_skipped(self) -> bool:
+        return self.transmit_max_experiments == 0
 
 
 def sbr_params_from_dict(params: Dict) -> SbrParams:
@@ -7135,6 +7178,9 @@ def sbr_params_from_dict(params: Dict) -> SbrParams:
         recover_min_science=float(params.get("recoverMinScienceGain", 0.1)),
         transmit_max_experiments=(None if params.get("transmitMaxExperiments") is None
                                   else int(params["transmitMaxExperiments"])),
+        pad_experiments=tuple(str(n) for n in (params.get("padExperiments") or ())),
+        pad_collect_timeout=float(params.get("padCollectTimeoutSeconds", 60.0)),
+        flight_experiments=tuple(str(n) for n in (params.get("flightExperiments") or ())),
     )
 
 
@@ -7234,6 +7280,14 @@ class SbrState:
     frames_since_ask: int = 0
     recover_declined: bool = False
     recover_issued: bool = False
+    # --- staged science (inert unless padExperiments / flightExperiments are set).
+    # The data count OBSERVED (debounced) when PAD_COLLECT let the leg ignite, and
+    # the MAX data count read on airborne frames; the flight run's own re-emit
+    # bookkeeping, separate from the tail's so neither consumes the other's sweep.
+    pad_data_observed: int = 0
+    airborne_data_max: int = 0
+    flight_run_emits: int = 0
+    flight_frames_since_emit: int = 0
     phases_reached: Tuple[str, ...] = (B1_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -7247,14 +7301,21 @@ class SbrState:
 
 
 def sbr_initial_state(params: SbrParams) -> SbrState:
-    """Fresh SBR machine, with the delegated B1 sub-machine at its own PRELAUNCH."""
-    return SbrState(params=params, flight=b1_initial_state(params.flight))
+    """Fresh SBR machine, with the delegated B1 sub-machine at its own PRELAUNCH.
+    With padExperiments declared the machine itself starts in PAD_COLLECT, ahead
+    of the leg."""
+    state = SbrState(params=params, flight=b1_initial_state(params.flight))
+    if params.pad_experiments:
+        state = replace(state, phase=SBR_PAD_COLLECT, phases_reached=(SBR_PAD_COLLECT,))
+    return state
 
 
 def _sbr_phase_budget(params: SbrParams, phase: str) -> Optional[float]:
     """The bounded budget for a timed SBR TAIL phase, or None for the terminal.
     The flight leg's budgets belong to the delegated B1 machine and are enforced
     there; duplicating them here would give one phase two clocks."""
+    if phase == SBR_PAD_COLLECT:
+        return params.pad_collect_timeout
     if phase == SBR_COLLECT:
         return params.collect_timeout
     if phase == SBR_TRANSMIT:
@@ -7549,16 +7610,34 @@ def sbr_decide(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState, 
     elif seam_result in RECOVER_REQUEST_DECLINES:
         state = replace(state, recover_declined=True)
 
+    # --- 1b. staged science: the pad readings, before the leg ignites ------
+    pre_actions: List[Action] = []
+    if state.phase == SBR_PAD_COLLECT:
+        state, pre_actions, proceed = _sbr_pad_collect(state, snapshot)
+        if not proceed:
+            return state, pre_actions
+
     # --- 2. the delegated flight leg --------------------------------------
     flight = state.flight
     if flight is not None and not flight.done:
         flight, actions = b1_decide(flight, snapshot)
+        actions = pre_actions + actions
         reached = state.phases_reached
         if flight.phase != state.phase:
             reached = reached + (flight.phase,)
         state = replace(state, flight=flight, phase=flight.phase,
                         phase_entry_ut=flight.phase_entry_ut,
                         phases_reached=reached)
+        # Staged science: the airborne evidence, then the in-flight run.
+        if (not snapshot.vessel_lost
+                and flight.phase in (B1_ASCENT, B1_COAST, B1_DESCENT)
+                and snapshot.science_data_count != SCIENCE_COUNT_UNREAD
+                and int(snapshot.science_data_count) > state.airborne_data_max):
+            state = replace(state, airborne_data_max=int(snapshot.science_data_count))
+        if (state.params.flight_experiments and flight.phase == B1_COAST
+                and not flight.done and not snapshot.vessel_lost):
+            state, run = _sbr_flight_run(state, snapshot)
+            actions = actions + run
         if not flight.done:
             return state, actions
         if flight.phase != B1_LANDED:
@@ -7639,17 +7718,97 @@ def sbr_decide(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState, 
 
 
 def _sbr_reemit(state: SbrState, action_kind: str,
-                value: Optional[float] = None) -> Tuple[SbrState, List[Action]]:
-    """The bounded re-emit tick shared by COLLECT and TRANSMIT: advance the
-    frame counter and, if the allowance and the spacing both permit, emit the
-    phase's (idempotent) sweep once more. ``value`` is the action's argument (the
-    TRANSMIT cap, or None). Returns (new_state, actions)."""
+                value: Optional[float] = None,
+                text: Optional[str] = None) -> Tuple[SbrState, List[Action]]:
+    """The bounded re-emit tick shared by PAD_COLLECT, COLLECT and TRANSMIT:
+    advance the frame counter and, if the allowance and the spacing both permit,
+    emit the phase's (idempotent) sweep once more. ``value`` is the action's
+    argument (the TRANSMIT cap, or None); ``text`` the staged-science name filter.
+    Returns (new_state, actions)."""
     frames = state.frames_since_emit + 1
     if (state.action_emits <= SBR_ACTION_REEMIT_LIMIT
             and frames >= SBR_ACTION_REEMIT_FRAMES):
         return (replace(state, action_emits=state.action_emits + 1, frames_since_emit=0),
-                [Action(action_kind, value=value)])
+                [Action(action_kind, value=value, text=text)])
     return replace(state, frames_since_emit=frames), []
+
+
+def _sbr_run_action(names: Tuple[str, ...]) -> Action:
+    """A staged-science run: one not-yet-holding-data module per listed name."""
+    return Action(ACTION_RUN_SCIENCE_EXPERIMENTS, text=",".join(names))
+
+
+def _sbr_pad_collect(state: SbrState,
+                     snapshot: TelemetrySnapshot) -> Tuple[SbrState, List[Action], bool]:
+    """PAD_COLLECT: run the pad experiments, hold ignition until their data is
+    OBSERVED. Returns (state, actions, proceed); proceed=True hands this same
+    frame to the delegated leg (which ignites on its first decision)."""
+    params = state.params
+    need = len(params.pad_experiments)
+    if snapshot.vessel_lost:
+        return replace(
+            state, done=True, verdict=MISSION_ASSERT_FAIL,
+            loss_reason=("vessel-lost-on-pad: the craft became unreadable in "
+                         "PAD_COLLECT, before ignition; %s" % (_sbr_evidence(state),))), [], False
+    if state.action_emits == 0:
+        # First frame: stamp the budget clock (the initial entry UT is 0.0) and run.
+        entry = snapshot.ut if _is_finite(snapshot.ut) else state.phase_entry_ut
+        return (replace(state, phase_entry_ut=entry, action_emits=1, frames_since_emit=0),
+                [_sbr_run_action(params.pad_experiments)], False)
+    unread = (snapshot.science_experiment_count == SCIENCE_COUNT_UNREAD)
+    state = replace(state,
+                    science_unread_streak=(state.science_unread_streak + 1) if unread else 0)
+    if state.science_unread_streak >= SBR_SCIENCE_UNREAD_GIVEUP_FRAMES:
+        return replace(
+            state, done=True, verdict=MISSION_FLAKE, flake_phase=state.phase,
+            flake_reason=("science-channel-dark: the experiment enumeration read "
+                          "UNREAD on %d consecutive live frames on the pad; %s"
+                          % (state.science_unread_streak, _sbr_evidence(state)))), [], False
+    have = (int(snapshot.science_data_count)
+            if snapshot.science_data_count != SCIENCE_COUNT_UNREAD else None)
+    ready = have is not None and have >= need
+    state = replace(state, data_ready_streak=(state.data_ready_streak + 1) if ready else 0)
+    if state.data_ready_streak >= SBR_OBSERVE_DEBOUNCE_K:
+        entry = snapshot.ut if _is_finite(snapshot.ut) else state.phase_entry_ut
+        return (replace(state, phase=B1_PRELAUNCH, phase_entry_ut=entry,
+                        phases_reached=state.phases_reached + (B1_PRELAUNCH,),
+                        pad_data_observed=int(have), data_ready_streak=0,
+                        science_unread_streak=0, action_emits=0, frames_since_emit=0),
+                [], True)
+    if _sbr_over_budget(state, snapshot):
+        return replace(
+            state, done=True, verdict=MISSION_ASSERT_FAIL,
+            loss_reason=("pad-collect-produced-no-data: PAD_COLLECT ran its full %.0f s "
+                         "budget and fewer than the %d pad experiment(s) %s ever READ as "
+                         "holding data; %s"
+                         % (params.pad_collect_timeout, need,
+                            ",".join(params.pad_experiments), _sbr_evidence(state)))), [], False
+    state, actions = _sbr_reemit(state, ACTION_RUN_SCIENCE_EXPERIMENTS,
+                                 text=",".join(params.pad_experiments))
+    return state, actions, False
+
+
+def _sbr_flight_run(state: SbrState,
+                    snapshot: TelemetrySnapshot) -> Tuple[SbrState, List[Action]]:
+    """The in-flight run, on COAST frames: emit on the first, then the bounded
+    re-emit until the data channel reads pad + flight experiments holding data.
+    Its own bookkeeping, so the tail phases keep their full sweep allowance."""
+    params = state.params
+    need = len(params.pad_experiments) + len(params.flight_experiments)
+    have = (int(snapshot.science_data_count)
+            if snapshot.science_data_count != SCIENCE_COUNT_UNREAD else None)
+    if state.flight_run_emits == 0:
+        return (replace(state, flight_run_emits=1, flight_frames_since_emit=0),
+                [_sbr_run_action(params.flight_experiments)])
+    if have is not None and have >= need:
+        return state, []
+    frames = state.flight_frames_since_emit + 1
+    if (state.flight_run_emits <= SBR_ACTION_REEMIT_LIMIT
+            and frames >= SBR_ACTION_REEMIT_FRAMES):
+        return (replace(state, flight_run_emits=state.flight_run_emits + 1,
+                        flight_frames_since_emit=0),
+                [_sbr_run_action(params.flight_experiments)])
+    return replace(state, flight_frames_since_emit=frames), []
 
 
 def _sbr_collect(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState, List[Action]]:
@@ -7660,6 +7819,9 @@ def _sbr_collect(state: SbrState, snapshot: TelemetrySnapshot) -> Tuple[SbrState
     state = replace(state,
                     data_ready_streak=(state.data_ready_streak + 1) if ready else 0)
     if state.data_ready_streak >= SBR_OBSERVE_DEBOUNCE_K:
+        if params.transmit_skipped:
+            # transmitMaxExperiments = 0: no TRANSMIT; RECOVER observes first.
+            return _sbr_enter(state, SBR_RECOVER, snapshot.ut), []
         state = _sbr_enter(state, SBR_TRANSMIT, snapshot.ut)
         return (replace(state, action_emits=1, frames_since_emit=0),
                 [_sbr_transmit_action(params)])
@@ -7848,8 +8010,11 @@ def _sbr_may_ask_recover(state: SbrState) -> bool:
 
 def evaluate_sbr_assertions(frames, params: SbrParams,
                             state: Optional[SbrState] = None) -> List[AssertionOutcome]:
-    """Evaluate the SBR driver-validity assertions. All four read OBSERVED state
-    carried out of the machine, never a commanded latch.
+    """Evaluate the SBR driver-validity assertions. Every row reads OBSERVED state
+    carried out of the machine, never a commanded latch. Four rows by default;
+    ``transmitMaxExperiments = 0`` drops ``scienceTransmittedObserved`` and a
+    staged-science list adds ``stagedScienceObserved`` (block note above
+    SBR_PAD_COLLECT).
 
     - ``flightCompletedObserved``: the delegated B1 pad hop reached its LANDED
       terminal. The precondition half - without it the three career rows could
@@ -7882,7 +8047,7 @@ def evaluate_sbr_assertions(frames, params: SbrParams,
     # gated on, or a reader reconciling the two gets a different number.
     gain_f = _sbr_recovery_credit(state) if state is not None else None
     recovered = (getattr(state, "phase", None) == SBR_RECOVERED)
-    return [
+    rows = [
         AssertionOutcome("flightCompletedObserved", bool(flew),
                          getattr(flight, "phase", None),
                          {"peakApoapsis": peak,
@@ -7899,6 +8064,21 @@ def evaluate_sbr_assertions(frames, params: SbrParams,
         AssertionOutcome("vesselRecoveredObserved", bool(recovered), gain_f,
                          _sbr_recovered_row_detail(params, state)),
     ]
+    if params.transmit_skipped:
+        rows = [r for r in rows if r.name != "scienceTransmittedObserved"]
+    if params.pad_experiments or params.flight_experiments:
+        pad_need = len(params.pad_experiments)
+        air_need = pad_need + len(params.flight_experiments)
+        pad_have = int(getattr(state, "pad_data_observed", 0) or 0)
+        air_have = int(getattr(state, "airborne_data_max", 0) or 0)
+        rows.append(AssertionOutcome(
+            "stagedScienceObserved",
+            bool(pad_have >= pad_need and air_have >= air_need), air_have,
+            {"padRequired": pad_need, "padObserved": pad_have,
+             "airborneRequired": air_need, "airborneObserved": air_have,
+             "padExperiments": list(params.pad_experiments),
+             "flightExperiments": list(params.flight_experiments)}))
+    return rows
 
 
 def _sbr_recovered_row_detail(params: SbrParams, state: Optional[SbrState]) -> Dict:

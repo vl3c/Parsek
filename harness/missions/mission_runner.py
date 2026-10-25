@@ -2326,7 +2326,8 @@ class KrpcMissionControl(MissionControl):
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Attitude", "set rcs=%s failed: %s" % (on, exc)))
         elif kind == mlib.ACTION_RUN_SCIENCE_EXPERIMENTS:
-            self._perform_run_science(v)
+            # text = the staged-science name filter ("a,b"), or None for every module.
+            self._perform_run_science(v, action.text)
         elif kind == mlib.ACTION_TRANSMIT_SCIENCE:
             # value = the run-wide transmit cap, or None for every module.
             self._perform_transmit_science(v, action.value)
@@ -2533,11 +2534,19 @@ class KrpcMissionControl(MissionControl):
                     % (pool, type(exc).__name__, str(exc)[:160], pool, pool)))
             return float("nan")
 
-    def _perform_run_science(self, vessel) -> None:
+    def _perform_run_science(self, vessel, names=None) -> None:
         """Run every experiment that is Available, not Inoperable and not already
         holding data. Idempotent by that skip, which is what makes the machine's
         bounded re-emit safe. Per-module faults are one Warn each, never a raise:
-        the OBSERVED science_data_count owns the outcome."""
+        the OBSERVED science_data_count owns the outcome.
+
+        ``names`` (the action's text, comma-separated experiment names such as
+        "mysteryGoo,crewReport") narrows the sweep to one eligible module per
+        listed name, in kRPC's enumeration order; a module holding data never
+        counts, so a re-emit runs only what is still missing. None or empty =
+        every eligible module."""
+        wanted = [n.strip() for n in str(names or "").split(",") if n.strip()]
+        filtered = bool(wanted)
         ran = 0
         skipped = 0
         failed = 0
@@ -2546,6 +2555,12 @@ class KrpcMissionControl(MissionControl):
                 if bool(exp.has_data) or bool(exp.inoperable) or not bool(exp.available):
                     skipped += 1
                     continue
+                if filtered:
+                    name = str(exp.name)
+                    if name not in wanted:
+                        skipped += 1
+                        continue
+                    wanted.remove(name)
                 exp.run()
                 ran += 1
             except Exception as exc:
@@ -2553,9 +2568,10 @@ class KrpcMissionControl(MissionControl):
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Science", "experiment run failed: %s: %s"
                     % (type(exc).__name__, str(exc)[:120])))
-        _stdout_sink(mlib.format_mission_log_line(
-            "Info", "Science", "run_science_experiments ran=%d skipped=%d failed=%d"
-            % (ran, skipped, failed)))
+        line = "run_science_experiments ran=%d skipped=%d failed=%d" % (ran, skipped, failed)
+        if names:
+            line += " names=%s unmatched=%s" % (names, ",".join(wanted) or "-")
+        _stdout_sink(mlib.format_mission_log_line("Info", "Science", line))
 
     def _perform_transmit_science(self, vessel, max_total=None) -> None:
         """Transmit the stored data of every experiment that reads HasData.

@@ -706,7 +706,8 @@ class ScienceModeSchemaTests(unittest.TestCase):
         cap = self.params["transmitMaxExperiments"]
         self.assertFalse(cap["required"])
         self.assertEqual("int", cap["type"])
-        self.assertEqual(1, cap["min"])
+        # 0 skips TRANSMIT (a start-node craft cannot transmit science).
+        self.assertEqual(0, cap["min"])
 
     def test_the_science_mode_params_validate_whole(self):
         import hlib
@@ -720,7 +721,7 @@ class ScienceModeSchemaTests(unittest.TestCase):
                     {"recoverCreditPool": "reputation"},
                     {"recoverCreditPool": 1},
                     {"recoverMinScienceGain": 0.0},
-                    {"transmitMaxExperiments": 0},
+                    {"transmitMaxExperiments": -1},
                     {"transmitMaxExperiments": 1.5}):
             self.assertNotEqual([], hlib._validate_mission_params(sparams(**bad), self.schema),
                                 bad)

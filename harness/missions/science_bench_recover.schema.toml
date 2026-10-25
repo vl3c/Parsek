@@ -25,7 +25,8 @@
 # agrees with a stale spec proves nothing. The floors exist to separate "moved" from
 # "did not move", never to predict a number.
 #
-# FOUR OPTIONAL CAREER KEYS keep the defaults above when absent:
+# FOUR OPTIONAL CAREER KEYS (plus the three staged-science keys at the end) keep
+# the defaults above when absent:
 # `preRecoverDwellSeconds` (a hold before the recovery ask), `recoverCreditPool` +
 # `recoverMinScienceGain` (measure the recovery on the SCIENCE pool, for a stock
 # Science game that has no funds), and `transmitMaxExperiments` (transmit at most N
@@ -321,10 +322,35 @@ max = 10000.0
 # re-emitted TRANSMIT can retry a send that RAISED but never send an extra
 # experiment. The rest stays aboard for the recovery credit. Nothing in the
 # machine assumes the craft is empty after a transmit (COLLECT's evidence is the
-# MAX data count). The floor is 1: a cap of 0 would make TRANSMIT's own
-# science-gain gate unreachable. The ceiling matches `collectMinExperiments`.
+# MAX data count). A cap of 0 SKIPS TRANSMIT: COLLECT goes straight to RECOVER
+# and the `scienceTransmittedObserved` row is not emitted. That is the shape of a
+# start-node craft, because stock never transmits science through a capsule's
+# built-in (INTERNAL) antenna (CommNetVessel.CanScience needs a non-INTERNAL one).
+# The ceiling matches `collectMinExperiments`.
 [params.transmitMaxExperiments]
 required = false
 type = "int"
-min = 1
+min = 0
 max = 32
+
+# OPTIONAL STAGED SCIENCE (mlib block note above SBR_PAD_COLLECT). Each list holds
+# experiment NAMES as the part config spells them (`mysteryGoo`, `crewReport`), one
+# module per entry. `padExperiments` run on the pad and HOLD ignition until their
+# data is observed (budget `padCollectTimeoutSeconds`, default 60);
+# `flightExperiments` run on the frame the hop enters COAST (low flight). Either
+# adds the `stagedScienceObserved` row, which needs the pad count observed on the
+# pad and pad + flight observed while airborne. Each new situation pays its own
+# science, which is why a first flight takes readings in all of them.
+[params.padExperiments]
+required = false
+type = "list"
+
+[params.padCollectTimeoutSeconds]
+required = false
+type = "number"
+min = 10.0
+max = 600.0
+
+[params.flightExperiments]
+required = false
+type = "list"
