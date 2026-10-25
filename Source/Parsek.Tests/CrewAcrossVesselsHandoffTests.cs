@@ -486,6 +486,86 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("Reservation bounded by foreign recording of the vessel: 'Jebediah Kerman'"));
         }
 
+        /// <summary>
+        /// Tree B, not yet committed: a fresh recording of the spawned station that never moved
+        /// (Landed start, 5 m) and the EVA of <paramref name="evaKerbal"/> off it, also idle.
+        /// </summary>
+        private static RecordingTree IdleStationVisitWithEva(string evaKerbal)
+        {
+            var tree = new RecordingTree
+            {
+                Id = LaterTree,
+                TreeName = "Station visit",
+                RootRecordingId = StationLaterRec,
+                ActiveRecordingId = "rec-eva-later",
+            };
+            var station = new Recording
+            {
+                RecordingId = StationLaterRec,
+                TreeId = LaterTree,
+                VesselName = "Station",
+                VesselPersistentId = SpawnPid,
+                StartSituation = "Landed",
+                MaxDistanceFromLaunch = 5.0,
+            };
+            station.Points.Add(new TrajectoryPoint { ut = LaterStartUT, bodyName = "Kerbin" });
+            station.Points.Add(new TrajectoryPoint { ut = LaterStartUT + 20.0, bodyName = "Kerbin" });
+            var eva = new Recording
+            {
+                RecordingId = "rec-eva-later",
+                TreeId = LaterTree,
+                VesselName = evaKerbal,
+                EvaCrewName = evaKerbal,
+                MaxDistanceFromLaunch = 4.0,
+                TerminalStateValue = TerminalState.Recovered,
+            };
+            eva.Points.Add(new TrajectoryPoint { ut = LaterStartUT + 10.0, bodyName = "Kerbin" });
+            eva.Points.Add(new TrajectoryPoint { ut = LaterStartUT + 20.0, bodyName = "Kerbin" });
+            tree.Recordings[station.RecordingId] = station;
+            tree.Recordings[eva.RecordingId] = eva;
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-eva-later",
+                UT = LaterStartUT + 10.0,
+                Type = BranchPointType.EVA,
+                ParentRecordingIds = new List<string> { StationLaterRec },
+                ChildRecordingIds = new List<string> { "rec-eva-later" },
+            });
+            return tree;
+        }
+
+        // catches: CX4-IDLE-DISCARDED-FLIGHT-LEAVES-THE-HOLD-OPEN. The visit that takes Jeb off
+        // the station is the only flight that can end the station mission's hold; the idle-on-pad
+        // scene-exit discard threw it away and Jeb, already recovered by stock, stayed held.
+        [Fact]
+        public void IdleVisitWhoseEvaTakesAHeldKerbalOff_IsNotIdle()
+        {
+            CommitSpawnedStationMission();
+            KerbalsModule kerbals = Walk(10000.0);
+            Assert.True(kerbals.IsReservedNow(Jeb));
+
+            RecordingTree visit = IdleStationVisitWithEva(Jeb);
+
+            Assert.False(ParsekFlight.IsTreeIdleOnPad(visit));
+            Assert.Contains(logLines, l => l.Contains("[Flight]")
+                && l.Contains("IsTreeIdleOnPad: not idle - held kerbal 'Jebediah Kerman' left his vessel on EVA")
+                && l.Contains("recording rec-eva-later")
+                && l.Contains("tree='Station visit'"));
+        }
+
+        // catches: the veto reaching a kerbal nobody holds: an idle EVA of a free kerbal is still
+        // an idle flight and is discarded as before.
+        [Fact]
+        public void IdleVisitWhoseEvaTakesAFreeKerbalOff_StaysIdle()
+        {
+            CommitSpawnedStationMission();
+            KerbalsModule kerbals = Walk(10000.0);
+            Assert.False(kerbals.IsReservedNow(Bob));
+
+            Assert.True(ParsekFlight.IsTreeIdleOnPad(IdleStationVisitWithEva(Bob)));
+            Assert.DoesNotContain(logLines, l => l.Contains("left his vessel on EVA"));
+        }
+
         // Pure: only a vessel that joined its tree claims; a lineage child does not.
         [Theory]
         [InlineData(null, null, true)]
