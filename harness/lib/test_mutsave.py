@@ -192,6 +192,33 @@ class PerturbationKillTests(unittest.TestCase):
                       "recordings.structure.vesselNames.Nobody", "rewind.tombstones"):
             self.assertEqual(mutsave.PROVEN, gates[label].verdict, label)
 
+    def test_every_window_is_proven_on_a_save_holding_an_in_flight_copy(self):
+        # The copy-on-write restore attempt written beside its committed tree (the
+        # V3C `2026-10-25_1046` shape): the census skips the copy's repeats, so a
+        # down-crossing must reach the committed row and take the repeat with it,
+        # or the window reads VACUOUS on a parser that is fine.
+        tree_start = SAVE.index("\t\tRECORDING_TREE")
+        tree_end = SAVE.index("\t\tREWIND_POINTS")
+        doubled = (SAVE[:tree_end]
+                   + SAVE[tree_start:tree_end].replace(
+                       "treeFormatVersion = 0", "treeFormatVersion = 0\n\t\t\tisActive = True", 1)
+                   + SAVE[tree_end:])
+        self.assertEqual(1, _facets(doubled)["recordings"]["structure"]["inFlightCopyTrees"])
+        self._assert_all_proven(doubled)
+
+    def test_the_v3c_windows_are_proven_on_its_doubled_save(self):
+        import tomllib
+        from test_saveparse import (SCENARIOS_DIR, V3C_ATTEMPT, V3C_COMMITTED,
+                                    V3C_INJECTED, _census_save)
+        with open(os.path.join(SCENARIOS_DIR, "V3C-flight-arrival-companion.toml"), "rb") as fh:
+            exp = tomllib.load(fh)["expectations"]
+        exp = {"recordings": {"structure": exp["recordings"]["structure"]}}
+        _lane, gates = _run(exp, _census_save(V3C_INJECTED, V3C_COMMITTED, V3C_ATTEMPT))
+        self.assertTrue(gates)
+        for label, g in gates.items():
+            with self.subTest(label=label):
+                self.assertEqual(mutsave.PROVEN, g.verdict, g.reason)
+
     def test_a_wide_window_is_still_proven_at_its_bound(self):
         exp = {"recordings": {"structure": {"gating": True, "recordings": {"min": 1, "max": 9}}}}
         lane, gates = _run(exp)

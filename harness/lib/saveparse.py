@@ -922,8 +922,9 @@ def recording_name_counts(snapshot: ParsekSaveSnapshot) -> Dict[str, int]:
 
 def duplicate_recording_ids(snapshot: ParsekSaveSnapshot) -> Tuple[str, ...]:
     """Recording ids appearing more than once across ALL trees, first-seen order.
-    A duplicated id is a writer-contract violation worth surfacing in triage
-    (and exactly the hand-mutation an adversarial reader would try)."""
+    Surfaced for triage: an in-flight copy of a committed tree repeats its ids by
+    design (see in_flight_copy_trees), and any other repeat is a writer-contract
+    violation (and exactly the hand-mutation an adversarial reader would try)."""
     seen: Dict[str, int] = {}
     order: List[str] = []
     for rec in snapshot.recordings:
@@ -934,6 +935,72 @@ def duplicate_recording_ids(snapshot: ParsekSaveSnapshot) -> Tuple[str, ...]:
         if seen[rid] == 2:
             order.append(rid)
     return tuple(order)
+
+
+# ---------------------------------------------------------------------------
+# The in-flight copy of a committed tree.
+#
+# A produced save can hold a committed tree TWICE: OnSave writes every committed
+# tree, then SaveActiveTreeIfAny (ParsekScenario.cs) writes the active tree as a
+# second `RECORDING_TREE isActive = True`. When that active tree is a committed-tree
+# restore attempt (the copy-on-write clone
+# `ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore` takes when the flight
+# keeps flying a committed vessel, e.g. on the next Update after an in-flight
+# CommitTree) or a resumed Re-Fly session tree, it carries the committed tree's id
+# and repeats its recording and branch-point ids. Since #2169 (e0eb2da1c,
+# design-load-restores-the-save.md 4.3) the save writes that clone on purpose, also
+# with a member resumed in place and dirty. Whether a clone is live at FlushAndQuit is a
+# property of the flight's timing, not of the recorded structure, so a census that
+# counts its rows doubles a facet from one run to the next.
+#
+# The structure facets therefore read each committed tree ONCE: a non-committed tree
+# whose id is a committed tree's id is that tree's in-flight copy, and its rows that
+# repeat a committed row's id are not counted again. What the copy ADDS (a recording
+# or branch point the attempt made after the resume, under a fresh id) still counts,
+# and where both carry an id the committed row is the one read (the attempt is
+# unmerged: a merge replaces the committed copy, a Discard drops the clone). The
+# collapse is deliberately that narrow: two COMMITTED nodes sharing an id, a repeat
+# inside one tree, or two non-committed trees sharing an id are not shapes the
+# writer produces, so they stay counted twice and red the windows they move.
+# `committedTrees` stays the raw committed-node count, and the measured-only
+# `treeNodes` / `inFlightCopyTrees` / `duplicateRecordingIds` keep the copy visible
+# in the run JSON.
+# ---------------------------------------------------------------------------
+
+
+def in_flight_copy_trees(snapshot: ParsekSaveSnapshot) -> Tuple[TreeRow, ...]:
+    """Non-committed trees whose id is a committed tree's id, document order."""
+    committed = {t.tree_id for t in snapshot.trees if t.is_committed and t.tree_id}
+    return tuple(t for t in snapshot.trees
+                 if not t.is_committed and t.tree_id and t.tree_id in committed)
+
+
+def distinct_tree_count(snapshot: ParsekSaveSnapshot) -> int:
+    """RECORDING_TREE nodes, an in-flight copy of a committed tree not counted."""
+    return len(snapshot.trees) - len(in_flight_copy_trees(snapshot))
+
+
+def _census_rows(snapshot: ParsekSaveSnapshot, rows_of, id_of) -> Tuple[Any, ...]:
+    copies = {id(t) for t in in_flight_copy_trees(snapshot)}
+    committed_ids = {id_of(row) for t in snapshot.trees if t.is_committed
+                     for row in rows_of(t) if id_of(row)}
+    out: List[Any] = []
+    for t in snapshot.trees:
+        for row in rows_of(t):
+            if id(t) in copies and id_of(row) and id_of(row) in committed_ids:
+                continue
+            out.append(row)
+    return tuple(out)
+
+
+def census_recordings(snapshot: ParsekSaveSnapshot) -> Tuple[RecordingRow, ...]:
+    """Every RECORDING row except an in-flight copy's repeat of a committed row."""
+    return _census_rows(snapshot, lambda t: t.recordings, lambda r: r.recording_id)
+
+
+def census_branch_points(snapshot: ParsekSaveSnapshot) -> Tuple[BranchPointRow, ...]:
+    """Every BRANCH_POINT row except an in-flight copy's repeat of a committed row."""
+    return _census_rows(snapshot, lambda t: t.branch_points, lambda b: b.bp_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1062,8 +1129,11 @@ def observed_points_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[str, 
     # and `trivialRecordings` is the load-bearing key - a doubled trivial
     # recording would FALSE-RED a `max` budget sized on a green run. C#'s own
     # tally (ParsekScenario's `treeTotalPoints`) sums committed trees only and
-    # does not double count; this matches it. First occurrence wins - the two
-    # copies are one tree serialized twice in a single OnSave, so they agree.
+    # does not double count; this matches it. First occurrence wins, which on a
+    # writer-produced save is the COMMITTED copy (OnSave writes the committed
+    # trees before SaveActiveTreeIfAny). The two copies need NOT agree: since
+    # #2169 an attempt's member resumed in place is written with the points it
+    # recorded after the resume, and the committed copy is the one counted.
     # Rows with an EMPTY id cannot be deduped and are all kept (a writer-contract
     # violation should not silently collapse rows); `observed_structure_facets`
     # surfaces `duplicateRecordingIds` beside this for triage.
@@ -1263,13 +1333,15 @@ def observed_structure_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[st
     snapshot => ``{}`` (ABSENT means "not measured", never zero)."""
     if snapshot is None or not snapshot.parsed:
         return {}
+    # The census reads each committed tree once (see in_flight_copy_trees).
+    census_recs = census_recordings(snapshot)
     terminal_counts: Dict[str, int] = {}
-    for rec in snapshot.recordings:
+    for rec in census_recs:
         name = terminal_state_name(rec.terminal_state)
         if name is not None:
             terminal_counts[name] = terminal_counts.get(name, 0) + 1
     branch_counts: Dict[str, int] = {}
-    for bp in snapshot.branch_points:
+    for bp in census_branch_points(snapshot):
         name = branch_type_name(bp.bp_type)
         if name is None:
             name = "unparsed"
@@ -1286,14 +1358,17 @@ def observed_structure_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[st
         },
         "recordings": {
             "structure": {
-                "trees": len(snapshot.trees),
+                "trees": distinct_tree_count(snapshot),
                 "committedTrees": sum(1 for t in snapshot.trees if t.is_committed),
-                "recordings": len(snapshot.recordings),
+                "recordings": len(census_recs),
                 "terminalStates": terminal_counts,
                 "branchPoints": branch_counts,
-                # Measured-only triage facet: a duplicated recording id is a
-                # writer-contract violation; surfacing it here is what makes
-                # the duplicate_recording_ids helper reach the run JSON.
+                # Measured-only triage facets: the raw RECORDING_TREE node count,
+                # how many of those nodes are an in-flight copy of a committed tree
+                # (left out of the census above), and every repeated recording id
+                # (the copy's by design, any other a writer-contract violation).
+                "treeNodes": len(snapshot.trees),
+                "inFlightCopyTrees": len(in_flight_copy_trees(snapshot)),
                 "duplicateRecordingIds": list(duplicate_recording_ids(snapshot)),
                 # The no-persisted-chain-state tripwire (GHOST_CHAIN_NODE_NAMES).
                 "ghostChainNodes": snapshot.ghost_chain_nodes,
