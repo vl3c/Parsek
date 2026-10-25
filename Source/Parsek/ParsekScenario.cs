@@ -5464,7 +5464,9 @@ namespace Parsek
             Logistics.RouteLoadReconcile.ReconcileAtGoBackRewind(
                 RewindContext.RewindAdjustedUT,
                 RewindContext.RewindSaveRoutes,
-                RewindContext.RewindSaveClockUT);
+                RewindContext.RewindSaveClockUT,
+                RewindContext.RewindSaveOwnClockUT,
+                RewindContext.RewindSaveEvents);
             Logistics.RouteEventLog.LogWalkSummary();
 
             // Restore career state to the rewind target. The cutoff walk keeps

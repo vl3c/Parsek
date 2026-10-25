@@ -95,7 +95,7 @@ Comprehensive redesign of the recording and playback systems. Multi-vessel sessi
 
 **Time jump:**
 - Relative-state time jump — discrete UT skip preserving rendezvous geometry across ghost chain windows
-- Epoch-shifted orbits — orbital elements recomputed at the new UT from state vectors
+- The player's group keeps its place beside the chosen ghost (redesigned 2026-10-25): in orbit the player is placed where the timeline puts the ghost, so every spawned vessel stays on its own recording
 
 **Rendering & performance:**
 - Distance-based zones — Physics, Visual, Beyond — with zone-aware playback and part event gating

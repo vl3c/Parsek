@@ -16,10 +16,22 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Boarding, docking or moving cargo with another vessel is never an idle flight.** A kerbal who
+  stepped out of a rocket on the pad and took a seat on, boarded, docked with or moved cargo to a
+  nearby vessel had the whole flight thrown away at scene exit if nothing moved 30 m. The flight
+  is now kept, with the rocket as where he came from. (IDLE-DISCARD-DROPS-FOREIGN-VESSEL-INTERACTION)
 - **A kerbal stepping out is never thrown away as an idle flight.** Visiting a landed vessel that
   another mission left a kerbal aboard, stepping him out and recovering him without moving 30 m
   used to be discarded as "idle on the pad", leaving him reserved by the old mission forever. The
   flight is now kept, so he is free again. (CX4-IDLE-DISCARDED-FLIGHT-LEAVES-THE-HOLD-OPEN)
+- **Loading a save made just after a rewind undoes the route changes made after it.** In the few
+  seconds after a rewind, a quickload of a save made then no longer keeps a route pause, resume or
+  Send made after that save, and a route created after it waits until its creation time again
+  instead of delivering twice. (ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS)
+- **A supply route with several stops no longer sends a run twice after a load.** Loading a save
+  made between two stops of a run used to start the run over at the next stop, taking the cargo
+  from the origin a second time. The run now carries on where the save left it.
+  (ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH)
 - **A vessel a kerbal boarded from another mission stays visible after a rewind.** If a recorded
   kerbal boarded a hatch or took a seat on a vessel that was not part of his flight, a
   Rewind-to-Launch removed that vessel until the boarding; it now waits where it was, drawn as a
@@ -62,6 +74,10 @@ _(unreleased - entries accumulate here per commit)_
   Discarding or reverting the flight in progress no longer takes back its reward, and a Re-Fly no
   longer counts it as the attempt's gain. A strategy's cut of ground-station science stays with that
   science the same way. (CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT)
+- **With mods, awards your flight did not earn are no longer tied to it.** A contract the game
+  accepts on its own, science sent by another vessel in the background, and a resource scan made by
+  a mod such as SCANsat now stay when you discard the flight, and a Re-Fly no longer counts them as
+  its gain. (LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT)
 - **A contract deadline that runs out during a flight is no longer tied to that flight.** The
   expiry is the clock's, so a Re-Fly that outlives the deadline can be merged, and discarding the
   flight no longer takes the penalty away. A contract the game ends because its requirements no

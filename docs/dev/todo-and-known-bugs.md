@@ -51,6 +51,80 @@ to the new line.
 
 ---
 
+## ~~ROUTE-MULTISTOP-LATER-WINDOW-OVERFLOW: a multi-stop route's later stop can fill between dispatch and its window, and the excess is lost~~ [FILED 2026-10-25, branch `claude/project-thread-re9fpq`, from ROUTE-INTERACTION-SEAMS-TO-VERIFY. ACCEPTED (owner ruling 2026-10-25): option 1, as designed]
+
+A multi-stop route checks room at every stop once, at dispatch (window 0,
+`RouteDestinationCapacityCheck.HasCapacityForAllStops`), and debits the origin for the whole
+run. Its later windows fire unconditionally (OQ4, `RouteOrchestrator` multi-stop path: a
+delivered stop is never discarded by a later re-check). If a later stop's tanks or inventory
+fill in between (another route delivering there, ISRU, the player moving fuel in), that
+window's apply-time clamp writes what fits and the rest is gone: the origin keeps the full
+debit (real cargo for a vessel origin; nothing for a KSC origin, since logistics has no money).
+What the player sees: the Logistics detail reads "Last delivery was partial: ..." (appended per
+window within the cycle) and the log reads `Delivery: route .. cycle=.. PARTIAL - undelivered
+remainder is lost`. Nothing is created from nothing and no earned value is reduced after the
+fact; the loss is bounded by one window's manifest and is shown. Same shape as design 10.13 for
+single-stop routes ("v1 does not reserve shared destination capacity across routes"), but a
+multi-stop gap is a full transit leg long.
+
+Options:
+1. Accept it as designed (recommended): keep the dispatch-only gate and the shown partial
+   report; add one line to design 10.13 naming the multi-stop gap. No code.
+2. Reserve room at dispatch: other routes' capacity gates subtract a pending multi-stop
+   cycle's undelivered stop amounts at that destination (a destination-side twin of the pickup
+   escrow). Stops the route-vs-route case only (ISRU and the player still fill tanks), and it
+   is a new persisted map plus rewind handling.
+3. Re-check room per window and hold the remaining windows until there is room: no loss, but
+   it reverses OQ4 and leaves cargo in transit on a ghost that already flew past the dock.
+
+Ruling (V, 2026-10-25): option 1, accept as designed: "we respect the recorded amounts and
+actions ... considering that deliveries are free (no funds), we don't care if a delivery is
+partial and the rest of the recorded amount is lost". Design 10.13 now states the multi-stop
+rule. No code change.
+
+---
+
+## ~~ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH: a load back to a save written between a multi-stop route's windows sends the cycle a second time~~ [FILED AND FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, found while tracing ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS; reproduced in xUnit on main 802f8e4, not flown. product, medium]
+
+A multi-stop loop route delivers one cycle in several windows under one cycle id, and its later
+windows resume the cycle's logged dispatch. A load back in time to a save written between two
+windows (an F9, a go-back rewind to a rewind save there, a Re-Fly start from an RP quicksave
+there) ran `RouteRewindClassifier.ReconstructCycleCounters` over the kept rows. A loop route sets no
+`CurrentCycleStartUT`, so the rebuild counted the part-delivered cycle as completed
+(`Completed + Skipped` one past its id) while the loop-position restore put the per-stop cursors
+back as of the save. The next window then fired under a fresh id: `IsDispatchAlreadyLogged` missed,
+and the cycle was dispatched again (for a vessel origin, a second physical origin debit). Probe on
+main: 2-stop route, F9 to a save between the 1150 and 1300 windows, rows read `RouteDispatched
+cycle-0`, `Delivered cycle-0 stop 0`, `RouteDispatched cycle-1`, `Delivered cycle-1 stop 1`.
+
+Fix: `RouteLoadReconcile.RestoreLoopPositionFromSave` now also puts the save's own
+`CompletedCycles` / `SkippedCycles` back with the cursors (`RestoreCycleCountersFromSave`, only
+when `ClockDefinitionMatches`, the same gate as the cursors), the counters a cold load of that save
+reads. The rebuild still stands for a route the save does not carry or whose clock changed after
+it. Shared by all three exits (in-session load, go-back rewind, Re-Fly start). The per-call Verbose
+summary gains `counters=N`; each change logs `cycle counters completed A->B skipped C->D (saved;
+next cycle id cycle-N)`. xUnit: `RouteMultiStopLoadResumeTests` (F9 and go-back between the
+windows resume cycle-0 with one dispatch, and so does a Re-Fly start; control before the cycle; clock changed keeps the
+rebuild; the pure pair restore). A lane is owed: no committed route lane flies a multi-stop route
+across a load.
+
+Follow-up (review, 2026-10-25): the two exits that still key their cutoff to the floor alone (a
+go-back to a rewind save written inside an earlier go-back's window, a Re-Fly start from an RP
+quicksave written inside one) keep rows in (save clock, floor] that were written after the save.
+Restoring the save's counters there reissued such a row's cycle id: a multi-stop route's later
+stop resumed a dispatch the loaded world never paid for (cargo from nothing) and a single-stop
+route lost the crossing to the dedup. A route with a kept row after the save's own clock that the
+save's `ROUTE_EVENT_LOG` does not hold now keeps the rebuilt counters
+(`RouteLoadReconcile.SelectRoutesWithUnheldRowsAfterSaveClock`; the go-back reads the rewind
+save's events with its route copy into `RewindContext`, the Re-Fly start reads the RP
+quicksave's); a row the save holds (the earlier go-back's settled rows) still restores them. Logs:
+Info `... written inside ... go-back window ... N route(s) keep rebuilt cycle counters`, Verbose
+`cycle counters stay rebuilt`, summary `countersKeptRebuilt=N`. xUnit:
+`RouteResidualWindowExitCountersTests` (10: both exits x multi-stop and single-stop, the held-row
+control, the pure selector); without the guard 4 red, matching without the saved log 2 red.
+
+---
+
 ## ~~REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY: a Rewind-to-Launch to before a separation undid a merged but unsealed Re-Fly and brought the original flight back~~ [FILED + FIXED 2026-10-24 on branch `fix-rewind-keeps-unsealed-refly` (PR #2230); LIVE-PROVEN 2026-10-25 by RB-4 `2026-10-25_0121` PASS, RF-4 `_0124` PASS]
 
 Owner ruling (V, 2026-10-24, answering the open question of
@@ -103,6 +177,47 @@ the rewind, a contract cancel keeps her, and the spawn seats her as she is. Noth
 code. TOUR-1 is re-cut to pin that flow (no creation line for her at the spawn, never dropped as
 missing); GC12 defect 1 (re-creation as a tourist) stays proven by unit tests only, since no
 player flow this lane can fly removes a held tourist before her spawn.
+
+---
+
+## ~~S07-PIN-PREDATES-PAD-EVIDENCE: S0.7 still pins the idle discard its orbiting host no longer gets~~ [FILED AND FIXED 2026-10-25, branch `claude/project-thread-ssl7ge`]
+
+Found flying the regression set for IDLE-DISCARD-DROPS-FOREIGN-VESSEL-INTERACTION: S0.7
+(`2026-10-25_1038`) read PARSEK-FAIL `recordings.count 1 > max 0`, and the same read holds on
+main. Its pin dates from 2026-07-30, when a one-point tree (maxDist 0) was idle-discarded
+anywhere. The 2026-10-18 pad-evidence rule requires the flight to have started or ended on the
+ground; S0.7's host orbits at ~100 km, so the log reads `IsTreeIdleOnPad: tree='Kerbal X' ...
+pad evidence=none` and the tree auto-commits (`Silent full-fidelity auto-commit (scene-exit):
+tree='Kerbal X' recordings=1`). Product behaviour is right; the spec was stale (S0.7 last flew
+2026-10-14, before the rule).
+
+Fix: count re-pinned to {1,1} from that run, both lines required, D1 `commit-scene-exit` and
+`auto-merge` claimed (now gated by the commit token). A re-flight on the re-pinned spec is owed.
+
+---
+
+## ~~IDLE-DISCARD-DROPS-FOREIGN-VESSEL-INTERACTION: a flight that boards, seats on, docks with or moves cargo to a vessel outside it is discarded as idle when nothing moved 30 m~~ [FILED AND FIXED 2026-10-25, branch `claude/project-thread-ssl7ge`, owner ruling]
+
+Owner question from CX4-IDLE-DISCARDED-FLIGHT-LEAVES-THE-HOLD-OPEN (V, 2026-10-25): rocket V idle
+on the pad, kerbal K steps out, goes to vessel A and enters or interacts with it. The idle-on-pad
+rule keeps or drops a whole flight. If A was more than 30 m away, K's walk kept the flight (V's
+pad recording included); within 30 m every recording "never moved" and the whole flight, the
+Board / Dock / InventoryTransfer onto A and its claim included, was discarded at scene exit.
+Ruling (card, 2026-10-25): the interaction counts as an action and the flight is kept, V's
+recording staying as K's origin (dropping it would leave K's ghost appearing from nothing after a
+rewind and V never returning).
+
+Fix: `ParsekFlight.TreeInteractsWithForeignVesselForIdle` vetoes `IsTreeIdleOnPad`,
+`IsActiveTreeIdleOnPad` and `IsTreePadFailure` when the tree has an InventoryTransfer branch point
+(always a foreign partner) or a Dock / Board whose stamped target pid is no vessel the tree carried
+outside that branch point's own children (`FindForeignVesselInteraction`; a board back into the
+kerbal's own rocket stamps no target or names a tree vessel). Log line `<caller>: not idle - <Type>
+with a vessel outside the flight (bp=<id> targetPid=<pid>) tree='<name>'`. Known keep it accepts:
+a kerbal who stepped out UNRECORDED and then boards his own rocket with a recording on him reads
+the rocket as foreign (the tree never carried it); keeping that short flight is harmless. Tests:
+`ForeignInteractionNotIdleTests` (4 of 7 cells red with the veto stubbed). Lane
+`CX-6-idle-flight-seat-foreign-rover-kept` LIVE-PROVEN on its first flight
+(`2026-10-25_1035` PASS; SEAT-3 regression PASS `2026-10-25_1036`).
 
 ---
 
@@ -324,7 +439,7 @@ its exchange is already a ledger row.
 
 ---
 
-## LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT: mod-driven background awards are filed under the live flight [FILED 2026-10-25 from a code audit, branch `claude/project-thread-dkcvpn`. OPEN; low, mod-only. Owner ruling 2026-10-25: unit tests only, no modded lane]
+## ~~LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT: mod-driven background awards are filed under the live flight~~ [FILED 2026-10-25 from a code audit, branch `claude/project-thread-dkcvpn`. FIXED 2026-10-25, branch `claude/project-thread-86u4df`; unit tests only by owner ruling 2026-10-25]
 
 Three cases a stock install never reaches: a Contract Configurator `autoAccept` contract accepted by
 a mid-flight contract refresh, science a background vessel transmits (and the body science milestone
@@ -332,6 +447,24 @@ it reaches; Kerbalism-style mods), and a background resource-scan unlock (SCANsa
 to the live recording, so a discard drops it and a Re-Fly reads it as the attempt's. Fix direction:
 the same clock-cause rule (file untagged when the vessel named is not the flown one), once a mod
 lane exists to prove it.
+
+**Fix** (owner ruling 2026-10-25: prove it with unit tests, no mod lane): each case opens the
+recorder's clock-cause scope, so `Emit` files it untagged and the #405 doors write it at once.
+(1) `ContractEarlyFailPatch` opens it around `SetState(Active)` of an `AutoAccept` contract still
+Offered (`IsClockCausedAccept`): stock's `ContractSystem` accepts such a contract itself on its
+refresh, so the accept and its advance belong to no flight. (2) `DeployedScienceSubmitScopePatch`
+also opens it when the submission's source vessel is UNLOADED and not one the live flight records
+(`GameStateRecorder.IsLiveFlightVessel`: the recorder's vessel or a background member of the active
+tree; `IsVesselEventOutsideTheFlight` needs a live recorder and no open recovery scope), covering the
+award, the body milestone and any contract completed inside the fire. Stock transmits only from
+loaded vessels, and a loaded vessel outside the tree stays the flight's: the flight's EVA kerbal can
+run and transmit its experiment (`DeployExperimentExternal`). (3) New `ResourceScannerScopePatch`
+marks stock's two scanner calls (`ModuleOrbitalSurveyor.CompleteSurvey`,
+`ModuleBiomeScanner.RunAnalysis`); an unlock with no stock scanner call open is a mod's and is filed
+untagged (`IsUnlockByNoFlight`). A stock scan keeps its tag on any vessel, since both scanner events
+are EVA-usable on a vessel outside the tree (the clean review of this fix caught a first cut that
+untagged those). Not covered: a mod contract a timer parameter completes, where no seam names the
+cause. Cells: `ClockCauseScopeTests`.
 
 ---
 
@@ -373,8 +506,8 @@ of the same fire completes pays its science reward first and clears the award's 
 capture, so the award takes the reason the open submission files under
 (`GroundStationSubmissionReasonKey`; lane CLK-1's first flight `2026-10-25_0945` read the reconcile
 ERROR this fixes). Cells:
-`ClockCauseScopeTests`. Mod contracts with timer parameters stay open under
-LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT.
+`ClockCauseScopeTests`. Mod contracts with timer parameters stay uncovered (see the Fix of
+LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT).
 
 ---
 
@@ -1609,7 +1742,7 @@ and a payload chain's StartUT order are the controls).
 
 ---
 
-## ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS: inside a go-back rewind's lead-time window, a load back to a save written in that window keeps the route actions taken after it [FILED 2026-10-07 from the route state floor, branch `fix-route-goback-cutoff`. OPEN, product, low; by construction, not reproduced in game]
+## ~~ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS: inside a go-back rewind's lead-time window, a load back to a save written in that window keeps the route actions taken after it~~ [FILED 2026-10-07 from the route state floor, branch `fix-route-goback-cutoff`. FIXED 2026-10-25 on branch `claude/project-thread-re9fpq` for the in-session loads; xUnit only, not flown. product, low; by construction, not reproduced in game]
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): release rating low, not a blocker.
 Since LOGISTICS-WITHOUT-MONEY a second in-window crossing no longer charges funds; it can still
@@ -1638,6 +1771,42 @@ chain-tip cargo watermark for rows retired below the floor needs its own read fi
 UT-only reconcile: an F9 to an in-window save from an abandoned timeline keeps the newer timeline's
 route rows up to the floor. A fix would mark the rows the go-back kept (action ids) instead of a UT.
 Found by the PR #2040 re-review.
+
+Fix (2026-10-25, the entry's first form, not the action-id form): `RouteLoadReconcile.
+ReconcileAtInSessionLoad(kind, cutoffUT, loadedSaveUT, ConfigNode)` builds a `RouteSaveWindow` when
+the loaded save's own clock lies behind the floor it carries (`RouteEventRetire.IsInSaveWindow`),
+from the save's own `ROUTE_EVENT_LOG` (`RouteEventLog.ReadSavedEvents`) and route copy. Before the
+ordinary retire above the floor it retires the events in (save clock, floor] the saved log does not
+hold, matched one to one by type, UT, sequence, route, cycle and stop
+(`RouteEventRetire.SelectUnheldWindowRows` -> `RouteEventLog.RetireUnheldWindowRows`), and sends a
+committed route the saved copy does not hold, with `CreatedUT` after the save clock, dormant
+(`SelectRoutesCreatedAfterTheSave` -> the new `forceDormantRouteIds` of `RouteRewindClassifier.
+Classify` / `ReconcileStoreAtRewind`). Everything else stays keyed to the floor: the cycle-state
+reset, the loop-position restore and the floor kept in memory, so the go-back's settled rows (held
+by the save) and a multi-stop cycle the save holds as dispatched resume as before. On an
+InSessionOther load (an F9 at the Space Center) either finding is evidence
+(`HasWindowStateAfterSave`), so the reconcile runs and clears the one-shots armed after the save.
+Chain-tip cargo read: the watermark is still lowered at the floor (the go-back's held rows in the
+window stay taggable to snapshots captured after them), and the window-retired events are not
+stashed: they were written after the save, so only a snapshot committed inside the same 15 s
+window could hold their cargo, while every older snapshot captured past their UT (a later
+recording of the route's endpoint) would match them by UT and lose cargo it never had. Accepted
+residue of that choice: such a same-window snapshot spawns with that cargo. Logs: one Info
+`save written inside a go-back window saveUT=.. floorUT=.. savedEvents=.. savedRoutes=..
+unheldWindowRows=N routesCreatedAfterTheSave=M`, one `RouteEventLog` Info `RetireUnheldWindowRows:
+removed N route event(s) in (S, F]`, and the summary line gains `windowSaveUT= windowRowsRetired=
+windowRoutesDormant=`. xUnit: `RouteWindowSaveLoadTests` (22: the pause row on F9 in flight and at
+the Space Center, the one-shots, the revert to an in-window launch, the route created after the
+save, a route the save holds, the multi-stop resume, a save outside any window and a cold load
+unchanged, a forward scene change, and the pure rules); mutation-checked (no window: 7 red;
+retiring the whole window regardless of the saved log: 5 red, the multi-stop resume among them).
+Not covered: a go-back rewind to a rewind save written inside an earlier window, and a Re-Fly start
+from an RP quicksave written inside one, still key to the floor alone (both need a launch or a
+separation within 15 s of a go-back, then a route action, then that exact rewind; a route with a
+row there the save does not hold keeps its rebuilt cycle counters, see
+ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH); the UT-only
+class (an F9 into an in-window save from an abandoned timeline) is unchanged. Found with it:
+ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH (fixed first; the multi-stop cell needs it).
 
 ---
 
@@ -2900,7 +3069,10 @@ Each item needs a trace (or a lane) before it is a defect or a non-issue; see
   cargo of the crossings the rewind retired.
 - [ ] (Traced 2026-10-06, not adversarially verified: crossings while an endpoint is absent are BLOCKED with no catch-up - lost service, not lost cargo; see CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO.) Spawns are deferred until warp ends while routes keep ticking: a cycle crossing a
   station's spawn UT during warp is held and its cargo lost.
-- [ ] Multi-stop routes reserve no destination capacity between dispatch and a later window.
+- [x] VERIFIED 2026-10-25 (branch `claude/project-thread-re9fpq`), filed as ROUTE-MULTISTOP-LATER-WINDOW-OVERFLOW
+  (ACCEPTED as designed, owner ruling 2026-10-25). Multi-stop routes reserve no destination capacity between
+  dispatch and a later window: the all-stops capacity gate runs at dispatch only (OQ4) and a
+  later window that finds its stop full delivers what fits, with the rest lost.
 - [x] ~~A kerbal swapped into a station during a dock is inferred Dead or held indefinitely
   (`KerbalsModule.cs` around 1786-1821).~~ No defect (traced 2026-10-24, branch
   `claude/project-thread-lzdclu`): the tug's recording ends Docked (never Dead), the docked
@@ -2919,8 +3091,18 @@ Each item needs a trace (or a lane) before it is a defect or a non-issue; see
 - [x] ~~A ghost CommNet relay serving a station drops out during Re-Fly suppression or when its
   spawn is abandoned (`GhostCommNet.cs` around 741-770).~~ By design (GC-14 trace 2026-10-24): the
   re-flown vessel carries its own node, and an abandoned spawn means the vessel never exists.
-- [ ] The every-Nth-window anchor of an inter-body route resets on a rewind
-  (`RouteRewindClassifier.cs:137`), so which windows deliver can change (design 0.9 silent).
+- [x] ~~The every-Nth-window anchor of an inter-body route resets on a rewind
+  (`RouteRewindClassifier.cs:137`), so which windows deliver can change (design 0.9 silent).~~
+  No defect (traced 2026-10-25, branch `claude/project-thread-re9fpq`): the reset in
+  `ResetCycleStateForRewind` is undone on every load back in time (F9, go-back rewind, Re-Fly
+  start) by `RouteLoadReconcile.RestoreLoopPositionFromSave`, which puts the save's
+  `WindowAnchorCycleIndex` back with the cursors when the clock definition (cadence multiplier,
+  window basis, dock UTs) is unchanged. The reset stands only for a route the save does not hold
+  (it goes dormant and re-anchors on activation, like a fresh route) or a cadence change after
+  the save (a rebase, which re-anchors on the live path too). Cells
+  `RouteWindowedCadenceLoadTests` (3: F9 and go-back to a save in the gap after an every-2nd
+  window keep the skipped window skipped, a cadence change re-anchors); both load cells go red
+  with the anchor restore line removed. Design 19.4 M5 now says so.
 - [x] VERIFIED 2026-10-06 wrong in the transport-dominant shape, filed as CHAIN-WALK-FOLLOWS-DOMINANT-DOCK-PARTNER (correct on `bdock-recorded`). Residual of the refuted identity claim: confirm that the chain-tip recording's snapshot
   for a dock-undock claim is the station half (carrying the recorded root part id), not the
   transport. FIXED 2026-10-06 (`fix-chain-walk-claimed-identity`): the tip is the undock half
@@ -3100,6 +3282,21 @@ anchors / `GhostingTriggerClassifier` on `JointBreak` / `Breakup`, ghost part hi
 Left open: a part shed because its parent part DIED (`Part.Die` decouples children with
 force 0) still reads "Decoupled" when no crash child joins the window. Telling it apart
 needs `onPartWillDie`, which fires before those decouples; not done here.
+
+## REALSPAWN-TIME-JUMP-MOVE-PLAYER: the Real Spawn Control Warp moves the player beside the ghost [FILED 2026-10-25, thread "Redesign time jump to move the player", branch `claude/project-thread-1gkt0y`. OPEN; product, design approved pending]
+
+Today's Warp freezes the player's bubble while ghosts keep playing, so a `Leaves` Warp in orbit
+loses its ghost (about 1,100 km after a 10 minute skip in LKO, never flown), a `Ready` ghost must
+spawn on a time-shifted copy of its orbit (off its own recording: replay mismatch after a dock,
+lost on a quickload while blocked), and the player gets free orbital phasing. Owner rulings
+2026-10-25 (Q1-Q7): refuse an unsafe move with a greyed Warp; move only loaded vessels within
+250 m / 2 m/s of the player; other crossed ghosts spawn on their recordings; a player action may
+read a ghost's recording to place the player's own vessels; rewrite flight recorder rule 13 and
+Section 14.5; 2 m/s burn limit on the chosen ghost; offset from the recorded state; the existing
+spawn collision guard is reused before the jump and the player's group slides back along the
+orbit instead of blocking the spawn. Design: `docs/dev/design-realspawn-time-jump-move.md`.
+Plan: Step 1 `Leaves`, Step 2 `Ready`; Step 2 deletes `TimeJumpTerminalOrbitShift` after CI-9,
+VN-4 and VN-10 fly green, which closes REALSPAWN-JUMP-SHIFT-RESIDUE.
 
 ## REALSPAWN-JUMP-SHIFT-RESIDUE: what the orbital-tip jump shift does not cover [FILED 2026-10-03 from the REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST fix, branch `fix-orbital-tip-spawn`. OPEN; product, low. Walkback item FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit. Second-jump item FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit]
 

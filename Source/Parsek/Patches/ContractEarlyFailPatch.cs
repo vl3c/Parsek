@@ -42,6 +42,10 @@ namespace Parsek.Patches
     /// <see cref="StockUiReservationPredicates.CommittedContractResolution"/>, the any-UT form of
     /// the predicate the Cancel block (ruling D7) reads, so a contract whose Cancel is greyed
     /// cannot fail in flight either.</para>
+    /// <para>The same prefix opens the recorder's clock-cause scope around a transition the
+    /// clock causes: a deadline or offer expiry, and an auto-accept contract's accept
+    /// (<see cref="IsClockCausedAccept"/>); everything stock does inside it is filed under no
+    /// flight.</para>
     /// </summary>
     [HarmonyPatch]
     internal static class ContractEarlyFailPatch
@@ -70,6 +74,14 @@ namespace Parsek.Patches
         static bool Prefix(Contracts.Contract __instance, Contracts.Contract.State newState, out bool __state)
         {
             __state = false;
+            if (__instance != null && IsClockCausedAccept(newState, __instance.ContractState, __instance.AutoAccept))
+            {
+                if (ParsekGameModeGate.CheckInert("ContractEarlyFailPatch.Prefix")) return true; // S9 game-mode gate
+                GameStateRecorder.EnterClockCauseScope("auto-accept of contract '"
+                    + (__instance.Title ?? __instance.ContractGuid.ToString()) + "'");
+                __state = true;
+                return true;
+            }
             if (!IsEarlyEndState(newState)) return true;
             if (ParsekGameModeGate.CheckInert("ContractEarlyFailPatch.Prefix")) return true; // S9 game-mode gate
             if (__instance == null) return true;
@@ -101,6 +113,22 @@ namespace Parsek.Patches
         {
             return newState == Contracts.Contract.State.DeadlineExpired
                 || newState == Contracts.Contract.State.OfferExpired;
+        }
+
+        /// <summary>
+        /// True for an auto-accept contract's accept (todo
+        /// LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT): stock's
+        /// <c>ContractSystem</c> accepts an <c>AutoAccept</c> contract itself right after it
+        /// offers it, on its own refresh (Contract Configurator contracts can carry the flag),
+        /// so no flight causes the accept or its advance. A player's accept of an ordinary
+        /// offer stays as it is.
+        /// </summary>
+        internal static bool IsClockCausedAccept(Contracts.Contract.State newState,
+            Contracts.Contract.State currentState, bool autoAccept)
+        {
+            return autoAccept
+                && newState == Contracts.Contract.State.Active
+                && currentState == Contracts.Contract.State.Offered;
         }
 
         /// <summary>

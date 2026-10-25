@@ -1,0 +1,155 @@
+schema = 1
+id = "CX-6-idle-flight-seat-foreign-rover-kept"
+# =====================================================================================
+# CX-6: A FLIGHT THAT NEVER MOVED 30 M BUT TOOK THE SEAT OF A VESSEL OUTSIDE IT IS KEPT.
+# Todo IDLE-DISCARD-DROPS-FOREIGN-VESSEL-INTERACTION (owner ruling 2026-10-25, V: rocket V
+# idle on the pad, kerbal K steps out and boards / takes a seat on / docks with / moves cargo
+# to vessel A: the interaction is recorded and the flight is kept, V as K's origin).
+# AUTHORED 2026-10-25 (branch `claude/project-thread-ssl7ge`). LIVE-PROVEN on its first flight,
+# `2026-10-25_1035` PASS attempt 1 (the veto line, recordings=2 and count-2 all measured).
+#
+# THE DEFECT. The scene exit's idle-on-pad rule (`ParsekFlight.IsTreeIdleOnPad`, the
+# pre-transition `IsActiveTreeIdleOnPad`, and `IsTreePadFailure`) keeps or drops a whole
+# flight. Its vetoes were flags, ground parts, converter work and lab science; a board, seat
+# or dock onto a vessel outside the flight, or a cargo move to one, was not among them. So a
+# kerbal who took the seat of a rover within 30 m of where he started had the whole flight,
+# the seat merge and its claim on the rover included, discarded at the scene exit.
+#
+# THE FIX. `ParsekFlight.TreeInteractsWithForeignVesselForIdle` vetoes all three when the
+# tree has an InventoryTransfer branch point, or a Dock / Board whose stamped target pid is
+# no vessel the tree carried outside that branch point's own children. Log line
+# `<caller>: not idle - <Type> with a vessel outside the flight (bp=<id> targetPid=<pid>)
+# tree='<name>'`. A board back into the kerbal's own rocket is not an interaction.
+#
+# THE HOST is SEAT-3's `seat-rover-pad`: the pad Kerbal X with Jeb, Bill and Bob aboard,
+# and the crewless rover `rover fuel 0` (pid 1871615455, launch guid
+# 9892740591b9b500ab14bbc687377a0b) LANDED 153 m off, carrying an EAS-1 External Command
+# Seat. The rover is 153 m away, so a RECORDED walk to it would itself pass 30 m and keep the
+# flight; Bill is therefore set down 4 m from the rover before the recording starts
+# (SEAT-3's `EvaGroundScience step`), which is the near-A shape V described.
+#
+# THE FLIGHT (SEAT-3's first act, then a scene exit instead of CommitTree):
+#   (0) boot hygiene; autoRecordOnLaunch / autoRecordOnEva off; autoMerge ON (the scene
+#       exit auto-commits; without it the exit refuses `dialog-required`).
+#   (1) Bill out of Kerbal X and set down by the rover (unrecorded), StartRecording on him
+#       (tree root = his EVA, Landed start: pad evidence).
+#   (2) EvaSeatBoard: the seat couple is a Dock merge whose partner is the rover, stamped
+#       (`Tree merge created: type=Dock ... child=<c> (pid=1871615455)`). 1x to UT 45.
+#   (3) ExitToSpaceCenter: the scene exit's idle check reads the seat merge and keeps the
+#       flight; the auto-commit commits both recordings.
+#   (4) ListHandles committed (count 2), SaveGame.
+#
+# WHY IT DISCRIMINATES. Every recording stays within 30 m of its start and the root shows
+# pad evidence, so before the fix the scene exit printed `Idle on pad at scene exit -
+# auto-discarding tree` (forbidden) and committed nothing (count 0, the S0.7 shape). After
+# it the veto line prints and the flight commits with its 2 recordings.
+#
+# GUESSES THE FIRST FLIGHT CONFIRMS: which idle predicate prints the veto first (the pin
+# accepts any of the three callers); that ListHandles kind=committed answers in SPACECENTER.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) SEAT-3 flies this act on the same host but
+# commits by CommitTree, so it never reaches the scene-exit idle check; the scene exit is
+# the variable; (2) one explicit-UT 1x wait; (3)-(5) no burns or coasts; (6) seam-only;
+# (7) exact count 2 (SEAT-3 measured it); (8) nightly, expected ~2 min.
+# =====================================================================================
+tier = "nightly"
+description = "A flight that never moved 30 m but took the seat of a vessel outside it is kept at the scene exit (owner ruling 2026-10-25): on seat-rover-pad Bill Kerman steps out of the pad Kerbal X and is set down beside a crewless rover, a recording on him takes the rover's external seat (a Dock merge stamped with the rover as partner), and the Space Center exit reads the interaction as player work: the idle-on-pad discard is vetoed and the flight auto-commits with both recordings."
+instanceProfile = "stock-minimal"
+tags = ["CX-6", "eva", "seat", "external-command-seat", "foreign-vessel", "dock-merge",
+        "idle-on-pad", "scene-exit", "auto-merge", "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/seat-rover-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  # (0) Boot hygiene (SEAT-3's). Nothing is recorded in the fixture.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                       expect = "OK" },
+  { cmd = "DiscardTree",                                                         expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  # LOAD-BEARING: the scene exit auto-commits only under autoMerge.
+  { cmd = "SetSetting", args = { name = "autoMerge",          value = "true" },  expect = "OK" },
+  { cmd = "MissionMark", args = { label = "cx6-boot" },                          expect = "OK" },
+  # (1) Bill out and over to the rover (unrecorded), then the recording on him.
+  { cmd = "EvaExit",    args = { kerbal = "Bill Kerman", release = "true" },     expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "1871615455", distance = "4" }, expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                      expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  # (2) Bill takes the foreign rover's seat while recorded.
+  { cmd = "MissionMark", args = { label = "cx6-board" },                         expect = "OK" },
+  { cmd = "EvaSeatBoard",                                                        expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "45", maxRate = "1" },                     expect = "OK", budget = 120 },
+  # (3) The scene exit. THE SUBJECT.
+  { cmd = "MissionMark", args = { label = "cx6-exit" },                          expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                   expect = "OK", budget = 180 },
+  # (4) What committed.
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0",            expect = "OK" },
+  { cmd = "MissionMark", args = { label = "cx6-committed-count-${c0.count}" },   expect = "OK" },
+  { cmd = "SaveGame",                                                            expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                        expect = "OK" },
+]
+
+[dimensionsCovered]
+D1  = ["commit-scene-exit", "auto-merge"]
+D5  = ["cross-tree-foreign-dock"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "warp-1x"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Bill's EVA root + the Dock merge child on the rover (SEAT-3 measured 2).
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  "evaexit complete kerbal=Bill Kerman ",
+  "evagroundscience step complete kerbal=Bill Kerman anchor=rover fuel 0 ",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  # (2) The seat couple is a Dock merge onto the rover, stamped as the partner.
+  "MISSIONMARK label=cx6-board[\\s\\S]*evaseatboard start kerbal='Bill Kerman' targetPid=1871615455 seatPart=seatExternalCmd ",
+  "MISSIONMARK label=cx6-board[\\s\\S]*Tree merge created: type=Dock, bp=[^,]+, parents=\\[[0-9a-f]+\\], child=[0-9a-f]+ \\(pid=1871615455\\)",
+  "evaseatboard complete kerbal='Bill Kerman' vesselPid=1871615455 seatPart=seatExternalCmd seatId=[0-9]+",
+  # (3) THE FIX LINE: the idle check reads the seat merge as an interaction with a vessel
+  # outside the flight (any of the three idle predicates may print it first).
+  "MISSIONMARK label=cx6-exit[\\s\\S]*(?:IsTreeIdleOnPad|IsActiveTreeIdleOnPad|IsTreePadFailure): not idle - Dock with a vessel outside the flight \\(bp=[^ ]+ targetPid=1871615455\\) tree=",
+  "MISSIONMARK label=cx6-exit[\\s\\S]*full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='[^']+' recordings=2 ",
+  "exittospacecenter complete scene=SPACECENTER ",
+  # (4) Both recordings committed.
+  "MISSIONMARK label=cx6-committed-count-2 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "startrecording start-refused",
+  "evaexit refused",
+  "evaexit timeout",
+  "evaseatboard refused",
+  "exittospacecenter refused",
+  "warptout refused",
+  # THE DEFECT: the flight discarded as idle-on-pad or as a pad failure at the scene exit.
+  "Idle on pad at scene exit",
+  "Idle on pad detected",
+  "Recording discarded - (?:idle on pad|vessel idle on pad|pad failure)",
+  "idle-on-pad auto-discard",
+  # No other veto may be what keeps the flight.
+  "not idle - tree has [0-9]+ planted flag",
+  "not idle - tree has [0-9]+ placed ground part",
+  "not idle - held kerbal",
+]
+
+[runtime]
+# LoadGame 300, StartRecording 180, EvaExit / step / WarpToUT 120 each, ExitToSpaceCenter
+# 180, SaveGame 120, the rest on the default.
+budgetSeconds = 1300
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

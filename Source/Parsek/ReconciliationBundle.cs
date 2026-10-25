@@ -286,6 +286,20 @@ namespace Parsek
         public static void Restore(
             ReconciliationBundle bundle, double dropRouteRowsAfterUT,
             IReadOnlyList<Logistics.Route> loadedSaveRoutes, double loadedSaveUT)
+            => Restore(bundle, dropRouteRowsAfterUT, loadedSaveRoutes, loadedSaveUT, loadedSaveUT, null);
+
+        /// <summary>
+        /// <see cref="Restore(ReconciliationBundle, double, IReadOnlyList{Logistics.Route}, double)"/>
+        /// plus the RP quicksave's own clock before its floor raise
+        /// (<paramref name="loadedSaveClockUT"/>) and its route events
+        /// (<paramref name="loadedSaveEvents"/>): a route with a kept row after that clock which
+        /// the quicksave does not hold keeps its rebuilt cycle counters
+        /// (<c>RouteLoadReconcile.SelectRoutesWithUnheldRowsAfterSaveClock</c>).
+        /// </summary>
+        public static void Restore(
+            ReconciliationBundle bundle, double dropRouteRowsAfterUT,
+            IReadOnlyList<Logistics.Route> loadedSaveRoutes, double loadedSaveUT,
+            double loadedSaveClockUT, IReadOnlyList<Logistics.RouteEvent> loadedSaveEvents)
         {
             // RecordingStore: clear + re-add via the internal helpers. Trees
             // and recordings are parallel lists that MUST round-trip together
@@ -366,12 +380,29 @@ namespace Parsek
                 // The reconcile resets every kept loop cursor to -1, and the dispatch dedup keys
                 // on a counter-based cycle id, so the first tick would re-fire the crossing that
                 // most recently passed under a fresh id. Sets Route fields only (no ledger write).
+                // A quicksave written inside a go-back's window is loaded with the cutoff at the
+                // floor and no window retire, so a row kept after its own clock may be one it
+                // does not hold: that route keeps the counters rebuilt from the kept rows.
+                HashSet<string> keepRebuiltCounters =
+                    Logistics.RouteLoadReconcile.SelectRoutesWithUnheldRowsAfterSaveClock(
+                        keptRouteEvents, loadedSaveClockUT, routeCutoffUT, loadedSaveEvents);
+                if (keepRebuiltCounters.Count > 0)
+                    ParsekLog.Info("ReconciliationBundle",
+                        "Restore: RP quicksave written inside a go-back window ownClockUT=" +
+                        loadedSaveClockUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                        " cutoff=" + routeCutoffUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                        " savedEvents=" + (loadedSaveEvents == null
+                            ? "unknown"
+                            : loadedSaveEvents.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)) +
+                        ": " + keepRebuiltCounters.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                        " route(s) keep rebuilt cycle counters (rows kept after the save's own clock that it does not hold)");
                 Logistics.RouteLoadReconcile.RestoreLoopPositionAtRewindExit(
                     loadedSaveRoutes,
                     routeCutoffUT,
                     loadedSaveUT,
                     logTag: "ReconciliationBundle",
-                    logPrefix: "Restore");
+                    logPrefix: "Restore",
+                    keepRebuiltCountersRouteIds: keepRebuiltCounters);
             }
 
             // Pending science subjects: replace the live list's contents with the
