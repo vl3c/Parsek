@@ -7,9 +7,10 @@ namespace Parsek.TestCommands
     /// <summary>
     /// The thin applier for the two-phase external command seat verbs <c>EvaSeatBoard</c> /
     /// <c>EvaSeatLeave</c>; the contract is on <see cref="TestCommandEvaSeat"/>. It finds the
-    /// seat or the seated kerbal, calls stock's own <c>KerbalEVA.BoardSeat</c> /
-    /// <c>KerbalEVA.OnDeboardSeat</c>, and the completion polls the live state until the move
-    /// landed and held.
+    /// seat or the seated kerbal, calls stock's own <c>KerbalSeat.BoardSeat</c> (the seat's
+    /// "Board" part action: it runs <c>KerbalEVA.BoardSeat</c> and records the seat's
+    /// occupant) / <c>KerbalEVA.OnDeboardSeat</c>, and the completion polls the live state
+    /// until the move landed and held.
     /// </summary>
     public partial class ParsekTestCommandAddon
     {
@@ -87,9 +88,16 @@ namespace Parsek.TestCommands
             bool accepted;
             try
             {
-                // Stock's own seat board: the FSM event moves the kerbal onto the seat pivot,
-                // couples the kerbal part to the seat part and activates the merged vessel.
-                accepted = evaCtl.BoardSeat(bestSeat);
+                // The seat's own "Board" part action, the one a player clicks
+                // (KerbalSeat.BoardSeat, decompiled KSP 1.12.5): it checks the seat bounds,
+                // calls KerbalEVA.BoardSeat (the FSM event moves the kerbal onto the seat
+                // pivot, couples the kerbal part to the seat part and activates the merged
+                // vessel) and, only when that returns true, sets the seat's occupant.
+                // KerbalEVA.BoardSeat alone skips that write, so KerbalSeat.OnSave writes no
+                // occupantID and every saved snapshot of the vessel holds an empty seat. The
+                // method returns void; the occupant it sets is the acceptance signal.
+                bestSeat.BoardSeat();
+                accepted = bestSeat.Occupant != null;
             }
             catch (Exception ex)
             {
@@ -101,8 +109,8 @@ namespace Parsek.TestCommands
             }
             if (!accepted)
             {
-                // The FSM refused the event from its current state; stock posted its screen
-                // message and nothing moved.
+                // The FSM refused the event from its current state, or the seat bounds were
+                // obstructed; stock posted its screen message and nothing moved.
                 string fsmState = FsmStateName(evaCtl);
                 ResetEvaSeatState();
                 RejectEvaSeat(TestCommandEvaSeat.BoardVerb, TestCommandEvaSeat.BoardRefusedReason,

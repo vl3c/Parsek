@@ -3,7 +3,21 @@ id = "EVA-14-foreign-board-claim-rewind"
 # =====================================================================================
 # EVA-14 (todo FOREIGN-BOARD-LEAVES-NO-GHOST-CLAIM, fixed 2026-10-22 on
 # `claude/project-thread-stn7at`, xUnit only, `RewindVesselHoldTests`). AUTHORED 2026-10-24
-# on branch `lanes-foreign`, NEVER FLOWN: its first flight is a READING run.
+# on branch `lanes-foreign`. FIRST FLIGHTS 2026-10-24_2331 and _2333_a2 (automation DLL from
+# main 6aae72758): INVALID driver-gate on both attempts, no expectation ran. Step 0021
+# InvokeRewindToLaunch was REJECTED `rewind-gate No rewind save available` (tree=388c2b30
+# rec=4d2dc680, Bill's EVA root). The recorder on Bill DID capture its rewind save at
+# StartRecording, but the board is the root's first boundary and it is a MERGE:
+# `ParsekFlight.CreateMergeBranch` flushes the stopped recorder's CaptureAtStop into the root
+# through `AppendCapturedDataToRecording`, which carries no rewind save, and, unlike
+# `CreateSplitBranch` / `TryAppendCapturedToTree`, never calls `CopyRewindSaveToRoot`; the
+# commit's `FinalizeTreeRecordings` copy then reads the board child's recorder, a promotion
+# with no save. So a tree whose root ends in a Dock / Board merge before any split commits
+# with no Rewind-to-Launch: todo MERGE-FIRST-ROOT-LOSES-REWIND-SAVE, fixed on the same branch
+# as this re-cut (`CreateMergeBranch` now copies the stopped recorder's save to the root).
+# This lane now proves that fix too: no F5 before the board, a required pin that the merge
+# itself copies the save to the root, and the rewind loads that save. Re-flights need a DLL
+# carrying the fix. Everything below is still a reading run.
 #
 # THE DEFECT. A Board merge onto a vessel outside the boarding kerbal's tree stamped no
 # target pid on its branch point (`HandleTreeBoardMerge`; design-dock-event-graph.md item 1
@@ -170,6 +184,12 @@ required = [
   # ACT 1
   "evaexit complete kerbal=Bill Kerman ",
   "evaexit complete kerbal=Bill Kerman [\\s\\S]*startrecording recordingId=[0-9a-f]+ already=false",
+  # MERGE-FIRST-ROOT-LOSES-REWIND-SAVE: the board (a merge) copies the save to the root, and it
+  # is the save the rewind loads.
+  "Captured rewind save at UT [0-9.]+: vessel \"Bill Kerman\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*MISSIONMARK label=eva14-board[\\s\\S]*CreateMergeBranch: copied rewind save '\\1' to root recording '[0-9a-f]+'",
+  # The save name binds the capture to the rewind; the two UTs may differ by a physics tick
+  # (EVA-14 `2026-10-25_0131`: captured 27.08, initiated 27.10), so they are not backreferenced.
+  "Captured rewind save at UT [0-9.]+: vessel \"Bill Kerman\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT [0-9.]+ \\(save: \\1\\)",
   # ACT 2: the board onto a vessel outside the tree, and THE FIX (1): its stamp.
   "MISSIONMARK label=eva14-board [\\s\\S]*onCrewBoardVessel: target vessel pid=3620499050, inTree=False",
   "MISSIONMARK label=eva14-board [\\s\\S]*Board merge partner stamp: targetPid=3620499050 inTree=False partnerPidStamped=3620499050 partnerGuidStamped=cb9f5ae95a7b4ec29f88bc81d2a32600",

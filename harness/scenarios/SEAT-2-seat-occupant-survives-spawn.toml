@@ -4,7 +4,17 @@ id = "SEAT-2-seat-occupant-survives-spawn"
 # SEAT-2: A SPAWNED VESSEL KEEPS THE KERBAL SITTING IN ITS EXTERNAL COMMAND SEAT
 # (todo SEAT-OCCUPANT-LINK-LOST-ON-SPAWN, fixed 2026-10-24 on branch
 # claude/project-thread-q9rwbh, commit 8cd9e08, unit tests only until this lane).
-# AUTHORED 2026-10-24, NEVER FLOWN: its first flight is a reading run (guesses below).
+# AUTHORED 2026-10-24. FIRST FLIGHT 2026-10-24_2327 (automation DLL from main 6aae72758):
+# PARSEK-FAIL on the remap pin only. The spawn line read `Regenerated vessel identity: ...,
+# 18 part(s) regenerated, 18 old PID(s) cleaned from registry, dockRefsRemapped=0
+# seatOccupantsRemapped=0 dockAbsorbRowsCopied=0`: the snapshot DID carry Bill's kerbal part
+# (18), but its seat had no `occupantID` to remap. A SEAM defect, not the fix's: the
+# `EvaSeatBoard` applier called `KerbalEVA.BoardSeat` directly, while the player's "Board"
+# action is `KerbalSeat.BoardSeat()` (decompiled KSP 1.12.5), which runs that call and, only
+# on success, sets `KerbalSeat.occupant`; `KerbalSeat.OnSave` writes `occupantID` only when
+# `occupant` is set, so every snapshot taken after the seam's board held an empty seat. The
+# applier now calls `KerbalSeat.BoardSeat()` and reads the occupant as its acceptance (the
+# re-flight needs a DLL carrying that change). The pins below are unchanged.
 #
 # THE BUG. Stock `KerbalSeat.OnSave` writes `occupantID = <the seated kerbal's part
 # flightID>` and `OnStart` resolves it through the vessel's flightID indexer. A Parsek

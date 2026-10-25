@@ -619,7 +619,8 @@ the updates below record how each verb arrived.
 > implemented / 4 reserved**, to live-prove the owner ruling of 2026-10-24 (a kerbal leaving an
 > external command seat is an EVA, never an Undock; recorder fix ccb8a33). `EvaSeatBoard` seats
 > the active EVA kerbal in the nearest free external command seat through stock's own
-> `KerbalEVA.BoardSeat`; `EvaSeatLeave` makes the seated kerbal of the active vessel leave through
+> `KerbalSeat.BoardSeat` (the seat's Board action; 2026-10-25, was `KerbalEVA.BoardSeat`);
+> `EvaSeatLeave` makes the seated kerbal of the active vessel leave through
 > stock's own `KerbalEVA.OnDeboardSeat`. Neither takes an arg. Full contract below
 > (`#### EvaSeatBoard / EvaSeatLeave`); lane `SEAT-1-seat-dismount-eva`.
 
@@ -4887,7 +4888,12 @@ a dock merge) and `ForceSetActiveVessel` on the merged vessel. `KerbalEVA.OnDebo
 seat's "Leave Seat" button) refuses a tourist with a screen message; otherwise `On_seatDeboard`
 runs `EjectFromSeat` (`part.Undock`, so `onVesselsUndocking(vehicle, kerbal)`) and then
 `ForceSetActiveVessel(kerbal)`. `IsSeated()` is the FSM's seated-command state; a seated kerbal's
-`KerbalEVA` lives on the kerbal's part inside the vehicle.
+`KerbalEVA` lives on the kerbal's part inside the vehicle. `KerbalSeat.BoardSeat()` (the seat's
+"Board" part action, the player's click) checks the seat bounds, calls `KerbalEVA.BoardSeat(this)`
+and only when that returns true sets the seat's `occupant`; `KerbalSeat.OnSave` writes `occupantID`
+only for a non-null occupant, so a board through `KerbalEVA.BoardSeat` alone saves an EMPTY seat
+(SEAT-2's first flight 2026-10-24: `seatOccupantsRemapped=0`). The seam therefore boards through
+`KerbalSeat.BoardSeat` and reads a non-null `Occupant` as acceptance.
 
 **Grammar.** `cmd=EvaSeatBoard` and `cmd=EvaSeatLeave`, issued in FLIGHT, no args (the pre-launch
 validator rejects any key, which the verb would silently ignore).
@@ -4897,8 +4903,9 @@ preceding hatch EVA's deferred branch) and `not-eva` until the active vessel is 
 picks the nearest seat (a part with a `KerbalSeat` whose `Occupant` is null) on a loaded, non-EVA,
 non-ghost vessel and refuses (REJECTED, gate-class) `evaseatboard-not-eva`, `-no-free-seat`,
 `-not-near-seat` (beyond 10 m inclusive, the seam's bound over `BoardSeat`'s missing range check)
-and `-refused` (`BoardSeat` returned false: the FSM state declined, nothing moved). It logs
-`evaseatboard start kerbal='..' targetPid= seatPart= seatId= dist=` and calls `BoardSeat`; a throw
+and `-refused` (the seat's `Occupant` stayed null: the FSM state declined or the seat bounds were
+obstructed, nothing moved). It logs `evaseatboard start kerbal='..' targetPid= seatPart= seatId=
+dist=` and calls `KerbalSeat.BoardSeat`; a throw
 is ERROR `evaseatboard-threw`. `EvaSeatLeave` dispatch defers `split-pending` (a pending split
 would make the dismount's undock skip its branch). It finds the kerbals of the active vessel's
 parts whose `KerbalEVA.IsSeated()` and refuses `evaseatleave-no-active-vessel`, `-not-seated`,
