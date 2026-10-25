@@ -1508,6 +1508,19 @@ class InjectPostconditionTests(unittest.TestCase):
         for preset in run.SAVE_TOKEN_BY_METADATA_ONLY_PRESET:
             self.assertIn(preset, run.RP_SIDECAR_BY_PRESET)
 
+    def test_appended_preset_is_proven_by_its_own_sidecar_not_by_the_hosts(self):
+        save = os.path.join(self.tmp, "postcond-appended")
+        rec = os.path.join(save, "Parsek", "Recordings")
+        os.makedirs(rec, exist_ok=True)
+        # The recorded host's own sidecars fill the directory: not the preset's proof.
+        open(os.path.join(rec, "host.prec"), "w").close()
+        self.assertEqual(["Parsek/Recordings/rs1-substitute-rec.prec"],
+                         run._inject_postcondition_missing(save, "rescan-substitute"))
+        open(os.path.join(rec, "rs1-substitute-rec.prec"), "w").close()
+        self.assertEqual([], run._inject_postcondition_missing(save, "rescan-substitute"))
+        for preset in run.SIDECAR_BY_APPENDED_PRESET:
+            self.assertIn(preset, run.RP_SIDECAR_BY_PRESET)
+
 
 class AutopilotHandoffSmokeTests(unittest.TestCase):
     """M-B1 (design Test Plan "run.py handoff over a fake mission subprocess"): the
