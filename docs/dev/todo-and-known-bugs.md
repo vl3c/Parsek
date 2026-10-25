@@ -51,6 +51,32 @@ to the new line.
 
 ---
 
+## ~~ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH: a load back to a save written between a multi-stop route's windows sends the cycle a second time~~ [FILED AND FIXED 2026-10-25, branch `wip-routefix`, found while tracing ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS; reproduced in xUnit on main 802f8e4, not flown. product, medium]
+
+A multi-stop loop route delivers one cycle in several windows under one cycle id, and its later
+windows resume the cycle's logged dispatch. A load back in time to a save written between two
+windows (an F9, a go-back rewind to a rewind save there, a Re-Fly start from an RP quicksave
+there) ran `RouteRewindClassifier.ReconstructCycleCounters` over the kept rows. A loop route sets no
+`CurrentCycleStartUT`, so the rebuild counted the part-delivered cycle as completed
+(`Completed + Skipped` one past its id) while the loop-position restore put the per-stop cursors
+back as of the save. The next window then fired under a fresh id: `IsDispatchAlreadyLogged` missed,
+and the cycle was dispatched again (for a vessel origin, a second physical origin debit). Probe on
+main: 2-stop route, F9 to a save between the 1150 and 1300 windows, rows read `RouteDispatched
+cycle-0`, `Delivered cycle-0 stop 0`, `RouteDispatched cycle-1`, `Delivered cycle-1 stop 1`.
+
+Fix: `RouteLoadReconcile.RestoreLoopPositionFromSave` now also puts the save's own
+`CompletedCycles` / `SkippedCycles` back with the cursors (`RestoreCycleCountersFromSave`, only
+when `ClockDefinitionMatches`, the same gate as the cursors), the counters a cold load of that save
+reads. The rebuild still stands for a route the save does not carry or whose clock changed after
+it. Shared by all three exits (in-session load, go-back rewind, Re-Fly start). The per-call Verbose
+summary gains `counters=N`; each change logs `cycle counters completed A->B skipped C->D (saved;
+next cycle id cycle-N)`. xUnit: `RouteMultiStopLoadResumeTests` (F9 and go-back between the
+windows resume cycle-0 with one dispatch, and so does a Re-Fly start; control before the cycle; clock changed keeps the
+rebuild; the pure pair restore). A lane is owed: no committed route lane flies a multi-stop route
+across a load.
+
+---
+
 ## ~~REWIND-TO-LAUNCH-UNDOES-AN-OPEN-REFLY: a Rewind-to-Launch to before a separation undid a merged but unsealed Re-Fly and brought the original flight back~~ [FILED + FIXED 2026-10-24 on branch `fix-rewind-keeps-unsealed-refly` (PR #2230); LIVE-PROVEN 2026-10-25 by RB-4 `2026-10-25_0121` PASS, RF-4 `_0124` PASS]
 
 Owner ruling (V, 2026-10-24, answering the open question of

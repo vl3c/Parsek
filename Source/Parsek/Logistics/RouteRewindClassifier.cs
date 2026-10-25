@@ -125,7 +125,8 @@ namespace Parsek.Logistics
         /// <see cref="Route.CompletedCycles"/> / <see cref="Route.SkippedCycles"/>
         /// are NOT touched here: the rewind seam reconstructs them from the
         /// kept route events via <see cref="ReconstructCycleCounters"/> right
-        /// after this reconcile.</para>
+        /// after this reconcile, and the loop-position restore then puts the
+        /// save's own counters back with the cursors.</para>
         /// </summary>
         /// <returns>True when anything changed (for batch counting).</returns>
         internal static bool ResetCycleStateForRewind(Route route, double cutoffUT)
@@ -437,7 +438,12 @@ namespace Parsek.Logistics
         /// <summary>
         /// Best-effort reconstruction of a KEPT route's cycle counters from the
         /// kept route events at the rewind seam (fixes the documented cosmetic
-        /// counter-inflation residual). Let <c>maxOrdinal</c> be the highest
+        /// counter-inflation residual). It stands only for a route the loaded
+        /// save does not carry or whose clock changed after it: every other kept
+        /// route takes the save's own counters back with its loop cursors
+        /// (<c>RouteLoadReconcile.RestoreCycleCountersFromSave</c>), because this
+        /// rebuild counts a part-delivered loop multi-stop cycle as completed
+        /// (a loop route sets no in-flight cycle start). Let <c>maxOrdinal</c> be the highest
         /// ordinal parsed from the route's kept
         /// <see cref="RouteEventType.RouteDispatched"/> rows' cycle ids
         /// (unparseable ids ignored). If NO kept dispatch rows exist, both

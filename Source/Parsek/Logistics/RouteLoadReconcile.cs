@@ -37,7 +37,7 @@ namespace Parsek.Logistics
     /// that crossing was dispatched before the cutoff and its cargo is in the loaded world, so it
     /// would be delivered twice. So each kept route then takes its loop position back
     /// from the loaded save's own route copy (loop anchor, route and per-stop cursors, window
-    /// anchor, partner alternation cursor; <see cref="RestoreLoopPositionFromSave"/>). An in-session
+    /// anchor, partner alternation cursor, cycle counters; <see cref="RestoreLoopPositionFromSave"/>). An in-session
     /// load reads that copy from its OnLoad node; the two rewind exits run the same restore
     /// through <see cref="RestoreLoopPositionAtRewindExit"/>.</para>
     ///
@@ -243,7 +243,8 @@ namespace Parsek.Logistics
         /// After the shared reconcile, gives each kept route back the loop position the loaded
         /// save carries for it: <see cref="Route.LoopAnchorUT"/> (the index space) always, then
         /// <see cref="Route.LastObservedLoopCycleIndex"/>, <see cref="Route.WindowAnchorCycleIndex"/>
-        /// and every stop's <see cref="RouteStop.LastFiredCycleIndex"/> when
+        /// and every stop's <see cref="RouteStop.LastFiredCycleIndex"/>, with the cycle counters
+        /// (<see cref="RestoreCycleCountersFromSave"/>), when
         /// <see cref="ClockDefinitionMatches"/>; <see cref="Route.LastConsumedPartnerCycle"/> when
         /// the route is linked to the same partner. The other inputs of the loop span (excluded
         /// interval keys, origin undock UT, source refs, creation members) are set at creation and
@@ -277,6 +278,7 @@ namespace Parsek.Logistics
             int restored = 0;
             int anchorsRestored = 0;
             int partnerCursorsRestored = 0;
+            int countersRestored = 0;
             for (int i = 0; i < keptRoutes.Count; i++)
             {
                 Route kept = keptRoutes[i];
@@ -329,14 +331,45 @@ namespace Parsek.Logistics
                     if (kept.Stops[s] != null && saved.Stops[s] != null)
                         kept.Stops[s].LastFiredCycleIndex = saved.Stops[s].LastFiredCycleIndex;
                 }
+                if (RestoreCycleCountersFromSave(kept, saved, logTag))
+                    countersRestored++;
                 restored++;
             }
             ParsekLog.Verbose(logTag,
                 $"Route reconcile: restored from the save cursors={restored.ToString(IC)} " +
                 $"anchors={anchorsRestored.ToString(IC)} partnerCursors={partnerCursorsRestored.ToString(IC)} " +
+                $"counters={countersRestored.ToString(IC)} " +
                 $"clockChanged={definitionChanged.ToString(IC)} " +
                 $"missingFromSave={missingFromSave.ToString(IC)}");
             return restored;
+        }
+
+        /// <summary>
+        /// Gives a kept route the cycle counters the loaded save carries for it
+        /// (<see cref="Route.CompletedCycles"/>, <see cref="Route.SkippedCycles"/>), together with
+        /// the loop cursors (todo ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH). The next cycle id is
+        /// <c>cycle-{Completed + Skipped}</c>, so the counters belong to the loop position: the
+        /// counters the shared reconcile rebuilt from the kept rows count a multi-stop cycle that
+        /// was part delivered at the save as completed, and its next window would then fire under
+        /// a fresh id with a second dispatch (a second origin debit) instead of resuming the
+        /// logged dispatch. The save's counters were written in the same tick as its rows, so
+        /// they agree with the rows kept up to the save, as a cold load of that save would read
+        /// them. Pure over the two Route instances. Returns true when a counter changed.
+        /// </summary>
+        internal static bool RestoreCycleCountersFromSave(Route kept, Route saved, string logTag = LogTag)
+        {
+            if (kept == null || saved == null)
+                return false;
+            if (kept.CompletedCycles == saved.CompletedCycles && kept.SkippedCycles == saved.SkippedCycles)
+                return false;
+            ParsekLog.Verbose(logTag,
+                $"Route reconcile: route {RouteIds.Short(kept.Id)} cycle counters " +
+                $"completed {kept.CompletedCycles.ToString(IC)}->{saved.CompletedCycles.ToString(IC)} " +
+                $"skipped {kept.SkippedCycles.ToString(IC)}->{saved.SkippedCycles.ToString(IC)} (saved; " +
+                $"next cycle id cycle-{(saved.CompletedCycles + saved.SkippedCycles).ToString(IC)})");
+            kept.CompletedCycles = saved.CompletedCycles;
+            kept.SkippedCycles = saved.SkippedCycles;
+            return true;
         }
 
         /// <summary>

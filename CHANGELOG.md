@@ -20,6 +20,10 @@ _(unreleased - entries accumulate here per commit)_
   another mission left a kerbal aboard, stepping him out and recovering him without moving 30 m
   used to be discarded as "idle on the pad", leaving him reserved by the old mission forever. The
   flight is now kept, so he is free again. (CX4-IDLE-DISCARDED-FLIGHT-LEAVES-THE-HOLD-OPEN)
+- **A supply route with several stops no longer sends a run twice after a load.** Loading a save
+  made between two stops of a run used to start the run over at the next stop, taking the cargo
+  from the origin a second time. The run now carries on where the save left it.
+  (ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH)
 - **A vessel a kerbal boarded from another mission stays visible after a rewind.** If a recorded
   kerbal boarded a hatch or took a seat on a vessel that was not part of his flight, a
   Rewind-to-Launch removed that vessel until the boarding; it now waits where it was, drawn as a
