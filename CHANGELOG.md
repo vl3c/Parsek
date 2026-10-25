@@ -38,6 +38,10 @@ _(unreleased - entries accumulate here per commit)_
 - **A Re-Fly no longer shows a contract you accepted later as active.** A contract accepted at the
   Space Center after the Re-Fly's rewind point stays unaccepted during the Re-Fly, so the re-flown
   stage can no longer complete or fail it before you accepted it. (REFLY-SESSION-SHOWS-CONTRACT-ACCEPTED-LATER)
+- **A contract a ground station or a Sentinel telescope completes is no longer tied to your flight.**
+  Discarding or reverting the flight in progress no longer takes back its reward, and a Re-Fly no
+  longer counts it as the attempt's gain. A strategy's cut of ground-station science stays with that
+  science the same way. (CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT)
 - **A contract deadline that runs out during a flight is no longer tied to that flight.** The
   expiry is the clock's, so a Re-Fly that outlives the deadline can be merged, and discarding the
   flight no longer takes the penalty away. A contract the game ends because its requirements no

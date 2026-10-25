@@ -355,7 +355,7 @@ namespace Parsek.Tests
             string collapsed = Regex.Replace(body, @"\s+", " ");
             Assert.Contains(
                 "if ((reason == TransactionReasons.StrategyInput || reason == TransactionReasons.ContractDecline) && " +
-                "ShouldForwardDirectLedgerEvent(repEvt.recordingId, HasLiveRecorder())) " +
+                "ShouldForwardDirectLedgerEvent(repEvt.recordingId, HasClaimingLiveRecorder())) " +
                 "LedgerOrchestrator.OnKscSpending(repEvt);",
                 collapsed);
             Assert.Contains("IsReputationDeltaBelowThreshold(delta, reason)", collapsed);

@@ -425,10 +425,11 @@ The goal: no committed purchase is ever left unpaid, and no pool (funds, science
 
 **Status: ruled 2026-10-24; built in 0.10.7 (PRs #2229, #2233).** V: an event no flight causes "is an independent unique ledger event, it should not be linked to any flight recording". Rewind design section 2.12 ("Awards are filed by cause") carries the Re-Fly side of the same rule.
 
-**Game rule.** Some career events happen because the clock reached a date, whatever any flight does: an accepted contract's deadline passing, stock ending an accepted contract whose requirements no longer hold, and a strategy reaching its maximum duration (KSPCommunityFixes' StrategyDuration). Each one is filed untagged, under no flight, and written to the ledger the moment it happens, in flight too. So:
+**Game rule.** Some career events happen because the clock reached a date, whatever any flight does: an accepted contract's deadline passing, stock ending an accepted contract whose requirements no longer hold, and a strategy reaching its maximum duration (KSPCommunityFixes' StrategyDuration). Others happen because an instrument already in place works on its own: a Breaking Ground ground station transmitting its science (itself always untagged, operator ruling 2026-09-26), and a Sentinel telescope detecting a comet or an asteroid on its own scan clock. Each one, and everything stock pays or completes because of it, is filed untagged, under no flight, and written to the ledger the moment it happens, in flight too. So:
 
 - Discarding or reverting the flight that was in progress never removes it, and a Re-Fly's merge never retires it. A deadline that passes during a Re-Fly is not the attempt's loss: it never seals the slot and never refuses the merge.
 - What the event charges goes with it: the contract's fail penalty, and every strategy conversion that penalty triggers, are filed with the expiry under no flight (`ContractEarlyFailPatch` opens a clock-cause scope around an allowed `DeadlineExpired` / `OfferExpired` end, inside which every capture is untagged).
+- A contract a ground station's science or a Sentinel detection completes, with its reward, and a strategy's cut of ground-station science are filed under no flight the same way (`DeployedScienceSubmitScopePatch` around stock's `SubmitScienceData` for a deployed subject, `SentinelDetectionScopePatch` around the comet spawn and the asteroid discovery). A Sentinel launched by the flight in progress counts as already in place: its detection is not the flight's, like a ground station the flight deployed.
 - A contract a flight fails before its deadline (a failed parameter, a lost vessel) is still that flight's own row.
 - The rest of section 3.13 is unchanged: a contract the committed timeline already resolves is never expired early (part 1).
 
@@ -438,7 +439,9 @@ The goal: no committed purchase is ever left unpaid, and no pool (funds, science
 - The active set the patcher applies is rebuilt at the current clock from the committed rows (`StrategyStatePatcher.ResolveLedgerActiveAtNow`), so a walk that reads past now never switches on a later activation early.
 - A one-time exchange strategy (stock's Bail-Out Grant and the other currency exchangers, which pay once when activated and then switch themselves off) is never switched on again by the patcher or the gate, so its grant is paid exactly once across rewinds and loads (todo STRATEGY-ACTIVATION-REPLAY-REPAYS-A-ONE-SHOT-EXCHANGER).
 
-**Known gaps (open todos).** Three other event sources still file under the flight in progress although no flight causes them: a contract completed by deployed science (CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT), a strategy's cut of deployed science (STRATEGY-CONVERSION-OF-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT), and awards from mods' background sources (LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT).
+**Status of the instrument half: built in 0.10.7** (todos CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT, STRATEGY-CONVERSION-OF-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT).
+
+**Known gaps (open todos).** Awards from mods' background sources (a Contract Configurator auto-accept, a background vessel's science under Kerbalism-style mods, a SCANsat background unlock) still file under the flight in progress (LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT), waiting for a mod lane to prove them.
 
 ---
 

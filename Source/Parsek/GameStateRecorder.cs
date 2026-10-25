@@ -183,8 +183,9 @@ namespace Parsek
             if (!inFlight && !midSwitch && !flightAlive && !string.IsNullOrEmpty(tag))
                 ParsekLog.Warn("GameStateRecorder",
                     $"Emit drift: event '{evt.eventType}' tagged '{tag}' with no live flight context — stale tag?");
-            // Drift B: in flight with a live recorder but no tag resolved.
-            if (inFlight && string.IsNullOrEmpty(tag) && HasLiveRecorder())
+            // Drift B: in flight with a live recorder but no tag resolved. An event inside a
+            // clock-caused transition is untagged by design, not drift.
+            if (inFlight && !InClockCauseScope && string.IsNullOrEmpty(tag) && HasLiveRecorder())
                 ParsekLog.Warn("GameStateRecorder",
                     $"Emit drift: event '{evt.eventType}' in-flight with live recorder but empty tag");
 
@@ -208,7 +209,10 @@ namespace Parsek
         /// 2026-10-24: an event no flight causes is filed under no flight). Entered and left
         /// by <c>ContractEarlyFailPatch</c> around <c>Contract.SetState(DeadlineExpired /
         /// OfferExpired)</c>, which applies the penalty, fires the events and runs the
-        /// contract's own expiry code inside one call.</summary>
+        /// contract's own expiry code inside one call, and by <c>ClockCauseScopePatches</c>
+        /// around a ground station's science submission and a Sentinel detection, inside
+        /// which stock pays the award, its strategy conversions and any contract it
+        /// completes.</summary>
         internal static bool InClockCauseScope => clockCauseDepth > 0;
 
         internal static void EnterClockCauseScope(string what)
@@ -291,6 +295,17 @@ namespace Parsek
             }
 
             return "";
+        }
+
+        /// <summary>
+        /// True when a live recorder can still claim an untagged event at its commit: a live
+        /// recorder outside a clock-caused transition. Inside one the event is filed under no
+        /// flight and no commit converts it (a commit converts only its own tag), so the
+        /// #405 direct-ledger doors write it at once, as they do at the Space Center.
+        /// </summary>
+        internal static bool HasClaimingLiveRecorder()
+        {
+            return !InClockCauseScope && HasLiveRecorder();
         }
 
         /// <summary>
@@ -920,7 +935,7 @@ namespace Parsek
             // commit-time ConvertEvents path). See
             // fix-bailout-grant-currency-exchange-capture.md.
             if (reason == TransactionReasons.StrategyOutput &&
-                ShouldForwardDirectLedgerEvent(fundsEvt.recordingId, HasLiveRecorder()))
+                ShouldForwardDirectLedgerEvent(fundsEvt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(fundsEvt);
         }
 
@@ -980,7 +995,7 @@ namespace Parsek
                     Ut = ut,
                     ReasonKey = reasonKey,
                     Delta = (float)delta,
-                    RecordingId = ResolveCurrentRecordingTag(),
+                    RecordingId = InClockCauseScope ? "" : ResolveCurrentRecordingTag(),
                     Valid = true
                 };
             }
@@ -1037,7 +1052,7 @@ namespace Parsek
             // The far more common ZERO-delta echo no longer does this - see
             // STRATEGY-ECHO-CAPTURE-WIPE and the reordered block above.
             if (reason == TransactionReasons.StrategyInput &&
-                ShouldForwardDirectLedgerEvent(sciEvt.recordingId, HasLiveRecorder()))
+                ShouldForwardDirectLedgerEvent(sciEvt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(sciEvt);
         }
 
@@ -1088,7 +1103,7 @@ namespace Parsek
             // commit through ConvertEvents instead.
             if ((reason == TransactionReasons.StrategyInput
                  || reason == TransactionReasons.ContractDecline) &&
-                ShouldForwardDirectLedgerEvent(repEvt.recordingId, HasLiveRecorder()))
+                ShouldForwardDirectLedgerEvent(repEvt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(repEvt);
         }
 
@@ -1365,7 +1380,9 @@ namespace Parsek
                 return;
             }
 
-            string currentRecordingId = ResolveCurrentRecordingTag() ?? "";
+            // Inside a clock-caused transition the award is filed under no flight, the same
+            // tag Emit gave its ScienceChanged event, so the capture match still pairs them.
+            string currentRecordingId = InClockCauseScope ? "" : (ResolveCurrentRecordingTag() ?? "");
             string reasonKey = "";
             string subjectRecordingId = currentRecordingId;
             bool matchedScienceChange = false;
@@ -1451,10 +1468,10 @@ namespace Parsek
                 captureActionId = NewScienceCaptureActionId()
             };
 
-            bool hasLiveRecorder = HasLiveRecorder();
+            bool hasLiveRecorder = HasClaimingLiveRecorder();
             bool hasActiveUncommittedTree = HasActiveUncommittedTree();
             bool directLedgerHandled = false;
-            if (deployedScience || ShouldForwardDirectScienceSubject(
+            if (deployedScience || InClockCauseScope || ShouldForwardDirectScienceSubject(
                     pendingSubject.recordingId,
                     hasLiveRecorder,
                     hasActiveUncommittedTree))
@@ -1628,7 +1645,7 @@ namespace Parsek
 
         internal bool ShouldForwardFacilityLedgerEvent(string recordingId)
         {
-            return ShouldForwardDirectLedgerEvent(recordingId, HasLiveRecorder());
+            return ShouldForwardDirectLedgerEvent(recordingId, HasClaimingLiveRecorder());
         }
     }
 }

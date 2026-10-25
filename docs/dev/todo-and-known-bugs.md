@@ -276,7 +276,7 @@ event no flight causes is filed under no flight): `EmitUntagged` and a direct le
 
 ---
 
-## CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT: a contract a ground station or a comet scan completes is filed under the live flight [FILED 2026-10-24 from a code audit, branch `claude/project-thread-dkcvpn`. OPEN; medium]
+## ~~CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT: a contract a ground station or a comet scan completes is filed under the live flight~~ [FILED 2026-10-24 from a code audit, branch `claude/project-thread-dkcvpn`. FIXED 2026-10-25 on branch `claude/project-thread-86u4df`; medium]
 
 Stock completes `CollectDeployedScience` from a Breaking Ground ground station's transmission
 (`DeployedScienceExperiment.FixedUpdate` -> `SubmitScienceData`, no vessel) and
@@ -287,10 +287,23 @@ recalculation claws it back), and a Re-Fly reads it as the attempt's gain and se
 recognise a completion with no vessel cause (the current science event is a deployed subject, or a
 Sentinel detection is in progress) and file it untagged with a direct ledger write. Mod contracts
 with timer parameters are the same class.
+**Fix** (owner ruling 2026-10-24, an event no flight causes is filed under no flight): stock completes
+both inside one call (decompiled 1.12.5: `CollectDeployedScience.OnScience` -> `SetComplete` ->
+`Contract.OnParameterStateChange` -> `SetState(Completed)` inside the `OnScienceRecieved` fire of
+`ResearchAndDevelopment.SubmitScienceData`; `CometDetectionParameter.CometDetected` inside
+`SentinelScenario.SpawnComet(Vessel, CometOrbitType)`; `SentinelParameter.DiscoverAsteroid` for the
+asteroid contract). `Patches/ClockCauseScopePatches.cs` opens the recorder's clock-cause scope around
+the six-argument `SubmitScienceData` when the subject is a deployed experiment's, and around both
+Sentinel methods; inside it `Emit` files every event untagged and the #405 doors write it at once
+(`GameStateRecorder.HasClaimingLiveRecorder`: no live recorder claims an event inside the scope), so
+the completion, its reward and any body milestone are untagged ledger rows. A Sentinel the flight in
+progress launched counts as already in place. Drift B no longer warns inside the scope. Cells:
+`ClockCauseScopeTests`. Mod contracts with timer parameters stay open under
+LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT.
 
 ---
 
-## STRATEGY-CONVERSION-OF-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT: a strategy's cut of ground-station science is filed under the live flight [FILED 2026-10-24 from a code audit, branch `claude/project-thread-dkcvpn`. OPEN; low]
+## ~~STRATEGY-CONVERSION-OF-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT: a strategy's cut of ground-station science is filed under the live flight~~ [FILED 2026-10-24 from a code audit, branch `claude/project-thread-dkcvpn`. FIXED 2026-10-25 on branch `claude/project-thread-86u4df`; low]
 
 With a science-converting strategy active (Patents Licensing), stock's
 `ResearchAndDevelopment.AddScience` for a ground-station transmission fires the conversion before
@@ -298,6 +311,11 @@ With a science-converting strategy active (Patents Licensing), stock's
 `StrategyScienceDebit` / `Credit` rows the live tag while the award is untagged. A discard refunds the
 conversion and keeps the science. Fix direction: the conversion follows its award, so untagged when
 the award is deployed science.
+**Fix.** The conversion fires inside the same `SubmitScienceData` call, which
+`DeployedScienceSubmitScopePatch` wraps in the clock-cause scope for a deployed subject, so
+`ResolveStrategyConversionRecordingTag` returns none and the rows are untagged like the award. Inside
+the scope the subject capture also compares against the untagged `ScienceChanged` capture, so the award
+keeps its reason key. Cells: `ClockCauseScopeTests`.
 
 ---
 
