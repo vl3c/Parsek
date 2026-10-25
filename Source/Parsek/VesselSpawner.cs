@@ -6682,27 +6682,24 @@ namespace Parsek
         internal static bool TryBuildRecordedTerminalOrbitForSpawn(
             Recording rec, CelestialBody body, double ut, out Orbit orbit)
         {
-            return TryBuildRecordedTerminalOrbitForSpawn(rec, body, ut, 0.0, out orbit);
+            return TryBuildRecordedTerminalOrbitForSpawn(rec, body, ut, out orbit, out _);
         }
 
         /// <summary>
         /// Pure: the mean anomaly a terminal-orbit spawn at <paramref name="spawnUT"/>
-        /// writes with <paramref name="spawnUT"/> as its epoch. The phase is evaluated at
-        /// <see cref="TimeJumpTerminalOrbitShift.ResolvePhaseUT"/>: the spawn UT itself, or,
-        /// after an epoch-shift jump froze this recording's ghost, the spawn UT minus the
-        /// jump delta - the same time translation the jump applied to every loaded vessel.
+        /// writes with <paramref name="spawnUT"/> as its epoch: the recorded orbit's phase
+        /// propagated from its own epoch to the spawn UT.
         /// </summary>
         internal static double ComputeSpawnMeanAnomaly(
             double meanAnomalyAtEpoch, double epoch,
             double semiMajorAxis, double gravParameter,
-            double spawnUT, double phaseLagSeconds)
+            double spawnUT)
         {
-            double phaseUT = TimeJumpTerminalOrbitShift.ResolvePhaseUT(spawnUT, phaseLagSeconds);
             if (semiMajorAxis <= 0.0
                 || gravParameter <= 0.0
-                || double.IsNaN(phaseUT)
-                || double.IsInfinity(phaseUT)
-                || Math.Abs(phaseUT - epoch) < 1e-9)
+                || double.IsNaN(spawnUT)
+                || double.IsInfinity(spawnUT)
+                || Math.Abs(spawnUT - epoch) < 1e-9)
             {
                 return meanAnomalyAtEpoch;
             }
@@ -6712,14 +6709,7 @@ namespace Parsek
                 epoch,
                 semiMajorAxis,
                 gravParameter,
-                phaseUT);
-        }
-
-        internal static bool TryBuildRecordedTerminalOrbitForSpawn(
-            Recording rec, CelestialBody body, double ut, double phaseLagSeconds, out Orbit orbit)
-        {
-            return TryBuildRecordedTerminalOrbitForSpawn(
-                rec, body, ut, phaseLagSeconds, out orbit, out _);
+                spawnUT);
         }
 
         /// <summary>The trajectory-tail seed (built from body-fixed samples with the
@@ -6728,13 +6718,13 @@ namespace Parsek
         internal const string TerminalOrbitSeedStoredSegment = "stored-segment";
 
         /// <summary>
-        /// <see cref="TryBuildRecordedTerminalOrbitForSpawn(Recording, CelestialBody, double, double, out Orbit)"/>
+        /// <see cref="TryBuildRecordedTerminalOrbitForSpawn(Recording, CelestialBody, double, out Orbit)"/>
         /// that also names the seed it used (<see cref="TerminalOrbitSeedTrajectoryTail"/> or
         /// <see cref="TerminalOrbitSeedStoredSegment"/>; null when no seed was found). The Real Spawn
         /// Control Ready move reads it: only a tail seed turns with the body's live rotation.
         /// </summary>
         internal static bool TryBuildRecordedTerminalOrbitForSpawn(
-            Recording rec, CelestialBody body, double ut, double phaseLagSeconds, out Orbit orbit,
+            Recording rec, CelestialBody body, double ut, out Orbit orbit,
             out string seedSource)
         {
             orbit = null;
@@ -6815,8 +6805,7 @@ namespace Parsek
                     epoch,
                     semiMajorAxis,
                     body.gravParameter,
-                    ut,
-                    phaseLagSeconds);
+                    ut);
 
                 orbit = new Orbit(
                     inclination,
@@ -7048,13 +7037,7 @@ namespace Parsek
             velocity = Vector3d.zero;
             orbit = null;
 
-            // A ghost frozen in the bubble by an epoch-shift jump spawns where it stood:
-            // the recorded orbit's phase lags the clock by the jump delta (design 14.5).
-            bool jumpShifted = TimeJumpTerminalOrbitShift.TryGetShift(
-                rec?.RecordingId, ut, out TerminalOrbitJumpShift jumpShift);
-            double phaseLagSeconds = jumpShifted ? jumpShift.LagSeconds : 0.0;
-
-            if (!TryBuildRecordedTerminalOrbitForSpawn(rec, body, ut, phaseLagSeconds, out orbit))
+            if (!TryBuildRecordedTerminalOrbitForSpawn(rec, body, ut, out orbit))
                 return false;
 
             try
@@ -7079,25 +7062,6 @@ namespace Parsek
                     return false;
                 }
 
-                if (jumpShifted)
-                {
-                    double spawnSeparation = MeasureActiveVesselSeparation(orbit, body, ut);
-                    string message = string.Format(CultureInfo.InvariantCulture,
-                        "Jump-shifted terminal orbit spawn: rec={0} vessel={1} spawnUT={2:F2} phaseUT={3:F2} lag={4:F1}s ghostSeparationAtJump={5:F1}m spawnSeparation={6:F1}m",
-                        rec.RecordingId,
-                        rec.VesselName ?? "(unknown)",
-                        ut,
-                        TimeJumpTerminalOrbitShift.ResolvePhaseUT(ut, phaseLagSeconds),
-                        phaseLagSeconds,
-                        jumpShift.GhostSeparationMeters,
-                        spawnSeparation);
-                    // Once per armed shift at Info; a blocked tip re-resolves every retry.
-                    if (TimeJumpTerminalOrbitShift.TryMarkSpawnResolutionLogged(rec.RecordingId))
-                        ParsekLog.Info("Spawner", message);
-                    else
-                        ParsekLog.VerboseRateLimited("Spawner", "jump-shifted-spawn-" + rec.RecordingId, message);
-                }
-
                 return true;
             }
             catch (Exception ex)
@@ -7105,32 +7069,6 @@ namespace Parsek
                 ParsekLog.Warn("Spawner",
                     $"TryResolveRecordedTerminalOrbitSpawnState failed: {ex.Message}");
                 return false;
-            }
-        }
-
-        /// <summary>
-        /// Distance (m) between a resolved spawn orbit and the active vessel at
-        /// <paramref name="ut"/>, compared body-relative so neither the floating origin nor
-        /// the body's own motion enters. NaN when there is no active vessel on that body.
-        /// FlightGlobals is read only inside this NoInlining core (mono JIT trap).
-        /// </summary>
-        [System.Runtime.CompilerServices.MethodImpl(
-            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        private static double MeasureActiveVesselSeparation(Orbit spawnOrbit, CelestialBody body, double ut)
-        {
-            try
-            {
-                Vessel active = FlightGlobals.ActiveVessel;
-                if (spawnOrbit == null || body == null || active == null || active.orbit == null
-                    || active.orbit.referenceBody != body)
-                    return double.NaN;
-                Vector3d delta = spawnOrbit.getRelativePositionAtUT(ut)
-                    - active.orbit.getRelativePositionAtUT(ut);
-                return delta.magnitude;
-            }
-            catch (Exception)
-            {
-                return double.NaN;
             }
         }
 

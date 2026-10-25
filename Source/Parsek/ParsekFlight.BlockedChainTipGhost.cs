@@ -197,21 +197,10 @@ namespace Parsek
             // would appear if the blocker moved away now.
             CelestialBody body = VesselSpawner.ResolveSpawnRotationBody(rec, lastPoint);
             bool spawnUsesOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec);
-            // A tip an epoch-shift jump froze in the bubble spawns from its jump-shifted orbit,
-            // so the held ghost is drawn on that orbit too.
-            double jumpLagSeconds =
-                TimeJumpTerminalOrbitShift.TryGetShift(rec.RecordingId, currentUT, out TerminalOrbitJumpShift jumpShift)
-                    ? jumpShift.LagSeconds
-                    : 0.0;
             Orbit orbit = null;
             bool orbitBuilt = spawnUsesOrbit && body != null
-                && VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn(rec, body, currentUT, jumpLagSeconds, out orbit)
+                && VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn(rec, body, currentUT, out orbit)
                 && orbit != null;
-            if (jumpLagSeconds > 0.0)
-                ParsekLog.Info(ChainTipBlockedGhost.Tag,
-                    string.Format(CultureInfo.InvariantCulture,
-                        "Blocked chain tip ghost drawn on its jump-shifted orbit: #{0} rec={1} lag={2:F1}s orbitBuilt={3}",
-                        index, rec.RecordingId ?? "(none)", jumpLagSeconds, orbitBuilt));
 
             var s = new BlockedChainTipGhostState
             {
@@ -253,9 +242,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// After an epoch-shift jump, rebuild each held ghost's orbit with the shift the jump
-        /// left armed (a second jump accumulates it), so the ghost stays drawn where the
-        /// blocked vessel would appear rather than on the orbit captured before the jump.
+        /// After an epoch-shift jump, rebuild each held ghost's orbit through the spawn
+        /// resolver at the new UT. The resolver's seed depends on the UT (a trajectory-tail
+        /// seed is built with the body's live rotation and is declined once the UT drifts too
+        /// far from the tail), so the orbit built before the jump can differ from the one the
+        /// spawn will use; rebuilding keeps the ghost where the blocked vessel would appear.
         /// </summary>
         internal void RefreshBlockedChainTipGhostOrbitsAfterJump()
         {
@@ -272,11 +263,8 @@ namespace Parsek
                 if (s.index < 0 || s.index >= committed.Count || committed[s.index] == null
                     || committed[s.index].RecordingId != s.recordingId)
                     continue;
-                double lag = TimeJumpTerminalOrbitShift.TryGetShift(s.recordingId, currentUT, out TerminalOrbitJumpShift shift)
-                    ? shift.LagSeconds
-                    : 0.0;
                 if (VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn(
-                        committed[s.index], s.body, currentUT, lag, out Orbit orbit) && orbit != null)
+                        committed[s.index], s.body, currentUT, out Orbit orbit) && orbit != null)
                 {
                     s.orbit = orbit;
                     rebuilt++;

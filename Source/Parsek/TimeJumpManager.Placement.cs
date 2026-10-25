@@ -186,7 +186,7 @@ namespace Parsek
         /// <summary>
         /// A Ready reference at the spawn (plan Step 2 item 1, T1): the orbit the spawner
         /// will build for this recording's end, through its own resolver with no jump lag
-        /// (<see cref="VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn(Recording, CelestialBody, double, double, out Orbit, out string)"/>),
+        /// (<see cref="VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn(Recording, CelestialBody, double, out Orbit, out string)"/>),
         /// as elements. Built at <paramref name="nowUT"/>: a trajectory-tail seed turns with
         /// the body's live rotation, so its node line is advanced to the spawn UT's rotation;
         /// in frame F+1 (<paramref name="nowUT"/> == <paramref name="spawnUT"/>) that is no
@@ -222,7 +222,7 @@ namespace Parsek
                 return false;
             }
             if (!VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn(
-                    rec, body, spawnUT, 0.0, out Orbit orbit, out seedSource)
+                    rec, body, spawnUT, out Orbit orbit, out seedSource)
                 || orbit == null)
             {
                 reason = "spawn-orbit-unresolved";
@@ -877,10 +877,6 @@ namespace Parsek
                 return false;
             }
             plan.DrawnReference = drawnReference;
-            // A Ready reference spawns on its record (design rule 4): no shift an earlier
-            // epoch-shift jump armed for it may move its spawn.
-            if (plan.IsReady)
-                TimeJumpTerminalOrbitShift.Release(plan.RecordingId, "placement-reference");
 
             isTimeJumpLaunchAutoRecordInProgress = true;
             try
