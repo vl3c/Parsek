@@ -95,6 +95,9 @@ _(unreleased - entries accumulate here per commit)_
   ledger lane no longer fails when its pod happens to land before breaking up and earns the
   Kerbin landing milestone; that award now counts only when both the game's award and the saved
   career show it. (CL-2-POD-LANDING-AWARD-VARIANCE)
+- **Harness: the Duna companion lane aims its arrival clear of Ike.** Its probe now aims to pass
+  Duna 10,000 km up instead of 300 km, above the band where Ike orbits, so the capture no longer
+  drifts through Ike's pull and fails the run. (V3C-CAPTURE-AIMS-INTO-IKE)
 
 ---
 

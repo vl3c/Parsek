@@ -973,7 +973,7 @@ pinned to the C# receipt literal) and the smoke cell
 
 ---
 
-## V3C-CAPTURE-AIMS-INTO-IKE: V3C's capture leaves Duna's SOI through Ike on both attempts [FILED 2026-10-09 from the nightly release check. OPEN, mission]
+## ~~V3C-CAPTURE-AIMS-INTO-IKE: V3C's capture leaves Duna's SOI through Ike on both attempts~~ [FILED 2026-10-09 from the nightly release check. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells; flight owed: V3C-flight-arrival-companion (MISSION-OK with the first in-SOI `telemetry ... pe=` frame above 4,026 km altitude). mission]
 
 `V3C-flight-arrival-companion` `2026-10-09_0731` / `_0743_a2` both read INVALID (mission):
 `MISSION-ASSERT-FAIL ... left the target SOI during CAPTURE-BURN without a committed park:
@@ -985,6 +985,19 @@ rounds aim `courseCorrectPeriapsisMeters = 300000` (300 km, dead centre of the f
 aim the arrival periapsis at >= 4,300 km altitude (the high band run 4 flew naturally), or replan
 the capture when the patched conics report `nextBody=Ike` before the burn. A mission fix, not a
 Parsek defect (a mission that did not fly is driver-INVALID).
+
+Fixed (2026-10-25, the first option, spec only): `courseCorrectPeriapsisMeters` in
+`harness/scenarios/V3C-flight-arrival-companion.toml` moved 300000 -> 10000000 (10,000 km
+altitude). At 300 km the request is 0.63% of Duna's SOI, the regime where the corrector delivers
+a periapsis set by the arrival geometry rather than the request (B22's corpus table; this lane's
+six arrivals spread 283 - 7,000 km, three inside Ike's shell). 10,000 km is 20.9% of the SOI,
+beside B22's Jool row (k 0.974); at the corpus's lowest k (0.545, the Mun) it still delivers
+5,450 km, 1,424 km above the shell's outer edge, and a hyperbola whose periapsis clears the shell
+never enters it. The high tail parks near 10 Mm, inside the 40 Mm park apoapsis window;
+capture-to-circular costs ~665 m/s vs ~575. `targetPeriapsisFloorMeters` stays the atmosphere
+guard (B22's J1 reasoning). The replan-on-`nextBody=Ike` option was not taken: it is a machine
+change with no flown precedent. Proven offline by `b5_params_from_dict` loading the spec and the
+`missions/lib` and `lib` suites; the delivered periapsis is what the flight must read.
 
 ---
 
