@@ -3458,7 +3458,9 @@ room (ruling Q7b): rotation-safe cubes from `SpawnCollisionDetector.ComputeVesse
 snapshot and each member's size, `BoundsOverlap` with padding 5, the group slid back along the
 orbit (`Placement spawn room:`, Info when it slides; a slide that cannot clear reads
 `DestinationTaken`). The reference's spawn waits while its placement is armed
-(`Spawn deferred ... Ready placement pending`, the policy holds the ghost and retries), and the
+(`Spawn deferred ... Ready placement pending`; the policy holds the ghost without spending its
+retry, so it spawns in the frame the group is placed: a throttled retry a second later would
+rebuild a trajectory-tail end orbit at a turned body, ~200 m off at LKO), and the
 watch logs `Placement spawn check:` (distance to the player, `orbitGap` to the T1 orbit,
 `spawnedBeforePlacement`). Other crossed ghosts spawn on their recordings. Lanes: CI-9 re-armed
 (placement lines replace the two jump-shift lines, which are now forbidden) and the new

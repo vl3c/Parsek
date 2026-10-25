@@ -1088,7 +1088,8 @@ namespace Parsek
                     timelineInactiveIds,
                     currentUT,
                     spawnBlockedChainTip,
-                    holdForWarpWatch);
+                    holdForWarpWatch,
+                    TimeJumpManager.IsSpawnDeferredForPendingPlacement(info.recordingId));
                 if (holdForWarpWatch && decision == HeldGhostAction.Hold)
                 {
                     ParsekLog.VerboseRateLimited("Policy",
@@ -1294,7 +1295,8 @@ namespace Parsek
             IReadOnlyDictionary<string, TimelineInactiveReason> timelineInactiveIds = null,
             double currentUT = double.NaN,
             bool spawnBlockedChainTip = false,
-            bool holdForWarpWatch = false)
+            bool holdForWarpWatch = false,
+            bool spawnDeferredForPlacement = false)
         {
             // Invalid index — recording list may have changed
             if (index < 0 || index >= committed.Count)
@@ -1337,6 +1339,13 @@ namespace Parsek
             // A watched ghost whose spawn waits for warp end: no retry, no timeout. Every
             // release above still applies to it.
             if (holdForWarpWatch)
+                return HeldGhostAction.Hold;
+
+            // A spawn waiting for its armed Ready placement holds without consuming a retry,
+            // so the first retry after the placement fires in that frame. A throttled retry
+            // would spawn up to a second later, and a trajectory-tail end orbit is rebuilt
+            // with the body's live rotation at spawn time, off the placed group's spot.
+            if (spawnDeferredForPlacement)
                 return HeldGhostAction.Hold;
 
             // Timeout check. A collision-blocked chain tip is exempt: its blocker can move away

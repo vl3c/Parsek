@@ -500,5 +500,48 @@ namespace Parsek.Tests
             Assert.NotNull(result);
             Assert.Equal("Moves", result.Value.vesselName);
         }
+
+        // ---------------- held-ghost retry across the placement ----------------
+
+        [Fact]
+        public void HeldGhost_DeferredForPlacement_HoldsWithoutConsumingTheRetry()
+        {
+            var committed = new List<Recording> { new Recording { RecordingId = "ready-ref", VesselName = "Ref" } };
+            var info = new HeldGhostInfo { holdStartTime = 10f, lastRetryTime = 0f, recordingId = "ready-ref" };
+
+            var action = ParsekPlaybackPolicy.DecideHeldGhostAction(
+                0, info, committed, currentTime: 10f, timeoutSeconds: 5f,
+                retryIntervalSeconds: 1f, spawnDeferredForPlacement: true);
+
+            Assert.Equal(HeldGhostAction.Hold, action);
+        }
+
+        [Fact]
+        public void HeldGhost_FirstRetryAfterPlacement_IsNotThrottled()
+        {
+            // The hold frame decided Hold without stamping lastRetryTime, so the frame that
+            // places the group retries at once (a few hundredths of a second later).
+            var committed = new List<Recording> { new Recording { RecordingId = "ready-ref", VesselName = "Ref" } };
+            var info = new HeldGhostInfo { holdStartTime = 10f, lastRetryTime = 0f, recordingId = "ready-ref" };
+
+            var action = ParsekPlaybackPolicy.DecideHeldGhostAction(
+                0, info, committed, currentTime: 10.05f, timeoutSeconds: 5f,
+                retryIntervalSeconds: 1f, spawnDeferredForPlacement: false);
+
+            Assert.Equal(HeldGhostAction.RetrySpawn, action);
+        }
+
+        [Fact]
+        public void HeldGhost_DeferredForPlacement_DoesNotTimeOut()
+        {
+            var committed = new List<Recording> { new Recording { RecordingId = "ready-ref", VesselName = "Ref" } };
+            var info = new HeldGhostInfo { holdStartTime = 0f, lastRetryTime = 0f, recordingId = "ready-ref" };
+
+            var action = ParsekPlaybackPolicy.DecideHeldGhostAction(
+                0, info, committed, currentTime: 60f, timeoutSeconds: 5f,
+                retryIntervalSeconds: 1f, spawnDeferredForPlacement: true);
+
+            Assert.Equal(HeldGhostAction.Hold, action);
+        }
     }
 }
