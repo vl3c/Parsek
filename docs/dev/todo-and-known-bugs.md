@@ -369,7 +369,7 @@ does (`GameStateRecorder.ResolveStrategyConversionRecordingTag`).
 
 ---
 
-## FOREIGN-BOARD-TARGET-STRIPPED-AT-REWIND: a vessel a kerbal boarded or took a seat on from another mission is removed at a rewind instead of held, so it has no ghost until the boarding [FILED 2026-10-24 while writing lanes EVA-14 / SEAT-3 (branch `claude/project-thread-d0rqqc`), code read on main f46545d. CONFIRMED 2026-10-25 by EVA-14 `2026-10-25_0131` (every signature line below hit); lane EVA-14 quarantines it. low, visual]
+## ~~FOREIGN-BOARD-TARGET-STRIPPED-AT-REWIND: a vessel a kerbal boarded or took a seat on from another mission is removed at a rewind instead of held, so it has no ghost until the boarding~~ [FIXED 2026-10-25 on branch `fix-foreign-board-target-hold`; LIVE-PROVEN by EVA-14 `2026-10-25_0219` and SEAT-3 `_0221`, both PASS. FILED 2026-10-24 while writing lanes EVA-14 / SEAT-3 (branch `claude/project-thread-d0rqqc`), code read on main f46545d. CONFIRMED 2026-10-25 by EVA-14 `2026-10-25_0131` (every signature line below hit); lane EVA-14 quarantines it. low, visual]
 
 A kerbal whose recording boards a vessel outside his tree (a hatch Board, or a seat, which is a
 Dock merge into the rover) and commits in flight leaves the merged child as the active recording,
@@ -390,6 +390,24 @@ created it like a foreign adoption. Repro: `EVA-14-foreign-board-claim-rewind` (
 pins, unarmed. Measured on EVA-14 `2026-10-25_0131`: `Rewind strip scope: strip spawned
 pid=3620499050 of 'Kerbal X' ... via holder-replays`, `Captured 0 rewind-save copy(ies) of 1
 vessel(s) a committed future claims`, `Rewind vessel hold: survivors=2 held=0 chainHolds=1 ...`.
+
+**Fix.** `ForeignInventoryTransfer.IsForeignMergeAdoptionChild`: the merged child of a Dock or
+Board whose branch point stamps a partner (`TargetVesselPersistentId`), whose child flies that
+same pid, and whose tree flew that pid neither as a parent of the branch point nor in an earlier
+recording, is an adoption member like an InventoryTransfer member.
+`CollectForeignAdoptedVesselMemberRecordingIds` (transfer members plus those children) feeds
+both the rewind strip scope (`ResolveRewindStripSpawnedPids`) and the OnLoad launch-identity
+strip (`ExcludeForeignAdoptions`), so the boarded vessel stays in the rewind save for the hold and
+its adoption stamp resets. Log: `Rewind strip scope: leave spawned pid=<pid> ... adopted by
+inventory transfer or a board / dock (member=<child>)`, `Foreign adoption members:
+transferMembers=N foreignMergeChildren=M`. Cells: `ForeignMergeAdoptionRewindStripTests`. EVA-14
+drops its `[expectedFail]`; SEAT-3 arms its hold pins and forbids the strip line.
+
+Left open (review 2026-10-25, out of scope, low): a foreign partner that is ABSORBED by the active
+vessel is not covered. When it is a Parsek-spawned leaf of another tree,
+`MarkTerminalSpawnSupersededByDockMerge` links that leaf to the merge child, which flies the active
+vessel's pid and so is no adoption member; the leaf still strips via
+`superseding-continuation-replays`, and the partner has no hold copy before the dock.
 
 ---
 

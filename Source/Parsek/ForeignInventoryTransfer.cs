@@ -275,6 +275,95 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when <paramref name="rec"/> is the merged child of a Dock or Board onto a vessel
+        /// from outside its tree: a kerbal boarding a foreign vessel's hatch or taking its seat,
+        /// or a docking that the foreign vessel survives. The branch point names the partner
+        /// (<c>TargetVesselPersistentId</c>), the child flies that same vessel, and no recording
+        /// of the tree flew it before the merge (an in-tree partner is a background parent of
+        /// the branch point, or an earlier recording of the tree). Like an InventoryTransfer
+        /// member, such a child flies a vessel that existed before its tree, so the in-flight
+        /// commit's adoption stamp names a vessel the tree never created.
+        /// </summary>
+        internal static bool IsForeignMergeAdoptionChild(RecordingTree tree, Recording rec)
+        {
+            if (tree?.BranchPoints == null || rec == null || rec.VesselPersistentId == 0
+                || string.IsNullOrEmpty(rec.ParentBranchPointId))
+                return false;
+            BranchPoint bp = null;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                BranchPoint candidate = tree.BranchPoints[i];
+                if (candidate != null && candidate.Id == rec.ParentBranchPointId)
+                {
+                    bp = candidate;
+                    break;
+                }
+            }
+            if (bp == null
+                || (bp.Type != BranchPointType.Dock && bp.Type != BranchPointType.Board)
+                || bp.TargetVesselPersistentId == 0
+                || bp.TargetVesselPersistentId != rec.VesselPersistentId)
+                return false;
+            if (tree.Recordings == null)
+                return true;
+            foreach (Recording other in tree.Recordings.Values)
+            {
+                if (other == null || ReferenceEquals(other, rec)
+                    || other.VesselPersistentId != bp.TargetVesselPersistentId)
+                    continue;
+                bool isParent = !string.IsNullOrEmpty(other.RecordingId)
+                    && bp.ParentRecordingIds != null
+                    && bp.ParentRecordingIds.Contains(other.RecordingId);
+                if (isParent || other.StartUT < bp.UT - MergeAdoptionStartToleranceSeconds)
+                    return false;
+            }
+            return true;
+        }
+
+        // A segment of the merged child's own chain starts at the merge UT; anything that
+        // starts earlier flew the partner inside the tree before the merge.
+        private const double MergeAdoptionStartToleranceSeconds = 0.5;
+
+        /// <summary>
+        /// Ids of every recording in <paramref name="trees"/> that flies a vessel its tree
+        /// adopted from outside: the InventoryTransfer members
+        /// (<see cref="CollectTransferMemberRecordingIds"/>) and the merged children of a Dock
+        /// or Board onto a foreign vessel (<see cref="IsForeignMergeAdoptionChild"/>). The
+        /// rewind's strip scope and its OnLoad launch-identity strip treat every one of them
+        /// alike: the rewind save holds the adopted vessel's pre-adoption self, which the chain
+        /// walker claims and holds, instead of a vessel the tree's replay produces again.
+        /// </summary>
+        internal static HashSet<string> CollectForeignAdoptedVesselMemberRecordingIds(
+            IEnumerable<RecordingTree> trees)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            if (trees == null) return ids;
+            int transferMembers = 0;
+            int mergeChildren = 0;
+            foreach (RecordingTree tree in trees)
+            {
+                if (tree?.Recordings == null) continue;
+                foreach (Recording rec in tree.Recordings.Values)
+                {
+                    if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
+                    if (IsTransferMember(tree, rec))
+                    {
+                        if (ids.Add(rec.RecordingId)) transferMembers++;
+                    }
+                    else if (IsForeignMergeAdoptionChild(tree, rec))
+                    {
+                        if (ids.Add(rec.RecordingId)) mergeChildren++;
+                    }
+                }
+            }
+            if (mergeChildren > 0)
+                ParsekLog.Verbose("Rewind",
+                    $"Foreign adoption members: transferMembers={transferMembers} " +
+                    $"foreignMergeChildren={mergeChildren}");
+            return ids;
+        }
+
+        /// <summary>
         /// The InventoryTransfer member of <paramref name="holder"/>'s own tree whose vessel is
         /// the one <paramref name="holder"/> spawned or adopted (its
         /// <c>SpawnedVesselPersistentId</c>), or null. Such a spawn names a foreign vessel the
