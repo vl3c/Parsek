@@ -8135,7 +8135,7 @@ namespace Parsek
         /// Non-engine seeds are still skipped on promotion to preserve the bug A
         /// invariant — the orphan-engine guard only inspects engine events, so engine
         /// sentinels are the minimum needed to defeat it.</param>
-        private void ResetPartEventTrackingState(Vessel v, bool emitSeedEvents = true)
+        internal void ResetPartEventTrackingState(Vessel v, bool emitSeedEvents = true)
         {
             decoupledPartIds.Clear();
             forceBrokenJointChildPartIds.Clear();
