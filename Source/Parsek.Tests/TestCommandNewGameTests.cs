@@ -88,6 +88,7 @@ namespace Parsek.Tests
         [InlineData("fresh-science", true)]
         [InlineData("camp stage 0", true)]
         [InlineData("a..b", false)]
+        [InlineData(".", false)]
         [InlineData("x:y", false)]
         [InlineData("camp ", false)]
         [InlineData("   ", false)]

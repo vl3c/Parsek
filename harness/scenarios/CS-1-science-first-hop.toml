@@ -4,8 +4,10 @@ id = "CS-1-science-first-hop"
 # program", owner decisions 2026-10-06). The first thing a player does in a brand-new
 # stock Science game: build the stock Jumping Flea in the VAB (every part is on the stock
 # start node: Mk1 pod, Mk16 chute, RT-5 Flea, three basic fins, two Mystery Goo units),
-# launch it, hop, run both Goo units on the ground, transmit one, recover the craft so
-# the second unit's data is credited on recovery, and let Parsek auto-commit the flight.
+# launch it, hop, run both Goo units on the ground, transmit one experiment (the cap is 1;
+# with the pod's own crew report aboard the first reading run names which one went),
+# recover the craft so the data still aboard is credited on recovery, and let Parsek
+# auto-commit the flight.
 #
 # THE HOST. `cs-science-new`, CS-0-new-science-game's produced save: a genuine stock New
 # Game (Science, Normal preset, created through stock's own GamePersistence.CreateNewGame
@@ -24,7 +26,7 @@ id = "CS-1-science-first-hop"
 # `operator` until the first green flight (an expensive unflown lane), PROMOTE to nightly
 # after it. The log contract below is conservative until a reading run pins it.
 tier = "pending-fixture"
-description = "Scripted campaign stage 1 (Science): in a genuine stock new Science game, launch the stock Jumping Flea from the VAB, hop, run both Goo units, transmit one, recover the craft (the other Goo credits on recovery) and auto-commit the recorded flight."
+description = "Scripted campaign stage 1 (Science): in a genuine stock new Science game, launch the stock Jumping Flea from the VAB, hop, run both Goo units, transmit one experiment, recover the craft (the data still aboard credits on recovery) and auto-commit the recorded flight."
 instanceProfile = "stock-tree"
 tags = ["campaign", "CS-1", "science-mode", "editor", "science", "recovery", "auto-commit",
         "pending-fixture", "pending-flight"]
@@ -68,8 +70,8 @@ landedSituations         = ["LANDED", "SPLASHED"]
 ascentTimeoutSeconds     = 90
 coastTimeoutSeconds      = 180
 descentTimeoutSeconds    = 360
-# Both Goo units must hold data before the transmit: one is sent, the other stays aboard
-# and is the recovery's science credit.
+# Both Goo units must hold data before the transmit: one experiment is sent, and what
+# stays aboard is the recovery's science credit.
 collectMinExperiments = 2
 collectTimeoutSeconds = 120
 transmitMaxExperiments = 1

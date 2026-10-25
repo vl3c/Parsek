@@ -292,7 +292,7 @@ namespace Parsek.TestCommands
         {
             if (string.IsNullOrEmpty(save) || save.Trim().Length == 0) return false;
             if (save != save.Trim()) return false;
-            if (save.Contains("..")) return false;
+            if (save.Contains("..") || save == ".") return false;
             if (save.StartsWith("#", StringComparison.Ordinal)) return false;
             if (save.IndexOf('/') >= 0 || save.IndexOf('\\') >= 0 || save.IndexOf(':') >= 0)
                 return false;
