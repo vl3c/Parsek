@@ -3008,7 +3008,7 @@ LOOP-ROUTE-LOST-DELIVERY-COUNTED-COMPLETED).
 
 ---
 
-## LOOP-ROUTE-LOST-DELIVERY-COUNTED-COMPLETED: a multi-stop loop cycle whose delivery lost its endpoint counts as completed [FILED 2026-10-25 from RS-1's first flight `2026-10-25_1116`. product, low]
+## ~~LOOP-ROUTE-LOST-DELIVERY-COUNTED-COMPLETED: a multi-stop loop cycle whose delivery lost its endpoint counts as completed~~ [FILED 2026-10-25 from RS-1's first flight `2026-10-25_1116`. product, low. DONE 2026-10-25, branch `claude/project-thread-u5m7su`]
 
 At RS-1's loss the route listing read `status=EndpointLost completed=1 ... dispatched=1 ...
 delivered=0`: the cycle's delivery found no endpoint, yet the cycle counts as completed. The
@@ -3022,9 +3022,14 @@ So the same multi-stop history reads `completed=1` live and `skipped=1` after a 
 next cycle id (`cycle-{C+S}`) is the same either way. Only the counters the Logistics window and
 the Route History show are off.
 
-Fix: in the multi-stop crossing, count the cycle skipped instead of completed when its last window
-lost its endpoint, or make the rebuild match the live rule. Either one changes counters that lanes
-pin (RS-1 accepts both readings).
+Fix: the multi-stop crossing counts the cycle skipped instead of completed when the route stopped
+EndpointLost during the cycle's windows and no window of the cycle logged a `RouteCargoDelivered`
+row (`RouteOrchestrator.IsLostUndeliveredMultiStopCycle`). A cycle that delivered at any stop stays
+completed, matching the rebuild, and a cycle with no lost endpoint stays completed whatever it
+delivered (a pure-pickup route). C+S advances by one either way, so cycle ids do not move. The
+`last dock reached` line now names `skippedCycles=` and `lostUndelivered=`. xUnit:
+`RouteMultiStopFireTests.LastDockReached_*` (real delivery path, both directions); RS-1 now pins
+`completed=0 skipped=1` at the loss.
 
 ---
 
