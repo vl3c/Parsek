@@ -1,0 +1,282 @@
+schema = 1
+id = "KD-1-career-death-rewind"
+tier = "operator"
+# =====================================================================================
+# A KERBAL DEATH IN A CAREER, THEN REWIND-TO-LAUNCH. Operator tier and tagged
+# `pending-flight` until a green flight of THIS shape pins the measured values. AUTHORED
+# 2026-10-25, NEVER FLOWN.
+#
+# WHY THIS LANE EXISTS. Every committed rewind lane that kills a kerbal flies a SANDBOX host
+# (GS-7, GS-9, CX-2), so nothing proved what a rewind across a committed death does to a
+# CAREER: the roster, the crew block and the reputation hit. The owner rules under test:
+# never retroactively reduce an earned value, never allow a time-travel paradox. After a
+# rewind to before the committed flight in which Jebediah died, the death is still on the
+# committed timeline, so (1) Jeb may not be put on a new launch, (2) the death's reputation
+# hit lands exactly once, when the clock passes the death UT, never before it and never
+# twice, and (3) the ledger closes against KSP's own save (LedgerGroundTruth).
+#
+# THE FLIGHT IS CL-2's, unchanged: `career-pad-craft` (CAREER, funds 500000, science 100, rep
+# 0, MissingCrewsRespawn = False, RespawnTimer = 7200; the Jumping Flea on the pad with Jeb
+# aboard at UT 9.06), mission `cl1_pod_impact` with CL-2's missionParams, autoMerge on so the
+# destroyed-vessel pending tree auto-commits on `ExitToSpaceCenter`. CL-2 measured on this
+# craft: stock `Added -9.999828 (-10) reputation: 'VesselLoss'` at the impact (UT 119.7 to
+# 120.2 across its flights), two `Progression` +1 awards on the ascent (UT 12 to 19.3), funds
+# +29600, one recording. FAST-LANE CHECKLIST item 1 (reuse a flight) considered and not
+# applied: CL-2 is a live-proven nightly whose linear ledger oracle cannot pair with a
+# rewind, and an unflown rewind tail on it would red the nightly; this lane is CL-2's flight
+# plus a seam tail.
+#
+# THE DESIGNED RULES, derived from source (not comments):
+#   R1 the death is PERMANENT here. PopulateCrewEndStates stamps the stock respawn policy at
+#      the death (KerbalsModule.StampCrewDeathRespawnPolicy, reading
+#      Difficulty.MissingCrewsRespawn = False); the walk's ResolveDeathRespawnUT returns NaN
+#      for respawn off (or unstamped), so the Dead KerbalAssignment row makes a permanent hold
+#      (KerbalsModule.cs ~1677-1690: `permanent = dead && IsNaN(deathRespawnUT)`, endUT
+#      infinity; `Death hold: '<name>' recording '<id>' is permanent (respawn suppressed: ...)`).
+#   R2 a permanent hold is in force at ANY clock, before the death UT included
+#      (KerbalsModule.IsReservationActiveAt: `if (reservation.IsPermanent) return true`; the
+#      hold has no start bound - design: "a future death (after a rewind) holds him from now").
+#      It reads as a LOSS (IsLossHold), so no stand-in is made for him (PostWalk: a permanent
+#      hold `continue`s before any slot / chain work, ~2029-2036) and every surface reads Lost.
+#   R3 the crew dialog refuses him. StockUiCrewDialogDecoration.ShouldAllowAssignment reads
+#      KerbalsModule.ShouldFilterFromCrewDialog (IsReservedNow || retired) and logs
+#      `[CrewDialog] Blocked crew assignment of '<name>' via MoveCrewToEmptySeat - reserved by
+#      the committed timeline (kind=KerbalLost)` with the Action Blocked dialog; the seam's
+#      `KscAction assign-crew` (TestCommandKscAction.ExecuteAssignCrew) presses stock's own
+#      assign button and refuses `reason=blocked-committed` when the seat stays empty.
+#   R4 Parsek never writes rosterStatus. The rewind save is the launch quicksave (Jeb
+#      Assigned to the Flea); PreProcessRewindSave strips the Flea and
+#      HandleRewindOnLoad's CrewReservationManager.RescueOrphanedCrew sets an orphaned Assigned
+#      kerbal Available. So stock lists Jeb as Available and Parsek greys / refuses him; the
+#      stock roster never reads Dead on the rewound timeline, before or after the death UT.
+#   R5 the reputation hit. One ReputationPenalty(KerbalDeath) row is filed at the commit,
+#      magnitude read off the captured VesselLoss event (LedgerOrchestrator
+#      .BuildKerbalDeathRepPenaltyActions, `KerbalDeath rep penalty: ... -> ReputationPenalty
+#      (KerbalDeath) candidate`), pre-curved in the walk (ReputationModule.ProcessRepPenalty).
+#      The rewind keeps the ledger: every row past the rewound clock is committed future and
+#      the cutoff walk leaves it out (RecalculationEngine: `IsSeedType || a.UT <= cutoff`), so
+#      the rewind lands at stock's launch-time rep (0) and nothing patches it negative before
+#      the death UT. Crossing the row at the Space Center, CareerLedgerClockCursor runs one
+#      clock-advance recalc and KspStatePatcher.PatchReputation SETS (never adds) the pool to
+#      the walk's running value: 0 + 1 + 1 - 10 = -8.00. The stock pool reference counted the
+#      row as a NaN-effect future row at the rewind's first patch, so the crossing is "stock
+#      did not apply it, the write does" (StockPoolReference.Measure), never a leak.
+#
+# THE WALK:
+#   flight     CL-2's fatal pod hop, auto-recorded; ExitToSpaceCenter auto-commits it.
+#   rewind     InvokeRewindToLaunch tree=latest. The launch was at about UT 11, so the 15 s
+#              lead winds the clock to max(0, 11 - 15) = 0 (predicted adjustedUT=0.0).
+#   crew       StockScreen opens the stock Jumping Flea in the VAB (craft from the shared
+#              library, overlaid for this host), the crew dialog, a capture (the row's
+#              decoration record), then `KscAction assign-crew kerbal=Jebediah Kerman`
+#              (stock's Clear empties the seat first): REJECTED, the blocked dialog dismissed,
+#              the editor closed.
+#   AC         Astronaut Complex capture before the death: Jeb marked KerbalLost.
+#   cross      WarpToUT 600 at the Space Center (maxRate 100, L8's KSC warp): past both
+#              Progression rows and the death row.
+#   AC         again after the death: still KerbalLost (permanent).
+#   check      VAB launch of the Settings Probe (unrecorded; rollout -300), warp in flight to
+#              700 so the save's clock is not ON the rollout row, save persistent, then
+#              LedgerGroundTruth (it scene-skips at the Space Center and with a live or pending
+#              tree, so this unrecorded launch is its window, as on L8), quit.
+#
+# NOT CARRIED: an `[expectations.ledger]` block. A rewind-aware manifest for this lane would
+# need UT windows for the flown Progression / VesselLoss awards and the +29600 milestone
+# aggregate on the rewound timeline; that is the first flight's measurement, not a derivation.
+# LedgerGroundTruth (HARD on the pools) is the ledger gate here.
+#
+# OPEN QUESTIONS, deliberately NOT pinned:
+#   - The stock roster after the death UT. R4 means stock still lists Jeb Available on the
+#     rewound timeline while the ledger holds him dead; the design keeps it ("Parsek never
+#     writes rosterStatus") and only the Parsek surfaces say Lost. Whether a player-facing
+#     divergence there is wanted is an owner question; LedgerGroundTruth's per-identity kerbal
+#     facets are report-only, so the lane neither gates nor hides it.
+#   - Which reason the permanent Death hold line names (`stock crew respawn was off at the
+#     death` when the stamp reached the stored recording, `no respawn policy stamped at the
+#     death` when it landed only on the commit build's clone). Both are permanent; the regex
+#     takes either.
+#
+# PREDICTION: green. No defect is predicted from source. PRE-REGISTERED READINGS if the
+# first flight reds:
+#   - No `[CrewDialog] Blocked crew assignment` line and `kscaction refused action=assign-crew
+#     reason=kerbal-already-assigned`: stock did not list Jeb (stock's own validation made him
+#     Missing before the rescue, R4's premise). Read the roster lines after the rewind; with
+#     respawn off stock kills a Missing kerbal at its timer, which agrees with the timeline,
+#     so re-pin to the Astronaut Complex mark and the dialog's absence, not a product fix.
+#   - `kscaction refused ... reason=no-empty-seat`: the Clear did not empty the pod.
+#   - `PatchReputation ... -> -8.00` missing with a `-> 2.00` line after the pre-warp mark:
+#     the death row never crossed (or was dropped); read the walk's RepPenalty lines.
+#   - A `KerbalDeath rep penalty:` line after the kd1-committed mark: the commit ran after the
+#     exit verb answered (an ordering premise), or a second filing; tell them apart by the
+#     `Committed recording '<id>': ... dedup=N` summary beside it.
+#   - `adjustedUT=` well above 0: the rewind save sits later than the launch; widen nothing,
+#     the death row is at about 120 and the pre-warp window only needs the clock below it.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse: see above. (2) no idle waits: the one
+# game-time wait is an explicit-UT KSC rails warp, the second an explicit-UT flight warp.
+# (3) / (4) / (5) no dwells, no burns, no coast beyond CL-2's mission. (6) fail fast: a
+# refused verb fails its step; retry `once` (CL-2's policy: the impact varies run to run).
+# (7) count {1,1}: CL-2's one recording; the check launch is unrecorded. (8) tier operator
+# until a green flight, then by measured p50 (CL-2 ~170 s plus the tail, predicted ~8 min).
+# (9) flight_efficiency.py after the first green flight.
+description = "A kerbal death in a career, then Rewind-to-Launch: CL-2's fatal pod hop auto-commits, the rewind lands before the death, the dead kerbal is refused in the VAB crew dialog and marked Lost in the Astronaut Complex before and after the death UT, the death's reputation hit is patched in once when the Space Center clock crosses it (never before, never twice, no leak adjustment), and LedgerGroundTruth closes against KSP's own save."
+instanceProfile = "stock-minimal"
+tags = ["KD-1", "crew-loss", "career", "ledger", "rewind", "stock-ui", "action-blocking",
+        "editor", "ingame-batch", "ground-truth", "pending-flight"]
+
+[fixture]
+# CL-2's host, unchanged. The stock Jumping Flea craft (for the crew dialog) and the Settings
+# Probe come from the shared-ships overlay (harness/fixtures/shared-ships.toml).
+saveTemplate       = "fixtures/saves/career-pad-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "cl1_pod_impact"
+# `steps` stays in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { phase = "mission",                                                                   expect = "MISSION-OK", budget = 480 },
+  # CL-2's commit route: the destroyed-vessel pending tree auto-commits at the Space Center.
+  { cmd = "ExitToSpaceCenter",                                                           expect = "OK", budget = 120 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" },  expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "kd1-committed" },                       expect = "OK" },
+
+  # ---- the rewind: before the death ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                            expect = "OK", budget = 300 },
+  { cmd = "MissionMark",       args = { label = "kd1-rewound" },                         expect = "OK" },
+
+  # ---- the dead kerbal on a new launch: the VAB crew dialog seat ----
+  { cmd = "StockScreen",       args = { screen = "editor", act = "open", item = "Jumping Flea" }, expect = "OK", budget = 120 },
+  { cmd = "StockScreen",       args = { screen = "crewdialog", act = "open" },           expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kd1-crew-jeb" },                        expect = "OK" },
+  { cmd = "KscAction",         args = { action = "assign-crew", kerbal = "Jebediah Kerman" }, expect = "REJECTED", budget = 60 },
+  { cmd = "UiAction",          args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+  { cmd = "StockScreen",       args = { screen = "editor", act = "close" },              expect = "OK", budget = 120 },
+
+  # ---- the Astronaut Complex before the death ----
+  { cmd = "StockScreen",       args = { screen = "astronaut", act = "open" },            expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kd1-ac-before" },                       expect = "OK" },
+  { cmd = "StockScreen",       args = { screen = "astronaut", act = "close" },           expect = "OK" },
+
+  # ---- the clock crosses the death at the Space Center ----
+  { cmd = "MissionMark",       args = { label = "kd1-pre-warp" },                        expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "600", maxRate = "100" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "kd1-past-death" },                      expect = "OK" },
+  { cmd = "StockScreen",       args = { screen = "astronaut", act = "open" },            expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kd1-ac-after" },                        expect = "OK" },
+  { cmd = "StockScreen",       args = { screen = "astronaut", act = "close" },           expect = "OK" },
+
+  # ---- the ground truth, in an unrecorded flight ----
+  { cmd = "GoToEditor",        args = { facility = "VAB", craft = "Settings Probe" },    expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                            expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",          args = { ut = "700" },                                    expect = "OK", budget = 120 },
+  { cmd = "SaveGame",          args = { name = "persistent" },                           expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "kd1-check" },                           expect = "OK" },
+  { cmd = "RunTests",          args = { category = "LedgerGroundTruth" },                expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                expect = "OK" },
+]
+
+# CL-2's values, value for value (validated against cl1_pod_impact.schema.toml).
+[driver.missionParams]
+throttle  = 1.0
+crewName  = "Jebediah Kerman"
+flightTimeoutSeconds = 300
+landedSituations     = ["LANDED", "SPLASHED"]
+
+[dimensionsCovered]
+D1  = ["auto-record-launch", "commit-scene-exit", "auto-merge"]
+D8  = ["kerbals", "reputation", "action-blocking", "ksp-state-patcher", "ground-truth-harness"]
+D9  = ["rewind-to-launch"]
+D12 = ["crew-death-in-flight"]
+D14 = ["kerbin", "career", "scene-flight", "scene-ksc", "scene-editor", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# CL-2's one recording (the breakup stubs are pruned); the rewind removes none and the check
+# launch is unrecorded.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  # ================= the flight and its commit (CL-2's measured lines) =================
+  "Game state: CrewStatusChanged 'Jebediah Kerman' Assigned .* Dead",
+  "Active vessel destroyed in tree mode",
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=1 spawnable=0",
+  "CreateKerbalAssignmentActions: 1 crew members from '.+'",
+  # Stock's one VesselLoss hit (KSP's own text), and the one penalty row the commit files.
+  "Added -[0-9.]+ \\(-10\\) reputation: 'VesselLoss'",
+  "KerbalDeath rep penalty: recording='[0-9a-f]{32}' applied=9\\.99[0-9]* ut=[0-9.]+ dead=1 [^\\r\\n]*-> ReputationPenalty\\(KerbalDeath\\) candidate",
+
+  # ================= the rewind =================
+  "(?s)MISSIONMARK label=kd1-committed .*?\\[Rewind\\] Rewind-to-Launch initiated to UT ",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "OnLoad: rewind complete at UT",
+
+  # ================= R1 / R2: Jeb held permanently from the rewound clock =================
+  "(?s)MISSIONMARK label=kd1-rewound .*?Death hold: 'Jebediah Kerman' recording '[0-9a-f]{32}' is permanent \\(respawn suppressed: [^)\\r\\n]+\\)",
+  "(?s)MISSIONMARK label=kd1-rewound .*?PostWalk summary: reservations=1 permanent=1 temporary=0 ",
+
+  # ================= R3: the crew dialog refuses him, before the death UT =================
+  "(?s)MISSIONMARK label=kd1-rewound (?:(?!MISSIONMARK label=kd1-pre-warp ).)*?\\[CrewDialog\\] Blocked crew assignment of 'Jebediah Kerman' via MoveCrewToEmptySeat - reserved by the committed timeline \\(kind=KerbalLost\\)",
+  "kscaction assign-crew not applied: target=Jebediah_Kerman seatedBefore=False seatedAfter=False fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0 emptySeat=True rosterBefore=Available rosterAfter=Available",
+  "kscaction refused action=assign-crew reason=blocked-committed target=Jebediah Kerman",
+  # The greyed row and the refused click say the same thing (the pairing rule).
+  "record label=kd1-crew-jeb screen=CrewAssignment tab=Available item=Jebediah Kerman kind=KerbalLost marked=true blocked=true why=\"(Lost[^\"]*)\"[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot assign \"Jebediah Kerman\" - \\1\\r?\\n",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false",
+  # The Astronaut Complex marks him Lost before the death UT ...
+  "record label=kd1-ac-before screen=AstronautComplex tab=[A-Za-z]+ item=Jebediah Kerman kind=KerbalLost marked=true",
+
+  # ================= R5: the reputation hit lands once, when the clock crosses it =========
+  "(?s)MISSIONMARK label=kd1-pre-warp (?:(?!MISSIONMARK label=kd1-past-death ).)*?PatchReputation: -?[0-9.]+ -> -8\\.00 \\(target=-8\\.00\\)",
+  "(?s)MISSIONMARK label=kd1-past-death .*?RepPenalty \\(KerbalDeath, pre-curved\\) at UT=[0-9.]+: nominalPenalty=10\\.00, effective=-10\\.00, runningRep=-8\\.00",
+  # ... and still Lost after it (a permanent death never frees him).
+  "record label=kd1-ac-after screen=AstronautComplex tab=[A-Za-z]+ item=Jebediah Kerman kind=KerbalLost marked=true",
+
+  # ================= the ledger closes against KSP's own save =================
+  # The never-flown interim pin (LAB-12's form): total exact, the split regexed (predicted
+  # passed=2 skipped=1: no crewed recovery, so KerbalExperienceReassert self-skips).
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  "warptout refused",
+  # Jeb is never seated, by any path, and the refusal is the committed-timeline one.
+  "kscaction action=assign-crew [^\\r\\n]*applied=true",
+  "kscaction refused action=assign-crew reason=(?!blocked-committed )",
+  # A permanent death is not replaced (stock leaves a dead kerbal unreplaced).
+  "Stand-in generated: '[^']+' \\([A-Za-z]+\\) for slot 'Jebediah Kerman'",
+  # Stock applies the VesselLoss hit once, in the flight; nothing re-fires it.
+  "(?s)(?:Added -[0-9.]+ \\(-[0-9.]+\\) reputation: 'VesselLoss'.*?){2}",
+  # The penalty row is filed by the commit only: no re-filing after it, and no KSC-door row.
+  "(?s)MISSIONMARK label=kd1-committed .*?KerbalDeath rep penalty: ",
+  "KSC spending recorded: type=ReputationPenalty",
+  # No paradox: nothing patches reputation negative between the rewind and the crossing.
+  "(?s)MISSIONMARK label=kd1-rewound (?:(?!MISSIONMARK label=kd1-pre-warp ).)*?PatchReputation: -?[0-9.]+ -> -",
+  # Never twice: a doubled row reads runningRep -18, a patch target of -10 or below.
+  "RepPenalty \\(KerbalDeath, pre-curved\\)[^\\r\\n]*runningRep=-1[0-9]\\.",
+  "PatchReputation: [^\\r\\n]*\\(target=-[1-9][0-9]\\.",
+  # Never a leak: the crossing is the write, not stock money the reference cannot explain.
+  "PatchReputation: filed StockPoolAdjustment amount=\\S+ reason=leak ",
+]
+
+[runtime]
+# CL-2's 1200 s flight-and-exit class, plus the rewind (300 s ceiling), two editor round
+# trips (120 s each), two warps, one launch (180 s) and the LedgerGroundTruth batch (540 s).
+budgetSeconds = 2700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -1117,6 +1117,9 @@ facilities / contracts. `CareerSaveParser` sets hasFunds / hasRep false (oracle
 facet-skips them). Stock starting kerbals (Jeb/Bill/Bob/Val), no applicant. Used by
 `L1-research-node-science` (research `basicRocketry`, science-only assertion). Depends on
 the M-C1 `research-node` SCIENCE_SANDBOX readiness widen (RnDPresent) which has landed.
+No craft is committed in the save; `fixtures/shared-ships.toml` overlays the shared
+`Jumping Flea` (every part on the start node) for `SH-1-science-held-for-committed-tech`,
+which launches it from the VAB to record a pad flight to rewind to.
 
 ## fresh-sandbox (GAME Mode = SANDBOX)
 
