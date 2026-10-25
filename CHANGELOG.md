@@ -82,12 +82,6 @@ _(unreleased - entries accumulate here per commit)_
   recorded after he was already out on EVA, or one picked up as a cargo partner, was treated like a
   vessel parked on the pad and never reappeared. Only vessels are cleared off the pad now.
   (EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED)
-- **A held end-of-flight vessel frozen by a time jump no longer spawns away from its ghost.** While
-  the vessel spawns from its jump-shifted orbit, a blocked spawn waits for the spot to clear instead
-  of walking back along the unshifted path. (REALSPAWN-JUMP-SHIFT-RESIDUE)
-- **Two quick time jumps in a row keep an orbiting end-of-flight vessel beside you.** If a second
-  jump came before a vessel freed by the first had appeared, the vessel used to appear further
-  along its orbit than its ghost stood. Both jumps now count. (REALSPAWN-JUMP-SHIFT-RESIDUE)
 - **A Re-Fly no longer shows a contract you accepted later as active.** A contract accepted at the
   Space Center after the Re-Fly's rewind point stays unaccepted during the Re-Fly, so the re-flown
   stage can no longer complete or fail it before you accepted it. (REFLY-SESSION-SHOWS-CONTRACT-ACCEPTED-LATER)

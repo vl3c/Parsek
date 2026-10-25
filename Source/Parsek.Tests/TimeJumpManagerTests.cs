@@ -173,6 +173,29 @@ namespace Parsek.Tests
             Assert.Equal(Math.PI, result, 5);
         }
 
+        [Fact]
+        public void ComputeSpawnMeanAnomaly_PropagatesTheRecordedPhaseToTheSpawnUT()
+        {
+            double mEp = 1.234, epoch = 421.19, sma = 699813.8;
+            foreach (double spawnUT in new[] { 421.19, 481.2, 5000.0 })
+            {
+                double expected = Math.Abs(spawnUT - epoch) < 1e-9
+                    ? mEp
+                    : TimeJumpManager.ComputeEpochShiftedMeanAnomaly(mEp, epoch, sma, KerbinGM, spawnUT);
+                Assert.Equal(expected,
+                    VesselSpawner.ComputeSpawnMeanAnomaly(mEp, epoch, sma, KerbinGM, spawnUT));
+            }
+        }
+
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        public void ComputeSpawnMeanAnomaly_NonFiniteSpawnUT_KeepsTheEpochPhase(double spawnUT)
+        {
+            Assert.Equal(1.234,
+                VesselSpawner.ComputeSpawnMeanAnomaly(1.234, 421.19, 699813.8, KerbinGM, spawnUT));
+        }
+
         #endregion
 
         #region FindCrossedChainTips

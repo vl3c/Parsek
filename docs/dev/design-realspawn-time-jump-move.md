@@ -2,7 +2,8 @@
 
 *Status: APPROVED (owner, 2026-10-25). Step 1 (`Leaves`) shipped on branch `claude/project-thread-1gkt0y`, lane
 `RSC-2-leaves-warp` LIVE-PROVEN `2026-10-25_1302`. Step 2 (`Ready`) LIVE-PROVEN 2026-10-25
-(`RSC-3-ready-spawn-room` and the re-armed CI-9 PASS; the jump-shift deletion still to come). Replaces the "nothing moves" freeze of the
+(`RSC-3-ready-spawn-room` and the re-armed CI-9 PASS); the old jump shift deleted 2026-10-25 on
+branch `tjmove-step3`. Replaces the "nothing moves" freeze of the
 Real Spawn Control Warp in orbit. Owner rulings: interview of 2026-10-25, thread "Redesign time
 jump to move the player". Source analysis (code trace, numbers, alternatives):
 `time-jump-move-player-2026-10-25.md` in the project files.*
@@ -249,7 +250,9 @@ the spawn resolver and the slide of 4.4. CI-9 re-armed (teleport lines in
 place of the shift lines, scenario a's orbit facet), VN-4 and VN-10 re-flown, a replay lane for
 (g). Only after those fly green and the results archive shows no seam lane relying on the
 shift: delete `TimeJumpTerminalOrbitShift` and its spawn, collision, walkback and held-ghost
-branches, and close REALSPAWN-JUMP-SHIFT-RESIDUE.
+branches, and close REALSPAWN-JUMP-SHIFT-RESIDUE. Done 2026-10-25 (branch `tjmove-step3`): the
+seam `TimeJump` verb and a landed / splashed / prelaunch player keep a plain epoch-shift freeze
+with no ghost capture, and every tip spawns on its recorded terminal orbit at the spawn UT.
 
 Unit tests (both steps): the local-frame map (circular and slightly eccentric references,
 jumps from 10 s to 6 h, relative state kept to 1e-6 m), the coasting gate (coast passes, 0.8

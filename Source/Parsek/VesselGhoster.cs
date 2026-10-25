@@ -274,20 +274,10 @@ namespace Parsek
             if (StopChainTipSpawnForTerminalOrbitVerdict(chain, tipRecording, spawnUT, "chain-tip"))
                 return 0;
 
-            // A tip an epoch-shift jump froze in the bubble spawns from its jump-shifted
-            // orbit; resolve that once and check overlap where it will actually appear.
-            JumpShiftedTipSpawn shifted = tipPoint.HasValue
-                ? TryResolveJumpShiftedTipSpawn(tipRecording, tipPoint, spawnUT)
-                : default(JumpShiftedTipSpawn);
-
             // Collision check: use snapshot lat/lon/alt (where RespawnVessel actually places
             // the vessel), falling back to trajectory/terminal position (#127).
             Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(vesselSnapshot);
-            Vector3d spawnPos = SelectChainTipCollisionCheckPosition(
-                shifted.Resolved, shifted.WorldPos,
-                ResolveSpawnPosition(tipRecording, vesselSnapshot), "snapshot-endpoint",
-                out string checkSource);
-            LogJumpShiftedCollisionCheck(tipRecording, "chain-tip", checkSource, spawnPos, rateLimitKey: null);
+            Vector3d spawnPos = ResolveSpawnPosition(tipRecording, vesselSnapshot);
             var (overlap, distance, blockerName, _) =
                 SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
                     spawnPos, spawnBounds, SpawnCollisionPadding,
@@ -321,15 +311,7 @@ namespace Parsek
                 bool useRecordedTerminalOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(tipRecording);
                 Vector3d spawnVelocity;
                 Orbit orbitOverride = null;
-                if (shifted.Resolved)
-                {
-                    spawnLat = shifted.Lat;
-                    spawnLon = shifted.Lon;
-                    spawnAlt = shifted.Alt;
-                    spawnVelocity = shifted.Velocity;
-                    orbitOverride = shifted.Orbit;
-                }
-                else if (useRecordedTerminalOrbit
+                if (useRecordedTerminalOrbit
                     && spawnBody != null
                     && VesselSpawner.TryResolveRecordedTerminalOrbitSpawnState(
                         tipRecording,
@@ -475,20 +457,12 @@ namespace Parsek
 
             // Propagate ghost position using GhostExtender
             Vector3d propagatedPos = ComputePropagatedPosition(tipRecording, currentUT);
-            // A tip an epoch-shift jump froze in the bubble spawns from its jump-shifted
-            // orbit; resolve that once and recheck overlap where it will actually appear.
-            JumpShiftedTipSpawn shifted = TryResolveJumpShiftedTipSpawn(tipRecording, tipPoint, currentUT);
-            Vector3d checkPos = SelectChainTipCollisionCheckPosition(
-                shifted.Resolved, shifted.WorldPos, propagatedPos, "propagated",
-                out string checkSource);
-            LogJumpShiftedCollisionCheck(tipRecording, "chain-tip-blocked", checkSource, checkPos,
-                rateLimitKey: "jump-shift-check-" + chain.OriginalVesselPid);
 
             // Recheck overlap at propagated position
             Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(vesselSnapshot);
             var (overlap, distance, blockerName, _) =
                 SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
-                    checkPos, spawnBounds, SpawnCollisionPadding,
+                    propagatedPos, spawnBounds, SpawnCollisionPadding,
                     spawningRecording: tipRecording, site: "chain-tip-blocked");
 
             if (overlap)
@@ -499,8 +473,7 @@ namespace Parsek
                 // walk backward along the recorded trajectory to find a valid spawn position.
                 // Skip walkback if already exhausted (entire trajectory was scanned with no valid spot).
                 float distanceChange = Math.Abs(distance - chain.BlockedInitialDistance);
-                if (ShouldWalkBackBlockedTip(shifted.Resolved, chain.OriginalVesselPid, tipRecording)
-                    && ShouldRunWalkbackRescan(chain, CurrentRealTime())
+                if (ShouldRunWalkbackRescan(chain, CurrentRealTime())
                     && SpawnCollisionDetector.ShouldTriggerWalkback(
                         chain.BlockedSinceUT, currentUT, 5.0, distanceChange, 1.0f)
                     && tipRecording.Points != null && tipRecording.Points.Count > 1)
@@ -545,16 +518,7 @@ namespace Parsek
                 Orbit orbitOverride = null;
                 bool haveResolvedSpawnPosition = false;
 
-                if (shifted.Resolved)
-                {
-                    spawnLat = shifted.Lat;
-                    spawnLon = shifted.Lon;
-                    spawnAlt = shifted.Alt;
-                    spawnVelocity = shifted.Velocity;
-                    orbitOverride = shifted.Orbit;
-                    haveResolvedSpawnPosition = true;
-                }
-                else if (useRecordedTerminalOrbit
+                if (useRecordedTerminalOrbit
                     && VesselSpawner.TryResolveRecordedTerminalOrbitSpawnState(
                         tipRecording,
                         spawnBody,
@@ -1232,132 +1196,6 @@ namespace Parsek
         /// For surface recordings, returns terminal surface position.
         /// Falls back to last recorded position.
         /// </summary>
-        /// <summary>The orbital spawn state of a tip an epoch-shift jump froze in the bubble.</summary>
-        private struct JumpShiftedTipSpawn
-        {
-            internal bool Resolved;
-            internal double Lat;
-            internal double Lon;
-            internal double Alt;
-            internal Vector3d Velocity;
-            internal Orbit Orbit;
-            internal Vector3d WorldPos;
-        }
-
-        internal const string CollisionCheckSourceJumpShifted = "jump-shifted-spawn";
-
-        /// <summary>
-        /// Pure: where a chain-tip spawn's collision gate looks. When the tip will spawn from
-        /// its jump-shifted orbit (<see cref="TimeJumpTerminalOrbitShift"/>), the gate must
-        /// test that position: the unshifted snapshot endpoint / propagated orbit lies n *
-        /// delta along the orbit, so a tip whose ghost stood inside the bubble would pass the
-        /// gate far away and spawn into whatever stood beside it. Otherwise the caller's
-        /// default position (unchanged behaviour).
-        /// </summary>
-        internal static Vector3d SelectChainTipCollisionCheckPosition(
-            bool haveJumpShiftedSpawn, Vector3d jumpShiftedSpawnPos,
-            Vector3d defaultPos, string defaultSource, out string source)
-        {
-            if (haveJumpShiftedSpawn
-                && !double.IsNaN(jumpShiftedSpawnPos.x) && !double.IsNaN(jumpShiftedSpawnPos.y)
-                && !double.IsNaN(jumpShiftedSpawnPos.z)
-                && !double.IsInfinity(jumpShiftedSpawnPos.x) && !double.IsInfinity(jumpShiftedSpawnPos.y)
-                && !double.IsInfinity(jumpShiftedSpawnPos.z))
-            {
-                source = CollisionCheckSourceJumpShifted;
-                return jumpShiftedSpawnPos;
-            }
-
-            source = defaultSource;
-            return defaultPos;
-        }
-
-        /// <summary>
-        /// Pure: whether a blocked chain tip may walk back along its recorded points. Not
-        /// while the tip spawns from a jump-shifted orbit: the walkback walks the UNSHIFTED
-        /// <c>Recording.Points</c>, so a walked-back spawn would leave the frozen geometry the
-        /// shift exists to keep (REALSPAWN-JUMP-SHIFT-RESIDUE). The tip stays blocked until
-        /// the shifted position clears, the same as a tip with no walkback room.
-        /// </summary>
-        internal static bool ShouldWalkBackBlockedTip(bool jumpShiftedSpawnResolved)
-        {
-            return !jumpShiftedSpawnResolved;
-        }
-
-        internal static bool ShouldWalkBackBlockedTip(
-            bool jumpShiftedSpawnResolved, uint chainPid, Recording tip)
-        {
-            if (ShouldWalkBackBlockedTip(jumpShiftedSpawnResolved))
-                return true;
-            ParsekLog.VerboseRateLimited(Tag, "jump-shift-walkback-skip-" + chainPid,
-                string.Format(ic,
-                    "Chain tip walkback skipped: rec={0} vessel={1} spawns from its jump-shifted orbit, " +
-                    "the recorded points are unshifted",
-                    tip?.RecordingId ?? "(none)", tip?.VesselName ?? "(unknown)"));
-            return false;
-        }
-
-        /// <summary>
-        /// Resolves the jump-shifted orbital spawn state when one is armed for this tip;
-        /// otherwise returns an unresolved result and the caller keeps its own path.
-        /// </summary>
-        private static JumpShiftedTipSpawn TryResolveJumpShiftedTipSpawn(
-            Recording tip, TrajectoryPoint? tipPoint, double ut)
-        {
-            var result = default(JumpShiftedTipSpawn);
-            if (tip == null
-                || !VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(tip)
-                || !TimeJumpTerminalOrbitShift.TryGetShift(tip.RecordingId, ut, out _))
-                return result;
-
-            CelestialBody body = VesselSpawner.ResolveSpawnRotationBody(tip, tipPoint);
-            if (body == null
-                || !VesselSpawner.TryResolveRecordedTerminalOrbitSpawnState(
-                    tip, body, ut,
-                    out double lat, out double lon, out double alt,
-                    out Vector3d velocity, out Orbit orbit))
-                return result;
-
-            result.Resolved = true;
-            result.Lat = lat;
-            result.Lon = lon;
-            result.Alt = alt;
-            result.Velocity = velocity;
-            result.Orbit = orbit;
-            result.WorldPos = body.GetWorldSurfacePosition(lat, lon, alt);
-            return result;
-        }
-
-        private static void LogJumpShiftedCollisionCheck(
-            Recording tip, string site, string source, Vector3d checkPos, string rateLimitKey)
-        {
-            if (source != CollisionCheckSourceJumpShifted)
-                return;
-            string message = string.Format(ic,
-                "Chain tip collision check at the jump-shifted spawn: rec={0} vessel={1} site={2} checkSeparation={3:F1}m",
-                tip?.RecordingId ?? "(none)", tip?.VesselName ?? "(unknown)", site,
-                MeasureDistanceFromActiveVessel(checkPos));
-            if (rateLimitKey == null)
-                ParsekLog.Info(Tag, message);
-            else
-                ParsekLog.VerboseRateLimited(Tag, rateLimitKey, message);
-        }
-
-        [System.Runtime.CompilerServices.MethodImpl(
-            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        private static double MeasureDistanceFromActiveVessel(Vector3d worldPos)
-        {
-            try
-            {
-                Vessel active = FlightGlobals.ActiveVessel;
-                return active != null ? Vector3d.Distance(active.GetWorldPos3D(), worldPos) : double.NaN;
-            }
-            catch (Exception)
-            {
-                return double.NaN;
-            }
-        }
-
         private static Vector3d ComputePropagatedPosition(Recording rec, double currentUT)
         {
             if (rec == null)
@@ -1760,7 +1598,7 @@ namespace Parsek
 
         /// <summary>
         /// Runs the ordinary spawn path's terminal-orbit safety decision on a chain tip that is
-        /// about to spawn on its recorded (or jump-shifted) terminal orbit. No orbit means the
+        /// about to spawn on its recorded terminal orbit. No orbit means the
         /// tip spawns from a trajectory point, which the ordinary path does not gate either.
         /// A deferral or refusal is stamped on the tip recording, where the playback policy's
         /// hold and the next attempt's entry check read it.

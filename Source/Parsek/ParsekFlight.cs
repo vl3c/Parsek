@@ -2298,7 +2298,6 @@ namespace Parsek
                 return; // never subscribed, never became Instance (S9 game-mode gate)
             Instance = null;
             PostPhysicsPoseCache.Clear();
-            TimeJumpTerminalOrbitShift.Clear("flight-scene-destroyed");
             TimeJumpManager.DropPendingPlacement("scene-change");
             // #267: clear the static restore-reentrancy guard. The restore coroutines
             // set it true and clear it in a finally, but Unity abandons a running
@@ -19811,10 +19810,6 @@ namespace Parsek
                     && rec.SpawnedVesselPersistentId != 0)
                     RetargetReplacedChainTip(rec.SpawnedVesselPersistentId);
             }
-
-            // A jump-armed terminal-orbit shift is spent once its vessel exists.
-            if (rec.VesselSpawned)
-                TimeJumpTerminalOrbitShift.Release(rec.RecordingId, "spawned");
         }
 
         internal static GhostPlaybackSkipReason ResolveGhostPlaybackSkipReason(
@@ -29683,8 +29678,7 @@ namespace Parsek
 
             TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
             // Pass null chains — let the engine playback loop handle spawn naturally
-            TimeJumpManager.ExecuteJump(
-                targetUT, null, vesselGhoster, CollectBubbleGhostsForTimeJump());
+            TimeJumpManager.ExecuteJump(targetUT, null, vesselGhoster);
             RefreshBlockedChainTipGhostOrbitsAfterJump();
             ArmSpawnWarpWatch(rec, targetUT);
         }
@@ -29793,158 +29787,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The committed recordings whose ghosts stand in the loaded physics bubble right
-        /// now, with each ghost's distance from the active vessel. An epoch-shift jump
-        /// freezes these with the real vessels (design 14.5), so a terminal-orbit spawn the
-        /// jump crosses keeps its ghost's place (<see cref="TimeJumpTerminalOrbitShift"/>).
-        /// Read from the ghost transforms in the same frame as the active vessel, so the
-        /// floating origin cancels.
-        /// </summary>
-        internal List<KeyValuePair<Recording, double>> CollectBubbleGhostsForTimeJump()
-        {
-            var result = new List<KeyValuePair<Recording, double>>();
-            Vessel active = FlightGlobals.ActiveVessel;
-            if (active == null || engine == null)
-                return result;
-
-            Vector3d activePos = active.GetWorldPos3D();
-            var committed = RecordingStore.CommittedRecordings;
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            int beyondBubble = 0;
-            foreach (var kvp in ghostStates)
-            {
-                GhostPlaybackState state = kvp.Value;
-                if (state == null || state.ghost == null || !state.ghost.activeSelf)
-                    continue;
-                int i = kvp.Key;
-                if (i < 0 || i >= committed.Count || committed[i] == null)
-                    continue;
-                double dist = Vector3d.Distance(activePos, state.ghost.transform.position);
-                if (dist > DistanceThresholds.PhysicsBubbleMeters)
-                {
-                    beyondBubble++;
-                    continue;
-                }
-                result.Add(new KeyValuePair<Recording, double>(committed[i], dist));
-                seen.Add(committed[i].RecordingId);
-            }
-
-            // Spawn-blocked chain tips whose ghost the policy holds past its end: a jump
-            // freezes them too (their armed shift accumulates).
-            int heldInBubble = 0;
-            foreach (var kvp in blockedChainTipGhosts)
-            {
-                BlockedChainTipGhostState held = kvp.Value;
-                if (held == null || held.ghost == null || string.IsNullOrEmpty(held.recordingId)
-                    || seen.Contains(held.recordingId))
-                    continue;
-                int i = held.index;
-                if (i < 0 || i >= committed.Count || committed[i] == null
-                    || committed[i].RecordingId != held.recordingId)
-                    continue;
-                double dist = Vector3d.Distance(activePos, held.ghost.transform.position);
-                if (dist > DistanceThresholds.PhysicsBubbleMeters)
-                {
-                    beyondBubble++;
-                    continue;
-                }
-                result.Add(new KeyValuePair<Recording, double>(committed[i], dist));
-                seen.Add(held.recordingId);
-                heldInBubble++;
-            }
-
-            // Tips an earlier jump armed that have neither spawned nor been held: their plain
-            // ghost is past its end, so neither walk above sees them, yet a second jump freezes
-            // them as well. Their stand-in position is the jump-shifted terminal orbit now.
-            int pendingRecaptured = 0;
-            int pendingSkipped = 0;
-            List<string> pendingIds = TimeJumpTerminalOrbitShift.PendingRecordingIdsNotIn(seen);
-            if (pendingIds.Count > 0)
-            {
-                double currentUT = Planetarium.GetUniversalTime();
-                for (int p = 0; p < pendingIds.Count; p++)
-                {
-                    string recId = pendingIds[p];
-                    Recording rec = null;
-                    for (int i = 0; i < committed.Count; i++)
-                    {
-                        if (committed[i] != null && committed[i].RecordingId == recId)
-                        {
-                            rec = committed[i];
-                            break;
-                        }
-                    }
-
-                    bool shiftLive = false;
-                    bool positionResolved = false;
-                    double dist = double.NaN;
-                    if (rec != null && !rec.VesselSpawned)
-                    {
-                        shiftLive = TimeJumpTerminalOrbitShift.TryGetShift(
-                            recId, currentUT, out TerminalOrbitJumpShift shift);
-                        if (shiftLive)
-                        {
-                            positionResolved = TryResolveJumpShiftedTipWorldPosition(
-                                rec, currentUT, shift.LagSeconds, out Vector3d tipPos);
-                            if (positionResolved)
-                                dist = Vector3d.Distance(activePos, tipPos);
-                        }
-                    }
-
-                    string decision = TimeJumpTerminalOrbitShift.ClassifyPendingRecapture(
-                        rec != null, rec != null && rec.VesselSpawned, shiftLive,
-                        positionResolved, dist, DistanceThresholds.PhysicsBubbleMeters);
-                    if (decision == TimeJumpTerminalOrbitShift.RecaptureAdd)
-                    {
-                        result.Add(new KeyValuePair<Recording, double>(rec, dist));
-                        seen.Add(recId);
-                        pendingRecaptured++;
-                    }
-                    else
-                    {
-                        pendingSkipped++;
-                    }
-                    ParsekLog.Verbose("Flight",
-                        string.Format(CultureInfo.InvariantCulture,
-                            "CollectBubbleGhostsForTimeJump: armed unspawned tip rec={0} decision={1} separation={2:F1}m",
-                            recId, decision, dist));
-                }
-            }
-
-            ParsekLog.Verbose("Flight",
-                string.Format(CultureInfo.InvariantCulture,
-                    "CollectBubbleGhostsForTimeJump: inBubble={0} heldInBubble={1} pendingRecaptured={2} pendingSkipped={3} beyondBubble={4} bubble={5:F0}m",
-                    result.Count, heldInBubble, pendingRecaptured, pendingSkipped, beyondBubble,
-                    DistanceThresholds.PhysicsBubbleMeters));
-            return result;
-        }
-
-        /// <summary>
-        /// World position, at <paramref name="currentUT"/>, of an armed tip's jump-shifted
-        /// terminal orbit: the body and orbit the jump-shifted spawn resolves, so the same place
-        /// a held ghost of the tip is drawn (<c>CaptureBlockedChainTipGhost</c>).
-        /// </summary>
-        private static bool TryResolveJumpShiftedTipWorldPosition(
-            Recording rec, double currentUT, double lagSeconds, out Vector3d worldPos)
-        {
-            worldPos = Vector3d.zero;
-            if (rec == null)
-                return false;
-            TrajectoryPoint? lastPoint = rec.Points != null && rec.Points.Count > 0
-                ? (TrajectoryPoint?)rec.Points[rec.Points.Count - 1]
-                : null;
-            CelestialBody body = VesselSpawner.ResolveSpawnRotationBody(rec, lastPoint);
-            if (body == null
-                || !VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn(rec, body, currentUT, lagSeconds, out Orbit orbit)
-                || orbit == null)
-                return false;
-            worldPos = orbit.getPositionAtUT(currentUT);
-            return !double.IsNaN(worldPos.x) && !double.IsNaN(worldPos.y) && !double.IsNaN(worldPos.z)
-                && !double.IsInfinity(worldPos.x) && !double.IsInfinity(worldPos.y)
-                && !double.IsInfinity(worldPos.z);
-        }
-
-        /// <summary>
         /// Epoch-shifted warp to a ghost's departure UT (when it leaves its current orbit).
         /// Used by Real Spawn Control when a ghost will depart before its EndUT.
         /// Preserves rendezvous geometry — both player and ghost stay at current positions.
@@ -29992,8 +29834,7 @@ namespace Parsek
 
             TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
             // Epoch-shifted jump: preserves rendezvous geometry
-            TimeJumpManager.ExecuteJump(
-                targetUT, null, vesselGhoster, CollectBubbleGhostsForTimeJump());
+            TimeJumpManager.ExecuteJump(targetUT, null, vesselGhoster);
             RefreshBlockedChainTipGhostOrbitsAfterJump();
 
             ParsekLog.ScreenMessage(

@@ -37,8 +37,7 @@ namespace Parsek
             TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
             // Pass null chains - let the engine playback loop handle spawn naturally,
             // as WarpToRecordingEnd does.
-            TimeJumpManager.ExecuteJump(
-                targetUT, null, vesselGhoster, CollectBubbleGhostsForTimeJump());
+            TimeJumpManager.ExecuteJump(targetUT, null, vesselGhoster);
             RefreshBlockedChainTipGhostOrbitsAfterJump();
             return true;
         }

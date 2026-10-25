@@ -3431,7 +3431,7 @@ Left open: a part shed because its parent part DIED (`Part.Die` decouples childr
 force 0) still reads "Decoupled" when no crash child joins the window. Telling it apart
 needs `onPartWillDie`, which fires before those decouples; not done here.
 
-## REALSPAWN-TIME-JUMP-MOVE-PLAYER: the Real Spawn Control Warp moves the player beside the ghost [FILED 2026-10-25, thread "Redesign time jump to move the player", branch `claude/project-thread-1gkt0y`. OPEN; product. Step 1 (Leaves) LIVE-PROVEN 2026-10-25, branch `claude/project-thread-1gkt0y`, lane RSC-2 `2026-10-25_1302` PASS attempt 1. Step 2 (Ready) LIVE-PROVEN 2026-10-25: RSC-3 and the re-armed CI-9 PASS, VN-4 / VN-10 and 14 landed / Leaves regression lanes green. Open: the old Ready jump shift (plan Step 2 item 6, REALSPAWN-JUMP-SHIFT-RESIDUE) is deleted in a follow-up]
+## ~~REALSPAWN-TIME-JUMP-MOVE-PLAYER: the Real Spawn Control Warp moves the player beside the ghost~~ [FILED 2026-10-25, thread "Redesign time jump to move the player", branch `claude/project-thread-1gkt0y`. DONE 2026-10-25; product. Step 1 (Leaves) LIVE-PROVEN 2026-10-25, branch `claude/project-thread-1gkt0y`, lane RSC-2 `2026-10-25_1302` PASS attempt 1. Step 2 (Ready) LIVE-PROVEN 2026-10-25: RSC-3 and the re-armed CI-9 PASS, VN-4 / VN-10 and 14 landed / Leaves regression lanes green. The old Ready jump shift (plan Step 2 item 6) DELETED 2026-10-25, branch `tjmove-step3`, xUnit; not re-flown]
 
 Today's Warp freezes the player's bubble while ghosts keep playing, so a `Leaves` Warp in orbit
 loses its ghost (about 1,100 km after a 10 minute skip in LKO, never flown), a `Ready` ghost must
@@ -3489,12 +3489,28 @@ the line now also carries `toActiveOrbit=`) (distance to the player, `orbitGap` 
 `spawnedBeforePlacement`). Other crossed ghosts spawn on their recordings. Lanes: CI-9 re-armed
 (placement lines replace the two jump-shift lines, which are now forbidden) and the new
 `RSC-3-ready-spawn-room` (preset `spawn-room`, scenario d); both never flown. VN-4 / VN-10 pin
-only `Chain tip spawn` and are unchanged. Not done yet (item 6, after CI-9 / VN-4 / VN-10 fly
-green): deleting `TimeJumpTerminalOrbitShift` and its call sites; the placement core releases a
-Ready reference's armed shift meanwhile (`reason=placement-reference`). Not authored: the replay
-lane (scenario g).
+only `Chain tip spawn` and are unchanged. Not authored: the replay lane (scenario g).
 
-## REALSPAWN-JUMP-SHIFT-RESIDUE: what the orbital-tip jump shift does not cover [FILED 2026-10-03 from the REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST fix, branch `fix-orbital-tip-spawn`. OPEN; product, low. Walkback item FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit. Second-jump item FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit]
+Item 6 done (branch `tjmove-step3`): `TimeJumpTerminalOrbitShift` is deleted with its tests and
+every call site: the `CaptureForJump` step and the bubble-ghost argument of
+`TimeJumpManager.ExecuteJump`, `ParsekFlight.CollectBubbleGhostsForTimeJump` /
+`TryResolveJumpShiftedTipWorldPosition`, the spawned / scene-destroy / `placement-reference`
+releases, the lag branch of the held blocked-tip ghost, the jump-shifted spawn / collision-check /
+walkback-skip branches of `VesselGhoster.SpawnAtChainTip` / `TrySpawnBlockedChain`, and the
+`phaseLagSeconds` parameter of `VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn` /
+`ComputeSpawnMeanAnomaly`. The `TimeJump` seam verb and a landed / splashed / prelaunch player keep
+a plain epoch-shift freeze with no ghost capture: a crossed orbital tip spawns on its recorded
+terminal orbit at the spawn UT, its collision gate tests the snapshot endpoint / propagated
+position, and a blocked tip may walk back as any tip does. The held-ghost orbit rebuild after a
+jump stays, without the lag (a trajectory-tail seed depends on the UT). Not re-flown.
+
+## ~~REALSPAWN-JUMP-SHIFT-RESIDUE: what the orbital-tip jump shift does not cover~~ [FILED 2026-10-03 from the REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST fix, branch `fix-orbital-tip-spawn`. CLOSED 2026-10-25: the shift is DELETED (branch `tjmove-step3`, REALSPAWN-TIME-JUMP-MOVE-PLAYER plan Step 2 item 6). Walkback item FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit. Second-jump item FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit]
+
+Closed 2026-10-25 by deletion: the Ready and Leaves Warps in orbit now move the player's group
+beside the ghost (REALSPAWN-TIME-JUMP-MOVE-PLAYER), so no player jump freezes an orbital tip any
+more, and `TimeJumpTerminalOrbitShift` is gone with every branch named below. The `TimeJump` seam
+verb and a landed player keep a plain freeze (owner ruling): a crossed orbital tip spawns on its
+recorded terminal orbit. The text below is the record of what the shift left uncovered.
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): all four residues still stand; later
 commits widened the shifted cases without closing these. The walkback item is the one with a small

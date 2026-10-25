@@ -193,7 +193,10 @@ the ghost), todo entry, autotest-status rows for the new lane.
    `LogJumpShiftedCollisionCheck` and their call sites, the lag branch of the blocked-tip ghost,
    the release / clear calls, and the `CaptureForJump` step of `ExecuteJump` (the seam verb and a
    landed A keep a plain epoch-shift freeze; on the surface nothing is captured anyway). Close
-   REALSPAWN-JUMP-SHIFT-RESIDUE.
+   REALSPAWN-JUMP-SHIFT-RESIDUE. DONE 2026-10-25, branch `tjmove-step3` (no results archive in
+   that session to grep; the committed specs require no shift line, CI-9 and RSC-3 forbid it).
+   `CollectBubbleGhostsForTimeJump` went with it; the held-ghost orbit rebuild after a jump
+   (`RefreshBlockedChainTipGhostOrbitsAfterJump`) stays, without the lag.
 
 ---
 
