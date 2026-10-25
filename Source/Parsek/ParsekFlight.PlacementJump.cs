@@ -56,14 +56,41 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The Ready Warp for an orbital player vessel (plan Step 2 item 3): the clock jumps to
+        /// the recording's end and the group is placed beside the ghost's recorded end state,
+        /// where the ghost then spawns. Returns false when the move was refused (logged; the
+        /// scan normally greys the button first) - the jump does not happen.
+        /// </summary>
+        private bool TryWarpToRecordingEndWithPlacement(Recording rec, Vessel active)
+        {
+            string recId = rec.RecordingId;
+            return TimeJumpManager.TryStartReadyPlacementJump(
+                rec, active, recorder, () => TryGetDrawnGhostWorldPosition(recId), out _);
+        }
+
+        /// <summary>
         /// Scan side of the move gates (plan 1.4): the refusal for a Leaves row, logged only
         /// when it changes for that recording.
         /// </summary>
         private MoveGateVerdict EvaluateLeavesMoveGateForScan(
             Recording rec, double currentUT, double departureUT)
         {
-            MoveGateVerdict verdict = TimeJumpManager.EvaluateLeavesMoveGate(
-                rec, currentUT, departureUT, FlightGlobals.ActiveVessel);
+            return LogMoveGateOnChange(rec, TimeJumpManager.EvaluateLeavesMoveGate(
+                rec, currentUT, departureUT, FlightGlobals.ActiveVessel));
+        }
+
+        /// <summary>
+        /// Scan side of the Ready move gates (plan Step 2 item 3), logged only when the
+        /// refusal changes for that recording.
+        /// </summary>
+        private MoveGateVerdict EvaluateReadyMoveGateForScan(Recording rec, double currentUT)
+        {
+            return LogMoveGateOnChange(rec, TimeJumpManager.EvaluateReadyMoveGate(
+                rec, currentUT, FlightGlobals.ActiveVessel));
+        }
+
+        private static MoveGateVerdict LogMoveGateOnChange(Recording rec, MoveGateVerdict verdict)
+        {
             if (ParsekLog.IsVerboseEnabled)
             {
                 string recId = rec.RecordingId ?? "(null)";

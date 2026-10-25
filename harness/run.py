@@ -184,6 +184,8 @@ RP_SIDECAR_BY_PRESET = {
     "rescan-substitute": None,
     # RSC-2's leaves-departure recording: one committed single-recording tree, no RP.
     "leaves-departure": None,
+    # RSC-3's spawn-room recording: one committed single-recording tree, no RP.
+    "spawn-room": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 

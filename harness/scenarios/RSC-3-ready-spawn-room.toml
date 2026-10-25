@@ -1,0 +1,134 @@
+schema = 1
+id = "RSC-3-ready-spawn-room"
+tier = "nightly"
+# Real Spawn Control's Ready Warp in ORBIT when the ghost's spawn spot is taken by the
+# player's own vessel (docs/dev/design-realspawn-time-jump-move.md scenario d, plan Step 2
+# item 2, todo REALSPAWN-TIME-JUMP-MOVE-PLAYER). The Warp moves the player's group to the
+# ghost's RECORDED end state at the recording's end, keeping the group's local offset from
+# the ghost at the click; here that offset is ~6 m, inside the spawn's collision box, so the
+# group slides back along the orbit until the spawn has room (ruling Q7b: the spawn guard's
+# own bounds and padding), and the vessel then spawns on its recorded spot with no walkback.
+#
+# THE HOST. CI-9's `eva2-lko-crewed` (focused Kerbal X pid 3620499050 at ~101.7 km, the
+# Kerbal X Probe pid 2614652043 ~16 m away at ~0.2 m/s, so itself a group member) plus the
+# `spawn-room` preset: ONE committed single-recording tree whose probe rides the Kerbal X's
+# own orbit ~6 m ahead and ends Orbiting 60 s after load (UT 481.19, CI-9's end). Its row
+# reads Ready; the Warp jumps to UT 481.19.
+#
+# THE PRESS. `UiAction op=warp window=spawncontrol` runs the row button's own click body and
+# refuses on a disabled button (`warp-button-disabled`, forbidden below), so a move gate that
+# greyed the row (a slide that cannot clear reads `destination taken`) reds here.
+#
+# THE NUMBERS (never flown; windows to tighten after the first flight): the slide behind the
+# ghost between 10 and 99 m and cleared, the vessel spawned on its recorded orbit (`orbitGap`
+# under 10 m) at the slid distance from the Kerbal X (`drift` under 10 m), the spawn after the
+# placement (`spawnedBeforePlacement=false`; the spawn waits for an armed placement, logged
+# `Spawn deferred ... Ready placement pending` when the playback loop reaches it first), and
+# no blocked, walked-back or abandoned spawn. Negative control: on a DLL without the Ready
+# move none of the `Placement` lines exist and the old `Epoch-shifted vessel` lines
+# (forbidden) appear, the spawn spot inside the Kerbal X then blocking the spawn.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) no existing flight is a prefix of this one
+# (CI-9 RealSpawns a chain tip 140 m away, RSC-2 presses a Leaves row); (2) both waits are
+# explicit-UT 1x `WarpToUT` (428: two proximity sightings; 492: past the spawn at 481.19 and a
+# held-ghost retry); (3) the second wait is the minimum that sees the spawn and its check;
+# (4) no burn; (5) no SOI coast; (6) no mission, nothing to fail fast on; (7) the count window
+# is the derived minimum; (8) tier by measured p50 after the first flights; (9)
+# `flight_efficiency.py` after the first green flight.
+description = "Real Spawn Control Ready Warp in orbit with the spawn spot taken: over eva2-lko-crewed plus the spawn-room preset (a committed recording on the Kerbal X's orbit ~6 m ahead that ends 60 s after load), press the Ready row's Warp, and require the group slid back along the orbit until the spawn has room, the group placement, and the vessel spawned on its recorded orbit with no blocked or walked-back spawn."
+instanceProfile = "stock-minimal"
+tags = ["RSC-3", "real-spawn-control", "time-jump", "ui-seam", "injected-recordings",
+        "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "spawn-room"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  # Real Spawn Control's launcher is Advanced-only.
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  # 1x to UT 428 (~6.8 s after the save UT 421.19): two proximity sightings 1.5 s apart.
+  { cmd = "WarpToUT", args = { ut = "428", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "UiAction", args = { op = "open", window = "spawncontrol" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "rsc3-before-warp" }, expect = "OK" },
+  # THE PRESS.
+  { cmd = "UiAction", args = { op = "warp", window = "spawncontrol" }, expect = "OK", budget = 120 },
+  # 1x past the spawn at UT 481.19 (the jump lands there) and one held-ghost retry.
+  { cmd = "WarpToUT", args = { ut = "492", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "CaptureScreenshot", args = { label = "rsc3-after-spawn" }, expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# A third witness of D13 real-spawn-control (RSC-1 holds the landed Ready Warp, RSC-2 the
+# orbital Leaves Warp): the orbital Ready Warp with a spawn-room slide. No registry value
+# names the time-jump move itself.
+D13 = ["real-spawn-control"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+# The injected recording only: nothing records (auto-record off, no StartRecording).
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  # The row: a Ready candidate ~6 m ahead, pressed through its own button.
+  "\\[Flight\\] Proximity notification: 'SRM Target' recording #0 distance=[0-9]{1,2}m endUT=481\\.2",
+  "uiaction open window=spawncontrol open=true",
+  "\\[Parsek\\]\\[INFO\\]\\[UI\\] Real Spawn Control: warp to 'SRM Target' recording #0",
+  "uiaction warp window=spawncontrol vessel=SRM Target recording=0 departure=false",
+  "WarpToRecordingEnd: jumping to UT=481\\.2 for 'SRM Target' \\(delta=5[0-9]\\.[0-9]s, mode=placement\\)",
+  # Frame F: the spawn spot at the click offset is inside the Kerbal X, so the group slides
+  # back along the orbit until the spawn's padded box clears every member.
+  "\\[TimeJump\\] Placement spawn room: ref=srm-target-rec slide=-[1-9][0-9]\\.[0-9]m cleared=true steps=[0-9]+ members=2 spawnHalfExtent=[0-9]+\\.[0-9]m padding=5\\.0m firstOverlap=Kerbal X",
+  "\\[TimeJump\\] Placement jump armed: ref=srm-target-rec kind=Ready T0=4[23][0-9]\\.[0-9] T1=481\\.2 group=2 hold=60 frame=[0-9]+",
+  # Frame F+1: the reference is the spawner's own resolve of the end orbit; both members
+  # placed at their slid offsets, then the summary line carrying the slide.
+  "\\[TimeJump\\] Placement reference: ref=srm-target-rec kind=Ready source=(stored-segment|trajectory-tail) body=Kerbin placeUT=481\\.[0-9]{2} ",
+  "\\[TimeJump\\] Placed vessel: pid=3620499050 name=Kerbal X offsetT0=\\(",
+  "\\[TimeJump\\] Placed vessel: pid=2614652043 name=Kerbal X Probe offsetT0=\\(",
+  "\\[TimeJump\\] Placement jump: ref=srm-target-rec kind=Ready T0=4[23][0-9]\\.[0-9] T1=481\\.2 placeUT=481\\.[0-9]{2} group=2 moved=3620499050,2614652043 refGapToDrawn=[0-9]{1,2}\\.[0-9]m slide=-[1-9][0-9]\\.[0-9]m recorder=[A-Za-z]+ bgRecaptured=[0-9]+",
+  # The spawn: on its recorded spot, after the placement, at the slid distance.
+  "\\[Spawner\\] Vessel spawn for #0 \\(SRM Target\\) pid=[0-9]+ sit=ORBITING",
+  "\\[TimeJump\\] Placement spawn check: ref=srm-target-rec pid=[0-9]+ ut=48[1-9]\\.[0-9]{2} toActive=[1-9][0-9]\\.[0-9]m expected=[1-9][0-9]\\.[0-9]m drift=[0-9]\\.[0-9]m orbitGap=[0-9]\\.[0-9]m spawnedBeforePlacement=false",
+  "(?m)listhandles kind=committed count=1 truncated=false$",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "warp-button-disabled",
+  "warp-no-candidate-row",
+  "Placement jump refused",
+  "Placement jump dropped",
+  # The old freeze-in-place jump and the retired ghost shift.
+  "Epoch-shifted vessel",
+  "Terminal-orbit jump shift armed",
+  # The spawn found its spot taken: the slide did not clear it, or the spawn ran before the
+  # placement.
+  "Spawn blocked for #[0-9]+ \\(SRM Target\\)",
+  "walkback rewrote spawn position for #[0-9]+ \\(SRM Target\\)",
+  "Spawn ABANDONED for #[0-9]+ \\(SRM Target\\)",
+  "Duplicate blocker detected for #[0-9]+ \\(SRM Target\\)",
+]
+
+[runtime]
+# The deferred worst case run.py waits: LoadGame max(300,600)+60 = 660, two WarpToUT
+# max(120,600)+60 = 660 each, plus 240 for the non-deferred steps -> 2220.
+budgetSeconds = 2220
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

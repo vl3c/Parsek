@@ -873,7 +873,8 @@ namespace Parsek
             CelestialBody body,
             TrajectoryPoint previous,
             TrajectoryPoint tail,
-            out RecordedTailVelocityResolution resolution)
+            out RecordedTailVelocityResolution resolution,
+            bool logResult = true)
         {
             Vector3d previousPos = body.GetWorldSurfacePosition(
                 previous.latitude, previous.longitude, previous.altitude) - body.position;
@@ -895,24 +896,28 @@ namespace Parsek
                 altitudeRuleRotating,
                 out resolution);
 
-            ParsekLog.Verbose("OrbitReseed",
-                string.Format(CultureInfo.InvariantCulture,
-                    "TryFromRecordedTailPair: body={0} prevUT={1:F2} tailUT={2:F2} alt={3:F1} " +
-                    "resolved={4} decline={5} velFrame={6} altitudeRule={7} yaw={8:F3}deg " +
-                    "residual={9:F3} otherResidual={10:F3} |recordedVel|={11:F2} |inertialVel|={12:F2}",
-                    body.name ?? "(null)",
-                    previous.ut,
-                    tail.ut,
-                    tail.altitude,
-                    resolved,
-                    resolution.DeclineReason ?? "(none)",
-                    resolution.SampleWasRotatingFrame ? "rotating" : "inertial",
-                    altitudeRuleRotating ? "rotating" : "inertial",
-                    resolution.YawDegrees,
-                    resolution.Residual,
-                    resolution.OtherResidual,
-                    resolution.RecordedSpeed,
-                    resolution.InertialVelocityYup.magnitude));
+            // A quiet caller (the Real Spawn Control scan, every 1.5 s) logs its own outcome.
+            if (logResult)
+            {
+                ParsekLog.Verbose("OrbitReseed",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "TryFromRecordedTailPair: body={0} prevUT={1:F2} tailUT={2:F2} alt={3:F1} " +
+                        "resolved={4} decline={5} velFrame={6} altitudeRule={7} yaw={8:F3}deg " +
+                        "residual={9:F3} otherResidual={10:F3} |recordedVel|={11:F2} |inertialVel|={12:F2}",
+                        body.name ?? "(null)",
+                        previous.ut,
+                        tail.ut,
+                        tail.altitude,
+                        resolved,
+                        resolution.DeclineReason ?? "(none)",
+                        resolution.SampleWasRotatingFrame ? "rotating" : "inertial",
+                        altitudeRuleRotating ? "rotating" : "inertial",
+                        resolution.YawDegrees,
+                        resolution.Residual,
+                        resolution.OtherResidual,
+                        resolution.RecordedSpeed,
+                        resolution.InertialVelocityYup.magnitude));
+            }
             if (!resolved)
                 return false;
 

@@ -39,6 +39,7 @@ $injectFilterByPreset = @{
     "launch-site-claim"     = "InjectLaunchSiteClaim"
     "rescan-substitute"     = "InjectRescanSubstitute"
     "leaves-departure"      = "InjectLeavesDeparture"
+    "spawn-room"            = "InjectSpawnRoom"
 }
 
 # Per-preset default save name, applied only when -SaveName is not given. Keeps a
@@ -70,6 +71,7 @@ $defaultSaveByPreset = @{
     "launch-site-claim"     = "launch-site-claim-fixture"
     "rescan-substitute"     = "rescan-substitute-fixture"
     "leaves-departure"      = "leaves-departure-fixture"
+    "spawn-room"            = "spawn-room-fixture"
 }
 
 $ErrorActionPreference = "Stop"

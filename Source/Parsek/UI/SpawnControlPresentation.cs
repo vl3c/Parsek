@@ -214,7 +214,8 @@ namespace Parsek
                         "Close and slow enough to spawn; it is due to spawn here on {0}", date);
                     warpHover = string.Format(IC,
                         "Warps to {0}, when {1} is due to spawn here.", date, name);
-                    enabled = true;
+                    moveRefusalReason = MoveRefusalReason(candidate.moveRefusal, name);
+                    enabled = moveRefusalReason == null;
                     break;
                 case SpawnCandidateStatus.Leaves:
                     statusHover = string.Format(IC,
@@ -273,9 +274,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: why a Leaves Warp cannot move the player's group beside the ghost (design
-        /// 4.3), or null when it can. The design table's wording, in the strip's voice (no
-        /// trailing period).
+        /// Pure: why a Leaves or Ready Warp cannot move the player's group beside the ghost
+        /// (design 4.3), or null when it can. The design table's wording, in the strip's voice
+        /// (no trailing period).
         /// </summary>
         internal static string MoveRefusalReason(MoveRefusal refusal, string vesselName)
         {

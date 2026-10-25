@@ -3410,7 +3410,7 @@ Left open: a part shed because its parent part DIED (`Part.Die` decouples childr
 force 0) still reads "Decoupled" when no crash child joins the window. Telling it apart
 needs `onPartWillDie`, which fires before those decouples; not done here.
 
-## REALSPAWN-TIME-JUMP-MOVE-PLAYER: the Real Spawn Control Warp moves the player beside the ghost [FILED 2026-10-25, thread "Redesign time jump to move the player", branch `claude/project-thread-1gkt0y`. OPEN; product. Step 1 (Leaves) LIVE-PROVEN 2026-10-25, branch `claude/project-thread-1gkt0y`, lane RSC-2 `2026-10-25_1302` PASS attempt 1. Step 2 (Ready) open]
+## REALSPAWN-TIME-JUMP-MOVE-PLAYER: the Real Spawn Control Warp moves the player beside the ghost [FILED 2026-10-25, thread "Redesign time jump to move the player", branch `claude/project-thread-1gkt0y`. OPEN; product. Step 1 (Leaves) LIVE-PROVEN 2026-10-25, branch `claude/project-thread-1gkt0y`, lane RSC-2 `2026-10-25_1302` PASS attempt 1. Step 2 (Ready) BUILT 2026-10-25, branch `tjmove-step2`, xUnit; lanes CI-9 (re-armed) and RSC-3 never flown]
 
 Today's Warp freezes the player's bubble while ghosts keep playing, so a `Leaves` Warp in orbit
 loses its ghost (about 1,100 km after a 10 minute skip in LKO, never flown), a `Ready` ghost must
@@ -3442,6 +3442,31 @@ placed state, `BackgroundRecorder.RecaptureOnRailsOrbit` for background members.
 built and tested, not wired (Step 2). Lane `RSC-2-leaves-warp` (preset `leaves-departure`) is
 authored and never flown; RSC-1 is the landed regression guard. Not modelled: surface vessels in
 the destination check (the atmosphere gate keeps an orbital group well above Kerbin's).
+
+Step 2 built (branch `tjmove-step2`, plan Step 2 items 1-5): `WarpToRecordingEnd` (and so `Warp to
+Next Spawn`) with an orbital player vessel calls `TimeJumpManager.TryStartReadyPlacementJump`
+(log `mode=placement`); a landed / splashed / prelaunch vessel keeps the epoch-shift jump, and the
+`TimeJump` seam verb keeps the freeze. T0: the covering OrbitSegment, else
+`OrbitReseed.TryFromRecordedTailPair` on the bracketing body-fixed coast pair
+(`TimeJumpPlacement.TryFindBracketingCoastPair`), never `TrajectoryPoint.velocity`. T1: the
+spawner's own resolver (`VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn`, lag 0, new
+`seedSource` out), estimated at the scan (cached per recording id + `StateVersion`, quiet) with the
+body-rotation LAN correction for a trajectory-tail seed (`TailSeedLanCorrectionDegrees`), resolved
+again in frame F+1 (`Placement reference:`). An end with no terminal-orbit spawn is refused
+(`Degenerate`): the plan's endpoint-state fallback would read `TrajectoryPoint.velocity`. Spawn
+room (ruling Q7b): rotation-safe cubes from `SpawnCollisionDetector.ComputeVesselBounds` of the end
+snapshot and each member's size, `BoundsOverlap` with padding 5, the group slid back along the
+orbit (`Placement spawn room:`, Info when it slides; a slide that cannot clear reads
+`DestinationTaken`). The reference's spawn waits while its placement is armed
+(`Spawn deferred ... Ready placement pending`, the policy holds the ghost and retries), and the
+watch logs `Placement spawn check:` (distance to the player, `orbitGap` to the T1 orbit,
+`spawnedBeforePlacement`). Other crossed ghosts spawn on their recordings. Lanes: CI-9 re-armed
+(placement lines replace the two jump-shift lines, which are now forbidden) and the new
+`RSC-3-ready-spawn-room` (preset `spawn-room`, scenario d); both never flown. VN-4 / VN-10 pin
+only `Chain tip spawn` and are unchanged. Not done yet (item 6, after CI-9 / VN-4 / VN-10 fly
+green): deleting `TimeJumpTerminalOrbitShift` and its call sites; the placement core releases a
+Ready reference's armed shift meanwhile (`reason=placement-reference`). Not authored: the replay
+lane (scenario g).
 
 ## REALSPAWN-JUMP-SHIFT-RESIDUE: what the orbital-tip jump shift does not cover [FILED 2026-10-03 from the REALSPAWN-ORBITAL-TIP-SPAWNS-AWAY-FROM-ITS-GHOST fix, branch `fix-orbital-tip-spawn`. OPEN; product, low. Walkback item FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit. Second-jump item FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit]
 
