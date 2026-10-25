@@ -7877,8 +7877,9 @@ witness): the editor's funds number IS a `FundsWidget` (`located Funds widget`),
 THREE controllers there (an EveryScene addon is started once per editor startup phase), each about
 to draw the same tooltip stacked. Fixed the same day: only the first live controller of a scene
 draws (`CurrencyReservationOverlay.IsDuplicateController`), the others log `another controller is
-already active for scene=EDITOR - this one stays idle`; ZF-1 pins all three lines, the idle one
-owed its first flight.
+already active for scene=EDITOR - this one stays idle`; ZF-1 pins all three lines. Re-flown
+2026-10-25 `2026-10-25_0140` PASS attempt 1 on main 6189bb733: the VAB started one drawing
+controller and two idle ones, and only the drawing one located the widget.
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass, before the fix above): (a) still real, now partly
 mitigated. `CurrencyReservationOverlay.Start` still idles outside SPACECENTER / FLIGHT, and
