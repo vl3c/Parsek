@@ -74,6 +74,10 @@ _(unreleased - entries accumulate here per commit)_
   Discarding or reverting the flight in progress no longer takes back its reward, and a Re-Fly no
   longer counts it as the attempt's gain. A strategy's cut of ground-station science stays with that
   science the same way. (CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT)
+- **With mods, awards your flight did not earn are no longer tied to it.** A contract the game
+  accepts on its own, science sent by another vessel in the background, and a resource scan made by
+  a mod such as SCANsat now stay when you discard the flight, and a Re-Fly no longer counts them as
+  its gain. (LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT)
 - **A contract deadline that runs out during a flight is no longer tied to that flight.** The
   expiry is the clock's, so a Re-Fly that outlives the deadline can be merged, and discarding the
   flight no longer takes the penalty away. A contract the game ends because its requirements no

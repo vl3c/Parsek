@@ -439,7 +439,7 @@ its exchange is already a ledger row.
 
 ---
 
-## LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT: mod-driven background awards are filed under the live flight [FILED 2026-10-25 from a code audit, branch `claude/project-thread-dkcvpn`. OPEN; low, mod-only. Owner ruling 2026-10-25: unit tests only, no modded lane]
+## ~~LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT: mod-driven background awards are filed under the live flight~~ [FILED 2026-10-25 from a code audit, branch `claude/project-thread-dkcvpn`. FIXED 2026-10-25, branch `claude/project-thread-86u4df`; unit tests only by owner ruling 2026-10-25]
 
 Three cases a stock install never reaches: a Contract Configurator `autoAccept` contract accepted by
 a mid-flight contract refresh, science a background vessel transmits (and the body science milestone
@@ -447,6 +447,24 @@ it reaches; Kerbalism-style mods), and a background resource-scan unlock (SCANsa
 to the live recording, so a discard drops it and a Re-Fly reads it as the attempt's. Fix direction:
 the same clock-cause rule (file untagged when the vessel named is not the flown one), once a mod
 lane exists to prove it.
+
+**Fix** (owner ruling 2026-10-25: prove it with unit tests, no mod lane): each case opens the
+recorder's clock-cause scope, so `Emit` files it untagged and the #405 doors write it at once.
+(1) `ContractEarlyFailPatch` opens it around `SetState(Active)` of an `AutoAccept` contract still
+Offered (`IsClockCausedAccept`): stock's `ContractSystem` accepts such a contract itself on its
+refresh, so the accept and its advance belong to no flight. (2) `DeployedScienceSubmitScopePatch`
+also opens it when the submission's source vessel is UNLOADED and not one the live flight records
+(`GameStateRecorder.IsLiveFlightVessel`: the recorder's vessel or a background member of the active
+tree; `IsVesselEventOutsideTheFlight` needs a live recorder and no open recovery scope), covering the
+award, the body milestone and any contract completed inside the fire. Stock transmits only from
+loaded vessels, and a loaded vessel outside the tree stays the flight's: the flight's EVA kerbal can
+run and transmit its experiment (`DeployExperimentExternal`). (3) New `ResourceScannerScopePatch`
+marks stock's two scanner calls (`ModuleOrbitalSurveyor.CompleteSurvey`,
+`ModuleBiomeScanner.RunAnalysis`); an unlock with no stock scanner call open is a mod's and is filed
+untagged (`IsUnlockByNoFlight`). A stock scan keeps its tag on any vessel, since both scanner events
+are EVA-usable on a vessel outside the tree (the clean review of this fix caught a first cut that
+untagged those). Not covered: a mod contract a timer parameter completes, where no seam names the
+cause. Cells: `ClockCauseScopeTests`.
 
 ---
 
@@ -488,8 +506,8 @@ of the same fire completes pays its science reward first and clears the award's 
 capture, so the award takes the reason the open submission files under
 (`GroundStationSubmissionReasonKey`; lane CLK-1's first flight `2026-10-25_0945` read the reconcile
 ERROR this fixes). Cells:
-`ClockCauseScopeTests`. Mod contracts with timer parameters stay open under
-LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT.
+`ClockCauseScopeTests`. Mod contracts with timer parameters stay uncovered (see the Fix of
+LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT).
 
 ---
 
