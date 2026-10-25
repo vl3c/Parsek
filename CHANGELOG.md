@@ -91,6 +91,10 @@ _(unreleased - entries accumulate here per commit)_
   before or after the re-flown stage records its first sample, depending on timing the lane cannot
   control; both endings are correct, so the lane now checks for either one, whole.
   (REFLY-UNFLOWN-PROVISIONAL-LANES-RACE-THE-RECORDER-START)
+- **Harness: a ledger check can name an award a flight may or may not earn.** The crash-landing
+  ledger lane no longer fails when its pod happens to land before breaking up and earns the
+  Kerbin landing milestone; that award now counts only when both the game's award and the saved
+  career show it. (CL-2-POD-LANDING-AWARD-VARIANCE)
 
 ---
 

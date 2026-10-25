@@ -9971,6 +9971,10 @@ def capture_cross_check_gates(ledger_block: Optional[Dict]) -> bool:
 # tombstone retired.
 LEDGER_TIMELINE_KEY = "timeline"
 LEDGER_RETIRED_ATTEMPTS_KEY = "retiredAttempts"
+# Optional milestone awards (oracle.decide_optional_award): manifest entries plus a
+# `milestone` id, admitted only when the capture and the produced save both book it.
+LEDGER_OPTIONAL_KEY = "optional"
+LEDGER_OPTIONAL_MILESTONE_KEY = "milestone"
 
 # The one oracle rejection reason a PRE-LAUNCH gate must NOT raise: it reads the
 # captured pool, which is empty by construction before the flight. See the carve-out
@@ -10050,6 +10054,7 @@ def validate_ledger_expectations(ledger_block: Optional[Dict]) -> List[str]:
             if _LEDGER_FUNDS_FILL_MARKER in err:
                 continue
             errs.append("expectations.ledger.manifest" + err.replace("entry[", "[", 1))
+    errs.extend(_validate_ledger_optional(ledger_block))
     if LEDGER_CAPTURE_CROSS_CHECK_KEY in ledger_block:
         mode = ledger_block.get(LEDGER_CAPTURE_CROSS_CHECK_KEY)
         if mode not in LEDGER_CAPTURE_CROSS_CHECK_VALUES:
@@ -10057,6 +10062,40 @@ def validate_ledger_expectations(ledger_block: Optional[Dict]) -> List[str]:
                         % (LEDGER_CAPTURE_CROSS_CHECK_KEY, mode,
                            list(LEDGER_CAPTURE_CROSS_CHECK_VALUES)))
     errs.extend(_validate_ledger_timeline(ledger_block, manifest))
+    return errs
+
+
+def _validate_ledger_optional(ledger_block: Dict) -> List[str]:
+    """The `[[expectations.ledger.optional]]` surface, pre-launch: an array of entry
+    tables, each naming a non-empty `milestone` id and otherwise a manifest entry the
+    oracle's own parser accepts. Refused under the rewind-aware model, which does not
+    model it (an optional award there would be placed on a clock nobody declared)."""
+    if LEDGER_OPTIONAL_KEY not in ledger_block:
+        return []
+    import oracle  # deferred sibling import, as in validate_ledger_expectations
+    raw = ledger_block.get(LEDGER_OPTIONAL_KEY)
+    if not isinstance(raw, list):
+        return ["expectations.ledger.%s: must be an array of entry tables" % LEDGER_OPTIONAL_KEY]
+    errs: List[str] = []
+    if ledger_block.get(LEDGER_TIMELINE_KEY, oracle.TIMELINE_SUM) == oracle.TIMELINE_REWIND_AWARE:
+        errs.append("expectations.ledger.%s: the %r model does not model optional awards"
+                    % (LEDGER_OPTIONAL_KEY, oracle.TIMELINE_REWIND_AWARE))
+    for i, e in enumerate(raw):
+        if not isinstance(e, dict):
+            errs.append("expectations.ledger.%s[%d]: not a table" % (LEDGER_OPTIONAL_KEY, i))
+            continue
+        ms = e.get(LEDGER_OPTIONAL_MILESTONE_KEY)
+        if not isinstance(ms, str) or not ms.strip():
+            errs.append("expectations.ledger.%s[%d].%s: %r must be a non-empty milestone id "
+                        "(for example 'Kerbin/Landing')"
+                        % (LEDGER_OPTIONAL_KEY, i, LEDGER_OPTIONAL_MILESTONE_KEY, ms))
+        for err in oracle.parse_manifest_entries([e]).errors:
+            if _LEDGER_FUNDS_FILL_MARKER in err:
+                errs.append("expectations.ledger.%s[%d]: an optional award needs an "
+                            "author constant (no fill-from-capture)" % (LEDGER_OPTIONAL_KEY, i))
+                continue
+            errs.append(("expectations.ledger.%s[%d]" % (LEDGER_OPTIONAL_KEY, i))
+                        + err.split("]", 1)[1])
     return errs
 
 
@@ -10407,6 +10446,27 @@ class StockCaptureResult:
     captured: Tuple[CapturedAward, ...]
     rejected_balance: int
     stock_lines: int  # award lines matched (before dedupe)
+
+
+# The event-time milestone award line (GameStateRecorder.EnrichPendingMilestoneRewards,
+# the Harmony postfix on stock's ProgressNode.AwardProgress, with stock's real
+# values), the capture side of an `[[expectations.ledger.optional]]` award. Both the
+# Info line and its Verbose store-skipped twin carry the award. A Parsek line, but
+# the values are the ones stock awarded at event time, not a recalc output.
+MILESTONE_AWARD_LINE_RE = re.compile(
+    r"Milestone enriched(?: \(ledger only, store skipped\))?: '(?P<id>[^']+)' "
+    r"funds=(?P<funds>-?[0-9]+(?:\.[0-9]+)?) rep=(?P<rep>-?[0-9]+(?:\.[0-9]+)?) "
+    r"sci=(?P<sci>-?[0-9]+(?:\.[0-9]+)?)")
+
+
+def parse_milestone_award_lines(log_text: str) -> Dict[str, List[Tuple[float, float, float]]]:
+    """Every captured milestone award in a produced KSP.log, by qualified milestone id
+    (``Kerbin/Landing``), as ``(funds, rep, sci)`` in log order (pure)."""
+    out: Dict[str, List[Tuple[float, float, float]]] = {}
+    for m in MILESTONE_AWARD_LINE_RE.finditer(log_text or ""):
+        out.setdefault(m.group("id"), []).append(
+            (float(m.group("funds")), float(m.group("rep")), float(m.group("sci"))))
+    return out
 
 
 def parse_stock_award_lines(log_text: str) -> StockCaptureResult:

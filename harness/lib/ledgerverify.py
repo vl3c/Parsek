@@ -129,6 +129,77 @@ def build_manifest(ledger_block: Dict, log_text: str, seed, run_id: str,
     return seam_entries, deduped, tuple(seam_parse.errors), manifest
 
 
+@dataclass
+class OptionalAwards:
+    """What the optional-award pass decided (``resolve_optional_awards``):
+    ``admitted`` joins the declared set, ``divergences`` are its hard reds and
+    rejected entries, ``records`` the per-milestone audit rows for the manifest,
+    ``tooling`` an INVALID(tooling) reason (the save side cannot be read)."""
+    admitted: Tuple = tuple()
+    divergences: List = field(default_factory=list)
+    records: List[Dict] = field(default_factory=list)
+    tooling: str = ""
+
+
+def resolve_optional_awards(ledger_block: Optional[Dict], log_text: str,
+                            career_block: Optional[Dict],
+                            log: LogFn = _no_log) -> OptionalAwards:
+    """Decide every ``[[expectations.ledger.optional]]`` award (todo
+    CL-2-POD-LANDING-AWARD-VARIANCE; decisions in ``oracle.decide_optional_award``).
+    Entries naming one milestone are decided together: all join, or none. A block
+    declaring none returns an empty result, so every other spec is unaffected."""
+    raw = (ledger_block or {}).get(hlib.LEDGER_OPTIONAL_KEY) or []
+    out = OptionalAwards()
+    if not raw:
+        return out
+    completed = (career_block or {}).get("completedMilestoneIds")
+    if not isinstance(completed, list):
+        out.tooling = ("optional awards declared but the produced careerSave carries no "
+                       "completedMilestoneIds (the save side cannot be read)")
+        return out
+    completed_ids = set(str(c) for c in completed)
+    by_milestone: Dict[str, List] = {}
+    for i, rawe in enumerate(raw):
+        ms = rawe.get(hlib.LEDGER_OPTIONAL_MILESTONE_KEY) if isinstance(rawe, dict) else None
+        parse = oracle.parse_manifest_entries([rawe])
+        errs = list(parse.errors)
+        if not isinstance(ms, str) or not ms.strip():
+            errs.append("entry[0].milestone: %r must be a non-empty milestone id" % (ms,))
+        if errs:
+            for err in errs:
+                detail = "optional[%d]%s" % (i, err.split("]", 1)[1])
+                out.divergences.append(oracle.OracleDivergence(
+                    facet="ledger", kind="manifest-parse-error", identity="",
+                    expected=None, parsed=None, ut_window=(None, None), hard=True,
+                    detail="optional entry rejected (a dropped expected effect can "
+                           "false-PASS): %s" % detail))
+                log("warn", "ledger manifest-parse-error (hard): %s" % detail)
+            continue
+        by_milestone.setdefault(ms, []).extend(parse.entries)
+    captured = hlib.parse_milestone_award_lines(log_text)
+    admitted: List = []
+    for ms in sorted(by_milestone):
+        entries = by_milestone[ms]
+        d = oracle.decide_optional_award(
+            ms, captured.get(ms, []), ms in completed_ids,
+            sum(e.funds for e in entries), sum(e.science for e in entries))
+        out.records.append({"milestone": ms, "decision": d.decision,
+                            "capturedCount": d.captured_count,
+                            "saveCompleted": d.save_completed, "entries": len(entries),
+                            "detail": d.detail})
+        log("warn" if d.hard else "info",
+            "optional-award milestone=%s decision=%s captured=%d saveCompleted=%s "
+            "entries=%d: %s" % (ms, d.decision, d.captured_count, d.save_completed,
+                                len(entries), d.detail))
+        if d.admitted:
+            admitted.extend(entries)
+        div = oracle.optional_decision_divergence(d)
+        if div is not None:
+            out.divergences.append(div)
+    out.admitted = tuple(admitted)
+    return out
+
+
 def _invalid(reason: str) -> Dict:
     return {"status": oracle.ORACLE_STATUS_INVALID, "subkind": "tooling",
             "reason": reason, "hardDivergences": 0, "reportOnly": 0,
@@ -205,6 +276,19 @@ def evaluate(ledger_block: Optional[Dict], world_block: Optional[Dict],
             return LedgerVerdict(_invalid(reason), False, True)
         seam_entries, captured, seam_errors, manifest = build_manifest(
             ledger_block, log_text, seed, run_id, log)
+        optional = resolve_optional_awards(ledger_block, log_text, career_block, log)
+        if optional.tooling:
+            log("warn", "verify ledgerOracle status=INVALID subkind=tooling: %s"
+                % optional.tooling)
+            return LedgerVerdict(_invalid(optional.tooling), False, True, divergences, manifest)
+        if hlib.LEDGER_OPTIONAL_KEY in ledger_block:
+            # An admitted optional award is a declared entry from here on: summed into
+            # EXPECTED and a corroboration target for the cross-check.
+            seam_entries = tuple(seam_entries) + optional.admitted
+            manifest["entries"] = (manifest["entries"]
+                                   + [manifest_entry_to_dict(e) for e in optional.admitted])
+            manifest["optional"] = optional.records
+        divergences += optional.divergences
         timeline_errors: Tuple[str, ...] = tuple()
         if rewind_aware:
             retired = ledger_block.get(hlib.LEDGER_RETIRED_ATTEMPTS_KEY, []) or []

@@ -464,6 +464,39 @@ Pure. `ExpectedCareer = compute_expected(seed, entries, tol)`:
   absent from `ExpectedCareer` and the diff skips it (the facet-skip-when-absent
   policy, mirroring `LedgerGroundTruthDiff`).
 
+### Optional awards (`[[expectations.ledger.optional]]`, 2026-10-25)
+
+A flown lane can trip a stock milestone on some runs and not on others: CL-2's pod
+sometimes completes `Kerbin/Landing` (+800 funds) before the impact breaks it up
+(todo CL-2-POD-LANDING-AWARD-VARIANCE). Neither a declared entry (reds the runs that
+never land) nor silence (reds the runs that do) fits, and widening a tolerance would
+blind the pool. An `optional` entry is an ordinary manifest entry plus a `milestone`
+id (`ledgerverify.resolve_optional_awards`, decisions `oracle.decide_optional_award`).
+Its two sides are the event-time capture, `hlib.parse_milestone_award_lines` over
+`GameStateRecorder`'s `Milestone enriched: '<id>' funds= rep= sci=` line (the Harmony
+postfix on stock's `ProgressNode.AwardProgress`, carrying stock's own award values),
+and the produced save, `<id>` in `careerSave.completedMilestoneIds` (the
+ProgressTracking state Parsek's recalc patched):
+
+- booked on both sides, with the captured funds / science equal to the summed declared
+  amounts within tolerance -> ADMITTED: the entries join the declared set, summed into
+  EXPECTED and corroboration targets for the stock-award cross-check;
+- booked on neither side -> dropped, no divergence;
+- one side only, more than one capture line, or another amount -> a HARD divergence
+  (`optional-award-disagreement` / `-repeated` / `-amount-mismatch`).
+
+The declared constant, never the captured amount, joins EXPECTED, so the
+self-cancellation rule above still holds: a booked award of the wrong size moves the
+save and not EXPECTED, and the pool diff reds. Reputation is not compared on the
+capture line (it is stock's nominal reward, a declared rep entry may be the applied
+one); the rep pool diff and the cross-check judge it. A missing
+`completedMilestoneIds` key is INVALID(tooling). Pre-launch, `hlib.validate_spec`
+refuses a non-array block, an entry without a milestone, any entry the oracle's parser
+rejects, a null amount (no fill-from-capture), and the block under the rewind-aware
+model, which does not model it. The manifest artifact gains an `optional` audit list
+(milestone, decision, capture count, save state) and the admitted entries in
+`entries`; a spec without the block is byte-unaffected.
+
 ### The rewind-aware model (`timeline = "rewind-aware"`, L4)
 
 The sum above is the career's balance only when the produced save's clock sits after

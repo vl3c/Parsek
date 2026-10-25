@@ -1038,7 +1038,7 @@ A tree that does not start on the pad (a Re-Fly or switch continuation that star
 no launch site) and is destroyed or left within the pad thresholds is now kept for the merge dialog
 instead of discarded; this is intended.
 
-## CL-2-POD-LANDING-AWARD-VARIANCE: CL-2's pod sometimes earns Kerbin/Landing before it breaks up, and the oracle hard-gates the award [FILED 2026-10-08 from CL-2's regression flight on the PR #2055 DLL. OPEN, harness]
+## ~~CL-2-POD-LANDING-AWARD-VARIANCE: CL-2's pod sometimes earns Kerbin/Landing before it breaks up, and the oracle hard-gates the award~~ [FILED 2026-10-08 from CL-2's regression flight on the PR #2055 DLL. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells; flight owed: CL-2-pod-impact-ledger (green whether or not the pod lands; a landed run shows `optional-award milestone=Kerbin/Landing decision=admitted`). harness]
 
 `CL-2-pod-impact-ledger` `2026-10-08_1914` reads PARSEK-FAIL on the ledger oracle: funds
 expected 529600, parsed 530400 (+800). This run's pod touched down long enough to complete
@@ -1048,6 +1048,24 @@ award (its capture cross-check), so a per-run outcome difference reads as ledger
 product defect (the award was really earned and really booked). Fix: decide whether the oracle
 model admits `Kerbin/Landing` when the pod's recording shows a surface contact, or make the
 mission's impact deterministic.
+
+Fixed (2026-10-25): the oracle had no such knob, so it gained one. `[[expectations.ledger.optional]]`
+entries are ordinary manifest entries plus a `milestone` id. `ledgerverify.resolve_optional_awards`
+admits them into the declared set (summed into EXPECTED, and a corroboration target for the
+stock-award cross-check) only when the award was booked on BOTH sides: the event-time capture
+(`hlib.parse_milestone_award_lines` over `GameStateRecorder`'s `Milestone enriched: '<id>' funds=
+rep= sci=` line, stock's own AwardProgress values) and the produced save (`<id>` in
+`careerSave.completedMilestoneIds`, the ProgressTracking state Parsek's recalc patched). Booked on
+neither side, it is dropped. One side only, a repeat, or a captured funds / science amount other
+than the declared one is a HARD divergence (`optional-award-disagreement` / `-repeated` /
+`-amount-mismatch`, `oracle.decide_optional_award`), and an admitted award missing from the pool
+still reds the pool diff, since the declared constant, never the captured amount, joins EXPECTED.
+Every award not declared optional still hard-gates. Refused pre-launch under the rewind-aware model
+and with a null amount. CL-2 declares `Kerbin/Landing` funds 800 (rep 0, sci 0, measured on the
+`refly-a-recorded` ledger row); the mission was not changed (an impact cannot be made to land or
+not land deterministically). Cells: `harness/lib/test_ledger_optional.py` (decision table, the
+capture parser pinned to the C# literal, spec validation, the verifier end to end incl. the
+cross-check and the mutation planner; mutation-checked by never admitting).
 
 ---
 
