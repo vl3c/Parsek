@@ -51,11 +51,7 @@ to the new line.
 
 ---
 
-## ROUTE-MULTISTOP-LATER-WINDOW-OVERFLOW: a multi-stop route's later stop can fill between dispatch and its window, and the excess is lost [FILED 2026-10-25, branch `wip-routefix`, from ROUTE-INTERACTION-SEAMS-TO-VERIFY. OPEN, owner decision]
-
----
-
-## ~~ROUTE-MULTISTOP-LATER-WINDOW-OVERFLOW: a multi-stop route's later stop can fill between dispatch and its window, and the excess is lost~~ [FILED 2026-10-25, branch `wip-routefix`, from ROUTE-INTERACTION-SEAMS-TO-VERIFY. ACCEPTED (owner ruling 2026-10-25): option 1, as designed]
+## ~~ROUTE-MULTISTOP-LATER-WINDOW-OVERFLOW: a multi-stop route's later stop can fill between dispatch and its window, and the excess is lost~~ [FILED 2026-10-25, branch `claude/project-thread-re9fpq`, from ROUTE-INTERACTION-SEAMS-TO-VERIFY. ACCEPTED (owner ruling 2026-10-25): option 1, as designed]
 
 A multi-stop route checks room at every stop once, at dispatch (window 0,
 `RouteDestinationCapacityCheck.HasCapacityForAllStops`), and debits the origin for the whole
@@ -88,7 +84,7 @@ rule. No code change.
 
 ---
 
-## ~~ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH: a load back to a save written between a multi-stop route's windows sends the cycle a second time~~ [FILED AND FIXED 2026-10-25, branch `wip-routefix`, found while tracing ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS; reproduced in xUnit on main 802f8e4, not flown. product, medium]
+## ~~ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH: a load back to a save written between a multi-stop route's windows sends the cycle a second time~~ [FILED AND FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, found while tracing ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS; reproduced in xUnit on main 802f8e4, not flown. product, medium]
 
 A multi-stop loop route delivers one cycle in several windows under one cycle id, and its later
 windows resume the cycle's logged dispatch. A load back in time to a save written between two
@@ -1670,7 +1666,7 @@ and a payload chain's StartUT order are the controls).
 
 ---
 
-## ~~ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS: inside a go-back rewind's lead-time window, a load back to a save written in that window keeps the route actions taken after it~~ [FILED 2026-10-07 from the route state floor, branch `fix-route-goback-cutoff`. FIXED 2026-10-25 on branch `wip-routefix` for the in-session loads; xUnit only, not flown. product, low; by construction, not reproduced in game]
+## ~~ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS: inside a go-back rewind's lead-time window, a load back to a save written in that window keeps the route actions taken after it~~ [FILED 2026-10-07 from the route state floor, branch `fix-route-goback-cutoff`. FIXED 2026-10-25 on branch `claude/project-thread-re9fpq` for the in-session loads; xUnit only, not flown. product, low; by construction, not reproduced in game]
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): release rating low, not a blocker.
 Since LOGISTICS-WITHOUT-MONEY a second in-window crossing no longer charges funds; it can still
@@ -2976,7 +2972,7 @@ Each item needs a trace (or a lane) before it is a defect or a non-issue; see
   cargo of the crossings the rewind retired.
 - [ ] (Traced 2026-10-06, not adversarially verified: crossings while an endpoint is absent are BLOCKED with no catch-up - lost service, not lost cargo; see CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO.) Spawns are deferred until warp ends while routes keep ticking: a cycle crossing a
   station's spawn UT during warp is held and its cargo lost.
-- [x] VERIFIED 2026-10-25 (branch `wip-routefix`), filed as ROUTE-MULTISTOP-LATER-WINDOW-OVERFLOW
+- [x] VERIFIED 2026-10-25 (branch `claude/project-thread-re9fpq`), filed as ROUTE-MULTISTOP-LATER-WINDOW-OVERFLOW
   (ACCEPTED as designed, owner ruling 2026-10-25). Multi-stop routes reserve no destination capacity between
   dispatch and a later window: the all-stops capacity gate runs at dispatch only (OQ4) and a
   later window that finds its stop full delivers what fits, with the rest lost.
@@ -3000,7 +2996,7 @@ Each item needs a trace (or a lane) before it is a defect or a non-issue; see
   re-flown vessel carries its own node, and an abandoned spawn means the vessel never exists.
 - [x] ~~The every-Nth-window anchor of an inter-body route resets on a rewind
   (`RouteRewindClassifier.cs:137`), so which windows deliver can change (design 0.9 silent).~~
-  No defect (traced 2026-10-25, branch `wip-routefix`): the reset in
+  No defect (traced 2026-10-25, branch `claude/project-thread-re9fpq`): the reset in
   `ResetCycleStateForRewind` is undone on every load back in time (F9, go-back rewind, Re-Fly
   start) by `RouteLoadReconcile.RestoreLoopPositionFromSave`, which puts the save's
   `WindowAnchorCycleIndex` back with the cursors when the clock definition (cadence multiplier,
