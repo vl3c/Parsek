@@ -7,6 +7,12 @@ namespace Parsek
     /// Persistent timeline-state row hiding a committed Re-Fly fork that was
     /// rewound out of the active timeline when a prior supersede relation was
     /// rolled back.
+    ///
+    /// <para>Nothing writes these any more: a plain rewind keeps every supersede
+    /// row (owner ruling 2026-10-24, <c>RecordingStore.LogSupersedesKeptAcrossRewind</c>).
+    /// The type, its reasons and its readers stay so a save that already carries
+    /// rows (written by the rewind rollback before 2026-10-25) loads and renders
+    /// as it did; such saves are not repaired.</para>
     /// </summary>
     public sealed class RecordingRewindRetirement
     {
@@ -30,25 +36,12 @@ namespace Parsek
         public const string DemotedCanonReason = "rewound-out-supersede-fork-demoted-canon";
 
         /// <summary>
-        /// Reason value applied when the user explicitly rewinds the canon
-        /// fork itself (self-rewind). The classifier in
-        /// <c>DropSupersedesRewoundOutOfExistenceDetailedPure</c> forces the
-        /// incoming priorTip → canon supersede to drop regardless of the
-        /// canon's <see cref="MergeState.Immutable"/> status, and the canon
-        /// gets retired with this reason so:
-        /// <list type="bullet">
-        ///   <item>the defensive Immutable guard in
-        ///     <c>EnsureRewindRetirementsForRollback</c> recognizes the
-        ///     intent and lets the retirement through;</item>
-        ///   <item>the load-time legacy-Immutable sweep does NOT later
-        ///     reconstruct the dropped relation (which would silently undo
-        ///     the user's self-rewind on every load).</item>
-        /// </list>
-        /// Distinct from <see cref="DemotedCanonReason"/> because the
-        /// trigger is different: demotion is a Pass-2 cascade ("canon's
-        /// priorTip is being retired in the same batch"), self-rewind is a
-        /// direct user action ("undo this canon recording"). Both intents
-        /// must be preserved across save/load.
+        /// Reason value the old rewind rollback applied when the rewind owner
+        /// was the canon fork itself (self-rewind): it dropped the incoming
+        /// priorTip -> canon supersede regardless of the canon's
+        /// <see cref="MergeState.Immutable"/> status and retired the canon with
+        /// this reason, so the load-time legacy-Immutable sweep does NOT
+        /// reconstruct the dropped relation. No longer written.
         /// </summary>
         public const string SelfRewoundCanonReason = "rewound-out-supersede-fork-self-rewound";
 
@@ -56,7 +49,7 @@ namespace Parsek
         /// Reason for retirements written for the OLD-side recording of a
         /// supersede relation that was rewound out of existence. Distinct from
         /// <see cref="DefaultReason"/> so log scrapers and tests can tell which
-        /// loop in <c>EnsureRewindRetirementsForRollback</c> wrote the row.
+        /// loop of the old rewind rollback wrote the row. No longer written.
         /// </summary>
         public const string RewoundOutOldSideReason = "rewound-out-supersede-old-side";
 

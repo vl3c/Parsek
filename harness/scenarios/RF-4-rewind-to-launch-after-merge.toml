@@ -32,15 +32,15 @@ id = "RF-4-rewind-to-launch-after-merge"
 # NON-promotion recording start.
 #
 # THAT FIX MAKES THE VERB SUCCEED AND THROWS THE SUBJECT AWAY, and the reason is
-# mechanical rather than a matter of taste. The rollback is scoped to the OWNER'S TREE.
-# `RecordingStore.DropSupersedesRewoundOutOfExistence` resolves `ownerTree` by
-# `owner.TreeId`; `DropSupersedesRewoundOutOfExistenceDetailedPure` then builds
+# mechanical rather than a matter of taste. The kept-rows audit (the rollback before
+# 2026-10-25) is scoped to the OWNER'S TREE.
+# `RecordingStore.LogSupersedesKeptAcrossRewind` resolves `ownerTree` by
+# `owner.TreeId`; `AuditSupersedesKeptAcrossRewindPure` then builds
 # `rewoundOutOldIds` from the owner plus that tree's recordings with
 # `StartUT >= rewindAdjustedUT`, and keeps ONLY relations whose `OldRecordingId` is in that
 # set (or whose `NewRecordingId` IS the owner - the self-rewind case). A freshly minted
 # single-node tree stands in NO supersede relation at all, so rewinding IT to launch walks
-# an empty in-scope set, emits no summary line (the log fires only when a counter is
-# nonzero) and answers nothing about the fork act 1 created. The lane would have gone
+# an empty in-scope set, emits only the Verbose `none in scope` line and answers nothing about the fork act 1 created. The lane would have gone
 # GREEN while measuring an empty set, which is the worst available outcome and the exact
 # silence-is-not-success shape this program has already paid for twice.
 #
@@ -110,6 +110,10 @@ id = "RF-4-rewind-to-launch-after-merge"
 # (priorTip retired)`), which is a SPEC-SIDE re-pin, not a defect.
 #
 # =====================================================================================
+# RE-PINNED 2026-10-25 to `Rewind keeps supersede rows:` / `Kept re-fly fork across rewind:`
+# (the rewind keeps every row; the two token paragraphs above describe the old rollback's
+# lines, which the archived greens read). RE-FLOWN green on it: `2026-10-25_1008` PASS attempt 1.
+#
 # STATUS: LIVE-PROVEN IN THIS SHAPE. GREEN ON `2026-09-09_1645` (PASS attempt 1, wall
 # 151 s, MISSION-OK, expectations mismatches=0, analyzer red=0) and again on
 # `2026-09-09_1730` after the review panel's follow-up, on the DLL that adds the
@@ -282,27 +286,23 @@ required = [
   # because that enum's spelling has never been read on this branch; what makes the token
   # worth having is that a target resolved AT ALL on a bare call.
   "invokerewindtolaunch target resolved tree=\\S+ resolvedBy=\\S+",
-  # THE TWO SUBJECT TOKENS. `skippedImmutable=[1-9]` is pinned inside the summary rather
-  # than left loose: the line fires whenever ANY counter is nonzero, so without the
-  # conjunct a rollback that dropped everything and preserved nothing would still match.
-  # The other counters pinned too (known-gate 17): `dropped=0` IS the safety property
-  # (nothing the player sealed was taken), and on this one-relation fixture nothing is
-  # retired, restored or skipped as a non-Immutable old side; both archived green runs
-  # read exactly this prefix. A demoted fork is the documented spec-side re-pin above.
-  "Rewind supersede rollback: dropped=0 retiredForks=0 retiredOldSides=0 skippedNonImmutableOldSides=0 restored=0 skippedImmutable=[1-9]",
-  "Preserved canon fork across parent rewind: rec=\\S+ mergeState=Immutable",
+  # THE TWO SUBJECT TOKENS, re-pinned 2026-10-25 when the rewind stopped dropping any row
+  # (todo REWIND-KEEPS-EVERY-SUPERSEDE-ROW; the archived greens read the old rollback's
+  # `Rewind supersede rollback: dropped=0 ... skippedImmutable=1` form). Every counter is
+  # pinned (known-gate 17): one fork, sealed, none open or dangling on this one-re-fly host.
+  "Rewind keeps supersede rows: rows=[1-9][0-9]* forks=1 sealed=1 open=0 dangling=0 ",
+  "Kept re-fly fork across rewind: rec=\\S+ mergeState=Immutable ",
   # The verb's own completion. `InvokeRewindToLaunch` ends in SPACECENTER by contract,
   # which is what makes the OnLoad that runs the rollback happen at all.
   "rewindtolaunch complete",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
-  # The rollback must not DELETE the sealed fork. `Demoted fork preservation to drop`
-  # is the branch that would, and it is legitimate in its own case (a retired priorTip) -
-  # forbidden here because on this chain the priorTip is not retired, so its appearance
-  # would mean the rollback took a different branch than the one this lane measured. See
-  # the header: if it fires, re-read the summary counters before filing.
+  # The rewind must not retire the sealed fork. These are the old rollback's two retiring
+  # lines (its demotion cascade and its fork retirement); neither exists in the code since
+  # 2026-10-25, so a match means an old DLL or a regression.
   "Demoted fork preservation to drop",
+  "Retired rewound-out fork",
   # The RF family's standing guard, and on THIS host it is also RF-1's: the profile crosses
   # no environment boundary the optimizer splits on, so a tip that lost its MergeState
   # cannot be produced here unless something gave it one.
