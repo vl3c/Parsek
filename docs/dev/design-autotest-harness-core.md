@@ -529,10 +529,19 @@ The probe family is built for ONE batch driven by ONE named category, so outside
 shape the guarantee simply does not hold. The shape is therefore enforced rather than
 assumed, both errors waivable through the same opt-out:
 
-- **More than one `RunTests` step is an ERROR.** `run.py::_driven_category` resolves
-  only the FIRST category and `batch_owners` counted 1 for any n>0, so a whole-tally
-  pin on the first batch left every later batch UNGATED. Split the extra batch into
+- **More than one `RunTests` step is an ERROR.** The vacuity probe reads only the
+  FIRST category and `batch_owners` counted 1 for any n>0, so a whole-tally pin on
+  the first batch left every later batch's tally unpinned. Split the extra batch into
   its own spec (which is what `M1-mission-loop-unit` / `M2-periodicity-solver` do).
+  Behind the opt-out (L13 runs `LedgerGroundTruth` before and after an F9), every
+  step must name ONE category, and since 2026-10-25 (todo
+  HARNESS-GATES-ON-THE-FIRST-OF-TWO-SAME-CATEGORY-BATCHES) the run-time
+  `batchComplete` row gates EVERY step's batch: `hlib.spec_batch_selectors` lists
+  them, `hlib.resolve_spec_batch_complete` sums `failed` over every matching line and
+  reds `runsShort` (batch-incomplete) when a category driven N times printed fewer
+  than N lines. The results-file cross-check reads `results_comparable_failed` (the
+  file keeps the last status per test per scene, so it sees only the last batch of
+  a category in a scene), and a nonzero batch `failed` reds `results` on its own.
 - **A multi-category selector - `"A,B"` or an ABSENT category (RunAll) - is an
   ERROR.** The gating line for a multi-category run is the `category=multi:<n>`
   AGGREGATE, whose tally sums the constituents, so "category B executed nothing" is
@@ -1447,7 +1456,8 @@ cascade might have produced later, and either would only have masked the cause.
 **What does NOT stop.** A post-mission miss that leaves the stage valid keeps
 driving: a flight-outcome ERROR on an outcome verb (which reds
 `PARSEK-FAIL(mission-outcome)` and whose save the verifiers still read) and a
-non-refusal miss on a recording verb (non-gating by the autopilot carve-out). An
+recording verb's own ERROR (which reds `PARSEK-FAIL(unmet-step)` if nothing richer
+does). A recording verb's TIMEOUT or unanswered step stops the drive like a refusal. An
 UNMET mission keeps its own tail policy, including the `skipTailOnUnmetMission`
 opt-out. A step that expects a refusal (`expect = "REJECTED"`) and gets it is met.
 There is no spec opt-out for the stop.
@@ -1956,8 +1966,19 @@ runs sequentially and each script builds for itself.
    table knows (`hlib.classify_post_mission_recording_refusal`), the run is that
    refusal's driver-INVALID, retried by the policy: the verb never acted, so nothing
    after it is evidence about Parsek (QL-2's refused `Recover` turned 17 tokens red).
-   The row's `recordingRefusal` names the step. An ERROR or TIMEOUT from a recording
-   verb, or an earlier non-refusal miss, keeps the carve-out above.
+   The row's `recordingRefusal` names the step. An ERROR from a recording verb, or
+   an earlier ERROR miss, keeps the carve-out above.
+   UNMET RECORDING STEP (2026-10-25, todo DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS):
+   the refused-step rule now covers every first post-mission recording miss in which
+   the seam did not carry the step out, mapped as its pre-mission twin is: no reply ->
+   `driver-stage`, `TIMEOUT` -> `seam-timeout`, `LoadGame ERROR` -> `load-failed`, any
+   other non-ERROR verdict -> `driver-verdict-mismatch` (L13 `2026-10-25_0016` read
+   driverValidity PASS beside a timed-out ExitToSpaceCenter, and RF-C1 `_0007`
+   classified PASS with one). A recording verb's own `ERROR` (it acted and failed, a
+   claim about Parsek) leaves the stage valid but sets the `unmet_step` verifier fact,
+   which `classify_verdict` reds `PARSEK-FAIL(unmet-step)` as its LAST red before
+   PASS: a richer verdict keeps its subkind, and no run with a driven step that missed
+   its `expect` can read PASS.
 
 REVISION (post-first-live-run, 2026-07-12): the recording-rules suppression key
 is NOT `expectations.recordings.count.max == 0` as originally written. The

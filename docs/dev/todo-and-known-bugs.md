@@ -223,7 +223,7 @@ instead of 54), which leaves that path at 219. Cell:
 
 ---
 
-## HARNESS-GATES-ON-THE-FIRST-OF-TWO-SAME-CATEGORY-BATCHES: a lane that runs one category twice gates its batch row on the first BATCH_COMPLETE only [FILED 2026-10-25 from L13 run `2026-10-25_0144`, branch `claude/project-thread-dkcvpn`. OPEN; low, harness]
+## ~~HARNESS-GATES-ON-THE-FIRST-OF-TWO-SAME-CATEGORY-BATCHES: a lane that runs one category twice gates its batch row on the first BATCH_COMPLETE only~~ [FILED 2026-10-25 from L13 run `2026-10-25_0144`, branch `claude/project-thread-dkcvpn`. FIXED 2026-10-25, branch `claude/project-thread-bw5b0k`; harness only]
 
 `hlib.resolve_batch_complete` returns the first line whose category matches a single-category
 selector, so L13's second batch (`failed=1`) was not read by the batch row; the run still classified
@@ -231,15 +231,37 @@ PARSEK-FAIL through the results-count mismatch (`failures=1` against `batchFaile
 the lane's own whole pins. Fix direction: for a single-category selector, sum `failed` over every
 matching line (the multi-category branch already takes the larger of the aggregate and the sum).
 
+Fix: `hlib.spec_batch_selectors` lists every RunTests step's selector and
+`hlib.resolve_spec_batch_complete` gates all of them: a single category sums `failed` over every
+matching line, and a category driven N times that printed fewer than N lines is the `runsShort`
+defined fault (batch-incomplete, the hole the results cross-check could not see: a cut-off second
+batch read green off the first line). The results-file cross-check compares against the last
+line per scene (the file keeps the last status per test per scene), and a nonzero batch `failed`
+reds `results` by itself. `validate_spec` now requires one named category on every step when a
+spec has more than one RunTests step. Cells: `RepeatedBatchGateTests`, smoke
+`RepeatedBatchSmokeTests` (fake modes `repeatfail`, `repeatcut`; the cut-off cell fails with the
+first-line read restored).
+
 ---
 
-## DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS: a lane whose seam steps time out still reads driver-valid [FILED 2026-10-25 from the dkcvpn flights, branch `claude/project-thread-dkcvpn`. OPEN; low, harness]
+## ~~DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS: a lane whose seam steps time out still reads driver-valid~~ [FILED 2026-10-25 from the dkcvpn flights, branch `claude/project-thread-dkcvpn`. FIXED 2026-10-25, branch `claude/project-thread-bw5b0k`; harness only]
 
 `2026-10-25_0016` (L13) reported `driverValidity` PASS with four unmet steps (`allMet=False`:
 ExitToSpaceCenter TIMEOUT `not-in-flight`, LaunchFromEditor REJECTED, two WarpToUT TIMEOUTs), so
 the run classified PARSEK-FAIL on its log contract instead of driver-INVALID; RF-C1 `_0007` passed
 with one unmet ExitToSpaceCenter. Read how `hlib` folds a step whose `expect` was missed into the
 driver verdict.
+
+Cause: on an autopilot lane a post-mission RECORDING step is non-gating, and only a refusal with a
+reason the refusal table knows invalidated the stage, so a TIMEOUT (`not-in-flight` is not a
+table reason), an unknown REJECTED or a missing reply left it valid; nothing then gated the unmet
+step unless a pinned token happened to notice. Fix: `hlib.classify_post_mission_recording_refusal`
+maps every first post-mission recording miss the seam did not carry out as its pre-mission twin
+(`driver-stage`, `seam-timeout`, `load-failed`, `driver-verdict-mismatch`), so the run is that
+driver-INVALID (retried once) and the drive stops there. A recording verb's own ERROR keeps the
+stage valid but sets `DriverValidity.unmet_step`, which `classify_verdict` reds
+`PARSEK-FAIL(unmet-step)` as its last red before PASS. Cells: `test_mutmission`
+(`test_an_unmet_post_mission_recording_step_never_reads_pass`), `test_drive_stop`.
 
 ---
 

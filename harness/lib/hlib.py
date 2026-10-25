@@ -1637,6 +1637,10 @@ def post_mission_step_gates(cmd: str) -> bool:
 # and retries once. Same fault, same classification, wherever it sits in the step list.
 SEAM_VERDICT_OUTCOME_TERMINAL = "ERROR"
 
+# The PARSEK-FAIL subkind of a run whose driver stage stayed valid while a driven seam
+# step missed its expect (classify_verdict's last red before PASS).
+UNMET_STEP_SUBKIND = "unmet-step"
+
 
 def classify_post_mission_outcome_miss(step: "StepOutcome") -> Tuple[bool, str]:
     """Classify an UNMET post-mission outcome step as (is_flight_outcome, driver_subkind).
@@ -1708,17 +1712,36 @@ def first_unmet_post_mission_step(
 
 
 def classify_post_mission_recording_refusal(step: Optional["StepOutcome"]) -> str:
-    """The driver subkind of an unmet post-mission RECORDING step that the seam REFUSED
-    with a reason the M-C1 refusal table knows, else "".
+    """The driver subkind of an unmet post-mission RECORDING step whose miss is a
+    DRIVER fault, else "".
 
-    Only a known refusal qualifies: a refusal has no side effect and names a live gate
-    or a spec fault, so a retry may clear it, exactly as pre-mission. An ERROR or a
-    TIMEOUT from a recording step stays non-gating here (the verb acted, and the run's
-    own verifiers judge what Parsek recorded). OUTCOME steps are not read here;
-    ``classify_post_mission_outcome_miss`` owns them."""
+    The name is historical (it began with refusals only). What qualifies is every miss
+    in which the verb did not act as the script asked, mapped exactly as the same miss
+    is pre-mission (missionverify.stage_subkind_for):
+      - a reason the M-C1 refusal table knows -> that refusal's subkind;
+      - no reply at all -> ``driver-stage``;
+      - TIMEOUT (the seam never reached a terminal) -> ``seam-timeout``;
+      - LoadGame ERROR (harness plumbing that did not land) -> ``load-failed``;
+      - any other non-ERROR verdict (REJECTED with an unknown reason, OK where the
+        step expected a refusal) -> ``driver-verdict-mismatch``.
+    Before DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS only the first kind counted, so a
+    MISSION-OK run whose ExitToSpaceCenter timed out read driver-valid, and with no
+    pinned token to notice, PASS. An ERROR from a recording verb stays "" here: the verb
+    acted and failed, which is a claim about Parsek, so classify_verdict reds it
+    PARSEK-FAIL(unmet-step) rather than retrying it away. OUTCOME steps are not read
+    here; ``classify_post_mission_outcome_miss`` owns them."""
     if step is None or step.met or post_mission_step_gates(step.cmd):
         return ""
-    return classify_seam_refusal_subkind(getattr(step, "msg", ""))
+    refusal = classify_seam_refusal_subkind(getattr(step, "msg", ""))
+    if refusal:
+        return refusal
+    if not step.found or step.verdict is None:
+        return "driver-stage"
+    if step.verdict == "TIMEOUT":
+        return "seam-timeout"
+    if step.verdict == SEAM_VERDICT_OUTCOME_TERMINAL:
+        return "load-failed" if step.cmd == "LoadGame" else ""
+    return "driver-verdict-mismatch"
 
 
 # The spec-level opt-out, read off [driver]. DEFAULT TRUE = the safe behaviour (skip
@@ -2337,16 +2360,35 @@ class BatchCompleteSelection:
     # silent first-wins could gate green off the wrong summary. A defined fault, same
     # treatment as aggregate_missing (present=False), never a silent pass.
     duplicate_aggregate: bool = False
+    # HARNESS-GATES-ON-THE-FIRST-OF-TWO-SAME-CATEGORY-BATCHES. A single-category selector
+    # the spec drives N times (N RunTests steps naming it, admitted through the
+    # batchVacuityOptOut escape) owes N per-category lines. ``matched_runs`` is how many
+    # lines matched, ``expected_runs`` is N, and ``runs_short`` (fewer lines than N, i.e.
+    # a later batch cut off before its BATCH_COMPLETE) is a defined fault with the same
+    # treatment as aggregate_missing (present=False), never a pass off the first line.
+    matched_runs: int = 0
+    expected_runs: int = 1
+    runs_short: bool = False
+    # The ``failed`` count ``parsek-test-results.txt`` can corroborate. The runner's
+    # results file keeps the LAST status per test per scene, so a category batched twice
+    # in one scene shows only the second batch there while ``failed`` sums both. The
+    # results-count cross-check compares against this; ``failed`` is what gates.
+    results_comparable_failed: Optional[int] = None
 
 
 def resolve_batch_complete(
-    batches: Sequence[BatchComplete], selector: Optional[str], scene: Optional[str] = None
+    batches: Sequence[BatchComplete], selector: Optional[str], scene: Optional[str] = None,
+    expected_runs: int = 1,
 ) -> BatchCompleteSelection:
     """Resolve the gating BATCH_COMPLETE line for a driven selector (M-A5.1 N3).
 
-    Single-category (or seam-only) selector: unchanged v1 behavior -- the exact
-    per-category line (select_batch_complete), or the first line when the selector is
-    empty. Multi-category selector ("all" / "A,B"): the gating line is the
+    Single-category selector: EVERY per-category line naming the category gates, not
+    the first one (HARNESS-GATES-ON-THE-FIRST-OF-TWO-SAME-CATEGORY-BATCHES: L13 drives
+    one category twice, and its second batch's ``failed=1`` was never read). ``failed``
+    is the SUM over the matching lines, and fewer matching lines than
+    ``expected_runs`` (the number of RunTests steps that drive the category) is a
+    defined fault: ``present=False`` + ``runs_short=True``. An empty selector (a
+    seam-only scenario) keeps v1's first-line read. Multi-category selector ("all" / "A,B"): the gating line is the
     ``category=multi:<count>`` AGGREGATE, whose ``failed`` is the UNION across every
     category. Two invariants this enforces that v1 could not:
 
@@ -2372,16 +2414,38 @@ def resolve_batch_complete(
     """
     per_category = [bc for bc in batches if not _is_aggregate(bc)]
     if not is_multi_category_selector(selector):
-        sel = (select_batch_complete(batches, selector, scene) if selector
-               else (batches[0] if batches else None))
+        if not selector:
+            sel = batches[0] if batches else None
+            return BatchCompleteSelection(
+                present=sel is not None,
+                failed=(sel.failed if sel else None),
+                category=(sel.category if sel else None),
+                scene=(sel.scene if sel else None),
+                multi=False, aggregate_missing=False,
+                per_category_count=len(per_category),
+                category_count_mismatch=False, expected_category_count=None,
+                matched_runs=(1 if sel else 0),
+                results_comparable_failed=(sel.failed if sel else None))
+        matches = [bc for bc in batches
+                   if bc.category == selector and (scene is None or bc.scene == scene)]
+        expected = max(1, int(expected_runs or 1))
+        runs_short = bool(matches) and len(matches) < expected
+        # The results file keeps the last status per test per scene, so only the last
+        # line of each scene is what it can corroborate.
+        last_by_scene: Dict[Optional[str], int] = {}
+        for bc in matches:
+            last_by_scene[bc.scene] = bc.failed
+        first = matches[0] if matches else None
         return BatchCompleteSelection(
-            present=sel is not None,
-            failed=(sel.failed if sel else None),
-            category=(sel.category if sel else None),
-            scene=(sel.scene if sel else None),
+            present=bool(matches) and not runs_short,
+            failed=(sum(bc.failed for bc in matches) if matches else None),
+            category=(first.category if first else None),
+            scene=(first.scene if first else None),
             multi=False, aggregate_missing=False,
             per_category_count=len(per_category),
-            category_count_mismatch=False, expected_category_count=None)
+            category_count_mismatch=False, expected_category_count=None,
+            matched_runs=len(matches), expected_runs=expected, runs_short=runs_short,
+            results_comparable_failed=(sum(last_by_scene.values()) if matches else None))
 
     aggregates = [bc for bc in batches if _is_aggregate(bc)]
     if len(aggregates) > 1:
@@ -2419,7 +2483,8 @@ def resolve_batch_complete(
             present=True, failed=effective_failed, category=agg.category,
             scene=agg.scene, multi=True, aggregate_missing=False,
             per_category_count=len(per_category),
-            category_count_mismatch=False, expected_category_count=expected_n)
+            category_count_mismatch=False, expected_category_count=expected_n,
+            matched_runs=1, results_comparable_failed=effective_failed)
 
     # Multi selector, no aggregate line. Per-category lines present -> a defined fault
     # (never a silent pass off a per-category line). No lines at all -> a plain
@@ -2429,6 +2494,66 @@ def resolve_batch_complete(
         multi=True, aggregate_missing=(len(per_category) > 0),
         per_category_count=len(per_category),
         category_count_mismatch=False, expected_category_count=None)
+
+
+def spec_batch_selectors(spec: Dict) -> List[Optional[str]]:
+    """Every batch selector a spec drives, in order: one entry per RunTests step (its
+    ``category`` arg verbatim, None when absent), else the ``[driver.autorun]`` tests
+    selector, else ``[]`` (a seam-only spec). The run-time batch gate
+    (``resolve_spec_batch_complete``) reads ALL of them; reading only the first is
+    the hole HARNESS-GATES-ON-THE-FIRST-OF-TWO-SAME-CATEGORY-BATCHES closed."""
+    driver = (spec or {}).get("driver", {}) or {}
+    selectors = [((step or {}).get("args", {}) or {}).get("category")
+                 for step in (driver.get("steps", []) or [])
+                 if (step or {}).get("cmd") == "RunTests"]
+    if selectors:
+        return selectors
+    autorun = driver.get("autorun")
+    if isinstance(autorun, dict) and autorun.get("tests"):
+        return [autorun.get("tests")]
+    return []
+
+
+def resolve_spec_batch_complete(
+    batches: Sequence[BatchComplete], selectors: Sequence[Optional[str]]
+) -> BatchCompleteSelection:
+    """Resolve the gating BATCH_COMPLETE selection over EVERY batch a spec drives.
+
+    ``selectors`` is one entry per RunTests step in step order (or the single autorun
+    selector; empty for a seam-only spec). One step resolves exactly as
+    ``resolve_batch_complete`` does. A selector repeated N times owes N matching lines
+    (``expected_runs``). Several DISTINCT selectors are resolved one by one and combined:
+    ``present`` only when every one is present, ``failed`` summed, every defined-fault
+    flag OR-ed, so no batch the spec drove can sit outside the gate (the shape
+    validate_spec admits only behind batchVacuityOptOut, and only for single named
+    categories)."""
+    if not selectors:
+        return resolve_batch_complete(batches, None)
+    counts: Dict[Optional[str], int] = {}
+    for sel in selectors:
+        counts[sel] = counts.get(sel, 0) + 1
+    if len(counts) == 1:
+        (only, n), = counts.items()
+        return resolve_batch_complete(batches, only, expected_runs=n)
+    parts = [resolve_batch_complete(batches, sel, expected_runs=n)
+             for sel, n in counts.items()]
+    present = all(p.present for p in parts)
+    return BatchCompleteSelection(
+        present=present,
+        failed=(sum(p.failed for p in parts) if present else None),
+        category=",".join(str(sel) for sel in counts),
+        scene=parts[0].scene,
+        multi=any(p.multi for p in parts),
+        aggregate_missing=any(p.aggregate_missing for p in parts),
+        per_category_count=parts[0].per_category_count,
+        category_count_mismatch=any(p.category_count_mismatch for p in parts),
+        expected_category_count=None,
+        duplicate_aggregate=any(p.duplicate_aggregate for p in parts),
+        matched_runs=sum(p.matched_runs for p in parts),
+        expected_runs=sum(p.expected_runs for p in parts),
+        runs_short=any(p.runs_short for p in parts),
+        results_comparable_failed=(sum(p.results_comparable_failed for p in parts)
+                                   if present else None))
 
 
 # ---------------------------------------------------------------------------
@@ -7138,6 +7263,7 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
 
     run_tests_steps = 0
     run_tests_selector: Optional[str] = None
+    run_tests_selectors: List[Optional[str]] = []
     mission_step_indices: List[int] = []
     first_loadgame_index: Optional[int] = None
     for i, step in enumerate(steps):
@@ -7340,10 +7466,11 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                 % (i, expect, list(SEAM_EXPECT_VERDICTS)))
         budget = step.get("budget")
         if cmd == "RunTests":
-            # The FIRST RunTests category is what run.py's _driven_category resolves,
-            # so it is the selector the vacuity probe must be built for.
+            # The FIRST RunTests category is the selector the vacuity probe is built
+            # for; run.py gates every step's batch (spec_batch_selectors).
             if run_tests_steps == 0:
                 run_tests_selector = (step.get("args", {}) or {}).get("category")
+            run_tests_selectors.append((step.get("args", {}) or {}).get("category"))
             run_tests_steps += 1
         if budget is not None and cmd in DEFERRED_SEAM_VERBS:
             if not isinstance(budget, (int, float)) or budget > MAX_DEFERRED_STEP_BUDGET_SECONDS:
@@ -7466,12 +7593,26 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         if opt_out is not True and run_tests_steps > 1:
             errors.append(
                 "driver.steps: %d RunTests steps declared -- %s. Only the FIRST "
-                "category is resolved (run.py::_driven_category) and probed, so every "
-                "later batch would run UNGATED. Split the extra batch into its own "
-                "scenario spec. Deliberate exception: set "
+                "category is probed for vacuity, so every later batch's tally would "
+                "be unpinned. Split the extra batch into its own scenario spec. "
+                "Deliberate exception: set "
                 "expectations.logContracts.%s = true with a %s."
                 % (run_tests_steps, SINGLE_BATCH_SELECTOR_RULE,
                    BATCH_VACUITY_OPT_OUT_KEY, BATCH_VACUITY_OPT_OUT_REASON_KEY))
+        if run_tests_steps > 1:
+            # Even behind the opt-out, run.py gates every batch through
+            # resolve_spec_batch_complete, which counts per-category lines per
+            # selector; that count is defined only for single NAMED categories (a
+            # comma list or RunAll emits an aggregate per step, and two aggregates
+            # are a duplicate-aggregate fault that would red a healthy run).
+            for j, sel in enumerate(run_tests_selectors):
+                if not sel or is_multi_category_selector(sel):
+                    errors.append(
+                        "driver.steps: RunTests step %d of %d drives selector %r; a "
+                        "spec with more than one RunTests step must name ONE category "
+                        "on every step (run.py gates each repeated batch by counting "
+                        "its own per-category BATCH_COMPLETE lines)"
+                        % (j + 1, run_tests_steps, sel))
         constituents = parse_batch_selector_categories(selector)
         # "all" and an ABSENT selector are the same defect wearing two spellings:
         # the set of categories the batch will run is decided at RUN TIME by what
@@ -11026,6 +11167,10 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
     # Ships REPORT-ONLY with NO committed spec arming it; the GHOSTLIFE_ARMED_SPECS
     # sweep in test_hlib.py keeps that set deliberate.
     "ghost-lifecycle",
+    # DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS: the driver stage stayed valid but a
+    # driven seam step missed its expect (a post-mission recording verb answered
+    # ERROR). The last red before PASS, so a run never reads green over an unmet step.
+    UNMET_STEP_SUBKIND,
 )
 
 # Subkinds a bugId-ONLY expectedFail key may NOT demote to EXPECTED-FAIL. An
@@ -12131,6 +12276,13 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
                          "gating ghost-lifecycle expectations mismatch")
             elif verifiers.get("ledger_drift", False):
                 base = V(VERDICT_PARSEK_FAIL, "ledger", "world/ledger oracle drift")
+            elif verifiers.get("unmet_step", False):
+                # DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS. Last, so it only ever turns a
+                # would-be PASS red and never moves a richer verdict: the driver stage
+                # stayed valid (a post-mission recording verb answered ERROR, i.e. it
+                # acted and failed, a Parsek claim) but a driven step missed its expect.
+                base = V(VERDICT_PARSEK_FAIL, UNMET_STEP_SUBKIND,
+                         "a driven seam step missed its expected verdict")
             else:
                 base = V(VERDICT_PASS, "", "driver valid, every verifier PASS/SKIPPED")
 
@@ -12316,10 +12468,10 @@ def blamed_driver_step(result: Dict) -> Optional[Dict]:
         mission row; else an unmet mission row owns it (None - a mission is never a
         seam reply); else a met mission whose post-mission OUTCOME step was a driver
         fault (``verifiers.missionOutcome.firstUnmet`` with a ``driverSubkind``),
-        returned as that row. A post-mission recording step is blamed only when the
-        seam REFUSED it as the first post-mission miss
-        (``verifiers.missionOutcome.recordingRefusal``), which precedes any outcome
-        miss; otherwise it does not fail the driver stage.
+        returned as that row. A post-mission recording step is blamed when it is the
+        first post-mission miss and the seam did not carry it out (refused, timed out,
+        unanswered; ``verifiers.missionOutcome.recordingRefusal``), which precedes any
+        outcome miss; a recording verb's own ERROR does not fail the driver stage.
     The returned dict carries at least ``id`` / ``cmd`` / ``verdict`` / ``msg``."""
     steps = ((result or {}).get("driver") or {}).get("steps") or []
     mission_idx = next((i for i, s in enumerate(steps)
