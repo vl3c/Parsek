@@ -75,8 +75,11 @@ namespace Parsek.InGameTests
             }
 
             // The recalc must have run at least once for the accumulator to be populated; the
-            // patcher's re-assert runs inside the same ApplyToRoster pass.
-            LedgerOrchestrator.RecalculateAndPatch();
+            // patcher's re-assert runs inside the same ApplyToRoster pass. It stops at the
+            // clock when committed rows lie ahead of it, as every production patch does, so
+            // committed future earnings never reach the live pools a sibling cell reads.
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
+                ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(), "kerbal-experience-reassert");
 
             int kerbalsChecked = 0;
             int entriesChecked = 0;

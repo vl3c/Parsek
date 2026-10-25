@@ -15,6 +15,7 @@ namespace Parsek.InGameTests
     {
         private const string Tag = "LedgerGroundTruth";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        internal const string RecalcReason = "currency-tooltip-live";
 
         // RecalculateAndPatch writes the live Funding / R&D singletons, and the sibling
         // ground-truth cell in this batch hard-asserts the seeded pools against a
@@ -54,8 +55,12 @@ namespace Parsek.InGameTests
             }
 
             // The bar is whatever the LAST patch wrote; recalc so the modules and the bar
-            // describe the same walk.
-            LedgerOrchestrator.RecalculateAndPatch();
+            // describe the same walk. The walk stops at the clock when committed rows lie
+            // ahead of it (after a rewind or a Re-Fly), as every production patch does: a
+            // walk to the end of the timeline would write committed future earnings onto
+            // the live bar, and a sibling cell that saves the career would read them.
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
+                ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(), RecalcReason);
 
             // Total and Reserved are parsed back out of the RENDERED tooltip ("N0" /
             // "F1"), so each carries up to half a display unit of rounding against the

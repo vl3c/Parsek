@@ -100,5 +100,68 @@ namespace Parsek.Tests
             Assert.Contains("RecalculateAndPatchForCurrentTimelineIfFutureActions(", src);
             Assert.DoesNotContain("LedgerOrchestrator.RecalculateAndPatch();", src);
         }
+
+        // catches: the reconstruction's ELS scans reading a committed tech purchase or a
+        // recovery credit that lies ahead of the clock (L13 run 2026-10-25_0144: basicRocketry,
+        // researched at UT 1000, read as researched at UT 450).
+        [Fact]
+        public void ElsScans_LeaveOutRowsAheadOfTheClock()
+        {
+            var past = new GameAction { UT = 400.0, Type = GameActionType.ScienceSpending, NodeId = "start" };
+            var atClock = new GameAction { UT = 450.0, Type = GameActionType.ScienceSpending, NodeId = "x" };
+            var future = new GameAction { UT = 1000.0, Type = GameActionType.ScienceSpending, NodeId = "basicRocketry" };
+
+            Assert.True(Parsek.InGameTests.LedgerGroundTruthHarness.IsAtOrBeforeClock(past, 450.0));
+            Assert.True(Parsek.InGameTests.LedgerGroundTruthHarness.IsAtOrBeforeClock(atClock, 450.0));
+            Assert.False(Parsek.InGameTests.LedgerGroundTruthHarness.IsAtOrBeforeClock(future, 450.0));
+            Assert.True(Parsek.InGameTests.LedgerGroundTruthHarness.IsAtOrBeforeClock(future, double.NaN));
+            Assert.False(Parsek.InGameTests.LedgerGroundTruthHarness.IsAtOrBeforeClock(null, 450.0));
+        }
+
+        // catches: the harness scans going back to the whole ledger.
+        [Fact]
+        public void Harness_ElsScansTakeTheWalkClock()
+        {
+            string path = Path.Combine(AppContext.BaseDirectory,
+                "..", "..", "..", "..", "..", "Source", "Parsek", "InGameTests", "LedgerGroundTruthHarness.cs");
+            string src = File.ReadAllText(Path.GetFullPath(path));
+
+            Assert.Contains("ScanResearchedTechIds(clockUT, out bool hasTechSurface)", src);
+            Assert.Contains("ScanRecoveryCredits(clockUT)", src);
+            Assert.Equal(2, CountOccurrences(src, "if (!IsAtOrBeforeClock(a, clockUT))"));
+        }
+
+        private static int CountOccurrences(string text, string needle)
+        {
+            int count = 0;
+            for (int i = text.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+                 i = text.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+                count++;
+            return count;
+        }
+
+        // catches: a sibling cell of the LedgerGroundTruth batch walking past the clock. The
+        // currency tooltip cell did (L13 run 2026-10-25_0144): its cutoff-less walk wrote a
+        // committed future contract advance onto the live funds after an F9, and the
+        // ground-truth cell that ran next saved the career and read it as a hard divergence.
+        [Fact]
+        public void EveryLedgerGroundTruthCell_WalksThroughTheCurrentTimelineHelper()
+        {
+            string dir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
+                "..", "..", "..", "..", "..", "Source", "Parsek", "InGameTests"));
+            var cells = new List<string>();
+            foreach (string file in Directory.GetFiles(dir, "*.cs", SearchOption.AllDirectories))
+            {
+                string src = File.ReadAllText(file);
+                if (!src.Contains("Category = \"LedgerGroundTruth\"")) continue;
+                cells.Add(Path.GetFileName(file));
+                Assert.False(src.Contains("LedgerOrchestrator.RecalculateAndPatch();"),
+                    Path.GetFileName(file) + " walks the ledger past the clock");
+            }
+
+            Assert.Contains("LedgerGroundTruthHarness.cs", cells);
+            Assert.Contains("CurrencyTooltipLiveInvariantTest.cs", cells);
+            Assert.Contains("KerbalExperienceReassertTest.cs", cells);
+        }
     }
 }
