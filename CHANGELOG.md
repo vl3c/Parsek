@@ -83,6 +83,10 @@ _(unreleased - entries accumulate here per commit)_
 - **Harness: a game that freezes at the main menu is retried instead of waited out.** A test run
   whose KSP stopped at the main menu before taking its first command sat out an 11-minute wait
   and was not retried; it now ends after 90 s of silence and runs again. (VB-1-KSP-HANG-AT-MAIN-MENU)
+- **Harness: the modded test install no longer flies an old Parsek build.** A test lane on the
+  second, modded install now refuses to start when that install carries a different Parsek.dll
+  than the main test install, and names the provisioning command to fix it.
+  (HARNESS-MODDED-COMPAT-NEVER-PROVISIONED)
 
 ---
 

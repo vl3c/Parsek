@@ -1542,7 +1542,13 @@ What a red means:
 - **INVALID** with subkind `drift` / `manifest-missing` / `provision-incomplete`
   - the instance is not fit; the runner labels the whole invocation
   `NEEDS-PROVISION`. Provision from the intended worktree
-  (`cd harness && python provision/provision.py --profile stock-minimal`).
+  (`cd harness && python provision/provision.py --profile stock-minimal`). A
+  `drift` on the field `deployedParsekDll.sha256.vsReference` means a secondary
+  instance (`modded-compat`) carries another Parsek.dll than `stock-minimal`, the
+  instance routine provisioning keeps current; its `admit refused` line names the
+  command, `python provision/provision.py --profile modded-compat`. Nothing
+  provisions that instance for you, so provision it whenever you provision
+  `stock-minimal` and mean to fly the MC lanes.
 - **KILLED** - a budget kill. Always called out explicitly in the tally so it
   cannot hide behind twenty passes beside it.
 - **INVALID `boot-hang`** - KSP stalled before MAINMENU (or at the main menu

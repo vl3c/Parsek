@@ -8037,6 +8037,44 @@ class ClassifyAnalyzerTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
+class ReferenceDllAdmissionTests(unittest.TestCase):
+    """The reference-DLL half of admission (todo HARNESS-MODDED-COMPAT-NEVER-PROVISIONED):
+    a secondary instance whose deployed Parsek.dll differs from stock-minimal's is
+    drift; the reference itself, an unknown hash or a match is not."""
+
+    def test_a_differing_secondary_dll_is_a_changed_diff_entry(self):
+        d = hlib.decide_reference_dll_drift("modded-compat", "aa11", "bb22")
+        self.assertEqual((hlib.REFERENCE_DLL_DIFF_FIELD, "bb22", "aa11", "changed"),
+                         (d.field, d.expected, d.actual, d.kind))
+
+    def test_no_entry_for_the_reference_a_match_or_an_unknown_hash(self):
+        self.assertEqual("stock-minimal", hlib.REFERENCE_DLL_PROFILE)
+        for args, kw in ((("stock-minimal", "aa", "bb"), {}),
+                         (("modded-compat", "AA11", "aa11"), {}),
+                         (("modded-compat", None, "bb"), {}),
+                         (("modded-compat", "aa", None), {}),
+                         (("modded-compat", "aa", ""), {}),
+                         (("modded-compat", "aa", "bb"), {"same_instance": True})):
+            with self.subTest(args=args, kw=kw):
+                self.assertIsNone(hlib.decide_reference_dll_drift(*args, **kw))
+
+    def test_admit_refuses_drift_on_the_reference_entry_alone(self):
+        manifest = {"profile": "modded-compat", "kspVersion": "1.12.5"}
+        entry = hlib.decide_reference_dll_drift("modded-compat", "aa", "bb")
+        refused = hlib.admit_instance(dict(manifest), manifest, False, entry)
+        self.assertEqual((False, "drift"), (refused.admitted, refused.subkind))
+        self.assertEqual((entry,), refused.diff)
+        self.assertTrue(hlib.admit_instance(dict(manifest), manifest, False, None).admitted)
+        # A missing manifest or an incomplete provision keeps its own subkind.
+        self.assertEqual("manifest-missing", hlib.admit_instance({}, None, False, entry).subkind)
+        self.assertEqual("provision-incomplete",
+                         hlib.admit_instance(dict(manifest), manifest, True, entry).subkind)
+
+    def test_the_hint_names_the_profile(self):
+        self.assertEqual("cd harness && python provision/provision.py --profile modded-compat",
+                         hlib.provision_command_hint("modded-compat"))
+
+
 class BootStallWatchdogTests(unittest.TestCase):
     """hlib's half of the boot-stall watchdog (todo HARNESS-BOOT-HANG-KILLED-BUDGET).
     Guards: a ready boot never stalls, a silent log stalls on the no-growth rule, a

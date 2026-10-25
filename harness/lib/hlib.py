@@ -8219,24 +8219,65 @@ class AdmissionDecision:
     diff: Tuple  # provlib.ManifestDiff tuple
 
 
+# The reference-DLL check (todo HARNESS-MODDED-COMPAT-NEVER-PROVISIONED). Neither
+# run.py nor tools/tier_runner.py provisions an instance, and the manifest check
+# above only catches a DLL changed AFTER that instance's own provision, so a
+# secondary instance (modded-compat) flew whatever Parsek.dll it last received:
+# on 2026-10-12 a two-week-old build. stock-minimal is the instance every routine
+# provision targets (CLAUDE.md, tier_runner's PROVISION_HINT), so its DEPLOYED
+# Parsek.dll stands for the current build: any other instance whose deployed DLL
+# hash differs from it is refused pre-boot as drift. Skipped when either DLL is
+# absent (no reference to compare with) and for the reference instance itself.
+REFERENCE_DLL_PROFILE = "stock-minimal"
+REFERENCE_DLL_DIFF_FIELD = "deployedParsekDll.sha256.vsReference"
+
+
+def provision_command_hint(profile: str) -> str:
+    """The operator command that re-provisions ``profile`` (a HUMAN call)."""
+    return "cd harness && python provision/provision.py --profile %s" % profile
+
+
+def decide_reference_dll_drift(profile: Optional[str], instance_dll_sha: Optional[str],
+                               reference_dll_sha: Optional[str],
+                               same_instance: bool = False) -> Optional["provlib.ManifestDiff"]:
+    """The admission diff entry for a secondary instance whose deployed Parsek.dll
+    differs from the reference instance's, or None (reference profile, the same
+    instance directory, either hash unknown, or a match). ``expected`` is the
+    reference hash, ``actual`` this instance's."""
+    if profile == REFERENCE_DLL_PROFILE or same_instance:
+        return None
+    if not instance_dll_sha or not reference_dll_sha:
+        return None
+    if instance_dll_sha.lower() == reference_dll_sha.lower():
+        return None
+    return provlib.ManifestDiff(REFERENCE_DLL_DIFF_FIELD, reference_dll_sha,
+                               instance_dll_sha, "changed")
+
+
 def admit_instance(
     expected: Dict,
     actual_manifest: Optional[Dict],
     incomplete_marker: bool = False,
+    reference_dll_diff: Optional["provlib.ManifestDiff"] = None,
 ) -> AdmissionDecision:
     """Admit (or refuse) an instance before any KSP launch (design edge 6).
 
     A missing manifest, a ``.provision-incomplete`` marker beside it, or a
     NONEMPTY field-level diff from ``provlib.compare_manifest`` means the instance
     is not the one the scenario assumes -> refuse with INVALID(admission), NO
-    launch. Empty diff (and no marker/missing) -> admit. Classifying this INVALID
-    (not PARSEK-FAIL) keeps environment drift out of the Parsek-defect bucket.
+    launch. ``reference_dll_diff`` (decide_reference_dll_drift) joins that diff:
+    a secondary instance carrying another build than the reference instance is
+    drift too. Empty diff (and no marker/missing) -> admit. Classifying this
+    INVALID (not PARSEK-FAIL) keeps environment drift out of the Parsek-defect
+    bucket.
     """
     if actual_manifest is None:
         return AdmissionDecision(False, "manifest-missing", tuple())
     if incomplete_marker:
         return AdmissionDecision(False, "provision-incomplete", tuple())
     diff = tuple(provlib.compare_manifest(expected, actual_manifest))
+    if reference_dll_diff is not None:
+        diff = diff + (reference_dll_diff,)
     if diff:
         return AdmissionDecision(False, "drift", diff)
     return AdmissionDecision(True, "", tuple())

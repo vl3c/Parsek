@@ -856,7 +856,7 @@ Parsek-spawned vessel (whose resumed recording keeps the pre-spawn guid, a `Resu
 reads as a different launch on both the absorbed and the surviving path; the identity links are
 not consulted by `VesselLaunchIdentity`. Older saves stay pid-only until re-recorded.
 
-## HARNESS-MODDED-COMPAT-NEVER-PROVISIONED: the MC lanes on modded-compat fly whatever Parsek.dll that instance last received [FILED 2026-10-12 from the operator tier. OPEN, harness]
+## ~~HARNESS-MODDED-COMPAT-NEVER-PROVISIONED: the MC lanes on modded-compat fly whatever Parsek.dll that instance last received~~ [FILED 2026-10-12 from the operator tier. FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, unit cells; flight owed: MC-1 on a stale `modded-compat` (refused pre-boot) and again after `provision.py --profile modded-compat` (flies). harness]
 
 Four MC lanes (`MC-1`..`MC-3` nightly, `MC-5` operator; MC-4 is `instanceProfile =
 "stock-minimal"`) run on `automation/modded-compat`, but neither `run.py` nor
@@ -870,6 +870,21 @@ night: MC-1..MC-3 PASS, MC-5 then red on a shrunk watch window (fixed in #2083, 
 HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS). Fix options: provision every profile a tier selects
 (tier_runner), or have admit refuse an instance whose deployed DLL hash differs from
 stock-minimal's after a provision.
+
+Fixed (2026-10-25, the second option): `run.py`'s ADMIT hashes the deployed `Parsek.dll` of the
+instance and of `stock-minimal` (`hlib.REFERENCE_DLL_PROFILE`, the instance every routine
+provision targets) for any other profile, and `hlib.decide_reference_dll_drift` adds a diff entry
+`deployedParsekDll.sha256.vsReference` when they differ, so `hlib.admit_instance` refuses the run
+pre-boot as terminal `INVALID(drift)`. The harness log carries `admit refused: instance=<profile>
+... provision it (a HUMAN call): cd harness && python provision/provision.py --profile <profile>`
+and the result JSON the same hint as its `note`; `tier_runner` reads the `admit drift field=` line
+as NEEDS-PROVISION (its hint now also points at the profile an `admit refused` line names).
+Skipped, with one Info line, for `stock-minimal` itself and when either DLL is absent. Auto-
+provisioning stays out (tier_runner POLICY 2: which build an instance carries is a human call).
+Not covered: a `stock-minimal` that is itself stale. Cells: `ReferenceDllAdmissionTests`
+(hlib) and `ReferenceDllAdmissionSmokeTests` (refused with no launch, a match flies, no reference
+flies, the reference is never compared with itself; mutation-checked by dropping the diff from the
+admit call).
 
 ## KB-STRATEGY-SLOT-NEEDED-NO-LIVE-LANE: the Administration Accept refusal for a strategy that would take the slot a committed activation needs has never been pressed in game [FILED 2026-10-10 from the branch cleanup. OPEN, harness, low]
 

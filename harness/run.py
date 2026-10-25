@@ -833,6 +833,33 @@ def build_expected_from_manifest(manifest: Dict, instance_dir: str,
     return expected
 
 
+def _reference_dll_drift(profile: Optional[str], instance_dir: str, umbrella_root: str,
+                         logger: HarnessLogger) -> Optional["provlib.ManifestDiff"]:
+    """The I/O half of hlib.decide_reference_dll_drift: hash this instance's and
+    the reference instance's DEPLOYED Parsek.dll. One Info line either way."""
+    if profile == hlib.REFERENCE_DLL_PROFILE:
+        return None
+    ref_dir = resolve_instance_dir(hlib.REFERENCE_DLL_PROFILE, umbrella_root, None)
+    same = (ref_dir is not None
+            and os.path.normcase(os.path.abspath(ref_dir))
+            == os.path.normcase(os.path.abspath(instance_dir)))
+    mine = _sha256_file(os.path.join(instance_dir, PARSEK_DLL_REL))
+    ref = (_sha256_file(os.path.join(ref_dir, PARSEK_DLL_REL))
+           if ref_dir is not None and not same else None)
+    diff = hlib.decide_reference_dll_drift(profile, mine, ref, same_instance=same)
+    if same or not mine or not ref:
+        logger.info("Admit", "admit parsek-dll vs %s: skipped (%s)"
+                    % (hlib.REFERENCE_DLL_PROFILE,
+                       "same instance" if same else
+                       "no deployed Parsek.dll here" if not mine else
+                       "no reference instance DLL at %s" % ref_dir))
+    else:
+        logger.info("Admit", "admit parsek-dll vs %s: %s instance=%s reference=%s"
+                    % (hlib.REFERENCE_DLL_PROFILE, "DRIFT" if diff else "match",
+                       mine[:12], ref[:12]))
+    return diff
+
+
 # ---------------------------------------------------------------------------
 # Machine run lock (design Run lock / edge 7, EC-10).
 #
@@ -4126,7 +4153,9 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
     # ---- ADMIT -----------------------------------------------------------
     manifest, incomplete = read_manifest(instance_dir)
     expected = build_expected_from_manifest(manifest, instance_dir, logger) if manifest else {}
-    admission = hlib.admit_instance(expected, manifest, incomplete)
+    reference_diff = (_reference_dll_drift(profile, instance_dir, umbrella_root, logger)
+                      if manifest else None)
+    admission = hlib.admit_instance(expected, manifest, incomplete, reference_diff)
     admit_diff = [
         {"field": d.field, "expected": d.expected, "actual": d.actual, "kind": d.kind}
         for d in admission.diff
@@ -4138,8 +4167,19 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         for d in admit_diff:
             logger.warn("Admit", "admit drift field=%s expected=%s actual=%s"
                         % (d["field"], d["expected"], d["actual"]))
-        return _refuse(hlib.Verdict(hlib.VERDICT_INVALID, admission.subkind, False,
-                                    "admission %s" % admission.subkind),
+        reason = "admission %s" % admission.subkind
+        note = ""
+        if reference_diff is not None:
+            hint = hlib.provision_command_hint(profile)
+            note = ("this instance's Parsek.dll is not the build %s carries; "
+                    "provision it: %s" % (hlib.REFERENCE_DLL_PROFILE, hint))
+            reason += "; " + note
+            logger.warn("Admit", "admit refused: instance=%s deploys another Parsek.dll than "
+                                 "%s (the instance every routine provision updates); "
+                                 "provision it (a HUMAN call): %s"
+                        % (profile, hlib.REFERENCE_DLL_PROFILE, hint))
+        return _refuse(hlib.Verdict(hlib.VERDICT_INVALID, admission.subkind, False, reason,
+                                    note=note),
                        {"admitted": False, "subkind": admission.subkind, "diff": admit_diff})
 
     admission_rec = {"admitted": True, "subkind": "", "diff": []}

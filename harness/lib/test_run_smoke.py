@@ -7040,6 +7040,90 @@ class BootStallWatchdogSmokeTests(unittest.TestCase):
         self.assertNotIn("still alive after", log)
 
 
+class ReferenceDllAdmissionSmokeTests(unittest.TestCase):
+    """The reference-DLL admit check end to end (todo
+    HARNESS-MODDED-COMPAT-NEVER-PROVISIONED). 2026-10-12: the MC lanes on
+    modded-compat flew a two-week-old Parsek.dll because nothing provisions that
+    instance and admit compared its DLL only with its own manifest. Guards: a
+    secondary instance whose deployed DLL differs from stock-minimal's is refused
+    pre-boot (no launch) as INVALID(drift) naming the provision command; a match,
+    or no reference DLL to compare with, admits and flies."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-refdll-")
+        self.instance = os.path.join(self.tmp, "automation", "modded-compat")
+        self.reference = os.path.join(self.tmp, "automation", "stock-minimal")
+        _write_manifest(self.instance, "modded-compat")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "refdll_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    @staticmethod
+    def _deploy(instance_dir, payload):
+        path = os.path.join(instance_dir, run.PARSEK_DLL_REL)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as fh:
+            fh.write(payload)
+
+    def _attempt(self, profile="modded-compat"):
+        spec = _make_spec(self.template, 30, 600)
+        spec["instanceProfile"] = profile
+        rt = FakeRuntime("pass")
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            return result, rt, fh.read()
+
+    def test_a_secondary_instance_on_another_build_is_refused_before_boot(self):
+        self._deploy(self.instance, b"parsek build of 2026-09-26")
+        self._deploy(self.reference, b"parsek build of today")
+        result, rt, log = self._attempt()
+        self.assertEqual(0, rt.launch_count, "a stale instance must never boot")
+        self.assertEqual((hlib.VERDICT_INVALID, "drift"),
+                         (result["verdict"], result["subkind"]))
+        fields = [d["field"] for d in result["admission"]["diff"]]
+        self.assertEqual([hlib.REFERENCE_DLL_DIFF_FIELD], fields)
+        self.assertIn("provision/provision.py --profile modded-compat", result["note"])
+        self.assertIn("provision/provision.py --profile modded-compat", log)
+        self.assertIn("admit parsek-dll vs stock-minimal: DRIFT", log)
+        self.assertIn("admit refused: instance=modded-compat", log)
+        # tier_runner reads this run as NEEDS-PROVISION, not as a product finding.
+        self.assertIn("admit drift field=%s" % hlib.REFERENCE_DLL_DIFF_FIELD, log)
+        self.assertIn("result=DRIFT", log)
+
+    def test_a_secondary_instance_on_the_reference_build_flies(self):
+        self._deploy(self.instance, b"parsek build of today")
+        self._deploy(self.reference, b"parsek build of today")
+        result, rt, log = self._attempt()
+        self.assertEqual(1, rt.launch_count)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        self.assertIn("admit parsek-dll vs stock-minimal: match", log)
+
+    def test_no_reference_dll_admits_on_the_manifest_alone(self):
+        self._deploy(self.instance, b"parsek build of 2026-09-26")
+        result, rt, log = self._attempt()
+        self.assertEqual(1, rt.launch_count)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        self.assertIn("admit parsek-dll vs stock-minimal: skipped (no reference instance DLL", log)
+
+    def test_the_reference_instance_is_never_compared_with_itself(self):
+        self._deploy(self.instance, b"one build")
+        self._deploy(self.reference, b"another build")
+        result, rt, log = self._attempt(profile="stock-minimal")
+        self.assertEqual(1, rt.launch_count)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        self.assertNotIn("admit parsek-dll vs", log)
+
+
 # ---------------------------------------------------------------------------
 # Pipelined post-quit verification (owner ruling 2026-10-14). A multi-lane
 # selection is driven through the production selection loop twice, once

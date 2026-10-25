@@ -1044,6 +1044,23 @@ deployed DLL no longer matches the current build). The harness does not silently
 tolerate a stale DLL -- admission is the gate that catches "you rebuilt Parsek but
 forgot to redeploy the automation instance".
 
+Reference-DLL check (2026-10-25, todo HARNESS-MODDED-COMPAT-NEVER-PROVISIONED).
+The shipped check compares an instance's deployed `Parsek.dll` with ITS OWN
+manifest, which catches a post-provision clobber but not an instance nobody
+re-provisions: `run.py` and `tools/tier_runner.py` never provision, and the MC
+lanes on `modded-compat` flew a two-week-old build on 2026-10-12. `stock-minimal`
+is the instance every routine provision targets, so its deployed DLL stands for
+the current build (`hlib.REFERENCE_DLL_PROFILE`). For any other profile, `run.py`
+hashes both deployed DLLs and `hlib.decide_reference_dll_drift` adds one diff entry
+(`deployedParsekDll.sha256.vsReference`, expected = the reference hash) when they
+differ; `hlib.admit_instance` then refuses it as subkind `drift`, terminal and
+pre-boot, with a `Warn` "admit refused: ..." line and a result `note` naming
+`hlib.provision_command_hint(profile)` (`cd harness && python
+provision/provision.py --profile <profile>`), so `tier_runner` reads it as
+NEEDS-PROVISION. Skipped, with one `Info` line, for the reference instance itself
+and when either DLL is absent. It does not catch a reference instance that is
+itself stale.
+
 ### Run lock (two-harness-race decision)
 
 Before staging, the harness acquires a per-instance RUN lock at
