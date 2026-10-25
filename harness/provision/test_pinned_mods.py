@@ -102,7 +102,7 @@ class PinnedModArtifactTests(unittest.TestCase):
         self.assertEqual(["SpaceTuxLibrary"], self.pins["spacetuxlibrary"]["gamedataFolders"])
 
     def test_every_profile_pin_resolves_to_a_valid_table(self):
-        for name in ("modded-compat.toml", "stock-minimal.toml"):
+        for name in ("modded-compat.toml", "stock-minimal.toml", "stock-tree.toml"):
             for opt_name, key in provlib.profile_pinned_mods(_load("profiles/" + name)):
                 self.assertIsNone(provlib.validate_pinned_mod_pin(key, self.pins.get(key)),
                                   "%s: %s -> %s" % (name, opt_name, key))
