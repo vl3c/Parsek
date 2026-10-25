@@ -54,10 +54,21 @@ class CsFleaCraftTests(unittest.TestCase):
         pids = [builder._scalar(parts[p], "persistentId") for p in parts]
         self.assertEqual(len(pids), len(set(pids)), "persistentIds must be unique")
 
+    def test_every_part_but_the_root_is_linked_by_exactly_one_parent(self):
+        # KSP builds the tree from the parents' `link` lines and silently drops an
+        # unlinked child; the first three-Goo flight lost its third Goo this way.
+        parts = _parts(self.committed)
+        linked = []
+        for block in parts.values():
+            linked.extend(re.findall(r"^\tlink = (.*)$", block, flags=re.M))
+        root = builder.POD
+        self.assertEqual(sorted(p for p in parts if p != root), sorted(linked))
+        self.assertIn("\tlink = %s" % builder.GOO_C, parts[builder.POD])
+
     def test_every_other_part_is_verbatim(self):
         base, built = _parts(self.base), _parts(self.committed)
         for pid, block in base.items():
-            if pid.startswith("GooExperiment_"):
+            if pid.startswith("GooExperiment_") or pid == builder.POD:
                 continue
             self.assertEqual(block, built[pid], pid)
 
