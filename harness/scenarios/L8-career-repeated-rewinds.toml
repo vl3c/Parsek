@@ -69,7 +69,8 @@ tier = "nightly"
 # failed=1` on KerbalExperienceReassertTest, which still expected Jeb's flight-A Recover entry
 # (UT 1000.1) on the roster although the re-assert now walks to the clock (199.87) and rightly
 # leaves it off. The cell now expects only rows at or before the clock, so after the third
-# rewind it has nothing owed and skips: the batch line is `passed=2 failed=0 skipped=1`.
+# rewind it has nothing owed and skips: the batch line is `passed=2 failed=0 skipped=1`. Re-flown
+# green `2026-10-25_1409` PASS attempt 1 (automation DLL sha256 prefix 5b9c0718, `aheadOfClock=1`).
 #
 # PRE-REGISTERED READINGS (what to check first if the next flight reds):
 #   - `recover rejected reason=recover-button-locked`: the craft was still settling; a

@@ -537,7 +537,7 @@ the roster; the cell still built its expected set from the whole effective ledge
 the roster was right. **Fix.** The cell keeps only KerbalExperience rows at or before the same clock
 the recalc cuts at (`LedgerGroundTruthHarness.IsAtOrBeforeClock`, no cutoff while the clock is not
 ready) and logs `aheadOfClock=`; with nothing owed it skips. L8 re-pinned to `passed=2 failed=0
-skipped=1` plus the skip line; re-flight owed.
+skipped=1` plus the skip line; re-flown green `2026-10-25_1409` (the cell skipped with `aheadOfClock=1`).
 
 ---
 
