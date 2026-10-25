@@ -21,6 +21,19 @@ namespace Parsek.Tests
             Assert.Equal(expected, CurrencyReservationOverlay.ShowsCurrencyTooltipInScene(scene));
         }
 
+        [Theory]
+        [InlineData(true, GameScenes.EDITOR, GameScenes.EDITOR, true)]
+        [InlineData(true, GameScenes.SPACECENTER, GameScenes.EDITOR, false)]
+        [InlineData(false, GameScenes.EDITOR, GameScenes.EDITOR, false)]
+        public void DuplicateController_OnlyTheFirstLiveControllerOfASceneDraws(
+            bool otherActive, GameScenes otherScene, GameScenes scene, bool expectedIdle)
+        {
+            // The editor starts several EveryScene instances; without the guard each one draws
+            // the same tooltip, stacked.
+            Assert.Equal(expectedIdle,
+                CurrencyReservationOverlay.IsDuplicateController(otherActive, otherScene, scene));
+        }
+
         [Fact]
         public void FundsTooltip_WhenReserved_ShowsTotalAndReservedWithThousandsSeparators()
         {

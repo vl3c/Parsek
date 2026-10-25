@@ -198,7 +198,9 @@ required = [
   "evaexit complete kerbal=Bill Kerman ",
   "evagroundscience step complete kerbal=Bill Kerman anchor=rover fuel 0 ",
   "startrecording recordingId=[0-9a-f]+ already=false",
-  "Captured rewind save at UT ([0-9.]+): vessel \"Bill Kerman\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
+  # The save name binds the capture to the rewind; the two UTs may differ by a physics tick
+  # (EVA-14 `2026-10-25_0131`: captured 27.08, initiated 27.10), so they are not backreferenced.
+  "Captured rewind save at UT [0-9.]+: vessel \"Bill Kerman\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT [0-9.]+ \\(save: \\1\\)",
   # MERGE-FIRST-ROOT-LOSES-REWIND-SAVE: the seat couple (a merge) copies the save to the root.
   "Captured rewind save at UT [0-9.]+: vessel \"Bill Kerman\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*MISSIONMARK label=seat3-board[\\s\\S]*CreateMergeBranch: copied rewind save '\\1' to root recording '[0-9a-f]+'",
   # ACT 2: the recorded seat board is a couple of Bill's EVA part onto the seat part.

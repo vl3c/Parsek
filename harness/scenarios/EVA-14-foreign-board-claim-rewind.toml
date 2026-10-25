@@ -187,7 +187,9 @@ required = [
   # MERGE-FIRST-ROOT-LOSES-REWIND-SAVE: the board (a merge) copies the save to the root, and it
   # is the save the rewind loads.
   "Captured rewind save at UT [0-9.]+: vessel \"Bill Kerman\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*MISSIONMARK label=eva14-board[\\s\\S]*CreateMergeBranch: copied rewind save '\\1' to root recording '[0-9a-f]+'",
-  "Captured rewind save at UT ([0-9.]+): vessel \"Bill Kerman\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
+  # The save name binds the capture to the rewind; the two UTs may differ by a physics tick
+  # (EVA-14 `2026-10-25_0131`: captured 27.08, initiated 27.10), so they are not backreferenced.
+  "Captured rewind save at UT [0-9.]+: vessel \"Bill Kerman\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT [0-9.]+ \\(save: \\1\\)",
   # ACT 2: the board onto a vessel outside the tree, and THE FIX (1): its stamp.
   "MISSIONMARK label=eva14-board [\\s\\S]*onCrewBoardVessel: target vessel pid=3620499050, inTree=False",
   "MISSIONMARK label=eva14-board [\\s\\S]*Board merge partner stamp: targetPid=3620499050 inTree=False partnerPidStamped=3620499050 partnerGuidStamped=cb9f5ae95a7b4ec29f88bc81d2a32600",

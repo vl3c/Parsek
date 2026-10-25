@@ -65,14 +65,18 @@ count = { min = 0, max = 0 }
 
 [expectations.logContracts]
 # ANTI-VACUITY: total=1 is ATTRIBUTE-EXACT (one FLIGHT declaration), kept in sync by
-# CommittedBatchTallySourceSyncTests. Never flown, so the rest is a regex until the first
-# flight; the PASSED witness requires the one cell by name, and a Skip (no running
-# converter) is the lane failing its own premise.
+# CommittedBatchTallySourceSyncTests. LIVE-PROVEN 2026-10-24: the first flight
+# `2026-10-24_2357` (PASS attempt 1, wall 93 s, automation DLL sha256 prefix becc4b31)
+# measured `passed=1 failed=0 skipped=0`, pinned whole. Five converter parts ran (the ISRU
+# and four drills) and got five `Seed event: ConverterActivated ... (promotion)` lines, so
+# the counts are pinned exact. The PASSED witness requires the one cell by name; a Skip (no
+# running converter) is the lane failing its own premise.
 required = [
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=[0-9]+ skipped=[0-9]+ category=PromotionConverterSeed scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=PromotionConverterSeed scene=FLIGHT",
   "PASSED: PromotionConverterSeedInGameTest\\.PromotionSeedsRunningConverters \\(",
-  "PromotionSeedsRunningConverters: vessel='Mining Rover RC' runningConverterParts=[1-9][0-9]* freshSeeds=[1-9][0-9]* edgedSeeds=0",
-  "\\[Recorder\\] ResetPartEventTrackingState: emitted [1-9][0-9]* converter seed event\\(s\\) for chain promotion",
+  "PromotionSeedsRunningConverters: vessel='Mining Rover RC' runningConverterParts=5 freshSeeds=5 edgedSeeds=0",
+  "\\[Recorder\\] Seed event: ConverterActivated pid=[0-9]+ part='MiniISRU' \\(promotion\\)",
+  "\\[Recorder\\] ResetPartEventTrackingState: emitted 5 converter seed event\\(s\\) for chain promotion \\(activeRec='promo-seed-fresh' had 0 converter events",
   "\\[Recorder\\] ResetPartEventTrackingState: skipping converter seeds \\(chain promotion, activeRec='promo-seed-edged' already has 1 converter event\\(s\\)\\)",
 ]
 forbidden = [

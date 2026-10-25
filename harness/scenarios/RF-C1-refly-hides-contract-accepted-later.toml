@@ -9,7 +9,7 @@ tier = "operator"
 # clock: the re-flown booster could complete or fail a contract before it was accepted (the
 # walk then credits the completion with no accept before it and makes the contract Active
 # again at its accept). The fix holds it out of stock's active list until the clock reaches the
-# accept. AUTHORED 2026-10-24 (branch `claude/project-thread-dkcvpn`), NEVER FLOWN.
+# accept. AUTHORED 2026-10-24 (branch `claude/project-thread-dkcvpn`); LIVE-PROVEN on its first flight 2026-10-25_0007.
 #
 # THE STORY. RF-L2's act 1 verbatim (GS-1's two-stage hop on `career-gs1-two-stage-pad`, the
 # booster still under canopy at the exit, the tree auto-commits, the booster slot open), then
