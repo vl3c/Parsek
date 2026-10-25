@@ -20,6 +20,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A rocket that never leaves the pad no longer shows a ghost.** When a kerbal steps out of a
+  rocket on the pad and it never launches, its ghost used to sit on the pad after a rewind for as
+  long as you had waited there. It now never appears; the kerbal's own ghost still plays.
+  (PAD-VESSEL-GHOST-HOLDS-THE-PAD)
 - **A supply run that lost its stop no longer counts as completed.** When a vessel a multi-stop
   route delivered to was gone and the run delivered nothing, the Logistics window and Route History
   counted that run as completed; it now counts as skipped, as a one-stop route already did.
