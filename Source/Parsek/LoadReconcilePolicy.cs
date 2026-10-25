@@ -589,10 +589,7 @@ namespace Parsek
                     return Today(LoadReconcileAction.Save, StagingFromNode);
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.RewindCarry,
-                        "RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad"
-                        + (category == LoadStateCategory.SupersedeRows
-                            ? "; RecordingStore.ReapplyRewindSupersedeDropAfterLoad then drops the rewound tree's rows"
-                            : ""));
+                        "RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad");
                 case LoadKind.ReFlyStart:
                     return Today(LoadReconcileAction.Bundle, BundleRestores);
                 case LoadKind.DiscardReFly:

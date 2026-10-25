@@ -4007,8 +4007,8 @@ namespace Parsek
 
                 // Same for the supersede, rewind-retirement and tombstone lists and the merge
                 // journal: the recordings and the ledger are kept from memory across a plain
-                // rewind, so these must be too. Before the supersede re-apply below, which then
-                // drops the rewound tree's rows from the carried list. No-op when not a rewind.
+                // rewind, so these must be too. A rewind keeps every supersede row, the rewound
+                // tree's included (owner ruling 2026-10-24). No-op when not a rewind.
                 loadPhase = "rewind-staged-lists-carry-over";
                 RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad(this);
 
@@ -4021,17 +4021,6 @@ namespace Parsek
                 // the tree restores below have detached that tree (step B).
                 loadPhase = "in-session-staged-handoff";
                 ApplyInSessionStagedStateHandoffStepA(earlyLoadKind);
-
-                // PR #774 cross-LoadScene fix: re-apply the rewind-time supersede drop
-                // performed in RecordingStore.InitiateRewind. The in-memory mutation
-                // there is reverted by KSP's scenario-state restoration across the
-                // LoadScene boundary, so without this re-apply the dropped rows return
-                // and downstream branch ghosts stay suppressed by
-                // `reason=superseded-by-relation` for the rest of the session. Gated
-                // internally on `RewindContext.IsRewinding` so non-rewind loads are
-                // a no-op.
-                loadPhase = "supersede-rewind-reapply";
-                RecordingStore.ReapplyRewindSupersedeDropAfterLoad();
 
                 // Pre-Parsek safety backup: the first time Parsek cold-loads a save with no
                 // Parsek footprint, copy it (before any Parsek write, so the persistent.sfs is

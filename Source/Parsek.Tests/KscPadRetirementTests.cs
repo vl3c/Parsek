@@ -345,6 +345,60 @@ namespace Parsek.Tests
             Assert.False(VesselSpawner.EvaluateKscEndOfFlightRetirement(MakeOnPad("rec-no-registry")).Retire);
         }
 
+        // EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED side note: a kerbal recording without
+        // EvaCrewName (an adopted foreign cargo-partner kerbal, a recording started on a kerbal
+        // already on EVA) ends with a kerbal snapshot; the EVA exemption covers it too.
+
+        [Fact]
+        public void EvaKerbal_EvaBranchCrewName_IsAKerbal()
+        {
+            var rec = MakeOnPad("rec-eva-branch");
+            rec.EvaCrewName = Jeb;
+            Assert.True(VesselSpawner.IsEvaKerbalRecordingForRetirement(rec));
+            Assert.False(VesselSpawner.EvaluateKscEndOfFlightRetirement(rec).Retire);
+        }
+
+        [Fact]
+        public void EvaKerbal_KerbalSnapshotWithoutCrewName_IsNotRetired()
+        {
+            var rec = MakeOnPad("rec-adopted-kerbal", Jeb);
+            rec.VesselSnapshot.AddValue("type", "EVA");
+            Assert.Null(rec.EvaCrewName);
+
+            Assert.True(VesselSpawner.IsEvaKerbalRecordingForRetirement(rec));
+            Assert.False(VesselSpawner.EvaluateKscEndOfFlightRetirement(rec).Retire);
+            Assert.False(VesselSpawner.TryRetireEndedFlightAtKsc(rec, 0));
+            Assert.False(rec.VesselSpawned);
+        }
+
+        [Theory]
+        [InlineData("Ship")]
+        [InlineData("Rover")]
+        [InlineData("eva")]
+        [InlineData(null)]
+        public void EvaKerbal_VesselSnapshotOfAnotherType_StillRetires(string type)
+        {
+            var rec = MakeOnPad("rec-vessel-type");
+            if (type != null)
+                rec.VesselSnapshot.AddValue("type", type);
+            Assert.False(VesselSpawner.IsEvaKerbalRecordingForRetirement(rec));
+            Assert.True(VesselSpawner.EvaluateKscEndOfFlightRetirement(rec).Retire);
+        }
+
+        [Fact]
+        public void EvaKerbal_OnlyTheEndSnapshotCounts_NotTheStartSituationOrGhost()
+        {
+            // A recording whose spawn form is a vessel is never exempted, whatever its start.
+            var rec = MakeOnPad("rec-started-eva-ends-vessel");
+            rec.StartSituation = "EVA";
+            var ghost = rec.VesselSnapshot.CreateCopy();
+            ghost.AddValue("type", "EVA");
+            rec.GhostVisualSnapshot = ghost;
+            Assert.False(VesselSpawner.IsEvaKerbalRecordingForRetirement(rec));
+            Assert.True(VesselSpawner.EvaluateKscEndOfFlightRetirement(rec).Retire);
+            Assert.False(VesselSpawner.IsEvaKerbalRecordingForRetirement(null));
+        }
+
         // ------------------------------------------------------------------
         // Final-segment notion
         // ------------------------------------------------------------------
@@ -929,6 +983,23 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
             Assert.True(VesselSpawner.IsKscRetiredFinalFlight(rec));
+        }
+
+        [Fact]
+        public void CrewSide_DroppedKerbalSnapshotOnThePad_IsNotRetired_BothSides()
+        {
+            // The in-memory snapshot was dropped; the re-hydrated one shows the kerbal.
+            var rec = MakeOnPad("rec-dropped-kerbal-snapshot", Jeb);
+            var kerbal = Snapshot(SpawnCollisionDetector.KscPadLatitude,
+                SpawnCollisionDetector.KscPadLongitude, "LANDED", Jeb);
+            kerbal.AddValue("type", "EVA");
+            WriteVesselSidecar(rec.RecordingId, kerbal);
+            rec.VesselSnapshot = null;
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            Assert.False(VesselSpawner.IsKscRetiredFinalFlight(rec));
+            Assert.NotNull(rec.VesselSnapshot);
+            Assert.False(VesselSpawner.TryRetireEndedFlightAtKsc(rec, 0));
         }
 
         [Fact]

@@ -1,0 +1,196 @@
+schema = 1
+id = "STR-1-strategies-across-rewind-and-f9"
+tier = "operator"
+# STRATEGIES x REWIND-TO-LAUNCH x F9 (todo CROSS-SYSTEM-COVERAGE-GAPS-2026-10-16, "strategies
+# across any timeline operation"; todo STRATEGY-ACTIVATION-CROSSED-IN-FLIGHT, "lane still owed";
+# owner 2026-10-24: strategy activation must be exact, "to not cause compounding errors").
+# AUTHORED 2026-10-25 (branch `claude/project-thread-eo3rd8`). NEVER FLOWN: its first flight is
+# a reading run.
+#
+# THE HOST. `career-pad-craft` (L8's host: funds 500000, science 100, rep 0, the Jumping Flea
+# on the pad at UT 9.06, pid 2905720181, Administration level 0 = one strategy slot) plus the
+# shared `Settings Probe` (pid 1100000001 on launch).
+#
+# THE WALK (UTs are the plan; the reading run measures them):
+#   flight A   warp the pad to 60, record the Flea, warp to 200 in flight, stop, CommitTree,
+#              Recover (L8's flight A, shorter). The commit comes first: a pad-only tree is
+#              auto-discarded at the scene exit.
+#   KSC        at ~200: activate Bail-Out Grant (a stock CurrencyExchanger, legal at rep 0:
+#              `requiredReputationMax = 0`). Stock pays it AT ONCE inside Activate (reputation
+#              in, funds out, `TransactionReasons.StrategyInput` / `StrategyOutput`) and
+#              deactivates it one frame later, freeing the slot. Two inert waits, then
+#              activate Appreciation Campaign at its default factor (one slot, so it can only
+#              go on after Bail-Out let go of it). Four kinds of committed rows at ~200: the
+#              exchange's two legs, Bail-Out's activate / deactivate, Appreciation's activate
+#              and its setup cost.
+#   rewind     Rewind-to-Launch A from the Space Center: clock ~45. Every KSC row is now
+#              committed future. Stock must have NEITHER strategy on: Appreciation is
+#              future-dated, Bail-Out is a one-shot that is never switched back on
+#              (`StrategyStatePatcher.IsOneShotExchanger`).
+#   crossing 1 VAB launch of the probe, F5 (quicksave at ~46), warp in flight to 300. The
+#              clock crosses ~200: the activation gate (`StrategyActivationGate`) switches
+#              Appreciation on in stock without cost or capture. It must NOT touch Bail-Out:
+#              switching an exchanger on in stock runs its OnRegister, which pays the grant a
+#              second time.
+#   F9         quickload back to ~46. Stock's strategy list is the quicksave's (both off);
+#              nothing may switch Appreciation on before its UT.
+#   crossing 2 warp in flight to 300 again: the gate fires a second time, Bail-Out again
+#              untouched.
+#   check      save, then a cold load of that save (a scene change: in flight no clock
+#              cursor patches funds, so the exchange's funds leg reaches KSP's pool at the
+#              next load), then LedgerGroundTruth on the pad: the save (stock's pools and
+#              strategy list) against the ledger walk. A second grant reads as a hard funds
+#              divergence there; a missing activation reads on the strategy facet.
+#
+# THE GATES:
+#   - both activations applied before the rewind; the grant paid exactly once there;
+#   - the gate line for Appreciation in BOTH crossing windows, none for Bail-Out anywhere;
+#   - after the rewind: no StrategyOutput funds change at all (stock paying the grant again)
+#     and no `PatchStrategies: activated=N` (a load switching a strategy on early or
+#     re-registering the exchanger);
+#   - LedgerGroundTruth `hardFailures=0` and the strategy facet comparing Appreciation active
+#     on both sides with no divergence.
+#
+# PRE-REGISTERED READINGS (what to check first if the reading run reds):
+#   - `kscaction refused action=activate-strategy reason=strategy-cannot-activate` on
+#     Appreciation: the grant's reputation input ((rep + 1000) * share) took reputation below
+#     Appreciation's requirement (about -437.5 at factor 0.05, GUI-5 / L3), or the slot was
+#     not free yet (`slots=` on the Bail-Out line, add a RecordingState step); a premise miss.
+#   - `kscaction refused ... reason=activate-not-applied` on Bail-Out: stock returned false
+#     from Activate; read the Warn above it.
+#   - A stock NullReferenceException in `Administration.RedrawPanels` one frame after the
+#     Bail-Out activation: the seam already released its hidden Administration canvas; it
+#     runs after `Parent.Deactivate()` and is report-only (Unity exceptions are not armed).
+#   - `PatchStrategies: activated=1` after the F9: the quickload switched Appreciation on
+#     before its UT; read `futureDated=` on the same line, then file it.
+#   - the gate line missing in window 2 but `matching=1` on the F9 patch: stock kept the
+#     strategy on across the quickload; read `PatchStrategies: stock strategy list loaded`.
+#   - `CompareStrategies: ... ledgerActive=[AppreciationCampaignCfg,BailoutGrant]`: stock's
+#     delayed self-deactivation of the exchanger was not captured as a StrategyDeactivate row,
+#     so the ledger keeps the grant on; the facet reads it as a phantom (report-only). A product
+#     finding: file it before re-pinning.
+#   - `result: hardFailures=1` on funds: compare the facet's expected / reconstructed values
+#     with the grant's fundsDelta on the Bail-Out line; a difference of exactly one grant is
+#     the double payment.
+#
+# FAST-LANE CHECKLIST: (1) reuse - L8's flight A and check launch; (2) explicit-UT warps only;
+# (3)-(5) no dwells, burns or coasts; (6) retry `once`; (7) count window {1,2} until the
+# reading run pins it (flight A only; the probe is unrecorded); (8) operator until green,
+# about 8 min expected; (9) flight_efficiency.py after the first green flight.
+description = "STR-1 (strategies x Rewind-to-Launch x F9): on career-pad-craft record and recover the Flea, activate Bail-Out Grant (a one-shot paid at once) and then Appreciation Campaign, rewind to the launch, and cross the activations in flight twice around an F9; the gate switches Appreciation on at its UT both times, never re-pays the grant, and LedgerGroundTruth after a cold load finds the pools and the strategy list exact."
+instanceProfile = "stock-minimal"
+tags = ["STR-1", "strategy", "career", "ledger", "ledger-groundtruth", "rewind", "quickload",
+        "editor", "recovery", "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/career-pad-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+
+  # ---- flight A: the Flea, recorded on the pad, committed, then recovered ----
+  { cmd = "WarpToUT",       args = { ut = "60" },                                          expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "200" },                                         expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "2905720181" },                                 expect = "OK", budget = 120 },
+
+  # ---- KSC: the one-shot grant, then Appreciation Campaign in the freed slot ----
+  { cmd = "MissionMark",    args = { label = "str1-ksc" },                                 expect = "OK" },
+  { cmd = "KscAction",      args = { action = "activate-strategy", strategy = "BailoutGrant" }, expect = "OK", budget = 60 },
+  # inert-wait: stock deactivates the exchanger on a one-frame delayed callback.
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "KscAction",      args = { action = "activate-strategy", strategy = "AppreciationCampaignCfg" }, expect = "OK", budget = 60 },
+
+  # ---- rewind: A's launch, from the Space Center ----
+  { cmd = "MissionMark",    args = { label = "str1-rewind" },                              expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+
+  # ---- crossing 1: the probe in flight, F5 first ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Settings Probe" },         expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                              expect = "OK", budget = 180 },
+  { cmd = "SaveGame",       args = { name = "quicksave" },                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "str1-cross1" },                              expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "300" },                                         expect = "OK", budget = 120 },
+
+  # ---- F9 back before the activations, then crossing 2 ----
+  { cmd = "MissionMark",    args = { label = "str1-f9" },                                  expect = "OK" },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "str1-cross2" },                              expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "300" },                                         expect = "OK", budget = 120 },
+
+  # ---- the check: a cold load of the save past the crossings, then the ground truth ----
+  { cmd = "SaveGame",       args = { name = "persistent" },                                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "str1-reload" },                              expect = "OK" },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "str1-check" },                               expect = "OK" },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "reputation", "strategies", "recalc-engine", "ksp-state-patcher"]
+D14 = ["career", "scene-ksc", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 2 }
+
+[expectations.logContracts]
+required = [
+  # --- KSC: the grant paid once, then Appreciation in the freed slot ---
+  "kscaction action=activate-strategy target=BailoutGrant applied=true manifestKind=strategy-activate observedAfter=factor=[0-9.]+ slots=1/1 [^\\r\\n]*fundsDelta=[1-9][0-9.]*",
+  "(?s)MISSIONMARK label=str1-ksc .*?Game state: FundsChanged \\+[1-9][0-9]* \\(StrategyOutput\\).*?MISSIONMARK label=str1-rewind ",
+  "kscaction action=activate-strategy target=AppreciationCampaignCfg applied=true manifestKind=strategy-activate observedAfter=factor=[0-9.]+ slots=1/1 setupFunds=[1-9][0-9.]* ",
+  # --- the rewind ---
+  "\\[Rewind\\] Rewind-to-Launch initiated to UT ",
+  # --- the gate switches Appreciation on in each crossing window ---
+  "(?s)MISSIONMARK label=str1-cross1 (?:(?!MISSIONMARK label=str1-f9 ).)*?Committed strategy activation reached: strategy=AppreciationCampaignCfg activateUT=[0-9.]+ factor=[0-9.]+ nowUT=[0-9.]+ \\(switched on without cost or capture\\)",
+  "(?s)MISSIONMARK label=str1-cross2 (?:(?!MISSIONMARK label=str1-reload ).)*?Committed strategy activation reached: strategy=AppreciationCampaignCfg activateUT=[0-9.]+ factor=[0-9.]+ nowUT=[0-9.]+ \\(switched on without cost or capture\\)",
+  # --- the check ---
+  "(?s)MISSIONMARK label=str1-check .*?BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "(?s)MISSIONMARK label=str1-check .*?result: hardFailures=0 ",
+  "(?s)MISSIONMARK label=str1-check .*?CompareStrategies: managed=\\[[^\\]]*AppreciationCampaignCfg[^\\]]*\\] ledgerActive=\\[AppreciationCampaignCfg\\] saveActive=\\[AppreciationCampaignCfg\\] diverged=0 \\[\\]",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "kscaction refused",
+  "warptout refused",
+  "invokerewindtolaunch refused",
+  "result: hardFailures=[1-9]",
+  "GUARDED (?:UPLIFT|DRAWDOWN) clamped resource=(?:Funds|Reputation)",
+  # The one-shot exchanger is never switched back on, by the gate or by a load.
+  "Committed strategy activation reached: strategy=BailoutGrant",
+  "Committed strategy activation reached but stock left",
+  # After the rewind nothing pays the grant again, and no load switches a strategy on early.
+  "(?s)MISSIONMARK label=str1-rewind .*?(?:Game state: FundsChanged \\+[0-9]+ \\(StrategyOutput\\)|Suppressed FundsChanged event \\(StrategyOutput\\))",
+  "(?s)MISSIONMARK label=str1-rewind .*?PatchStrategies: activated=[1-9]",
+]
+
+[runtime]
+# LoadGame x3 (660 each), WarpToUT x4 (240 each), StartRecording 180, CommitTree 120,
+# Recover 120, KscAction x2 (120 each), InvokeRewindToLaunch 660, GoToEditor 240,
+# LaunchFromEditor 300, SaveGame x2 (120 each), RunTests 600, about 14 inert steps at 120:
+# about 7,200 s.
+budgetSeconds = 7500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

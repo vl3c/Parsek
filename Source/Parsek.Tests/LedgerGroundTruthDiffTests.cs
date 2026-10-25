@@ -1067,22 +1067,35 @@ namespace Parsek.Tests
                 && l.Contains("saveParts=1"));
         }
 
-        [Fact]
-        public void Diff_Strategies_SaveSideCensusOnly()
+        private static CareerSaveSnapshot SaveWithActiveStrategies(params string[] ids)
         {
-            // The SHAPE-ONLY contract: StrategiesModule exposes no active set, so the
-            // facet is census only and has no compare half.
             var save = HealthySave();
             save.HasStrategySystem = true;
-            save.Strategies.Add(new SaveStrategy
+            foreach (string id in ids)
             {
-                Name = "PatentsLicensingCfg",
-                IsActive = true,
-                ActivatedUT = 17022.76,
-                Factor = 0.05
-            });
-            save.ActiveStrategyIds.Add("PatentsLicensingCfg");
+                save.Strategies.Add(new SaveStrategy { Name = id, IsActive = true, ActivatedUT = 100.0, Factor = 0.05 });
+                save.ActiveStrategyIds.Add(id);
+            }
+            return save;
+        }
+
+        private static LedgerReconstructionSnapshot ReconWithStrategies(string[] managed, string[] active)
+        {
             var recon = HealthyRecon();
+            recon.HasStrategySurface = true;
+            foreach (string id in managed) recon.ManagedStrategyIds.Add(id);
+            foreach (string id in active) recon.LedgerActiveStrategyIds.Add(id);
+            return recon;
+        }
+
+        [Fact]
+        public void Diff_Strategies_NoManagedStrategy_StaysUncompared()
+        {
+            // A career whose ledger never activated a strategy keeps its facet count, so the
+            // committed specs pinning facetsCompared= are unchanged; the save's active set is
+            // a census line only.
+            var save = SaveWithActiveStrategies("PatentsLicensingCfg");
+            var recon = ReconWithStrategies(new string[0], new string[0]);
 
             var baseline = LedgerGroundTruthDiff.Compare(
                 HealthySave(), HealthyRecon(), FacetTolerances.Default, NoMaxLevels());
@@ -1090,9 +1103,85 @@ namespace Parsek.Tests
                 save, recon, FacetTolerances.Default, NoMaxLevels());
 
             Assert.Equal(baseline.FacetsCompared, report.FacetsCompared);
-            Assert.Contains(logLines, l => l.Contains("CompareStrategies")
-                && l.Contains("no reconstruction strategy surface exists")
+            Assert.Empty(report.All);
+            Assert.Contains(logLines, l => l.Contains("CompareStrategies: no ledger-managed strategy")
                 && l.Contains("saveActive=1"));
+        }
+
+        [Fact]
+        public void Diff_Strategies_MatchingSets_CountFacetNoDivergence()
+        {
+            // Appreciation on in both; the one-shot exchanger the ledger saw end is off in both.
+            var save = SaveWithActiveStrategies("AppreciationCampaignCfg");
+            var recon = ReconWithStrategies(
+                new[] { "AppreciationCampaignCfg", "BailoutGrant" },
+                new[] { "AppreciationCampaignCfg" });
+
+            var baseline = LedgerGroundTruthDiff.Compare(
+                HealthySave(), HealthyRecon(), FacetTolerances.Default, NoMaxLevels());
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.Equal(baseline.FacetsCompared + 1, report.FacetsCompared);
+            Assert.Empty(report.All);
+            Assert.Contains(logLines, l => l.Contains("[LedgerGroundTruth]")
+                && l.Contains("CompareStrategies: managed=[AppreciationCampaignCfg,BailoutGrant] ledgerActive=[AppreciationCampaignCfg] saveActive=[AppreciationCampaignCfg] diverged=0 [] unmanagedSaveActive=0"));
+        }
+
+        [Fact]
+        public void Diff_Strategies_LedgerActiveNotInSave_IsPhantomReportOnly()
+        {
+            // A committed activation the clock reached that stock never switched on.
+            var save = SaveWithActiveStrategies();
+            var recon = ReconWithStrategies(
+                new[] { "AppreciationCampaignCfg" }, new[] { "AppreciationCampaignCfg" });
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            var d = Assert.Single(report.All);
+            Assert.Equal(DivergenceFacet.Strategy, d.Facet);
+            Assert.Equal(DivergenceKind.PhantomInRecon, d.Kind);
+            Assert.Equal("AppreciationCampaignCfg", d.Identity);
+            Assert.Empty(report.HardFailures(strict: false));
+            Assert.Single(report.HardFailures(strict: true));
+            Assert.Contains(logLines, l => l.Contains("CompareStrategies:")
+                && l.Contains("diverged=1 [AppreciationCampaignCfg]"));
+        }
+
+        [Fact]
+        public void Diff_Strategies_SaveActiveNotInLedger_IsMissingInRecon()
+        {
+            // An activation switched on before its committed UT (or a deactivation stock
+            // never applied): managed, on in the save, off in the ledger at the clock.
+            var save = SaveWithActiveStrategies("AppreciationCampaignCfg");
+            var recon = ReconWithStrategies(new[] { "AppreciationCampaignCfg" }, new string[0]);
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            var d = Assert.Single(report.All);
+            Assert.Equal(DivergenceFacet.Strategy, d.Facet);
+            Assert.Equal(DivergenceKind.MissingInRecon, d.Kind);
+            Assert.Equal(1.0, d.ExpectedFromSave);
+            Assert.Equal(0.0, d.Reconstructed);
+        }
+
+        [Fact]
+        public void Diff_Strategies_UnmanagedSaveActive_IsCountedNotEmitted()
+        {
+            // Leadership Initiative on since before the save had a ledger: not the ledger's
+            // to state, so no divergence even though the ledger has it off.
+            var save = SaveWithActiveStrategies("LeadershipInitiative", "AppreciationCampaignCfg");
+            var recon = ReconWithStrategies(
+                new[] { "AppreciationCampaignCfg" }, new[] { "AppreciationCampaignCfg" });
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, NoMaxLevels());
+
+            Assert.Empty(report.All);
+            Assert.Contains(logLines, l => l.Contains("CompareStrategies:")
+                && l.Contains("diverged=0 []") && l.Contains("unmanagedSaveActive=1"));
         }
 
         [Fact]
@@ -1103,7 +1192,7 @@ namespace Parsek.Tests
             // regardless of strictness.
             foreach (DivergenceFacet facet in new[]
             {
-                DivergenceFacet.Roster, DivergenceFacet.TechNode
+                DivergenceFacet.Roster, DivergenceFacet.TechNode, DivergenceFacet.Strategy
             })
             {
                 foreach (DivergenceKind kind in new[]

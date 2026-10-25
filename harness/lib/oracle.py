@@ -1435,6 +1435,97 @@ def diff_world_roster(
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Optional awards (todo CL-2-POD-LANDING-AWARD-VARIANCE). A flown lane can trip a
+# stock milestone on some runs and not on others (CL-2's pod sometimes completes
+# Kerbin/Landing before the impact breaks it up: +800 funds, 2026-10-08_1914), and a
+# hard pool gate reads that per-run outcome as drift. An `[[expectations.ledger.
+# optional]]` entry is an ordinary manifest entry plus a `milestone` id. It joins the
+# declared set ONLY when the award was booked on BOTH sides: the event-time capture
+# (Parsek's AwardProgress postfix line `Milestone enriched: '<id>' funds= rep= sci=`,
+# stock's own award values) AND the produced save (the id in ProgressTracking's
+# completed set, `careerSave.completedMilestoneIds`, the state Parsek's recalc
+# patched). Booked on neither side, it is dropped. Any other shape - one side only,
+# the award captured more than once, or a captured funds / science amount that is
+# not the declared one - is a HARD divergence, so the knob can never hide an award
+# one side lost. The declared amount, never the captured one, is what joins
+# EXPECTED, so the pool diff still catches a booked award of the wrong size.
+# ---------------------------------------------------------------------------
+
+OPTIONAL_ADMITTED = "admitted"
+OPTIONAL_ABSENT = "absent"
+OPTIONAL_DISAGREEMENT = "disagreement"
+OPTIONAL_REPEATED = "repeated"
+OPTIONAL_AMOUNT_MISMATCH = "amount-mismatch"
+OPTIONAL_HARD_DECISIONS: Tuple[str, ...] = (
+    OPTIONAL_DISAGREEMENT, OPTIONAL_REPEATED, OPTIONAL_AMOUNT_MISMATCH,
+)
+
+
+@dataclass(frozen=True)
+class OptionalAwardDecision:
+    milestone: str
+    decision: str
+    captured_count: int
+    save_completed: bool
+    detail: str
+
+    @property
+    def admitted(self) -> bool:
+        return self.decision == OPTIONAL_ADMITTED
+
+    @property
+    def hard(self) -> bool:
+        return self.decision in OPTIONAL_HARD_DECISIONS
+
+
+def decide_optional_award(milestone: str,
+                          captured: Sequence[Tuple[float, float, float]],
+                          save_completed: bool,
+                          declared_funds: float, declared_science: float,
+                          tolerances: Optional[Tolerances] = None) -> OptionalAwardDecision:
+    """Admit, drop or red one optional milestone award (pure). ``captured`` is every
+    ``(funds, rep, sci)`` the event-time capture logged for ``milestone``;
+    ``declared_*`` sum the optional entries naming it. Reputation is not compared
+    here: the capture line's rep is stock's nominal reward and a declared rep entry
+    may be the applied one, so the rep pool diff and the stock-award cross-check
+    judge it instead."""
+    tol = tolerances or default_tolerances()
+    n = len(captured)
+    if n > 1:
+        return OptionalAwardDecision(milestone, OPTIONAL_REPEATED, n, save_completed,
+                                     "captured %d times; a milestone awards once" % n)
+    if n == 1 and save_completed:
+        funds, _rep, sci = captured[0]
+        if (not within_tolerance(declared_funds, funds, tol.funds)
+                or not within_tolerance(declared_science, sci, tol.science)):
+            return OptionalAwardDecision(
+                milestone, OPTIONAL_AMOUNT_MISMATCH, n, save_completed,
+                "captured funds=%r sci=%r, declared funds=%r sci=%r"
+                % (funds, sci, declared_funds, declared_science))
+        return OptionalAwardDecision(milestone, OPTIONAL_ADMITTED, n, save_completed,
+                                     "booked on both sides")
+    if n == 0 and not save_completed:
+        return OptionalAwardDecision(milestone, OPTIONAL_ABSENT, n, save_completed,
+                                     "booked on neither side")
+    return OptionalAwardDecision(
+        milestone, OPTIONAL_DISAGREEMENT, n, save_completed,
+        "capture %s the award but the produced save %s it"
+        % ("shows" if n else "does not show",
+           "completes" if save_completed else "does not complete"))
+
+
+def optional_decision_divergence(d: OptionalAwardDecision) -> Optional[OracleDivergence]:
+    """The HARD divergence for a hard optional decision, else None."""
+    if not d.hard:
+        return None
+    return OracleDivergence(
+        facet="ledger", kind="optional-award-" + d.decision, identity=d.milestone,
+        expected=None, parsed=None, ut_window=(None, None), hard=True,
+        detail="optional award %s: %s (an award booked on one side only, or of another "
+               "size, is ledger drift)" % (d.milestone, d.detail))
+
+
 def has_hard_drift(divergences: Sequence[OracleDivergence]) -> bool:
     """True iff any divergence is HARD -- the ``ledger_drift`` boolean the verifier
     feeds ``hlib.classify_verdict`` (which maps it to PARSEK-FAIL(ledger))."""
