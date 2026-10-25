@@ -1,0 +1,122 @@
+schema = 1
+id = "AJ-1-alarm-jump-refused-in-refly"
+tier = "operator"
+# GC-13, todo GC13-ALARM-JUMP-BYPASSES-SWITCH-RULES: THE STOCK ALARM DIALOG'S JUMP BUTTON
+# DURING A RE-FLY. AUTHORED 2026-10-25, NEVER FLOWN.
+#
+# Decompiled `AlarmClockMessageDialog.OnJump` (KSP 1.12.5) calls
+# `FlightGlobals.SetActiveVessel(alarm.Vessel)` in FLIGHT, and none of Parsek's switch patches sat
+# on that path, so an alarm set before the separation (it survives in the rewind point's
+# quicksave) jumped out of a Re-Fly session past design 2.12 Rule 3. The fix
+# (`Patches/AlarmJumpSwitchPatch.cs`): the `OnJump` Prefix runs the map Switch-To gates
+# (`MapFocusObjectOnSelectPatch.PrepareOwnedVesselSwitch`, whose Re-Fly refusal logs
+# `Switch refused ... path=alarmJump`), and `AlarmJumpButtonMarkPatch` (a `Spawn` postfix) hides
+# the Jump button for an alarm the Prefix would refuse.
+#
+# THE SEAM: the new `AlarmJump` verb adds a stock `AlarmTypeRaw` bound to the named vessel, fires
+# it through stock's own `TriggerAlarm` (the message dialog spawns, so the mark postfix runs as
+# on a real fire), reads the Jump button, presses stock's own `OnJump` (the Prefix runs as on a
+# click) and closes the dialog with stock's Delete, leaving no alarm behind. `jump=always`
+# presses even the hidden button, so one step proves the mark AND the block behind it.
+#
+# THE HOST: RF-L3's (live-proven 2026-10-20), `gloops-airshow` with `refly-world-preservation`
+# injected; the same chain (TimeJump past the slot window, InvokeRewind rp_wp_root slot 1, the
+# crashed booster) with its switch click replaced by the alarm, then the merge dialog's Discard.
+# The target is RF-L3's: `WP Orbital Station`, the unrelated orbital vessel the strip keeps.
+#
+# WHAT GOES RED WITH THE FIX REVERTED: no `[AlarmJump]` line at all, `jumpShown=true`, no
+# `path=alarmJump` refusal, and stock's `SetActiveVessel` on the unloaded station (a scene
+# reload: `sceneLoadRequested=true`, forbidden below).
+#
+# GUESSES (NOT YET FLOWN): the alarm clock scenario running in FLIGHT after the rewind (the
+# fixture's ScenarioModule lists scene 7); stock's `TriggerAlarm` spawning the dialog inside the
+# call; the station resolving by name, unloaded (`targetLoaded=false`), with refusal reason
+# `notSessionVessel` (RF-L3 measured that reason for the same target); stock's own Spawn
+# predicate showing the button (`stockWouldShowJump=true`), so the hidden button is Parsek's.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - RF-L3's host and chain, one verb swapped;
+# (2) one TimeJump, no warps; (3) no dwells; (4) no burns; (5) no coast; (6) the refusal is
+# synchronous, retry `once`; (7) count window {1,} as RF-L3; (8) operator until green,
+# expected about 4 min; (9) flight_efficiency.py after the first green flight.
+description = "AJ-1 (GC-13): during a Re-Fly of the world-preservation fixture's crashed booster slot, a stock alarm bound to the unrelated orbital station fires its message dialog with the Jump button hidden, and a press of stock's OnJump anyway is refused by the session gate (Switch refused path=alarmJump reason=notSessionVessel): the active vessel stays the re-flown one, no scene load is requested, and the attempt is then discarded."
+instanceProfile = "stock-minimal"
+tags = ["AJ-1", "GC-13", "alarm-clock", "rewind", "refly", "switch", "session-isolation",
+        "discard", "injected-recordings", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "refly-world-preservation"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "TimeJump",          args = { deltaSeconds = "61.0" },                    expect = "OK", budget = 120 },
+  { cmd = "InvokeRewind",      args = { rp = "rp_wp_root", slot = "1" },            expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "aj1-jump" },                       expect = "OK" },
+  # THE JUMP: an alarm on the unrelated station fires; its Jump is pressed even though hidden.
+  { cmd = "AlarmJump",         args = { vessel = "WP Orbital Station", jump = "always" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",       args = { label = "aj1-refused" },                    expect = "OK" },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "AnswerMergeDialog", args = { choice = "discard" },                       expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                           expect = "OK" },
+]
+
+[dimensionsCovered]
+# rewind-to-separation <- StartInvoke + Invocation complete (RF-L3's tokens).
+D9  = ["rewind-to-separation"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1 }
+
+[expectations.logContracts]
+required = [
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_wp_root slot=1",
+  "Invocation complete",
+  # The mark: Parsek's Spawn postfix hides the button stock would have shown.
+  "(?s)MISSIONMARK label=aj1-jump (?:(?!MISSIONMARK label=aj1-refused ).)*?alarmjump start targetPid=([0-9]+) [^\\n]*?stockWouldShowJump=true decision=refuse-refly jump=always(?:(?!MISSIONMARK label=aj1-refused ).)*?\\[AlarmJump\\] Jump button hidden: decision=RefuseReFly alarmVesselPid=\\1 buttonFound=True",
+  # The block: the press reaches stock's OnJump, whose Prefix runs the session gate on the
+  # alarmJump path and keeps stock from switching.
+  "(?s)MISSIONMARK label=aj1-jump (?:(?!MISSIONMARK label=aj1-refused ).)*?alarmjump press OnJump alarmId=[0-9]+ targetPid=([0-9]+) jumpShown=false(?:(?!MISSIONMARK label=aj1-refused ).)*?Switch refused sess=\\S+ path=alarmJump target=\\1 reason=notSessionVessel(?:(?!MISSIONMARK label=aj1-refused ).)*?\\[AlarmJump\\] Jump in FLIGHT targetPid=\\1 runStock=False intentArmed=False",
+  # The seam's read-back: hidden, pressed, nothing switched, no scene load, no alarm left.
+  "(?s)MISSIONMARK label=aj1-jump (?:(?!MISSIONMARK label=aj1-refused ).)*?alarmjump result targetPid=[0-9]+ targetIsGhost=false targetLoaded=\\S+ alarmId=[0-9]+ stockWouldShowJump=true jumpShown=false decision=refuse-refly jump=always pressed=true before=([0-9]+) after=\\1 switched=false sceneLoadRequested=false alarmRemoved=true",
+  # The session survives the refused Jump and ends by the merge dialog's Discard (RF-L3).
+  "End reason=discardReFlyAttemptFromMergeDialog",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "subscriber threw",
+  # The Jump never switches, never reloads and never arms an intent.
+  "alarmjump result [^\\n]*switched=true",
+  "alarmjump result [^\\n]*sceneLoadRequested=true",
+  "Alarm Jump intent armed",
+  "\\[AlarmJump\\] Jump in FLIGHT targetPid=[0-9]+ runStock=True",
+  # The station is known to the session's world; it is not an unknown target.
+  "Switch refused sess=\\S+ path=\\S+ target=[0-9]+ reason=targetUnknown",
+  "alarmjump rejected",
+  "alarmjump failed",
+  "Jump button hide failed",
+  "Alarm read failed",
+  # A refused switch never reaches the pre-switch Merge / Discard dialog.
+  "ShowPreSwitchDecisionDialog",
+  "pre-switch-dialog opening",
+]
+
+[runtime]
+# RF-L3's 2700: the same host and chain, one single-phase verb in place of the switch click.
+budgetSeconds = 2700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

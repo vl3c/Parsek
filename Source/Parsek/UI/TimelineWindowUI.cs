@@ -788,13 +788,7 @@ namespace Parsek
                 // [Phase 3] ERS+ELS-routed: timeline view feeds from visible
                 // recordings and non-tombstoned ledger actions only (design §3.4).
                 var recordings = EffectiveState.ComputeERS();
-                cachedTimeline = TimelineBuilder.Build(
-                    recordings,
-                    EffectiveState.ComputeELS(),
-                    MilestoneStore.Milestones,
-                    GameStateStore.IsEventVisibleToCurrentTimeline,
-                    GetCurrentGameMode(),
-                    EffectiveState.ComputeRetiredLedgerActions());
+                cachedTimeline = BuildFromLiveState(recordings);
                 cachedTimelineRecordings = recordings;
                 timelineDirty = false;
                 int droppedHovers = rowHover.MemoCount;
@@ -1041,6 +1035,24 @@ namespace Parsek
             ParsekSettingsPersistence.RecordWarpDate(warpYear, warpDay, warpHour, warpMinute);
             showTimelineWindow = false;
             ParsekLog.Verbose("UI", "Timeline window closed");
+        }
+
+        /// <summary>
+        /// The Timeline's row set over the live stores, exactly as this window builds it:
+        /// <paramref name="recordings"/> (the ERS), the ELS, the milestone store, the
+        /// current-timeline event visibility, the game mode and the tombstoned ledger rows.
+        /// The <c>ListHandles kind=timeline</c> read-back calls this too, so what it counts
+        /// is what the window would draw.
+        /// </summary>
+        internal static List<TimelineEntry> BuildFromLiveState(IReadOnlyList<Recording> recordings)
+        {
+            return TimelineBuilder.Build(
+                recordings,
+                EffectiveState.ComputeELS(),
+                MilestoneStore.Milestones,
+                GameStateStore.IsEventVisibleToCurrentTimeline,
+                GetCurrentGameMode(),
+                EffectiveState.ComputeRetiredLedgerActions());
         }
 
         private static Game.Modes? GetCurrentGameMode()

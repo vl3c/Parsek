@@ -2217,6 +2217,21 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "5436a7e8840b4c5885afcbaedc9dc037"],
             "schemaGeneration": 4,
         },
+        # career-earned-ksc-retired-milestone is career-earned-ksc plus ONE
+        # LEDGER_TOMBSTONES entry retiring the Kerbin/Science milestone row (harness/
+        # tools/build_career_earned_ksc_retired_milestone.py, the TL-1 host); every other
+        # byte is the base's, so the structure pins verbatim except the tombstone count.
+        "career-earned-ksc-retired-milestone": {
+            "trees": 1, "committedTrees": 1, "recordings": 2,
+            "supersedes": 0, "tombstones": 1, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Landed": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 8,
+            "recordingIds": ["1d611e7533a64508ae6f3b305a51615e",
+                             "5436a7e8840b4c5885afcbaedc9dc037"],
+            "schemaGeneration": 4,
+        },
         # recording-quarantine-ksc is career-earned-ksc with its Parsek/Recordings
         # rearranged into every file-collector state (harness/tools/
         # build_recording_quarantine_ksc.py, the QR-1 host); the save gains only R1's

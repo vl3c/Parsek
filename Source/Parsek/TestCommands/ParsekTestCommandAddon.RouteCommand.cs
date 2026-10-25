@@ -258,6 +258,9 @@ namespace Parsek.TestCommands
                     case TestCommandRouteCommand.ActionUnlink:
                         RouteCommandUnlink(sel);
                         return;
+                    case TestCommandRouteCommand.ActionRescan:
+                        RouteCommandRescan(sel);
+                        return;
                     default: // ActionSetCadence (IsKnownAction already filtered the rest)
                         RouteCommandSetCadence(cmd, sel);
                         return;
@@ -314,6 +317,53 @@ namespace Parsek.TestCommands
                 action, route.Id ?? string.Empty, route.Name ?? string.Empty,
                 sel.MatchKind ?? "<none>", before, route.Status));
             SetExecResult("OK", payload, null);
+        }
+
+        // ----- action=rescan -----
+
+        /// <summary>
+        /// The Logistics window's "Re-scan for endpoint" button: the same click body
+        /// (<c>LogisticsEndpointRescan.Run</c>) behind the same enabled-button gate
+        /// (<c>LogisticsEndpointRescan.IsOffered</c>), then the window's own legibility
+        /// refresh. A scan that misses is a legitimate press, not a failure: OK with
+        /// <c>allResolved=false</c> and the route still EndpointLost. Only a route the button
+        /// is not drawn for is refused.
+        /// </summary>
+        private void RouteCommandRescan(RouteSelection sel)
+        {
+            Route route = sel.Route;
+            RouteStatus before = route.Status;
+            if (!LogisticsEndpointRescan.IsOffered(route))
+            {
+                ParsekLog.Warn(Tag, string.Format(CultureInfo.InvariantCulture,
+                    "routecommand rejected reason={0} action=rescan route={1} status={2} stops={3}",
+                    TestCommandRouteCommand.RescanNotOfferedReason, route.Id ?? string.Empty,
+                    before, route.Stops != null ? route.Stops.Count : 0));
+                SetExecResult("REJECTED", null, TestCommandRouteCommand.RescanNotOfferedReason);
+                return;
+            }
+
+            LogisticsEndpointRescan.Outcome outcome =
+                LogisticsEndpointRescan.Run(route, TryGetRouteCommandUT());
+            DirtyRouteLegibilityCache();
+
+            ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
+                "routecommand complete action=rescan route={0} name='{1}' match={2} " +
+                "stops={3} resolved={4}/{3} allResolved={5} recovered={6} statusBefore={7} status={8}",
+                route.Id ?? string.Empty, route.Name ?? string.Empty, sel.MatchKind ?? "<none>",
+                outcome.Stops, outcome.Resolved, Bool(outcome.AllResolved), Bool(outcome.Recovered),
+                before, route.Status));
+            SetExecResult("OK", Payload(
+                Kv("action", TestCommandRouteCommand.ActionRescan),
+                Kv("route", route.Id ?? string.Empty),
+                Kv("name", route.Name ?? string.Empty),
+                Kv("match", sel.MatchKind ?? string.Empty),
+                Kv("stops", Int(outcome.Stops)),
+                Kv("resolved", Int(outcome.Resolved)),
+                Kv("allResolved", Bool(outcome.AllResolved)),
+                Kv("recovered", Bool(outcome.Recovered)),
+                Kv("statusBefore", before.ToString()),
+                Kv("status", route.Status.ToString())), null);
         }
 
         // ----- action=link -----

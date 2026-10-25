@@ -1,0 +1,152 @@
+schema = 1
+id = "TL-1-timeline-retired-milestone-copy"
+tier = "nightly"
+# =====================================================================================
+# THE TIMELINE PHANTOM, READ LIVE (todo TIMELINE-PHANTOM-MILESTONE-AFTER-REFLY-OF-LATER-
+# SEGMENT, fixed 2026-10-24 on `claude/project-thread-a50btn`, xUnit
+# TimelineBuilderTests.LegacyMilestone_WhoseLedgerRowIsTombstoned_IsNotShown). AUTHORED
+# 2026-10-25 (branch `claude/project-thread-u5m7su`), NEVER FLOWN.
+#
+# THE DEFECT. `MilestoneStore.CreateMilestone` copies a flight's game-state events at
+# CommitTree with their capture tag. When a Re-Fly merge tombstoned a milestone's ledger row
+# while the copy's tag still named a recording the ERS shows (the optimizer's first segment,
+# or the splitter's HEAD), the Timeline deduped legacy events against the ELS only, so the
+# copy came back as a legacy "Milestone: ..." text row for an achievement the merged
+# timeline does not hold. The fix: `TimelineBuilder.Build` takes the tombstoned rows
+# (`EffectiveState.ComputeRetiredLedgerActions`) and `AddRetiredLegacyDuplicateKeys` adds
+# their legacy-twin keys to the dedup set. Display only; the ledger was right.
+#
+# WHY THE HOST IS A BUILT SAVE AND NOT A FLIGHT. No flight on the current build can
+# tombstone a milestone. Since the 2026-10-19 ledger-safety rulings (design
+# docs/parsek-rewind-to-separation-design.md section 2.12, Rule 1) every row that is not a
+# loss is a SEALING row (`SupersedeCommit.IsLossRow`: crew deaths and bookkeeping, loss
+# reputation, building damage only), `RewindInvoker.CanInvoke` precondition 7 refuses a slot
+# whose retire set holds one, and `SupersedeCommit.CommitTombstones`, the only writer of
+# `LEDGER_TOMBSTONES`, writes exactly that retire set (`BuildRetireSet` over the same closure,
+# the splitter's spanning ancestor included). A milestone tombstone therefore exists only in
+# a save a pre-ruling merge wrote (2026-10-07 to 2026-10-19 for the todo's exact
+# optimizer-split shape; the section 2.12 migration repairs no tombstone already written).
+# `career-earned-ksc-retired-milestone` is such a save, built by
+# harness/tools/build_career_earned_ksc_retired_milestone.py: `career-earned-ksc` plus one
+# tombstone retiring the Kerbin/Science milestone row (UT 346.0799999999752, tagged to
+# `1d611e75...`) whose milestone-store copy carries the same, visible tag. The other three
+# milestone rows stay effective, so their copies are hidden by the ordinary ELS dedup.
+# (The one row a merge CAN still retire that has a legacy twin is FacilityDestruction - a
+# building a flight knocked down after a separation on the continuing parent's recording,
+# then that parent slot re-flown with no gain filed after the separation. No committed host
+# does that; the xUnit cell Facility_destruction_twin_reads_the_same_way covers its read.)
+#
+# THE READ. `ListHandles kind=timeline` (new with this lane) builds the Timeline through
+# `TimelineWindowUI.BuildFromLiveState`, the window's own inputs (ERS, ELS, the milestone
+# store, the current-timeline visibility, the mode, the tombstoned rows), and checks the rows
+# against the tombstoned ledger rows:
+#   retired=1 retiredWithTwin=1   the Kerbin/Science row is tombstoned (and the ELS rebuild
+#                                 skipped it: skippedTombstoned=1);
+#   retiredTwinCopies=1           its milestone-store copy still exists, committed and
+#                                 visible to the current timeline, with no effective row to
+#                                 hide it (computed from the store, not from the built rows);
+#   retiredTwinRows=0             the built Timeline draws no legacy row for it;
+#   legacyMilestoneRows=0         and no legacy Milestone row at all.
+# legacyRows=1 is MEASURED (first flight 2026-10-25_1014, the only mismatch of that
+# PARSEK-FAIL, a spec pin): the live career draws one non-milestone legacy row the headless
+# cells do not model, so the pin is the measured 1, never 0.
+# A build without AddRetiredLegacyDuplicateKeys reads retiredTwinRows=1 legacyMilestoneRows=1
+# and one more legacy row (mutation-checked headless: TestCommandTimelineReadbackTests and the
+# TimelineBuilderTests cell red with the call removed), and loses the Verbose
+# `Legacy twins of 1 tombstoned ledger row(s) hidden` line, so three required tokens red.
+# A SaveGame then round-trips the tombstone (saveParse tombstones=1, report-only).
+#
+# WHAT IS GATED ON BELIEF (never flown; a first red reads against these):
+#   - the cold load installs the save's LEDGER_TOMBSTONES (LoadReconcilePolicy Cold) and the
+#     load-time sweep keeps it (its orphan check matches the action id, which exists);
+#   - all four milestone rows of this career read Effective after the load's recalculation,
+#     so legacyMilestoneRows=0 / actionRows>=1 hold. A non-zero
+#     legacyMilestoneRows with retiredTwinRows=0 is another milestone row the walk left not
+#     effective (a premise miss of this host, not the defect): read the `Filtered N duplicate
+#     legacy event(s)` line;
+#   - the retired milestone's 1600 funds come off the career at the load's patch (the ELS
+#     lacks the row); no Parsek ERROR or Orphan tombstone line results;
+#   - ERS shows `1d611e75...` (nothing is superseded in this save), so the copy is visible.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - career-earned-ksc's boot, plus a
+# derived save; (2) no waits; (3)-(5) no dwells, burns or coasts; (6) a refused verb fails
+# its step at once, retry `once`; (7) recordings count pinned exactly {2,2}; (8) nightly,
+# expected about 2 min; (9) flight_efficiency.py after the first green flight.
+# =====================================================================================
+description = "Timeline phantom read live (TL-1, AUTHORED 2026-10-25, never flown): a career save holding a tombstoned Kerbin/Science milestone row whose milestone-store copy stays tagged to a visible recording; the Timeline built from the live state shows no legacy Milestone row for it while the copy still exists, and the tombstone survives a save."
+instanceProfile = "stock-minimal"
+tags = ["TL-1", "timeline", "ledger", "milestones", "tombstones", "career", "cold-load",
+        "runtime-handles"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/career-earned-ksc-retired-milestone"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",    args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  # LOAD-BEARING: the Timeline's twin line and the ELS rebuild line are Verbose.
+  { cmd = "SetSetting",  args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "SetSetting",  args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "timeline" }, label = "timeline",        expect = "OK" },
+  { cmd = "SaveGame",    args = { name = "persistent" },                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                                         expect = "OK" },
+]
+
+[dimensionsCovered]
+#   milestones / tombstones <- the listhandles timeline summary and retired lines
+#   ers-els-routing         <- the build reads ERS + ELS + the retired complement
+D8  = ["milestones", "tombstones", "ers-els-routing"]
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's own two committed recordings; this lane records nothing.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  # The cold load of the one committed tree.
+  "OnLoad initial: cleared CommittedTrees, loading 1 tree\\(s\\)",
+  # The tombstone is live: the ELS rebuild skips exactly the one retired row.
+  "\\[ELS\\] Rebuilt: [0-9]+ entries from [0-9]+ actions \\(skippedTombstoned=1 tombstonesTotal=1\\)",
+  # The read itself.
+  "listhandles kind=timeline count=[1-9][0-9]* truncated=false",
+  # THE FIX, three ways: the builder hid the retired row's twin, the summary reads the
+  # copy present and no row for it, and the retired row's own line says the same.
+  "\\[Timeline\\] Legacy twins of 1 tombstoned ledger row\\(s\\) hidden",
+  "listhandles timeline count=[1-9][0-9]* recordingRows=[0-9]+ actionRows=[1-9][0-9]* legacyRows=1 milestoneRows=[1-9][0-9]* legacyMilestoneRows=0 retired=1 retiredWithTwin=1 retiredTwinCopies=1 retiredTwinRows=0",
+  "listhandles timeline retired index=0 type=MilestoneAchievement subject=Kerbin/Science ut=346\\.0799999999752 twinCopies=1 twinRows=0",
+  # The save afterwards still holds the tree.
+  "OnSave: saving 1 committed tree\\(s\\)",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "listhandles rejected",
+  # The load sweep must not read the tombstone as orphaned.
+  "Orphan tombstone=",
+  # The phantom: a legacy row drawn for a retired twin.
+  "listhandles timeline retired index=[0-9]+ [^\\n]*twinRows=[1-9]",
+]
+
+[expectations.rewind]
+gating        = false
+tombstones    = { min = 1, max = 1 }
+supersedeRows = { max = 0 }
+
+[runtime]
+# Budget arithmetic (M-A5 S8): max(step_budget, 600) + 60 per DEFERRED verb (LoadGame)
+# and max(step_budget, dispatch + 60) for the rest:
+#   LoadGame 660   SetSetting x2 240   ListHandles 120   SaveGame 120   FlushAndQuit 120
+#   -> sum 1260. 1600 clears it by 340.
+budgetSeconds = 1600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

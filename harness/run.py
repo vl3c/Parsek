@@ -178,6 +178,8 @@ RP_SIDECAR_BY_PRESET = {
     "chain-tip-recovery": None,
     # CI-9's chain-tip-dock tree: one committed two-recording tree, no RP.
     "chain-tip-dock": None,
+    # LS-1's launch-site-claim tree: one committed two-recording tree, no RP.
+    "launch-site-claim": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 

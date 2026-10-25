@@ -1,0 +1,256 @@
+schema = 1
+id = "RS-1-relay-route-endpoint-lost-rescan"
+tier = "nightly"
+# =====================================================================================
+# RS-1: A LOOP ROUTE LOSES ITS ENDPOINT AT A DELIVERY, THE PLAYER REWINDS TO BEFORE THE
+# LOSS, AND PRESSES RE-SCAN. AUTHORED 2026-10-25, NEVER FLOWN. Todo
+# LOOP-ROUTE-RESCAN-DOES-NOTHING.
+#
+# WHAT THIS LANE PROVES. (1) A LOOP route reaches RouteStatus.EndpointLost through the one
+# path that sets it, `ApplyDelivery`'s endpoint re-resolution at a delivery
+# (`endpoint-destroyed-at-delivery:*`). (2) A Re-scan that MISSES leaves it EndpointLost.
+# (3) THE FIX: after a Rewind-to-Launch to a save taken before the loss, the lost endpoint
+# is back (the same vessel, same part flightIDs), the route is still EndpointLost (nothing
+# else restarts a stopped loop route), and the Re-scan finds every stop and RESTARTS the
+# route through `RouteOrchestrator.TryRecoverEndpointLostAfterRescan`: the
+# `EndpointRescan: ... loopRoute=1 EndpointLost->Active` line, a `RouteResumed
+# reason=endpoint-rescan` row, the seam's `recovered=true ... status=Active`, and then a
+# real cycle: a dispatch, and A written `requested=200 written=200`, `completed=1`.
+#
+# RED WITH THE FIX REVERTED. Before #2188 the click only cleared `NextEligibilityCheckUT`
+# and logged `(cleared retry gate)`; a loop route's tick skips every stopped route, so the
+# route stays EndpointLost. Every token after the `rs1-rewound` mark then misses: the
+# found-both-stops scan line (`(recovering)` was `(cleared retry gate)`), the
+# `EndpointRescan:` line, the `endpoint-rescan` marker, `recovered=true ... status=Active`,
+# `resumed=2`, the second-timeline dispatch and delivery write, `completed=1`, and the
+# routes facet `statuses={Active:1}` / `completedCycles=1`.
+#
+# WHY A MULTI-STOP ROUTE. On a single-stop loop route the eligibility gate and the
+# delivery resolve the SAME endpoint through the SAME resolver in the SAME tick
+# (`ProcessLoopRoute` -> `CheckEligibility` -> `EmitLoopCycle` -> `ApplyDelivery`), so an
+# endpoint missing at delivery is already missing at the gate, which records a hold and
+# stays Active. A multi-stop route gates once, at the cycle's FIRST window
+# (`ProcessMultiStopCrossings`: "Eligibility gates the cycle at DISPATCH only"), and fires
+# each later window with no re-gate, so an endpoint that disappears between the windows is
+# found missing only at the later window's delivery: the EndpointLost transition.
+#
+# HOW THE ENDPOINT COMES BACK. The resolver is root-part flightID, then pid (guid-gated),
+# then surface proximity within 500 m (any non-ghost, non-transport vessel that is LANDED,
+# SPLASHED or PRELAUNCH; no crew or storage test). No seam brings a NEW such vessel within
+# 500 m of stop 1's point here: the runway spawn is about 703 m away to the north-east and
+# heads east (a rover would have to reverse about 300 m or turn round; DriveVessel has no
+# steering and no committed craft is a rover), the pad is 2.3 km away, and B, the only
+# other candidate, is 731 m away and not the active vessel (the fixture boots on C, and
+# CycleVessel moves nothing without a ghost to drop). Identity can come back, and the
+# player's way to get it back is to rewind: this lane records a one-second subject on C
+# right after the activation (H58's pattern), which captures a rewind save holding A alive,
+# and Rewind-to-Launch reloads that save after the loss. The go-back seam keeps memory's
+# routes (`RouteRewindClassifier.ReconcileStoreAtRewind`; the route was created at the boot
+# UT ~410, before the cutoff, so it stays committed), and `ApplyDerivedTimelineStatus`
+# keeps a validity status (EndpointLost) live and writes only `PreMissingStatus` (the kept
+# activation row derives Active, already the value, so no line).
+# `RouteLoadReconcile.RestoreLoopPositionFromSave` restores the loop position, not the
+# status. A resolves again at the root-part step (stop 1 was rebound to A by the
+# dispatch-time resolution, and memory's endpoint is the one kept).
+#
+# THE HOST is RVR-7's `rover-relay-c-recorded`: rover C loads from B (stop 0, dock UT
+# 155.82) and delivers to A (stop 1, dock UT 274.18); the loop span is 162.74 s, so stop
+# 0's window sits about 44.4 s into a cycle and stop 1's at the cycle end. The fixture is
+# staged at start-of-cycle (B and A at 200/400 LiquidFuel).
+#
+# THE CLOCK. Route created Paused at the boot UT (~410). `TimeJump ut=1000`, `activate`
+# (anchor = the activation UT), then StartRecording / StopRecording / CommitTree on C: the
+# rewind save is captured at ~1000.x with the route Active and A alive. `TimeJump
+# ut=1060` crosses stop 0's window (~1044.4): cycle-0 dispatches and debits B. Then the
+# Space Center, A recovered through its stock KSC marker (~1061-1080 at 1x), and `WarpToUT
+# ut=1250` crosses stop 1's window (~1162.7) with A gone: EndpointLost. Re-scan #1 misses.
+# `InvokeRewindToLaunch tree=latest` (the C subject; the fixture tree makes the bare
+# auto-select ambiguous) lands at the Space Center at the save UT minus 15 s (~985.5), with
+# the route cutoff at the save's own UT. Re-scan #2 at ~985.5 restarts the loop observation
+# there, so the next windows are ~1029.9 (pickup) and ~1148.2 (delivery), and the one after
+# is ~1192.6: `WarpToUT ut=1175` crosses the first two and stops short of the third (a
+# second pickup at B, spent to 45.6, would block OriginLacksCargo).
+#
+# GUESSES (not measured; read a first red against these):
+#   * The window phases (44.4 s and 162.74 s into a cycle) are RVR-7 / RVR-9 era readings
+#     of the span. If the span moved, TimeJump 1060 may land after window 1 (A receives
+#     cargo in the first timeline and the windowed forbid reds) or before window 0.
+#   * The KSC part (ExitToSpaceCenter + KscMarkerRecover) spends under 100 s of game time
+#     at 1x, so the recover lands before window 1.
+#   * The miss reason is regexed across `no-candidate-after-transport-exclusion` (C, the
+#     route's transport, is 313 m from the point: the prediction) and
+#     `no-vessel-within-radius`.
+#   * StartRecording on C (a committed-tree vessel) makes a NEW tree, as it did for B on
+#     H58's host: `Total committed: 11 recordings, 2 trees`, recordings.count 11. If it
+#     resumed the fixture tree instead, the route could read SourceChanged.
+#   * The rewind keeps A: A is in the rewind save and was never Parsek-spawned, so the
+#     spawned-pid strip scope does not name it (H58's header: the save's vessels are
+#     protected by `RewindContext.RewindQuicksaveVesselPids`). C, the recorded subject, may
+#     be stripped and respawned at its recording's end (~1001); it is the transport either
+#     way, and A wins at the root-part step before proximity runs.
+#   * A's reloaded root part keeps its flightID (the save's PART `uid`), so the rescan hits
+#     at the root-part step; were it re-stamped, the pid step (4280917262, same launch)
+#     resolves A instead and every pinned token reads the same.
+#   * A's VesselRecovered ledger row (~1061) is past the cutoff and does not strip A; the
+#     route's dispatch / debit / EndpointLost rows (1044-1163) retire
+#     (`retiredRouteRows=` nonzero) and ListHandles reads `dispatched=0` after the rewind.
+#   * The rewind lands 15 s under the save UT (H58's `adjustedUT`); the second-timeline
+#     windows follow from that and are bracketed by WarpToUT 1175.
+#   * Both deliveries are path=unloaded (the Space Center); the path is not pinned.
+# =====================================================================================
+description = "RS-1, NEVER FLOWN: on rover-relay-c-recorded create the two-stop relay route, activate it at UT 1000, record and commit a one-second subject on C (a rewind save with A alive), TimeJump to 1060 (cycle-0 dispatches at stop 0), go to the Space Center, recover A (stop 1's endpoint) through its stock KSC marker and warp to 1250: stop 1's delivery finds no endpoint and the loop route goes EndpointLost. A first Re-scan (RouteCommand action=rescan, the button's own click body) misses. Rewind-to-Launch the subject: A is back, the route is still EndpointLost, and the second Re-scan finds both stops and restarts the loop route (TryRecoverEndpointLostAfterRescan, the LOOP-ROUTE-RESCAN-DOES-NOTHING fix); a warp to 1175 then runs one full cycle that delivers to A. Red with the fix reverted (the route would stay EndpointLost)."
+instanceProfile = "stock-minimal"
+tags = ["seam-verbs", "logistics", "route-create", "route-delivery", "endpoint-resolve",
+        "endpoint-lost", "endpoint-rescan", "ksc-marker-recover", "rewind-to-launch",
+        "route-x-rewind", "recorded-fixture", "RS-1"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-relay-c-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoMerge",          value = "true" },  expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "88c012a6eed94bf09ff73397a4a31410" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "88c012a6eed94bf09ff73397a4a31410", name = "RS1 Relay" }, expect = "OK", budget = 120 },
+  # Paused: the jump only pins the activation UT (header, THE CLOCK).
+  { cmd = "TimeJump",     args = { ut = "1000" },                             expect = "OK", budget = 300 },
+  { cmd = "RouteCommand", args = { action = "activate", route = "RS1 Relay" }, expect = "OK", budget = 120 },
+  # The rewind subject (H58's pattern): a rewind save with the route Active and A alive.
+  { cmd = "StartRecording",                                                   expect = "OK", budget = 180 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "CommitTree",                                                       expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  # Between stop 0's window (about 1044.4) and stop 1's (about 1162.7).
+  { cmd = "TimeJump",     args = { ut = "1060" },                             expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "rs1-window0" },                   expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                         expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                expect = "OK", budget = 120 },
+  # Stop 1's endpoint, A, recovered through its stock Space Center marker.
+  { cmd = "KscMarkerRecover", args = { pid = "4280917262" },                  expect = "OK", budget = 60 },
+  { cmd = "MissionMark",  args = { label = "rs1-recovered" },                 expect = "OK" },
+  # Across stop 1's window with A gone.
+  { cmd = "WarpToUT",     args = { ut = "1250" },                             expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "rs1-lost" },                      expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                         expect = "OK" },
+  # Re-scan #1, the miss: stop 0 found, stop 1 not.
+  { cmd = "RouteCommand", args = { action = "rescan", route = "RS1 Relay" },   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",  args = { label = "rs1-rescan-miss" },               expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                         expect = "OK" },
+  # Back to the subject's rewind save: A is alive again; the route stays EndpointLost.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                 expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "rs1-rewound" },                   expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                         expect = "OK" },
+  # Re-scan #2, the hit: THE FIX restarts the loop route.
+  { cmd = "RouteCommand", args = { action = "rescan", route = "RS1 Relay" },   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",  args = { label = "rs1-rescan-hit" },                expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                         expect = "OK" },
+  # One full restarted cycle (pickup ~1029.9, delivery ~1148.2), short of the next pickup.
+  { cmd = "WarpToUT",     args = { ut = "1175" },                             expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "rs1-delivered" },                 expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                         expect = "OK" },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 10 committed recordings plus the one-second subject on C (guess: a new tree).
+count = { min = 11, max = 11 }
+
+[expectations.logContracts]
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=88c012a6eed94bf09ff73397a4a31410 total=8 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=88c012a6eed94bf09ff73397a4a31410 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=88c012a6eed94bf09ff73397a4a31410 route=.* name='RS1 Relay' status=Paused",
+  "TryActivate: route=\\S+ now Active ",
+  "routecommand complete action=activate route=.* name='RS1 Relay' match=name statusBefore=Paused status=Active",
+  # THE REWIND SUBJECT (H58's tokens).
+  "Captured rewind save at UT 100[0-9]",
+  "Total committed: 11 recordings, 2 trees",
+  # WINDOW 0: the cycle dispatches and debits B; stop 1's window is still owed.
+  "(?s)MISSIONMARK label=rs1-window0 (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RS1 Relay' status=Active completed=0 skipped=0 [^\\r\\n]* dispatched=1 debited=[01] pickedUp=[01] delivered=0 ",
+  "Origin debit: route=.* origin=B pid=90564594 resource=LiquidFuel requested=154\\.39",
+  # A recovered at the Space Center, before stop 1's window.
+  "exittospacecenter complete scene=SPACECENTER",
+  "kscrecover complete pid=4280917262 vessel=A scene=SPACECENTER ",
+  # THE LOSS: stop 1's delivery re-resolves and finds nothing; the route stops.
+  "(?s)MISSIONMARK label=rs1-recovered (?:(?!MISSIONMARK label=rs1-lost ).)*Delivery: route [0-9a-f]{8} cycle=cycle-0 endpoint lost at delivery reason=(?:no-candidate-after-transport-exclusion|no-vessel-within-radius)",
+  "EndpointLost: route [0-9a-f]{8} reason=endpoint-destroyed-at-delivery:(?:no-candidate-after-transport-exclusion|no-vessel-within-radius) \\(at delivery\\)",
+  "(?s)MISSIONMARK label=rs1-lost (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RS1 Relay' status=EndpointLost completed=0 skipped=0 [^\\r\\n]* dispatched=1 debited=[01] pickedUp=[01] delivered=0 ",
+  # RE-SCAN #1, THE MISS: the button's own line, stop 0 found, stop 1 not.
+  "\\[UI\\] Logistics: endpoint re-scan route=[0-9a-f]{8} stops=2 resolved=1/2 \\[1:'B' 2:unresolved\\('(?:no-candidate-after-transport-exclusion|no-vessel-within-radius)'\\)\\] \\(still EndpointLost\\)",
+  "routecommand complete action=rescan route=\\S+ name='RS1 Relay' match=name stops=2 resolved=1/2 allResolved=false recovered=false statusBefore=EndpointLost status=EndpointLost",
+  "(?s)MISSIONMARK label=rs1-rescan-miss (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RS1 Relay' status=EndpointLost completed=0 skipped=0 [^\\r\\n]* delivered=0 paused=[0-9]+ resumed=1 ",
+  # THE REWIND: the subject's save, the route kept (created before the cutoff), the rows
+  # after the cutoff retired, and the route STILL EndpointLost with A back.
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=2",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=[0-9]+(?:\\.[0-9]+)? elapsed=",
+  "OnLoad: go-back route reconcile at cutoff=[0-9]+(?:\\.[0-9]+)? retiredRouteRows=[1-9][0-9]* committedRoutes=1 dormantRoutes=0 cutoffSource=rewind-save-ut ",
+  "(?s)MISSIONMARK label=rs1-rewound (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RS1 Relay' status=EndpointLost completed=0 skipped=0 [^\\r\\n]* dispatched=0 [^\\r\\n]* delivered=0 paused=[0-9]+ resumed=1 ",
+  # RE-SCAN #2, THE HIT, AND THE FIX: both stops found, the loop route restarted.
+  "(?s)MISSIONMARK label=rs1-rewound (?:(?!MISSIONMARK label=rs1-rescan-hit ).)*\\[UI\\] Logistics: endpoint re-scan route=[0-9a-f]{8} stops=2 resolved=2/2 \\[1:'B' 2:'A'\\] \\(recovering\\)",
+  "EndpointRescan: route=\\S+ loopRoute=1 EndpointLost->Active preMissingStatus=Active ",
+  "LifecycleMarker: route .* type=RouteResumed reason=endpoint-rescan ut=",
+  "routecommand complete action=rescan route=\\S+ name='RS1 Relay' match=name stops=2 resolved=2/2 allResolved=true recovered=true statusBefore=EndpointLost status=Active",
+  "(?s)MISSIONMARK label=rs1-rescan-hit (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RS1 Relay' status=Active completed=0 skipped=0 [^\\r\\n]* resumed=2 ",
+  # THE RESTARTED CYCLE RUNS: a dispatch, then A written (it never got the first
+  # timeline's cargo, and the rewind restored it to 200/400).
+  "(?s)MISSIONMARK label=rs1-rescan-hit (?:(?!MISSIONMARK label=rs1-delivered ).)*LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-0 cMin=[0-9]+ dispatch fired \\(carrierStopIndex=0\\)",
+  "(?s)MISSIONMARK label=rs1-rescan-hit (?:(?!MISSIONMARK label=rs1-delivered ).)*Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 ",
+  "(?s)MISSIONMARK label=rs1-delivered (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RS1 Relay' status=Active completed=1 skipped=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  "routecommand refused",
+  "kscrecover rejected",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  # The loss must be found at the DELIVERY, not at the gate (a gate miss records a hold
+  # and stays Active: the single-stop shape this lane exists to avoid), and the restarted
+  # cycle must not block either.
+  "BLOCKED kind=",
+  # A never received the first timeline's cargo.
+  "(?s)MISSIONMARK label=rs1-window0 (?:(?!MISSIONMARK label=rs1-rewound ).)*Delivery write: route=.* dest=A pid=4280917262",
+  # The route must not hand stop 1 to the transport or to stop 0's base.
+  "Route endpoint transferred: route=[0-9a-f]{8} stop=1 [^\\r\\n]*to=(?:612987736|90564594)/",
+  # A miss restarts nothing.
+  "(?s)MISSIONMARK label=rs1-lost (?:(?!MISSIONMARK label=rs1-rewound ).)*EndpointRescan: route=",
+  "(?s)MISSIONMARK label=rs1-lost (?:(?!MISSIONMARK label=rs1-rewound ).)*type=RouteResumed reason=endpoint-rescan",
+]
+
+[expectations.routes]
+# REPORT-ONLY until a reading run (the saveParse arming rule).
+count           = { min = 1, max = 1 }
+dormant         = { min = 0, max = 0 }
+stops           = { min = 2, max = 2 }
+sourceRefs      = { min = 3, max = 3 }
+completedCycles = { min = 1, max = 1 }
+skippedCycles   = { min = 0, max = 0 }
+statuses        = { Active = { min = 1, max = 1 } }
+
+[runtime]
+# Boot LoadGame, two TimeJumps, StartRecording, the KSC exit, the marker recover, two
+# warps and the rewind's scene reload: eight deferred verbs plus the short steps.
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

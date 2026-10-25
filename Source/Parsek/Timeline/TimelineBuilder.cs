@@ -629,7 +629,12 @@ namespace Parsek
             return added;
         }
 
-        private static string GetLegacyDuplicateKey(GameAction action)
+        /// <summary>
+        /// The legacy-twin key of a ledger row: the (event type, UT, key) identity of the
+        /// game-state event the row was converted from, or null for a row type with no
+        /// legacy twin. Compared against <see cref="GetLegacyEventKey"/>.
+        /// </summary>
+        internal static string GetLegacyDuplicateKey(GameAction action)
         {
             switch (action.Type)
             {
@@ -739,6 +744,34 @@ namespace Parsek
                 default:
                     return null;
             }
+        }
+
+        /// <summary>The same identity for a legacy game-state event.</summary>
+        internal static string GetLegacyEventKey(GameStateEvent e)
+            => EncodeLegacyDuplicateKey(e.eventType, e.ut, e.key);
+
+        /// <summary>
+        /// Whether a milestone-store event reaches the legacy dedup at all (the filters
+        /// <see cref="CollectLegacyEntries"/> applies before it): visible to the current
+        /// timeline, not a resource / crew-status / offer event, and not a free part
+        /// unlock. A true event draws a legacy row unless a ledger twin hides it.
+        /// </summary>
+        internal static bool IsLegacyRowCandidate(
+            GameStateEvent e, Func<GameStateEvent, bool> isLegacyEventVisible)
+        {
+            if (isLegacyEventVisible != null && !isLegacyEventVisible(e)) return false;
+            if (GameStateStore.IsMilestoneFilteredEvent(e.eventType)) return false;
+            return !IsFreePartUnlockEvent(e);
+        }
+
+        // Free part unlocks (charged cost 0) move no funds and are pure noise. Their ledger
+        // twin is filtered as a no-op spend (FundsSpent <= 0) in CollectGameActionEntries
+        // rather than de-duped, so the de-dup set never holds a key for them.
+        private static bool IsFreePartUnlockEvent(GameStateEvent e)
+        {
+            return (e.eventType == GameStateEventType.PartPurchased
+                    || e.eventType == GameStateEventType.PartUpgradePurchased)
+                && GameStateEventConverter.ParsePartPurchaseChargedCost(e.detail) <= 0f;
         }
 
         private static string EncodeLegacyDuplicateKey(
@@ -1179,19 +1212,14 @@ namespace Parsek
                     if (!isLegacyEventVisible(e)) continue;
                     if (GameStateStore.IsMilestoneFilteredEvent(e.eventType)) continue;
 
-                    // Free part unlocks (charged cost 0) move no funds and are pure noise.
-                    // Their ledger twin is filtered as a no-op spend (FundsSpent <= 0) in
-                    // CollectGameActionEntries rather than de-duped, so the de-dup set below
-                    // never holds a key for them. Skip the legacy event directly here too.
-                    if ((e.eventType == GameStateEventType.PartPurchased
-                            || e.eventType == GameStateEventType.PartUpgradePurchased) &&
-                        GameStateEventConverter.ParsePartPurchaseChargedCost(e.detail) <= 0f)
+                    if (IsFreePartUnlockEvent(e))
                     {
                         freePartSkipped++;
                         continue;
                     }
 
-                    if (legacyDuplicateKeys.Contains(EncodeLegacyDuplicateKey(e.eventType, e.ut, e.key)))
+                    string legacyKey = GetLegacyEventKey(e);
+                    if (legacyDuplicateKeys.Contains(legacyKey))
                     {
                         duplicateSkipped++;
                         continue;
@@ -1208,7 +1236,9 @@ namespace Parsek
                         DisplayText = displayText,
                         Source = TimelineSource.Legacy,
                         Tier = SignificanceTier.T2,
-                        DisplayColor = Color.white
+                        DisplayColor = Color.white,
+                        LegacyEventType = e.eventType,
+                        LegacyKey = legacyKey
                     });
                     count++;
                 }
