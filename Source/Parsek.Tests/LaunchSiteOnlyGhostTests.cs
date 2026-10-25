@@ -143,6 +143,31 @@ namespace Parsek.Tests
             Assert.DoesNotContain("rocket-after-eva", hidden);
         }
 
+        [Fact]
+        public void HopThatLandsBackOnThePad_KeepsItsGhost()
+        {
+            Recording hop = Rec("rocket-after-eva", 1111u, null, TerminalState.Landed, 160.0, 3700.0);
+            hop.Points.Insert(1, new TrajectoryPoint
+            {
+                ut = 400.0, bodyName = "Kerbin", latitude = PadLat, longitude = PadLon, altitude = 500.0,
+            });
+
+            Assert.Empty(Hidden(PadEvaTree(hop)));
+        }
+
+        [Fact]
+        public void PadWobbleInsideTheGroundBand_StillHides()
+        {
+            Recording wobble = Rec("rocket-after-eva", 1111u, null, TerminalState.Landed, 160.0, 3700.0);
+            wobble.Points.Insert(1, new TrajectoryPoint
+            {
+                ut = 400.0, bodyName = "Kerbin", latitude = PadLat, longitude = PadLon,
+                altitude = LaunchSiteOnlyGhost.GroundBandMeters - 1.0,
+            });
+
+            Assert.Contains("rocket-after-eva", Hidden(PadEvaTree(wobble)));
+        }
+
         [Theory]
         [InlineData(TerminalState.Destroyed)]
         [InlineData(TerminalState.Recovered)]

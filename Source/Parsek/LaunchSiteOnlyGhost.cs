@@ -29,6 +29,10 @@ namespace Parsek
         /// or unknown; tests replace it.</summary>
         internal static Func<string, double?> HomeRadiusForTesting;
 
+        /// <summary>Highest climb above the vessel's lowest recorded point that still counts as
+        /// never having left the ground; a hop that lands back on the pad keeps its ghost.</summary>
+        internal const double GroundBandMeters = 15.0;
+
         private static int cachedStateVersion = int.MinValue;
         private static int cachedTreeCount = -1;
         private static HashSet<string> hiddenRecordingIds = new HashSet<string>(StringComparer.Ordinal);
@@ -197,7 +201,8 @@ namespace Parsek
         /// <summary>
         /// Pure: one vessel's recordings never left a launch-site circle and the flight ended
         /// parked there. Every recording: no orbit segment, only Absolute track sections, at
-        /// least one point, and every point on the home world inside a launch-site circle. At
+        /// least one point, and every point on the home world inside a launch-site circle and
+        /// within <see cref="GroundBandMeters"/> of the vessel's lowest point. At
         /// least one recording carries a terminal state, and every recording that carries one
         /// is retired at a launch site (so a vessel that docked, was boarded, was destroyed or
         /// recovered keeps its ghost).
@@ -215,6 +220,8 @@ namespace Parsek
                 return false;
 
             bool anyTerminal = false;
+            double minAlt = double.MaxValue;
+            double maxAlt = double.MinValue;
             for (int r = 0; r < vesselRecordings.Count; r++)
             {
                 Recording rec = vesselRecordings[r];
@@ -233,6 +240,12 @@ namespace Parsek
                 for (int p = 0; p < rec.Points.Count; p++)
                 {
                     TrajectoryPoint pt = rec.Points[p];
+                    if (pt.altitude < minAlt)
+                        minAlt = pt.altitude;
+                    if (pt.altitude > maxAlt)
+                        maxAlt = pt.altitude;
+                    if (maxAlt - minAlt > GroundBandMeters)
+                        return false;
                     double? radius = homeRadius(pt.bodyName);
                     if (!radius.HasValue)
                         return false;
