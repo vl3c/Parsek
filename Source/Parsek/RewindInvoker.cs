@@ -1156,6 +1156,7 @@ namespace Parsek
             double loadedSaveUT = double.NaN;
             double loadedClockUT = double.NaN;
             double loadedFloorUT = double.NaN;
+            List<Logistics.RouteEvent> loadedSaveEvents = null;
             if (hasBundle && loadedScenarioNode != null)
             {
                 try
@@ -1166,10 +1167,12 @@ namespace Parsek
                     // that rewind's route state floor: its route copy is as of the floor.
                     loadedFloorUT = Logistics.RouteStore.ReadSavedRouteStateFloorUT(loadedScenarioNode);
                     loadedSaveUT = Logistics.RouteLoadReconcile.ApplyRouteStateFloor(loadedClockUT, loadedFloorUT);
+                    loadedSaveEvents = Logistics.RouteEventLog.ReadSavedEvents(loadedScenarioNode);
                 }
                 catch (Exception ex)
                 {
                     loadedSaveRoutes = null;
+                    loadedSaveEvents = null;
                     ParsekLog.Warn(InvokeTag,
                         $"ConsumePostLoad: reading the RP quicksave's route copy threw {ex.GetType().Name}: " +
                         $"{ex.Message}; route loop cursors stay reset");
@@ -1193,7 +1196,9 @@ namespace Parsek
                     double liveUT = liveUTForCutoff;
                     ParsekLog.Info(InvokeTag,
                         $"ConsumePostLoad: restoring bundle with route-retire cutoffUT={retireCutoffUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} (liveUT={liveUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, rp.UT={rp.UT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)})");
-                    ReconciliationBundle.Restore(bundle, retireCutoffUT, loadedSaveRoutes, loadedSaveUT);
+                    ReconciliationBundle.Restore(
+                        bundle, retireCutoffUT, loadedSaveRoutes, loadedSaveUT,
+                        loadedClockUT, loadedSaveEvents);
                     if (loadedSaveRoutes != null)
                         Logistics.RouteLoadReconcile.InstallFloorAfterLoad(
                             loadedClockUT, loadedFloorUT, InvokeTag, "ConsumePostLoad");

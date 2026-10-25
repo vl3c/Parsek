@@ -72,6 +72,20 @@ namespace Parsek
         internal static double RewindSaveClockUT { get; private set; } = double.NaN;
 
         /// <summary>
+        /// The rewind save's own clock before any route state floor it carries raises it
+        /// (<see cref="RewindSaveClockUT"/> is that clock raised to the floor). Below
+        /// <see cref="RewindSaveClockUT"/> only for a rewind save written inside an earlier
+        /// go-back's lead-time window. NaN when unset.
+        /// </summary>
+        internal static double RewindSaveOwnClockUT { get; private set; } = double.NaN;
+
+        /// <summary>
+        /// The route events the rewind save's own <c>ROUTE_EVENT_LOG</c> holds, read with
+        /// <see cref="RewindSaveRoutes"/>. Null when not read.
+        /// </summary>
+        internal static IReadOnlyList<Logistics.RouteEvent> RewindSaveEvents { get; private set; }
+
+        /// <summary>
         /// True once the rewind wrote its own game (the pre-processed rewind save, carrying the
         /// live Parsek node) to persistent.sfs for the Space Center start to reload. A scene-exit
         /// save of the scene being left must not overwrite it before that reload
@@ -100,6 +114,8 @@ namespace Parsek
             RewindHistoricalSpawnKeepRecordingIds = null;
             RewindSaveRoutes = null;
             RewindSaveClockUT = double.NaN;
+            RewindSaveOwnClockUT = double.NaN;
+            RewindSaveEvents = null;
             RewindReserved = reserved;
             RewindBaselineFunds = baselineFunds;
             RewindBaselineScience = baselineScience;
@@ -129,6 +145,8 @@ namespace Parsek
             RewindHistoricalSpawnKeepRecordingIds = null;
             RewindSaveRoutes = null;
             RewindSaveClockUT = double.NaN;
+            RewindSaveOwnClockUT = double.NaN;
+            RewindSaveEvents = null;
             RewindGameWrittenToPersistent = false;
 
             ParsekLog.Info("RewindContext", "EndRewind: all rewind flags cleared");
@@ -202,11 +220,28 @@ namespace Parsek
         /// </summary>
         internal static void SetRewindSaveRoutes(IReadOnlyList<Logistics.Route> routes, double clockUT)
         {
+            SetRewindSaveRoutes(routes, clockUT, clockUT, null);
+        }
+
+        /// <summary>
+        /// <see cref="SetRewindSaveRoutes(IReadOnlyList{Logistics.Route}, double)"/> plus the
+        /// save's own clock before the floor raise (<paramref name="ownClockUT"/>) and its route
+        /// events (<paramref name="savedEvents"/>), which decide whether the save's cycle
+        /// counters go back with the loop position (<c>RouteLoadReconcile.ReconcileAtGoBackRewind</c>).
+        /// </summary>
+        internal static void SetRewindSaveRoutes(
+            IReadOnlyList<Logistics.Route> routes, double clockUT, double ownClockUT,
+            IReadOnlyList<Logistics.RouteEvent> savedEvents)
+        {
             RewindSaveRoutes = routes;
             RewindSaveClockUT = clockUT;
+            RewindSaveOwnClockUT = ownClockUT;
+            RewindSaveEvents = savedEvents;
             ParsekLog.Verbose("RewindContext",
                 $"SetRewindSaveRoutes: {(routes == null ? "none" : routes.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))} route(s) " +
-                $"clockUT={clockUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
+                $"clockUT={clockUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"ownClockUT={ownClockUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"savedEvents={(savedEvents == null ? "none" : savedEvents.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))}");
         }
 
         /// <summary>
@@ -244,6 +279,8 @@ namespace Parsek
             RewindHistoricalSpawnKeepRecordingIds = null;
             RewindSaveRoutes = null;
             RewindSaveClockUT = double.NaN;
+            RewindSaveOwnClockUT = double.NaN;
+            RewindSaveEvents = null;
             RewindGameWrittenToPersistent = false;
         }
     }
