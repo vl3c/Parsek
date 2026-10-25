@@ -372,8 +372,11 @@ namespace Parsek
         /// <summary>
         /// Frame F of a Leaves placement jump (plan 1.3 steps 1-5): re-gates at the click,
         /// packs every loaded vessel, holds stock's unpack, sets the clock to
-        /// <paramref name="t1"/> and arms the placement for the next frame. Returns false with
-        /// nothing changed when the move is refused (logged).
+        /// <paramref name="t1"/> and arms the placement for the next frame. Returns false when the
+        /// move is refused (logged): a gate refusal changes nothing; a <c>pack-failed</c> refusal
+        /// comes after the loaded vessels were packed (no unpack hold is set, so stock unpacks
+        /// them on the next frame and a live recorder keeps a near-zero rails segment) and the
+        /// clock has not moved.
         /// </summary>
         internal static bool TryStartLeavesPlacementJump(
             Recording rec, double t1, double departureUT, Vessel active,
