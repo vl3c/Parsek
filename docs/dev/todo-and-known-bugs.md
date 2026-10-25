@@ -289,7 +289,7 @@ does (`GameStateRecorder.ResolveStrategyConversionRecordingTag`).
 
 ---
 
-## ~~FOREIGN-BOARD-TARGET-STRIPPED-AT-REWIND: a vessel a kerbal boarded or took a seat on from another mission is removed at a rewind instead of held, so it has no ghost until the boarding~~ [FIXED 2026-10-25 on branch `fix-foreign-board-target-hold` (xUnit; EVA-14 / SEAT-3 re-flights owed). FILED 2026-10-24 while writing lanes EVA-14 / SEAT-3 (branch `claude/project-thread-d0rqqc`), code read on main f46545d. CONFIRMED 2026-10-25 by EVA-14 `2026-10-25_0131` (every signature line below hit); lane EVA-14 quarantines it. low, visual]
+## ~~FOREIGN-BOARD-TARGET-STRIPPED-AT-REWIND: a vessel a kerbal boarded or took a seat on from another mission is removed at a rewind instead of held, so it has no ghost until the boarding~~ [FIXED 2026-10-25 on branch `fix-foreign-board-target-hold`; LIVE-PROVEN by EVA-14 `2026-10-25_0219` and SEAT-3 `_0221`, both PASS. FILED 2026-10-24 while writing lanes EVA-14 / SEAT-3 (branch `claude/project-thread-d0rqqc`), code read on main f46545d. CONFIRMED 2026-10-25 by EVA-14 `2026-10-25_0131` (every signature line below hit); lane EVA-14 quarantines it. low, visual]
 
 A kerbal whose recording boards a vessel outside his tree (a hatch Board, or a seat, which is a
 Dock merge into the rover) and commits in flight leaves the merged child as the active recording,
