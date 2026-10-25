@@ -1718,12 +1718,18 @@ namespace Parsek
         /// <summary>
         /// Pure: the <see cref="GameStateEventType.ScienceLabCredited"/> event for one science
         /// lab payout. <paramref name="reasonKey"/> is the stock reason the lab passed to
-        /// <c>AddScience</c> (<c>ScienceTransmission</c> or <c>VesselRecovery</c>). Internal
-        /// static for direct unit testing.
+        /// <c>AddScience</c> (<c>ScienceTransmission</c> or <c>VesselRecovery</c>).
+        /// <paramref name="surveyBodyName"/> marks an orbital survey's bonus instead of a lab
+        /// payout and is written first in the detail, ahead of the free-text vessel name.
+        /// Internal static for direct unit testing.
         /// </summary>
         internal static GameStateEvent BuildScienceLabCreditEvent(
-            double ut, float scienceBefore, float scienceAfter, string reasonKey, string vesselName)
+            double ut, float scienceBefore, float scienceAfter, string reasonKey, string vesselName,
+            string surveyBodyName = null)
         {
+            string detail = string.IsNullOrEmpty(vesselName) ? "" : "vessel=" + vesselName;
+            if (!string.IsNullOrEmpty(surveyBodyName))
+                detail = "survey=" + surveyBodyName + (detail.Length > 0 ? ";" + detail : "");
             return new GameStateEvent
             {
                 ut = ut,
@@ -1731,7 +1737,7 @@ namespace Parsek
                 key = reasonKey ?? "",
                 valueBefore = scienceBefore,
                 valueAfter = scienceAfter,
-                detail = string.IsNullOrEmpty(vesselName) ? "" : "vessel=" + vesselName
+                detail = detail
             };
         }
 
@@ -1743,11 +1749,13 @@ namespace Parsek
         /// <c>OnScienceRecieved</c>, so this is the only capture of it. Emits
         /// <see cref="GameStateEventType.ScienceLabCredited"/>, tagged to the live recording
         /// like any other flight event, and forwards an ownerless one straight to the ledger.
+        /// The orbital survey's bonus (<c>ModuleOrbitalSurveyor.CompleteSurvey</c>) is the same
+        /// kind of bare credit and comes through here with <paramref name="surveyBodyName"/> set.
         /// Suppressed during timeline replay. Internal static for testability.
         /// </summary>
         internal static void OnScienceLabCredited(
             double ut, float scienceBefore, float scienceAfter, string reasonKey, string vesselName,
-            uint vesselPersistentId = 0u)
+            uint vesselPersistentId = 0u, string surveyBodyName = null)
         {
             if (IsReplayingActions || SuppressResourceEvents)
             {
@@ -1764,7 +1772,8 @@ namespace Parsek
                 return;
             }
 
-            var evt = BuildScienceLabCreditEvent(ut, scienceBefore, scienceAfter, reasonKey, vesselName);
+            var evt = BuildScienceLabCreditEvent(
+                ut, scienceBefore, scienceAfter, reasonKey, vesselName, surveyBodyName);
             // Design section 2.12 Rule 3: during a Re-Fly session the lab payout is filed
             // under the lab's own vessel.
             string causeTag;
@@ -1776,6 +1785,7 @@ namespace Parsek
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: ScienceLabCredited +{credit.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} " +
                 $"reason='{reasonKey}' vessel='{vesselName}' " +
+                (string.IsNullOrEmpty(surveyBodyName) ? "" : $"survey='{surveyBodyName}' ") +
                 $"ut={ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
                 $"recordingId='{evt.recordingId ?? ""}'");
 

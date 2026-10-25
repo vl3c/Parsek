@@ -25,6 +25,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **The orbital survey's science bonus belongs to the flight that ran it.** Completing an M700
+  survey paid science that Parsek only noticed later and kept as an unexplained adjustment. It is
+  now its own entry at the survey's time, "Orbital survey of <body>", filed under that flight, so
+  rewinds and discards treat it like any other science you earned. (ORBITAL-SURVEY-SCIENCE-NEVER-LEDGERED)
 - **A rocket that never leaves the pad no longer shows a ghost.** When a kerbal steps out of a
   rocket on the pad and it never launches, its ghost used to sit on the pad after a rewind for as
   long as you had waited there. It now never appears; the kerbal's own ghost still plays.

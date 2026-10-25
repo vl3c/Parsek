@@ -60,6 +60,9 @@ namespace Parsek
                     return string.Format(IC, "Strategy exchange +{0:0.#} sci", action.ScienceAwarded);
 
                 case GameActionType.ScienceLabEarning:
+                    if (!string.IsNullOrEmpty(action.ScanBodyName))
+                        return string.Format(IC, "Orbital survey of {0} +{1:0.#} sci",
+                            action.ScanBodyName, action.ScienceAwarded);
                     return string.Format(IC, "Lab science {0} +{1:0.#} sci",
                         action.Method == ScienceMethod.Recovered ? "recovered" : "transmitted",
                         action.ScienceAwarded);
