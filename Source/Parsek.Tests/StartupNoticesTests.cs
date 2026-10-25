@@ -63,6 +63,7 @@ namespace Parsek.Tests
         [InlineData("LaunchSiteFlyoutPointerEnterPatch", "launch cost reservations")]
         [InlineData("ScienceLabTransmissionCreditPatch", "science and milestone rewards")]
         [InlineData("ScienceLabRecoveryCreditPatch", "science and milestone rewards")]
+        [InlineData("OrbitalSurveyCreditPatch", "science and milestone rewards")]
         [InlineData("DisplayPatch", null)]
         [InlineData("SomethingNew", null)]
         [InlineData("", null)]

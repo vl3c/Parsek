@@ -439,6 +439,26 @@ its exchange is already a ledger row.
 
 ---
 
+## ~~ORBITAL-SURVEY-SCIENCE-NEVER-LEDGERED: the M700 survey's science bonus has no ledger row~~ [FILED 2026-10-25 from an audit of every stock science payout, branch `claude/project-thread-86u4df`. FIXED 2026-10-25, same branch]
+
+An audit of every `AddScience` / `SubmitScienceData` call in the KSP 1.12.5 decompile found one
+payout with no ledger channel: `ModuleOrbitalSurveyor.CompleteSurvey` pays
+`SciBonus * mainBody.scienceValues.RecoveryValue` through a bare `AddScience(ScienceTransmission)`
+with no subject, the way the lab pays, and the converter drops `ScienceChanged`. The pool check
+later kept the gain as an untagged `StockPoolAdjustment` ("Kept your earned science"), dated to that
+check instead of the survey and tied to no flight, so a discard or a Re-Fly never saw it. Every other
+payout (subjects, recovery, the lab, contracts, milestones, strategies) has its row.
+
+**Fix:** `OrbitalSurveyCreditPatch` (prefix / postfix on `CompleteSurvey`, in
+`ScienceLabCreditCapturePatch.cs`) reads the pool and the stock bonus and reports it through the lab
+channel: a `ScienceLabCredited` event with a `survey=<body>` detail field, tagged to the live
+flight like a lab transmission (the survey runs on a loaded vessel the player or an EVA kerbal
+works), converted to a `ScienceLabEarning` row that names the body in `ScanBodyName` ("Orbital
+survey of Mun"). A call that returned early moves no science and is ignored. Unit tests only: no
+committed lane flies a real survey (HV-2 unlocks the map directly). Cells: `ScienceLabLedgerTests`.
+
+---
+
 ## ~~LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT: mod-driven background awards are filed under the live flight~~ [FILED 2026-10-25 from a code audit, branch `claude/project-thread-dkcvpn`. FIXED 2026-10-25, branch `claude/project-thread-86u4df`; unit tests only by owner ruling 2026-10-25]
 
 Three cases a stock install never reaches: a Contract Configurator `autoAccept` contract accepted by

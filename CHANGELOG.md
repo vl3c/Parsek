@@ -16,6 +16,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **The orbital survey's science bonus belongs to the flight that ran it.** Completing an M700
+  survey paid science that Parsek only noticed later and kept as an unexplained adjustment. It is
+  now its own entry at the survey's time, "Orbital survey of <body>", filed under that flight, so
+  rewinds and discards treat it like any other science you earned. (ORBITAL-SURVEY-SCIENCE-NEVER-LEDGERED)
 - **Boarding, docking or moving cargo with another vessel is never an idle flight.** A kerbal who
   stepped out of a rocket on the pad and took a seat on, boarded, docked with or moved cargo to a
   nearby vessel had the whole flight thrown away at scene exit if nothing moved 30 m. The flight

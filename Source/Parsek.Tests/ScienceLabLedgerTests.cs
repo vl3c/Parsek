@@ -340,5 +340,135 @@ namespace Parsek.Tests
                 TimelineEntryDisplay.MapGameActionType(GameActionType.ScienceLabEarning));
             Assert.DoesNotContain(logLines, l => l.Contains("Unknown GameActionType"));
         }
+    
+
+        // ================================================================
+        // Orbital survey bonus (the M700's subject-less science)
+        // ================================================================
+
+        [Fact]
+        public void SurveyCreditEvent_NamesTheBody_AheadOfTheVessel()
+        {
+            var evt = GameStateRecorder.BuildScienceLabCreditEvent(
+                300, 40f, 52f, "ScienceTransmission", "Scan;Sat", "Mun");
+
+            Assert.Equal(GameStateEventType.ScienceLabCredited, evt.eventType);
+            Assert.Equal("survey=Mun;vessel=Scan;Sat", evt.detail);
+            Assert.Equal("Orbital survey of Mun: +12.0", GameStateEventDisplay.GetDisplayDescription(evt));
+
+            var noVessel = GameStateRecorder.BuildScienceLabCreditEvent(
+                300, 40f, 52f, "ScienceTransmission", null, "Mun");
+            Assert.Equal("survey=Mun", noVessel.detail);
+        }
+
+        [Fact]
+        public void SurveyCreditEvent_ConvertsToAnEarningThatNamesTheBody()
+        {
+            var row = GameStateEventConverter.ConvertEvent(
+                GameStateRecorder.BuildScienceLabCreditEvent(300, 40f, 52f, "ScienceTransmission", "Scan Sat", "Mun"),
+                "rec-scan");
+
+            Assert.NotNull(row);
+            Assert.Equal(GameActionType.ScienceLabEarning, row.Type);
+            Assert.Equal("rec-scan", row.RecordingId);
+            Assert.Equal(12f, row.ScienceAwarded);
+            Assert.Equal(ScienceMethod.Transmitted, row.Method);
+            Assert.Equal("Mun", row.ScanBodyName);
+            Assert.Equal("Orbital survey of Mun +12 sci", GameActionDisplay.GetDescription(row, null));
+
+            // A lab row names no body and keeps its wording.
+            var lab = GameStateEventConverter.ConvertEvent(
+                GameStateRecorder.BuildScienceLabCreditEvent(300, 40f, 52f, "ScienceTransmission", "Lab"), null);
+            Assert.Null(lab.ScanBodyName);
+            Assert.Equal("Lab science transmitted +12 sci", GameActionDisplay.GetDescription(lab, null));
+        }
+
+        [Fact]
+        public void SurveyEarning_RoundTripsTheBody_LabRowWritesNoBodyKey()
+        {
+            var survey = Lab(42.5, 12f, "rec-scan");
+            survey.ScanBodyName = "Minmus";
+            var parent = new ConfigNode("ROOT");
+            survey.SerializeInto(parent);
+            var result = GameAction.DeserializeFrom(parent.GetNode("GAME_ACTION"));
+            Assert.Equal("Minmus", result.ScanBodyName);
+            Assert.Equal(12f, result.ScienceAwarded);
+
+            var labParent = new ConfigNode("ROOT");
+            Lab(42.5, 12f, "rec-lab").SerializeInto(labParent);
+            var labNode = labParent.GetNode("GAME_ACTION");
+            Assert.Null(labNode.GetValue("scanBody"));
+            Assert.Null(GameAction.DeserializeFrom(labNode).ScanBodyName);
+        }
+
+        [Fact]
+        public void GetActionKey_SurveyAndLabOfOneAmountAtOneUt_AreDistinct_LabKeyUnchanged()
+        {
+            var survey = Lab(100, 5f);
+            survey.ScanBodyName = "Mun";
+            Assert.NotEqual(LedgerOrchestrator.GetActionKey(Lab(100, 5f)), LedgerOrchestrator.GetActionKey(survey));
+            Assert.EndsWith(":0:5", LedgerOrchestrator.GetActionKey(Lab(100, 5f)));
+        }
+
+        [Fact]
+        public void OnScienceLabCredited_Survey_LiveRecording_TagsTheFlightThatRanIt()
+        {
+            LedgerOrchestrator.Initialize();
+            GameStateRecorder.TagResolverForTesting = () => "rec-live";
+            GameStateRecorder.HasLiveRecorderProviderForTesting = () => true;
+
+            GameStateRecorder.OnScienceLabCredited(800, 10f, 22f, "ScienceTransmission", "Scan Sat",
+                0u, "Mun");
+
+            var evt = GameStateStore.Events.Single(e => e.eventType == GameStateEventType.ScienceLabCredited);
+            Assert.Equal("rec-live", evt.recordingId);
+            Assert.Equal(800, evt.ut);
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.ScienceLabEarning);
+            Assert.Contains(logLines, l => l.Contains("[GameStateRecorder]")
+                && l.Contains("Game state: ScienceLabCredited +12.00") && l.Contains("survey='Mun'"));
+        }
+
+        [Fact]
+        public void OnScienceLabCredited_Survey_NoRecording_LandsAnUntaggedRowAtTheSurveyUt()
+        {
+            LedgerOrchestrator.Initialize();
+            GameStateRecorder.TagResolverForTesting = () => "";
+            GameStateRecorder.HasLiveRecorderProviderForTesting = () => false;
+
+            GameStateRecorder.OnScienceLabCredited(900, 10f, 22f, "ScienceTransmission", "Scan Sat",
+                0u, "Mun");
+
+            var row = Ledger.Actions.Single(a => a.Type == GameActionType.ScienceLabEarning);
+            Assert.Equal(900, row.UT);
+            Assert.Equal(12f, row.ScienceAwarded);
+            Assert.Equal("Mun", row.ScanBodyName);
+            Assert.Null(row.RecordingId);
+        }
+
+        [Fact]
+        public void SurveyCreditPatch_TargetsTheStockCompletion_AndComputesTheBonusTheStockWay()
+        {
+            var target = HarmonyLib.AccessTools.Method(typeof(ModuleOrbitalSurveyor), "CompleteSurvey");
+            Assert.NotNull(target);
+            var ps = target.GetParameters();
+            Assert.Equal(3, ps.Length);
+            Assert.Equal(typeof(ScienceData), ps[0].ParameterType);
+            Assert.Equal(typeof(Vessel), ps[1].ParameterType);
+            Assert.Equal(typeof(bool), ps[2].ParameterType);
+
+            // Stock: (float)SciBonus * mainBody.scienceValues.RecoveryValue.
+            Assert.Equal(40f, Parsek.Patches.OrbitalSurveyCreditPatch.SurveyBonus(10, 4f));
+            Assert.Equal(0f, Parsek.Patches.OrbitalSurveyCreditPatch.SurveyBonus(0, 4f));
+        }
+
+        [Fact]
+        public void SurveyCredit_IsCreditOnlyWhenThePoolMoved()
+        {
+            // The early-return paths (another part's data, an aborted transmission) leave the
+            // pool where it was, so the prefix's gross is never reported.
+            Assert.False(Parsek.Patches.ScienceLabCreditCapture.IsCredit(40f, 40f, 12f));
+            Assert.False(Parsek.Patches.ScienceLabCreditCapture.IsCredit(float.NaN, 52f, 12f));
+            Assert.True(Parsek.Patches.ScienceLabCreditCapture.IsCredit(40f, 52f, 12f));
+        }
     }
 }

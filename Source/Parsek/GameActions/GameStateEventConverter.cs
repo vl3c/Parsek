@@ -1219,7 +1219,8 @@ namespace Parsek
         /// <summary>
         /// ScienceLabCredited -> ScienceLabEarning. The credit is the event's pool delta;
         /// <c>evt.key</c> <c>VesselRecovery</c> marks the recovery payout, anything else a
-        /// transmission. Returns null for a non-positive credit (nothing to re-apply).
+        /// transmission. A <c>survey</c> detail field marks an orbital survey's bonus and
+        /// becomes the row's <c>ScanBodyName</c>. Returns null for a non-positive credit (nothing to re-apply).
         /// This is the ONE science-earning channel fed from a pool delta: the lab credits
         /// with no subject, so <see cref="ConvertScienceSubjects"/> never sees it and the
         /// paired <see cref="GameStateEventType.ScienceChanged"/> stays dropped, which is
@@ -1244,8 +1245,14 @@ namespace Parsek
                 ScienceAwarded = (float)credit,
                 Method = string.Equals(evt.key, "VesselRecovery", StringComparison.Ordinal)
                     ? ScienceMethod.Recovered
-                    : ScienceMethod.Transmitted
+                    : ScienceMethod.Transmitted,
+                ScanBodyName = NullIfEmpty(ExtractDetail(evt.detail, "survey"))
             };
+        }
+
+        private static string NullIfEmpty(string value)
+        {
+            return string.IsNullOrEmpty(value) ? null : value;
         }
 
         /// <summary>
