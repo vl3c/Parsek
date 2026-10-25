@@ -240,7 +240,7 @@ on drift or partial failure.
   `Code\Parsek\Kerbal Space Program`. Never modified by this script (read-only
   source for cloning and for mod payloads).
 - **Automation instance**: a cloned KSP directory the harness launches.
-  Two profiles: `stock-minimal` and `modded-compat`.
+  Three profiles: `stock-minimal`, `modded-compat` and `stock-tree`.
 - **Profile**: a declarative spec (a file) naming the mod set, settings deltas,
   and component pins that define one automation instance.
 - **Component**: a pinned installable (kRPC, TestingTools, MechJeb2,
@@ -400,6 +400,19 @@ DECLUTTER_KSC = "True"             # player default (S6, 2026-09-26); dev cfg ha
 `DistantObject`, `KSPTextureLoader`, `HideEmptyTechTreeNodes`; and
 `PersistentRotation` + `SpaceTuxLibrary` as PINNED optional mods (GT-8 closed
 2026-09-26, below).
+
+`stock-tree.toml` (2026-10-25) is `stock-minimal` with `CommunityTechTree` and
+`ProbesBeforeCrew` removed from `devSourcedMods` and its own `instanceDir`
+(`automation/stock-tree`); every other key is identical, which
+`test_provlib.StockTreeProfileTests` asserts key for key. It hosts the scripted campaign
+program (`docs/dev/autotest-roadmap.md`, "The scripted campaign program"), whose owner
+decision is a stock tech tree; the per-node part listing it is checked against is
+`docs/dev/research/stock-tech-tree-part-unlocks.md`. Provision it with
+`provision.py --profile stock-tree`; a spec selects it with
+`instanceProfile = "stock-tree"`. Like `modded-compat` it is a secondary instance, so
+`run.py` admits it only while its deployed `Parsek.dll` is byte-identical to
+`stock-minimal`'s (`hlib.decide_reference_dll_drift`): provision BOTH profiles from the same
+worktree before a campaign flight, since two worktrees' builds never hash the same.
 
 **Pinned optional mods.** An `[[optionalMods]]` entry carrying `pin = "<pins.toml
 table>"` is never looked up in the dev GameData. Its pins table is `kind =

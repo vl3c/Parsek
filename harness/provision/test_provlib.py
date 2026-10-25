@@ -70,8 +70,8 @@ class RealProfileFileTests(unittest.TestCase):
         "CHECK_FOR_UPDATES": "False",
     }
 
-    def test_both_profiles_pin_the_unattended_settings(self):
-        for name in ("stock-minimal.toml", "modded-compat.toml"):
+    def test_every_profile_pins_the_unattended_settings(self):
+        for name in ("stock-minimal.toml", "modded-compat.toml", "stock-tree.toml"):
             settings = self._load(name).get("settings", {})
             for key, want in self.UNATTENDED_SETTINGS.items():
                 self.assertEqual(
@@ -86,13 +86,46 @@ class RealProfileFileTests(unittest.TestCase):
         "MAX_VESSELS_BUDGET": "250", "DECLUTTER_KSC": "True",
     }
 
-    def test_both_profiles_pin_the_player_default_vessel_budget(self):
-        for name in ("stock-minimal.toml", "modded-compat.toml"):
+    def test_every_profile_pins_the_player_default_vessel_budget(self):
+        for name in ("stock-minimal.toml", "modded-compat.toml", "stock-tree.toml"):
             settings = self._load(name).get("settings", {})
             for key, want in self.PLAYER_DEFAULT_SETTINGS.items():
                 self.assertEqual(
                     settings.get(key), want,
                     "%s must pin %s=%s (player default)" % (name, key, want))
+
+
+class StockTreeProfileTests(unittest.TestCase):
+    """stock-tree (the scripted campaign program's host, docs/dev/autotest-roadmap.md
+    "The scripted campaign program") is stock-minimal minus EXACTLY the two tech-tree
+    mods. Any other difference would make a campaign finding unreproducible on the
+    instance every other lane flies, so the profiles are compared key for key."""
+
+    TECH_TREE_MODS = {"CommunityTechTree", "ProbesBeforeCrew"}
+
+    def _load(self, name):
+        with open(os.path.join(PROFILES_DIR, name), "rb") as fh:
+            return tomllib.load(fh)
+
+    def test_stock_tree_drops_exactly_the_tech_tree_mods(self):
+        sm = self._load("stock-minimal.toml")
+        st = self._load("stock-tree.toml")
+        self.assertTrue(self.TECH_TREE_MODS <= set(sm["devSourcedMods"]),
+                        "stock-minimal no longer carries both tech-tree mods; re-derive stock-tree")
+        self.assertEqual([m for m in sm["devSourcedMods"] if m not in self.TECH_TREE_MODS],
+                         st["devSourcedMods"])
+        self.assertFalse(self.TECH_TREE_MODS & set(st["devSourcedMods"]))
+
+    def test_stock_tree_matches_stock_minimal_everywhere_else(self):
+        sm = self._load("stock-minimal.toml")
+        st = self._load("stock-tree.toml")
+        self.assertEqual("stock-tree", st["name"])
+        self.assertEqual("automation/stock-tree", st["instanceDir"])
+        self.assertNotEqual(sm["instanceDir"], st["instanceDir"])
+        for key in set(sm) | set(st):
+            if key in ("name", "instanceDir", "devSourcedMods"):
+                continue
+            self.assertEqual(sm.get(key), st.get(key), "stock-tree differs from stock-minimal at %r" % key)
 
 
 class PhaseInstallEmptyStackTests(unittest.TestCase):

@@ -2193,10 +2193,20 @@ point, using stock and fixture craft for inspiration, and the owner verifies in 
 
 Fix: the ladder CS-0..CS-7, CS-V and CS-ALL in `docs/dev/autotest-roadmap.md` ("The scripted
 campaign program"). Known building blocks to make first: the stock-tree profile and a per-node
-part-unlock listing; the new-game builder; `LaunchFromEditor` then a mission step in one lane;
+part-unlock listing; the new-game builder (its seam verb `NewGame` built 2026-10-25, branch
+`cs-newgame-verb`: a stock New Game over the run's save at a named mode and preset; no lane flies it
+yet); `LaunchFromEditor` then a mission step in one lane;
 the science-mode pool read; per-situation science actions (EVA report, surface sample); a
 contract-offer listing / accept-by-type verb; a Mun ascent + trans-Kerbin injection machine; a
 stage-to-fixture promotion tool.
+
+Progress 2026-10-25 (branch `claude/project-thread-25edvc`): built the `stock-tree` provision
+profile, the stock tech-tree listing (`harness/tools/list_tech_unlocks.py` ->
+`docs/dev/research/stock-tech-tree-part-unlocks.md`), the science-mode pool read in
+`science_bench_recover` (`recoverCreditPool`, `transmitMaxExperiments`), the harvest's
+`--allow-no-vessel` / `--expect-mode` for a vessel-less new-game save, the shared Jumping Flea
+in the craft library, and the lanes CS-0-new-science-game / CS-0-new-career-game (fixture
+builders) and CS-1-science-first-hop (pending its `cs-science-new` fixture). None flown yet.
 
 ---
 

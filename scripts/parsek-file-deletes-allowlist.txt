@@ -13,6 +13,11 @@
 #                   those three directories (the rationale follows each entry)
 #   <dir>/          prefix: every file underneath, any count (test-only code)
 #
+# One pinned file deletes a WHOLE save folder rather than a file inside it: the NewGame
+# seam verb (automation only) replaces saves/<save> the way stock's New Game overwrite does.
+# Every save that could name a sidecar goes with the folder, so the collector's rule (a file
+# stays while a save names it) has nothing left to protect there.
+#
 # A new delete site in a pinned file moves its count: re-read it, and when it touches one
 # of the three directories route it through the collector instead of raising the pin.
 
@@ -47,3 +52,6 @@ Source/Parsek/RevertInterceptor.cs 2
 Source/Parsek/RewindInvoker.cs 1
 # Harness screenshot command: its own output file.
 Source/Parsek/TestCommands/ParsekTestCommandAddon.CaptureScreenshot.cs 1
+# Harness NewGame command: stock's New Game overwrite of the run's own saves/<save> folder
+# (files, then directories, keeping the top-level Ships/), at the main menu with no game loaded.
+Source/Parsek/TestCommands/ParsekTestCommandAddon.NewGame.cs 4

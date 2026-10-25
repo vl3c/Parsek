@@ -1136,12 +1136,42 @@ at `fetch-depth: 0` so the sha resolves in CI and the class RUNS there rather th
 self-skipping - a skip in a CI log means that setting was lost, not that the claim is
 unprovable.
 
+**A second AMENDMENT, 2026-10-25: the science-mode knobs (all optional).** The scripted
+campaign program's CS-1 flies a stock SCIENCE game, where kRPC's `SpaceCenter.Funds`
+raises, so three things change, each a no-op when its key is absent:
+
+- **The pools are read independently.** `_read_career_pools` used to read funds and
+  science in one `try`, so a raising funds pool also made science read NaN. Each pool now
+  has its own read and its own once-per-run Warn (`career funds pool UNREADABLE` /
+  `career science pool UNREADABLE`).
+- **`recoverCreditPool`** (`"funds"` default | `"science"`, a closed vocabulary hlib now
+  enforces at ADMIT for `string` params) picks the pool the RECOVERED terminal measures
+  across the recovery, and **`recoverMinScienceGain`** (default 0.1, schema min 0.001) is
+  its floor under `"science"`. Same straddle, same grace streak, same
+  `career-pool-channel-dark` FLAKE vs `vessel-lost-without-recovery-credit` ASSERT-FAIL
+  split, the reason naming the pool (`the career science pool never ...`); the funds pool
+  is not consulted. Two strengtheners: the credit must also be strictly positive (it is
+  the only proof of a recovery there), and the pre-recover science baseline tracks every
+  LIVE RECOVER frame read before the perform seam reported ISSUED instead of freezing on
+  RECOVER entry, so a transmit credit that lands late cannot pose as the recovery's.
+- **`transmitMaxExperiments`** (int >= 1, absent = all) caps the TRANSMIT verb. The cap
+  rides `Action.value` on every TRANSMIT emission and the runner enforces it over the
+  WHOLE RUN (`_transmit_sent_total`, kRPC enumeration order, only a returned
+  `transmit()` counts), so a re-emit can retry a raised send but never send an extra
+  experiment. No gate assumes an empty craft after a transmit.
+
+The defaults are replayed, not asserted: `SbrSciencePoolCompatibilityTests`
+(`test_science_bench_recover_science_mode.py`) drives L3's and L6's committed params, and
+L3's with `recoverCreditPool = "funds"` spelled out, over a success flight and three
+failure flights through this module and through the copy at the pinned pre-change sha
+`b8de091`, comparing every phase, action, reason string and assertion row.
+
 Verdict semantics, and the split is the CL-1 split exactly - a wrong OUTCOME is
 not retryable, a broken CHANNEL is:
 
 | Terminal | Verdict | Why that side of the line |
 | --- | --- | --- |
-| `RECOVERED` | MISSION-OK (assertions decide) | craft OBSERVED gone AND a funds credit measured ACROSS the recovery (pre-recover baseline vs a reading taken on a vessel-gone frame), after the verb was actually issued |
+| `RECOVERED` | MISSION-OK (assertions decide) | craft OBSERVED gone AND a funds credit (the science credit under `recoverCreditPool = "science"`) measured ACROSS the recovery (pre-recover baseline vs a reading taken on a vessel-gone frame), after the verb was actually issued |
 | `no-experiments-aboard` | MISSION-ASSERT-FAIL | the enumeration READ 0 modules: the fixture is wrong, and re-flying it changes nothing |
 | `collect-produced-no-data` | MISSION-ASSERT-FAIL | modules aboard, none stored data; the reason carries the availability count so "refused" and "conditions never met" are distinguishable |
 | `transmit-credited-no-science` | MISSION-ASSERT-FAIL | no antenna / no EC / no connection |
