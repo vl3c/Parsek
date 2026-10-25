@@ -535,7 +535,16 @@ class KrpcMissionControl(MissionControl):
         # sentinels that stand real machinery down, so each must NAME itself once
         # rather than produce a mute give-up a phase budget later.
         self._warned_science_read = False
-        self._warned_career_pools_read = False
+        # One latch PER POOL: the two pools are read independently (a stock
+        # SCIENCE game has a science pool and no funds pool), so each dark pool
+        # names itself once and a dark funds pool cannot mute a later science one.
+        self._warned_career_funds_read = False
+        self._warned_career_science_read = False
+        # Experiments the TRANSMIT_SCIENCE verb has actually sent over the WHOLE
+        # RUN. A capped transmit (Action.value = science_bench_recover's
+        # transmitMaxExperiments) sends at most cap minus this many, so a bounded
+        # re-emit can retry a send that raised but never send past the cap.
+        self._transmit_sent_total = 0
         # PERFORM-SEAM outcome of the last recover attempt, riding
         # TelemetrySnapshot.recover_request_result (the seam_command_result
         # precedent). "" until one terminates. It is STICKY on purpose: the
@@ -2319,7 +2328,8 @@ class KrpcMissionControl(MissionControl):
         elif kind == mlib.ACTION_RUN_SCIENCE_EXPERIMENTS:
             self._perform_run_science(v)
         elif kind == mlib.ACTION_TRANSMIT_SCIENCE:
-            self._perform_transmit_science(v)
+            # value = the run-wide transmit cap, or None for every module.
+            self._perform_transmit_science(v, action.value)
         elif kind == mlib.ACTION_RECOVER_VESSEL:
             self._perform_recover_vessel(v)
         elif kind == mlib.ACTION_RECOVER_NAMED_VESSEL:
@@ -2489,30 +2499,39 @@ class KrpcMissionControl(MissionControl):
             "run." % (channel, type(exc).__name__, str(exc)[:160])))
 
     def _read_career_pools(self, sc):
-        """(funds, science) from SpaceCenter.Funds / .Science, or (NaN, NaN).
+        """(funds, science) from SpaceCenter.Funds / .Science; an unreadable pool
+        reads NaN.
 
         Read from the SPACE CENTER handle, never from the vessel, which is what
         lets the vessel-lost path carry them - and that path is the only one on
-        which the recovery terminal is observable at all. Both properties raise
-        outside CAREER mode; the NaN that produces is the honest answer (a
-        science credit is not a thing a SANDBOX save has) and the machine names
-        it `career-pool-channel-dark`."""
-        funds = float("nan")
-        science = float("nan")
+        which the recovery terminal is observable at all.
+
+        THE TWO POOLS ARE READ INDEPENDENTLY. Funds raises outside CAREER, while
+        Science is readable in both CAREER and SCIENCE games; reading them in one
+        try made a Science game read NaN science too, which left the whole
+        science lane dark there. Each NaN is the honest answer for its own pool
+        (a funds credit is not a thing a SCIENCE save has) and the machine names
+        a dark pool `career-pool-channel-dark` only where it gates on it."""
+        funds = self._read_one_career_pool(sc, "funds")
+        science = self._read_one_career_pool(sc, "science")
+        return funds, science
+
+    def _read_one_career_pool(self, sc, pool: str) -> float:
+        """One pool's reading, or NaN with a once-per-run Warn for that pool."""
         try:
-            funds = float(sc.funds)
-            science = float(sc.science)
+            return float(getattr(sc, pool))
         except Exception as exc:
-            if not self._warned_career_pools_read:
-                self._warned_career_pools_read = True
+            latch = "_warned_career_%s_read" % (pool,)
+            if not getattr(self, latch):
+                setattr(self, latch, True)
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Science",
-                    "career pools UNREADABLE (%s: %s); career_funds/career_science "
-                    "degrade to the NaN UNREAD sentinel, which fails the transmit "
-                    "credit gate and the recovery credit gate CLOSED. A non-CAREER "
-                    "save reads exactly like this. Logged once per run."
-                    % (type(exc).__name__, str(exc)[:160])))
-        return funds, science
+                    "career %s pool UNREADABLE (%s: %s); career_%s degrades to the "
+                    "NaN UNREAD sentinel, which fails every gate that measures this "
+                    "pool CLOSED. A save whose game mode has no %s pool reads "
+                    "exactly like this. Logged once per run."
+                    % (pool, type(exc).__name__, str(exc)[:160], pool, pool)))
+            return float("nan")
 
     def _perform_run_science(self, vessel) -> None:
         """Run every experiment that is Available, not Inoperable and not already
@@ -2538,29 +2557,50 @@ class KrpcMissionControl(MissionControl):
             "Info", "Science", "run_science_experiments ran=%d skipped=%d failed=%d"
             % (ran, skipped, failed)))
 
-    def _perform_transmit_science(self, vessel) -> None:
+    def _perform_transmit_science(self, vessel, max_total=None) -> None:
         """Transmit the stored data of every experiment that reads HasData.
         Same swallow-per-module discipline; the OBSERVED career science pool owns
         the outcome, because this call succeeds on a craft with no antenna, no
-        ElectricCharge or no connection and credits nothing."""
+        ElectricCharge or no connection and credits nothing.
+
+        ``max_total`` (the TRANSMIT action's ``value``, None = no cap) bounds the
+        sends over the WHOLE RUN, counted in ``_transmit_sent_total``: this call
+        sends at most ``max_total`` minus what earlier calls sent, walking the
+        experiments in kRPC's enumeration order (the vessel's part order, stable
+        for one craft), so which modules keep their data is deterministic. Only a
+        transmit() that RETURNED counts as sent; one that raised can be retried by
+        a re-emit."""
+        cap = None
+        if max_total is not None:
+            try:
+                cap = max(0, int(max_total))
+            except (TypeError, ValueError):
+                cap = 0
         sent = 0
         skipped = 0
         failed = 0
+        capped = 0
         for exp in self._iter_experiments(vessel):
             try:
                 if not bool(exp.has_data):
                     skipped += 1
                     continue
+                if cap is not None and self._transmit_sent_total >= cap:
+                    capped += 1
+                    continue
                 exp.transmit()
                 sent += 1
+                self._transmit_sent_total += 1
             except Exception as exc:
                 failed += 1
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Science", "experiment transmit failed: %s: %s"
                     % (type(exc).__name__, str(exc)[:120])))
-        _stdout_sink(mlib.format_mission_log_line(
-            "Info", "Science", "transmit_science sent=%d skipped=%d failed=%d"
-            % (sent, skipped, failed)))
+        line = "transmit_science sent=%d skipped=%d failed=%d" % (sent, skipped, failed)
+        if cap is not None:
+            line += " cap=%d runTotal=%d heldBack=%d" % (
+                cap, self._transmit_sent_total, capped)
+        _stdout_sink(mlib.format_mission_log_line("Info", "Science", line))
 
     def _perform_recover_vessel(self, vessel) -> None:
         """Recover the active vessel (kRPC Vessel.Recover -> stock's

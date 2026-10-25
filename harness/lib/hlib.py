@@ -6976,8 +6976,8 @@ def _check_param_type(name: str, value, decl: Dict) -> List[str]:
     """Type/range check one declared missionParam value against its schema entry
     (pure). ``decl`` is the mission schema's per-param table
     ``{"type": "<t>", "min": <num?>, "max": <num?>, "values": [<str>...]}``; only the
-    declared facets are enforced, and ``values`` is honoured for ``list`` only (a
-    closed vocabulary, checked at ADMIT - see the list arm). bool is rejected where a number is declared (Python ``bool`` is an
+    declared facets are enforced, and ``values`` is honoured for ``list`` and
+    ``string`` only (a closed vocabulary, checked at ADMIT - see the list arm). bool is rejected where a number is declared (Python ``bool`` is an
     ``int`` subclass, so an unguarded numeric check would silently accept True/False
     as 1/0). The declared ``type`` must be one of ``MISSION_PARAM_TYPES``; an unknown
     spelling rejects the DECLARATION rather than falling through unchecked."""
@@ -7028,6 +7028,15 @@ def _check_param_type(name: str, value, decl: Dict) -> List[str]:
     elif ptype == "string":
         if not isinstance(value, str):
             errs.append("missionParams.%s: expected a string, got %r" % (name, value))
+        elif isinstance(decl.get("values"), (list, tuple)) and decl["values"]:
+            # The same OPTIONAL CLOSED VOCABULARY as the list arm, for a string
+            # param that is an enum (science_bench_recover's recoverCreditPool): a
+            # typo'd member must die at ADMIT rather than silently select a default.
+            allowed = [str(v) for v in decl["values"]]
+            if value not in allowed:
+                errs.append(
+                    "missionParams.%s: unknown value %s; allowed: %s"
+                    % (name, value, ",".join(allowed)))
     elif ptype == "bool":
         if not isinstance(value, bool):
             errs.append("missionParams.%s: expected a bool, got %r" % (name, value))
