@@ -2269,7 +2269,11 @@ profile, the stock tech-tree listing (`harness/tools/list_tech_unlocks.py` ->
 `science_bench_recover` (`recoverCreditPool`, `transmitMaxExperiments`), the harvest's
 `--allow-no-vessel` / `--expect-mode` for a vessel-less new-game save, the shared Jumping Flea
 in the craft library, and the lanes CS-0-new-science-game / CS-0-new-career-game (fixture
-builders) and CS-1-science-first-hop (pending its `cs-science-new` fixture). None flown yet.
+builders) and CS-1-science-first-hop (pending its `cs-science-new` fixture). Flown 2026-10-25:
+both CS-0 lanes PASS (`2026-10-25_1743` / `_1744`), harvested as `cs-science-new` / `cs-career-new`;
+CS-1 `_1752` INVALID because the new Science save held a stock asteroid and LoadGame booted into
+FLIGHT on it (now `scene = "spacecenter"`), owes a re-flight. A stock-tree flight needs BOTH
+instances provisioned from one worktree (the reference-DLL admission check).
 
 ---
 

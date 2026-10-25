@@ -12,7 +12,8 @@ id = "CS-1-science-first-hop"
 # THE HOST. `cs-science-new`, CS-0-new-science-game's produced save: a genuine stock New
 # Game (Science, Normal preset, created through stock's own GamePersistence.CreateNewGame
 # by the NewGame seam verb) on the `stock-tree` instance, harvested with
-# `harvest_bdock_station.py --allow-no-vessel --expect-mode SCIENCE_SANDBOX`. No vessel,
+# `harvest_bdock_station.py --allow-no-vessel --expect-mode SCIENCE_SANDBOX`. No craft of
+# its own (stock spawned one asteroid, `Ast. IYH-096`, ORBITING, during the CS-0 flight),
 # science 0, the stock start node only. The craft comes from the shared library
 # (`fixtures/shared-ships.toml`). The produced save of this lane is the next stage's host.
 #
@@ -22,14 +23,15 @@ id = "CS-1-science-first-hop"
 # Science game, so the recovery is proven by the recovered Goo's science credit), and the
 # scene-exit auto-commit of a recovered flight.
 #
-# STATUS: NEVER FLOWN. Tier `pending-fixture` until `cs-science-new` is harvested; then
-# `operator` until the first green flight (an expensive unflown lane), PROMOTE to nightly
-# after it. The log contract below is conservative until a reading run pins it.
-tier = "pending-fixture"
+# STATUS: `cs-science-new` harvested 2026-10-25 (CS-0 run `2026-10-25_1743`). First flight
+# `2026-10-25_1752` / `_1753_a2` INVALID on GoToEditor (the save's asteroid booted LoadGame
+# into FLIGHT); LoadGame now forces the Space Center. `operator` until the first green
+# flight, PROMOTE to nightly after it. The log contract stays conservative until then.
+tier = "operator"
 description = "Scripted campaign stage 1 (Science): in a genuine stock new Science game, launch the stock Jumping Flea from the VAB, hop, run both Goo units, transmit one experiment, recover the craft (the data still aboard credits on recovery) and auto-commit the recorded flight."
 instanceProfile = "stock-tree"
 tags = ["campaign", "CS-1", "science-mode", "editor", "science", "recovery", "auto-commit",
-        "pending-fixture", "pending-flight"]
+        "pending-flight"]
 
 [fixture]
 saveTemplate = "fixtures/saves/cs-science-new"
@@ -44,7 +46,10 @@ mission = "science_bench_recover"
 # 2400 >= 300 LoadGame + 120 GoToEditor + 180 LaunchFromEditor + 1320 mission + SaveGame +
 # FlushAndQuit + margin.
 steps = [
-  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent" },    expect = "OK", budget = 300 },
+  # scene = "spacecenter": a genuine new game can hold a stock-spawned asteroid (the first
+  # harvest did, `Ast. IYH-096`), and a save with a focusable vessel would otherwise boot
+  # into FLIGHT on it, where GoToEditor refuses (goeditor-wrong-scene).
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
   { cmd = "SetSetting",       args = { name = "autoMerge",          value = "true" }, expect = "OK" },
   { cmd = "SetSetting",       args = { name = "verboseLogging",     value = "true" }, expect = "OK" },

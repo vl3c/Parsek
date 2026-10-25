@@ -862,6 +862,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # `fresh-sandbox` plus the SEAT1 Seat Pod craft in the VAB (SEAT-1).
         "seat-pad": False,
         "fresh-science": False,
+        # The scripted campaign's genuine stock new games (CS-0 harvests): stock's
+        # CreateNewGame writes every AddToAllGames module, ParsekScenario among them.
+        "cs-science-new": True,
+        "cs-career-new": True,
         # `fresh-career` WITH A REPUTATION SEED and nothing else - two lines of
         # the save differ. It inherits the base's deliberate ABSENCE of a
         # ParsekScenario node (False) along with everything else, which is right
