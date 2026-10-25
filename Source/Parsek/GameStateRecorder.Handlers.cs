@@ -141,7 +141,7 @@ namespace Parsek
             // with an untagged KSC action that survives DiscardPendingTree forever.
             // If the tag is empty while a live recorder exists, treat it as tag drift
             // and avoid creating a null-owner ledger action that survives discard.
-            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -153,6 +153,27 @@ namespace Parsek
                 return;
             }
 
+            CaptureContractCompleted(
+                contract.ContractGuid.ToString(),
+                contract.Title ?? "",
+                (float)contract.FundsCompletion,
+                (float)contract.ReputationCompletion,
+                (float)contract.ScienceCompletion,
+                Planetarium.GetUniversalTime());
+        }
+
+        /// <summary>
+        /// Headless core of <see cref="OnContractCompleted"/>: every value the stock callback
+        /// supplies is passed in, so the capture -> ledger chain is testable without KSP.
+        /// </summary>
+        internal void CaptureContractCompleted(
+            string contractGuid,
+            string title,
+            float fundsReward,
+            float repReward,
+            float sciReward,
+            double completionUt)
+        {
             // Bug 1 (fix-funds-economy-divergence §3.2): debounce a stock contract re-fire.
             // Stock KSP can fire onCompleted N times for one contract within a few ms (the
             // observed burst fired 4x at the same UT). RETURN before BOTH the Emit store
@@ -160,25 +181,20 @@ namespace Parsek
             // so neither inflation path (tagged-commit via the store, no-owner-direct via
             // OnKscSpending) bakes a duplicate reward. The window is the same coalesce window
             // the carried resource events already collapse within.
-            string contractGuid = contract.ContractGuid.ToString();
-            double completionUt = Planetarium.GetUniversalTime();
             if (IsDuplicateContractCompletion(
                 contractGuid, completionUt,
                 lastContractCompletionUtByGuid, GameStateStore.ResourceCoalesceEpsilon))
             {
                 ParsekLog.Info("GameStateRecorder",
-                    $"Game state: ContractCompleted '{contract.Title ?? ""}' DEDUPED " +
+                    $"Game state: ContractCompleted '{title ?? ""}' DEDUPED " +
                     $"(stock re-fire of contract {contractGuid} within {GameStateStore.ResourceCoalesceEpsilon.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}s at UT={completionUt.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}) - not recorded");
                 return;
             }
 
-            var title = contract.Title ?? "";
+            title = title ?? "";
             // InvariantCulture-safe float serialization — plain interpolation emits
             // comma decimals on locales like de-DE/fr-FR/ro-RO, and the IC-parsing
             // converter side then reads zero. See also OnContractAccepted.
-            float fundsReward = (float)contract.FundsCompletion;
-            float repReward = (float)contract.ReputationCompletion;
-            float sciReward = (float)contract.ScienceCompletion;
             var detail = BuildContractCompletedDetail(title, fundsReward, repReward, sciReward);
             var evt = new GameStateEvent
             {
@@ -187,14 +203,19 @@ namespace Parsek
                 key = contractGuid,
                 detail = detail
             };
+            // A completion a ground station's science or a Sentinel scan makes runs inside a
+            // clock-cause scope (ClockCauseScopePatches): Emit files it untagged, and the
+            // claiming-recorder gate below writes it to the ledger at once, in flight too.
+            bool clockCaused = InClockCauseScope;
             Emit(ref evt, "ContractCompleted");
             ParsekLog.Info("GameStateRecorder",
-                $"Game state: ContractCompleted '{title}' (funds={fundsReward}, rep={repReward}, sci={sciReward})");
+                $"Game state: ContractCompleted '{title}' (funds={fundsReward}, rep={repReward}, sci={sciReward}" +
+                (clockCaused ? ", completed by no flight, filed untagged" : "") + ")");
 
             // #405: route to ledger immediately when there is no recording owner.
             // #431 gate: see OnContractAccepted — skip the ledger write when the event
             // was tagged during FLIGHT -> SPACECENTER teardown.
-            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -245,7 +266,7 @@ namespace Parsek
             // #431 gate: see OnContractAccepted. An untagged expiry is never converted at a
             // commit (the commit converts only its own tag), so it is written here even with
             // a live recorder.
-            if (ShouldForwardFailToLedger(deadlineExpiry, evt.recordingId, HasLiveRecorder()))
+            if (ShouldForwardFailToLedger(deadlineExpiry, evt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -297,7 +318,7 @@ namespace Parsek
 
             // #405: route to ledger immediately when there is no recording owner.
             // #431 gate: see OnContractAccepted.
-            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -489,7 +510,7 @@ namespace Parsek
             // used by the contract handlers. Untagged pre-recording FLIGHT tech-research
             // events have no later commit-time owner; suppressing them here would
             // strand the TechResearched action in GameStateStore.
-            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -547,7 +568,7 @@ namespace Parsek
             // Relies on the DedupKey (§F) to disambiguate part-name collisions.
             // #553 follow-up: gate on ShouldForwardDirectLedgerEvent so untagged
             // pre-recording FLIGHT part-purchases reach the ledger too.
-            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -586,7 +607,7 @@ namespace Parsek
                 $"entryCost={upgrade.entryCost.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
                 $"techRequired={upgrade.techRequired ?? "(none)"})");
 
-            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -665,7 +686,7 @@ namespace Parsek
 
             // #553 follow-up: gate on ShouldForwardDirectLedgerEvent so untagged
             // pre-recording FLIGHT crew hires reach the ledger too.
-            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -962,7 +983,7 @@ namespace Parsek
             // Write directly to ledger when no recording owner exists.
             // #553 follow-up: gate on ShouldForwardDirectLedgerEvent so untagged
             // pre-recording FLIGHT milestones reach the ledger too.
-            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
             else
                 WriteRecoveryOwnedMilestoneIfAny(evt, recoveryOwner);
@@ -1291,7 +1312,7 @@ namespace Parsek
             // orbital craft already reverted) still reach the ledger immediately.
             // #553 follow-up: gate on ShouldForwardDirectLedgerEvent so untagged
             // pre-recording FLIGHT standalone milestone awards reach the ledger too.
-            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
             else
                 WriteRecoveryOwnedMilestoneIfAny(evt, recoveryOwner);
@@ -1557,7 +1578,7 @@ namespace Parsek
             // ShouldForwardDirectLedgerEvent gate suppresses tagged teardown events
             // while still letting untagged pre-recording FLIGHT events (no live
             // recorder) reach the ledger.
-            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -1625,7 +1646,7 @@ namespace Parsek
             // pre-recording FLIGHT strategy deactivations reach the ledger too. An expiry
             // is untagged and no commit converts it, so it is written even with a live
             // recorder.
-            if (expiry || ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
+            if (expiry || ShouldForwardDirectLedgerEvent(evt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -1690,7 +1711,7 @@ namespace Parsek
                 $"ut={ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
                 $"recordingId='{evt.recordingId ?? ""}'");
 
-            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
@@ -1758,7 +1779,7 @@ namespace Parsek
                 $"ut={ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
                 $"recordingId='{evt.recordingId ?? ""}'");
 
-            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 

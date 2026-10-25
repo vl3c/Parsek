@@ -2627,6 +2627,7 @@ namespace Parsek
 
             // After the flush: a flag planted this flight is still in the recorder buffer before it.
             if (TreeHasPlantedFlagsForIdle(activeTree, "IsActiveTreeIdleOnPad")
+                || TreeMovesHeldKerbalForIdle(activeTree, "IsActiveTreeIdleOnPad")
                 || TreeHasConverterWorkForIdle(activeTree, "IsActiveTreeIdleOnPad")
                 || TreeHasLabPayoutsForIdle(activeTree, "IsActiveTreeIdleOnPad")
                 || TreeHasPendingLabRecoveryForIdle(activeTree, "IsActiveTreeIdleOnPad"))
@@ -21910,7 +21911,8 @@ namespace Parsek
                 return false;
 
             if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreePadFailure")
-                || TreeHasPlantedFlagsForIdle(tree, "IsTreePadFailure"))
+                || TreeHasPlantedFlagsForIdle(tree, "IsTreePadFailure")
+                || TreeMovesHeldKerbalForIdle(tree, "IsTreePadFailure"))
                 return false;
 
             foreach (var rec in tree.Recordings.Values)
@@ -22104,6 +22106,50 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Test seam for <see cref="TreeMovesHeldKerbalForIdle"/>: replaces the "does the
+        /// committed timeline hold this kerbal now" read (default
+        /// <see cref="KerbalsModule.IsReservedNow"/> on <see cref="LedgerOrchestrator.Kerbals"/>).
+        /// </summary>
+        internal static Func<string, bool> HeldKerbalProbeForTesting;
+
+        /// <summary>
+        /// The first EVA recording of <paramref name="tree"/> whose kerbal
+        /// <paramref name="isHeld"/> reports held, or null. Pure, null-safe.
+        /// </summary>
+        internal static Recording FindEvaOfHeldKerbal(RecordingTree tree, Func<string, bool> isHeld)
+        {
+            if (tree?.Recordings == null || isHeld == null) return null;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (rec == null || string.IsNullOrEmpty(rec.EvaCrewName)) continue;
+                if (isHeld(rec.EvaCrewName)) return rec;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Idle-on-pad veto for a held kerbal leaving his vessel: a kerbal the committed
+        /// timeline holds (an earlier mission left him aboard, so his hold is open-ended)
+        /// stepped out on EVA in this flight. Only this flight's recordings can end that
+        /// hold (the joined-vessel claim, then the EVA's own recovery or end), and stock has
+        /// already moved him, so discarding it would leave him held forever (owner ruling
+        /// 2026-10-25, todo CX4-IDLE-DISCARDED-FLIGHT-LEAVES-THE-HOLD-OPEN). Logs the veto;
+        /// returns true when the tree must not be classified idle.
+        /// </summary>
+        internal static bool TreeMovesHeldKerbalForIdle(RecordingTree tree, string caller)
+        {
+            Func<string, bool> isHeld = HeldKerbalProbeForTesting
+                ?? (name => LedgerOrchestrator.Kerbals?.IsReservedNow(name) ?? false);
+            Recording eva = FindEvaOfHeldKerbal(tree, isHeld);
+            if (eva == null) return false;
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "{0}: not idle - held kerbal '{1}' left his vessel on EVA (recording {2}) tree='{3}'",
+                    caller, eva.EvaCrewName, eva.RecordingId ?? "(none)", tree?.TreeName ?? "<unnamed>"));
+            return true;
+        }
+
+        /// <summary>
         /// Idle-on-pad veto shared by <see cref="IsTreeIdleOnPad(RecordingTree)"/> and
         /// <see cref="IsActiveTreeIdleOnPad"/>: a tree whose kerbal placed ground parts
         /// created vessels, so it is player work even when nothing moved 30 m (a
@@ -22133,6 +22179,7 @@ namespace Parsek
 
             if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreeIdleOnPad")
                 || TreeHasPlantedFlagsForIdle(tree, "IsTreeIdleOnPad")
+                || TreeMovesHeldKerbalForIdle(tree, "IsTreeIdleOnPad")
                 || TreeHasConverterWorkForIdle(tree, "IsTreeIdleOnPad")
                 || TreeHasLabPayoutsForIdle(tree, "IsTreeIdleOnPad")
                 || TreeHasPendingLabRecoveryForIdle(tree, "IsTreeIdleOnPad"))
@@ -29684,11 +29731,95 @@ namespace Parsek
                 heldInBubble++;
             }
 
+            // Tips an earlier jump armed that have neither spawned nor been held: their plain
+            // ghost is past its end, so neither walk above sees them, yet a second jump freezes
+            // them as well. Their stand-in position is the jump-shifted terminal orbit now.
+            int pendingRecaptured = 0;
+            int pendingSkipped = 0;
+            List<string> pendingIds = TimeJumpTerminalOrbitShift.PendingRecordingIdsNotIn(seen);
+            if (pendingIds.Count > 0)
+            {
+                double currentUT = Planetarium.GetUniversalTime();
+                for (int p = 0; p < pendingIds.Count; p++)
+                {
+                    string recId = pendingIds[p];
+                    Recording rec = null;
+                    for (int i = 0; i < committed.Count; i++)
+                    {
+                        if (committed[i] != null && committed[i].RecordingId == recId)
+                        {
+                            rec = committed[i];
+                            break;
+                        }
+                    }
+
+                    bool shiftLive = false;
+                    bool positionResolved = false;
+                    double dist = double.NaN;
+                    if (rec != null && !rec.VesselSpawned)
+                    {
+                        shiftLive = TimeJumpTerminalOrbitShift.TryGetShift(
+                            recId, currentUT, out TerminalOrbitJumpShift shift);
+                        if (shiftLive)
+                        {
+                            positionResolved = TryResolveJumpShiftedTipWorldPosition(
+                                rec, currentUT, shift.LagSeconds, out Vector3d tipPos);
+                            if (positionResolved)
+                                dist = Vector3d.Distance(activePos, tipPos);
+                        }
+                    }
+
+                    string decision = TimeJumpTerminalOrbitShift.ClassifyPendingRecapture(
+                        rec != null, rec != null && rec.VesselSpawned, shiftLive,
+                        positionResolved, dist, DistanceThresholds.PhysicsBubbleMeters);
+                    if (decision == TimeJumpTerminalOrbitShift.RecaptureAdd)
+                    {
+                        result.Add(new KeyValuePair<Recording, double>(rec, dist));
+                        seen.Add(recId);
+                        pendingRecaptured++;
+                    }
+                    else
+                    {
+                        pendingSkipped++;
+                    }
+                    ParsekLog.Verbose("Flight",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "CollectBubbleGhostsForTimeJump: armed unspawned tip rec={0} decision={1} separation={2:F1}m",
+                            recId, decision, dist));
+                }
+            }
+
             ParsekLog.Verbose("Flight",
                 string.Format(CultureInfo.InvariantCulture,
-                    "CollectBubbleGhostsForTimeJump: inBubble={0} heldInBubble={1} beyondBubble={2} bubble={3:F0}m",
-                    result.Count, heldInBubble, beyondBubble, DistanceThresholds.PhysicsBubbleMeters));
+                    "CollectBubbleGhostsForTimeJump: inBubble={0} heldInBubble={1} pendingRecaptured={2} pendingSkipped={3} beyondBubble={4} bubble={5:F0}m",
+                    result.Count, heldInBubble, pendingRecaptured, pendingSkipped, beyondBubble,
+                    DistanceThresholds.PhysicsBubbleMeters));
             return result;
+        }
+
+        /// <summary>
+        /// World position, at <paramref name="currentUT"/>, of an armed tip's jump-shifted
+        /// terminal orbit: the body and orbit the jump-shifted spawn resolves, so the same place
+        /// a held ghost of the tip is drawn (<c>CaptureBlockedChainTipGhost</c>).
+        /// </summary>
+        private static bool TryResolveJumpShiftedTipWorldPosition(
+            Recording rec, double currentUT, double lagSeconds, out Vector3d worldPos)
+        {
+            worldPos = Vector3d.zero;
+            if (rec == null)
+                return false;
+            TrajectoryPoint? lastPoint = rec.Points != null && rec.Points.Count > 0
+                ? (TrajectoryPoint?)rec.Points[rec.Points.Count - 1]
+                : null;
+            CelestialBody body = VesselSpawner.ResolveSpawnRotationBody(rec, lastPoint);
+            if (body == null
+                || !VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn(rec, body, currentUT, lagSeconds, out Orbit orbit)
+                || orbit == null)
+                return false;
+            worldPos = orbit.getPositionAtUT(currentUT);
+            return !double.IsNaN(worldPos.x) && !double.IsNaN(worldPos.y) && !double.IsNaN(worldPos.z)
+                && !double.IsInfinity(worldPos.x) && !double.IsInfinity(worldPos.y)
+                && !double.IsInfinity(worldPos.z);
         }
 
         /// <summary>

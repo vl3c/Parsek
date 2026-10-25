@@ -13,7 +13,6 @@ RecordingStore.CommittedRecordingRemoving committed-list notification event; the
 RecordingStore.RecordingPlaybackEnabledChanged UI notification event subscription, not save state
 RecordingStore.committedRecordings cleared by the cold branch's ClearCommittedInternal with notifications, then filled from the save
 RecordingStore.committedTrees cleared by the cold branch (ClearCommittedInternal, LoadRecordingTrees), then filled from the save
-RecordingStore.CurrentUniversalTimeForRewindRetirementOverrideForTesting test seam
 RecordingStore.LegacyRecordingFileSuffixes constant table
 RecordingStore.RecordingFileSuffixes constant table
 RecordingStore.PostRewindPersistentWriteForTesting test seam
@@ -32,7 +31,8 @@ GameStateRecorder.TagResolverForTesting test seam
 GameStateRecorder.IsReplayingActions scoped SuppressionGuard flag, restored by its own Dispose
 GameStateRecorder.SuppressCrewEvents scoped SuppressionGuard flag, restored by its own Dispose
 GameStateRecorder.SuppressResourceEvents scoped SuppressionGuard flag, restored by its own Dispose
-GameStateRecorder.clockCauseDepth scoped by ContractEarlyFailPatch around one stock SetState call, closed by its own Finalizer
+GameStateRecorder.clockCauseDepth scoped by ContractEarlyFailPatch and ClockCauseScopePatches around one stock call, closed by its own Finalizer
+GameStateRecorder.GroundStationSubmissionReasonKey scoped by DeployedScienceSubmitScopePatch around one stock SubmitScienceData call, cleared by its own Finalizer
 LedgerOrchestrator.clockAdvanceRecalcInProgress scoped in-progress flag of one clock-advance recalculation (try/finally)
 LedgerOrchestrator.CurrencyPoolProbeForTesting test seam
 LedgerOrchestrator.DeferOneFrameForTesting test seam

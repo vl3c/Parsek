@@ -18,10 +18,15 @@ Modes:
              KSP.log stops at an assembly load and never grows again), never
              reading a command, so the harness boot-stall watchdog must fire.
   slowboot   grow KSP.log one line every SLOWBOOT_LINE_GAP_SECONDS for
-             SLOWBOOT_LINES lines, write the MAINMENU scene-change line, then go
-             SILENT for SLOWBOOT_POST_MENU_SILENCE_SECONDS before answering like
-             `pass`: a slow-but-growing boot the watchdog must not trip on, and a
-             post-MAINMENU silence it must never fire on.
+             SLOWBOOT_LINES lines, write the MAINMENU scene-change line and the
+             seam's receipt line for the first command (as the real seam does a
+             fraction of a second after MAINMENU), then go SILENT for
+             SLOWBOOT_POST_MENU_SILENCE_SECONDS before answering like `pass`: a
+             slow-but-growing boot the watchdog must not trip on, and a silence
+             after the seam's receipt it must never fire on.
+  menuhang   boot normally to the MAINMENU line and then WEDGE (the VB-1 shape:
+             KSP.log ends just after MAINMENU, the seam never logs a receipt),
+             never reading a command, so the watchdog's main-menu phase must fire.
   autopilot  respond OK to every command (M-B1 handoff: LoadGame -> SetSetting ->
              [mission phase, no channel traffic] -> CommitTree -> FlushAndQuit);
              simulate Parsek AUTO-RECORD by emitting "Recording started" on
@@ -113,6 +118,8 @@ MAINMENU_LINE = ("[LOG 09:37:41.565] [HighLogic]: =========================== "
 SLOWBOOT_LINES = 8
 SLOWBOOT_LINE_GAP_SECONDS = 0.3
 SLOWBOOT_POST_MENU_SILENCE_SECONDS = 5.0
+# The seam's per-command receipt line (hlib.SEAM_RECEIPT_MARKER) as ParsekLog writes it.
+RECEIPT_LINE = "[LOG 09:37:42.210] [Parsek][INFO][TestCommands] recv id=%s cmd=%s args=%d\n"
 
 
 def _read_commands(path):
@@ -140,11 +147,26 @@ def _append(path, text):
         fh.flush()
 
 
+def _append_first_receipt(root, log_path, wait_seconds=5.0):
+    """Log the seam's receipt for the first command line, waiting briefly for the
+    harness to write it (it does right after launch)."""
+    deadline = time.time() + wait_seconds
+    while time.time() < deadline:
+        lines = _read_commands(os.path.join(root, COMMANDS))
+        if lines:
+            fields = _parse(lines[0])
+            argc = sum(1 for k in fields if k not in ("id", "cmd"))
+            _append(log_path, RECEIPT_LINE % (fields.get("id", "?"), fields.get("cmd", "?"), argc))
+            return
+        time.sleep(0.05)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True, help="instance KSP root (channel files live here)")
     parser.add_argument("--mode", default="pass",
                         choices=["pass", "hang", "bootcrash", "boothang", "slowboot",
+                                 "menuhang",
                                  "autopilot", "autopilot-loadfail",
                                  "autopilot-kerballost", "autopilot-evarefused",
                                  "multipass", "multinoagg", "multimismatch",
@@ -162,12 +184,21 @@ def main(argv=None):
         while time.time() < deadline:
             time.sleep(0.05)
         return 0
+    if args.mode == "menuhang":
+        _append(log_path, "[LOG] ******* Log Initiated for Kerbal Space Program (fake menuhang) *******\n")
+        _append(log_path, "[LOG] Load(Assembly): FakeMod/Plugins/FakeMod\n")
+        _append(log_path, MAINMENU_LINE)
+        deadline = time.time() + args.max_seconds
+        while time.time() < deadline:
+            time.sleep(0.05)
+        return 0
     if args.mode == "slowboot":
         _append(log_path, "[LOG] ******* Log Initiated for Kerbal Space Program (fake slowboot) *******\n")
         for i in range(SLOWBOOT_LINES):
             time.sleep(SLOWBOOT_LINE_GAP_SECONDS)
             _append(log_path, "[LOG] Load(Assembly): FakeMod%d/Plugins/FakeMod%d\n" % (i, i))
         _append(log_path, MAINMENU_LINE)
+        _append_first_receipt(root, log_path)
         time.sleep(SLOWBOOT_POST_MENU_SILENCE_SECONDS)
     _append(log_path, "[LOG] [Parsek][INFO][Init] SessionStart runUtc=9000\n")
     _append(log_path, "[LOG] [Parsek][INFO][TestCommands] armed session=fake pid=%d\n" % os.getpid())
