@@ -39,6 +39,8 @@ If a kerbal goes EVA while recording a vessel, Parsek automatically:
 3. Once the mission is committed, both ghosts play back - the vessel ghost and the EVA kerbal ghost
 4. When the parent vessel spawns, the EVA'd kerbal is excluded from its crew
 
+A kerbal leaving an external command seat, or let go by a claw, is an EVA too, recorded the same way. Only a split that leaves two vehicles is an undock.
+
 ### Merge Dialog
 
 When Parsek needs you to decide what happens to a recorded flight (see below for when), a dialog offers:
@@ -215,6 +217,8 @@ Watch mode auto-exits when the ghost passes the fixed 300 km watch range, when t
 ### Rewind / Fast-Forward
 
 - **R** reloads the quicksave captured at the recording's launch, undoing everything that happened since. All committed recordings (including the one you rewound to) replay as ghosts from that point; you can launch new missions alongside them. Resources, research progress, and facility upgrades are reset to their pre-launch state and will be re-applied as the ghost timeline replays.
+  - A rewind only moves the clock. It never undoes a merged Re-Fly and never reopens or closes an Unfinished Flight: a sealed flight stays sealed, an open one stays open.
+  - A vessel a committed flight still uses after the rewind moment (flies, docks with, boards, moves cargo with or recovers) is held back until that flight reaches it, including a vessel from another mission. In flight it shows as a ghost where it was; the Space Center and the Tracking Station show nothing for it until its flight's own ghost appears. The flight's end brings it back as a real vessel.
 - **FF** instantly advances the game clock to a future recording's launch UT. The current scene stays (KSC stays KSC, flight stays on the current vessel). If a ghost is being watched, watch transfers to the fast-forwarded recording.
 
 Both buttons show a confirmation dialog naming the recording before acting. Disabled buttons hover-tip their blocker ("recording in progress", "no rewind save", etc.).
@@ -326,7 +330,15 @@ The "Defaults" button resets every Parsek setting, including the Advanced-only o
 Funds and science already promised to recorded flights that have not run yet are held
 back for you: the stock currency widgets show what is actually **available** to spend,
 not the raw pool. Hover a widget at the Space Center, in the VAB / SPH or in flight to see
-the breakdown as **Total** and **Reserved**.
+the breakdown as **Total** and **Reserved**, plus **Short by** when the committed future needs
+more than you have and **Debt** while one is outstanding.
+
+After a rewind, while a committed purchase or strategy cost still lies ahead, the fail
+penalties of your open contracts are held back too, so a later committed purchase can always
+be paid. A career that never rewinds plays exactly like stock. A loss you cannot plan for
+(a crew death, a failed contract) never pushes a pool below what later committed costs need:
+the part below that is kept as a **Debt** and paid from your next gains. Flights and launches
+are never blocked for the risk they carry, only for their own cost.
 
 ### Action Blocking
 
@@ -340,6 +352,7 @@ Anything your committed timeline does later is reserved on KSP's own screens, so
 - **Space Center facility menus** - upgrading a building, or rebuilding it to a lower level (Left Ctrl, "Rebuild lvl N"), while a later level change of it is recorded; and repairing, upgrading or rebuilding a damaged building while a later repair of it is recorded (upgrading and rebuilding repair it for free).
 - **In flight** - the EVA and Transfer buttons for a kerbal a committed flight still needs.
 - **Contracts in flight** - a new flight cannot fail a contract the timeline already completes, fails or cancels later: the fail is refused and the contract stays active until its recorded outcome.
+- **Money held for later** - a purchase (building upgrade or repair, hire, part, tech, strategy setup) or a launch whose cost would dig into what later committed costs and open contract penalties need is refused, and so is a Mission Control Accept, Decline or Cancel that would leave too little. The reason reads `Reserved for later costs and contract penalties, blocked by timeline.` with the numbers.
 
 A click that reaches the action some other way (another mod, a different button) is refused with the same text. Where stock already refuses for its own reason (a full strategy slot, for example), its own greyed state and text are left alone.
 
@@ -390,7 +403,7 @@ are drawn nowhere and cannot be turned off.
 
 ### Resources
 
-- **No negative balance** - Funds, science, and reputation deltas are clamped so they never go below zero.
+- **Balances follow stock** - With no committed cost ahead, funds and science stop at zero and reputation can go negative, as in stock. With a committed cost ahead, a loss stops at what that cost needs and the rest is a debt paid from later gains (see Reserved Resources).
 - **Quicksave safety** - Resource application progress is saved, so quickloading doesn't double-apply deltas.
 - **Resource deduction on revert** - When you revert, committed resource costs are deducted from game state so KSP's funds/science/reputation displays and purchase checks reflect what's actually available.
 - **Action blocking** - Stock actions the committed timeline performs later (tech, part purchases, contracts, strategies, hires, facility upgrades) are greyed out on the stock screens with a dated reason; see Action Blocking above.
@@ -398,6 +411,8 @@ are drawn nowhere and cannot be turned off.
 ### Game State Recording
 
 - **Career events captured** - Tech research, part purchases, facility upgrades/downgrades, building destruction/repair, contract lifecycle, crew changes, and resource changes are recorded automatically in career mode.
+- **Events the clock causes belong to no flight** - A contract whose deadline passes, a contract stock ends because its requirements no longer hold, and a strategy that reaches its time limit are career events of their own, together with any penalty they charge. Discarding or reverting the flight you were flying, or merging a Re-Fly, never removes them.
+- **Strategies switch on when their date comes** - A strategy your committed timeline activates later becomes active at exactly that moment, with no second setup cost. A one-time strategy such as the Bail-Out Grant pays out only once, however often you rewind.
 - **Milestone creation** - Events are bundled into milestones at recording commit time and on game save.
 - **Reverted flights stay out** - After a revert, career events captured during the reverted flight are hidden from milestones, the Timeline and the career ledger, because they belong to a recording that was never committed. Loading a save that brings that flight back makes them visible again.
 - **Loading a save restores that save** - Loading a save, with F9 or the Load menu, puts Parsek back exactly as that save was: its committed flights and their recordings, the career ledger and events, the Re-Fly merges, the Unfinished Flights and Rewind Points (a slot you sealed after the save is open again), vessel names, recording groups and missions are the ones the save holds. A flight committed after the save is gone, as at the save, and a flight that was in progress when you saved resumes with its recording as of that moment, even if you discarded it afterwards. Space Center actions you took after the save (tech, upgrades, hires, contracts) are undone. Recordings that other saves still need stay on disk, so loading an older save never damages a newer one. Parsek no longer rewrites your quicksave when you merge or discard a flight, so F9 always returns to the moment you pressed F5.
