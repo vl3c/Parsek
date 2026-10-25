@@ -1,10 +1,18 @@
 schema = 1
 id = "TOUR-1-tourist-spawn-stays-tourist"
 # =====================================================================================
-# TOUR-1: A TOURIST STOCK REMOVED COMES BACK AT A SPAWN AS A TOURIST, NEVER AS HIRED CREW
-# (todo GC12-TOURISTS-REBORN-AS-HIRED-CREW and its GC-12 trace, fixed 2026-10-24 on branch
-# claude/project-thread-q9rwbh, commit 9e81c8b, unit tests only before this lane).
-# AUTHORED 2026-10-24 (branch lanes-gc12).
+# TOUR-1: A HELD TOURIST STAYS A TOURIST THROUGH A REWIND, A CONTRACT CANCEL AND HER SPAWN,
+# NEVER HIRED CREW (todo GC12-TOURISTS-REBORN-AS-HIRED-CREW and its GC-12 trace, fixed
+# 2026-10-24 on branch claude/project-thread-q9rwbh, commit 9e81c8b, unit tests only before
+# this lane). AUTHORED 2026-10-24 (branch lanes-gc12).
+#
+# RE-CUT 2026-10-25 on the owner's answer to REWIND-LEAVES-A-STRIPPED-TOURIST-ASSIGNED: keep
+# her Assigned (today's behavior). The (f) subject is now the spawn seating the still-rostered
+# tourist as she is: the capsule's own KSC spawn after the cancel prints no creation line at
+# all for her (`Created missing tourist` and `Created missing crew` both forbidden for her
+# name, and any `tourists=[1-9]` creation summary), and never drops her as dead / missing.
+# Defect (1)'s re-creation line cannot print on this flow and stays proven by unit tests
+# (TouristPassengerTests). Defect (2) is unchanged and gates as before.
 #
 # FLOWN ONCE: `2026-10-24_2323` (automation DLL from main 6aae72758) PARSEK-FAIL, ONE mismatch:
 # the (f) chain. Every other pin held: DEFECT (2) IS LIVE-PROVEN (`Tourist hold:` and
@@ -22,7 +30,7 @@ id = "TOUR-1-tourist-spawn-stays-tourist"
 # crew is freed to Available, its tourist is not. So no player step this lane can take
 # between the rewind and the spawn removes her, and defect (1)'s subject cannot print on
 # this flow while that rescue skips tourists (an owner question, filed with the triage, not
-# a spec change). NOT RE-FLOWN; the spec is unchanged below this note.
+# a spec change). The owner kept that behavior (2026-10-25); see the RE-CUT note above.
 #
 # THE TWO DEFECTS THE LANE FLIES.
 #   (1) Every spawn route ran VesselSpawner.EnsureCrewExistInRoster, which re-created a crew
@@ -60,19 +68,17 @@ id = "TOUR-1-tourist-spawn-stays-tourist"
 #       capsule stripped from the rewind save (owner guid), Masel back in the roster
 #       (the rewind save was written with her aboard), the contract Active.
 #   (e) KscAction cancel-contract (Mission Control's Cancel, Contract.Cancel()): stock ends
-#       the tour and removes its tourist from the roster. Parsek lets it through (no
-#       committed resolution of the contract, no reserved cost: both penalties are 0).
+#       the tour. Its ClearKerbalsSoft KEEPS Masel (type Tourist, still Assigned after the
+#       rewind strip). Parsek lets the cancel through (no committed resolution of the
+#       contract, no reserved cost: both penalties are 0).
 #   (f) 1x Space Center time past the recording's end (~1320): the ordinary KSC
-#       spawn-at-end brings the capsule back. Masel is missing from the roster, the walk's
-#       tourist row is the evidence, and THE SPAWN IS DEFECT (1)'s SUBJECT:
-#       `Created missing tourist 'Masel Kerman' ... (type=Tourist trait=Tourist
-#       toured=True ...)`. Before the fix: `Created missing crew 'Masel Kerman' ...`, a
-#       hired kerbal.
+#       spawn-at-end brings the capsule back and seats Masel as she is: no creation line for
+#       her (neither as a tourist nor, the bug's shape, as hired crew), not dropped as
+#       missing, the spawn LANDED.
 #
 # WHICH PINS PROVE THE FIX (each literal was added by 9e81c8b, `git log -S`, so none can
-# print on a pre-fix build): `Created missing tourist '...'`, `Spawn prep: ... (tourists=1)`,
-# `Tourist hold: '...' ... passenger, no slot or stand-in`, `touristHolds=1`. FORBIDDEN, the
-# old shapes: `Created missing crew 'Masel Kerman'` (reborn as crew), `Created slot for
+# print on a pre-fix build): `Tourist hold: '...' ... passenger, no slot or stand-in`,
+# `touristHolds=1`. FORBIDDEN, the old shapes: `Created missing crew 'Masel Kerman'` (reborn as crew), `Created slot for
 # 'Masel Kerman'` (the Pilot slot), `for slot 'Masel Kerman' depth` (a stand-in for her),
 # `CrewHired 'Masel Kerman'` (a hire event for her).
 #
@@ -93,12 +99,12 @@ id = "TOUR-1-tourist-spawn-stays-tourist"
 #      `kscaction refused action=cancel-contract reason=unknown-contract` (or
 #      contract-not-offered / not active) means stock dropped it; a red on the boot with
 #      Masel missing from the commit's crew means stock's withdraw also cleared her.
-#   G2 stock's cancel removes an off-vessel tourist (the rewind strip leaves her Assigned
-#      to no vessel, or stock's roster validation makes her Missing; CrewReservationManager's
-#      rescue loops roster.Crew, which excludes tourists). If she is left Missing, the
-#      spawn drops her (`Removed dead/missing crew 'Masel Kerman'`, forbidden here) and
-#      no creation line prints; if she is left Available, the spawn seats her and no
-#      creation line prints either. Both are a premise miss, not a Parsek defect.
+#   G2 MEASURED (`2026-10-24_2323`) and ruled: stock's cancel keeps the off-vessel tourist
+#      (Assigned to no vessel after the rewind strip), so the spawn seats her with no
+#      creation line. A `Created missing tourist 'Masel Kerman'` now means something removed
+#      her before the spawn (a stock or Parsek change): a premise change to triage, and the
+#      lane reds on it. `Removed dead/missing crew 'Masel Kerman'` (forbidden) means she
+#      was left Missing and the spawn dropped her.
 #   G3 the timeline: the rewind lands at ~1285 (1300 - RewindToLaunchLeadTimeSeconds 15),
 #      the cancel lands well before the ghost's end at ~1320, and the WarpToUT 1345 wait
 #      crosses it. A `backward-warp` refusal or a spawn before the cancel mark (the
@@ -123,7 +129,7 @@ id = "TOUR-1-tourist-spawn-stays-tourist"
 #   9 run tools/flight_efficiency.py on the first green flight.
 # =====================================================================================
 tier = "nightly"
-description = "A tourist stock removed comes back at a spawn as a tourist, never as hired crew (GC12-TOURISTS-REBORN-AS-HIRED-CREW): on tourist-splashdown-career (the landed Kerbal X capsule ~1,690 km from KSC, career, with tourist Masel Kerman seated beside Jeb under an Active TourismContract) record the capsule, commit (her row is a Tourist passenger hold, no slot), Rewind-to-Launch, cancel the contract at Mission Control so stock removes her, and let the KSC spawn-at-end re-create her as type Tourist."
+description = "A held tourist stays a tourist through a rewind, a contract cancel and her spawn, never hired crew (GC12-TOURISTS-REBORN-AS-HIRED-CREW, owner ruling 2026-10-25 on REWIND-LEAVES-A-STRIPPED-TOURIST-ASSIGNED): on tourist-splashdown-career (the landed Kerbal X capsule ~1,690 km from KSC, career, with tourist Masel Kerman seated beside Jeb under an Active TourismContract) record the capsule, commit (her row is a Tourist passenger hold, no slot), Rewind-to-Launch, cancel the contract at Mission Control (stock keeps her, still Assigned), and let the KSC spawn-at-end seat her as she is, with no creation line for her."
 instanceProfile = "stock-minimal"
 tags = ["TOUR-1", "GC-12", "tourist", "kerbals", "contracts", "spawn", "rewind-to-launch",
         "career", "kerbin"]
@@ -159,7 +165,7 @@ steps = [
   # (d) Rewind-to-Launch of that tree: the Space Center at ~1285, the tourist back.
   { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                             expect = "OK", budget = 300 },
   { cmd = "MissionMark",    args = { label = "tour1-rewound" },                           expect = "OK" },
-  # (e) Mission Control's Cancel: stock ends the tour and removes the tourist.
+  # (e) Mission Control's Cancel: stock ends the tour and keeps the Assigned tourist.
   { cmd = "KscAction",      args = { action = "cancel-contract", contract = "36cb3f0c-a786-41f3-ac4b-8d223b3a3683" }, expect = "OK", budget = 60 },
   { cmd = "MissionMark",    args = { label = "tour1-cancelled" },                         expect = "OK" },
   # (f) 1x Space Center time past the recording's end: the spawn-at-end.
@@ -202,9 +208,11 @@ required = [
   # (e) The cancel, let through by Parsek and applied by stock, after the rewind.
   "\\[ContractCancelPatch\\] allowing cancel for guid=36cb3f0c-a786-41f3-ac4b-8d223b3a3683 - no committed resolution after now",
   "invokerewindtolaunch complete [\\s\\S]*?kscaction action=cancel-contract target=36cb3f0c-a786-41f3-ac4b-8d223b3a3683 applied=true manifestKind=contract-cancel observedAfter=state=Cancelled",
-  # (f) DEFECT (1), THE SUBJECT: the capsule's own KSC spawn (tied to the recording by its
-  # id), after the cancel, re-creates the missing tourist as a tourist.
-  "startrecording recordingId=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=tour1-cancelled[\\s\\S]*?\\[KSCSpawn\\] Attempting spawn for #([0-9]+) \"[^\"\\r\\n]*\" \\(id=\\1\\)[\\s\\S]*?\\[Spawner\\] Created missing tourist 'Masel Kerman' in roster for vessel spawn \\(type=Tourist trait=Tourist toured=True: a passenger, not hired crew\\)[\\s\\S]*?\\[Spawner\\] Spawn prep: created [1-9][0-9]* missing crew in roster \\(tourists=1\\)[\\s\\S]*?\\[KSCSpawn\\] Vessel spawned for #\\2 \"[^\"\\r\\n]*\" pid=[0-9]+ sit=LANDED",
+  # (f) THE SUBJECT (owner ruling 2026-10-25): the capsule's own KSC spawn (tied to the
+  # recording by its id), after the cancel, LANDED with no creation line in between: the
+  # tourist stock kept is seated as she is. The forbidden list below rejects every creation
+  # line for her and her drop as missing anywhere in the log.
+  "startrecording recordingId=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=tour1-cancelled[\\s\\S]*?\\[KSCSpawn\\] Attempting spawn for #([0-9]+) \"[^\"\\r\\n]*\" \\(id=\\1\\)(?:(?!\\[Spawner\\] Created missing )[\\s\\S])*?\\[KSCSpawn\\] Vessel spawned for #\\2 \"[^\"\\r\\n]*\" pid=[0-9]+ sit=LANDED",
   # The committed store keeps every row through the rewind and the spawn (G4).
   "MISSIONMARK label=tour1-committed-count-10 ",
   "MISSIONMARK label=tour1-kscspawn-count-10 ",
@@ -213,6 +221,9 @@ forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   # The bug's shapes, for the tourist's own name.
   "Created missing crew 'Masel Kerman' in roster for vessel spawn",
+  # The ruled flow keeps her in the roster: a re-creation of her means she was removed.
+  "Created missing tourist 'Masel Kerman' in roster for vessel spawn",
+  "Spawn prep: created [0-9]+ missing crew in roster \\(tourists=[1-9]",
   "Created slot for 'Masel Kerman'",
   "for slot 'Masel Kerman' depth",
   "Game state: CrewHired 'Masel Kerman'",
