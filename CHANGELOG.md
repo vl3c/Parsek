@@ -20,6 +20,10 @@ _(unreleased - entries accumulate here per commit)_
   another mission left a kerbal aboard, stepping him out and recovering him without moving 30 m
   used to be discarded as "idle on the pad", leaving him reserved by the old mission forever. The
   flight is now kept, so he is free again. (CX4-IDLE-DISCARDED-FLIGHT-LEAVES-THE-HOLD-OPEN)
+- **Loading a save made just after a rewind undoes the route changes made after it.** In the few
+  seconds after a rewind, a quickload of a save made then no longer keeps a route pause, resume or
+  Send made after that save, and a route created after it waits until its creation time again
+  instead of delivering twice. (ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS)
 - **A supply route with several stops no longer sends a run twice after a load.** Loading a save
   made between two stops of a run used to start the run over at the next stop, taking the cargo
   from the origin a second time. The run now carries on where the save left it.

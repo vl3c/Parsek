@@ -843,7 +843,9 @@ namespace Parsek
             + "RouteEventLog.RetireFutureRouteActionsAtRewind + RouteRewindClassifier.ReconcileStoreAtRewind at the "
             + "loaded save's UT (a stock revert: the earlier of it and the revert prune's launch boundary), "
             + "raised to the route state floor the save carries (written inside a go-back rewind's lead-time "
-            + "window, the outgoing node of a scene change in it included), then each kept route takes its loop "
+            + "window, the outgoing node of a scene change in it included; such a save's load also retires the route "
+            + "events in (its clock, floor] its own log does not hold and sends the routes its copy does not hold, "
+            + "created after its clock, dormant), then each kept route takes its loop "
             + "position back from the loaded save's own route copy";
 
         private const string CrewAndSlotsFromNode =

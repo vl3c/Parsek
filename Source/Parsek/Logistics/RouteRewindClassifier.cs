@@ -63,6 +63,11 @@ namespace Parsek.Logistics
         /// (<c>CreatedUT &lt; 0</c>, legacy), stay committed. Captured dormant
         /// entries are carried forward (they are still future) and deduped by
         /// id against the committed result and among themselves (first wins).
+        /// A committed route whose id is in <paramref name="forceDormantRouteIds"/>
+        /// goes dormant too: a load of a save written inside a go-back's window
+        /// sends the routes created after that save dormant although their
+        /// <see cref="Route.CreatedUT"/> is not after the floor-raised cutoff
+        /// (<c>RouteLoadReconcile.SelectRoutesCreatedAfterTheSave</c>).
         /// Null entries and null lists are tolerated.
         /// </summary>
         internal static void Classify(
@@ -70,7 +75,8 @@ namespace Parsek.Logistics
             IReadOnlyList<Route> capturedDormant,
             double cutoffUT,
             out List<Route> committed,
-            out List<Route> dormant)
+            out List<Route> dormant,
+            ICollection<string> forceDormantRouteIds = null)
         {
             committed = new List<Route>();
             dormant = new List<Route>();
@@ -83,7 +89,8 @@ namespace Parsek.Logistics
                     Route r = capturedCommitted[i];
                     if (r == null || string.IsNullOrEmpty(r.Id) || !seen.Add(r.Id))
                         continue;
-                    if (r.CreatedUT >= 0.0 && r.CreatedUT > cutoffUT)
+                    if ((r.CreatedUT >= 0.0 && r.CreatedUT > cutoffUT)
+                        || (forceDormantRouteIds != null && forceDormantRouteIds.Contains(r.Id)))
                         dormant.Add(r);
                     else
                         committed.Add(r);
@@ -711,7 +718,9 @@ namespace Parsek.Logistics
         /// tolerated (treated as empty).
         /// <paramref name="logTag"/>/<paramref name="logPrefix"/> keep each
         /// caller's log lines grep-stable ("ReconciliationBundle"/"Restore"
-        /// vs "Rewind"/"OnLoad go-back").</para>
+        /// vs "Rewind"/"OnLoad go-back").
+        /// <paramref name="forceDormantRouteIds"/> (null on both rewind exits) is
+        /// handed to <see cref="Classify"/>.</para>
         /// </summary>
         internal static void ReconcileStoreAtRewind(
             IReadOnlyList<Route> capturedCommitted,
@@ -719,14 +728,16 @@ namespace Parsek.Logistics
             double cutoffUT,
             IReadOnlyList<RouteEvent> keptActions,
             string logTag,
-            string logPrefix)
+            string logPrefix,
+            ICollection<string> forceDormantRouteIds = null)
         {
             Classify(
                 capturedCommitted,
                 capturedDormant,
                 cutoffUT,
                 out List<Route> keptRoutes,
-                out List<Route> dormantRoutes);
+                out List<Route> dormantRoutes,
+                forceDormantRouteIds);
 
             int newlyDormant = dormantRoutes.Count - (capturedDormant?.Count ?? 0);
             int reconciled = 0;
@@ -788,7 +799,10 @@ namespace Parsek.Logistics
                     logPrefix + ": routes at rewind cutoff " +
                     cutoffUT.ToString("R", IC) +
                     $": kept={keptRoutes.Count} (reconciled={reconciled}) " +
-                    $"dormant={dormantRoutes.Count} (newly={newlyDormant})");
+                    $"dormant={dormantRoutes.Count} (newly={newlyDormant}" +
+                    (forceDormantRouteIds != null && forceDormantRouteIds.Count > 0
+                        ? $", createdAfterTheSave={forceDormantRouteIds.Count}"
+                        : string.Empty) + ")");
             }
             if (keptRoutes.Count > 0)
             {

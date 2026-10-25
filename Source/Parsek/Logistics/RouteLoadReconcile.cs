@@ -20,6 +20,21 @@ namespace Parsek.Logistics
     }
 
     /// <summary>
+    /// What a loaded save written inside a go-back rewind's lead-time window says about the
+    /// rows and routes in (its own clock, the floor it carries] (todo
+    /// ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS): the save's own clock, the floor, and the
+    /// save's own route event log and committed route copy. Built by
+    /// <see cref="RouteLoadReconcile.TryBuildSaveWindow"/>; null for every other load.
+    /// </summary>
+    internal sealed class RouteSaveWindow
+    {
+        internal double SaveUT;
+        internal double FloorUT;
+        internal IReadOnlyList<RouteEvent> SavedEvents;
+        internal IReadOnlyList<Route> SavedRoutes;
+    }
+
+    /// <summary>
     /// The in-session load route reconcile (owner ruling 2026-10-07, todo
     /// ROUTE-STATE-NOT-RECONCILED-ON-F9-REVERT-DISCARD). <see cref="RouteStore"/> and the
     /// <see cref="RouteEventLog"/> are loaded from the save on a cold load only, so a load that
@@ -193,6 +208,90 @@ namespace Parsek.Logistics
                         return true;
                     }
                 }
+            }
+            evidence = "none";
+            return false;
+        }
+
+        /// <summary>
+        /// The window context of a load whose save clock is <paramref name="saveUT"/> (the load's
+        /// cutoff before the floor raise) and which carries <paramref name="floorUT"/>, or null
+        /// when the save was not written inside a go-back's window
+        /// (<see cref="RouteEventRetire.IsInSaveWindow"/>). Pure over its inputs.
+        /// </summary>
+        internal static RouteSaveWindow TryBuildSaveWindow(
+            double saveUT, double floorUT,
+            IReadOnlyList<RouteEvent> savedEvents, IReadOnlyList<Route> savedRoutes)
+        {
+            if (!RouteEventRetire.IsInSaveWindow(saveUT, floorUT))
+                return null;
+            return new RouteSaveWindow
+            {
+                SaveUT = saveUT,
+                FloorUT = floorUT,
+                SavedEvents = savedEvents ?? (IReadOnlyList<RouteEvent>)Array.Empty<RouteEvent>(),
+                SavedRoutes = savedRoutes ?? (IReadOnlyList<Route>)Array.Empty<Route>(),
+            };
+        }
+
+        /// <summary>
+        /// The committed routes a load of a save written inside a go-back's window sends dormant
+        /// although the floor-raised cutoff keeps them: created after the save
+        /// (<see cref="Route.CreatedUT"/> known and strictly after <paramref name="saveUT"/>) and
+        /// missing from the save's own committed route copy. Such a route is part of a future
+        /// the load abandons; kept committed with a reset cursor, its window crossing would run
+        /// a second time. It comes back Paused when the clock reaches its creation again, as a
+        /// route created after any other load's save does. A route the copy holds (the go-back's
+        /// own routes, created before the floor) stays. Pure; returns the ids.
+        /// </summary>
+        internal static HashSet<string> SelectRoutesCreatedAfterTheSave(
+            IReadOnlyList<Route> committedRoutes, IReadOnlyList<Route> savedRoutes, double saveUT)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            if (committedRoutes == null || !IsUsableCutoffUT(saveUT))
+                return ids;
+            var saved = new HashSet<string>(StringComparer.Ordinal);
+            if (savedRoutes != null)
+            {
+                for (int i = 0; i < savedRoutes.Count; i++)
+                {
+                    if (savedRoutes[i] != null && !string.IsNullOrEmpty(savedRoutes[i].Id))
+                        saved.Add(savedRoutes[i].Id);
+                }
+            }
+            for (int i = 0; i < committedRoutes.Count; i++)
+            {
+                Route r = committedRoutes[i];
+                if (r == null || string.IsNullOrEmpty(r.Id) || saved.Contains(r.Id))
+                    continue;
+                if (r.CreatedUT >= 0.0 && r.CreatedUT > saveUT)
+                    ids.Add(r.Id);
+            }
+            return ids;
+        }
+
+        /// <summary>
+        /// The window half of the in-session evidence: true when a load of a save written inside
+        /// a go-back's window finds route state the save does not hold in (its clock, the floor]
+        /// (an event it does not hold, <paramref name="unheldWindowRows"/>, or a route created
+        /// after it, <paramref name="routesCreatedAfterTheSave"/>), which the floor-raised
+        /// <see cref="HasRouteStateAfterUT"/> cannot see. <paramref name="evidence"/> names the
+        /// first hit, or "none".
+        /// </summary>
+        internal static bool HasWindowStateAfterSave(
+            int unheldWindowRows, ICollection<string> routesCreatedAfterTheSave, out string evidence)
+        {
+            if (unheldWindowRows > 0)
+            {
+                evidence = "window-route-events:" + unheldWindowRows.ToString(IC);
+                return true;
+            }
+            if (routesCreatedAfterTheSave != null && routesCreatedAfterTheSave.Count > 0)
+            {
+                var ids = new List<string>(routesCreatedAfterTheSave);
+                ids.Sort(StringComparer.Ordinal);
+                evidence = "window-route-created:" + RouteIds.Short(ids[0]);
+                return true;
             }
             evidence = "none";
             return false;
@@ -577,8 +676,43 @@ namespace Parsek.Logistics
         internal static RouteLoadReconcileOutcome ReconcileAtInSessionLoad(
             LoadKind kind, double cutoffUT, double loadedSaveUT, IReadOnlyList<Route> savedRoutes)
         {
+            return ReconcileAtInSessionLoad(kind, cutoffUT, loadedSaveUT, savedRoutes, window: null);
+        }
+
+        /// <summary>
+        /// <see cref="ReconcileAtInSessionLoad(LoadKind, double, double, IReadOnlyList{Route})"/>
+        /// for a load of a save written inside a go-back's window (<paramref name="window"/>, null
+        /// otherwise; <paramref name="cutoffUT"/> is then the floor). Before the ordinary retire
+        /// above the floor, it retires the events in (save clock, floor] the save does not hold
+        /// (<see cref="RouteEventLog.RetireUnheldWindowRows"/>) and sends the routes created
+        /// after the save dormant (<see cref="SelectRoutesCreatedAfterTheSave"/>). The cycle
+        /// state reset and the loop-position restore stay keyed to the floor, so a cycle the
+        /// save holds as dispatched resumes instead of being counted again. Both also count as
+        /// evidence on an InSessionOther load.
+        /// </summary>
+        internal static RouteLoadReconcileOutcome ReconcileAtInSessionLoad(
+            LoadKind kind, double cutoffUT, double loadedSaveUT, IReadOnlyList<Route> savedRoutes,
+            RouteSaveWindow window)
+        {
             string cutoffText = cutoffUT.ToString("R", IC);
             string saveText = loadedSaveUT.ToString("R", IC);
+
+            int unheldWindowRows = 0;
+            HashSet<string> createdAfterTheSave = null;
+            if (window != null && kind != LoadKind.Cold && kind != LoadKind.PlainRewind
+                && kind != LoadKind.ReFlyStart)
+            {
+                unheldWindowRows = RouteEventRetire.SelectUnheldWindowRows(
+                    RouteEventLog.Events, window.SaveUT, window.FloorUT, window.SavedEvents).Count;
+                createdAfterTheSave = SelectRoutesCreatedAfterTheSave(
+                    RouteStore.CommittedRoutes, window.SavedRoutes, window.SaveUT);
+                ParsekLog.Info(LogTag,
+                    $"Route reconcile at in-session load: kind={kind} save written inside a go-back window " +
+                    $"saveUT={window.SaveUT.ToString("R", IC)} floorUT={window.FloorUT.ToString("R", IC)} " +
+                    $"savedEvents={window.SavedEvents.Count.ToString(IC)} savedRoutes={window.SavedRoutes.Count.ToString(IC)} " +
+                    $"unheldWindowRows={unheldWindowRows.ToString(IC)} " +
+                    $"routesCreatedAfterTheSave={createdAfterTheSave.Count.ToString(IC)}");
+            }
 
             bool evidenceFound = false;
             string evidence = "not-read";
@@ -587,6 +721,8 @@ namespace Parsek.Logistics
                 evidenceFound = HasRouteStateAfterUT(
                     cutoffUT, RouteStore.CommittedRoutes,
                     RouteEventLog.HasEventsAfterUT(cutoffUT), out evidence);
+                if (!evidenceFound && window != null)
+                    evidenceFound = HasWindowStateAfterSave(unheldWindowRows, createdAfterTheSave, out evidence);
             }
 
             RouteLoadReconcileOutcome outcome = Decide(kind, cutoffUT, evidenceFound);
@@ -610,6 +746,10 @@ namespace Parsek.Logistics
                 return outcome;
             }
 
+            int windowRowsRetired = 0;
+            if (window != null && unheldWindowRows > 0)
+                windowRowsRetired = RouteEventLog.RetireUnheldWindowRows(
+                    window.SaveUT, window.FloorUT, window.SavedEvents, out _);
             int retiredRouteRows = RouteEventLog.RetireFutureRouteActionsAtRewind(
                 cutoffUT, out List<RouteEvent> keptEvents);
             int dormantBefore = RouteStore.DormantRoutes.Count;
@@ -619,7 +759,8 @@ namespace Parsek.Logistics
                 cutoffUT,
                 keptEvents,
                 logTag: LogTag,
-                logPrefix: "OnLoad in-session " + kind);
+                logPrefix: "OnLoad in-session " + kind,
+                forceDormantRouteIds: createdAfterTheSave);
 
             int restored = RestoreLoopPositionFromSave(
                 RouteStore.CommittedRoutes, savedRoutes, cutoffUT, loadedSaveUT,
@@ -632,7 +773,11 @@ namespace Parsek.Logistics
                 $"newlyDormant={RouteStore.DormantRoutes.Count - dormantBefore} " +
                 $"savedRoutes={savedRoutes?.Count ?? 0} loopPositionsRestored={restored} " +
                 $"clockChanged={definitionChanged} " +
-                $"missingFromSave={missingFromSave}");
+                $"missingFromSave={missingFromSave}" +
+                (window != null
+                    ? $" windowSaveUT={window.SaveUT.ToString("R", IC)} windowRowsRetired={windowRowsRetired} " +
+                      $"windowRoutesDormant={createdAfterTheSave?.Count ?? 0}"
+                    : string.Empty));
             return outcome;
         }
 
@@ -658,14 +803,24 @@ namespace Parsek.Logistics
                     $"{routeCutoffUT.ToString("R", IC)} (the loaded save's route state floor; its route copy " +
                     "is as of the floor)");
             }
-            if (Decide(kind, cutoffUT, routeStateAfterCutoff: true) != RouteLoadReconcileOutcome.SkippedOwnedElsewhere)
+            bool ownedHere = Decide(kind, cutoffUT, routeStateAfterCutoff: true)
+                != RouteLoadReconcileOutcome.SkippedOwnedElsewhere;
+            if (ownedHere)
                 InstallFloorAfterLoad(loadedSaveUT, carriedFloor, LogTag, "In-session load " + kind);
 
             List<Route> saved = Decide(kind, routeCutoffUT, routeStateAfterCutoff: true)
                 == RouteLoadReconcileOutcome.Reconciled
                 ? RouteStore.ReadSavedCommittedRoutes(loadedNode)
                 : null;
-            return ReconcileAtInSessionLoad(kind, routeCutoffUT, routeStateUT, saved);
+            // A save written inside the window holds the go-back's settled rows in (its clock,
+            // floor] but not the rows and routes made after it; its own log and route copy say
+            // which are which.
+            RouteSaveWindow window = ownedHere && RouteEventRetire.IsInSaveWindow(cutoffUT, carriedFloor)
+                ? TryBuildSaveWindow(cutoffUT, carriedFloor,
+                    RouteEventLog.ReadSavedEvents(loadedNode),
+                    saved ?? RouteStore.ReadSavedCommittedRoutes(loadedNode))
+                : null;
+            return ReconcileAtInSessionLoad(kind, routeCutoffUT, routeStateUT, saved, window);
         }
 
         /// <summary>

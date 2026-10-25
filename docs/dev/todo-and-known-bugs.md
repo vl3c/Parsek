@@ -1618,7 +1618,7 @@ and a payload chain's StartUT order are the controls).
 
 ---
 
-## ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS: inside a go-back rewind's lead-time window, a load back to a save written in that window keeps the route actions taken after it [FILED 2026-10-07 from the route state floor, branch `fix-route-goback-cutoff`. OPEN, product, low; by construction, not reproduced in game]
+## ~~ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS: inside a go-back rewind's lead-time window, a load back to a save written in that window keeps the route actions taken after it~~ [FILED 2026-10-07 from the route state floor, branch `fix-route-goback-cutoff`. FIXED 2026-10-25 on branch `wip-routefix` for the in-session loads; xUnit only, not flown. product, low; by construction, not reproduced in game]
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): release rating low, not a blocker.
 Since LOGISTICS-WITHOUT-MONEY a second in-window crossing no longer charges funds; it can still
@@ -1647,6 +1647,40 @@ chain-tip cargo watermark for rows retired below the floor needs its own read fi
 UT-only reconcile: an F9 to an in-window save from an abandoned timeline keeps the newer timeline's
 route rows up to the floor. A fix would mark the rows the go-back kept (action ids) instead of a UT.
 Found by the PR #2040 re-review.
+
+Fix (2026-10-25, the entry's first form, not the action-id form): `RouteLoadReconcile.
+ReconcileAtInSessionLoad(kind, cutoffUT, loadedSaveUT, ConfigNode)` builds a `RouteSaveWindow` when
+the loaded save's own clock lies behind the floor it carries (`RouteEventRetire.IsInSaveWindow`),
+from the save's own `ROUTE_EVENT_LOG` (`RouteEventLog.ReadSavedEvents`) and route copy. Before the
+ordinary retire above the floor it retires the events in (save clock, floor] the saved log does not
+hold, matched one to one by type, UT, sequence, route, cycle and stop
+(`RouteEventRetire.SelectUnheldWindowRows` -> `RouteEventLog.RetireUnheldWindowRows`), and sends a
+committed route the saved copy does not hold, with `CreatedUT` after the save clock, dormant
+(`SelectRoutesCreatedAfterTheSave` -> the new `forceDormantRouteIds` of `RouteRewindClassifier.
+Classify` / `ReconcileStoreAtRewind`). Everything else stays keyed to the floor: the cycle-state
+reset, the loop-position restore and the floor kept in memory, so the go-back's settled rows (held
+by the save) and a multi-stop cycle the save holds as dispatched resume as before. On an
+InSessionOther load (an F9 at the Space Center) either finding is evidence
+(`HasWindowStateAfterSave`), so the reconcile runs and clears the one-shots armed after the save.
+Chain-tip cargo read: the watermark is still lowered at the floor (the go-back's held rows in the
+window stay taggable to snapshots captured after them), and the window-retired events are not
+stashed: they were written after the save, so only a snapshot committed inside the same 15 s
+window could hold their cargo, while every older snapshot captured past their UT (a later
+recording of the route's endpoint) would match them by UT and lose cargo it never had. Accepted
+residue of that choice: such a same-window snapshot spawns with that cargo. Logs: one Info
+`save written inside a go-back window saveUT=.. floorUT=.. savedEvents=.. savedRoutes=..
+unheldWindowRows=N routesCreatedAfterTheSave=M`, one `RouteEventLog` Info `RetireUnheldWindowRows:
+removed N route event(s) in (S, F]`, and the summary line gains `windowSaveUT= windowRowsRetired=
+windowRoutesDormant=`. xUnit: `RouteWindowSaveLoadTests` (22: the pause row on F9 in flight and at
+the Space Center, the one-shots, the revert to an in-window launch, the route created after the
+save, a route the save holds, the multi-stop resume, a save outside any window and a cold load
+unchanged, a forward scene change, and the pure rules); mutation-checked (no window: 7 red;
+retiring the whole window regardless of the saved log: 5 red, the multi-stop resume among them).
+Not covered: a go-back rewind to a rewind save written inside an earlier window, and a Re-Fly start
+from an RP quicksave written inside one, still key to the floor alone (both need a launch or a
+separation within 15 s of a go-back, then a route action, then that exact rewind); the UT-only
+class (an F9 into an in-window save from an abandoned timeline) is unchanged. Found with it:
+ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH (fixed first; the multi-stop cell needs it).
 
 ---
 
