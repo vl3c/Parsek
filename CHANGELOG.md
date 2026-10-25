@@ -16,6 +16,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A supply run that lost its stop no longer counts as completed.** When a vessel a multi-stop
+  route delivered to was gone and the run delivered nothing, the Logistics window and Route History
+  counted that run as completed; it now counts as skipped, as a one-stop route already did.
+  (LOOP-ROUTE-LOST-DELIVERY-COUNTED-COMPLETED)
 - **Boarding, docking or moving cargo with another vessel is never an idle flight.** A kerbal who
   stepped out of a rocket on the pad and took a seat on, boarded, docked with or moved cargo to a
   nearby vessel had the whole flight thrown away at scene exit if nothing moved 30 m. The flight
