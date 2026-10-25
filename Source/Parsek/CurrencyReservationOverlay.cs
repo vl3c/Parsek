@@ -31,7 +31,13 @@ namespace Parsek
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         private static readonly Vector3[] CornerBuf = new Vector3[4];
 
+        // Stock's AddonLoader starts an EveryScene addon once per startup phase it runs, and
+        // the editor runs several (three instances measured in ZF-1's VAB visit), so only the
+        // first live controller of a scene draws; the rest stay idle.
+        private static CurrencyReservationOverlay activeInstance;
+
         private bool active;
+        private GameScenes activeScene;
         private RectTransform fundsRect;
         private RectTransform scienceRect;
         private GUIStyle style;
@@ -48,7 +54,18 @@ namespace Parsek
             if (ParsekGameModeGate.CheckInert("CurrencyReservationOverlay.Start"))
                 return;
 
+            CurrencyReservationOverlay other = activeInstance;
+            bool otherActive = other != null && other != this && other.active;
+            if (IsDuplicateController(otherActive, otherActive ? other.activeScene : scene, scene))
+            {
+                ParsekLog.Info(Tag,
+                    $"CurrencyOverlay: another controller is already active for scene={scene} - this one stays idle");
+                return;
+            }
+
             active = true;
+            activeScene = scene;
+            activeInstance = this;
             ParsekLog.Info(Tag, $"CurrencyOverlay: initialised for scene={scene} - starting widget refresh loop");
             StartCoroutine(RefreshLoop());
         }
@@ -68,9 +85,21 @@ namespace Parsek
                 || scene == GameScenes.EDITOR;
         }
 
+        /// <summary>
+        /// Pure: a new controller stays idle when another one is already drawing in the same
+        /// scene. A live controller from a different scene is a stale leftover (its scene is
+        /// being torn down) and does not block the new one.
+        /// </summary>
+        internal static bool IsDuplicateController(bool otherActive, GameScenes otherScene, GameScenes scene)
+        {
+            return otherActive && otherScene == scene;
+        }
+
         private void OnDestroy()
         {
             active = false;
+            if (activeInstance == this)
+                activeInstance = null;
         }
 
         // The currency app instantiates its widgets a few frames after scene load; re-find on a
