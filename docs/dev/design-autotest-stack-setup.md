@@ -409,7 +409,10 @@ program (`docs/dev/autotest-roadmap.md`, "The scripted campaign program"), whose
 decision is a stock tech tree; the per-node part listing it is checked against is
 `docs/dev/research/stock-tech-tree-part-unlocks.md`. Provision it with
 `provision.py --profile stock-tree`; a spec selects it with
-`instanceProfile = "stock-tree"`.
+`instanceProfile = "stock-tree"`. Like `modded-compat` it is a secondary instance, so
+`run.py` admits it only while its deployed `Parsek.dll` is byte-identical to
+`stock-minimal`'s (`hlib.decide_reference_dll_drift`): provision BOTH profiles from the same
+worktree before a campaign flight, since two worktrees' builds never hash the same.
 
 **Pinned optional mods.** An `[[optionalMods]]` entry carrying `pin = "<pins.toml
 table>"` is never looked up in the dev GameData. Its pins table is `kind =
