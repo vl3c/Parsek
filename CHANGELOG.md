@@ -36,6 +36,11 @@ _(unreleased - entries accumulate here per commit)_
   decides which one counts, instead of dropping the second as a copy. The same payment seen
   twice is still recorded once. (LEDGER-EVENT-IDENTITY)
 
+- **A contract objective finished after its contract is complete pays nothing.** After a rewind,
+  an objective another flight finishes after the contract was already completed earlier on the
+  timeline could still add its reward. It now shows in the Timeline as not counted. Objectives
+  paid in the same moment as the contract still count. (LEDGER-EVENT-IDENTITY)
+
 - **Relaunching a craft soon after an unrecorded launch keeps its launch cost.** Launching the same
   craft again within a minute of an earlier launch that was never recorded (launch, recover,
   launch again) was taken for a duplicate of the first, so the career funds missed the second

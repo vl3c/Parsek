@@ -45,6 +45,8 @@ namespace Parsek
                     return "Not counted: already achieved earlier on timeline, so no reward was paid.";
                 case GameActionNotCountedReason.FacilityAlreadyIntact:
                     return "Not counted: the building was not damaged at that point on timeline, so nothing was charged.";
+                case GameActionNotCountedReason.ContractParameterAfterCompletion:
+                    return "Not counted: the contract was already completed earlier on timeline, so no reward was paid.";
                 default:
                     return null;
             }

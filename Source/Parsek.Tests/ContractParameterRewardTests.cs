@@ -573,6 +573,130 @@ namespace Parsek.Tests
             Assert.Equal(25000.0, w.Funds.GetRunningBalance(), 3);
         }
 
+        private static GameAction Sequenced(GameAction row, long cseq)
+        {
+            row.CaptureSequence = cseq;
+            return row;
+        }
+
+        // catches: LEDGER-EVENT-IDENTITY's ProcessParameterComplete defect - a parameter row the
+        // walk reaches after its contract's credited completion still paying (stock never pays a
+        // parameter of a completed contract), while the parameter paid before the completion at
+        // the same UT keeps its credit.
+        [Fact]
+        public void Walk_ParameterAfterTheContractCompleted_IsNotCounted()
+        {
+            var w = RegisterWalk();
+            var actions = Seeds();
+            actions.Add(new GameAction { UT = 1.0, Type = GameActionType.ContractAccept, ContractId = FirstLaunch });
+            var paid = Sequenced(ParameterRow(FirstLaunch, "0", 4.8, 3200f, 0f, 0f), 10);
+            var complete = Sequenced(ContractRow(FirstLaunch, 4.8, 2080f, 0f, 0f), 11);
+            var late = Sequenced(ParameterRow(FirstLaunch, "1", 9.0, 500f, 0f, 0f), 20);
+            actions.Add(late);
+            actions.Add(complete);
+            actions.Add(paid);
+
+            RecalculationEngine.Recalculate(actions);
+
+            Assert.True(paid.Effective);
+            Assert.True(complete.Effective);
+            Assert.False(late.Effective);
+            Assert.Equal(GameActionNotCountedReason.ContractParameterAfterCompletion, late.NotCountedReason);
+            Assert.Equal(25000.0 + 3200 + 2080, w.Funds.GetRunningBalance(), 3);
+            Assert.DoesNotContain(w.Contracts.GetCreditedParameters(), p => p.ParameterId == "1");
+            Assert.Contains(logLines, l => l.Contains("[Contracts]")
+                && l.Contains("ParameterComplete: contractId='" + FirstLaunch + "' param='1' effective=false")
+                && l.Contains("contract already completed earlier in the walk at ut=4.8 cseq=11")
+                && l.Contains("ContractParameterComplete key=[contract guid + parameter path] rule=FirstWinsWhileContractOpen"));
+            Assert.Equal("Not counted: the contract was already completed earlier on timeline, so no reward was paid.",
+                TimelineRowHover.NotCounted(late.NotCountedReason));
+
+            // The next walk without the completion counts the parameter again.
+            actions.Remove(complete);
+            RecalculationEngine.Recalculate(actions);
+            Assert.True(late.Effective);
+            Assert.Equal(GameActionNotCountedReason.None, late.NotCountedReason);
+        }
+
+        // catches: the completion check reading only the UT, so a parameter captured AFTER the
+        // completion in the same tick still pays.
+        [Fact]
+        public void Walk_ParameterAtTheCompletionUT_CapturedAfterIt_IsNotCounted()
+        {
+            var w = RegisterWalk();
+            var actions = Seeds();
+            var complete = Sequenced(ContractRow(FirstLaunch, 4.8, 2080f, 0f, 0f), 11);
+            var after = Sequenced(ParameterRow(FirstLaunch, "0", 4.8, 3200f, 0f, 0f), 12);
+            actions.Add(after);
+            actions.Add(complete);
+
+            RecalculationEngine.Recalculate(actions);
+
+            Assert.True(complete.Effective);
+            Assert.False(after.Effective);
+            Assert.Equal(GameActionNotCountedReason.ContractParameterAfterCompletion, after.NotCountedReason);
+            Assert.Equal(25000.0 + 2080, w.Funds.GetRunningBalance(), 3);
+        }
+
+        // catches: the fix zeroing the parameter stock pays in the completion's own tick. Stock
+        // pays parameters before the contract-level reward, so the lower capture sequence walks
+        // first and counts, even when the ledger lists the completion first.
+        [Fact]
+        public void Walk_ParameterAtTheCompletionUT_CapturedBeforeIt_IsCounted()
+        {
+            var w = RegisterWalk();
+            var actions = Seeds();
+            var complete = Sequenced(ContractRow(FirstLaunch, 4.8, 2080f, 0f, 0f), 11);
+            var before = Sequenced(ParameterRow(FirstLaunch, "0", 4.8, 3200f, 0f, 0f), 10);
+            actions.Add(complete);
+            actions.Add(before);
+
+            RecalculationEngine.Recalculate(actions);
+
+            Assert.True(before.Effective);
+            Assert.Equal(GameActionNotCountedReason.None, before.NotCountedReason);
+            Assert.True(complete.Effective);
+            Assert.Equal(25000.0 + 3200 + 2080, w.Funds.GetRunningBalance(), 3);
+            Assert.Contains(w.Contracts.GetCreditedParameters(), p => p.ParameterId == "0");
+        }
+
+        // catches: an older pair with no capture order at one UT losing the parameter when the
+        // stable sort happens to walk the completion first.
+        [Fact]
+        public void Walk_ParameterAtTheCompletionUT_NoCaptureOrder_IsCounted()
+        {
+            var w = RegisterWalk();
+            var actions = Seeds();
+            var complete = ContractRow(FirstLaunch, 4.8, 2080f, 0f, 0f);
+            var unordered = ParameterRow(FirstLaunch, "0", 4.8, 3200f, 0f, 0f);
+            actions.Add(complete);
+            actions.Add(unordered);
+
+            RecalculationEngine.Recalculate(actions);
+
+            Assert.True(unordered.Effective);
+            Assert.Equal(25000.0 + 3200 + 2080, w.Funds.GetRunningBalance(), 3);
+            Assert.Contains(logLines, l => l.Contains("[Contracts]")
+                && l.Contains("param='0' effective=true")
+                && l.Contains("but not captured after it"));
+        }
+
+        [Theory]
+        [InlineData(9.0, 20L, 4.8, 11L, true)]    // later UT
+        [InlineData(9.0, 0L, 4.8, 11L, true)]     // later UT, no capture order
+        [InlineData(4.8, 12L, 4.8, 11L, true)]    // same UT, captured after
+        [InlineData(4.8, 10L, 4.8, 11L, false)]   // same UT, captured before
+        [InlineData(4.8, 0L, 4.8, 11L, false)]    // same UT, parameter unsequenced
+        [InlineData(4.8, 12L, 4.8, 0L, false)]    // same UT, completion unsequenced
+        [InlineData(4.8, -1L, 4.8, -1L, false)]   // same UT, both from an older build
+        [InlineData(3.0, 20L, 4.8, 11L, false)]   // earlier UT
+        public void IsParameterAfterContractCompletion_ReadsUtThenCaptureOrder(
+            double paramUT, long paramSeq, double completeUT, long completeSeq, bool expected)
+        {
+            Assert.Equal(expected,
+                ContractsModule.IsParameterAfterContractCompletion(paramUT, paramSeq, completeUT, completeSeq));
+        }
+
         [Fact]
         public void PostWalk_ParameterRow_HasTheThreeContractRewardLegs()
         {
