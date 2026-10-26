@@ -58,8 +58,8 @@ alone, rows of a live Re-Fly session's suppressed subtree excluded (a merge tomb
 origin's milestone rows, so the attempt must still be able to earn the node). It runs in two
 places a patch does not: (1) the deferred branch of `RecalculateAndPatchCore` (a patch held back
 by a live or pending tree; this is the WF-1 warp exit, `RecalculateAndPatchForTimeJump(900)`),
-clock = the walk's real cutoff, else the live clock, never during OnLoad, a pending rewind UT
-adjustment or on the walk-everything sentinel (`ResolveClockUT`); (2) a new flight-scene
+clock = the walk's real cutoff, else the live clock only outside OnLoad and a pending rewind UT
+adjustment, never the walk-everything sentinel (`ResolveClockUT`); (2) a new flight-scene
 `CommittedMilestoneClockCursor` in `ParsekFlight.Update`, because a flight at 1x runs no recalc at
 all: when the clock passes the next committed once-ever row it runs the pass once (first frame
 and a backward clock only reseed). The Space Center and Tracking Station already recalc at each
