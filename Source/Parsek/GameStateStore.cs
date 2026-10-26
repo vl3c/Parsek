@@ -56,6 +56,18 @@ namespace Parsek
             // ScienceChanged(StrategyInput) debit absorbed into a
             // ScienceChanged(ScienceTransmission) credit, which is a silent capture loss
             // in either direction. Two events whose keys differ now stay two events.
+            //
+            // Only a CONTIGUOUS run of one pool merges (RECOVERY-BURST-CONTRACT-SCIENCE-RECONCILE).
+            // valueBefore / valueAfter are absolute pool values, so the merged event's delta is
+            // the pool's whole move from the first event's before to the last event's after.
+            // When a same-type event under another key or tag landed in between, that move
+            // includes the interleaved event's delta, which then counts twice: once in its own
+            // event and again inside the merged one. A recovery that completes a contract does
+            // exactly this (VesselRecovery science, ContractReward science, VesselRecovery
+            // science), and every delta reader (post-walk reconcile, the pending KSC credit the
+            // science patch holds forward) saw the contract's reward a second time. So the
+            // backward scan stops at the first same-type event in the window that does not
+            // match: a later credit starts its own event.
             if (IsResourceEvent(e.eventType) && events.Count > 0)
             {
                 string incomingTag = e.recordingId ?? "";
@@ -86,6 +98,17 @@ namespace Parsek
                             $"Coalesced {e.eventType} event at ut={e.ut:F2} tag='{incomingTag}'");
                         return;
                     }
+                    if (existing.eventType == e.eventType && withinWindow)
+                    {
+                        if (HasCoalesceCandidateBefore(i, e, incomingTag))
+                        {
+                            ParsekLog.Verbose("GameStateStore",
+                                $"Not coalescing {e.eventType} key='{e.key}' tag='{incomingTag}' at " +
+                                $"ut={e.ut.ToString("F2", CultureInfo.InvariantCulture)} across an " +
+                                $"interleaved key='{existing.key}' tag='{existingTag}' event of the same pool");
+                        }
+                        break;
+                    }
                     // Stop searching once we pass the epsilon window
                     if (e.ut - existing.ut > ResourceCoalesceEpsilon)
                         break;
@@ -99,6 +122,31 @@ namespace Parsek
             events.Add(e);
             ParsekLog.Verbose("GameStateStore",
                 $"AddEvent: {e.eventType} key='{e.key}' tag='{e.recordingId ?? ""}' ut={e.ut:F1} cseq={e.captureSequence} (total={events.Count})");
+        }
+
+        /// <summary>
+        /// Diagnostic probe for <see cref="AddEvent"/>: whether an event older than index
+        /// <paramref name="stopIndex"/> would have taken <paramref name="incoming"/> had the
+        /// interleaved event at that index not ended the scan. Only then is the refusal worth
+        /// a log line; two adjacent events under different keys are the ordinary case.
+        /// </summary>
+        private static bool HasCoalesceCandidateBefore(int stopIndex, GameStateEvent incoming, string incomingTag)
+        {
+            for (int j = stopIndex - 1; j >= 0; j--)
+            {
+                var older = events[j];
+                if (incoming.ut - older.ut > ResourceCoalesceEpsilon)
+                    return false;
+                if (Math.Abs(older.ut - incoming.ut) > ResourceCoalesceEpsilon)
+                    continue;
+                if (BlocksResourceCoalescing(older))
+                    return false;
+                if (older.eventType == incoming.eventType
+                    && string.Equals(older.key ?? "", incoming.key ?? "", StringComparison.Ordinal)
+                    && string.Equals(older.recordingId ?? "", incomingTag, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
         }
 
         internal static bool IsEventVisibleToCurrentTimeline(GameStateEvent e)

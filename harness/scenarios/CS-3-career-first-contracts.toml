@@ -46,6 +46,11 @@ id = "CS-3-career-first-contracts"
 # transient `GUARDED ... clamped` lines in the recovery burst (todo
 # RECOVERY-BURST-CONTRACT-SCIENCE-RECONCILE). The SCIENCE completion's tag pin was corrected to
 # untagged (it completes at the recovery, after the commit, every time).
+# Both fixed in branch `recovery-burst-reconcile` (store coalescing across an interleaved
+# ContractReward event, and the subject capture wiped by it). LIVE-PROVEN 2026-10-26 on that
+# fix, run `2026-10-26_0254` PASS attempt 1 (419 s, DLL 841056c4): zero `[Parsek][ERROR]`, zero
+# `GUARDED`, zero reconcile dumps, no StockPoolAdjustment rows on any pool, LedgerGroundTruth
+# `hardFailures=0` (funds 106727.04, science 28.5, rep 19.0).
 # `operator` (stock-tree is not in the nightly instance set).
 tier = "operator"
 description = "Scripted campaign stage 3 (Career): on a genuine new Career save, accept the FIRSTLAUNCH and SCIENCE World-Firsts contracts, fly the Jumping Flea hop (pad and flight readings, recover) so both complete inside the recorded flight, auto-commit, then run the ledger ground truth against KSP's own career save."

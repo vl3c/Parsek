@@ -909,7 +909,7 @@ namespace Parsek.Tests
             int thresholdIdx = src.IndexOf(
                 "if (IsScienceDeltaBelowThreshold(delta))", handlerIdx, StringComparison.Ordinal);
             int captureIdx = src.IndexOf(
-                "latestScienceChangeCapture = new RecentScienceChangeCapture",
+                "latestScienceChangeCapture = NextScienceChangeCapture(",
                 handlerIdx, StringComparison.Ordinal);
             Assert.True(thresholdIdx >= 0);
             Assert.True(captureIdx >= 0);
