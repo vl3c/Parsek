@@ -4747,8 +4747,14 @@ namespace Parsek
             var terminal = new HashSet<string>(contracts.GetTerminalContractIds() ?? new string[0], StringComparer.Ordinal);
             var reEvaluate = new List<string>();
             int ledgerTerminal = 0;
+            int completesLater = 0;
             if (IsRealClock(clockUT))
             {
+                // A contract the committed timeline completes after the clock keeps waiting
+                // for that row: handing it to stock now would move its reward off the flight
+                // that earns it (a parameter that went Incomplete again, then re-completed).
+                HashSet<string> completedLater = CollectContractsCompletedAfter(
+                    EffectiveState.ComputeELS(), clockUT);
                 var seen = new HashSet<string>(StringComparer.Ordinal);
                 for (int i = 0; i < credited.Count; i++)
                 {
@@ -4759,6 +4765,11 @@ namespace Parsek
                     if (terminal.Contains(id))
                     {
                         ledgerTerminal++;
+                        continue;
+                    }
+                    if (completedLater.Contains(id))
+                    {
+                        completesLater++;
                         continue;
                     }
                     ContractCompletionShape shape = ReadContractCompletionShape(c);
@@ -4773,7 +4784,8 @@ namespace Parsek
                 $"alreadyComplete={plan.AlreadyComplete.ToString(IC)}, unresolved={plan.Unresolved.ToString(IC)}, " +
                 $"contractNotActive={plan.ContractNotActive.ToString(IC)}, afterClock={plan.AfterClock.ToString(IC)}, " +
                 $"clockNotReady={plan.ClockNotReady.ToString(IC)}, writeFailed={writeFailed.ToString(IC)}, " +
-                $"reEvaluateNextFrame={reEvaluate.Count.ToString(IC)}, ledgerTerminal={ledgerTerminal.ToString(IC)} " +
+                $"reEvaluateNextFrame={reEvaluate.Count.ToString(IC)}, ledgerTerminal={ledgerTerminal.ToString(IC)}, " +
+                $"completesLaterInLedger={completesLater.ToString(IC)} " +
                 ComposeBoundedIdentitySample(completedIds, IdentitySampleCap);
             if (completed > 0 || plan.Unresolved > 0 || writeFailed > 0 || reEvaluate.Count > 0)
                 ParsekLog.Info(Tag, line);
@@ -4847,6 +4859,26 @@ namespace Parsek
         /// ledger already ended is never re-evaluated: the patch removed it from stock's
         /// Active list, and re-evaluating it would pay its reward a second time.
         /// </summary>
+        /// <summary>
+        /// Pure: the ids of contracts a ContractComplete row in <paramref name="actions"/>
+        /// completes strictly after <paramref name="clockUT"/>.
+        /// </summary>
+        internal static HashSet<string> CollectContractsCompletedAfter(
+            IEnumerable<GameAction> actions, double clockUT)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            if (actions == null)
+                return ids;
+            foreach (var a in actions)
+            {
+                if (a == null || a.Type != GameActionType.ContractComplete || string.IsNullOrEmpty(a.ContractId))
+                    continue;
+                if (a.UT > clockUT)
+                    ids.Add(a.ContractId);
+            }
+            return ids;
+        }
+
         internal static bool NeedsStockContractReEvaluation(
             bool contractActiveInStock, bool ledgerTerminal,
             int topLevelCount, int topLevelComplete, int satisfiedOpenGroups)
@@ -4877,6 +4909,14 @@ namespace Parsek
             {
                 ParsekLog.Info(Tag,
                     "PatchContracts: contract re-evaluation skipped - a ledger replay is running; the next patch retries");
+                return;
+            }
+            if (ParsekScenario.IsOnLoadInProgress || !ContractSystem.loaded)
+            {
+                ParsekLog.Info(Tag,
+                    "PatchContracts: contract re-evaluation skipped - a load is in progress " +
+                    $"(onLoad={ParsekScenario.IsOnLoadInProgress.ToString(IC)}, stockLoaded={ContractSystem.loaded.ToString(IC)}); " +
+                    "the next patch retries");
                 return;
             }
 

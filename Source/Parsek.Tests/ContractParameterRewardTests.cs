@@ -821,6 +821,25 @@ namespace Parsek.Tests
         // catches: review blocker 2 - every required parameter Complete but the contract left
         // Active (never paid, later expired), and the mirror: re-evaluating a contract the
         // ledger already ended, which would pay its reward twice.
+        [Fact]
+        public void CollectContractsCompletedAfter_OnlyCompletionsAfterTheClock()
+        {
+            // A contract the committed timeline completes later must not be handed to stock
+            // at the clock (it would move the reward off the flight that earns it).
+            var actions = new List<GameAction>
+            {
+                new GameAction { UT = 100, Type = GameActionType.ContractComplete, ContractId = "before" },
+                new GameAction { UT = 200, Type = GameActionType.ContractComplete, ContractId = "atClock" },
+                new GameAction { UT = 300, Type = GameActionType.ContractComplete, ContractId = "later" },
+                new GameAction { UT = 300, Type = GameActionType.ContractParameterComplete, ContractId = "paramOnly", ContractParameterId = "0" },
+                new GameAction { UT = 300, Type = GameActionType.ContractFail, ContractId = "failsLater" },
+                null,
+            };
+            var ids = KspStatePatcher.CollectContractsCompletedAfter(actions, 200);
+            Assert.Equal(new[] { "later" }, ids.ToArray());
+            Assert.Empty(KspStatePatcher.CollectContractsCompletedAfter(null, 200));
+        }
+
         [Theory]
         [InlineData(true, false, 2, 2, 0, true)]   // all top-level Complete: stock completes it
         [InlineData(true, false, 2, 1, 0, false)]  // one still open: nothing to do
