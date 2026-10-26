@@ -7518,19 +7518,21 @@ namespace Parsek
 
         /// <summary>
         /// Test seam for rollout adoption context. Production calls the two-argument
-        /// overload, which resolves the current live vessel/site from KSP state.
+        /// overload, which resolves the current live vessel/site/launch guid from KSP state.
         /// </summary>
         internal static void OnVesselRolloutSpending(
             double ut,
             double cost,
             uint vesselPersistentId,
             string vesselName,
-            string launchSiteName)
+            string launchSiteName,
+            string vesselGuid = null)
         {
             var context = LedgerRolloutAdoption.CreateRolloutAdoptionContext(
                 vesselPersistentId,
                 vesselName,
-                launchSiteName);
+                launchSiteName,
+                vesselGuid);
 
             Initialize();
 

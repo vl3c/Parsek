@@ -1,0 +1,336 @@
+version = 0
+recordingSchemaGeneration = 4
+GAME_ACTION
+{
+	ut = 0
+	type = 20
+	actionId = act_1307c368504b463890243d47b9ed4c89
+	initialFunds = 25000
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 21
+	actionId = act_da8043f4dc2a418c935bcd0fdd78d178
+	initialScience = 0
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 22
+	actionId = act_5e5ce31b490e49f3a49078ca3319e5c3
+	initialReputation = 0
+}
+GAME_ACTION
+{
+	ut = 0.6000000000000002
+	type = 5
+	actionId = act_3c737152e67f4b75a627b7896fbe917d
+	seq = 1
+	cseq = 2
+	contractId = a5a1f217-d79b-4ef9-8122-f051ecdd1681
+	contractType = ExplorationContract
+	contractTitle = Launch our first vessel!
+	advanceFunds = 1120
+	fundsPenalty = 1120
+}
+GAME_ACTION
+{
+	ut = 0.64000000000000024
+	type = 5
+	actionId = act_4214dc84a049493f81e10918328ea5e7
+	seq = 2
+	cseq = 3
+	contractId = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
+	contractType = ExplorationContract
+	contractTitle = Gather scientific data from Kerbin.
+	advanceFunds = 2240
+	fundsPenalty = 2240
+}
+GAME_ACTION
+{
+	ut = 0.98000000000000054
+	type = 3
+	actionId = act_ae86209d2a5544709f747f7578db39c3
+	recordingId = 71288de785d2472ea60da273f42ce1c6
+	seq = 3
+	cseq = 6
+	fundsSpent = 2932
+	fundsSpendingSource = 0
+}
+GAME_ACTION
+{
+	ut = 4.219999999999998
+	type = 4
+	actionId = act_32572f3d6597402ebe0f117e37d05111
+	recordingId = 71288de785d2472ea60da273f42ce1c6
+	seq = 1
+	cseq = 10
+	milestoneId = RecordsSpeed
+	milestoneFundsAwarded = 28800
+	milestoneRepAwarded = 6
+	milestoneSciAwarded = 3
+	milestoneRecordThresholds = 3
+}
+GAME_ACTION
+{
+	ut = 4.8199999999999852
+	type = 40
+	actionId = act_a26c828a6bdd4a03934af3fe0fac7b3d
+	recordingId = 71288de785d2472ea60da273f42ce1c6
+	seq = 2
+	cseq = 14
+	contractId = a5a1f217-d79b-4ef9-8122-f051ecdd1681
+	contractTitle = Launch our first vessel!
+	fundsReward = 3200
+	repReward = 1
+	scienceReward = 1
+	contractParameterId = 0
+}
+GAME_ACTION
+{
+	ut = 4.8199999999999852
+	type = 6
+	actionId = act_9f9782a166354715bb9e7f5d83e82912
+	recordingId = 71288de785d2472ea60da273f42ce1c6
+	seq = 3
+	cseq = 15
+	contractId = a5a1f217-d79b-4ef9-8122-f051ecdd1681
+	contractTitle = Launch our first vessel!
+	fundsReward = 2080
+	repReward = 1
+	scienceReward = 1
+}
+GAME_ACTION
+{
+	ut = 4.8199999999999852
+	type = 4
+	actionId = act_dfdc4d0d37884cc2916c58f3d81d688d
+	recordingId = 71288de785d2472ea60da273f42ce1c6
+	seq = 4
+	cseq = 16
+	milestoneId = FirstLaunch
+	milestoneFundsAwarded = 1600
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 7.6399999999999251
+	type = 4
+	actionId = act_64504bf8a7b945e69a7430de21e506ba
+	recordingId = 71288de785d2472ea60da273f42ce1c6
+	seq = 5
+	cseq = 24
+	milestoneId = RecordsAltitude
+	milestoneFundsAwarded = 28800
+	milestoneRepAwarded = 6
+	milestoneSciAwarded = 3
+	milestoneRecordThresholds = 3
+}
+GAME_ACTION
+{
+	ut = 342.93999999997806
+	type = 4
+	actionId = act_d45390f230de4113872855c5b07f43e2
+	recordingId = 71288de785d2472ea60da273f42ce1c6
+	seq = 6
+	cseq = 34
+	milestoneId = Kerbin/Landing
+	milestoneFundsAwarded = 1600
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 3.6800000000000028
+	type = 11
+	actionId = act_36599f637cd14d9d90c3e7b1b2edda2a
+	recordingId = 71288de785d2472ea60da273f42ce1c6
+	seq = 1
+	cseq = 36
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 3.68
+	endUT = 345.18
+	endState = 2
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 345.33999999997587
+	type = 4
+	actionId = act_dd91dd76578942eb845eec1bf937b711
+	recordingId = 71288de785d2472ea60da273f42ce1c6
+	seq = 4
+	cseq = 37
+	milestoneId = FirstCrewToSurvive
+	milestoneFundsAwarded = 1600
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 345.33999999997587
+	type = 35
+	actionId = act_43835eee6c06498a9d7b5e5fca97b962
+	recordingId = 71288de785d2472ea60da273f42ce1c6
+	seq = 5
+	cseq = 39
+	vesselName = Jumping Flea
+	vesselPid = 2905720181
+}
+GAME_ACTION
+{
+	ut = 345.33999999997587
+	type = 31
+	actionId = act_57225f1c94584031b4ed784c7c44d2dc
+	recordingId = 71288de785d2472ea60da273f42ce1c6
+	seq = 6
+	cseq = 41
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	careerEntries = 0,Flight,Kerbin|0,Land,Kerbin|0,Recover,
+}
+GAME_ACTION
+{
+	ut = 345.33999999997587
+	type = 40
+	actionId = act_eab6745c98424c26835a42a76e59975c
+	seq = 7
+	cseq = 46
+	contractId = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
+	contractTitle = Gather scientific data from Kerbin.
+	fundsReward = 6400
+	repReward = 2
+	scienceReward = 1
+	contractParameterId = 0
+}
+GAME_ACTION
+{
+	ut = 345.33999999997587
+	type = 6
+	actionId = act_fb7dfe0549414b6d9047f06e65c99813
+	seq = 8
+	cseq = 47
+	contractId = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
+	contractTitle = Gather scientific data from Kerbin.
+	fundsReward = 4160
+	repReward = 2
+	scienceReward = 1
+}
+GAME_ACTION
+{
+	ut = 345.33999999997587
+	type = 4
+	actionId = act_6515f744701c4985950c6849fdec7300
+	recordingId = 71288de785d2472ea60da273f42ce1c6
+	seq = 9
+	cseq = 48
+	milestoneId = Kerbin/Science
+	milestoneFundsAwarded = 3200
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 345.33999999997587
+	type = 0
+	actionId = act_609ca2074d8f416c8e4c858e35fe5af9
+	recordingId = 71288de785d2472ea60da273f42ce1c6
+	seq = 10
+	cseq = 51
+	subjectId = crewReport@KerbinFlyingLowShores
+	scienceAwarded = 3.5
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 3.5
+	startUT = 345.34
+	endUT = 345.34
+}
+GAME_ACTION
+{
+	ut = 345.33999999997587
+	type = 0
+	actionId = act_a30db58c007347989b1998f6b62d1ce4
+	recordingId = 71288de785d2472ea60da273f42ce1c6
+	seq = 11
+	cseq = 53
+	subjectId = mysteryGoo@KerbinSrfLandedLaunchPad
+	scienceAwarded = 3
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 3.9
+	startUT = 345.34
+	endUT = 345.34
+}
+GAME_ACTION
+{
+	ut = 345.33999999997587
+	type = 0
+	actionId = act_9077aacbc47c481f94aae7bf5ff9a00a
+	recordingId = 71288de785d2472ea60da273f42ce1c6
+	seq = 12
+	cseq = 54
+	subjectId = mysteryGoo@KerbinFlyingLow
+	scienceAwarded = 7
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 9.099999
+	startUT = 345.34
+	endUT = 345.34
+}
+GAME_ACTION
+{
+	ut = 345.33999999997587
+	type = 0
+	actionId = act_2fe3eafc4dcf49228d8c30c4cb45fccd
+	recordingId = 71288de785d2472ea60da273f42ce1c6
+	seq = 13
+	cseq = 55
+	subjectId = recovery@KerbinFlew
+	scienceAwarded = 5
+	method = 1
+	transmitScalar = 0
+	subjectMaxValue = 6
+	startUT = 345.34
+	endUT = 345.34
+}
+GAME_ACTION
+{
+	ut = 345.33999999997587
+	type = 2
+	actionId = act_713baf7ba2ff4902a50089224f0342cb
+	recordingId = 71288de785d2472ea60da273f42ce1c6
+	seq = 14
+	cseq = 57
+	fundsAwarded = 2791.04
+	fundsSource = 2
+	dedupKey = FundsChanged|VesselRecovery|345.33999999997587|106868|109659.03998851776|
+}
+GAME_ACTION
+{
+	ut = 346.53999999997478
+	type = 3
+	actionId = act_9be85ce2707a49e9975f8883798b9763
+	seq = 15
+	cseq = 60
+	fundsSpent = 2932
+	fundsSpendingSource = 0
+	dedupKey = rollout:346.53999999997478|pid=2905720181|site=Launch%20Pad|vessel=Jumping%20Flea|guid=28bfabdc1aeb42e5949ba8643ca68d64
+}
+GAME_ACTION
+{
+	ut = 348.41999999997307
+	type = 2
+	actionId = act_a8c1ac4f62244e5ba767d284285f8347
+	seq = 16
+	cseq = 64
+	fundsAwarded = 2932
+	fundsSource = 2
+	dedupKey = FundsChanged|VesselRecovery|348.41999999997307|106727.03998851776|109659.03998851776|
+}
+PROGRESS_SEED
+{
+	captured = True
+}

@@ -129,6 +129,7 @@
 # carried byte-identical copies. The campaign's starting saves add their rows when they are
 # harvested (CS-1 launches it from the VAB).
 "cs-career-new" = ["Jumping Flea"]
+"cs-career-contracts" = ["Jumping Flea"]
 "cs-science-new" = ["Jumping Flea"]
 "stock-screen-census" = ["Jumping Flea"]
 "stock-screen-census-repair" = ["Jumping Flea"]

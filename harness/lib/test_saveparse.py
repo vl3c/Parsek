@@ -3692,6 +3692,24 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "recordingIds": ["08a7d6e71e3e408f915fc0f3098a0e67"],
             "schemaGeneration": 4,
         },
+        # PROVENANCE: cs-career-contracts <- CS-3-career-first-contracts, run
+        # 2026-10-26_0411 (on the rollout-guid fix; LedgerGroundTruth hardFailures=0), harvested
+        # --keep-parsek --allow-no-vessel --expect-mode CAREER, then ONE applicant
+        # (`Verhat Kerman`, fresh-career's KERBAL node verbatim) added to the ROSTER:
+        # stock generates applicants only when the Astronaut Complex opens, so the
+        # produced save had none for `KscAction hire-kerbal` to name. The Career
+        # twin of cs-science-flea: one Jumping Flea hop, recovered (a RECOVERED leaf,
+        # three authoritative sidecars). CS-3b's host.
+        "cs-career-contracts": {
+            "trees": 1, "committedTrees": 1, "recordings": 1,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Recovered": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 3,
+            "recordingIds": ["71288de785d2472ea60da273f42ce1c6"],
+            "schemaGeneration": 4,
+        },
     }
     # --- THE CAREER ROUTE COPIES (H74-H79) ---------------------------------
     # Built by harness/tools/build_route_career.py from the four recorded route hosts
