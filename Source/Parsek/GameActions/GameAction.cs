@@ -479,7 +479,10 @@ namespace Parsek
         FacilityAlreadyIntact,
         /// <summary>A contract parameter reward the walk reaches after its contract's credited
         /// completion (design 8.3, 3.15 step 1).</summary>
-        ContractParameterAfterCompletion
+        ContractParameterAfterCompletion,
+        /// <summary>A world-record row every one of whose thresholds was already credited
+        /// earlier in the walk (design 7.8, 3.15 step 4).</summary>
+        RecordThresholdsAlreadyCredited
     }
 
     /// <summary>
@@ -538,6 +541,42 @@ namespace Parsek
         /// reset with it by <c>RecalculationEngine.ResetDerivedFields</c>. NOT serialized.
         /// </summary>
         public GameActionNotCountedReason NotCountedReason;
+
+        /// <summary>
+        /// True when <see cref="MilestonesModule"/> credited only part of a world-record row
+        /// (some of its thresholds were credited earlier in the walk): the walk then pays
+        /// <see cref="RecordCreditedFunds"/> / <see cref="RecordCreditedRep"/> /
+        /// <see cref="RecordCreditedScience"/> instead of the captured totals. Derived, reset
+        /// with <see cref="Effective"/>, NOT serialized.
+        /// </summary>
+        public bool RecordPartlyCredited;
+
+        /// <summary>Funds a partly credited record row earns (derived; see <see cref="RecordPartlyCredited"/>).</summary>
+        public float RecordCreditedFunds;
+
+        /// <summary>Nominal reputation a partly credited record row earns (derived).</summary>
+        public float RecordCreditedRep;
+
+        /// <summary>Science a partly credited record row earns (derived).</summary>
+        public float RecordCreditedScience;
+
+        /// <summary>How many of a world-record row's thresholds the walk credited to it
+        /// (derived; 0 on every other row).</summary>
+        public int RecordThresholdsCredited;
+
+        /// <summary>How many thresholds the world-record row stands for in the walk
+        /// (derived; 0 on every other row).</summary>
+        public int RecordThresholdsTotal;
+
+        /// <summary>The funds a counted milestone row moves the pool by: the captured award, or
+        /// the credited part of a partly credited world-record row.</summary>
+        public float CreditedMilestoneFunds => RecordPartlyCredited ? RecordCreditedFunds : MilestoneFundsAwarded;
+
+        /// <summary>The nominal reputation a counted milestone row earns (see <see cref="CreditedMilestoneFunds"/>).</summary>
+        public float CreditedMilestoneRep => RecordPartlyCredited ? RecordCreditedRep : MilestoneRepAwarded;
+
+        /// <summary>The science a counted milestone row earns (see <see cref="CreditedMilestoneFunds"/>).</summary>
+        public float CreditedMilestoneScience => RecordPartlyCredited ? RecordCreditedScience : MilestoneScienceAwarded;
 
         // ---- Science fields ----
 
@@ -768,6 +807,25 @@ namespace Parsek
 
         /// <summary>ConfigNode key for <see cref="MilestoneRecordThresholds"/>; absent reads 1.</summary>
         internal const string MilestoneRecordThresholdsKey = "milestoneRecordThresholds";
+
+        /// <summary>
+        /// World-record rows only: which stock thresholds this row crossed (stock's 1-based
+        /// interval, <see cref="RecordThresholdCredit.Index"/>), what stock paid for each, and
+        /// whether it was a re-payment of an interval the live node had already paid
+        /// (<see cref="RecordThresholdCredit.Repay"/>), so the walk can credit each threshold once per career, earliest crossing first
+        /// (design 7.8, section 3.15 step 4; <see cref="RecordThresholdBook"/>). Null on a row
+        /// whose producer could not read the interval of every award, on a completion row, and
+        /// on every row written before the field: such a row takes consecutive positions from
+        /// <see cref="MilestoneRecordThresholds"/> instead. <see cref="MilestoneRecordThresholds"/>
+        /// keeps counting awards, so an older build reads the row as before.
+        /// <para>Additive: written as <see cref="MilestoneRecordBandKey"/> only when present
+        /// (<see cref="RecordThresholdBand.Format"/>). Not a schema shape change
+        /// (.claude/CLAUDE.md, "Recording schema").</para>
+        /// </summary>
+        internal List<RecordThresholdCredit> MilestoneRecordBand;
+
+        /// <summary>ConfigNode key for <see cref="MilestoneRecordBand"/>; absent reads null.</summary>
+        internal const string MilestoneRecordBandKey = "milestoneRecordBand";
 
         // ---- Contract fields ----
 
@@ -1527,6 +1585,9 @@ namespace Parsek
             n.AddValue("milestoneSciAwarded", MilestoneScienceAwarded.ToString("R", IC));
             if (MilestoneRecordThresholds != 1)
                 n.AddValue(MilestoneRecordThresholdsKey, MilestoneRecordThresholds.ToString(IC));
+            string band = RecordThresholdBand.Format(MilestoneRecordBand);
+            if (band != null)
+                n.AddValue(MilestoneRecordBandKey, band);
         }
 
         private static void DeserializeMilestone(ConfigNode n, GameAction a)
@@ -1536,6 +1597,21 @@ namespace Parsek
             TryParseFloat(n, "milestoneRepAwarded", out a.MilestoneRepAwarded);
             // Backward compat: pre-fix saves have no milestoneSciAwarded key; default to 0.
             TryParseFloat(n, "milestoneSciAwarded", out a.MilestoneScienceAwarded);
+
+            // An absent band key is a row that does not name its thresholds (every row an
+            // older build wrote): the walk derives its positions from the count below.
+            string bandRaw = n.GetValue(MilestoneRecordBandKey);
+            if (RecordThresholdBand.Parse(bandRaw, out List<RecordThresholdCredit> band, out bool bandMalformed)
+                == RecordThresholdBand.ParseState.Listed)
+            {
+                a.MilestoneRecordBand = band;
+            }
+            else if (bandMalformed)
+            {
+                ParsekLog.Warn("GameAction",
+                    $"Milestone row '{a.MilestoneId ?? "(none)"}' actionId={a.ActionId ?? "(none)"} " +
+                    $"has malformed {MilestoneRecordBandKey}='{bandRaw}' - its thresholds are derived from the count");
+            }
 
             // An absent key is the one-threshold shape (every row an older build wrote).
             string thresholds = n.GetValue(MilestoneRecordThresholdsKey);

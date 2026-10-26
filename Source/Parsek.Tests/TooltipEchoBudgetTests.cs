@@ -365,6 +365,11 @@ namespace Parsek.Tests
                     EndBiome = "Northern Ice Shelf"
                 }),
                 "Mun Landing 2"));
+            tips.Add(TimelineRowHover.RecordPartlyCounted(new GameAction
+            {
+                Type = GameActionType.MilestoneAchievement, MilestoneId = "RecordsAltitude",
+                RecordPartlyCredited = true, RecordThresholdsTotal = 99, RecordThresholdsCredited = 1
+            }));
             tips.Add(TimelineWindowUI.NowDividerTooltip);
 
             foreach (string tip in tips)

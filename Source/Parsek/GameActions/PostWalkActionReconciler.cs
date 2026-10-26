@@ -189,8 +189,12 @@ namespace Parsek
                     return exp;
 
                 case GameActionType.MilestoneAchievement:
-                    // All three legs gated on Effective (duplicates skip).
+                    // All three legs gated on Effective (duplicates skip). A partly credited
+                    // world-record row is skipped the same way: stock paid the captured
+                    // totals live and the walk keeps only the new thresholds' share (3.15
+                    // step 4), so the legs would compare two different things.
                     if (!action.Effective) return exp;
+                    if (action.RecordPartlyCredited) return exp;
                     exp.Reconcile = true;
                     exp.Funds = new PostWalkLeg
                     {

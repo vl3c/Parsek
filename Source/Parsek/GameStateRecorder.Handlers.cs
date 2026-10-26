@@ -1176,6 +1176,97 @@ namespace Parsek
         }
 
         /// <summary>
+        /// World-record form that also names the thresholds the event crossed, under
+        /// <see cref="GameStateEventConverter.MilestoneRecordBandDetailKey"/>
+        /// (<see cref="RecordThresholdBand"/>: a list, or
+        /// <see cref="RecordThresholdBand.IncompleteToken"/> when one award's interval could
+        /// not be read). A null <paramref name="bandText"/> writes no band key.
+        /// Internal static for testability.
+        /// </summary>
+        internal static string BuildMilestoneDetail(
+            double funds, float rep, double sci, int recordThresholds, string bandText)
+        {
+            string detail = BuildMilestoneDetail(funds, rep, sci, recordThresholds);
+            if (bandText == null)
+                return detail;
+            return detail + ";" + GameStateEventConverter.MilestoneRecordBandDetailKey + "=" + bandText;
+        }
+
+        /// <summary>
+        /// Stock's 1-based interval number of the world-record threshold a node is paying right
+        /// now: the private <c>rewardInterval</c> field of <c>KSPAchievements.RecordsAltitude</c>
+        /// / <c>Depth</c> / <c>Speed</c> / <c>Distance</c>. Decompiled KSP 1.12.5
+        /// <c>iterateVessels</c> passes that field to <c>AwardProgressInterval</c> (which calls
+        /// <c>AwardProgress</c>) and advances it only after the award returns, so inside the
+        /// <c>AwardProgress</c> postfix it names the threshold being paid. 0 when the field is
+        /// missing or out of range (a stand-in node, a changed KSP), and the caller then marks
+        /// the scope's threshold list incomplete. Internal static for testability.
+        /// </summary>
+        internal static int ReadRecordRewardInterval(ProgressNode node)
+        {
+            if (node == null)
+                return 0;
+            Type nodeType = node.GetType();
+            FieldInfo field;
+            if (!recordRewardIntervalFields.TryGetValue(nodeType, out field))
+            {
+                field = nodeType.GetField("rewardInterval",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (field != null && field.FieldType != typeof(int))
+                    field = null;
+                recordRewardIntervalFields[nodeType] = field;
+            }
+            if (field == null)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder",
+                    "record-interval-missing-" + node.GetType().FullName,
+                    $"ReadRecordRewardInterval: '{node.Id ?? "<null>"}' ({node.GetType().FullName}) has no int " +
+                    "rewardInterval field - its threshold is not named, the row counts by position");
+                return 0;
+            }
+            int interval = (int)field.GetValue(node);
+            if (interval < 1 || interval == int.MaxValue)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder",
+                    "record-interval-range-" + (node.Id ?? ""),
+                    $"ReadRecordRewardInterval: '{node.Id ?? "<null>"}' rewardInterval={interval.ToString(CultureInfo.InvariantCulture)} " +
+                    "is out of range - its threshold is not named, the row counts by position");
+                return 0;
+            }
+            return interval;
+        }
+
+        // ReadRecordRewardInterval's field per node type (null when the type has none).
+        private static readonly Dictionary<Type, FieldInfo> recordRewardIntervalFields =
+            new Dictionary<Type, FieldInfo>();
+
+        // The intervals each LIVE record node instance has paid (design 7.8): a second award
+        // of one interval on one instance is stock's re-payment. Weak keys: a scene load
+        // replaces the nodes and their entries go with them.
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ProgressNode, HashSet<int>>
+            recordIntervalsPaidByNode =
+                new System.Runtime.CompilerServices.ConditionalWeakTable<ProgressNode, HashSet<int>>();
+
+        /// <summary>
+        /// Notes that the live <paramref name="node"/> is paying <paramref name="interval"/> and
+        /// returns true when this node instance already paid it: stock's re-payment (decompiled
+        /// KSP 1.12.5 <c>iterateVessels</c>: the award loop breaks WITHOUT advancing after the
+        /// last interval, or after a threshold rounded to the maximum or above, and the award
+        /// block runs on every iteration, so while the record sits at or past that threshold
+        /// stock pays it again each frame until the node completes). A fresh instance never
+        /// re-pays: its <c>OnLoad</c> sets <c>rewardThreshold = FindNextRecord(record)</c>,
+        /// strictly above the record, so the first award an instance makes of an interval is
+        /// a crossing on its timeline. Internal static for testability.
+        /// </summary>
+        internal static bool NoteRecordIntervalPaid(ProgressNode node, int interval)
+        {
+            if (node == null || interval < 1)
+                return false;
+            HashSet<int> paid = recordIntervalsPaidByNode.GetOrCreateValue(node);
+            return !paid.Add(interval);
+        }
+
+        /// <summary>
         /// Short-lived map of qualified milestone id -> pending MilestoneAchieved event.
         /// Populated by <see cref="OnProgressComplete"/> when the event is emitted with
         /// zero rewards, and read by <see cref="EnrichPendingMilestoneRewards"/> (called
@@ -1428,24 +1519,41 @@ namespace Parsek
             // storm that froze the game on the first ascent to space. Fold every later break
             // of one record node into the single seed event/action, accumulating the reward
             // in place with no new action and no recalc.
-            if (MilestonesModule.IsRepeatableWorldRecordMilestone(milestoneId)
-                && TryCoalesceWorldRecordReward(milestoneId, funds, rep, sci))
+            bool isWorldRecord = MilestonesModule.IsRepeatableWorldRecordMilestone(milestoneId);
+            int recordInterval = isWorldRecord ? ReadRecordRewardInterval(node) : 0;
+            bool recordRepay = recordInterval > 0 && NoteRecordIntervalPaid(node, recordInterval);
+            if (isWorldRecord
+                && TryCoalesceWorldRecordReward(milestoneId, funds, rep, sci, recordInterval, recordRepay))
             {
                 return;
             }
 
+            // A world-record seed names the threshold it pays (design 7.8, 3.15 step 4), or
+            // marks its list incomplete when the interval could not be read.
+            string detail = isWorldRecord
+                ? BuildMilestoneDetail(funds, rep, sci, 1,
+                    recordInterval > 0
+                        ? RecordThresholdBand.Format(new[]
+                            { new RecordThresholdCredit(recordInterval, (float)funds, rep, (float)sci, recordRepay) })
+                        : RecordThresholdBand.IncompleteToken)
+                : BuildMilestoneDetail(funds, rep, sci);
             var evt = new GameStateEvent
             {
                 ut = ut,
                 eventType = GameStateEventType.MilestoneAchieved,
                 key = milestoneId,
-                detail = BuildMilestoneDetail(funds, rep, sci)
+                detail = detail
             };
             Emit(ref evt, "MilestoneAchievedStandalone", out RecoveryEventOwner recoveryOwner);
 
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: MilestoneAchieved (standalone) '{milestoneId}' " +
-                $"funds={funds:F0} rep={rep:F1} sci={sci:F1}");
+                $"funds={funds:F0} rep={rep:F1} sci={sci:F1}" +
+                (isWorldRecord
+                    ? " threshold=" + (recordInterval > 0
+                        ? recordInterval.ToString(CultureInfo.InvariantCulture) : "unknown")
+                      + (recordRepay ? " repay" : "")
+                    : ""));
 
             // Mirror the OnProgressComplete KSC-forwarding path so world-record rewards
             // earned outside flight (rare, but possible — e.g. RecordsAltitude on a sub-
@@ -1481,7 +1589,8 @@ namespace Parsek
         /// one. Internal static for testability.
         /// </summary>
         internal static bool TryCoalesceWorldRecordReward(
-            string milestoneId, double funds, float rep, double sci)
+            string milestoneId, double funds, float rep, double sci, int thresholdIndex = 0,
+            bool repay = false)
         {
             if (string.IsNullOrEmpty(milestoneId))
                 return false;
@@ -1515,8 +1624,20 @@ namespace Parsek
             // rebuilds the node's band from the threshold sum over rows, so the folded row
             // must keep counting them or the next recalc reopens the thresholds just paid.
             int newThresholds = prior.MilestoneRecordThresholds + 1;
+            // The threshold list (design 7.8, 3.15 step 4) stays named only while every award
+            // of the scope named its interval; one unnamed award (or a seed from an older
+            // build, which has no list) marks it incomplete for good, so the row then counts
+            // by position like a row written before the field.
+            List<RecordThresholdCredit> newBand =
+                prior.MilestoneRecordBand != null && thresholdIndex > 0
+                    ? RecordThresholdBand.Fold(prior.MilestoneRecordBand, thresholdIndex,
+                        (float)funds, rep, (float)sci, repay)
+                    : null;
+            string newBandText = newBand != null
+                ? RecordThresholdBand.Format(newBand)
+                : RecordThresholdBand.IncompleteToken;
 
-            string newDetail = BuildMilestoneDetail(newFunds, newRep, newSci, newThresholds);
+            string newDetail = BuildMilestoneDetail(newFunds, newRep, newSci, newThresholds, newBandText);
             if (!GameStateStore.UpdateEventDetail(seed, newDetail))
             {
                 // The seed was found in the snapshot but the identity-keyed update missed —
@@ -1550,6 +1671,10 @@ namespace Parsek
                     a.MilestoneRepAwarded += rep;
                     a.MilestoneScienceAwarded += (float)sci;
                     a.MilestoneRecordThresholds += 1;
+                    a.MilestoneRecordBand = a.MilestoneRecordBand != null && thresholdIndex > 0
+                        ? RecordThresholdBand.Fold(a.MilestoneRecordBand, thresholdIndex,
+                            (float)funds, rep, (float)sci, repay)
+                        : null;
                     ledgerRowUpdated = true;
                     break;
                 }
@@ -1567,7 +1692,9 @@ namespace Parsek
                 $"+funds={funds.ToString("F0", ic)} +rep={rep.ToString("F1", ic)} " +
                 $"+sci={sci.ToString("F1", ic)} -> totals funds={newFunds.ToString("F0", ic)} " +
                 $"rep={newRep.ToString("F1", ic)} sci={newSci.ToString("F1", ic)} " +
-                $"thresholds={newThresholds.ToString(ic)} seedUT={seed.ut.ToString("F1", ic)} " +
+                $"thresholds={newThresholds.ToString(ic)} " +
+                $"threshold={(thresholdIndex > 0 ? thresholdIndex.ToString(ic) : "unknown")}{(repay ? " repay" : "")} " +
+                $"band={newBandText} seedUT={seed.ut.ToString("F1", ic)} " +
                 $"ledgerRow={(ledgerRowUpdated ? "updated" : "none")} (no new action, no recalc)");
             return true;
         }

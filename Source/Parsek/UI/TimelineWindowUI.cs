@@ -2384,6 +2384,8 @@ namespace Parsek
                 case TimelineEntryType.ContractFail:
                 case TimelineEntryType.ContractCancel:
                     return TimelineRowHover.ContractOutcome(entry.Action, entry.VesselName);
+                case TimelineEntryType.MilestoneAchievement:
+                    return TimelineRowHover.RecordPartlyCounted(entry.Action);
                 case TimelineEntryType.RecordingStart:
                 {
                     Recording rec = FindRecordingById(entry.RecordingId);

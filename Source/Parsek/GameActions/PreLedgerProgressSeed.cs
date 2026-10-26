@@ -195,12 +195,19 @@ namespace Parsek
         /// ledger is about to own (a pending flight), and an event with a row is already
         /// covered by the row check.</para>
         ///
-        /// <para>Record node: seeded with the live implied paid count minus the reward
-        /// thresholds the ledger rows for its id stand for minus those of its pending events
-        /// (events whose (id, recording) scope has no row yet; each becomes its own row at
-        /// commit, carrying the threshold count in its detail), clamped at 0. That keeps the
-        /// live band exactly at capture: the walk's effective count becomes seed + the rows'
-        /// thresholds (<see cref="MilestonesModule.GetRepresentedRecordThresholds"/>).</para>
+        /// <para>Record node: seeded with the live implied paid count minus the crossings the
+        /// ledger owns for its id, clamped at 0. Owned is what the walk will count for those
+        /// rows (<see cref="RecordThresholdBook"/>): the distinct intervals named as first
+        /// payments (a re-payment adds nothing to the band) plus the positions of each row
+        /// that names none (<see cref="MilestonesModule.GetRepresentedRecordThresholds"/>),
+        /// over the ledger rows and the pending events. A pending event is one that is not
+        /// a row's own event: no row of its (id, recording) scope carries its capture number
+        /// (or, when either side has none, its UT within 0.1 s, the match
+        /// <see cref="GameStateRecorder.TryCoalesceWorldRecordReward"/> folds by). A scope can
+        /// hold a committed row AND a pending event: a recording that keeps its id past an
+        /// in-flight commit starts a new seed event, which commits as its own row. So seed +
+        /// the walk's count is the live band at capture, and every named crossing sits above
+        /// the seed.</para>
         /// </summary>
         internal static PreLedgerProgressSeed Capture(
             IReadOnlyList<NodeObservation> nodes,
@@ -211,8 +218,8 @@ namespace Parsek
             stats = default(CaptureStats);
 
             var rowCounts = new Dictionary<string, int>(StringComparer.Ordinal);
-            var rowThresholds = new Dictionary<string, int>(StringComparer.Ordinal);
-            var rowScopes = new HashSet<string>(StringComparer.Ordinal);
+            var owned = new Dictionary<string, OwnedCrossings>(StringComparer.Ordinal);
+            var rowCaptures = new Dictionary<string, List<GameAction>>(StringComparer.Ordinal);
             if (ledgerActions != null)
             {
                 for (int i = 0; i < ledgerActions.Count; i++)
@@ -224,14 +231,19 @@ namespace Parsek
                     if (string.IsNullOrEmpty(id))
                         continue;
                     rowCounts[id] = (rowCounts.TryGetValue(id, out int c) ? c : 0) + 1;
-                    rowThresholds[id] = (rowThresholds.TryGetValue(id, out int t) ? t : 0)
-                        + MilestonesModule.GetRepresentedRecordThresholds(action);
-                    rowScopes.Add(ScopeKey(id, action.RecordingId));
+                    OwnedFor(owned, id).Add(action.MilestoneRecordBand,
+                        MilestonesModule.GetRepresentedRecordThresholds(action));
+                    string rowScope = ScopeKey(id, action.RecordingId);
+                    if (!rowCaptures.TryGetValue(rowScope, out List<GameAction> scopeRows))
+                    {
+                        scopeRows = new List<GameAction>();
+                        rowCaptures[rowScope] = scopeRows;
+                    }
+                    scopeRows.Add(action);
                 }
             }
 
             var eventIds = new HashSet<string>(StringComparer.Ordinal);
-            var pendingThresholds = new Dictionary<string, int>(StringComparer.Ordinal);
             if (events != null)
             {
                 for (int i = 0; i < events.Count; i++)
@@ -243,11 +255,13 @@ namespace Parsek
                     if (string.IsNullOrEmpty(id))
                         continue;
                     eventIds.Add(id);
-                    string scope = ScopeKey(id, evt.recordingId);
-                    if (rowScopes.Contains(scope))
+                    if (!MilestonesModule.IsRepeatableWorldRecordMilestone(id))
                         continue;
-                    pendingThresholds[id] = (pendingThresholds.TryGetValue(id, out int c) ? c : 0)
-                        + GameStateEventConverter.ParseMilestoneRecordThresholds(evt.detail);
+                    if (rowCaptures.TryGetValue(ScopeKey(id, evt.recordingId), out List<GameAction> scopeRows)
+                        && IsOwnRowOf(scopeRows, evt))
+                        continue;
+                    OwnedFor(owned, id).Add(GameStateEventConverter.ParseMilestoneRecordBand(evt.detail),
+                        Math.Max(0, GameStateEventConverter.ParseMilestoneRecordThresholds(evt.detail)));
                 }
             }
 
@@ -272,9 +286,9 @@ namespace Parsek
                         if (node.ImpliedPaidCount <= 0)
                             continue;
 
-                        int owned = CountOf(rowThresholds, node.QualifiedId)
-                            + CountOf(pendingThresholds, node.QualifiedId);
-                        int seeded = node.ImpliedPaidCount - owned;
+                        int ownedCount = owned.TryGetValue(node.QualifiedId, out OwnedCrossings o)
+                            ? o.Count : 0;
+                        int seeded = node.ImpliedPaidCount - ownedCount;
                         if (seeded <= 0)
                         {
                             stats.RecordsOwnedByLedger++;
@@ -308,14 +322,68 @@ namespace Parsek
             return CreateCaptured(oneShots, records);
         }
 
+        /// <summary>The crossings rows and pending events own for one record id: what the
+        /// walk counts for them.</summary>
+        private sealed class OwnedCrossings
+        {
+            private readonly HashSet<int> namedFirsts = new HashSet<int>();
+            private int derived;
+
+            internal int Count => namedFirsts.Count + derived;
+
+            internal void Add(List<RecordThresholdCredit> band, int representedThresholds)
+            {
+                if (band != null && band.Count > 0)
+                {
+                    for (int i = 0; i < band.Count; i++)
+                    {
+                        if (band[i].Index >= 1 && !band[i].Repay)
+                            namedFirsts.Add(band[i].Index);
+                    }
+                    return;
+                }
+                derived += Math.Max(0, representedThresholds);
+            }
+        }
+
+        private static OwnedCrossings OwnedFor(Dictionary<string, OwnedCrossings> owned, string id)
+        {
+            if (!owned.TryGetValue(id, out OwnedCrossings o))
+            {
+                o = new OwnedCrossings();
+                owned[id] = o;
+            }
+            return o;
+        }
+
+        /// <summary>
+        /// Pure: whether one of <paramref name="scopeRows"/> (same id and recording) is
+        /// <paramref name="evt"/>'s own row: the same capture number when both carry one,
+        /// else the same UT within 0.1 s.
+        /// </summary>
+        internal static bool IsOwnRowOf(IReadOnlyList<GameAction> scopeRows, GameStateEvent evt)
+        {
+            if (scopeRows == null)
+                return false;
+            for (int i = 0; i < scopeRows.Count; i++)
+            {
+                GameAction row = scopeRows[i];
+                if (row == null) continue;
+                if (row.CaptureSequence > 0 && evt.captureSequence > 0)
+                {
+                    if (row.CaptureSequence == evt.captureSequence)
+                        return true;
+                    continue;
+                }
+                if (Math.Abs(row.UT - evt.ut) <= 0.1)
+                    return true;
+            }
+            return false;
+        }
+
         private static string ScopeKey(string milestoneId, string recordingId)
         {
             return milestoneId + "\n" + (recordingId ?? "");
-        }
-
-        private static int CountOf(Dictionary<string, int> counts, string id)
-        {
-            return counts.TryGetValue(id, out int c) ? c : 0;
         }
 
         private static bool NamesNode(Dictionary<string, int> counts, NodeObservation node)

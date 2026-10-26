@@ -339,7 +339,8 @@ namespace Parsek
                 return;
             }
 
-            float nominal = action.MilestoneRepAwarded;
+            // A partly credited world-record row earns only its new thresholds (3.15 step 4).
+            float nominal = action.CreditedMilestoneRep;
             if (nominal == 0f)
                 return;
 

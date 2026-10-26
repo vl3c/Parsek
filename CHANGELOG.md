@@ -25,6 +25,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A world record pays each step once.** After a rewind, passing an altitude, speed, depth or
+  distance step the career was already paid for earns nothing again; the earliest flight keeps
+  the reward and a later one is paid only for new steps. Without a rewind every record reward
+  stays as stock paid it. The Timeline hover says when a record was not or only partly counted.
+  (RECORD-BAND-REEARNED-AFTER-REWIND-PAID-AGAIN)
 - **Science counts from the moment you earned it.** A transmission or recovery now sits in the
   career history at the time stock paid it, not at the end of its flight, so after a rewind the
   earlier earning of a subject is credited first. Purchases made at one moment in the Space Center

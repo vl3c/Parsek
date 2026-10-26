@@ -47,9 +47,28 @@ namespace Parsek
                     return "Not counted: the building was not damaged at that point on timeline, so nothing was charged.";
                 case GameActionNotCountedReason.ContractParameterAfterCompletion:
                     return "Not counted: the contract was already completed earlier on timeline, so no reward was paid.";
+                case GameActionNotCountedReason.RecordThresholdsAlreadyCredited:
+                    return "Not counted: this record was already set that far earlier on timeline, so no reward was paid.";
                 default:
                     return null;
             }
+        }
+
+        /// <summary>
+        /// A world-record row the walk credited only in part (design 7.8, 3.15 step 4): some of
+        /// the record steps it crossed were already reached earlier on timeline, so it paid
+        /// for the rest only. Null on any other row.
+        /// </summary>
+        internal static string RecordPartlyCounted(GameAction action)
+        {
+            if (action == null || !action.Effective || !action.RecordPartlyCredited)
+                return null;
+            int total = action.RecordThresholdsTotal;
+            int repeated = total - action.RecordThresholdsCredited;
+            if (total <= 0 || repeated <= 0)
+                return null;
+            return "Partly counted: " + repeated.ToString(IC) + " of " + total.ToString(IC)
+                + " record steps were already reached earlier on timeline, so only the rest paid.";
         }
 
         /// <summary>

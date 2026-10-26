@@ -550,6 +550,12 @@ namespace Parsek
             internal float TransformedFundsReward;
             internal float TransformedScienceReward;
             internal float TransformedRepReward;
+            internal bool RecordPartlyCredited;
+            internal float RecordCreditedFunds;
+            internal float RecordCreditedRep;
+            internal float RecordCreditedScience;
+            internal int RecordThresholdsCredited;
+            internal int RecordThresholdsTotal;
         }
 
         /// <summary>The fields <see cref="ResetDerivedFields"/> resets and the module walk
@@ -571,7 +577,13 @@ namespace Parsek
                     EffectiveRep = a.EffectiveRep,
                     TransformedFundsReward = a.TransformedFundsReward,
                     TransformedScienceReward = a.TransformedScienceReward,
-                    TransformedRepReward = a.TransformedRepReward
+                    TransformedRepReward = a.TransformedRepReward,
+                    RecordPartlyCredited = a.RecordPartlyCredited,
+                    RecordCreditedFunds = a.RecordCreditedFunds,
+                    RecordCreditedRep = a.RecordCreditedRep,
+                    RecordCreditedScience = a.RecordCreditedScience,
+                    RecordThresholdsCredited = a.RecordThresholdsCredited,
+                    RecordThresholdsTotal = a.RecordThresholdsTotal
                 });
             }
             return saved;
@@ -592,6 +604,12 @@ namespace Parsek
                 a.TransformedFundsReward = s.TransformedFundsReward;
                 a.TransformedScienceReward = s.TransformedScienceReward;
                 a.TransformedRepReward = s.TransformedRepReward;
+                a.RecordPartlyCredited = s.RecordPartlyCredited;
+                a.RecordCreditedFunds = s.RecordCreditedFunds;
+                a.RecordCreditedRep = s.RecordCreditedRep;
+                a.RecordCreditedScience = s.RecordCreditedScience;
+                a.RecordThresholdsCredited = s.RecordThresholdsCredited;
+                a.RecordThresholdsTotal = s.RecordThresholdsTotal;
             }
         }
 
@@ -1162,6 +1180,14 @@ namespace Parsek
                 sorted[i].TransformedFundsReward = sorted[i].FundsReward;
                 sorted[i].TransformedScienceReward = sorted[i].ScienceReward;
                 sorted[i].TransformedRepReward = sorted[i].RepReward;
+                // A world-record row is credited in full until MilestonesModule decides a
+                // part of it was credited earlier (design 3.15 step 4).
+                sorted[i].RecordPartlyCredited = false;
+                sorted[i].RecordCreditedFunds = 0f;
+                sorted[i].RecordCreditedRep = 0f;
+                sorted[i].RecordCreditedScience = 0f;
+                sorted[i].RecordThresholdsCredited = 0;
+                sorted[i].RecordThresholdsTotal = 0;
             }
         }
 
