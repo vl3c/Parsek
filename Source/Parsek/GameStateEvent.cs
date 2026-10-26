@@ -64,7 +64,19 @@ namespace Parsek
         /// bypass-entry-purchase or for a free upgrade) and <c>entryCost=</c> (the upgrade's
         /// price). Explicitly numbered and append-only, like <see cref="ExperienceGained"/>.
         /// </summary>
-        PartUpgradePurchased = 25
+        PartUpgradePurchased = 25,
+
+        /// <summary>
+        /// One contract parameter paid its own completion reward (stock
+        /// <c>ContractParameter.AwardCompletion</c>, reason <c>ContractReward</c>), separate from
+        /// the contract-level reward <see cref="ContractCompleted"/> carries. <c>key</c> is the
+        /// contract guid; <c>detail</c> carries <c>paramId=</c> (the parameter's index path in its
+        /// contract, see <see cref="GameStateRecorder.BuildContractParameterIndexPath"/>),
+        /// <c>fundsReward=</c> / <c>repReward=</c> / <c>sciReward=</c> and <c>title=</c> (the
+        /// contract title). Explicitly numbered and append-only, like
+        /// <see cref="ExperienceGained"/>.
+        /// </summary>
+        ContractParameterCompleted = 26
     }
 
     public struct GameStateEvent
@@ -331,6 +343,7 @@ namespace Parsek
                 case GameStateEventType.ContractOffered:
                 case GameStateEventType.ContractAccepted:
                 case GameStateEventType.ContractCompleted:
+                case GameStateEventType.ContractParameterCompleted:
                 case GameStateEventType.ContractFailed:
                 case GameStateEventType.ContractCancelled:
                 case GameStateEventType.ContractDeclined:
@@ -385,6 +398,8 @@ namespace Parsek
                     return FormatContractDescription(key, detail, "accepted");
                 case GameStateEventType.ContractCompleted:
                     return FormatContractDescription(key, detail, "completed");
+                case GameStateEventType.ContractParameterCompleted:
+                    return FormatContractDescription(key, detail, "objective done");
                 case GameStateEventType.ContractFailed:
                     return FormatContractDescription(key, detail, "failed");
                 case GameStateEventType.ContractCancelled:

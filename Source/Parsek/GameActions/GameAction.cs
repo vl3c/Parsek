@@ -230,7 +230,25 @@ namespace Parsek
         /// reconcile keeps it. Explicitly numbered and append-only; an older build reads it
         /// as an unknown type (Warn) and loses the adjustment there.
         /// </summary>
-        StockPoolAdjustment = 39
+        StockPoolAdjustment = 39,
+
+        /// <summary>
+        /// One contract parameter's own completion reward (todo
+        /// CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED). Stock pays a contract in two parts: every
+        /// <c>ContractParameter</c> that completes pays its <c>FundsCompletion</c> /
+        /// <c>ScienceCompletion</c> / <c>ReputationCompletion</c> (reason <c>ContractReward</c>)
+        /// the moment it completes, and the contract then pays its own reward, which
+        /// <see cref="ContractComplete"/> carries. Carries <see cref="GameAction.ContractId"/>,
+        /// <see cref="GameAction.ContractParameterId"/> (the parameter's index path in the
+        /// contract), <see cref="GameAction.ContractTitle"/> and the three rewards in
+        /// <see cref="GameAction.FundsReward"/> / <see cref="GameAction.RepReward"/> (nominal,
+        /// pre-curve) / <see cref="GameAction.ScienceReward"/> (pool credit, no subject).
+        /// Credited once per (contract, parameter); never moves a contract slot or its terminal
+        /// state. Tagged, tombstoned and re-homed like a <see cref="ContractComplete"/> row.
+        /// Explicitly numbered and append-only; an older build reads it as an unknown type
+        /// (Warn) and loses the credit there.
+        /// </summary>
+        ContractParameterComplete = 40
     }
 
     /// <summary>
@@ -747,6 +765,17 @@ namespace Parsek
         /// <summary>Human-readable contract title.</summary>
         public string ContractTitle;
 
+        /// <summary>
+        /// The parameter a <see cref="GameActionType.ContractParameterComplete"/> row pays for:
+        /// its index path inside the contract (<c>"0"</c>, <c>"1.0"</c>), built by
+        /// <see cref="GameStateRecorder.BuildContractParameterIndexPath"/>. Null on every other
+        /// type. Written under <see cref="ContractParameterIdKey"/> for that type only.
+        /// </summary>
+        public string ContractParameterId;
+
+        /// <summary>ConfigNode key for <see cref="ContractParameterId"/>.</summary>
+        internal const string ContractParameterIdKey = "contractParameterId";
+
         /// <summary>Advance payment received on accept.</summary>
         public float AdvanceFunds;
 
@@ -1103,6 +1132,9 @@ namespace Parsek
                 case GameActionType.ContractComplete:
                     SerializeContractComplete(node);
                     break;
+                case GameActionType.ContractParameterComplete:
+                    SerializeContractParameterComplete(node);
+                    break;
                 case GameActionType.ContractFail:
                     SerializeContractFail(node);
                     break;
@@ -1254,6 +1286,9 @@ namespace Parsek
                     break;
                 case GameActionType.ContractComplete:
                     DeserializeContractComplete(node, a);
+                    break;
+                case GameActionType.ContractParameterComplete:
+                    DeserializeContractParameterComplete(node, a);
                     break;
                 case GameActionType.ContractFail:
                     DeserializeContractFail(node, a);
@@ -1632,6 +1667,18 @@ namespace Parsek
             TryParseFloat(n, "fundsReward", out a.FundsReward);
             TryParseFloat(n, "repReward", out a.RepReward);
             TryParseFloat(n, "scienceReward", out a.ScienceReward);
+        }
+
+        private void SerializeContractParameterComplete(ConfigNode n)
+        {
+            SerializeContractComplete(n);
+            if (ContractParameterId != null) n.AddValue(ContractParameterIdKey, ContractParameterId);
+        }
+
+        private static void DeserializeContractParameterComplete(ConfigNode n, GameAction a)
+        {
+            DeserializeContractComplete(n, a);
+            a.ContractParameterId = n.GetValue(ContractParameterIdKey);
         }
 
         private void SerializeContractFail(ConfigNode n) => SerializeContractPenalty(n);

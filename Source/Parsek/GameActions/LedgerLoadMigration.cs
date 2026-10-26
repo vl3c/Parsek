@@ -263,6 +263,7 @@ namespace Parsek
                 case GameActionType.MilestoneAchievement:  // MilestoneFunds/Sci/RepAwarded
                 case GameActionType.ContractAccept:        // AdvanceFunds
                 case GameActionType.ContractComplete:      // FundsReward/ScienceReward/RepReward
+                case GameActionType.ContractParameterComplete: // same three, one parameter's share
                 case GameActionType.ContractFail:          // FundsPenalty/RepPenalty
                 case GameActionType.ContractCancel:        // FundsPenalty/RepPenalty
                     return true;

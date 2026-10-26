@@ -25,6 +25,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A contract's objective rewards are kept.** Many contracts pay part of their reward when an
+  objective inside them is done, before the contract itself completes. Parsek missed that part,
+  so a rewind, Re-Fly or replay of the career came out short by it. Each paid objective is now
+  its own Timeline entry, kept and undone with its flight like the contract's own reward.
+  (CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED)
 - **A contract pays its reward once.** Accepting a contract and then changing scenes (to the VAB,
   then the launch) left extra copies of it behind, so completing it paid the funds, science and
   reputation two or three times. The reward is now paid once, and the books match it.

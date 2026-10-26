@@ -684,6 +684,7 @@ namespace Parsek
                 case GameActionType.FundsEarning:
                 case GameActionType.MilestoneAchievement:
                 case GameActionType.ContractComplete:
+                case GameActionType.ContractParameterComplete:
                 case GameActionType.ReputationEarning:
                 case GameActionType.KerbalRescue:
                 case GameActionType.FundsInitial:

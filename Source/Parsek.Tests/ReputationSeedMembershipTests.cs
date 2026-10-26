@@ -32,6 +32,7 @@ namespace Parsek.Tests
                 { GameActionType.ReputationPenalty, true },
                 { GameActionType.MilestoneAchievement, true },
                 { GameActionType.ContractComplete, true },
+                { GameActionType.ContractParameterComplete, true },
                 { GameActionType.ContractFail, true },
                 { GameActionType.ContractCancel, true },
                 { GameActionType.StrategyActivate, true },

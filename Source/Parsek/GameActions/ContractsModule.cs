@@ -43,6 +43,13 @@ namespace Parsek
         private readonly HashSet<string> creditedContracts = new HashSet<string>();
 
         /// <summary>
+        /// (contractId, parameterId) pairs whose parameter reward the walk credited (key
+        /// <see cref="ContractParameterCreditKey"/>). Stock pays a parameter once, so a second
+        /// row for the same pair is not counted.
+        /// </summary>
+        private readonly HashSet<string> creditedParameters = new HashSet<string>(System.StringComparer.Ordinal);
+
+        /// <summary>
         /// Contract IDs that resolved to a terminal state during this walk.
         /// Used by the KSP patcher to distinguish terminal contracts that should
         /// remain in stock history from terminal contracts whose ledger row was
@@ -201,6 +208,7 @@ namespace Parsek
         {
             int prevActive = activeContracts.Count;
             int prevCredited = creditedContracts.Count;
+            int prevCreditedParameters = creditedParameters.Count;
             int prevTerminal = terminalContracts.Count;
             int prevTerminalActions = terminalContractActions.Count;
             int prevTerminalOutcomes = terminalContractOutcomes.Count;
@@ -210,6 +218,7 @@ namespace Parsek
 
             activeContracts.Clear();
             creditedContracts.Clear();
+            creditedParameters.Clear();
             terminalContracts.Clear();
             terminalContractActions.Clear();
             terminalContractOutcomes.Clear();
@@ -220,6 +229,7 @@ namespace Parsek
 
             ParsekLog.Verbose(Tag,
                 $"Reset: cleared {prevActive} active contracts, {prevCredited} credited contracts, " +
+                $"{prevCreditedParameters} credited parameters, " +
                 $"{prevTerminal} terminal contracts, {prevTerminalActions} terminal actions, " +
                 $"{prevTerminalOutcomes} terminal outcomes, " +
                 $"{prevExpired} deadline-expired contracts, {prevResolved} explicitly resolved contracts, " +
@@ -430,6 +440,9 @@ namespace Parsek
                 case GameActionType.ContractComplete:
                     ProcessComplete(action);
                     break;
+                case GameActionType.ContractParameterComplete:
+                    ProcessParameterComplete(action);
+                    break;
                 case GameActionType.ContractFail:
                     ProcessFail(action);
                     break;
@@ -539,6 +552,63 @@ namespace Parsek
                 $"Complete: slot freed for contractId='{id}', " +
                 $"wasActive={wasActive}, " +
                 $"activeSlots={activeContracts.Count}/{maxSlots}");
+        }
+
+        /// <summary>The <see cref="creditedParameters"/> key: <c>contractId|parameterId</c>.</summary>
+        internal static string ContractParameterCreditKey(string contractId, string parameterId)
+        {
+            return (contractId ?? "") + "|" + (parameterId ?? "");
+        }
+
+        /// <summary>
+        /// A contract parameter's own reward (ContractParameterComplete). Counted once per
+        /// (contract, parameter), and not when the walk already ended the contract (a deadline
+        /// failure, or an explicit fail / cancel processed earlier): stock pays a parameter only
+        /// while its contract is Active. The contract's slot and terminal state are untouched;
+        /// they belong to the contract-level rows. A fail at the SAME UT sorts after this
+        /// earning row, so it does not zero it (stock pays a parameter that completes in the
+        /// tick its contract fails).
+        /// </summary>
+        private void ProcessParameterComplete(GameAction action)
+        {
+            string id = action.ContractId ?? "";
+            string paramId = action.ContractParameterId ?? "";
+            string key = ContractParameterCreditKey(id, paramId);
+
+            if (creditedParameters.Contains(key))
+            {
+                action.Effective = false;
+                action.NotCountedReason = GameActionNotCountedReason.ContractAlreadyCompleted;
+                ParsekLog.Info(Tag,
+                    $"ParameterComplete: contractId='{id}' param='{paramId}' effective=false (already credited), " +
+                    $"rewards zeroed");
+            }
+            else if (deadlineExpiredContracts.Contains(id))
+            {
+                action.Effective = false;
+                action.NotCountedReason = GameActionNotCountedReason.ContractDeadlinePassed;
+                ParsekLog.Info(Tag,
+                    $"ParameterComplete: contractId='{id}' param='{paramId}' effective=false (deadline expired), " +
+                    $"rewards zeroed");
+            }
+            else if (explicitlyResolvedContracts.Contains(id))
+            {
+                action.Effective = false;
+                action.NotCountedReason = GameActionNotCountedReason.ContractAlreadyResolved;
+                ParsekLog.Info(Tag,
+                    $"ParameterComplete: contractId='{id}' param='{paramId}' effective=false (explicitly resolved), " +
+                    $"rewards zeroed");
+            }
+            else
+            {
+                action.Effective = true;
+                action.NotCountedReason = GameActionNotCountedReason.None;
+                creditedParameters.Add(key);
+                ParsekLog.Info(Tag,
+                    $"ParameterComplete: contractId='{id}' param='{paramId}' effective=true, " +
+                    $"fundsReward={action.FundsReward} repReward={action.RepReward} " +
+                    $"scienceReward={action.ScienceReward}");
+            }
         }
 
         /// <summary>

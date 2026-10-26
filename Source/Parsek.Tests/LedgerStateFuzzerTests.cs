@@ -1006,6 +1006,13 @@ namespace Parsek.Tests
                     action.ScienceReward = Amount(rng, 0f, 30f);
                     action.RepReward = Amount(rng, 0f, 25f);
                     break;
+                case GameActionType.ContractParameterComplete:
+                    action.ContractId = "contract-" + tag;
+                    action.ContractParameterId = rng.Next(0, 3).ToString(IC);
+                    action.FundsReward = Amount(rng, 0f, 3000f);
+                    action.ScienceReward = Amount(rng, 0f, 10f);
+                    action.RepReward = Amount(rng, 0f, 10f);
+                    break;
                 case GameActionType.ContractFail:
                 case GameActionType.ContractCancel:
                     action.ContractId = "contract-" + tag;

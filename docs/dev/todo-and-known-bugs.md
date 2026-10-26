@@ -691,7 +691,7 @@ onContractsLoaded (kspCurrent=4)`, each contract completes ONCE (one `'Achieve g
 DEDUPED re-fire), and the funds leak fell from 20160 to 9600. The 9600 that remains is a separate
 defect, CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED below, which keeps CS-3 red.
 
-## CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED: a contract parameter's own completion reward is paid by stock but never booked [FILED 2026-10-26 off CS-3's re-flight `2026-10-25_2353`, branch `cs3-career-contracts`. OPEN; high (career economy)]
+## ~~CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED: a contract parameter's own completion reward is paid by stock but never booked~~ [FIXED 2026-10-26 in branch `contract-param-rewards`; live proof owed (CS-3's re-flight). FILED 2026-10-26 off CS-3's re-flight `2026-10-25_2353`, branch `cs3-career-contracts`. high (career economy)]
 
 Stock pays a contract in two places: each `ContractParameter` that completes pays its own
 `FundsCompletion` / `ScienceCompletion` / `ReputationCompletion` (via `AwardCompletion`, reason
@@ -707,10 +707,32 @@ state (a rewind's re-walk, a Re-Fly, the reservation index, LedgerGroundTruth) i
 (+9600 = 3200 + 6400), science +2, rep +3. Affects every contract whose parameters carry rewards
 (most stock contracts: part tests, surveys, satellite, base / station, rescue, tourism legs).
 
-Fix: capture a parameter's completion as its own ledger row, at its own UT, tagged to the recording
-that earned it (the same tagging rule as ContractCompleted), crediting funds / science / rep through
-the existing modules and the strategy conversion path; tombstone / rewind / discard semantics as for
-ContractComplete rows. Gate: CS-3's existing pins (`hardFailures=0`) plus xUnit.
+**Fix.** A paid parameter is its own ledger row: `GameStateEventType.ContractParameterCompleted = 26`
+-> `GameActionType.ContractParameterComplete = 40` (append-only additive members, no schema
+generation bump), carrying `ContractId`, `ContractParameterId` (codec key `contractParameterId`,
+written for that type only), `ContractTitle` and the three rewards in `FundsReward` / `RepReward` /
+`ScienceReward`. Capture is NOT `onParameterChange`: decompiled KSP 1.12.5
+`ContractParameter.SetComplete` runs `AwardCompletion()` (which pays `AddFunds(FundsCompletion)`,
+`AddScience(ScienceCompletion)`, `AddReputation(ReputationCompletion)`, reason `ContractReward`, and
+ZEROES each field after paying it) before it sets `state = Complete` and fires
+`onParameterChange`, so that event always reads zero rewards. `Patches/ContractParameterRewardCapturePatch`
+is a prefix / postfix on `ContractParameter.AwardCompletion` (its only caller is `SetComplete`, only
+on a not-yet-Complete parameter; no stock subclass overrides it): the prefix reads the three fields
+and the parameter's identity, the postfix raises `RewardPaid`, and the recorder's headless core
+`GameStateRecorder.CaptureContractParameterCompleted` files it once per (contract, parameter) when a
+reward is nonzero, with its own dedup map (`contract|param`, cleared with the contract map), and the
+same tagging / clock-cause / direct-ledger forward as `CaptureContractCompleted`. The parameter id is
+its index path under the contract (`"0"`, `"1.0"`; stock's `ID` is often empty and not unique among
+siblings), falling back to `id:<ID>`. The amounts are stock's base values, as for the contract-level
+row: a converter strategy's take is applied inside `AddFunds` and already ledgered by the
+`OnCurrencyModified` door. `ContractsModule` credits a parameter once per pair (not when the walk has
+already failed / cancelled the contract) and touches no slot or terminal state; Funds / Science
+(flat pool credit) / Reputation (same curve) credit it like `ContractComplete`; the post-walk
+reconcile pairs it on the `ContractReward` legs; supersede tombstones it, a non-rewind discard
+re-homes it; the Timeline shows `Contract objective done: <contract>`. xUnit:
+`ContractParameterRewardTests` (CS-3 numbers walk to +5280 / +2 sci / about +2 rep for
+FIRSTLAUNCH). Live proof owed: CS-3's re-flight (`hardFailures=0`, a `ContractParameterCompleted`
+line before each `'Achieve goal' complete!`).
 
 ## CONTRACT-EVENT-OF-A-BACKGROUND-VESSEL-TAGGED-TO-THE-ACTIVE-RECORDING [FILED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`. OPEN; low]
 

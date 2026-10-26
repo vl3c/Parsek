@@ -1505,6 +1505,8 @@ For each ContractComplete in UT order:
 
 Effective completion rewards (funds, rep, science) flow into second-tier modules. Non-effective completions produce zero rewards but the contract is still resolved (slot freed).
 
+**Parameter rewards.** Stock pays a contract in two parts: each `ContractParameter` that completes pays its own `FundsCompletion` / `ScienceCompletion` / `ReputationCompletion` (reason `ContractReward`) the moment it completes, and the contract then pays its contract-level reward. A World-Firsts exploration contract carries most of its money on its one "Achieve goal" parameter. Each paid parameter is its own `ContractParameterComplete` row at its own UT, credited once per (contract, parameter) and never once the walk has ended the contract (a deadline failure or an earlier explicit fail / cancel); it moves no slot and no terminal state. The capture is a Harmony prefix / postfix on `ContractParameter.AwardCompletion` (decompiled KSP 1.12.5: stock zeroes the three fields after paying them, before `onParameterChange` fires, so the event alone always reads zero). Tagging, the clock-cause scope, the direct-ledger forward, the supersede tombstone and the discard re-home follow `ContractComplete`. Todo CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED.
+
 ### 8.4 Contract action schemas
 
 ```
@@ -1528,6 +1530,15 @@ ContractComplete (recording-associated earning)
   fundsReward:    float — IMMUTABLE
   repReward:      float — IMMUTABLE (nominal, pre-curve)
   scienceReward:  float — IMMUTABLE (some contracts award science)
+
+ContractParameterComplete (recording-associated earning; one paid contract parameter)
+  ut:             double - when stock paid the parameter
+  recordingId:    string - same tagging rule as ContractComplete
+  contractId:     string
+  contractParameterId: string - the parameter's index path in its contract ("0", "1.0")
+  fundsReward:    float - IMMUTABLE
+  repReward:      float - IMMUTABLE (nominal, pre-curve)
+  scienceReward:  float - IMMUTABLE (pool credit, no subject)
 
 ContractFail (recording-associated or timeline event)
   ut:             double — when failure occurred

@@ -222,6 +222,8 @@ namespace Parsek
                     break;
 
                 case GameActionType.ContractComplete:
+                // A contract parameter's own reputation goes through the same curve.
+                case GameActionType.ContractParameterComplete:
                     ProcessContractCompleteRep(action);
                     break;
 
@@ -376,7 +378,7 @@ namespace Parsek
                 action.EffectiveRep = 0f;
                 ParsekLog.Verbose(Tag,
                     $"Contract complete rep skipped (not effective) at UT={action.UT.ToString("F1", IC)}" +
-                    $": contractId={action.ContractId ?? "null"}");
+                    $": contractId={action.ContractId ?? "null"}{FundsModule.FormatParameterSuffix(action)}");
                 return;
             }
 
@@ -390,7 +392,8 @@ namespace Parsek
             runningRep = result.newRep;
 
             ParsekLog.Verbose(Tag,
-                $"Contract complete rep at UT={action.UT.ToString("F1", IC)}: contractId={action.ContractId ?? "null"}, " +
+                $"Contract complete rep at UT={action.UT.ToString("F1", IC)}: contractId={action.ContractId ?? "null"}" +
+                $"{FundsModule.FormatParameterSuffix(action)}, " +
                 $"nominal={nominal.ToString("F2", IC)}, effective={result.actualDelta.ToString("F2", IC)}, " +
                 $"runningRep={runningRep.ToString("F2", IC)}");
         }
@@ -481,6 +484,7 @@ namespace Parsek
                 case GameActionType.ReputationPenalty:
                 case GameActionType.MilestoneAchievement:
                 case GameActionType.ContractComplete:
+                case GameActionType.ContractParameterComplete:
                 case GameActionType.ContractFail:
                 case GameActionType.ContractCancel:
                 case GameActionType.StrategyActivate:
