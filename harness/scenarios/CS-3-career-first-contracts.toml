@@ -46,6 +46,8 @@ id = "CS-3-career-first-contracts"
 # transient `GUARDED ... clamped` lines in the recovery burst (todo
 # RECOVERY-BURST-CONTRACT-SCIENCE-RECONCILE). The SCIENCE completion's tag pin was corrected to
 # untagged (it completes at the recovery, after the commit, every time).
+# Both fixed in branch `recovery-burst-reconcile` (store coalescing across an interleaved
+# ContractReward event, and the subject capture wiped by it); live proof owed here.
 # `operator` (stock-tree is not in the nightly instance set).
 tier = "operator"
 description = "Scripted campaign stage 3 (Career): on a genuine new Career save, accept the FIRSTLAUNCH and SCIENCE World-Firsts contracts, fly the Jumping Flea hop (pad and flight readings, recover) so both complete inside the recorded flight, auto-commit, then run the ledger ground truth against KSP's own career save."
