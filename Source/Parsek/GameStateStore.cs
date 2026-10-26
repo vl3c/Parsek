@@ -170,6 +170,12 @@ namespace Parsek
             if (!string.Equals(candidateRecordingId, targetRecordingId, StringComparison.Ordinal))
                 return false;
 
+            // Two captures with the same moment, type, key and tag are two events (design
+            // 3.15 step 3): when both copies carry a capture number, it decides. A copy
+            // taken before the store stamped it (0) keeps the field match.
+            if (candidate.captureSequence > 0 && target.captureSequence > 0)
+                return candidate.captureSequence == target.captureSequence;
+
             // Legacy saves can still carry old epoch stamps on otherwise-untagged rows.
             // Preserve that as a final tie-breaker for historical duplicates, but new
             // production logic no longer depends on the field.

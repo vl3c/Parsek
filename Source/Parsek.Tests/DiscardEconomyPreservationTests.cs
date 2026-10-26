@@ -252,15 +252,18 @@ namespace Parsek.Tests
         [Fact]
         public void Rehome_DedupsAgainstExistingLedgerAction()
         {
-            // A ContractComplete already in the ledger for this contract+UT must not be
-            // re-homed a second time.
+            // A ContractComplete already in the ledger for this event must not be re-homed
+            // a second time. The row was converted from the event, so it carries the event's
+            // capture number (design 3.15 step 3: the dedup keys on the capture).
+            var evt = TaggedEvent(GameStateEventType.ContractCompleted, "guid-dup", 200.0, "rec-A");
+            GameStateStore.AddEvent(ref evt);
             Ledger.AddAction(new GameAction
             {
                 Type = GameActionType.ContractComplete,
                 ContractId = "guid-dup",
                 UT = 200.0,
+                CaptureSequence = evt.captureSequence,
             });
-            AddTagged(TaggedEvent(GameStateEventType.ContractCompleted, "guid-dup", 200.0, "rec-A"));
 
             LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard(
                 new HashSet<string> { "rec-A" }, "test");

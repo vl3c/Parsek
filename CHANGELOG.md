@@ -31,6 +31,11 @@ _(unreleased - entries accumulate here per commit)_
   now replay, and show in the Timeline, in the order you clicked them.
   (LEDGER-EVENT-IDENTITY)
 
+- **Two rewards at the same moment are both kept.** When two flights cross the same record, or
+  finish the same goal, within a fraction of a second, the career history now keeps both and
+  decides which one counts, instead of dropping the second as a copy. The same payment seen
+  twice is still recorded once. (LEDGER-EVENT-IDENTITY)
+
 - **Relaunching a craft soon after an unrecorded launch keeps its launch cost.** Launching the same
   craft again within a minute of an earlier launch that was never recorded (launch, recover,
   launch again) was taken for a duplicate of the first, so the career funds missed the second

@@ -256,6 +256,11 @@ namespace Parsek
             // The row was captured when its event was (committed-value rule plan 2.3).
             if (action != null && action.CaptureSequence == 0)
                 action.CaptureSequence = CaptureSequence.FromEvent(evt.captureSequence);
+            // The row names its capture (design 3.15 step 3): the ledger dedup collapses it
+            // only onto a row of the same capture number.
+            if (action != null && evt.captureSequence > 0
+                && action.CaptureSequence == evt.captureSequence)
+                action.HasEventCaptureIdentity = true;
             return action;
         }
 

@@ -453,7 +453,7 @@ The goal: no committed purchase is ever left unpaid, and no pool (funds, science
 
 ### 3.15 Event identity: the replay decides every repeat (owner rulings 2026-10-26)
 
-**Status: ruled 2026-10-26. Build order step 1 is built (science rows dated at their capture UT, `cseq` as the walk's tie key); the later steps are planned (todo `LEDGER-EVENT-IDENTITY`).** This section is the authority for how the ledger tells a repeated event from a new one. The module sections point here. Where today's code differs, the module section says so and names the step below that changes it.
+**Status: ruled 2026-10-26. Build order steps 1 and 2 are built (science rows dated at their capture UT, `cseq` as the walk's tie key; capture dedup on capture identity); the later steps are planned (todo `LEDGER-EVENT-IDENTITY`).** This section is the authority for how the ledger tells a repeated event from a new one. The module sections point here. Where today's code differs, the module section says so and names the step below that changes it.
 
 **Game rule.** The ledger is a list of things that happened, not a list of money movements. Each economic row says three things:
 - what happened: its identity, named by the key stock itself checks before it pays;
@@ -501,7 +501,13 @@ Example: a committed flight recovers goo at UT 1000 (cap 3.9, stock paid 3). Aft
 - A science earning is dated at its capture UT (built; it used to be dated at its recording's end UT, which misordered a transmission against a re-earn after a rewind).
 - An older row whose capture UT survives only as a float `StartUT` ties on `cseq`.
 
-**3. Row duplicates collapse on capture identity.** Capture dedup keys on the capture event (its `cseq` and channel), never on economic keys. Today a 0.1 s window over type and amount, a contract re-fire bucket and the revert rollout dedup can hide a real second event; RELAUNCH-ROLLOUT-DEDUPED-AS-REVERT was one. This step lands before take-back, so a doubled capture is never read as a stock re-payment.
+**3. Row duplicates collapse on capture identity.** Capture dedup keys on the capture event (its `cseq` and channel), never on economic keys. A 0.1 s window over type and amount could hide a real second event; RELAUNCH-ROLLOUT-DEDUPED-AS-REVERT was one. This step lands before take-back, so a doubled capture is never read as a stock re-payment.
+
+Built (build order step 2). Each site and what it keys on now:
+- `LedgerOrchestrator.DeduplicateAgainst` (every recording commit and its preview, the discard re-home, the retired Re-Fly provisional, the recovery XP, crew-close and vessel-recovered writers): a row converted from a captured event (`GameStateEventConverter.ConvertEvent`, transient `HasEventCaptureIdentity`) collapses only onto a row with the same `cseq` and key, at any UT. A row of another capture with the same type, key and 0.1 s window is a second event and stays. Science keeps its own capture id (`ActionId`). The type + UT + key match stays the fallback when either side names no capture: rows from older saves, and rows built without an event (vessel cost, crew assignment, the death penalty, recovery rows).
+- `LedgerLoadMigration.LedgerHasMatchingAction` (the save recovery migration): the event's row is the one with its `cseq`; the economic match only for a pair without one.
+- `GameStateStore.EventIdentityMatches` (event detail update, retag, remove): two events with one moment, type, key and tag are told apart by `cseq`; a copy taken before the store stamped it keeps the field match.
+- Kept as they are, because they cannot hold two events: the recorder's contract and parameter re-fire debounce and the converter's contract bucket (contract guid inside 0.1 s, one outcome per accept, cleared at every scene change, one recording's events), the rollout dedup (launch guid, built by RELAUNCH-ROLLOUT-DEDUPED-AS-REVERT), the recovery funds pairing (the paired event's UT, pool values and tag), the resource-event coalescing (one pool's contiguous moves inside 0.1 s merged, the sum kept), the crew-status bounce (no ledger row). A world record's thresholds folded into one milestone row are step 4.
 
 **4. World records pay once per threshold.**
 - A record row names the thresholds it crossed and the reward of each one.

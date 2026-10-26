@@ -942,6 +942,7 @@ namespace Parsek.Tests
                 LedgerOrchestrator.MapEventTypeToActionType(GameStateEventType.ContractParameterCompleted));
             Assert.True(LedgerOrchestrator.IsRecoverableEventType(GameStateEventType.ContractParameterCompleted));
 
+            long param0Capture = 0;
             foreach (string p in new[] { "0", "1" })
             {
                 var e = new GameStateEvent
@@ -952,9 +953,14 @@ namespace Parsek.Tests
                     detail = GameStateRecorder.BuildContractParameterCompletedDetail(p, "t", 3200f, 1f, 1f)
                 };
                 GameStateStore.AddEvent(ref e);
+                if (p == "0")
+                    param0Capture = e.captureSequence;
             }
-            // Parameter "0" already has its row; only "1" is missing.
-            Ledger.AddAction(ParameterRow(FirstLaunch, "0", 100.0, 3200f, 1f, 1f));
+            // Parameter "0" already has its row (converted from its own event, so it carries
+            // that event's capture number); only "1" is missing.
+            var row0 = ParameterRow(FirstLaunch, "0", 100.0, 3200f, 1f, 1f);
+            row0.CaptureSequence = param0Capture;
+            Ledger.AddAction(row0);
 
             int recovered = LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad();
 
