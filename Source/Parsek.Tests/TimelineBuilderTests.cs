@@ -51,6 +51,37 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
+        public void SortEntries_SameUtLedgerRows_TakeTheWalksCaptureOrder_OtherEntriesKeepTheirSlots()
+        {
+            var techSecond = new GameAction
+            {
+                UT = 300.0, Type = GameActionType.ScienceSpending, NodeId = "b", Sequence = 1, CaptureSequence = 9
+            };
+            var techFirst = new GameAction
+            {
+                UT = 300.0, Type = GameActionType.ScienceSpending, NodeId = "a", Sequence = 2, CaptureSequence = 4
+            };
+            var recordingEntry = new TimelineEntry { UT = 300.0, DisplayText = "rec" };
+            var earlier = new TimelineEntry { UT = 100.0, DisplayText = "earlier" };
+            var entries = new List<TimelineEntry>
+            {
+                new TimelineEntry { UT = 300.0, Action = techSecond, DisplayText = "second" },
+                recordingEntry,
+                new TimelineEntry { UT = 300.0, Action = techFirst, DisplayText = "first" },
+                earlier,
+            };
+
+            TimelineBuilder.SortEntries(entries);
+
+            Assert.Same(earlier, entries[0]);
+            Assert.Same(techFirst, entries[1].Action);
+            Assert.Same(recordingEntry, entries[2]);
+            Assert.Same(techSecond, entries[3].Action);
+            Assert.Contains(logLines, l => l.Contains("[Timeline]")
+                && l.Contains("same-UT ledger row(s) moved into walk order"));
+        }
+
+        [Fact]
         public void EmptyInputs_ProducesEmptyList()
         {
             var result = TimelineBuilder.Build(

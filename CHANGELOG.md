@@ -25,6 +25,12 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Science counts from the moment you earned it.** A transmission or recovery now sits in the
+  career history at the time stock paid it, not at the end of its flight, so after a rewind the
+  earlier earning of a subject is credited first. Purchases made at one moment in the Space Center
+  now replay, and show in the Timeline, in the order you clicked them.
+  (LEDGER-EVENT-IDENTITY)
+
 - **Relaunching a craft soon after an unrecorded launch keeps its launch cost.** Launching the same
   craft again within a minute of an earlier launch that was never recorded (launch, recover,
   launch again) was taken for a duplicate of the first, so the career funds missed the second

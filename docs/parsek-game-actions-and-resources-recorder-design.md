@@ -236,11 +236,12 @@ All game actions across all resource modules are collected and sorted for the re
 |----------|-------|-------|
 | Primary | UT ascending | When the action occurred on the timeline |
 | Secondary | Type: earnings before spendings | At the same UT, credits before debits |
-| Tertiary | Sequence index | Order within spendings at the same UT (e.g. multiple tech node unlocks at frozen KSC time) |
+| Tertiary | Capture sequence `cseq` | Real capture order at the same UT (e.g. a Rebuild then an Upgrade, or several tech unlocks, at one frozen KSC UT) |
+| Fallback | Sequence index | Order between rows with no `cseq`, or with the same one |
 
-The sequence index is only meaningful for spending actions. Earnings at the same UT are additive and order-independent.
+Built (section 3.15 step 2): `cseq` is the tie key, so KSC rows written at one frozen UT keep their real click order. A row with no `cseq` (0 from an older save, or -1 when converted from an event an older build captured) sorts before every sequenced row at its UT, because it was captured before this build stamped anything; this also keeps an older save's same-UT order unchanged. Two such rows fall back to the sequence index. The sort is stable, so rows equal on every key keep their input order.
 
-**Planned (section 3.15 step 2):** the tertiary key becomes the capture sequence `cseq`, so KSC rows written at one frozen UT keep their real click order (a Rebuild before an Upgrade in one session), and first-wins ties read the same order.
+`RecalculationEngine.CompareWalkOrder` is the one comparer. Every reader that must agree with the walk on which of two rows comes first reads it: the committed-future index (first / last committed row of a key, so the click gates and marks pick what the walk picks), the facility destruction fold, the KSC reputation-curve reconcile, the Re-Fly dominance check and the Timeline. The cashflow projection and the reserved floor read the walk's own sorted list.
 
 ### 3.8 Recalculation model
 
@@ -452,7 +453,7 @@ The goal: no committed purchase is ever left unpaid, and no pool (funds, science
 
 ### 3.15 Event identity: the replay decides every repeat (owner rulings 2026-10-26)
 
-**Status: ruled 2026-10-26; PLANNED, not built. The owner holds the build until he says go (todo `LEDGER-EVENT-IDENTITY`).** This section is the authority for how the ledger tells a repeated event from a new one. The module sections point here. Where today's code differs, the module section says so and names the step below that changes it.
+**Status: ruled 2026-10-26. Build order step 1 is built (science rows dated at their capture UT, `cseq` as the walk's tie key); the later steps are planned (todo `LEDGER-EVENT-IDENTITY`).** This section is the authority for how the ledger tells a repeated event from a new one. The module sections point here. Where today's code differs, the module section says so and names the step below that changes it.
 
 **Game rule.** The ledger is a list of things that happened, not a list of money movements. Each economic row says three things:
 - what happened: its identity, named by the key stock itself checks before it pays;
@@ -497,7 +498,7 @@ Example: a committed flight recovers goo at UT 1000 (cap 3.9, stock paid 3). Aft
 **2. Order is time, then capture order.**
 - The walk sorts on (UT, earnings before spendings, `cseq`). `cseq` replaces `Sequence` as the tie key, so two KSC clicks at one frozen UT keep their real order (3.7).
 - Every row carries its capture UT as a double.
-- A science earning is dated at its capture UT. Today it is dated at its recording's end UT (`GameStateEventConverter`), which misorders a transmission against a re-earn after a rewind.
+- A science earning is dated at its capture UT (built; it used to be dated at its recording's end UT, which misordered a transmission against a re-earn after a rewind).
 - An older row whose capture UT survives only as a float `StartUT` ties on `cseq`.
 
 **3. Row duplicates collapse on capture identity.** Capture dedup keys on the capture event (its `cseq` and channel), never on economic keys. Today a 0.1 s window over type and amount, a contract re-fire bucket and the revert rollout dedup can hide a real second event; RELAUNCH-ROLLOUT-DEDUPED-AS-REVERT was one. This step lands before take-back, so a doubled capture is never read as a stock re-payment.
@@ -839,7 +840,7 @@ ScienceEarning
 
 `effectiveScience` is derived. Always computed, never stored. What the ledger actually credits to the budget after applying subject caps against other recordings on the timeline. Recalculated from scratch every time the timeline changes.
 
-**Planned (section 3.15 step 2):** the row's `ut` is the capture UT. Today `GameStateEventConverter` dates a science earning at its recording's END UT (the capture UT survives only in the float `StartUT`), so a transmission sorts after an earlier-captured re-earn on another timeline.
+Built (section 3.15 step 2): the row's `ut` is the capture UT, as a double. `GameStateEventConverter` dates each science earning at the moment stock paid it, so a transmission sorts by when it happened, not by when its recording ended. `startUT` keeps the capture moment and `endUT` the recording end. Two cases stay at the recording end: a subject with no capture UT, and a capture after the recording's trajectory window (the end bound is the row's owner). Rows an older build filed at the end UT are not migrated; their capture survives only in the float `startUT`, and a tie with them is broken on `cseq` (3.7).
 
 `method` and `transmitScalar` serve the UI (showing the player "you transmitted this at 30% efficiency") but do not drive the recalculation math.
 
@@ -929,7 +930,7 @@ Chronological order on the timeline determines priority. Earlier recordings get 
 
 The `affordable` flag on spending actions is defensive — it should never be false in normal play because the reservation system (section 6.5) prevents new spendings from creating a deficit, and the no-delete invariant ensures total effective science never decreases, so existing spendings remain valid. If the flag is false, it indicates a bug or data corruption.
 
-**Planned (section 3.15 step 6).** Today an unaffordable tech is not deducted, and `KspStatePatcher.ShouldRefuseUnaffordableRelock` keeps it researched, so it costs nothing. Two paths can leave a committed tech unaffordable after a rewind: credit moving between two flights of one subject once rows are dated at capture time, and a strategy's science cut moving out of its window. Take-back after a spend is a third path only when auto-merge is off, a test setting (step 5). Under the plan, a committed tech is charged into debt like a funds row (section 3.13 part 4). A purchase the walk already owns at its (UT, `cseq`) is not charged again.
+**Planned (section 3.15 step 6).** Today an unaffordable tech is not deducted, and `KspStatePatcher.ShouldRefuseUnaffordableRelock` keeps it researched, so it costs nothing. Two paths can leave a committed tech unaffordable after a rewind: credit moving between two flights of one subject now that rows are dated at capture time (step 2, built), and a strategy's science cut moving out of its window. Take-back after a spend is a third path only when auto-merge is off, a test setting (step 5). Under the plan, a committed tech is charged into debt like a funds row (section 3.13 part 4). A purchase the walk already owns at its (UT, `cseq`) is not charged again.
 
 ### 12.7 Verified scenarios
 

@@ -753,10 +753,96 @@ namespace Parsek.Tests
 
             Assert.Equal(2, actions.Count);
             Assert.Equal(117.8f, actions[0].StartUT);
+            Assert.Equal(117.8, actions[0].UT);
             Assert.Equal(ScienceMethod.Transmitted, actions[0].Method);
             Assert.Equal(194.6f, actions[1].StartUT);
+            Assert.Equal(194.6, actions[1].UT);
             Assert.Equal(ScienceMethod.Recovered, actions[1].Method);
             Assert.Equal(248.8f, actions[1].EndUT);
+        }
+
+        [Fact]
+        public void ConvertScienceSubjects_TransmissionMidFlight_IsDatedAtItsCaptureUtNotTheRecordingEnd()
+        {
+            // Design 3.15 step 2: a transmission captured at UT 250 in a recording that
+            // ends at 400 is a row at UT 250, as a double, so the walk orders it by when
+            // stock paid it.
+            var subjects = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject
+                {
+                    subjectId = "temperatureScan@KerbinFlyingLow",
+                    science = 2.5f,
+                    captureUT = 250.123456789,
+                    reasonKey = "ScienceTransmission",
+                    recordingId = "rec"
+                }
+            };
+
+            var action = Assert.Single(GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 100.0, 400.0));
+
+            Assert.Equal(250.123456789, action.UT);
+            Assert.Equal((float)250.123456789, action.StartUT);
+            Assert.Equal(400.0f, action.EndUT);
+            Assert.Contains(logLines, l => l.Contains("ConvertScienceSubjects: converted=1")
+                && l.Contains("captureDated=1, endAnchored=0"));
+        }
+
+        [Fact]
+        public void ConvertScienceSubjects_NoCaptureUt_StaysDatedAtTheRecordingEnd()
+        {
+            var subjects = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "goo@KerbinSrfLanded", science = 1.0f, recordingId = "rec" }
+            };
+
+            var action = Assert.Single(GameStateEventConverter.ConvertScienceSubjects(subjects, "rec", 100.0, 400.0));
+
+            Assert.Equal(400.0, action.UT);
+            Assert.Contains(logLines, l => l.Contains("ConvertScienceSubjects: converted=1")
+                && l.Contains("captureDated=0, endAnchored=1"));
+        }
+
+        [Fact]
+        public void ConvertScienceSubjects_TransmissionSortsBeforeAnEarlierEndingRecordingsLaterCapture()
+        {
+            // The misorder step 2 closes: recording A transmits goo at 250 and ends at 400;
+            // recording B (another timeline) captures the same goo at 300 and ends at 350.
+            // Dated at the end, B (350) walked before A (400); by capture, A walks first.
+            var a = Assert.Single(GameStateEventConverter.ConvertScienceSubjects(
+                new List<PendingScienceSubject>
+                {
+                    new PendingScienceSubject
+                    {
+                        subjectId = "mysteryGoo@KerbinFlyingLow", science = 3f, subjectMaxValue = 3.9f,
+                        captureUT = 250.0, reasonKey = "ScienceTransmission", recordingId = "A"
+                    }
+                }, "A", 100.0, 400.0));
+            var b = Assert.Single(GameStateEventConverter.ConvertScienceSubjects(
+                new List<PendingScienceSubject>
+                {
+                    new PendingScienceSubject
+                    {
+                        subjectId = "mysteryGoo@KerbinFlyingLow", science = 3f, subjectMaxValue = 3.9f,
+                        captureUT = 300.0, reasonKey = "ScienceTransmission", recordingId = "B"
+                    }
+                }, "B", 200.0, 350.0));
+
+            var sorted = RecalculationEngine.SortActions(new List<GameAction> { b, a });
+
+            Assert.Same(a, sorted[0]);
+            Assert.Same(b, sorted[1]);
+        }
+
+        [Theory]
+        [InlineData(250.0, 250.0, 400.0, 250.0)]
+        [InlineData(500.0, 400.0, 400.0, 400.0)]   // captured after the window: resolved to the end bound
+        [InlineData(0.0, 100.0, 400.0, 400.0)]
+        [InlineData(double.NaN, 100.0, 400.0, 400.0)]
+        [InlineData(double.PositiveInfinity, 400.0, 400.0, 400.0)]
+        public void ResolveScienceRowUt_Cases(double captureUt, double resolvedStartUt, double endUt, double expected)
+        {
+            Assert.Equal(expected, GameStateEventConverter.ResolveScienceRowUt(captureUt, resolvedStartUt, endUt));
         }
 
         [Fact]
@@ -807,6 +893,7 @@ namespace Parsek.Tests
             Assert.Equal(ScienceMethod.Recovered, action.Method);
             Assert.Equal(16.0f, action.ScienceAwarded);
             // captureUT is outside the window, so the action is anchored at endUT.
+            Assert.Equal(203840.7, action.UT);
             Assert.Equal(203840.7f, action.StartUT);
             Assert.Equal(203840.7f, action.EndUT);
         }
@@ -910,6 +997,7 @@ namespace Parsek.Tests
 
             Assert.Single(actions);
             Assert.Equal(117.8f, actions[0].StartUT);
+            Assert.Equal(117.8, actions[0].UT);
             Assert.Equal(ScienceMethod.Recovered, actions[0].Method);
         }
 

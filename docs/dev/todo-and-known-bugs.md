@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## LEDGER-EVENT-IDENTITY: the replay, not stock, decides every repeated ledger event [FILED 2026-10-26 from the event-keyed ledger research (two independent code reviews plus a hand-simulated career with repeated rewinds); RULED 2026-10-26, PLAN ONLY: build held until the owner says go; product, high (the duplicate-payment class)]
+## LEDGER-EVENT-IDENTITY: the replay, not stock, decides every repeated ledger event [FILED 2026-10-26 from the event-keyed ledger research (two independent code reviews plus a hand-simulated career with repeated rewinds); RULED 2026-10-26; build order step 1 BUILT 2026-10-26 on branch `ledger-identity-step1`, later steps planned; product, high (the duplicate-payment class)]
 
 Design authority: `docs/parsek-game-actions-and-resources-recorder-design.md` section 3.15.
 
@@ -35,15 +35,15 @@ Four causes behind the 2026-10 duplicate-payment bugs (#2276, #2281, #2283, the 
 - (D) Capture dedup keys on economic keys.
 
 Defects confirmed in code on main 3361d23, each closed by a step of section 3.15:
-- Science earnings are dated at the recording END UT, not the capture UT (`GameStateEventConverter`, `UT = endUT`). Step 2.
-- `SortActions` breaks same-UT ties on `Sequence`, not `cseq`, so one KSC session's Rebuild and Upgrade have no order. Step 2.
+- ~~Science earnings are dated at the recording END UT, not the capture UT (`GameStateEventConverter`, `UT = endUT`). Step 2.~~ Built: `ConvertScienceSubjects` dates each row at its resolved capture UT (a double); a subject with no capture UT, or one captured after the recording's window, stays at the end. Old rows are not migrated. Consumers checked: rewind / Re-Fly split and tombstone screens (`TombstoneAttributionHelper.ComputeAttributionUT`, both sides read `UT`, so pre-rewind science now stays on HEAD), revert prune, dedup (keys on `StartUT`), the post-walk and commit reconcilers (capture-dated rows pair in the plain window), the KSC pending-credit window, `BuildCommittedScienceSubjectCredits` (walk order), the recovery-resurrection retire (keys on `Method`).
+- ~~`SortActions` breaks same-UT ties on `Sequence`, not `cseq`, so one KSC session's Rebuild and Upgrade have no order. Step 2.~~ Built: `RecalculationEngine.CompareWalkOrder` ties on `cseq`; a row with no `cseq` sorts first, then `Sequence`. The committed-future index, the facility destruction fold, the KSC rep-curve reconcile, the Re-Fly dominance check and the Timeline read the same comparer; a rollout dedup survivor carries the `cseq` with its `Sequence`. The strategy and contract slot simulations keep their own release-before-occupy rank.
 - `ScienceModule.ProcessSpending` refuses an unaffordable tech and `ShouldRefuseUnaffordableRelock` keeps it researched, so a reduction makes a committed tech free. Step 6.
 - `ContractsModule.ProcessParameterComplete` does not check a contract the walk already completed. Step 1.
 - `SupersedeCommit.IsLossRow` seals on a gain row the replay does not count. Step 10.
 - An income with no ledger channel is filed at the next patch UT and re-applied when the clock passes it again, while the mod pays it again after a rewind. The cheat log line "held only until the next rewind" is therefore false. Step 9.
 - A hire row stores only its price, which depends on roster size. Step 6.
 
-Build order is in section 3.15. Each step ships unit tests and the matching harness oracle (`once_key`) and Timeline changes. No lane is owed until a step is built.
+Build order is in section 3.15. Each step ships unit tests and the matching harness oracle (`once_key`) and Timeline changes. Step 1 needed no oracle change (no spec pins a science row's UT; the oracle orders authored manifest entries) and changed the Timeline's same-UT order to the walk's.
 
 ---
 

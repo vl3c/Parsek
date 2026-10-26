@@ -251,13 +251,8 @@ namespace Parsek
                 return sum;
             }
 
-            matches.Sort((a, b) =>
-            {
-                int utCompare = a.Action.UT.CompareTo(b.Action.UT);
-                if (utCompare != 0)
-                    return utCompare;
-                return a.Action.Sequence.CompareTo(b.Action.Sequence);
-            });
+            // The curve is order-dependent: replay the legs in the walk's order.
+            matches.Sort((a, b) => RecalculationEngine.CompareWalkOrder(a.Action, b.Action));
 
             float currentRep = (float)startingObservedValue;
             double curvedSum = 0;

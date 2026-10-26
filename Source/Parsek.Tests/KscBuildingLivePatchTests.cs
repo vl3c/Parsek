@@ -154,6 +154,23 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Fold_SameUt_OrdersByCaptureSequenceBeforeSequence()
+        {
+            // One Space Center visit at a frozen UT: the repair was captured after the
+            // destruction (cseq 8 > 3) although its per-writer Sequence is lower. The walk
+            // reads capture order, so the fold must too: the repair wins.
+            var repair = Repair(X, 100.0, seq: 1);
+            repair.CaptureSequence = 8;
+            var destroy = Destroy(X, 100.0, seq: 6);
+            destroy.CaptureSequence = 3;
+
+            var atUt = FacilityStatePatcher.ComputeBuildingDestroyedAtUt(
+                new List<GameAction> { repair, destroy }, 120.0);
+
+            Assert.False(atUt[X]);
+        }
+
+        [Fact]
         public void Fold_OrdersByUtThenSequence_AndIgnoresOtherTypesAndFutureRows()
         {
             var ledger = new List<GameAction>

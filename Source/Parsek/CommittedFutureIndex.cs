@@ -101,6 +101,12 @@ namespace Parsek
         /// because its requirements no longer hold (<see cref="GameAction.ContractRequirementsLost"/>),
         /// not a player cancel, so Mission Control says "Ended" where the Timeline says "Ended".</summary>
         internal readonly bool RequirementsLost;
+        /// <summary>The source row's <see cref="GameAction.CaptureSequence"/> and
+        /// <see cref="GameAction.Sequence"/>: the walk's same-UT tie, so two rows of one key at
+        /// one UT (a Rebuild and an Upgrade in one Space Center visit) keep the walk's order.
+        /// 0 for an entry with no ledger row.</summary>
+        internal readonly long CaptureSequence;
+        internal readonly int Sequence;
 
         internal CommittedFutureEntry(
             CommittedFutureKind kind,
@@ -117,7 +123,9 @@ namespace Parsek
             string agentTitle = null,
             bool deadlineExpiry = false,
             bool facilityDowngrade = false,
-            bool requirementsLost = false)
+            bool requirementsLost = false,
+            long captureSequence = 0,
+            int sequence = 0)
         {
             Kind = kind;
             Key = key ?? "";
@@ -134,6 +142,8 @@ namespace Parsek
             DeadlineExpiry = deadlineExpiry;
             FacilityDowngrade = facilityDowngrade;
             RequirementsLost = requirementsLost;
+            CaptureSequence = captureSequence;
+            Sequence = sequence;
         }
 
         /// <summary>A copy of this entry carrying <paramref name="agentTitle"/> as its agent.</summary>
@@ -142,7 +152,7 @@ namespace Parsek
             return new CommittedFutureEntry(
                 Kind, Key, UT, RecordingId, RecordingName, FacilityToLevel, Amount, Title,
                 FromMilestoneFallback, DeadlineUT, AutoAccept, agentTitle, DeadlineExpiry, FacilityDowngrade,
-                RequirementsLost);
+                RequirementsLost, CaptureSequence, Sequence);
         }
     }
 
@@ -174,7 +184,7 @@ namespace Parsek
 
     /// <summary>
     /// The UT-keyed committed-future index: every COMMITTED, EFFECTIVE row a stock-screen
-    /// block or annotation keys on, grouped by (kind, key) and sorted by UT. Built once per
+    /// block or annotation keys on, grouped by (kind, key) and sorted in walk order. Built once per
     /// ledger change by <see cref="CommittedFutureIndexCache"/>; the marks and the
     /// click-blocks read the SAME instance, so they cannot disagree.
     ///
@@ -384,7 +394,9 @@ namespace Parsek
                         agentTitle: isAccept && contractAgentTitle != null ? contractAgentTitle(key) : null,
                         deadlineExpiry: expiry,
                         facilityDowngrade: kind == CommittedFutureKind.FacilityUpgrade && a.FacilityDowngrade,
-                        requirementsLost: kind == CommittedFutureKind.ContractCancel && a.ContractRequirementsLost));
+                        requirementsLost: kind == CommittedFutureKind.ContractCancel && a.ContractRequirementsLost,
+                        captureSequence: a.CaptureSequence,
+                        sequence: a.Sequence));
                     entries++;
                 }
             }
@@ -401,11 +413,36 @@ namespace Parsek
 
             foreach (var perKind in index.byKind.Values)
                 foreach (var list in perKind.Values)
-                    list.Sort((x, y) => x.UT.CompareTo(y.UT));
+                    SortInWalkOrder(list);
 
             index.SkippedUncommittedRows = skippedUncommitted;
             index.EntryCount = entries;
             return index;
+        }
+
+        /// <summary>
+        /// Sorts one key's entries in the walk's order: UT, then the walk's same-UT tie
+        /// (<see cref="RecalculationEngine.CompareSameUtTie(long, int, long, int)"/>), then
+        /// build order. One key's rows share a type, so the walk's earnings-before-spendings
+        /// level never separates them. <see cref="FirstFuture"/> and <see cref="LastFuture"/>
+        /// read this order, so a first-wins or last-wins answer at one UT is the walk's.
+        /// </summary>
+        internal static void SortInWalkOrder(List<CommittedFutureEntry> list)
+        {
+            if (list == null || list.Count < 2) return;
+            var indexed = new List<KeyValuePair<int, CommittedFutureEntry>>(list.Count);
+            for (int i = 0; i < list.Count; i++)
+                indexed.Add(new KeyValuePair<int, CommittedFutureEntry>(i, list[i]));
+            indexed.Sort((x, y) =>
+            {
+                int c = x.Value.UT.CompareTo(y.Value.UT);
+                if (c != 0) return c;
+                c = RecalculationEngine.CompareSameUtTie(
+                    x.Value.CaptureSequence, x.Value.Sequence, y.Value.CaptureSequence, y.Value.Sequence);
+                return c != 0 ? c : x.Key.CompareTo(y.Key);
+            });
+            for (int i = 0; i < indexed.Count; i++)
+                list[i] = indexed[i].Value;
         }
 
         private static string ResolveName(

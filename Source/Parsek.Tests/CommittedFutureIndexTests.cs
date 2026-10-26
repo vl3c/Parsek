@@ -49,6 +49,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Build_SameUtLevelChangesOfOneFacility_KeepTheWalksCaptureOrder()
+        {
+            // A Rebuild then an Upgrade of one facility in one Space Center visit (one frozen
+            // UT). The Upgrade carries the lower per-writer Sequence; capture order says the
+            // Rebuild came first, so the latest committed change is the Upgrade.
+            const string pad = "SpaceCenter/LaunchPad";
+            var upgrade = new GameAction
+            {
+                UT = 500, Type = GameActionType.FacilityUpgrade, FacilityId = pad, ToLevel = 3,
+                Sequence = 1, CaptureSequence = 12
+            };
+            var rebuild = new GameAction
+            {
+                UT = 500, Type = GameActionType.FacilityUpgrade, FacilityId = pad, ToLevel = 1,
+                FacilityDowngrade = true, Sequence = 2, CaptureSequence = 11
+            };
+
+            var index = BuildKscOnly(upgrade, rebuild);
+
+            var first = index.FirstFuture(CommittedFutureKind.FacilityUpgrade, pad, 0);
+            var last = index.LastFuture(CommittedFutureKind.FacilityUpgrade, pad, 0);
+            Assert.True(first.FacilityDowngrade);
+            Assert.Equal(11L, first.CaptureSequence);
+            Assert.False(last.FacilityDowngrade);
+            Assert.Equal(3, last.FacilityToLevel);
+            // WithAgentTitle keeps the tie fields.
+            Assert.Equal(12L, last.WithAgentTitle("x").CaptureSequence);
+        }
+
+        [Fact]
         public void Build_MapsEveryLedgerTypeToItsKindAndKey()
         {
             var index = BuildKscOnly(

@@ -384,8 +384,10 @@ namespace Parsek
         /// delta (<c>valueAfter - valueBefore</c>) summed across matching
         /// <see cref="GameStateStore"/> events inside the observed-side match window:
         /// normally <see cref="PostWalkReconcileEpsilonSeconds"/> around <c>action.UT</c>,
-        /// but for end-anchored <see cref="GameActionType.ScienceEarning"/> actions the
-        /// owning recording span is used so earlier in-flight science transmissions still pair.
+        /// but for end-anchored <see cref="GameActionType.ScienceEarning"/> actions (an older
+        /// build's rows, or a capture with no UT) the owning recording span is used so earlier
+        /// in-flight science transmissions still pair. A row dated at its capture UT pairs
+        /// inside the plain window around that UT.
         /// WARN on divergence per leg; VERBOSE rate-limited on match. Emits a
         /// single INFO summary after the iteration. Log-only.
         /// <para>
@@ -1353,7 +1355,8 @@ namespace Parsek
                     $"reconstructed [{LedgerOrchestrator.FormatFixed3(startUt)},{LedgerOrchestrator.FormatFixed3(endUt)}]");
             }
 
-            // Only widen the observed-side window for the current end-anchored shape.
+            // Only widen the observed-side window for the end-anchored shape (older rows,
+            // and captures with no UT); a capture-dated row keeps the plain window at its UT.
             // ScienceEarning spans are persisted through float fields, so at large UTs
             // the stored EndUT may drift from the double-backed action.UT by more than
             // the nominal 0.1 s epsilon. Allow the float quantization loss here while

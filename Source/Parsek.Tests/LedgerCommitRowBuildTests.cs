@@ -221,11 +221,12 @@ namespace Parsek.Tests
             RecordingStore.AddCommittedTreeForTesting(tree);
         }
 
-        // Pinned BEFORE the build / append split from the unsplit filing code.
+        // Pinned BEFORE the build / append split from the unsplit filing code. The science
+        // row's ut is its capture UT (160), not the recording end (design 3.15 step 2).
         private const string PinnedTreeCommitLedger =
             "ut=99;type=3;recordingId=pin-launch;seq=1;fundsSpent=5000;fundsSpendingSource=0;\n" +
             "ut=150;type=4;recordingId=pin-launch;seq=1;milestoneId=RecordsDistance;milestoneFundsAwarded=4800;milestoneRepAwarded=2;milestoneSciAwarded=0;\n" +
-            "ut=200;type=0;recordingId=pin-launch;seq=1;subjectId=crewReport@KerbinFlyingLow;scienceAwarded=4.5;method=1;transmitScalar=0;subjectMaxValue=6;startUT=160;endUT=200;\n" +
+            "ut=160;type=0;recordingId=pin-launch;seq=1;subjectId=crewReport@KerbinFlyingLow;scienceAwarded=4.5;method=1;transmitScalar=0;subjectMaxValue=6;startUT=160;endUT=200;\n" +
             "ut=100;type=3;recordingId=pin-launch;fundsSpent=1000;fundsSpendingSource=0;\n" +
             "ut=100;type=11;recordingId=pin-launch;seq=1;kerbalName=Jebediah Kerman;kerbalRole=Pilot;startUT=100;endUT=200;endState=3;xpGained=0;\n" +
             "ut=0;type=22;initialReputation=0;\n" +

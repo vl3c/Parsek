@@ -568,7 +568,12 @@ namespace Parsek.Tests
             int next = (int)typeof(LedgerOrchestrator)
                 .GetMethod("AllocateKscSequence", BindingFlags.NonPublic | BindingFlags.Static)
                 .Invoke(null, null);
+            Assert.Equal(42, next);
             var kscRow = new GameAction { UT = 500.0, Type = GameActionType.FundsSpending, Sequence = next };
+            // The ledger's write door stamps the capture sequence, the walk's same-UT tie key
+            // (design 3.15 step 2); an unstamped row would sort first as an older save's row.
+            CaptureSequence.StampIfMissing(kscRow);
+            Assert.True(kscRow.CaptureSequence > Ledger.Actions[0].CaptureSequence);
             var sorted = RecalculationEngine.SortActions(new List<GameAction> { kscRow, Ledger.Actions[0] });
             Assert.Equal(41, sorted[0].Sequence);
             Assert.Same(kscRow, sorted[1]);
