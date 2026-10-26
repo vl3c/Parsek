@@ -725,11 +725,32 @@ same tagging / clock-cause / direct-ledger forward as `CaptureContractCompleted`
 its index path under the contract (`"0"`, `"1.0"`; stock's `ID` is often empty and not unique among
 siblings), falling back to `id:<ID>`. The amounts are stock's base values, as for the contract-level
 row: a converter strategy's take is applied inside `AddFunds` and already ledgered by the
-`OnCurrencyModified` door. `ContractsModule` credits a parameter once per pair (not when the walk has
+`OnCurrencyModified` door. Stock skips the science / reputation leg when value plus the strategy
+query's effect delta is zero and then leaves that field set, so the postfix books a leg only when
+stock zeroed its field (`PaidLeg`). `ContractsModule` credits a parameter once per pair (not when the walk has
 already failed / cancelled the contract) and touches no slot or terminal state; Funds / Science
 (flat pool credit) / Reputation (same curve) credit it like `ContractComplete`; the post-walk
 reconcile pairs it on the `ContractReward` legs; supersede tombstones it, a non-rewind discard
-re-homes it; the Timeline shows `Contract objective done: <contract>`. xUnit:
+re-homes it; the Timeline shows `Contract objective done: <contract>`; the save-recovery
+migration rebuilds a lost row per (contract, parameter).
+
+Stock's parameter state (review of 6560772e4): a committed-future row credited when the clock
+crosses it left stock's parameter Incomplete with its rewards set, so a re-fly completing the same
+parameter later got paid by stock again while the ledger's second row was not counted (and the
+guard kept the payment as an adjustment). `KspStatePatcher.PatchContracts` now runs
+`PatchContractParameters` after the active-contract restore: every parameter the walk credited
+(`ContractsModule.GetCreditedParameters`) at or before the committed-row clock (the accept-clock
+rule; NaN filters nothing) whose stock contract is Active and whose parameter is not Complete is
+put in stock's own post-payment state without paying: the protected `state` field set Complete by
+reflection (no setter; one-shot Warn on failure), the three rewards zeroed, `Disable()` when
+`DisableOnStateChange` (what `SetComplete` does after `AwardCompletion`). No `AwardCompletion`,
+`OnStateChange`, `onParameterChange` or parent `ParameterStateUpdate` fires. One line per patch:
+`PatchContracts: credited contract parameters completedSilently=N, alreadyComplete=N,
+unresolved=N, contractNotActive=N, afterClock=N, writeFailed=N`. Two rows for one parameter keep
+the first-in-walk-order rule (the earlier UT counts). Not done: a parameter stock shows Complete
+that the ledger no longer credits is NOT un-completed (a supersede or rewind restores stock from a
+quicksave, so that state needs a tombstone without a reload; then stock will not pay that
+parameter again and the ledger holds no row for it). xUnit:
 `ContractParameterRewardTests` (CS-3 numbers walk to +5280 / +2 sci / about +2 rep for
 FIRSTLAUNCH). Live proof owed: CS-3's re-flight (`hardFailures=0`, a `ContractParameterCompleted`
 line before each `'Achieve goal' complete!`).

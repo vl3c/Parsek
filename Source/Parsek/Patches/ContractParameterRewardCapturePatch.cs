@@ -32,9 +32,9 @@ namespace Parsek.Patches
     /// and fires <c>GameEvents.Contract.onParameterChange</c> AFTER it, so a handler on that
     /// event always reads zero rewards; the prefix is the one point the paid amounts are still
     /// visible. No stock subclass overrides <c>AwardCompletion</c>. The prefix records the three
-    /// fields and the parameter's identity; the postfix (after stock paid) raises
-    /// <see cref="RewardPaid"/>, which the subscribed <see cref="GameStateRecorder"/> files as a
-    /// ContractParameterCompleted event.
+    /// fields and the parameter's identity; the postfix (after stock paid) keeps only the legs
+    /// stock actually paid (<see cref="PaidLeg"/>) and raises <see cref="RewardPaid"/>, which the
+    /// subscribed <see cref="GameStateRecorder"/> files as a ContractParameterCompleted event.
     /// </summary>
     [HarmonyPatch]
     internal static class ContractParameterRewardCapturePatch
@@ -82,10 +82,35 @@ namespace Parsek.Patches
             }
         }
 
-        static void Postfix(ContractParameterRewardPaid __state)
+        static void Postfix(ContractParameterRewardPaid __state, ContractParameter __instance)
         {
-            if (!__state.Captured) return;
+            if (!__state.Captured || __instance == null) return;
+            float funds = PaidLeg(__state.FundsReward, (float)__instance.FundsCompletion);
+            float sci = PaidLeg(__state.SciReward, __instance.ScienceCompletion);
+            float rep = PaidLeg(__state.RepReward, __instance.ReputationCompletion);
+            if (funds != __state.FundsReward || sci != __state.SciReward || rep != __state.RepReward)
+            {
+                ParsekLog.Info(Tag,
+                    $"Stock skipped a reward leg of contract {__state.ContractGuid ?? "(null)"} param={__state.ParameterId ?? "(null)"} " +
+                    $"(a strategy cancelled it): funds {__state.FundsReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}->{funds.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                    $"sci {__state.SciReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}->{sci.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                    $"rep {__state.RepReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}->{rep.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
+            }
+            __state.FundsReward = funds;
+            __state.SciReward = sci;
+            __state.RepReward = rep;
             Report(__state);
+        }
+
+        /// <summary>
+        /// The amount one reward leg actually paid. Stock's <c>AwardCompletion</c> pays a leg and
+        /// then zeroes its field; it skips the science or reputation leg when the value plus the
+        /// strategy query's effect delta is zero, and then leaves the field as it was (decompiled
+        /// KSP 1.12.5). So a field still nonzero after the call is a leg stock did not pay.
+        /// </summary>
+        internal static float PaidLeg(float before, float after)
+        {
+            return after == 0f ? before : 0f;
         }
 
         /// <summary>

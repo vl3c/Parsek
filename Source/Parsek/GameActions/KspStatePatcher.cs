@@ -4239,6 +4239,11 @@ namespace Parsek
                 }
             }
 
+            // 2b. A parameter reward the ledger credited at or before the clock must not be
+            // payable again: mark that stock parameter Complete the way stock leaves it after
+            // paying, without paying.
+            PatchContractParameters(contracts, currentContracts, acceptClockUT);
+
             // 3. Fire contracts loaded event so UI refreshes
             try
             {
@@ -4350,6 +4355,268 @@ namespace Parsek
 
         /// <summary>Slack between an accept row's UT and the clock read that follows it.</summary>
         internal const double ContractAcceptClockToleranceSeconds = 1.0;
+
+        /// <summary>What the live stock contract list shows for one credited parameter.</summary>
+        internal enum StockContractParameterState
+        {
+            /// <summary>Stock has no Active contract with that guid.</summary>
+            ContractNotActive,
+            /// <summary>The contract is Active but the parameter id resolves to nothing.</summary>
+            Unresolved,
+            /// <summary>Incomplete or Failed: stock's SetComplete would still pay it.</summary>
+            NotComplete,
+            Complete
+        }
+
+        internal enum ContractParameterPatchDecision
+        {
+            CompleteSilently,
+            AlreadyComplete,
+            Unresolved,
+            ContractNotActive,
+            AfterClock
+        }
+
+        /// <summary>
+        /// Pure: what the contract patch does with one parameter the walk credited. A row
+        /// after the clock waits (the same committed-row clock rule as
+        /// <see cref="SelectContractsAcceptedByNow"/>: NaN or a not-ready clock filters
+        /// nothing). Otherwise a stock parameter that is not Complete is completed without
+        /// payment, so stock cannot pay the reward the ledger already holds a second time
+        /// (CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED review).
+        /// </summary>
+        internal static ContractParameterPatchDecision DecideContractParameterPatch(
+            StockContractParameterState stock, double creditedUT, double clockUT)
+        {
+            bool clockReady = !double.IsNaN(clockUT) && !double.IsInfinity(clockUT)
+                && clockUT > 0.0 && !KerbalsModule.IsNoTimeFilterCutoff(clockUT);
+            if (clockReady && !double.IsNaN(creditedUT)
+                && creditedUT > clockUT + ContractAcceptClockToleranceSeconds)
+                return ContractParameterPatchDecision.AfterClock;
+            switch (stock)
+            {
+                case StockContractParameterState.ContractNotActive:
+                    return ContractParameterPatchDecision.ContractNotActive;
+                case StockContractParameterState.Unresolved:
+                    return ContractParameterPatchDecision.Unresolved;
+                case StockContractParameterState.Complete:
+                    return ContractParameterPatchDecision.AlreadyComplete;
+                default:
+                    return ContractParameterPatchDecision.CompleteSilently;
+            }
+        }
+
+        /// <summary>The outcome of <see cref="PlanContractParameterPatch"/>.</summary>
+        internal sealed class ContractParameterPatchPlan
+        {
+            internal readonly List<CreditedContractParameter> ToComplete = new List<CreditedContractParameter>();
+            internal int AlreadyComplete;
+            internal int Unresolved;
+            internal int ContractNotActive;
+            internal int AfterClock;
+        }
+
+        /// <summary>
+        /// Pure: <see cref="DecideContractParameterPatch"/> over every credited parameter,
+        /// with stock's state supplied by <paramref name="stockState"/> (contract id,
+        /// parameter id). A pair is planned once even if listed twice.
+        /// </summary>
+        internal static ContractParameterPatchPlan PlanContractParameterPatch(
+            IReadOnlyList<CreditedContractParameter> credited,
+            Func<string, string, StockContractParameterState> stockState,
+            double clockUT)
+        {
+            var plan = new ContractParameterPatchPlan();
+            if (credited == null || stockState == null)
+                return plan;
+            var planned = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < credited.Count; i++)
+            {
+                CreditedContractParameter c = credited[i];
+                if (!planned.Add(ContractsModule.ContractParameterCreditKey(c.ContractId, c.ParameterId)))
+                    continue;
+                switch (DecideContractParameterPatch(stockState(c.ContractId, c.ParameterId), c.UT, clockUT))
+                {
+                    case ContractParameterPatchDecision.CompleteSilently: plan.ToComplete.Add(c); break;
+                    case ContractParameterPatchDecision.AlreadyComplete: plan.AlreadyComplete++; break;
+                    case ContractParameterPatchDecision.Unresolved: plan.Unresolved++; break;
+                    case ContractParameterPatchDecision.ContractNotActive: plan.ContractNotActive++; break;
+                    case ContractParameterPatchDecision.AfterClock: plan.AfterClock++; break;
+                }
+            }
+            return plan;
+        }
+
+        /// <summary>
+        /// Pure: the root-first indices of a parameter id written by
+        /// <see cref="GameStateRecorder.BuildContractParameterIndexPath"/> ("1.0" -> [1, 0]),
+        /// or null for a malformed id (including the "id:" fallback form).
+        /// </summary>
+        internal static List<int> ParseContractParameterIndexPath(string parameterId)
+        {
+            if (string.IsNullOrEmpty(parameterId))
+                return null;
+            string[] parts = parameterId.Split('.');
+            var indices = new List<int>(parts.Length);
+            for (int i = 0; i < parts.Length; i++)
+            {
+                int index;
+                if (!int.TryParse(parts[i], NumberStyles.None, IC, out index))
+                    return null;
+                indices.Add(index);
+            }
+            return indices;
+        }
+
+        private static ContractParameter ResolveStockContractParameter(Contract contract, string parameterId)
+        {
+            if (contract == null || string.IsNullOrEmpty(parameterId))
+                return null;
+            const string IdPrefix = "id:";
+            if (parameterId.StartsWith(IdPrefix, StringComparison.Ordinal))
+            {
+                string stockId = parameterId.Substring(IdPrefix.Length);
+                foreach (ContractParameter p in contract.AllParameters)
+                {
+                    if (p != null && string.Equals(p.ID, stockId, StringComparison.Ordinal))
+                        return p;
+                }
+                return null;
+            }
+            List<int> indices = ParseContractParameterIndexPath(parameterId);
+            if (indices == null)
+                return null;
+            IContractParameterHost host = contract;
+            ContractParameter current = null;
+            for (int i = 0; i < indices.Count; i++)
+            {
+                if (host == null || indices[i] >= host.ParameterCount)
+                    return null;
+                current = host.GetParameter(indices[i]);
+                host = current;
+            }
+            return current;
+        }
+
+        private static FieldInfo contractParameterStateField;
+        private static bool contractParameterStateReflectionWarnEmitted;
+
+        /// <summary>
+        /// Puts a stock parameter in the state stock leaves it in after
+        /// <c>ContractParameter.SetComplete</c> paid it (decompiled KSP 1.12.5): the protected
+        /// <c>state</c> field Complete, the three completion rewards zeroed (AwardCompletion
+        /// zeroes each one it paid), and the parameter disabled when
+        /// <c>DisableOnStateChange</c> (SetComplete's own <c>Disable()</c>, which only
+        /// unregisters its event handlers). Nothing is paid and no GameEvents fire: no
+        /// AwardCompletion, no OnStateChange, no onParameterChange, no parent
+        /// ParameterStateUpdate. The <c>state</c> field has no setter (the <c>State</c>
+        /// property is read-only), so it is written by reflection.
+        /// </summary>
+        internal static bool TryCompleteStockParameterSilently(ContractParameter parameter)
+        {
+            if (parameter == null)
+                return false;
+            if (contractParameterStateField == null)
+            {
+                contractParameterStateField = typeof(ContractParameter).GetField(
+                    "state", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (contractParameterStateField == null
+                    || contractParameterStateField.FieldType != typeof(ParameterState))
+                {
+                    contractParameterStateField = null;
+                    EmitContractParameterStateReflectionWarnOnce(
+                        "typeof(ContractParameter).GetField(\"state\") is missing or not a ParameterState");
+                    return false;
+                }
+            }
+            try
+            {
+                contractParameterStateField.SetValue(parameter, ParameterState.Complete);
+                parameter.FundsCompletion = 0.0;
+                parameter.ScienceCompletion = 0f;
+                parameter.ReputationCompletion = 0f;
+                if (parameter.DisableOnStateChange)
+                    parameter.Disable();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                EmitContractParameterStateReflectionWarnOnce(
+                    $"writing ContractParameter.state threw {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
+        }
+
+        internal static void EmitContractParameterStateReflectionWarnOnce(string detail)
+        {
+            if (contractParameterStateReflectionWarnEmitted)
+                return;
+            contractParameterStateReflectionWarnEmitted = true;
+            ParsekLog.Warn(Tag,
+                "PatchContracts: could not mark a ledger-credited contract parameter Complete " +
+                $"(one-shot per session) - {detail}. Stock may pay that parameter's reward again.");
+        }
+
+        private static void PatchContractParameters(
+            ContractsModule contracts, List<Contract> currentContracts, double clockUT)
+        {
+            IReadOnlyList<CreditedContractParameter> credited = contracts.GetCreditedParameters();
+            if (credited == null || credited.Count == 0)
+                return;
+
+            var activeById = new Dictionary<string, Contract>(StringComparer.Ordinal);
+            if (currentContracts != null)
+            {
+                for (int i = 0; i < currentContracts.Count; i++)
+                {
+                    Contract c = currentContracts[i];
+                    if (c != null && c.ContractState == Contract.State.Active)
+                        activeById[c.ContractGuid.ToString()] = c;
+                }
+            }
+
+            ContractParameterPatchPlan plan = PlanContractParameterPatch(credited, (contractId, paramId) =>
+            {
+                Contract c;
+                if (contractId == null || !activeById.TryGetValue(contractId, out c))
+                    return StockContractParameterState.ContractNotActive;
+                ContractParameter p = ResolveStockContractParameter(c, paramId);
+                if (p == null)
+                    return StockContractParameterState.Unresolved;
+                return p.State == ParameterState.Complete
+                    ? StockContractParameterState.Complete
+                    : StockContractParameterState.NotComplete;
+            }, clockUT);
+
+            int completed = 0;
+            int writeFailed = 0;
+            var completedIds = new List<string>();
+            for (int i = 0; i < plan.ToComplete.Count; i++)
+            {
+                CreditedContractParameter c = plan.ToComplete[i];
+                ContractParameter p = ResolveStockContractParameter(activeById[c.ContractId], c.ParameterId);
+                if (TryCompleteStockParameterSilently(p))
+                {
+                    completed++;
+                    completedIds.Add(c.ContractId + "/" + c.ParameterId);
+                }
+                else
+                {
+                    writeFailed++;
+                }
+            }
+
+            string line =
+                $"PatchContracts: credited contract parameters completedSilently={completed.ToString(IC)}, " +
+                $"alreadyComplete={plan.AlreadyComplete.ToString(IC)}, unresolved={plan.Unresolved.ToString(IC)}, " +
+                $"contractNotActive={plan.ContractNotActive.ToString(IC)}, afterClock={plan.AfterClock.ToString(IC)}, " +
+                $"writeFailed={writeFailed.ToString(IC)} " +
+                ComposeBoundedIdentitySample(completedIds, IdentitySampleCap);
+            if (completed > 0 || plan.Unresolved > 0 || writeFailed > 0)
+                ParsekLog.Info(Tag, line);
+            else
+                ParsekLog.Verbose(Tag, line);
+        }
 
         /// <summary>
         /// The clock <see cref="PatchContracts"/> holds later accepts against, or NaN for no
@@ -5616,6 +5883,7 @@ namespace Parsek
             AllowNegativeCurrencyProviderForTesting = null;
             protoTechNodesReflectionWarnEmitted = false;
             scienceSubjectsReflectionWarnEmitted = false;
+            contractParameterStateReflectionWarnEmitted = false;
             ResetDrawdownGuardSessionLatches();
             FacilityStatePatcher.ResetForTesting();
         }

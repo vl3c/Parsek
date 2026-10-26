@@ -40,12 +40,16 @@ namespace Parsek.Tests
             KspStatePatcher.SuppressUnityCallsForTesting = true;
             ContractParameterRewardCapturePatch.ResetForTesting();
             RecalculationEngine.ClearModules();
+            EffectiveState.ResetCachesForTesting();
+            ParsekScenario.ResetInstanceForTesting();
         }
 
         public void Dispose()
         {
             RecalculationEngine.ClearModules();
             ContractParameterRewardCapturePatch.ResetForTesting();
+            EffectiveState.ResetCachesForTesting();
+            ParsekScenario.ResetInstanceForTesting();
             KspStatePatcher.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             GameStateRecorder.ResetForTesting();
@@ -684,6 +688,203 @@ namespace Parsek.Tests
                 key = FirstLaunch
             };
             Assert.Equal(TimelineBuilder.GetLegacyEventKey(evt), TimelineBuilder.GetLegacyDuplicateKey(row));
+        }
+
+        // ================================================================
+        // Review follow-up: stock's parameter state, both effectiveness orders,
+        // the skipped-leg rule and the save-recovery mapping
+        // ================================================================
+
+        // catches: the first-in-walk-order rule flipping - a re-fly that completes the
+        // parameter at Y BEFORE the committed flight's X must be the counted row.
+        [Theory]
+        [InlineData(100.0, 200.0, true)]   // committed A at X=100, re-fly B at Y=200: A counts
+        [InlineData(300.0, 200.0, false)]  // committed A at X=300, re-fly B at Y=200: B counts
+        public void Walk_TwoRowsForOneParameter_TheEarlierOneCounts(double xA, double yB, bool aCounts)
+        {
+            var w = RegisterWalk();
+            var actions = Seeds();
+            var a = ParameterRow(FirstLaunch, "0", xA, 3200f, 1f, 1f, "rec-A");
+            var b = ParameterRow(FirstLaunch, "0", yB, 3200f, 1f, 1f, "rec-B");
+            actions.Add(a);
+            actions.Add(b);
+
+            RecalculationEngine.Recalculate(actions);
+
+            Assert.Equal(aCounts, a.Effective);
+            Assert.Equal(!aCounts, b.Effective);
+            Assert.Equal(25000.0 + 3200, w.Funds.GetRunningBalance(), 3);
+            var credited = w.Contracts.GetCreditedParameters();
+            Assert.Single(credited);
+            Assert.Equal(aCounts ? xA : yB, credited[0].UT);
+        }
+
+        // catches: the review's double-pay path. A committed flight's parameter at X is
+        // credited once the clock crosses it; unless the patch completes stock's parameter
+        // then, the re-fly's live completion at Y pays stock a second time while the ledger's
+        // row B is not counted, and the guard keeps stock's second payment as an adjustment.
+        [Fact]
+        public void DoublePay_CommittedParameterCrossed_StockParameterCompletedSilently()
+        {
+            var w = RegisterWalk();
+            var actions = Seeds();
+            actions.Add(new GameAction { UT = 1.0, Type = GameActionType.ContractAccept, ContractId = FirstLaunch });
+            var a = ParameterRow(FirstLaunch, "0", 100.0, 3200f, 1f, 1f, "rec-A");
+            actions.Add(a);
+
+            RecalculationEngine.Recalculate(actions);
+            var credited = w.Contracts.GetCreditedParameters();
+
+            // Clock before X: stock's parameter stays open (the flight has not happened yet).
+            var before = KspStatePatcher.PlanContractParameterPatch(credited,
+                (c, p) => KspStatePatcher.StockContractParameterState.NotComplete, 50.0);
+            Assert.Empty(before.ToComplete);
+            Assert.Equal(1, before.AfterClock);
+
+            // Clock past X: the patch completes it without paying, so stock's SetComplete
+            // returns early at Y and pays nothing.
+            var after = KspStatePatcher.PlanContractParameterPatch(credited,
+                (c, p) => KspStatePatcher.StockContractParameterState.NotComplete, 150.0);
+            Assert.Single(after.ToComplete);
+            Assert.Equal(FirstLaunch, after.ToComplete[0].ContractId);
+            Assert.Equal("0", after.ToComplete[0].ParameterId);
+
+            // A row B for the same parameter later in the walk is not counted and moves no pool.
+            var b = ParameterRow(FirstLaunch, "0", 200.0, 3200f, 1f, 1f, "rec-B");
+            actions.Add(b);
+            RecalculationEngine.Recalculate(actions);
+            Assert.True(a.Effective);
+            Assert.False(b.Effective);
+            Assert.False(FundsModule.TryGetRowDelta(b, out double bDelta));
+            Assert.Equal(25000.0 + 3200, w.Funds.GetRunningBalance(), 3);
+        }
+
+        [Theory]
+        [InlineData((int)KspStatePatcher.StockContractParameterState.NotComplete, 100.0, 150.0, (int)KspStatePatcher.ContractParameterPatchDecision.CompleteSilently)]
+        [InlineData((int)KspStatePatcher.StockContractParameterState.Complete, 100.0, 150.0, (int)KspStatePatcher.ContractParameterPatchDecision.AlreadyComplete)]
+        [InlineData((int)KspStatePatcher.StockContractParameterState.Unresolved, 100.0, 150.0, (int)KspStatePatcher.ContractParameterPatchDecision.Unresolved)]
+        [InlineData((int)KspStatePatcher.StockContractParameterState.ContractNotActive, 100.0, 150.0, (int)KspStatePatcher.ContractParameterPatchDecision.ContractNotActive)]
+        [InlineData((int)KspStatePatcher.StockContractParameterState.NotComplete, 200.0, 150.0, (int)KspStatePatcher.ContractParameterPatchDecision.AfterClock)]
+        // Within the accept-clock tolerance counts as reached.
+        [InlineData((int)KspStatePatcher.StockContractParameterState.NotComplete, 150.5, 150.0, (int)KspStatePatcher.ContractParameterPatchDecision.CompleteSilently)]
+        // NaN clock (a cutoff walk, or OnLoad) filters nothing, like the accept filter.
+        [InlineData((int)KspStatePatcher.StockContractParameterState.NotComplete, 200.0, double.NaN, (int)KspStatePatcher.ContractParameterPatchDecision.CompleteSilently)]
+        public void DecideContractParameterPatch_Table(
+            int stock, double creditedUT, double clockUT, int expected)
+        {
+            Assert.Equal((KspStatePatcher.ContractParameterPatchDecision)expected,
+                KspStatePatcher.DecideContractParameterPatch(
+                    (KspStatePatcher.StockContractParameterState)stock, creditedUT, clockUT));
+        }
+
+        [Fact]
+        public void PlanContractParameterPatch_CountsEachOutcome_AndPlansAPairOnce()
+        {
+            var credited = new List<CreditedContractParameter>
+            {
+                new CreditedContractParameter { ContractId = "c1", ParameterId = "0", UT = 10 },
+                new CreditedContractParameter { ContractId = "c1", ParameterId = "0", UT = 10 },
+                new CreditedContractParameter { ContractId = "c1", ParameterId = "1", UT = 10 },
+                new CreditedContractParameter { ContractId = "c1", ParameterId = "9", UT = 10 },
+                new CreditedContractParameter { ContractId = "c2", ParameterId = "0", UT = 10 },
+                new CreditedContractParameter { ContractId = "c1", ParameterId = "2", UT = 500 },
+            };
+            var plan = KspStatePatcher.PlanContractParameterPatch(credited, (c, p) =>
+            {
+                if (c == "c2") return KspStatePatcher.StockContractParameterState.ContractNotActive;
+                if (p == "1") return KspStatePatcher.StockContractParameterState.Complete;
+                if (p == "9") return KspStatePatcher.StockContractParameterState.Unresolved;
+                return KspStatePatcher.StockContractParameterState.NotComplete;
+            }, 100.0);
+
+            Assert.Single(plan.ToComplete);
+            Assert.Equal("0", plan.ToComplete[0].ParameterId);
+            Assert.Equal(1, plan.AlreadyComplete);
+            Assert.Equal(1, plan.Unresolved);
+            Assert.Equal(1, plan.ContractNotActive);
+            Assert.Equal(1, plan.AfterClock);
+        }
+
+        [Theory]
+        [InlineData("0", new[] { 0 })]
+        [InlineData("1.0", new[] { 1, 0 })]
+        [InlineData("0.3.12", new[] { 0, 3, 12 })]
+        [InlineData("id:goal", null)]
+        [InlineData("1.x", null)]
+        [InlineData("-1", null)]
+        [InlineData("", null)]
+        public void ParseContractParameterIndexPath_RoundTripsTheRecorderForm(string id, int[] expected)
+        {
+            var parsed = KspStatePatcher.ParseContractParameterIndexPath(id);
+            if (expected == null)
+                Assert.Null(parsed);
+            else
+                Assert.Equal(expected, parsed.ToArray());
+            if (expected != null)
+                Assert.Equal(id, GameStateRecorder.BuildContractParameterIndexPath(expected));
+        }
+
+        // catches: booking a science / reputation leg stock skipped because a strategy's effect
+        // delta cancelled it (stock then leaves the field unpaid and nonzero).
+        [Theory]
+        [InlineData(3200f, 0f, 3200f)]  // paid and zeroed
+        [InlineData(2f, 2f, 0f)]        // skipped: still set after the call
+        [InlineData(0f, 0f, 0f)]        // nothing to pay
+        public void PaidLeg_IsTheValueOnlyWhenStockZeroedIt(float before, float after, float expected)
+        {
+            Assert.Equal(expected, ContractParameterRewardCapturePatch.PaidLeg(before, after));
+        }
+
+        // catches: the silent write paying, firing the parameter's state event, or leaving
+        // the reward fields set (stock zeroes each paid field).
+        [Fact]
+        public void CompleteSilently_SetsStocksPostPaymentState_WithoutFiringOnStateChange()
+        {
+            var p = new Contracts.ContractParameter();
+            p.FundsCompletion = 3200.0;
+            p.ScienceCompletion = 1f;
+            p.ReputationCompletion = 1f;
+            p.DisableOnStateChange = true;
+            int fired = 0;
+            p.OnStateChange.Add((cp, st) => fired++);
+
+            Assert.True(KspStatePatcher.TryCompleteStockParameterSilently(p));
+
+            Assert.Equal(Contracts.ParameterState.Complete, p.State);
+            Assert.Equal(0.0, p.FundsCompletion);
+            Assert.Equal(0f, p.ScienceCompletion);
+            Assert.Equal(0f, p.ReputationCompletion);
+            Assert.False(p.Enabled);
+            Assert.Equal(0, fired);
+        }
+
+        [Fact]
+        public void SaveRecovery_MapsAndRebuildsALostParameterRow_PerParameter()
+        {
+            Assert.Equal(GameActionType.ContractParameterComplete,
+                LedgerOrchestrator.MapEventTypeToActionType(GameStateEventType.ContractParameterCompleted));
+            Assert.True(LedgerOrchestrator.IsRecoverableEventType(GameStateEventType.ContractParameterCompleted));
+
+            foreach (string p in new[] { "0", "1" })
+            {
+                var e = new GameStateEvent
+                {
+                    ut = 100.0,
+                    eventType = GameStateEventType.ContractParameterCompleted,
+                    key = FirstLaunch,
+                    detail = GameStateRecorder.BuildContractParameterCompletedDetail(p, "t", 3200f, 1f, 1f)
+                };
+                GameStateStore.AddEvent(ref e);
+            }
+            // Parameter "0" already has its row; only "1" is missing.
+            Ledger.AddAction(ParameterRow(FirstLaunch, "0", 100.0, 3200f, 1f, 1f));
+
+            int recovered = LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad();
+
+            Assert.Equal(1, recovered);
+            Assert.Equal(new[] { "0", "1" },
+                ParameterRows().Select(r => r.ContractParameterId).OrderBy(s => s).ToArray());
+            Assert.Equal(0, LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad());
         }
     }
 }

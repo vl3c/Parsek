@@ -23,6 +23,14 @@ namespace Parsek
     ///
     /// Design doc: section 8 (Contracts Module).
     /// </summary>
+    /// <summary>One contract parameter reward the walk credited, and its row's UT.</summary>
+    internal struct CreditedContractParameter
+    {
+        internal string ContractId;
+        internal string ParameterId;
+        internal double UT;
+    }
+
     internal class ContractsModule : IResourceModule, IProjectionCloneableModule
     {
         private const string Tag = "Contracts";
@@ -48,6 +56,13 @@ namespace Parsek
         /// row for the same pair is not counted.
         /// </summary>
         private readonly HashSet<string> creditedParameters = new HashSet<string>(System.StringComparer.Ordinal);
+
+        /// <summary>
+        /// The credited parameter rows in walk order, with their UT: what
+        /// <c>KspStatePatcher</c> marks Complete on stock's live parameter once the clock has
+        /// passed them, so stock cannot pay a reward the ledger already holds a second time.
+        /// </summary>
+        private readonly List<CreditedContractParameter> creditedParameterRows = new List<CreditedContractParameter>();
 
         /// <summary>
         /// Contract IDs that resolved to a terminal state during this walk.
@@ -219,6 +234,7 @@ namespace Parsek
             activeContracts.Clear();
             creditedContracts.Clear();
             creditedParameters.Clear();
+            creditedParameterRows.Clear();
             terminalContracts.Clear();
             terminalContractActions.Clear();
             terminalContractOutcomes.Clear();
@@ -604,6 +620,12 @@ namespace Parsek
                 action.Effective = true;
                 action.NotCountedReason = GameActionNotCountedReason.None;
                 creditedParameters.Add(key);
+                creditedParameterRows.Add(new CreditedContractParameter
+                {
+                    ContractId = id,
+                    ParameterId = paramId,
+                    UT = action.UT
+                });
                 ParsekLog.Info(Tag,
                     $"ParameterComplete: contractId='{id}' param='{paramId}' effective=true, " +
                     $"fundsReward={action.FundsReward} repReward={action.RepReward} " +
@@ -831,6 +853,13 @@ namespace Parsek
         /// the current walk. Used by KSP state patching to remove only terminal
         /// stock contracts that no longer have terminal ledger support.
         /// </summary>
+        /// <summary>The parameter rows the walk credited, in walk order (see
+        /// <see cref="creditedParameterRows"/>).</summary>
+        internal IReadOnlyList<CreditedContractParameter> GetCreditedParameters()
+        {
+            return creditedParameterRows;
+        }
+
         internal IReadOnlyCollection<string> GetTerminalContractIds()
         {
             return terminalContracts;
