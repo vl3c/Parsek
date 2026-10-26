@@ -43,6 +43,9 @@ namespace Parsek.Tests
                 ["GameActions/LedgerOrchestrator.cs::TryAddKscSpendingAction"] = new[] { Stock },
                 // A strategy currency exchange stock already made.
                 ["GameActions/LedgerOrchestrator.cs::OnStrategyCurrencyConversion"] = new[] { Stock },
+                // Income under a reason no channel converts (cheat menu, a mission, a mod's own
+                // reason): stock already paid it to the live pool.
+                ["GameActions/LedgerOrchestrator.cs::OnLiveOnlyIncome"] = new[] { Stock },
                 // An ordinary Discard, and a discarded restore attempt's tails, keep awards stock
                 // already paid during the discarded flight (review case N1: not authoritative, stock-applied).
                 ["GameActions/LedgerOrchestrator.cs::AppendRehomedDirectActions"] = new[] { Stock },

@@ -51,6 +51,8 @@ namespace Parsek
                     return "Not counted: this record was already set that far earlier on timeline, so no reward was paid.";
                 case GameActionNotCountedReason.PurchaseAlreadyOwned:
                     return "Not counted: already bought earlier on timeline, so nothing was charged.";
+                case GameActionNotCountedReason.ConversionCauseNotCounted:
+                    return "Not counted: the reward it came from was not counted, so nothing was converted.";
                 default:
                     return null;
             }

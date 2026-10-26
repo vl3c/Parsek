@@ -486,7 +486,11 @@ namespace Parsek
         /// <summary>A purchase (tech, part, part upgrade, facility level, hire) of an item the
         /// walk already owns at that point, bought by a purchase captured after it (a rewind
         /// separated them): not charged (design 3.15 step 6, <see cref="PurchaseStateRule"/>).</summary>
-        PurchaseAlreadyOwned
+        PurchaseAlreadyOwned,
+        /// <summary>A strategy conversion leg whose cause row the walk did not count (a
+        /// duplicate award): the leg follows its cause and converts nothing (design 3.15
+        /// step 7, <see cref="ConversionLegBinding"/>).</summary>
+        ConversionCauseNotCounted
     }
 
     /// <summary>
@@ -529,7 +533,43 @@ namespace Parsek
         /// </summary>
         public long CaptureSequence;
 
+        /// <summary>
+        /// A strategy conversion leg's cause (design 3.15 step 7): the row whose stock payment
+        /// the strategy took its share of, captured inside stock's currency-modifier query
+        /// while a known award was paying (<see cref="ConversionCauseScope"/>), as
+        /// <see cref="Parsek.ConversionCause.Format"/> text. Null on every other row and on a
+        /// leg with no positive evidence of its cause, which stays as captured. Additive key
+        /// <see cref="ConversionCauseKey"/>, written only when set; no schema bump.
+        /// </summary>
+        public string ConversionCause;
+
+        /// <summary>ConfigNode key for <see cref="ConversionCause"/>; absent reads null.</summary>
+        internal const string ConversionCauseKey = "conversionCause";
+
+        /// <summary>
+        /// Live-only income (design 3.15 step 9): the stock transaction reason of an earning no
+        /// ledger channel converts (cheat currency, a mod's own reason). Set only on the
+        /// untagged row <see cref="LiveOnlyIncome"/> files at the earning's own UT; a
+        /// time-travel load to before that UT drops the row. Null on every other row. Additive
+        /// key <see cref="IncomeReasonKey"/>, written only when set; no schema bump.
+        /// </summary>
+        public string IncomeReason;
+
+        /// <summary>ConfigNode key for <see cref="IncomeReason"/>; absent reads null.</summary>
+        internal const string IncomeReasonKey = "incomeReason";
+
+        /// <summary>True for a live-only income row (<see cref="IncomeReason"/> set).</summary>
+        internal bool IsLiveOnlyIncome => !string.IsNullOrEmpty(IncomeReason);
+
         // ---- Derived fields (recalculated, NOT serialized) ----
+
+        /// <summary>
+        /// The share of a strategy conversion leg the walk applies (design 3.15 step 7): its
+        /// bound cause's effective share in the cause's source currency, 1 on every row the
+        /// conversion-leg pass did not rescale. Every leg amount is multiplied by it, so 1
+        /// walks exactly as before. Derived, reset with <see cref="Effective"/>, NOT serialized.
+        /// </summary>
+        public float ConversionShare = 1f;
 
         /// <summary>
         /// Whether this action's effects are active after recalculation.
@@ -1209,6 +1249,11 @@ namespace Parsek
                 node.AddValue(InsideReputationSeedKey, InsideReputationSeed.ToString());
             if (ParsekAuthored)
                 node.AddValue(ParsekAuthoredKey, ParsekAuthored.ToString());
+            // Design 3.15 steps 7 and 9: additive, written only when set, any row type.
+            if (!string.IsNullOrEmpty(ConversionCause))
+                node.AddValue(ConversionCauseKey, ConversionCause);
+            if (!string.IsNullOrEmpty(IncomeReason))
+                node.AddValue(IncomeReasonKey, IncomeReason);
 
             switch (Type)
             {
@@ -1364,6 +1409,10 @@ namespace Parsek
             string parsekAuthoredStr = node.GetValue(ParsekAuthoredKey);
             if (parsekAuthoredStr != null)
                 bool.TryParse(parsekAuthoredStr, out a.ParsekAuthored);
+            string causeStr = node.GetValue(ConversionCauseKey);
+            a.ConversionCause = string.IsNullOrEmpty(causeStr) ? null : causeStr;
+            string incomeStr = node.GetValue(IncomeReasonKey);
+            a.IncomeReason = string.IsNullOrEmpty(incomeStr) ? null : incomeStr;
 
             switch (a.Type)
             {

@@ -59,6 +59,10 @@ namespace Parsek
                 case GameActionNotCountedReason.ContractParameterAfterCompletion:
                 case GameActionNotCountedReason.RecordThresholdsAlreadyCredited:
                 case GameActionNotCountedReason.PurchaseAlreadyOwned:
+                // A conversion leg follows its cause (3.15 item 7): it is taken back exactly when
+                // its cause was taken back for an identity reason, so a settled leg's cause is
+                // itself out of the seal or, with no holder (a passed deadline), seals the slot.
+                case GameActionNotCountedReason.ConversionCauseNotCounted:
                     return true;
                 default:
                     return false;

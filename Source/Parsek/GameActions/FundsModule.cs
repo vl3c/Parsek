@@ -459,7 +459,8 @@ namespace Parsek
                 switch (a.Type)
                 {
                     case GameActionType.FundsSpending:
-                        totalCommittedSpendings += (double)a.FundsSpent;
+                        // A conversion leg counts its share (design 3.15 step 7; 1 elsewhere).
+                        totalCommittedSpendings += (double)a.FundsSpent * a.ConversionShare;
                         spendingCount++;
                         break;
                     case GameActionType.ContractFail:
@@ -524,7 +525,9 @@ namespace Parsek
                 return;
             }
 
-            double amount = (double)action.FundsAwarded;
+            // A strategy conversion leg earns its cause's share (design 3.15 step 7); every
+            // other row carries 1.
+            double amount = (double)action.FundsAwarded * action.ConversionShare;
             runningBalance += amount;
             totalEarnings += amount;
 
@@ -543,7 +546,8 @@ namespace Parsek
         /// </summary>
         private void ProcessFundsSpending(GameAction action)
         {
-            double cost = (double)action.FundsSpent;
+            // A strategy conversion leg is charged its cause's share (design 3.15 step 7).
+            double cost = (double)action.FundsSpent * action.ConversionShare;
             if (SkipOwnedPurchase(action, cost))
                 return;
             bool affordable = runningBalance >= cost;
@@ -1022,7 +1026,7 @@ namespace Parsek
             {
                 case GameActionType.FundsEarning:
                     if (!action.Effective) return false;
-                    delta = (double)action.FundsAwarded;
+                    delta = (double)action.FundsAwarded * action.ConversionShare;
                     return true;
                 case GameActionType.MilestoneAchievement:
                     if (!action.Effective) return false;
@@ -1039,7 +1043,7 @@ namespace Parsek
                 case GameActionType.FundsSpending:
                     // A part or upgrade the walk already owns is not charged (3.15 step 6).
                     if (!action.Effective) return false;
-                    delta = -(double)action.FundsSpent;
+                    delta = -(double)action.FundsSpent * action.ConversionShare;
                     return true;
                 case GameActionType.ContractFail:
                 case GameActionType.ContractCancel:

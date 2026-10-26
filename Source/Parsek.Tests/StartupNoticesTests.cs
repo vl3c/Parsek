@@ -48,6 +48,8 @@ namespace Parsek.Tests
         [InlineData("FacilityUpgradePatch", "facility upgrade reservations")]
         [InlineData("MissionControlAcceptPatch", "contract reservations")]
         [InlineData("AdministrationButtonBackstopPatch", "strategy reservations")]
+        [InlineData("ContractCompleteConversionCauseScopePatch", "strategy currency conversions")]
+        [InlineData("SurveyConversionCauseScopePatch", "strategy currency conversions")]
         [InlineData("CrewDialogFillPatch", "crew reservations")]
         [InlineData("RecoveryScopeVesselRetrievalPatch", "science and milestone rewards")]
         [InlineData("PhysicsFramePatch", "flight recording")]

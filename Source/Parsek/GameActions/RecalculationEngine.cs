@@ -519,7 +519,7 @@ namespace Parsek
                             Science = science != null ? science.GetRunningScience() : 0.0,
                             Reputation = reputation != null ? reputation.GetRunningRep() : 0.0,
                         });
-                    });
+                    }, beforeRewalk: () => result.Samples.Clear());
 
                     result.ScienceWalked = science != null;
                     // Older saves can carry two rows with one ActionId: the id is out of the
@@ -583,6 +583,7 @@ namespace Parsek
             internal float TakeBackRep;
             internal float TakeBackScience;
             internal string TakeBackWitness;
+            internal float ConversionShare;
         }
 
         /// <summary>The fields <see cref="ResetDerivedFields"/> resets and the module walk
@@ -614,7 +615,8 @@ namespace Parsek
                     TakeBackFunds = a.TakeBackFunds,
                     TakeBackRep = a.TakeBackRep,
                     TakeBackScience = a.TakeBackScience,
-                    TakeBackWitness = a.TakeBackWitness
+                    TakeBackWitness = a.TakeBackWitness,
+                    ConversionShare = a.ConversionShare
                 });
             }
             return saved;
@@ -645,6 +647,7 @@ namespace Parsek
                 a.TakeBackRep = s.TakeBackRep;
                 a.TakeBackScience = s.TakeBackScience;
                 a.TakeBackWitness = s.TakeBackWitness;
+                a.ConversionShare = s.ConversionShare;
             }
         }
 
@@ -1068,7 +1071,40 @@ namespace Parsek
             IResourceModule facilities,
             double? deadlineClockUT = null,
             Action<GameAction> afterAction = null,
-            List<ReservedFloorPlan> plans = null)
+            List<ReservedFloorPlan> plans = null,
+            Action beforeRewalk = null)
+        {
+            WalkResult result = RunWalkPass(actions, walkNowUT, firstTier, strategy, secondTier, facilities,
+                deadlineClockUT, afterAction, plans, null);
+
+            // Conversion legs follow their cause (design 3.15 step 7). A leg is often walked
+            // before its cause, so the decision reads this walk's outcome and a second walk
+            // applies it, only when a leg actually moves: a career whose causes all count walks
+            // once, exactly as before.
+            if (!ConversionLegBinding.AnyCausedLeg(result.Sorted))
+                return result;
+            List<ConversionLegDecision> decisions = ConversionLegBinding.Decide(
+                result.Sorted, new HashSet<GameAction>(actions));
+            if (!ConversionLegBinding.NeedsRewalk(decisions))
+                return result;
+            ParsekLog.Verbose("RecalcEngine",
+                "Conversion legs follow their cause: walking again with the rescaled legs");
+            beforeRewalk?.Invoke();
+            return RunWalkPass(actions, walkNowUT, firstTier, strategy, secondTier, facilities,
+                deadlineClockUT, afterAction, plans, decisions);
+        }
+
+        private static WalkResult RunWalkPass(
+            List<GameAction> actions,
+            double? walkNowUT,
+            List<IResourceModule> firstTier,
+            IResourceModule strategy,
+            List<IResourceModule> secondTier,
+            IResourceModule facilities,
+            double? deadlineClockUT,
+            Action<GameAction> afterAction,
+            List<ReservedFloorPlan> plans,
+            List<ConversionLegDecision> legDecisions)
         {
             // 1. Sort — stable sort preserving insertion order for equal keys
             var sorted = SortActions(actions);
@@ -1085,6 +1121,9 @@ namespace Parsek
             // Rule 4's plan goes in after the reset (which clears it): no plan, no floor.
             InstallFloorPlans(plans, firstTier, strategy, secondTier, facilities);
             ResetDerivedFields(sorted);
+            // The conversion legs' shares go in after the reset and before the pre-pass, whose
+            // committed-spending sums read them (design 3.15 step 7).
+            ConversionLegBinding.Install(legDecisions);
 
             // 2b. Pre-pass: let modules compute aggregate data before the walk.
             // Modules may inject synthetic actions (e.g., ContractsModule injects
@@ -1228,6 +1267,9 @@ namespace Parsek
                 sorted[i].TakeBackRep = 0f;
                 sorted[i].TakeBackScience = 0f;
                 sorted[i].TakeBackWitness = null;
+                // A conversion leg walks at its full captured amount until the leg pass
+                // rescales it (design 3.15 step 7).
+                sorted[i].ConversionShare = 1f;
             }
         }
 

@@ -1199,6 +1199,9 @@ namespace Parsek
                     ReconciliationBundle.Restore(
                         bundle, retireCutoffUT, loadedSaveRoutes, loadedSaveUT,
                         loadedClockUT, loadedSaveEvents);
+                    // Live-only income (design 3.15 step 9): the bundle was captured before the
+                    // invoke, so it brings back the income OnLoad's drop just removed.
+                    LiveOnlyIncome.DropAfterReFlyBundleRestore(loadedClockUT, retireCutoffUT);
                     if (loadedSaveRoutes != null)
                         Logistics.RouteLoadReconcile.InstallFloorAfterLoad(
                             loadedClockUT, loadedFloorUT, InvokeTag, "ConsumePostLoad");

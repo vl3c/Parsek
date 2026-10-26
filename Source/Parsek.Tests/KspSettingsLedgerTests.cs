@@ -536,10 +536,14 @@ namespace Parsek.Tests
             Assert.True(GameStateRecorder.LogUnledgeredCheatCurrency(
                 TransactionReasons.Cheating, "science", -20.5, 0.0));
 
-            var lines = logLines.Where(l => l.Contains("[GameStateRecorder]") && l.Contains("is not ledgered")).ToList();
+            var lines = logLines.Where(l => l.Contains("[GameStateRecorder]") && l.Contains("Cheat ")).ToList();
             Assert.Equal(2, lines.Count);
-            Assert.Contains(lines, l => l.Contains("[INFO]") && l.Contains("Cheat funds change +100000") && l.Contains("next rewind"));
-            Assert.Contains(lines, l => l.Contains("Cheat science change -20.5"));
+            // A gain is live-only income (3.15 step 9); a loss stays unledgered.
+            Assert.Contains(lines, l => l.Contains("[INFO]") && l.Contains("Cheat funds change +100000")
+                && l.Contains("is live-only income") && l.Contains("a rewind to before it drops it")
+                && l.Contains("SetFunds / SetScience / SetReputation") && l.Contains("runs no query and is not ledgered"));
+            Assert.Contains(lines, l => l.Contains("Cheat science change -20.5") && l.Contains("is not ledgered")
+                && l.Contains("next rewind"));
         }
 
         [Fact]
@@ -547,7 +551,7 @@ namespace Parsek.Tests
         {
             Assert.False(GameStateRecorder.LogUnledgeredCheatCurrency(
                 TransactionReasons.ContractReward, "funds", 100.0, 200.0));
-            Assert.DoesNotContain(logLines, l => l.Contains("is not ledgered"));
+            Assert.DoesNotContain(logLines, l => l.Contains("is not ledgered") || l.Contains("is live-only income"));
         }
 
         [Fact]

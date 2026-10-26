@@ -267,6 +267,8 @@ namespace Parsek
                 case GameActionNotCountedReason.MilestoneAlreadyAchieved:
                 case GameActionNotCountedReason.ContractParameterAfterCompletion:
                 case GameActionNotCountedReason.RecordThresholdsAlreadyCredited:
+                // A conversion leg whose cause is an identity duplicate (design 3.15 step 7).
+                case GameActionNotCountedReason.ConversionCauseNotCounted:
                     return true;
                 default:
                     return false;
@@ -487,7 +489,13 @@ namespace Parsek
                         + (row.ContractId ?? "") + "'";
                 case GameActionType.ScienceEarning:
                     return "science subject '" + (row.SubjectId ?? "") + "'";
+                case GameActionType.ScienceLabEarning:
+                    return string.IsNullOrEmpty(row.ScanBodyName)
+                        ? row.Type.ToString()
+                        : "orbital survey of '" + row.ScanBodyName + "'";
                 default:
+                    if (!string.IsNullOrEmpty(row.ConversionCause))
+                        return row.Type + " conversion of " + row.ConversionCause;
                     return row.Type.ToString();
             }
         }

@@ -4072,6 +4072,11 @@ namespace Parsek
                             LoadKind.PlainRewind,
                             ResolvePlainRewindBreakUT(KerbalsModule.ReadLoadedSaveUT(), RewindContext.RewindSaveOwnClockUT),
                             CaptureSequence.CurrentHighWater());
+                        // Live-only income (design 3.15 step 9): the rewind save's stock state
+                        // forgets income no ledger channel converts that was earned after its UT.
+                        LiveOnlyIncome.DropAfterTimeTravelLoad(
+                            LoadKind.PlainRewind,
+                            ResolvePlainRewindBreakUT(KerbalsModule.ReadLoadedSaveUT(), RewindContext.RewindSaveOwnClockUT));
 
                         loadPhase = "rewind";
                         HandleRewindOnLoad(node, recordings);
@@ -4241,6 +4246,9 @@ namespace Parsek
                     // after the loaded UT, so a later live repeat of one is a duplicate payment.
                     StockShadowTakeBack.NoteLoad(
                         refinedLoadKind, KerbalsModule.ReadLoadedSaveUT(), CaptureSequence.CurrentHighWater());
+                    // Live-only income (design 3.15 step 9): the same load forgets income no
+                    // ledger channel converts that was earned after the loaded UT.
+                    LiveOnlyIncome.DropAfterTimeTravelLoad(refinedLoadKind, KerbalsModule.ReadLoadedSaveUT());
 
                     // Vessel names (design 7.6, ruling 5): a stock revert or Discard Re-fly cancels
                     // the current flight epoch, and with it the stock renames made inside it.

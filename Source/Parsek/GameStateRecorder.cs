@@ -1174,9 +1174,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: true for the Alt+F12 cheat menu's currency reason. Cheat currency stays
-        /// unledgered by ruling (KSP-SETTINGS-AUDIT S11): it is held by the drawdown clamp
-        /// until the next authoritative recalc (a rewind) removes it.
+        /// Pure: true for the Alt+F12 cheat menu's currency reason. A cheat GAIN made through
+        /// stock's Add path (the cheat menu's buttons: <c>Funding.AddFunds</c> fires the currency
+        /// query) is live-only income (design 3.15 step 9, owner ruling 2026-10-26,
+        /// <see cref="LiveOnlyIncome"/>): an untagged row at its UT that a rewind to before it
+        /// drops. A value SET directly (<c>Funding.SetFunds</c> and its science / reputation
+        /// twins, as the debug console does) fires no query, so no row is filed for it. A
+        /// cheat LOSS stays unledgered (KSP-SETTINGS-AUDIT S11): it is held by the drawdown
+        /// clamp until the next authoritative recalc (a rewind) removes it.
         /// </summary>
         internal static bool IsCheatCurrencyReason(TransactionReasons reason)
         {
@@ -1184,8 +1189,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// One Info line per captured cheat currency event saying it is not ledgered.
-        /// Returns true when it logged. No UI, no screen message (standing ruling).
+        /// One Info line per captured cheat currency event saying what the ledger does with
+        /// it: a gain is live-only income (filed by the currency-modified door), a loss is not
+        /// ledgered. Returns true when it logged. No UI, no screen message (standing ruling).
         /// </summary>
         internal static bool LogUnledgeredCheatCurrency(
             TransactionReasons reason, string currency, double delta, double newValue)
@@ -1193,10 +1199,19 @@ namespace Parsek
             if (!IsCheatCurrencyReason(reason))
                 return false;
 
-            ParsekLog.Info("GameStateRecorder",
-                $"Cheat {currency} change {delta.ToString("+0.###;-0.###", CultureInfo.InvariantCulture)} " +
-                $"(-> {newValue.ToString("0.###", CultureInfo.InvariantCulture)}) is not ledgered: it is " +
-                "held only until the next rewind, which undoes it");
+            string change = $"Cheat {currency} change {delta.ToString("+0.###;-0.###", CultureInfo.InvariantCulture)} " +
+                $"(-> {newValue.ToString("0.###", CultureInfo.InvariantCulture)})";
+            // The changed event cannot tell an Add (which ran the currency query, so the
+            // currency-modified door filed live-only income) from a Set (no query, nothing filed).
+            if (delta > 0)
+                ParsekLog.Info("GameStateRecorder",
+                    change + " is live-only income when stock's currency query ran for it (the cheat " +
+                    "menu's buttons; a 'Live-only income' line shows it): it counts on this timeline, and " +
+                    "a rewind to before it drops it. A value set directly (SetFunds / SetScience / " +
+                    "SetReputation, the debug console) runs no query and is not ledgered");
+            else
+                ParsekLog.Info("GameStateRecorder",
+                    change + " is not ledgered: it is held only until the next rewind, which undoes it");
             return true;
         }
 
@@ -1255,6 +1270,11 @@ namespace Parsek
                 return;
             }
 
+            // Income no ledger channel converts (design 3.15 step 9): filed at its own UT,
+            // live-only. Independent of the strategy legs below, which carry any diversion.
+            double ut = Planetarium.GetUniversalTime();
+            LiveOnlyIncome.Capture(qry.reason, snapshot, ut);
+
             var legs = StrategyConversionCapture.EvaluateLegs(snapshot);
             if (legs.Count == 0)
             {
@@ -1268,8 +1288,40 @@ namespace Parsek
                 $"Game state: strategy currency conversion - " +
                 $"{StrategyConversionCapture.FormatQuery(snapshot, legs.Count)}");
 
-            LedgerOrchestrator.OnStrategyCurrencyConversion(
-                Planetarium.GetUniversalTime(), legs, snapshot.Reason);
+            // Conversion legs follow their cause (design 3.15 step 7): the award stock is paying
+            // right now, when a scope names one for this reason; otherwise no cause, and the
+            // legs stay as captured.
+            string conversionCause = ResolveConversionCause(snapshot);
+            LedgerOrchestrator.OnStrategyCurrencyConversion(ut, legs, snapshot.Reason, conversionCause);
+        }
+
+        /// <summary>
+        /// The <see cref="GameAction.ConversionCause"/> text for legs captured from
+        /// <paramref name="snapshot"/>: the innermost open <see cref="ConversionCauseScope"/>'s
+        /// award, in the query's one input currency, when the query's reason is one that award
+        /// pays with. Null (no positive evidence) otherwise, with one Verbose line saying why.
+        /// </summary>
+        internal static string ResolveConversionCause(StrategyConversionQuery snapshot)
+        {
+            StockPool source;
+            if (!ConversionCauseScope.TryGetSourcePool(snapshot, out source))
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "Strategy conversion has no single input currency - its legs name no cause");
+                return null;
+            }
+            ConversionCause cause;
+            if (!ConversionCauseScope.TryResolve(snapshot.Reason, source, out cause))
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"Strategy conversion ({snapshot.Reason ?? "(none)"}, {source}) is inside no matching award scope " +
+                    $"(depth={ConversionCauseScope.Depth.ToString(CultureInfo.InvariantCulture)}) - its legs name no cause " +
+                    "and stay as captured");
+                return null;
+            }
+            string text = cause.Format();
+            ParsekLog.Verbose("GameStateRecorder", "Strategy conversion legs name their cause " + text);
+            return text;
         }
 
         internal static bool IsScienceDeltaBelowThreshold(double delta)

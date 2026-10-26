@@ -322,6 +322,9 @@ namespace Parsek
                     // not paired with a "Other"-reason event, so skip reconciliation to
                     // avoid a false WARN. See fix-bailout-grant-currency-exchange-capture.md.
                     if (action.FundsSource == FundsEarningSource.Strategy) return exp;
+                    // Live-only income (design 3.15 step 9) is filed from the very query that
+                    // paid it, under a reason no event pairs on: nothing to reconcile.
+                    if (action.IsLiveOnlyIncome) return exp;
                     exp.Reconcile = true;
                     exp.Funds = new PostWalkLeg
                     {
@@ -361,6 +364,8 @@ namespace Parsek
                     // Raw ScienceAwarded (uncapped, ScienceModule.ProcessLabEarning credits
                     // it whole), the same field the commit-time reconcile sums.
                     if (!(action.ScienceAwarded > 0f)) return exp;
+                    // Live-only science income (design 3.15 step 9): no lab, no paired event.
+                    if (action.IsLiveOnlyIncome) return exp;
                     exp.Reconcile = true;
                     exp.Sci = new PostWalkLeg
                     {
