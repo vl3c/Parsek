@@ -169,7 +169,9 @@ namespace Parsek.Tests
             Assert.True(LedgerEventIdentityRegistry.TryGet(GameActionType.MilestoneAchievement,
                 LedgerEventIdentityRegistry.MilestoneWorldRecord, out record));
             Assert.Equal("MilestoneAchievement/world-record key=[node id + threshold index] rule=OncePerThreshold "
-                + "enforced by MilestonesModule.ProcessAction (RecordThresholdBook; RecordThresholdsAlreadyCredited)",
+                + "enforced by MilestonesModule.ProcessAction (RecordThresholdBook; RecordThresholdsAlreadyCredited)"
+                + "; stock mirrored by CommittedMilestoneReach (record band raised without reward)"
+                + "; a stock repeat is taken back",
                 record.Describe());
 
             LedgerEventIdentityEntry tech;

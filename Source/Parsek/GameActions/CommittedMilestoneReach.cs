@@ -40,6 +40,15 @@ namespace Parsek
     /// <see cref="RecordThresholdBook"/>) when that is above the count stock's live state
     /// says it already paid. Add-only too: a band is never lowered, nothing is paid and no
     /// event fires.</para>
+    ///
+    /// <para>Design 3.15 step 5 (prevention, owner ruling 2026-10-26) generalises the pass to
+    /// every registered kind whose stock state records "already paid"
+    /// (<see cref="IsMirroredRow"/>): a subject's science (the subject mirror
+    /// <see cref="Patches.ScienceSubjectPatch"/> reads, so stock's diminishing returns count
+    /// it), a contract parameter (completed without reward on its live Active contract) and a
+    /// resource scan (unlocked). All add-only, all inside the replay suppression. A purchase
+    /// is not mirrored: it takes effect only in the update that charges it. What stock still
+    /// pays past this pass is taken back by the next update (<see cref="StockShadowTakeBack"/>).</para>
     /// </summary>
     internal static class CommittedMilestoneReach
     {
@@ -53,11 +62,23 @@ namespace Parsek
         /// <summary>Test seam: the recording ids the live pass excludes (null reads the Re-Fly marker).</summary>
         internal static Func<ICollection<string>> SuppressedRecordingIdsProviderForTesting;
 
+        /// <summary>Test seam: completes stock parameters silently (null: the live contract system).
+        /// Returns how many it completed.</summary>
+        internal static Func<IReadOnlyList<CreditedContractParameter>, double, int> ContractParameterMirrorForTesting;
+
+        /// <summary>Test seam: unlocks committed scans (null: the live resource map). Returns
+        /// how many it unlocked.</summary>
+        internal static Func<IReadOnlyList<GameAction>, double, int> ResourceScanMirrorForTesting;
+
         internal static void ResetForTesting()
         {
             ProgressTreeProviderForTesting = null;
             SuppressedRecordingIdsProviderForTesting = null;
             SeedRecordCountsProviderForTesting = null;
+            ContractParameterMirrorForTesting = null;
+            ResourceScanMirrorForTesting = null;
+            subjectScienceMirror = new Dictionary<string, double>(StringComparer.Ordinal);
+            subjectScienceMirrorClock = double.NaN;
         }
 
         /// <summary>The outcome of one pass over the progress tree.</summary>
@@ -98,11 +119,176 @@ namespace Parsek
                     || MilestonesModule.GetRepresentedRecordThresholds(action) > 0);
         }
 
-        /// <summary>Pure: a row the mirror acts on (a once-ever row or a record threshold row),
-        /// so the clock cursor fires when the clock passes one.</summary>
+        /// <summary>Pure: a milestone row the mirror acts on (a once-ever row or a record
+        /// threshold row).</summary>
         internal static bool IsMirroredMilestoneRow(GameAction action)
         {
             return IsOnceEverMilestoneRow(action) || IsRecordThresholdRow(action);
+        }
+
+        /// <summary>Pure: a science row whose subject stock caps by its own running total.</summary>
+        internal static bool IsSubjectScienceRow(GameAction action)
+        {
+            return action != null
+                && action.Type == GameActionType.ScienceEarning
+                && !string.IsNullOrEmpty(action.SubjectId)
+                && action.ScienceAwarded > 0f;
+        }
+
+        /// <summary>Pure: a contract parameter completion stock pays once while its parameter
+        /// is not Complete.</summary>
+        internal static bool IsContractParameterRow(GameAction action)
+        {
+            return action != null
+                && action.Type == GameActionType.ContractParameterComplete
+                && !string.IsNullOrEmpty(action.ContractId)
+                && !string.IsNullOrEmpty(action.ContractParameterId);
+        }
+
+        /// <summary>Pure: a resource scan stock records per body or biome.</summary>
+        internal static bool IsResourceScanRow(GameAction action)
+        {
+            return action != null
+                && action.Type == GameActionType.ResourceScanUnlocked
+                && !string.IsNullOrEmpty(action.ScanBodyName);
+        }
+
+        /// <summary>
+        /// Pure: a row of a kind whose stock state records "already paid" and that this pass
+        /// mirrors (design 3.15 step 5, prevention): a world-first, a record threshold, a
+        /// subject's science, a contract parameter, a resource scan. The clock cursor fires
+        /// when the clock passes any of them. A purchase is not mirrored here: it takes effect
+        /// only in the update that charges it (3.13 part 3), and the flight scene that runs
+        /// this pass offers no purchase.
+        /// </summary>
+        internal static bool IsMirroredRow(GameAction action)
+        {
+            return IsMirroredMilestoneRow(action)
+                || IsSubjectScienceRow(action)
+                || IsContractParameterRow(action)
+                || IsResourceScanRow(action);
+        }
+
+        /// <summary>
+        /// Pure: the rows of <paramref name="actions"/> matching <paramref name="kind"/> at or
+        /// before <paramref name="clockUT"/>, without the rows tagged to a recording in
+        /// <paramref name="excludedRecordingIds"/> (counted in <paramref name="excludedRows"/>).
+        /// </summary>
+        internal static List<GameAction> CollectRowsAtOrBefore(
+            IEnumerable<GameAction> actions, double clockUT,
+            ICollection<string> excludedRecordingIds, Func<GameAction, bool> kind,
+            out int excludedRows)
+        {
+            excludedRows = 0;
+            var rows = new List<GameAction>();
+            if (actions == null || kind == null || double.IsNaN(clockUT))
+                return rows;
+            foreach (var a in actions)
+            {
+                if (!kind(a) || a.UT > clockUT)
+                    continue;
+                if (excludedRecordingIds != null && !string.IsNullOrEmpty(a.RecordingId)
+                    && excludedRecordingIds.Contains(a.RecordingId))
+                {
+                    excludedRows++;
+                    continue;
+                }
+                rows.Add(a);
+            }
+            return rows;
+        }
+
+        /// <summary>
+        /// Pure: each subject's committed science at <paramref name="clockUT"/> (subject units,
+        /// capped in walk order by <see cref="LedgerOrchestrator.BuildCommittedScienceSubjectCredits"/>,
+        /// the walk's own cap rule).
+        /// </summary>
+        internal static Dictionary<string, double> CollectCommittedSubjectScienceAtOrBefore(
+            IEnumerable<GameAction> actions, double clockUT,
+            ICollection<string> excludedRecordingIds, out int excludedRows)
+        {
+            var result = new Dictionary<string, double>(StringComparer.Ordinal);
+            List<GameAction> rows = CollectRowsAtOrBefore(actions, clockUT, excludedRecordingIds,
+                IsSubjectScienceRow, out excludedRows);
+            if (rows.Count == 0)
+                return result;
+            var pairs = LedgerOrchestrator.BuildCommittedScienceSubjectCredits(rows, out int _);
+            for (int i = 0; i < pairs.Count; i++)
+                result[pairs[i].Key] = pairs[i].Value;
+            return result;
+        }
+
+        /// <summary>
+        /// Pure: the contract parameters the committed timeline completed at or before
+        /// <paramref name="clockUT"/>, one per (contract, parameter), earliest credited row
+        /// first. A row the walk did not credit (<see cref="GameAction.Effective"/> false: the
+        /// contract already completed or ended, the parameter already paid) is not mirrored,
+        /// the same set the full patch completes (<see cref="ContractsModule.GetCreditedParameters"/>).
+        /// </summary>
+        internal static List<CreditedContractParameter> CollectCommittedParametersAtOrBefore(
+            IEnumerable<GameAction> actions, double clockUT,
+            ICollection<string> excludedRecordingIds, out int excludedRows)
+        {
+            List<GameAction> rows = CollectRowsAtOrBefore(actions, clockUT, excludedRecordingIds,
+                IsContractParameterRow, out excludedRows);
+            rows.Sort((x, y) => x.UT.CompareTo(y.UT));
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var result = new List<CreditedContractParameter>();
+            for (int i = 0; i < rows.Count; i++)
+            {
+                GameAction a = rows[i];
+                if (!a.Effective)
+                    continue;
+                if (!seen.Add(ContractsModule.ContractParameterCreditKey(a.ContractId, a.ContractParameterId)))
+                    continue;
+                result.Add(new CreditedContractParameter
+                {
+                    ContractId = a.ContractId,
+                    ParameterId = a.ContractParameterId,
+                    UT = a.UT,
+                });
+            }
+            return result;
+        }
+
+        // ------------------------------------------------------------------
+        // Subject science mirror (read by ScienceSubjectPatch)
+        // ------------------------------------------------------------------
+
+        private static Dictionary<string, double> subjectScienceMirror =
+            new Dictionary<string, double>(StringComparer.Ordinal);
+        private static double subjectScienceMirrorClock = double.NaN;
+
+        /// <summary>
+        /// The committed science of <paramref name="subjectId"/> at the clock of the last
+        /// pass, while the KSP patch is deferred. <see cref="Patches.ScienceSubjectPatch"/>
+        /// injects the larger of it and the walk's own credited total, so stock's diminishing
+        /// returns count science a committed row earned before the clock even when the last
+        /// walk stopped short of it (a cutoff walk after a rewind).
+        /// </summary>
+        internal static bool TryGetMirroredSubjectScience(string subjectId, out double science)
+        {
+            science = 0.0;
+            return subjectId != null && subjectScienceMirror.TryGetValue(subjectId, out science)
+                && science > 0.0;
+        }
+
+        internal static int MirroredSubjectCount => subjectScienceMirror.Count;
+
+        /// <summary>
+        /// Drops the subject mirror: a patch that is not deferred leaves the walk's module
+        /// authoritative at its own clock, so the mirror bridges only a deferred stretch.
+        /// </summary>
+        internal static void ClearSubjectScienceMirror(string reason)
+        {
+            if (subjectScienceMirror.Count == 0)
+                return;
+            ParsekLog.Verbose(Tag,
+                $"Subject science mirror cleared ({reason ?? "unspecified"}): " +
+                $"subjects={subjectScienceMirror.Count.ToString(IC)} " +
+                $"clock={subjectScienceMirrorClock.ToString("R", IC)}");
+            subjectScienceMirror = new Dictionary<string, double>(StringComparer.Ordinal);
+            subjectScienceMirrorClock = double.NaN;
         }
 
         /// <summary>
@@ -189,8 +375,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: the UT of the earliest once-ever milestone row or world-record threshold row
-        /// strictly after <paramref name="afterUT"/>, or +infinity when there is none.
+        /// Pure: the UT of the earliest mirrored row (<see cref="IsMirroredRow"/>) strictly
+        /// after <paramref name="afterUT"/>, or +infinity when there is none.
         /// </summary>
         internal static double NextRowUTAfter(IEnumerable<GameAction> actions, double afterUT)
         {
@@ -199,7 +385,7 @@ namespace Parsek
                 return next;
             foreach (var a in actions)
             {
-                if (!IsMirroredMilestoneRow(a))
+                if (!IsMirroredRow(a))
                     continue;
                 if (a.UT > afterUT && a.UT < next)
                     next = a.UT;
@@ -359,31 +545,101 @@ namespace Parsek
             }
 
             ICollection<string> suppressed = ResolveSuppressedRecordingIds();
-            // Materialized once: both collections below walk it.
+            // Materialized once: every collection below walks it.
             List<GameAction> rows = actions as List<GameAction>
                 ?? (actions != null ? new List<GameAction>(actions) : new List<GameAction>());
             HashSet<string> credited = CollectCreditedAtOrBefore(rows, clockUT, suppressed,
                 out int excludedOnceEver);
             Dictionary<string, int> recordCounts = CollectCommittedRecordCountsAtOrBefore(
                 rows, clockUT, suppressed, ResolveSeedRecordCounts(), out int excludedRecord);
-            int excludedRows = excludedOnceEver + excludedRecord;
-            if (credited.Count == 0 && recordCounts.Count == 0)
+            Dictionary<string, double> subjectScience = CollectCommittedSubjectScienceAtOrBefore(
+                rows, clockUT, suppressed, out int excludedScience);
+            List<CreditedContractParameter> parameters = CollectCommittedParametersAtOrBefore(
+                rows, clockUT, suppressed, out int excludedParameters);
+            List<GameAction> scanRows = CollectRowsAtOrBefore(
+                rows, clockUT, suppressed, IsResourceScanRow, out int excludedScans);
+            int excludedRows = excludedOnceEver + excludedRecord + excludedScience
+                + excludedParameters + excludedScans;
+
+            // The subject mirror is replaced on every pass (never merged): it is the committed
+            // science at this clock, read lazily by ScienceSubjectPatch.
+            subjectScienceMirror = subjectScience;
+            subjectScienceMirrorClock = clockUT;
+
+            if (credited.Count == 0 && recordCounts.Count == 0 && subjectScience.Count == 0
+                && parameters.Count == 0 && scanRows.Count == 0)
             {
                 ParsekLog.VerboseOnChange(Tag, "apply-none|" + why,
                     "none|" + excludedRows.ToString(IC),
                     $"Apply: no committed once-ever milestone or record row at or before clock={clockUT.ToString("F1", IC)} " +
-                    $"(reason={why}, reFlySuppressedRows={excludedRows.ToString(IC)})");
+                    $"(nor subject science, contract parameter or resource scan; reason={why}, " +
+                    $"reFlySuppressedRows={excludedRows.ToString(IC)})");
                 return 0;
             }
 
-            ProgressTree tree = ReadProgressTree(out string treeSkip);
-            if (tree == null)
+            var counts = new ReachCounts();
+            var markedIds = new List<string>();
+            var raisedIds = new List<string>();
+            int parametersCompleted = 0;
+            int scansUnlocked = 0;
+            string treeSkip = null;
+            using (SuppressionGuard.ResourcesAndReplay())
+            {
+                if (credited.Count > 0 || recordCounts.Count > 0)
+                    MirrorProgressNodes(credited, recordCounts, ref counts, markedIds, raisedIds, out treeSkip);
+                if (parameters.Count > 0)
+                    parametersCompleted = MirrorContractParameters(parameters, clockUT);
+                if (scanRows.Count > 0)
+                    scansUnlocked = MirrorResourceScans(scanRows, clockUT);
+            }
+
+            if (treeSkip != null)
             {
                 ParsekLog.VerboseOnChange(Tag, "apply-skip|" + why, treeSkip,
-                    $"Apply skipped: {treeSkip} (reason={why}, credited={credited.Count.ToString(IC)}, " +
+                    $"Apply skipped the progress nodes: {treeSkip} (reason={why}, credited={credited.Count.ToString(IC)}, " +
                     $"recordNodes={recordCounts.Count.ToString(IC)})");
-                return 0;
             }
+
+            int notInTree = treeSkip != null
+                ? 0
+                : credited.Count - counts.Marked - counts.AlreadyComplete - counts.SkippedRecordNodes;
+            string summary =
+                $"marked={counts.Marked.ToString(IC)} alreadyComplete={counts.AlreadyComplete.ToString(IC)} " +
+                $"credited={credited.Count.ToString(IC)} notInTree={notInTree.ToString(IC)} " +
+                $"recordNodes={counts.SkippedRecordNodes.ToString(IC)} " +
+                $"recordBandsRaised={counts.RecordBandsRaised.ToString(IC)} " +
+                $"recordBandsAtOrAbove={counts.RecordBandsAtOrAbove.ToString(IC)} " +
+                $"subjectsMirrored={subjectScience.Count.ToString(IC)} " +
+                $"parameters={parameters.Count.ToString(IC)} parametersCompleted={parametersCompleted.ToString(IC)} " +
+                $"scans={scanRows.Count.ToString(IC)} scansUnlocked={scansUnlocked.ToString(IC)} " +
+                $"reFlySuppressedRows={excludedRows.ToString(IC)}";
+            if (counts.Marked > 0 || counts.RecordBandsRaised > 0 || parametersCompleted > 0 || scansUnlocked > 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"Apply: marked {counts.Marked.ToString(IC)} stock progress node(s) complete without " +
+                    $"reward and raised {counts.RecordBandsRaised.ToString(IC)} record band(s) without reward, " +
+                    $"completed {parametersCompleted.ToString(IC)} contract parameter(s) without reward and " +
+                    $"unlocked {scansUnlocked.ToString(IC)} resource scan(s), " +
+                    $"the committed timeline credits them at or before clock={clockUT.ToString("F1", IC)} " +
+                    $"(reason={why}; {summary}) " +
+                    "ids=[" + KspStatePatcher.ComposeBoundedIdentitySample(markedIds, IdSampleCap) + "] " +
+                    "records=[" + KspStatePatcher.ComposeBoundedIdentitySample(raisedIds, IdSampleCap) + "]");
+            }
+            else
+            {
+                ParsekLog.VerboseOnChange(Tag, "apply-noop|" + why, summary,
+                    $"Apply: nothing to mark at clock={clockUT.ToString("F1", IC)} (reason={why}; {summary})");
+            }
+            return counts.Marked + counts.RecordBandsRaised + parametersCompleted + scansUnlocked;
+        }
+
+        private static void MirrorProgressNodes(
+            HashSet<string> credited, Dictionary<string, int> recordCounts,
+            ref ReachCounts counts, List<string> markedIds, List<string> raisedIds, out string skip)
+        {
+            ProgressTree tree = ReadProgressTree(out skip);
+            if (tree == null)
+                return;
 
             FieldInfo reachedField = typeof(ProgressNode).GetField("reached",
                 BindingFlags.NonPublic | BindingFlags.Instance);
@@ -395,42 +651,28 @@ namespace Parsek
                     "Apply: could not find ProgressNode reached/complete fields via reflection " +
                     $"(reached={reachedField != null}, complete={completeField != null}) - stock may pay " +
                     "a world-first the committed timeline already credits");
-                return 0;
+                skip = "reflection-failed";
+                return;
             }
 
-            var counts = new ReachCounts();
-            var markedIds = new List<string>();
-            var raisedIds = new List<string>();
-            using (SuppressionGuard.ResourcesAndReplay())
-            {
-                MarkCreditedNodes(tree, credited, reachedField, completeField, "", ref counts, markedIds);
-                RaiseCommittedRecordBands(tree, recordCounts, reachedField, completeField, "", ref counts, raisedIds);
-            }
+            MarkCreditedNodes(tree, credited, reachedField, completeField, "", ref counts, markedIds);
+            RaiseCommittedRecordBands(tree, recordCounts, reachedField, completeField, "", ref counts, raisedIds);
+        }
 
-            int notInTree = credited.Count - counts.Marked - counts.AlreadyComplete - counts.SkippedRecordNodes;
-            string summary =
-                $"marked={counts.Marked.ToString(IC)} alreadyComplete={counts.AlreadyComplete.ToString(IC)} " +
-                $"credited={credited.Count.ToString(IC)} notInTree={notInTree.ToString(IC)} " +
-                $"recordNodes={counts.SkippedRecordNodes.ToString(IC)} " +
-                $"recordBandsRaised={counts.RecordBandsRaised.ToString(IC)} " +
-                $"recordBandsAtOrAbove={counts.RecordBandsAtOrAbove.ToString(IC)} " +
-                $"reFlySuppressedRows={excludedRows.ToString(IC)}";
-            if (counts.Marked > 0 || counts.RecordBandsRaised > 0)
-            {
-                ParsekLog.Info(Tag,
-                    $"Apply: marked {counts.Marked.ToString(IC)} stock progress node(s) complete without " +
-                    $"reward and raised {counts.RecordBandsRaised.ToString(IC)} record band(s) without reward, " +
-                    $"the committed timeline credits them at or before clock={clockUT.ToString("F1", IC)} " +
-                    $"(reason={why}; {summary}) " +
-                    "ids=[" + KspStatePatcher.ComposeBoundedIdentitySample(markedIds, IdSampleCap) + "] " +
-                    "records=[" + KspStatePatcher.ComposeBoundedIdentitySample(raisedIds, IdSampleCap) + "]");
-            }
-            else
-            {
-                ParsekLog.VerboseOnChange(Tag, "apply-noop|" + why, summary,
-                    $"Apply: nothing to mark at clock={clockUT.ToString("F1", IC)} (reason={why}; {summary})");
-            }
-            return counts.Marked + counts.RecordBandsRaised;
+        private static int MirrorContractParameters(List<CreditedContractParameter> parameters, double clockUT)
+        {
+            var seam = ContractParameterMirrorForTesting;
+            if (seam != null)
+                return seam(parameters, clockUT);
+            return KspStatePatcher.MirrorCommittedContractParameters(parameters, clockUT);
+        }
+
+        private static int MirrorResourceScans(List<GameAction> scanRows, double clockUT)
+        {
+            var seam = ResourceScanMirrorForTesting;
+            if (seam != null)
+                return seam(scanRows, clockUT);
+            return KspStatePatcher.MirrorCommittedResourceScans(scanRows, clockUT);
         }
 
         /// <summary>Test seam: the pre-ledger record counts the live pass starts from (null
@@ -486,7 +728,9 @@ namespace Parsek
 
     /// <summary>
     /// Runs <see cref="CommittedMilestoneReach.Apply"/> when the flight clock passes a
-    /// committed once-ever milestone row or world-record threshold row. The flight scene has no ledger clock cursor (the
+    /// committed row of any mirrored kind (<see cref="CommittedMilestoneReach.IsMirroredRow"/>:
+    /// a once-ever milestone, a world-record threshold, subject science, a contract parameter,
+    /// a resource scan). The flight scene has no ledger clock cursor (the
     /// Space Center and Tracking Station run one that recalculates), and a recalculation
     /// there is deferred while a recorder lives, so without this a world-first the committed
     /// timeline earned at UT 100 stays payable in stock for a flight that re-earns it at
@@ -547,7 +791,7 @@ namespace Parsek
 
             ParsekLog.Verbose(CommittedMilestoneReach.Tag,
                 $"Clock cursor ({reason}): clock {currentUT.ToString("F1", CultureInfo.InvariantCulture)} " +
-                $"passed a committed milestone row at UT {next.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"passed a committed mirrored row at UT {next.ToString("F1", CultureInfo.InvariantCulture)} " +
                 $"(last={lastUT.ToString("F1", CultureInfo.InvariantCulture)})");
             apply(currentUT, reason);
             lastUT = currentUT;

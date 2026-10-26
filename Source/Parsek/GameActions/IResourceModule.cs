@@ -87,6 +87,14 @@ namespace Parsek
         /// value by (after stock's 0 clamp and the reputation curve). Rows the walk did not
         /// dispatch are absent.</summary>
         IReadOnlyDictionary<string, double> GetRowEffects();
+
+        /// <summary>
+        /// Per row id, what stock paid for the row beyond its walk effect, for an identity the
+        /// ledger already credited by a row a rewind made stock forget (design 3.15 step 5,
+        /// the stock shadow: the captured amount, reputation curved at the shadow's own
+        /// value, stock's 0 clamp applied). A row with nothing to take back is absent.
+        /// </summary>
+        IReadOnlyDictionary<string, double> GetTakeBackDeltas();
     }
 
     /// <summary>

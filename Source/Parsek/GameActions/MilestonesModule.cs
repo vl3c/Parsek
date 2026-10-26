@@ -20,6 +20,9 @@ namespace Parsek
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         private readonly HashSet<string> creditedMilestones = new HashSet<string>();
+        /// <summary>The row that credited each one-shot id (design 3.15 step 5's witness).</summary>
+        private readonly Dictionary<string, IdentityWitness> oneShotWitness =
+            new Dictionary<string, IdentityWitness>();
         private readonly Dictionary<string, int> effectiveMilestoneCounts = new Dictionary<string, int>();
         private readonly RecordThresholdBook recordBook = new RecordThresholdBook();
         private PreLedgerProgressSeed progressSeed = PreLedgerProgressSeed.NotCaptured;
@@ -67,13 +70,17 @@ namespace Parsek
         {
             int previousCount = creditedMilestones.Count;
             creditedMilestones.Clear();
+            oneShotWitness.Clear();
             effectiveMilestoneCounts.Clear();
             recordBook.Reset(progressSeed.Captured ? progressSeed.RecordPaidCounts : null);
 
             if (progressSeed.Captured)
             {
                 foreach (string id in progressSeed.OneShotIds)
+                {
                     creditedMilestones.Add(id);
+                    oneShotWitness[id] = IdentityWitness.PreLedgerSeed("milestone '" + id + "'");
+                }
                 ParsekLog.Verbose("Milestones",
                     $"Reset: cleared {previousCount} credited milestones; pre-ledger seed credits " +
                     $"{progressSeed.OneShotCount.ToString(IC)} node(s) and " +
@@ -122,6 +129,7 @@ namespace Parsek
             {
                 action.Effective = true;
                 creditedMilestones.Add(milestoneId);
+                oneShotWitness[milestoneId] = IdentityWitness.Of(action, "milestone '" + milestoneId + "'");
                 effectiveMilestoneCounts[milestoneId] =
                     (effectiveMilestoneCounts.TryGetValue(milestoneId, out int seededCount)
                         ? seededCount : 0) + 1;
@@ -137,6 +145,15 @@ namespace Parsek
             {
                 action.Effective = false;
                 action.NotCountedReason = GameActionNotCountedReason.MilestoneAlreadyAchieved;
+                IdentityWitness witness;
+                if (!oneShotWitness.TryGetValue(milestoneId, out witness))
+                    witness = IdentityWitness.PreLedgerSeed("milestone '" + milestoneId + "'");
+                if (StockShadowTakeBack.ShouldTakeBackWholeRow(action, witness))
+                {
+                    action.TakeBackFunds = action.MilestoneFundsAwarded;
+                    action.TakeBackRep = action.MilestoneRepAwarded;
+                    action.TakeBackScience = action.MilestoneScienceAwarded;
+                }
                 ParsekLog.Verbose("Milestones",
                     $"Duplicate milestone '{milestoneId}' zeroed at UT={action.UT.ToString("F1", IC)}" +
                     $" (recording={action.RecordingId ?? "null"})" +
@@ -161,6 +178,7 @@ namespace Parsek
             action.RecordThresholdsTotal = credit.Count;
             action.RecordThresholdsCredited = credit.NewCount;
             effectiveMilestoneCounts[milestoneId] = recordBook.GetCreditedCount(milestoneId);
+            ApplyRecordTakeBack(action, credit);
 
             // Rate-limited per stable ActionId (bug #593): every recalc walk re-decides every
             // committed record row, and a steady loop must collapse to one line per row.
@@ -231,6 +249,90 @@ namespace Parsek
                 $" sci={action.MilestoneScienceAwarded.ToString("F1", IC)}," +
                 $" thresholds={credit.Count.ToString(IC)}, {RecordThresholdBook.Describe(credit)})," +
                 $" total credited={creditedMilestones.Count}");
+        }
+
+        /// <summary>
+        /// Take-back for a world-record row (design 3.15 step 5), on step 4's own rewind
+        /// evidence: only the thresholds the book zeroed as a second first payment of their
+        /// interval (<see cref="RecordThresholdBook.BlockReason.SecondFirstPayment"/>: stock
+        /// paid it as new after an earlier capture had, which on one timeline never happens).
+        /// Never a re-payment, a derived guess, a position at or below the pre-ledger seed, or
+        /// a row the walk zeroed because a later capture re-crossed earlier (that older row was
+        /// paid on its own timeline). Only an eligible row (first captured by this build).
+        /// </summary>
+        private static void ApplyRecordTakeBack(GameAction action, RecordThresholdBook.RowCredit credit)
+        {
+            if (credit.SecondFirstPayments == null || credit.SecondFirstPayments.Count == 0
+                || !StockShadowTakeBack.IsEligibleRow(action))
+                return;
+            RecordThresholdTakeBack amounts = ResolveRecordTakeBack(action, credit, out string skip);
+            if (skip != null)
+            {
+                ParsekLog.Verbose("Milestones",
+                    $"Record row '{action.MilestoneId}' (actionId={action.ActionId ?? "(none)"}) holds " +
+                    $"{credit.SecondFirstPayments.Count.ToString(IC)} second first payment(s); not taken back: {skip}");
+                return;
+            }
+            action.TakeBackFunds = amounts.Funds;
+            action.TakeBackRep = amounts.Rep;
+            action.TakeBackScience = amounts.Science;
+            action.TakeBackWitness = amounts.Witness;
+            ParsekLog.Verbose("Milestones",
+                $"Record row '{action.MilestoneId}' (actionId={action.ActionId ?? "(none)"}) paid " +
+                $"{credit.SecondFirstPayments.Count.ToString(IC)} threshold(s) as new a second time: take-back " +
+                $"funds={amounts.Funds.ToString("R", IC)} rep={amounts.Rep.ToString("R", IC)} " +
+                $"sci={amounts.Science.ToString("R", IC)} ({amounts.Witness})");
+        }
+
+        /// <summary>The take-back of one record row and the witness text.</summary>
+        internal struct RecordThresholdTakeBack
+        {
+            internal float Funds;
+            internal float Rep;
+            internal float Science;
+            internal string Witness;
+        }
+
+        /// <summary>
+        /// Pure: one stock payment per second first payment. A capture folds every award of an
+        /// interval into that interval's entry, so an entry can hold re-payments too; stock
+        /// re-pays only at the interval where its award loop stops without advancing, the
+        /// row's highest, and every award of one interval in one scope pays the same. The
+        /// row's award count (<see cref="GameAction.MilestoneRecordThresholds"/>) less its
+        /// distinct intervals is the number of folded re-payments: none, and every entry is one
+        /// payment; some, and the highest entry is that many payments plus one, so one payment
+        /// is its amount divided by that. A count below the entries (an inconsistent row)
+        /// takes nothing back (<paramref name="skip"/>).
+        /// </summary>
+        internal static RecordThresholdTakeBack ResolveRecordTakeBack(
+            GameAction action, RecordThresholdBook.RowCredit credit, out string skip)
+        {
+            skip = null;
+            var result = new RecordThresholdTakeBack();
+            int folded = action.MilestoneRecordThresholds - credit.Count;
+            if (folded < 0)
+            {
+                skip = "awards=" + action.MilestoneRecordThresholds.ToString(IC)
+                    + " below its " + credit.Count.ToString(IC) + " named intervals";
+                return result;
+            }
+            int top = 0;
+            for (int i = 0; i < credit.Positions.Count; i++)
+                if (credit.Positions[i] > top) top = credit.Positions[i];
+            var witnesses = new List<string>();
+            for (int i = 0; i < credit.SecondFirstPayments.Count; i++)
+            {
+                RecordThresholdBook.SecondFirstPayment p = credit.SecondFirstPayments[i];
+                float payments = p.Position == top ? folded + 1 : 1;
+                result.Funds += p.Funds / payments;
+                result.Rep += p.Rep / payments;
+                result.Science += p.Science / payments;
+                witnesses.Add("threshold " + p.Position.ToString(IC) + " first paid by cseq="
+                    + p.HolderCaptureSequence.ToString(IC));
+            }
+            result.Witness = "milestone '" + (action.MilestoneId ?? "") + "' "
+                + string.Join(", ", witnesses.ToArray());
+            return result;
         }
 
         /// <summary>

@@ -321,6 +321,7 @@ namespace Parsek
             EmitStockPoolLeak("Science", measurement, runningScience, targetWithoutLeak,
                 decision.EffectiveTarget, "Kept your earned science",
                 "Held your science at the spent value", perSubjectScienceNote: true);
+            NoteScienceTakeBackShortfall(measurement, runningScience);
 
             if (!decision.ShouldWrite)
             {
@@ -2459,6 +2460,7 @@ namespace Parsek
             EmitStockPoolLeak("Funds", measurement, runningFunds, targetWithoutLeak,
                 decision.EffectiveTarget, "Kept your earned funds",
                 "Held your funds at the spent value", perSubjectScienceNote: false);
+            EmitTakeBackShortfall("Funds", measurement, runningFunds);
 
             if (!decision.ShouldWrite)
             {
@@ -4726,13 +4728,9 @@ namespace Parsek
                 $"(one-shot per session) - {detail}. Stock may pay that parameter's reward again.");
         }
 
-        private static void PatchContractParameters(
-            ContractsModule contracts, List<Contract> currentContracts, double clockUT)
+        /// <summary>Active contracts by guid text.</summary>
+        private static Dictionary<string, Contract> IndexActiveContracts(List<Contract> currentContracts)
         {
-            IReadOnlyList<CreditedContractParameter> credited = contracts.GetCreditedParameters();
-            if (credited == null || credited.Count == 0)
-                return;
-
             var activeById = new Dictionary<string, Contract>(StringComparer.Ordinal);
             if (currentContracts != null)
             {
@@ -4743,7 +4741,19 @@ namespace Parsek
                         activeById[c.ContractGuid.ToString()] = c;
                 }
             }
+            return activeById;
+        }
 
+        /// <summary>
+        /// Plans <paramref name="credited"/> against the live Active contracts and completes
+        /// every planned parameter silently (<see cref="TryCompleteStockParameterSilently"/>).
+        /// Shared by the full contract patch and the add-only mirror
+        /// (<see cref="MirrorCommittedContractParameters"/>).
+        /// </summary>
+        private static ContractParameterPatchPlan CompleteCreditedParametersSilently(
+            IReadOnlyList<CreditedContractParameter> credited, Dictionary<string, Contract> activeById,
+            double clockUT, out int completed, out int writeFailed, List<string> completedIds)
+        {
             ContractParameterPatchPlan plan = PlanContractParameterPatch(credited, (contractId, paramId) =>
             {
                 Contract c;
@@ -4757,9 +4767,8 @@ namespace Parsek
                     : StockContractParameterState.NotComplete;
             }, clockUT);
 
-            int completed = 0;
-            int writeFailed = 0;
-            var completedIds = new List<string>();
+            completed = 0;
+            writeFailed = 0;
             for (int i = 0; i < plan.ToComplete.Count; i++)
             {
                 CreditedContractParameter c = plan.ToComplete[i];
@@ -4767,13 +4776,117 @@ namespace Parsek
                 if (TryCompleteStockParameterSilently(p))
                 {
                     completed++;
-                    completedIds.Add(c.ContractId + "/" + c.ParameterId);
+                    completedIds?.Add(c.ContractId + "/" + c.ParameterId);
                 }
                 else
                 {
                     writeFailed++;
                 }
             }
+            return plan;
+        }
+
+        /// <summary>
+        /// The add-only live mirror for contract parameters (design 3.15 step 5, prevention):
+        /// while the KSP patch is deferred, completes without reward every parameter of a live
+        /// Active contract that the committed timeline completed at or before
+        /// <paramref name="clockUT"/>, so stock cannot pay it again. Unlike the full patch it
+        /// hands no contract back to stock's own completion path (that waits for the next
+        /// patch that is not deferred): a contract stays Active until then. Returns the count
+        /// completed.
+        /// </summary>
+        internal static int MirrorCommittedContractParameters(
+            IReadOnlyList<CreditedContractParameter> credited, double clockUT)
+        {
+            if (credited == null || credited.Count == 0)
+                return 0;
+            if (SuppressUnityCallsForTesting)
+            {
+                VerboseStablePatchState("mirror-skip|parameters|test", "suppressed",
+                    "MirrorCommittedContractParameters: Unity calls suppressed for testing - skipping");
+                return 0;
+            }
+            List<Contract> current = ReadLiveContractsOrNull();
+            if (current == null)
+            {
+                VerboseStablePatchState("mirror-skip|parameters|system", "no-contract-system",
+                    "MirrorCommittedContractParameters: ContractSystem not loaded in this scene - skipping " +
+                    "(the next pass with it loaded completes them)");
+                return 0;
+            }
+            var completedIds = new List<string>();
+            ContractParameterPatchPlan plan = CompleteCreditedParametersSilently(
+                credited, IndexActiveContracts(current), clockUT, out int completed, out int writeFailed, completedIds);
+            string line =
+                $"MirrorCommittedContractParameters: completedSilently={completed.ToString(IC)}, " +
+                $"alreadyComplete={plan.AlreadyComplete.ToString(IC)}, unresolved={plan.Unresolved.ToString(IC)}, " +
+                $"contractNotActive={plan.ContractNotActive.ToString(IC)}, afterClock={plan.AfterClock.ToString(IC)}, " +
+                $"clockNotReady={plan.ClockNotReady.ToString(IC)}, writeFailed={writeFailed.ToString(IC)}, " +
+                $"clock={clockUT.ToString("R", IC)} " + ComposeBoundedIdentitySample(completedIds, IdentitySampleCap);
+            if (completed > 0 || writeFailed > 0)
+                ParsekLog.Info(Tag, line);
+            else
+                VerboseStablePatchState("mirror-noop|parameters",
+                    plan.AlreadyComplete.ToString(IC) + "|" + plan.ContractNotActive.ToString(IC) + "|"
+                    + plan.Unresolved.ToString(IC), line);
+            return completed;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static List<Contract> ReadLiveContractsOrNull()
+        {
+            return ContractSystem.Instance != null ? ContractSystem.Instance.Contracts : null;
+        }
+
+        /// <summary>
+        /// The add-only live mirror for resource scans (design 3.15 step 5, prevention): the
+        /// scan patch over <paramref name="scanRows"/> at <paramref name="clockUT"/>, run while
+        /// the KSP patch is deferred. Returns the count unlocked.
+        /// </summary>
+        internal static int MirrorCommittedResourceScans(IReadOnlyList<GameAction> scanRows, double clockUT)
+        {
+            if (scanRows == null || scanRows.Count == 0)
+                return 0;
+            List<ResourceScanUnlock> unlocks = BuildResourceScanUnlocksForPatch(scanRows, clockUT);
+            if (unlocks.Count == 0)
+                return 0;
+            if (SuppressUnityCallsForTesting)
+            {
+                VerboseStablePatchState("mirror-skip|scans|test", "suppressed",
+                    "MirrorCommittedResourceScans: Unity calls suppressed for testing - skipping");
+                return 0;
+            }
+            if (!IsResourceScanStateLoaded())
+            {
+                VerboseStablePatchState("mirror-skip|scans|scenario", "scenario-null",
+                    "MirrorCommittedResourceScans: ResourceMap or ResourceScenario not loaded in this scene - skipping");
+                return 0;
+            }
+            var result = ApplyLiveResourceScanUnlocks(unlocks);
+            string line =
+                $"MirrorCommittedResourceScans: unlocked={result.Unlocked.ToString(IC)}, " +
+                $"alreadyUnlocked={result.AlreadyUnlocked.ToString(IC)}, unknownBody={result.UnknownBody.ToString(IC)}, " +
+                $"clock={clockUT.ToString("R", IC)}, " +
+                $"unlockedIds=[{ComposeBoundedIdentitySample(result.UnlockedIds, IdentitySampleCap)}]";
+            if (result.Unlocked > 0)
+                ParsekLog.Info(Tag, line);
+            else
+                VerboseStablePatchState("mirror-noop|scans",
+                    unlocks.Count.ToString(IC) + "|" + result.UnknownBody.ToString(IC), line);
+            return result.Unlocked;
+        }
+
+        private static void PatchContractParameters(
+            ContractsModule contracts, List<Contract> currentContracts, double clockUT)
+        {
+            IReadOnlyList<CreditedContractParameter> credited = contracts.GetCreditedParameters();
+            if (credited == null || credited.Count == 0)
+                return;
+
+            var activeById = IndexActiveContracts(currentContracts);
+            var completedIds = new List<string>();
+            ContractParameterPatchPlan plan = CompleteCreditedParametersSilently(
+                credited, activeById, clockUT, out int completed, out int writeFailed, completedIds);
 
             // Stock completes a contract (and a group parameter) only from the parent's
             // ParameterStateUpdate that SetComplete runs after paying; the silent write skips
@@ -5772,7 +5885,8 @@ namespace Parsek
             double nowUT = !double.IsNaN(stockReferenceNowUT)
                 ? stockReferenceNowUT
                 : CommittedFutureIndexCache.CurrentUT();
-            rows = StockPoolReference.BuildRows(pool, actions, module?.GetRowEffects());
+            rows = StockPoolReference.BuildRows(pool, actions, module?.GetRowEffects(),
+                module?.GetTakeBackDeltas());
 
             StockPoolReferenceState state = StockPoolReference.For(pool);
             bool clockCrossingApplies = ResolveClockCrossingAuthorization(
@@ -5792,6 +5906,7 @@ namespace Parsek
                 authoritative, epsilon, freshBaselineTarget, idsInLedger, clampAtZero);
             if (m.Adjustment != 0.0)
                 m.AdjustmentRow = FileStockPoolAdjustment(pool, resource, m, nowUT);
+            EmitTakeBacks(pool, m, actions);
 
             string summary = StockPoolReference.FormatMeasurement(m);
             if (m.FreshBaseline)
@@ -5818,6 +5933,72 @@ namespace Parsek
                     $"authoritative={authoritativeReduction} clockCrossing={clockCrossingApplies}");
             }
             return m;
+        }
+
+        /// <summary>
+        /// One Warn per row whose duplicate stock payment this patch takes back (design 3.15
+        /// step 5), naming the identity and the row that already credited it. Nothing is filed:
+        /// the write, the walk's target, is the take-back.
+        /// </summary>
+        internal static void EmitTakeBacks(StockPool pool, StockPoolMeasurement m, IReadOnlyList<GameAction> actions)
+        {
+            if (m == null || m.TakenBack.Count == 0)
+                return;
+            var byId = new Dictionary<string, GameAction>(StringComparer.Ordinal);
+            if (actions != null)
+                for (int i = 0; i < actions.Count; i++)
+                    if (actions[i] != null && !string.IsNullOrEmpty(actions[i].ActionId))
+                        byId[actions[i].ActionId] = actions[i];
+            for (int i = 0; i < m.TakenBack.Count; i++)
+            {
+                GameAction row;
+                byId.TryGetValue(m.TakenBack[i].Key, out row);
+                ParsekLog.Warn(StockShadowTakeBack.Tag,
+                    StockShadowTakeBack.FormatTakeBack(pool, m.TakenBack[i].Value, row,
+                        m.TakenBackByAuthoritativeWrite));
+            }
+        }
+
+        /// <summary>
+        /// Pure + log: the part of this patch's take-back the write could not collect because
+        /// the walk's running value is below 0 (the duplicate was spent before the update,
+        /// possible only with auto-merge off). Funds: the walk keeps the running value below 0
+        /// and the 0-floored write leaves the rest to be repaid by later gains first, the debt
+        /// of design 3.13 part 4. Reputation: no 0 clamp in stock, so it is applied in full.
+        /// Science: <see cref="NoteScienceTakeBackShortfall"/>.
+        /// </summary>
+        internal static double EmitTakeBackShortfall(string resource, StockPoolMeasurement m, double runningAfter)
+        {
+            if (m == null || m.TakenBack.Count == 0)
+                return 0.0;
+            double shortfall = StockShadowTakeBack.ResolveShortfall(m.TakenBackTotal, runningAfter);
+            if (shortfall <= 0.0)
+                return 0.0;
+            ParsekLog.Warn(StockShadowTakeBack.Tag,
+                $"Patch{resource}: take-back shortfall {shortfall.ToString("R", IC)} of " +
+                $"{m.TakenBackTotal.ToString("R", IC)}: the duplicate payment was spent before this update; " +
+                $"running={runningAfter.ToString("R", IC)} stays below 0 and later gains repay it first " +
+                "(a debt, design 3.13 part 4)");
+            return shortfall;
+        }
+
+        /// <summary>
+        /// The science side of a take-back shortfall (design 3.15 step 5): science debt is step
+        /// 6, so until then this only logs. Hook for step 6: a committed tech the walk can no
+        /// longer afford after a take-back is where the science debt starts.
+        /// </summary>
+        internal static double NoteScienceTakeBackShortfall(StockPoolMeasurement m, double runningAfter)
+        {
+            if (m == null || m.TakenBack.Count == 0)
+                return 0.0;
+            double shortfall = StockShadowTakeBack.ResolveShortfall(m.TakenBackTotal, runningAfter);
+            if (shortfall <= 0.0)
+                return 0.0;
+            ParsekLog.Warn(StockShadowTakeBack.Tag,
+                $"PatchScience: take-back shortfall {shortfall.ToString("R", IC)} of " +
+                $"{m.TakenBackTotal.ToString("R", IC)} (running={runningAfter.ToString("R", IC)}): " +
+                "science debt is design 3.15 step 6; until then the 0 floor forgives it");
+            return shortfall;
         }
 
         /// <summary>

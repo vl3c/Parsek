@@ -4170,6 +4170,10 @@ namespace Parsek
             }
             else
             {
+                // The walk's module is authoritative at this patch's clock; the subject
+                // science mirror bridges only a deferred stretch (design 3.15 step 5).
+                CommittedMilestoneReach.ClearSubjectScienceMirror("patch-not-deferred");
+
                 // Drawdown-guard plan §3.2: compute the authoritative-reduction signal once
                 // here (Core has access to RewindContext + ParsekScenario.Instance) and pass
                 // it down to the patch methods, which read the per-resource running balance
@@ -5747,6 +5751,9 @@ namespace Parsek
                 if (string.IsNullOrEmpty(path))
                 {
                     ParsekLog.Warn(Tag, "OnLoad: could not resolve ledger path — starting with empty ledger");
+                    // The take-back era and timeline breaks belong to the save the ledger came
+                    // from; none was read, so the previous save's must not carry over.
+                    StockShadowTakeBack.LoadFrom(null, "unresolved-ledger-path");
                     return;
                 }
                 Ledger.LoadFromFile(path);

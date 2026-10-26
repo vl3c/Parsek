@@ -99,6 +99,19 @@ namespace Parsek
         /// <summary>The reserved floor and the debt (committed-value rule plan section 2.3).</summary>
         private readonly ReservedFloorWalkState floorState = new ReservedFloorWalkState();
 
+        /// <summary>Per row id, what stock paid beyond the walk effect (design 3.15 step 5,
+        /// <see cref="IStockPoolModule.GetTakeBackDeltas"/>).</summary>
+        private readonly Dictionary<string, double> takeBackDeltas =
+            new Dictionary<string, double>(StringComparer.Ordinal);
+
+        /// <summary>The stock shadow's lead over the walk's running value: the take-back
+        /// amounts so far in this walk (the shadow counts each duplicate at its captured
+        /// amount).</summary>
+        private double shadowDivergence;
+
+        /// <summary>Stock's own pool at a repeat (<see cref="StockShadowStart"/>).</summary>
+        private readonly StockShadowStart shadowStart = new StockShadowStart(StockPool.Funds);
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -125,6 +138,9 @@ namespace Parsek
             buildingDestroyedInWalk.Clear();
             forgivenBelowZero = 0.0;
             rowEffects.Clear();
+            takeBackDeltas.Clear();
+            shadowDivergence = 0.0;
+            shadowStart.Reset(StockPoolReference.Funds);
             floorState.Reset();
             allowNegativeCurrency = StockCurrencyClamp.ReadAllowNegativeCurrency();
 
@@ -193,6 +209,11 @@ namespace Parsek
                 rowEffects[action.ActionId] = prior + effect;
             }
 
+            double stockDelta = action.TakeBackFunds != 0f
+                ? RecordTakeBack(action, before, effect, (double)action.TakeBackFunds)
+                : 0.0;
+            shadowStart.Note(action, effect + stockDelta);
+
             if (floored)
             {
                 double heldBack = floorState.Settle(action, runningBalance, effect, floor);
@@ -255,6 +276,39 @@ namespace Parsek
         public IReadOnlyDictionary<string, double> GetRowEffects()
         {
             return rowEffects;
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyDictionary<string, double> GetTakeBackDeltas()
+        {
+            return takeBackDeltas;
+        }
+
+        /// <summary>
+        /// The stock shadow for one row (design 3.15 step 5): stock paid the row's captured
+        /// amount, so beyond the walk's effect it moved the pool by the take-back part, with
+        /// stock's 0 clamp at stock's own pool when it paid the row (<see cref="StockShadowStart"/>).
+        /// Returns that take-back part.
+        /// </summary>
+        private double RecordTakeBack(GameAction action, double before, double effect, double takeBack)
+        {
+            if (string.IsNullOrEmpty(action.ActionId))
+                return 0.0;
+            double shadowBefore = shadowStart.Before(action.CaptureSequence, before + shadowDivergence);
+            double shadowEffect = StockShadowTakeBack.ShadowCurrencyEffect(
+                shadowBefore, effect, takeBack, allowNegativeCurrency);
+            double delta = shadowEffect - effect;
+            if (delta == 0.0)
+                return 0.0;
+            shadowDivergence += delta;
+            double prior;
+            takeBackDeltas.TryGetValue(action.ActionId, out prior);
+            takeBackDeltas[action.ActionId] = prior + delta;
+            ParsekLog.Verbose(Tag,
+                $"Stock shadow: {action.Type} id={action.ActionId} ut={action.UT.ToString("R", IC)} " +
+                $"walkEffect={effect.ToString("R", IC)} stockPaid={shadowEffect.ToString("R", IC)} " +
+                $"takeBack={delta.ToString("R", IC)} (funds; {action.TakeBackWitness ?? "no witness"})");
+            return delta;
         }
 
         private void DispatchAction(GameAction action)

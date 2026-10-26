@@ -268,6 +268,22 @@ namespace Parsek
             RepayOfZeroedCrossing
         }
 
+        /// <summary>
+        /// A named first payment the book zeroed as a second first payment of its interval
+        /// (<see cref="BlockReason.SecondFirstPayment"/>): stock paid that interval as new
+        /// after an earlier capture had, so its band was lowered in between (the rewind
+        /// evidence). What the row's entry holds and which capture paid it first (design 3.15
+        /// step 5's take-back reads it).
+        /// </summary>
+        internal struct SecondFirstPayment
+        {
+            internal int Position;
+            internal float Funds;
+            internal float Rep;
+            internal float Science;
+            internal long HolderCaptureSequence;
+        }
+
         /// <summary>What the book decided for one row.</summary>
         internal struct RowCredit
         {
@@ -280,6 +296,8 @@ namespace Parsek
             /// <summary>Why each zeroed position was zeroed, parallel to the zeroed positions
             /// in <see cref="Positions"/> order.</summary>
             internal List<BlockReason> BlockReasons;
+            /// <summary>The entries zeroed as a second first payment, ascending.</summary>
+            internal List<SecondFirstPayment> SecondFirstPayments;
             /// <summary>True when the row named its thresholds; false when they were derived.</summary>
             internal bool Named;
             /// <summary>The first derived position minus one (derived rows only).</summary>
@@ -376,7 +394,8 @@ namespace Parsek
                 Positions = new List<int>(),
                 NewPositions = new List<int>(),
                 RepayPositions = new List<int>(),
-                BlockReasons = new List<BlockReason>()
+                BlockReasons = new List<BlockReason>(),
+                SecondFirstPayments = new List<SecondFirstPayment>()
             };
             if (row == null)
                 return credit;
@@ -453,6 +472,14 @@ namespace Parsek
                     continue;
                 }
                 credit.BlockReasons.Add(reason);
+                if (reason == BlockReason.SecondFirstPayment)
+                {
+                    credit.SecondFirstPayments.Add(new SecondFirstPayment
+                    {
+                        Position = e.Position, Funds = e.Funds, Rep = e.Rep, Science = e.Science,
+                        HolderCaptureSequence = blocker != null ? blocker.CaptureSequence : 0,
+                    });
+                }
                 if (blocker != null && blocker.Named && !blocker.Repay)
                 {
                     zeroedFunds += blocker.Funds;
