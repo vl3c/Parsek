@@ -752,7 +752,26 @@ onContractsLoaded (kspCurrent=4)`, each contract completes ONCE (one `'Achieve g
 DEDUPED re-fire), and the funds leak fell from 20160 to 9600. The 9600 that remains is a separate
 defect, CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED below, which keeps CS-3 red.
 
-## ~~CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED: a contract parameter's own completion reward is paid by stock but never booked~~ [FIXED 2026-10-26 in branch `contract-param-rewards`; live proof owed (CS-3's re-flight). FILED 2026-10-26 off CS-3's re-flight `2026-10-25_2353`, branch `cs3-career-contracts`. high (career economy)]
+## RECOVERY-BURST-CONTRACT-SCIENCE-RECONCILE: a contract completed by a recovery makes the post-walk science reconcile log ERROR and the science patch clamp [FILED 2026-10-26 off CS-3, branch `contract-param-rewards`. OPEN; medium (diagnostic noise at ERROR level, transient clamp)]
+
+When a recovery completes a contract (CS-3's SCIENCE contract completes on the recovered Goo), the
+recovery's subject science and the contract's own `ContractReward` science land in the same 0.2 s
+window, all untagged. The post-walk per-subject science reconcile counts the contract's science
+against the subject: `Science reconcile dump (post-walk): action=crewReport@KerbinFlyingLowShores
+reason='ScienceTransmission' window=[346.3,346.5] events=ut=346.4 key='VesselRecovery' delta=3.5 ...
+| ut=346.4 key='ContractReward' delta=2.0 ...` at ERROR, four times in one recovery, although the
+contract rows match that 2.0 separately (`Post-walk match: ContractParameterComplete sci ...
+observed=1.0`). In the same burst the science patch clamps both ways (`GUARDED UPLIFT clamped ...
+running=18.5 live=16.5`, then `GUARDED DRAWDOWN clamped ... running=26.5 live=28.5`) as the rows and
+stock's credits arrive in a different order; the final pool is right (LedgerGroundTruth closes).
+Present before the parameter-reward fix as well (run `2026-10-25_2353`: six dumps, clamps on all
+three pools). Never seen on L3 / HC-2, where no contract completes at the recovery.
+
+Fix: the subject reconcile must leave out `ContractReward`-keyed deltas the contract rows claim (or
+reconcile the window as one sum against every row in it), and the burst's patch should not run
+between a stock credit and the row that explains it. Gate: CS-3's existing forbidden tokens.
+
+## ~~CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED: a contract parameter's own completion reward is paid by stock but never booked~~ [FIXED 2026-10-26 in branch `contract-param-rewards`; LIVE-PROVEN on CS-3's re-flight (LedgerGroundTruth closes, `hardFailures=0`). FILED 2026-10-26 off CS-3's re-flight `2026-10-25_2353`, branch `cs3-career-contracts`. high (career economy)]
 
 Stock pays a contract in two places: each `ContractParameter` that completes pays its own
 `FundsCompletion` / `ScienceCompletion` / `ReputationCompletion` (via `AwardCompletion`, reason
