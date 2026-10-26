@@ -38,70 +38,91 @@ id = "SCI-1-science-reearned-after-rewind"
 #       intended ("Committing T0 retroactively reduced T1's effective from 10 to 5"), so
 #       the rule this lane pins needs an owner ruling before either side is changed.
 #
-# THE SHAPE. Host `career-science-pad` (L3's: the Jumping Flea on the pad, UT 9.06,
-# career). (1) The mission flies L3's hop with a Goo reading on the pad before ignition
-# (`padExperiments`) and a landed crew report; recovery credits both and the scene exit
-# auto-commits the recorded flight (the recording starts at first staging, after the pad
-# reading). (2) `InvokeRewindToLaunch tree=latest` from the Space Center: back to 15 s
-# before that launch (`RecordingStore.RewindToLaunchLeadTimeSeconds`), the Flea STRIPPED
-# from the save (`PreProcessRewindSave`), so the re-run launches a fresh library Jumping
-# Flea from the VAB (shared-ships row). (3) Recording off; launch; `PartAction
-# button=experiment part=GooExperiment all=true` presses both Goo units' DeployExperiment
-# (the Flea carries two, so `all=true` is required or the press refuses
+# THE SHAPE (re-cut 2026-10-26 onto the stock tree, see STATUS). Host `cs-science-new`
+# on `stock-tree` (CS-1's host: a genuine stock Science game, science 0, start node only,
+# the CS Flea in its own `Ships/VAB/`, stock's asteroid in orbit, so LoadGame forces the
+# Space Center). (1) CS-1's VAB launch of the CS Flea (three Goo units) and its hop, with
+# ONE Goo reading on the pad before ignition (`padExperiments`) and a landed crew report
+# only (`landedExperiments`: a landed Goo could roll the LaunchPad biome, L3's boundary,
+# and add a second reading of the subject under test); recovery credits both and the scene
+# exit auto-commits the recorded flight. (2) `InvokeRewindToLaunch tree=latest` from the
+# Space Center: back to 15 s before that flight's launch
+# (`RecordingStore.RewindToLaunchLeadTimeSeconds`), the Flea STRIPPED from the save
+# (`PreProcessRewindSave`). (3) Recording off; a fresh CS Flea from the VAB; `PartAction
+# button=experiment part=GooExperiment all=true` presses all THREE Goo units'
+# DeployExperiment (the verb has no per-unit selector: `part=` is a part NAME, `pid=` a
+# VESSEL, and three same-name candidates without `all=true` refuse
 # `partaction-part-arg-ambiguous`); a 1x wait to UT 200 lets stock create the data (the
-# deploy animation runs first) and the inspect read `exp:data=1` on both; `Recover` of
-# the pad vessel. Both readings are the pad subject `mysteryGoo@KerbinSrfLandedLaunchPad`.
-# (4) A third, unrecorded launch, a FLIGHT warp to UT 900 (past the committed recovery,
-# which is near UT 345-420; stock's recovery summary locks warp at the KSC), a save, and
-# the `LedgerGroundTruth` batch, whose at-clock walk is then a FULL walk with both
-# earnings in it (`RecoveredRecordingEvidence`: the recovered Flea never respawns).
+# deploy animation runs first) and the inspect read `exp:data=1` on all three; `Recover` of
+# the pad vessel. All three readings are the pad subject `mysteryGoo@KerbinSrfLandedLaunchPad`.
+# (4) A third, unrecorded VAB launch (a Science game charges nothing), a FLIGHT warp to UT
+# 900 (past the committed recovery, near UT 350-450; stock's recovery summary locks warp at
+# the KSC), a save, and the `LedgerGroundTruth` batch (it runs in a Science game since PR
+# #2272, `pools=science`), whose at-clock walk is then a FULL walk with every earning in it
+# (`RecoveredRecordingEvidence`: the recovered Flea never respawns). No funds anywhere.
 #
 # THE CONTRACTS AND WHY EACH IS SOUND.
 #   (B) required: `Applied committed science: mysteryGoo@KerbinSrfLandedLaunchPad`
 #       between `sci1-rewound` and `sci1-second-recovered`. On a fixed build the raise
-#       runs at the Goo press and the recovery. CAVEAT: the rate-limit key is shared by
-#       every subject, so a crew-report raise inside the previous 30 s would hide it; the
-#       fix should key the limit per subject (todo entry).
-#   (C) forbidden, the defect signature: the post-rewind untagged earning carries the
-#       SAME `awarded=` string as the pre-rewind tagged earning (backreference). Stock
-#       computes both from `subject.science = 0` when nothing raised it; with the raise
-#       the re-run's value is strictly smaller, so the strings cannot match.
+#       runs at the Goo press and at the first recovery submission. CAVEAT: the rate-limit
+#       key is shared by every subject, so a crew-report raise inside the previous 30 s
+#       would hide it; the fix should key the limit per subject (todo entry).
+#   (C) forbidden, the defect signature: a post-rewind untagged earning carries the SAME
+#       `awarded=` string as the pre-rewind tagged earning (backreference). Stock computes
+#       the re-run's FIRST reading and flight 1's reading from `subject.science = 0` when
+#       nothing raised it; with the raise every re-run reading is strictly smaller (below),
+#       so no string can match.
 #   (D) required: after `sci1-second-recovered`, the committed earning logs again with
 #       the pre-rewind `awarded`, `effective` and recordingId (all three
 #       backreferenced), i.e. un-capped; and forbidden: the same earning in the
 #       `Earning (cap hit):` form after that mark.
-#   Premise lines: the first flight's tagged Goo capture, the rewind, two VAB launches,
-#   both Goo presses, both canisters holding data, the untagged KSC science row.
+#   Premise lines: flight 1's tagged Goo capture, the rewind, three VAB launches, the
+#   three-unit Goo press, all three canisters holding data, the untagged KSC science row,
+#   the ground truth running in SCIENCE_SANDBOX.
 #
 # PREDICTED NUMBERS (measured on first flight). `mysteryGoo@KerbinSrfLandedLaunchPad`:
-# HC-2 read `increment=3.60 total=3.6` on that subject, so the first reading is predicted
-# 3.6 subject units, cap about 4.68 (Goo scienceCap / baseValue 13 / 10). Owner rule: re-run
-# pays about 0.83 + 0.04, committed effective stays 3.6. Defect: re-run pays 3.6 + 0.83,
-# committed capped to about 0.25.
+# HC-2 read `increment=3.60 total=3.6` on that subject, so a first reading is predicted 3.6
+# subject units (B), cap C = 4.68 (B x Goo scienceCap / baseValue 13 / 10). Stock pays each
+# reading B x (1 - science / C) and adds it to `subject.science`, one `SubmitScienceData`
+# per canister in order, so the headroom C - science shrinks by 1 - B/C = 3/13 per reading.
+# From 0 three readings pay 3.6, 0.83, 0.19 (headroom 4.68 -> 1.08 -> 0.249 -> 0.0575);
+# from a raised 3.6 they pay 0.83, 0.19, 0.044. Owner rule: the re-run pays about 1.07,
+# the committed earning's headroom is 4.68 - 1.067 = 3.613 >= 3.6, so it stays un-capped
+# by 0.013 (1.08 x (3/13)^3), far above float noise. Defect: the re-run pays 3.6 + 0.83 +
+# 0.19 = 4.62 at the earlier UT and the committed earning is capped to about 0.058.
 #
 # PRE-REGISTERED READINGS. `recover-button-locked` on the second Recover (stock's
 # experiment results dialog is up): a seam limit, not Parsek. `partaction-event-unavailable`
 # on the Goo press (the launch came up uncrewed and stock hides the event): a premise miss.
-# `backward-warp` on the UT 200 wait (the rewound clock was later than estimated: rewind
-# target about UT 5-35, plus the KSC / VAB time): raise the target, keep it below the
-# committed recovery UT. (B) alone red with (C) silent and (D) green: the rate limit hid
-# the line. (D) red with `headroom` within 1e-5 of `awarded`: float rounding, not the
-# defect. An untagged row carrying a 32-hex recordingId: the re-run was tagged to the
-# first flight, a second defect.
+# `partaction applied ... count=` other than 3: the craft lost a Goo unit at load (CS-1's
+# missing `link` trap). `backward-warp` on the UT 200 wait (the rewound clock was later
+# than estimated: rewind target about UT 0-40, plus the KSC / VAB time): raise the target,
+# keep it below the committed recovery UT. (B) alone red with (C) silent and (D) green: the
+# rate limit hid the line. (D) red with `headroom` within 1e-5 of `awarded`: float
+# rounding, not the defect. An untagged row carrying a 32-hex recordingId: the re-run was
+# tagged to the first flight, a second defect.
 #
-# STATUS: NOT YET FLOWN. Authored 2026-10-25 (branch `sci1-local`), never flown;
-# `operator` and `pending-flight` until the first flight reads the shape. Every pin is a
-# regex; nothing numeric is pinned.
+# STATUS: NOT YET FLOWN IN THIS SHAPE. Authored 2026-10-25 (branch `sci1-local`) on
+# `career-science-pad` (stock-minimal). First flight (owner's PC, main after PR #2273, stock
+# DLL) INVALID on both attempts on a LANE-AUTHORING fault: the rewind worked
+# (`invokerewindtolaunch complete ... adjustedUT=0.0`), but the post-rewind
+# LaunchFromEditor (flea2) went ERROR after 180 s on stock's `[Pre-Flight Check]: Checking
+# for ExperimentalPartsAvailable: FAIL!`: stock-minimal loads ProbesBeforeCrew, which locks
+# the Jumping Flea's Mk1 pod and Mk16 chute in the VAB (the ZF-1 trap,
+# `fixtures/shared-ships.toml`); the Goo steps then timed out and Recover had no
+# `${flea2.pid}`. Re-cut 2026-10-26 onto `cs-science-new` / `stock-tree`, where CS-1 flew
+# this exact VAB launch PASS (`2026-10-25_2243`); the career-science-pad shared-ships row
+# went with it. `operator` and `pending-flight` until the first flight reads the shape.
+# Every pin is a regex; nothing numeric is pinned.
 tier = "operator"
-description = "Science re-earned after Rewind-to-Launch: a committed hop earns the pad Goo subject, the player rewinds and re-earns it on an unrecorded pad re-run before the committed earning UT; the re-run must be paid only the remainder (ScienceSubjectPatch raise) and the committed flight must keep its full effective credit in the ledger walk."
-instanceProfile = "stock-minimal"
-tags = ["SCI-1", "science", "rewind", "rewind-to-launch", "career", "ledger", "recovery",
-        "editor", "pending-flight"]
+description = "Science re-earned after Rewind-to-Launch, in a stock Science game: a committed CS Flea hop earns the pad Goo subject, the player rewinds and re-earns it with three Goo readings on an unrecorded pad re-run before the committed earning UT; the re-run must be paid only the remainder (ScienceSubjectPatch raise) and the committed flight must keep its full effective credit in the ledger walk."
+instanceProfile = "stock-tree"
+tags = ["SCI-1", "science", "science-mode", "rewind", "rewind-to-launch", "ledger",
+        "ground-truth", "recovery", "editor", "pending-flight"]
 
 [fixture]
-# L3's host. The library Jumping Flea for the two VAB launches arrives through
-# `fixtures/shared-ships.toml`.
-saveTemplate = "fixtures/saves/career-science-pad"
+# CS-1's host; the CS Flea lives in the fixture's own `Ships/VAB/`.
+saveTemplate = "fixtures/saves/cs-science-new"
 injectedRecordings = "none"
 craft = []
 
@@ -109,15 +130,19 @@ craft = []
 kind    = "autopilot"
 mission = "science_bench_recover"
 
-# Budget arithmetic: 300 LoadGame + 1440 mission + 300 rewind + 2 x (120 GoToEditor +
-# 180 LaunchFromEditor) + 300 1x wait + 120 Recover + 120 warp + 120 save + 540 RunTests
-# = 3960; runtime 4500 adds the inert steps and FlushAndQuit.
+# Budget arithmetic: 300 LoadGame + 3 x (120 GoToEditor + 180 LaunchFromEditor) + 1440
+# mission + 300 rewind + 300 1x wait + 120 Recover + 120 warp + 120 save + 540 RunTests
+# = 4140; runtime 4800 adds the inert steps and FlushAndQuit.
 steps = [
-  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent" },    expect = "OK", budget = 300 },
+  # scene = "spacecenter": the host holds stock's asteroid, which would otherwise boot the
+  # load into FLIGHT on it, where GoToEditor refuses (CS-1's first flight).
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
   { cmd = "SetSetting",       args = { name = "autoMerge",          value = "true" }, expect = "OK" },
   { cmd = "SetSetting",       args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
   # ---- flight 1: the committed earning ----
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "CS Flea" },       expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                       expect = "OK", budget = 180 },
   { phase = "mission",                                                              expect = "MISSION-OK", budget = 1440 },
   # The recovery leaves FLIGHT, so the tree auto-commits at the scene exit (L3's shape).
   { cmd = "CommitTree",                                                             expect = "REJECTED" },
@@ -130,8 +155,10 @@ steps = [
   { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting",       args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
   # ---- flight 2: the re-run on the pad, before the committed earning UT ----
-  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "Jumping Flea" },  expect = "OK", budget = 120 },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "CS Flea" },       expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor", label = "flea2",                                       expect = "OK", budget = 180 },
+  # all=true is required: the CS Flea carries three GooExperiment parts and the verb has
+  # no per-unit selector, so all three pad readings are taken (arithmetic in the header).
   { cmd = "PartAction",       args = { button = "experiment", part = "GooExperiment", all = "true" }, expect = "OK" },
   # 1x: stock's results dialog follows the data, and a 1x wait ignores a TIMEWARP lock.
   { cmd = "WarpToUT",         args = { ut = "200", maxRate = "1" },                 expect = "OK", budget = 300 },
@@ -139,7 +166,7 @@ steps = [
   { cmd = "Recover",          args = { pid = "${flea2.pid}" },                      expect = "OK", budget = 120 },
   { cmd = "MissionMark",      args = { label = "sci1-second-recovered" },           expect = "OK" },
   # ---- flight 3: past the committed recovery, then the ground truth ----
-  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "Jumping Flea" },  expect = "OK", budget = 120 },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "CS Flea" },       expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor",                                                       expect = "OK", budget = 180 },
   { cmd = "WarpToUT",         args = { ut = "900" },                                expect = "OK", budget = 120 },
   { cmd = "MissionMark",      args = { label = "sci1-past-first-recovery" },        expect = "OK" },
@@ -148,9 +175,9 @@ steps = [
   { cmd = "FlushAndQuit",                                                           expect = "OK" },
 ]
 
-# The flight half is L3's, key for key, plus CS-1's staged pad reading. transmit 0: the
-# re-earn is about the RECOVERY credit, and a transmitted Goo would credit at a
-# different UT through a different path.
+# The flight half is CS-1's, key for key (same craft, same pad, same hop), with the
+# readings cut to ONE pad Goo and a landed crew report. transmit 0: the pod's INTERNAL
+# antenna cannot send science, and the re-earn is about the RECOVERY credit anyway.
 [driver.missionParams]
 throttle                 = 1.0
 apoapsisWindowMeters     = { min = 6000, max = 30000 }
@@ -162,6 +189,8 @@ coastTimeoutSeconds      = 180
 descentTimeoutSeconds    = 360
 padExperiments           = ["mysteryGoo"]
 padCollectTimeoutSeconds = 60
+# Narrowed so the landed sweep runs no Goo: the hop can come down on the LaunchPad biome
+# (L3's boundary roll) and a landed Goo there would be a second reading of the subject.
 landedExperiments        = ["crewReport"]
 # 1 pad Goo + 1 landed crew report.
 collectMinExperiments = 2
@@ -169,19 +198,23 @@ collectTimeoutSeconds = 120
 transmitMaxExperiments = 0
 transmitMinScienceGain = 0.5
 transmitTimeoutSeconds = 120
-recoverMinFundsGain   = 1.0
+# Science game: no funds pool. The recovery is proven by the science pool rising across
+# it; the pad Goo alone is worth 3.6.
+recoverCreditPool     = "science"
+recoverMinScienceGain = 1.0
+recoverMinFundsGain   = 0.0
 recoverTimeoutSeconds = 180
 
 [dimensionsCovered]
 D8  = ["science", "recalc-engine", "ksp-state-patcher", "ground-truth-harness"]
 D9  = ["rewind-to-launch"]
-D14 = ["kerbin", "career", "scene-flight", "scene-ksc"]
+D14 = ["kerbin", "science-mode", "scene-flight", "scene-ksc"]
 
 [expectations]
 allowedAnomalies = []
 
 [expectations.recordings]
-# Flight 1 only (L3 measured 2 on this hop); flights 2 and 3 are unrecorded.
+# Flight 1 only (CS-1 measured within 1..2 on this hop); flights 2 and 3 are unrecorded.
 count = { min = 1, max = 2 }
 
 [expectations.logContracts]
@@ -189,15 +222,18 @@ required = [
   # Premise: flight 1's pad Goo credited on recovery, tagged to the live recording.
   "Science subject captured: mysteryGoo@KerbinSrfLandedLaunchPad amount=[0-9.]+ increment=[0-9.]+ total=[0-9.]+ gainMultiplier=[0-9.]+ reason='VesselRecovery' ut=[0-9.]+ tag='[0-9a-f]{32}'",
   "MISSIONMARK label=sci1-first-committed ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=sci1-rewound ut=",
-  "\\A(?:[\\s\\S]*?launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH){2}",
-  "MISSIONMARK label=sci1-rewound ut=[\\s\\S]*?partaction applied button=experiment pid=[0-9]+ part='GooExperiment' [^\\r\\n]* count=2 ",
-  "MISSIONMARK label=sci1-rewound ut=[\\s\\S]*?partaction applied button=inspect pid=[0-9]+ part='GooExperiment' [^\\r\\n]*state='[0-9]+:[^'|\\r\\n]*exp:data=1[^'|\\r\\n]*\\| [0-9]+:[^'|\\r\\n]*exp:data=1",
+  "\\A(?:[\\s\\S]*?launchfromeditor complete scene=FLIGHT vessel=CS Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH){3}",
+  "MISSIONMARK label=sci1-rewound ut=[\\s\\S]*?partaction applied button=experiment pid=[0-9]+ part='GooExperiment' [^\\r\\n]* count=3 ",
+  "MISSIONMARK label=sci1-rewound ut=[\\s\\S]*?partaction applied button=inspect pid=[0-9]+ part='GooExperiment' [^\\r\\n]*state='[0-9]+:[^'|\\r\\n]*exp:data=1[^'|\\r\\n]*\\| [0-9]+:[^'|\\r\\n]*exp:data=1[^'|\\r\\n]*\\| [0-9]+:[^'|\\r\\n]*exp:data=1",
   # (c) the re-run's recovery science is an untagged direct ledger row.
   "MISSIONMARK label=sci1-rewound ut=[\\s\\S]*?KSC science recorded: subject='mysteryGoo@KerbinSrfLandedLaunchPad' science=[^ ]+ method=[A-Za-z]+ ut=[0-9.]+ recordingId=\\(none\\) vessel='[^'\\r\\n]*'[\\s\\S]*?MISSIONMARK label=sci1-second-recovered ut=",
   # (B) the raise: stock is told the subject is already credited.
   "MISSIONMARK label=sci1-rewound ut=[\\s\\S]*?Applied committed science: mysteryGoo@KerbinSrfLandedLaunchPad [\\s\\S]*?MISSIONMARK label=sci1-second-recovered ut=",
   # (D) the committed earning keeps its pre-rewind awarded / effective, un-capped.
   "\\[ScienceModule\\] Earning: subject=mysteryGoo@KerbinSrfLandedLaunchPad, awarded=([^,]+), effective=([^,]+), [^\\r\\n]*?recordingId=([0-9a-f]{32})[\\s\\S]*?MISSIONMARK label=sci1-rewound ut=[\\s\\S]*?MISSIONMARK label=sci1-second-recovered ut=[\\s\\S]*?\\[ScienceModule\\] Earning: subject=mysteryGoo@KerbinSrfLandedLaunchPad, awarded=\\1, effective=\\2, [^\\r\\n]*?recordingId=\\3",
+  # The ground truth RAN in the Science game (not skipped), on the science pool alone.
+  "ground-truth game mode=SCIENCE_SANDBOX pools=science",
+  # Never flown on this host: total pinned, the rest regexed (CS-2 read passed=2 skipped=1).
   "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
   "result: hardFailures=0 ",
 ]
@@ -211,7 +247,7 @@ forbidden = [
 ]
 
 [runtime]
-budgetSeconds = 4500
+budgetSeconds = 4800
 
 [retry]
 policy = "once"
