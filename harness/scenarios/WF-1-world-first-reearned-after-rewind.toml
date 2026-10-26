@@ -66,8 +66,12 @@ tier = "operator"
 # from the cursor, `reason=flight-clock`, or at the warp exit, `reason=deferred-patch`), the
 # flight-1 credit, and no leak line.
 #
-# STATUS: NOT YET GREEN. Authored 2026-10-25 (branch `wf1-local`), tier operator, tag
-# pending-flight. First flight 2026-10-25 INVALID at flight 1's Recover: the spec committed
+# STATUS: LIVE-PROVEN 2026-10-26 on the world-first fix (#2281), run `2026-10-26_0359_WF-1-world-first-reearned-after-rewind_run2` PASS attempt 1 (211 s, main a0c7e976 with #2281, DLL 08f49cc2):
+# after the rewind `[CommittedMilestones] Apply: marked 2 stock progress node(s) complete without
+# reward ... (reason=flight-clock ...) ids=[Kerbin/SurfaceEVA, Kerbin/FlagPlant]` at clock 62.4,
+# no FlagPlant / SurfaceEVA MilestoneAchieved after the rewind, zero `reason=leak` lines,
+# LedgerGroundTruth `hardFailures=0`, batch `total=3 passed=3 failed=0 skipped=0` (pinned whole),
+# 8 recordings. Authored 2026-10-25 (branch `wf1-local`), tier operator. First flight 2026-10-25 INVALID at flight 1's Recover: the spec committed
 # in flight first, the committed-spawned restore re-adopted the tree 6 ms later (the pod was
 # still live on the pad, a designed resume), and the exit gate refused the Recover with no
 # autoMerge (`recover rejected reason=dialog-required variant=RegularMerge`). Re-cut to the
@@ -105,7 +109,7 @@ tier = "operator"
 description = "Career world-first re-earned after a rewind: plant a flag on the pad in a recorded, committed flight (Kerbin/FlagPlant), rewind to its launch, plant again in a second flight, and check the committed flight keeps the credit, stock pays the second flight nothing (the node is marked complete once the clock passes the committed row), and the reward is paid once (no kept stock-pool leak), then run LedgerGroundTruth."
 instanceProfile = "stock-minimal"
 tags = ["WF1", "career", "ledger", "milestone", "rewind", "flag-plant", "eva", "editor",
-        "ingame-batch", "ground-truth", "pending-flight"]
+        "ingame-batch", "ground-truth", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/gloops-airshow-career"
@@ -205,7 +209,7 @@ required = [
   "Game state: MilestoneAchieved 'Kerbin/FlagPlant' \\(awaiting reward enrichment\\)[\\s\\S]*\\[Rewind\\] Rewind-to-Launch initiated to UT ",
   "\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*\\[CommittedMilestones\\] Apply: marked [0-9]+ stock progress node\\(s\\) complete without reward[^\\n]*reason=(?:flight-clock|deferred-patch)[^\\n]*ids=\\[[^\\]\\n]*Kerbin/FlagPlant",
   "Credited milestone 'Kerbin/FlagPlant' at UT=(?:[6-9][0-9]|[1-5][0-9]{2})\\.[0-9] \\(recording=[0-9a-f]{32},",
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
   "result: hardFailures=0 ",
 ]
 forbidden = [

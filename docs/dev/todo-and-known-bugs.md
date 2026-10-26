@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~WORLD-FIRST-REEARNED-AFTER-REWIND-PAID-AGAIN: a world-first milestone earned on a committed flight is paid again when a later flight re-earns it after a Rewind-to-Launch~~ [FIXED 2026-10-26 in branch `wfx-local` (unit cells in `CommittedMilestoneReachTests`), NOT LIVE-PROVEN: WF-1 to re-fly. FILED 2026-10-26 from WF-1's third flight (DLL 86028f41), branch `claude/project-thread-25edvc`; product, high (a repeatable funds gain across a rewind)]
+## ~~WORLD-FIRST-REEARNED-AFTER-REWIND-PAID-AGAIN: a world-first milestone earned on a committed flight is paid again when a later flight re-earns it after a Rewind-to-Launch~~ [FIXED 2026-10-26 in branch `wfx-local` (unit cells in `CommittedMilestoneReachTests`); LIVE-PROVEN on WF-1 `2026-10-26_0359_..._run2` PASS (both nodes marked after the rewind, zero leak lines, ground truth `hardFailures=0`). FILED 2026-10-26 from WF-1's third flight (DLL 86028f41), branch `claude/project-thread-25edvc`; product, high (a repeatable funds gain across a rewind)]
 
 Observed (WF-1-world-first-reearned-after-rewind, host `gloops-airshow-career`): flight 1 plants a
 flag on the pad (`Kerbin/FlagPlant`, `Milestone enriched: 'Kerbin/FlagPlant' funds=1600 rep=0.0
