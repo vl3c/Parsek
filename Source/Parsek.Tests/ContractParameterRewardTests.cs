@@ -767,14 +767,72 @@ namespace Parsek.Tests
         [InlineData((int)KspStatePatcher.StockContractParameterState.NotComplete, 200.0, 150.0, (int)KspStatePatcher.ContractParameterPatchDecision.AfterClock)]
         // Within the accept-clock tolerance counts as reached.
         [InlineData((int)KspStatePatcher.StockContractParameterState.NotComplete, 150.5, 150.0, (int)KspStatePatcher.ContractParameterPatchDecision.CompleteSilently)]
-        // NaN clock (a cutoff walk, or OnLoad) filters nothing, like the accept filter.
-        [InlineData((int)KspStatePatcher.StockContractParameterState.NotComplete, 200.0, double.NaN, (int)KspStatePatcher.ContractParameterPatchDecision.CompleteSilently)]
+        // No real clock (OnLoad, a clockless full replay): nothing is completed - the write
+        // persists in stock's save and has no undo. Unlike the accept filter.
+        [InlineData((int)KspStatePatcher.StockContractParameterState.NotComplete, 200.0, double.NaN, (int)KspStatePatcher.ContractParameterPatchDecision.ClockNotReady)]
+        [InlineData((int)KspStatePatcher.StockContractParameterState.NotComplete, 50.0, double.NaN, (int)KspStatePatcher.ContractParameterPatchDecision.ClockNotReady)]
+        [InlineData((int)KspStatePatcher.StockContractParameterState.NotComplete, 50.0, 0.0, (int)KspStatePatcher.ContractParameterPatchDecision.ClockNotReady)]
+        [InlineData((int)KspStatePatcher.StockContractParameterState.NotComplete, 50.0, double.PositiveInfinity, (int)KspStatePatcher.ContractParameterPatchDecision.ClockNotReady)]
         public void DecideContractParameterPatch_Table(
             int stock, double creditedUT, double clockUT, int expected)
         {
             Assert.Equal((KspStatePatcher.ContractParameterPatchDecision)expected,
                 KspStatePatcher.DecideContractParameterPatch(
                     (KspStatePatcher.StockContractParameterState)stock, creditedUT, clockUT));
+        }
+
+        // catches: review blocker 1 - a clockless patch (OnLoad's full replay credits every
+        // committed-future row) completing future parameters in stock for good.
+        [Fact]
+        public void PlanContractParameterPatch_NaNClock_CompletesNothing()
+        {
+            var credited = new List<CreditedContractParameter>
+            {
+                new CreditedContractParameter { ContractId = "c1", ParameterId = "0", UT = 10 },
+                new CreditedContractParameter { ContractId = "c1", ParameterId = "1", UT = 1e7 },
+            };
+            var plan = KspStatePatcher.PlanContractParameterPatch(credited,
+                (c, p) => KspStatePatcher.StockContractParameterState.NotComplete, double.NaN);
+
+            Assert.Empty(plan.ToComplete);
+            Assert.Equal(2, plan.ClockNotReady);
+        }
+
+        [Theory]
+        // A real walk cutoff is the walk's now.
+        [InlineData(120.0, double.NaN, 120.0)]
+        [InlineData(120.0, 500.0, 120.0)]
+        // No cutoff: the committed-row clock (caller or live clock).
+        [InlineData(null, 500.0, 500.0)]
+        // No cutoff and no clock (OnLoad): no clock at all.
+        [InlineData(null, double.NaN, double.NaN)]
+        [InlineData(0.0, double.NaN, double.NaN)]
+        [InlineData(double.NaN, double.NaN, double.NaN)]
+        public void ResolveContractParameterClockUT_CutoffElseCommittedRowClock(
+            double? walkCutoff, double committedRowClock, double expected)
+        {
+            double got = KspStatePatcher.ResolveContractParameterClockUT(walkCutoff, committedRowClock);
+            if (double.IsNaN(expected))
+                Assert.True(double.IsNaN(got));
+            else
+                Assert.Equal(expected, got);
+        }
+
+        // catches: review blocker 2 - every required parameter Complete but the contract left
+        // Active (never paid, later expired), and the mirror: re-evaluating a contract the
+        // ledger already ended, which would pay its reward twice.
+        [Theory]
+        [InlineData(true, false, 2, 2, 0, true)]   // all top-level Complete: stock completes it
+        [InlineData(true, false, 2, 1, 0, false)]  // one still open: nothing to do
+        [InlineData(true, false, 2, 1, 1, true)]   // a group with every child Complete may complete
+        [InlineData(true, true, 2, 2, 0, false)]   // the ledger ended it: never re-evaluated
+        [InlineData(false, false, 2, 2, 0, false)] // stock has it no longer Active
+        [InlineData(true, false, 0, 0, 0, false)]  // a contract with no parameters
+        public void NeedsStockContractReEvaluation_Table(bool active, bool ledgerTerminal,
+            int topCount, int topComplete, int satisfiedGroups, bool expected)
+        {
+            Assert.Equal(expected, KspStatePatcher.NeedsStockContractReEvaluation(
+                active, ledgerTerminal, topCount, topComplete, satisfiedGroups));
         }
 
         [Fact]

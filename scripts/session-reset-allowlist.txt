@@ -58,6 +58,7 @@ KspStatePatcher.ActiveClockCrossing scoped: set around one clock-advance patch (
 KspStatePatcher.AllowNegativeCurrencyProviderForTesting test seam
 KspStatePatcher.contractParameterStateField process-lifetime reflection cache of a stock field
 KspStatePatcher.contractParameterStateReflectionWarnEmitted once-per-process latch of a reflection-failure Warn
+KspStatePatcher.ContractReEvaluationDeferForTesting test seam
 KspStatePatcher.IC constant culture
 KspStatePatcher.stockContractsLoadedHandler process-lifetime GameEvents subscription; the deferred patch state it reads is reset
 KspStatePatcher.PartPurchaseLiveUtProviderForTesting test seam

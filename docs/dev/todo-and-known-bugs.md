@@ -739,18 +739,52 @@ crosses it left stock's parameter Incomplete with its rewards set, so a re-fly c
 parameter later got paid by stock again while the ledger's second row was not counted (and the
 guard kept the payment as an adjustment). `KspStatePatcher.PatchContracts` now runs
 `PatchContractParameters` after the active-contract restore: every parameter the walk credited
-(`ContractsModule.GetCreditedParameters`) at or before the committed-row clock (the accept-clock
-rule; NaN filters nothing) whose stock contract is Active and whose parameter is not Complete is
+(`ContractsModule.GetCreditedParameters`) at or before the parameter clock whose stock contract is
+Active and whose parameter is not Complete is
 put in stock's own post-payment state without paying: the protected `state` field set Complete by
 reflection (no setter; one-shot Warn on failure), the three rewards zeroed, `Disable()` when
 `DisableOnStateChange` (what `SetComplete` does after `AwardCompletion`). No `AwardCompletion`,
 `OnStateChange`, `onParameterChange` or parent `ParameterStateUpdate` fires. One line per patch:
 `PatchContracts: credited contract parameters completedSilently=N, alreadyComplete=N,
-unresolved=N, contractNotActive=N, afterClock=N, writeFailed=N`. Two rows for one parameter keep
-the first-in-walk-order rule (the earlier UT counts). Not done: a parameter stock shows Complete
-that the ledger no longer credits is NOT un-completed (a supersede or rewind restores stock from a
-quicksave, so that state needs a tombstone without a reload; then stock will not pay that
-parameter again and the ledger holds no row for it). xUnit:
+unresolved=N, contractNotActive=N, afterClock=N, clockNotReady=N, writeFailed=N,
+reEvaluateNextFrame=N, ledgerTerminal=N`. Two rows for one parameter keep the first-in-walk-order
+rule (the earlier UT counts).
+
+Second review (42ca17676), two follow-ups. (1) The write persists in stock's save
+(`ContractParameter.Save`) and has no undo, so it needs a real clock:
+`ResolveContractParameterClockUT` takes the walk's own cutoff, else the committed-row clock, and a
+NaN / non-positive / sentinel clock completes nothing (`clockNotReady`). That covers OnLoad (the
+committed-row clock is NaN there and a boot load's full replay credits every committed-future row)
+and the deferred onContractsLoaded run, which keeps the clock it was given. Chosen over reading
+`Planetarium.GetUniversalTime()` at the deferred run because the live clock during and just after
+a load can still be the previous game's (the reason the accept filter is NaN there); a skipped
+completion is retried by the next patch with a real clock, a wrong one cannot be taken back. The
+cost: between a load and that next patch a live completion of a credited parameter would still be
+paid twice. (2) Stock completes a contract only from the parent `ParameterStateUpdate` that
+`SetComplete` runs after paying (`Contract.OnParameterStateChange` sets Completed once every
+top-level parameter is Complete; a group parameter completes from its own override), so a silent
+write could leave every required parameter Complete and the contract Active for good (no reward,
+then a deadline failure). After the silent pass, every stock-Active contract with a credited
+parameter that the ledger has not ended and whose top-level parameters are all Complete, or that
+holds a not-Complete group parameter whose children are all Complete
+(`NeedsStockContractReEvaluation`), is handed back to stock one frame later
+(`WarpToTimeConsumer.RunNextFrame`, outside the patch and its replay guard): each satisfied group's
+`ParameterStateUpdate` (deepest first), then the contract's. It runs in the recorder's clock-cause
+scope, so the group or contract reward stock then pays and its ContractCompleted are filed
+untagged. A contract the ledger already ended is never re-evaluated: the patch removed it from
+stock's Active list before this pass, and the ledger-terminal set is checked again (no double
+contract reward). Lines: `PatchContracts: re-evaluated contract <guid> ... state=<state>` and
+`PatchContracts: contract re-evaluation reEvaluated=N, completedByStock=N, skipped=N`. No frame host
+or a running replay skips it; the next patch retries (the decision reads stock's state).
+
+Not done: (a) a parameter stock shows Complete that the ledger no longer credits is NOT
+un-completed (a supersede or rewind restores stock from a quicksave, so that state needs a
+tombstone without a reload; then stock will not pay that parameter again and the ledger holds no
+row for it). (b) A silently completed parameter with `DisableOnStateChange = false` stays enabled
+(stock leaves it so too after paying), and its `OnUpdate` can `SetIncomplete` it later; a later
+re-completion then pays 0 (its rewards were zeroed, as stock's own were), so no double pay, but
+stock's parameter can flip back. (c) A group parameter that completes on fewer than all of its
+children is not re-evaluated. xUnit:
 `ContractParameterRewardTests` (CS-3 numbers walk to +5280 / +2 sci / about +2 rep for
 FIRSTLAUNCH). Live proof owed: CS-3's re-flight (`hardFailures=0`, a `ContractParameterCompleted`
 line before each `'Achieve goal' complete!`).

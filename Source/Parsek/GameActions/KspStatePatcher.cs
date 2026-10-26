@@ -117,7 +117,10 @@ namespace Parsek
                 // clock is still the pre-load one there).
                 double committedRowClockUT = ResolveContractAcceptClockUT(walkUtCutoff, deadlineClockUT,
                     ParsekScenario.IsOnLoadInProgress, ParsekScenario.GetCurrentTimelineUTForLedgerRecalc);
-                PatchContracts(contracts, committedRowClockUT);
+                // Parameter completion writes stock state that persists and has no undo, so
+                // it needs a real clock: the walk's own cutoff, else the committed-row clock.
+                double parameterClockUT = ResolveContractParameterClockUT(walkUtCutoff, committedRowClockUT);
+                PatchContracts(contracts, committedRowClockUT, parameterClockUT);
                 // After funds (the walk already charged the setup cost; this path charges
                 // nothing) and facilities (the Administration level). Null skips it, which
                 // is what callers that do not own a strategies module pass.
@@ -3860,7 +3863,8 @@ namespace Parsek
         /// CRITICAL: Contract.Load mutates the input ConfigNode by removing the "type"
         /// value, so we always clone the snapshot before passing it to the load pipeline.
         /// </summary>
-        internal static void PatchContracts(ContractsModule contracts, double acceptClockUT = double.NaN)
+        internal static void PatchContracts(ContractsModule contracts, double acceptClockUT = double.NaN,
+            double parameterClockUT = double.NaN)
         {
             ContractPatchTiming timing = DecideContractPatchTiming(
                 ContractSystem.Instance != null, ContractSystem.loaded);
@@ -3872,10 +3876,10 @@ namespace Parsek
             }
             if (timing == ContractPatchTiming.DeferUntilStockLoaded)
             {
-                DeferContractPatchUntilStockLoaded(contracts, acceptClockUT);
+                DeferContractPatchUntilStockLoaded(contracts, acceptClockUT, parameterClockUT);
                 return;
             }
-            PatchContractsCore(contracts, acceptClockUT);
+            PatchContractsCore(contracts, acceptClockUT, parameterClockUT);
         }
 
         /// <summary>When a contract patch may run against stock's live contract list.</summary>
@@ -3910,17 +3914,19 @@ namespace Parsek
         private static bool contractPatchDeferred;
         private static ContractsModule deferredContractPatchModule;
         private static double deferredContractPatchClockUT = double.NaN;
+        private static double deferredContractParameterClockUT = double.NaN;
         // A cached lambda, never a static method group: EventVoid.Add rejects a delegate
         // with a null Target.
         private static EventVoid.OnEvent stockContractsLoadedHandler;
 
         private static void DeferContractPatchUntilStockLoaded(
-            ContractsModule contracts, double acceptClockUT)
+            ContractsModule contracts, double acceptClockUT, double parameterClockUT)
         {
             bool alreadyDeferred = contractPatchDeferred;
             contractPatchDeferred = true;
             deferredContractPatchModule = contracts;
             deferredContractPatchClockUT = acceptClockUT;
+            deferredContractParameterClockUT = parameterClockUT;
             if (stockContractsLoadedHandler == null)
             {
                 stockContractsLoadedHandler = () => OnStockContractsLoaded();
@@ -3940,8 +3946,10 @@ namespace Parsek
             contractPatchDeferred = false;
             ContractsModule module = deferredContractPatchModule;
             double clockUT = deferredContractPatchClockUT;
+            double parameterClockUT = deferredContractParameterClockUT;
             deferredContractPatchModule = null;
             deferredContractPatchClockUT = double.NaN;
+            deferredContractParameterClockUT = double.NaN;
             if (ContractSystem.Instance == null)
             {
                 ParsekLog.Verbose(Tag,
@@ -3953,7 +3961,7 @@ namespace Parsek
                 $"(kspCurrent={(ContractSystem.Instance.Contracts != null ? ContractSystem.Instance.Contracts.Count : 0).ToString(IC)})");
             // Stock fires onContractsLoaded before it sets loaded = true, so run the core
             // directly rather than re-entering the timing gate.
-            PatchContractsCore(module, clockUT);
+            PatchContractsCore(module, clockUT, parameterClockUT);
         }
 
         internal static void ResetDeferredContractPatch()
@@ -3961,9 +3969,11 @@ namespace Parsek
             contractPatchDeferred = false;
             deferredContractPatchModule = null;
             deferredContractPatchClockUT = double.NaN;
+            deferredContractParameterClockUT = double.NaN;
         }
 
-        private static void PatchContractsCore(ContractsModule contracts, double acceptClockUT)
+        private static void PatchContractsCore(ContractsModule contracts, double acceptClockUT,
+            double parameterClockUT)
         {
             if (contracts == null)
             {
@@ -4242,7 +4252,7 @@ namespace Parsek
             // 2b. A parameter reward the ledger credited at or before the clock must not be
             // payable again: mark that stock parameter Complete the way stock leaves it after
             // paying, without paying.
-            PatchContractParameters(contracts, currentContracts, acceptClockUT);
+            PatchContractParameters(contracts, currentContracts, parameterClockUT);
 
             // 3. Fire contracts loaded event so UI refreshes
             try
@@ -4374,23 +4384,46 @@ namespace Parsek
             AlreadyComplete,
             Unresolved,
             ContractNotActive,
-            AfterClock
+            AfterClock,
+            ClockNotReady
         }
 
         /// <summary>
-        /// Pure: what the contract patch does with one parameter the walk credited. A row
-        /// after the clock waits (the same committed-row clock rule as
-        /// <see cref="SelectContractsAcceptedByNow"/>: NaN or a not-ready clock filters
-        /// nothing). Otherwise a stock parameter that is not Complete is completed without
-        /// payment, so stock cannot pay the reward the ledger already holds a second time
-        /// (CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED review).
+        /// Pure: the clock credited parameter rows are held against. A walk with a real
+        /// cutoff credited nothing after it, so the cutoff is its now; otherwise the
+        /// committed-row clock (<see cref="ResolveContractAcceptClockUT"/>: the caller's clock
+        /// or the live one, NaN while OnLoad runs). NaN when neither is a real clock.
+        /// </summary>
+        internal static double ResolveContractParameterClockUT(double? walkUtCutoff, double committedRowClockUT)
+        {
+            if (walkUtCutoff.HasValue && IsRealClock(walkUtCutoff.Value))
+                return walkUtCutoff.Value;
+            return IsRealClock(committedRowClockUT) ? committedRowClockUT : double.NaN;
+        }
+
+        private static bool IsRealClock(double ut)
+        {
+            return !double.IsNaN(ut) && !double.IsInfinity(ut) && ut > 0.0
+                && !KerbalsModule.IsNoTimeFilterCutoff(ut);
+        }
+
+        /// <summary>
+        /// Pure: what the contract patch does with one parameter the walk credited. Without a
+        /// real clock nothing is completed (<see cref="ContractParameterPatchDecision.ClockNotReady"/>):
+        /// unlike the accept filter, a silent completion persists in stock's save
+        /// (<c>ContractParameter.Save</c> writes state and rewards) and has no undo, and a
+        /// clockless walk (a boot load's full replay, a revert) credits committed-future rows
+        /// too. The next patch with a real clock completes it. A row after the clock waits
+        /// (the accept filter's tolerance). Otherwise a stock parameter that is not Complete is
+        /// completed without payment, so stock cannot pay the reward the ledger already holds
+        /// a second time (CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED review).
         /// </summary>
         internal static ContractParameterPatchDecision DecideContractParameterPatch(
             StockContractParameterState stock, double creditedUT, double clockUT)
         {
-            bool clockReady = !double.IsNaN(clockUT) && !double.IsInfinity(clockUT)
-                && clockUT > 0.0 && !KerbalsModule.IsNoTimeFilterCutoff(clockUT);
-            if (clockReady && !double.IsNaN(creditedUT)
+            if (!IsRealClock(clockUT))
+                return ContractParameterPatchDecision.ClockNotReady;
+            if (!double.IsNaN(creditedUT)
                 && creditedUT > clockUT + ContractAcceptClockToleranceSeconds)
                 return ContractParameterPatchDecision.AfterClock;
             switch (stock)
@@ -4414,6 +4447,7 @@ namespace Parsek
             internal int Unresolved;
             internal int ContractNotActive;
             internal int AfterClock;
+            internal int ClockNotReady;
         }
 
         /// <summary>
@@ -4442,6 +4476,7 @@ namespace Parsek
                     case ContractParameterPatchDecision.Unresolved: plan.Unresolved++; break;
                     case ContractParameterPatchDecision.ContractNotActive: plan.ContractNotActive++; break;
                     case ContractParameterPatchDecision.AfterClock: plan.AfterClock++; break;
+                    case ContractParameterPatchDecision.ClockNotReady: plan.ClockNotReady++; break;
                 }
             }
             return plan;
@@ -4606,16 +4641,227 @@ namespace Parsek
                 }
             }
 
+            // Stock completes a contract (and a group parameter) only from the parent's
+            // ParameterStateUpdate that SetComplete runs after paying; the silent write skips
+            // it. Every Active contract with a credited parameter that stock would now complete
+            // is handed back to stock's own path, one frame later and outside the patch.
+            var terminal = new HashSet<string>(contracts.GetTerminalContractIds() ?? new string[0], StringComparer.Ordinal);
+            var reEvaluate = new List<string>();
+            int ledgerTerminal = 0;
+            if (IsRealClock(clockUT))
+            {
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                for (int i = 0; i < credited.Count; i++)
+                {
+                    string id = credited[i].ContractId;
+                    Contract c;
+                    if (id == null || !seen.Add(id) || !activeById.TryGetValue(id, out c))
+                        continue;
+                    if (terminal.Contains(id))
+                    {
+                        ledgerTerminal++;
+                        continue;
+                    }
+                    ContractCompletionShape shape = ReadContractCompletionShape(c);
+                    if (NeedsStockContractReEvaluation(true, false, shape.TopLevelCount, shape.TopLevelComplete,
+                            shape.SatisfiedOpenGroups.Count))
+                        reEvaluate.Add(id);
+                }
+            }
+
             string line =
                 $"PatchContracts: credited contract parameters completedSilently={completed.ToString(IC)}, " +
                 $"alreadyComplete={plan.AlreadyComplete.ToString(IC)}, unresolved={plan.Unresolved.ToString(IC)}, " +
                 $"contractNotActive={plan.ContractNotActive.ToString(IC)}, afterClock={plan.AfterClock.ToString(IC)}, " +
-                $"writeFailed={writeFailed.ToString(IC)} " +
+                $"clockNotReady={plan.ClockNotReady.ToString(IC)}, writeFailed={writeFailed.ToString(IC)}, " +
+                $"reEvaluateNextFrame={reEvaluate.Count.ToString(IC)}, ledgerTerminal={ledgerTerminal.ToString(IC)} " +
                 ComposeBoundedIdentitySample(completedIds, IdentitySampleCap);
-            if (completed > 0 || plan.Unresolved > 0 || writeFailed > 0)
+            if (completed > 0 || plan.Unresolved > 0 || writeFailed > 0 || reEvaluate.Count > 0)
                 ParsekLog.Info(Tag, line);
             else
                 ParsekLog.Verbose(Tag, line);
+
+            if (reEvaluate.Count == 0)
+                return;
+            Action<Action> host = ContractReEvaluationDeferForTesting
+                ?? (WarpToTimeConsumer.Instance != null ? (Action<Action>)WarpToTimeConsumer.RunNextFrame : null);
+            if (host == null)
+            {
+                ParsekLog.Info(Tag,
+                    $"PatchContracts: no frame host to re-evaluate {reEvaluate.Count.ToString(IC)} contract(s) " +
+                    "with every required parameter Complete - the next patch retries");
+                return;
+            }
+            host(() => RunContractReEvaluation(reEvaluate, terminal));
+        }
+
+        /// <summary>
+        /// Test-only frame host for the contract re-evaluation; non-null replaces
+        /// <c>WarpToTimeConsumer.RunNextFrame</c>. Cleared by <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static Action<Action> ContractReEvaluationDeferForTesting;
+
+        /// <summary>What stock's own completion checks read from one live contract.</summary>
+        internal struct ContractCompletionShape
+        {
+            internal int TopLevelCount;
+            internal int TopLevelComplete;
+            /// <summary>Not-Complete parameters with children, every child Complete, deepest first.</summary>
+            internal List<ContractParameter> SatisfiedOpenGroups;
+        }
+
+        private static ContractCompletionShape ReadContractCompletionShape(Contract contract)
+        {
+            var shape = new ContractCompletionShape { SatisfiedOpenGroups = new List<ContractParameter>() };
+            if (contract == null)
+                return shape;
+            shape.TopLevelCount = contract.ParameterCount;
+            for (int i = 0; i < contract.ParameterCount; i++)
+            {
+                ContractParameter p = contract.GetParameter(i);
+                if (p != null && p.State == ParameterState.Complete)
+                    shape.TopLevelComplete++;
+            }
+            var depthOf = new Dictionary<ContractParameter, int>();
+            foreach (ContractParameter p in contract.AllParameters)
+            {
+                if (p == null || p.State == ParameterState.Complete || p.ParameterCount == 0)
+                    continue;
+                if (!p.AllChildParametersComplete())
+                    continue;
+                int depth = 0;
+                for (IContractParameterHost h = p.Parent; h is ContractParameter && depth < 32; h = h.Parent)
+                    depth++;
+                depthOf[p] = depth;
+                shape.SatisfiedOpenGroups.Add(p);
+            }
+            shape.SatisfiedOpenGroups.Sort((a, b) => depthOf[b].CompareTo(depthOf[a]));
+            return shape;
+        }
+
+        /// <summary>
+        /// Pure: whether stock must re-evaluate a contract after a silent parameter
+        /// completion. Stock's <c>Contract.OnParameterStateChange</c> (decompiled KSP 1.12.5)
+        /// completes the contract when a parameter completes and every top-level parameter is
+        /// Complete; a group parameter completes from its own <c>OnParameterStateChange</c>
+        /// override when its children change. Neither runs for a silent write. A contract the
+        /// ledger already ended is never re-evaluated: the patch removed it from stock's
+        /// Active list, and re-evaluating it would pay its reward a second time.
+        /// </summary>
+        internal static bool NeedsStockContractReEvaluation(
+            bool contractActiveInStock, bool ledgerTerminal,
+            int topLevelCount, int topLevelComplete, int satisfiedOpenGroups)
+        {
+            if (!contractActiveInStock || ledgerTerminal)
+                return false;
+            return (topLevelCount > 0 && topLevelComplete >= topLevelCount) || satisfiedOpenGroups > 0;
+        }
+
+        /// <summary>
+        /// Hands each listed contract back to stock's own completion path: a satisfied group
+        /// parameter's <c>ParameterStateUpdate</c> (deepest first, so a completed group can
+        /// satisfy its parent), then the contract's <c>ParameterStateUpdate</c> - the calls
+        /// <c>ContractParameter.SetComplete</c> makes after paying. Runs in the recorder's
+        /// clock-cause scope, so what stock pays here (a group's reward, the contract's
+        /// reward, its ContractCompleted) is filed untagged, not to the live flight. Skips a
+        /// contract no longer Active or ended in the ledger, and everything while a ledger
+        /// replay runs (the next patch retries: the decision reads stock's state).
+        /// </summary>
+        private static void RunContractReEvaluation(List<string> contractIds, HashSet<string> ledgerTerminal)
+        {
+            if (ContractSystem.Instance == null || ContractSystem.Instance.Contracts == null)
+            {
+                ParsekLog.Verbose(Tag, "PatchContracts: contract re-evaluation dropped - no ContractSystem");
+                return;
+            }
+            if (GameStateRecorder.IsReplayingActions)
+            {
+                ParsekLog.Info(Tag,
+                    "PatchContracts: contract re-evaluation skipped - a ledger replay is running; the next patch retries");
+                return;
+            }
+
+            const string Scope = "contract re-evaluation after a silent parameter completion";
+            int reEvaluated = 0;
+            int completedByStock = 0;
+            int skipped = 0;
+            GameStateRecorder.EnterClockCauseScope(Scope);
+            try
+            {
+                for (int i = 0; i < contractIds.Count; i++)
+                {
+                    string id = contractIds[i];
+                    Contract contract = null;
+                    var live = ContractSystem.Instance.Contracts;
+                    for (int k = 0; k < live.Count; k++)
+                    {
+                        if (live[k] != null && live[k].ContractState == Contract.State.Active
+                            && live[k].ContractGuid.ToString() == id)
+                        {
+                            contract = live[k];
+                            break;
+                        }
+                    }
+                    ContractCompletionShape shape = ReadContractCompletionShape(contract);
+                    if (!NeedsStockContractReEvaluation(contract != null,
+                            ledgerTerminal != null && ledgerTerminal.Contains(id),
+                            shape.TopLevelCount, shape.TopLevelComplete, shape.SatisfiedOpenGroups.Count))
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    reEvaluated++;
+                    int groupsCompleted = 0;
+                    var tried = new HashSet<ContractParameter>();
+                    for (int pass = 0; pass < 8 && contract.ContractState == Contract.State.Active; pass++)
+                    {
+                        bool progressed = false;
+                        List<ContractParameter> groups = ReadContractCompletionShape(contract).SatisfiedOpenGroups;
+                        for (int g = 0; g < groups.Count; g++)
+                        {
+                            ContractParameter group = groups[g];
+                            if (!tried.Add(group))
+                                continue;
+                            group.ParameterStateUpdate(group.GetParameter(group.ParameterCount - 1));
+                            if (group.State == ParameterState.Complete)
+                            {
+                                groupsCompleted++;
+                                progressed = true;
+                            }
+                        }
+                        if (!progressed)
+                            break;
+                    }
+
+                    if (contract.ContractState == Contract.State.Active)
+                    {
+                        shape = ReadContractCompletionShape(contract);
+                        if (shape.TopLevelCount > 0 && shape.TopLevelComplete >= shape.TopLevelCount)
+                            contract.ParameterStateUpdate(contract.GetParameter(shape.TopLevelCount - 1));
+                    }
+
+                    bool completedNow = contract.ContractState != Contract.State.Active;
+                    if (completedNow)
+                        completedByStock++;
+                    ParsekLog.Info(Tag,
+                        $"PatchContracts: re-evaluated contract {id} '{contract.Title ?? ""}' through stock: " +
+                        $"groupsCompleted={groupsCompleted.ToString(IC)} state={contract.ContractState}");
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"PatchContracts: contract re-evaluation threw {ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                GameStateRecorder.ExitClockCauseScope(Scope);
+            }
+
+            ParsekLog.Info(Tag,
+                $"PatchContracts: contract re-evaluation reEvaluated={reEvaluated.ToString(IC)}, " +
+                $"completedByStock={completedByStock.ToString(IC)}, skipped={skipped.ToString(IC)}");
         }
 
         /// <summary>
@@ -5884,6 +6130,7 @@ namespace Parsek
             protoTechNodesReflectionWarnEmitted = false;
             scienceSubjectsReflectionWarnEmitted = false;
             contractParameterStateReflectionWarnEmitted = false;
+            ContractReEvaluationDeferForTesting = null;
             ResetDrawdownGuardSessionLatches();
             FacilityStatePatcher.ResetForTesting();
         }
