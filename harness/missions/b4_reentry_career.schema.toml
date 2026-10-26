@@ -1,0 +1,251 @@
+# Declared param schema for mission b4_reentry_career: B4's orbit-and-return flown
+# on a CAREER save (the shell differs from b4_reentry only in its control's
+# tolerate_unreadable_nodes opt-in; see b4_reentry_career.py).
+#
+# The first block is b4_reentry.schema.toml's [params] tables, key for key:
+# test_b4_reentry_career pins every B4 key EQUAL here, so edit b4_reentry.schema.toml
+# and copy the change. The rationale comments for each bound live there. The second
+# block is the CAREER OPT-INS (mlib.B4Params, CS-4): declared ONLY here, so a sandbox
+# lane flying b4_reentry cannot set them without a schema change of its own. Every
+# one is optional and its absence is the default B4 walk.
+
+[params.targetApoapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.targetPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.apoErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.periErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.ascentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.circularizeTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# Deorbit burn target: burn retrograde until periapsis <= this, then cut + coast.
+[params.deorbitPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+# GAME-time attitude-settle wait between engaging the retrograde AutoPilot and
+# throttling up (a pure wait-in-phase condition in the machine, never a sleep).
+[params.retroSettleSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# AND-gate with the settle wait: the AutoPilot pointing error (degrees) must be
+# at/below this before the deorbit burn starts. Time-only settling burned
+# mid-flip on the first live B4 flight (2026-07-20): the Kerbal X needs a ~180
+# degree turn to retrograde and throttle-up caught it pointing radial.
+[params.maxAttitudeErrorDeg]
+required = false
+type = "number"
+min = 0.5
+max = 45.0
+
+# GAME-time wait between the deorbit throttle cut and the service-stage drop.
+# The two used to ride the SAME frame, and kRPC applies a throttle write on the
+# next physics tick while ActivateNextStage runs at once: the stage fired at full
+# throttle, the freshly ignited upper engine drove into the decoupled core, and the
+# chain explosion took the pod (both attempts of 2026-09-24_1657, and the
+# 2026-07-21 archives). Defaults to 2 when absent.
+[params.stageSettleSeconds]
+required = false
+type = "number"
+min = 0.5
+max = 30.0
+
+# Stage activations owed after the deorbit cutoff (each stageSettleSeconds after
+# the last). The Kerbal X needs 3 to reenter as pod + heat shield: drop the core,
+# the Poodle ignition stage (at zero throttle), drop the Poodle stack. One drop
+# left the Poodle stack on the pod and it fell too fast for the chute to open
+# (2026-09-24_1727). Defaults to 1 when absent.
+[params.reentryStageCount]
+required = false
+type = "int"
+min = 1
+max = 6
+
+# Bounded rails-warp hops fire only above this altitude (and only while
+# descending); below it the machine polls at 1x down to the chute altitude.
+[params.warpAboveAltMeters]
+required = true
+type = "number"
+min = 0.0
+
+# One warp hop = ACTION_WARP_TO with value = now + this many seconds, re-issued
+# per decision frame while above the threshold (bounded hops keep the machine in
+# control; the atmosphere-entry UT is never computed).
+[params.warpHopSeconds]
+required = true
+type = "number"
+min = 1.0
+
+[params.chuteDeployAltMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.deorbitTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# GAME-time budget: the rails hops advance it fast, but a burn that ends before
+# apoapsis coasts at 1x (warp gates on vertical_speed < 0) and must fit too.
+[params.reentryTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.descentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.landedSituations]
+required = true
+type = "list"
+
+# Optional: consecutive AIRBORNE frozen-telemetry samples (bit-identical orbit
+# fields while UT advances) before the mission declares the vessel lost/destroyed
+# and terminates (design "vessel-destroyed terminal"). mlib.B4Params defaults it
+# to 10 when absent. In B4 this is ALWAYS an ASSERT-FAIL loss (survival is the
+# contract; no B1-style DOWN success terminal).
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000
+
+# Optional: per-field tolerance of the frozen-telemetry compare (altitude, vertical
+# speed, apoapsis, periapsis; metres or m/s). Absent = mlib.HOP_FROZEN_TOLERANCE_ABS
+# (1e-3) for mlib.B4Params, applied only in REENTRY / SPLASHDOWN
+# (mlib.B4_FROZEN_TOLERANCE_PHASES; the orbit phases always compare exactly);
+# 0.0 = the exact bit-identical compare. A destroyed craft's frozen readings were seen to differ by
+# less than a millimetre per poll (RB-1 2026-09-27_1353), while a live hop craft
+# always moves far more than this between two 0.5 s polls.
+[params.frozenToleranceAbs]
+required = false
+type = "number"
+min = 0.0
+max = 1.0
+
+# ---------------------------------------------------------------------------
+# CAREER OPT-INS (mlib.B4Params; all optional, absent = the default B4 walk).
+# ---------------------------------------------------------------------------
+
+# "mechjeb" (default): MechJeb's node circularization. "native": MechJeb flies the
+# ascent only and the machine circularizes with kRPC's native AutoPilot on RF-13's
+# pitch program (NATIVE-COAST -> NATIVE-BURN), reading and making no maneuver node -
+# what an un-upgraded Tracking Station (no patched conics) leaves.
+[params.circularizeMode]
+required = false
+type = "string"
+values = ["mechjeb", "native"]
+
+# Native burn cut: periapsis at or above this on circPeriapsisDebounceFrames
+# consecutive frames. Above the 70 km atmosphere with margin.
+[params.circTargetPeriapsisMeters]
+required = false
+type = "number"
+min = 70000.0
+max = 250000.0
+
+[params.circPeriapsisDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 20
+
+# NATIVE-COAST -> NATIVE-BURN once the vertical speed falls to this (near the
+# apoapsis). RF-13's flown value is 30.
+[params.circStartVerticalSpeedMps]
+required = false
+type = "number"
+min = 0.0
+max = 300.0
+
+# The pitch law: pitch = clamp(-gain * vertical_speed, min, max), whole degrees
+# (mlib.rfo_circ_pitch). RF-13 flew 0.5 / -10 / 45.
+[params.circPitchGainDegPerMps]
+required = false
+type = "number"
+min = 0.0
+max = 5.0
+
+[params.circPitchMinDeg]
+required = false
+type = "number"
+min = -45.0
+max = 0.0
+
+[params.circPitchMaxDeg]
+required = false
+type = "number"
+min = 0.0
+max = 90.0
+
+[params.headingDeg]
+required = false
+type = "number"
+min = 0.0
+max = 360.0
+
+# Native-burn frames (about 0.5 s each) before an engine that never read thrust
+# gives up by name.
+[params.circIgniteFrames]
+required = false
+type = "int"
+min = 2
+max = 200
+
+# PRELAUNCH fail-fast: > 0 engages MechJeb a frame before staging and waits up to
+# this many frames for the AscentAutopilot to READ enabled, else MISSION-FLAKE
+# `mechjeb-ascent-not-enabled`. 0 = the default same-frame engage-and-stage.
+[params.mjEngageConfirmFrames]
+required = false
+type = "int"
+min = 0
+max = 200
+
+# MechJeb StagingController.AutostageLimit: autostage stops at this stage number,
+# so the stage below it (the pod's separation) stays the machine's.
+[params.autostageLimit]
+required = false
+type = "int"
+min = 0
+max = 20
+
+# MechJeb AscentAutopilot.SkipCircularization: required true with
+# circularizeMode = "native" on a level-0 Tracking Station (MechJeb cannot
+# circularize there).
+[params.skipCircularization]
+required = false
+type = "bool"
+
+# MechJeb AscentAutopilot.AscentType: 0 = classic, 1 = Primer Vector Guidance.
+[params.ascentType]
+required = false
+type = "int"
+min = 0
+max = 1

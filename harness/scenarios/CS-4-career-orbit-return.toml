@@ -1,0 +1,237 @@
+schema = 1
+id = "CS-4-career-orbit-return"
+# THE SCRIPTED CAMPAIGN, STAGE 4 (docs/dev/autotest-roadmap.md, "The scripted campaign
+# program"): the CS-4 row reads "Reach orbit and come home". The career's first orbital
+# flight, on CS-3b's produced save: research the two nodes the craft needs, launch a
+# tier-legal orbiter from the VAB, complete the two World-Firsts contracts CS-3b accepted
+# (REACHSPACE and ORBIT) inside the recorded flight, deorbit, splash down, recover,
+# auto-commit, then close with the ledger ground truth in FLIGHT.
+#
+# THE HOST. `cs-career-mc1`: CS-3b's produced save (run `2026-10-26_0426`, PASS attempt 1,
+# LedgerGroundTruth `hardFailures=0`), harvested with `harvest_bdock_station.py
+# --keep-parsek --allow-no-vessel --expect-mode CAREER`, no edit. Career, Normal preset,
+# funds 9546.04, science 23.5, rep 19; Mission Control at level 1 (lvl 0.5), every other
+# facility at level 0; `start` and `basicRocketry` researched
+# (BypassEntryPurchaseAfterResearch = True, so no part fees); five crew; REACHSPACE
+# 31f5240c, ORBIT 31559641 and the RT-10 PartTest 1a9762e8 Active; CS-3's committed Flea
+# hop (one recording, recovered); no vessel. Its Ships/VAB carries `CS Orbiter.craft`,
+# built by harness/tools/build_cs_orbiter_craft.py (gate: harness/lib/test_cs_orbiter_craft.py).
+#
+# THE CRAFT, `CS Orbiter` (25 parts, 16.675 t, 16.5 m, cost 5772; level-0 limits 30 / 18 t
+# / 20 m): Mk16 chute, Mk1 pod, 1.25 m heat shield (staging disabled), TD-12 (stage 1),
+# 12 FL-T100 on a Swivel (stage 2, hot-staged with the TD-12 below it), Hammer B (stage
+# 3, with its TD-12), Hammer A + 4 fins (stage 4, the launch). Delta-v 3947 m/s (the launch
+# stage at sea-level Isp: 308 + 465 + 3174), liftoff TWR 1.21 before the crew's mass.
+# It needs `engineering101` (TD-12, 5 science) and `survivability` (heat shield, 15
+# science), researched first: science 23.5 -> 18.5 -> 3.5.
+#
+# THE ROUTE, and why the career shell: the Tracking Station is at level 0, so there are
+# no patched conics and no maneuver nodes. kRPC refuses the node read (the career
+# shell's `tolerate_unreadable_nodes`), and MechJeb cannot circularize ("MechJeb is unable
+# to circularize without an upgraded Tracking Station"). So `b4_reentry_career` flies:
+# MechJeb classic ascent to an 80 km apoapsis with `skipCircularization` and autostage
+# stopped at stage 2 (it stages the Hammers and lights the Swivel, never the pod's own
+# TD-12), then a NATIVE circularization on kRPC's AutoPilot (RF-13's coast-then-burn
+# pitch program, live-proven MISSION-OK on RF-13), then B4's own retrograde deorbit, ONE
+# reentry stage (the TD-12 under the shield), bounded rails-warp hops above 70 km and the
+# chute armed at 12 km. The launch is staged only after MechJeb's AscentAutopilot READS
+# enabled (`mjEngageConfirmFrames`): whether the ascent computer runs in a career save is
+# the reading run's first question, and a refusal ends in seconds on the pad as
+# MISSION-FLAKE `mechjeb-ascent-not-enabled`.
+#
+# THE MONEY, read from the host: the rollout is the craft's cost (5772 by the builder;
+# the crew's EVA kit may add a few tens, unmeasured), leaving about 3750. In flight
+# REACHSPACE pays its parameter 32000 / 4 sci / 8 rep and its completion 20800 / 4 / 8,
+# ORBIT 48000 / 6 / 10 and 31200 / 6 / 10 (each CONTRACT node's `values`, each PARAM's):
+# +132000 funds, +20 science, 36 rep before stock's reputation curve. Milestone and record
+# payouts (first space, first orbit, records) are NOT predicted. The pod's recovery pays a
+# distance-scaled share of the pod, chute and shield (1272 at full value). The ground-truth
+# Flea's rollout (-2932, CS-3b's measured debit) is refunded by its pad recovery. Predicted
+# end pools, BEFORE the unpredicted milestones: funds about 136900, science 23.5, rep 19 +
+# the scaled 36. The RT-10 PartTest needs the Hammer staged at 36-41 km and 260-390 m/s;
+# Hammer B lights far lower, so its completion is forbidden as a phantom.
+#
+# THE ASSERTIONS THAT MATTER: both World-Firsts completions booked TAGGED to the flight's
+# recording (CS-3's SCIENCE completed at the recovery and filed untagged; these complete in
+# flight), stock's parameter and completion rewards as the recorder saw them, both
+# research rows ledgered untagged, the scene-exit commit, and the ground truth closing
+# with all of it in the pools.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) no existing flight is a prefix of this one
+# (new career fixture, new craft), so it is its own lane; (2) no idle waits: the only
+# game-time waits are the mission's own phase gates; (3) no dwell keys; (4) every burn
+# stays at 1x (the native circularization never warps); (5) no b5 coast; (6) fail fast:
+# the PRELAUNCH engage gate ends a refused ascent computer on the pad, and the native
+# burn gives up by name on an engine that never lights or runs dry. `[retry] once` is
+# kept on purpose: the first flight is a reading run of MechJeb, whose ascent is not
+# deterministic enough to call a red final; (7) the recordings count is a window until
+# the first flight measures it; (8) predicted wall ~1300-1500 s, under the 1800 s
+# longhaul floor, so operator; (9) `flight_efficiency.py` after the first green flight.
+#
+# STATUS: LIVE-PROVEN 2026-10-26 on its first flight, `2026-10-26_0521` PASS attempt 1 (860 s, mission 773 s, main 77ba922f, DLL 43f5b4cb). The MechJeb
+# reading run answered yes: MechJeb's classic ascent engaged and flew in this career save (phases
+# PRELAUNCH, MJ-ASCENT, NATIVE-COAST, NATIVE-BURN, ORBIT, DEORBIT, REENTRY, SPLASHDOWN; MISSION-OK).
+# Measured and pinned: orbiter rollout -5807; milestones ReachedSpace 16000/3/2, Orbit 24000/5/2,
+# Kerbin/ReturnFromOrbit 24000/5/2 (funds/rep/sci); RecordsSpeed / RecordsAltitude / RecordsDistance
+# 9600/2/1 each; 7 recordings; batch passed=3 skipped=0; end pools funds 274062.30, science 47.5,
+# rep 84.0, LedgerGroundTruth hardFailures=0; zero ERROR / GUARDED / leak / ContractFailed.
+# Original plan text follows. The first flight was the MechJeb-in-career
+# reading run: pin the measured values (the rollout debit, the milestone ids and payouts,
+# the recordings count) off it. The batch line pins `total=3` with the split regexed
+# (registered in IngameBatchWiringGroupTests.INTERIM_PIN_IDS); CS-3 and CS-3b measured
+# `passed=3 failed=0 skipped=0` for the same category in the same scene on this career.
+# `operator` (stock-tree is not in the nightly instance set).
+tier = "operator"
+description = "Scripted campaign stage 4 (Career): on CS-3b's produced save, research Engineering 101 and Survivability, launch the CS Orbiter from the VAB, fly MechJeb's ascent and a native circularization to orbit (no maneuver nodes at Tracking Station level 0) so the REACHSPACE and ORBIT World-Firsts contracts complete inside the recorded flight, deorbit, splash down, recover, auto-commit, then run the ledger ground truth against KSP's own career save."
+instanceProfile = "stock-tree"
+tags = ["campaign", "CS-4", "career", "contracts", "contract-complete", "research", "editor",
+        "mechjeb", "orbit", "reentry", "recovery", "auto-commit", "ledger", "ground-truth",
+        "ingame-batch", "flown"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mc1"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind    = "autopilot"
+mission = "b4_reentry_career"
+
+# Budget arithmetic: runtime 4200 >= 300 LoadGame + 2 x 60 research + 120 GoToEditor +
+# 180 LaunchFromEditor + 2100 mission + 120 Recover + 120 GoToEditor + 180
+# LaunchFromEditor + 540 RunTests + 120 Recover + 120 SaveGame + FlushAndQuit + margin.
+# Mission 2100 (WALL) = B4's measured 1900 (ascent ~250, deorbit flip, exo rails hops,
+# 1x below 70 km, the chute descent from 12 km) + the native coast and burn (~100 game s
+# at 1x). Phase budgets in missionParams are GAME time.
+steps = [
+  # scene = "spacecenter": the host holds no vessel (its stock asteroid was CS-1's trap).
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoMerge",          value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  # The TD-12, then the heat shield (survivability's parent is engineering101).
+  { cmd = "KscAction",        args = { action = "research-node", node = "engineering101" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",        args = { action = "research-node", node = "survivability" },  expect = "OK", budget = 60 },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "CS Orbiter" },      expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "orbiter",  expect = "OK", budget = 180 },
+  { phase = "mission",                                                                expect = "MISSION-OK", budget = 2100 },
+  # B4 ends splashed with the pod active; the pod is the launch's root part, so it keeps
+  # the launch vessel's pid. Recovering it leaves FLIGHT and the tree auto-commits.
+  { cmd = "Recover",          args = { pid = "${orbiter.pid}" },                      expect = "OK", budget = 120 },
+  { cmd = "CommitTree",                                                               expect = "REJECTED" },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "Jumping Flea" },    expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "probe",    expect = "OK", budget = 180 },
+  { cmd = "RunTests",         args = { category = "LedgerGroundTruth" },              expect = "OK", budget = 540 },
+  { cmd = "MissionMark",      args = { label = "cs4-groundtruth-done" },              expect = "OK" },
+  # Leave no craft on the pad in the produced save (it is the next career stage's host).
+  { cmd = "Recover",          args = { pid = "${probe.pid}" },                        expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "SaveGame",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+# B4's flown values (B4-reentry-splashdown) plus the career opt-ins (b4_reentry_career.
+# schema.toml). Thresholds and budgets only, never a golden trajectory.
+[driver.missionParams]
+targetApoapsisMeters      = 80000
+targetPeriapsisMeters     = 80000
+apoErrorMeters            = 5000
+periErrorMeters           = 5000
+ascentTimeoutSeconds      = 420
+circularizeTimeoutSeconds = 300
+deorbitPeriapsisMeters    = 25000
+retroSettleSeconds        = 10
+warpAboveAltMeters        = 70000
+warpHopSeconds            = 120
+# The ARM altitude, B4's: the Mk16 persists `automateSafeDeploy = 0` (opens only when
+# safe), so an armed chute waits for a survivable speed and opens by itself.
+chuteDeployAltMeters      = 12000
+# One stage after the deorbit cutoff: the TD-12 under the heat shield drops the Swivel and
+# its tanks, and the pod reenters alone on its shield.
+reentryStageCount         = 1
+# B4's 600: the pod's reaction wheel turns the whole service stack to retrograde.
+deorbitTimeoutSeconds     = 600
+reentryTimeoutSeconds     = 3600
+descentTimeoutSeconds     = 900
+landedSituations          = ["LANDED", "SPLASHED"]
+# --- career opt-ins ---
+circularizeMode           = "native"
+circTargetPeriapsisMeters = 75000
+circPeriapsisDebounceFrames = 2
+circStartVerticalSpeedMps = 30
+circPitchGainDegPerMps    = 0.5
+circPitchMinDeg           = -10
+circPitchMaxDeg           = 45
+headingDeg                = 90
+circIgniteFrames          = 20
+mjEngageConfirmFrames     = 20
+autostageLimit            = 2
+skipCircularization       = true
+ascentType                = 0
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# A WINDOW until the first flight measures it: CS-3's committed hop (1) + the orbiter's
+# root recording + three dropped groups past ShouldRecordDebris (Hammer A with its TD-12
+# and fins, Hammer B with its TD-12, the Swivel and its tanks) + the scene-exit
+# optimizer's environment splits (ascent exit and reentry, measured on B4) + possibly a
+# post-recovery continuation (CS-3's). The ground-truth launch is unrecorded.
+count = { min = 7, max = 7 }
+
+[expectations.logContracts]
+required = [
+  # The research, both science-only and ledgered as KSC rows.
+  "kscaction action=research-node target=engineering101 applied=true manifestKind=tech-unlock observedAfter=science=18\\.5",
+  "kscaction action=research-node target=survivability applied=true manifestKind=tech-unlock observedAfter=science=3\\.5",
+  "Game state: TechResearched 'engineering101' \\(cost=5\\)",
+  "Game state: TechResearched 'survivability' \\(cost=15\\)",
+  "AddEvent: TechResearched key='engineering101' tag=''",
+  "AddEvent: TechResearched key='survivability' tag=''",
+  "KSC spending recorded: type=ScienceSpending, UT=[0-9.]+, key=engineering101",
+  "KSC spending recorded: type=ScienceSpending, UT=[0-9.]+, key=survivability",
+  # The flight.
+  "launchfromeditor complete scene=FLIGHT vessel=CS Orbiter pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  "Recording started",
+  # Both World-Firsts complete in flight: parameter and contract rewards as stock paid
+  # them, and the completions TAGGED to a recording.
+  "Game state: ContractParameterCompleted '[^']+' param=0 \\(funds=32000, rep=8, sci=4\\)",
+  "Game state: ContractParameterCompleted '[^']+' param=0 \\(funds=48000, rep=10, sci=6\\)",
+  "Game state: ContractCompleted '[^']+' \\(funds=20800, rep=8, sci=4\\)",
+  "Game state: ContractCompleted '[^']+' \\(funds=31200, rep=10, sci=6\\)",
+  "AddEvent: ContractCompleted key='31f5240c-4c87-4a98-803b-1e84e1f19ce6' tag='[0-9a-f]{32}'",
+  "AddEvent: ContractCompleted key='31559641-5ef7-481b-adc7-41a6b6d39237' tag='[0-9a-f]{32}'",
+  "CommitTreeSceneExit: finalizing tree at UT=[0-9.]+[\\s\\S]{0,8000}?Recording stopped\\. ",
+  # The ground truth, in FLIGHT on the unrecorded Flea.
+  "launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  "Game state: FundsChanged -2932 \\(VesselRollout\\)",
+  # Measured on the first flight: the orbiter rollout and the milestone payouts.
+  "Game state: FundsChanged -5807 \\(VesselRollout\\)",
+  "Milestone enriched: 'ReachedSpace' funds=16000 rep=3\\.0 sci=2\\.0",
+  "Milestone enriched: 'Orbit' funds=24000 rep=5\\.0 sci=2\\.0",
+  "Milestone enriched: 'Kerbin/ReturnFromOrbit' funds=24000 rep=5\\.0 sci=2\\.0",
+  "ground-truth game mode=CAREER pools=funds,science,reputation",
+  "result: hardFailures=0 ",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  # The RT-10 PartTest stays Active (its envelope is 36-41 km at 260-390 m/s).
+  "AddEvent: ContractCompleted key='1a9762e8-8c97-495b-b451-ad62726c08cb'",
+  "Game state: ContractFailed ",
+  "completed by no flight, filed untagged",
+]
+
+[runtime]
+budgetSeconds = 4200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

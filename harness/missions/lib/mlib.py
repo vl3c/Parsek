@@ -352,6 +352,23 @@ B4_REENTRY = "REENTRY"
 B4_SPLASHDOWN = "SPLASHDOWN"
 B4_PHASES: Tuple[str, ...] = (B4_PRELAUNCH, B4_MJ_ASCENT, B4_CIRCULARIZE, B4_ORBIT,
                               B4_DEORBIT, B4_REENTRY, B4_SPLASHDOWN)
+# The opt-in NATIVE circularization (B4Params.circularize_mode = "native", the career
+# lane CS-4): on an un-upgraded Tracking Station MechJeb cannot circularize (no
+# patched conics, no maneuver nodes), so MechJeb flies the ascent only
+# (skipCircularization) and the machine circularizes with kRPC's native AutoPilot,
+# RF-13's coast-then-burn pitch program. These two replace CIRCULARIZE; B4_PHASES
+# keeps the default (MechJeb) walk.
+B4_NATIVE_COAST = "NATIVE-COAST"
+B4_NATIVE_BURN = "NATIVE-BURN"
+B4_CIRCULARIZE_MODES: Tuple[str, ...] = ("mechjeb", "native")
+B4_NATIVE_PHASES: Tuple[str, ...] = (B4_PRELAUNCH, B4_MJ_ASCENT, B4_NATIVE_COAST,
+                                     B4_NATIVE_BURN, B4_ORBIT, B4_DEORBIT, B4_REENTRY,
+                                     B4_SPLASHDOWN)
+# The PRELAUNCH fail-fast give-up token (B4Params.mj_engage_confirm_frames > 0):
+# MechJeb's AscentAutopilot never READ enabled after the engage, so the launch is
+# never staged. Named so a career save that locks the autopilot dies on the pad in
+# seconds instead of as an ascent-budget flake minutes later.
+B4_MJ_NOT_ENABLED_GIVEUP = "mechjeb-ascent-not-enabled"
 
 # Consecutive SPLASHDOWN frames that must read ParachuteState Deployed before B4's
 # OBSERVED canopy latch (B4State.craft_chute_full_seen) is earned. B1's latch, reused
@@ -835,6 +852,15 @@ ACTION_MJ_SET_TARGET_APOAPSIS = "mj_set_target_apoapsis"   # value = metres
 ACTION_MJ_ENABLE_AUTOSTAGE = "mj_enable_autostage"         # value = None
 ACTION_MJ_ENGAGE_ASCENT = "mj_engage_ascent"               # value = None
 ACTION_MJ_EXECUTE_CIRCULARIZATION = "mj_execute_circularization"  # value = None
+# Three MechJeb AscentAutopilot settings, emitted only when a spec sets the matching
+# B4 param (every committed B4-family lane leaves them unset, so its PRELAUNCH
+# actions are unchanged). KRPC.MechJeb surfaces (GameData/kRPC/KRPC.MechJeb.json):
+# StagingController_set_AutostageLimit (reached as AscentAutopilot.StagingController;
+# "staging will not occur beyond this stage number"), AscentAutopilot_set_
+# SkipCircularization, AscentAutopilot_set_AscentType (0 = classic, 1 = PVG).
+ACTION_MJ_SET_AUTOSTAGE_LIMIT = "mj_set_autostage_limit"           # value = stage number
+ACTION_MJ_SET_SKIP_CIRCULARIZATION = "mj_set_skip_circularization"  # value = 1.0 / 0.0
+ACTION_MJ_SET_ASCENT_TYPE = "mj_set_ascent_type"                   # value = ascent type
 # Park round-out trim (park_trim_ecc_max > 0): plan a MechJeb circularize node
 # at the next APOAPSIS. Apoapsis, not periapsis, on purpose -- circularizing at
 # periapsis DROPS the park to the periapsis radius, and the interplanetary
@@ -4425,6 +4451,28 @@ class B4Params:
     # 0.0 = exact compare; the params builder defaults it to
     # HOP_FROZEN_TOLERANCE_ABS (see that constant for the gated-phase argument).
     frozen_tolerance_abs: float = 0.0
+    # --- CAREER OPT-INS (CS-4). Every default below reproduces the B4 walk the
+    # committed lanes fly, action for action; a spec opts in key by key.
+    # "mechjeb" (default): MJ-ASCENT -> CIRCULARIZE through MechJeb's node executor.
+    # "native": MJ-ASCENT -> NATIVE-COAST -> NATIVE-BURN -> ORBIT, RF-13's pitch
+    # program on kRPC's native AutoPilot (no maneuver node is ever read or made).
+    circularize_mode: str = "mechjeb"
+    circ_target_periapsis: float = 75000.0   # cut once periapsis reads >= this
+    circ_periapsis_debounce: int = 2         # ... on this many consecutive frames
+    circ_start_vertical_speed: float = 30.0  # COAST -> BURN at vs <= this (m/s)
+    circ_pitch_gain: float = 0.5             # rfo_circ_pitch's law, verbatim
+    circ_pitch_min: float = -10.0
+    circ_pitch_max: float = 45.0
+    heading_deg: float = 90.0
+    circ_ignite_frames: int = 20             # BURN frames before "never lit"
+    # PRELAUNCH fail-fast: > 0 engages MechJeb ONE frame before staging and waits up
+    # to this many frames for the AscentAutopilot to READ enabled; 0 keeps the
+    # same-frame engage-and-stage launch.
+    mj_engage_confirm_frames: int = 0
+    # MechJeb settings, written before the engage only when set (None = untouched).
+    autostage_limit: Optional[int] = None
+    skip_circularization: Optional[bool] = None
+    ascent_type: Optional[int] = None
 
 
 def b1_params_from_dict(params: Dict) -> B1Params:
@@ -4547,7 +4595,33 @@ def b4_params_from_dict(params: Dict) -> B4Params:
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
         frozen_tolerance_abs=float(params.get("frozenToleranceAbs",
                                               HOP_FROZEN_TOLERANCE_ABS)),
+        circularize_mode=_b4_circularize_mode(params.get("circularizeMode", "mechjeb")),
+        circ_target_periapsis=float(params.get("circTargetPeriapsisMeters", 75000)),
+        circ_periapsis_debounce=int(params.get("circPeriapsisDebounceFrames", 2)),
+        circ_start_vertical_speed=float(params.get("circStartVerticalSpeedMps", 30.0)),
+        circ_pitch_gain=float(params.get("circPitchGainDegPerMps", 0.5)),
+        circ_pitch_min=float(params.get("circPitchMinDeg", -10.0)),
+        circ_pitch_max=float(params.get("circPitchMaxDeg", 45.0)),
+        heading_deg=float(params.get("headingDeg", 90.0)),
+        circ_ignite_frames=int(params.get("circIgniteFrames", 20)),
+        mj_engage_confirm_frames=int(params.get("mjEngageConfirmFrames", 0)),
+        autostage_limit=(int(params["autostageLimit"])
+                         if params.get("autostageLimit") is not None else None),
+        skip_circularization=(bool(params["skipCircularization"])
+                              if params.get("skipCircularization") is not None else None),
+        ascent_type=(int(params["ascentType"])
+                     if params.get("ascentType") is not None else None),
     )
+
+
+def _b4_circularize_mode(value) -> str:
+    """The B4 circularization mode, refused loudly when unknown: a typo must not
+    silently select MechJeb's node executor on a save that has no nodes."""
+    mode = str(value)
+    if mode not in B4_CIRCULARIZE_MODES:
+        raise ValueError("circularizeMode %r is not one of %s"
+                         % (mode, "/".join(B4_CIRCULARIZE_MODES)))
+    return mode
 
 
 @dataclass(frozen=True)
@@ -11472,6 +11546,20 @@ class B4State:
     frozen_sig: Optional[FrozenSignature] = None
     frozen_count: int = 0
     loss_reason: Optional[str] = None
+    # A named give-up (resolve_flight_verdict prefers it over "phase X timed out").
+    # Set only by the opt-in paths below; every default-walk terminal leaves it None.
+    flake_reason: Optional[str] = None
+    # PRELAUNCH engage confirmation (mj_engage_confirm_frames > 0): the engage was
+    # emitted, and how many frames have read the AscentAutopilot not yet enabled.
+    mj_engage_sent: bool = False
+    mj_engage_wait_frames: int = 0
+    # NATIVE circularization evidence (circularize_mode = "native"), RF-13's set.
+    native_burn_frames: int = 0
+    native_peak_thrust: float = float("nan")
+    native_pe_streak: int = 0
+    native_last_pitch: float = float("nan")
+    circ_start_altitude: float = float("nan")
+    circ_cut_periapsis: float = float("nan")
 
 
 def b4_initial_state(params: B4Params) -> B4State:
@@ -11485,7 +11573,7 @@ def _b4_phase_budget(params: B4Params, phase: str) -> Optional[float]:
     wait (descentTimeoutSeconds); its clock stops mattering once ``done``."""
     if phase == B4_MJ_ASCENT:
         return params.ascent_timeout
-    if phase == B4_CIRCULARIZE:
+    if phase in (B4_CIRCULARIZE, B4_NATIVE_COAST, B4_NATIVE_BURN):
         return params.circularize_timeout
     if phase == B4_DEORBIT:
         return params.deorbit_timeout
@@ -11552,6 +11640,18 @@ def b4_decide(state: B4State, snapshot: TelemetrySnapshot) -> Tuple[B4State, Lis
     contract REQUIRES survival; there is no DOWN success terminal). A timed phase
     out-running its budget yields MISSION-FLAKE naming the stuck phase. Once
     ``done`` the machine is idempotent.
+
+    CAREER OPT-INS (CS-4; all off by default, so the walk above is unchanged):
+      - mj_engage_confirm_frames > 0: PRELAUNCH emits the MechJeb setup + engage
+        alone, then stages only on a frame that READS the autopilot enabled; K
+        frames without it end MISSION-FLAKE ``mechjeb-ascent-not-enabled``.
+      - autostage_limit / skip_circularization / ascent_type: one setter each,
+        written before the engage.
+      - circularize_mode = "native": MJ-ASCENT -> NATIVE-COAST (throttle cut, the
+        AP on RF-13's pitch law, until vertical speed <= circStartVerticalSpeedMps)
+        -> NATIVE-BURN (full throttle on the law until periapsis >=
+        circTargetPeriapsisMeters on K frames) -> ORBIT; both bounded by
+        circularizeTimeoutSeconds. No maneuver node is read or made.
     """
     if state.done:
         return state, []
@@ -11602,15 +11702,32 @@ def b4_decide(state: B4State, snapshot: TelemetrySnapshot) -> Tuple[B4State, Lis
         state = replace(state, frozen_sig=new_sig, frozen_count=new_count)
 
     if state.phase == B4_PRELAUNCH:
-        actions = [
-            Action(ACTION_MJ_SET_TARGET_APOAPSIS, state.params.target_apoapsis),
-            Action(ACTION_MJ_ENABLE_AUTOSTAGE),
-            Action(ACTION_MJ_ENGAGE_ASCENT),
-            # LAUNCH: same as B2 -- MechJeb's engaged AscentAutopilot does not
-            # ignite the first stage (first live B2 run 2026-07-20).
-            Action(ACTION_ACTIVATE_STAGE),
-        ]
-        return _b4_enter(state, B4_MJ_ASCENT, snapshot.ut, peak), actions
+        confirm = state.params.mj_engage_confirm_frames
+        if confirm <= 0:
+            actions = _b4_mj_setup_actions(state.params) + [
+                # LAUNCH: same as B2 -- MechJeb's engaged AscentAutopilot does not
+                # ignite the first stage (first live B2 run 2026-07-20).
+                Action(ACTION_ACTIVATE_STAGE),
+            ]
+            return _b4_enter(state, B4_MJ_ASCENT, snapshot.ut, peak), actions
+        # FAIL-FAST GATE (opt-in): engage first, stage only once the autopilot has
+        # READ enabled. A career save that refuses the ascent computer would
+        # otherwise launch an unguided stack and end as an ascent-budget flake.
+        if not state.mj_engage_sent:
+            return (replace(state, peak_apoapsis=peak, mj_engage_sent=True),
+                    _b4_mj_setup_actions(state.params))
+        if snapshot.mj_autopilot_enabled:
+            return (_b4_enter(state, B4_MJ_ASCENT, snapshot.ut, peak),
+                    [Action(ACTION_ACTIVATE_STAGE)])
+        waited = state.mj_engage_wait_frames + 1
+        if waited >= confirm:
+            return replace(
+                state, peak_apoapsis=peak, mj_engage_wait_frames=waited, done=True,
+                verdict=MISSION_FLAKE, flake_phase=B4_PRELAUNCH,
+                flake_reason=("%s: the AscentAutopilot read enabled=False on %d "
+                              "frames after the engage; the launch was never staged"
+                              % (B4_MJ_NOT_ENABLED_GIVEUP, waited))), []
+        return replace(state, peak_apoapsis=peak, mj_engage_wait_frames=waited), []
 
     if state.phase == B4_MJ_ASCENT:
         # VERBATIM the B2 gate: completion latch AND apoapsis window (the window
@@ -11619,9 +11736,34 @@ def b4_decide(state: B4State, snapshot: TelemetrySnapshot) -> Tuple[B4State, Lis
         apo_reached = (_is_finite(snapshot.apoapsis)
                        and snapshot.apoapsis >= target - state.params.apo_error)
         if snapshot.mj_ascent_complete and apo_reached:
+            if state.params.circularize_mode == "native":
+                # MechJeb is done (it self-disabled); hold the attitude on the
+                # circularization law with the engine off until the apoapsis.
+                pitch = _b4_native_pitch(state.params, snapshot.vertical_speed)
+                entered = replace(_b4_enter(state, B4_NATIVE_COAST, snapshot.ut, peak),
+                                  native_last_pitch=pitch)
+                return entered, [Action(ACTION_CUT_THROTTLE, 0.0),
+                                 Action(ACTION_AP_SET_PITCH_HEADING,
+                                        pitch_heading=(pitch,
+                                                       float(state.params.heading_deg)))]
             return (_b4_enter(state, B4_CIRCULARIZE, snapshot.ut, peak),
                     [Action(ACTION_MJ_EXECUTE_CIRCULARIZATION)])
         return _b4_stay_or_flake(state, snapshot, peak), []
+
+    if state.phase == B4_NATIVE_COAST:
+        stayed = _b4_stay_or_flake(state, snapshot, peak)
+        if stayed.done:
+            return stayed, [Action(ACTION_AP_DISENGAGE)]
+        stayed, steer = _b4_native_steer(stayed, snapshot.vertical_speed)
+        if (_is_finite(snapshot.vertical_speed)
+                and snapshot.vertical_speed <= state.params.circ_start_vertical_speed):
+            entered = replace(_b4_enter(stayed, B4_NATIVE_BURN, snapshot.ut, peak),
+                              circ_start_altitude=snapshot.altitude)
+            return entered, steer + [Action(ACTION_SET_THROTTLE, 1.0)]
+        return stayed, steer
+
+    if state.phase == B4_NATIVE_BURN:
+        return _b4_native_burn(state, snapshot, peak)
 
     if state.phase == B4_CIRCULARIZE:
         target = state.params.target_periapsis
@@ -11752,6 +11894,83 @@ def _b4_stay_or_flake(state: B4State, snapshot: TelemetrySnapshot, peak: Optiona
         return replace(state, peak_apoapsis=peak, verdict=MISSION_FLAKE,
                        flake_phase=state.phase, done=True)
     return replace(state, peak_apoapsis=peak)
+
+
+def _b4_mj_setup_actions(params: B4Params) -> List[Action]:
+    """The MechJeb configure-and-engage actions B4's launch emits. With every
+    career opt-in unset this is exactly the default walk's three actions; a set
+    opt-in adds its setter BEFORE the engage, so the autopilot starts configured."""
+    actions = [Action(ACTION_MJ_SET_TARGET_APOAPSIS, params.target_apoapsis)]
+    if params.ascent_type is not None:
+        actions.append(Action(ACTION_MJ_SET_ASCENT_TYPE, float(params.ascent_type)))
+    actions.append(Action(ACTION_MJ_ENABLE_AUTOSTAGE))
+    if params.autostage_limit is not None:
+        actions.append(Action(ACTION_MJ_SET_AUTOSTAGE_LIMIT, float(params.autostage_limit)))
+    if params.skip_circularization is not None:
+        actions.append(Action(ACTION_MJ_SET_SKIP_CIRCULARIZATION,
+                              1.0 if params.skip_circularization else 0.0))
+    actions.append(Action(ACTION_MJ_ENGAGE_ASCENT))
+    return actions
+
+
+def _b4_native_pitch(params: B4Params, vertical_speed: float) -> float:
+    """RF-13's circularization pitch law (``rfo_circ_pitch``), fed B4's knobs."""
+    return rfo_circ_pitch(RfoParams(circ_pitch_gain=params.circ_pitch_gain,
+                                    circ_pitch_min=params.circ_pitch_min,
+                                    circ_pitch_max=params.circ_pitch_max),
+                          vertical_speed)
+
+
+def _b4_native_steer(state: B4State, vertical_speed: float) -> Tuple[B4State, List[Action]]:
+    """Re-command the AP only when the law's pitch moved by a whole degree
+    (RF-13's ``_rfo_steer``)."""
+    pitch = _b4_native_pitch(state.params, vertical_speed)
+    if _is_finite(state.native_last_pitch) and abs(pitch - state.native_last_pitch) < 1.0:
+        return state, []
+    return (replace(state, native_last_pitch=pitch),
+            [Action(ACTION_AP_SET_PITCH_HEADING,
+                    pitch_heading=(float(pitch), float(state.params.heading_deg)))])
+
+
+def _b4_native_burn(state: B4State, snapshot: TelemetrySnapshot,
+                    peak: Optional[float]) -> Tuple[B4State, List[Action]]:
+    """NATIVE-BURN: full throttle on the pitch law until the periapsis reads at or
+    above ``circ_target_periapsis`` on ``circ_periapsis_debounce`` consecutive
+    frames, then cut, release the AP and enter ORBIT (whose next frame points
+    retrograde, the default walk from there on). RF-13's give-ups by name: an
+    engine that never reads thrust within ``circ_ignite_frames`` and a lit engine
+    that runs dry are ASSERT-FAIL losses (the craft cannot orbit; no stage is ever
+    fired here, because the next stage is the pod's own separation); the phase
+    budget (circularizeTimeoutSeconds, game time) is the FLAKE bound."""
+    p = state.params
+    stop = [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_AP_DISENGAGE)]
+    st = replace(state, native_burn_frames=state.native_burn_frames + 1)
+    thrust = snapshot.available_thrust
+    if _is_finite(thrust) and (not _is_finite(st.native_peak_thrust)
+                               or thrust > st.native_peak_thrust):
+        st = replace(st, native_peak_thrust=thrust)
+    lit = _is_finite(st.native_peak_thrust) and st.native_peak_thrust > 0.0
+    st, steer = _b4_native_steer(st, snapshot.vertical_speed)
+    pe_ok = _is_finite(snapshot.periapsis) and snapshot.periapsis >= p.circ_target_periapsis
+    st = replace(st, native_pe_streak=(st.native_pe_streak + 1) if pe_ok else 0)
+    if lit and st.native_pe_streak >= p.circ_periapsis_debounce:
+        entered = replace(_b4_enter(st, B4_ORBIT, snapshot.ut, peak),
+                          circ_cut_periapsis=snapshot.periapsis)
+        return entered, stop
+    if not lit and st.native_burn_frames >= p.circ_ignite_frames:
+        return replace(st, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
+                       loss_reason=("native circularization: engine never lit "
+                                    "(available_thrust stayed 0 for %d frames after "
+                                    "the throttle-up)" % p.circ_ignite_frames)), stop
+    if lit and _is_finite(thrust) and thrust <= 0.0:
+        return replace(st, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
+                       loss_reason=("native circularization: propellant exhausted short "
+                                    "of orbit (periapsis=%s target=%.0f)"
+                                    % (snapshot.periapsis, p.circ_target_periapsis))), stop
+    stayed = _b4_stay_or_flake(st, snapshot, peak)
+    if stayed.done:
+        return stayed, stop
+    return stayed, steer
 
 
 # ---------------------------------------------------------------------------

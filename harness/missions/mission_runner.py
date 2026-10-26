@@ -632,6 +632,10 @@ class KrpcMissionControl(MissionControl):
         # "complete" is never inferred BEFORE the autopilot has ever been engaged
         # (NIT 8: pre-engage, enabled==False must NOT read as ascent-complete=True).
         self._mj_ever_enabled = False
+        # The first refused MechJeb ascent setting (a raise or a read-back that
+        # disagrees), or "" while none was refused. ACTION_MJ_ENGAGE_ASCENT reads
+        # it and withholds the engage. Only the three career setters write it.
+        self._mj_config_refusal = ""
         # Consecutive telemetry-read failures. A one-off error still re-raises (the
         # existing transient path); only a SUSTAINED streak (>= _READ_FAIL_LIMIT)
         # means the active vessel is gone -- KSP destroyed the craft and handed
@@ -1220,6 +1224,7 @@ class KrpcMissionControl(MissionControl):
         crew_arg = [str(n) for n in crew_names] if crew_names else []
         sc.launch_vessel("VAB", str(action.text), str(launch_site), crew=crew_arg)
         self._mj_ever_enabled = False
+        self._mj_config_refusal = ""
         self._read_fail_streak = 0
         if self._use_mechjeb:
             try:
@@ -1459,7 +1464,23 @@ class KrpcMissionControl(MissionControl):
             self._ascent.desired_orbit_altitude = float(action.value)
         elif kind == mlib.ACTION_MJ_ENABLE_AUTOSTAGE:
             self._ascent.autostage = True
+        elif kind in (mlib.ACTION_MJ_SET_AUTOSTAGE_LIMIT,
+                      mlib.ACTION_MJ_SET_SKIP_CIRCULARIZATION,
+                      mlib.ACTION_MJ_SET_ASCENT_TYPE):
+            self._perform_mj_ascent_setting(action)
         elif kind == mlib.ACTION_MJ_ENGAGE_ASCENT:
+            # A refused MechJeb setting (see _perform_mj_ascent_setting) withholds
+            # the engage: an autopilot that would stage the pod's own separation or
+            # try a node circularization the save cannot make must not fly. The
+            # machine's PRELAUNCH engage gate then names the give-up. Unset unless
+            # one of the three career setters ran, so every other lane engages as
+            # before.
+            if self._mj_config_refusal:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "MjConfig",
+                    "REFUSING to engage the AscentAutopilot: %s"
+                    % self._mj_config_refusal))
+                return
             self._ascent.enabled = True
         elif kind == mlib.ACTION_MJ_EXECUTE_CIRCULARIZATION:
             # Execute the circularization node IF the autopilot left one.
@@ -4130,6 +4151,44 @@ class KrpcMissionControl(MissionControl):
                     "ModuleEngines status reads Flame-Out)"
                     % (", ".join(excluded), raw, corrected)))
         return corrected
+
+    def _perform_mj_ascent_setting(self, action: "mlib.Action") -> None:
+        """SET-then-READ-BACK one MechJeb AscentAutopilot setting (the CS-4 career
+        setters). KRPC.MechJeb surfaces, from GameData/kRPC/KRPC.MechJeb.json:
+        AscentAutopilot.StagingController.AutostageLimit (SINT32),
+        AscentAutopilot.SkipCircularization (BOOL), AscentAutopilot.AscentType
+        (SINT32, 0 = classic). A raise or a read-back that disagrees is recorded in
+        ``_mj_config_refusal`` (logged Warn) so the engage that follows is
+        withheld: a wrong autostage limit would fire the pod's separation in the
+        ascent, and a skip that did not take would leave MechJeb trying a node
+        circularization the save cannot make."""
+        kind = action.kind
+        try:
+            if kind == mlib.ACTION_MJ_SET_AUTOSTAGE_LIMIT:
+                label, want = "autostage_limit", int(action.value)
+                staging = self._ascent.staging_controller
+                staging.autostage_limit = want
+                got = int(staging.autostage_limit)
+            elif kind == mlib.ACTION_MJ_SET_SKIP_CIRCULARIZATION:
+                label, want = "skip_circularization", bool(action.value)
+                self._ascent.skip_circularization = want
+                got = bool(self._ascent.skip_circularization)
+            else:
+                label, want = "ascent_type", int(action.value)
+                self._ascent.ascent_type = want
+                got = int(self._ascent.ascent_type)
+        except Exception as exc:  # noqa: BLE001
+            reason = "%s set FAILED (%s: %s)" % (kind, type(exc).__name__, str(exc)[:160])
+            self._mj_config_refusal = self._mj_config_refusal or reason
+            _stdout_sink(mlib.format_mission_log_line("Warn", "MjConfig", reason))
+            return
+        if got != want:
+            reason = "%s READ BACK as %r, not %r" % (label, got, want)
+            self._mj_config_refusal = self._mj_config_refusal or reason
+            _stdout_sink(mlib.format_mission_log_line("Warn", "MjConfig", reason))
+            return
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info", "MjConfig", "%s=%r (read back confirmed)" % (label, got)))
 
     def _read_nodes(self, control_handle):
         """The maneuver-node list, or the EMPTY-LIST sentinel when kRPC refuses.

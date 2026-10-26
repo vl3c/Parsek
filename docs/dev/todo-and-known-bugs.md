@@ -2689,6 +2689,17 @@ batch used to Skip outside CAREER; it now runs in a Science game on the science 
 mirror gate admits a RECOVERED leaf, which has no `_vessel.craft`. Still open: EVA report /
 surface sample actions, and the CS-3 contract verbs.
 
+Progress 2026-10-26 (branch `cs4-career-orbit`): CS-4 (`CS-4-career-orbit-return`) authored,
+never flown, on the new fixture `cs-career-mc1` (CS-3b's produced save `2026-10-26_0426`). Its
+craft `CS Orbiter` is built by `build_cs_orbiter_craft.py` (25 parts, 3947 m/s, liftoff TWR
+1.21; the heat shield's own decoupler is a staging-disabled omni jettison, so a TD-12 under it
+drops the service section, Science Jr.'s pattern). A level-0 Tracking Station has no maneuver
+nodes, so the new `b4_reentry_career` shell has MechJeb fly the ascent only and circularizes on
+kRPC's AutoPilot (B4 `circularizeMode = "native"`, RF-13's pitch program), stages the launch
+only after MechJeb's autopilot reads enabled, and limits MechJeb's autostage to stage 2; the
+default B4 walk is unchanged. Owed: its first flight (the MechJeb-in-career reading run), then
+harvest `cs-career-orbit` and CS-4b (Tracking Station upgrade, KSC only).
+
 ---
 
 ## ~~QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN: F9 back into a Discarded flight must record again~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-quickload-into-discarded`; the in-flight discards followed 2026-10-16, branch `claude/lanes-rc6-ql6-ir5-nh7w10` (live-proven by lane QL-6, `2026-10-16_0649` PASS attempt 1)]
