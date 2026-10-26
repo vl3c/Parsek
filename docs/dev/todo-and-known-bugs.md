@@ -37,7 +37,18 @@ too, not only from rows before the clock: a full-timeline per-subject credit cac
 `BuildCommittedScienceSubjectCredits` shape. Then decide whether the walk still lets an earlier
 untagged row take headroom from a committed later one. Also key the patch's `apply-committed`
 rate limit per subject id: one shared key lets one subject's raise hide another's line for 30 s,
-which makes SCI-1's (B) contract racy on a fixed build. Lane SCI-1 pins the rule; first flight owed.
+which makes SCI-1's (B) contract racy on a fixed build. Lane SCI-1 pins the rule.
+
+MEASURED 2026-10-26, SCI-1 run on DLL 2d8150c5 (main with #2275), PARSEK-FAIL attempt 1 exactly as
+predicted. Committed flight: `Earning: subject=mysteryGoo@KerbinSrfLandedLaunchPad, awarded=3,
+effective=3, creditedTotal=3, maxValue=3.9 ... recordingId=4d46922b4671405bb866c85bd2844d2b`. After
+Rewind-to-Launch (UT 0.08) the pad re-read recovered at UT 200 paid in full, with no `Applied
+committed science` for the subject before it: `awarded=3, effective=3, creditedTotal=3 ...
+recordingId=(none)`, then the second and third cans at 0.69 and 0.16. At the crossing of the
+committed recovery (UT 338) the committed flight was capped: `Earning (cap hit): ... awarded=3,
+effective=0.0479, headroom=0.0479`; `Applied committed science: ... 3.9 -> 3.9` appears only after
+the crossing. The pool itself closes (LedgerGroundTruth `hardFailures=0`, science 10.4 / 10.4), so
+the question is which flight the credit belongs to: still the owner's ruling.
 
 ---
 
