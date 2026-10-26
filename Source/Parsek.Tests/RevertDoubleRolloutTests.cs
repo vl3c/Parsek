@@ -22,27 +22,49 @@ namespace Parsek.Tests
     /// <list type="bullet">
     ///   <item><description><see cref="LedgerRolloutAdoption.TryFindDuplicateRolloutAction"/>
     ///   gates a new rollout write at <see cref="LedgerOrchestrator.OnVesselRolloutSpending"/>:
-    ///   if a matching unadopted rollout exists for the same (pid|site|vessel|cost)
-    ///   within <see cref="LedgerRolloutAdoption.RolloutDuplicateWindowSeconds"/>,
+    ///   if an unadopted rollout of the same logical rollout (equal launch guids,
+    ///   or the #710 pid / name + site match when a guid is unknown; same cost)
+    ///   exists within <see cref="LedgerRolloutAdoption.RolloutDuplicateWindowSeconds"/>,
     ///   the new write is skipped with a single INFO log line.</description></item>
     ///   <item><description><see cref="Ledger.RepairDuplicateRolloutActions"/>
-    ///   runs at OnKspLoad and collapses any near-duplicate cluster already in
-    ///   the loaded ledger so already-corrupt saves are healed without a manual
-    ///   migration.</description></item>
+    ///   runs at OnKspLoad and collapses any such cluster already in the loaded
+    ///   ledger, by the same rule.</description></item>
     /// </list>
+    ///
+    /// <para>RELAUNCH-ROLLOUT-DEDUPED-AS-REVERT (CS-3b, 2026-10-26): the persistentId
+    /// is craft-baked, so pid + site + cost inside the window also matched a genuine
+    /// relaunch of the same craft and dropped its charge. Rows now carry the launch
+    /// guid (<c>Vessel.id</c>, fresh per launch); known and differing guids are never
+    /// a duplicate. Stock fires <c>OnVesselRollout</c> only for <c>NEW_FROM_FILE</c>, so
+    /// the #710 revert-to-editor + relaunch pair carries two different guids and the
+    /// revert prune owns it (<see cref="RevertToEditorThenRelaunch_FreshGuid_PruneLeavesOneRollout"/>).</para>
     /// </summary>
     [Collection("Sequential")]
     public class RevertDoubleRolloutTests : IDisposable
     {
-        // Mirrors the production repro byte-for-byte (same pid, site, vessel name).
+        // Mirrors the production repro (same pid, site, vessel name).
         private const uint ProductionPid = 3442693372u;
         private const string ProductionSite = "Launch Pad";
         private const string ProductionVesselName = "R1";
         private const float ProductionCost = 8320.001f;
         private const double ProductionUtFirst = 728.21980712880259;
         private const double ProductionUtSecond = 728.17980712880262;
+        // Launch guids in canonical "N" form.
+        private const string ProductionGuid = "5d80f8dfbd9d4084b5c00e762c881410";
+        private const string RelaunchGuid = "836ca8fa1e5f4571abf9291afd1b43f9";
 
         private readonly List<string> logLines = new List<string>();
+
+        private static string Key(
+            double ut,
+            string guid = ProductionGuid,
+            uint pid = ProductionPid,
+            string site = "Launch%20Pad",
+            string vessel = "R1")
+        {
+            string key = $"rollout:{ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}|pid={pid}|site={site}|vessel={vessel}";
+            return guid == null ? key : key + "|guid=" + guid;
+        }
 
         public RevertDoubleRolloutTests()
         {
@@ -60,6 +82,8 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            ParsekScenario.SetPrelaunchEntryLedgerActionIdsForTesting(null);
+            ParsekScenario.SetFlightEntryLedgerActionIdsForTesting(null);
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.ResetForTesting();
             RecordingStore.ResetForTesting();
@@ -74,9 +98,17 @@ namespace Parsek.Tests
             double cost,
             uint pid = ProductionPid,
             string vesselName = ProductionVesselName,
-            string launchSiteName = ProductionSite)
+            string launchSiteName = ProductionSite,
+            string guid = ProductionGuid)
         {
-            LedgerOrchestrator.OnVesselRolloutSpending(ut, cost, pid, vesselName, launchSiteName);
+            LedgerOrchestrator.OnVesselRolloutSpending(ut, cost, pid, vesselName, launchSiteName, guid);
+        }
+
+        private static GameAction SingleRollout()
+        {
+            return Ledger.Actions.Single(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild);
         }
 
         private static int CountUnadoptedRollouts()
@@ -99,13 +131,12 @@ namespace Parsek.Tests
         // ----------------------------------------------------------------
 
         /// <summary>
-        /// Production repro: emit the exact two rollouts from
-        /// <c>logs/2026-05-01_2208_investigate/parsek/GameState/ledger.pgld</c>
-        /// in chronological order. The first row should land; the second
-        /// (revert-relaunch) row must be detected as a duplicate and dropped.
+        /// One launch's rollout emitted twice (same launch guid) at the #710
+        /// production UTs: the first row lands, the second is a duplicate and is
+        /// dropped, and the survivor moves to the smaller UT.
         /// </summary>
         [Fact]
-        public void OnVesselRolloutSpending_RevertRelaunchSamePidSameCost_DroppedAsDuplicate()
+        public void OnVesselRolloutSpending_SameLaunchGuidDoubleEmission_DroppedAsDuplicate()
         {
             RecordRollout(ProductionUtFirst, ProductionCost);
             Assert.Equal(1, CountUnadoptedRollouts());
@@ -126,7 +157,248 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") &&
                 l.Contains("OnVesselRolloutSpending: skipping duplicate rollout") &&
-                l.Contains("swapped surviving row to relaunch UT"));
+                l.Contains("swapped surviving row to relaunch UT") &&
+                l.Contains("existingGuid=" + ProductionGuid) &&
+                l.Contains("newGuid=" + ProductionGuid));
+        }
+
+        /// <summary>
+        /// CS-3b repro (RELAUNCH-ROLLOUT-DEDUPED-AS-REVERT): an unrecorded launch of
+        /// Jumping Flea at UT 347.26, the vessel recovered, then the same craft
+        /// launched again at UT 350.34. Same craft-baked pid, same site, same cost,
+        /// 3.08 s apart, but a fresh launch guid: a second real charge that must be
+        /// ledgered. The decision line names both guids.
+        /// </summary>
+        [Fact]
+        public void OnVesselRolloutSpending_RelaunchFreshGuidSamePidSiteCostInsideWindow_BothWritten()
+        {
+            RecordRollout(347.25999999997413, 2932.0, pid: 2905720181u,
+                vesselName: "Jumping Flea", guid: ProductionGuid);
+            RecordRollout(350.33999999997133, 2932.0, pid: 2905720181u,
+                vesselName: "Jumping Flea", guid: RelaunchGuid);
+
+            Assert.Equal(2, CountUnadoptedRollouts());
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("OnVesselRolloutSpending: skipping duplicate rollout"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("OnVesselRolloutSpending: recording rollout as a new launch") &&
+                l.Contains("verdict=GuidDiffers") &&
+                l.Contains("existingGuid=" + ProductionGuid) &&
+                l.Contains("newGuid=" + RelaunchGuid));
+            Assert.Equal(2, Ledger.Actions.Count(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild &&
+                a.DedupKey != null &&
+                (a.DedupKey.EndsWith("|guid=" + ProductionGuid) || a.DedupKey.EndsWith("|guid=" + RelaunchGuid))));
+        }
+
+        /// <summary>
+        /// A stored row with no launch guid (written before the key carried one)
+        /// falls back to the #710 pid + site match: same pid / site / cost inside the
+        /// window is still a duplicate. The decision line names both guids and the
+        /// fallback verdict, and the survivor keeps the known guid.
+        /// </summary>
+        [Fact]
+        public void OnVesselRolloutSpending_ExistingRowWithoutGuid_DedupedByPidFallback()
+        {
+            RecordRollout(100.5, 5000.0, guid: null);
+            RecordRollout(100.0, 5000.0, guid: ProductionGuid);
+
+            Assert.Equal(1, CountUnadoptedRollouts());
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("OnVesselRolloutSpending: skipping duplicate rollout") &&
+                l.Contains("verdict=DuplicateGuidUnknownFallback") &&
+                l.Contains("existingGuid=(none)") &&
+                l.Contains("newGuid=" + ProductionGuid));
+            var survivor = SingleRollout();
+            Assert.Equal(100.0, survivor.UT);
+            Assert.EndsWith("|guid=" + ProductionGuid, survivor.DedupKey);
+        }
+
+        /// <summary>
+        /// The mirror direction: a new rollout whose launch guid could not be read
+        /// falls back to the pid + site match against a guid-bearing row, and the
+        /// survivor keeps the stored guid when the swap rewrites its key.
+        /// </summary>
+        [Fact]
+        public void OnVesselRolloutSpending_CandidateWithoutGuid_DedupedByPidFallback()
+        {
+            RecordRollout(100.5, 5000.0, guid: ProductionGuid);
+            RecordRollout(100.0, 5000.0, guid: null);
+
+            Assert.Equal(1, CountUnadoptedRollouts());
+            Assert.Contains(logLines, l =>
+                l.Contains("OnVesselRolloutSpending: skipping duplicate rollout") &&
+                l.Contains("verdict=DuplicateGuidUnknownFallback") &&
+                l.Contains("existingGuid=" + ProductionGuid) &&
+                l.Contains("newGuid=(none)"));
+            var survivor = SingleRollout();
+            Assert.Equal(100.0, survivor.UT);
+            Assert.EndsWith("|guid=" + ProductionGuid, survivor.DedupKey);
+        }
+
+        /// <summary>
+        /// With an unknown guid the fallback is exactly the #710 rule: a differing
+        /// known pid is still two launches.
+        /// </summary>
+        [Fact]
+        public void OnVesselRolloutSpending_GuidUnknownDifferentPid_BothKept()
+        {
+            RecordRollout(100.0, 5000.0, pid: 1u, guid: null);
+            RecordRollout(100.5, 5000.0, pid: 2u, guid: ProductionGuid);
+
+            Assert.Equal(2, CountUnadoptedRollouts());
+        }
+
+        // ----------------------------------------------------------------
+        // Pure classifier and key round trip
+        // ----------------------------------------------------------------
+
+        private static LedgerRolloutAdoption.RolloutAdoptionContext Ctx(
+            uint pid = ProductionPid, string name = ProductionVesselName,
+            string site = ProductionSite, string guid = ProductionGuid)
+        {
+            return LedgerRolloutAdoption.CreateRolloutAdoptionContext(pid, name, site, guid);
+        }
+
+        [Fact]
+        public void ClassifyRolloutDuplicate_VerdictTable()
+        {
+            Assert.Equal(LedgerRolloutAdoption.RolloutDuplicateVerdict.Duplicate,
+                LedgerRolloutAdoption.ClassifyRolloutDuplicate(Ctx(), Ctx()));
+            // Known, differing guids are two launches even with every other field equal.
+            Assert.Equal(LedgerRolloutAdoption.RolloutDuplicateVerdict.GuidDiffers,
+                LedgerRolloutAdoption.ClassifyRolloutDuplicate(Ctx(), Ctx(guid: RelaunchGuid)));
+            // Unknown on either side: the #710 pid match.
+            Assert.Equal(LedgerRolloutAdoption.RolloutDuplicateVerdict.DuplicateGuidUnknownFallback,
+                LedgerRolloutAdoption.ClassifyRolloutDuplicate(Ctx(guid: null), Ctx()));
+            Assert.Equal(LedgerRolloutAdoption.RolloutDuplicateVerdict.DuplicateGuidUnknownFallback,
+                LedgerRolloutAdoption.ClassifyRolloutDuplicate(Ctx(), Ctx(guid: null)));
+            Assert.Equal(LedgerRolloutAdoption.RolloutDuplicateVerdict.PidDiffers,
+                LedgerRolloutAdoption.ClassifyRolloutDuplicate(Ctx(guid: null), Ctx(pid: 7u)));
+            // Unknown guid and pid: name + site.
+            Assert.Equal(LedgerRolloutAdoption.RolloutDuplicateVerdict.DuplicateGuidUnknownFallback,
+                LedgerRolloutAdoption.ClassifyRolloutDuplicate(Ctx(pid: 0u, guid: null), Ctx(pid: 0u, guid: null)));
+            Assert.Equal(LedgerRolloutAdoption.RolloutDuplicateVerdict.NoMatch,
+                LedgerRolloutAdoption.ClassifyRolloutDuplicate(Ctx(pid: 0u, guid: null), Ctx(pid: 0u, name: "R2", guid: null)));
+            // Site guard first, whatever the guids say.
+            Assert.Equal(LedgerRolloutAdoption.RolloutDuplicateVerdict.SiteDiffers,
+                LedgerRolloutAdoption.ClassifyRolloutDuplicate(Ctx(), Ctx(site: "Desert Launch Site")));
+            // Equal guids with differing known pids are not one rollout.
+            Assert.Equal(LedgerRolloutAdoption.RolloutDuplicateVerdict.PidDiffers,
+                LedgerRolloutAdoption.ClassifyRolloutDuplicate(Ctx(), Ctx(pid: 7u)));
+            // Guid comparison is format-insensitive (dashed "D" form vs "N" form).
+            Assert.Equal(LedgerRolloutAdoption.RolloutDuplicateVerdict.Duplicate,
+                LedgerRolloutAdoption.ClassifyRolloutDuplicate(
+                    Ctx(), Ctx(guid: "5D80F8DF-BD9D-4084-B5C0-0E762C881410")));
+        }
+
+        [Fact]
+        public void RolloutDedupKey_RoundTripsLaunchGuid()
+        {
+            var ctx = LedgerRolloutAdoption.CreateRolloutAdoptionContext(
+                ProductionPid, "Jumping Flea", "Launch Pad", "5D80F8DF-BD9D-4084-B5C0-0E762C881410");
+            string key = LedgerRolloutAdoption.BuildRolloutDedupKey(350.34, ctx);
+
+            Assert.Equal(
+                "rollout:350.34|pid=3442693372|site=Launch%20Pad|vessel=Jumping%20Flea|guid=" + ProductionGuid,
+                key);
+            var parsed = LedgerRolloutAdoption.ParseRolloutAdoptionContext(key);
+            Assert.Equal(ProductionPid, parsed.VesselPersistentId);
+            Assert.Equal("Jumping Flea", parsed.VesselName);
+            Assert.Equal("Launch Pad", parsed.LaunchSiteName);
+            Assert.Equal(ProductionGuid, parsed.VesselGuid);
+            Assert.False(parsed.IsLegacyBareKey);
+        }
+
+        [Fact]
+        public void RolloutDedupKey_UnknownGuid_OmitsTheFieldAndParsesNull()
+        {
+            var ctx = LedgerRolloutAdoption.CreateRolloutAdoptionContext(
+                ProductionPid, ProductionVesselName, ProductionSite, null);
+            string key = LedgerRolloutAdoption.BuildRolloutDedupKey(100.0, ctx);
+
+            Assert.DoesNotContain("guid=", key);
+            Assert.Null(LedgerRolloutAdoption.ParseRolloutAdoptionContext(key).VesselGuid);
+            Assert.Equal(ProductionGuid,
+                LedgerRolloutAdoption.FormatLaunchGuid(new Guid(ProductionGuid)));
+            Assert.Null(LedgerRolloutAdoption.FormatLaunchGuid(Guid.Empty));
+        }
+
+        // ----------------------------------------------------------------
+        // Adoption reads the launch guid where the recording carries one
+        // ----------------------------------------------------------------
+
+        [Fact]
+        public void TryAdoptRolloutAction_RecordingGuidDiffersFromRowGuid_NotAdopted()
+        {
+            RecordRollout(1000.0, ProductionCost, guid: ProductionGuid);
+            var rec = new Recording
+            {
+                RecordingId = "rec-relaunch",
+                StartSituation = "Prelaunch",
+                VesselPersistentId = ProductionPid,
+                VesselName = ProductionVesselName,
+                LaunchSiteName = ProductionSite,
+                RecordedVesselGuid = RelaunchGuid,
+            };
+
+            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-relaunch", startUT: 1000.1, rec);
+
+            Assert.Null(adopted);
+            Assert.Equal(1, CountUnadoptedRollouts());
+        }
+
+        [Fact]
+        public void TryAdoptRolloutAction_RecordingGuidUnknown_FallsBackToPid()
+        {
+            RecordRollout(1000.0, ProductionCost, guid: ProductionGuid);
+            var rec = new Recording
+            {
+                RecordingId = "rec-noguid",
+                StartSituation = "Prelaunch",
+                VesselPersistentId = ProductionPid,
+                VesselName = ProductionVesselName,
+                LaunchSiteName = ProductionSite,
+            };
+
+            var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-noguid", startUT: 1000.1, rec);
+
+            Assert.NotNull(adopted);
+            Assert.Equal("rec-noguid", adopted.RecordingId);
+        }
+
+        /// <summary>
+        /// #710 under the guid rule. The production double was a Revert to the
+        /// editor followed by a relaunch: stock's Revert-to-Launch reloads
+        /// PostInitState with RESUME_SAVED_CACHE and fires no rollout, while every
+        /// editor launch (NEW_FROM_FILE) assembles a vessel with a fresh
+        /// <c>Vessel.id</c>. So the two rows carry different guids and the write gate
+        /// keeps both; the revert prune removes the reverted launch's untagged
+        /// rollout before the relaunch charge lands, leaving exactly one.
+        /// </summary>
+        [Fact]
+        public void RevertToEditorThenRelaunch_FreshGuid_PruneLeavesOneRollout()
+        {
+            const double launchUT = ProductionUtSecond - 0.01;
+            // Fresh launch entry: the prelaunch set is taken before the rollout row exists.
+            ParsekScenario.SetPrelaunchEntryLedgerActionIdsForTesting(
+                ParsekScenario.CollectLedgerActionIds(Ledger.Actions));
+            RecordRollout(ProductionUtFirst, ProductionCost, guid: ProductionGuid);
+            Assert.Equal(1, CountUnadoptedRollouts());
+
+            int pruned = ParsekScenario.PruneRevertedFlightLedgerRows(
+                launchUT, inclusive: true, RevertKind.Prelaunch);
+            Assert.Equal(1, pruned);
+            Assert.Equal(0, CountUnadoptedRollouts());
+
+            RecordRollout(ProductionUtSecond, ProductionCost, guid: RelaunchGuid);
+
+            var survivor = SingleRollout();
+            Assert.Equal(ProductionUtSecond, survivor.UT);
+            Assert.EndsWith("|guid=" + RelaunchGuid, survivor.DedupKey);
         }
 
         /// <summary>
@@ -308,6 +580,7 @@ namespace Parsek.Tests
                 VesselPersistentId = ProductionPid,
                 VesselName = ProductionVesselName,
                 LaunchSiteName = ProductionSite,
+                RecordedVesselGuid = ProductionGuid,
             };
             var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-A", startUT: t1 + 0.1, rec);
             Assert.NotNull(adopted);
@@ -356,10 +629,11 @@ namespace Parsek.Tests
         // ----------------------------------------------------------------
 
         /// <summary>
-        /// Simulates loading the production ledger byte-for-byte by inlining
-        /// the two duplicate rollout actions exactly as serialized in
-        /// <c>logs/2026-05-01_2208_investigate/parsek/GameState/ledger.pgld</c>
-        /// and asserts the load-time repair pass collapses them to one.
+        /// Loads the two #710 production rollout rows (UTs, pid, site, vessel and
+        /// cost of <c>logs/2026-05-01_2208_investigate/parsek/GameState/ledger.pgld</c>),
+        /// here carrying one launch guid, and asserts the load-time repair pass
+        /// collapses them to one. The guid-less original shape is
+        /// <see cref="RepairDuplicateRolloutActions_RowsWithoutGuid_CollapsedByPidFallback"/>.
         /// </summary>
         [Fact]
         public void RepairDuplicateRolloutActions_ProductionLedger_CollapsesToOne()
@@ -371,7 +645,7 @@ namespace Parsek.Tests
                 FundsSpent = ProductionCost,
                 FundsSpendingSource = FundsSpendingSource.VesselBuild,
                 Sequence = 18,
-                DedupKey = $"rollout:{ProductionUtFirst.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}|pid={ProductionPid}|site=Launch%20Pad|vessel=R1",
+                DedupKey = Key(ProductionUtFirst),
             };
             var second = new GameAction
             {
@@ -380,7 +654,7 @@ namespace Parsek.Tests
                 FundsSpent = ProductionCost,
                 FundsSpendingSource = FundsSpendingSource.VesselBuild,
                 Sequence = 19,
-                DedupKey = $"rollout:{ProductionUtSecond.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}|pid={ProductionPid}|site=Launch%20Pad|vessel=R1",
+                DedupKey = Key(ProductionUtSecond),
             };
 
             Ledger.AddAction(first);
@@ -427,7 +701,7 @@ namespace Parsek.Tests
                 FundsSpent = ProductionCost,
                 FundsSpendingSource = FundsSpendingSource.VesselBuild,
                 Sequence = 18,
-                DedupKey = $"rollout:{ProductionUtFirst.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}|pid={ProductionPid}|site=Launch%20Pad|vessel=R1",
+                DedupKey = Key(ProductionUtFirst),
             });
             Ledger.AddAction(new GameAction
             {
@@ -436,7 +710,7 @@ namespace Parsek.Tests
                 FundsSpent = ProductionCost,
                 FundsSpendingSource = FundsSpendingSource.VesselBuild,
                 Sequence = 19,
-                DedupKey = $"rollout:{ProductionUtSecond.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}|pid={ProductionPid}|site=Launch%20Pad|vessel=R1",
+                DedupKey = Key(ProductionUtSecond),
             });
             Assert.Equal(2, CountUnadoptedRollouts());
 
@@ -477,7 +751,7 @@ namespace Parsek.Tests
                     FundsSpent = ProductionCost,
                     FundsSpendingSource = FundsSpendingSource.VesselBuild,
                     Sequence = 18 + i,
-                    DedupKey = $"rollout:{(728.0 + 0.04 * i).ToString("R", System.Globalization.CultureInfo.InvariantCulture)}|pid={ProductionPid}|site=Launch%20Pad|vessel=R1",
+                    DedupKey = Key(728.0 + 0.04 * i),
                 });
             }
             Assert.Equal(3, CountUnadoptedRollouts());
@@ -502,7 +776,7 @@ namespace Parsek.Tests
                 Type = GameActionType.FundsSpending,
                 FundsSpent = 5000f,
                 FundsSpendingSource = FundsSpendingSource.VesselBuild,
-                DedupKey = "rollout:100|pid=1|site=Launch%20Pad|vessel=Alice",
+                DedupKey = Key(100.0, pid: 1u, vessel: "Alice"),
             });
             Ledger.AddAction(new GameAction
             {
@@ -510,7 +784,7 @@ namespace Parsek.Tests
                 Type = GameActionType.FundsSpending,
                 FundsSpent = 5000f,
                 FundsSpendingSource = FundsSpendingSource.VesselBuild,
-                DedupKey = "rollout:100.5|pid=2|site=Launch%20Pad|vessel=Bob",
+                DedupKey = Key(100.5, pid: 2u, vessel: "Bob"),
             });
             // Far-apart UTs (same craft, two real launches separated by hours).
             Ledger.AddAction(new GameAction
@@ -519,7 +793,7 @@ namespace Parsek.Tests
                 Type = GameActionType.FundsSpending,
                 FundsSpent = 5000f,
                 FundsSpendingSource = FundsSpendingSource.VesselBuild,
-                DedupKey = $"rollout:9999|pid=1|site=Launch%20Pad|vessel=Alice",
+                DedupKey = Key(9999.0, pid: 1u, vessel: "Alice"),
             });
 
             int removed = Ledger.RepairDuplicateRolloutActions();
@@ -546,7 +820,7 @@ namespace Parsek.Tests
                 FundsSpent = 3805f,
                 FundsSpendingSource = FundsSpendingSource.VesselBuild,
                 Sequence = 1,
-                DedupKey = $"rollout:72.24|pid={ProductionPid}|site=Launch%20Pad|vessel=r0",
+                DedupKey = Key(72.24, vessel: "r0"),
             });
             Ledger.AddAction(new GameAction
             {
@@ -555,13 +829,153 @@ namespace Parsek.Tests
                 FundsSpent = 3805f,
                 FundsSpendingSource = FundsSpendingSource.VesselBuild,
                 Sequence = 2,
-                DedupKey = $"rollout:131.82|pid={ProductionPid}|site=Desert%20Launch%20Site|vessel=r0",
+                DedupKey = Key(131.82, site: "Desert%20Launch%20Site", vessel: "r0"),
             });
 
             int removed = Ledger.RepairDuplicateRolloutActions();
 
             Assert.Equal(0, removed);
             Assert.Equal(2, CountUnadoptedRollouts());
+        }
+
+        /// <summary>
+        /// Repair mirror of the CS-3b relaunch: same pid / site / cost inside the
+        /// window, different known launch guids. Two launches; both kept.
+        /// </summary>
+        [Fact]
+        public void RepairDuplicateRolloutActions_DifferentGuidsSamePidSite_BothKept()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 347.26,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = 2932f,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                Sequence = 1,
+                DedupKey = Key(347.26, guid: ProductionGuid),
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 350.34,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = 2932f,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                Sequence = 2,
+                DedupKey = Key(350.34, guid: RelaunchGuid),
+            });
+
+            int removed = Ledger.RepairDuplicateRolloutActions();
+
+            Assert.Equal(0, removed);
+            Assert.Equal(2, CountUnadoptedRollouts());
+        }
+
+        /// <summary>
+        /// Repair of the #710 rows as originally serialized (no guid field): the
+        /// pid + site fallback still collapses them to one.
+        /// </summary>
+        [Fact]
+        public void RepairDuplicateRolloutActions_RowsWithoutGuid_CollapsedByPidFallback()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = ProductionUtFirst,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = ProductionCost,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                Sequence = 18,
+                DedupKey = Key(ProductionUtFirst, guid: null),
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = ProductionUtSecond,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = ProductionCost,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                Sequence = 19,
+                DedupKey = Key(ProductionUtSecond, guid: ProductionGuid),
+            });
+
+            int removed = Ledger.RepairDuplicateRolloutActions();
+
+            Assert.Equal(1, removed);
+            var survivor = SingleRollout();
+            Assert.Equal(ProductionUtSecond, survivor.UT);
+            Assert.EndsWith("|guid=" + ProductionGuid, survivor.DedupKey);
+        }
+
+        /// <summary>
+        /// The survivor of a both-unadopted swap keeps the anchor's known guid when
+        /// the earlier-UT candidate row carries none.
+        /// </summary>
+        [Fact]
+        public void RepairDuplicateRolloutActions_SwapKeepsAnchorGuidWhenCandidateHasNone()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = ProductionUtFirst,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = ProductionCost,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                Sequence = 18,
+                DedupKey = Key(ProductionUtFirst, guid: ProductionGuid),
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = ProductionUtSecond,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = ProductionCost,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                Sequence = 19,
+                DedupKey = Key(ProductionUtSecond, guid: null),
+            });
+
+            Assert.Equal(1, Ledger.RepairDuplicateRolloutActions());
+            var survivor = SingleRollout();
+            Assert.Equal(ProductionUtSecond, survivor.UT);
+            Assert.Equal(19, survivor.Sequence);
+            Assert.EndsWith("|guid=" + ProductionGuid, survivor.DedupKey);
+        }
+
+        /// <summary>
+        /// Adopted + unadopted with differing known guids (the recording flew a
+        /// different launch of the same craft): not a duplicate, both kept.
+        /// </summary>
+        [Fact]
+        public void RepairDuplicateRolloutActions_AdoptedRowOtherLaunchGuid_BothKept()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-adopted",
+                StartSituation = "Prelaunch",
+                VesselPersistentId = ProductionPid,
+                VesselName = ProductionVesselName,
+                LaunchSiteName = ProductionSite,
+                RecordedVesselGuid = ProductionGuid,
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            Ledger.AddAction(new GameAction
+            {
+                UT = ProductionUtFirst,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = ProductionCost,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                RecordingId = "rec-adopted",
+                Sequence = 1,
+                DedupKey = null,
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = ProductionUtSecond,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = ProductionCost,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                Sequence = 2,
+                DedupKey = Key(ProductionUtSecond, guid: RelaunchGuid),
+            });
+
+            Assert.Equal(0, Ledger.RepairDuplicateRolloutActions());
+            Assert.Equal(1, CountUnadoptedRollouts());
         }
 
         /// <summary>
@@ -593,7 +1007,7 @@ namespace Parsek.Tests
                 Type = GameActionType.FundsSpending,
                 FundsSpent = ProductionCost,
                 FundsSpendingSource = FundsSpendingSource.VesselBuild,
-                DedupKey = $"rollout:100.5|pid={ProductionPid}|site=Launch%20Pad|vessel=R1",
+                DedupKey = Key(100.5),
             });
 
             int removed = Ledger.RepairDuplicateRolloutActions();
@@ -630,6 +1044,7 @@ namespace Parsek.Tests
                 VesselPersistentId = ProductionPid,
                 VesselName = ProductionVesselName,
                 LaunchSiteName = ProductionSite,
+                RecordedVesselGuid = ProductionGuid,
             };
             RecordingStore.AddRecordingWithTreeForTesting(rec);
             var adopted = LedgerOrchestrator.TryAdoptRolloutAction("rec-adopted", startUT: ProductionUtFirst + 0.1, rec);
@@ -645,7 +1060,7 @@ namespace Parsek.Tests
                 FundsSpent = ProductionCost,
                 FundsSpendingSource = FundsSpendingSource.VesselBuild,
                 Sequence = 50,
-                DedupKey = $"rollout:{ProductionUtSecond.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}|pid={ProductionPid}|site=Launch%20Pad|vessel=R1",
+                DedupKey = Key(ProductionUtSecond),
             });
 
             int adoptedBefore = Ledger.Actions.Count(a =>
@@ -700,7 +1115,7 @@ namespace Parsek.Tests
                 FundsSpent = ProductionCost,
                 FundsSpendingSource = FundsSpendingSource.VesselBuild,
                 Sequence = 1,
-                DedupKey = $"rollout:{ProductionUtSecond.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}|pid={ProductionPid}|site=Launch%20Pad|vessel=R1",
+                DedupKey = Key(ProductionUtSecond),
             });
             // Now stage the adopted row at a higher index.
             var rec = new Recording
@@ -710,6 +1125,7 @@ namespace Parsek.Tests
                 VesselPersistentId = ProductionPid,
                 VesselName = ProductionVesselName,
                 LaunchSiteName = ProductionSite,
+                RecordedVesselGuid = ProductionGuid,
             };
             RecordingStore.AddRecordingWithTreeForTesting(rec);
             Ledger.AddAction(new GameAction
@@ -762,6 +1178,7 @@ namespace Parsek.Tests
                 VesselPersistentId = ProductionPid,
                 VesselName = ProductionVesselName,
                 LaunchSiteName = ProductionSite,
+                RecordedVesselGuid = ProductionGuid,
             };
             var recB = new Recording
             {
@@ -770,6 +1187,7 @@ namespace Parsek.Tests
                 VesselPersistentId = ProductionPid,
                 VesselName = ProductionVesselName,
                 LaunchSiteName = ProductionSite,
+                RecordedVesselGuid = ProductionGuid,
             };
             RecordingStore.AddRecordingWithTreeForTesting(recA);
             RecordingStore.AddRecordingWithTreeForTesting(recB);
@@ -865,7 +1283,7 @@ namespace Parsek.Tests
                 FundsSpent = ProductionCost,
                 FundsSpendingSource = FundsSpendingSource.VesselBuild,
                 Sequence = 18,
-                DedupKey = $"rollout:{ProductionUtFirst.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}|pid={ProductionPid}|site=Launch%20Pad|vessel=R1",
+                DedupKey = Key(ProductionUtFirst),
             });
             Ledger.AddAction(new GameAction
             {
@@ -874,7 +1292,7 @@ namespace Parsek.Tests
                 FundsSpent = ProductionCost,
                 FundsSpendingSource = FundsSpendingSource.VesselBuild,
                 Sequence = 19,
-                DedupKey = $"rollout:{ProductionUtSecond.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}|pid={ProductionPid}|site=Launch%20Pad|vessel=R1",
+                DedupKey = Key(ProductionUtSecond),
             });
             Assert.Equal(2, CountUnadoptedRollouts());
 
@@ -905,6 +1323,7 @@ namespace Parsek.Tests
                 VesselPersistentId = ProductionPid,
                 VesselName = ProductionVesselName,
                 LaunchSiteName = ProductionSite,
+                RecordedVesselGuid = ProductionGuid,
             };
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
@@ -927,7 +1346,7 @@ namespace Parsek.Tests
                 FundsSpent = ProductionCost,
                 FundsSpendingSource = FundsSpendingSource.VesselBuild,
                 Sequence = 11,
-                DedupKey = $"rollout:{relaunchUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}|pid={ProductionPid}|site=Launch%20Pad|vessel=R1",
+                DedupKey = Key(relaunchUT),
             });
 
             LedgerOrchestrator.OnKspLoad(

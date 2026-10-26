@@ -14,17 +14,33 @@ namespace Parsek
         /// <summary>
         /// UT window (game seconds, either side of the candidate UT) within which a
         /// matching unadopted VesselRollout action is treated as the same logical
-        /// rollout. KSP's revert-to-launch flow reloads the launch quicksave but the
-        /// re-launch fires <c>TransactionReasons.VesselRollout</c> at a near-identical
-        /// UT (the launch quicksave's UT plus a few frames of physics tick), so the
-        /// two emissions are within ~1s of each other in practice. Sized at 60s to
-        /// also catch the larger gap that <c>RolloutAdoptionWindowSeconds=1800</c>
-        /// allows between rollout and recording start while remaining well below any
-        /// realistic gap between two genuinely independent launches of distinct
-        /// vessels (different PIDs would not match anyway — see
-        /// <see cref="RolloutDuplicateMatches"/>).
+        /// rollout. The deciding identity is the launch guid (see
+        /// <see cref="ClassifyRolloutDuplicate"/>); the window only bounds the scan.
         /// </summary>
         internal const double RolloutDuplicateWindowSeconds = 60.0;
+
+        /// <summary>
+        /// Why <see cref="ClassifyRolloutDuplicate"/> did or did not call two rollout
+        /// contexts the same logical rollout.
+        /// </summary>
+        internal enum RolloutDuplicateVerdict
+        {
+            // Both launch guids known and equal.
+            Duplicate,
+            // A launch guid unknown on a side; the #710 pid (else name) + site match held.
+            DuplicateGuidUnknownFallback,
+            LegacyBareKey,
+            GuidDiffers,
+            SiteDiffers,
+            PidDiffers,
+            NoMatch
+        }
+
+        internal static bool IsDuplicateVerdict(RolloutDuplicateVerdict verdict)
+        {
+            return verdict == RolloutDuplicateVerdict.Duplicate
+                || verdict == RolloutDuplicateVerdict.DuplicateGuidUnknownFallback;
+        }
 
         /// <summary>
         /// Cost-equality epsilon for rollout duplicate detection. KSP rolls the same
@@ -39,6 +55,8 @@ namespace Parsek
             public uint VesselPersistentId;
             public string VesselName;
             public string LaunchSiteName;
+            // Launch-unique KSP Vessel.id in canonical "N" form; null when unknown.
+            public string VesselGuid;
             public bool IsLegacyBareKey;
         }
 
@@ -57,39 +75,43 @@ namespace Parsek
                 return;
             }
 
-            // Revert double-rollout guard (#710): KSP fires VesselRollout on every
-            // launch, including immediately after a Revert-to-Launch from a flight
-            // that had already fired one. The two emissions land at near-identical
-            // UTs (~40 ms apart in the production repro because the revert clock
-            // rolled back) but the existing UT-embedded dedup key cannot collapse
-            // them. Treat any unadopted matching rollout for the same
-            // (pid|site|vessel|cost) within RolloutDuplicateWindowSeconds as the
-            // same logical rollout, even when the new write would have the strictly
-            // smaller UT. KSP refunded the original deduction during the revert and
-            // KspStatePatcher re-applied it from the surviving ledger row, so no
-            // funds were silently dropped — the second write would be the
-            // double-charge.
+            // Revert double-rollout guard (#710), keyed on the launch guid
+            // (KSP Vessel.id, see ClassifyRolloutDuplicate). The persistentId is
+            // craft-baked and reused by every launch of the craft, so pid + site +
+            // cost inside the window also matches a genuine relaunch of the same
+            // craft (an unrecorded launch, a recovery, a second launch): when both
+            // rows carry a known launch guid and the guids differ, the new rollout
+            // is a second, real charge (CS-3b, RELAUNCH-ROLLOUT-DEDUPED-AS-REVERT).
+            // Equal guids are one launch emitted twice. When either guid is unknown
+            // the #710 pid / name + site match decides, as before.
             //
             // Cluster invariant: the surviving row's UT is always the minimum of
             // the cluster's UTs, regardless of write order or adoption state. The
             // load-time repair pass at <see cref="RepairDuplicateRolloutActions"/>
             // upholds the same invariant. When the new write has the strictly
-            // smaller UT (revert-relaunch with a clock rollback >0 ms), the
-            // surviving row's UT/DedupKey/Sequence are mutated in place to match
-            // the relaunch timeline. Without that mutation, downstream consumers
-            // — most importantly <see cref="TryAdoptRolloutAction"/>'s 0.5 s
-            // post-startUT cap — would skip the surviving row because its UT is
-            // still in the original (now-rolled-back) timeline.
-            if (TryFindDuplicateRolloutAction(ut, cost, context, Ledger.Actions, out GameAction existing))
+            // smaller UT, the surviving row's UT/DedupKey/Sequence are mutated in
+            // place so <see cref="TryAdoptRolloutAction"/>'s 0.5 s post-startUT cap
+            // still finds it.
+            GameAction guidNearMiss;
+            RolloutDuplicateVerdict nearMissVerdict;
+            RolloutDuplicateVerdict matchVerdict;
+            if (TryFindDuplicateRolloutAction(
+                    ut, cost, context, Ledger.Actions, out GameAction existing, out matchVerdict,
+                    out guidNearMiss, out nearMissVerdict))
             {
+                string existingGuid = ParseRolloutAdoptionContext(existing.DedupKey).VesselGuid;
                 if (ut < existing.UT)
                 {
                     double oldUT = existing.UT;
                     string oldDedupKey = existing.DedupKey;
                     int oldSequence = existing.Sequence;
 
+                    // Keep whichever side's launch guid is known on the survivor.
+                    var survivorContext = context;
+                    if (survivorContext.VesselGuid == null)
+                        survivorContext.VesselGuid = existingGuid;
                     existing.UT = ut;
-                    existing.DedupKey = BuildRolloutDedupKey(ut, context);
+                    existing.DedupKey = BuildRolloutDedupKey(ut, survivorContext);
                     existing.Sequence = allocateKscSequence();
 
                     Ledger.BumpStateVersion();
@@ -99,6 +121,7 @@ namespace Parsek
                         $"(oldUT={oldUT.ToString("R", CultureInfo.InvariantCulture)}, " +
                         $"newUT={ut.ToString("R", CultureInfo.InvariantCulture)}, " +
                         $"deltaUT={(ut - oldUT).ToString("F3", CultureInfo.InvariantCulture)}s, " +
+                        $"verdict={matchVerdict}, existingGuid={existingGuid ?? "(none)"}, newGuid={context.VesselGuid ?? "(none)"}, " +
                         $"cost={cost:F1}, context={FormatRolloutAdoptionContext(context)}, " +
                         $"oldDedupKey={oldDedupKey ?? "(null)"}, " +
                         $"newDedupKey={existing.DedupKey}, " +
@@ -111,10 +134,23 @@ namespace Parsek
                         $"(existingUT={existing.UT.ToString("R", CultureInfo.InvariantCulture)}, " +
                         $"newUT={ut.ToString("R", CultureInfo.InvariantCulture)}, " +
                         $"deltaUT={(ut - existing.UT).ToString("F3", CultureInfo.InvariantCulture)}s, " +
+                        $"verdict={matchVerdict}, existingGuid={existingGuid ?? "(none)"}, newGuid={context.VesselGuid ?? "(none)"}, " +
                         $"cost={cost:F1}, context={FormatRolloutAdoptionContext(context)}, " +
                         $"existingDedupKey={existing.DedupKey ?? "(null)"})");
                 }
                 return;
+            }
+
+            if (guidNearMiss != null)
+            {
+                ParsekLog.Info(Tag,
+                    $"OnVesselRolloutSpending: recording rollout as a new launch - an unadopted rollout of the same " +
+                    $"cost and site is inside the {RolloutDuplicateWindowSeconds.ToString("F0", CultureInfo.InvariantCulture)}s window " +
+                    $"but its launch guid differs (verdict={nearMissVerdict}, " +
+                    $"existingGuid={ParseRolloutAdoptionContext(guidNearMiss.DedupKey).VesselGuid ?? "(none)"}, " +
+                    $"newGuid={context.VesselGuid ?? "(none)"}, " +
+                    $"existingUT={guidNearMiss.UT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                    $"newUT={ut.ToString("R", CultureInfo.InvariantCulture)}, cost={cost:F1})");
             }
 
             int sequence = allocateKscSequence();
@@ -152,7 +188,34 @@ namespace Parsek
             System.Collections.Generic.IReadOnlyList<GameAction> actions,
             out GameAction match)
         {
+            GameAction ignoredNearMiss;
+            RolloutDuplicateVerdict ignoredVerdict;
+            RolloutDuplicateVerdict ignoredMatchVerdict;
+            return TryFindDuplicateRolloutAction(
+                ut, cost, context, actions, out match, out ignoredMatchVerdict,
+                out ignoredNearMiss, out ignoredVerdict);
+        }
+
+        /// <summary>
+        /// As above, also reporting the verdict that matched and the newest in-window,
+        /// same-cost row that only differing known launch guids kept apart
+        /// (<see cref="RolloutDuplicateVerdict.GuidDiffers"/>), so the caller can log why
+        /// a same-craft relaunch was written as its own rollout.
+        /// </summary>
+        internal static bool TryFindDuplicateRolloutAction(
+            double ut,
+            double cost,
+            RolloutAdoptionContext context,
+            System.Collections.Generic.IReadOnlyList<GameAction> actions,
+            out GameAction match,
+            out RolloutDuplicateVerdict matchVerdict,
+            out GameAction guidNearMiss,
+            out RolloutDuplicateVerdict nearMissVerdict)
+        {
             match = null;
+            matchVerdict = RolloutDuplicateVerdict.NoMatch;
+            guidNearMiss = null;
+            nearMissVerdict = RolloutDuplicateVerdict.Duplicate;
             if (actions == null) return false;
             if (!CanMatchRolloutAdoptionContext(context)) return false;
 
@@ -169,9 +232,19 @@ namespace Parsek
                 if (Math.Abs(a.FundsSpent - (float)cost) > RolloutDuplicateCostEpsilon) continue;
 
                 var existingContext = ParseRolloutAdoptionContext(a.DedupKey);
-                if (!RolloutDuplicateMatches(existingContext, context)) continue;
+                var verdict = ClassifyRolloutDuplicate(existingContext, context);
+                if (!IsDuplicateVerdict(verdict))
+                {
+                    if (guidNearMiss == null && verdict == RolloutDuplicateVerdict.GuidDiffers)
+                    {
+                        guidNearMiss = a;
+                        nearMissVerdict = verdict;
+                    }
+                    continue;
+                }
 
                 match = a;
+                matchVerdict = verdict;
                 return true;
             }
 
@@ -179,61 +252,79 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure dedup-context comparison for rollout duplicates. Differs from
-        /// <see cref="RolloutAdoptionContextsMatch"/> by ignoring the
-        /// <c>IsLegacyBareKey</c> escape hatch — duplicate detection requires the
-        /// stored key to retain its structured fields so PID-bearing keys cannot
-        /// silently latch onto a same-UT bare-key entry from a much older save.
+        /// Pure dedup-context comparison for rollout duplicates, shared by the write
+        /// gate and the load-time repair pass so the two always agree.
+        /// <list type="bullet">
+        ///   <item><description>Differing known launch sites are never one rollout
+        ///   (a same-craft launch from another site is a separate charge).</description></item>
+        ///   <item><description>Both launch guids known: the guid decides. It is
+        ///   launch-unique (stock assigns a fresh <c>Vessel.id</c> per launch), while
+        ///   the persistentId and the vessel name are reused by every launch of a
+        ///   craft, so equal guids are one rollout and differing guids are a genuine
+        ///   relaunch (RELAUNCH-ROLLOUT-DEDUPED-AS-REVERT).</description></item>
+        ///   <item><description>A guid unknown on either side (a row written before
+        ///   the key carried one, or a context that could not read the live vessel):
+        ///   the #710 match, same persistentId when both are known, else same vessel
+        ///   name and site.</description></item>
+        /// </list>
+        /// Unlike <see cref="RolloutAdoptionContextsMatch"/>, a legacy bare key never
+        /// matches.
         /// </summary>
-        private static bool RolloutDuplicateMatches(
+        internal static RolloutDuplicateVerdict ClassifyRolloutDuplicate(
             RolloutAdoptionContext existing,
             RolloutAdoptionContext candidate)
         {
-            if (existing.IsLegacyBareKey)
-                return false;
+            if (existing.IsLegacyBareKey || candidate.IsLegacyBareKey)
+                return RolloutDuplicateVerdict.LegacyBareKey;
 
-            // Distinct, known launch sites are never the same logical rollout,
-            // even with a shared persistentId. Revert-to-Launch always relaunches
-            // from the same site, so a genuine revert double-fire keeps the site
-            // constant. Two launches of the same craft from different sites (e.g.
-            // Launch Pad, then a Making History alternate site like Desert) reuse
-            // the vessel persistentId but are independent rollouts that KSP charges
-            // separately; collapsing them drops the second launch's cost and the
-            // next recalc refunds the player. The PID-only match below cannot see
-            // this, so reject it here first. Only acts on positive evidence (both
-            // sites present and differing); a missing site on either side falls
-            // through to the PID match unchanged.
             if (!string.IsNullOrEmpty(existing.LaunchSiteName)
                 && !string.IsNullOrEmpty(candidate.LaunchSiteName)
                 && !existing.LaunchSiteName.Equals(candidate.LaunchSiteName, StringComparison.OrdinalIgnoreCase))
-                return false;
+                return RolloutDuplicateVerdict.SiteDiffers;
 
-            // Strongest match: same KSP persistentId. KSP preserves the active
-            // vessel's persistentId across Revert-to-Launch (the revert reloads the
-            // launch quicksave, which serialized that PID), so the original rollout
-            // and the revert-relaunch rollout share a PID. A shared PID alone is not
-            // sufficient (relaunching the same craft reuses the PID), but combined
-            // with the same-site guard above it identifies the revert double-fire.
-            if (existing.VesselPersistentId != 0 && candidate.VesselPersistentId != 0)
-                return existing.VesselPersistentId == candidate.VesselPersistentId;
+            bool pidsKnown = existing.VesselPersistentId != 0 && candidate.VesselPersistentId != 0;
+            string existingGuid = VesselLaunchIdentity.NormalizeGuid(existing.VesselGuid);
+            string candidateGuid = VesselLaunchIdentity.NormalizeGuid(candidate.VesselGuid);
+            if (existingGuid != null && candidateGuid != null)
+            {
+                if (!string.Equals(existingGuid, candidateGuid, StringComparison.OrdinalIgnoreCase))
+                    return RolloutDuplicateVerdict.GuidDiffers;
+                if (pidsKnown && existing.VesselPersistentId != candidate.VesselPersistentId)
+                    return RolloutDuplicateVerdict.PidDiffers;
+                return RolloutDuplicateVerdict.Duplicate;
+            }
 
-            // Fallback when one side is missing the PID (legacy or pre-resolution
-            // state): require name + site to both be present and equal. Safer than
-            // the adoption matcher's ordinal-ignore-case match for safety -- for
-            // duplicate detection we want to err on "do not dedup" rather than
-            // "silently dedup unrelated launches."
-            return !string.IsNullOrEmpty(existing.VesselName)
+            if (pidsKnown)
+            {
+                return existing.VesselPersistentId == candidate.VesselPersistentId
+                    ? RolloutDuplicateVerdict.DuplicateGuidUnknownFallback
+                    : RolloutDuplicateVerdict.PidDiffers;
+            }
+
+            bool nameAndSiteMatch = !string.IsNullOrEmpty(existing.VesselName)
                 && !string.IsNullOrEmpty(candidate.VesselName)
                 && !string.IsNullOrEmpty(existing.LaunchSiteName)
                 && !string.IsNullOrEmpty(candidate.LaunchSiteName)
                 && existing.VesselName.Equals(candidate.VesselName, StringComparison.OrdinalIgnoreCase)
                 && existing.LaunchSiteName.Equals(candidate.LaunchSiteName, StringComparison.OrdinalIgnoreCase);
+            return nameAndSiteMatch
+                ? RolloutDuplicateVerdict.DuplicateGuidUnknownFallback
+                : RolloutDuplicateVerdict.NoMatch;
+        }
+
+        private static bool RolloutDuplicateMatches(
+            RolloutAdoptionContext existing,
+            RolloutAdoptionContext candidate)
+        {
+            return IsDuplicateVerdict(ClassifyRolloutDuplicate(existing, candidate));
         }
 
         /// <summary>
         /// Load-time repair pass for already-corrupted saves: scans the in-memory
         /// ledger for clusters of VesselRollout actions that share the same
-        /// logical rollout context (PID-or-name+site, near-equal cost, UT within
+        /// logical rollout (<see cref="ClassifyRolloutDuplicate"/>: equal launch
+        /// guids, or the #710 pid / name + site match when a guid is unknown;
+        /// never differing known guids or sites; near-equal cost, UT within
         /// <see cref="RolloutDuplicateWindowSeconds"/>) and collapses each
         /// cluster down to a single survivor. Idempotent — a second invocation
         /// on a healthy ledger is a no-op. Returns the number of actions removed
@@ -364,6 +455,7 @@ namespace Parsek
                             $"keptRecordingId={anchor.RecordingId}, " +
                             $"cost={candidate.FundsSpent:F1}, " +
                             $"context={FormatRolloutAdoptionContext(anchorContext)}, " +
+                            $"removedGuid={candidateContext.VesselGuid ?? "(none)"}, " +
                             $"removedDedupKey={candidate.DedupKey ?? "(null)"}, " +
                             $"adoptedTimestampMoved={adoptedTimestampMoved}, " +
                             $"oldSequence={anchorOldSequence}, newSequence={anchor.Sequence})");
@@ -400,6 +492,7 @@ namespace Parsek
                             $"keptRecordingId={candidate.RecordingId}, " +
                             $"cost={anchor.FundsSpent:F1}, " +
                             $"context={FormatRolloutAdoptionContext(candidateContext)}, " +
+                            $"removedGuid={anchorContext.VesselGuid ?? "(none)"}, " +
                             $"removedDedupKey={anchor.DedupKey ?? "(null)"}, " +
                             $"adoptedTimestampMoved={adoptedTimestampMoved}, " +
                             $"oldSequence={candidateOldSequence}, newSequence={candidate.Sequence})");
@@ -427,7 +520,13 @@ namespace Parsek
                         removedUT = anchor.UT;
                         removedDedupKey = anchor.DedupKey;
                         anchor.UT = candidate.UT;
-                        anchor.DedupKey = candidate.DedupKey;
+                        // Keep whichever side's launch guid is known on the survivor.
+                        var survivorContext = candidateContext;
+                        if (survivorContext.VesselGuid == null)
+                            survivorContext.VesselGuid = anchorContext.VesselGuid;
+                        anchor.DedupKey = survivorContext.VesselGuid == candidateContext.VesselGuid
+                            ? candidate.DedupKey
+                            : BuildRolloutDedupKey(candidate.UT, survivorContext);
                         anchor.Sequence = candidate.Sequence;
                         anchor.ActionId = candidate.ActionId;
                     }
@@ -438,6 +537,7 @@ namespace Parsek
                         $"keptUT={anchor.UT.ToString("R", CultureInfo.InvariantCulture)}, " +
                         $"cost={candidate.FundsSpent:F1}, " +
                         $"context={FormatRolloutAdoptionContext(anchorContext)}, " +
+                        $"candidateGuid={candidateContext.VesselGuid ?? "(none)"}, " +
                         $"removedDedupKey={removedDedupKey ?? "(null)"})");
 
                     alreadyMarked.Add(j);
@@ -627,18 +727,9 @@ namespace Parsek
         {
             try
             {
-                Vessel activeVessel = FlightGlobals.ActiveVessel;
-                if (activeVessel != null)
-                {
-                    string launchSiteName = FlightRecorder.ResolveLaunchSiteName(activeVessel, false);
-                    if (string.IsNullOrEmpty(launchSiteName))
-                        launchSiteName = TryResolveLaunchSiteNameFromFlightDriver();
-
-                    return CreateRolloutAdoptionContext(
-                        activeVessel.persistentId,
-                        Recording.ResolveLocalizedName(activeVessel.vesselName),
-                        launchSiteName);
-                }
+                RolloutAdoptionContext live;
+                if (TryReadActiveVesselRolloutContextCore(out live))
+                    return live;
             }
             catch (Exception ex)
             {
@@ -650,6 +741,34 @@ namespace Parsek
                 0u,
                 null,
                 TryResolveLaunchSiteNameFromFlightDriver());
+        }
+
+        // FlightGlobals stays behind a NoInlining core so a headless host fails
+        // inside the caller's try, not at the caller's JIT (mono).
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static bool TryReadActiveVesselRolloutContextCore(out RolloutAdoptionContext context)
+        {
+            context = default(RolloutAdoptionContext);
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null)
+                return false;
+
+            string launchSiteName = FlightRecorder.ResolveLaunchSiteName(activeVessel, false);
+            if (string.IsNullOrEmpty(launchSiteName))
+                launchSiteName = TryResolveLaunchSiteNameFromFlightDriver();
+
+            context = CreateRolloutAdoptionContext(
+                activeVessel.persistentId,
+                Recording.ResolveLocalizedName(activeVessel.vesselName),
+                launchSiteName,
+                FormatLaunchGuid(activeVessel.id));
+            return true;
+        }
+
+        /// <summary>Canonical "N" form of a vessel launch guid; null for <see cref="Guid.Empty"/>.</summary>
+        internal static string FormatLaunchGuid(Guid id)
+        {
+            return id == Guid.Empty ? null : id.ToString("N", CultureInfo.InvariantCulture);
         }
 
         private static string TryResolveLaunchSiteNameFromFlightDriver()
@@ -673,19 +792,22 @@ namespace Parsek
             return CreateRolloutAdoptionContext(
                 rec.VesselPersistentId,
                 rec.VesselName,
-                rec.LaunchSiteName);
+                rec.LaunchSiteName,
+                rec.RecordedVesselGuid);
         }
 
         internal static RolloutAdoptionContext CreateRolloutAdoptionContext(
             uint vesselPersistentId,
             string vesselName,
-            string launchSiteName)
+            string launchSiteName,
+            string vesselGuid = null)
         {
             return new RolloutAdoptionContext
             {
                 VesselPersistentId = vesselPersistentId,
                 VesselName = NormalizeRolloutContextText(vesselName),
-                LaunchSiteName = NormalizeRolloutContextText(launchSiteName)
+                LaunchSiteName = NormalizeRolloutContextText(launchSiteName),
+                VesselGuid = VesselLaunchIdentity.NormalizeGuid(vesselGuid)
             };
         }
 
@@ -713,6 +835,14 @@ namespace Parsek
             if (actionContext.IsLegacyBareKey)
                 return true;
 
+            // A rollout row of another launch of the same craft shares the baked
+            // persistentId; both launch guids known and different means the
+            // recording did not fly this rollout. An unknown guid on either side
+            // keeps the pid / name match below.
+            if (VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                    actionContext.VesselGuid, recordingContext.VesselGuid))
+                return false;
+
             if (actionContext.VesselPersistentId != 0 && recordingContext.VesselPersistentId != 0)
                 return actionContext.VesselPersistentId == recordingContext.VesselPersistentId;
 
@@ -724,16 +854,20 @@ namespace Parsek
                 && actionContext.LaunchSiteName.Equals(recordingContext.LaunchSiteName, StringComparison.OrdinalIgnoreCase);
         }
 
-        private static string BuildRolloutDedupKey(double ut, RolloutAdoptionContext context)
+        internal static string BuildRolloutDedupKey(double ut, RolloutAdoptionContext context)
         {
-            return LedgerOrchestrator.RolloutDedupPrefix
+            string key = LedgerOrchestrator.RolloutDedupPrefix
                 + ut.ToString("R", CultureInfo.InvariantCulture)
                 + "|pid=" + context.VesselPersistentId.ToString(CultureInfo.InvariantCulture)
                 + "|site=" + Uri.EscapeDataString(context.LaunchSiteName ?? string.Empty)
                 + "|vessel=" + Uri.EscapeDataString(context.VesselName ?? string.Empty);
+            string guid = VesselLaunchIdentity.NormalizeGuid(context.VesselGuid);
+            if (guid != null)
+                key += "|guid=" + guid;
+            return key;
         }
 
-        private static RolloutAdoptionContext ParseRolloutAdoptionContext(string dedupKey)
+        internal static RolloutAdoptionContext ParseRolloutAdoptionContext(string dedupKey)
         {
             if (string.IsNullOrEmpty(dedupKey)
                 || !dedupKey.StartsWith(LedgerOrchestrator.RolloutDedupPrefix, StringComparison.Ordinal))
@@ -768,6 +902,10 @@ namespace Parsek
                     context.VesselName = NormalizeRolloutContextText(
                         Uri.UnescapeDataString(part.Substring(7)));
                 }
+                else if (part.StartsWith("guid=", StringComparison.Ordinal))
+                {
+                    context.VesselGuid = VesselLaunchIdentity.NormalizeGuid(part.Substring(5));
+                }
             }
 
             return context;
@@ -776,7 +914,7 @@ namespace Parsek
         private static string FormatRolloutAdoptionContext(RolloutAdoptionContext context)
         {
             return $"pid={context.VesselPersistentId}, vessel='{context.VesselName ?? "(null)"}', " +
-                $"site='{context.LaunchSiteName ?? "(null)"}'";
+                $"site='{context.LaunchSiteName ?? "(null)"}', guid={context.VesselGuid ?? "(none)"}";
         }
     }
 }

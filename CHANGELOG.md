@@ -25,6 +25,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Relaunching a craft soon after an unrecorded launch keeps its launch cost.** Launching the same
+  craft again within a minute of an earlier launch that was never recorded (launch, recover,
+  launch again) was taken for a duplicate of the first, so the career funds missed the second
+  launch's cost. Each launch now pays its own cost. (RELAUNCH-ROLLOUT-DEDUPED-AS-REVERT)
 - **A contract's objective rewards are kept.** Many contracts pay part of their reward when an
   objective inside them is done, before the contract itself completes. Parsek missed that part,
   so a rewind, Re-Fly or replay of the career came out short by it. Each paid objective is now
