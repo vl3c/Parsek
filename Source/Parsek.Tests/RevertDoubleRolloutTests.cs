@@ -544,6 +544,9 @@ namespace Parsek.Tests
             // Relaunch with a 1 s clock rollback (well outside adoption's
             // 0.5 s window; load-time repair would otherwise be the only
             // recourse without the in-place update).
+            long beforeCseq = Ledger.Actions.Single(a =>
+                a.Type == GameActionType.FundsSpending &&
+                a.FundsSpendingSource == FundsSpendingSource.VesselBuild).CaptureSequence;
             RecordRollout(t1 - rollback, ProductionCost);
 
             Assert.Equal(1, CountUnadoptedRollouts());
@@ -552,6 +555,10 @@ namespace Parsek.Tests
                 a.FundsSpendingSource == FundsSpendingSource.VesselBuild);
             Assert.Equal(t1 - rollback, survivor.UT);
             Assert.NotEqual(beforeKey, survivor.DedupKey);
+            // The walk ties same-UT rows on the capture sequence, so the survivor takes a
+            // fresh one with its fresh Sequence: charged after every row already at that UT.
+            Assert.True(beforeCseq > 0);
+            Assert.True(survivor.CaptureSequence > beforeCseq);
             Assert.Contains((t1 - rollback).ToString("R", System.Globalization.CultureInfo.InvariantCulture),
                 survivor.DedupKey);
             Assert.Contains(logLines, l =>

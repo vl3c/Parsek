@@ -190,13 +190,14 @@ namespace Parsek
         /// <see cref="ScienceMethod.Recovered"/>; the field round-trips through the
         /// <c>method</c> serialized value, and <c>LedgerOrchestrator</c> already reads it back
         /// to reconstruct the reason key. So the discriminator EXISTS and is exact. A UT window
-        /// is not merely weaker, it is actively broken here, because that same converter stamps
-        /// <c>UT = endUT</c> on EVERY science row of a recording: transmitted science the
-        /// player banked mid-flight and still owns carries the same UT as the recovery, so any
-        /// window that admits the recovery science admits the transmit too (OVER-retire, funds
-        /// and research clawed back from the player), while a recovery whose funds anchor was
-        /// sampled away from <c>endUT</c> falls outside the window and keeps its science
-        /// banked (UNDER-retire). Recording membership plus <c>Method</c> has neither failure.
+        /// is not merely weaker, it is actively broken here. The converter dates a science row
+        /// at its capture UT, but a row an older build filed (or one with no capture UT) is
+        /// dated at the recording's <c>endUT</c>: such a transmit the player banked mid-flight
+        /// and still owns carries the same UT as the recovery, so any window that admits the
+        /// recovery science admits the transmit too (OVER-retire, funds and research clawed
+        /// back from the player), while a recovery whose funds anchor was sampled away from
+        /// the science's UT falls outside the window and keeps its science banked
+        /// (UNDER-retire). Recording membership plus <c>Method</c> has neither failure.
         /// </para>
         ///
         /// <para>

@@ -5,7 +5,7 @@ using System.Linq;
 namespace Parsek
 {
     /// <summary>
-    /// The core recalculation engine. Sorts all game actions by (UT, type, sequence),
+    /// The core recalculation engine. Sorts all game actions by (UT, type, capture sequence),
     /// resets all registered modules, then walks actions forward from UT=0 dispatching
     /// each action to the appropriate tier of modules.
     ///
@@ -625,13 +625,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Sorts actions by the three-level key defined in design doc 1.7:
+        /// Sorts actions in walk order (design 3.7, section 3.15 step 2):
         ///   Primary: UT ascending
         ///   Secondary: earning types before spending types
-        ///   Tertiary: sequence field (ascending)
+        ///   Tertiary: the same-UT tie of <see cref="CompareSameUtTie(long, int, long, int)"/>
+        ///             (capture sequence, then <see cref="GameAction.Sequence"/>)
         ///
-        /// Uses LINQ OrderBy/ThenBy for a guaranteed stable sort.
-        /// Returns a new sorted list — the input is not modified.
+        /// Uses LINQ OrderBy for a guaranteed stable sort: rows equal on every key keep
+        /// their input order. Returns a new sorted list; the input is not modified.
         /// </summary>
         internal static List<GameAction> SortActions(List<GameAction> actions)
         {
@@ -640,11 +641,97 @@ namespace Parsek
             if (actions == null || actions.Count == 0)
                 return new List<GameAction>();
 
-            return actions
-                .OrderBy(a => a.UT)
-                .ThenBy(a => IsEarningType(a.Type) ? 0 : 1)
-                .ThenBy(a => a.Sequence)
-                .ToList();
+            var sorted = actions.OrderBy(a => a, WalkOrderComparer.Instance).ToList();
+            LogSameUtTieDecisions(sorted);
+            return sorted;
+        }
+
+        /// <summary>
+        /// The walk order of two rows: UT, then earnings before spendings, then
+        /// <see cref="CompareSameUtTie(GameAction, GameAction)"/>. Every reader that must
+        /// agree with the walk on which of two rows comes first (a first-wins pick, a
+        /// "last row at or before now" read) uses this, never a key of its own.
+        /// </summary>
+        internal static int CompareWalkOrder(GameAction a, GameAction b)
+        {
+            if (ReferenceEquals(a, b)) return 0;
+            int c = a.UT.CompareTo(b.UT);
+            if (c != 0) return c;
+            c = (IsEarningType(a.Type) ? 0 : 1).CompareTo(IsEarningType(b.Type) ? 0 : 1);
+            if (c != 0) return c;
+            return CompareSameUtTie(a, b);
+        }
+
+        /// <summary>The same-UT tie of two rows (see the four-argument overload).</summary>
+        internal static int CompareSameUtTie(GameAction a, GameAction b)
+        {
+            return CompareSameUtTie(a.CaptureSequence, a.Sequence, b.CaptureSequence, b.Sequence);
+        }
+
+        /// <summary>
+        /// The same-UT tie key: the real capture order (<see cref="GameAction.CaptureSequence"/>),
+        /// so rows written at one frozen KSC UT keep the order the player made them in.
+        /// A row with no capture sequence (0: an older save, or a row not filed yet;
+        /// negative: converted from an event an older build captured) sorts BEFORE every
+        /// sequenced row at its UT: it was captured before this build stamped anything
+        /// (<see cref="Parsek.CaptureSequence.FromEvent"/>), and placing it first keeps an
+        /// older save's same-UT order what it was. Two rows with no capture sequence, or
+        /// with the same one, fall back to <see cref="GameAction.Sequence"/>, the per-writer
+        /// ordinal; rows equal on that too keep their input order (the sorts are stable).
+        /// </summary>
+        internal static int CompareSameUtTie(long captureSeqA, int sequenceA, long captureSeqB, int sequenceB)
+        {
+            bool knownA = captureSeqA > 0;
+            bool knownB = captureSeqB > 0;
+            if (knownA != knownB) return knownA ? 1 : -1;
+            if (knownA)
+            {
+                int c = captureSeqA.CompareTo(captureSeqB);
+                if (c != 0) return c;
+            }
+            return sequenceA.CompareTo(sequenceB);
+        }
+
+        private sealed class WalkOrderComparer : IComparer<GameAction>
+        {
+            internal static readonly WalkOrderComparer Instance = new WalkOrderComparer();
+            public int Compare(GameAction x, GameAction y) => CompareWalkOrder(x, y);
+        }
+
+        /// <summary>
+        /// One summary of the same-UT ties the capture sequence decided in a sort: adjacent
+        /// pairs whose capture order reverses their <see cref="GameAction.Sequence"/> order,
+        /// and pairs where an unsequenced row was placed before a sequenced one. Logged on
+        /// change only, since every recalculation sorts the same ledger several times.
+        /// </summary>
+        private static void LogSameUtTieDecisions(List<GameAction> sorted)
+        {
+            int captureOrderDecided = 0;
+            int unsequencedFirst = 0;
+            for (int i = 1; i < sorted.Count; i++)
+            {
+                var prev = sorted[i - 1];
+                var cur = sorted[i];
+                if (prev == null || cur == null || prev.UT != cur.UT) continue;
+                if (IsEarningType(prev.Type) != IsEarningType(cur.Type)) continue;
+                bool prevKnown = prev.CaptureSequence > 0;
+                bool curKnown = cur.CaptureSequence > 0;
+                if (prevKnown && curKnown && prev.Sequence > cur.Sequence)
+                    captureOrderDecided++;
+                else if (!prevKnown && curKnown)
+                    unsequencedFirst++;
+            }
+            if (captureOrderDecided == 0 && unsequencedFirst == 0)
+                return;
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            string state = captureOrderDecided.ToString(ic) + "|" + unsequencedFirst.ToString(ic);
+            ParsekLog.VerboseOnChange("RecalcEngine", "sort-same-ut-tie", state,
+                () => "SortActions: same-UT ties ordered by capture sequence: captureOrderDecided="
+                    + captureOrderDecided.ToString(ic)
+                    + " (capture order reversed the per-writer Sequence), unsequencedFirst="
+                    + unsequencedFirst.ToString(ic)
+                    + " (a row with no capture sequence placed before a sequenced one), rows="
+                    + sorted.Count.ToString(ic));
         }
 
         // ================================================================

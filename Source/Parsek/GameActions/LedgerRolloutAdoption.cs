@@ -89,7 +89,7 @@ namespace Parsek
             // the cluster's UTs, regardless of write order or adoption state. The
             // load-time repair pass at <see cref="RepairDuplicateRolloutActions"/>
             // upholds the same invariant. When the new write has the strictly
-            // smaller UT, the surviving row's UT/DedupKey/Sequence are mutated in
+            // smaller UT, the surviving row's UT/DedupKey/Sequence/capture sequence are mutated in
             // place so <see cref="TryAdoptRolloutAction"/>'s 0.5 s post-startUT cap
             // still finds it.
             GameAction guidNearMiss;
@@ -105,6 +105,7 @@ namespace Parsek
                     double oldUT = existing.UT;
                     string oldDedupKey = existing.DedupKey;
                     int oldSequence = existing.Sequence;
+                    long oldCaptureSequence = existing.CaptureSequence;
 
                     // Keep whichever side's launch guid is known on the survivor.
                     var survivorContext = context;
@@ -113,6 +114,10 @@ namespace Parsek
                     existing.UT = ut;
                     existing.DedupKey = BuildRolloutDedupKey(ut, survivorContext);
                     existing.Sequence = allocateKscSequence();
+                    // The walk breaks a same-UT tie on the capture sequence, so the survivor
+                    // takes a fresh one with its fresh Sequence: at the relaunch UT it was
+                    // charged after every row already there.
+                    existing.CaptureSequence = CaptureSequence.Next();
 
                     Ledger.BumpStateVersion();
 
@@ -125,7 +130,9 @@ namespace Parsek
                         $"cost={cost:F1}, context={FormatRolloutAdoptionContext(context)}, " +
                         $"oldDedupKey={oldDedupKey ?? "(null)"}, " +
                         $"newDedupKey={existing.DedupKey}, " +
-                        $"oldSequence={oldSequence}, newSequence={existing.Sequence})");
+                        $"oldSequence={oldSequence}, newSequence={existing.Sequence}, " +
+                        $"oldCseq={oldCaptureSequence.ToString(CultureInfo.InvariantCulture)}, " +
+                        $"newCseq={existing.CaptureSequence.ToString(CultureInfo.InvariantCulture)})");
                 }
                 else
                 {
@@ -444,6 +451,7 @@ namespace Parsek
                         {
                             anchor.UT = candidate.UT;
                             anchor.Sequence = candidate.Sequence;
+                            anchor.CaptureSequence = candidate.CaptureSequence;
                             adoptedTimestampMoved = true;
                         }
 
@@ -481,6 +489,7 @@ namespace Parsek
                         {
                             candidate.UT = anchor.UT;
                             candidate.Sequence = anchor.Sequence;
+                            candidate.CaptureSequence = anchor.CaptureSequence;
                             adoptedTimestampMoved = true;
                         }
 
@@ -507,7 +516,7 @@ namespace Parsek
                     // candidate's UT is strictly less than the anchor's, swap
                     // the anchor's payload onto the candidate's data first so
                     // the surviving row reflects the relaunch timeline that
-                    // actually happened. Swapping (UT, DedupKey, Sequence,
+                    // actually happened. Swapping (UT, DedupKey, Sequence, capture sequence,
                     // ActionId) keeps the anchor's index stable so
                     // previously-marked siblings stay reaped. Because both
                     // rows are unadopted, the discarded ActionId has no
@@ -528,6 +537,7 @@ namespace Parsek
                             ? candidate.DedupKey
                             : BuildRolloutDedupKey(candidate.UT, survivorContext);
                         anchor.Sequence = candidate.Sequence;
+                        anchor.CaptureSequence = candidate.CaptureSequence;
                         anchor.ActionId = candidate.ActionId;
                     }
 

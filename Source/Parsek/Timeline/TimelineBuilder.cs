@@ -71,7 +71,7 @@ namespace Parsek
                 legacyDuplicateKeys,
                 entries);
 
-            entries.Sort((a, b) => a.UT.CompareTo(b.UT));
+            SortEntries(entries);
             int compactedMilestoneRows = CompactAdjacentMilestoneEntries(entries);
 
             ParsekLog.Verbose("Timeline",
@@ -81,6 +81,68 @@ namespace Parsek
                     : $"Build complete: {entries.Count} entries ({recordingCount} recording, {actionCount} action, {legacyCount} legacy)");
 
             return entries;
+        }
+
+        /// <summary>
+        /// Sorts entries by UT, keeping collection order at one UT (stable). Then, inside each
+        /// same-UT run, the ledger-row entries are put in the walk's order
+        /// (<see cref="RecalculationEngine.CompareWalkOrder"/>: earnings first, then capture
+        /// order) in the slots ledger-row entries already hold, so Space Center actions at one
+        /// frozen UT read in the order the player made them while every other entry keeps its
+        /// place. Two passes, because one comparer mixing the walk key with collection order
+        /// would not be transitive.
+        /// </summary>
+        internal static void SortEntries(List<TimelineEntry> entries)
+        {
+            if (entries == null || entries.Count < 2) return;
+            var indexed = new List<KeyValuePair<int, TimelineEntry>>(entries.Count);
+            for (int i = 0; i < entries.Count; i++)
+                indexed.Add(new KeyValuePair<int, TimelineEntry>(i, entries[i]));
+            indexed.Sort((x, y) =>
+            {
+                int c = x.Value.UT.CompareTo(y.Value.UT);
+                return c != 0 ? c : x.Key.CompareTo(y.Key);
+            });
+            for (int i = 0; i < indexed.Count; i++)
+                entries[i] = indexed[i].Value;
+
+            int reordered = 0;
+            var slots = new List<int>();
+            var rows = new List<KeyValuePair<int, TimelineEntry>>();
+            int runStart = 0;
+            while (runStart < entries.Count)
+            {
+                int runEnd = runStart + 1;
+                while (runEnd < entries.Count && entries[runEnd].UT == entries[runStart].UT) runEnd++;
+                if (runEnd - runStart > 1)
+                {
+                    slots.Clear();
+                    rows.Clear();
+                    for (int i = runStart; i < runEnd; i++)
+                    {
+                        if (entries[i].Action == null) continue;
+                        slots.Add(i);
+                        rows.Add(new KeyValuePair<int, TimelineEntry>(i, entries[i]));
+                    }
+                    if (rows.Count > 1)
+                    {
+                        rows.Sort((x, y) =>
+                        {
+                            int c = RecalculationEngine.CompareWalkOrder(x.Value.Action, y.Value.Action);
+                            return c != 0 ? c : x.Key.CompareTo(y.Key);
+                        });
+                        for (int k = 0; k < slots.Count; k++)
+                        {
+                            if (rows[k].Key != slots[k]) reordered++;
+                            entries[slots[k]] = rows[k].Value;
+                        }
+                    }
+                }
+                runStart = runEnd;
+            }
+            if (reordered > 0)
+                ParsekLog.Verbose("Timeline",
+                    $"SortEntries: {reordered.ToString(IC)} same-UT ledger row(s) moved into walk order");
         }
 
         internal static int CompactAdjacentMilestoneEntries(List<TimelineEntry> entries)
@@ -1099,6 +1161,7 @@ namespace Parsek
                     Type = a.Type,
                     UT = a.UT,
                     Sequence = a.Sequence,
+                    CaptureSequence = a.CaptureSequence,
                     RecordingId = a.RecordingId,
                     FacilityId = a.FacilityId,
                     FacilityCost = a.FacilityCost,

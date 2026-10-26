@@ -268,7 +268,9 @@ namespace Parsek.Tests
             Assert.Equal(seg1, early.RecordingId);
             Assert.Equal(seg2, late.RecordingId);
             Assert.Equal(seg2, science.RecordingId);
-            Assert.Equal(list[1].EndUT, science.UT);
+            // Dated at its capture UT (design 3.15 step 2), inside seg2 and past the rewind.
+            Assert.Equal(45.0, science.UT);
+            Assert.True(science.UT < list[1].EndUT);
             Assert.True(penalty != null,
                 "no KerbalDeath penalty row: the VesselLoss event never reached the segment with the deaths");
             Assert.Equal(seg2, penalty.RecordingId);

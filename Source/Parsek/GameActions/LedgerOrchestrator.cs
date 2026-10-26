@@ -1407,10 +1407,12 @@ namespace Parsek
         /// <summary>
         /// Removes actions from the candidate list that already exist in the ledger.
         /// Matches on Type + occurrence UT (within epsilon) + key field (SubjectId, NodeId,
-        /// FacilityId, MilestoneId, or ContractId depending on type). Recording-commit
-        /// ScienceEarning rows use UT == recording end for timeline ordering, but preserve
-        /// the actual capture moment in StartUT. Direct KSC science rows store the capture
-        /// moment in UT == StartUT == EndUT, so science dedup compares the capture moment.
+        /// FacilityId, MilestoneId, or ContractId depending on type). Science dedup compares
+        /// the capture moment, read from StartUT: a recording-commit ScienceEarning row is
+        /// dated at its capture UT with StartUT = capture and EndUT = recording end, a row an
+        /// older build filed is dated at the recording end with the capture only in StartUT,
+        /// and a direct KSC science row stores UT == StartUT == EndUT, so StartUT is the one
+        /// field every shape agrees on.
         /// This prevents double-adding KSC events that were written to the ledger in real-time
         /// via OnKscSpending but also fall within a recording's time range.
         /// KerbalAssignment rows match on their (RecordingId, KerbalName) key alone, with

@@ -234,6 +234,113 @@ namespace Parsek.Tests
         // SortActions — sequence breaks ties
         // ================================================================
 
+        // ================================================================
+        // SortActions - capture sequence is the same-UT tie key (design 3.15 step 2)
+        // ================================================================
+
+        [Fact]
+        public void SortActions_SameUtKscSpendings_WalkInCaptureOrderNotSequence()
+        {
+            // One Space Center visit at a frozen UT: the player clicked the cseq 5 row
+            // first. Its per-writer Sequence says otherwise; the capture order wins.
+            var clickedSecond = new GameAction
+            {
+                UT = 500.0, Type = GameActionType.FacilityUpgrade, FacilityId = "LaunchPad",
+                Sequence = 1, CaptureSequence = 7
+            };
+            var clickedFirst = new GameAction
+            {
+                UT = 500.0, Type = GameActionType.FacilityUpgrade, FacilityId = "LaunchPad",
+                FacilityDowngrade = true, Sequence = 2, CaptureSequence = 5
+            };
+
+            var sorted = RecalculationEngine.SortActions(new List<GameAction> { clickedSecond, clickedFirst });
+
+            Assert.Same(clickedFirst, sorted[0]);
+            Assert.Same(clickedSecond, sorted[1]);
+            Assert.Contains(logLines, l => l.Contains("[RecalcEngine]")
+                && l.Contains("same-UT ties ordered by capture sequence")
+                && l.Contains("captureOrderDecided=1"));
+        }
+
+        [Fact]
+        public void SortActions_UnsequencedRowsSortBeforeSequencedAtOneUt_ThenBySequence()
+        {
+            // 0 = an older save's row, -1 = converted from an older build's event: both
+            // were captured before anything this build stamped, so they come first and
+            // keep their Sequence order between themselves.
+            var stamped = new GameAction
+            {
+                UT = 800.0, Type = GameActionType.ScienceSpending, NodeId = "c", Sequence = 0, CaptureSequence = 3
+            };
+            var oldSaveB = new GameAction
+            {
+                UT = 800.0, Type = GameActionType.ScienceSpending, NodeId = "b", Sequence = 9, CaptureSequence = 0
+            };
+            var oldBuildA = new GameAction
+            {
+                UT = 800.0, Type = GameActionType.ScienceSpending, NodeId = "a", Sequence = 4,
+                CaptureSequence = CaptureSequence.Unsequenced
+            };
+
+            var sorted = RecalculationEngine.SortActions(new List<GameAction> { stamped, oldSaveB, oldBuildA });
+
+            Assert.Same(oldBuildA, sorted[0]);
+            Assert.Same(oldSaveB, sorted[1]);
+            Assert.Same(stamped, sorted[2]);
+            Assert.Contains(logLines, l => l.Contains("[RecalcEngine]") && l.Contains("unsequencedFirst=1"));
+        }
+
+        [Fact]
+        public void SortActions_CaptureSequenceNeverOverridesUtOrEarningsFirst()
+        {
+            var laterUt = new GameAction
+            {
+                UT = 901.0, Type = GameActionType.ScienceSpending, NodeId = "x", CaptureSequence = 1
+            };
+            var spending = new GameAction
+            {
+                UT = 900.0, Type = GameActionType.ScienceSpending, NodeId = "y", CaptureSequence = 2
+            };
+            var earning = new GameAction
+            {
+                UT = 900.0, Type = GameActionType.FundsEarning, FundsAwarded = 1f, CaptureSequence = 50
+            };
+
+            var sorted = RecalculationEngine.SortActions(new List<GameAction> { laterUt, spending, earning });
+
+            Assert.Same(earning, sorted[0]);
+            Assert.Same(spending, sorted[1]);
+            Assert.Same(laterUt, sorted[2]);
+        }
+
+        [Fact]
+        public void SortActions_EqualTieKeys_KeepInputOrder()
+        {
+            var a = new GameAction { UT = 10.0, Type = GameActionType.ScienceSpending, NodeId = "a", CaptureSequence = 4 };
+            var b = new GameAction { UT = 10.0, Type = GameActionType.ScienceSpending, NodeId = "b", CaptureSequence = 4 };
+
+            var sorted = RecalculationEngine.SortActions(new List<GameAction> { b, a });
+
+            Assert.Same(b, sorted[0]);
+            Assert.Same(a, sorted[1]);
+        }
+
+        [Theory]
+        [InlineData(5L, 9, 7L, 1, -1)]   // both sequenced: capture order decides
+        [InlineData(7L, 1, 5L, 9, 1)]
+        [InlineData(0L, 9, 1L, 0, -1)]   // unsequenced first
+        [InlineData(-1L, 9, 1L, 0, -1)]
+        [InlineData(0L, 2, -1L, 3, -1)]  // both unsequenced: Sequence decides
+        [InlineData(4L, 2, 4L, 3, -1)]   // same capture number: Sequence decides
+        [InlineData(4L, 3, 4L, 3, 0)]
+        public void CompareSameUtTie_Cases(long cseqA, int seqA, long cseqB, int seqB, int expectedSign)
+        {
+            int c = RecalculationEngine.CompareSameUtTie(cseqA, seqA, cseqB, seqB);
+            Assert.Equal(expectedSign, Math.Sign(c));
+            Assert.Equal(-expectedSign, Math.Sign(RecalculationEngine.CompareSameUtTie(cseqB, seqB, cseqA, seqA)));
+        }
+
         [Fact]
         public void SortActions_SequenceBreaksTies()
         {

@@ -282,7 +282,8 @@ namespace Parsek
             }
             if (spendsByUt.Count > 0)
             {
-                spendsByUt.Sort((x, y) => x.UT.CompareTo(y.UT));
+                // The first spending the walk reaches, in walk order.
+                spendsByUt.Sort(RecalculationEngine.CompareWalkOrder);
                 var s = spendsByUt[0];
                 string pool = SpendingPool(s.Type);
                 v.Pass = false;

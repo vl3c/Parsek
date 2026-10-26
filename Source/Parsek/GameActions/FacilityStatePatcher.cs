@@ -311,8 +311,10 @@ namespace Parsek
         /// <summary>
         /// Pure: per DestructibleBuilding id, whether the ledger says it is destroyed at
         /// <paramref name="liveUt"/> - the kind of its LAST FacilityDestruction /
-        /// FacilityRepair row with <c>UT &lt;= liveUt</c>, ordered by UT, then sequence, then
-        /// list position. A building with no such row is absent from the result.
+        /// FacilityRepair row with <c>UT &lt;= liveUt</c>, ordered by UT, then the walk's
+        /// same-UT tie (<see cref="RecalculationEngine.CompareSameUtTie(GameAction, GameAction)"/>:
+        /// capture order), then list position. A building with no such row is absent from
+        /// the result.
         /// </summary>
         internal static Dictionary<string, bool> ComputeBuildingDestroyedAtUt(
             IReadOnlyList<GameAction> effectiveActions, double liveUt)
@@ -335,7 +337,7 @@ namespace Parsek
             {
                 int c = x.Value.UT.CompareTo(y.Value.UT);
                 if (c != 0) return c;
-                c = x.Value.Sequence.CompareTo(y.Value.Sequence);
+                c = RecalculationEngine.CompareSameUtTie(x.Value, y.Value);
                 return c != 0 ? c : x.Key.CompareTo(y.Key);
             });
             for (int i = 0; i < rows.Count; i++)

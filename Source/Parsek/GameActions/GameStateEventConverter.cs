@@ -386,8 +386,12 @@ namespace Parsek
 
         /// <summary>
         /// Converts a list of PendingScienceSubjects into ScienceEarning GameActions.
-        /// Each subject becomes a ScienceEarning action anchored at commit/end UT while
-        /// also carrying the subject's observed science window for reconciliation.
+        /// Each row is dated at its capture UT (design 3.15 step 2), so the walk orders a
+        /// transmission against every other row by when stock paid it, not by when its
+        /// recording ended. <c>StartUT</c> keeps the capture moment and <c>EndUT</c> the
+        /// recording end: the observed science window the reconcilers read. A subject with
+        /// no known capture UT (0) stays dated at the recording end, and one captured after
+        /// the recording's window is anchored at the end bound (BUG-A below).
         /// </summary>
         /// <param name="subjects">Science subjects to convert.</param>
         /// <param name="recordingId">Recording that produced these subjects.</param>
@@ -414,6 +418,8 @@ namespace Parsek
             int skippedCrossRecording = 0;
             int skippedOutsideWindow = 0;
             int captureIdentified = 0;
+            int captureDated = 0;
+            int endAnchored = 0;
 
             for (int i = 0; i < subjects.Count; i++)
             {
@@ -455,9 +461,15 @@ namespace Parsek
                 else
                     taggedMatches++;
 
+                double rowUt = ResolveScienceRowUt(subj.captureUT, resolvedStartUt, endUT);
+                if (!(subj.captureUT > 0.0) || subj.captureUT > endUT)
+                    endAnchored++;
+                else
+                    captureDated++;
+
                 var action = new GameAction
                 {
-                    UT = endUT,
+                    UT = rowUt,
                     Type = GameActionType.ScienceEarning,
                     RecordingId = recordingId,
                     SubjectId = subj.subjectId,
@@ -486,9 +498,24 @@ namespace Parsek
                 $"ConvertScienceSubjects: converted={result.Count} from {subjects.Count} subjects, " +
                 $"recordingId={recordingId ?? "(none)"}, tagged={taggedMatches}, " +
                 $"untaggedInWindow={untaggedInWindow}, skippedCrossRecording={skippedCrossRecording}, " +
-                $"skippedOutsideWindow={skippedOutsideWindow}, captureIdentified={captureIdentified}");
+                $"skippedOutsideWindow={skippedOutsideWindow}, captureIdentified={captureIdentified}, " +
+                $"captureDated={captureDated}, endAnchored={endAnchored}");
 
             return result;
+        }
+
+        /// <summary>
+        /// Pure: the UT a converted science row is dated at. The resolved capture moment when
+        /// the subject carries a capture UT (positive); the recording end when it does not,
+        /// since a subject with no capture UT gives no basis to date it earlier than the end
+        /// of the flight that holds it. The resolved moment is already clamped into the
+        /// recording window (a capture after the window resolves to the end bound).
+        /// </summary>
+        internal static double ResolveScienceRowUt(double captureUt, double resolvedStartUt, double endUT)
+        {
+            if (!(captureUt > 0.0) || double.IsInfinity(captureUt))
+                return endUT;
+            return resolvedStartUt;
         }
 
         private static bool TryResolveScienceSubjectStartUt(
