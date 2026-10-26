@@ -4,7 +4,7 @@
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how the game's resource state (everything except vessel trajectories) is tracked, reconciled, and kept consistent across rewinds.*
 
-**Version:** current to Parsek 0.10.5. The ledger engine (Phases 1-8) was completed in 0.6; later releases added the items listed under Status, the stock-screen reservation layer (section 14) and the pre-Parsek save backup (section 4.6).
+**Version:** current to Parsek 0.10.5. The ledger engine (Phases 1-8) was completed in 0.6; later releases added the items listed under Status, the stock-screen reservation layer (section 14) and the pre-Parsek save backup (section 4.6). Section 3.15 (event identity, ruled 2026-10-26) is a plan and is not built yet.
 **Status:** All phases implemented and tested (4700+ tests). Full ledger-based recalculation engine with 8 resource modules (Science, Funds, Reputation, Milestones, Contracts, Facilities, Strategies, Kerbals; the Routes module was removed in 0.10.6 when route events left the ledger). KSP state patching for all resource types including contract restoration from ConfigNode snapshots and milestone reversal via reflection. Kerbal lifecycle management with reservation chains, stand-in generation, and retirement is fully integrated into the engine walk via IResourceModule (T42 complete): KerbalsModule is a registered first-tier module that consumes KerbalAssignment in ProcessAction and builds the replacement chains + retired set in PostWalk. Shipped since the earlier draft: contract deadline-expiry penalties (ContractsModule injects a synthetic ContractFail with funds + reputation penalties at the deadline UT), contract-completion science crediting (ScienceModule credits TransformedScienceReward), the second-tier RouteModule (logistics/supply routes, milestones M1-M6), rescue detection, warp facility-visual patching, and MIA respawn override. Verification tooling is shipped: the ledger ground-truth harness (CareerSaveParser / LedgerGroundTruthDiff / in-game LedgerGroundTruthHarness) diffs recalc output against the on-disk save, and the event-driven LedgerTrace tracer instruments the apply boundary. The re-fly work binds ledger state to recording lifecycle via EffectiveState ERS/ELS routing, RecordingSupersedeRelation rows, and recording-scoped LedgerTombstones.
 **Out of scope:** Vessel recording system, DAG structure, ghost rendering, distance zones. See `parsek-flight-recorder-design.md` (recording, recording trees / DAG, playback, distance zones) and `parsek-ghost-trajectory-rendering-design.md` (ghost rendering) for those.
 
@@ -240,6 +240,8 @@ All game actions across all resource modules are collected and sorted for the re
 
 The sequence index is only meaningful for spending actions. Earnings at the same UT are additive and order-independent.
 
+**Planned (section 3.15 step 2):** the tertiary key becomes the capture sequence `cseq`, so KSC rows written at one frozen UT keep their real click order (a Rebuild before an Upgrade in one session), and first-wins ties read the same order.
+
 ### 3.8 Recalculation model
 
 On any timeline change (commit, rewind, fast-forward event, KSP load), every resource module recalculates its derived state from scratch by walking all actions from UT=0 forward. No module retains cached state between recalculations — the ledger file is the sole input, the derived state is the sole output.
@@ -407,6 +409,11 @@ The goal: no committed purchase is ever left unpaid, and no pool (funds, science
 
 **Money the ledger does not know about stays as stock left it (BUILT 2026-10-22, phase 2).** An earning or a spend stock applied that the ledger holds no row for (another mod, an unmodelled stock path) is kept as stock applied it, on every later write: Parsek never takes it back and never re-creates it. A reservation that releases always comes back to the pool. A save from an older build keeps its pools: whatever separates them from the ledger at the first update is kept the same way. Parsek records such money as one `StockPoolAdjustment` ledger row per pool at the update that finds it (untagged and hidden from the Timeline), so the rebuilt pools carry it from then on and stock's 0 clamp and reputation curve apply at the real pool value. (Mechanism: plan `docs/dev/done/plans/committed-value-rule-implementation.md` section 2.4; code `GameActions/StockPoolReference.cs`, read by `KspStatePatcher.PatchFunds` / `PatchScience` / `PatchReputation` and by the affordability gate, saved in the PARSEK node as `STOCK_POOL_REFERENCE`.)
 
+**Planned changes to this rule (section 3.15, owner rulings 2026-10-26).**
+- Money stock pays for an identity the ledger already credits is not money the ledger does not know about. Today the pool reference steps that row by its walk effect, so stock's second payment is adopted as an adjustment. Section 3.15 step 5 takes it back instead.
+- An earning with no ledger channel is filed at its own event UT and is live-only (step 9).
+- Pool differences an older save brings keep this rule.
+
 **Worked rulings.** L1.4: reputation 60, a committed strategy costing 40 reputation on day 50, a new flight's crew deaths of 30 on day 20: reputation stops at 40 on day 20 with a debt of 10, reaches 0 when the strategy is paid, and the debt is paid by the next 10 of gains. L1.2: funds 120k, an open contract with a 50k fail penalty and a committed 100k upgrade on day 50: purchases may spend nothing (the upgrade needs 100k, the penalty another 50k); if the contract fails on day 20, funds stop at 100k with a debt of 30k, the upgrade is paid, and the debt comes from later gains.
 
 **Flights are never blocked for their risk.** "Of course we should not block flights of launches" (V). The debt is the player's risk to take: "we need a way to let the player make decisions about risks of rewinding and doing new launches, so I pick debt".
@@ -442,6 +449,124 @@ The goal: no committed purchase is ever left unpaid, and no pool (funds, science
 **Status of the instrument half: built in 0.10.7** (todos CONTRACT-COMPLETED-BY-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT, STRATEGY-CONVERSION-OF-DEPLOYED-SCIENCE-TAGGED-TO-THE-FLIGHT).
 
 **Mod background sources, built in 0.10.7** (LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT, proven by unit tests only by owner ruling 2026-10-25). The same scope opens around three more causes no flight has: an `AutoAccept` contract's accept (stock's `ContractSystem` accepts it on its own refresh; Contract Configurator contracts can carry the flag), a science submission from an unloaded vessel the live flight does not record (the recorder's vessel and the active tree's background members are the flight; stock transmits only from loaded vessels, and a loaded vessel outside the tree stays the flight's because the flight's EVA kerbal can run its experiment; a recovery keeps its own owner), and a resource scan no stock scanner makes (a mod's, such as SCANsat's background coverage; a stock scanner keeps the flight's tag on any vessel, for the same EVA reason). A mod contract a timer parameter completes stays tied to the flight: no seam names its cause.
+
+### 3.15 Event identity: the replay decides every repeat (owner rulings 2026-10-26)
+
+**Status: ruled 2026-10-26; PLANNED, not built. The owner holds the build until he says go (todo `LEDGER-EVENT-IDENTITY`).** This section is the authority for how the ledger tells a repeated event from a new one. The module sections point here. Where today's code differs, the module section says so and names the step below that changes it.
+
+**Game rule.** The ledger is a list of things that happened, not a list of money movements. Each economic row says three things:
+- what happened: its identity, named by the key stock itself checks before it pays;
+- when it happened: the capture UT;
+- what stock priced it at: the raw data.
+
+The pools are never stored. They are recomputed by replaying the rows in time order:
+- The first occurrence of an identity earns its price; for science, it earns what the subject cap leaves.
+- A later occurrence earns what the identity's rule leaves, often nothing.
+- A purchase is charged when the walk does not already own the item at that moment.
+
+What stock pays live during a flight is a preview. The next update writes the pools from the replay.
+
+Example: a committed flight recovers goo at UT 1000 (cap 3.9, stock paid 3). After a rewind, the player recovers the same goo at UT 200. The replay puts UT 200 first, and the UT 1000 run earns only what the cap leaves. This holds the never-reduce rule, because the total credited for the subject does not fall (owner ruling 2026-10-26, lane SCI-1).
+
+**Two kinds of duplicate.**
+- **Row duplicate:** one stock payment seen twice, for example through two capture channels. It is collapsed at capture and never reaches the replay.
+- **Event duplicate:** the same achievement at two moments, for example on two timelines. Both rows are kept, and the replay decides which one earns.
+
+**1. Every economic row declares an identity and a rule.** One registry names, for every `GameActionType` and source, the key and the rule below. A suite gate fails when a type or source has no entry, so a new channel cannot ship without a decision.
+
+| Source | Identity | Rule |
+|---|---|---|
+| Science experiment | subject id | cap headroom, earliest first (hard cap, owner ruling 2026-10-26; stock's curve is not replayed, 12.8) |
+| World-first | body-qualified progress node id | first wins (section 9) |
+| World record | node id + threshold index | each threshold once, earliest crossing first (step 4) |
+| Contract complete / fail / cancel | contract guid, one outcome per accept | first outcome wins (section 10) |
+| Contract parameter | contract guid + parameter path | first wins, and only while the walk has the contract open (not completed, failed or cancelled). A mod parameter stock may pay again (Contract Configurator `disableOnStateChange = false`) keys on the condition stock checks before paying. |
+| Contract accept advance | contract guid + accept | once per accept |
+| Orbital survey bonus | body | once per body, once a decompile confirms stock pays once |
+| Continuous producer (Breaking Ground station, Kerbalism background science) | producer + subject + time slice | a slice the committed timeline already holds earns nothing |
+| Tech node, part, part upgrade, facility level, hire | item name; facility + exact level | purchase state rule (step 6) |
+| Rollout cost | launch guid | as recorded |
+| Vessel recovery | owner recording + launch guid | as recorded |
+| Strategy setup | strategy + activation | once per activation; a one-time exchanger is never switched on again (3.14) |
+| Strategy conversion leg | its cause row | follows its cause (step 7) |
+| Reputation | rides its source row | nominal stored, stock's curve re-run in the walk (section 8) |
+| Science lab payout | none; the lab bounds itself | as recorded |
+| Income with no ledger channel | reason + event UT | live-only (step 9) |
+| Seeds (`*Initial`) | not events | starting value |
+
+**2. Order is time, then capture order.**
+- The walk sorts on (UT, earnings before spendings, `cseq`). `cseq` replaces `Sequence` as the tie key, so two KSC clicks at one frozen UT keep their real order (3.7).
+- Every row carries its capture UT as a double.
+- A science earning is dated at its capture UT. Today it is dated at its recording's end UT (`GameStateEventConverter`), which misorders a transmission against a re-earn after a rewind.
+- An older row whose capture UT survives only as a float `StartUT` ties on `cseq`.
+
+**3. Row duplicates collapse on capture identity.** Capture dedup keys on the capture event (its `cseq` and channel), never on economic keys. Today a 0.1 s window over type and amount, a contract re-fire bucket and the revert rollout dedup can hide a real second event; RELAUNCH-ROLLOUT-DEDUPED-AS-REVERT was one. This step lands before take-back, so a doubled capture is never read as a stock re-payment.
+
+**4. World records pay once per threshold.**
+- A record row names the thresholds it crossed and the reward of each one.
+- The replay credits each threshold once, earliest crossing first.
+- The live mirror raises stock's band to the committed count at the clock (7.8, 7.9).
+- Rows written before the field get their positions from the cumulative count per node, in capture order, so the earliest crossing still wins for them too.
+
+**5. Stock is stopped first and corrected second (owner ruling 2026-10-26: prevention plus take-back).**
+- **Prevention.** One add-only live mirror pass generalises `CommittedMilestoneReach`. For every registered kind whose stock state can record "already paid", it sets that state at the clock without paying: subject science, world-first nodes, record bands, contract parameters, scans and purchases. The flight clock cursor fires on any registered kind, so stock does not pay a known identity in the first place.
+- **Take-back.** When stock paid live for a row that the replay zeroes or caps for an identity reason, the next update takes the difference back and logs one warning naming the identity.
+  - The amount comes from a stock-shadow replay: what stock paid is the captured amount, with reputation run through the curve at the shadow's own reputation and stock's 0 clamp applied.
+  - It is taken back only for an identity reason (a duplicate or a cap), never for a floor or a strategy share.
+  - It is applied only to rows first captured after the build that ships it.
+  - It is never filed as a `StockPoolAdjustment` row, because the ground-truth check counts those separately and would hide it.
+  - If the player already spent the duplicate money at the Space Center, the shortfall becomes a debt (3.13 part 4; for science, step 6).
+- Prevention changes the raw data the replay sees: stock pays the remainder (0.69) instead of the full first reading (3). Under the hard cap the credited total is the same.
+
+**6. Purchases follow a state rule, and science can go into debt.**
+- A purchase is charged when the walk state at its (UT, `cseq`) does not already own the item: the tech researched, the part or upgrade unlocked, the facility at that exact level, the kerbal on the roster.
+- A legitimate repeat charges again: rebuilding a level down and upgrading it again, re-hiring after a dismissal, activating a strategy again, accepting a contract again.
+- A purchase the walk already owns is shown in the Timeline as not counted. The reservations, the reserved floor and the click gates read the same predicate.
+- A hire keeps the price captured with it, even when an earlier new hire changes the roster size its price depended on (recommended; awaiting the owner).
+- A committed tech that the walk can no longer afford is charged into debt like a funds row, instead of staying researched for free (12.6; recommended; awaiting the owner).
+
+**7. Conversion legs follow their cause.**
+- A strategy conversion leg captured inside stock's currency-modifier query for a known cause row carries that cause's id. The replay scales the leg by the cause's effective share, so a zeroed duplicate takes its cut with it (11.4).
+- A leg with no positive evidence of its cause stays as captured and is never taken back, because a mod may pay with a strategy reason (`StrategyOutput`, `StrategyInput`).
+- Moving a cause outside a strategy's window after a rewind shifts value between currencies; the player gets the unconverted payout instead. Accepted (recommended; awaiting the owner).
+
+**8. Contract twins stay out of the offer pool.**
+- After a rewind, stock can offer the same goal again under a new guid.
+- A contract the committed future accepts stays out of the offer pool, which also covers a contract the clock accepts on its own (`AutoAccept`).
+- Once-ever goals are never keyed on contract type and target, because that would zero repeatable contracts: part tests, tourism, rescues, Contract Configurator `maxCompletions > 1`.
+
+**9. Income with no ledger channel is live-only (recommended; awaiting the owner).**
+- An earning stock applied for a reason no channel converts (a mod reward, cheat funds) is filed as an untagged row at its own event UT with its reason. Today it is filed as an adjustment dated at the next update.
+- A rewind to before it drops it. A mod whose state rolled back with the save then pays it again once. A mod whose state does not roll back loses it.
+- Pool differences an older save brings stay `StockPoolAdjustment` rows (3.13).
+
+**10. A Re-Fly seal reads credit, not presence.** A gain row seals a slot when the replay counts it, even at zero value, so a first-reached milestone with no award still seals (rewind design section 2.12). A duplicate the replay does not count does not seal, so prevention and take-back give the same slot state for the same play (recommended; awaiting the owner).
+
+**Out of scope for the first release (recommended; awaiting the owner).**
+- Kerbal Construction Time and RP-1 charge at queue time and refund scraps as positive rollout deltas.
+- Milestone rows store amounts after the difficulty multiplier, so changing difficulty mid-career shifts what an earlier copy is worth. This is a known limit.
+
+**Ledger readers move with each step.**
+- The harness ledger oracle (`once_key`) learns science remainders, thresholds and leg scaling.
+- The Timeline shows each new not-counted reason.
+- LedgerGroundTruth reads take-back as part of the replay, never as an adjustment.
+
+**Build order.**
+1. Capture UT (double) on every row, and `cseq` as the tie key.
+2. Capture dedup on capture identity.
+3. The registry and its suite gate.
+4. Records per threshold.
+5. Stock-shadow take-back.
+6. Science debt, then the purchase state rule.
+7. Conversion legs, contract twins, the survey bonus and continuous producers.
+8. The Re-Fly seal on credit.
+
+Each step ships its oracle and Timeline changes.
+
+**Edge cases checked by hand** (simulated career, 2026-10-26): Rewind-to-Launch, then Re-Fly of a booster, then F9 inside a flight, then a second Rewind-to-Launch.
+- Today's code ends that career about 8,000 funds and 12 reputation over: a contract paid twice, a record threshold paid three times, and a strategy cut kept from a zeroed parameter.
+- The plan ends it exact.
+- An F9 needs no rule: it is a cold load, and pools, ledger and stock state all come from the quicksave (`docs/dev/design-load-restores-the-save.md`).
 
 ---
 
@@ -714,6 +839,8 @@ ScienceEarning
 
 `effectiveScience` is derived. Always computed, never stored. What the ledger actually credits to the budget after applying subject caps against other recordings on the timeline. Recalculated from scratch every time the timeline changes.
 
+**Planned (section 3.15 step 2):** the row's `ut` is the capture UT. Today `GameStateEventConverter` dates a science earning at its recording's END UT (the capture UT survives only in the float `StartUT`), so a transmission sorts after an earlier-captured re-earn on another timeline.
+
 `method` and `transmitScalar` serve the UI (showing the player "you transmitted this at 30% efficiency") but do not drive the recalculation math.
 
 ### 12.4 Science spending action schema
@@ -801,6 +928,8 @@ RecalculateScienceTimeline():
 Chronological order on the timeline determines priority. Earlier recordings get full credit. Later recordings get the remainder. If a recording is added to the past (player rewinds and commits a new mission), the recalculation gives it priority and reduces later recordings' effective values.
 
 The `affordable` flag on spending actions is defensive — it should never be false in normal play because the reservation system (section 6.5) prevents new spendings from creating a deficit, and the no-delete invariant ensures total effective science never decreases, so existing spendings remain valid. If the flag is false, it indicates a bug or data corruption.
+
+**Planned (section 3.15 step 6).** Today an unaffordable tech is not deducted, and `KspStatePatcher.ShouldRefuseUnaffordableRelock` keeps it researched, so it costs nothing. Three paths can leave a committed tech unaffordable: take-back after a spend, credit moved by the science re-date, and credit moved out of a strategy window. Under the plan, a committed tech is charged into debt like a funds row (section 3.13 part 4). A purchase the walk already owns at its (UT, `cseq`) is not charged again.
 
 ### 12.7 Verified scenarios
 
@@ -1421,6 +1550,12 @@ A record id's effective count in `MilestonesModule` is the pre-ledger seed plus 
 
 Stock pays a once-ever world-first only while its progress node is not complete (every once-ever handler runs `if (!IsComplete) { Complete(); AwardProgressStandard(...); }`). After a rewind the loaded save has the node unreached and the committed row lies ahead of the clock. `PatchMilestones` sets the node achieved once a patch walks past the row, but every patch is deferred while a recorder lives and a flight at 1x runs no recalculation, so a later flight that earns the node again would be paid by stock while the walk zeroes its row as a duplicate (7.4): paid twice. `CommittedMilestoneReach.Apply` closes that gap: once the clock is at or past a committed once-ever row (ELS, the walk's own input), it marks the stock node reached and complete through the private fields, with no `Complete()`, no event and no reward. It is add-only (it never clears a node, so a live flight's own uncommitted progress stays), it runs from the deferred branch of the recalculation (clock: the walk's real cutoff, else the live clock only outside OnLoad and a pending rewind UT adjustment) and from the flight scene's `CommittedMilestoneClockCursor` when the clock passes the next such row, and it skips rows of a live Re-Fly session's suppressed subtree, because a merge tombstones the origin's milestone rows and the attempt must still be able to earn the node. A re-earn before the committed row's UT is untouched: the clock has not reached the row, stock pays the earlier flight, and the walk moves the credit to it (first in UT order). World-record nodes are not covered (todo RECORD-BAND-REEARNED-AFTER-REWIND-PAID-AGAIN).
 
+**Planned (section 3.15 step 4): world records once per threshold.**
+- Today every record row stays effective and their thresholds add, so a band re-crossed after a rewind is paid again.
+- Under the plan a record row names the thresholds it crossed and the reward of each one. The replay credits each threshold once, earliest crossing first.
+- Rows written before the field get their positions from the cumulative count per node, in capture order.
+- The live mirror raises stock's band to the committed count at the clock, so a re-climb inside it pays nothing.
+
 ---
 
 ## 10. Contracts Module
@@ -1509,7 +1644,9 @@ For each ContractComplete in UT order:
 
 Effective completion rewards (funds, rep, science) flow into second-tier modules. Non-effective completions produce zero rewards but the contract is still resolved (slot freed).
 
-**Parameter rewards.** Stock pays a contract in two parts: each `ContractParameter` that completes pays its own `FundsCompletion` / `ScienceCompletion` / `ReputationCompletion` (reason `ContractReward`) the moment it completes, and the contract then pays its contract-level reward. A World-Firsts exploration contract carries most of its money on its one "Achieve goal" parameter. Each paid parameter is its own `ContractParameterComplete` row at its own UT, credited once per (contract, parameter) and never once the walk has ended the contract (a deadline failure or an earlier explicit fail / cancel); it moves no slot and no terminal state. The capture is a Harmony prefix / postfix on `ContractParameter.AwardCompletion` (decompiled KSP 1.12.5: stock zeroes the three fields after paying them, before `onParameterChange` fires, so the event alone always reads zero). Tagging, the clock-cause scope, the direct-ledger forward, the supersede tombstone and the discard re-home follow `ContractComplete`. A leg stock skipped (a strategy's effect delta cancelling it, which leaves the field set) is not booked. Once a real clock (the walk's cutoff, else the committed-row clock; never NaN, so not during OnLoad) reaches a credited parameter row, the contract patch puts stock's live parameter in its post-payment state without paying (state Complete by reflection, rewards zeroed, disabled), so stock cannot pay it a second time when a later flight completes it again; the first row in walk order is the one counted. A contract (or group parameter) that silent write leaves fully satisfied is handed back to stock's own `ParameterStateUpdate` one frame later, in the recorder's clock-cause scope, so stock completes and pays it as it would have live, filed untagged; a contract the ledger already ended is never re-evaluated. Todo CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED.
+**Parameter rewards.** Stock pays a contract in two parts: each `ContractParameter` that completes pays its own `FundsCompletion` / `ScienceCompletion` / `ReputationCompletion` (reason `ContractReward`) the moment it completes, and the contract then pays its contract-level reward. A World-Firsts exploration contract carries most of its money on its one "Achieve goal" parameter. Each paid parameter is its own `ContractParameterComplete` row at its own UT, credited once per (contract, parameter) and never once the walk has ended the contract (a deadline failure or an earlier explicit fail / cancel); it moves no slot and no terminal state. The capture is a Harmony prefix / postfix on `ContractParameter.AwardCompletion` (decompiled KSP 1.12.5: stock zeroes the three fields after paying them, before `onParameterChange` fires, so the event alone always reads zero). Tagging, the clock-cause scope, the direct-ledger forward, the supersede tombstone and the discard re-home follow `ContractComplete`. A leg stock skipped (a strategy's effect delta cancelling it, which leaves the field set) is not booked. Once a real clock (the walk's cutoff, else the committed-row clock; never NaN, so not during OnLoad) reaches a credited parameter row, the contract patch puts stock's live parameter in its post-payment state without paying (state Complete by reflection, rewards zeroed, disabled), so stock cannot pay it a second time when a later flight completes it again; the first row in walk order is the one counted. **Planned (section 3.15):** a parameter row is also not counted once the walk has completed its contract. Today the check reads failures and cancels only.
+
+A contract (or group parameter) that silent write leaves fully satisfied is handed back to stock's own `ParameterStateUpdate` one frame later, in the recorder's clock-cause scope, so stock completes and pays it as it would have live, filed untagged; a contract the ledger already ended is never re-evaluated. Todo CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED.
 
 ### 8.4 Contract action schemas
 
@@ -1638,6 +1775,11 @@ This is the most complex patching operation across all modules. KSP's `Contract`
 KSP generates contract offerings procedurally. After a rewind, KSP may generate different offerings than before. Parsek handles this by patching accepted/completed/failed contracts into KSP's state — these are removed from the offering pool. New offerings are KSP's domain.
 
 This means: if the player accepted "Orbit Mun" in a previous commit, it won't be re-offered after rewind because Parsek patches it as accepted. KSP generates other contracts instead. The player doesn't see duplicate contracts.
+
+**Twins (planned, section 3.15 step 8).**
+- Stock can generate the same goal again under a new guid before the committed accept's UT, either as an offer or as a contract the clock accepts on its own (`AutoAccept`).
+- The committed-future contract keeps such a twin out of the offer pool.
+- Identity is never keyed on contract type and target, because repeatable contracts (part tests, tourism, rescues, Contract Configurator `maxCompletions > 1`) legitimately pay again.
 
 ### 12.10 Verified scenarios
 
@@ -2268,6 +2410,11 @@ These predicates read the committed-future index shared by every stock-screen bl
 
 **Note (as shipped, #439 Phase A):** the walk does not apply this transform. Stock strategies transform a contract reward through `GameEvents.Modifiers.OnCurrencyModifierQuery` before the completion is captured, so the captured reward is already post-transform and `StrategiesModule.TransformContractReward` is a logged identity no-op; strategy currency conversions are captured as their own rows (StrategyScienceDebit / Credit, the StrategyConverter funds and reputation sources). The design below is kept for reference.
 
+**Planned (section 3.15 step 7).**
+- Today a conversion leg is applied as captured even when the walk zeroes its cause as a duplicate.
+- Under the plan a leg captured for a known cause row carries that row's id, and the replay scales the leg by the cause's effective share.
+- A leg with no positive evidence of a cause (a mod paying with a strategy reason) stays as captured.
+
 During the recalculation walk, when a contract reward is processed, the walk checks which strategies are active at that UT. If a matching strategy is active (its source resource matches one of the reward types), the reward is transformed:
 
 ```
@@ -2424,7 +2571,7 @@ Edge cases and gaps discovered by simulating concrete KSP gameplay scenarios aga
 
 **~~Facility destroyed state not patched.~~** FIXED (v0.4). `KspStatePatcher.PatchDestructionState` is fully implemented — iterates `DestructibleBuilding` objects and calls `db.Demolish()` / `db.Repair()` to sync visual state with the ledger's derived destruction state.
 
-**Sequence numbers not assigned during event conversion.** `GameStateEventConverter` creates actions with `Sequence=0` for all KSC events at the same UT. If a player unlocks two tech nodes at the same frozen KSC time, their relative order is undefined. Benign for independent spendings but could matter if one spending's affordability depends on the order.
+**Sequence numbers not assigned during event conversion.** `GameStateEventConverter` creates actions with `Sequence=0` for all KSC events at the same UT. If a player unlocks two tech nodes at the same frozen KSC time, their relative order is undefined. Benign for independent spendings but could matter if one spending's affordability depends on the order. Planned fix: `cseq` as the tie key (section 3.15 step 2).
 
 **ContractAccept sorts with spendings, not earnings.** `ContractAccept` is not in `IsEarningType` (it's neither earning nor spending in the classifier). At the same UT, the advance payment processes after explicit earnings. Functionally harmless (the advance still adds to balance before spendings), but semantically inconsistent with "credits before debits."
 
