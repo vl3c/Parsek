@@ -143,9 +143,10 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[Contracts\\] Accept: contractId='375b4446-c861-4b4d-bf97-ef38407246a4' type='PartTest' [^\\r\\n]*activeSlots=1/2",
   # Premise: stock's own SetState(OfferExpired) on the Active contract, let through.
   "\\[Parsek\\]\\[VERBOSE\\]\\[ContractEarlyFailPatch\\] allowing fail for guid=375b4446-c861-4b4d-bf97-ef38407246a4 end=OfferExpired - no committed outcome",
-  # THE FIX: the capture, untagged (G3).
-  "\\[Parsek\\]\\[VERBOSE\\]\\[GameStateRecorder\\] Emit: ContractCancelled key='375b4446-c861-4b4d-bf97-ef38407246a4' tag='' source='ContractOfferExpired'",
-  "\\[Parsek\\]\\[INFO\\]\\[GameStateRecorder\\] Game state: Active contract '[^\\r\\n]*' ended by stock as OfferExpired \\(requirements no longer met\\) - filed as an unpenalized end \\(contract 375b4446-c861-4b4d-bf97-ef38407246a4\\)",
+  # THE FIX: the capture, untagged (G3). 4776a84d2 (CLK-1) appended the untagged reason to
+  # both lines; the event is unchanged.
+  "\\[Parsek\\]\\[VERBOSE\\]\\[GameStateRecorder\\] Emit: ContractCancelled key='375b4446-c861-4b4d-bf97-ef38407246a4' tag='' \\(untagged: no flight causes it\\) source='ContractOfferExpired'",
+  "\\[Parsek\\]\\[INFO\\]\\[GameStateRecorder\\] Game state: Active contract '[^\\r\\n]*' ended by stock as OfferExpired \\(requirements no longer met\\) - filed as an unpenalized end, untagged \\(contract 375b4446-c861-4b4d-bf97-ef38407246a4\\)",
   "\\[Parsek\\]\\[INFO\\]\\[LedgerOrchestrator\\] KSC spending recorded: type=ContractCancel, UT=[0-9.]+, key=375b4446-c861-4b4d-bf97-ef38407246a4",
   # THE FIX: the walk ends the contract with no penalty and frees its slot.
   "\\[Parsek\\]\\[INFO\\]\\[Contracts\\] Cancel: contractId='375b4446-c861-4b4d-bf97-ef38407246a4' fundsPenalty=0 repPenalty=0 requirementsLost=True wasActive=True activeSlots=0/2",

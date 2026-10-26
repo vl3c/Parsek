@@ -699,6 +699,69 @@ invoke walk (`RewindInvoker` Step 5, `double.MaxValue`) and the tombstone walk a
 
 ---
 
+## CONTRACT-RESTORED-AT-SCENE-LOAD-PAYS-TWICE: a contract completed after a scene change pays its reward two or three times [FILED 2026-10-26 off CS-3's reading run, branch `cs3-career-contracts`. FIXED in the same branch and LIVE-PROVEN on CS-3's re-flight `2026-10-25_2353`]
+
+Found by `CS-3-career-first-contracts` (run `2026-10-25_2257`, PARSEK-FAIL), the first lane to
+complete a contract by flying it. Accept FIRSTLAUNCH and SCIENCE at the Space Center, go to the
+VAB, launch: at liftoff stock completed FIRSTLAUNCH THREE times within 0.1 s and paid each time
+(funds 35028 -> 50868 in three steps of 3200 + 2080, three times +2 science and +2 rep). The
+ContractCompleted dedup booked one completion, so the ledger was short by exactly the extra
+payouts and the live patch carried them as StockPoolAdjustment `leak` rows; LedgerGroundTruth read
+`hardFailures=3` (funds save 117287.04 / recon 97127.04, science 32.5 / 26.5, rep 23.0 / 16.0;
+recon with the leak rows equals the save).
+
+Cause (decompiled `ContractSystem`, KSP 1.12.5): `ParsekScenario.OnLoad` ->
+`RecalculateLedgerForInSessionLoad` -> `KspStatePatcher.PatchContracts` runs synchronously at the
+scene load, while stock's `ContractSystem.OnLoadRoutine` waits one frame (`yield return null`) and
+then `contracts.Clear()`s WITHOUT `Unregister()` before loading the save's own contracts. So the
+patch saw 0 contracts, restored and `Register()`ed both from ledger snapshots (`restored=2,
+registered=2` at the EDITOR and again at the FLIGHT load), and stock dropped those instances a frame
+later while they stayed subscribed to `OnProgressComplete`. Three live copies at liftoff (the
+EDITOR zombie, the FLIGHT zombie, stock's own), each completing and paying through the global
+`Funding.Instance`. Every scene load between an accept and its completion adds one payer, so ordinary
+play (accept, VAB, launch) pays three times. This is also the "burst fired 4x" the June
+ContractCompleted dedup (2594ad55d, `fix-funds-economy-divergence`) was written for and attributed
+to stock: the dedup kept the ledger to one payout while stock kept paying.
+
+Fix: `PatchContracts` asks `DecideContractPatchTiming(instancePresent, ContractSystem.loaded)`;
+before stock has loaded it records the call and returns (`PatchContracts: deferred - stock
+ContractSystem has not loaded ...`), and re-runs the core once on stock's `onContractsLoaded`
+(fired before `loaded = true`, so the handler calls the core directly; Parsek's own Fire inside the
+core finds nothing pending). The bookkeeping is one holder (`KspStatePatcher.DeferredContractPatch`:
+latest request wins, one run per defer, no re-entrant run, cancelled by a run-now patch and by
+`ResetForSaveLoad`); the deferred core runs under `SuppressionGuard.ResourcesAndReplay`, and a NaN
+accept clock captured inside OnLoad is re-read at the handler (`ResolveDeferredContractClockUT`), so a
+plain-walk load (a revert) does not land a later-accepted contract in stock as Active. The scene-load
+restore / stale-removal now act on stock's real list instead of one that is cleared a frame later.
+The dedup stays as a backstop. xUnit: `ContractPatchTimingTests`, `ContractPatchDeferralTests`
+(including a comment-stripped source gate on the `PatchContracts` routing; deleting the defer branch
+reds it). LIVE PROOF, CS-3 re-flight `2026-10-25_2353` (DLL 7c6e19f9): every
+scene load logs `PatchContracts: deferred ...` then `running the deferred scene-load patch on stock's
+onContractsLoaded (kspCurrent=4)`, each contract completes ONCE (one `'Achieve goal' complete!`, no
+DEDUPED re-fire), and the funds leak fell from 20160 to 9600. The 9600 that remains is a separate
+defect, CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED below, which keeps CS-3 red.
+
+## CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED: a contract parameter's own completion reward is paid by stock but never booked [FILED 2026-10-26 off CS-3's re-flight `2026-10-25_2353`, branch `cs3-career-contracts`. OPEN; high (career economy)]
+
+Stock pays a contract in two places: each `ContractParameter` that completes pays its own
+`FundsCompletion` / `ScienceCompletion` / `ReputationCompletion` (via `AwardCompletion`, reason
+`ContractReward`), and the contract then pays the contract-level completion reward. A World-Firsts
+ExplorationContract carries most of its money on its one `ProgressTrackingParameter` ("Achieve
+goal"): FIRSTLAUNCH paid 3200 funds / 1 science / 1 rep for the parameter and 2080 / 1 / 1 for the
+contract; SCIENCE paid 6400 / 1 / 2 and 4160 / 1 / 2. Parsek books only the contract-level reward
+(`GameStateRecorder.CaptureContractCompleted` reads `contract.FundsCompletion`); nothing in
+`Source/Parsek` subscribes to `GameEvents.Contract.onParameterChange` or reads a parameter's reward.
+So the live game stays right only through the stock-pool `leak` adjustment rows, and every derived
+state (a rewind's re-walk, a Re-Fly, the reservation index, LedgerGroundTruth) is short. CS-3 reads
+`hardFailures=3` on exactly the two parameter rewards: funds save 106727.04 vs recon 97127.04
+(+9600 = 3200 + 6400), science +2, rep +3. Affects every contract whose parameters carry rewards
+(most stock contracts: part tests, surveys, satellite, base / station, rescue, tourism legs).
+
+Fix: capture a parameter's completion as its own ledger row, at its own UT, tagged to the recording
+that earned it (the same tagging rule as ContractCompleted), crediting funds / science / rep through
+the existing modules and the strategy conversion path; tombstone / rewind / discard semantics as for
+ContractComplete rows. Gate: CS-3's existing pins (`hardFailures=0`) plus xUnit.
+
 ## CONTRACT-EVENT-OF-A-BACKGROUND-VESSEL-TAGGED-TO-THE-ACTIVE-RECORDING [FILED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`. OPEN; low]
 
 A contract completed or failed by a background vessel (a booster under canopy while the upper stage

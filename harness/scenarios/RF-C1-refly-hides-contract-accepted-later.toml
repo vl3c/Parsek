@@ -84,7 +84,10 @@ steps = [
   { cmd = "AnswerMergeDialog", args = { choice = "merge" },                             expect = "OK", budget = 240 },
   { cmd = "MissionMark",       args = { label = "rfc1-merged" },                        expect = "OK" },
   # ---- ACT 3: cross the accept at the Space Center ----
-  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  # No ExitToSpaceCenter here: AnswerMergeDialog concludes the Re-Fly by driving the scene
+  # exit to the Space Center itself, so a second exit only ever timed out `not-in-flight`
+  # (non-gating on the first flight `2026-10-25_0007`, driver-INVALID since the drive
+  # stops on a seam timeout).
   { cmd = "MissionMark",       args = { label = "rfc1-ksc" },                           expect = "OK" },
   { cmd = "WarpToUT",          args = { ut = "1100", maxRate = "100" },                 expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit",                                                               expect = "OK" },
@@ -161,7 +164,7 @@ supersedeRows = { min = 1 }
 tombstones    = { max = 0 }
 
 [runtime]
-# LoadGame x2 (660 each), mission 900, ExitToSpaceCenter x2 (180 each), WarpToUT x2 at the
+# LoadGame x2 (660 each), mission 900, ExitToSpaceCenter x1 (180), WarpToUT x2 at the
 # Space Center (240 each), KscAction 120, SaveGame 120, InvokeRewind 660, the descent 540,
 # AnswerMergeDialog 300, about 12 inert steps at 120: about 6,500 s.
 budgetSeconds = 6900
