@@ -3729,6 +3729,33 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "recordingIds": ["71288de785d2472ea60da273f42ce1c6"],
             "schemaGeneration": 4,
         },
+        # PROVENANCE: cs-career-orbit <- CS-4-career-orbit-return, run 2026-10-26_0521
+        # (PASS attempt 1, LedgerGroundTruth hardFailures=0), harvested from that run's
+        # `_save` snapshot with --keep-parsek --allow-no-vessel --expect-mode CAREER, no
+        # edit (the harvest cleared one dangling rewindSave reference). The career after its
+        # first orbit: funds 276994.30, science 47.5, rep 84.0, Mission Control at level 1,
+        # start / basicRocketry / engineering101 / survivability researched, the RT-10
+        # PartTest still Active, no vessel. Two committed trees: CS-3's Flea hop (one
+        # recording, Recovered) and CS-4's CS Orbiter tree (six recordings: the root ascent
+        # 692da787, its chain legs e312c6a9 and a7ec24c9 (Recovered, the splashed pod), and
+        # three DECOUPLE debris children 8b1aa915 / 146cafb4 / 1b605e0e, each Destroyed),
+        # three JointBreak branch points. CS-4b's host.
+        "cs-career-orbit": {
+            "trees": 2, "committedTrees": 2, "recordings": 7,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Recovered": 2, "Destroyed": 3},
+            "branchPoints": {"JointBreak": 3},
+            "minAuthoritativeSidecars": 25,
+            "recordingIds": ["71288de785d2472ea60da273f42ce1c6",
+                             "692da78791dd4026a5bb8b49931987b1",
+                             "e312c6a92d184ddc8eeab566190f94d7",
+                             "a7ec24c9538443d5b18a22b7607e2b24",
+                             "8b1aa915654e43d28f21d4d4342aa153",
+                             "146cafb405004973aa10a51e4fb708f6",
+                             "1b605e0e87fa47ab91bf1c9fe4c9df9f"],
+            "schemaGeneration": 4,
+        },
     }
     # --- THE CAREER ROUTE COPIES (H74-H79) ---------------------------------
     # Built by harness/tools/build_route_career.py from the four recorded route hosts
