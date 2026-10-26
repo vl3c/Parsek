@@ -279,6 +279,8 @@ namespace Parsek
                     ProcessLabEarning(action);
                     break;
                 case GameActionType.ContractComplete:
+                // A contract parameter's own science is a flat pool credit like the contract's.
+                case GameActionType.ContractParameterComplete:
                     ProcessContractScienceReward(action);
                     break;
                 case GameActionType.MilestoneAchievement:
@@ -678,7 +680,8 @@ namespace Parsek
             if (!action.Effective)
             {
                 ParsekLog.Verbose("ScienceModule",
-                    $"ContractComplete science skipped (not effective): contractId={action.ContractId ?? "(none)"}, " +
+                    $"{action.Type} science skipped (not effective): contractId={action.ContractId ?? "(none)"}" +
+                    $"{FundsModule.FormatParameterSuffix(action)}, " +
                     $"scienceReward={action.ScienceReward.ToString("R", IC)}");
                 return;
             }
@@ -691,7 +694,8 @@ namespace Parsek
             totalEffectiveEarnings += (double)reward;
 
             ParsekLog.Verbose("ScienceModule",
-                $"ContractComplete science: contractId={action.ContractId ?? "(none)"}, " +
+                $"{action.Type} science: contractId={action.ContractId ?? "(none)"}" +
+                $"{FundsModule.FormatParameterSuffix(action)}, " +
                 $"reward={reward.ToString("R", IC)}, " +
                 $"runningScience={runningScience.ToString("R", IC)}, " +
                 $"totalEffectiveEarnings={totalEffectiveEarnings.ToString("R", IC)}");
@@ -820,6 +824,7 @@ namespace Parsek
                 case GameActionType.ScienceEarning:
                 case GameActionType.MilestoneAchievement:
                 case GameActionType.ContractComplete:
+                case GameActionType.ContractParameterComplete:
                 case GameActionType.ScienceSpending:
                 case GameActionType.StrategyScienceDebit:
                 case GameActionType.StrategyScienceCredit:
@@ -853,6 +858,7 @@ namespace Parsek
                     delta = (double)action.MilestoneScienceAwarded;
                     return true;
                 case GameActionType.ContractComplete:
+                case GameActionType.ContractParameterComplete:
                     if (!action.Effective) return false;
                     delta = (double)action.TransformedScienceReward;
                     return true;

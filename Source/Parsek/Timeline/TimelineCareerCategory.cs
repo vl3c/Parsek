@@ -49,6 +49,7 @@ namespace Parsek
             {
                 case GameActionType.ContractAccept:
                 case GameActionType.ContractComplete:
+                case GameActionType.ContractParameterComplete:
                 case GameActionType.ContractFail:
                 case GameActionType.ContractCancel:
                     return TimelineCareerCategory.Contracts;

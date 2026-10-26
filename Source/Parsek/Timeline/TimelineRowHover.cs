@@ -98,6 +98,7 @@ namespace Parsek
             switch (outcome.Type)
             {
                 case GameActionType.ContractComplete:
+                case GameActionType.ContractParameterComplete:
                 {
                     var extras = new List<string>();
                     if (outcome.RepReward > 0f) extras.Add("+" + FormatWhole(outcome.RepReward) + " rep");

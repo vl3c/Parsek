@@ -453,6 +453,9 @@ namespace Parsek
                 case GameActionType.ResourceScanUnlocked: return TimelineEntryType.MilestoneAchievement;
                 case GameActionType.ContractAccept:       return TimelineEntryType.ContractAccept;
                 case GameActionType.ContractComplete:     return TimelineEntryType.ContractComplete;
+                // A parameter's own reward is part of the contract's completion; it reuses that
+                // bucket (and its outcome hover) rather than adding an entry type.
+                case GameActionType.ContractParameterComplete: return TimelineEntryType.ContractComplete;
                 case GameActionType.ContractFail:         return TimelineEntryType.ContractFail;
                 case GameActionType.ContractCancel:       return TimelineEntryType.ContractCancel;
                 case GameActionType.KerbalAssignment:     return TimelineEntryType.KerbalAssignment;

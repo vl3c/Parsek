@@ -10,7 +10,7 @@ namespace Parsek.Tests
     {
         // Keep this count in sync with CreateAction's switch below so a new
         // GameActionType cannot land without an explicit fuzzer payload.
-        private const int ExpectedGameActionTypeCount = 40;
+        private const int ExpectedGameActionTypeCount = 41;
         private readonly bool priorSuppressLogging;
 
         public RecalculationFuzzerTests()
@@ -311,6 +311,13 @@ namespace Parsek.Tests
                 case GameActionType.ContractComplete:
                     action.ContractId = "complete-contract-" + iteration + "-" + sequence;
                     action.FundsReward = 15f;
+                    action.ScienceReward = 1f;
+                    action.RepReward = 1f;
+                    break;
+                case GameActionType.ContractParameterComplete:
+                    action.ContractId = "complete-contract-" + iteration + "-" + sequence;
+                    action.ContractParameterId = (sequence % 3).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    action.FundsReward = 20f;
                     action.ScienceReward = 1f;
                     action.RepReward = 1f;
                     break;

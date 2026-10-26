@@ -122,6 +122,7 @@ namespace Parsek
                 case GameActionType.ReputationPenalty:
                 case GameActionType.MilestoneAchievement:
                 case GameActionType.ContractComplete:
+                case GameActionType.ContractParameterComplete:
                 case GameActionType.ContractFail:
                 case GameActionType.ContractCancel:
                 case GameActionType.StrategyActivate:

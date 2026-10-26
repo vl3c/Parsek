@@ -144,12 +144,14 @@ namespace Parsek
             return result;
         }
 
-        /// <summary>True for the four contract-lifecycle <see cref="GameActionType"/>s
-        /// (Accept/Complete/Fail/Cancel) that the §3.2a intra-batch dedup guards.</summary>
+        /// <summary>True for the contract-lifecycle <see cref="GameActionType"/>s
+        /// (Accept/Complete/ParameterComplete/Fail/Cancel) that the §3.2a intra-batch dedup
+        /// guards.</summary>
         private static bool IsContractLifecycleAction(GameActionType type)
         {
             return type == GameActionType.ContractAccept
                 || type == GameActionType.ContractComplete
+                || type == GameActionType.ContractParameterComplete
                 || type == GameActionType.ContractFail
                 || type == GameActionType.ContractCancel;
         }
@@ -169,12 +171,17 @@ namespace Parsek
         /// The observed stock re-fire burst sits at a single stable UT, so every copy floors
         /// to one bucket and collapses.
         /// </summary>
+        /// A parameter row's key also carries its parameter id, so two parameters of one
+        /// contract completing in the same instant stay two rows.
         private static string BuildContractDedupKey(GameAction action)
         {
             long bucket = (long)Math.Floor(action.UT / GameStateStore.ResourceCoalesceEpsilon);
-            return ((int)action.Type).ToString(IC) + "|"
+            string key = ((int)action.Type).ToString(IC) + "|"
                 + (action.ContractId ?? "") + "|"
                 + bucket.ToString(IC);
+            if (action.Type == GameActionType.ContractParameterComplete)
+                key += "|" + (action.ContractParameterId ?? "");
+            return key;
         }
 
         internal static string FormatConvertEventsSummary(
@@ -286,6 +293,9 @@ namespace Parsek
                 case GameStateEventType.ContractCompleted:
                     return ConvertContractCompleted(evt, recordingId);
 
+                case GameStateEventType.ContractParameterCompleted:
+                    return ConvertContractParameterCompleted(evt, recordingId);
+
                 case GameStateEventType.ContractFailed:
                     return ConvertContractFailed(evt, recordingId);
 
@@ -348,7 +358,9 @@ namespace Parsek
                 // ReputationEarning. The earning values already flow through dedicated
                 // channels:
                 //   - Recovery        via LedgerOrchestrator.CreateVesselCostActions
-                //   - ContractReward  via ConvertContractCompleted (reads detail)
+                //   - ContractReward  via ConvertContractCompleted (the contract's own reward)
+                //                     and ConvertContractParameterCompleted (each parameter's
+                //                     reward), both reading detail
                 //   - Milestone       via ConvertMilestoneAchieved (reads detail)
                 //   - ScienceEarning  via ConvertScienceSubjects (PendingScienceSubjects)
                 // Re-emitting from the Changed events would double-count against every
@@ -993,6 +1005,45 @@ namespace Parsek
                 Type = GameActionType.ContractComplete,
                 RecordingId = recordingId,
                 ContractId = evt.key,
+                ContractTitle = ExtractOutcomeContractTitle(evt.detail),
+                FundsReward = fundsReward,
+                RepReward = repReward,
+                ScienceReward = sciReward
+            };
+        }
+
+        /// <summary>
+        /// ContractParameterCompleted -> ContractParameterComplete (contractId=key, parameter id
+        /// and rewards from detail). Refuses an event with no parameter id: the walk credits a
+        /// parameter once per (contract, parameter), so an id-less row would collide.
+        /// </summary>
+        private static GameAction ConvertContractParameterCompleted(GameStateEvent evt, string recordingId)
+        {
+            string parameterId = ExtractDetail(evt.detail, "paramId");
+            if (string.IsNullOrEmpty(evt.key) || string.IsNullOrEmpty(parameterId))
+            {
+                ParsekLog.Warn(Tag,
+                    $"ConvertContractParameterCompleted: contract '{evt.key ?? "(null)"}' has no " +
+                    (string.IsNullOrEmpty(evt.key) ? "contract id" : "parameter id") + " - skipping");
+                return null;
+            }
+
+            float fundsReward = ParseDetailFloat(evt.detail, "fundsReward");
+            float repReward = ParseDetailFloat(evt.detail, "repReward");
+            float sciReward = ParseDetailFloat(evt.detail, "sciReward");
+
+            if (fundsReward == 0f && repReward == 0f && sciReward == 0f)
+                ParsekLog.Warn(Tag,
+                    $"ConvertContractParameterCompleted: all rewards are 0 for contract '{evt.key}' param={parameterId} " +
+                    "- detail may lack reward fields");
+
+            return new GameAction
+            {
+                UT = evt.ut,
+                Type = GameActionType.ContractParameterComplete,
+                RecordingId = recordingId,
+                ContractId = evt.key,
+                ContractParameterId = parameterId,
                 ContractTitle = ExtractOutcomeContractTitle(evt.detail),
                 FundsReward = fundsReward,
                 RepReward = repReward,

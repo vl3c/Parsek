@@ -56,6 +56,7 @@ namespace Parsek.Tests
         [InlineData(GameActionType.MilestoneAchievement, true)]
         [InlineData(GameActionType.ContractAccept,       true)]
         [InlineData(GameActionType.ContractComplete,     true)]
+        [InlineData(GameActionType.ContractParameterComplete, true)]
         [InlineData(GameActionType.ContractFail,         true)]
         [InlineData(GameActionType.ContractCancel,       true)]
         [InlineData(GameActionType.ReputationEarning,    true)]

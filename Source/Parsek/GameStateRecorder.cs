@@ -691,6 +691,9 @@ namespace Parsek
             GameEvents.Contract.onCancelled.Add(OnContractCancelled);
             GameEvents.Contract.onDeclined.Add(OnContractDeclined);
             Patches.ContractOfferExpiredCapturePatch.ActiveContractOfferExpired += OnActiveContractOfferExpired;
+            // A parameter's own reward: read inside stock's AwardCompletion, because stock zeroes
+            // the reward fields before it fires onParameterChange.
+            Patches.ContractParameterRewardCapturePatch.RewardPaid += OnContractParameterRewardPaid;
 
             // Tech
             GameEvents.OnTechnologyResearched.Add(OnTechResearched);
@@ -770,6 +773,7 @@ namespace Parsek
             GameEvents.Contract.onCancelled.Remove(OnContractCancelled);
             GameEvents.Contract.onDeclined.Remove(OnContractDeclined);
             Patches.ContractOfferExpiredCapturePatch.ActiveContractOfferExpired -= OnActiveContractOfferExpired;
+            Patches.ContractParameterRewardCapturePatch.RewardPaid -= OnContractParameterRewardPaid;
 
             // Tech
             GameEvents.OnTechnologyResearched.Remove(OnTechResearched);

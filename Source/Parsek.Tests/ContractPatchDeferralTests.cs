@@ -124,6 +124,26 @@ namespace Parsek.Tests
             Assert.Equal(345.5, seen);
         }
 
+        [Fact]
+        public void TheParameterClockPassesThroughAsCaptured_NeverReRead()
+        {
+            // A silent parameter completion has no undo, so a NaN parameter clock captured
+            // during OnLoad must reach the core as NaN (the parameter pass then skips) while
+            // the accept clock is re-read.
+            var state = new KspStatePatcher.DeferredContractPatch();
+            state.Defer(new ContractsModule(), double.NaN, double.NaN);
+            double accept = -1, parameter = -1;
+            state.TryRun(c => KspStatePatcher.ResolveDeferredContractClockUT(c, false, () => 345.5),
+                (m, c, p) => { accept = c; parameter = p; });
+            Assert.Equal(345.5, accept);
+            Assert.True(double.IsNaN(parameter));
+
+            state.Defer(new ContractsModule(), 10.0, 250.0);
+            state.TryRun(c => c, (m, c, p) => { accept = c; parameter = p; });
+            Assert.Equal(10.0, accept);
+            Assert.Equal(250.0, parameter);
+        }
+
         [Theory]
         [InlineData(120.0, false, 345.5, 120.0)]  // a real captured clock stands
         [InlineData(double.NaN, false, 345.5, 345.5)] // captured inside OnLoad: re-read after it

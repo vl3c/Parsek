@@ -2,9 +2,12 @@ schema = 1
 id = "KD-1-career-death-rewind"
 tier = "operator"
 # =====================================================================================
-# A KERBAL DEATH IN A CAREER, THEN REWIND-TO-LAUNCH. Operator tier and tagged
-# `pending-flight` until a green flight of THIS shape pins the measured values. AUTHORED
-# 2026-10-25, NEVER FLOWN.
+# A KERBAL DEATH IN A CAREER, THEN REWIND-TO-LAUNCH. Operator tier. AUTHORED 2026-10-25;
+# LIVE-PROVEN 2026-10-26 on its first flight, run `2026-10-26_0105` PASS attempt 1 (223 s,
+# DLL 2d8150c5: main with #2275 and the contract deferral fix): the dead kerbal's VAB assign
+# refused (`kscaction refused action=assign-crew reason=blocked-committed target=Jebediah
+# Kerman`), LedgerGroundTruth `hardFailures=0 ... facetsCompared=9`, batch `total=3 passed=2
+# failed=0 skipped=1` (pinned whole off this reading).
 #
 # WHY THIS LANE EXISTS. Every committed rewind lane that kills a kerbal flies a SANDBOX host
 # (GS-7, GS-9, CX-2), so nothing proved what a rewind across a committed death does to a
@@ -122,7 +125,7 @@ tier = "operator"
 description = "A kerbal death in a career, then Rewind-to-Launch: CL-2's fatal pod hop auto-commits, the rewind lands before the death, the dead kerbal is refused in the VAB crew dialog and marked Lost in the Astronaut Complex before and after the death UT, the death's reputation hit is patched in once when the Space Center clock crosses it (never before, never twice, no leak adjustment), and LedgerGroundTruth closes against KSP's own save."
 instanceProfile = "stock-minimal"
 tags = ["KD-1", "crew-loss", "career", "ledger", "rewind", "stock-ui", "action-blocking",
-        "editor", "ingame-batch", "ground-truth", "pending-flight"]
+        "editor", "ingame-batch", "ground-truth", "flown"]
 
 [fixture]
 # CL-2's host, unchanged. The stock Jumping Flea craft (for the crew dialog) and the Settings
@@ -243,7 +246,7 @@ required = [
   # ================= the ledger closes against KSP's own save =================
   # The never-flown interim pin (LAB-12's form): total exact, the split regexed (predicted
   # passed=2 skipped=1: no crewed recovery, so KerbalExperienceReassert self-skips).
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT",
   "result: hardFailures=0 ",
 ]
 forbidden = [

@@ -38,7 +38,14 @@ id = "CS-3-career-first-contracts"
 # carried exactly the difference). Re-flight `2026-10-25_2353` on the deferral fix: each
 # contract completes ONCE, and the remaining gap is the contracts' PARAMETER rewards (funds
 # +9600 = 3200 + 6400, science +2, rep +3), todo CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED.
-# The pins stay as written; that fix flips this lane green.
+# Re-flight on that fix (branch `contract-param-rewards`, DLL 86028f41): the parameter rows are
+# captured (`ContractParameterCompleted ... param=0 (funds=3200, rep=1, sci=1)`, SCIENCE's 6400 /
+# 1 / 2 matched post-walk) and LedgerGroundTruth CLOSES (`hardFailures=0`: funds 106727.04 /
+# 106727.04, science 28.5 / 28.5, rep 19.0 / 19.0). The lane stays red on two things its own pins
+# forbid, both present before the fix too: post-walk `Science reconcile dump` ERROR lines and
+# transient `GUARDED ... clamped` lines in the recovery burst (todo
+# RECOVERY-BURST-CONTRACT-SCIENCE-RECONCILE). The SCIENCE completion's tag pin was corrected to
+# untagged (it completes at the recovery, after the commit, every time).
 # `operator` (stock-tree is not in the nightly instance set).
 tier = "operator"
 description = "Scripted campaign stage 3 (Career): on a genuine new Career save, accept the FIRSTLAUNCH and SCIENCE World-Firsts contracts, fly the Jumping Flea hop (pad and flight readings, recover) so both complete inside the recorded flight, auto-commit, then run the ledger ground truth against KSP's own career save."
@@ -123,7 +130,9 @@ required = [
   "Recording started",
   # Both completions booked AND tagged to a recording, not filed untagged.
   "AddEvent: ContractCompleted key='a5a1f217-d79b-4ef9-8122-f051ecdd1681' tag='[0-9a-f]{32}'",
-  "AddEvent: ContractCompleted key='cae56da0-8ac5-4381-9e41-7080bf9c0e1b' tag='[0-9a-f]{32}'",
+  # SCIENCE completes at the recovery, after the scene-exit commit, so it is filed untagged
+  # like the recovery's own science captures (measured on every flight of this lane).
+  "AddEvent: ContractCompleted key='cae56da0-8ac5-4381-9e41-7080bf9c0e1b' tag=''",
   "Game state: ContractCompleted '[^']+' \\(funds=[0-9.]+, rep=[0-9.]+, sci=[0-9.]+",
   "CommitTreeSceneExit: finalizing tree at UT=[0-9.]+[\\s\\S]{0,8000}?Recording stopped\\. ",
   "result: hardFailures=0 ",

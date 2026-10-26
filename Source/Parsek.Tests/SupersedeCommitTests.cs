@@ -136,6 +136,9 @@ namespace Parsek.Tests
             yield return new object[] { GameActionType.MilestoneAchievement, true, true };
             yield return new object[] { GameActionType.ContractAccept, true, true };
             yield return new object[] { GameActionType.ContractComplete, true, true };
+            // A contract parameter's own reward: a gain and a world mutation, like the
+            // contract completion it belongs to.
+            yield return new object[] { GameActionType.ContractParameterComplete, true, true };
             yield return new object[] { GameActionType.ContractFail, true, true };
             yield return new object[] { GameActionType.ContractCancel, true, true };
             yield return new object[] { GameActionType.ReputationEarning, true, true };
