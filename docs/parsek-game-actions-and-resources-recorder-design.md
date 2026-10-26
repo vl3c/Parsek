@@ -522,27 +522,27 @@ Example: a committed flight recovers goo at UT 1000 (cap 3.9, stock paid 3). Aft
 - A purchase is charged when the walk state at its (UT, `cseq`) does not already own the item: the tech researched, the part or upgrade unlocked, the facility at that exact level, the kerbal on the roster.
 - A legitimate repeat charges again: rebuilding a level down and upgrading it again, re-hiring after a dismissal, activating a strategy again, accepting a contract again.
 - A purchase the walk already owns is shown in the Timeline as not counted. The reservations, the reserved floor and the click gates read the same predicate.
-- A hire keeps the price captured with it, even when an earlier new hire changes the roster size its price depended on (recommended; awaiting the owner).
+- A hire keeps the price captured with it, even when an earlier new hire changes the roster size its price depended on (owner ruling 2026-10-26).
 - A committed tech that the walk can no longer afford is charged into debt like a funds row, instead of staying researched for free (12.6; recommended; awaiting the owner).
 
 **7. Conversion legs follow their cause.**
 - A strategy conversion leg captured inside stock's currency-modifier query for a known cause row carries that cause's id. The replay scales the leg by the cause's effective share, so a zeroed duplicate takes its cut with it (11.4).
 - A leg with no positive evidence of its cause stays as captured and is never taken back, because a mod may pay with a strategy reason (`StrategyOutput`, `StrategyInput`).
-- Moving a cause outside a strategy's window after a rewind shifts value between currencies; the player gets the unconverted payout instead. Accepted (recommended; awaiting the owner).
+- Moving a cause outside a strategy's window after a rewind shifts value between currencies; the player gets the unconverted payout instead. Accepted (owner ruling 2026-10-26).
 
 **8. Contract twins stay out of the offer pool.**
 - After a rewind, stock can offer the same goal again under a new guid.
 - A contract the committed future accepts stays out of the offer pool, which also covers a contract the clock accepts on its own (`AutoAccept`).
 - Once-ever goals are never keyed on contract type and target, because that would zero repeatable contracts: part tests, tourism, rescues, Contract Configurator `maxCompletions > 1`.
 
-**9. Income with no ledger channel is live-only (recommended; awaiting the owner).**
+**9. Income with no ledger channel is live-only (owner ruling 2026-10-26).**
 - An earning stock applied for a reason no channel converts (a mod reward, cheat funds) is filed as an untagged row at its own event UT with its reason. Today it is filed as an adjustment dated at the next update.
 - A rewind to before it drops it. A mod whose state rolled back with the save then pays it again once. A mod whose state does not roll back loses it.
 - Pool differences an older save brings stay `StockPoolAdjustment` rows (3.13).
 
-**10. A Re-Fly seal reads credit, not presence.** A gain row seals a slot when the replay counts it, even at zero value, so a first-reached milestone with no award still seals (rewind design section 2.12). A duplicate the replay does not count does not seal, so prevention and take-back give the same slot state for the same play (recommended; awaiting the owner).
+**10. A Re-Fly seal reads credit, not presence.** A gain row seals a slot when the replay counts it, even at zero value, so a first-reached milestone with no award still seals (rewind design section 2.12). A duplicate the replay does not count does not seal, so prevention and take-back give the same slot state for the same play (owner ruling 2026-10-26).
 
-**Out of scope for the first release (recommended; awaiting the owner).**
+**Out of scope for the first release (owner ruling 2026-10-26).**
 - Kerbal Construction Time and RP-1 charge at queue time and refund scraps as positive rollout deltas.
 - Milestone rows store amounts after the difficulty multiplier, so changing difficulty mid-career shifts what an earlier copy is worth. This is a known limit.
 

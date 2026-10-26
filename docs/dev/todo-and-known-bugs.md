@@ -26,7 +26,7 @@ Owner rulings, 2026-10-26:
 - **Purchases are charged once per item in the replay**, refined into a state rule because legitimate repeats exist.
 - **Science keeps its hard cap.**
 - **Wait before building.**
-- Six follow-up answers are recommended and await the owner: income with no ledger channel is live-only; science goes into debt; a cause moved out of a strategy window is accepted; a hire keeps its captured price; a Re-Fly seal reads credit; KCT / RP-1 are out of scope.
+- Six follow-up rulings (owner, 2026-10-26, after the second review): income with no ledger channel is live-only; science goes into debt; a cause moved out of a strategy window is accepted; a hire keeps its captured price; a Re-Fly seal reads credit; KCT / RP-1 are out of scope.
 
 Four causes behind the 2026-10 duplicate-payment bugs (#2276, #2281, #2283, the one-time exchanger, RECORD-BAND-REEARNED-AFTER-REWIND-PAID-AGAIN):
 - (A) `StockPoolReference` steps a stock-applied row by its walk effect, so stock's re-payment of a known identity is adopted as a kept adjustment.
