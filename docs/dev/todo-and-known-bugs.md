@@ -727,9 +727,15 @@ Fix: `PatchContracts` asks `DecideContractPatchTiming(instancePresent, ContractS
 before stock has loaded it records the call and returns (`PatchContracts: deferred - stock
 ContractSystem has not loaded ...`), and re-runs the core once on stock's `onContractsLoaded`
 (fired before `loaded = true`, so the handler calls the core directly; Parsek's own Fire inside the
-core finds nothing pending). The scene-load restore / stale-removal now act on stock's real list
-instead of one that is cleared a frame later. The dedup stays as a backstop. xUnit:
-`ContractPatchTimingTests`. LIVE PROOF, CS-3 re-flight `2026-10-25_2353` (DLL 7c6e19f9): every
+core finds nothing pending). The bookkeeping is one holder (`KspStatePatcher.DeferredContractPatch`:
+latest request wins, one run per defer, no re-entrant run, cancelled by a run-now patch and by
+`ResetForSaveLoad`); the deferred core runs under `SuppressionGuard.ResourcesAndReplay`, and a NaN
+accept clock captured inside OnLoad is re-read at the handler (`ResolveDeferredContractClockUT`), so a
+plain-walk load (a revert) does not land a later-accepted contract in stock as Active. The scene-load
+restore / stale-removal now act on stock's real list instead of one that is cleared a frame later.
+The dedup stays as a backstop. xUnit: `ContractPatchTimingTests`, `ContractPatchDeferralTests`
+(including a comment-stripped source gate on the `PatchContracts` routing; deleting the defer branch
+reds it). LIVE PROOF, CS-3 re-flight `2026-10-25_2353` (DLL 7c6e19f9): every
 scene load logs `PatchContracts: deferred ...` then `running the deferred scene-load patch on stock's
 onContractsLoaded (kspCurrent=4)`, each contract completes ONCE (one `'Achieve goal' complete!`, no
 DEDUPED re-fire), and the funds leak fell from 20160 to 9600. The 9600 that remains is a separate

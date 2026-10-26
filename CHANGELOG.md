@@ -32,7 +32,7 @@ _(unreleased - entries accumulate here per commit)_
   (CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED)
 - **A contract pays its reward once.** Accepting a contract and then changing scenes (to the VAB,
   then the launch) left extra copies of it behind, so completing it paid the funds, science and
-  reputation two or three times. The reward is now paid once, and the books match it.
+  reputation two or three times. Each contract now pays out once.
   (CONTRACT-RESTORED-AT-SCENE-LOAD-PAYS-TWICE)
 - **Merging a flight after a rewind no longer pays out the future early.** When committed flights
   still lay ahead of the clock, merging (or the automatic merge on a save) briefly set your funds,

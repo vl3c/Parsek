@@ -3879,6 +3879,9 @@ namespace Parsek
                 DeferContractPatchUntilStockLoaded(contracts, acceptClockUT, parameterClockUT);
                 return;
             }
+            // A patch that runs against the loaded list supersedes one still waiting.
+            if (DeferredContractPatchState.Cancel())
+                ParsekLog.Verbose(Tag, "PatchContracts: pending deferred patch dropped (a run-now patch superseded it)");
             PatchContractsCore(contracts, acceptClockUT, parameterClockUT);
         }
 
@@ -3911,22 +3914,119 @@ namespace Parsek
                 : ContractPatchTiming.DeferUntilStockLoaded;
         }
 
-        private static bool contractPatchDeferred;
-        private static ContractsModule deferredContractPatchModule;
-        private static double deferredContractPatchClockUT = double.NaN;
-        private static double deferredContractParameterClockUT = double.NaN;
+        /// <summary>
+        /// The one deferred scene-load contract patch. Pure bookkeeping, so the routing is
+        /// testable without a live ContractSystem: <see cref="Defer"/> keeps the latest
+        /// request, <see cref="TryRun"/> runs it at most once on stock's onContractsLoaded,
+        /// and Parsek's own Fire from inside the core finds nothing pending (the pending
+        /// flag clears before the core runs; <c>running</c> guards a re-entrant call).
+        /// </summary>
+        internal sealed class DeferredContractPatch
+        {
+            private bool pending;
+            private bool running;
+            private ContractsModule module;
+            private double clockUT = double.NaN;
+            private double parameterClockUT = double.NaN;
+
+            internal bool HasPending => pending;
+
+            /// <summary>Keeps the latest request; true when one was already waiting.</summary>
+            internal bool Defer(ContractsModule contracts, double acceptClockUT)
+            {
+                return Defer(contracts, acceptClockUT, double.NaN);
+            }
+
+            /// <summary>
+            /// As above, with the parameter-patch clock (passed through as captured: a
+            /// silent parameter completion has no undo, so it never runs on a re-read clock).
+            /// </summary>
+            internal bool Defer(ContractsModule contracts, double acceptClockUT, double parameterPatchClockUT)
+            {
+                bool already = pending;
+                pending = true;
+                module = contracts;
+                clockUT = acceptClockUT;
+                parameterClockUT = parameterPatchClockUT;
+                return already;
+            }
+
+            /// <summary>Drops a waiting request; true when one was dropped.</summary>
+            internal bool Cancel()
+            {
+                bool had = pending;
+                pending = false;
+                module = null;
+                clockUT = double.NaN;
+                parameterClockUT = double.NaN;
+                return had;
+            }
+
+            /// <summary>
+            /// Runs the waiting request once through <paramref name="core"/>, with the clock
+            /// <paramref name="resolveClock"/> turns the captured one into. False when
+            /// nothing was pending or a run is already in progress.
+            /// </summary>
+            internal bool TryRun(Func<double, double> resolveClock, Action<ContractsModule, double> core)
+            {
+                return TryRun(resolveClock, (m, c, p) => core?.Invoke(m, c));
+            }
+
+            /// <summary>As above, also handing the core the captured parameter-patch clock.</summary>
+            internal bool TryRun(Func<double, double> resolveClock,
+                Action<ContractsModule, double, double> core)
+            {
+                if (!pending || running)
+                    return false;
+                ContractsModule m = module;
+                double captured = clockUT;
+                double parameterCaptured = parameterClockUT;
+                pending = false;
+                module = null;
+                clockUT = double.NaN;
+                parameterClockUT = double.NaN;
+                double clock = resolveClock != null ? resolveClock(captured) : captured;
+                running = true;
+                try
+                {
+                    core?.Invoke(m, clock, parameterCaptured);
+                }
+                finally
+                {
+                    running = false;
+                }
+                return true;
+            }
+        }
+
+        internal static readonly DeferredContractPatch DeferredContractPatchState = new DeferredContractPatch();
+
         // A cached lambda, never a static method group: EventVoid.Add rejects a delegate
         // with a null Target.
         private static EventVoid.OnEvent stockContractsLoadedHandler;
 
+        /// <summary>
+        /// Pure: the clock a deferred patch holds later accepts against. A real captured
+        /// clock stands. A NaN captured inside OnLoad (the live clock was still the previous
+        /// game's) is re-read: stock fires onContractsLoaded a frame after the scenario
+        /// OnLoad, when the save's clock is set, and a plain-walk load (a revert) with
+        /// committed future accepts would otherwise restore a later-accepted contract as a
+        /// visible Active one. Still NaN if the load is somehow still in progress.
+        /// </summary>
+        internal static double ResolveDeferredContractClockUT(
+            double capturedClockUT, bool onLoadInProgress, Func<double> liveClockUT)
+        {
+            if (!double.IsNaN(capturedClockUT))
+                return capturedClockUT;
+            if (onLoadInProgress || liveClockUT == null)
+                return double.NaN;
+            return liveClockUT();
+        }
+
         private static void DeferContractPatchUntilStockLoaded(
             ContractsModule contracts, double acceptClockUT, double parameterClockUT)
         {
-            bool alreadyDeferred = contractPatchDeferred;
-            contractPatchDeferred = true;
-            deferredContractPatchModule = contracts;
-            deferredContractPatchClockUT = acceptClockUT;
-            deferredContractParameterClockUT = parameterClockUT;
+            bool alreadyDeferred = DeferredContractPatchState.Defer(contracts, acceptClockUT, parameterClockUT);
             if (stockContractsLoadedHandler == null)
             {
                 stockContractsLoadedHandler = () => OnStockContractsLoaded();
@@ -3940,36 +4040,35 @@ namespace Parsek
 
         private static void OnStockContractsLoaded()
         {
-            // Parsek's own Fire inside PatchContractsCore lands here too: nothing pending.
-            if (!contractPatchDeferred)
+            if (!DeferredContractPatchState.HasPending)
                 return;
-            contractPatchDeferred = false;
-            ContractsModule module = deferredContractPatchModule;
-            double clockUT = deferredContractPatchClockUT;
-            double parameterClockUT = deferredContractParameterClockUT;
-            deferredContractPatchModule = null;
-            deferredContractPatchClockUT = double.NaN;
-            deferredContractParameterClockUT = double.NaN;
             if (ContractSystem.Instance == null)
             {
+                DeferredContractPatchState.Cancel();
                 ParsekLog.Verbose(Tag,
                     "PatchContracts: deferred patch dropped - ContractSystem.Instance is null at onContractsLoaded");
                 return;
             }
-            ParsekLog.Info(Tag,
-                "PatchContracts: running the deferred scene-load patch on stock's onContractsLoaded " +
-                $"(kspCurrent={(ContractSystem.Instance.Contracts != null ? ContractSystem.Instance.Contracts.Count : 0).ToString(IC)})");
-            // Stock fires onContractsLoaded before it sets loaded = true, so run the core
+            // Stock fires onContractsLoaded before it sets loaded = true, so the core runs
             // directly rather than re-entering the timing gate.
-            PatchContractsCore(module, clockUT, parameterClockUT);
+            DeferredContractPatchState.TryRun(
+                captured => ResolveDeferredContractClockUT(
+                    captured, ParsekScenario.IsOnLoadInProgress,
+                    ParsekScenario.GetCurrentTimelineUTForLedgerRecalc),
+                (module, clock, parameterClock) =>
+                {
+                    ParsekLog.Info(Tag,
+                        "PatchContracts: running the deferred scene-load patch on stock's onContractsLoaded " +
+                        $"(kspCurrent={(ContractSystem.Instance.Contracts != null ? ContractSystem.Instance.Contracts.Count : 0).ToString(IC)}, " +
+                        $"clockUT={clock.ToString("R", IC)})");
+                    using (SuppressionGuard.ResourcesAndReplay())
+                        PatchContractsCore(module, clock, parameterClock);
+                });
         }
 
         internal static void ResetDeferredContractPatch()
         {
-            contractPatchDeferred = false;
-            deferredContractPatchModule = null;
-            deferredContractPatchClockUT = double.NaN;
-            deferredContractParameterClockUT = double.NaN;
+            DeferredContractPatchState.Cancel();
         }
 
         private static void PatchContractsCore(ContractsModule contracts, double acceptClockUT,
