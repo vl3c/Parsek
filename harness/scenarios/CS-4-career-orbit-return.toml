@@ -68,7 +68,14 @@ id = "CS-4-career-orbit-return"
 # the first flight measures it; (8) predicted wall ~1300-1500 s, under the 1800 s
 # longhaul floor, so operator; (9) `flight_efficiency.py` after the first green flight.
 #
-# STATUS: AUTHORED 2026-10-26, never flown. The first flight is the MechJeb-in-career
+# STATUS: LIVE-PROVEN 2026-10-26 on its first flight, `2026-10-26_0521` PASS attempt 1 (860 s, mission 773 s, main 77ba922f, DLL 43f5b4cb). The MechJeb
+# reading run answered yes: MechJeb's classic ascent engaged and flew in this career save (phases
+# PRELAUNCH, MJ-ASCENT, NATIVE-COAST, NATIVE-BURN, ORBIT, DEORBIT, REENTRY, SPLASHDOWN; MISSION-OK).
+# Measured and pinned: orbiter rollout -5807; milestones ReachedSpace 16000/3/2, Orbit 24000/5/2,
+# Kerbin/ReturnFromOrbit 24000/5/2 (funds/rep/sci); RecordsSpeed / RecordsAltitude / RecordsDistance
+# 9600/2/1 each; 7 recordings; batch passed=3 skipped=0; end pools funds 274062.30, science 47.5,
+# rep 84.0, LedgerGroundTruth hardFailures=0; zero ERROR / GUARDED / leak / ContractFailed.
+# Original plan text follows. The first flight was the MechJeb-in-career
 # reading run: pin the measured values (the rollout debit, the milestone ids and payouts,
 # the recordings count) off it. The batch line pins `total=3` with the split regexed
 # (registered in IngameBatchWiringGroupTests.INTERIM_PIN_IDS); CS-3 and CS-3b measured
@@ -79,7 +86,7 @@ description = "Scripted campaign stage 4 (Career): on CS-3b's produced save, res
 instanceProfile = "stock-tree"
 tags = ["campaign", "CS-4", "career", "contracts", "contract-complete", "research", "editor",
         "mechjeb", "orbit", "reentry", "recovery", "auto-commit", "ledger", "ground-truth",
-        "ingame-batch", "pending-flight"]
+        "ingame-batch", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/cs-career-mc1"
@@ -173,7 +180,7 @@ allowedAnomalies = []
 # and fins, Hammer B with its TD-12, the Swivel and its tanks) + the scene-exit
 # optimizer's environment splits (ascent exit and reentry, measured on B4) + possibly a
 # post-recovery continuation (CS-3's). The ground-truth launch is unrecorded.
-count = { min = 6, max = 9 }
+count = { min = 7, max = 7 }
 
 [expectations.logContracts]
 required = [
@@ -201,9 +208,14 @@ required = [
   # The ground truth, in FLIGHT on the unrecorded Flea.
   "launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
   "Game state: FundsChanged -2932 \\(VesselRollout\\)",
+  # Measured on the first flight: the orbiter rollout and the milestone payouts.
+  "Game state: FundsChanged -5807 \\(VesselRollout\\)",
+  "Milestone enriched: 'ReachedSpace' funds=16000 rep=3\\.0 sci=2\\.0",
+  "Milestone enriched: 'Orbit' funds=24000 rep=5\\.0 sci=2\\.0",
+  "Milestone enriched: 'Kerbin/ReturnFromOrbit' funds=24000 rep=5\\.0 sci=2\\.0",
   "ground-truth game mode=CAREER pools=funds,science,reputation",
   "result: hardFailures=0 ",
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
