@@ -105,6 +105,7 @@ namespace Parsek
 
                 case GameActionType.ContractAccept:
                 case GameActionType.ContractComplete:
+                case GameActionType.ContractParameterComplete:
                 case GameActionType.ContractFail:
                 case GameActionType.ContractCancel:
                 {
@@ -406,6 +407,14 @@ namespace Parsek
                     return desc;
                 }
 
+                case GameActionType.ContractParameterComplete:
+                {
+                    string desc = "Contract objective done: " + displayName;
+                    if (action.FundsReward != 0)
+                        desc += string.Format(IC, " +{0:0} funds", action.FundsReward);
+                    return desc;
+                }
+
                 case GameActionType.ContractFail:
                     return (IsExpiredContractFail(action, closedAccept) ? "Expired: " : "Fail: ")
                         + displayName;
@@ -422,6 +431,7 @@ namespace Parsek
         {
             return type == GameActionType.ContractAccept
                 || type == GameActionType.ContractComplete
+                || type == GameActionType.ContractParameterComplete
                 || type == GameActionType.ContractFail
                 || type == GameActionType.ContractCancel;
         }
@@ -470,6 +480,7 @@ namespace Parsek
                 case GameActionType.MilestoneAchievement:
                 case GameActionType.ResourceScanUnlocked:
                 case GameActionType.ContractComplete:
+                case GameActionType.ContractParameterComplete:
                 case GameActionType.KerbalRescue:
                     return new Color(0.5f, 1f, 0.5f);
 

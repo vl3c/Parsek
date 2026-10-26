@@ -1073,6 +1073,9 @@ namespace Parsek
                             deltas.EmittedRepDelta += a.EffectiveRep;
                             break;
                         case GameActionType.ContractComplete:
+                        // A parameter's own reward is the other half of the ContractReward
+                        // store deltas; same fields, same gate.
+                        case GameActionType.ContractParameterComplete:
                             // #440B: read post-walk Transformed* / EffectiveRep. Gate on
                             // Effective to skip duplicate completions (module skips credit).
                             if (!a.Effective) break;
@@ -1702,6 +1705,10 @@ namespace Parsek
                 case GameActionType.ContractComplete:
                 case GameActionType.ContractFail:
                 case GameActionType.ContractCancel: return a.ContractId ?? "";
+                // Per (contract, parameter): two parameters of one contract paid in the same
+                // instant are two rows, and the contract's own completion never matches one.
+                case GameActionType.ContractParameterComplete:
+                    return (a.ContractId ?? "") + "|" + (a.ContractParameterId ?? "");
                 case GameActionType.KerbalHire: return a.KerbalName ?? "";
                 // KerbalExperience: the kerbal name, mirroring KerbalHire. Falling through
                 // to the default "" would make one recovery's crew collapse into a single
@@ -3833,6 +3840,7 @@ namespace Parsek
                 case GameActionType.ContractAccept:
                     return action.AdvanceFunds != 0f;
                 case GameActionType.ContractComplete:
+                case GameActionType.ContractParameterComplete:
                     return action.FundsReward != 0f || action.TransformedFundsReward != 0f;
                 case GameActionType.ContractFail:
                 case GameActionType.ContractCancel:
@@ -3919,6 +3927,7 @@ namespace Parsek
                 case GameActionType.ScienceLabEarning:
                     return true;
                 case GameActionType.ContractComplete:
+                case GameActionType.ContractParameterComplete:
                     return action.ScienceReward != 0f || action.TransformedScienceReward != 0f;
                 case GameActionType.MilestoneAchievement:
                     return action.MilestoneScienceAwarded != 0f;
@@ -3944,6 +3953,7 @@ namespace Parsek
                 case GameActionType.ContractAccept:
                     return action.RepPenalty != 0f;
                 case GameActionType.ContractComplete:
+                case GameActionType.ContractParameterComplete:
                     return action.RepReward != 0f || action.TransformedRepReward != 0f;
                 case GameActionType.ContractFail:
                 case GameActionType.ContractCancel:
@@ -6509,6 +6519,8 @@ namespace Parsek
         internal static bool IsIrreversibleLiveGameplayEvent(GameStateEventType type)
         {
             return type == GameStateEventType.ContractCompleted
+                // A parameter's reward is paid into the pools the moment it completes.
+                || type == GameStateEventType.ContractParameterCompleted
                 || type == GameStateEventType.ContractFailed
                 || type == GameStateEventType.ContractCancelled
                 || type == GameStateEventType.MilestoneAchieved
@@ -6777,6 +6789,7 @@ namespace Parsek
                 rehomed.Add(action);
                 if (e.eventType == GameStateEventType.MilestoneAchieved) milestoneEvents++;
                 else if (e.eventType == GameStateEventType.ContractCompleted
+                    || e.eventType == GameStateEventType.ContractParameterCompleted
                     || e.eventType == GameStateEventType.ContractFailed
                     || e.eventType == GameStateEventType.ContractCancelled) contractEvents++;
                 else otherEvents++;

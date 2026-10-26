@@ -695,6 +695,12 @@ namespace Parsek
                         action.UT,
                         action.ContractId);
 
+                case GameActionType.ContractParameterComplete:
+                    return EncodeLegacyDuplicateKey(
+                        GameStateEventType.ContractParameterCompleted,
+                        action.UT,
+                        action.ContractId);
+
                 case GameActionType.ContractFail:
                     return EncodeLegacyDuplicateKey(
                         GameStateEventType.ContractFailed,

@@ -111,7 +111,9 @@ namespace Parsek
         /// <para>
         /// Reviewer-corrected event keys (see plan sections 3.1-3.6):
         /// <list type="bullet">
-        /// <item><c>ContractComplete</c> -> <c>ContractReward</c> (all three legs)</item>
+        /// <item><c>ContractComplete</c> and <c>ContractParameterComplete</c> ->
+        /// <c>ContractReward</c> (all three legs; stock's parameter and contract payouts land
+        /// in one coalesced store event, so both rows sit on its expected side)</item>
         /// <item><c>ContractFail</c> / <c>ContractCancel</c> -> <c>ContractPenalty</c></item>
         /// <item><c>MilestoneAchievement</c> -> <c>Progression</c> (all three legs, via
         /// the generic resource-event path; <c>MilestoneAchieved.detail</c> is NOT parsed)</item>
@@ -131,6 +133,7 @@ namespace Parsek
             switch (action.Type)
             {
                 case GameActionType.ContractComplete:
+                case GameActionType.ContractParameterComplete:
                     // All three legs when Effective; duplicate completions (Effective=false)
                     // are filtered by MilestonesModule/ContractsModule and the modules
                     // skip crediting, so the observed delta is 0 for those. Post-walk
@@ -870,6 +873,11 @@ namespace Parsek
             {
                 case GameActionType.ContractComplete:
                     anchorType = GameStateEventType.ContractCompleted;
+                    anchorKey = action.ContractId;
+                    return !string.IsNullOrEmpty(anchorKey);
+
+                case GameActionType.ContractParameterComplete:
+                    anchorType = GameStateEventType.ContractParameterCompleted;
                     anchorKey = action.ContractId;
                     return !string.IsNullOrEmpty(anchorKey);
 

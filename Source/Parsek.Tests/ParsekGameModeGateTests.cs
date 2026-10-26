@@ -264,6 +264,7 @@ namespace Parsek.Tests
             "Parsek.Patches.ContractDeclinePatch.Prefix",
             "Parsek.Patches.ContractEarlyFailPatch.Prefix",
             "Parsek.Patches.ContractOfferExpiredCapturePatch.Prefix",
+            "Parsek.Patches.ContractParameterRewardCapturePatch.Prefix",
             "Parsek.Patches.CrewAutoAssignPatch.Prefix",
             "Parsek.Patches.DeployedScienceSubmitScopePatch.Prefix",
             "Parsek.Patches.CrewDialogAvailItemPatch.Postfix",

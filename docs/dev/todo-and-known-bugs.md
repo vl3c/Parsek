@@ -37,7 +37,18 @@ too, not only from rows before the clock: a full-timeline per-subject credit cac
 `BuildCommittedScienceSubjectCredits` shape. Then decide whether the walk still lets an earlier
 untagged row take headroom from a committed later one. Also key the patch's `apply-committed`
 rate limit per subject id: one shared key lets one subject's raise hide another's line for 30 s,
-which makes SCI-1's (B) contract racy on a fixed build. Lane SCI-1 pins the rule; first flight owed.
+which makes SCI-1's (B) contract racy on a fixed build. Lane SCI-1 pins the rule.
+
+MEASURED 2026-10-26, SCI-1 run on DLL 2d8150c5 (main with #2275), PARSEK-FAIL attempt 1 exactly as
+predicted. Committed flight: `Earning: subject=mysteryGoo@KerbinSrfLandedLaunchPad, awarded=3,
+effective=3, creditedTotal=3, maxValue=3.9 ... recordingId=4d46922b4671405bb866c85bd2844d2b`. After
+Rewind-to-Launch (UT 0.08) the pad re-read recovered at UT 200 paid in full, with no `Applied
+committed science` for the subject before it: `awarded=3, effective=3, creditedTotal=3 ...
+recordingId=(none)`, then the second and third cans at 0.69 and 0.16. At the crossing of the
+committed recovery (UT 338) the committed flight was capped: `Earning (cap hit): ... awarded=3,
+effective=0.0479, headroom=0.0479`; `Applied committed science: ... 3.9 -> 3.9` appears only after
+the crossing. The pool itself closes (LedgerGroundTruth `hardFailures=0`, science 10.4 / 10.4), so
+the question is which flight the credit belongs to: still the owner's ruling.
 
 ---
 
@@ -741,7 +752,26 @@ onContractsLoaded (kspCurrent=4)`, each contract completes ONCE (one `'Achieve g
 DEDUPED re-fire), and the funds leak fell from 20160 to 9600. The 9600 that remains is a separate
 defect, CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED below, which keeps CS-3 red.
 
-## CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED: a contract parameter's own completion reward is paid by stock but never booked [FILED 2026-10-26 off CS-3's re-flight `2026-10-25_2353`, branch `cs3-career-contracts`. OPEN; high (career economy)]
+## RECOVERY-BURST-CONTRACT-SCIENCE-RECONCILE: a contract completed by a recovery makes the post-walk science reconcile log ERROR and the science patch clamp [FILED 2026-10-26 off CS-3, branch `contract-param-rewards`. OPEN; medium (diagnostic noise at ERROR level, transient clamp)]
+
+When a recovery completes a contract (CS-3's SCIENCE contract completes on the recovered Goo), the
+recovery's subject science and the contract's own `ContractReward` science land in the same 0.2 s
+window, all untagged. The post-walk per-subject science reconcile counts the contract's science
+against the subject: `Science reconcile dump (post-walk): action=crewReport@KerbinFlyingLowShores
+reason='ScienceTransmission' window=[346.3,346.5] events=ut=346.4 key='VesselRecovery' delta=3.5 ...
+| ut=346.4 key='ContractReward' delta=2.0 ...` at ERROR, four times in one recovery, although the
+contract rows match that 2.0 separately (`Post-walk match: ContractParameterComplete sci ...
+observed=1.0`). In the same burst the science patch clamps both ways (`GUARDED UPLIFT clamped ...
+running=18.5 live=16.5`, then `GUARDED DRAWDOWN clamped ... running=26.5 live=28.5`) as the rows and
+stock's credits arrive in a different order; the final pool is right (LedgerGroundTruth closes).
+Present before the parameter-reward fix as well (run `2026-10-25_2353`: six dumps, clamps on all
+three pools). Never seen on L3 / HC-2, where no contract completes at the recovery.
+
+Fix: the subject reconcile must leave out `ContractReward`-keyed deltas the contract rows claim (or
+reconcile the window as one sum against every row in it), and the burst's patch should not run
+between a stock credit and the row that explains it. Gate: CS-3's existing forbidden tokens.
+
+## ~~CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED: a contract parameter's own completion reward is paid by stock but never booked~~ [FIXED 2026-10-26 in branch `contract-param-rewards`; LIVE-PROVEN on CS-3's re-flight (LedgerGroundTruth closes, `hardFailures=0`). FILED 2026-10-26 off CS-3's re-flight `2026-10-25_2353`, branch `cs3-career-contracts`. high (career economy)]
 
 Stock pays a contract in two places: each `ContractParameter` that completes pays its own
 `FundsCompletion` / `ScienceCompletion` / `ReputationCompletion` (via `AwardCompletion`, reason
@@ -757,10 +787,87 @@ state (a rewind's re-walk, a Re-Fly, the reservation index, LedgerGroundTruth) i
 (+9600 = 3200 + 6400), science +2, rep +3. Affects every contract whose parameters carry rewards
 (most stock contracts: part tests, surveys, satellite, base / station, rescue, tourism legs).
 
-Fix: capture a parameter's completion as its own ledger row, at its own UT, tagged to the recording
-that earned it (the same tagging rule as ContractCompleted), crediting funds / science / rep through
-the existing modules and the strategy conversion path; tombstone / rewind / discard semantics as for
-ContractComplete rows. Gate: CS-3's existing pins (`hardFailures=0`) plus xUnit.
+**Fix.** A paid parameter is its own ledger row: `GameStateEventType.ContractParameterCompleted = 26`
+-> `GameActionType.ContractParameterComplete = 40` (append-only additive members, no schema
+generation bump), carrying `ContractId`, `ContractParameterId` (codec key `contractParameterId`,
+written for that type only), `ContractTitle` and the three rewards in `FundsReward` / `RepReward` /
+`ScienceReward`. Capture is NOT `onParameterChange`: decompiled KSP 1.12.5
+`ContractParameter.SetComplete` runs `AwardCompletion()` (which pays `AddFunds(FundsCompletion)`,
+`AddScience(ScienceCompletion)`, `AddReputation(ReputationCompletion)`, reason `ContractReward`, and
+ZEROES each field after paying it) before it sets `state = Complete` and fires
+`onParameterChange`, so that event always reads zero rewards. `Patches/ContractParameterRewardCapturePatch`
+is a prefix / postfix on `ContractParameter.AwardCompletion` (its only caller is `SetComplete`, only
+on a not-yet-Complete parameter; no stock subclass overrides it): the prefix reads the three fields
+and the parameter's identity, the postfix raises `RewardPaid`, and the recorder's headless core
+`GameStateRecorder.CaptureContractParameterCompleted` files it once per (contract, parameter) when a
+reward is nonzero, with its own dedup map (`contract|param`, cleared with the contract map), and the
+same tagging / clock-cause / direct-ledger forward as `CaptureContractCompleted`. The parameter id is
+its index path under the contract (`"0"`, `"1.0"`; stock's `ID` is often empty and not unique among
+siblings), falling back to `id:<ID>`. The amounts are stock's base values, as for the contract-level
+row: a converter strategy's take is applied inside `AddFunds` and already ledgered by the
+`OnCurrencyModified` door. Stock skips the science / reputation leg when value plus the strategy
+query's effect delta is zero and then leaves that field set, so the postfix books a leg only when
+stock zeroed its field (`PaidLeg`). `ContractsModule` credits a parameter once per pair (not when the walk has
+already failed / cancelled the contract) and touches no slot or terminal state; Funds / Science
+(flat pool credit) / Reputation (same curve) credit it like `ContractComplete`; the post-walk
+reconcile pairs it on the `ContractReward` legs; supersede tombstones it, a non-rewind discard
+re-homes it; the Timeline shows `Contract objective done: <contract>`; the save-recovery
+migration rebuilds a lost row per (contract, parameter).
+
+Stock's parameter state (review of 6560772e4): a committed-future row credited when the clock
+crosses it left stock's parameter Incomplete with its rewards set, so a re-fly completing the same
+parameter later got paid by stock again while the ledger's second row was not counted (and the
+guard kept the payment as an adjustment). `KspStatePatcher.PatchContracts` now runs
+`PatchContractParameters` after the active-contract restore: every parameter the walk credited
+(`ContractsModule.GetCreditedParameters`) at or before the parameter clock whose stock contract is
+Active and whose parameter is not Complete is
+put in stock's own post-payment state without paying: the protected `state` field set Complete by
+reflection (no setter; one-shot Warn on failure), the three rewards zeroed, `Disable()` when
+`DisableOnStateChange` (what `SetComplete` does after `AwardCompletion`). No `AwardCompletion`,
+`OnStateChange`, `onParameterChange` or parent `ParameterStateUpdate` fires. One line per patch:
+`PatchContracts: credited contract parameters completedSilently=N, alreadyComplete=N,
+unresolved=N, contractNotActive=N, afterClock=N, clockNotReady=N, writeFailed=N,
+reEvaluateNextFrame=N, ledgerTerminal=N`. Two rows for one parameter keep the first-in-walk-order
+rule (the earlier UT counts).
+
+Second review (42ca17676), two follow-ups. (1) The write persists in stock's save
+(`ContractParameter.Save`) and has no undo, so it needs a real clock:
+`ResolveContractParameterClockUT` takes the walk's own cutoff, else the committed-row clock, and a
+NaN / non-positive / sentinel clock completes nothing (`clockNotReady`). That covers OnLoad (the
+committed-row clock is NaN there and a boot load's full replay credits every committed-future row)
+and the deferred onContractsLoaded run, which keeps the clock it was given. Chosen over reading
+`Planetarium.GetUniversalTime()` at the deferred run because the live clock during and just after
+a load can still be the previous game's (the reason the accept filter is NaN there); a skipped
+completion is retried by the next patch with a real clock, a wrong one cannot be taken back. The
+cost: between a load and that next patch a live completion of a credited parameter would still be
+paid twice. (2) Stock completes a contract only from the parent `ParameterStateUpdate` that
+`SetComplete` runs after paying (`Contract.OnParameterStateChange` sets Completed once every
+top-level parameter is Complete; a group parameter completes from its own override), so a silent
+write could leave every required parameter Complete and the contract Active for good (no reward,
+then a deadline failure). After the silent pass, every stock-Active contract with a credited
+parameter that the ledger has not ended and whose top-level parameters are all Complete, or that
+holds a not-Complete group parameter whose children are all Complete
+(`NeedsStockContractReEvaluation`), is handed back to stock one frame later
+(`WarpToTimeConsumer.RunNextFrame`, outside the patch and its replay guard): each satisfied group's
+`ParameterStateUpdate` (deepest first), then the contract's. It runs in the recorder's clock-cause
+scope, so the group or contract reward stock then pays and its ContractCompleted are filed
+untagged. A contract the ledger already ended is never re-evaluated: the patch removed it from
+stock's Active list before this pass, and the ledger-terminal set is checked again (no double
+contract reward). Lines: `PatchContracts: re-evaluated contract <guid> ... state=<state>` and
+`PatchContracts: contract re-evaluation reEvaluated=N, completedByStock=N, skipped=N`. No frame host
+or a running replay skips it; the next patch retries (the decision reads stock's state).
+
+Not done: (a) a parameter stock shows Complete that the ledger no longer credits is NOT
+un-completed (a supersede or rewind restores stock from a quicksave, so that state needs a
+tombstone without a reload; then stock will not pay that parameter again and the ledger holds no
+row for it). (b) A silently completed parameter with `DisableOnStateChange = false` stays enabled
+(stock leaves it so too after paying), and its `OnUpdate` can `SetIncomplete` it later; a later
+re-completion then pays 0 (its rewards were zeroed, as stock's own were), so no double pay, but
+stock's parameter can flip back. (c) A group parameter that completes on fewer than all of its
+children is not re-evaluated. xUnit:
+`ContractParameterRewardTests` (CS-3 numbers walk to +5280 / +2 sci / about +2 rep for
+FIRSTLAUNCH). Live proof owed: CS-3's re-flight (`hardFailures=0`, a `ContractParameterCompleted`
+line before each `'Achieve goal' complete!`).
 
 ## CONTRACT-EVENT-OF-A-BACKGROUND-VESSEL-TAGGED-TO-THE-ACTIVE-RECORDING [FILED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`. OPEN; low]
 

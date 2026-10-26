@@ -84,6 +84,9 @@ namespace Parsek
                 case GameActionType.MilestoneAchievement:
                 case GameActionType.ContractAccept:
                 case GameActionType.ContractComplete:
+                // A superseded flight's parameter reward retires with it, as its contract
+                // completion does (listed: the default preserves an unknown type).
+                case GameActionType.ContractParameterComplete:
                 case GameActionType.ContractFail:
                 case GameActionType.ContractCancel:
                 case GameActionType.ReputationEarning:

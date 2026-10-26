@@ -277,6 +277,8 @@ namespace Parsek
                     ProcessContractAccept(action);
                     break;
                 case GameActionType.ContractComplete:
+                // A contract parameter's own reward credits the pool like the contract's.
+                case GameActionType.ContractParameterComplete:
                     ProcessContractComplete(action);
                     break;
                 case GameActionType.ContractFail:
@@ -589,8 +591,8 @@ namespace Parsek
             if (!action.Effective)
             {
                 ParsekLog.Verbose(Tag,
-                    $"ContractComplete funds skipped (not effective): " +
-                    $"contractId={action.ContractId ?? "(none)"}, " +
+                    $"{action.Type} funds skipped (not effective): " +
+                    $"contractId={action.ContractId ?? "(none)"}{FormatParameterSuffix(action)}, " +
                     $"fundsReward={action.TransformedFundsReward.ToString("R", IC)}");
                 return;
             }
@@ -603,10 +605,20 @@ namespace Parsek
             totalEarnings += reward;
 
             ParsekLog.Verbose(Tag,
-                $"ContractComplete funds: +{reward.ToString("R", IC)}, " +
-                $"contractId={action.ContractId ?? "(none)"}, " +
+                $"{action.Type} funds: +{reward.ToString("R", IC)}, " +
+                $"contractId={action.ContractId ?? "(none)"}{FormatParameterSuffix(action)}, " +
                 $"runningBalance={runningBalance.ToString("R", IC)}, " +
                 $"totalEarnings={totalEarnings.ToString("R", IC)}");
+        }
+
+        /// <summary>
+        /// <c>", param=&lt;id&gt;"</c> for a ContractParameterComplete row, empty otherwise.
+        /// </summary>
+        internal static string FormatParameterSuffix(GameAction action)
+        {
+            return action != null && action.Type == GameActionType.ContractParameterComplete
+                ? ", param=" + (action.ContractParameterId ?? "(none)")
+                : "";
         }
 
         private void ProcessContractFail(GameAction action) => ProcessContractPenalty(action, "ContractFail");
@@ -872,6 +884,7 @@ namespace Parsek
                 case GameActionType.MilestoneAchievement:
                 case GameActionType.ContractAccept:
                 case GameActionType.ContractComplete:
+                case GameActionType.ContractParameterComplete:
                 case GameActionType.FundsSpending:
                 case GameActionType.ContractFail:
                 case GameActionType.ContractCancel:
@@ -910,6 +923,7 @@ namespace Parsek
                     delta = (double)action.AdvanceFunds;
                     return true;
                 case GameActionType.ContractComplete:
+                case GameActionType.ContractParameterComplete:
                     if (!action.Effective) return false;
                     delta = (double)action.TransformedFundsReward;
                     return true;

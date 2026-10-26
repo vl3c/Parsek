@@ -263,6 +263,7 @@ namespace Parsek
                 case GameActionType.MilestoneAchievement:  // MilestoneFunds/Sci/RepAwarded
                 case GameActionType.ContractAccept:        // AdvanceFunds
                 case GameActionType.ContractComplete:      // FundsReward/ScienceReward/RepReward
+                case GameActionType.ContractParameterComplete: // same three, one parameter's share
                 case GameActionType.ContractFail:          // FundsPenalty/RepPenalty
                 case GameActionType.ContractCancel:        // FundsPenalty/RepPenalty
                     return true;
@@ -1000,6 +1001,8 @@ namespace Parsek
             {
                 case GameStateEventType.ContractAccepted:
                 case GameStateEventType.ContractCompleted:
+                // A lost parameter-reward row is rebuilt from its event like a completion.
+                case GameStateEventType.ContractParameterCompleted:
                 case GameStateEventType.ContractFailed:
                 case GameStateEventType.ContractCancelled:
                 case GameStateEventType.PartPurchased:
@@ -1034,6 +1037,13 @@ namespace Parsek
                     case GameActionType.ContractFail:
                     case GameActionType.ContractCancel:
                         if (a.ContractId == evt.key) return true;
+                        break;
+                    case GameActionType.ContractParameterComplete:
+                        // Per (contract, parameter): a sibling parameter's row at the same
+                        // instant is not this event's row.
+                        if (a.ContractId == evt.key
+                            && a.ContractParameterId == GameStateEventDisplay.ExtractDetailField(evt.detail, "paramId"))
+                            return true;
                         break;
                     case GameActionType.FundsSpending:
                         // Part purchase: evt.key is the part name, stored on DedupKey.
@@ -1097,6 +1107,7 @@ namespace Parsek
             {
                 case GameStateEventType.ContractAccepted: return GameActionType.ContractAccept;
                 case GameStateEventType.ContractCompleted: return GameActionType.ContractComplete;
+                case GameStateEventType.ContractParameterCompleted: return GameActionType.ContractParameterComplete;
                 case GameStateEventType.ContractFailed: return GameActionType.ContractFail;
                 case GameStateEventType.ContractCancelled: return GameActionType.ContractCancel;
                 case GameStateEventType.PartPurchased: return GameActionType.FundsSpending;

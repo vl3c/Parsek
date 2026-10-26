@@ -222,6 +222,117 @@ namespace Parsek
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
+        private void OnContractParameterRewardPaid(Patches.ContractParameterRewardPaid paid)
+        {
+            CaptureContractParameterCompleted(
+                paid.ContractGuid,
+                paid.ParameterId,
+                paid.ContractTitle,
+                paid.FundsReward,
+                paid.RepReward,
+                paid.SciReward,
+                Planetarium.GetUniversalTime());
+        }
+
+        /// <summary>
+        /// The deterministic id of a contract parameter: its index under each host from the
+        /// contract down, joined with '.' (<c>"0"</c> is the contract's first parameter,
+        /// <c>"1.0"</c> the first child of its second). Stock's <c>ContractParameter.ID</c> is
+        /// not used: it is often empty and need not be unique among siblings, while the order
+        /// of a contract's parameters is what stock saves and reloads. Null for an empty list
+        /// or a negative index.
+        /// </summary>
+        internal static string BuildContractParameterIndexPath(IList<int> indicesRootFirst)
+        {
+            if (indicesRootFirst == null || indicesRootFirst.Count == 0)
+                return null;
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < indicesRootFirst.Count; i++)
+            {
+                if (indicesRootFirst[i] < 0)
+                    return null;
+                if (i > 0) sb.Append('.');
+                sb.Append(indicesRootFirst[i].ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Headless core of the contract-parameter reward capture (todo
+        /// CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED): stock paid one parameter's own completion
+        /// reward, separate from the contract-level reward <see cref="CaptureContractCompleted"/>
+        /// files. Filed once per (contract, parameter) as a ContractParameterCompleted event,
+        /// tagged, clock-cause scoped and forwarded to the ledger exactly as a contract
+        /// completion is. A parameter that paid nothing is not filed.
+        /// </summary>
+        internal void CaptureContractParameterCompleted(
+            string contractGuid,
+            string parameterId,
+            string contractTitle,
+            float fundsReward,
+            float repReward,
+            float sciReward,
+            double completionUt)
+        {
+            contractTitle = contractTitle ?? "";
+            if (string.IsNullOrEmpty(contractGuid) || string.IsNullOrEmpty(parameterId))
+            {
+                LogEventReject("ContractParameterCompleted",
+                    string.IsNullOrEmpty(contractGuid) ? "contract-guid-missing" : "parameter-id-missing");
+                return;
+            }
+
+            if (fundsReward == 0f && repReward == 0f && sciReward == 0f)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"Game state: ContractParameterCompleted '{contractTitle}' param={parameterId} paid no reward - not recorded " +
+                    $"(contract {contractGuid})");
+                return;
+            }
+
+            // Its own dedup map, keyed contract|parameter, so a parameter never suppresses the
+            // contract-level completion that follows it at the same UT (or the reverse).
+            string dedupKey = BuildContractParameterDedupKey(contractGuid, parameterId);
+            if (IsDuplicateContractCompletion(
+                dedupKey, completionUt,
+                lastContractParameterCompletionUtByKey, GameStateStore.ResourceCoalesceEpsilon))
+            {
+                ParsekLog.Info("GameStateRecorder",
+                    $"Game state: ContractParameterCompleted '{contractTitle}' param={parameterId} DEDUPED " +
+                    $"(re-fire of contract {contractGuid} within {GameStateStore.ResourceCoalesceEpsilon.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}s " +
+                    $"at UT={completionUt.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}) - not recorded");
+                return;
+            }
+
+            var evt = new GameStateEvent
+            {
+                ut = completionUt,
+                eventType = GameStateEventType.ContractParameterCompleted,
+                key = contractGuid,
+                detail = BuildContractParameterCompletedDetail(
+                    parameterId, contractTitle, fundsReward, repReward, sciReward)
+            };
+            // Same clock-cause rule as a contract completion: inside a clock-cause scope Emit
+            // files it untagged and the gate below writes it to the ledger at once.
+            bool clockCaused = InClockCauseScope;
+            Emit(ref evt, "ContractParameterCompleted");
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: ContractParameterCompleted '{contractTitle}' param={parameterId} " +
+                $"(funds={fundsReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                $"rep={repReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                $"sci={sciReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
+                (clockCaused ? ", completed by no flight, filed untagged" : "") + ")");
+
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasClaimingLiveRecorder()))
+                LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>The parameter dedup key: <c>contractGuid|parameterId</c>.</summary>
+        internal static string BuildContractParameterDedupKey(string contractGuid, string parameterId)
+        {
+            return (contractGuid ?? "") + "|" + (parameterId ?? "");
+        }
+
         private void OnContractFailed(Contract contract)
         {
             if (contract == null)
@@ -389,6 +500,22 @@ namespace Parsek
             };
             Emit(ref evt, "ContractDeclined");
             ParsekLog.Info("GameStateRecorder", $"Game state: ContractDeclined '{title}'");
+        }
+
+        /// <summary>
+        /// Builds the ContractParameterCompleted detail string parsed by
+        /// <c>GameStateEventConverter.ConvertContractParameterCompleted</c>. InvariantCulture
+        /// "R" like <see cref="BuildContractCompletedDetail"/>; the title goes last so a ';'
+        /// inside it can only cut the title short, never a reward.
+        /// </summary>
+        internal static string BuildContractParameterCompletedDetail(
+            string parameterId, string title, float fundsReward, float repReward, float sciReward)
+        {
+            return $"paramId={parameterId ?? ""}" +
+                $";fundsReward={fundsReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
+                $";repReward={repReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
+                $";sciReward={sciReward.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
+                $";title={title ?? ""}";
         }
 
         /// <summary>
@@ -1103,13 +1230,23 @@ namespace Parsek
         internal static readonly Dictionary<string, double> lastContractCompletionUtByGuid
             = new Dictionary<string, double>(StringComparer.Ordinal);
 
+        /// <summary>
+        /// Last completion UT seen per contract parameter (key
+        /// <see cref="BuildContractParameterDedupKey"/>), the parameter twin of
+        /// <see cref="lastContractCompletionUtByGuid"/>; kept apart so neither suppresses the
+        /// other. Cleared with it by <see cref="ClearContractCompletionDedup"/>.
+        /// </summary>
+        internal static readonly Dictionary<string, double> lastContractParameterCompletionUtByKey
+            = new Dictionary<string, double>(StringComparer.Ordinal);
+
         internal static void ClearContractCompletionDedup(string reason)
         {
-            int cleared = lastContractCompletionUtByGuid.Count;
+            int cleared = lastContractCompletionUtByGuid.Count + lastContractParameterCompletionUtByKey.Count;
             if (cleared <= 0)
                 return;
 
             lastContractCompletionUtByGuid.Clear();
+            lastContractParameterCompletionUtByKey.Clear();
             ParsekLog.Verbose("GameStateRecorder",
                 $"Cleared {cleared} contract-completion dedup entr{(cleared == 1 ? "y" : "ies")} ({reason ?? "unspecified"})");
         }

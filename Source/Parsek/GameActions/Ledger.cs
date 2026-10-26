@@ -1225,6 +1225,7 @@ namespace Parsek
         {
             return type == GameActionType.ContractAccept
                 || type == GameActionType.ContractComplete
+                || type == GameActionType.ContractParameterComplete
                 || type == GameActionType.ContractFail
                 || type == GameActionType.ContractCancel;
         }
@@ -1235,7 +1236,8 @@ namespace Parsek
             ref int prunedSpendings,
             ref int prunedOther)
         {
-            if (type == GameActionType.ContractComplete)
+            if (type == GameActionType.ContractComplete
+                || type == GameActionType.ContractParameterComplete)
                 prunedEarnings++;
             else if (type == GameActionType.ContractFail
                 || type == GameActionType.ContractCancel)

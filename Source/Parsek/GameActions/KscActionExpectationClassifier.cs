@@ -216,6 +216,8 @@ namespace Parsek
                 // ---- Transformed: raw fields do not equal post-walk contribution. ----
 
                 case GameActionType.ContractComplete:
+                // A parameter's own reward: same fields, same curve, same post-walk pairing.
+                case GameActionType.ContractParameterComplete:
                     // FundsReward/RepReward/ScienceReward subject to StrategiesModule's
                     // TransformedFundsReward/Rep/Science during the walk; RepReward also
                     // passes through ApplyReputationCurve. Per-action KSC path stays
