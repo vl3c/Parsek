@@ -1033,20 +1033,21 @@ namespace Parsek
                 return;
             }
 
-            if (delta > 0.0 && IsScienceSubjectReasonKey(reasonKey))
+            bool hadCapture = latestScienceChangeCapture.Valid;
+            bool subjectCredit = delta > 0.0 && IsScienceSubjectReasonKey(reasonKey);
+            latestScienceChangeCapture = NextScienceChangeCapture(
+                latestScienceChangeCapture,
+                delta,
+                reasonKey,
+                ut,
+                subjectCredit ? (InClockCauseScope ? "" : ResolveCurrentRecordingTag()) : null);
+            if (hadCapture && latestScienceChangeCapture.Valid && delta > 0.0 && !subjectCredit)
             {
-                latestScienceChangeCapture = new RecentScienceChangeCapture
-                {
-                    Ut = ut,
-                    ReasonKey = reasonKey,
-                    Delta = (float)delta,
-                    RecordingId = InClockCauseScope ? "" : ResolveCurrentRecordingTag(),
-                    Valid = true
-                };
-            }
-            else
-            {
-                latestScienceChangeCapture = default(RecentScienceChangeCapture);
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"ScienceChanged +{delta.ToString("R", CultureInfo.InvariantCulture)} ({reasonKey}) " +
+                    $"kept the pending subject capture key='{latestScienceChangeCapture.ReasonKey}' " +
+                    $"delta={latestScienceChangeCapture.Delta.ToString("R", CultureInfo.InvariantCulture)} " +
+                    "for its OnScienceReceived callback");
             }
 
             var sciEvt = new GameStateEvent
@@ -1280,6 +1281,42 @@ namespace Parsek
         {
             return string.Equals(reasonKey, "ScienceTransmission", StringComparison.Ordinal) ||
                    string.Equals(reasonKey, "VesselRecovery", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The subject capture after one above-threshold ScienceChanged. A positive credit
+        /// under a subject reason (VesselRecovery / ScienceTransmission) replaces it; a
+        /// negative move clears it (the cache is for positive subject awards and a stale one
+        /// would mis-attribute the next). A positive credit under any OTHER reason leaves it
+        /// in place: stock pays a subject's ScienceChanged and only then fires
+        /// onScienceReceived, and other listeners of that event can pay in between - a
+        /// SCIENCE contract completing on the received data pays ContractReward science, a
+        /// milestone pays Progression - so wiping the capture there filed the subject with no
+        /// reason, i.e. as a transmission with no recording
+        /// (RECOVERY-BURST-CONTRACT-SCIENCE-RECONCILE). The amount match in
+        /// <see cref="ShouldUseRecentScienceChangeCapture"/> still decides the pairing. Pure.
+        /// </summary>
+        internal static RecentScienceChangeCapture NextScienceChangeCapture(
+            RecentScienceChangeCapture current,
+            double delta,
+            string reasonKey,
+            double ut,
+            string recordingId)
+        {
+            if (delta > 0.0 && IsScienceSubjectReasonKey(reasonKey))
+            {
+                return new RecentScienceChangeCapture
+                {
+                    Ut = ut,
+                    ReasonKey = reasonKey,
+                    Delta = (float)delta,
+                    RecordingId = recordingId,
+                    Valid = true
+                };
+            }
+            if (delta > 0.0)
+                return current;
+            return default(RecentScienceChangeCapture);
         }
 
         internal static bool ShouldUseRecentScienceChangeCapture(

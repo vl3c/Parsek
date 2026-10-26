@@ -30,6 +30,11 @@ _(unreleased - entries accumulate here per commit)_
   so a rewind, Re-Fly or replay of the career came out short by it. Each paid objective is now
   its own Timeline entry, kept and undone with its flight like the contract's own reward.
   (CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED)
+- **Recovering a vessel that completes a contract keeps its science with its flight.** Science
+  recovered in the same moment a contract paid out could be filed as a transmission with no flight,
+  so a Re-Fly of that flight kept it. It is now filed as recovered science of that flight, and the
+  career no longer books a brief correction that is undone a moment later.
+  (RECOVERY-BURST-CONTRACT-SCIENCE-RECONCILE)
 - **A contract pays its reward once.** Accepting a contract and then changing scenes (to the VAB,
   then the launch) left extra copies of it behind, so completing it paid the funds, science and
   reputation two or three times. Each contract now pays out once.

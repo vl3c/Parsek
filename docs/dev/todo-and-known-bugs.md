@@ -17,6 +17,31 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## WORLD-FIRST-REEARNED-AFTER-REWIND-PAID-AGAIN: a world-first milestone earned on a committed flight is paid again when a later flight re-earns it after a Rewind-to-Launch [FILED 2026-10-26 from WF-1's third flight (DLL 86028f41), branch `claude/project-thread-25edvc`; product, high (a repeatable funds gain across a rewind)]
+
+Observed (WF-1-world-first-reearned-after-rewind, host `gloops-airshow-career`): flight 1 plants a
+flag on the pad (`Kerbin/FlagPlant`, `Milestone enriched: 'Kerbin/FlagPlant' funds=1600 rep=0.0
+sci=0.0`) and commits; Rewind-to-Launch; flight 2 records, warps to UT 900 and plants again. Stock
+awards the milestone a second time, and Parsek keeps the payout as an unexplained pool change:
+`PatchFunds: filed StockPoolAdjustment amount=3200 reason=leak ut=909.0`, twice the enriched reward.
+The run stopped at a later authoring step (the ground-truth warp, re-cut since), so the walk's
+Credited / Duplicate lines and the end pools are still to read on the next flight.
+
+Predicted from source in the lane header, now matched on the leak line: `MilestonesModule` credits
+the flight-1 row (earlier UT) and zeroes the flight-2 row as a duplicate, but
+`StockPoolReference.Measure` skips the committed flight-1 row as written by Parsek and the zeroed
+row steps nothing, so stock's second payout has no explaining row and is kept as a leak. Why the
+amount is 2 x 1600 rather than 1600 is not yet read (the flight-1 row crossing the clock while
+every patch was deferred under the live recorder is the first suspect).
+
+Fix shape (not built): stop stock paying a world-first the committed future already credits, the
+way the contract parameter fix (CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED) completes a committed
+objective in stock without paying, or let the zeroed duplicate explain stock's payout so the pool
+patch removes it. Either way the committed flight keeps the credit (first in UT order) and the
+player is paid once. Witness: WF-1 forbids the leak line.
+
+---
+
 ## SCIENCE-REEARN-AFTER-REWIND-TAKES-FULL-CREDIT: after a Rewind-to-Launch, re-earning a subject the committed future already credits pays the re-run in full and caps the committed flight [FILED 2026-10-25 on branch `sci1-local`, PREDICTED FROM SOURCE, NOT FLOWN; witness lane SCI-1-science-reearned-after-rewind; NEEDS AN OWNER RULING]
 
 Owner rule as briefed: after a rewind, `ScienceSubjectPatch` raises `ScienceSubject.science` to the
@@ -752,7 +777,7 @@ onContractsLoaded (kspCurrent=4)`, each contract completes ONCE (one `'Achieve g
 DEDUPED re-fire), and the funds leak fell from 20160 to 9600. The 9600 that remains is a separate
 defect, CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED below, which keeps CS-3 red.
 
-## RECOVERY-BURST-CONTRACT-SCIENCE-RECONCILE: a contract completed by a recovery makes the post-walk science reconcile log ERROR and the science patch clamp [FILED 2026-10-26 off CS-3, branch `contract-param-rewards`. OPEN; medium (diagnostic noise at ERROR level, transient clamp)]
+## ~~RECOVERY-BURST-CONTRACT-SCIENCE-RECONCILE: a contract completed by a recovery makes the post-walk science reconcile log ERROR and the science patch clamp~~ [FIXED 2026-10-26 in branch `recovery-burst-reconcile`; LIVE-PROVEN on CS-3 `2026-10-26_0254` PASS (zero ERROR / GUARDED / reconcile dumps, no StockPoolAdjustment rows). FILED 2026-10-26 off CS-3, branch `contract-param-rewards`. medium (diagnostic noise at ERROR level, transient clamp)]
 
 When a recovery completes a contract (CS-3's SCIENCE contract completes on the recovered Goo), the
 recovery's subject science and the contract's own `ContractReward` science land in the same 0.2 s
@@ -767,9 +792,43 @@ stock's credits arrive in a different order; the final pool is right (LedgerGrou
 Present before the parameter-reward fix as well (run `2026-10-25_2353`: six dumps, clamps on all
 three pools). Never seen on L3 / HC-2, where no contract completes at the recovery.
 
-Fix: the subject reconcile must leave out `ContractReward`-keyed deltas the contract rows claim (or
-reconcile the window as one sum against every row in it), and the burst's patch should not run
-between a stock credit and the row that explains it. Gate: CS-3's existing forbidden tokens.
+**Root cause (two defects; the reconcile itself was right).** The per-subject comparison never
+counted `ContractReward` deltas: its observed side already filters on the leg's reason key
+(`PostWalkActionReconciler.IsComparisonObservedEvent`), and the dump lists every ScienceChanged in
++-5 s for context only. Read in `cs3-cpr-KSP.log`:
+1. `GameStateStore.AddEvent` coalesced a same-pool, same-key, same-tag event across an INTERLEAVED
+   event of the same pool under another key (or tag), keeping the first event's `valueBefore` and
+   taking the new `valueAfter`. Stock's burst order is VesselRecovery 3.5, ContractReward 1 + 1,
+   VesselRecovery 3, 7, 5, so the second VesselRecovery credit merged back into the first and that
+   event read 8.0 -> 16.5 (+8.5, then +15.5, +20.5) while ContractReward kept its own +2.0: the
+   contract's science counted twice. That is every `observed` 2.0 over `expected` in the three goo
+   dumps, and (B) as well: `ComputePendingRecentKscScienceCredit` read the same inflated event, held
+   a phantom 2.0 forward, `StockPoolReference` filed `StockPoolAdjustment amount=-2 reason=leak`
+   (the UPLIFT clamp) and one second later `amount=2` (the DRAWDOWN clamp). The funds side had the
+   same shape (`MilestoneAchievement ... expected=4800.0, observed=15360.0 ... keyed 'Progression'`:
+   Progression 1600, ContractReward 6400 + 4160, Progression 3200), which is the older run's
+   clamps on all three pools.
+2. `GameStateRecorder.OnScienceChanged` wiped the pending subject capture on ANY ScienceChanged that
+   was not a subject credit. Stock pays the crew report's VesselRecovery science and only then fires
+   `onScienceReceived`; the SCIENCE contract's listener ran first and paid ContractReward science,
+   so Parsek's capture found nothing (`Science subject captured: crewReport... reason=''`) and filed
+   the recovered report as `method=Transmitted`, untagged: the `reason='ScienceTransmission'` dump
+   (no event under that key) and a recovered subject a Re-Fly of its flight could not retire.
+
+**Fix.** (1) The coalescing scan stops at the first same-pool event inside the window that does not
+match, so only a contiguous run merges and every delta is counted once (a funds or rep event in
+between is another pool and does not stop a science run); a `Not coalescing ... across an
+interleaved ...` Verbose line fires only when an older candidate existed. No reader needed one
+event per key: every observed-side reader sums deltas. (2) The capture update is the pure
+`GameStateRecorder.NextScienceChangeCapture`: a subject credit replaces it, a negative move still
+clears it (unchanged), a positive credit under any other reason leaves it for its callback (the
+amount match still decides the pairing). With both, CS-3's burst reconciles as VesselRecovery 18.5
+vs 18.5 and ContractReward 2.0 vs 2.0, and the pending science credit is 0 once every row lands, so
+no patch judges the pool against a phantom. No deferral of the post-recovery patch is needed: the
+transient "holding forward" of a not-yet-rowed credit was already correct. Tests:
+`RecoveryBurstReconcileTests` (store science / funds / tag interleave, other pool still merges, the
+post-walk burst with no dump, an unexplained extra credit still dumps, pending credit 0 / 3.5, the
+capture rule); the coalescing break is mutation-checked (six cells red without it).
 
 ## ~~CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED: a contract parameter's own completion reward is paid by stock but never booked~~ [FIXED 2026-10-26 in branch `contract-param-rewards`; LIVE-PROVEN on CS-3's re-flight (LedgerGroundTruth closes, `hardFailures=0`). FILED 2026-10-26 off CS-3's re-flight `2026-10-25_2353`, branch `cs3-career-contracts`. high (career economy)]
 

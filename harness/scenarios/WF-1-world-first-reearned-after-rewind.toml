@@ -63,6 +63,12 @@ tier = "operator"
 # the scene exit as intended, then the pad ground-truth launch was refused as obstructed by the
 # two flags (`launchfromeditor refused reason=launchfromeditor-site-obstructed ... first=Flag`).
 # Re-cut: that launch goes from the SPH to the runway.
+# Third flight 2026-10-26 (DLL 86028f41) INVALID at the last WarpToUT, after the runway launch
+# (`warp-locked ... holders=Flag_NoInterruptWhileDeploying,physicsHold`); the ground-truth
+# step never ran. The predicted defect DID show: `PatchFunds: filed StockPoolAdjustment
+# amount=3200 reason=leak ut=909.0` against `Milestone enriched: 'Kerbin/FlagPlant'
+# funds=1600`, filed as WORLD-FIRST-REEARNED-AFTER-REWIND-PAID-AGAIN. Re-cut: warp at the Space
+# Center first, then a 1x wait in flight.
 #
 # OTHER PRE-REGISTERED READINGS (what to check first if the first flight reds):
 #   - `plantflag refused` on either flight: read the reason; a flag lock means the host's
@@ -139,9 +145,15 @@ steps = [
   # From the SPH, so the pod rolls out to the runway: both flags stand on the pad and stock
   # refuses a pad launch beside them (first flight: `launchfromeditor-site-obstructed
   # ... first=Flag`). The SPH loads the VAB craft through the other folder (CI-10's shape).
+  # The clock goes to 2400 at the Space Center first: after the runway launch the TIMEWARP
+  # lock is held by the post-load physics hold AND the pad flags' deploy lock (third flight:
+  # `warp-locked ut=2400 holders=Flag_NoInterruptWhileDeploying,physicsHold`), so the flight
+  # only takes a 1x wait off the rollout row, which ignores the TIMEWARP lock. The editor
+  # does not run the clock, so the launch lands just past 2400.
+  { cmd = "WarpToUT",       args = { ut = "2400" },                                        expect = "OK", budget = 120 },
   { cmd = "GoToEditor",     args = { facility = "SPH", craft = "Auto-Saved Ship" },        expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor",                                                              expect = "OK", budget = 180 },
-  { cmd = "WarpToUT",       args = { ut = "2400" },                                        expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",       args = { ut = "2460", maxRate = "1" },                         expect = "OK", budget = 120 },
   { cmd = "SaveGame",       args = { name = "persistent" },                                expect = "OK" },
   { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit",                                                                  expect = "OK" },
