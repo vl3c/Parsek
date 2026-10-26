@@ -35,7 +35,10 @@ id = "CS-3-career-first-contracts"
 # were booked and tagged, but stock completed FIRSTLAUNCH three times at liftoff and paid
 # each time, the ledger booked one, and LedgerGroundTruth read `hardFailures=3` (funds save
 # 117287.04 / recon 97127.04, science 32.5 / 26.5, rep 23.0 / 16.0; the measured leak rows
-# carried exactly the difference). The pins stay as written; the fix flips this lane green.
+# carried exactly the difference). Re-flight `2026-10-25_2353` on the deferral fix: each
+# contract completes ONCE, and the remaining gap is the contracts' PARAMETER rewards (funds
+# +9600 = 3200 + 6400, science +2, rep +3), todo CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED.
+# The pins stay as written; that fix flips this lane green.
 # `operator` (stock-tree is not in the nightly instance set).
 tier = "operator"
 description = "Scripted campaign stage 3 (Career): on a genuine new Career save, accept the FIRSTLAUNCH and SCIENCE World-Firsts contracts, fly the Jumping Flea hop (pad and flight readings, recover) so both complete inside the recorded flight, auto-commit, then run the ledger ground truth against KSP's own career save."

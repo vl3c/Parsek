@@ -655,7 +655,7 @@ reconciliation reads.
 
 ---
 
-## CONTRACT-RESTORED-AT-SCENE-LOAD-PAYS-TWICE: a contract completed after a scene change pays its reward two or three times [FILED 2026-10-26 off CS-3's reading run, branch `cs3-career-contracts`. FIXED in the same branch; re-flight owed]
+## CONTRACT-RESTORED-AT-SCENE-LOAD-PAYS-TWICE: a contract completed after a scene change pays its reward two or three times [FILED 2026-10-26 off CS-3's reading run, branch `cs3-career-contracts`. FIXED in the same branch and LIVE-PROVEN on CS-3's re-flight `2026-10-25_2353`]
 
 Found by `CS-3-career-first-contracts` (run `2026-10-25_2257`, PARSEK-FAIL), the first lane to
 complete a contract by flying it. Accept FIRSTLAUNCH and SCIENCE at the Space Center, go to the
@@ -685,8 +685,32 @@ ContractSystem has not loaded ...`), and re-runs the core once on stock's `onCon
 (fired before `loaded = true`, so the handler calls the core directly; Parsek's own Fire inside the
 core finds nothing pending). The scene-load restore / stale-removal now act on stock's real list
 instead of one that is cleared a frame later. The dedup stays as a backstop. xUnit:
-`ContractPatchTimingTests`. Live proof owed: CS-3's re-flight on the fixed DLL (its pins already
-require both completions tagged and `hardFailures=0`).
+`ContractPatchTimingTests`. LIVE PROOF, CS-3 re-flight `2026-10-25_2353` (DLL 7c6e19f9): every
+scene load logs `PatchContracts: deferred ...` then `running the deferred scene-load patch on stock's
+onContractsLoaded (kspCurrent=4)`, each contract completes ONCE (one `'Achieve goal' complete!`, no
+DEDUPED re-fire), and the funds leak fell from 20160 to 9600. The 9600 that remains is a separate
+defect, CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED below, which keeps CS-3 red.
+
+## CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED: a contract parameter's own completion reward is paid by stock but never booked [FILED 2026-10-26 off CS-3's re-flight `2026-10-25_2353`, branch `cs3-career-contracts`. OPEN; high (career economy)]
+
+Stock pays a contract in two places: each `ContractParameter` that completes pays its own
+`FundsCompletion` / `ScienceCompletion` / `ReputationCompletion` (via `AwardCompletion`, reason
+`ContractReward`), and the contract then pays the contract-level completion reward. A World-Firsts
+ExplorationContract carries most of its money on its one `ProgressTrackingParameter` ("Achieve
+goal"): FIRSTLAUNCH paid 3200 funds / 1 science / 1 rep for the parameter and 2080 / 1 / 1 for the
+contract; SCIENCE paid 6400 / 1 / 2 and 4160 / 1 / 2. Parsek books only the contract-level reward
+(`GameStateRecorder.CaptureContractCompleted` reads `contract.FundsCompletion`); nothing in
+`Source/Parsek` subscribes to `GameEvents.Contract.onParameterChange` or reads a parameter's reward.
+So the live game stays right only through the stock-pool `leak` adjustment rows, and every derived
+state (a rewind's re-walk, a Re-Fly, the reservation index, LedgerGroundTruth) is short. CS-3 reads
+`hardFailures=3` on exactly the two parameter rewards: funds save 106727.04 vs recon 97127.04
+(+9600 = 3200 + 6400), science +2, rep +3. Affects every contract whose parameters carry rewards
+(most stock contracts: part tests, surveys, satellite, base / station, rescue, tourism legs).
+
+Fix: capture a parameter's completion as its own ledger row, at its own UT, tagged to the recording
+that earned it (the same tagging rule as ContractCompleted), crediting funds / science / rep through
+the existing modules and the strategy conversion path; tombstone / rewind / discard semantics as for
+ContractComplete rows. Gate: CS-3's existing pins (`hardFailures=0`) plus xUnit.
 
 ## CONTRACT-EVENT-OF-A-BACKGROUND-VESSEL-TAGGED-TO-THE-ACTIVE-RECORDING [FILED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`. OPEN; low]
 
