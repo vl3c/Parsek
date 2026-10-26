@@ -1,5 +1,16 @@
 schema = 1
 id = "CS-3b-career-hire-upgrade"
+# FIRST FLIGHT 2026-10-26 `2026-10-26_0343` PARSEK-FAIL attempt 1 ON A REAL FINDING (71 s, DLL
+# f60e9d78: main with #2280). Every KSC action applied and booked (three accepts, the hire, the
+# Mission Control upgrade, basicRocketry; funds 120859 / 137659 / 75546 / 546 / 9816, science
+# 23.5), the batch `total=3 passed=3 failed=0 skipped=0` (pinned whole). The one mismatch is
+# the forbidden `GUARDED UPLIFT clamped resource=Funds running=9816.04 live=6884.04`: the
+# ground-truth launch's rollout (-2932) was dropped as a duplicate of CS-3's own unadopted
+# rollout row 3 s earlier, same craft pid and pad (`OnVesselRolloutSpending: skipping duplicate
+# rollout - kept existing row (existingUT=347.26, newUT=350.34 ...)`), so every patch filed a
+# -2932 leak row and LedgerGroundTruth read funds 6884.04 vs recon 9816.04. Todo
+# RELAUNCH-ROLLOUT-DEDUPED-AS-REVERT (the #710 revert guard matches on the craft-baked pid).
+#
 # THE SCRIPTED CAMPAIGN, STAGE 3, SECOND HALF (docs/dev/autotest-roadmap.md, "The scripted
 # campaign program"): the CS-3 career row reads "Accept a contract, fly to complete it, hire,
 # upgrade a facility". CS-3-career-first-contracts flew the first half; this lane is the KSC
@@ -138,7 +149,7 @@ required = [
   "Game state: FundsChanged -2932 \\(VesselRollout\\)",
   "ground-truth game mode=CAREER pools=funds,science,reputation",
   "result: hardFailures=0 ",
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

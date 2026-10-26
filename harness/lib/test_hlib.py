@@ -4615,9 +4615,10 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # literal with the split regexed, predicted passed=3 skipped=0 from CS-3's measured
     # tally on the same career in the same scene). Like CN-1 it is not an H-series id, so
     # this class's own cells never read it; CommittedBatchTallySourceSyncTests gates its
-    # `total=`. It leaves when its first flight measures the split and the spec pins the
-    # line whole.
-    INTERIM_PIN_IDS: set = {"CS-3b-career-hire-upgrade"}
+    # `total=`. It LEFT the same day: its first flight, run 2026-10-26_0343 (PARSEK-FAIL on a
+    # real finding, the batch itself green), measured the prediction, `passed=3 failed=0
+    # skipped=0`, and the spec pinned the line whole.
+    INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
