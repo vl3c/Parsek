@@ -30,11 +30,18 @@ namespace Parsek.Tests
     /// loop, not a re-implementation of it. <c>Relock</c> is the arm that removes the proto
     /// node and flips the state; <c>RefusedUnaffordable</c> is the arm that mutates nothing.</para>
     ///
-    /// <para>The FAILS-ON-MAIN cells are
-    /// <see cref="Fixed_UnaffordableSpend_RefusesTheRelockAndPreservesLiveState"/> and
-    /// <see cref="RealWalk_UnderfundedLedger_ArmsTheGuardForTheUnpayableNode"/>: neutering
+    /// <para><b>Since LEDGER-EVENT-IDENTITY step 6</b> (design 3.15 step 6, owner ruling
+    /// 2026-10-26) the walk no longer refuses a spend it cannot cover: it charges the tech into
+    /// a science debt and keeps it researched, so a real walk never produces a refused row and
+    /// never arms this guard
+    /// (<see cref="RealWalk_UnderfundedLedger_ChargesDebtAndNeverArmsTheGuard"/>). The guard
+    /// stays as a backstop over hand-set rows, and the cells below that build refused rows by
+    /// hand still pin its branch selection.</para>
+    ///
+    /// <para>The FAILS-ON-MAIN cell is
+    /// <see cref="Fixed_UnaffordableSpend_RefusesTheRelockAndPreservesLiveState"/>: neutering
     /// <c>ShouldRefuseUnaffordableRelock</c> inside <c>ResolveTechRelockOutcome</c> (which is
-    /// exactly main's behaviour) reds those two and leaves every legitimate-re-lock cell
+    /// exactly main's behaviour) reds it and leaves every legitimate-re-lock cell
     /// green. <see cref="Repro_UnaffordableSpend_WouldRelockAndStripProto_WithoutTheGuard"/>
     /// is NOT one of them — it is a characterization pin that documents the defect by
     /// passing no drop map, and it passes on main and here alike.</para>
@@ -60,11 +67,12 @@ namespace Parsek.Tests
         }
 
         // ================================================================
-        // The producer half: ScienceModule stamps the positive refusal marker
+        // The producer half: since step 6 ScienceModule charges an uncovered spend into
+        // a science debt and never stamps the refusal marker
         // ================================================================
 
         [Fact]
-        public void ProcessSpending_Refused_StampsRunningScienceMarkerAndDoesNotDeduct()
+        public void ProcessSpending_Uncovered_ChargesIntoDebtAndStampsNoMarker()
         {
             var module = new ScienceModule();
             module.ProcessAction(MakeScienceInitial(10f));
@@ -72,11 +80,12 @@ namespace Parsek.Tests
             var spend = MakeSpending("advRocketry", cost: 45f, ut: 100.0);
             module.ProcessSpending(spend);
 
-            Assert.False(spend.Affordable);
-            Assert.True(spend.UnaffordableRunningScience.HasValue);
-            Assert.Equal(10.0, spend.UnaffordableRunningScience.Value, 3);
+            Assert.True(spend.Affordable);
+            Assert.False(spend.UnaffordableRunningScience.HasValue);
+            Assert.Equal(-35.0, module.GetRunningScience(), 3);
             Assert.Contains(logLines, l =>
-                l.Contains("[ScienceModule]") && l.Contains("Spending NOT affordable"));
+                l.Contains("[ScienceModule]") && l.Contains("Spending charged into science debt"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Spending NOT affordable"));
         }
 
         [Fact]
@@ -93,17 +102,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ProcessSpending_AffordableAfterAPriorRefusal_ClearsTheStaleMarker()
+        public void ProcessSpending_ClearsAStaleMarker_CoveredOrInDebt()
         {
-            // Idempotency: a second walk that CAN pay must not leave the previous walk's
-            // refusal marker standing, or the guard would fire on a healthy reconstruction.
+            // Idempotency: a walk must not leave a marker standing from an earlier walk (or a
+            // hand-set row), or the guard would fire on a healthy reconstruction. Both the
+            // covered and the debt-charged outcome clear it.
             var spend = MakeSpending("advRocketry", cost: 45f, ut: 100.0);
 
+            spend.UnaffordableRunningScience = 10.0;
             var poor = new ScienceModule();
             poor.ProcessAction(MakeScienceInitial(10f));
             poor.ProcessSpending(spend);
-            Assert.True(spend.UnaffordableRunningScience.HasValue);
+            Assert.True(spend.Affordable);
+            Assert.False(spend.UnaffordableRunningScience.HasValue);
 
+            spend.UnaffordableRunningScience = 10.0;
             var rich = new ScienceModule();
             rich.ProcessAction(MakeScienceInitial(90f));
             rich.ProcessSpending(spend);
@@ -538,11 +551,12 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void RealWalk_UnderfundedLedger_ArmsTheGuardForTheUnpayableNode()
+        public void RealWalk_UnderfundedLedger_ChargesDebtAndNeverArmsTheGuard()
         {
             // No hand-set Affordable anywhere: the real engine walks a real ScienceModule
-            // over a ledger whose earnings do not cover the second unlock, and the resulting
-            // drop map is what the guard consumes.
+            // over a ledger whose earnings do not cover the second unlock. Since step 6 the
+            // unlock is charged into a science debt, stays in the target set, and the drop
+            // map the guard consumes stays empty.
             var seed = MakeScienceInitial(0f);
             var earn = new GameAction
             {
@@ -558,8 +572,8 @@ namespace Parsek.Tests
             RecalculationEngine.Recalculate(actions);
 
             Assert.True(paid.Affordable);
-            Assert.False(unpayable.Affordable);
-            Assert.True(unpayable.UnaffordableRunningScience.HasValue);
+            Assert.True(unpayable.Affordable);
+            Assert.False(unpayable.UnaffordableRunningScience.HasValue);
 
             Dictionary<string, KspStatePatcher.UnaffordableUnlockDrop> drops;
             var target = KspStatePatcher.BuildTargetTechIdsForPatch(
@@ -567,12 +581,11 @@ namespace Parsek.Tests
                 utCutoff: 200.0, baselineTechExclusions: null, out drops);
 
             Assert.Contains("basicRocketry", target);
-            Assert.DoesNotContain("advRocketry", target);
+            Assert.Contains("advRocketry", target);
+            Assert.Empty(drops);
 
-            Assert.Equal(
-                KspStatePatcher.TechRelockOutcome.RefusedUnaffordable,
-                KspStatePatcher.ResolveTechRelockOutcome(true, true, "advRocketry", drops));
-            // The paid node is in the target set, so it never reaches the re-lock branch.
+            // Both nodes are in the target set, so neither reaches the re-lock branch, and a
+            // node outside it re-locks as before (no refusal armed).
             Assert.Equal(
                 KspStatePatcher.TechRelockOutcome.Relock,
                 KspStatePatcher.ResolveTechRelockOutcome(true, true, "someOtherNode", drops));

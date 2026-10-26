@@ -472,6 +472,11 @@ namespace Parsek.InGameTests
         /// already reads this harness's output, and <c>refusedByWalk</c> is the count an
         /// arming operator almost certainly wants.</para>
         ///
+        /// <para>Since LEDGER-EVENT-IDENTITY step 6 (design 3.15 step 6) the walk charges a
+        /// tech it cannot cover into a science debt and marks it <c>Affordable</c>, so a walked
+        /// ledger reads <c>refusedByWalk=0</c>; the guard and this count are backstops for a
+        /// row no walk dispatched.</para>
+        ///
         /// <para>The claim set below and the patcher's re-lock guard DELIBERATELY disagree
         /// about an unaffordable row, and that disagreement is the signal, not a bug. This
         /// scan reports what the ledger can PAY FOR (so an unaffordable row is not a claim);

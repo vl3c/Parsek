@@ -8,7 +8,9 @@ namespace Parsek
     /// Science resource module — tracks per-subject credited totals and running science balance.
     /// Implements the hard-cap walk from design doc section 4.6:
     ///   - For each ScienceEarning: headroom = maxValue - creditedTotal, effectiveScience = min(awarded, headroom)
-    ///   - For each ScienceSpending: check affordability, deduct from running balance
+    ///   - For each ScienceSpending: the purchase state rule (a tech the walk already owns is
+    ///     not charged), else deduct the cost in full; a cost the running balance cannot cover
+    ///     is a science debt later earnings repay (design 3.15 step 6)
     ///
     /// Reservation system (design doc section 4.5):
     ///   availableScience(ut) is the minimum projected science balance from ut through
@@ -100,6 +102,13 @@ namespace Parsek
         /// <summary>Stock's own pool at a repeat (<see cref="StockShadowStart"/>).</summary>
         private readonly StockShadowStart shadowStart = new StockShadowStart(StockPool.Science);
 
+        /// <summary>The techs the walk owns so far (design 3.15 step 6, the purchase state rule).</summary>
+        private readonly PurchaseOwnershipBook techOwnership = new PurchaseOwnershipBook();
+
+        /// <summary>How much of the walk's tech costs the running science did not cover so
+        /// far: the science debt the techs were charged into (design 3.15 step 6).</summary>
+        private double techDebtCharged;
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -126,6 +135,8 @@ namespace Parsek
             shadowDivergence = 0.0;
             shadowStart.Reset(StockPoolReference.Science);
             floorState.Reset();
+            techOwnership.Reset();
+            techDebtCharged = 0.0;
             allowNegativeCurrency = StockCurrencyClamp.ReadAllowNegativeCurrency();
 
             ParsekLog.Verbose("ScienceModule",
@@ -562,38 +573,87 @@ namespace Parsek
         // ================================================================
 
         /// <summary>
-        /// Processes a ScienceSpending action: checks affordability, deducts from running balance.
-        /// Sets <see cref="GameAction.Affordable"/> and, on the refused branch,
-        /// <see cref="GameAction.UnaffordableRunningScience"/> — the positive "this walk
-        /// processed and refused this row" marker the tech-tree re-lock guard keys on
-        /// (<c>KspStatePatcher.ShouldRefuseUnaffordableRelock</c>). Refusing to deduct while
-        /// the surviving ledger still carries the unlock row is exactly the state that used to
-        /// let a researched node be silently re-locked downstream.
+        /// Processes a ScienceSpending action (design 3.15 step 6).
+        ///
+        /// <para>The purchase state rule first: a tech the walk already owns at this row,
+        /// bought by a purchase captured after it (<see cref="PurchaseStateRule"/>), is not
+        /// charged (<see cref="GameActionNotCountedReason.PurchaseAlreadyOwned"/>). It stays
+        /// researched through the row that owns it.</para>
+        ///
+        /// <para>Otherwise the tech is charged in full, like a funds purchase: when the running
+        /// science cannot cover it (credit a rewind moved away from it, a strategy's science
+        /// cut moved out of its window) the running value goes below 0, a science debt that
+        /// later earnings repay before the pool rises, and the tech stays researched. It is
+        /// never left researched for free. <see cref="GameAction.Affordable"/> is the tech
+        /// patch's "researched by the walk" contract and is true on every charged row.</para>
         /// </summary>
         internal void ProcessSpending(GameAction action)
         {
             float cost = action.Cost;
-            bool affordable = runningScience >= (double)cost;
+            action.UnaffordableRunningScience = null;
 
-            action.Affordable = affordable;
-
-            if (affordable)
+            string holder;
+            if (techOwnership.IsAlreadyOwned(action, out holder))
             {
-                runningScience -= (double)cost;
-                action.UnaffordableRunningScience = null;
+                action.Effective = false;
+                action.NotCountedReason = GameActionNotCountedReason.PurchaseAlreadyOwned;
+                action.Affordable = true;
+                UncountPrePassSpending((double)cost);
+                ParsekLog.InfoRateLimited("ScienceModule", "purchase-owned-" + (action.ActionId ?? action.NodeId),
+                    $"Spending not charged: tech '{action.NodeId ?? "(none)"}' is already researched at " +
+                    $"ut={action.UT.ToString("R", IC)} cseq={action.CaptureSequence.ToString(IC)} " +
+                    $"(held by {holder}, captured after this row), cost={cost.ToString("R", IC)}, " +
+                    $"runningScience={runningScience.ToString("R", IC)}");
+                return;
+            }
 
+            double before = runningScience;
+            runningScience -= (double)cost;
+            action.Affordable = true;
+            techOwnership.RecordCharged(action);
+
+            double shortfall = ResolveDebtShortfall(before, (double)cost);
+            if (shortfall <= 0.0)
+            {
                 ParsekLog.Verbose("ScienceModule",
                     $"Spending: nodeId={action.NodeId ?? "(none)"}, cost={cost.ToString("R", IC)}, " +
                     $"affordable=true, runningScience={runningScience.ToString("R", IC)}");
+                return;
             }
-            else
-            {
-                action.UnaffordableRunningScience = runningScience;
 
-                ParsekLog.Warn("ScienceModule",
-                    $"Spending NOT affordable: nodeId={action.NodeId ?? "(none)"}, cost={cost.ToString("R", IC)}, " +
-                    $"runningScience={runningScience.ToString("R", IC)} — possible bug or data corruption");
-            }
+            techDebtCharged += shortfall;
+            ParsekLog.InfoRateLimited("ScienceModule", "tech-debt-" + (action.ActionId ?? action.NodeId),
+                $"Spending charged into science debt: nodeId={action.NodeId ?? "(none)"} " +
+                $"ut={action.UT.ToString("R", IC)} cost={cost.ToString("R", IC)} " +
+                $"runningBefore={before.ToString("R", IC)} debt={shortfall.ToString("R", IC)} " +
+                $"runningScience={runningScience.ToString("R", IC)} (the tech stays researched; " +
+                "later earnings repay the debt before the pool rises)");
+        }
+
+        /// <summary>
+        /// Pure: the part of a cost of <paramref name="cost"/> the running value
+        /// <paramref name="before"/> does not cover (the whole cost when it is already below 0),
+        /// 0 when it covers it.
+        /// </summary>
+        internal static double ResolveDebtShortfall(double before, double cost)
+        {
+            if (!(cost > 0.0))
+                return 0.0;
+            double after = before - cost;
+            if (!(after < 0.0))
+                return 0.0;
+            return before > 0.0 ? -after : cost;
+        }
+
+        /// <summary>
+        /// Removes a spending that <see cref="ComputeTotalSpendings"/> counted in PrePass but
+        /// the walk does not charge (a tech it already owns). PrePass runs before the walk
+        /// decides the purchase state rule.
+        /// </summary>
+        private void UncountPrePassSpending(double amount)
+        {
+            if (amount > 0.0)
+                totalCommittedSpendings -= amount;
         }
 
         /// <summary>
@@ -602,25 +662,22 @@ namespace Parsek
         /// <see cref="GameAction.Cost"/> is the positive magnitude KSP already removed
         /// from the pool.
         ///
-        /// <para>Modelled on <see cref="ProcessStrategySetupScienceCost"/>, NOT on
-        /// <see cref="ProcessSpending"/>: ProcessSpending REFUSES to deduct when the
-        /// running balance cannot cover the cost (it only warns). That refusal is right
-        /// for a tech-node purchase the reconstruction is re-deciding, but wrong here -
-        /// KSP has ALREADY moved this science out of the pool, so refusing would make the
-        /// reconstruction diverge in the opposite direction. The subtraction is therefore
-        /// unconditional, and an unaffordable case only logs a rate-limited Verbose (it is
-        /// an ordering artefact of the walk, not a defect - see the log line's comment).</para>
+        /// <para>Modelled on <see cref="ProcessStrategySetupScienceCost"/>: KSP has ALREADY
+        /// moved this science out of the pool, so the subtraction is unconditional, and an
+        /// unaffordable case only logs a rate-limited Verbose (it is an ordering artefact of
+        /// the walk, not a defect - see the log line's comment). Unlike
+        /// <see cref="ProcessSpending"/> it is not a purchase: the purchase state rule does
+        /// not apply to it.</para>
         ///
         /// <para>Deliberately does NOT set <see cref="GameAction.Affordable"/>: that
         /// field is the tech-node contract <c>KspStatePatcher</c> reads to decide which
         /// nodes to unlock, and this row is not a tech node.</para>
         ///
-        /// <para>Deliberately does NOT gate on <see cref="GameAction.Effective"/> either.
-        /// That is CONSISTENT with <see cref="ProcessSpending"/>, which is also
-        /// unconditional on that flag: <c>Effective</c> is the duplicate-suppression flag
-        /// the EARNING channels carry (ScienceEarning / ContractComplete /
-        /// MilestoneAchievement), and no producer clears it on a spending row. No
-        /// behavior change is intended here.</para>
+        /// <para>Deliberately does NOT gate on <see cref="GameAction.Effective"/> either:
+        /// <c>Effective</c> is the duplicate-suppression flag the EARNING channels carry
+        /// (ScienceEarning / ContractComplete / MilestoneAchievement), and nothing clears it
+        /// on this row. The only spending row the walk leaves uncharged is a tech it already
+        /// owns, which <see cref="ProcessSpending"/> decides for itself.</para>
         /// </summary>
         internal void ProcessStrategyScienceDebit(GameAction action)
         {
@@ -977,6 +1034,8 @@ namespace Parsek
                     delta = (double)action.TransformedScienceReward;
                     return true;
                 case GameActionType.ScienceSpending:
+                    // A tech the walk already owns is not charged (3.15 step 6).
+                    if (!action.Effective) return false;
                     delta = -(double)action.Cost;
                     return true;
                 case GameActionType.StrategyScienceDebit:
@@ -1066,9 +1125,24 @@ namespace Parsek
             return subjects;
         }
 
+        /// <summary>The part of the walk's tech costs the running science did not cover: the
+        /// science debt the techs were charged into (design 3.15 step 6). Later earnings repay it
+        /// through the running value.</summary>
+        internal double GetTechDebtCharged()
+        {
+            return techDebtCharged;
+        }
+
         /// <summary>One summary per walk of the floor and the debt (only when a plan is installed).</summary>
         public void PostWalk()
         {
+            if (techDebtCharged > 0.0)
+            {
+                ParsekLog.VerboseOnChange("ScienceModule", "tech-debt|science",
+                    techDebtCharged.ToString("R", IC) + "|" + runningScience.ToString("R", IC),
+                    $"Tech debt walk: charged={techDebtCharged.ToString("R", IC)} " +
+                    $"runningScience={runningScience.ToString("R", IC)}");
+            }
             if (floorState.Plan == null)
                 return;
             string summary = floorState.Summary();

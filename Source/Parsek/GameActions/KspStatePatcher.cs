@@ -386,9 +386,10 @@ namespace Parsek
 
         /// <summary>
         /// One tech node the ledger walk claims was researched but could not pay for: a
-        /// <see cref="GameActionType.ScienceSpending"/> row inside the cutoff that
-        /// <c>ScienceModule.ProcessSpending</c> REFUSED (no deduct, WARN only), leaving the
-        /// node out of the patch target set. Carries the numbers the re-lock refusal WARN
+        /// <see cref="GameActionType.ScienceSpending"/> row inside the cutoff that a walk
+        /// REFUSED, leaving the node out of the patch target set. Since design 3.15 step 6
+        /// <c>ScienceModule.ProcessSpending</c> refuses no tech (it charges a science debt),
+        /// so this is the backstop that keeps a refused row from un-researching a node. Carries the numbers the re-lock refusal WARN
         /// reports so <see cref="PatchTechTree"/> never has to re-walk the action list.
         /// </summary>
         internal readonly struct UnaffordableUnlockDrop
@@ -1141,9 +1142,10 @@ namespace Parsek
         /// <summary>
         /// The tech nodes the committed timeline has researched by <paramref name="cutoff"/>:
         /// every affordable <see cref="GameActionType.ScienceSpending"/> row with a node id at
-        /// or before it. An unaffordable row did not pay, so it unlocks nothing (the same rule
-        /// <see cref="BuildTargetTechIdsForPatch"/> applies). Sorted, so the apply order and
-        /// its log are deterministic. Pure.
+        /// or before it (the same rule <see cref="BuildTargetTechIdsForPatch"/> applies). Since
+        /// design 3.15 step 6 the walk marks every tech it charges affordable, one charged into
+        /// a science debt included, so a committed tech is never left out for want of science.
+        /// Sorted, so the apply order and its log are deterministic. Pure.
         /// </summary>
         internal static List<string> BuildCommittedTechUnlockIdsForPatch(
             IReadOnlyList<GameAction> actions, double cutoff)
@@ -5965,7 +5967,7 @@ namespace Parsek
         /// possible only with auto-merge off). Funds: the walk keeps the running value below 0
         /// and the 0-floored write leaves the rest to be repaid by later gains first, the debt
         /// of design 3.13 part 4. Reputation: no 0 clamp in stock, so it is applied in full.
-        /// Science: <see cref="NoteScienceTakeBackShortfall"/>.
+        /// Science: the same debt (<see cref="NoteScienceTakeBackShortfall"/>, design 3.15 step 6).
         /// </summary>
         internal static double EmitTakeBackShortfall(string resource, StockPoolMeasurement m, double runningAfter)
         {
@@ -5983,22 +5985,15 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The science side of a take-back shortfall (design 3.15 step 5): science debt is step
-        /// 6, so until then this only logs. Hook for step 6: a committed tech the walk can no
-        /// longer afford after a take-back is where the science debt starts.
+        /// The science side of a take-back shortfall (design 3.15 step 5, wired to step 6's
+        /// science debt): a duplicate the player spent on a tech before the update leaves the
+        /// walk's running science below 0, because the tech is charged into a science debt
+        /// rather than left researched for free. The 0-floored write leaves that debt to be
+        /// repaid by later gains first, exactly as funds (<see cref="EmitTakeBackShortfall"/>).
         /// </summary>
         internal static double NoteScienceTakeBackShortfall(StockPoolMeasurement m, double runningAfter)
         {
-            if (m == null || m.TakenBack.Count == 0)
-                return 0.0;
-            double shortfall = StockShadowTakeBack.ResolveShortfall(m.TakenBackTotal, runningAfter);
-            if (shortfall <= 0.0)
-                return 0.0;
-            ParsekLog.Warn(StockShadowTakeBack.Tag,
-                $"PatchScience: take-back shortfall {shortfall.ToString("R", IC)} of " +
-                $"{m.TakenBackTotal.ToString("R", IC)} (running={runningAfter.ToString("R", IC)}): " +
-                "science debt is design 3.15 step 6; until then the 0 floor forgives it");
-            return shortfall;
+            return EmitTakeBackShortfall("Science", m, runningAfter);
         }
 
         /// <summary>

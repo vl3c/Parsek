@@ -306,7 +306,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Spending_NotAffordable_FlagsFalse()
+        public void Spending_NotCovered_IsChargedIntoDebt_AndStaysResearched()
         {
             var earning = MakeEarning(1000.0, "crewReport@KerbinSrfLanded", 5f, 30f, "rec-1");
             module.ProcessAction(earning);
@@ -314,9 +314,13 @@ namespace Parsek.Tests
             var spending = MakeSpending(1500.0, "basicRocketry", 10f);
             module.ProcessAction(spending);
 
-            Assert.False(spending.Affordable);
-            // Balance should NOT be deducted when not affordable
-            Assert.Equal(5.0, module.GetRunningScience());
+            // Design 3.15 step 6: the tech is charged in full into a science debt and stays
+            // researched; it is never left researched for free.
+            Assert.True(spending.Affordable);
+            Assert.True(spending.Effective);
+            Assert.Null(spending.UnaffordableRunningScience);
+            Assert.Equal(-5.0, module.GetRunningScience(), 6);
+            Assert.Equal(5.0, module.GetTechDebtCharged(), 6);
         }
 
         [Fact]
@@ -474,15 +478,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Spending_NotAffordable_LogsWarning()
+        public void Spending_NotCovered_LogsTheDebt()
         {
             var spending = MakeSpending(1500.0, "basicRocketry", 10f);
             module.ProcessAction(spending);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[ScienceModule]") &&
-                l.Contains("NOT affordable") &&
-                l.Contains("basicRocketry"));
+                l.Contains("Spending charged into science debt") &&
+                l.Contains("nodeId=basicRocketry") &&
+                l.Contains("debt=10"));
+            Assert.DoesNotContain(logLines, l => l.Contains("NOT affordable"));
         }
 
         [Fact]

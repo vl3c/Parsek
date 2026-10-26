@@ -723,6 +723,10 @@ Three classifications:
   per the Phase C ceiling no forge can manufacture the shape that would. The
   MECHANISM is owned synthetically by `ScienceSpendingOrderingTests` (task A.1)
   and needs nothing from c1.
+  **CLOSED 2026-10-26 by LEDGER-EVENT-IDENTITY step 6** (owner ruling: science
+  debt works like funds debt). The walk now charges the node into a science debt
+  instead of refusing it, and c1 reconstructs 29.300253629684448 against the save's
+  29.3002529 (+7.3e-07, float32 noise).
 - **FUNDS: no divergence.** Bit-exact, delta ZERO (not float noise), across 125
   FundsSpending / 14 FundsEarning / 40 milestone / 11 ContractComplete rows - the
   last collapsing to 4 effective completions through the first-tier

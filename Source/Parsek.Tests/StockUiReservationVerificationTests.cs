@@ -258,7 +258,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void X1_CancelBeforeCommittedCompletion_ZeroesTheCompletionAndRefusesTheLaterTechAndBuild()
+        public void X1_CancelBeforeCommittedCompletion_ZeroesTheCompletion_TechGoesIntoDebt_BuildUnaffordable()
         {
             var funds = RegisterContractsScienceFunds(out var science);
             var actions = BuildX1Timeline(true, out var complete, out var tech, out var build);
@@ -270,21 +270,23 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[Contracts]")
                 && l.Contains("c-x1") && l.Contains("effective=false") && l.Contains("explicitly resolved"));
 
-            // Cascade 1: the committed tech unlock it funded is refused.
-            Assert.False(tech.Affordable);
-            Assert.True(tech.UnaffordableRunningScience.HasValue);
-            Assert.Equal(0.0, tech.UnaffordableRunningScience.Value, 3);
+            // Cascade 1: the committed tech unlock it funded is charged into a science debt
+            // (design 3.15 step 6, owner ruling 2026-10-26); before step 6 it was refused.
+            Assert.True(tech.Affordable);
+            Assert.Null(tech.UnaffordableRunningScience);
+            Assert.Equal(-10.0, science.GetRunningScience(), 3);
             Assert.Contains(logLines, l => l.Contains("[ScienceModule]")
-                && l.Contains("Spending NOT affordable") && l.Contains("survivability"));
+                && l.Contains("Spending charged into science debt") && l.Contains("survivability"));
+            Assert.DoesNotContain(logLines, l => l.Contains("[ScienceModule]")
+                && l.Contains("Spending NOT affordable"));
 
-            // The tech-tree patch therefore never unlocks the node at its UT; it only
-            // reaches the re-lock-refusal map (which protects a node ALREADY researched live).
+            // The tech-tree patch still unlocks the node at its UT: it is never un-researched.
             var baselines = new List<GameStateBaseline> { new GameStateBaseline { ut = 0.0 } };
             baselines[0].researchedTechIds.Add("start");
             var target = KspStatePatcher.BuildTargetTechIdsForPatch(
                 baselines, actions, 500.0, null, out var drops);
-            Assert.DoesNotContain("survivability", target);
-            Assert.True(drops.ContainsKey("survivability"));
+            Assert.Contains("survivability", target);
+            Assert.False(drops.ContainsKey("survivability"));
 
             // Cascade 2: the committed vessel build it funded goes unaffordable.
             Assert.False(build.Affordable);

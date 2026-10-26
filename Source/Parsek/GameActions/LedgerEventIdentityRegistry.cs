@@ -138,7 +138,7 @@ namespace Parsek
     ///
     /// <para>Each entry says whether the walk ENFORCES its rule today or which later step plans
     /// it. Step numbers are the numbered parts of section 3.15 (step 4 records per threshold, built,
-    /// step 6 the purchase state rule, step 7 conversion legs, step 9 live-only income); the
+    /// step 6 the purchase state rule, built, step 7 conversion legs, step 9 live-only income); the
     /// orbital survey bonus is planned in the section's build order step 7. The registry
     /// changes no walk behaviour by itself: the modules still hold the logic, and later steps
     /// wire them to it.</para>
@@ -176,8 +176,8 @@ namespace Parsek
 
         private const string ConversionLegToday =
             "applied as captured, never scaled by its cause";
-        private const string PurchaseToday =
-            "charged on every row, as recorded";
+        private const string PurchaseStateBy =
+            " (PurchaseOwnershipBook: not charged while the walk owns the item, bought by a purchase captured after the row; PurchaseAlreadyOwned)";
 
         private const string MirrorScience =
             "CommittedMilestoneReach's subject mirror, read by ScienceSubjectPatch";
@@ -361,8 +361,8 @@ namespace Parsek
                 Enforced(GameActionType.ScienceEarning, null, "subject id", LedgerIdentityRule.CapHeadroom,
                     "ScienceModule.ProcessEarning (headroom = subject cap - credited total)")
                     .WithStock(MirrorScience, true),
-                Planned(GameActionType.ScienceSpending, null, "tech node id", LedgerIdentityRule.PurchaseStateRule,
-                    "3.15 step 6", "charged when affordable; an unaffordable tech is not charged and stays researched"),
+                Enforced(GameActionType.ScienceSpending, null, "tech node id", LedgerIdentityRule.PurchaseStateRule,
+                    "ScienceModule.ProcessSpending" + PurchaseStateBy + "; a tech it cannot pay is charged into a science debt"),
                 Planned(GameActionType.StrategyScienceDebit, StrategyConversionSource.Converter.ToString(),
                     "its cause row", LedgerIdentityRule.FollowsCause, "3.15 step 7", ConversionLegToday),
                 Enforced(GameActionType.StrategyScienceDebit, StrategyConversionSource.Exchanger.ToString(),
@@ -416,13 +416,14 @@ namespace Parsek
                 Enforced(GameActionType.FundsSpending, FundsSpendingSource.Strategy.ToString(),
                     "strategy + activation (the exchange pays with it)", LedgerIdentityRule.AsRecorded,
                     F + " (as captured; StrategyActivationGate never switches a one-time exchanger on again, 3.14)"),
-                Planned(GameActionType.FundsSpending, FundsSpendingSource.Other.ToString(),
-                    "part name (a part purchase)", LedgerIdentityRule.PurchaseStateRule, "3.15 step 6",
-                    PurchaseToday),
+                Enforced(GameActionType.FundsSpending, FundsSpendingSource.Other.ToString(),
+                    "part name (a part purchase)", LedgerIdentityRule.PurchaseStateRule,
+                    F + ".ProcessFundsSpending" + PurchaseStateBy),
                 Planned(GameActionType.FundsSpending, FundsSpendingSource.StrategyConverter.ToString(),
                     "its cause row", LedgerIdentityRule.FollowsCause, "3.15 step 7", ConversionLegToday),
-                Planned(GameActionType.FundsSpending, FundsSpendingSource.PartUpgrade.ToString(),
-                    "part upgrade name", LedgerIdentityRule.PurchaseStateRule, "3.15 step 6", PurchaseToday),
+                Enforced(GameActionType.FundsSpending, FundsSpendingSource.PartUpgrade.ToString(),
+                    "part upgrade name", LedgerIdentityRule.PurchaseStateRule,
+                    F + ".ProcessFundsSpending" + PurchaseStateBy),
 
                 // ---- Milestones ----
                 Enforced(GameActionType.MilestoneAchievement, MilestoneOneShot,
@@ -484,8 +485,9 @@ namespace Parsek
 
                 // ---- Kerbals ----
                 NoEffect(GameActionType.KerbalAssignment, "recording + kerbal"),
-                Planned(GameActionType.KerbalHire, null, "kerbal name (price as captured)",
-                    LedgerIdentityRule.PurchaseStateRule, "3.15 step 6", PurchaseToday),
+                Enforced(GameActionType.KerbalHire, null, "kerbal name (price as captured)",
+                    LedgerIdentityRule.PurchaseStateRule,
+                    F + ".ProcessKerbalHire" + PurchaseStateBy + "; the captured price is kept"),
                 NoEffect(GameActionType.KerbalRescue, "kerbal name"),
                 NoEffect(GameActionType.KerbalStandIn, "stand-in kerbal name"),
                 NoEffect(GameActionType.KerbalExperience, "kerbal name + career log entries"),
@@ -493,8 +495,9 @@ namespace Parsek
                 NoEffect(GameActionType.VesselRecovered, "owner recording + recovered vessel"),
 
                 // ---- Facilities ----
-                Planned(GameActionType.FacilityUpgrade, null, "facility + exact level",
-                    LedgerIdentityRule.PurchaseStateRule, "3.15 step 6", PurchaseToday),
+                Enforced(GameActionType.FacilityUpgrade, null, "facility + exact level",
+                    LedgerIdentityRule.PurchaseStateRule,
+                    F + ".ProcessFacilityUpgrade" + PurchaseStateBy + "; a Rebuild ends the higher level"),
                 NoEffect(GameActionType.FacilityDestruction, "facility + destruction"),
                 Enforced(GameActionType.FacilityRepair, null, "facility + destruction",
                     LedgerIdentityRule.PurchaseStateRule,

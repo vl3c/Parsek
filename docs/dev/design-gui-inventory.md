@@ -821,7 +821,8 @@ memoized per `TimelineEntry` and rebuilt when the row crosses now, the memo clea
 cache rebuild, and the label stays ONE control either way. The text is
 `TimelineRowHover.Compose` of three parts: the walk's not-counted reason on a grey row
 (`GameAction.NotCountedReason`, runtime only, stamped at the `ContractsModule` /
-`MilestonesModule` / `FundsModule` repair sites that clear `Effective` and reset with it in
+`MilestonesModule` / `FundsModule` repair and purchase / `ScienceModule` tech sites that clear
+`Effective` and reset with it in
 `RecalculationEngine.ResetDerivedFields`); on a future row, the stock control it holds
 (`ReservationExplanation.ForTimelineRow`: the click-block predicates over
 `CommittedFutureIndexCache.Current`, `Holds <control> until <row date>.`; a repair row never
