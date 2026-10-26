@@ -35,6 +35,18 @@ namespace Parsek
         {
             RaiseHighWaterToInUse();
             highWater++;
+            StockShadowTakeBack.NoteCaptureIssued(highWater);
+            return highWater;
+        }
+
+        /// <summary>
+        /// The highest capture number in use or issued, without issuing one: a time-travel
+        /// load records it as its break (design 3.15 step 5), so every row captured before
+        /// the load is at or below it and every row captured after is above.
+        /// </summary>
+        internal static long CurrentHighWater()
+        {
+            RaiseHighWaterToInUse();
             return highWater;
         }
 
@@ -88,7 +100,10 @@ namespace Parsek
             });
             RaiseHighWaterToInUse();
             for (int i = 0; i < missing.Count; i++)
+            {
                 missing[i].Value.CaptureSequence = ++highWater;
+                StockShadowTakeBack.NoteCaptureIssued(highWater);
+            }
             return missing.Count;
         }
 

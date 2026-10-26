@@ -568,6 +568,31 @@ namespace Parsek
         /// (derived; 0 on every other row).</summary>
         public int RecordThresholdsTotal;
 
+        /// <summary>
+        /// Take-back (design 3.15 step 5): the funds stock paid for this row on top of what
+        /// the walk credits, for an identity the ledger already credited by a row stock's
+        /// state had forgotten (a rewind loaded a state from before it). Set by the
+        /// first-tier module that decides the identity, only on a row
+        /// <see cref="StockShadowTakeBack.IsEligibleRow"/> accepts. The captured (gross)
+        /// amount, never a strategy share. Derived, reset with <see cref="Effective"/>,
+        /// NOT serialized.
+        /// </summary>
+        public float TakeBackFunds;
+
+        /// <summary>Take-back: the NOMINAL reputation stock paid on top of the walk's credit
+        /// (curved at the stock shadow's reputation by <see cref="ReputationModule"/>). Derived.</summary>
+        public float TakeBackRep;
+
+        /// <summary>Take-back: the science (pool units) stock paid on top of the walk's credit. Derived.</summary>
+        public float TakeBackScience;
+
+        /// <summary>Take-back: the crediting row(s) the identity was credited by, for the log
+        /// line that names the identity. Derived; null when the row takes nothing back.</summary>
+        public string TakeBackWitness;
+
+        /// <summary>True when the walk set any take-back amount on this row.</summary>
+        internal bool HasTakeBack => TakeBackFunds != 0f || TakeBackRep != 0f || TakeBackScience != 0f;
+
         /// <summary>The funds a counted milestone row moves the pool by: the captured award, or
         /// the credited part of a partly credited world-record row.</summary>
         public float CreditedMilestoneFunds => RecordPartlyCredited ? RecordCreditedFunds : MilestoneFundsAwarded;

@@ -36,6 +36,11 @@ namespace Parsek
         /// <summary>Per-subject state keyed by subjectId.</summary>
         private readonly Dictionary<string, SubjectState> subjects = new Dictionary<string, SubjectState>();
 
+        /// <summary>Per subject, the rows that credited it so far in the walk and how much
+        /// (subject units): the witnesses a capped row repeats (design 3.15 step 5).</summary>
+        private readonly Dictionary<string, List<KeyValuePair<IdentityWitness, double>>> subjectCredits =
+            new Dictionary<string, List<KeyValuePair<IdentityWitness, double>>>();
+
         /// <summary>Accumulated effective science balance (earnings minus spendings).</summary>
         private double runningScience;
 
@@ -82,6 +87,19 @@ namespace Parsek
         /// <summary>The reserved floor and the debt (committed-value rule plan section 2.3).</summary>
         private readonly ReservedFloorWalkState floorState = new ReservedFloorWalkState();
 
+        /// <summary>Per row id, what stock paid beyond the walk effect (design 3.15 step 5,
+        /// <see cref="IStockPoolModule.GetTakeBackDeltas"/>).</summary>
+        private readonly Dictionary<string, double> takeBackDeltas =
+            new Dictionary<string, double>(StringComparer.Ordinal);
+
+        /// <summary>The stock shadow's lead over the walk's running value: the take-back
+        /// amounts so far in this walk (the shadow counts each duplicate at its captured
+        /// amount).</summary>
+        private double shadowDivergence;
+
+        /// <summary>Stock's own pool at a repeat (<see cref="StockShadowStart"/>).</summary>
+        private readonly StockShadowStart shadowStart = new StockShadowStart(StockPool.Science);
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -94,6 +112,7 @@ namespace Parsek
         {
             int subjectCount = subjects.Count;
             subjects.Clear();
+            subjectCredits.Clear();
             runningScience = 0.0;
             totalCommittedSpendings = 0.0;
             totalEffectiveEarnings = 0.0;
@@ -103,6 +122,9 @@ namespace Parsek
             hasInitialSeed = false;
             forgivenBelowZero = 0.0;
             rowEffects.Clear();
+            takeBackDeltas.Clear();
+            shadowDivergence = 0.0;
+            shadowStart.Reset(StockPoolReference.Science);
             floorState.Reset();
             allowNegativeCurrency = StockCurrencyClamp.ReadAllowNegativeCurrency();
 
@@ -156,6 +178,11 @@ namespace Parsek
                 rowEffects.TryGetValue(action.ActionId, out prior);
                 rowEffects[action.ActionId] = prior + effect;
             }
+
+            double stockDelta = action.TakeBackScience != 0f
+                ? RecordTakeBack(action, before, effect, (double)action.TakeBackScience)
+                : 0.0;
+            shadowStart.Note(action, effect + stockDelta);
 
             if (floored)
             {
@@ -218,6 +245,39 @@ namespace Parsek
         public IReadOnlyDictionary<string, double> GetRowEffects()
         {
             return rowEffects;
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyDictionary<string, double> GetTakeBackDeltas()
+        {
+            return takeBackDeltas;
+        }
+
+        /// <summary>
+        /// The stock shadow for one row (design 3.15 step 5): stock paid the row's captured
+        /// amount, so beyond the walk's effect it moved the pool by the take-back part, with
+        /// stock's 0 clamp at stock's own pool when it paid the row (<see cref="StockShadowStart"/>).
+        /// Returns that take-back part.
+        /// </summary>
+        private double RecordTakeBack(GameAction action, double before, double effect, double takeBack)
+        {
+            if (string.IsNullOrEmpty(action.ActionId))
+                return 0.0;
+            double shadowBefore = shadowStart.Before(action.CaptureSequence, before + shadowDivergence);
+            double shadowEffect = StockShadowTakeBack.ShadowCurrencyEffect(
+                shadowBefore, effect, takeBack, allowNegativeCurrency);
+            double delta = shadowEffect - effect;
+            if (delta == 0.0)
+                return 0.0;
+            shadowDivergence += delta;
+            double prior;
+            takeBackDeltas.TryGetValue(action.ActionId, out prior);
+            takeBackDeltas[action.ActionId] = prior + delta;
+            ParsekLog.Verbose("ScienceModule",
+                $"Stock shadow: {action.Type} id={action.ActionId} ut={action.UT.ToString("R", IC)} " +
+                $"walkEffect={effect.ToString("R", IC)} stockPaid={shadowEffect.ToString("R", IC)} " +
+                $"takeBack={delta.ToString("R", IC)} (science; {action.TakeBackWitness ?? "no witness"})");
+            return delta;
         }
 
         /// <summary>
@@ -406,6 +466,23 @@ namespace Parsek
             double gainMultiplier = GameAction.NormalizeScienceGainMultiplier(action.ScienceGainMultiplier);
             double effectiveScience = effectiveSubjectScience * gainMultiplier;
 
+            // Take-back (design 3.15 step 5): stock paid the captured value; the part the cap
+            // left out is taken back only as far as it repeats credit a rewind made stock forget.
+            ApplyCapTakeBack(action, subjectId, (double)scienceAwarded - effectiveSubjectScience, gainMultiplier);
+            // Witnesses matter only once the save has a timeline break: a career never
+            // rewound records none and walks as before.
+            if (effectiveSubjectScience > 0.0 && StockShadowTakeBack.Breaks.Count > 0)
+            {
+                List<KeyValuePair<IdentityWitness, double>> credits;
+                if (!subjectCredits.TryGetValue(subjectId, out credits))
+                {
+                    credits = new List<KeyValuePair<IdentityWitness, double>>();
+                    subjectCredits[subjectId] = credits;
+                }
+                credits.Add(new KeyValuePair<IdentityWitness, double>(
+                    IdentityWitness.Of(action, "science subject '" + subjectId + "'"), effectiveSubjectScience));
+            }
+
             // Update state
             state.CreditedTotal += effectiveSubjectScience;
             subjects[subjectId] = state;
@@ -443,6 +520,41 @@ namespace Parsek
                     $"runningScience={runningScience.ToString("R", IC)}, " +
                     $"recordingId={action.RecordingId ?? "(none)"}");
             }
+        }
+
+        /// <summary>
+        /// Pure over the walk's subject credits: the cap left <paramref name="cappedSubject"/>
+        /// (subject units) of an eligible row out; of that, the part no greater than what the
+        /// forgotten crediting rows stand for is taken back (pool units, the row's own
+        /// multiplier). A capped row whose earlier credits stock's state still held (or an
+        /// older row) takes nothing back, so a career never rewound walks as before.
+        /// </summary>
+        private void ApplyCapTakeBack(GameAction action, string subjectId, double cappedSubject, double gainMultiplier)
+        {
+            if (!(cappedSubject > 0.0) || !StockShadowTakeBack.IsEligibleRow(action))
+                return;
+            List<KeyValuePair<IdentityWitness, double>> credits;
+            if (!subjectCredits.TryGetValue(subjectId, out credits) || credits.Count == 0)
+                return;
+            double forgotten = 0.0;
+            var witnesses = new List<string>();
+            for (int i = 0; i < credits.Count; i++)
+            {
+                if (!StockShadowTakeBack.IsWitnessForgotten(credits[i].Key, action.CaptureSequence))
+                    continue;
+                forgotten += credits[i].Value;
+                witnesses.Add(credits[i].Key.Describe());
+            }
+            double subjectTakeBack = Math.Min(cappedSubject, forgotten);
+            if (!(subjectTakeBack > 0.0))
+                return;
+            action.TakeBackScience = (float)(subjectTakeBack * gainMultiplier);
+            action.TakeBackWitness = string.Join("; ", witnesses.ToArray());
+            ParsekLog.Verbose("ScienceModule",
+                $"Earning over the cap repeats forgotten credit: subject={subjectId} " +
+                $"actionId={action.ActionId ?? "(none)"} capped={cappedSubject.ToString("R", IC)} " +
+                $"forgottenCredit={forgotten.ToString("R", IC)} " +
+                $"takeBack={action.TakeBackScience.ToString("R", IC)} (pool units)");
         }
 
         // ================================================================

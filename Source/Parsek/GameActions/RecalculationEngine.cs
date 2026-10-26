@@ -556,6 +556,10 @@ namespace Parsek
             internal float RecordCreditedScience;
             internal int RecordThresholdsCredited;
             internal int RecordThresholdsTotal;
+            internal float TakeBackFunds;
+            internal float TakeBackRep;
+            internal float TakeBackScience;
+            internal string TakeBackWitness;
         }
 
         /// <summary>The fields <see cref="ResetDerivedFields"/> resets and the module walk
@@ -583,7 +587,11 @@ namespace Parsek
                     RecordCreditedRep = a.RecordCreditedRep,
                     RecordCreditedScience = a.RecordCreditedScience,
                     RecordThresholdsCredited = a.RecordThresholdsCredited,
-                    RecordThresholdsTotal = a.RecordThresholdsTotal
+                    RecordThresholdsTotal = a.RecordThresholdsTotal,
+                    TakeBackFunds = a.TakeBackFunds,
+                    TakeBackRep = a.TakeBackRep,
+                    TakeBackScience = a.TakeBackScience,
+                    TakeBackWitness = a.TakeBackWitness
                 });
             }
             return saved;
@@ -610,6 +618,10 @@ namespace Parsek
                 a.RecordCreditedScience = s.RecordCreditedScience;
                 a.RecordThresholdsCredited = s.RecordThresholdsCredited;
                 a.RecordThresholdsTotal = s.RecordThresholdsTotal;
+                a.TakeBackFunds = s.TakeBackFunds;
+                a.TakeBackRep = s.TakeBackRep;
+                a.TakeBackScience = s.TakeBackScience;
+                a.TakeBackWitness = s.TakeBackWitness;
             }
         }
 
@@ -1188,6 +1200,11 @@ namespace Parsek
                 sorted[i].RecordCreditedScience = 0f;
                 sorted[i].RecordThresholdsCredited = 0;
                 sorted[i].RecordThresholdsTotal = 0;
+                // Take-back amounts (design 3.15 step 5) are decided by the first tier.
+                sorted[i].TakeBackFunds = 0f;
+                sorted[i].TakeBackRep = 0f;
+                sorted[i].TakeBackScience = 0f;
+                sorted[i].TakeBackWitness = null;
             }
         }
 

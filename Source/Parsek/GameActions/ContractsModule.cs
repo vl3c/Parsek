@@ -72,6 +72,16 @@ namespace Parsek
         /// </summary>
         private readonly HashSet<string> creditedParameters = new HashSet<string>(System.StringComparer.Ordinal);
 
+        /// <summary>The row that credited each parameter key (design 3.15 step 5's witness).</summary>
+        private readonly Dictionary<string, IdentityWitness> parameterWitness =
+            new Dictionary<string, IdentityWitness>(System.StringComparer.Ordinal);
+
+        /// <summary>Per contract, the row that ended its latest lifecycle (a credited completion,
+        /// a deadline expiry or an explicit fail / cancel): the witness a later outcome or
+        /// reward of the same contract repeats (design 3.15 step 5).</summary>
+        private readonly Dictionary<string, IdentityWitness> outcomeWitness =
+            new Dictionary<string, IdentityWitness>(System.StringComparer.Ordinal);
+
         /// <summary>
         /// The credited parameter rows in walk order, with their UT: what
         /// <c>KspStatePatcher</c> marks Complete on stock's live parameter once the clock has
@@ -251,6 +261,8 @@ namespace Parsek
             creditedCompletionPositions.Clear();
             creditedParameters.Clear();
             creditedParameterRows.Clear();
+            parameterWitness.Clear();
+            outcomeWitness.Clear();
             terminalContracts.Clear();
             terminalContractActions.Clear();
             terminalContractOutcomes.Clear();
@@ -524,6 +536,7 @@ namespace Parsek
                 // Duplicate completion — rewards zeroed
                 action.Effective = false;
                 action.NotCountedReason = GameActionNotCountedReason.ContractAlreadyCompleted;
+                ConsiderRewardTakeBack(action, id, CompletionWitness(id));
 
                 ParsekLog.Info(Tag,
                     $"Complete: contractId='{id}' effective=false (already credited), " +
@@ -534,6 +547,10 @@ namespace Parsek
                 // Deadline failure already resolved this contract; rewards zeroed.
                 action.Effective = false;
                 action.NotCountedReason = GameActionNotCountedReason.ContractDeadlinePassed;
+                // Never taken back: stock keeps the contract's own deadline across a rewind, so
+                // a reward it paid past the walk's deadline is a deadline disagreement, not a
+                // forgotten outcome (design 3.15 step 5).
+                ConsiderRewardTakeBack(action, id, null);
 
                 ParsekLog.Info(Tag,
                     $"Complete: contractId='{id}' effective=false (deadline expired), " +
@@ -544,6 +561,7 @@ namespace Parsek
                 // Explicit fail/cancel already resolved this contract; rewards zeroed.
                 action.Effective = false;
                 action.NotCountedReason = GameActionNotCountedReason.ContractAlreadyResolved;
+                ConsiderRewardTakeBack(action, id, LatestOutcomeWitness(id));
 
                 ParsekLog.Info(Tag,
                     $"Complete: contractId='{id}' effective=false (explicitly resolved), " +
@@ -575,6 +593,7 @@ namespace Parsek
                 terminalContracts.Add(id);
                 terminalContractActions[id] = GameActionType.ContractComplete;
                 terminalContractOutcomes[id] = ContractTerminalOutcome.Completed;
+                outcomeWitness[id] = IdentityWitness.Of(action, "completion of contract '" + id + "'");
 
                 ParsekLog.Info(Tag,
                     $"Complete: contractId='{id}' effective=true, " +
@@ -641,6 +660,9 @@ namespace Parsek
             {
                 action.Effective = false;
                 action.NotCountedReason = GameActionNotCountedReason.ContractAlreadyCompleted;
+                IdentityWitness paramWitness;
+                ConsiderRewardTakeBack(action, id,
+                    parameterWitness.TryGetValue(key, out paramWitness) ? paramWitness : (IdentityWitness?)null);
                 ParsekLog.Info(Tag,
                     $"ParameterComplete: contractId='{id}' param='{paramId}' effective=false (already credited), " +
                     $"rewards zeroed");
@@ -651,6 +673,7 @@ namespace Parsek
             {
                 action.Effective = false;
                 action.NotCountedReason = GameActionNotCountedReason.ContractParameterAfterCompletion;
+                ConsiderRewardTakeBack(action, id, CompletionWitness(id));
                 ParsekLog.Info(Tag,
                     $"ParameterComplete: contractId='{id}' param='{paramId}' effective=false " +
                     $"(contract already completed earlier in the walk at ut={completion.UT.ToString("R", IC)} " +
@@ -662,6 +685,8 @@ namespace Parsek
             {
                 action.Effective = false;
                 action.NotCountedReason = GameActionNotCountedReason.ContractDeadlinePassed;
+                // Never taken back (a deadline disagreement, see ProcessComplete).
+                ConsiderRewardTakeBack(action, id, null);
                 ParsekLog.Info(Tag,
                     $"ParameterComplete: contractId='{id}' param='{paramId}' effective=false (deadline expired), " +
                     $"rewards zeroed");
@@ -670,6 +695,7 @@ namespace Parsek
             {
                 action.Effective = false;
                 action.NotCountedReason = GameActionNotCountedReason.ContractAlreadyResolved;
+                ConsiderRewardTakeBack(action, id, LatestOutcomeWitness(id));
                 ParsekLog.Info(Tag,
                     $"ParameterComplete: contractId='{id}' param='{paramId}' effective=false (explicitly resolved), " +
                     $"rewards zeroed");
@@ -679,6 +705,8 @@ namespace Parsek
                 action.Effective = true;
                 action.NotCountedReason = GameActionNotCountedReason.None;
                 creditedParameters.Add(key);
+                parameterWitness[key] = IdentityWitness.Of(action,
+                    "parameter '" + paramId + "' of contract '" + id + "'");
                 creditedParameterRows.Add(new CreditedContractParameter
                 {
                     ContractId = id,
@@ -730,6 +758,9 @@ namespace Parsek
                     terminalContractActions[id] = GameActionType.ContractFail;
                     deadlineExpiredContracts.Add(id);
                     terminalContractOutcomes[id] = ContractTerminalOutcome.DeadlineExpired;
+                    // A deadline expiry is no witness: stock keeps the deadline across a rewind,
+                    // so nothing after it was paid because stock forgot it (design 3.15 step 5).
+                    outcomeWitness.Remove(id);
 
                     ParsekLog.Info(Tag,
                         $"DeadlineExpired: contractId='{id}' deadline passed at currentUT={currentUT}, " +
@@ -754,6 +785,14 @@ namespace Parsek
                 ? ContractTerminalOutcome.DeadlineExpired
                 : ContractTerminalOutcome.Failed;
             explicitlyResolvedContracts.Add(id);
+            // The fail row is the outcome's witness when stock really recorded it. A fail the
+            // walk synthesized at its own deadline, or one an older build captured, is not: a
+            // repeat after a deadline the walk and stock disagree on is never taken back.
+            if (!deadlineExpiredContracts.Contains(id)
+                || (action.CaptureSequence > 0 && !action.ParsekAuthored))
+                outcomeWitness[id] = IdentityWitness.Of(action, "fail of contract '" + id + "'");
+            else
+                outcomeWitness.Remove(id);
 
             ParsekLog.Info(Tag,
                 $"Fail: contractId='{id}' fundsPenalty={action.FundsPenalty} " +
@@ -815,12 +854,64 @@ namespace Parsek
 
             action.Effective = false;
             action.NotCountedReason = GameActionNotCountedReason.ContractOutcomeAfterEnd;
+            IdentityWitness? ended = hasOutcome && outcome == ContractTerminalOutcome.Completed
+                ? CompletionWitness(id)
+                : LatestOutcomeWitness(id);
+            if (ended.HasValue && StockShadowTakeBack.ShouldTakeBackWholeRow(action, ended.Value))
+            {
+                // Stock charged the penalty again for a contract the timeline already ended:
+                // the take-back gives it back (a negative take-back).
+                action.TakeBackFunds = -action.FundsPenalty;
+                action.TakeBackRep = -action.RepPenalty;
+                LogTakeBack(action, id);
+            }
             ParsekLog.Info(Tag,
                 $"{label}: contractId='{id}' effective=false (already {prior} earlier in the walk), " +
                 $"penalties not charged: fundsPenalty={action.FundsPenalty.ToString("R", IC)} " +
                 $"repPenalty={action.RepPenalty.ToString("R", IC)} " +
                 $"ut={action.UT.ToString("R", IC)} recording={action.RecordingId ?? "(none)"}");
             return true;
+        }
+
+        private IdentityWitness? CompletionWitness(string id)
+        {
+            CompletionWalkPosition completion;
+            if (!creditedCompletionPositions.TryGetValue(id, out completion))
+                return null;
+            return IdentityWitness.At(completion.UT, completion.CaptureSequence,
+                "completion of contract '" + id + "'");
+        }
+
+        private IdentityWitness? LatestOutcomeWitness(string id)
+        {
+            IdentityWitness w;
+            return outcomeWitness.TryGetValue(id, out w) ? w : (IdentityWitness?)null;
+        }
+
+        /// <summary>
+        /// Take-back for a contract or parameter reward row the walk does not count for an
+        /// identity reason (design 3.15 step 5): when its witness is one stock's state had
+        /// forgotten, the captured reward (gross, never a strategy share) is what stock paid
+        /// again. A row with no witness (a same-UT resolution only the pre-pass knows) keeps
+        /// today's behaviour.
+        /// </summary>
+        private static void ConsiderRewardTakeBack(GameAction action, string id, IdentityWitness? witness)
+        {
+            if (!witness.HasValue || !StockShadowTakeBack.ShouldTakeBackWholeRow(action, witness.Value))
+                return;
+            action.TakeBackFunds = action.FundsReward;
+            action.TakeBackRep = action.RepReward;
+            action.TakeBackScience = action.ScienceReward;
+            LogTakeBack(action, id);
+        }
+
+        private static void LogTakeBack(GameAction action, string id)
+        {
+            ParsekLog.Verbose(Tag,
+                $"{action.Type}: contractId='{id}'{FundsModule.FormatParameterSuffix(action)} " +
+                $"actionId={action.ActionId ?? "(none)"} repeats an identity a rewind made stock forget " +
+                $"({action.TakeBackWitness}): take-back funds={action.TakeBackFunds.ToString("R", IC)} " +
+                $"rep={action.TakeBackRep.ToString("R", IC)} sci={action.TakeBackScience.ToString("R", IC)}");
         }
 
         private bool HasPrepassExplicitResolutionAtOrBefore(string contractId, double completeUT)
@@ -847,6 +938,7 @@ namespace Parsek
                 ? ContractTerminalOutcome.RequirementsLost
                 : ContractTerminalOutcome.Cancelled;
             explicitlyResolvedContracts.Add(id);
+            outcomeWitness[id] = IdentityWitness.Of(action, "cancel of contract '" + id + "'");
 
             ParsekLog.Info(Tag,
                 $"Cancel: contractId='{id}' fundsPenalty={action.FundsPenalty} " +

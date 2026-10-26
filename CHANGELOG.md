@@ -25,6 +25,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A reward the timeline already earned is not paid again after a rewind.** Once the clock
+  passes a committed world-first, record step, contract parameter or science result, stock no
+  longer pays it a second time, and if it slips through anyway the next update takes that payment
+  back so it counts once. A career that never rewinds is unchanged. (LEDGER-EVENT-IDENTITY)
 - **A world record pays each step once.** After a rewind, passing an altitude, speed, depth or
   distance step the career was already paid for earns nothing again; the earliest flight keeps
   the reward and a later one is paid only for new steps. Without a rewind every record reward

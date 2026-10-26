@@ -72,9 +72,19 @@ namespace Parsek
         /// <summary>What the walk does with the row until then (planned entries only).</summary>
         internal readonly string TodayBehaviour;
 
+        /// <summary>How stock is stopped from paying a repeat live (design 3.15 step 5,
+        /// prevention): the add-only mirror that records "already paid" in stock's own state
+        /// when the clock passes a committed row. Null when no mirror applies.</summary>
+        internal readonly string StockMirror;
+
+        /// <summary>True when a repeat stock still pays live is taken back by the next update
+        /// (design 3.15 step 5, <see cref="StockShadowTakeBack"/>).</summary>
+        internal readonly bool TakesBackStockRepeat;
+
         internal LedgerEventIdentityEntry(
             GameActionType type, string variant, string identityKey, LedgerIdentityRule rule,
-            bool enforcedToday, string enforcedBy, string plannedStep, string todayBehaviour)
+            bool enforcedToday, string enforcedBy, string plannedStep, string todayBehaviour,
+            string stockMirror = null, bool takesBackStockRepeat = false)
         {
             Type = type;
             Variant = variant;
@@ -84,6 +94,15 @@ namespace Parsek
             EnforcedBy = enforcedBy;
             PlannedStep = plannedStep;
             TodayBehaviour = todayBehaviour;
+            StockMirror = stockMirror;
+            TakesBackStockRepeat = takesBackStockRepeat;
+        }
+
+        /// <summary>This entry with its stock-side enforcement (design 3.15 step 5).</summary>
+        internal LedgerEventIdentityEntry WithStock(string stockMirror, bool takesBackStockRepeat)
+        {
+            return new LedgerEventIdentityEntry(Type, Variant, IdentityKey, Rule, EnforcedToday,
+                EnforcedBy, PlannedStep, TodayBehaviour, stockMirror, takesBackStockRepeat);
         }
 
         /// <summary>The entry's name: <c>Type</c> or <c>Type/Variant</c>.</summary>
@@ -103,6 +122,10 @@ namespace Parsek
                 sb.Append(" enforced by ").Append(EnforcedBy);
             else
                 sb.Append(" planned=").Append(PlannedStep).Append(" (today: ").Append(TodayBehaviour).Append(")");
+            if (StockMirror != null)
+                sb.Append("; stock mirrored by ").Append(StockMirror);
+            if (TakesBackStockRepeat)
+                sb.Append("; a stock repeat is taken back");
             return sb.ToString();
         }
     }
@@ -119,6 +142,13 @@ namespace Parsek
     /// orbital survey bonus is planned in the section's build order step 7. The registry
     /// changes no walk behaviour by itself: the modules still hold the logic, and later steps
     /// wire them to it.</para>
+    ///
+    /// <para>Step 5 (built) adds the stock side of each entry: the add-only live mirror that
+    /// stops stock paying a repeat (<see cref="LedgerEventIdentityEntry.StockMirror"/>) and
+    /// whether a repeat stock paid anyway is taken back
+    /// (<see cref="LedgerEventIdentityEntry.TakesBackStockRepeat"/>). Every not-counted reason
+    /// <see cref="StockShadowTakeBack.IsIdentityReason"/> accepts belongs to a take-back
+    /// entry (suite-gated).</para>
     ///
     /// <para>The suite gate (<c>LedgerEventIdentityRegistryTests</c>) enumerates every
     /// <see cref="GameActionType"/> and every source enum the registry splits on, and fails on a
@@ -148,6 +178,17 @@ namespace Parsek
             "applied as captured, never scaled by its cause";
         private const string PurchaseToday =
             "charged on every row, as recorded";
+
+        private const string MirrorScience =
+            "CommittedMilestoneReach's subject mirror, read by ScienceSubjectPatch";
+        private const string MirrorNode =
+            "CommittedMilestoneReach (progress node marked complete without reward)";
+        private const string MirrorBand =
+            "CommittedMilestoneReach (record band raised without reward)";
+        private const string MirrorParameter =
+            "CommittedMilestoneReach (parameter completed without reward on its Active contract)";
+        private const string MirrorScan =
+            "CommittedMilestoneReach (body or biome unlocked)";
 
         private static readonly LedgerEventIdentityEntry[] entries = BuildEntries();
 
@@ -318,7 +359,8 @@ namespace Parsek
             {
                 // ---- Science ----
                 Enforced(GameActionType.ScienceEarning, null, "subject id", LedgerIdentityRule.CapHeadroom,
-                    "ScienceModule.ProcessEarning (headroom = subject cap - credited total)"),
+                    "ScienceModule.ProcessEarning (headroom = subject cap - credited total)")
+                    .WithStock(MirrorScience, true),
                 Planned(GameActionType.ScienceSpending, null, "tech node id", LedgerIdentityRule.PurchaseStateRule,
                     "3.15 step 6", "charged when affordable; an unaffordable tech is not charged and stays researched"),
                 Planned(GameActionType.StrategyScienceDebit, StrategyConversionSource.Converter.ToString(),
@@ -385,10 +427,12 @@ namespace Parsek
                 // ---- Milestones ----
                 Enforced(GameActionType.MilestoneAchievement, MilestoneOneShot,
                     "body-qualified progress node id", LedgerIdentityRule.FirstWins,
-                    "MilestonesModule.ProcessAction (MilestoneAlreadyAchieved)"),
+                    "MilestonesModule.ProcessAction (MilestoneAlreadyAchieved)")
+                    .WithStock(MirrorNode, true),
                 Enforced(GameActionType.MilestoneAchievement, MilestoneWorldRecord,
                     "node id + threshold index", LedgerIdentityRule.OncePerThreshold,
-                    "MilestonesModule.ProcessAction (RecordThresholdBook; RecordThresholdsAlreadyCredited)"),
+                    "MilestonesModule.ProcessAction (RecordThresholdBook; RecordThresholdsAlreadyCredited)")
+                    .WithStock(MirrorBand, true),
 
                 // ---- Contracts ----
                 Enforced(GameActionType.ContractAccept, null, "contract guid + accept",
@@ -396,14 +440,18 @@ namespace Parsek
                     F + ".ProcessContractAccept (one advance per accept row; a twin offer is 3.15 step 8)"),
                 Enforced(GameActionType.ContractComplete, null, "contract guid, one outcome ever (re-accept does not reopen it)",
                     LedgerIdentityRule.FirstWins,
-                    "ContractsModule.ProcessComplete (once ever; not after a deadline, fail or cancel)"),
+                    "ContractsModule.ProcessComplete (once ever; not after a deadline, fail or cancel)")
+                    .WithStock(null, true),
                 Enforced(GameActionType.ContractFail, null, "contract guid, one outcome ever (re-accept does not reopen it)",
-                    LedgerIdentityRule.FirstWins, "ContractsModule.ProcessFail (ContractOutcomeAfterEnd)"),
+                    LedgerIdentityRule.FirstWins, "ContractsModule.ProcessFail (ContractOutcomeAfterEnd)")
+                    .WithStock(null, true),
                 Enforced(GameActionType.ContractCancel, null, "contract guid, one outcome ever (re-accept does not reopen it)",
-                    LedgerIdentityRule.FirstWins, "ContractsModule.ProcessCancel (ContractOutcomeAfterEnd)"),
+                    LedgerIdentityRule.FirstWins, "ContractsModule.ProcessCancel (ContractOutcomeAfterEnd)")
+                    .WithStock(null, true),
                 Enforced(GameActionType.ContractParameterComplete, null, "contract guid + parameter path",
                     LedgerIdentityRule.FirstWinsWhileContractOpen,
-                    "ContractsModule.ProcessParameterComplete (once per parameter; not after the contract's completion, deadline, fail or cancel)"),
+                    "ContractsModule.ProcessParameterComplete (once per parameter; not after the contract's completion, deadline, fail or cancel)")
+                    .WithStock(MirrorParameter, true),
 
                 // ---- Reputation ----
                 Enforced(GameActionType.ReputationEarning, ReputationSource.ContractComplete.ToString(),
@@ -464,7 +512,7 @@ namespace Parsek
                 Seed(GameActionType.ReputationInitial),
 
                 // ---- Other ----
-                NoEffect(GameActionType.ResourceScanUnlocked, "body + biome"),
+                NoEffect(GameActionType.ResourceScanUnlocked, "body + biome").WithStock(MirrorScan, false),
                 Enforced(GameActionType.StockPoolAdjustment, null, "pool + patch UT",
                     LedgerIdentityRule.AsRecorded,
                     "StockPoolReference (an older save's pool difference; 3.15 step 9 files new channel-less income live-only instead)"),

@@ -44,6 +44,19 @@ namespace Parsek
         /// <summary>The reserved floor and the debt (committed-value rule plan section 2.3).</summary>
         private readonly ReservedFloorWalkState floorState = new ReservedFloorWalkState();
 
+        /// <summary>Per row id, what stock paid beyond the walk effect (design 3.15 step 5,
+        /// <see cref="IStockPoolModule.GetTakeBackDeltas"/>).</summary>
+        private readonly Dictionary<string, double> takeBackDeltas =
+            new Dictionary<string, double>(StringComparer.Ordinal);
+
+        /// <summary>The stock shadow's lead over the walk's running value: the take-back
+        /// amounts so far in this walk (the shadow counts each duplicate at its captured
+        /// amount).</summary>
+        private double shadowDivergence;
+
+        /// <summary>Stock's own reputation at a repeat (<see cref="StockShadowStart"/>).</summary>
+        private readonly StockShadowStart shadowStart = new StockShadowStart(StockPool.Reputation);
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -55,6 +68,9 @@ namespace Parsek
             runningRep = 0f;
             hasInitialSeed = false;
             rowEffects.Clear();
+            takeBackDeltas.Clear();
+            shadowDivergence = 0.0;
+            shadowStart.Reset(StockPoolReference.Reputation);
             floorState.Reset();
             ParsekLog.Verbose(Tag, $"Reset: runningRep {previousRep.ToString("F2", IC)} -> 0");
         }
@@ -82,6 +98,11 @@ namespace Parsek
                 rowEffects.TryGetValue(action.ActionId, out prior);
                 rowEffects[action.ActionId] = prior + effect;
             }
+
+            double stockDelta = action.TakeBackRep != 0f && !action.InsideReputationSeed
+                ? RecordTakeBack(action, effect)
+                : 0.0;
+            shadowStart.Note(action, effect + stockDelta);
 
             // Rule 4 (committed-value rule plan section 2.3): a loss with a committed cost
             // captured ahead of it stops at the reserved floor, the rest is a debt (post-curve
@@ -180,6 +201,40 @@ namespace Parsek
         public IReadOnlyDictionary<string, double> GetRowEffects()
         {
             return rowEffects;
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyDictionary<string, double> GetTakeBackDeltas()
+        {
+            return takeBackDeltas;
+        }
+
+        /// <summary>
+        /// The stock shadow for one row (design 3.15 step 5): stock paid the take-back part's
+        /// nominal reputation through its curve at stock's own reputation when it paid the row
+        /// (<see cref="StockShadowStart"/>) after the row's credited part. Returns that
+        /// take-back part. Reputation has no 0 clamp, as in stock.
+        /// </summary>
+        private double RecordTakeBack(GameAction action, double effect)
+        {
+            if (string.IsNullOrEmpty(action.ActionId))
+                return 0.0;
+            double shadowRep = shadowStart.Before(action.CaptureSequence, (double)runningRep - effect + shadowDivergence)
+                + effect;
+            var curved = ApplyReputationCurve(action.TakeBackRep, (float)shadowRep);
+            double delta = curved.actualDelta;
+            if (delta == 0.0)
+                return 0.0;
+            shadowDivergence += delta;
+            double prior;
+            takeBackDeltas.TryGetValue(action.ActionId, out prior);
+            takeBackDeltas[action.ActionId] = prior + delta;
+            ParsekLog.Verbose(Tag,
+                $"Stock shadow: {action.Type} id={action.ActionId} ut={action.UT.ToString("R", IC)} " +
+                $"walkEffect={effect.ToString("R", IC)} nominalTakeBack={action.TakeBackRep.ToString("R", IC)} " +
+                $"shadowRep={shadowRep.ToString("R", IC)} takeBack={delta.ToString("R", IC)} " +
+                $"(reputation; {action.TakeBackWitness ?? "no witness"})");
+            return delta;
         }
 
         private void Dispatch(GameAction action)

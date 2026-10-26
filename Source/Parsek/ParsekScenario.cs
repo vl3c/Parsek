@@ -3828,6 +3828,10 @@ namespace Parsek
             InFlightRecoveryRequest.Clear("OnLoad");
             // Jumped spans belong to the timeline that made them; a load starts another.
             ConverterJumpPolicy.ClearJumpedSpans("OnLoad");
+            // The subject science mirror is the committed science at the last mirror pass's
+            // clock in the save that ran it; a load (another save, an earlier UT) rebuilds it at
+            // its own first pass, so a stale one never reaches stock's subjects.
+            CommittedMilestoneReach.ClearSubjectScienceMirror("OnLoad");
             // Attempt events held for the last load's flight restore belong to that load only.
             DropHeldSaveAttemptEvents("next-load");
 
@@ -4060,6 +4064,15 @@ namespace Parsek
                     // .sfs data loading. In-memory state is the source of truth.
                     if (RewindContext.IsRewinding)
                     {
+                        // Timeline break (design 3.15 step 5): a plain rewind keeps the in-memory
+                        // ledger and loads the rewind save's stock state. This branch returns
+                        // before the refined classification below, so it records its own break.
+                        loadPhase = "timeline-break";
+                        StockShadowTakeBack.NoteLoad(
+                            LoadKind.PlainRewind,
+                            ResolvePlainRewindBreakUT(KerbalsModule.ReadLoadedSaveUT(), RewindContext.RewindSaveOwnClockUT),
+                            CaptureSequence.CurrentHighWater());
+
                         loadPhase = "rewind";
                         HandleRewindOnLoad(node, recordings);
                         ReconcileReadableSidecarMirrorsOnLoadIfDisabled();
@@ -4222,6 +4235,12 @@ namespace Parsek
                     // process did not write last is a load no stock path announced. One Warn;
                     // the classification stands.
                     CheckLoadedSaveStamp(node, refinedLoadKind);
+
+                    // Timeline break (design 3.15 step 5): a load that keeps the in-memory
+                    // ledger and loads an earlier stock state makes stock forget every credit
+                    // after the loaded UT, so a later live repeat of one is a duplicate payment.
+                    StockShadowTakeBack.NoteLoad(
+                        refinedLoadKind, KerbalsModule.ReadLoadedSaveUT(), CaptureSequence.CurrentHighWater());
 
                     // Vessel names (design 7.6, ruling 5): a stock revert or Discard Re-fly cancels
                     // the current flight epoch, and with it the stock renames made inside it.
@@ -5290,6 +5309,20 @@ namespace Parsek
             }
 
             RewindInvoker.ConsumePostLoad(loadedScenarioNode);
+        }
+
+        /// <summary>
+        /// Pure: the UT a plain rewind's timeline break records - the loaded game's own clock
+        /// (persistent.sfs is the rewind save by then), else the rewind save's clock the rewind
+        /// parsed; NaN when neither is known (the break is then not recorded, with a Warn).
+        /// </summary>
+        internal static double ResolvePlainRewindBreakUT(double loadedSaveUT, double rewindSaveOwnClockUT)
+        {
+            if (!double.IsNaN(loadedSaveUT) && !double.IsInfinity(loadedSaveUT))
+                return loadedSaveUT;
+            if (!double.IsNaN(rewindSaveOwnClockUT) && !double.IsInfinity(rewindSaveOwnClockUT))
+                return rewindSaveOwnClockUT;
+            return double.NaN;
         }
 
         /// <summary>

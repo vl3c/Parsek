@@ -25,6 +25,12 @@ namespace Parsek
         internal double UT;
         internal bool StockApplied;
         internal double Effect;
+        /// <summary>
+        /// What stock paid for the row beyond <see cref="Effect"/> for an identity the ledger
+        /// already credited (design 3.15 step 5, <see cref="IStockPoolModule.GetTakeBackDeltas"/>);
+        /// 0 for every other row. Read only the first time the reference steps the row.
+        /// </summary>
+        internal double TakeBack;
     }
 
     /// <summary>
@@ -133,6 +139,15 @@ namespace Parsek
         internal GameAction AdjustmentRow;
         internal readonly Dictionary<string, double> NewStepped =
             new Dictionary<string, double>(StringComparer.Ordinal);
+        /// <summary>
+        /// Rows whose duplicate stock payment this patch takes back (design 3.15 step 5): id
+        /// and amount. A measured patch steps such a row by what stock paid, so the payment is
+        /// not a leak, and the write (the walk's target) takes it back; an authoritative patch
+        /// writes the target anyway and lists them for the log. Never an adjustment row.
+        /// </summary>
+        internal readonly List<KeyValuePair<string, double>> TakenBack = new List<KeyValuePair<string, double>>();
+        internal double TakenBackTotal;
+        internal bool TakenBackByAuthoritativeWrite;
     }
 
     /// <summary>
@@ -228,7 +243,7 @@ namespace Parsek
         /// </summary>
         internal static bool TryBuildRow(
             StockPool pool, GameAction action, IReadOnlyDictionary<string, double> effects,
-            out StockPoolRow row)
+            out StockPoolRow row, IReadOnlyDictionary<string, double> takeBackDeltas = null)
         {
             row = default(StockPoolRow);
             if (!IsPoolRow(pool, action))
@@ -241,19 +256,28 @@ namespace Parsek
                 && !double.IsNaN(found) && !double.IsInfinity(found))
                 effect = found;
 
+            double takeBack = 0.0;
+            double tb;
+            if (takeBackDeltas != null && !double.IsNaN(effect) && !string.IsNullOrEmpty(action.ActionId)
+                && takeBackDeltas.TryGetValue(action.ActionId, out tb)
+                && !double.IsNaN(tb) && !double.IsInfinity(tb))
+                takeBack = tb;
+
             row = new StockPoolRow
             {
                 ActionId = action.ActionId,
                 UT = action.UT,
                 StockApplied = !action.ParsekAuthored,
                 Effect = effect,
+                TakeBack = takeBack,
             };
             return true;
         }
 
         /// <summary>Every row of <paramref name="pool"/> in <paramref name="actions"/>.</summary>
         internal static List<StockPoolRow> BuildRows(
-            StockPool pool, IEnumerable<GameAction> actions, IReadOnlyDictionary<string, double> effects)
+            StockPool pool, IEnumerable<GameAction> actions, IReadOnlyDictionary<string, double> effects,
+            IReadOnlyDictionary<string, double> takeBackDeltas = null)
         {
             var rows = new List<StockPoolRow>();
             if (actions == null)
@@ -261,7 +285,7 @@ namespace Parsek
             foreach (var action in actions)
             {
                 StockPoolRow row;
-                if (TryBuildRow(pool, action, effects, out row))
+                if (TryBuildRow(pool, action, effects, out row, takeBackDeltas))
                     rows.Add(row);
             }
             return rows;
@@ -421,7 +445,9 @@ namespace Parsek
             if (authoritative)
             {
                 // The write is the target; a dropped row's stepped part stays in the pool
-                // (stock applied it), filed as an adjustment.
+                // (stock applied it), filed as an adjustment. A duplicate stock payment is
+                // taken back by that write; it is listed for the log.
+                CollectAuthoritativeTakeBacks(state, rows, nowUT, epsilon, m);
                 m.Expected = expected;
                 if (Math.Abs(removedStepped) > epsilon)
                 {
@@ -452,12 +478,22 @@ namespace Parsek
                     if (wasCounted && double.IsNaN(counted.Effect))
                         continue;
                     double step = wasCounted ? row.Effect - counted.Effect : row.Effect;
-                    if (Math.Abs(step) <= AmountTolerance)
+                    // Take-back (design 3.15 step 5): the first time a row is stepped, stock
+                    // applied what it paid (the walk effect plus the duplicate part); the write,
+                    // the walk's target, takes the duplicate part back. Only the walk effect
+                    // stays stepped, since only that stays in the pool.
+                    double takeBack = !wasCounted && Math.Abs(row.TakeBack) > epsilon ? row.TakeBack : 0.0;
+                    if (takeBack != 0.0)
+                    {
+                        m.TakenBack.Add(new KeyValuePair<string, double>(row.ActionId, takeBack));
+                        m.TakenBackTotal += takeBack;
+                    }
+                    if (Math.Abs(step) <= AmountTolerance && takeBack == 0.0)
                         continue;
-                    expected += step;
+                    expected += step + takeBack;
                     if (clampAtZero && (double.IsNaN(state.LastPatchUT) || row.UT > state.LastPatchUT))
                     {
-                        stockSim += step;
+                        stockSim += step + takeBack;
                         if (stockSim < 0.0)
                         {
                             clampForgiven -= stockSim;
@@ -552,6 +588,31 @@ namespace Parsek
             state.PendingAdjust = state.Pool == StockPool.Science ? pendingAdjustNow : 0.0;
             state.LastPatchUT = m.NowUT;
             state.Initialized = true;
+        }
+
+        /// <summary>
+        /// The rows an authoritative patch takes back by its write (design 3.15 step 5): the
+        /// same first-step rule as a measured patch, recorded for the log only.
+        /// </summary>
+        private static void CollectAuthoritativeTakeBacks(
+            StockPoolReferenceState state, IList<StockPoolRow> rows, double nowUT, double epsilon,
+            StockPoolMeasurement m)
+        {
+            if (rows == null)
+                return;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < rows.Count; i++)
+            {
+                StockPoolRow row = rows[i];
+                if (string.IsNullOrEmpty(row.ActionId) || !seen.Add(row.ActionId))
+                    continue;
+                if (!row.StockApplied || row.UT > nowUT || double.IsNaN(row.Effect)
+                    || state.Counted.ContainsKey(row.ActionId) || !(Math.Abs(row.TakeBack) > epsilon))
+                    continue;
+                m.TakenBack.Add(new KeyValuePair<string, double>(row.ActionId, row.TakeBack));
+                m.TakenBackTotal += row.TakeBack;
+                m.TakenBackByAuthoritativeWrite = true;
+            }
         }
 
         // ------------------------------------------------------------------
@@ -757,6 +818,9 @@ namespace Parsek
                 + (m.CarriedRemoved != 0.0 ? " carriedRemoved=" + m.CarriedRemoved.ToString("R", IC) : "")
                 + (m.DroppedOutsideEls > 0 ? " droppedOutsideEls=" + m.DroppedOutsideEls.ToString(IC) : "")
                 + (m.ClampForgiven != 0.0 ? " clampForgiven=" + m.ClampForgiven.ToString("R", IC) : "")
+                + (m.TakenBack.Count > 0
+                    ? " takenBack=" + m.TakenBack.Count.ToString(IC) + "(" + m.TakenBackTotal.ToString("R", IC) + ")"
+                    : "")
                 + (m.RowsWithoutId > 0 ? " rowsWithoutId=" + m.RowsWithoutId.ToString(IC) : "");
         }
     }

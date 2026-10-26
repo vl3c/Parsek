@@ -59,6 +59,9 @@ namespace Parsek.Patches
         /// stale value while the module had zero credited for the same subject, making
         /// one screen wrong and the other right.
         ///
+        /// The subject mirror (<see cref="CommittedMilestoneReach.TryGetMirroredSubjectScience"/>)
+        /// raises the module's total, never lowers it.
+        ///
         /// Fallback: the store path, but only when the LedgerOrchestrator is
         /// uninitialized (pre-init loads, sandbox mode). Internal static for testability.
         /// </summary>
@@ -71,6 +74,13 @@ namespace Parsek.Patches
             if (scienceModule != null && LedgerOrchestrator.IsInitialized)
             {
                 double credited = scienceModule.GetSubjectCredited(subjectId);
+                // Design 3.15 step 5 (prevention): while the KSP patch is deferred, the
+                // committed science a row earned at or before the clock counts even when the
+                // last walk stopped short of it (CommittedMilestoneReach's subject mirror).
+                double mirrored;
+                if (CommittedMilestoneReach.TryGetMirroredSubjectScience(subjectId, out mirrored)
+                    && mirrored > credited)
+                    credited = mirrored;
                 if (credited <= 0.0) return false;
                 value = (float)credited;
                 return true;
