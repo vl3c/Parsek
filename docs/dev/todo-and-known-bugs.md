@@ -752,7 +752,7 @@ onContractsLoaded (kspCurrent=4)`, each contract completes ONCE (one `'Achieve g
 DEDUPED re-fire), and the funds leak fell from 20160 to 9600. The 9600 that remains is a separate
 defect, CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED below, which keeps CS-3 red.
 
-## ~~RECOVERY-BURST-CONTRACT-SCIENCE-RECONCILE: a contract completed by a recovery makes the post-walk science reconcile log ERROR and the science patch clamp~~ [FIXED 2026-10-26 in branch `recovery-burst-reconcile`; live proof owed on CS-3 (its existing forbidden tokens). FILED 2026-10-26 off CS-3, branch `contract-param-rewards`. medium (diagnostic noise at ERROR level, transient clamp)]
+## ~~RECOVERY-BURST-CONTRACT-SCIENCE-RECONCILE: a contract completed by a recovery makes the post-walk science reconcile log ERROR and the science patch clamp~~ [FIXED 2026-10-26 in branch `recovery-burst-reconcile`; LIVE-PROVEN on CS-3 `2026-10-26_0254` PASS (zero ERROR / GUARDED / reconcile dumps, no StockPoolAdjustment rows). FILED 2026-10-26 off CS-3, branch `contract-param-rewards`. medium (diagnostic noise at ERROR level, transient clamp)]
 
 When a recovery completes a contract (CS-3's SCIENCE contract completes on the recovered Goo), the
 recovery's subject science and the contract's own `ContractReward` science land in the same 0.2 s
