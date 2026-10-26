@@ -17,6 +17,62 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~RELAUNCH-ROLLOUT-DEDUPED-AS-REVERT: relaunching the same craft within 60 s of an unadopted rollout drops the second launch's cost~~ [FILED 2026-10-26 from CS-3b's first flight (`2026-10-26_0343`); FIXED 2026-10-26 on branch `rollout-relaunch-dedup`; LIVE PROOF OWED on CS-3b after its fixture is re-harvested so the old rollout row carries a guid; product, high (a funds gain)]
+
+Observed (`logs/flights/cs-campaign/cs3b-run1-KSP.log` around line 11250): the career save's
+ledger holds an unadopted rollout row of Jumping Flea (pid 2905720181, Launch Pad, UT 347.26) from
+an earlier unrecorded launch whose vessel is gone. The lane launches the same craft again at UT
+350.34; stock charges `FundsChanged -2932 (VesselRollout)`, and Parsek logs `OnVesselRolloutSpending:
+skipping duplicate rollout - kept existing row (... deltaUT=3.080s, cost=2932.0, context=pid=2905720181
+...)`. The genuine second charge is never ledgered, so every patch then files `StockPoolAdjustment
+amount=-2932 reason=leak` with `GUARDED UPLIFT clamped resource=Funds running=9816.04 live=6884.04`,
+and LedgerGroundTruth reads funds save=6884.04 against recon=9816.04. In play: any unrecorded launch,
+recover and relaunch of the same craft from the same site inside 60 game seconds.
+
+Cause: the #710 guard (`LedgerRolloutAdoption.RolloutDuplicateMatches`) treated an unadopted rollout
+with the same persistentId, site and cost inside `RolloutDuplicateWindowSeconds = 60` as the same
+rollout. The persistentId is craft-baked and reused by every launch of the craft.
+
+Decompile (KSP 1.12.5 `Assembly-CSharp.dll`, dumps in `logs/decompile/rollout-guid/`):
+`ShipConstruction.AssembleForLaunch` sets `vessel.id = Guid.NewGuid()` for every editor launch;
+`ProtoVessel.Load` restores `vesselRef.id` from the saved `pid` value, so `FlightDriver.RevertToLaunch`
+(which reloads `PostInitState`) keeps the vessel's guid (archive run
+`2026-10-24_1023_IR-2-route-stock-revert-mid-cycle`: Kerbal X `guid=5d80f8df...` at scene entry before
+and after the Revert to Launch). But `FlightDriver.PostInit` fires `GameEvents.OnVesselRollout` (the
+event `Funding.onVesselRollout` charges on) only for `StartupBehaviours.NEW_FROM_FILE`, and
+`RevertToLaunch` sets `RESUME_SAVED_CACHE`: a Revert to Launch charges no second rollout. Every
+rollout therefore comes from a fresh editor launch with a fresh guid, so the #710 pair (two rollouts
+40 ms apart around a revert) can only have been a Revert to the editor and a relaunch, carrying two
+different guids. That double is now removed by the revert prune (`ParsekScenario.PruneRevertedFlightLedgerRows`
+drops the reverted launch's untagged rollout, which is in neither remembered entry set) before the
+relaunch is charged. The whole results archive holds one `skipping duplicate rollout` line: this
+CS-3b false positive.
+
+Fix: the rollout dedup key carries the launch guid (`|guid=<N form>`), read from the active vessel's
+`Vessel.id` in `ResolveCurrentRolloutAdoptionContext` (FlightGlobals behind a NoInlining core) and
+from `Recording.RecordedVesselGuid` for adopted rows. `ClassifyRolloutDuplicate`, shared by the write
+gate and the load-time repair pass: differing known sites are never one rollout; both guids known
+decide (equal = one launch emitted twice, differing = a genuine relaunch, written and logged as
+`recording rollout as a new launch ... verdict=GuidDiffers, existingGuid=..., newGuid=...`); a guid
+unknown on either side falls back to the #710 pid (else name) + site match (coordinator ruling
+2026-10-26, so rows written before the key carried a guid keep deduping). A swap keeps whichever
+side's guid is known on the survivor. Recording adoption (`RolloutAdoptionContextsMatch`) refuses a
+row whose known guid differs from the recording's known `RecordedVesselGuid`; an unknown guid keeps
+the pid / name match. Every dedup decision line names both guids and the verdict.
+
+Tests: `RevertDoubleRolloutTests` (CS-3b repro both written, same-guid double emission deduped,
+unknown guid on either side deduped by the pid fallback, unknown guid with differing pid kept, the
+verdict table, the key round trip, repair with equal / differing / missing guids and the swap keeping
+the anchor's guid, adoption refused on a differing guid and pid fallback on an unknown one, and the
+#710 revert-to-editor + relaunch pair left at one row by the revert prune).
+
+Live proof owed: CS-3b, once its fixture's old Jumping Flea row carries a guid (the old guid-less row
+still dedups under the fallback): no `skipping duplicate rollout`, one `recording rollout as a new
+launch` line, no `reason=leak` funds adjustment, LedgerGroundTruth funds equal. No harness lane drives
+the #710 path (a career Revert to the editor after a fresh launch, then a relaunch); only xUnit covers it.
+
+---
+
 ## WORLD-FIRST-REEARNED-AFTER-REWIND-PAID-AGAIN: a world-first milestone earned on a committed flight is paid again when a later flight re-earns it after a Rewind-to-Launch [FILED 2026-10-26 from WF-1's third flight (DLL 86028f41), branch `claude/project-thread-25edvc`; product, high (a repeatable funds gain across a rewind)]
 
 Observed (WF-1-world-first-reearned-after-rewind, host `gloops-airshow-career`): flight 1 plants a
