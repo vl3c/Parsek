@@ -16,7 +16,7 @@ PART
 {
 	part = mk1pod.v2_4294466236
 	partName = Part
-	persistentId = 1639754126
+	persistentId = 1977222776
 	pos = 0,15,0
 	attPos = 0,0,0
 	attPos0 = 0,15,0
@@ -1116,7 +1116,7 @@ PART
 {
 	part = parachuteSingle_4294458546
 	partName = Part
-	persistentId = 3365484236
+	persistentId = 667370096
 	pos = 0,15.6574574,0
 	attPos = 0,0,0
 	attPos0 = 0,0.657457352,0
@@ -1315,7 +1315,7 @@ PART
 {
 	part = GooExperiment_4294442852
 	partName = Part
-	persistentId = 37438273
+	persistentId = 1403836266
 	pos = -0.313173443,15.3144655,1.00750199E-08
 	attPos = 0,0,0
 	attPos0 = -0.313173443,0.314465523,1.00750199E-08
@@ -1507,7 +1507,7 @@ PART
 {
 	part = GooExperiment_4294442798
 	partName = Part
-	persistentId = 1591869988
+	persistentId = 4288580749
 	pos = 0.313173443,15.3144655,-3.74535105E-08
 	attPos = 0,0,0
 	attPos0 = 0.313173443,0.314465523,-3.74535105E-08
@@ -1699,7 +1699,7 @@ PART
 {
 	part = solidBooster.sm.v2_4294392496
 	partName = Part
-	persistentId = 2505514632
+	persistentId = 1931822338
 	pos = 0,13.8374624,0
 	attPos = 0,0,0
 	attPos0 = 0,-1.16253757,0
@@ -1976,7 +1976,7 @@ PART
 {
 	part = basicFin_4294378632
 	partName = Part
-	persistentId = 2658613879
+	persistentId = 4092104955
 	pos = 0,13.7189207,0.622972488
 	attPos = 0,0,0
 	attPos0 = 0,-0.118541718,0.622972488
@@ -2116,7 +2116,7 @@ PART
 {
 	part = basicFin_4294377392
 	partName = Part
-	persistentId = 2116986127
+	persistentId = 4276021654
 	pos = 0.539510012,13.7189207,-0.311486304
 	attPos = 0,0,0
 	attPos0 = 0.539510012,-0.118541718,-0.311486304
@@ -2256,7 +2256,7 @@ PART
 {
 	part = basicFin_4294377352
 	partName = Part
-	persistentId = 3598696417
+	persistentId = 1309717961
 	pos = -0.539510071,13.7189207,-0.311486244
 	attPos = 0,0,0
 	attPos0 = -0.539510071,-0.118541718,-0.311486244

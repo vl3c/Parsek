@@ -1,5 +1,5 @@
 vesselCount = 0
-UT = 349.53999999997205
+UT = 348.59999999997291
 gameMode = CAREER
 gameNull = False
 kspVersion = 1.12.5
@@ -13,4 +13,4 @@ missionIsEnded = False
 missionHistoryId = 00000000-0000-0000-0000-000000000000
 missionExpansionVersion = 
 saveMD5 = 
-lastWriteTime = 639285804653435292
+lastWriteTime = 639285850762974236

@@ -19,7 +19,7 @@ GAME
 	envInfo =  - Environment Info - Win32NT 7FFFFFFFFFFFFFFF  Args: KSP_x64.exe  - 
 	versionFull = 1.12.5.3190 (WindowsPlayer x64)
 	versionCreated = 1.12.5.3190 (WindowsPlayer x64)
-	persistentTimestamp = 2026-10-26T03:01:05.3425293Z
+	persistentTimestamp = 2026-10-26T04:17:56.2974236Z
 	RemovedROCs
 	{
 	}
@@ -277,11 +277,11 @@ GAME
 		{
 			FirstLaunch
 			{
-				completedManned = 4.8999999999999835
+				completedManned = 4.8199999999999852
 			}
 			FirstCrewToSurvive
 			{
-				completed = 345.93999999997533
+				completed = 345.33999999997587
 				crew
 				{
 					crews = Jebediah Kerman
@@ -289,25 +289,25 @@ GAME
 			}
 			RecordsAltitude
 			{
-				reached = 55.340000000003052
-				record = 12472.035786873894
+				reached = 55.240000000003036
+				record = 12467.874707910931
 			}
 			RecordsSpeed
 			{
-				reached = 12.679999999999819
-				record = 575.53486485850328
+				reached = 12.59999999999982
+				record = 575.51879395519791
 			}
 			RecordsDistance
 			{
-				reached = 3.880000000000003
+				reached = 3.8000000000000029
 				record = 756.31001438191061
 			}
 			Kerbin
 			{
-				reached = 343.37999999997766
+				reached = 342.93999999997806
 				Landing
 				{
-					completedManned = 343.37999999997766
+					completedManned = 342.93999999997806
 					vessel
 					{
 						name = Jumping Flea
@@ -320,7 +320,7 @@ GAME
 				}
 				Science
 				{
-					completedManned = 345.93999999997533
+					completedManned = 345.33999999997587
 					vessel
 					{
 						name = Jumping Flea
@@ -704,7 +704,7 @@ GAME
 	{
 		name = ContractSystem
 		scene = 7, 8, 5, 6
-		update = 349.23999999997233
+		update = 348.29999999997318
 		version = 1.12.5
 		WEIGHTS
 		{
@@ -802,21 +802,111 @@ GAME
 			}
 			CONTRACT
 			{
-				guid = ced509c1-e231-43c0-97e8-5dcd6e408901
+				guid = 13df6ab8-e59a-4731-8379-86cd45e3412e
+				type = SurveyContract
+				prestige = 0
+				seed = 790942442
+				state = Offered
+				viewed = Unseen
+				agent = Goliath National Products
+				agentName = Goliath National Products
+				deadlineType = Floating
+				expiryType = Floating
+				values = 86400,46008000,7500,13912.4993681908,7874.99964237213,0,1.904762,2,86404.82,0,0,0
+				targetBody = 1
+				centerLatitude = 6.757593031596695
+				centerLongitude = -70.582929702682264
+				dataName = observational
+				anomalyName = inconsistencies
+				reportName = reports
+				locationName = Kerbin^N
+				focusedSurvey = True
+				targetBand = HIGH
+				contextual = False
+				PARAM
+				{
+					name = SurveyWaypointParameter
+					state = Incomplete
+					values = 0,0,0,0,0
+					targetBody = 1
+					actionDescription = Take a crew report
+					experiment = crewReport
+					flightThreshold = 18000
+					band = 3
+					clusterState = MIXED
+					verified = True
+					contextual = False
+					wpSeed = 1545390643
+					wpIndex = 0
+					wpTexture = report
+					wpLatitude = 6.7575905722926812
+					wpLongitude = -70.582934257455193
+					wpLandlocked = False
+					wpNavigationId = 8cc3ae96-de34-457d-8de6-88c803f13614
+				}
+			}
+			CONTRACT
+			{
+				guid = 313b4a57-b362-4b3f-9cc0-34bcae7f843e
+				type = SurveyContract
+				prestige = 0
+				seed = 790942454
+				state = Offered
+				viewed = Unseen
+				agent = Rokea Inc
+				agentName = Rokea Inc
+				deadlineType = Floating
+				expiryType = Floating
+				values = 97968.0651114881,41734395.7374939,8033.99948215485,14903.0683626032,8111.24940633775,0,1.960241,2,97972.8851114881,0,0,0
+				targetBody = 1
+				centerLatitude = 4.3942457239700774
+				centerLongitude = -75.19840804156587
+				dataName = observational
+				anomalyName = inconsistencies
+				reportName = reports
+				locationName = Kerbin^N
+				focusedSurvey = True
+				targetBand = HIGH
+				contextual = False
+				PARAM
+				{
+					name = SurveyWaypointParameter
+					state = Incomplete
+					values = 0,0,0,0,0
+					targetBody = 1
+					actionDescription = Take a crew report
+					experiment = crewReport
+					flightThreshold = 18000
+					band = 3
+					clusterState = MIXED
+					verified = True
+					contextual = False
+					wpSeed = -281111431
+					wpIndex = 0
+					wpTexture = report
+					wpLatitude = 4.3942496302219132
+					wpLongitude = -75.198402843118359
+					wpLandlocked = False
+					wpNavigationId = a08051a9-6fc6-4510-9bc9-73e101e1c27e
+				}
+			}
+			CONTRACT
+			{
+				guid = 1a9762e8-8c97-495b-b451-ad62726c08cb
 				type = PartTest
 				prestige = 0
-				seed = 1464813259
+				seed = 790942467
 				state = Offered
 				viewed = Unseen
 				agent = Periapsis Rocket Supplies Co
 				agentName = Periapsis Rocket Supplies Co
 				deadlineType = Floating
 				expiryType = Floating
-				values = 43200,9201600,1800,4500,1800,1,1,1,43204.9,0,0,0
+				values = 21600,9201600,9000,22500,9000,3,6,4,21604.82,0,0,0
 				part = solidBooster.v2
 				haul = False
 				dest = 1
-				sit = PRELAUNCH
+				sit = FLYING
 				exp = True
 				PARAM
 				{
@@ -825,58 +915,8 @@ GAME
 					values = 0,0,0,0,0
 					part = solidBooster.v2
 					body = Kerbin
-					situation = PRELAUNCH
-					uniqueID = 0.48832152620345459
-					haul = False
-					repeatability = ONCEPERPART
-					notes = To perform the test, activate the part through the staging sequence when all test conditions are met.
-					PARAM
-					{
-						name = ReachDestination
-						state = Incomplete
-						disableOnStateChange = False
-						values = 0,0,0,0,0
-						dest = 1
-						title = 
-					}
-					PARAM
-					{
-						name = ReachSituation
-						state = Incomplete
-						disableOnStateChange = False
-						values = 0,0,0,0,0
-						sit = PRELAUNCH
-						title = 
-					}
-				}
-			}
-			CONTRACT
-			{
-				guid = 484058dc-0c9c-46bc-9216-eaccce63a70b
-				type = PartTest
-				prestige = 0
-				seed = 1464813289
-				state = Offered
-				viewed = Unseen
-				agent = FreeFall Parachutes
-				agentName = FreeFall Parachutes
-				deadlineType = Floating
-				expiryType = Floating
-				values = 45359.9979400635,9661679.56123352,9269.99974250793,23174.9993562698,9269.99974250793,3,5.233821,3.59389,45364.8979400635,0,0,0
-				part = parachuteSingle
-				haul = False
-				dest = 1
-				sit = FLYING
-				exp = False
-				PARAM
-				{
-					name = PartTest
-					state = Incomplete
-					values = 0,0,0,0,0
-					part = parachuteSingle
-					body = Kerbin
 					situation = FLYING
-					uniqueID = 0.66518749746735606
+					uniqueID = 0.77449567978014089
 					haul = False
 					repeatability = ONCEPERPART
 					notes = To perform the test, activate the part through the staging sequence when all test conditions are met.
@@ -904,8 +944,8 @@ GAME
 						state = Incomplete
 						disableOnStateChange = False
 						values = 0,0,0,0,0
-						minAlt = 3000
-						maxAlt = 10000
+						minAlt = 36000
+						maxAlt = 41000
 					}
 					PARAM
 					{
@@ -913,73 +953,28 @@ GAME
 						state = Incomplete
 						disableOnStateChange = False
 						values = 0,0,0,0,0
-						minSpd = 80
-						maxSpd = 260
+						minSpd = 260
+						maxSpd = 390
 					}
 				}
 			}
 			CONTRACT
 			{
-				guid = 14dd75de-fcf4-4ffa-aa89-09e9a25607d9
-				type = SurveyContract
-				prestige = 0
-				seed = 1464813292
-				state = Offered
-				viewed = Unseen
-				agent = Kerbal Motion LLC
-				agentName = Kerbal Motion LLC
-				deadlineType = Floating
-				expiryType = Floating
-				values = 86400,46008000,7500,13250,7500,0,2,2,86404.9,0,0,0
-				targetBody = 1
-				centerLatitude = -4.7201064160120767
-				centerLongitude = -73.494673226360121
-				dataName = observational
-				anomalyName = inconsistencies
-				reportName = reports
-				locationName = Kerbin^N
-				focusedSurvey = True
-				targetBand = LOW
-				contextual = False
-				PARAM
-				{
-					name = SurveyWaypointParameter
-					state = Incomplete
-					values = 0,0,0,0,0
-					targetBody = 1
-					actionDescription = Take a crew report
-					experiment = crewReport
-					flightThreshold = 16700
-					band = 2
-					clusterState = MIXED
-					verified = True
-					contextual = False
-					wpSeed = 902343637
-					wpIndex = 0
-					wpTexture = report
-					wpLatitude = -4.720039295055007
-					wpLongitude = -73.494698353207056
-					wpLandlocked = False
-					wpNavigationId = 287cbc59-765f-446a-b28f-ac2278be763b
-				}
-			}
-			CONTRACT
-			{
-				guid = b3a50f87-820c-480d-ace9-32e55b7fefd5
+				guid = 59f5e111-df59-4b50-97de-286a66cd875b
 				type = PartTest
 				prestige = 0
-				seed = 1464813296
+				seed = 790942472
 				state = Offered
 				viewed = Unseen
 				agent = Jebediah Kerman's Junkyard and Spacecraft Parts Co
 				agentName = Jebediah Kerman's Junkyard and Spacecraft Parts Co
 				deadlineType = Floating
 				expiryType = Floating
-				values = 40754.7137260437,8680754.02364731,4999.9999165535,13124.9991849065,5669.99974250793,2,4.275631,2.941176,40759.6137260437,0,0,0
+				values = 20377.3568630219,8680754.02364731,1666.66663885117,4374.99972830216,1889.99991416931,1,1.068908,0.9803922,20382.1768630219,0,0,0
 				part = liquidEngine2.v2
 				haul = False
 				dest = 1
-				sit = SPLASHED
+				sit = PRELAUNCH
 				exp = True
 				PARAM
 				{
@@ -988,8 +983,8 @@ GAME
 					values = 0,0,0,0,0
 					part = liquidEngine2.v2
 					body = Kerbin
-					situation = SPLASHED
-					uniqueID = 0.0047764540672192634
+					situation = PRELAUNCH
+					uniqueID = 0.87508953822548075
 					haul = False
 					repeatability = ONCEPERPART
 					notes = To perform the test, activate the part through the staging sequence when all test conditions are met.
@@ -1008,243 +1003,27 @@ GAME
 						state = Incomplete
 						disableOnStateChange = False
 						values = 0,0,0,0,0
-						sit = SPLASHED
+						sit = PRELAUNCH
 						title = 
 					}
 				}
 			}
 			CONTRACT
 			{
-				guid = c504a336-1171-46e2-9ed7-417a654b3b5b
+				guid = 5ea15576-3b77-4520-b323-0e8d7abfaa73
 				type = SurveyContract
 				prestige = 0
-				seed = 1464813300
-				state = Offered
-				viewed = Unseen
-				agent = Kerbal Motion LLC
-				agentName = Kerbal Motion LLC
-				deadlineType = Floating
-				expiryType = Floating
-				values = 21600,46008000,7500,13250,7500,0,2,2,21604.9,0,0,0
-				targetBody = 1
-				centerLatitude = -1.3465062213484382
-				centerLongitude = -72.232545762266739
-				dataName = observational
-				anomalyName = inconsistencies
-				reportName = reports
-				locationName = Kerbin^N
-				focusedSurvey = True
-				targetBand = HIGH
-				contextual = False
-				PARAM
-				{
-					name = SurveyWaypointParameter
-					state = Incomplete
-					values = 0,0,0,0,0
-					targetBody = 1
-					actionDescription = Take a crew report
-					experiment = crewReport
-					flightThreshold = 18400
-					band = 3
-					clusterState = MIXED
-					verified = True
-					contextual = False
-					wpSeed = 1231171148
-					wpIndex = 0
-					wpTexture = report
-					wpLatitude = -1.3465277596360254
-					wpLongitude = -72.232529749169942
-					wpLandlocked = False
-					wpNavigationId = ecc8ff3f-a846-4d81-9086-a051af54f0aa
-				}
-			}
-			CONTRACT
-			{
-				guid = ea053236-f22a-43b7-a70e-44ed3245a65b
-				type = PartTest
-				prestige = 1
-				seed = 1464813332
-				state = Offered
-				viewed = Unseen
-				agent = Periapsis Rocket Supplies Co
-				agentName = Periapsis Rocket Supplies Co
-				deadlineType = Floating
-				expiryType = Floating
-				values = 21600,9201600,8438,21094,8438,2,5,4,21604.9,0,0,0
-				part = solidBooster.sm.v2
-				haul = True
-				dest = 1
-				sit = FLYING
-				exp = False
-				PARAM
-				{
-					name = PartTest
-					state = Incomplete
-					values = 0,0,0,0,0
-					part = solidBooster.sm.v2
-					body = Kerbin
-					situation = FLYING
-					uniqueID = 0.57035501234715613
-					haul = True
-					repeatability = ONCEPERPART
-				}
-				PARAM
-				{
-					name = ReachDestination
-					state = Incomplete
-					disableOnStateChange = False
-					values = 0,0,0,0,0
-					dest = 1
-					title = 
-				}
-				PARAM
-				{
-					name = ReachSituation
-					state = Incomplete
-					disableOnStateChange = False
-					values = 0,0,0,0,0
-					sit = FLYING
-					title = 
-				}
-				PARAM
-				{
-					name = ReachAltitudeEnvelope
-					state = Incomplete
-					disableOnStateChange = False
-					values = 0,0,0,0,0
-					minAlt = 10000
-					maxAlt = 13000
-				}
-				PARAM
-				{
-					name = ReachSpeedEnvelope
-					state = Incomplete
-					disableOnStateChange = False
-					values = 0,0,0,0,0
-					minSpd = 210
-					maxSpd = 300
-				}
-			}
-			CONTRACT
-			{
-				guid = c2f40eaf-4729-4b15-87d8-f9cfe2830cb3
-				type = PartTest
-				prestige = 1
-				seed = 1464813347
-				state = Offered
-				viewed = Unseen
-				agent = O.M.B. Demolition Enterprises
-				agentName = O.M.B. Demolition Enterprises
-				deadlineType = Floating
-				expiryType = Floating
-				values = 43200,9201600,18000,49500.0010728836,19800.0004291534,6,10.90909,9,43204.9,0,0,0
-				part = Decoupler.1
-				haul = False
-				dest = 1
-				sit = SUB_ORBITAL
-				exp = True
-				PARAM
-				{
-					name = PartTest
-					state = Incomplete
-					values = 0,0,0,0,0
-					part = Decoupler.1
-					body = Kerbin
-					situation = SUB_ORBITAL
-					uniqueID = 0.83959949428197034
-					haul = False
-					repeatability = ONCEPERPART
-					notes = To perform the test, activate the part through the staging sequence when all test conditions are met.
-					PARAM
-					{
-						name = ReachDestination
-						state = Incomplete
-						disableOnStateChange = False
-						values = 0,0,0,0,0
-						dest = 1
-						title = 
-					}
-					PARAM
-					{
-						name = ReachSituation
-						state = Incomplete
-						disableOnStateChange = False
-						values = 0,0,0,0,0
-						sit = SUB_ORBITAL
-						title = 
-					}
-					PARAM
-					{
-						name = ReachAltitudeEnvelope
-						state = Incomplete
-						disableOnStateChange = False
-						values = 0,0,0,0,0
-						minAlt = 220000
-						maxAlt = 230000
-					}
-				}
-			}
-			CONTRACT
-			{
-				guid = 86faa486-0b6c-47dd-bf3d-ffcfa6a0cead
-				type = SurveyContract
-				prestige = 0
-				seed = 1465093784
-				state = Offered
-				viewed = Unseen
-				agent = Kerbal Motion LLC
-				agentName = Kerbal Motion LLC
-				deadlineType = Floating
-				expiryType = Floating
-				values = 21600,46008000,7500,13250,7500,0,2,2,21604.92,0,0,0
-				targetBody = 1
-				centerLatitude = 1.7240588350101655
-				centerLongitude = -70.701404541259052
-				dataName = observational
-				anomalyName = inconsistencies
-				reportName = reports
-				locationName = Kerbin^N
-				focusedSurvey = True
-				targetBand = LOW
-				contextual = False
-				PARAM
-				{
-					name = SurveyWaypointParameter
-					state = Incomplete
-					values = 0,0,0,0,0
-					targetBody = 1
-					actionDescription = Take a crew report
-					experiment = crewReport
-					flightThreshold = 16400
-					band = 2
-					clusterState = MIXED
-					verified = True
-					contextual = False
-					wpSeed = 1882513434
-					wpIndex = 0
-					wpTexture = report
-					wpLatitude = 1.7240964459939205
-					wpLongitude = -70.701488463244175
-					wpLandlocked = False
-					wpNavigationId = b852b867-37df-44be-94a9-4395d82afee8
-				}
-			}
-			CONTRACT
-			{
-				guid = d33c8dca-2d0f-4819-9878-b80f3c64f2e3
-				type = SurveyContract
-				prestige = 0
-				seed = 154874845
+				seed = 790942474
 				state = Offered
 				viewed = Unseen
 				agent = FLOOYD Dynamics Research Labs
 				agentName = FLOOYD Dynamics Research Labs
 				deadlineType = Floating
 				expiryType = Floating
-				values = 64800,46008000,7500,13912.4993681908,7874.99964237213,0,1.904762,2,65145.94,0,0,0
+				values = 21600,46008000,7500,13912.4993681908,7874.99964237213,0,1.904762,2,21604.82,0,0,0
 				targetBody = 1
-				centerLatitude = 2.4250231199250778
-				centerLongitude = -64.307642625734999
+				centerLatitude = -3.1795689772684641
+				centerLongitude = -76.321652096804826
 				dataName = observational
 				anomalyName = inconsistencies
 				reportName = reports
@@ -1265,13 +1044,230 @@ GAME
 					clusterState = MIXED
 					verified = True
 					contextual = False
-					wpSeed = 964088702
+					wpSeed = 451716629
 					wpIndex = 0
 					wpTexture = report
-					wpLatitude = 2.4249996440147701
-					wpLongitude = -64.307600084552547
+					wpLatitude = -3.1795292536531687
+					wpLongitude = -76.321612690271891
 					wpLandlocked = False
-					wpNavigationId = e277a374-0437-42ee-a6de-5b79b7242a89
+					wpNavigationId = 270c6f90-4820-4065-a09b-518a41dbf8f0
+				}
+			}
+			CONTRACT
+			{
+				guid = 8f4a1cf7-ba74-4cfe-a268-f7ca364910f3
+				type = PartTest
+				prestige = 1
+				seed = 790942480
+				state = Offered
+				viewed = Unseen
+				agent = FreeFall Parachutes
+				agentName = FreeFall Parachutes
+				deadlineType = Floating
+				expiryType = Floating
+				values = 47520.0010299683,10121760.2193832,11925.0006973743,29812.5017434359,11925.0006973743,4,6.125949,4.058442,47524.8210299683,0,0,0
+				part = parachuteSingle
+				haul = False
+				dest = 1
+				sit = FLYING
+				exp = False
+				PARAM
+				{
+					name = PartTest
+					state = Incomplete
+					values = 0,0,0,0,0
+					part = parachuteSingle
+					body = Kerbin
+					situation = FLYING
+					uniqueID = 0.1411742307903126
+					haul = False
+					repeatability = ONCEPERPART
+					notes = To perform the test, activate the part through the staging sequence when all test conditions are met.
+					PARAM
+					{
+						name = ReachDestination
+						state = Incomplete
+						disableOnStateChange = False
+						values = 0,0,0,0,0
+						dest = 1
+						title = 
+					}
+					PARAM
+					{
+						name = ReachSituation
+						state = Incomplete
+						disableOnStateChange = False
+						values = 0,0,0,0,0
+						sit = FLYING
+						title = 
+					}
+					PARAM
+					{
+						name = ReachAltitudeEnvelope
+						state = Incomplete
+						disableOnStateChange = False
+						values = 0,0,0,0,0
+						minAlt = 11000
+						maxAlt = 14000
+					}
+					PARAM
+					{
+						name = ReachSpeedEnvelope
+						state = Incomplete
+						disableOnStateChange = False
+						values = 0,0,0,0,0
+						minSpd = 160
+						maxSpd = 230
+					}
+				}
+			}
+			CONTRACT
+			{
+				guid = 9baa90d2-0cda-4fa2-acd1-c68c8d1aff4f
+				type = PartTest
+				prestige = 1
+				seed = 790942482
+				state = Offered
+				viewed = Unseen
+				agent = Periapsis Rocket Supplies Co
+				agentName = Periapsis Rocket Supplies Co
+				deadlineType = Floating
+				expiryType = Floating
+				values = 43200,9201600,22500,56250,22500,8,15,11,43204.82,0,0,0
+				part = solidBooster.sm.v2
+				haul = False
+				dest = 1
+				sit = ORBITING
+				exp = False
+				PARAM
+				{
+					name = PartTest
+					state = Incomplete
+					values = 0,0,0,0,0
+					part = solidBooster.sm.v2
+					body = Kerbin
+					situation = ORBITING
+					uniqueID = 0.043740161714954408
+					haul = False
+					repeatability = ONCEPERPART
+					notes = To perform the test, activate the part through the staging sequence when all test conditions are met.
+					PARAM
+					{
+						name = ReachDestination
+						state = Incomplete
+						disableOnStateChange = False
+						values = 0,0,0,0,0
+						dest = 1
+						title = 
+					}
+					PARAM
+					{
+						name = ReachSituation
+						state = Incomplete
+						disableOnStateChange = False
+						values = 0,0,0,0,0
+						sit = ORBITING
+						title = 
+					}
+					PARAM
+					{
+						name = ReachAltitudeEnvelope
+						state = Incomplete
+						disableOnStateChange = False
+						values = 0,0,0,0,0
+						minAlt = 450000
+						maxAlt = 460000
+					}
+				}
+			}
+			CONTRACT
+			{
+				guid = b144aaa8-124d-4c9a-b039-03f7a2d17346
+				type = SurveyContract
+				prestige = 0
+				seed = 791227713
+				state = Offered
+				viewed = Unseen
+				agent = WinterOwl Aircraft Emporium
+				agentName = WinterOwl Aircraft Emporium
+				deadlineType = Floating
+				expiryType = Floating
+				values = 105365.856170654,44885854.7286987,7042.25331544876,13063.3793069094,7874.99964237213,0,2.018724,1.941748,105370.696170654,0,0,0
+				targetBody = 1
+				centerLatitude = -3.6533876031078321
+				centerLongitude = -76.63764884854038
+				dataName = observational
+				anomalyName = inconsistencies
+				reportName = reports
+				locationName = Kerbin^N
+				focusedSurvey = True
+				targetBand = HIGH
+				contextual = False
+				PARAM
+				{
+					name = SurveyWaypointParameter
+					state = Incomplete
+					values = 0,0,0,0,0
+					targetBody = 1
+					actionDescription = Take a crew report
+					experiment = crewReport
+					flightThreshold = 17800
+					band = 3
+					clusterState = MIXED
+					verified = True
+					contextual = False
+					wpSeed = 1069187709
+					wpIndex = 0
+					wpTexture = report
+					wpLatitude = -3.6534007731566538
+					wpLongitude = -76.637657934653234
+					wpLandlocked = False
+					wpNavigationId = ba4d1ffb-c5e1-495d-b2bf-cd3be6e7b376
+				}
+			}
+			CONTRACT
+			{
+				guid = 23918c0f-c348-4606-af4c-ee1c4e885a4d
+				type = SurveyContract
+				prestige = 0
+				seed = 2076560412
+				state = Offered
+				viewed = Unseen
+				agent = Kerbal Motion LLC
+				agentName = Kerbal Motion LLC
+				deadlineType = Floating
+				expiryType = Floating
+				values = 64800,46008000,7500,13250,7500,0,2,2,65145.34,0,0,0
+				targetBody = 1
+				centerLatitude = 1.1177284828311842
+				centerLongitude = -76.933286916354163
+				dataName = observational
+				anomalyName = inconsistencies
+				reportName = reports
+				locationName = Kerbin^N
+				focusedSurvey = True
+				targetBand = LOW
+				contextual = False
+				PARAM
+				{
+					name = SurveyWaypointParameter
+					state = Incomplete
+					values = 0,0,0,0,0
+					targetBody = 1
+					actionDescription = Take a crew report
+					experiment = crewReport
+					flightThreshold = 18200
+					band = 2
+					clusterState = MIXED
+					verified = True
+					contextual = False
+					wpSeed = 1977036671
+					wpIndex = 0
+					wpTexture = report
+					wpLatitude = 1.1177159865548838
+					wpLongitude = -76.933284116120731
+					wpLandlocked = False
+					wpNavigationId = 197ebeb0-a8b5-4dfc-a9cd-6a3caeb302d8
 				}
 			}
 			CONTRACT_FINISHED
@@ -1287,7 +1283,7 @@ GAME
 				deadlineType = None
 				expiryType = Floating
 				ignoresWeight = True
-				values = 43200,0,1120,2080,1120,1,1,0,43200.06,0.76,0,0
+				values = 43200,0,1120,2080,1120,1,1,0,43200.06,0.6,0,0
 				targetBody = 1
 				bodyRatio = 0
 				PARAM
@@ -1313,7 +1309,7 @@ GAME
 				deadlineType = None
 				expiryType = Floating
 				ignoresWeight = True
-				values = 86400,0,2240,4160,2240,1,2,0,86400.06,0.8,0,0
+				values = 86400,0,2240,4160,2240,1,2,0,86400.06,0.64,0,0
 				targetBody = 1
 				bodyRatio = 0
 				PARAM
@@ -1462,36 +1458,36 @@ GAME
 		name = ParsekScenario
 		scene = 7, 5, 8, 6
 		gameStateEventCount = 20
-		saveStamp = d4c07a19f9b3405cbab246cb9d7fdeb4
+		saveStamp = 6e489c8e84a74412ae3bf994edc61de7
 		RECORDING_TREE
 		{
-			id = 1f79228e54064db99f1a1a59be5cc198
+			id = fc1ad3c0a1984f36bce1cde9ce519d87
 			treeName = Jumping Flea
-			rootRecordingId = 57d3addd50de4feb8e537e4e421a4f66
+			rootRecordingId = 71288de785d2472ea60da273f42ce1c6
 			treeFormatVersion = 0
 			recordingSchemaGeneration = 4
-			activeRecordingId = 57d3addd50de4feb8e537e4e421a4f66
+			activeRecordingId = 71288de785d2472ea60da273f42ce1c6
 			autoGeneratedRootGroupName = Jumping Flea
 			RECORDING
 			{
-				recordingId = 57d3addd50de4feb8e537e4e421a4f66
+				recordingId = 71288de785d2472ea60da273f42ce1c6
 				vesselName = Jumping Flea
-				treeId = 1f79228e54064db99f1a1a59be5cc198
+				treeId = fc1ad3c0a1984f36bce1cde9ce519d87
 				treeOrder = 0
 				vesselPersistentId = 2905720181
-				recordedVesselGuid = 8e68ba9898ed437dab978746b4b9b468
-				explicitStartUT = 3.7600000000000029
-				explicitEndUT = 345.79999999997546
+				recordedVesselGuid = bcfbf17ea55b40c3987dd3512612f9f5
+				explicitStartUT = 3.6800000000000028
+				explicitEndUT = 345.179999999976
 				terminalState = 5
 				endpointPhase = 1
 				endpointBodyName = Kerbin
-				terrainHeightAtEnd = 67.342005540966056
+				terrainHeightAtEnd = 67.314594027819112
 				recordingFormatVersion = 1
 				recordingSchemaGeneration = 4
 				ghostSnapshotMode = Separate
 				sidecarEpoch = 3
-				precHash = 8dadbc9921622f3f
-				ghostHash = 84303bc3dc98a8cd
+				precHash = f960016f597580c3
+				ghostHash = d7b52e6c629a3d97
 				loopPlayback = False
 				loopIntervalSeconds = 10
 				segmentPhase = surface
@@ -1505,21 +1501,21 @@ GAME
 				rewindResFunds = 0
 				rewindResSci = 0
 				rewindResRep = 0
-				lastResIdx = 487
-				pointCount = 488
+				lastResIdx = 551
+				pointCount = 552
 				recordingGroup = Jumping Flea
-				maxDist = 12404.805465170608
+				maxDist = 12400.6294324514
 				crewEndStatesResolved = True
 				TERMINAL_POSITION
 				{
 					body = Kerbin
-					lat = -0.095609862225847428
-					lon = -74.592076681671429
-					alt = 67.886422862648033
-					rotX = 0.190068439
-					rotY = -0.3559898
-					rotZ = 0.2805257
-					rotW = 0.870890737
+					lat = -0.095618899955713543
+					lon = -74.592178498420978
+					alt = 67.845492241205648
+					rotX = -0.1370775
+					rotY = -0.05627265
+					rotZ = -0.218758628
+					rotW = -0.964462459
 					rotationRecorded = True
 					situation = 0
 				}
@@ -1578,8 +1574,8 @@ GAME
 		}
 		MISSION
 		{
-			id = 5fe57f3f99094cafb8c74e07def95de7
-			treeId = 1f79228e54064db99f1a1a59be5cc198
+			id = 1e0d59e0635b408484fd95db06fb2e41
+			treeId = fc1ad3c0a1984f36bce1cde9ce519d87
 			name = Jumping Flea
 			loopPlayback = False
 			loopIntervalSeconds = 10
@@ -1590,22 +1586,22 @@ GAME
 		}
 		MILESTONE_STATE
 		{
-			id = 9ce1920e177e44c19472c117a7766232
+			id = dbc6501fa9c94eb0a00414edfd344775
 			lastReplayedIdx = 1
 		}
 		MILESTONE_STATE
 		{
-			id = 384cc617ae724f35afd6ce5defbc8140
+			id = b822262d7b304bc1aec06f4c1d5041fa
 			lastReplayedIdx = 5
 		}
 		MILESTONE_STATE
 		{
-			id = 7f30b8dcf02d4029988c5eab303ad75b
+			id = a7b44b91ba1548df900e16f78fec3e4d
 			lastReplayedIdx = 4
 		}
 		MILESTONE_STATE
 		{
-			id = 740714b0d4dd491f97e4bdfbd1887573
+			id = ccb775fedd11416fb9bf8aa066511189
 			lastReplayedIdx = 0
 		}
 		GAME_STATE
@@ -1637,9 +1633,9 @@ GAME
 				}
 				GAME_ACTION
 				{
-					ut = 0.76000000000000034
+					ut = 0.6000000000000002
 					type = 5
-					actionId = act_5152a7ad573f4321be8ba922567ef31e
+					actionId = act_3c737152e67f4b75a627b7896fbe917d
 					seq = 1
 					cseq = 2
 					contractId = a5a1f217-d79b-4ef9-8122-f051ecdd1681
@@ -1650,9 +1646,9 @@ GAME
 				}
 				GAME_ACTION
 				{
-					ut = 0.80000000000000038
+					ut = 0.64000000000000024
 					type = 5
-					actionId = act_a77a2d7d288d4e9e9575696742ddd847
+					actionId = act_4214dc84a049493f81e10918328ea5e7
 					seq = 2
 					cseq = 3
 					contractId = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
@@ -1663,10 +1659,10 @@ GAME
 				}
 				GAME_ACTION
 				{
-					ut = 1.1400000000000006
+					ut = 0.98000000000000054
 					type = 3
-					actionId = act_b5d88ff74ae2411281d122e7197b936b
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					actionId = act_ae86209d2a5544709f747f7578db39c3
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					seq = 3
 					cseq = 6
 					fundsSpent = 2932
@@ -1674,10 +1670,10 @@ GAME
 				}
 				GAME_ACTION
 				{
-					ut = 4.2999999999999963
+					ut = 4.219999999999998
 					type = 4
-					actionId = act_2954cbbbbb4f485f8a6929c94ea932f1
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					actionId = act_32572f3d6597402ebe0f117e37d05111
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					seq = 1
 					cseq = 10
 					milestoneId = RecordsSpeed
@@ -1688,10 +1684,10 @@ GAME
 				}
 				GAME_ACTION
 				{
-					ut = 4.8999999999999835
+					ut = 4.8199999999999852
 					type = 40
-					actionId = act_2a338a3fbe1e486b834ff7f6f8c58629
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					actionId = act_a26c828a6bdd4a03934af3fe0fac7b3d
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					seq = 2
 					cseq = 14
 					contractId = a5a1f217-d79b-4ef9-8122-f051ecdd1681
@@ -1703,10 +1699,10 @@ GAME
 				}
 				GAME_ACTION
 				{
-					ut = 4.8999999999999835
+					ut = 4.8199999999999852
 					type = 6
-					actionId = act_46eb2e7525354ab0829170ac1b2bc5ca
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					actionId = act_9f9782a166354715bb9e7f5d83e82912
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					seq = 3
 					cseq = 15
 					contractId = a5a1f217-d79b-4ef9-8122-f051ecdd1681
@@ -1717,10 +1713,10 @@ GAME
 				}
 				GAME_ACTION
 				{
-					ut = 4.8999999999999835
+					ut = 4.8199999999999852
 					type = 4
-					actionId = act_ec8309adc3d2448db2650063a49872ed
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					actionId = act_dfdc4d0d37884cc2916c58f3d81d688d
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					seq = 4
 					cseq = 16
 					milestoneId = FirstLaunch
@@ -1730,10 +1726,10 @@ GAME
 				}
 				GAME_ACTION
 				{
-					ut = 7.7199999999999234
+					ut = 7.6399999999999251
 					type = 4
-					actionId = act_3f7e60edb8e44caca2ea00b0ca88e168
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					actionId = act_64504bf8a7b945e69a7430de21e506ba
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					seq = 5
 					cseq = 24
 					milestoneId = RecordsAltitude
@@ -1744,10 +1740,10 @@ GAME
 				}
 				GAME_ACTION
 				{
-					ut = 343.37999999997766
+					ut = 342.93999999997806
 					type = 4
-					actionId = act_3ffacdb11fae4eadb93ce844926262be
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					actionId = act_d45390f230de4113872855c5b07f43e2
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					seq = 6
 					cseq = 34
 					milestoneId = Kerbin/Landing
@@ -1757,25 +1753,25 @@ GAME
 				}
 				GAME_ACTION
 				{
-					ut = 3.7600000000000029
+					ut = 3.6800000000000028
 					type = 11
-					actionId = act_270581e3d66b48a2b656a6e58de6ba69
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					actionId = act_36599f637cd14d9d90c3e7b1b2edda2a
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					seq = 1
 					cseq = 36
 					kerbalName = Jebediah Kerman
 					kerbalRole = Pilot
-					startUT = 3.76
-					endUT = 345.8
+					startUT = 3.68
+					endUT = 345.18
 					endState = 2
 					xpGained = 0
 				}
 				GAME_ACTION
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 4
-					actionId = act_bc3a112184ba42d6adc4e343f3404c40
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					actionId = act_dd91dd76578942eb845eec1bf937b711
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					seq = 4
 					cseq = 37
 					milestoneId = FirstCrewToSurvive
@@ -1785,10 +1781,10 @@ GAME
 				}
 				GAME_ACTION
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 35
-					actionId = act_fe470e72e68343cdaf6e4a4fd6583992
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					actionId = act_43835eee6c06498a9d7b5e5fca97b962
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					seq = 5
 					cseq = 39
 					vesselName = Jumping Flea
@@ -1796,10 +1792,10 @@ GAME
 				}
 				GAME_ACTION
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 31
-					actionId = act_d04a77317bc84a7fb329bfd9e1b331f7
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					actionId = act_57225f1c94584031b4ed784c7c44d2dc
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					seq = 6
 					cseq = 41
 					kerbalName = Jebediah Kerman
@@ -1808,9 +1804,9 @@ GAME
 				}
 				GAME_ACTION
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 40
-					actionId = act_1b00fa451712429b9373085f5c05b773
+					actionId = act_eab6745c98424c26835a42a76e59975c
 					seq = 7
 					cseq = 46
 					contractId = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
@@ -1822,9 +1818,9 @@ GAME
 				}
 				GAME_ACTION
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 6
-					actionId = act_3614eab17d9f4a9b802dd3bfff39554f
+					actionId = act_fb7dfe0549414b6d9047f06e65c99813
 					seq = 8
 					cseq = 47
 					contractId = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
@@ -1835,10 +1831,10 @@ GAME
 				}
 				GAME_ACTION
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 4
-					actionId = act_6ba1f22cc71b400dbb435826ea023841
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					actionId = act_6515f744701c4985950c6849fdec7300
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					seq = 9
 					cseq = 48
 					milestoneId = Kerbin/Science
@@ -1848,10 +1844,10 @@ GAME
 				}
 				GAME_ACTION
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 0
-					actionId = act_6e7bdd3563904595a77e5e58966b36bb
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					actionId = act_609ca2074d8f416c8e4c858e35fe5af9
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					seq = 10
 					cseq = 51
 					subjectId = crewReport@KerbinFlyingLowShores
@@ -1859,15 +1855,15 @@ GAME
 					method = 1
 					transmitScalar = 0
 					subjectMaxValue = 3.5
-					startUT = 345.94
-					endUT = 345.94
+					startUT = 345.34
+					endUT = 345.34
 				}
 				GAME_ACTION
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 0
-					actionId = act_85c5385e5a1b48e49b45a15643d768a1
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					actionId = act_a30db58c007347989b1998f6b62d1ce4
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					seq = 11
 					cseq = 53
 					subjectId = mysteryGoo@KerbinSrfLandedLaunchPad
@@ -1875,15 +1871,15 @@ GAME
 					method = 1
 					transmitScalar = 0
 					subjectMaxValue = 3.9
-					startUT = 345.94
-					endUT = 345.94
+					startUT = 345.34
+					endUT = 345.34
 				}
 				GAME_ACTION
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 0
-					actionId = act_bf72819262d44ba3b956dc750e669f83
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					actionId = act_9077aacbc47c481f94aae7bf5ff9a00a
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					seq = 12
 					cseq = 54
 					subjectId = mysteryGoo@KerbinFlyingLow
@@ -1891,15 +1887,15 @@ GAME
 					method = 1
 					transmitScalar = 0
 					subjectMaxValue = 9.099999
-					startUT = 345.94
-					endUT = 345.94
+					startUT = 345.34
+					endUT = 345.34
 				}
 				GAME_ACTION
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 0
-					actionId = act_d0da5ca77d2c44b094927d4b05abe134
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					actionId = act_2fe3eafc4dcf49228d8c30c4cb45fccd
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					seq = 13
 					cseq = 55
 					subjectId = recovery@KerbinFlew
@@ -1907,42 +1903,42 @@ GAME
 					method = 1
 					transmitScalar = 0
 					subjectMaxValue = 6
-					startUT = 345.94
-					endUT = 345.94
+					startUT = 345.34
+					endUT = 345.34
 				}
 				GAME_ACTION
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 2
-					actionId = act_baafd98ec7f84d9c986b6bf46d569068
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					actionId = act_713baf7ba2ff4902a50089224f0342cb
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					seq = 14
 					cseq = 57
 					fundsAwarded = 2791.04
 					fundsSource = 2
-					dedupKey = FundsChanged|VesselRecovery|345.93999999997533|106868|109659.03998851776|
+					dedupKey = FundsChanged|VesselRecovery|345.33999999997587|106868|109659.03998851776|
 				}
 				GAME_ACTION
 				{
-					ut = 347.25999999997413
+					ut = 346.53999999997478
 					type = 3
-					actionId = act_80a4fa265ab74c76ad6cebf22a6e146f
+					actionId = act_9be85ce2707a49e9975f8883798b9763
 					seq = 15
 					cseq = 60
 					fundsSpent = 2932
 					fundsSpendingSource = 0
-					dedupKey = rollout:347.25999999997413|pid=2905720181|site=Launch%20Pad|vessel=Jumping%20Flea
+					dedupKey = rollout:346.53999999997478|pid=2905720181|site=Launch%20Pad|vessel=Jumping%20Flea|guid=28bfabdc1aeb42e5949ba8643ca68d64
 				}
 				GAME_ACTION
 				{
-					ut = 349.33999999997224
+					ut = 348.41999999997307
 					type = 2
-					actionId = act_f3b4723905da43ee941299893045e7ce
+					actionId = act_a8c1ac4f62244e5ba767d284285f8347
 					seq = 16
 					cseq = 64
 					fundsAwarded = 2932
 					fundsSource = 2
-					dedupKey = FundsChanged|VesselRecovery|349.33999999997224|106727.03998851776|109659.03998851776|
+					dedupKey = FundsChanged|VesselRecovery|348.41999999997307|106727.03998851776|109659.03998851776|
 				}
 				PROGRESS_SEED
 				{
@@ -1954,26 +1950,26 @@ GAME
 				version = 1
 				GAME_STATE_EVENT
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 18
 					key = FirstCrewToSurvive
 					detail = funds=1600;rep=0;sci=0
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					cseq = 37
 				}
 				GAME_STATE_EVENT
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 15
 					key = Progression
 					valBefore = 91508
 					valAfter = 93108
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					cseq = 38
 				}
 				GAME_STATE_EVENT
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 10
 					key = Jebediah Kerman
 					detail = from=Assigned;to=Available
@@ -1981,7 +1977,7 @@ GAME
 				}
 				GAME_STATE_EVENT
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 22
 					key = Jebediah Kerman
 					detail = flight=0;entries=0,Flight,Kerbin|0,Land,Kerbin|0,Recover,;trait=Pilot
@@ -1989,7 +1985,7 @@ GAME
 				}
 				GAME_STATE_EVENT
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 16
 					key = VesselRecovery
 					valBefore = 8
@@ -1998,7 +1994,7 @@ GAME
 				}
 				GAME_STATE_EVENT
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 15
 					key = ContractReward
 					valBefore = 93108
@@ -2007,7 +2003,7 @@ GAME
 				}
 				GAME_STATE_EVENT
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 16
 					key = ContractReward
 					valBefore = 11.5
@@ -2016,7 +2012,7 @@ GAME
 				}
 				GAME_STATE_EVENT
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 17
 					key = ContractReward
 					valBefore = 13.999992370605469
@@ -2025,7 +2021,7 @@ GAME
 				}
 				GAME_STATE_EVENT
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 26
 					key = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
 					detail = paramId=0;fundsReward=6400;repReward=2;sciReward=1;title=Gather scientific data from Kerbin.
@@ -2033,7 +2029,7 @@ GAME
 				}
 				GAME_STATE_EVENT
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 2
 					key = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
 					detail = title=Gather scientific data from Kerbin.;fundsReward=4160;repReward=2;sciReward=1
@@ -2041,36 +2037,36 @@ GAME
 				}
 				GAME_STATE_EVENT
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 18
 					key = Kerbin/Science
 					detail = funds=3200;rep=1;sci=0
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					cseq = 48
 				}
 				GAME_STATE_EVENT
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 15
 					key = Progression
 					valBefore = 103668
 					valAfter = 106868
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					cseq = 49
 				}
 				GAME_STATE_EVENT
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 17
 					key = Progression
 					valBefore = 17.999990463256836
 					valAfter = 18.999990463256836
-					recordingId = 57d3addd50de4feb8e537e4e421a4f66
+					recordingId = 71288de785d2472ea60da273f42ce1c6
 					cseq = 50
 				}
 				GAME_STATE_EVENT
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 16
 					key = VesselRecovery
 					valBefore = 13.5
@@ -2079,7 +2075,7 @@ GAME
 				}
 				GAME_STATE_EVENT
 				{
-					ut = 345.93999999997533
+					ut = 345.33999999997587
 					type = 15
 					key = VesselRecovery
 					detail = vessel=Jumping%20Flea;rawVessel=Jumping%20Flea;pid=2905720181;vesselType=Ship;fundsEarned=(unknown);recoveryFactor=0.98
@@ -2089,7 +2085,7 @@ GAME
 				}
 				GAME_STATE_EVENT
 				{
-					ut = 346.97999999997438
+					ut = 346.25999999997504
 					type = 10
 					key = Jebediah Kerman
 					detail = from=Available;to=Assigned
@@ -2097,7 +2093,7 @@ GAME
 				}
 				GAME_STATE_EVENT
 				{
-					ut = 347.25999999997413
+					ut = 346.53999999997478
 					type = 15
 					key = VesselRollout
 					valBefore = 109659.03998851776
@@ -2106,7 +2102,7 @@ GAME
 				}
 				GAME_STATE_EVENT
 				{
-					ut = 349.33999999997224
+					ut = 348.41999999997307
 					type = 10
 					key = Jebediah Kerman
 					detail = from=Assigned;to=Available
@@ -2114,7 +2110,7 @@ GAME
 				}
 				GAME_STATE_EVENT
 				{
-					ut = 349.33999999997224
+					ut = 348.41999999997307
 					type = 22
 					key = Jebediah Kerman
 					detail = flight=1;entries=1,Recover,;trait=Pilot
@@ -2122,7 +2118,7 @@ GAME
 				}
 				GAME_STATE_EVENT
 				{
-					ut = 349.33999999997224
+					ut = 348.41999999997307
 					type = 15
 					key = VesselRecovery
 					detail = vessel=Jumping%20Flea;rawVessel=Jumping%20Flea;pid=2905720181;vesselType=Ship;fundsEarned=(unknown);recoveryFactor=1
@@ -2133,7 +2129,7 @@ GAME
 				CONTRACT_SNAPSHOT
 				{
 					guid = a5a1f217-d79b-4ef9-8122-f051ecdd1681
-					ut = 0.76000000000000034
+					ut = 0.6000000000000002
 					CONTRACT
 					{
 						guid = a5a1f217-d79b-4ef9-8122-f051ecdd1681
@@ -2147,7 +2143,7 @@ GAME
 						deadlineType = None
 						expiryType = Floating
 						ignoresWeight = True
-						values = 43200,0,1120,2080,1120,1,1,0,43200.06,0.76,0,0
+						values = 43200,0,1120,2080,1120,1,1,0,43200.06,0.6,0,0
 						targetBody = 1
 						bodyRatio = 0
 						PARAM
@@ -2163,7 +2159,7 @@ GAME
 				CONTRACT_SNAPSHOT
 				{
 					guid = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
-					ut = 0.80000000000000038
+					ut = 0.64000000000000024
 					CONTRACT
 					{
 						guid = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
@@ -2177,7 +2173,7 @@ GAME
 						deadlineType = None
 						expiryType = Floating
 						ignoresWeight = True
-						values = 86400,0,2240,4160,2240,1,2,0,86400.06,0.8,0,0
+						values = 86400,0,2240,4160,2240,1,2,0,86400.06,0.64,0,0
 						targetBody = 1
 						bodyRatio = 0
 						PARAM
@@ -2219,15 +2215,15 @@ GAME
 				version = 1
 				MILESTONE
 				{
-					id = 9ce1920e177e44c19472c117a7766232
+					id = dbc6501fa9c94eb0a00414edfd344775
 					startUT = 0
-					endUT = 0.84000000000000041
+					endUT = 0.68000000000000027
 					recordingId = 
 					committed = True
 					lastReplayedIdx = 1
 					GAME_STATE_EVENT
 					{
-						ut = 0.76000000000000034
+						ut = 0.6000000000000002
 						type = 1
 						key = a5a1f217-d79b-4ef9-8122-f051ecdd1681
 						detail = title=Launch our first vessel!;deadlineAbsUT=NaN;type=ExplorationContract;funds=1120;failFunds=1120;failRep=0
@@ -2235,7 +2231,7 @@ GAME
 					}
 					GAME_STATE_EVENT
 					{
-						ut = 0.80000000000000038
+						ut = 0.64000000000000024
 						type = 1
 						key = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
 						detail = title=Gather scientific data from Kerbin.;deadlineAbsUT=NaN;type=ExplorationContract;funds=2240;failFunds=2240;failRep=0
@@ -2244,87 +2240,87 @@ GAME
 				}
 				MILESTONE
 				{
-					id = 384cc617ae724f35afd6ce5defbc8140
-					startUT = 0.84000000000000041
-					endUT = 345.79999999997546
+					id = b822262d7b304bc1aec06f4c1d5041fa
+					startUT = 0.68000000000000027
+					endUT = 345.179999999976
 					recordingId = 
 					committed = True
 					lastReplayedIdx = 5
 					GAME_STATE_EVENT
 					{
-						ut = 4.2999999999999963
+						ut = 4.219999999999998
 						type = 18
 						key = RecordsSpeed
 						detail = funds=28800;rep=6;sci=3;thresholds=3
-						recordingId = 57d3addd50de4feb8e537e4e421a4f66
+						recordingId = 71288de785d2472ea60da273f42ce1c6
 						cseq = 10
 					}
 					GAME_STATE_EVENT
 					{
-						ut = 4.8999999999999835
+						ut = 4.8199999999999852
 						type = 26
 						key = a5a1f217-d79b-4ef9-8122-f051ecdd1681
 						detail = paramId=0;fundsReward=3200;repReward=1;sciReward=1;title=Launch our first vessel!
-						recordingId = 57d3addd50de4feb8e537e4e421a4f66
+						recordingId = 71288de785d2472ea60da273f42ce1c6
 						cseq = 14
 					}
 					GAME_STATE_EVENT
 					{
-						ut = 4.8999999999999835
+						ut = 4.8199999999999852
 						type = 2
 						key = a5a1f217-d79b-4ef9-8122-f051ecdd1681
 						detail = title=Launch our first vessel!;fundsReward=2080;repReward=1;sciReward=1
-						recordingId = 57d3addd50de4feb8e537e4e421a4f66
+						recordingId = 71288de785d2472ea60da273f42ce1c6
 						cseq = 15
 					}
 					GAME_STATE_EVENT
 					{
-						ut = 4.8999999999999835
+						ut = 4.8199999999999852
 						type = 18
 						key = FirstLaunch
 						detail = funds=1600;rep=0;sci=0
-						recordingId = 57d3addd50de4feb8e537e4e421a4f66
+						recordingId = 71288de785d2472ea60da273f42ce1c6
 						cseq = 16
 					}
 					GAME_STATE_EVENT
 					{
-						ut = 7.7199999999999234
+						ut = 7.6399999999999251
 						type = 18
 						key = RecordsAltitude
 						detail = funds=28800;rep=6;sci=3;thresholds=3
-						recordingId = 57d3addd50de4feb8e537e4e421a4f66
+						recordingId = 71288de785d2472ea60da273f42ce1c6
 						cseq = 24
 					}
 					GAME_STATE_EVENT
 					{
-						ut = 343.37999999997766
+						ut = 342.93999999997806
 						type = 18
 						key = Kerbin/Landing
 						detail = funds=1600;rep=0;sci=0
-						recordingId = 57d3addd50de4feb8e537e4e421a4f66
+						recordingId = 71288de785d2472ea60da273f42ce1c6
 						cseq = 34
 					}
 				}
 				MILESTONE
 				{
-					id = 7f30b8dcf02d4029988c5eab303ad75b
-					startUT = 345.79999999997546
-					endUT = 345.93999999997533
+					id = a7b44b91ba1548df900e16f78fec3e4d
+					startUT = 345.179999999976
+					endUT = 345.33999999997587
 					recordingId = 
 					committed = True
 					lastReplayedIdx = 4
 					GAME_STATE_EVENT
 					{
-						ut = 345.93999999997533
+						ut = 345.33999999997587
 						type = 18
 						key = FirstCrewToSurvive
 						detail = funds=1600;rep=0;sci=0
-						recordingId = 57d3addd50de4feb8e537e4e421a4f66
+						recordingId = 71288de785d2472ea60da273f42ce1c6
 						cseq = 37
 					}
 					GAME_STATE_EVENT
 					{
-						ut = 345.93999999997533
+						ut = 345.33999999997587
 						type = 22
 						key = Jebediah Kerman
 						detail = flight=0;entries=0,Flight,Kerbin|0,Land,Kerbin|0,Recover,;trait=Pilot
@@ -2332,7 +2328,7 @@ GAME
 					}
 					GAME_STATE_EVENT
 					{
-						ut = 345.93999999997533
+						ut = 345.33999999997587
 						type = 26
 						key = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
 						detail = paramId=0;fundsReward=6400;repReward=2;sciReward=1;title=Gather scientific data from Kerbin.
@@ -2340,7 +2336,7 @@ GAME
 					}
 					GAME_STATE_EVENT
 					{
-						ut = 345.93999999997533
+						ut = 345.33999999997587
 						type = 2
 						key = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
 						detail = title=Gather scientific data from Kerbin.;fundsReward=4160;repReward=2;sciReward=1
@@ -2348,25 +2344,25 @@ GAME
 					}
 					GAME_STATE_EVENT
 					{
-						ut = 345.93999999997533
+						ut = 345.33999999997587
 						type = 18
 						key = Kerbin/Science
 						detail = funds=3200;rep=1;sci=0
-						recordingId = 57d3addd50de4feb8e537e4e421a4f66
+						recordingId = 71288de785d2472ea60da273f42ce1c6
 						cseq = 48
 					}
 				}
 				MILESTONE
 				{
-					id = 740714b0d4dd491f97e4bdfbd1887573
-					startUT = 345.93999999997533
-					endUT = 349.33999999997224
+					id = ccb775fedd11416fb9bf8aa066511189
+					startUT = 345.33999999997587
+					endUT = 348.41999999997307
 					recordingId = 
 					committed = True
 					lastReplayedIdx = 0
 					GAME_STATE_EVENT
 					{
-						ut = 349.33999999997224
+						ut = 348.41999999997307
 						type = 22
 						key = Jebediah Kerman
 						detail = flight=1;entries=1,Recover,;trait=Pilot
@@ -2438,7 +2434,7 @@ GAME
 				}
 				PARSEK_BASELINE
 				{
-					ut = 345.79999999997546
+					ut = 345.179999999976
 					funds = 91508
 					science = 8
 					reputation = 13.9999924
@@ -2506,58 +2502,58 @@ GAME
 			FUNDS
 			{
 				lastWritten = 109659.03998851776
-				lastPatchUT = 349.3799999999722
-				row = act_1b00fa451712429b9373085f5c05b773 6400 6400
-				row = act_2954cbbbbb4f485f8a6929c94ea932f1 28800 28800
-				row = act_2a338a3fbe1e486b834ff7f6f8c58629 3200 3200
-				row = act_3614eab17d9f4a9b802dd3bfff39554f 4160 4160
-				row = act_3f7e60edb8e44caca2ea00b0ca88e168 28800 28800
-				row = act_3ffacdb11fae4eadb93ce844926262be 1600 1600
-				row = act_46eb2e7525354ab0829170ac1b2bc5ca 2080 2080
-				row = act_5152a7ad573f4321be8ba922567ef31e 1120 1120
-				row = act_6ba1f22cc71b400dbb435826ea023841 3200 3200
-				row = act_80a4fa265ab74c76ad6cebf22a6e146f -2932 -2932
-				row = act_a77a2d7d288d4e9e9575696742ddd847 2240 2240
-				row = act_b5d88ff74ae2411281d122e7197b936b -2932 -2932
-				row = act_baafd98ec7f84d9c986b6bf46d569068 2791.0400390625 2791.0400390625
-				row = act_bc3a112184ba42d6adc4e343f3404c40 1600 1600
-				row = act_ec8309adc3d2448db2650063a49872ed 1600 1600
-				row = act_f3b4723905da43ee941299893045e7ce 2932 2932
+				lastPatchUT = 348.43999999997305
+				row = act_32572f3d6597402ebe0f117e37d05111 28800 28800
+				row = act_3c737152e67f4b75a627b7896fbe917d 1120 1120
+				row = act_4214dc84a049493f81e10918328ea5e7 2240 2240
+				row = act_64504bf8a7b945e69a7430de21e506ba 28800 28800
+				row = act_6515f744701c4985950c6849fdec7300 3200 3200
+				row = act_713baf7ba2ff4902a50089224f0342cb 2791.0400390625 2791.0400390625
+				row = act_9be85ce2707a49e9975f8883798b9763 -2932 -2932
+				row = act_9f9782a166354715bb9e7f5d83e82912 2080 2080
+				row = act_a26c828a6bdd4a03934af3fe0fac7b3d 3200 3200
+				row = act_a8c1ac4f62244e5ba767d284285f8347 2932 2932
+				row = act_ae86209d2a5544709f747f7578db39c3 -2932 -2932
+				row = act_d45390f230de4113872855c5b07f43e2 1600 1600
+				row = act_dd91dd76578942eb845eec1bf937b711 1600 1600
+				row = act_dfdc4d0d37884cc2916c58f3d81d688d 1600 1600
+				row = act_eab6745c98424c26835a42a76e59975c 6400 6400
+				row = act_fb7dfe0549414b6d9047f06e65c99813 4160 4160
 			}
 			SCIENCE
 			{
 				lastWritten = 28.5
 				pendingAdjust = 0
-				lastPatchUT = 349.3799999999722
-				row = act_1b00fa451712429b9373085f5c05b773 1 1
-				row = act_2954cbbbbb4f485f8a6929c94ea932f1 3 3
-				row = act_2a338a3fbe1e486b834ff7f6f8c58629 1 1
-				row = act_3614eab17d9f4a9b802dd3bfff39554f 1 1
-				row = act_3f7e60edb8e44caca2ea00b0ca88e168 3 3
-				row = act_46eb2e7525354ab0829170ac1b2bc5ca 1 1
-				row = act_6e7bdd3563904595a77e5e58966b36bb 3.5 3.5
-				row = act_85c5385e5a1b48e49b45a15643d768a1 3 3
-				row = act_bf72819262d44ba3b956dc750e669f83 7 7
-				row = act_d0da5ca77d2c44b094927d4b05abe134 5 5
+				lastPatchUT = 348.43999999997305
+				row = act_2fe3eafc4dcf49228d8c30c4cb45fccd 5 5
+				row = act_32572f3d6597402ebe0f117e37d05111 3 3
+				row = act_609ca2074d8f416c8e4c858e35fe5af9 3.5 3.5
+				row = act_64504bf8a7b945e69a7430de21e506ba 3 3
+				row = act_9077aacbc47c481f94aae7bf5ff9a00a 7 7
+				row = act_9f9782a166354715bb9e7f5d83e82912 1 1
+				row = act_a26c828a6bdd4a03934af3fe0fac7b3d 1 1
+				row = act_a30db58c007347989b1998f6b62d1ce4 3 3
+				row = act_eab6745c98424c26835a42a76e59975c 1 1
+				row = act_fb7dfe0549414b6d9047f06e65c99813 1 1
 			}
 			REPUTATION
 			{
 				lastWritten = 18.999990463256836
-				lastPatchUT = 349.3799999999722
-				row = act_1b00fa451712429b9373085f5c05b773 1.9999990463256836 1.9999990463256836
-				row = act_2954cbbbbb4f485f8a6929c94ea932f1 5.9999971389770508 5.9999971389770508
-				row = act_2a338a3fbe1e486b834ff7f6f8c58629 0.9999995231628418 0.9999995231628418
-				row = act_3614eab17d9f4a9b802dd3bfff39554f 1.9999990463256836 1.9999990463256836
-				row = act_3f7e60edb8e44caca2ea00b0ca88e168 5.9999980926513672 5.9999980926513672
-				row = act_46eb2e7525354ab0829170ac1b2bc5ca 0.9999995231628418 0.9999995231628418
-				row = act_6ba1f22cc71b400dbb435826ea023841 1 1
+				lastPatchUT = 348.43999999997305
+				row = act_32572f3d6597402ebe0f117e37d05111 5.9999971389770508 5.9999971389770508
+				row = act_64504bf8a7b945e69a7430de21e506ba 5.9999980926513672 5.9999980926513672
+				row = act_6515f744701c4985950c6849fdec7300 1 1
+				row = act_9f9782a166354715bb9e7f5d83e82912 0.9999995231628418 0.9999995231628418
+				row = act_a26c828a6bdd4a03934af3fe0fac7b3d 0.9999995231628418 0.9999995231628418
+				row = act_eab6745c98424c26835a42a76e59975c 1.9999990463256836 1.9999990463256836
+				row = act_fb7dfe0549414b6d9047f06e65c99813 1.9999990463256836 1.9999990463256836
 			}
 		}
 	}
 	FLIGHTSTATE
 	{
 		version = 1.12.5
-		UT = 349.53999999997205
+		UT = 348.59999999997291
 		activeVessel = 0
 		mapViewFiltering = -1026
 		commNetUIModeTracking = Network
@@ -2662,7 +2658,7 @@ GAME
 							cid = 4294882284
 							uid = 0
 							mid = 0
-							persistentId = 242114905
+							persistentId = 2554244291
 							launchID = 0
 							parent = 0
 							position = 0,0,0
@@ -2802,7 +2798,7 @@ GAME
 							cid = 4294882352
 							uid = 0
 							mid = 0
-							persistentId = 560195338
+							persistentId = 1268078061
 							launchID = 0
 							parent = 0
 							position = 0,0,0

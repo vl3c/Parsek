@@ -17,7 +17,8 @@ id = "CS-3b-career-hire-upgrade"
 # half on its produced save: the career's first hire, first facility upgrade and first
 # research, each booked by the ledger, closed by the ledger ground truth.
 #
-# THE HOST. `cs-career-contracts`: CS-3's produced save (run `2026-10-26_0254`, its
+# THE HOST. `cs-career-contracts`: CS-3's produced save (run `2026-10-26_0411`, re-flown on the
+# RELAUNCH-ROLLOUT-DEDUPED-AS-REVERT fix so its rollout row carries the launch guid; its
 # LedgerGroundTruth `hardFailures=0`), harvested with `harvest_bdock_station.py --keep-parsek
 # --allow-no-vessel --expect-mode CAREER`. Career, Normal preset (FundsLossMultiplier 1),
 # funds 109659.04, science 28.5, rep 19, every facility at level 0, `start` researched, four
@@ -40,17 +41,17 @@ id = "CS-3b-career-hire-upgrade"
 # Hire + upgrade (137113) exceed the host's funds, so the walk first accepts the two
 # World-Firsts contracts CS-4 will fly for, REACHSPACE (advance 11200) and ORBIT (advance
 # 16800), the two active slots MC level 0 allows. After the upgrade 546.04 is left, short of
-# the rollout, so with the limit raised a third contract is accepted: FreeFall Parachutes'
-# PartTest of the Mk16 chute FLYING on Kerbin (advance 9269.9997, completion 23175; the Flea
-# carries the part). Advances are the `values` field of each CONTRACT node (index 2).
+# the rollout, so with the limit raised a third contract is accepted: a PartTest of the RT-10
+# (solidBooster.v2) FLYING on Kerbin (advance 9000, completion 22500; offers are random per
+# harvest, so the GUID is this fixture's). Advances are the `values` field of each CONTRACT node (index 2).
 #
 # THE WALK (all in SPACECENTER): accept REACHSPACE (-> 120859.04), accept ORBIT
 # (-> 137659.04), hire Verhat (-> 75546.04), upgrade Mission Control (-> 546.04), accept the
-# parachute test (-> 9816.04), research basicRocketry (science 28.5 -> 23.5). Then the LEDGER
+# RT-10 test (-> 9546.04), research basicRocketry (science 28.5 -> 23.5). Then the LEDGER
 # GROUND TRUTH, which is FLIGHT-only (`LedgerGroundTruthHarness`, all three cells
-# `Scene = GameScenes.FLIGHT`): autoRecordOnLaunch off, launch the Flea (-> 6884.04), run
-# LedgerGroundTruth in that FLIGHT scene, recover the pad craft (-> 9816.04), save, quit. No
-# mission flies. Expected end pools: funds 9816.04, science 23.5, rep 19.
+# `Scene = GameScenes.FLIGHT`): autoRecordOnLaunch off, launch the Flea (-> 6614.04), run
+# LedgerGroundTruth in that FLIGHT scene, recover the pad craft (-> 9546.04), save, quit. No
+# mission flies. Expected end pools: funds 9546.04, science 23.5, rep 19.
 #
 # THE ASSERTIONS THAT MATTER: each KSC action reaches the ledger as its own untagged row
 # (`AddEvent: <type> key='<key>' tag=''` and `KSC spending recorded: type=<row>`), stock
@@ -88,7 +89,7 @@ steps = [
   { cmd = "KscAction",        args = { action = "hire-kerbal", kerbal = "Verhat Kerman" },                          expect = "OK", budget = 60 },
   { cmd = "KscAction",        args = { action = "upgrade-facility", facility = "SpaceCenter/MissionControl" },      expect = "OK", budget = 60 },
   # The third slot exists only at MC level 1 (limit 7); its advance pays the rollout below.
-  { cmd = "KscAction",        args = { action = "accept-contract", contract = "484058dc-0c9c-46bc-9216-eaccce63a70b" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",        args = { action = "accept-contract", contract = "1a9762e8-8c97-495b-b451-ad62726c08cb" }, expect = "OK", budget = 60 },
   { cmd = "KscAction",        args = { action = "research-node", node = "basicRocketry" },                         expect = "OK", budget = 60 },
   { cmd = "RecordingState",                                                           expect = "OK" },
   { cmd = "GoToEditor",       args = { facility = "VAB", craft = "Jumping Flea" },    expect = "OK", budget = 120 },
@@ -135,10 +136,10 @@ required = [
   "AddEvent: FacilityUpgraded key='SpaceCenter/MissionControl' tag=''",
   "KSC spending recorded: type=FacilityUpgrade, UT=[0-9.]+, key=SpaceCenter/MissionControl",
   # The third accept, after the upgrade raised the contract limit.
-  "kscaction action=accept-contract target=484058dc-0c9c-46bc-9216-eaccce63a70b applied=true manifestKind=contract-accept observedAfter=state=Active funds=9816(\\.[0-9]+)? contract=484058dc-0c9c-46bc-9216-eaccce63a70b",
-  "Game state: FundsChanged \\+9270 \\(ContractAdvance\\)",
-  "AddEvent: ContractAccepted key='484058dc-0c9c-46bc-9216-eaccce63a70b' tag=''",
-  "KSC spending recorded: type=ContractAccept, UT=[0-9.]+, key=484058dc-0c9c-46bc-9216-eaccce63a70b",
+  "kscaction action=accept-contract target=1a9762e8-8c97-495b-b451-ad62726c08cb applied=true manifestKind=contract-accept observedAfter=state=Active funds=9546(\\.[0-9]+)? contract=1a9762e8-8c97-495b-b451-ad62726c08cb",
+  "Game state: FundsChanged \\+9000 \\(ContractAdvance\\)",
+  "AddEvent: ContractAccepted key='1a9762e8-8c97-495b-b451-ad62726c08cb' tag=''",
+  "KSC spending recorded: type=ContractAccept, UT=[0-9.]+, key=1a9762e8-8c97-495b-b451-ad62726c08cb",
   # The research.
   "kscaction action=research-node target=basicRocketry applied=true manifestKind=tech-unlock observedAfter=science=23\\.5",
   "Game state: TechResearched 'basicRocketry' \\(cost=5\\)",

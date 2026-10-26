@@ -3693,7 +3693,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "schemaGeneration": 4,
         },
         # PROVENANCE: cs-career-contracts <- CS-3-career-first-contracts, run
-        # 2026-10-26_0254 (LedgerGroundTruth hardFailures=0), harvested
+        # 2026-10-26_0411 (on the rollout-guid fix; LedgerGroundTruth hardFailures=0), harvested
         # --keep-parsek --allow-no-vessel --expect-mode CAREER, then ONE applicant
         # (`Verhat Kerman`, fresh-career's KERBAL node verbatim) added to the ROSTER:
         # stock generates applicants only when the Astronaut Complex opens, so the
@@ -3707,7 +3707,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "terminalStates": {"Recovered": 1},
             "branchPoints": {},
             "minAuthoritativeSidecars": 3,
-            "recordingIds": ["57d3addd50de4feb8e537e4e421a4f66"],
+            "recordingIds": ["71288de785d2472ea60da273f42ce1c6"],
             "schemaGeneration": 4,
         },
     }
