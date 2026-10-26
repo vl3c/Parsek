@@ -1,5 +1,10 @@
 schema = 1
 id = "CS-3b-career-hire-upgrade"
+# LIVE-PROVEN 2026-10-26 `2026-10-26_0426` PASS attempt 1 (63 s, DLL 106a39d6 = main with #2280 plus the rollout-guid fix #2283) on the re-harvested fixture: every KSC
+# action booked, `recording rollout as a new launch ... verdict=GuidDiffers`, zero duplicate skips,
+# zero leak rows, zero GUARDED, zero ERROR, LedgerGroundTruth funds save=6614.04 recon=6614.04,
+# `hardFailures=0`, batch `passed=3 skipped=0`.
+#
 # FIRST FLIGHT 2026-10-26 `2026-10-26_0343` PARSEK-FAIL attempt 1 ON A REAL FINDING (71 s, DLL
 # f60e9d78: main with #2280). Every KSC action applied and booked (three accepts, the hire, the
 # Mission Control upgrade, basicRocketry; funds 120859 / 137659 / 75546 / 546 / 9816, science
@@ -66,7 +71,7 @@ tier = "operator"
 description = "Scripted campaign stage 3, KSC half (Career): on CS-3's produced save, accept the REACHSPACE and ORBIT World-Firsts contracts, hire an applicant, upgrade Mission Control, accept a part-test contract, research Basic Rocketry, then launch the Flea and run the ledger ground truth against KSP's own career save."
 instanceProfile = "stock-tree"
 tags = ["campaign", "CS-3b", "career", "contracts", "hire", "facility-upgrade", "research",
-        "editor", "ledger", "ground-truth", "ingame-batch", "pending-flight"]
+        "editor", "ledger", "ground-truth", "ingame-batch", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/cs-career-contracts"

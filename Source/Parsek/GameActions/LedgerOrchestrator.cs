@@ -4077,6 +4077,16 @@ namespace Parsek
             {
                 ParsekLog.Verbose(Tag,
                     $"RecalculateAndPatch: deferred KSP state patch ({patchDeferralReason})");
+                // The milestone patch is held back with the rest, but a world-first the
+                // committed timeline credits at or before the clock must not stay payable in
+                // stock meanwhile (WORLD-FIRST-REEARNED-AFTER-REWIND-PAID-AGAIN). Add-only:
+                // it never clears progress the live flight earned.
+                CommittedMilestoneReach.Apply(actions,
+                    CommittedMilestoneReach.ResolveClockUT(utCutoff,
+                        ParsekScenario.IsOnLoadInProgress,
+                        RecordingStore.RewindUTAdjustmentPending,
+                        ParsekScenario.GetCurrentTimelineUTForLedgerRecalc),
+                    "deferred-patch");
             }
             else
             {
