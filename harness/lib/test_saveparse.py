@@ -3710,6 +3710,25 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "recordingIds": ["71288de785d2472ea60da273f42ce1c6"],
             "schemaGeneration": 4,
         },
+        # PROVENANCE: cs-career-mc1 <- CS-3b-career-hire-upgrade, run 2026-10-26_0426
+        # (PASS attempt 1, LedgerGroundTruth hardFailures=0), harvested from that run's
+        # `_save` snapshot with --keep-parsek --allow-no-vessel --expect-mode CAREER, no
+        # edit. CS-3's save after the KSC half: REACHSPACE / ORBIT / the RT-10 PartTest
+        # Active, Verhat Kerman hired (five crew), Mission Control at level 1 (lvl 0.5),
+        # basicRocketry researched, funds 9546.04, science 23.5, rep 19, no vessel. The
+        # payload is CS-3's committed Flea hop unchanged (CS-3b recorded nothing). Carries
+        # CS-4's craft `CS Orbiter.craft` (harness/tools/build_cs_orbiter_craft.py).
+        # CS-4's host.
+        "cs-career-mc1": {
+            "trees": 1, "committedTrees": 1, "recordings": 1,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Recovered": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 3,
+            "recordingIds": ["71288de785d2472ea60da273f42ce1c6"],
+            "schemaGeneration": 4,
+        },
     }
     # --- THE CAREER ROUTE COPIES (H74-H79) ---------------------------------
     # Built by harness/tools/build_route_career.py from the four recorded route hosts

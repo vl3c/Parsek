@@ -2300,7 +2300,17 @@ class ManeuverNodeReadGuardTests(unittest.TestCase):
         # safety argument is GS-1's own pad guards (the `airborne_seen` gate on
         # LANDED, the booster existing only after the split, the observed
         # separation), written out in its make_control.
-        self.assertEqual(["b1_pad_hop_career.py", "cl3_refly_crew_tombstone.py",
+        #
+        # `b4_reentry_career.py` joined on 2026-10-26 for `CS-4-career-orbit-return`
+        # (B4's orbit-and-return on the level-0 career fixture `cs-career-mc1`),
+        # applied from the same three measurements before the lane's first flight.
+        # Its safety argument is B4's phase chain: the only success terminal sits
+        # inside SPLASHDOWN, four phases past an ORBIT that needs MechJeb's
+        # ascent-complete latch AND an apoapsis within apoErrorMeters of 80 km, and
+        # the native circularization it flies reads no node at all; written out in
+        # its make_control.
+        self.assertEqual(["b1_pad_hop_career.py", "b4_reentry_career.py",
+                          "cl3_refly_crew_tombstone.py",
                           "gs1_auto_chute_booster_career.py",
                           "science_bench_recover.py"],
                          sorted(opters))

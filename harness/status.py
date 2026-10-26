@@ -635,6 +635,9 @@ PHASE_BUDGET_KEYS = {
     "CIRCULARIZE": "circularizeTimeoutSeconds",
     "STATION-CIRCULARIZE": "circularizeTimeoutSeconds",
     "INT-CIRCULARIZE": "circularizeTimeoutSeconds",
+    # B4's opt-in native circularization (circularizeMode = "native", CS-4).
+    "NATIVE-COAST": "circularizeTimeoutSeconds",
+    "NATIVE-BURN": "circularizeTimeoutSeconds",
     # B1 / EVA-4 suborbital hop.
     "COAST": "coastTimeoutSeconds",
     "DESCENT": "descentTimeoutSeconds",
