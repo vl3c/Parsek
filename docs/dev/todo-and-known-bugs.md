@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## WORLD-FIRST-REEARNED-AFTER-REWIND-PAID-AGAIN: a world-first milestone earned on a committed flight is paid again when a later flight re-earns it after a Rewind-to-Launch [FILED 2026-10-26 from WF-1's third flight (DLL 86028f41), branch `claude/project-thread-25edvc`; product, high (a repeatable funds gain across a rewind)]
+## ~~WORLD-FIRST-REEARNED-AFTER-REWIND-PAID-AGAIN: a world-first milestone earned on a committed flight is paid again when a later flight re-earns it after a Rewind-to-Launch~~ [FIXED 2026-10-26 in branch `wfx-local` (unit cells in `CommittedMilestoneReachTests`), NOT LIVE-PROVEN: WF-1 to re-fly. FILED 2026-10-26 from WF-1's third flight (DLL 86028f41), branch `claude/project-thread-25edvc`; product, high (a repeatable funds gain across a rewind)]
 
 Observed (WF-1-world-first-reearned-after-rewind, host `gloops-airshow-career`): flight 1 plants a
 flag on the pad (`Kerbin/FlagPlant`, `Milestone enriched: 'Kerbin/FlagPlant' funds=1600 rep=0.0
@@ -30,15 +30,75 @@ Credited / Duplicate lines and the end pools are still to read on the next fligh
 Predicted from source in the lane header, now matched on the leak line: `MilestonesModule` credits
 the flight-1 row (earlier UT) and zeroes the flight-2 row as a duplicate, but
 `StockPoolReference.Measure` skips the committed flight-1 row as written by Parsek and the zeroed
-row steps nothing, so stock's second payout has no explaining row and is kept as a leak. Why the
-amount is 2 x 1600 rather than 1600 is not yet read (the flight-1 row crossing the clock while
-every patch was deferred under the live recorder is the first suspect).
+row steps nothing, so stock's second payout has no explaining row and is kept as a leak.
 
-Fix shape (not built): stop stock paying a world-first the committed future already credits, the
-way the contract parameter fix (CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED) completes a committed
-objective in stock without paying, or let the zeroed duplicate explain stock's payout so the pool
-patch removes it. Either way the committed flight keeps the credit (first in UT order) and the
-player is paid once. Witness: WF-1 forbids the leak line.
+Why 2 x 1600 (derived from source and decompile, to confirm on the re-flight): the leak is two
+world-firsts, not one paid twice. Flight 2's `EvaExit` from the pod on the pad re-earns
+`Kerbin/SurfaceEVA` as well (decompiled `SurfaceEVA.OnGoEVA`: an EVA from a LandedOrSplashed
+vessel on the node's body, paid while `!IsComplete`), and stock's world-first table gives
+FLAGPLANT and SURFACEEVA the same multiplier (`ProgressUtilities`, `case FLAGPLANT: case SCIENCE:
+case SURFACEEVA`), so both pay 1600. Flight 1 committed a row for each; after the rewind both
+nodes are unreached in the loaded save and both rows lie ahead of the clock. The warp to UT 900
+crosses both while every patch is deferred (`GetKspPatchDeferralReason`, live recorder), so
+`PatchMilestones` never set them achieved and stock pays both again. In the pool reference both
+flight-1 rows were counted while not walked (effect NaN) and are skipped as "stock did not apply
+it, the write does" (`StockPoolReference.Measure`, the `wasCounted && double.IsNaN(counted.Effect)`
+skip), both zeroed flight-2 rows step 0, so live - expected = 1600 + 1600 = 3200, filed as one
+leak. Expect `Milestone enriched: 'Kerbin/SurfaceEVA' funds=1600` on each flight.
+
+**Fix.** Stock never pays a world-first the committed timeline credits at or before the clock.
+Every stock once-ever handler pays only while its node is not complete (`if (!IsComplete) {
+Complete(); AwardProgressStandard(...); }`: FlagPlant, SurfaceEVA, Landing, Orbit, Science, ...),
+so `CommittedMilestoneReach.Apply` marks such a node complete the way `PatchMilestones` does (the
+private `reached` / `complete` fields by reflection; no `Complete()`, no GameEvents, no reward, no
+toast), add-only (it never clears a node, so a live flight's own uncommitted progress stays). The
+set is the walk's own input (ELS) at the clock: once-ever `MilestoneAchievement` rows with UT <=
+clock (the earliest row of an id is the one the walk credits), repeatable `Records*` nodes left
+alone, rows of a live Re-Fly session's suppressed subtree excluded (a merge tombstones the
+origin's milestone rows, so the attempt must still be able to earn the node). It runs in two
+places a patch does not: (1) the deferred branch of `RecalculateAndPatchCore` (a patch held back
+by a live or pending tree; this is the WF-1 warp exit, `RecalculateAndPatchForTimeJump(900)`),
+clock = the walk's real cutoff, else the live clock, never during OnLoad, a pending rewind UT
+adjustment or on the walk-everything sentinel (`ResolveClockUT`); (2) a new flight-scene
+`CommittedMilestoneClockCursor` in `ParsekFlight.Update`, because a flight at 1x runs no recalc at
+all: when the clock passes the next committed once-ever row it runs the pass once (first frame
+and a backward clock only reseed). The Space Center and Tracking Station already recalc at each
+crossing (`CareerLedgerClockCursor`), which patches or reaches the deferred branch. One line per
+pass that marks: `[CommittedMilestones] Apply: marked N stock progress node(s) complete without
+reward ... (reason=deferred-patch|flight-clock; marked= alreadyComplete= credited= notInTree=
+recordNodes= reFlySuppressedRows=) ids=[...]`. The committed flight keeps the credit, the player
+is paid once, the pools need no adjustment, and an unrelated leak is still filed as before.
+
+Shape (b) (let the zeroed duplicate explain stock's payout so the pool patch takes it back) was
+rejected: stock would still show the world-first toast and pay, and the next patch would then
+take the money away again. Mirror directions: a re-earn BEFORE the committed UT is untouched (the
+clock has not reached the row; the walk moves the credit to the earlier flight, first in UT order,
+and stock's payout is explained by that row); rep- or science-carrying world-firsts are covered
+by the same mark (no `AwardProgress` runs at all); a Re-Fly of the origin keeps the node earnable
+(above); world records are a separate follow-up, RECORD-BAND-REEARNED-AFTER-REWIND-PAID-AGAIN.
+Witness: WF-1 forbids the leak line; the re-flight should also show each of
+`MilestoneAchieved 'Kerbin/FlagPlant'` / `'Kerbin/SurfaceEVA'` exactly once (flight 1 only) and
+a `[CommittedMilestones] Apply: marked` line naming both ids during flight 2's warp
+(`reason=flight-clock` from the cursor mid-warp, or `reason=deferred-patch` at the warp exit).
+
+---
+
+## RECORD-BAND-REEARNED-AFTER-REWIND-PAID-AGAIN: a world-record threshold a committed flight was paid for is paid again when a later flight re-crosses it after a rewind [FILED 2026-10-26 on branch `wfx-local`, PREDICTED FROM SOURCE, NOT FLOWN; product, medium (funds / rep / science gain across a rewind); follow-up of WORLD-FIRST-REEARNED-AFTER-REWIND-PAID-AGAIN]
+
+The world-first fix leaves the four repeatable record nodes (`RecordsAltitude` / `Depth` / `Speed`
+/ `Distance`) alone, and they have the same hole by a different road. A rewind's cutoff walk is
+authoritative for record state (`RecalculateAndPatch(utCutoff)` passes
+`authoritativeRepeatableRecordState: true`), so `PatchRepeatableRecordNode` rebuilds each band from
+the rows at or before the rewind UT only and drops the committed flight's later thresholds. A
+later flight that re-climbs past them under a live recorder (every patch deferred) is paid by
+stock again, and `MilestonesModule` keeps every record row effective by design (rows add their
+`MilestoneRecordThresholds`, no first-wins), so the walk pays both flights and the band jumps to
+the sum. No pool leak shows (the second flight's rows explain stock's payout), which is why no
+lane has seen it. Fix shape (owner to confirm that a threshold is once-ever across timelines):
+the same add-only pass raises a record node's band to the committed count at the clock (seed plus
+the thresholds of ELS record rows at or before it, Re-Fly suppressed subtree excluded) when that
+is above the live implied paid count (`TryReadRepeatableRecordImpliedPaidCount`), so a re-climb
+inside the committed band pays nothing. Witness to author: a record-climb twin of WF-1.
 
 ---
 

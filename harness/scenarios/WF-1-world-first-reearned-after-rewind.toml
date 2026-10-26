@@ -29,8 +29,8 @@ tier = "operator"
 #      Flight 2's warp to 900 crosses the row with a live recorder, and every patch is
 #      deferred while a recorder lives (LedgerOrchestrator.GetKspPatchDeferralReason; the
 #      warp exit goes through RecalculateAndPatchForTimeJump, which does not bypass it).
-#      So stock awards Kerbin/FlagPlant again in flight 2.
-#   3. MilestonesModule.ProcessAction walks the rows in UT order, first hit wins: the
+#      So, before the fix (FIXED note below), stock awards Kerbin/FlagPlant again in flight 2.
+#   3. (Pre-fix.) MilestonesModule.ProcessAction walks the rows in UT order, first hit wins: the
 #      flight-1 row (UT 60..600) is credited, `Credited milestone 'Kerbin/FlagPlant' at
 #      UT=..` (MilestonesModule.cs ~128); the flight-2 row (UT >= 900) is zeroed,
 #      `Effective = false`, `NotCountedReason = MilestoneAlreadyAchieved`,
@@ -53,6 +53,19 @@ tier = "operator"
 # enriched FlagPlant reward, that is this defect: file it in todo-and-known-bugs.md, do not
 # re-pin. LedgerGroundTruth cannot see it (the adjustment row makes recalc agree with the save).
 #
+# FIXED 2026-10-26 (branch `wfx-local`), the lane's predictions re-cut for it. The third flight's
+# leak was 3200 = 2 x 1600 because flight 2's pad EVA re-earns Kerbin/SurfaceEVA too (decompiled
+# `SurfaceEVA.OnGoEVA`: an EVA from a landed vessel on the body; stock gives FLAGPLANT and
+# SURFACEEVA the same world-first multiplier), so two crossed world-firsts were repaid. The fix
+# (`CommittedMilestoneReach`) marks a stock node complete without reward once the clock is at or
+# past a committed row for it, also while the patch is deferred (the warp exit's deferred recalc)
+# and at 1x (a flight clock cursor). Stock pays nothing in flight 2: its flag and EVA fire no
+# `MilestoneAchieved`, no enrichment and no flight-2 row, so there is no Duplicate line either.
+# Gated now: each world-first's `MilestoneAchieved` before the rewind and never after it, the
+# `[CommittedMilestones] Apply: marked` line naming Kerbin/FlagPlant after the rewind (mid-warp
+# from the cursor, `reason=flight-clock`, or at the warp exit, `reason=deferred-patch`), the
+# flight-1 credit, and no leak line.
+#
 # STATUS: NOT YET GREEN. Authored 2026-10-25 (branch `wf1-local`), tier operator, tag
 # pending-flight. First flight 2026-10-25 INVALID at flight 1's Recover: the spec committed
 # in flight first, the committed-spawned restore re-adopted the tree 6 ms later (the pod was
@@ -73,17 +86,18 @@ tier = "operator"
 # OTHER PRE-REGISTERED READINGS (what to check first if the first flight reds):
 #   - `plantflag refused` on either flight: read the reason; a flag lock means the host's
 #     Astronaut Complex premise is wrong.
-#   - Only one `MilestoneAchieved 'Kerbin/FlagPlant'`: stock did not re-award it in flight 2,
-#     so the node was reached when flight 2 planted. Look for `PatchMilestones: set achieved
-#     'Kerbin/FlagPlant'` between the rewind and flight 2's flag (a patch that was not
-#     deferred, or a cutoff that counted the flight-1 row as past).
+#   - A `MilestoneAchieved 'Kerbin/FlagPlant'` after the rewind: stock re-awarded it, so the
+#     node was not complete when flight 2 planted. Look for the `[CommittedMilestones]` lines
+#     between the rewind and flight 2's flag: `Apply skipped: no trusted clock` (the deferred
+#     pass ran on no clock), `credited=0` (the flight-1 row was not at or before the clock, or
+#     was excluded), or no line at all (neither the cursor nor a deferred recalc ran).
 #   - `Credited milestone 'Kerbin/FlagPlant' at UT=9..` or later: the credit moved to flight
 #     2 and the committed flight's reward was retired; a product finding.
 #   - `recover rejected` on flight 2: the relaunched pod's pid is not 2871960053 (stock
 #     re-pidded it on a collision); read the launch line for the live pid.
 #   - Flight 1's replayed flag (ProtoVessel.Load at its UT during flight 2's warp) lands next
 #     to flight 2's pod; a physics kick there is a host artefact, not this lane's subject.
-description = "Career world-first re-earned after a rewind: plant a flag on the pad in a recorded, committed flight (Kerbin/FlagPlant), rewind to its launch, plant again in a second flight, and check the committed flight keeps the credit, the second is zeroed as a duplicate, and the reward is paid once (no kept stock-pool leak), then run LedgerGroundTruth."
+description = "Career world-first re-earned after a rewind: plant a flag on the pad in a recorded, committed flight (Kerbin/FlagPlant), rewind to its launch, plant again in a second flight, and check the committed flight keeps the credit, stock pays the second flight nothing (the node is marked complete once the clock passes the committed row), and the reward is paid once (no kept stock-pool leak), then run LedgerGroundTruth."
 instanceProfile = "stock-minimal"
 tags = ["WF1", "career", "ledger", "milestone", "rewind", "flag-plant", "eva", "editor",
         "ingame-batch", "ground-truth", "pending-flight"]
@@ -175,17 +189,16 @@ allowedAnomalies = []
 count = { min = 6, max = 10 }
 
 [expectations.logContracts]
-# The Credited / Duplicate lines are Verbose (the verboseLogging pin above). Each UT window
-# follows from the steps: flight 1 records from UT 60 and its three EVA verbs fit in 420 s at
-# 1x, so its flag lands below UT 600; flight 2 warps to 900 before its EVA.
+# The Credited line is Verbose (the verboseLogging pin above). Its UT window follows from the
+# steps: flight 1 records from UT 60 and its three EVA verbs fit in 420 s at 1x, so its flag
+# lands below UT 600; flight 2 warps to 900 before its EVA. Flight 2 earns nothing in stock
+# (see the FIXED note in the header), so it has no MilestoneAchieved, enrichment or Duplicate.
 required = [
   "\\A(?:[\\s\\S]*?CommitTreeSceneExit: finalizing tree at UT=){2}",
   "\\A(?:[\\s\\S]*?Flag event captured){2}",
   "Game state: MilestoneAchieved 'Kerbin/FlagPlant' \\(awaiting reward enrichment\\)[\\s\\S]*\\[Rewind\\] Rewind-to-Launch initiated to UT ",
-  "\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*Game state: MilestoneAchieved 'Kerbin/FlagPlant' \\(awaiting reward enrichment\\)",
-  "\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*Milestone enriched: 'Kerbin/FlagPlant' funds=",
+  "\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*\\[CommittedMilestones\\] Apply: marked [0-9]+ stock progress node\\(s\\) complete without reward[^\\n]*reason=(?:flight-clock|deferred-patch)[^\\n]*ids=\\[[^\\]\\n]*Kerbin/FlagPlant",
   "Credited milestone 'Kerbin/FlagPlant' at UT=(?:[6-9][0-9]|[1-5][0-9]{2})\\.[0-9] \\(recording=[0-9a-f]{32},",
-  "Duplicate milestone 'Kerbin/FlagPlant' zeroed at UT=(?:9[0-9]{2}|[1-9][0-9]{3})\\.[0-9] \\(recording=[0-9a-f]{32}\\)",
   "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
   "result: hardFailures=0 ",
 ]
@@ -197,6 +210,9 @@ forbidden = [
   "filed StockPoolAdjustment amount=\\S+ reason=leak",
   # The committed flight's credit moved to the flight-2 row (retired or reduced).
   "Credited milestone 'Kerbin/FlagPlant' at UT=(?:9[0-9]{2}|[1-9][0-9]{3})\\.",
+  # Stock paid a world-first the committed timeline already credits (the fixed defect).
+  "\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*Game state: MilestoneAchieved 'Kerbin/(?:FlagPlant|SurfaceEVA)'",
+  "Duplicate milestone 'Kerbin/(?:FlagPlant|SurfaceEVA)' zeroed at UT=(?:9[0-9]{2}|[1-9][0-9]{3})\\.",
 ]
 
 [runtime]

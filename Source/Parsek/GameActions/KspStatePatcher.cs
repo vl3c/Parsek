@@ -6262,6 +6262,7 @@ namespace Parsek
             stockReferenceNowUT = double.NaN;
             StockPoolAdjustmentSinkForTesting = null;
             StockPoolReference.ResetForTesting();
+            CommittedMilestoneReach.ResetForTesting();
             PartPurchaseLiveUtProviderForTesting = null;
             ResourceScanLiveUtProviderForTesting = null;
             UpgradeUnlockLiveUtProviderForTesting = null;
