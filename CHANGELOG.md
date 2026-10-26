@@ -25,6 +25,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Merging a flight after a rewind no longer pays out the future early.** When committed flights
+  still lay ahead of the clock, merging (or the automatic merge on a save) briefly set your funds,
+  science and reputation to their end-of-timeline values. A merge now leaves the career as it
+  stands at the current time; the later awards still arrive when the clock reaches them.
+  (TREE-COMMIT-WALKS-PAST-THE-CLOCK)
 - **The orbital survey's science bonus belongs to the flight that ran it.** Completing an M700
   survey paid science that Parsek only noticed later and kept as an unexplained adjustment. It is
   now its own entry at the survey's time, "Orbital survey of <body>", filed under that flight, so

@@ -53,8 +53,12 @@ tier = "operator"
 # enriched FlagPlant reward, that is this defect: file it in todo-and-known-bugs.md, do not
 # re-pin. LedgerGroundTruth cannot see it (the adjustment row makes recalc agree with the save).
 #
-# STATUS: NOT YET FLOWN. Authored 2026-10-25 (branch `wf1-local`), tier operator, tag
-# pending-flight.
+# STATUS: NOT YET GREEN. Authored 2026-10-25 (branch `wf1-local`), tier operator, tag
+# pending-flight. First flight 2026-10-25 INVALID at flight 1's Recover: the spec committed
+# in flight first, the committed-spawned restore re-adopted the tree 6 ms later (the pod was
+# still live on the pad, a designed resume), and the exit gate refused the Recover with no
+# autoMerge (`recover rejected reason=dialog-required variant=RegularMerge`). Re-cut to the
+# Recover-commits shape with autoMerge on; the flag was planted and captured before that.
 #
 # OTHER PRE-REGISTERED READINGS (what to check first if the first flight reds):
 #   - `plantflag refused` on either flight: read the reason; a flag lock means the host's
@@ -85,10 +89,16 @@ steps = [
   { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
   { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
   { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoMerge", value = "true" },                 expect = "OK" },
 
   # ---- flight 1: the host's pod, a flag on the pad, committed, then recovered ----
   # The warp puts the recording start (and so the rewind landing, start - 15 s) past the
-  # host clock. Recover after the commit so no end-of-tree vessel holds the pad for flight 2.
+  # host clock. The Recover is what commits (autoMerge, the scene exit: L3 / CS-1's shape),
+  # so no end-of-tree vessel holds the pad for flight 2 and the CommitTree after it finds no
+  # tree. An in-flight CommitTree first does not work here: the pod stays live on the pad and
+  # the 1 Hz committed-spawned restore re-adopts the just-committed tree, whose exit gate then
+  # refuses the Recover (`dialog-required variant=RegularMerge`). The planted flag keeps the
+  # pad tree from the idle-on-pad discard (IsTreeIdleOnPad -> TreeHasPlantedFlagsForIdle).
   { cmd = "WarpToUT",       args = { ut = "60" },                                          expect = "OK", budget = 120 },
   { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
   { cmd = "MissionMark",    args = { label = "wf1-flight1" },                              expect = "OK" },
@@ -96,9 +106,8 @@ steps = [
   { cmd = "PlantFlag",                                                                     expect = "OK", budget = 180 },
   { cmd = "EvaBoard",                                                                      expect = "OK", budget = 120 },
   { cmd = "StopRecording",                                                                 expect = "OK" },
-  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
-  { cmd = "StopRecording",                                                                 expect = "OK" },
   { cmd = "Recover",        args = { pid = "2871960053" },                                 expect = "OK", budget = 120 },
+  { cmd = "CommitTree",                                                                    expect = "REJECTED" },
   { cmd = "MissionMark",    args = { label = "wf1-flight1-committed" },                    expect = "OK" },
 
   # ---- the rewind: flight 1's launch, from the Space Center ----
@@ -117,9 +126,8 @@ steps = [
   { cmd = "PlantFlag",                                                                     expect = "OK", budget = 180 },
   { cmd = "EvaBoard",                                                                      expect = "OK", budget = 120 },
   { cmd = "StopRecording",                                                                 expect = "OK" },
-  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
-  { cmd = "StopRecording",                                                                 expect = "OK" },
   { cmd = "Recover",        args = { pid = "2871960053" },                                 expect = "OK", budget = 120 },
+  { cmd = "CommitTree",                                                                    expect = "REJECTED" },
   { cmd = "MissionMark",    args = { label = "wf1-flight2-committed" },                    expect = "OK" },
 
   # ---- the ground truth: an unrecorded launch (LedgerGroundTruth scene-skips at the Space
@@ -152,7 +160,7 @@ count = { min = 6, max = 10 }
 # follows from the steps: flight 1 records from UT 60 and its three EVA verbs fit in 420 s at
 # 1x, so its flag lands below UT 600; flight 2 warps to 900 before its EVA.
 required = [
-  "\\A(?:[\\s\\S]*?committree committed=true){2}",
+  "\\A(?:[\\s\\S]*?CommitTreeSceneExit: finalizing tree at UT=){2}",
   "\\A(?:[\\s\\S]*?Flag event captured){2}",
   "Game state: MilestoneAchieved 'Kerbin/FlagPlant' \\(awaiting reward enrichment\\)[\\s\\S]*\\[Rewind\\] Rewind-to-Launch initiated to UT ",
   "\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*Game state: MilestoneAchieved 'Kerbin/FlagPlant' \\(awaiting reward enrichment\\)",

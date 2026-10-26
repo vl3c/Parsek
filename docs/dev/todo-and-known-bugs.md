@@ -665,7 +665,7 @@ filed untagged and written to the ledger at once, so a discard keeps it. Cells:
 
 ---
 
-## TREE-COMMIT-WALKS-PAST-THE-CLOCK: the tree-commit ledger walks patch committed future rows into KSP [FILED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`. OPEN; low]
+## ~~TREE-COMMIT-WALKS-PAST-THE-CLOCK: the tree-commit ledger walks patch committed future rows into KSP~~ [FIXED 2026-10-26 on branch `tc1-local`. FILED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`. low]
 
 `LedgerOrchestrator.NotifyLedgerTreeCommitted` and `OnRecordingCommitted` end with a cutoff-less
 `RecalculateAndPatch()`; their callers are the merge dialog (`MergeDialog.Commit.cs`), the outside-
@@ -676,6 +676,26 @@ current-UT helper (`flight-tree-commit`). Low reach in shipping; each pool still
 the walk is cut. Fix direction: route the commit walks through
 `RecalculateAndPatchForCurrentTimelineIfFutureActions`, keeping the derived fields the post-walk
 reconciliation reads.
+
+**Fix.** Both commit walks (the tree walk and its failed-commit walk in `NotifyLedgerTreeCommitted`,
+and the walk in `OnRecordingCommitted`) go through `LedgerOrchestrator.RecalculateAndPatchAfterCommit`,
+which calls `RecalculateAndPatchForCurrentTimelineIfFutureActions` at
+`ParsekScenario.GetCurrentTimelineUTForLedgerRecalc()` (reasons `tree-commit`, `tree-commit-failed`,
+`recording-commit`). With no committed row ahead of the clock that is the same full walk as before.
+Every caller is covered at once: `MergeDialog.MergeCommit` (dialog, fresh-rollout refusal, pre-switch
+dialog, silent full-fidelity auto-commit), the ghost-only auto-commit and the OnSave safety net in
+`ParsekScenario`, `ParsekFlight.CommitTreeFlight` (its trailing `flight-tree-commit` walk stays) and
+`ParsekFlight.FallbackCommitSplitRecorder`. While OnLoad runs or a rewind's UT adjustment is pending
+the live clock is not the timeline's (QL-1: a Space Center OnLoad reads the pre-load clock), so the
+walk stays full there (`ShouldCommitWalkUseLiveClock`); both OnLoad auto-commit contexts are followed
+by the load's own clock-cut walk (`RecalculateLedgerForInSessionLoad` / `DeferredSeedAndRecalculate`).
+Derived fields stay right: a cutoff walk fills the rows it walks, its projection walk fills the rows
+past the cutoff, crew reservations and the committed-science cache are rebuilt from the full ledger
+after it, and the stock pool reference measures at the live clock either way (`MeasureStockPool`
+reads the live clock for a cutoff-less walk), so only the patch target moves, to the career at now.
+The cut walk also patches the tech tree to now, as every post-rewind scene load does. The Re-Fly
+invoke walk (`RewindInvoker` Step 5, `double.MaxValue`) and the tombstone walk are untouched. Cells:
+`TreeCommitCurrentClockWalkTests`.
 
 ---
 
