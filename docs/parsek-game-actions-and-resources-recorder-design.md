@@ -515,7 +515,7 @@ Example: a committed flight recovers goo at UT 1000 (cap 3.9, stock paid 3). Aft
   - It is taken back only for an identity reason (a duplicate or a cap), never for a floor or a strategy share.
   - It is applied only to rows first captured after the build that ships it.
   - It is never filed as a `StockPoolAdjustment` row, because the ground-truth check counts those separately and would hide it.
-  - If the player already spent the duplicate money at the Space Center, the shortfall becomes a debt (3.13 part 4; for science, step 6).
+  - The player has no window to spend the duplicate first. Nothing can be spent in flight, and updates are held back while a recorder or a pending tree exists. Auto-merge (always on in shipping) commits the tree at scene exit, and the Space Center's scene-entry update runs before a click is possible. A merge dialog locks all input. A payment made at the Space Center is followed by an update one frame later. If a shortfall still appears (auto-merge off, a test setting), it becomes a debt (3.13 part 4; for science, step 6).
 - Prevention changes the raw data the replay sees: stock pays the remainder (0.69) instead of the full first reading (3). Under the hard cap the credited total is the same.
 
 **6. Purchases follow a state rule, and science can go into debt.**
@@ -929,7 +929,7 @@ Chronological order on the timeline determines priority. Earlier recordings get 
 
 The `affordable` flag on spending actions is defensive — it should never be false in normal play because the reservation system (section 6.5) prevents new spendings from creating a deficit, and the no-delete invariant ensures total effective science never decreases, so existing spendings remain valid. If the flag is false, it indicates a bug or data corruption.
 
-**Planned (section 3.15 step 6).** Today an unaffordable tech is not deducted, and `KspStatePatcher.ShouldRefuseUnaffordableRelock` keeps it researched, so it costs nothing. Three paths can leave a committed tech unaffordable: take-back after a spend, credit moved by the science re-date, and credit moved out of a strategy window. Under the plan, a committed tech is charged into debt like a funds row (section 3.13 part 4). A purchase the walk already owns at its (UT, `cseq`) is not charged again.
+**Planned (section 3.15 step 6).** Today an unaffordable tech is not deducted, and `KspStatePatcher.ShouldRefuseUnaffordableRelock` keeps it researched, so it costs nothing. Two paths can leave a committed tech unaffordable after a rewind: credit moving between two flights of one subject once rows are dated at capture time, and a strategy's science cut moving out of its window. Take-back after a spend is a third path only when auto-merge is off, a test setting (step 5). Under the plan, a committed tech is charged into debt like a funds row (section 3.13 part 4). A purchase the walk already owns at its (UT, `cseq`) is not charged again.
 
 ### 12.7 Verified scenarios
 
