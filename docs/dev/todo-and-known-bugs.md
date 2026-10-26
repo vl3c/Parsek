@@ -17,6 +17,36 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## LEDGER-EVENT-IDENTITY: the replay, not stock, decides every repeated ledger event [FILED 2026-10-26 from the event-keyed ledger research (two independent code reviews plus a hand-simulated career with repeated rewinds); RULED 2026-10-26, PLAN ONLY: build held until the owner says go; product, high (the duplicate-payment class)]
+
+Design authority: `docs/parsek-game-actions-and-resources-recorder-design.md` section 3.15.
+
+Owner rulings, 2026-10-26:
+- **Prevention plus take-back.**
+- **Purchases are charged once per item in the replay**, refined into a state rule because legitimate repeats exist.
+- **Science keeps its hard cap.**
+- **Wait before building.**
+- Six follow-up rulings (owner, 2026-10-26, after the second review): income with no ledger channel is live-only; science goes into debt; a cause moved out of a strategy window is accepted; a hire keeps its captured price; a Re-Fly seal reads credit; KCT / RP-1 are out of scope.
+
+Four causes behind the 2026-10 duplicate-payment bugs (#2276, #2281, #2283, the one-time exchanger, RECORD-BAND-REEARNED-AFTER-REWIND-PAID-AGAIN):
+- (A) `StockPoolReference` steps a stock-applied row by its walk effect, so stock's re-payment of a known identity is adopted as a kept adjustment.
+- (B) Some identities are never decided by the replay: records, the survey bonus, and every spending.
+- (C) Strategy conversion legs are frozen at capture.
+- (D) Capture dedup keys on economic keys.
+
+Defects confirmed in code on main 3361d23, each closed by a step of section 3.15:
+- Science earnings are dated at the recording END UT, not the capture UT (`GameStateEventConverter`, `UT = endUT`). Step 2.
+- `SortActions` breaks same-UT ties on `Sequence`, not `cseq`, so one KSC session's Rebuild and Upgrade have no order. Step 2.
+- `ScienceModule.ProcessSpending` refuses an unaffordable tech and `ShouldRefuseUnaffordableRelock` keeps it researched, so a reduction makes a committed tech free. Step 6.
+- `ContractsModule.ProcessParameterComplete` does not check a contract the walk already completed. Step 1.
+- `SupersedeCommit.IsLossRow` seals on a gain row the replay does not count. Step 10.
+- An income with no ledger channel is filed at the next patch UT and re-applied when the clock passes it again, while the mod pays it again after a rewind. The cheat log line "held only until the next rewind" is therefore false. Step 9.
+- A hire row stores only its price, which depends on roster size. Step 6.
+
+Build order is in section 3.15. Each step ships unit tests and the matching harness oracle (`once_key`) and Timeline changes. No lane is owed until a step is built.
+
+---
+
 ## ~~RELAUNCH-ROLLOUT-DEDUPED-AS-REVERT: relaunching the same craft within 60 s of an unadopted rollout drops the second launch's cost~~ [FILED 2026-10-26 from CS-3b's first flight (`2026-10-26_0343`); FIXED 2026-10-26 on branch `rollout-relaunch-dedup`; LIVE-PROVEN on CS-3b `2026-10-26_0426`; product, high (a funds gain)]
 
 Observed (`logs/flights/cs-campaign/cs3b-run1-KSP.log` around line 11250): the career save's
@@ -158,6 +188,8 @@ the thresholds of ELS record rows at or before it, Re-Fly suppressed subtree exc
 is above the live implied paid count (`TryReadRepeatableRecordImpliedPaidCount`), so a re-climb
 inside the committed band pays nothing. Witness to author: a record-climb twin of WF-1.
 
+Planned as LEDGER-EVENT-IDENTITY step 4 (design section 3.15): once per threshold in the replay, earliest crossing first, plus the band mirror above.
+
 ---
 
 ## SCIENCE-REEARN-AFTER-REWIND-TAKES-FULL-CREDIT: after a Rewind-to-Launch, re-earning a subject the committed future already credits pays the re-run in full and caps the committed flight [FILED 2026-10-25 on branch `sci1-local`, PREDICTED FROM SOURCE, NOT FLOWN; witness lane SCI-1-science-reearned-after-rewind; NEEDS AN OWNER RULING]
@@ -192,6 +224,8 @@ committed recovery (UT 338) the committed flight was capped: `Earning (cap hit):
 effective=0.0479, headroom=0.0479`; `Applied committed science: ... 3.9 -> 3.9` appears only after
 the crossing. The pool itself closes (LedgerGroundTruth `hardFailures=0`, science 10.4 / 10.4), so
 the question is which flight the credit belongs to: still the owner's ruling.
+
+RULED 2026-10-26 (owner): the earliest recovery keeps the science, as today, and design 12.6 / 12.7 stand. Re-earning earlier after a rewind is fine because the subject's total only grows. The remaining work is LEDGER-EVENT-IDENTITY steps 2 and 5. Lane SCI-1 is re-pinned to this rule when the Mun campaign resumes.
 
 ---
 
