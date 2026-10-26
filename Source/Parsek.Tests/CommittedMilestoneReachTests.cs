@@ -161,11 +161,15 @@ namespace Parsek.Tests
         [Fact]
         public void NextRowUTAfter_IsTheEarliestOnceEverRowStrictlyAfter()
         {
+            // A record row with thresholds is a mirrored row too (design 3.15 step 4); a
+            // record completion row (no threshold) is not.
+            var completion = MilestoneRow("RecordsAltitude", 70.0);
+            completion.MilestoneRecordThresholds = 0;
             var actions = new List<GameAction>
             {
                 MilestoneRow("Kerbin/FlagPlant", 100.0),
                 MilestoneRow("Kerbin/SurfaceEVA", 90.0),
-                MilestoneRow("RecordsAltitude", 70.0),
+                completion,
                 new GameAction { Type = GameActionType.FundsEarning, UT = 60.0 },
             };
 

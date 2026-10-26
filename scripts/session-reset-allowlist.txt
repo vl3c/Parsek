@@ -29,6 +29,8 @@ GameStateRecorder.HasLiveRecorderProviderForTesting test seam
 GameStateRecorder.LiveFlightVesselProviderForTesting test seam
 GameStateRecorder.ScienceGainMultiplierProviderForTesting test seam
 GameStateRecorder.TagResolverForTesting test seam
+GameStateRecorder.recordRewardIntervalFields reflection cache per stock node type, no save state
+GameStateRecorder.recordIntervalsPaidByNode weak per-live-node-instance memory; a load builds new progress nodes, so no entry outlives its save
 GameStateRecorder.IsReplayingActions scoped SuppressionGuard flag, restored by its own Dispose
 GameStateRecorder.SuppressCrewEvents scoped SuppressionGuard flag, restored by its own Dispose
 GameStateRecorder.SuppressResourceEvents scoped SuppressionGuard flag, restored by its own Dispose

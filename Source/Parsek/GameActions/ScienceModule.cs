@@ -724,7 +724,8 @@ namespace Parsek
                 return;
             }
 
-            float reward = action.MilestoneScienceAwarded;
+            // A partly credited world-record row earns only its new thresholds (3.15 step 4).
+            float reward = action.CreditedMilestoneScience;
             if (reward <= 0f)
                 return;
 
@@ -856,7 +857,7 @@ namespace Parsek
                     return true;
                 case GameActionType.MilestoneAchievement:
                     if (!action.Effective) return false;
-                    delta = (double)action.MilestoneScienceAwarded;
+                    delta = (double)action.CreditedMilestoneScience;
                     return true;
                 case GameActionType.ContractComplete:
                 case GameActionType.ContractParameterComplete:

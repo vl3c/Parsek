@@ -1193,8 +1193,36 @@ namespace Parsek
                 MilestoneFundsAwarded = fundsAwarded,
                 MilestoneRepAwarded = repAwarded,
                 MilestoneScienceAwarded = sciAwarded,
-                MilestoneRecordThresholds = ParseMilestoneRecordThresholds(evt.detail)
+                MilestoneRecordThresholds = ParseMilestoneRecordThresholds(evt.detail),
+                MilestoneRecordBand = ParseMilestoneRecordBand(evt.detail)
             };
+        }
+
+        /// <summary>
+        /// Detail key naming the world-record thresholds a MilestoneAchieved event crossed
+        /// (<see cref="GameAction.MilestoneRecordBand"/>, <see cref="RecordThresholdBand"/>).
+        /// Written by <see cref="GameStateRecorder.BuildMilestoneDetail(double, float, double, int, string)"/>
+        /// on world-record events only.
+        /// </summary>
+        internal const string MilestoneRecordBandDetailKey = "band";
+
+        /// <summary>
+        /// Pure: the threshold list a milestone event detail names, or null when it names none
+        /// (absent, the incomplete marker, or malformed: the row then counts by position).
+        /// </summary>
+        internal static List<RecordThresholdCredit> ParseMilestoneRecordBand(string detail)
+        {
+            string raw = ExtractDetail(detail, MilestoneRecordBandDetailKey);
+            var state = RecordThresholdBand.Parse(raw, out List<RecordThresholdCredit> band, out bool malformed);
+            if (malformed)
+            {
+                // Rate-limited per value: the recorder re-parses a scope's detail on every
+                // coalesced award, which can be every frame.
+                ParsekLog.WarnRateLimited(Tag, "record-band-malformed-" + raw,
+                    $"ParseMilestoneRecordBand: malformed {MilestoneRecordBandDetailKey}='{raw}' " +
+                    "in milestone detail - its thresholds are derived from the count");
+            }
+            return state == RecordThresholdBand.ParseState.Listed ? band : null;
         }
 
         /// <summary>

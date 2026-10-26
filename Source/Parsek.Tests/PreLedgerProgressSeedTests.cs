@@ -268,19 +268,21 @@ namespace Parsek.Tests
         [Fact]
         public void Capture_RecordNode_SeedsImpliedCountMinusRowsAndPendingEvents()
         {
-            // Live band says 5 thresholds paid. One committed row (scope recA, whose event is
-            // still in the store and must NOT count twice) owns one. Scope recB has no row
-            // yet: each of its two events becomes its own row at commit (a coalesced award
-            // event plus the completion event, as PWR-3 2026-10-03_1335 committed them), and
-            // these details carry no threshold key, so each owns one. The other two predate
-            // the ledger.
+            // Live band says 5 thresholds paid. One committed row (scope recA, whose own
+            // event, same UT, is still in the store and must NOT count twice) owns one. Scope
+            // recB has no row yet: each of its two events becomes its own row at commit (a
+            // coalesced award event plus the completion event, as PWR-3 2026-10-03_1335
+            // committed them), and these details carry no threshold key, so each owns one.
+            // The other two predate the ledger.
+            var rowOwnEvent = MilestoneEvent("RecordsAltitude", "recA");
+            rowOwnEvent.ut = 100.0;
             PreLedgerProgressSeed.CaptureStats stats;
             var seed = PreLedgerProgressSeed.Capture(
                 new[] { Record("RecordsAltitude", impliedPaid: 5) },
                 new[] { MilestoneRow("RecordsAltitude", 100.0, "recA") },
                 new[]
                 {
-                    MilestoneEvent("RecordsAltitude", "recA"),
+                    rowOwnEvent,
                     MilestoneEvent("RecordsAltitude", "recB"),
                     MilestoneEvent("RecordsAltitude", "recB")
                 },

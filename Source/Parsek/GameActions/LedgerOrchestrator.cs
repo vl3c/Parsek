@@ -1120,10 +1120,12 @@ namespace Parsek
                             // #440B: rep leg reads EffectiveRep (curve-applied). Funds/Sci
                             // legs keep raw MilestoneFundsAwarded / MilestoneScienceAwarded
                             // (no transform today). Gate on Effective for duplicate milestones.
+                            // A partly credited world-record row emits only its new
+                            // thresholds' share, like a zeroed duplicate emits nothing.
                             if (!a.Effective) break;
-                            deltas.EmittedFundsDelta += a.MilestoneFundsAwarded;
+                            deltas.EmittedFundsDelta += a.CreditedMilestoneFunds;
                             deltas.EmittedRepDelta += a.EffectiveRep;
-                            deltas.EmittedSciDelta += a.MilestoneScienceAwarded;
+                            deltas.EmittedSciDelta += a.CreditedMilestoneScience;
                             break;
                         case GameActionType.ScienceEarning:
                             // #440B: EffectiveScience is post-subject-cap (ScienceModule).

@@ -3574,6 +3574,41 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The add-only live band mirror (design 7.9, section 3.15 step 4): raises a repeatable
+        /// record node's band to <paramref name="committedCount"/> thresholds when that is above
+        /// the count its live state says stock already paid
+        /// (<see cref="TryReadRepeatableRecordImpliedPaidCount"/>), so stock does not pay a
+        /// re-climb through thresholds the committed timeline already credits at the clock.
+        /// The band is rebuilt the way the normal patch does it (the live best value kept when
+        /// it still fits the raised band), with no award, no <c>Complete()</c> and no event.
+        /// Never lowers a band: at or below the live paid count nothing is touched. Returns
+        /// true when the node is a record node whose live paid count could be read;
+        /// <paramref name="raised"/> says whether the band moved.
+        /// </summary>
+        internal static bool TryRaiseRepeatableRecordBand(
+            ProgressNode node, int committedCount, string qualifiedId,
+            FieldInfo reachedField, FieldInfo completeField,
+            out int livePaidCount, out bool raised)
+        {
+            raised = false;
+            livePaidCount = 0;
+            if (!IsRepeatableRecordType(node))
+                return false;
+            if (!TryReadRepeatableRecordImpliedPaidCount(node, out livePaidCount))
+                return false;
+            if (committedCount <= livePaidCount)
+                return true;
+
+            if (!PatchRepeatableRecordNode(node, committedCount, qualifiedId, reachedField, completeField,
+                authoritativeRepeatableRecordState: false, out bool changed))
+            {
+                return false;
+            }
+            raised = changed;
+            return true;
+        }
+
+        /// <summary>
         /// Returns true when the node is one of KSP's four repeatable world-record subclasses
         /// (<c>KSPAchievements.RecordsAltitude</c>, <c>KSPAchievements.RecordsDepth</c>,
         /// <c>KSPAchievements.RecordsSpeed</c>, <c>KSPAchievements.RecordsDistance</c>).

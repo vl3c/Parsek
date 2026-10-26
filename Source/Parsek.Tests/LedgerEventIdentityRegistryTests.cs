@@ -169,7 +169,14 @@ namespace Parsek.Tests
             Assert.True(LedgerEventIdentityRegistry.TryGet(GameActionType.MilestoneAchievement,
                 LedgerEventIdentityRegistry.MilestoneWorldRecord, out record));
             Assert.Equal("MilestoneAchievement/world-record key=[node id + threshold index] rule=OncePerThreshold "
-                + "planned=3.15 step 4 (today: every record row is counted as captured)", record.Describe());
+                + "enforced by MilestonesModule.ProcessAction (RecordThresholdBook; RecordThresholdsAlreadyCredited)",
+                record.Describe());
+
+            LedgerEventIdentityEntry tech;
+            Assert.True(LedgerEventIdentityRegistry.TryGet(GameActionType.ScienceSpending, null, out tech));
+            Assert.Equal("ScienceSpending key=[tech node id] rule=PurchaseStateRule planned=3.15 step 6 "
+                + "(today: charged when affordable; an unaffordable tech is not charged and stays researched)",
+                tech.Describe());
 
             LedgerEventIdentityEntry science;
             Assert.True(LedgerEventIdentityRegistry.TryGet(GameActionType.ScienceEarning, null, out science));
@@ -185,7 +192,7 @@ namespace Parsek.Tests
         [Theory]
         [InlineData(GameActionType.ScienceEarning, null, "CapHeadroom", true)]
         [InlineData(GameActionType.MilestoneAchievement, "one-shot", "FirstWins", true)]
-        [InlineData(GameActionType.MilestoneAchievement, "world-record", "OncePerThreshold", false)]
+        [InlineData(GameActionType.MilestoneAchievement, "world-record", "OncePerThreshold", true)]
         [InlineData(GameActionType.ContractComplete, null, "FirstWins", true)]
         [InlineData(GameActionType.ContractFail, null, "FirstWins", true)]
         [InlineData(GameActionType.ContractCancel, null, "FirstWins", true)]
@@ -281,6 +288,7 @@ namespace Parsek.Tests
         {
             { "ScienceEarning", ProbeScienceCapHeadroom },
             { "MilestoneAchievement/one-shot", ProbeMilestoneFirstWins },
+            { "MilestoneAchievement/world-record", ProbeWorldRecordOncePerThreshold },
             { "ContractComplete", ProbeContractCompleteFirstWins },
             { "ContractFail", ProbeContractFailFirstOutcomeWins },
             { "ContractCancel", ProbeContractCancelFirstOutcomeWins },
@@ -350,6 +358,55 @@ namespace Parsek.Tests
             Assert.True(first.Effective);
             Assert.False(again.Effective);
             Assert.Equal(GameActionNotCountedReason.MilestoneAlreadyAchieved, again.NotCountedReason);
+        }
+
+        // A committed flight crossed record thresholds 1-3 at UT 700; after a rewind a new
+        // flight (captured later) crossed 1-2 at UT 580. The earliest crossing wins each
+        // threshold: the new flight earns its two, the committed row only its third.
+        private static void ProbeWorldRecordOncePerThreshold()
+        {
+            var w = Register();
+            var actions = Seeds();
+            var committed = new GameAction
+            {
+                UT = 700, CaptureSequence = 10, Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "RecordsAltitude", MilestoneFundsAwarded = 600f, MilestoneRecordThresholds = 3,
+                MilestoneRecordBand = new List<RecordThresholdCredit>
+                {
+                    new RecordThresholdCredit(1, 100f, 0f, 0f),
+                    new RecordThresholdCredit(2, 200f, 0f, 0f),
+                    new RecordThresholdCredit(3, 300f, 0f, 0f),
+                }
+            };
+            var reclimb = new GameAction
+            {
+                UT = 580, CaptureSequence = 20, Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "RecordsAltitude", MilestoneFundsAwarded = 300f, MilestoneRecordThresholds = 2,
+                MilestoneRecordBand = new List<RecordThresholdCredit>
+                {
+                    new RecordThresholdCredit(1, 100f, 0f, 0f),
+                    new RecordThresholdCredit(2, 200f, 0f, 0f),
+                }
+            };
+            var again = new GameAction
+            {
+                UT = 800, CaptureSequence = 30, Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "RecordsAltitude", MilestoneFundsAwarded = 100f,
+                MilestoneRecordBand = new List<RecordThresholdCredit> { new RecordThresholdCredit(1, 100f, 0f, 0f) }
+            };
+            actions.Add(committed);
+            actions.Add(reclimb);
+            actions.Add(again);
+            RecalculationEngine.Recalculate(actions);
+            Assert.True(reclimb.Effective);
+            Assert.False(reclimb.RecordPartlyCredited);
+            Assert.True(committed.Effective);
+            Assert.True(committed.RecordPartlyCredited);
+            Assert.Equal(300f, committed.CreditedMilestoneFunds);
+            Assert.False(again.Effective);
+            Assert.Equal(GameActionNotCountedReason.RecordThresholdsAlreadyCredited, again.NotCountedReason);
+            Assert.Equal(3, w.Milestones.GetEffectiveMilestoneCount("RecordsAltitude"));
+            Assert.Equal(100000.0 + 300.0 + 300.0, w.Funds.GetRunningBalance(), 3);
         }
 
         private static void ProbeContractCompleteFirstWins()
@@ -438,27 +495,6 @@ namespace Parsek.Tests
         // ================================================================
         // Planned entries still behave as their "today" text says
         // ================================================================
-
-        // catches: step 4 landing (records per threshold) without the registry entry flipping
-        // to enforced.
-        [Fact]
-        public void PlannedWorldRecord_TodayEveryRecordRowCounts()
-        {
-            LedgerEventIdentityEntry e;
-            Assert.True(LedgerEventIdentityRegistry.TryGet(GameActionType.MilestoneAchievement,
-                LedgerEventIdentityRegistry.MilestoneWorldRecord, out e));
-            Assert.False(e.EnforcedToday);
-
-            Register();
-            var actions = Seeds();
-            var first = new GameAction { UT = 100, Type = GameActionType.MilestoneAchievement, MilestoneId = "RecordsSpeed", MilestoneFundsAwarded = 100f };
-            var again = new GameAction { UT = 300, Type = GameActionType.MilestoneAchievement, MilestoneId = "RecordsSpeed", MilestoneFundsAwarded = 100f };
-            actions.Add(first);
-            actions.Add(again);
-            RecalculationEngine.Recalculate(actions);
-            Assert.True(first.Effective);
-            Assert.True(again.Effective);
-        }
 
         // catches: the survey bonus becoming once per body without the registry entry flipping
         // to enforced.

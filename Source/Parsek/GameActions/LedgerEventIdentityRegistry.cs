@@ -93,8 +93,8 @@ namespace Parsek
         }
 
         /// <summary>One line for logs, e.g.
-        /// <c>MilestoneAchievement/world-record key=[node id + threshold index]
-        /// rule=OncePerThreshold planned=3.15 step 4 (today: ...)</c>.</summary>
+        /// <c>ScienceSpending key=[tech node id] rule=PurchaseStateRule planned=3.15 step 6
+        /// (today: ...)</c>.</summary>
         internal string Describe()
         {
             var sb = new StringBuilder();
@@ -114,7 +114,7 @@ namespace Parsek
     /// static: no KSP state, no ledger reads.
     ///
     /// <para>Each entry says whether the walk ENFORCES its rule today or which later step plans
-    /// it. Step numbers are the numbered parts of section 3.15 (step 4 records per threshold,
+    /// it. Step numbers are the numbered parts of section 3.15 (step 4 records per threshold, built,
     /// step 6 the purchase state rule, step 7 conversion legs, step 9 live-only income); the
     /// orbital survey bonus is planned in the section's build order step 7. The registry
     /// changes no walk behaviour by itself: the modules still hold the logic, and later steps
@@ -386,9 +386,9 @@ namespace Parsek
                 Enforced(GameActionType.MilestoneAchievement, MilestoneOneShot,
                     "body-qualified progress node id", LedgerIdentityRule.FirstWins,
                     "MilestonesModule.ProcessAction (MilestoneAlreadyAchieved)"),
-                Planned(GameActionType.MilestoneAchievement, MilestoneWorldRecord,
-                    "node id + threshold index", LedgerIdentityRule.OncePerThreshold, "3.15 step 4",
-                    "every record row is counted as captured"),
+                Enforced(GameActionType.MilestoneAchievement, MilestoneWorldRecord,
+                    "node id + threshold index", LedgerIdentityRule.OncePerThreshold,
+                    "MilestonesModule.ProcessAction (RecordThresholdBook; RecordThresholdsAlreadyCredited)"),
 
                 // ---- Contracts ----
                 Enforced(GameActionType.ContractAccept, null, "contract guid + accept",

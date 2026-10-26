@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Reflection;
 
 namespace Parsek
@@ -29,7 +30,16 @@ namespace Parsek
     /// is the walk's own input (<see cref="EffectiveState.ComputeELS"/>) at the clock, minus
     /// the rows of a live Re-Fly session's suppressed subtree (the origin being re-flown:
     /// a merge tombstones its milestone rows, so the attempt must be able to earn the node
-    /// itself). Repeatable world-record nodes are left to the record band patch.</para>
+    /// itself).</para>
+    ///
+    /// <para>World records (design 7.9, section 3.15 step 4): stock pays a record threshold
+    /// while the node's band is below it, so a band a rewind's authoritative patch lowered is
+    /// paid again by a re-climbing flight. The same pass raises each record node's band to
+    /// the committed count at the clock (the pre-ledger seed plus the counted first payments of
+    /// the committed record rows at or before it, counted by the walk's own
+    /// <see cref="RecordThresholdBook"/>) when that is above the count stock's live state
+    /// says it already paid. Add-only too: a band is never lowered, nothing is paid and no
+    /// event fires.</para>
     /// </summary>
     internal static class CommittedMilestoneReach
     {
@@ -47,6 +57,7 @@ namespace Parsek
         {
             ProgressTreeProviderForTesting = null;
             SuppressedRecordingIdsProviderForTesting = null;
+            SeedRecordCountsProviderForTesting = null;
         }
 
         /// <summary>The outcome of one pass over the progress tree.</summary>
@@ -55,6 +66,10 @@ namespace Parsek
             internal int Marked;
             internal int AlreadyComplete;
             internal int SkippedRecordNodes;
+            /// <summary>Record nodes whose band this pass raised.</summary>
+            internal int RecordBandsRaised;
+            /// <summary>Record nodes whose live band was already at or above the committed count.</summary>
+            internal int RecordBandsAtOrAbove;
         }
 
         /// <summary>
@@ -68,6 +83,79 @@ namespace Parsek
                 && action.Type == GameActionType.MilestoneAchievement
                 && !string.IsNullOrEmpty(action.MilestoneId)
                 && !MilestonesModule.IsRepeatableWorldRecordMilestone(action.MilestoneId);
+        }
+
+        /// <summary>
+        /// Pure: true for a committed world-record row that stands for at least one threshold
+        /// (it names them, or its count is above 0). A completion row (no threshold) is not.
+        /// </summary>
+        internal static bool IsRecordThresholdRow(GameAction action)
+        {
+            return action != null
+                && action.Type == GameActionType.MilestoneAchievement
+                && MilestonesModule.IsRepeatableWorldRecordMilestone(action.MilestoneId ?? "")
+                && ((action.MilestoneRecordBand != null && action.MilestoneRecordBand.Count > 0)
+                    || MilestonesModule.GetRepresentedRecordThresholds(action) > 0);
+        }
+
+        /// <summary>Pure: a row the mirror acts on (a once-ever row or a record threshold row),
+        /// so the clock cursor fires when the clock passes one.</summary>
+        internal static bool IsMirroredMilestoneRow(GameAction action)
+        {
+            return IsOnceEverMilestoneRow(action) || IsRecordThresholdRow(action);
+        }
+
+        /// <summary>
+        /// Pure: the committed band of each world-record node at <paramref name="clockUT"/>:
+        /// the pre-ledger seed (<paramref name="seedCounts"/>) plus the counted first payments of
+        /// the record rows of <paramref name="actions"/> at or before the clock, walked in the
+        /// walk's own order through <see cref="RecordThresholdBook"/> so the mirror and the
+        /// replay count alike. Rows tagged to a recording in
+        /// <paramref name="excludedRecordingIds"/> (a live Re-Fly session's suppressed
+        /// subtree) are left out and counted in <paramref name="excludedRows"/>. Only ids with
+        /// a row in the window are returned.
+        /// </summary>
+        internal static Dictionary<string, int> CollectCommittedRecordCountsAtOrBefore(
+            IEnumerable<GameAction> actions, double clockUT,
+            ICollection<string> excludedRecordingIds,
+            IReadOnlyDictionary<string, int> seedCounts,
+            out int excludedRows)
+        {
+            excludedRows = 0;
+            var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+            if (actions == null || double.IsNaN(clockUT))
+                return counts;
+
+            var rows = new List<GameAction>();
+            foreach (var a in actions)
+            {
+                if (!IsRecordThresholdRow(a) || a.UT > clockUT)
+                    continue;
+                if (excludedRecordingIds != null && !string.IsNullOrEmpty(a.RecordingId)
+                    && excludedRecordingIds.Contains(a.RecordingId))
+                {
+                    excludedRows++;
+                    continue;
+                }
+                rows.Add(a);
+            }
+            if (rows.Count == 0)
+                return counts;
+
+            // Stable, like the walk's own sort (equal keys keep the ledger order).
+            rows = rows.OrderBy(a => a, Comparer<GameAction>.Create(RecalculationEngine.CompareWalkOrder))
+                .ToList();
+            var book = new RecordThresholdBook();
+            book.Reset(seedCounts);
+            for (int i = 0; i < rows.Count; i++)
+                book.Credit(rows[i]);
+            for (int i = 0; i < rows.Count; i++)
+            {
+                string id = rows[i].MilestoneId;
+                if (!counts.ContainsKey(id))
+                    counts[id] = book.GetCreditedCount(id);
+            }
+            return counts;
         }
 
         /// <summary>
@@ -101,8 +189,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: the UT of the earliest once-ever milestone row strictly after
-        /// <paramref name="afterUT"/>, or +infinity when there is none.
+        /// Pure: the UT of the earliest once-ever milestone row or world-record threshold row
+        /// strictly after <paramref name="afterUT"/>, or +infinity when there is none.
         /// </summary>
         internal static double NextRowUTAfter(IEnumerable<GameAction> actions, double afterUT)
         {
@@ -111,7 +199,7 @@ namespace Parsek
                 return next;
             foreach (var a in actions)
             {
-                if (!IsOnceEverMilestoneRow(a))
+                if (!IsMirroredMilestoneRow(a))
                     continue;
                 if (a.UT > afterUT && a.UT < next)
                     next = a.UT;
@@ -201,6 +289,58 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Raises every repeatable world-record node of <paramref name="tree"/> whose
+        /// qualified id has a committed count in <paramref name="committedCounts"/> above its
+        /// live paid count (<see cref="KspStatePatcher.TryRaiseRepeatableRecordBand"/>). Never
+        /// lowers a band. <paramref name="raisedIds"/> receives "id:live->committed" for each
+        /// raise.
+        /// </summary>
+        internal static void RaiseCommittedRecordBands(
+            ProgressTree tree, IDictionary<string, int> committedCounts,
+            FieldInfo reachedField, FieldInfo completeField, string pathPrefix,
+            ref ReachCounts counts, List<string> raisedIds)
+        {
+            if (tree == null || committedCounts == null || committedCounts.Count == 0
+                || reachedField == null || completeField == null)
+                return;
+
+            for (int i = 0; i < tree.Count; i++)
+            {
+                ProgressNode node = tree[i];
+                if (node == null) continue;
+
+                string nodeId = node.Id ?? "";
+                string qualifiedId = string.IsNullOrEmpty(pathPrefix)
+                    ? nodeId
+                    : pathPrefix + "/" + nodeId;
+
+                if (committedCounts.TryGetValue(qualifiedId, out int committed)
+                    && KspStatePatcher.IsRepeatableRecordType(node))
+                {
+                    if (KspStatePatcher.TryRaiseRepeatableRecordBand(node, committed, qualifiedId,
+                        reachedField, completeField, out int livePaid, out bool raised))
+                    {
+                        if (raised)
+                        {
+                            counts.RecordBandsRaised++;
+                            raisedIds?.Add(qualifiedId + ":" + livePaid.ToString(IC) + "->" + committed.ToString(IC));
+                        }
+                        else
+                        {
+                            counts.RecordBandsAtOrAbove++;
+                        }
+                    }
+                }
+
+                if (node.Subtree != null && node.Subtree.Count > 0)
+                {
+                    RaiseCommittedRecordBands(node.Subtree, committedCounts, reachedField, completeField,
+                        qualifiedId, ref counts, raisedIds);
+                }
+            }
+        }
+
+        /// <summary>
         /// The live pass: marks stock's progress nodes for every once-ever world-first the
         /// committed ledger credits at or before <paramref name="clockUT"/>. Called from the
         /// deferred branch of the recalculation (a patch held back by a live or pending tree)
@@ -219,13 +359,19 @@ namespace Parsek
             }
 
             ICollection<string> suppressed = ResolveSuppressedRecordingIds();
-            HashSet<string> credited = CollectCreditedAtOrBefore(actions, clockUT, suppressed,
-                out int excludedRows);
-            if (credited.Count == 0)
+            // Materialized once: both collections below walk it.
+            List<GameAction> rows = actions as List<GameAction>
+                ?? (actions != null ? new List<GameAction>(actions) : new List<GameAction>());
+            HashSet<string> credited = CollectCreditedAtOrBefore(rows, clockUT, suppressed,
+                out int excludedOnceEver);
+            Dictionary<string, int> recordCounts = CollectCommittedRecordCountsAtOrBefore(
+                rows, clockUT, suppressed, ResolveSeedRecordCounts(), out int excludedRecord);
+            int excludedRows = excludedOnceEver + excludedRecord;
+            if (credited.Count == 0 && recordCounts.Count == 0)
             {
                 ParsekLog.VerboseOnChange(Tag, "apply-none|" + why,
                     "none|" + excludedRows.ToString(IC),
-                    $"Apply: no committed once-ever milestone at or before clock={clockUT.ToString("F1", IC)} " +
+                    $"Apply: no committed once-ever milestone or record row at or before clock={clockUT.ToString("F1", IC)} " +
                     $"(reason={why}, reFlySuppressedRows={excludedRows.ToString(IC)})");
                 return 0;
             }
@@ -234,7 +380,8 @@ namespace Parsek
             if (tree == null)
             {
                 ParsekLog.VerboseOnChange(Tag, "apply-skip|" + why, treeSkip,
-                    $"Apply skipped: {treeSkip} (reason={why}, credited={credited.Count.ToString(IC)})");
+                    $"Apply skipped: {treeSkip} (reason={why}, credited={credited.Count.ToString(IC)}, " +
+                    $"recordNodes={recordCounts.Count.ToString(IC)})");
                 return 0;
             }
 
@@ -253,9 +400,11 @@ namespace Parsek
 
             var counts = new ReachCounts();
             var markedIds = new List<string>();
+            var raisedIds = new List<string>();
             using (SuppressionGuard.ResourcesAndReplay())
             {
                 MarkCreditedNodes(tree, credited, reachedField, completeField, "", ref counts, markedIds);
+                RaiseCommittedRecordBands(tree, recordCounts, reachedField, completeField, "", ref counts, raisedIds);
             }
 
             int notInTree = credited.Count - counts.Marked - counts.AlreadyComplete - counts.SkippedRecordNodes;
@@ -263,21 +412,38 @@ namespace Parsek
                 $"marked={counts.Marked.ToString(IC)} alreadyComplete={counts.AlreadyComplete.ToString(IC)} " +
                 $"credited={credited.Count.ToString(IC)} notInTree={notInTree.ToString(IC)} " +
                 $"recordNodes={counts.SkippedRecordNodes.ToString(IC)} " +
+                $"recordBandsRaised={counts.RecordBandsRaised.ToString(IC)} " +
+                $"recordBandsAtOrAbove={counts.RecordBandsAtOrAbove.ToString(IC)} " +
                 $"reFlySuppressedRows={excludedRows.ToString(IC)}";
-            if (counts.Marked > 0)
+            if (counts.Marked > 0 || counts.RecordBandsRaised > 0)
             {
                 ParsekLog.Info(Tag,
                     $"Apply: marked {counts.Marked.ToString(IC)} stock progress node(s) complete without " +
-                    $"reward, the committed timeline credits them at or before clock={clockUT.ToString("F1", IC)} " +
+                    $"reward and raised {counts.RecordBandsRaised.ToString(IC)} record band(s) without reward, " +
+                    $"the committed timeline credits them at or before clock={clockUT.ToString("F1", IC)} " +
                     $"(reason={why}; {summary}) " +
-                    "ids=[" + KspStatePatcher.ComposeBoundedIdentitySample(markedIds, IdSampleCap) + "]");
+                    "ids=[" + KspStatePatcher.ComposeBoundedIdentitySample(markedIds, IdSampleCap) + "] " +
+                    "records=[" + KspStatePatcher.ComposeBoundedIdentitySample(raisedIds, IdSampleCap) + "]");
             }
             else
             {
                 ParsekLog.VerboseOnChange(Tag, "apply-noop|" + why, summary,
                     $"Apply: nothing to mark at clock={clockUT.ToString("F1", IC)} (reason={why}; {summary})");
             }
-            return counts.Marked;
+            return counts.Marked + counts.RecordBandsRaised;
+        }
+
+        /// <summary>Test seam: the pre-ledger record counts the live pass starts from (null
+        /// reads the ledger's captured seed).</summary>
+        internal static Func<IReadOnlyDictionary<string, int>> SeedRecordCountsProviderForTesting;
+
+        private static IReadOnlyDictionary<string, int> ResolveSeedRecordCounts()
+        {
+            var seam = SeedRecordCountsProviderForTesting;
+            if (seam != null)
+                return seam();
+            PreLedgerProgressSeed seed = Ledger.ProgressSeed;
+            return seed != null && seed.Captured ? seed.RecordPaidCounts : null;
         }
 
         private static ICollection<string> ResolveSuppressedRecordingIds()
@@ -320,7 +486,7 @@ namespace Parsek
 
     /// <summary>
     /// Runs <see cref="CommittedMilestoneReach.Apply"/> when the flight clock passes a
-    /// committed once-ever milestone row. The flight scene has no ledger clock cursor (the
+    /// committed once-ever milestone row or world-record threshold row. The flight scene has no ledger clock cursor (the
     /// Space Center and Tracking Station run one that recalculates), and a recalculation
     /// there is deferred while a recorder lives, so without this a world-first the committed
     /// timeline earned at UT 100 stays payable in stock for a flight that re-earns it at
@@ -361,7 +527,8 @@ namespace Parsek
 
         /// <summary>
         /// Advances the cursor to <paramref name="currentUT"/>. Returns true when the clock
-        /// passed a committed once-ever milestone row and the pass ran.
+        /// passed a committed once-ever milestone row or world-record threshold row and the
+        /// pass ran.
         /// </summary>
         internal bool Advance(double currentUT)
         {
