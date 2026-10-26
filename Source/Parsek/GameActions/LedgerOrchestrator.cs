@@ -1427,6 +1427,14 @@ namespace Parsek
         /// re-file of a capture is a conversion of the same pending subject, so it carries
         /// the filed row's id. A candidate without a capture identity (no production
         /// producer builds one today) keeps the legacy subject + capture-moment match.
+        /// Every other candidate converted from a captured game-state event
+        /// (<see cref="GameAction.HasEventCaptureIdentity"/>) matches only a row with the same
+        /// <see cref="GameAction.CaptureSequence"/> and key (design 3.15 step 3: a row
+        /// duplicate is one capture filed twice; an event duplicate, two captures with equal
+        /// economic keys, keeps both rows for the replay to decide). The type + UT + key
+        /// match above stays the fallback for a pair where either side names no capture: a
+        /// row from an older save, or a row built without an event (vessel cost, crew,
+        /// death penalty, recovery rows).
         /// </summary>
         internal static List<GameAction> DeduplicateAgainstLedger(List<GameAction> candidates)
         {
@@ -1448,6 +1456,9 @@ namespace Parsek
             HashSet<string> batchCaptureIds = null;
             int captureIdMatches = 0;
             int captureIdBatchRepeats = 0;
+            int eventCaptureMatches = 0;
+            int legacyKeyMatches = 0;
+            int eventDuplicatesKept = 0;
             for (int i = 0; i < candidates.Count; i++)
             {
                 var c = candidates[i];
@@ -1480,48 +1491,113 @@ namespace Parsek
                     continue;
                 }
 
+                bool candidateHasEventCapture = IsEventCaptureIdentified(c);
+                GameAction keptAgainst = null;
                 for (int j = 0; j < existing.Count; j++)
                 {
                     var e = existing[j];
                     if (e.Type != c.Type) continue;
-                    // A KerbalAssignment row's identity is (RecordingId, KerbalName) alone,
-                    // the same identity MigrateKerbalAssignments preserves ActionIds by. Its
-                    // UT is NOT part of it: RecordingTreeSplitter's step 2.9 retags a death
-                    // row to TIP with the ORIGIN's UT, so a later re-commit of TIP (every
-                    // tree commit re-commits every recording of the tree) would otherwise
-                    // file a second, fresh-id, untombstoned death row next to the retired
-                    // one (TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT, the
-                    // commit-side mirror of cause (a)). The same key also drops an
-                    // in-session re-commit whose CONTENT changed (a new end state or
-                    // window for the same recording and kerbal): the stored row stays
-                    // until the next load, where MigrateKerbalAssignments repairs its
-                    // content under the same ActionId.
-                    if (c.Type != GameActionType.KerbalAssignment
-                        && System.Math.Abs(GetDedupOccurrenceUt(e) - GetDedupOccurrenceUt(c)) > 0.1)
+                    // Design 3.15 step 3: a candidate converted from a captured event and a
+                    // row that names a capture are one row only when they name the SAME
+                    // capture (a re-commit, a re-home or a direct KSC row of that event).
+                    // Different captures with equal economic keys are two events - two
+                    // recordings of one tree crossing one record node inside 0.1 s, or a
+                    // committed future row and a new flight's at the same instant - and
+                    // both stay; the replay decides which one counts. A row without a
+                    // capture number (an older save) keeps the economic match below.
+                    if (candidateHasEventCapture && e.CaptureSequence > 0)
+                    {
+                        if (e.CaptureSequence == c.CaptureSequence
+                            && GetActionKey(e) == GetActionKey(c))
+                        {
+                            isDuplicate = true;
+                            eventCaptureMatches++;
+                            break;
+                        }
+                        if (keptAgainst == null
+                            && LegacyEconomicKeyMatches(e, c))
+                            keptAgainst = e;
                         continue;
+                    }
 
-                    // Match on the type-specific key field
-                    if (GetActionKey(e) == GetActionKey(c))
+                    if (LegacyEconomicKeyMatches(e, c))
                     {
                         isDuplicate = true;
+                        legacyKeyMatches++;
                         break;
                     }
                 }
 
                 if (!isDuplicate)
+                {
                     result.Add(c);
+                    if (keptAgainst != null)
+                    {
+                        eventDuplicatesKept++;
+                        ParsekLog.Verbose(Tag,
+                            $"DeduplicateAgainstLedger: kept {c.Type} key='{GetActionKey(c)}' " +
+                            $"ut={c.UT.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"cseq={c.CaptureSequence.ToString(CultureInfo.InvariantCulture)} as a second event: " +
+                            $"row {keptAgainst.ActionId ?? "(none)"} " +
+                            $"ut={keptAgainst.UT.ToString("R", CultureInfo.InvariantCulture)} has the same key " +
+                            $"but capture cseq={keptAgainst.CaptureSequence.ToString(CultureInfo.InvariantCulture)}");
+                    }
+                }
             }
 
-            if (result.Count < candidates.Count)
+            if (result.Count < candidates.Count || eventDuplicatesKept > 0)
             {
                 ParsekLog.Verbose(Tag,
                     $"DeduplicateAgainstLedger: removed {candidates.Count - result.Count} duplicates " +
                     $"from {candidates.Count} candidates " +
                     $"(scienceCaptureIdMatches={captureIdMatches.ToString(CultureInfo.InvariantCulture)} " +
-                    $"scienceCaptureIdBatchRepeats={captureIdBatchRepeats.ToString(CultureInfo.InvariantCulture)})");
+                    $"scienceCaptureIdBatchRepeats={captureIdBatchRepeats.ToString(CultureInfo.InvariantCulture)} " +
+                    $"eventCaptureMatches={eventCaptureMatches.ToString(CultureInfo.InvariantCulture)} " +
+                    $"legacyKeyMatches={legacyKeyMatches.ToString(CultureInfo.InvariantCulture)} " +
+                    $"eventDuplicatesKept={eventDuplicatesKept.ToString(CultureInfo.InvariantCulture)})");
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// The economic match of the ledger dedup, used for a pair where either side names
+        /// no capture: same type, occurrence UT within 0.1 s (no window for a
+        /// KerbalAssignment) and the same <see cref="GetActionKey"/>. Pure.
+        /// </summary>
+        internal static bool LegacyEconomicKeyMatches(GameAction existing, GameAction candidate)
+        {
+            if (existing == null || candidate == null || existing.Type != candidate.Type)
+                return false;
+            // A KerbalAssignment row's identity is (RecordingId, KerbalName) alone,
+            // the same identity MigrateKerbalAssignments preserves ActionIds by. Its
+            // UT is NOT part of it: RecordingTreeSplitter's step 2.9 retags a death
+            // row to TIP with the ORIGIN's UT, so a later re-commit of TIP (every
+            // tree commit re-commits every recording of the tree) would otherwise
+            // file a second, fresh-id, untombstoned death row next to the retired
+            // one (TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT, the
+            // commit-side mirror of cause (a)). The same key also drops an
+            // in-session re-commit whose CONTENT changed (a new end state or
+            // window for the same recording and kerbal): the stored row stays
+            // until the next load, where MigrateKerbalAssignments repairs its
+            // content under the same ActionId.
+            if (candidate.Type != GameActionType.KerbalAssignment
+                && System.Math.Abs(GetDedupOccurrenceUt(existing) - GetDedupOccurrenceUt(candidate)) > 0.1)
+                return false;
+            return GetActionKey(existing) == GetActionKey(candidate);
+        }
+
+        /// <summary>
+        /// Pure: a candidate that names the game-state event it was converted from
+        /// (<see cref="GameAction.HasEventCaptureIdentity"/> with a positive
+        /// <see cref="GameAction.CaptureSequence"/>). Science rows keep their own capture
+        /// identity (<see cref="IsScienceCaptureIdentified"/>).
+        /// </summary>
+        internal static bool IsEventCaptureIdentified(GameAction action)
+        {
+            return action != null
+                && action.HasEventCaptureIdentity
+                && action.CaptureSequence > 0;
         }
 
         /// <summary>
@@ -5770,6 +5846,16 @@ namespace Parsek
         internal static bool LedgerHasMatchingAction(GameStateEvent evt)
         {
             return LedgerLoadMigration.LedgerHasMatchingAction(evt);
+        }
+
+        /// <summary>
+        /// <see cref="LedgerHasMatchingAction(GameStateEvent)"/> over an explicit row list,
+        /// reporting whether a row of another capture matched economically only.
+        /// </summary>
+        internal static bool LedgerHasMatchingAction(
+            GameStateEvent evt, IReadOnlyList<GameAction> actions, out bool otherCaptureMatched)
+        {
+            return LedgerLoadMigration.LedgerHasMatchingAction(evt, actions, out otherCaptureMatched);
         }
 
         /// <summary>

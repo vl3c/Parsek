@@ -254,14 +254,6 @@ namespace Parsek.Tests
         {
             LedgerOrchestrator.Initialize();
 
-            // Pre-seed ledger with an action that matches the store event.
-            Ledger.AddAction(new GameAction
-            {
-                UT = 100,
-                Type = GameActionType.ContractAccept,
-                ContractId = "already-there"
-            });
-
             var alreadyEvt = new GameStateEvent
             {
                 ut = 100,
@@ -270,6 +262,16 @@ namespace Parsek.Tests
                 detail = ""
             };
             GameStateStore.AddEvent(ref alreadyEvt);
+
+            // Pre-seed ledger with the event's own row: converted from it, so it carries the
+            // event's capture number.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 100,
+                Type = GameActionType.ContractAccept,
+                ContractId = "already-there",
+                CaptureSequence = alreadyEvt.captureSequence
+            });
 
             int recovered = LedgerOrchestrator.TryRecoverBrokenLedgerOnLoad();
 

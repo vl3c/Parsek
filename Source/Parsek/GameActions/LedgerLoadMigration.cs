@@ -892,6 +892,7 @@ namespace Parsek
             int recoveredScience = 0;
             int skippedHidden = 0;
             int skippedFuture = 0;
+            int keptDistinctCapture = 0;
 
             // 1) Funds + contract events
             var events = GameStateStore.Events;
@@ -909,10 +910,19 @@ namespace Parsek
                     skippedFuture++;
                     continue;
                 }
-                if (LedgerHasMatchingAction(evt)) continue;
+                bool otherCaptureMatched;
+                if (LedgerHasMatchingAction(evt, Ledger.Actions, out otherCaptureMatched)) continue;
 
                 var action = GameStateEventConverter.ConvertEvent(evt, null);
                 if (action == null) continue;
+                if (otherCaptureMatched)
+                {
+                    keptDistinctCapture++;
+                    ParsekLog.Verbose(LedgerOrchestrator.Tag,
+                        $"TryRecoverBrokenLedgerOnLoad: event {evt.eventType} key='{evt.key}' " +
+                        $"cseq={evt.captureSequence.ToString(CultureInfo.InvariantCulture)} has no row of its own capture; " +
+                        "a row of another capture with the same key and moment is a second event, not this one's");
+                }
 
                 Ledger.AddAction(action, LedgerRowWriter.StockApplied);
                 if (evt.eventType == GameStateEventType.PartPurchased)
@@ -972,7 +982,8 @@ namespace Parsek
                 ParsekLog.Warn(LedgerOrchestrator.Tag,
                     $"TryRecoverBrokenLedgerOnLoad: synthesized {recoveredFundsParts} funds/part, " +
                     $"{recoveredContracts} contract, {recoveredScience} science actions from store " +
-                    $"(skippedHidden={skippedHidden}, skippedFuture={skippedFuture}).");
+                    $"(skippedHidden={skippedHidden}, skippedFuture={skippedFuture}, " +
+                    $"keptDistinctCapture={keptDistinctCapture}).");
             }
             else
             {
@@ -1016,55 +1027,83 @@ namespace Parsek
         /// Pure: checks whether the ledger already has an action matching the given
         /// event (same type + UT within epsilon + key). Used by the save recovery
         /// migration to avoid duplicating an action that already exists.
+        /// When the event and a row both carry a capture number, the row is the event's
+        /// only when the numbers are equal (design 3.15 step 3): a row of another capture
+        /// with the same type, key and moment is a second event, not this one's row.
         /// </summary>
         internal static bool LedgerHasMatchingAction(GameStateEvent evt)
         {
+            return LedgerHasMatchingAction(evt, Ledger.Actions, out _);
+        }
+
+        /// <summary>
+        /// <see cref="LedgerHasMatchingAction(GameStateEvent)"/> over an explicit row list.
+        /// <paramref name="otherCaptureMatched"/> is true when a row of ANOTHER capture would
+        /// have matched on type + UT + key alone (the economic match this step retired for
+        /// captured pairs). Pure.
+        /// </summary>
+        internal static bool LedgerHasMatchingAction(
+            GameStateEvent evt, IReadOnlyList<GameAction> actions, out bool otherCaptureMatched)
+        {
+            otherCaptureMatched = false;
             GameActionType? expectedType = MapEventTypeToActionType(evt.eventType);
             if (expectedType == null) return true;   // unmappable => don't recover
+            if (actions == null) return false;
 
-            var actions = Ledger.Actions;
             for (int i = 0; i < actions.Count; i++)
             {
                 var a = actions[i];
                 if (a.Type != expectedType.Value) continue;
-                if (Math.Abs(a.UT - evt.ut) > 0.1) continue;
-
-                // Match on the type-specific key field.
-                switch (a.Type)
+                if (evt.captureSequence > 0 && a.CaptureSequence > 0)
                 {
-                    case GameActionType.ContractAccept:
-                    case GameActionType.ContractComplete:
-                    case GameActionType.ContractFail:
-                    case GameActionType.ContractCancel:
-                        if (a.ContractId == evt.key) return true;
-                        break;
-                    case GameActionType.ContractParameterComplete:
-                        // Per (contract, parameter): a sibling parameter's row at the same
-                        // instant is not this event's row.
-                        if (a.ContractId == evt.key
-                            && a.ContractParameterId == GameStateEventDisplay.ExtractDetailField(evt.detail, "paramId"))
-                            return true;
-                        break;
-                    case GameActionType.FundsSpending:
-                        // Part purchase: evt.key is the part name, stored on DedupKey.
-                        //
-                        // NULL MATCHES NULL HERE, DELIBERATELY LEFT ALONE. A keyless
-                        // event would match any DedupKey-less spending row inside the
-                        // 0.1 s window - a VesselBuild rollout, or the query family's
-                        // untagged StrategyConverter debit - and suppress the synthesis.
-                        // That is the SAFE side for a migration whose output is a money
-                        // movement: skipping a recovery leaves the ledger short by a
-                        // charge the guard then shows, while synthesizing against a
-                        // keyless event risks charging twice. Both directions are
-                        // theoretical (ConvertPartPurchased always stores a name), and
-                        // the conservative one is the one already here.
-                        if (a.DedupKey == evt.key) return true;
-                        break;
-                    default:
+                    if (a.CaptureSequence == evt.captureSequence)
                         return true;
+                    if (!otherCaptureMatched && RowMatchesEventEconomically(a, evt))
+                        otherCaptureMatched = true;
+                    continue;
                 }
+                if (RowMatchesEventEconomically(a, evt))
+                    return true;
             }
             return false;
+        }
+
+        /// <summary>The legacy economic match of a row against an event of its type: UT
+        /// within 0.1 s and the type-specific key. Pure.</summary>
+        private static bool RowMatchesEventEconomically(GameAction a, GameStateEvent evt)
+        {
+            if (Math.Abs(a.UT - evt.ut) > 0.1) return false;
+
+            // Match on the type-specific key field.
+            switch (a.Type)
+            {
+                case GameActionType.ContractAccept:
+                case GameActionType.ContractComplete:
+                case GameActionType.ContractFail:
+                case GameActionType.ContractCancel:
+                    return a.ContractId == evt.key;
+                case GameActionType.ContractParameterComplete:
+                    // Per (contract, parameter): a sibling parameter's row at the same
+                    // instant is not this event's row.
+                    return a.ContractId == evt.key
+                        && a.ContractParameterId == GameStateEventDisplay.ExtractDetailField(evt.detail, "paramId");
+                case GameActionType.FundsSpending:
+                    // Part purchase: evt.key is the part name, stored on DedupKey.
+                    //
+                    // NULL MATCHES NULL HERE, DELIBERATELY LEFT ALONE. A keyless
+                    // event would match any DedupKey-less spending row inside the
+                    // 0.1 s window - a VesselBuild rollout, or the query family's
+                    // untagged StrategyConverter debit - and suppress the synthesis.
+                    // That is the SAFE side for a migration whose output is a money
+                    // movement: skipping a recovery leaves the ledger short by a
+                    // charge the guard then shows, while synthesizing against a
+                    // keyless event risks charging twice. Both directions are
+                    // theoretical (ConvertPartPurchased always stores a name), and
+                    // the conservative one is the one already here.
+                    return a.DedupKey == evt.key;
+                default:
+                    return true;
+            }
         }
 
         /// <summary>

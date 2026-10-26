@@ -602,6 +602,18 @@ namespace Parsek
         /// </summary>
         internal bool HasScienceCaptureIdentity;
 
+        /// <summary>
+        /// TRANSIENT, never serialized: true on a candidate converted from one captured
+        /// game-state event (<see cref="GameStateEventConverter.ConvertEvent"/>) whose event
+        /// carries a capture number, so <see cref="CaptureSequence"/> names that capture.
+        /// The ledger dedup then collapses it only onto a row of the SAME capture number
+        /// (design 3.15 step 3): two captures with equal economic keys are two events and
+        /// both stay. False on every row read from disk and on every row built without an
+        /// event; a row it is compared against counts as a capture when its own number is
+        /// positive. Either side without one keeps the legacy type + UT + key match.
+        /// </summary>
+        internal bool HasEventCaptureIdentity;
+
         // ---- Science spending fields ----
 
         /// <summary>Tech tree node ID, e.g. "survivability".</summary>
