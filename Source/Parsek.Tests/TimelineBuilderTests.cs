@@ -82,6 +82,41 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Build_CompactedFacilityRepair_KeepsItsCaptureOrderAgainstAnEarlierSameUtClick()
+        {
+            // One Space Center visit at a frozen UT: a tech first, then a runway repair
+            // (two per-building rows the Timeline folds into one). The folded copy must
+            // carry the capture sequence, or the unknown-cseq-first tie puts the repair
+            // ahead of the tech the player clicked before it.
+            var tech = new GameAction
+            {
+                UT = 500, Type = GameActionType.ScienceSpending, NodeId = "basicRocketry", Cost = 5f,
+                Sequence = 1, CaptureSequence = 10, Effective = true
+            };
+            var repA = new GameAction
+            {
+                UT = 500, Type = GameActionType.FacilityRepair, FacilityId = "SpaceCenter/Runway/Facility/a",
+                FacilityCost = 6000f, Effective = true, Sequence = 2, CaptureSequence = 11
+            };
+            var repB = new GameAction
+            {
+                UT = 500, Type = GameActionType.FacilityRepair, FacilityId = "SpaceCenter/Runway/Facility/b",
+                FacilityCost = 4000f, Effective = true, Sequence = 3, CaptureSequence = 12
+            };
+
+            var rows = TimelineBuilder.Build(
+                new List<Recording>(),
+                new List<GameAction> { tech, repA, repB },
+                new List<Milestone>(),
+                _ => true,
+                Game.Modes.CAREER).Where(e => e.Action != null).ToList();
+
+            Assert.Equal(GameActionType.ScienceSpending, rows[0].Action.Type);
+            Assert.Equal(GameActionType.FacilityRepair, rows[1].Action.Type);
+            Assert.Equal(11, rows[1].Action.CaptureSequence);
+        }
+
+        [Fact]
         public void EmptyInputs_ProducesEmptyList()
         {
             var result = TimelineBuilder.Build(

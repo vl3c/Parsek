@@ -1161,6 +1161,7 @@ namespace Parsek
                     Type = a.Type,
                     UT = a.UT,
                     Sequence = a.Sequence,
+                    CaptureSequence = a.CaptureSequence,
                     RecordingId = a.RecordingId,
                     FacilityId = a.FacilityId,
                     FacilityCost = a.FacilityCost,

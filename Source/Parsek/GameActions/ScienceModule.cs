@@ -534,9 +534,10 @@ namespace Parsek
             {
                 // NOT a Warn. A mid-walk negative balance here is EXPECTED on a
                 // legitimate ledger, so a Warn would fire routinely and train the reader
-                // to ignore it: commit-stamped science earnings land at their recording's
-                // END UT while the exchange debit carries the exchange's TRUE UT, so the
-                // walk can reach the debit before the earnings that funded it. The final
+                // to ignore it: a science earning with no capture UT (an older save's row,
+                // or a subject the converter end-anchors) lands at its recording's END UT
+                // while the exchange debit carries the exchange's TRUE UT, so the walk can
+                // reach the debit before the earnings that funded it. The final
                 // totals are unaffected - the walk is a sum, and every row is applied
                 // exactly once regardless of the order the balance dips through. There is
                 // deliberately no affordability REFUSAL to warn about either (see the
