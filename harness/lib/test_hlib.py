@@ -4609,7 +4609,15 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # It LEFT the same day: its first flight, run 2026-10-21_2022 (PASS attempt 1),
     # measured the prediction, `passed=2 failed=0 skipped=45`, and the spec pinned the
     # line whole (45 is the attribute floor, as on H34, so no RUNTIME_SKIPS entry).
-    INTERIM_PIN_IDS: set = set()
+    #
+    # CS-3b-career-hire-upgrade ENTERED on 2026-10-26 (scripted campaign stage 3's KSC half:
+    # the LedgerGroundTruth category's three FLIGHT cells on `cs-career-contracts`, `total=3`
+    # literal with the split regexed, predicted passed=3 skipped=0 from CS-3's measured
+    # tally on the same career in the same scene). Like CN-1 it is not an H-series id, so
+    # this class's own cells never read it; CommittedBatchTallySourceSyncTests gates its
+    # `total=`. It leaves when its first flight measures the split and the spec pins the
+    # line whole.
+    INTERIM_PIN_IDS: set = {"CS-3b-career-hire-upgrade"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -10404,7 +10412,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "CS-3-career-first-contracts.toml": "tier=operator by MECHANISM, NOT debt: scripted campaign stage 3 on `cs-career-new` (stock-tree, not in the nightly instance set): the first contract completed by a real flight. Reading run `2026-10-25_2257` PARSEK-FAIL (each contract paid three times; fixed, CONTRACT-RESTORED-AT-SCENE-LOAD-PAYS-TWICE); re-flight `2026-10-25_2353` pays once and stays red on CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED, whose fix flips it",
         "CT-1-contracts-discard-economy.toml": "tier=operator by the calibration discipline, NOT debt: the first lane to run the in-game `Contracts` category (two DiscardEconomyPreservation cells on L2's career pad host). Written 2026-10-26; owed: the reading run, then the ordinary promotion call",
         "SCI-1-science-reearned-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: science re-earned after a Rewind-to-Launch in the stock Science game cs-science-new (CS-1's VAB hop with one pad Goo committed, rewound, a fresh CS Flea's three Goo units re-read unrecorded on the pad, then the LedgerGroundTruth batch); authored 2026-10-25 on career-science-pad, whose first flight was INVALID (ProbesBeforeCrew locked the Flea's parts in the VAB), re-cut 2026-10-26, NOT YET FLOWN in this shape, predicted from source to red on todo SCIENCE-REEARN-AFTER-REWIND-TAKES-FULL-CREDIT. Owed: the first flight, then the ordinary promotion call",
-        "CS-0-new-career-game.toml": "tier=operator as a FIXTURE BUILDER, NOT debt: CS-0-new-science-game's Career twin; its produced save is harvested once as `cs-career-new`, the host of the Career half of the campaign ladder. FLOWN PASS `2026-10-25_1744` and harvested; owed: nothing but the ordinary promotion call",
+        "CS-3b-career-hire-upgrade.toml": "tier=operator by MECHANISM, NOT debt: scripted campaign stage 3's KSC half on `cs-career-contracts` (CS-3's produced save plus one seeded applicant; stock-tree, not in the nightly instance set): two World-Firsts accepts, the first hire, the Mission Control upgrade, a third accept, Basic Rocketry, then LedgerGroundTruth in FLIGHT. AUTHORED 2026-10-26, never flown; the never-flown debt rides the `pending-flight` tag and its status row",
+        "CS-0-new-career-game.toml":"tier=operator as a FIXTURE BUILDER, NOT debt: CS-0-new-science-game's Career twin; its produced save is harvested once as `cs-career-new`, the host of the Career half of the campaign ladder. FLOWN PASS `2026-10-25_1744` and harvested; owed: nothing but the ordinary promotion call",
         # THE GC-3 INERT-TREE LANE, 2026-10-22.
         "GC-3-other-generation-tree-kept-inert.toml": "tier=operator by the calibration discipline, NOT debt: the live proof of GC-3 (PR #2158, todo GC3-SCHEMA-REJECTED-TREES-LOSE-EARNED-VALUE) on the derived `career-earned-pad-oldgen` fixture (tree-level generation 3): the tree is set aside inert on a cold boot, written back verbatim by a SaveGame, and set aside again by a cold save-file reload, with its tagged ledger rows kept. AUTHORED 2026-10-22, LIVE-PROVEN on its first flight `2026-10-22_1226`; every pinned count is derived from source and the fixture bytes (kept equal by test_career_earned_pad_oldgen.GC3SpecFixtureSyncTests)",
         # THE REWIND READ-BACK GUARD PAIR, 2026-09-27.

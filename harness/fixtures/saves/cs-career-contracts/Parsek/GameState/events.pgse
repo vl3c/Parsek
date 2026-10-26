@@ -1,0 +1,262 @@
+version = 1
+GAME_STATE_EVENT
+{
+	ut = 345.93999999997533
+	type = 18
+	key = FirstCrewToSurvive
+	detail = funds=1600;rep=0;sci=0
+	recordingId = 57d3addd50de4feb8e537e4e421a4f66
+	cseq = 37
+}
+GAME_STATE_EVENT
+{
+	ut = 345.93999999997533
+	type = 15
+	key = Progression
+	valBefore = 91508
+	valAfter = 93108
+	recordingId = 57d3addd50de4feb8e537e4e421a4f66
+	cseq = 38
+}
+GAME_STATE_EVENT
+{
+	ut = 345.93999999997533
+	type = 10
+	key = Jebediah Kerman
+	detail = from=Assigned;to=Available
+	cseq = 40
+}
+GAME_STATE_EVENT
+{
+	ut = 345.93999999997533
+	type = 22
+	key = Jebediah Kerman
+	detail = flight=0;entries=0,Flight,Kerbin|0,Land,Kerbin|0,Recover,;trait=Pilot
+	cseq = 41
+}
+GAME_STATE_EVENT
+{
+	ut = 345.93999999997533
+	type = 16
+	key = VesselRecovery
+	valBefore = 8
+	valAfter = 11.5
+	cseq = 42
+}
+GAME_STATE_EVENT
+{
+	ut = 345.93999999997533
+	type = 15
+	key = ContractReward
+	valBefore = 93108
+	valAfter = 103668
+	cseq = 43
+}
+GAME_STATE_EVENT
+{
+	ut = 345.93999999997533
+	type = 16
+	key = ContractReward
+	valBefore = 11.5
+	valAfter = 13.5
+	cseq = 44
+}
+GAME_STATE_EVENT
+{
+	ut = 345.93999999997533
+	type = 17
+	key = ContractReward
+	valBefore = 13.999992370605469
+	valAfter = 17.999990463256836
+	cseq = 45
+}
+GAME_STATE_EVENT
+{
+	ut = 345.93999999997533
+	type = 26
+	key = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
+	detail = paramId=0;fundsReward=6400;repReward=2;sciReward=1;title=Gather scientific data from Kerbin.
+	cseq = 46
+}
+GAME_STATE_EVENT
+{
+	ut = 345.93999999997533
+	type = 2
+	key = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
+	detail = title=Gather scientific data from Kerbin.;fundsReward=4160;repReward=2;sciReward=1
+	cseq = 47
+}
+GAME_STATE_EVENT
+{
+	ut = 345.93999999997533
+	type = 18
+	key = Kerbin/Science
+	detail = funds=3200;rep=1;sci=0
+	recordingId = 57d3addd50de4feb8e537e4e421a4f66
+	cseq = 48
+}
+GAME_STATE_EVENT
+{
+	ut = 345.93999999997533
+	type = 15
+	key = Progression
+	valBefore = 103668
+	valAfter = 106868
+	recordingId = 57d3addd50de4feb8e537e4e421a4f66
+	cseq = 49
+}
+GAME_STATE_EVENT
+{
+	ut = 345.93999999997533
+	type = 17
+	key = Progression
+	valBefore = 17.999990463256836
+	valAfter = 18.999990463256836
+	recordingId = 57d3addd50de4feb8e537e4e421a4f66
+	cseq = 50
+}
+GAME_STATE_EVENT
+{
+	ut = 345.93999999997533
+	type = 16
+	key = VesselRecovery
+	valBefore = 13.5
+	valAfter = 28.5
+	cseq = 52
+}
+GAME_STATE_EVENT
+{
+	ut = 345.93999999997533
+	type = 15
+	key = VesselRecovery
+	detail = vessel=Jumping%20Flea;rawVessel=Jumping%20Flea;pid=2905720181;vesselType=Ship;fundsEarned=(unknown);recoveryFactor=0.98
+	valBefore = 106868
+	valAfter = 109659.03998851776
+	cseq = 56
+}
+GAME_STATE_EVENT
+{
+	ut = 346.97999999997438
+	type = 10
+	key = Jebediah Kerman
+	detail = from=Available;to=Assigned
+	cseq = 58
+}
+GAME_STATE_EVENT
+{
+	ut = 347.25999999997413
+	type = 15
+	key = VesselRollout
+	valBefore = 109659.03998851776
+	valAfter = 106727.03998851776
+	cseq = 59
+}
+GAME_STATE_EVENT
+{
+	ut = 349.33999999997224
+	type = 10
+	key = Jebediah Kerman
+	detail = from=Assigned;to=Available
+	cseq = 61
+}
+GAME_STATE_EVENT
+{
+	ut = 349.33999999997224
+	type = 22
+	key = Jebediah Kerman
+	detail = flight=1;entries=1,Recover,;trait=Pilot
+	cseq = 62
+}
+GAME_STATE_EVENT
+{
+	ut = 349.33999999997224
+	type = 15
+	key = VesselRecovery
+	detail = vessel=Jumping%20Flea;rawVessel=Jumping%20Flea;pid=2905720181;vesselType=Ship;fundsEarned=(unknown);recoveryFactor=1
+	valBefore = 106727.03998851776
+	valAfter = 109659.03998851776
+	cseq = 63
+}
+CONTRACT_SNAPSHOT
+{
+	guid = a5a1f217-d79b-4ef9-8122-f051ecdd1681
+	ut = 0.76000000000000034
+	CONTRACT
+	{
+		guid = a5a1f217-d79b-4ef9-8122-f051ecdd1681
+		type = ExplorationContract
+		prestige = 0
+		seed = -1389357970
+		state = Active
+		viewed = Unseen
+		agent = Kerbin World-Firsts Record-Keeping Society
+		agentName = Kerbin World-Firsts Record-Keeping Society
+		deadlineType = None
+		expiryType = Floating
+		ignoresWeight = True
+		values = 43200,0,1120,2080,1120,1,1,0,43200.06,0.76,0,0
+		targetBody = 1
+		bodyRatio = 0
+		PARAM
+		{
+			name = ProgressTrackingParameter
+			state = Incomplete
+			values = 3200,0,1,1,0
+			targetBody = 1
+			targetType = FIRSTLAUNCH
+		}
+	}
+}
+CONTRACT_SNAPSHOT
+{
+	guid = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
+	ut = 0.80000000000000038
+	CONTRACT
+	{
+		guid = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
+		type = ExplorationContract
+		prestige = 0
+		seed = -1389357967
+		state = Active
+		viewed = Unseen
+		agent = Kerbin World-Firsts Record-Keeping Society
+		agentName = Kerbin World-Firsts Record-Keeping Society
+		deadlineType = None
+		expiryType = Floating
+		ignoresWeight = True
+		values = 86400,0,2240,4160,2240,1,2,0,86400.06,0.8,0,0
+		targetBody = 1
+		bodyRatio = 0
+		PARAM
+		{
+			name = ProgressTrackingParameter
+			state = Incomplete
+			values = 6400,0,1,2,0
+			targetBody = 1
+			targetType = SCIENCE
+		}
+	}
+}
+SCIENCE_SUBJECTS
+{
+	SUBJECT
+	{
+		id = crewReport@KerbinFlyingLowShores
+		science = 3.5
+	}
+	SUBJECT
+	{
+		id = mysteryGoo@KerbinSrfLandedLaunchPad
+		science = 3
+	}
+	SUBJECT
+	{
+		id = mysteryGoo@KerbinFlyingLow
+		science = 7
+	}
+	SUBJECT
+	{
+		id = recovery@KerbinFlew
+		science = 5
+	}
+}

@@ -1,0 +1,158 @@
+schema = 1
+id = "CS-3b-career-hire-upgrade"
+# THE SCRIPTED CAMPAIGN, STAGE 3, SECOND HALF (docs/dev/autotest-roadmap.md, "The scripted
+# campaign program"): the CS-3 career row reads "Accept a contract, fly to complete it, hire,
+# upgrade a facility". CS-3-career-first-contracts flew the first half; this lane is the KSC
+# half on its produced save: the career's first hire, first facility upgrade and first
+# research, each booked by the ledger, closed by the ledger ground truth.
+#
+# THE HOST. `cs-career-contracts`: CS-3's produced save (run `2026-10-26_0254`, its
+# LedgerGroundTruth `hardFailures=0`), harvested with `harvest_bdock_station.py --keep-parsek
+# --allow-no-vessel --expect-mode CAREER`. Career, Normal preset (FundsLossMultiplier 1),
+# funds 109659.04, science 28.5, rep 19, every facility at level 0, `start` researched, four
+# hired crew, CS-3's committed Flea hop (one recording, recovered), no vessel. ONE EDIT: an
+# applicant, `Verhat Kerman` (fresh-career's KERBAL node verbatim), added to the ROSTER.
+# Stock generates applicants only when the Astronaut Complex opens
+# (`AstronautComplex` -> `KerbalRoster.Update`), so the produced save had none, and
+# `KscAction hire-kerbal` names its kerbal.
+#
+# THE COSTS, read from the host and stock, not memory:
+# - hire: `GameVariables.GetRecruitHireCost(4)` = round(2000 + 80000 * ln(0.25 * 4 + 1.12))
+#   * FundsLossMultiplier = 62113 (L1-hire's live-confirmed figure at the same count);
+# - Mission Control 0 -> 1: `upgradeLevels[1].levelCost` * FundsLossMultiplier = 75000
+#   (observed-debit in L8 / L9 / L10). The Tracking Station (150000) is not affordable; MC
+#   level 1 is what CS-4 (orbit) wants: flight planning, and an active-contract limit of 7
+#   (level 0 allows 2). Nothing upgrades for less than 75000 at level 0;
+# - research: `basicRocketry`, 5 science (LV-T45 Swivel, RT-10 Hammer, FL-T100: CS-4's
+#   rocket parts; `BypassEntryPurchaseAfterResearch = True`, so no part fees);
+# - the ground-truth launch: the Jumping Flea's rollout, 2932 (CS-3's measured debit).
+# Hire + upgrade (137113) exceed the host's funds, so the walk first accepts the two
+# World-Firsts contracts CS-4 will fly for, REACHSPACE (advance 11200) and ORBIT (advance
+# 16800), the two active slots MC level 0 allows. After the upgrade 546.04 is left, short of
+# the rollout, so with the limit raised a third contract is accepted: FreeFall Parachutes'
+# PartTest of the Mk16 chute FLYING on Kerbin (advance 9269.9997, completion 23175; the Flea
+# carries the part). Advances are the `values` field of each CONTRACT node (index 2).
+#
+# THE WALK (all in SPACECENTER): accept REACHSPACE (-> 120859.04), accept ORBIT
+# (-> 137659.04), hire Verhat (-> 75546.04), upgrade Mission Control (-> 546.04), accept the
+# parachute test (-> 9816.04), research basicRocketry (science 28.5 -> 23.5). Then the LEDGER
+# GROUND TRUTH, which is FLIGHT-only (`LedgerGroundTruthHarness`, all three cells
+# `Scene = GameScenes.FLIGHT`): autoRecordOnLaunch off, launch the Flea (-> 6884.04), run
+# LedgerGroundTruth in that FLIGHT scene, recover the pad craft (-> 9816.04), save, quit. No
+# mission flies. Expected end pools: funds 9816.04, science 23.5, rep 19.
+#
+# THE ASSERTIONS THAT MATTER: each KSC action reaches the ledger as its own untagged row
+# (`AddEvent: <type> key='<key>' tag=''` and `KSC spending recorded: type=<row>`), stock
+# charged exactly the cost above (the FundsChanged lines), and the ground truth closes with
+# all of it in the pools.
+#
+# STATUS: AUTHORED 2026-10-26, never flown. The batch line pins `total=3` with the split
+# regexed (registered in IngameBatchWiringGroupTests.INTERIM_PIN_IDS); CS-3 measured
+# `passed=3 failed=0 skipped=0` for the same category in the same scene on this career.
+# `operator` (stock-tree is not in the nightly instance set).
+tier = "operator"
+description = "Scripted campaign stage 3, KSC half (Career): on CS-3's produced save, accept the REACHSPACE and ORBIT World-Firsts contracts, hire an applicant, upgrade Mission Control, accept a part-test contract, research Basic Rocketry, then launch the Flea and run the ledger ground truth against KSP's own career save."
+instanceProfile = "stock-tree"
+tags = ["campaign", "CS-3b", "career", "contracts", "hire", "facility-upgrade", "research",
+        "editor", "ledger", "ground-truth", "ingame-batch", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-contracts"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: runtime 1800 >= 300 LoadGame + 3 x 60 accept + 60 hire + 60 upgrade +
+# 60 research + 120 GoToEditor + 180 LaunchFromEditor + 540 RunTests + 120 Recover + 120
+# SaveGame + FlushAndQuit + margin.
+steps = [
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  # REACHSPACE, then ORBIT: MC level 0 allows two active contracts.
+  { cmd = "KscAction",        args = { action = "accept-contract", contract = "31f5240c-4c87-4a98-803b-1e84e1f19ce6" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",        args = { action = "accept-contract", contract = "31559641-5ef7-481b-adc7-41a6b6d39237" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",        args = { action = "hire-kerbal", kerbal = "Verhat Kerman" },                          expect = "OK", budget = 60 },
+  { cmd = "KscAction",        args = { action = "upgrade-facility", facility = "SpaceCenter/MissionControl" },      expect = "OK", budget = 60 },
+  # The third slot exists only at MC level 1 (limit 7); its advance pays the rollout below.
+  { cmd = "KscAction",        args = { action = "accept-contract", contract = "484058dc-0c9c-46bc-9216-eaccce63a70b" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",        args = { action = "research-node", node = "basicRocketry" },                         expect = "OK", budget = 60 },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "Jumping Flea" },    expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "probe",    expect = "OK", budget = 180 },
+  { cmd = "RunTests",         args = { category = "LedgerGroundTruth" },              expect = "OK", budget = 540 },
+  { cmd = "MissionMark",      args = { label = "cs3b-groundtruth-done" },             expect = "OK" },
+  # Leave no craft on the pad in the produced save (it is CS-4's host).
+  { cmd = "Recover",          args = { pid = "${probe.pid}" },                        expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "SaveGame",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# CS-3's committed hop and nothing else: the ground-truth launch is unrecorded.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+# Funds digits are pinned to the integer part only: the host's 109659.03998851776 and the
+# PartTest's float advance carry tails no contract here needs to read.
+required = [
+  # The two World-Firsts accepts: the seam's confirmation, stock's advance, the ledger row.
+  "kscaction action=accept-contract target=31f5240c-4c87-4a98-803b-1e84e1f19ce6 applied=true manifestKind=contract-accept observedAfter=state=Active funds=120859(\\.[0-9]+)? contract=31f5240c-4c87-4a98-803b-1e84e1f19ce6",
+  "kscaction action=accept-contract target=31559641-5ef7-481b-adc7-41a6b6d39237 applied=true manifestKind=contract-accept observedAfter=state=Active funds=137659(\\.[0-9]+)? contract=31559641-5ef7-481b-adc7-41a6b6d39237",
+  "Game state: FundsChanged \\+11200 \\(ContractAdvance\\)",
+  "Game state: FundsChanged \\+16800 \\(ContractAdvance\\)",
+  "AddEvent: ContractAccepted key='31f5240c-4c87-4a98-803b-1e84e1f19ce6' tag=''",
+  "AddEvent: ContractAccepted key='31559641-5ef7-481b-adc7-41a6b6d39237' tag=''",
+  "KSC spending recorded: type=ContractAccept, UT=[0-9.]+, key=31f5240c-4c87-4a98-803b-1e84e1f19ce6",
+  "KSC spending recorded: type=ContractAccept, UT=[0-9.]+, key=31559641-5ef7-481b-adc7-41a6b6d39237",
+  # The hire.
+  "kscaction action=hire-kerbal target=Verhat Kerman applied=true manifestKind=kerbal-hire observedAfter=funds=75546(\\.[0-9]+)?",
+  "Game state: CrewHired 'Verhat Kerman' \\(Engineer\\) cost=62113 activeCrewCount=4",
+  "Game state: FundsChanged -62113 \\(CrewRecruited\\)",
+  "AddEvent: CrewHired key='Verhat Kerman' tag=''",
+  "KSC spending recorded: type=KerbalHire, UT=[0-9.]+, key=Verhat Kerman",
+  # The upgrade (the recorder's arrow is non-ASCII, matched by `.{1,3}`).
+  "kscaction action=upgrade-facility target=SpaceCenter/MissionControl applied=true manifestKind=facility-upgrade observedAfter=level=1",
+  "Game state: FacilityUpgraded 'SpaceCenter/MissionControl' 0\\.00 .{1,3} 0\\.50 \\(event-driven\\) cost=75000 costSource=observed-debit",
+  "Game state: FundsChanged -75000 \\(StructureConstruction\\)",
+  "AddEvent: FacilityUpgraded key='SpaceCenter/MissionControl' tag=''",
+  "KSC spending recorded: type=FacilityUpgrade, UT=[0-9.]+, key=SpaceCenter/MissionControl",
+  # The third accept, after the upgrade raised the contract limit.
+  "kscaction action=accept-contract target=484058dc-0c9c-46bc-9216-eaccce63a70b applied=true manifestKind=contract-accept observedAfter=state=Active funds=9816(\\.[0-9]+)? contract=484058dc-0c9c-46bc-9216-eaccce63a70b",
+  "Game state: FundsChanged \\+9270 \\(ContractAdvance\\)",
+  "AddEvent: ContractAccepted key='484058dc-0c9c-46bc-9216-eaccce63a70b' tag=''",
+  "KSC spending recorded: type=ContractAccept, UT=[0-9.]+, key=484058dc-0c9c-46bc-9216-eaccce63a70b",
+  # The research.
+  "kscaction action=research-node target=basicRocketry applied=true manifestKind=tech-unlock observedAfter=science=23\\.5",
+  "Game state: TechResearched 'basicRocketry' \\(cost=5\\)",
+  "AddEvent: TechResearched key='basicRocketry' tag=''",
+  "KSC spending recorded: type=ScienceSpending, UT=[0-9.]+, key=basicRocketry",
+  # The ground truth, in FLIGHT on the unrecorded Flea.
+  "launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  "Game state: FundsChanged -2932 \\(VesselRollout\\)",
+  "ground-truth game mode=CAREER pools=funds,science,reputation",
+  "result: hardFailures=0 ",
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  # Nothing completes a contract in this walk; a completion here would be a phantom.
+  "Game state: ContractCompleted ",
+]
+
+[runtime]
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

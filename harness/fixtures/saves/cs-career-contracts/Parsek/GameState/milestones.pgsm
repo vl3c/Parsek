@@ -1,0 +1,157 @@
+version = 1
+MILESTONE
+{
+	id = 9ce1920e177e44c19472c117a7766232
+	startUT = 0
+	endUT = 0.84000000000000041
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 1
+	GAME_STATE_EVENT
+	{
+		ut = 0.76000000000000034
+		type = 1
+		key = a5a1f217-d79b-4ef9-8122-f051ecdd1681
+		detail = title=Launch our first vessel!;deadlineAbsUT=NaN;type=ExplorationContract;funds=1120;failFunds=1120;failRep=0
+		cseq = 2
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 0.80000000000000038
+		type = 1
+		key = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
+		detail = title=Gather scientific data from Kerbin.;deadlineAbsUT=NaN;type=ExplorationContract;funds=2240;failFunds=2240;failRep=0
+		cseq = 3
+	}
+}
+MILESTONE
+{
+	id = 384cc617ae724f35afd6ce5defbc8140
+	startUT = 0.84000000000000041
+	endUT = 345.79999999997546
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 5
+	GAME_STATE_EVENT
+	{
+		ut = 4.2999999999999963
+		type = 18
+		key = RecordsSpeed
+		detail = funds=28800;rep=6;sci=3;thresholds=3
+		recordingId = 57d3addd50de4feb8e537e4e421a4f66
+		cseq = 10
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 4.8999999999999835
+		type = 26
+		key = a5a1f217-d79b-4ef9-8122-f051ecdd1681
+		detail = paramId=0;fundsReward=3200;repReward=1;sciReward=1;title=Launch our first vessel!
+		recordingId = 57d3addd50de4feb8e537e4e421a4f66
+		cseq = 14
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 4.8999999999999835
+		type = 2
+		key = a5a1f217-d79b-4ef9-8122-f051ecdd1681
+		detail = title=Launch our first vessel!;fundsReward=2080;repReward=1;sciReward=1
+		recordingId = 57d3addd50de4feb8e537e4e421a4f66
+		cseq = 15
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 4.8999999999999835
+		type = 18
+		key = FirstLaunch
+		detail = funds=1600;rep=0;sci=0
+		recordingId = 57d3addd50de4feb8e537e4e421a4f66
+		cseq = 16
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 7.7199999999999234
+		type = 18
+		key = RecordsAltitude
+		detail = funds=28800;rep=6;sci=3;thresholds=3
+		recordingId = 57d3addd50de4feb8e537e4e421a4f66
+		cseq = 24
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 343.37999999997766
+		type = 18
+		key = Kerbin/Landing
+		detail = funds=1600;rep=0;sci=0
+		recordingId = 57d3addd50de4feb8e537e4e421a4f66
+		cseq = 34
+	}
+}
+MILESTONE
+{
+	id = 7f30b8dcf02d4029988c5eab303ad75b
+	startUT = 345.79999999997546
+	endUT = 345.93999999997533
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 4
+	GAME_STATE_EVENT
+	{
+		ut = 345.93999999997533
+		type = 18
+		key = FirstCrewToSurvive
+		detail = funds=1600;rep=0;sci=0
+		recordingId = 57d3addd50de4feb8e537e4e421a4f66
+		cseq = 37
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 345.93999999997533
+		type = 22
+		key = Jebediah Kerman
+		detail = flight=0;entries=0,Flight,Kerbin|0,Land,Kerbin|0,Recover,;trait=Pilot
+		cseq = 41
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 345.93999999997533
+		type = 26
+		key = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
+		detail = paramId=0;fundsReward=6400;repReward=2;sciReward=1;title=Gather scientific data from Kerbin.
+		cseq = 46
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 345.93999999997533
+		type = 2
+		key = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
+		detail = title=Gather scientific data from Kerbin.;fundsReward=4160;repReward=2;sciReward=1
+		cseq = 47
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 345.93999999997533
+		type = 18
+		key = Kerbin/Science
+		detail = funds=3200;rep=1;sci=0
+		recordingId = 57d3addd50de4feb8e537e4e421a4f66
+		cseq = 48
+	}
+}
+MILESTONE
+{
+	id = 740714b0d4dd491f97e4bdfbd1887573
+	startUT = 345.93999999997533
+	endUT = 349.33999999997224
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 349.33999999997224
+		type = 22
+		key = Jebediah Kerman
+		detail = flight=1;entries=1,Recover,;trait=Pilot
+		cseq = 62
+	}
+}
