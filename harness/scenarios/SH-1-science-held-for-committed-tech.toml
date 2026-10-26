@@ -8,8 +8,9 @@ tier = "operator"
 # L1-research-node-science one research in Science mode with no rewind. Nothing proved, in
 # a SCIENCE_SANDBOX game, that after a rewind the science pool lets the player spend only
 # what a committed later research leaves, and that the Research click of the committed node
-# itself is refused. AUTHORED 2026-10-25, NEVER FLOWN: operator tier and `pending-flight`
-# until the reading run.
+# itself is refused. AUTHORED 2026-10-25, NOT YET GREEN: operator tier and `pending-flight`
+# until the reading run. First flight 2026-10-26 (DLL 2d8150c5) INVALID at LaunchFromEditor
+# (the Flea is tech-locked here, see THE HOST); re-cut to the Settings Probe.
 #
 # THE DESIGNED RULE (source, not a log):
 #   - The pool the player sees is the reserved one. `KspStatePatcher.PatchScience` writes
@@ -40,8 +41,12 @@ tier = "operator"
 # stays silent, so a change that let live drift above free reds here.
 #
 # THE HOST. `fresh-science` (SCIENCE_SANDBOX, `sci = 100`, only `start` researched, UT 0, no
-# vessel, no Parsek footprint) with the shared `Jumping Flea` overlaid into Ships/VAB (row
-# added with this lane; every part on the stock start node, so it launches in this tree).
+# vessel, no Parsek footprint) with the shared `Settings Probe` overlaid into Ships/VAB (row
+# added with this lane; a lone Stayputnik, on the start node of the ProbesBeforeCrew tree
+# stock-minimal runs, so it launches here; L8 flight B flies the same probe, pid 1100000001).
+# The stock Jumping Flea does not: under ProbesBeforeCrew its Mk1 pod and Mk16 chute sit
+# behind unresearched nodes (the first flight, 2026-10-26: `ExperimentalPartsAvailable: FAIL`,
+# ZF-1's trap). The stock-tree instance would launch it but changes the node costs below.
 # Why not `lab-pad-seeded` / `lab-lko-science`: their 30 researched nodes leave only
 # aviation (45) and three 90-cost nodes at or under 100, so no committed node A, refused
 # node B and allowed node C fit one 100-science pool. KscAction research-node does not check
@@ -49,7 +54,7 @@ tier = "operator"
 #
 # THE WALK AND THE ARITHMETIC (science; the stock costs from
 # docs/dev/research/stock-tech-tree-part-unlocks.md, L1 verified the multiplier is 1):
-#   flight A   VAB launch of the Flea, warp the pad to UT 120, record, warp to 1000, stop,
+#   flight A   VAB launch of the probe, warp the pad to UT 120, record, warp to 1000, stop,
 #              CommitTree, stop, Recover (L8 flight B's shape: a commit before the
 #              recovery, because a tree that never left the pad is discarded at the scene
 #              exit). A pad recovery pays no science (L8's hard oracle read none).
@@ -105,7 +110,7 @@ tier = "operator"
 #     oracle's reserved figure with the last PatchScience target.
 #   - `recover rejected reason=dialog-required` means the re-taken tree raised the merge
 #     modal (L8's identical shape did not); arm `autoMerge` as LAB-14 does. A rewind or
-#     `warptout` refusal, or a `goeditor` refusal for the Flea, is a premise miss (the
+#     `warptout` refusal, or a `goeditor` refusal for the probe, is a premise miss (the
 #     overlay row, the pad clock), not a Parsek finding.
 description = "Science mode x rewind: on fresh-science, research Basic Science (45) at the Space Center after a recorded pad flight, then rewind to that launch; the science pool reads 55, not 100, the R&D tree marks Basic Science as researched later, its Research click is refused with the reserved-science explanation, a 90-science node is refused because the held pool cannot pay it, and a 45-science node is allowed and leaves 10, with Basic Science's 45 still reserved."
 instanceProfile = "stock-minimal"
@@ -125,8 +130,8 @@ steps = [
   # LOAD-BEARING: the Allowing / CanAffordScienceSpending lines are Verbose.
   { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
 
-  # ---- flight A: the Flea on the pad, recorded, committed, recovered ----
-  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  # ---- flight A: the probe on the pad, recorded, committed, recovered ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Settings Probe" },         expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor",                                                              expect = "OK", budget = 180 },
   { cmd = "WarpToUT",       args = { ut = "120" },                                         expect = "OK", budget = 120 },
   { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
@@ -134,7 +139,7 @@ steps = [
   { cmd = "StopRecording",                                                                 expect = "OK" },
   { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
   { cmd = "StopRecording",                                                                 expect = "OK" },
-  { cmd = "Recover",        args = { pid = "2905720181" },                                 expect = "OK", budget = 120 },
+  { cmd = "Recover",        args = { pid = "1100000001" },                                 expect = "OK", budget = 120 },
   { cmd = "MissionMark",    args = { label = "sh1-a-committed" },                          expect = "OK" },
 
   # ---- KSC 1: the research the rewind will put in the committed future ----

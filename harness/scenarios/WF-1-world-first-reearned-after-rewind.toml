@@ -59,6 +59,10 @@ tier = "operator"
 # still live on the pad, a designed resume), and the exit gate refused the Recover with no
 # autoMerge (`recover rejected reason=dialog-required variant=RegularMerge`). Re-cut to the
 # Recover-commits shape with autoMerge on; the flag was planted and captured before that.
+# Second flight 2026-10-26 (DLL 2d8150c5) INVALID at step 0030: both flights committed through
+# the scene exit as intended, then the pad ground-truth launch was refused as obstructed by the
+# two flags (`launchfromeditor refused reason=launchfromeditor-site-obstructed ... first=Flag`).
+# Re-cut: that launch goes from the SPH to the runway.
 #
 # OTHER PRE-REGISTERED READINGS (what to check first if the first flight reds):
 #   - `plantflag refused` on either flight: read the reason; a flag lock means the host's
@@ -132,7 +136,10 @@ steps = [
 
   # ---- the ground truth: an unrecorded launch (LedgerGroundTruth scene-skips at the Space
   # Center and skips with a live or pending tree), the clock moved off the rollout row, saved.
-  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Auto-Saved Ship" },        expect = "OK", budget = 120 },
+  # From the SPH, so the pod rolls out to the runway: both flags stand on the pad and stock
+  # refuses a pad launch beside them (first flight: `launchfromeditor-site-obstructed
+  # ... first=Flag`). The SPH loads the VAB craft through the other folder (CI-10's shape).
+  { cmd = "GoToEditor",     args = { facility = "SPH", craft = "Auto-Saved Ship" },        expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor",                                                              expect = "OK", budget = 180 },
   { cmd = "WarpToUT",       args = { ut = "2400" },                                        expect = "OK", budget = 120 },
   { cmd = "SaveGame",       args = { name = "persistent" },                                expect = "OK" },
