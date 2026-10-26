@@ -302,8 +302,9 @@ namespace Parsek
 
             // 6. Recalculate + patch. Must run BEFORE ReconcileEarningsWindow so the
             // walk populates derived fields (Transformed* / EffectiveRep / EffectiveScience)
-            // that the reconciliation switch now reads. See #440B.
-            RecalculateAndPatch();
+            // that the reconciliation switch now reads. See #440B. Cut at the live clock
+            // when committed rows lie ahead of it (TREE-COMMIT-WALKS-PAST-THE-CLOCK).
+            RecalculateAndPatchAfterCommit(RecordingCommitRecalcReason);
 
             CompleteRecordingCommitAfterWalk(filed);
         }
@@ -2405,6 +2406,55 @@ namespace Parsek
                 " currentUT=" + currentUT.ToString("R", CultureInfo.InvariantCulture) +
                 " currentUtReady=" + currentUtReady);
             RecalculateAndPatch(reFlyDiscard: reFlyDiscard);
+        }
+
+        /// <summary>Reason of the walk <see cref="NotifyLedgerTreeCommitted"/> runs after filing a tree.</summary>
+        internal const string TreeCommitRecalcReason = "tree-commit";
+
+        /// <summary>Reason of the walk <see cref="NotifyLedgerTreeCommitted"/> runs over the rows a
+        /// failed tree commit had already filed.</summary>
+        internal const string TreeCommitFailedRecalcReason = "tree-commit-failed";
+
+        /// <summary>Reason of the walk <see cref="OnRecordingCommitted"/> runs after filing one recording.</summary>
+        internal const string RecordingCommitRecalcReason = "recording-commit";
+
+        /// <summary>
+        /// Pure: true when a commit walk may judge the committed future against the live
+        /// clock. False while <c>ParsekScenario.OnLoad</c> runs (the live clock is still the
+        /// pre-load one there, QL-1; the load's own in-session or deferred-seed recalculation
+        /// walks at the loaded clock right after) and while a rewind's UT adjustment is
+        /// pending (the clock is not yet the rewind target's).
+        /// </summary>
+        internal static bool ShouldCommitWalkUseLiveClock(
+            bool onLoadInProgress, bool rewindUtAdjustmentPending)
+        {
+            return !onLoadInProgress && !rewindUtAdjustmentPending;
+        }
+
+        /// <summary>
+        /// The ledger walk of a commit (TREE-COMMIT-WALKS-PAST-THE-CLOCK). With committed rows
+        /// ahead of the live clock (after a rewind) the walk is cut at the clock, so KSP gets
+        /// the career state at now and the committed future stays committed; with none it is
+        /// the same full walk as before. The derived fields the post-walk reconciliation reads
+        /// are filled either way: a cutoff walk fills the rows it walks, and its projection walk
+        /// fills the rows past the cutoff.
+        /// </summary>
+        private static void RecalculateAndPatchAfterCommit(string reason)
+        {
+            bool onLoad = ParsekScenario.IsOnLoadInProgress;
+            bool rewindAdjust = RecordingStore.RewindUTAdjustmentPending;
+            if (!ShouldCommitWalkUseLiveClock(onLoad, rewindAdjust))
+            {
+                ParsekLog.Verbose(Tag,
+                    "Commit ledger walk: full replay (cutoffUT=null), live clock not trusted - reason=" +
+                    reason + " onLoadInProgress=" + onLoad +
+                    " rewindUTAdjustmentPending=" + rewindAdjust);
+                RecalculateAndPatch();
+                return;
+            }
+
+            RecalculateAndPatchForCurrentTimelineIfFutureActions(
+                ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(), reason);
         }
 
         /// <summary>
@@ -9668,8 +9718,10 @@ namespace Parsek
         /// <summary>
         /// Notifies the ledger orchestrator about each recording in a committed tree.
         /// Files every recording's rows (the steps of OnRecordingCommitted before its
-        /// walk), then runs ONE recalculation + patch for the whole tree, then each
-        /// recording's post-walk reconciliation.
+        /// walk), then runs ONE recalculation + patch for the whole tree (cut at the live
+        /// clock when committed rows lie ahead of it, see
+        /// <see cref="RecalculateAndPatchAfterCommit"/>), then each recording's post-walk
+        /// reconciliation.
         /// Chain continuations (ChainIndex > 0) have their startUT extended backward
         /// to the predecessor segment's EndUT, closing inter-segment gaps created by
         /// the optimizer's TrackSection splits so that events in those gaps are not lost.
@@ -9782,7 +9834,7 @@ namespace Parsek
                 {
                     try
                     {
-                        RecalculateAndPatch();
+                        RecalculateAndPatchAfterCommit(TreeCommitFailedRecalcReason);
                     }
                     catch (Exception walkEx)
                     {
@@ -9855,7 +9907,7 @@ namespace Parsek
                     $"{filedCommits.Count.ToString(CultureInfo.InvariantCulture)} recording(s) of " +
                     $"tree '{tree.TreeName}' before one ledger walk " +
                     $"(chainSegments={chainEndUTs.Count.ToString(CultureInfo.InvariantCulture)})");
-                RecalculateAndPatch();
+                RecalculateAndPatchAfterCommit(TreeCommitRecalcReason);
                 for (int i = 0; i < filedCommits.Count; i++)
                     CompleteRecordingCommitAfterWalk(filedCommits[i]);
             }

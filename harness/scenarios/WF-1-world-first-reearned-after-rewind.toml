@@ -1,0 +1,192 @@
+schema = 1
+id = "WF-1-world-first-reearned-after-rewind"
+tier = "operator"
+# WORLD-FIRST RE-EARNED AFTER A REWIND. A world-first milestone earned on a committed flight is
+# earned again by a second flight after a Rewind-to-Launch. The committed flight keeps the
+# credit, the second earning is zeroed as a duplicate, and the reward is paid once in the pools.
+# The milestone is Kerbin/FlagPlant, earned by planting a flag on the pad.
+#
+# THE HOST. `gloops-airshow-career`: career, clock 21.16, an empty ProgressTracking tree (no
+# milestone reached), the Mk1 pod `mk1-capsule` (pid 2871960053, Jebediah aboard) PRELAUNCH on
+# the pad, Bill and Bob available, and `Ships/VAB/Auto-Saved Ship.craft` (the same pod, same
+# baked persistentId 2871960053). Flags are unlocked: the stock gate
+# `GameVariables.UnlockedEVAFlags` is `level >= 0.4`, and this host's Astronaut Complex is above
+# it (career-pad-craft's level 0 is why that host was not used). The seam's PlantFlag reads the
+# same gate (`TestCommandPlantFlag` / `ParsekTestCommandAddon.Eva.cs` ReadFlagLockStable).
+#
+# THE MECHANISM (from source, not comments):
+#   1. Stock `FlagPlant(body)` is a CelestialBodySubtree child that listens on
+#      `GameEvents.onFlagPlant` (decompiled). Parsek keys it `Kerbin/FlagPlant`
+#      (`GameStateRecorder.QualifyMilestoneId`, the node's private `body` field), logs
+#      `Game state: MilestoneAchieved 'Kerbin/FlagPlant' (awaiting reward enrichment)` and,
+#      after stock's AwardProgress, `Milestone enriched: 'Kerbin/FlagPlant' funds=..`
+#      (GameStateRecorder.Handlers.cs ~978 / 1229). With a live recorder the event is tagged
+#      to that recording and reaches the ledger at the commit.
+#   2. The plain Rewind-to-Launch reloads flight 1's launch quicksave, taken before the flag,
+#      so the stock node is unreached again; the post-rewind walk uses a current-UT cutoff
+#      (ParsekScenario.cs ~834, `post-rewind current-UT cutoff decision`), so the committed
+#      flight-1 row (UT > clock) is future and PatchMilestones does not set it achieved.
+#      Flight 2's warp to 900 crosses the row with a live recorder, and every patch is
+#      deferred while a recorder lives (LedgerOrchestrator.GetKspPatchDeferralReason; the
+#      warp exit goes through RecalculateAndPatchForTimeJump, which does not bypass it).
+#      So stock awards Kerbin/FlagPlant again in flight 2.
+#   3. MilestonesModule.ProcessAction walks the rows in UT order, first hit wins: the
+#      flight-1 row (UT 60..600) is credited, `Credited milestone 'Kerbin/FlagPlant' at
+#      UT=..` (MilestonesModule.cs ~128); the flight-2 row (UT >= 900) is zeroed,
+#      `Effective = false`, `NotCountedReason = MilestoneAlreadyAchieved`,
+#      `Duplicate milestone 'Kerbin/FlagPlant' zeroed at UT=..` (MilestonesModule.cs 172-181).
+#      The order is fixed by the steps: flight 1 earns before UT 600, flight 2 after UT 900.
+#
+# PREDICTED VALUES. The reward amounts are not pinned (no lane has measured a Kerbin flag on
+# this host). Recordings: EVA-1's measured 4 per pad flag flight (pod, pod continuation,
+# kerbal, board merge) times two = 8; the window is 6..10 until the first flight measures it.
+# LedgerGroundTruth: total=3 (the category's three declarations); the split is regexed.
+#
+# SUSPECTED DEFECT, PRE-REGISTERED (derived from source, not yet observed): paid twice.
+# StockPoolReference.Measure (StockPoolReference.cs 446-452) skips the flight-1 row as a
+# "committed future row crossing the clock: stock did not apply it, the write does", and the
+# zeroed flight-2 row steps nothing (its walk effect is 0). Stock's live flight-2 payout is
+# therefore unexplained, so it is kept as a leak (StockPoolReference.cs 481-497) and filed
+# `Patch<Pool>: filed StockPoolAdjustment amount=<reward> reason=leak` (KspStatePatcher.cs
+# ~5064), while the walk still credits the flight-1 row: the pools end one reward high. The
+# lane forbids that line. If the first flight reds on exactly it with the amount equal to the
+# enriched FlagPlant reward, that is this defect: file it in todo-and-known-bugs.md, do not
+# re-pin. LedgerGroundTruth cannot see it (the adjustment row makes recalc agree with the save).
+#
+# STATUS: NOT YET GREEN. Authored 2026-10-25 (branch `wf1-local`), tier operator, tag
+# pending-flight. First flight 2026-10-25 INVALID at flight 1's Recover: the spec committed
+# in flight first, the committed-spawned restore re-adopted the tree 6 ms later (the pod was
+# still live on the pad, a designed resume), and the exit gate refused the Recover with no
+# autoMerge (`recover rejected reason=dialog-required variant=RegularMerge`). Re-cut to the
+# Recover-commits shape with autoMerge on; the flag was planted and captured before that.
+#
+# OTHER PRE-REGISTERED READINGS (what to check first if the first flight reds):
+#   - `plantflag refused` on either flight: read the reason; a flag lock means the host's
+#     Astronaut Complex premise is wrong.
+#   - Only one `MilestoneAchieved 'Kerbin/FlagPlant'`: stock did not re-award it in flight 2,
+#     so the node was reached when flight 2 planted. Look for `PatchMilestones: set achieved
+#     'Kerbin/FlagPlant'` between the rewind and flight 2's flag (a patch that was not
+#     deferred, or a cutoff that counted the flight-1 row as past).
+#   - `Credited milestone 'Kerbin/FlagPlant' at UT=9..` or later: the credit moved to flight
+#     2 and the committed flight's reward was retired; a product finding.
+#   - `recover rejected` on flight 2: the relaunched pod's pid is not 2871960053 (stock
+#     re-pidded it on a collision); read the launch line for the live pid.
+#   - Flight 1's replayed flag (ProtoVessel.Load at its UT during flight 2's warp) lands next
+#     to flight 2's pod; a physics kick there is a host artefact, not this lane's subject.
+description = "Career world-first re-earned after a rewind: plant a flag on the pad in a recorded, committed flight (Kerbin/FlagPlant), rewind to its launch, plant again in a second flight, and check the committed flight keeps the credit, the second is zeroed as a duplicate, and the reward is paid once (no kept stock-pool leak), then run LedgerGroundTruth."
+instanceProfile = "stock-minimal"
+tags = ["WF1", "career", "ledger", "milestone", "rewind", "flag-plant", "eva", "editor",
+        "ingame-batch", "ground-truth", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/gloops-airshow-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoMerge", value = "true" },                 expect = "OK" },
+
+  # ---- flight 1: the host's pod, a flag on the pad, committed, then recovered ----
+  # The warp puts the recording start (and so the rewind landing, start - 15 s) past the
+  # host clock. The Recover is what commits (autoMerge, the scene exit: L3 / CS-1's shape),
+  # so no end-of-tree vessel holds the pad for flight 2 and the CommitTree after it finds no
+  # tree. An in-flight CommitTree first does not work here: the pod stays live on the pad and
+  # the 1 Hz committed-spawned restore re-adopts the just-committed tree, whose exit gate then
+  # refuses the Recover (`dialog-required variant=RegularMerge`). The planted flag keeps the
+  # pad tree from the idle-on-pad discard (IsTreeIdleOnPad -> TreeHasPlantedFlagsForIdle).
+  { cmd = "WarpToUT",       args = { ut = "60" },                                          expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "MissionMark",    args = { label = "wf1-flight1" },                              expect = "OK" },
+  { cmd = "EvaExit",        args = { release = "true" },                                   expect = "OK", budget = 120 },
+  { cmd = "PlantFlag",                                                                     expect = "OK", budget = 180 },
+  { cmd = "EvaBoard",                                                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "2871960053" },                                 expect = "OK", budget = 120 },
+  { cmd = "CommitTree",                                                                    expect = "REJECTED" },
+  { cmd = "MissionMark",    args = { label = "wf1-flight1-committed" },                    expect = "OK" },
+
+  # ---- the rewind: flight 1's launch, from the Space Center ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "wf1-rewound" },                              expect = "OK" },
+
+  # ---- flight 2: the same pod from the VAB, the flag again after UT 900 ----
+  # Jebediah is reserved by the committed flight 1, so the VAB seats a stand-in; any kerbal
+  # plants the same world-first.
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Auto-Saved Ship" },        expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                              expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "900" },                                         expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "wf1-flight2" },                              expect = "OK" },
+  { cmd = "EvaExit",        args = { release = "true" },                                   expect = "OK", budget = 120 },
+  { cmd = "PlantFlag",                                                                     expect = "OK", budget = 180 },
+  { cmd = "EvaBoard",                                                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "2871960053" },                                 expect = "OK", budget = 120 },
+  { cmd = "CommitTree",                                                                    expect = "REJECTED" },
+  { cmd = "MissionMark",    args = { label = "wf1-flight2-committed" },                    expect = "OK" },
+
+  # ---- the ground truth: an unrecorded launch (LedgerGroundTruth scene-skips at the Space
+  # Center and skips with a live or pending tree), the clock moved off the rollout row, saved.
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Auto-Saved Ship" },        expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                              expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "2400" },                                        expect = "OK", budget = 120 },
+  { cmd = "SaveGame",       args = { name = "persistent" },                                expect = "OK" },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D5  = ["eva-branch"]
+D7  = ["flag-plant"]
+D8  = ["milestones", "funds", "reputation", "recalc-engine", "ksp-state-patcher", "ground-truth-harness"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "career", "scene-flight", "scene-ksc", "scene-editor"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Two pad flag flights; the check launch is unrecorded and the rewind removes no recording.
+# EVA-1 measured 4 per flight; a window until the first flight measures 8.
+count = { min = 6, max = 10 }
+
+[expectations.logContracts]
+# The Credited / Duplicate lines are Verbose (the verboseLogging pin above). Each UT window
+# follows from the steps: flight 1 records from UT 60 and its three EVA verbs fit in 420 s at
+# 1x, so its flag lands below UT 600; flight 2 warps to 900 before its EVA.
+required = [
+  "\\A(?:[\\s\\S]*?CommitTreeSceneExit: finalizing tree at UT=){2}",
+  "\\A(?:[\\s\\S]*?Flag event captured){2}",
+  "Game state: MilestoneAchieved 'Kerbin/FlagPlant' \\(awaiting reward enrichment\\)[\\s\\S]*\\[Rewind\\] Rewind-to-Launch initiated to UT ",
+  "\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*Game state: MilestoneAchieved 'Kerbin/FlagPlant' \\(awaiting reward enrichment\\)",
+  "\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*Milestone enriched: 'Kerbin/FlagPlant' funds=",
+  "Credited milestone 'Kerbin/FlagPlant' at UT=(?:[6-9][0-9]|[1-5][0-9]{2})\\.[0-9] \\(recording=[0-9a-f]{32},",
+  "Duplicate milestone 'Kerbin/FlagPlant' zeroed at UT=(?:9[0-9]{2}|[1-9][0-9]{3})\\.[0-9] \\(recording=[0-9a-f]{32}\\)",
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  # Paid twice: stock's flight-2 payout kept as an unexplained pool change (see the header).
+  "filed StockPoolAdjustment amount=\\S+ reason=leak",
+  # The committed flight's credit moved to the flight-2 row (retired or reduced).
+  "Credited milestone 'Kerbin/FlagPlant' at UT=(?:9[0-9]{2}|[1-9][0-9]{3})\\.",
+]
+
+[runtime]
+# 300 LoadGame + 2 x (120 warp + 180 start + 420 EVA verbs + 120 commit + 120 recover)
+# + 300 rewind + 2 x (120 editor + 180 launch) + 120 warp + 540 RunTests = 3780, plus margin.
+budgetSeconds = 4500
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

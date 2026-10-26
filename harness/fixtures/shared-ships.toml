@@ -56,8 +56,10 @@
 # cheapest craft both can.
 "career-science-pad-hard" = ["Settings Probe"]
 "career-pad-craft-zero-funds" = ["Settings Probe"]
-# L8 launches the probe twice on L2's host after its rewinds strip the Jumping Flea.
-"career-pad-craft" = ["Settings Probe"]
+# L8 launches the probe twice on L2's host after its rewinds strip the Jumping Flea. KD-1
+# opens the stock Jumping Flea in the VAB after its rewind to try the dead kerbal in the
+# crew dialog (the fixture's own Flea is a pad VESSEL, not a craft file).
+"career-pad-craft" = ["Jumping Flea", "Settings Probe"]
 # L13 launches the probe from the VAB for its ground-truth window after the Re-Fly merge
 # (the host carries its GS-1 craft on the pad, nothing in the VAB).
 "career-gs1-two-stage-pad" = ["Settings Probe"]
@@ -124,4 +126,8 @@
 "cs-career-new" = ["Jumping Flea"]
 "cs-science-new" = ["Jumping Flea"]
 "stock-screen-census" = ["Jumping Flea"]
+# `fresh-science` gains the Flea for SH-1, the one lane on it that launches (a pad flight to
+# rewind to). L1-research-node-science, GUI-8 and CS-0 never open the editor; CS-0 keeps the
+# staged Ships/ folder, and its harvest (harvest_bdock_station.py) strips library craft.
+"fresh-science" = ["Jumping Flea"]
 "stock-screen-census-repair" = ["Jumping Flea"]
