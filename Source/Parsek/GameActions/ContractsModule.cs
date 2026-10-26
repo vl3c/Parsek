@@ -51,6 +51,21 @@ namespace Parsek
         private readonly HashSet<string> creditedContracts = new HashSet<string>();
 
         /// <summary>
+        /// Where in the walk each credited completion sits (its UT and capture sequence), keyed
+        /// by contract id. Read by <see cref="ProcessParameterComplete"/>: a parameter row the
+        /// walk reaches after its contract's completion is not counted (design 3.15 step 1,
+        /// 8.3). Once ever, like <see cref="creditedContracts"/>.
+        /// </summary>
+        private readonly Dictionary<string, CompletionWalkPosition> creditedCompletionPositions
+            = new Dictionary<string, CompletionWalkPosition>();
+
+        private struct CompletionWalkPosition
+        {
+            internal double UT;
+            internal long CaptureSequence;
+        }
+
+        /// <summary>
         /// (contractId, parameterId) pairs whose parameter reward the walk credited (key
         /// <see cref="ContractParameterCreditKey"/>). Stock pays a parameter once, so a second
         /// row for the same pair is not counted.
@@ -233,6 +248,7 @@ namespace Parsek
 
             activeContracts.Clear();
             creditedContracts.Clear();
+            creditedCompletionPositions.Clear();
             creditedParameters.Clear();
             creditedParameterRows.Clear();
             terminalContracts.Clear();
@@ -551,6 +567,11 @@ namespace Parsek
                 action.Effective = true;
                 action.NotCountedReason = GameActionNotCountedReason.None;
                 creditedContracts.Add(id);
+                creditedCompletionPositions[id] = new CompletionWalkPosition
+                {
+                    UT = action.UT,
+                    CaptureSequence = action.CaptureSequence
+                };
                 terminalContracts.Add(id);
                 terminalContractActions[id] = GameActionType.ContractComplete;
                 terminalContractOutcomes[id] = ContractTerminalOutcome.Completed;
@@ -577,19 +598,44 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: true when a parameter row the walk reaches after its contract's credited
+        /// completion really comes after it, so it is not counted (design 8.3, 3.15 step 1).
+        /// A later UT is after. At the SAME UT, stock pays a contract's parameters before its
+        /// contract-level reward, so the parameter is after only when both rows carry a capture
+        /// sequence and the parameter's is higher; a row with no capture order (0 or negative,
+        /// an older capture) at the completion's UT is taken as paid before it.
+        /// </summary>
+        internal static bool IsParameterAfterContractCompletion(
+            double parameterUT, long parameterCaptureSequence,
+            double completionUT, long completionCaptureSequence)
+        {
+            if (parameterUT > completionUT)
+                return true;
+            if (parameterUT < completionUT)
+                return false;
+            return parameterCaptureSequence > 0
+                && completionCaptureSequence > 0
+                && parameterCaptureSequence > completionCaptureSequence;
+        }
+
+        /// <summary>
         /// A contract parameter's own reward (ContractParameterComplete). Counted once per
-        /// (contract, parameter), and not when the walk already ended the contract (a deadline
-        /// failure, or an explicit fail / cancel processed earlier): stock pays a parameter only
-        /// while its contract is Active. The contract's slot and terminal state are untouched;
-        /// they belong to the contract-level rows. A fail at the SAME UT sorts after this
-        /// earning row, so it does not zero it (stock pays a parameter that completes in the
-        /// tick its contract fails).
+        /// (contract, parameter), and not when the walk already ended the contract: its credited
+        /// completion earlier in the walk order (UT, then capture sequence; see
+        /// <see cref="IsParameterAfterContractCompletion"/>), a deadline failure, or an explicit
+        /// fail / cancel processed earlier. Stock pays a parameter only while its contract is
+        /// Active. The contract's slot and terminal state are untouched; they belong to the
+        /// contract-level rows. A fail at the SAME UT sorts after this earning row, so it does
+        /// not zero it (stock pays a parameter that completes in the tick its contract fails).
         /// </summary>
         private void ProcessParameterComplete(GameAction action)
         {
             string id = action.ContractId ?? "";
             string paramId = action.ContractParameterId ?? "";
             string key = ContractParameterCreditKey(id, paramId);
+
+            CompletionWalkPosition completion;
+            bool contractCompleted = creditedCompletionPositions.TryGetValue(id, out completion);
 
             if (creditedParameters.Contains(key))
             {
@@ -598,6 +644,19 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     $"ParameterComplete: contractId='{id}' param='{paramId}' effective=false (already credited), " +
                     $"rewards zeroed");
+            }
+            else if (contractCompleted
+                && IsParameterAfterContractCompletion(
+                    action.UT, action.CaptureSequence, completion.UT, completion.CaptureSequence))
+            {
+                action.Effective = false;
+                action.NotCountedReason = GameActionNotCountedReason.ContractParameterAfterCompletion;
+                ParsekLog.Info(Tag,
+                    $"ParameterComplete: contractId='{id}' param='{paramId}' effective=false " +
+                    $"(contract already completed earlier in the walk at ut={completion.UT.ToString("R", IC)} " +
+                    $"cseq={completion.CaptureSequence.ToString(IC)}; parameter ut={action.UT.ToString("R", IC)} " +
+                    $"cseq={action.CaptureSequence.ToString(IC)}), rewards zeroed; " +
+                    LedgerEventIdentityRegistry.Describe(action));
             }
             else if (deadlineExpiredContracts.Contains(id))
             {
@@ -629,7 +688,11 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     $"ParameterComplete: contractId='{id}' param='{paramId}' effective=true, " +
                     $"fundsReward={action.FundsReward} repReward={action.RepReward} " +
-                    $"scienceReward={action.ScienceReward}");
+                    $"scienceReward={action.ScienceReward}" +
+                    (contractCompleted
+                        ? $" (walked after its contract's completion at ut={completion.UT.ToString("R", IC)} " +
+                          $"but not captured after it: stock pays parameters before the contract)"
+                        : ""));
             }
         }
 

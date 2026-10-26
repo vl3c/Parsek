@@ -476,7 +476,10 @@ namespace Parsek
         MilestoneAlreadyAchieved,
         /// <summary>A facility repair of a building the walk has intact at that point (never
         /// destroyed, or already repaired).</summary>
-        FacilityAlreadyIntact
+        FacilityAlreadyIntact,
+        /// <summary>A contract parameter reward the walk reaches after its contract's credited
+        /// completion (design 8.3, 3.15 step 1).</summary>
+        ContractParameterAfterCompletion
     }
 
     /// <summary>
