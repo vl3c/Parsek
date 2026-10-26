@@ -8,9 +8,10 @@ tier = "operator"
 # L1-research-node-science one research in Science mode with no rewind. Nothing proved, in
 # a SCIENCE_SANDBOX game, that after a rewind the science pool lets the player spend only
 # what a committed later research leaves, and that the Research click of the committed node
-# itself is refused. AUTHORED 2026-10-25, NOT YET GREEN: operator tier and `pending-flight`
-# until the reading run. First flight 2026-10-26 (DLL 2d8150c5) INVALID at LaunchFromEditor
-# (the Flea is tech-locked here, see THE HOST); re-cut to the Settings Probe.
+# itself is refused. Operator tier. AUTHORED 2026-10-25. The first flights 2026-10-26 (`0109`,
+# `0114_a2`, DLL 2d8150c5) were INVALID at LaunchFromEditor (the Flea is tech-locked here, see
+# THE HOST); re-cut to the Settings Probe. LIVE-PROVEN 2026-10-26 on the re-cut's first flight,
+# run `2026-10-26_0221` PASS attempt 1 (130 s, DLL 86028f41).
 #
 # THE DESIGNED RULE (source, not a log):
 #   - The pool the player sees is the reserved one. `KspStatePatcher.PatchScience` writes
@@ -115,7 +116,7 @@ tier = "operator"
 description = "Science mode x rewind: on fresh-science, research Basic Science (45) at the Space Center after a recorded pad flight, then rewind to that launch; the science pool reads 55, not 100, the R&D tree marks Basic Science as researched later, its Research click is refused with the reserved-science explanation, a 90-science node is refused because the held pool cannot pay it, and a 45-science node is allowed and leaves 10, with Basic Science's 45 still reserved."
 instanceProfile = "stock-minimal"
 tags = ["SH-1", "science-mode", "science", "ledger", "rewind", "action-blocking", "stock-ui",
-        "research", "recovery", "editor", "timeline-ops", "pending-flight"]
+        "research", "recovery", "editor", "timeline-ops", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/fresh-science"

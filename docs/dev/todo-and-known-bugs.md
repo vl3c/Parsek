@@ -17,6 +17,31 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## WORLD-FIRST-REEARNED-AFTER-REWIND-PAID-AGAIN: a world-first milestone earned on a committed flight is paid again when a later flight re-earns it after a Rewind-to-Launch [FILED 2026-10-26 from WF-1's third flight (DLL 86028f41), branch `claude/project-thread-25edvc`; product, high (a repeatable funds gain across a rewind)]
+
+Observed (WF-1-world-first-reearned-after-rewind, host `gloops-airshow-career`): flight 1 plants a
+flag on the pad (`Kerbin/FlagPlant`, `Milestone enriched: 'Kerbin/FlagPlant' funds=1600 rep=0.0
+sci=0.0`) and commits; Rewind-to-Launch; flight 2 records, warps to UT 900 and plants again. Stock
+awards the milestone a second time, and Parsek keeps the payout as an unexplained pool change:
+`PatchFunds: filed StockPoolAdjustment amount=3200 reason=leak ut=909.0`, twice the enriched reward.
+The run stopped at a later authoring step (the ground-truth warp, re-cut since), so the walk's
+Credited / Duplicate lines and the end pools are still to read on the next flight.
+
+Predicted from source in the lane header, now matched on the leak line: `MilestonesModule` credits
+the flight-1 row (earlier UT) and zeroes the flight-2 row as a duplicate, but
+`StockPoolReference.Measure` skips the committed flight-1 row as written by Parsek and the zeroed
+row steps nothing, so stock's second payout has no explaining row and is kept as a leak. Why the
+amount is 2 x 1600 rather than 1600 is not yet read (the flight-1 row crossing the clock while
+every patch was deferred under the live recorder is the first suspect).
+
+Fix shape (not built): stop stock paying a world-first the committed future already credits, the
+way the contract parameter fix (CONTRACT-PARAMETER-REWARDS-NOT-LEDGERED) completes a committed
+objective in stock without paying, or let the zeroed duplicate explain stock's payout so the pool
+patch removes it. Either way the committed flight keeps the credit (first in UT order) and the
+player is paid once. Witness: WF-1 forbids the leak line.
+
+---
+
 ## SCIENCE-REEARN-AFTER-REWIND-TAKES-FULL-CREDIT: after a Rewind-to-Launch, re-earning a subject the committed future already credits pays the re-run in full and caps the committed flight [FILED 2026-10-25 on branch `sci1-local`, PREDICTED FROM SOURCE, NOT FLOWN; witness lane SCI-1-science-reearned-after-rewind; NEEDS AN OWNER RULING]
 
 Owner rule as briefed: after a rewind, `ScienceSubjectPatch` raises `ScienceSubject.science` to the
