@@ -401,6 +401,11 @@ namespace Parsek
         // ghost spawns and other processing into the dying scene.
         private bool sceneChangeInProgress;
         private float nextCommittedSpawnedRestoreRetryAt;
+        // Marks a world-first the committed timeline credits complete in stock when the
+        // flight clock passes its row (no flight recalc runs at 1x, and one under a live
+        // recorder is deferred), so a re-earning flight is not paid for it again.
+        private readonly CommittedMilestoneClockCursor committedMilestoneClock =
+            new CommittedMilestoneClockCursor("flight");
         // Pid of the active vessel the M-A2 DiscardTree seam verb asked to leave idle
         // (0 = none). While it matches the active vessel, TryRestoreCommittedTreeForSpawnedActiveVessel
         // refuses to re-adopt that vessel's committed tree; otherwise the 1 Hz Update
@@ -1466,6 +1471,11 @@ namespace Parsek
             // Frame F+1 of a Real Spawn Control placement jump: FixedUpdate has run since the
             // clock set, so body rotation and Zup are the new clock's.
             TimeJumpManager.TickPendingPlacement(recorder, backgroundRecorder);
+
+            // A rewind's pending UT adjustment means Planetarium still reads the pre-rewind
+            // future: never pass a committed row on that clock.
+            if (!RecordingStore.RewindUTAdjustmentPending)
+                committedMilestoneClock.Advance(Planetarium.GetUniversalTime());
 
             // Vessel name decisions re-applied when the committed set moved or (1 Hz) the
             // live tree gained a leg (vessel names design 7.4). Inert with no decision.

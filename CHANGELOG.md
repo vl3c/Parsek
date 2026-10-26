@@ -35,6 +35,10 @@ _(unreleased - entries accumulate here per commit)_
   so a Re-Fly of that flight kept it. It is now filed as recovered science of that flight, and the
   career no longer books a brief correction that is undone a moment later.
   (RECOVERY-BURST-CONTRACT-SCIENCE-RECONCILE)
+- **A world first is paid once across a rewind.** After rewinding to before a committed flight
+  that earned a world first (a flag, a first EVA), doing it again in a new flight paid the reward
+  a second time. Once the clock passes the committed flight's moment the world first counts as
+  done, so a repeat pays nothing. (WORLD-FIRST-REEARNED-AFTER-REWIND-PAID-AGAIN)
 - **A contract pays its reward once.** Accepting a contract and then changing scenes (to the VAB,
   then the launch) left extra copies of it behind, so completing it paid the funds, science and
   reputation two or three times. Each contract now pays out once.
