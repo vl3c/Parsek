@@ -733,7 +733,7 @@ class SeamWireTests(unittest.TestCase):
                   if isinstance(n, ast.FunctionDef) and n.name == "encode_value")
         scope = {}
         exec(compile(ast.Module(body=[fn], type_ignores=[]), "run.py", "exec"), scope)
-        for value in ("Jumping Flea", "VAB", "a=b%c", "tab\there", "Kerbalé X", ""):
+        for value in ("Jumping Flea", "VAB", "a=b%c", "tab\there", "Kerbal\u00e9 X", ""):
             self.assertEqual(scope["encode_value"](value), mlib.encode_seam_value(value))
             self.assertEqual(value, mlib.decode_seam_value(mlib.encode_seam_value(value)))
         self.assertEqual("Jumping%20Flea", mlib.encode_seam_value("Jumping Flea"))
