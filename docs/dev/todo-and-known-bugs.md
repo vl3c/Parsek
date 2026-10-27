@@ -54,7 +54,7 @@ Build order is in section 3.15. Each step ships unit tests and the matching harn
 
 ---
 
-## ~~MILESTONE-ORBIT-BODY-UNQUALIFIED: every body's Orbit, Suborbit and Flight milestone is captured as one bare id, so the first Kerbin orbit completes them all and the Mun orbit is never paid~~ [FILED AND FIXED 2026-10-27 on branch `milestone-public-body`, found from CS-4b's ground truth (`2026-10-27_1957`, report-only `facet=Milestone kind=MissingInRecon id=Kerbin/Orbit`); unit-tested, NOT FLOWN; product, high (an earned reward never paid)]
+## ~~MILESTONE-ORBIT-BODY-UNQUALIFIED: every body's Orbit, Suborbit and Flight milestone is captured as one bare id, so the first Kerbin orbit completes them all and the Mun orbit is never paid~~ [FILED AND FIXED 2026-10-27 on branch `milestone-public-body`, found from CS-4b's ground truth (`2026-10-27_1957`, report-only `facet=Milestone kind=MissingInRecon id=Kerbin/Orbit`); PR #2301; LIVE-PROVEN 2026-10-27 by CS-6 `2026-10-27_2202` (`Milestone enriched: 'Mun/Orbit' funds=24960`, zero bare `'Orbit'` lines); product, high (an earned reward never paid)]
 
 Observed: CS-4's career ledger books the first orbit as `milestoneId = Orbit`, while its Landing,
 Science and ReturnFromOrbit rows read `Kerbin/...`; the ground truth reads stock's `Kerbin/Orbit`
@@ -77,8 +77,8 @@ only (`KspStatePatcher.IsLegacyBareIdSubtree`, `Kerbin`), so a legacy bare row k
 and completes nothing else; no wider compatibility is kept. Cells: `MilestonePatchingTests`
 `FindProgressNodeBodyField_*` (including a sweep of every stock `KSPAchievements` class with a body
 field) and `PreLedgerProgressSeedTests` `PatchProgressNodeTree_LegacyBareRow_CompletesOnlyTheHomeBodyNode`
-/ `_QualifiedRows_CompleteTheirOwnBodiesOnly`; reverting either half reds them. Live proof: the
-campaign's CS-6 (Mun orbit) books `Mun/Orbit`.
+/ `_QualifiedRows_CompleteTheirOwnBodiesOnly`; reverting either half reds them. Live proof: CS-6
+`2026-10-27_2202` books `Mun/Orbit` and `Mun/ReturnFromOrbit`, with no CS-5 milestone paid twice.
 
 ## ~~CONTRACT-TWIN-GUID-SEEDED-TYPES: a regenerated copy of a guid-seeded contract is offered again after a rewind, and both copies pay~~ [FILED 2026-10-27 from the step 7b review; owner ruling 2026-10-27 ("check both IDs and the other identifiers"); BUILT 2026-10-27 on branch `contract-twin-goal`, unit-tested only, NOT FLOWN; product, medium (a duplicate contract payment across a rewind)]
 
