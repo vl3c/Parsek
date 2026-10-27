@@ -64,11 +64,12 @@ Fix: not designed. Exploration and plant flag come first (the most common progre
 
 ---
 
-## REFLY-COMPLETES-A-CONTRACT-THAT-FAILED-LATER: a Re-Fly started before an explicit contract failure can complete that contract and cancel the failure's penalty [FILED 2026-10-27 from the LEDGER-EVENT-IDENTITY step 8 re-review, PREDICTED FROM SOURCE, NOT FLOWN; predates step 8; NEEDS AN OWNER RULING; product, medium]
+## ~~REFLY-COMPLETES-A-CONTRACT-THAT-FAILED-LATER: a Re-Fly started before an explicit contract failure can complete that contract and cancel the failure's penalty~~ [FILED 2026-10-27 from the LEDGER-EVENT-IDENTITY step 8 re-review, PREDICTED FROM SOURCE, NOT FLOWN; predates step 8; ANSWERED 2026-10-27 by the owner: option (a), keep today's behavior, no code change]
 
 - What happens: a committed timeline fails a contract explicitly (a fail or cancel row) at UT F. An open Re-Fly slot whose rewind point is before F re-flies a stage, and the re-fly completes that contract before F. The walk credits the earlier completion and reads the later fail as `ContractOutcomeAfterEnd` (not counted), so the player gains the reward and no longer pays the failure penalty. The fail row's own slot stays sealed; it is not retired, only outranked in walk order.
 - Why it needs a ruling: rewind design 2.12 seals a contract failure so a re-fly cannot undo it, but that seal covers the failing flight's slot, not another slot that reaches the contract first. Step 8 does not change this: a slot whose only row is a taken-back `ContractAlreadyResolved` completion adds no second payment.
 - Options: (a) accept it, since the re-fly earned the completion on the new timeline and the failure belongs to a timeline that no longer happens that way; (b) treat a committed explicit fail as a holder, so a completion walked before it is not counted (stock's payment taken back) and the slot seals.
+- Ruling (owner, 2026-10-27): (a). The earliest outcome wins, as for every repeated event after a rewind (the career total only grows); the failing flight's own slot stays sealed. Rewind design 2.12 now says the seal covers that slot only.
 
 ---
 
