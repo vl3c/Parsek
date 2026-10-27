@@ -83,17 +83,22 @@ id = "SCI-1-science-reearned-after-rewind"
 # a product defect, one of an unrelated subject is a lane premise to re-read. An untagged row
 # carrying a 32-hex recordingId: the re-run was tagged to the first flight, a second defect.
 #
-# STATUS: NOT YET GREEN. Authored 2026-10-25 (branch `sci1-local`) on `career-science-pad`; its
+# STATUS: LIVE-PROVEN 2026-10-27. Authored 2026-10-25 (branch `sci1-local`) on `career-science-pad`; its
 # first flight was INVALID (stock-minimal's ProbesBeforeCrew locked the Flea's parts in the VAB),
 # re-cut 2026-10-26 onto `cs-science-new` / `stock-tree`. The reading run above red as predicted
 # against the pre-ruling pins; RE-PINNED 2026-10-27 (branch `claude/project-thread-25edvc`) to the
-# owner ruling and the identity build, not yet flown on either. `operator` and `pending-flight`
-# until it flies green.
+# owner ruling and the identity build. First flight on them, `2026-10-27_1654` (main 4e99926, DLL
+# c5ed3518): PARSEK-FAIL on one pin only. Every ruling pin matched (the re-run paid in full, the
+# committed earning capped, no take-back, no leak), LedgerGroundTruth `hardFailures=0`, batch
+# `passed=2 failed=0 skipped=1`; the premise pin expected flight 1's recovery capture tagged, and the
+# live line reads `tag='' deployed=False directLedger=True` (the recovery runs after the scene-exit
+# commit; the ledger row carries the recordingId, pin (A)). Re-pinned to the measured line and the
+# batch pinned whole. LIVE-PROVEN on the re-pin: `2026-10-27_1710` PASS attempt 1 (644 s).
 tier = "operator"
 description = "Science re-earned after Rewind-to-Launch, in a stock Science game: a committed CS Flea hop earns the pad Goo subject, the player rewinds and re-earns it with three Goo readings on an unrecorded pad re-run before the committed earning UT; by the owner ruling the earliest recovery wins, so the re-run is paid in full, the committed flight is capped to the remainder in the replay, and nothing is paid twice or taken back."
 instanceProfile = "stock-tree"
 tags = ["SCI-1", "science", "science-mode", "rewind", "rewind-to-launch", "ledger",
-        "ground-truth", "recovery", "editor", "pending-flight"]
+        "ground-truth", "recovery", "editor", "flown"]
 
 [fixture]
 # CS-1's host; the CS Flea lives in the fixture's own `Ships/VAB/`.
@@ -194,8 +199,11 @@ count = { min = 1, max = 2 }
 
 [expectations.logContracts]
 required = [
-  # Premise: flight 1's pad Goo credited on recovery, tagged to the live recording.
-  "Science subject captured: mysteryGoo@KerbinSrfLandedLaunchPad amount=[0-9.]+ increment=[0-9.]+ total=[0-9.]+ gainMultiplier=[0-9.]+ reason='VesselRecovery' ut=[0-9.]+ tag='[0-9a-f]{32}'",
+  # Premise: flight 1's pad Goo credited on recovery. The recovery runs after the scene-exit
+  # commit, so no recorder is live and the capture itself is untagged; it goes straight to the
+  # ledger (directLedger=True), which attributes it to flight 1's recording through the
+  # recovered vessel (pin (A) below reads that recordingId). Measured 2026-10-27_1654.
+  "Science subject captured: mysteryGoo@KerbinSrfLandedLaunchPad amount=[0-9.]+ increment=[0-9.]+ total=[0-9.]+ gainMultiplier=[0-9.]+ reason='VesselRecovery' ut=[0-9.]+ tag='' deployed=False directLedger=True[\\s\\S]*?MISSIONMARK label=sci1-first-committed ut=",
   "MISSIONMARK label=sci1-first-committed ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=sci1-rewound ut=",
   "\\A(?:[\\s\\S]*?launchfromeditor complete scene=FLIGHT vessel=CS Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH){3}",
   "MISSIONMARK label=sci1-rewound ut=[\\s\\S]*?partaction applied button=experiment pid=[0-9]+ part='GooExperiment' [^\\r\\n]* count=3 ",
@@ -210,8 +218,8 @@ required = [
   "\\[ScienceModule\\] Earning: subject=mysteryGoo@KerbinSrfLandedLaunchPad, awarded=([^,]+), [^\\r\\n]*?recordingId=([0-9a-f]{32})[\\s\\S]*?MISSIONMARK label=sci1-second-recovered ut=[\\s\\S]*?\\[ScienceModule\\] Earning \\(cap hit\\): subject=mysteryGoo@KerbinSrfLandedLaunchPad, awarded=\\1, [^\\r\\n]*?recordingId=\\2",
   # The ground truth RAN in the Science game (not skipped), on the science pool alone.
   "ground-truth game mode=SCIENCE_SANDBOX pools=science",
-  # Never flown on this host: total pinned, the rest regexed (CS-2 read passed=2 skipped=1).
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  # Measured 2026-10-27_1654 (as CS-2 on the same Science game): one cell skips in Science mode.
+  "BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT",
   "result: hardFailures=0 ",
 ]
 forbidden = [

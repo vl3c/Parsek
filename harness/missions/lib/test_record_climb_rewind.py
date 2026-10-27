@@ -603,6 +603,32 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
         self.assertTrue(state.loss_reason.startswith("hop2 "), state.loss_reason)
 
+    def test_hop_two_asks_for_its_own_recovery_under_hop_ones_standing_token(self):
+        # The runner's recover token is a sticky level: once hop 1's recovery is ISSUED
+        # it stands on every later snapshot until the next perform (mission_runner never
+        # resets it). WR-1's first flight (2026-10-27) red on exactly this: hop 2's SBR
+        # latched recover_issued from hop 1's token and never asked (asks=0).
+        frames = full_run_frames()
+        first_issued = next(i for i, f in enumerate(frames)
+                            if f.recover_request_result == mlib.RECOVER_REQUEST_ISSUED)
+        sticky = frames[:first_issued + 1] + [
+            dataclasses.replace(f, recover_request_result=mlib.RECOVER_REQUEST_ISSUED)
+            for f in frames[first_issued + 1:]]
+        state, actions = drive(machine(), sticky)
+        self.assertTrue(state.done, state.phase)
+        self.assertIsNone(state.verdict, state.loss_reason)
+        self.assertEqual(1, state.hop1.recover_asks)
+        self.assertEqual(1, state.hop2.recover_asks)
+        self.assertEqual(2, sum(1 for a in actions if a.kind == mlib.ACTION_RECOVER_VESSEL))
+
+    def test_a_hop_that_has_asked_reads_the_runner_token_unmasked(self):
+        hop = mlib.sbr_initial_state(mlib.rcr_params_from_dict(params()).hop)
+        issued = snap(ut=1.0, recover_request_result=mlib.RECOVER_REQUEST_ISSUED)
+        self.assertEqual(mlib.RECOVER_REQUEST_UNREAD,
+                         mlib.rcr_hop_snapshot(hop, issued).recover_request_result)
+        asked = dataclasses.replace(hop, recover_asks=1)
+        self.assertIs(issued, mlib.rcr_hop_snapshot(asked, issued))
+
     def test_the_whole_run_through_the_real_runner_is_mission_ok(self):
         control = FakeMissionControl(full_run_frames())
         code, result = run(record_climb_rewind.SPEC, params(), control, budget=3600.0)

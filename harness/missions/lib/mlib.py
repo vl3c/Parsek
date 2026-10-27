@@ -30844,13 +30844,28 @@ def _rcr_carry_hop_terminal(state: RcrState, hop: SbrState, label: str) -> RcrSt
                      % (label, hop.phase, SBR_RECOVERED, hop.verdict))
 
 
+def rcr_hop_snapshot(hop: SbrState, snapshot: TelemetrySnapshot) -> TelemetrySnapshot:
+    """The snapshot one hop's SBR machine reads. The runner's recover token is a
+    sticky level set once per mission and never reset (it stands until the next
+    perform), so hop 1's ISSUED is still standing when hop 2 starts, and SBR would
+    latch `recover_issued` from it and never ask for hop 2's recovery (WR-1's first
+    flight, 2026-10-27: hop 2 sat landed through its whole RECOVER budget, asks=0).
+    A hop that has not asked yet therefore reads the token as UNREAD; from its own
+    first ask on, the runner restamps the token before the next frame."""
+    if hop is None or hop.recover_asks > 0:
+        return snapshot
+    if str(snapshot.recover_request_result or RECOVER_REQUEST_UNREAD) == RECOVER_REQUEST_UNREAD:
+        return snapshot
+    return replace(snapshot, recover_request_result=RECOVER_REQUEST_UNREAD)
+
+
 def _rcr_hop(state: RcrState, snapshot: TelemetrySnapshot) -> Tuple[RcrState, List[Action]]:
     """One delegated hop frame: sbr_decide verbatim, the phase mirrored, and the
     RECOVERED terminal turned into the next block."""
     first = state.block == RCR_HOP1
     label = "hop1" if first else "hop2"
     hop = state.hop1 if first else state.hop2
-    hop, actions = sbr_decide(hop, snapshot)
+    hop, actions = sbr_decide(hop, rcr_hop_snapshot(hop, snapshot))
     phase = rcr_hop_phase(state.block, hop.phase)
     reached = state.phases_reached
     if phase != state.phase:
