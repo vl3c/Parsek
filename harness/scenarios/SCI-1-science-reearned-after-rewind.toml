@@ -83,7 +83,7 @@ id = "SCI-1-science-reearned-after-rewind"
 # a product defect, one of an unrelated subject is a lane premise to re-read. An untagged row
 # carrying a 32-hex recordingId: the re-run was tagged to the first flight, a second defect.
 #
-# STATUS: NOT YET GREEN. Authored 2026-10-25 (branch `sci1-local`) on `career-science-pad`; its
+# STATUS: LIVE-PROVEN 2026-10-27. Authored 2026-10-25 (branch `sci1-local`) on `career-science-pad`; its
 # first flight was INVALID (stock-minimal's ProbesBeforeCrew locked the Flea's parts in the VAB),
 # re-cut 2026-10-26 onto `cs-science-new` / `stock-tree`. The reading run above red as predicted
 # against the pre-ruling pins; RE-PINNED 2026-10-27 (branch `claude/project-thread-25edvc`) to the
@@ -93,12 +93,12 @@ id = "SCI-1-science-reearned-after-rewind"
 # `passed=2 failed=0 skipped=1`; the premise pin expected flight 1's recovery capture tagged, and the
 # live line reads `tag='' deployed=False directLedger=True` (the recovery runs after the scene-exit
 # commit; the ledger row carries the recordingId, pin (A)). Re-pinned to the measured line and the
-# batch pinned whole. `operator` and `pending-flight` until it flies green.
+# batch pinned whole. LIVE-PROVEN on the re-pin: `2026-10-27_1710` PASS attempt 1 (644 s).
 tier = "operator"
 description = "Science re-earned after Rewind-to-Launch, in a stock Science game: a committed CS Flea hop earns the pad Goo subject, the player rewinds and re-earns it with three Goo readings on an unrecorded pad re-run before the committed earning UT; by the owner ruling the earliest recovery wins, so the re-run is paid in full, the committed flight is capped to the remainder in the replay, and nothing is paid twice or taken back."
 instanceProfile = "stock-tree"
 tags = ["SCI-1", "science", "science-mode", "rewind", "rewind-to-launch", "ledger",
-        "ground-truth", "recovery", "editor", "pending-flight"]
+        "ground-truth", "recovery", "editor", "flown"]
 
 [fixture]
 # CS-1's host; the CS Flea lives in the fixture's own `Ships/VAB/`.
