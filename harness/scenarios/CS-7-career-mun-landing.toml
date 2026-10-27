@@ -10,7 +10,12 @@ id = "CS-7-career-mun-landing"
 # trim the return periapsis, reenter on the heat shield, splash down (CS-5), recover,
 # auto-commit, then close with the ledger ground truth in FLIGHT.
 #
-# THE HOST. `cs-career-mun2`: CS-6's produced save (run `2026-10-27_2202`, PASS attempt
+# THE HOST. `cs-career-mun3`: CS-6b's produced save (run `2026-10-27_2316`, PASS attempt 1,
+# LedgerGroundTruth hardFailures=0): the career below AFTER CS-6b's KSC walk, i.e. the
+# Astronaut Complex at level 1 (75000, measured) and advRocketry researched, funds 141973.01,
+# science 5.5, rep 111.0. The ladder stays a chain: CS-6b's save is this lane's host and
+# this lane runs no KSC step. Before CS-6b, CS-6's save was `cs-career-mun2`
+# (CS-6's produced save, run `2026-10-27_2202`, PASS attempt
 # 1, LedgerGroundTruth `hardFailures=0`), harvested with `harvest_bdock_station.py
 # --keep-parsek --allow-no-vessel --expect-mode CAREER`, no edit, plus the builder's
 # `CS Mun Lander.craft` in its Ships/VAB. Career, Normal preset (FundsLossMultiplier 1),
@@ -34,9 +39,7 @@ id = "CS-7-career-mun-landing"
 # Mission Control 75000, both MEASURED). Advanced Rocketry (45 science, parent
 # generalRocketry; the host holds 50.5) gives the Terrier and the FL-T400 the lander is
 # built on (below). THIS IS CS-6b's WALK (lane `CS-6b-career-astronaut-complex`, the
-# CS-4b shape, on the same host): it is replayed here so this lane flies without waiting
-# for CS-6b's produced save. Once CS-6b flies green, harvest its save as this lane's
-# host and drop the two KscAction steps and their pins.
+# CS-4b shape), flown green in `2026-10-27_2316`; its produced save is this lane's host.
 #
 # THE CRAFT, `CS Mun Lander` (harness/tools/build_cs_orbiter_craft.py --variant lander,
 # gate harness/lib/test_cs_orbiter_craft.py): 29 parts, 47.755 t, 22.17 m, cost 13707.
@@ -96,15 +99,14 @@ id = "CS-7-career-mun-landing"
 # not in the nightly instance set); (9) `flight_efficiency.py` after the first green
 # flight.
 #
-# STATUS: AUTHORED 2026-10-28, NEVER FLOWN. Owed off the first flight: the Astronaut
-# Complex cost (75000 read from the scene asset, not measured), the rollout debit, the
+# STATUS: AUTHORED 2026-10-28, NEVER FLOWN. Owed off the first flight: the rollout debit, the
 # four milestone payouts, the recovery credit, the recordings count (window), the batch
 # split (`total=3` pinned, the rest regexed; every CS stage measured `passed=3 failed=0
 # skipped=0` for this category in this scene), the lander's touchdown on the LT-05s
 # (or on its bell), the lowest ElectricCharge reading (the ascendedToTargetOrbit row's
 # ecMin), the ascent's orbit and the departure plan's dv.
 tier = "operator"
-description = "Scripted campaign stage 7 (Career): on CS-6's produced save, upgrade the Astronaut Complex and research Advanced Rocketry, launch the CS Mun Lander from the VAB, fly B5's ascent and Mun transfer, B11's capture and park and B13's landing, step out onto the Mun, plant a flag and board through the seam from inside the flight, fly a Mun ascent to orbit, depart on MechJeb's moon-return planner, trim the Kerbin return periapsis, reenter on the heat shield and splash down, recover, auto-commit, then run the ledger ground truth against KSP's own career save."
+description = "Scripted campaign stage 7 (Career): on CS-6b's produced save (Astronaut Complex level 1, Advanced Rocketry researched), launch the CS Mun Lander from the VAB, fly B5's ascent and Mun transfer, B11's capture and park and B13's landing, step out onto the Mun, plant a flag and board through the seam from inside the flight, fly a Mun ascent to orbit, depart on MechJeb's moon-return planner, trim the Kerbin return periapsis, reenter on the heat shield and splash down, recover, auto-commit, then run the ledger ground truth against KSP's own career save."
 instanceProfile = "stock-tree"
 tags = ["campaign", "CS-7", "career", "facility-upgrade", "research", "editor", "mechjeb",
         "mun", "cross-soi", "capture", "landing", "eva", "flag", "board", "reentry",
@@ -112,7 +114,7 @@ tags = ["campaign", "CS-7", "career", "facility-upgrade", "research", "editor", 
         "pending-flight"]
 
 [fixture]
-saveTemplate = "fixtures/saves/cs-career-mun2"
+saveTemplate = "fixtures/saves/cs-career-mun3"
 injectedRecordings = "none"
 craft = []
 
@@ -135,9 +137,6 @@ steps = [
   { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
   { cmd = "SetSetting",       args = { name = "autoMerge",          value = "true" }, expect = "OK" },
   { cmd = "SetSetting",       args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
-  # CS-6b's walk (see the header): EVA off Kerbin and flags, then the Terrier and FL-T400.
-  { cmd = "KscAction",        args = { action = "upgrade-facility", facility = "SpaceCenter/AstronautComplex" }, expect = "OK", budget = 60 },
-  { cmd = "KscAction",        args = { action = "research-node", node = "advRocketry" },                        expect = "OK", budget = 60 },
   { cmd = "GoToEditor",       args = { facility = "VAB", craft = "CS Mun Lander" },   expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor",                                     label = "munlander", expect = "OK", budget = 180 },
   { phase = "mission",                                                                expect = "MISSION-OK", budget = 6000 },
@@ -311,12 +310,6 @@ count = { min = 27, max = 42 }
 #   result: hardFailures=               InGameTests/LedgerGroundTruthHarness.cs:246
 #   BATCH_COMPLETE v1                   InGameTests/InGameTestRunner.cs:1219
 required = [
-  # The KSC walk (CS-6b's).
-  "kscaction action=upgrade-facility target=SpaceCenter/AstronautComplex applied=true manifestKind=facility-upgrade observedAfter=level=1",
-  "Game state: FacilityUpgraded 'SpaceCenter/AstronautComplex' 0\\.00 .{1,3} 0\\.50 \\(event-driven\\) cost=[0-9]+ costSource=observed-debit",
-  "Game state: FundsChanged -[0-9]{5} \\(StructureConstruction\\)",
-  "kscaction action=research-node target=advRocketry applied=true manifestKind=tech-unlock observedAfter=science=5\\.5",
-  "Game state: TechResearched 'advRocketry' \\(cost=45\\)",
   # The flight.
   "launchfromeditor complete scene=FLIGHT vessel=CS Mun Lander pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
   # The craft's rollout, a regex until measured (the builder's cost is 13707); five

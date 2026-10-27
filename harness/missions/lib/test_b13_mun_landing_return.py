@@ -636,7 +636,7 @@ class SchemaAndSpecTests(unittest.TestCase):
 
     def test_the_spec_buys_the_walk_then_flies_once_and_recovers_the_flyer(self):
         spec = _spec(CS7_SPEC)
-        self.assertEqual("fixtures/saves/cs-career-mun2", spec["fixture"]["saveTemplate"])
+        self.assertEqual("fixtures/saves/cs-career-mun3", spec["fixture"]["saveTemplate"])
         steps = spec["driver"]["steps"]
         self.assertEqual(1, sum(1 for s in steps if s.get("phase") == "mission"))
         mission = next(i for i, s in enumerate(steps) if s.get("phase") == "mission")
@@ -646,14 +646,14 @@ class SchemaAndSpecTests(unittest.TestCase):
         self.assertEqual("Recover", recover["cmd"])
         self.assertEqual("${%s.pid}" % launch["label"], recover["args"]["pid"])
         self.assertEqual("CS Mun Lander", steps[mission - 2]["args"]["craft"])
-        ksc = [s["args"] for s in steps[:mission] if s.get("cmd") == "KscAction"]
-        self.assertEqual([{"action": "upgrade-facility",
-                           "facility": "SpaceCenter/AstronautComplex"},
-                          {"action": "research-node", "node": "advRocketry"}], ksc)
-        # CS-6b's walk is the same two actions in the same order.
+        # The ladder is a chain: CS-6b buys the walk on CS-6's save; CS-7 flies from
+        # CS-6b's produced save and runs no KSC step of its own.
+        self.assertFalse(any(s.get("cmd") == "KscAction" for s in steps[:mission]))
         walk = [s["args"] for s in _spec(CS6B_SPEC)["driver"]["steps"]
                 if s.get("cmd") == "KscAction"]
-        self.assertEqual(ksc, walk)
+        self.assertEqual([{"action": "upgrade-facility",
+                           "facility": "SpaceCenter/AstronautComplex"},
+                          {"action": "research-node", "node": "advRocketry"}], walk)
         self.assertFalse(any(s.get("cmd") == "CommitTree" and s.get("expect") == "OK"
                              for s in steps))
 

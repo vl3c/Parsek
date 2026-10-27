@@ -337,11 +337,16 @@ class CsMunLanderCraftTests(unittest.TestCase):
     def test_the_spec_researches_the_node_then_flies_this_craft(self):
         with open(CS7_SPEC, "rb") as fh:
             spec = tomllib.load(fh)
-        self.assertEqual("fixtures/saves/cs-career-mun2", spec["fixture"]["saveTemplate"])
+        # The ladder is a chain: CS-7 flies from CS-6b's produced save, which already
+        # researched the node, so CS-7 itself runs no KSC step.
+        self.assertEqual("fixtures/saves/cs-career-mun3", spec["fixture"]["saveTemplate"])
         steps = spec["driver"]["steps"]
         editor = next(i for i, s in enumerate(steps) if s.get("cmd") == "GoToEditor")
         self.assertEqual("CS Mun Lander", steps[editor]["args"]["craft"])
-        researched = [s["args"]["node"] for s in steps[:editor]
+        self.assertFalse(any(s.get("cmd") == "KscAction" for s in steps[:editor]))
+        with open(CS6B_SPEC, "rb") as fh:
+            cs6b_steps = tomllib.load(fh)["driver"]["steps"]
+        researched = [s["args"]["node"] for s in cs6b_steps
                       if s.get("cmd") == "KscAction"
                       and s["args"].get("action") == "research-node"]
         self.assertEqual(list(TECH_RESEARCHED_FOR_CS7), researched)
