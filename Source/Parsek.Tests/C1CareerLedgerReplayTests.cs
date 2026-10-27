@@ -31,9 +31,11 @@ namespace Parsek.Tests
     ///      actions from a clean slate.
     ///
     ///   2. CLOSURE OF THE PHASE D CLASSIFICATION (D.1). The historical +90.0 science
-    ///      divergence is CHARACTERIZED here - value pinned, mechanism named, era
-    ///      bounded - not ADJUDICATED. This file asserts what the walk DOES. It never
-    ///      asserts what the walk OUGHT to do.
+    ///      divergence was CHARACTERIZED here - value pinned, mechanism named, era
+    ///      bounded - not ADJUDICATED. It closed on 2026-10-26 (LEDGER-EVENT-IDENTITY
+    ///      step 6): the walk now charges a committed tech it cannot pay into a science
+    ///      debt instead of refusing it, and the reconstruction meets the save. This file
+    ///      asserts what the walk DOES. It never asserts what the walk OUGHT to do.
     ///
     /// DO NOT FILE A c1-DERIVED DIVERGENCE AS A PRODUCT FINDING. Every divergence
     /// below is a joint fact about (era-bound ledger rows) x (current engine), and
@@ -48,6 +50,7 @@ namespace Parsek.Tests
     ///   pool         reconstructed          save                 delta
     ///   FUNDS        400199.27429199219     400199.27429199219   0 (exact)
     ///   SCIENCE      119.30025362968445     29.3002529           +90.000000729684444
+    ///                (2026-10-26, step 6 science debt: 29.300253629684448, +7.3e-07)
     ///   REPUTATION   45.590347290039063     45.5432281           +0.047119190039062175
     ///
     /// vs the 2026-08-09 measurement recorded in
@@ -105,15 +108,17 @@ namespace Parsek.Tests
         private const double SeedScience = 123.763962;
         private const double SeedReputation = 0.0;
 
-        // The one row that trips ScienceModule.ProcessSpending's affordability gate.
+        // The one row the reconstructed balance cannot cover. Until step 6 the walk refused
+        // it; since step 6 it is charged into a science debt.
         private const string RefusedNodeId = "heavyRocketry";
         private const double RefusedNodeUT = 475457.99765590986;
         private const double RefusedNodeCost = 90.0;
 
-        // Measured 2026-08-20 on current code. See the class note for the full table
-        // and for what these numbers are and are not evidence of.
-        private const double ReconScience = 119.30025362968445;
-        private const double ScienceDelta = 90.000000729684444;
+        // Science measured 2026-10-26 (step 6 science debt), reputation 2026-08-20. See the
+        // class note for the full table and for what these numbers are and are not
+        // evidence of. The science delta is float32 representation noise of the save pool.
+        private const double ReconScience = 29.300253629684448;
+        private const double ScienceDelta = 7.2968444797538723E-07;
         private const double ReconReputation = 45.590347290039063;
         private const double ReputationDelta = 0.047119190039062175;
 
@@ -247,13 +252,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RealEngine_RefusesTheHeavyRocketrySpend_AndSaysSoInTheLog()
+        public void RealEngine_ChargesTheHeavyRocketrySpendIntoDebt_AndSaysSoInTheLog()
         {
-            // The mechanism, observed at the seam. ScienceModule.ProcessSpending deducts
-            // only when the reconstructed balance already covers the cost, and otherwise
-            // WARNs and leaves the balance untouched (ScienceSpendingOrderingTests pins
-            // that behavior synthetically and fixture-independently). Here it is caught
-            // firing on the REAL c1 walk, on the one row that trips it.
+            // The mechanism, observed at the seam. Until step 6 ScienceModule.ProcessSpending
+            // deducted only when the reconstructed balance already covered the cost, and
+            // otherwise WARNed and left the balance untouched, so the 90 was never deducted
+            // and every later balance ran one full cost high. Since step 6 (owner ruling
+            // 2026-10-26) the committed tech is charged into a science debt that later
+            // earnings repay (ScienceSpendingOrderingTests and ScienceDebtTests pin that
+            // synthetically). Here it is caught firing on the REAL c1 walk, on the one row
+            // the balance cannot cover.
             //
             // CHARACTERIZATION, NOT ADJUDICATION. Whether the pre-fix-era ledger SHOULD
             // have carried enough science at this UT to cover the node is a question about
@@ -265,13 +273,14 @@ namespace Parsek.Tests
             var actions = LoadFixtureLedger();
             RecalculationEngine.Recalculate(actions);
 
-            var refusals = logLines.FindAll(l =>
-                l.Contains("[ScienceModule]") && l.Contains("Spending NOT affordable"));
+            var debts = logLines.FindAll(l =>
+                l.Contains("[ScienceModule]") && l.Contains("Spending charged into science debt"));
 
-            // Exactly one refusal in the whole 323-row walk, and it is heavyRocketry.
-            Assert.Single(refusals);
-            Assert.Contains("nodeId=" + RefusedNodeId, refusals[0]);
-            Assert.Contains("cost=90", refusals[0]);
+            // Exactly one debt charge in the whole 323-row walk, and it is heavyRocketry.
+            Assert.Single(debts);
+            Assert.Contains("nodeId=" + RefusedNodeId, debts[0]);
+            Assert.Contains("cost=90", debts[0]);
+            Assert.DoesNotContain(logLines, l => l.Contains("Spending NOT affordable"));
         }
 
         // ================================================================
@@ -309,9 +318,13 @@ namespace Parsek.Tests
             Assert.Equal(SaveFunds, reconFunds, 6);
 
             // ------------------------------------------------------------------
-            // SCIENCE: the CHARACTERIZED +90 divergence (Phase D task D.1).
+            // SCIENCE: the +90 divergence (Phase D task D.1), CLOSED by step 6.
             //
-            // The walk reconstructs 119.30025362968445 against a save pool of 29.3002529
+            // Since 2026-10-26 the walk charges the heavyRocketry node into a science debt
+            // (later earnings repay it) and reconstructs 29.300253629684448 against the
+            // save's 29.3002529: float32 noise. What follows is the 2026-08-20 history.
+            //
+            // The walk reconstructed 119.30025362968445 against a save pool of 29.3002529
             // - high by 90.000000729684444, i.e. by exactly one refused tech-node cost
             // plus float32 representation noise. The proximate cause is the refusal cell
             // above: ScienceModule.ProcessSpending judges the 90-cost `heavyRocketry` node
@@ -329,8 +342,9 @@ namespace Parsek.Tests
             //
             // What IS settled, and settled without this fixture, is the MECHANISM:
             // ScienceSpendingOrderingTests reproduces the whole shape in three synthetic
-            // actions (refusal, no clamp, and the equal-UT earning-before-spending
-            // tiebreak that keeps a same-instant pair solvent), so nothing about the
+            // actions (the uncovered spend, refused then and charged into debt now, no
+            // clamp, and the equal-UT earning-before-spending tiebreak that keeps a
+            // same-instant pair solvent), so nothing about the
             // ordering contract depends on c1 being trustworthy.
             //
             // Pinned so any RECALC-side change in this behavior surfaces here. A move

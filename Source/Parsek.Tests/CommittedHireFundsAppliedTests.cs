@@ -73,6 +73,26 @@ namespace Parsek.Tests
             Assert.Equal("h-future", rows[0].ActionId);
         }
 
+        // catches: a hire the walk already owns (design 3.15 step 6; never charged) made at its
+        // UT anyway, which would hire a kerbal dismissed since the owning purchase for free.
+        [Fact]
+        public void Collect_LeavesOutAHireTheWalkAlreadyOwns()
+        {
+            var committed = Hire("h-committed", 1000.2, "Bill Kerman");
+            committed.CaptureSequence = 10;
+            var rebought = Hire("h-rebought", 300.0, "Bill Kerman");
+            rebought.CaptureSequence = 20;
+            var other = Hire("h-other", 1000.5, "Bob Kerman");
+            other.CaptureSequence = 11;
+            var actions = new List<GameAction> { committed, rebought, other };
+            var state = StateCounting(("h-committed", double.NaN), ("h-rebought", -62113.0), ("h-other", double.NaN));
+
+            List<GameAction> rows = LedgerOrchestrator.CollectHireRowsNotAppliedByFunds(state, actions);
+
+            Assert.Single(rows);
+            Assert.Equal("h-other", rows[0].ActionId);
+        }
+
         [Fact]
         public void Collect_NoReference_IsEmpty()
         {

@@ -225,7 +225,8 @@ namespace Parsek.Tests
             foreach (GameActionNotCountedReason r in Enum.GetValues(typeof(GameActionNotCountedReason)))
             {
                 bool expected = r != GameActionNotCountedReason.None
-                    && r != GameActionNotCountedReason.FacilityAlreadyIntact;
+                    && r != GameActionNotCountedReason.FacilityAlreadyIntact
+                    && r != GameActionNotCountedReason.PurchaseAlreadyOwned;
                 Assert.Equal(expected, StockShadowTakeBack.IsIdentityReason(r));
             }
         }
@@ -1043,7 +1044,7 @@ namespace Parsek.Tests
         // ------------------------------------------------------------------
 
         [Fact]
-        public void Shortfall_FundsWarnsAsADebt_ScienceLogsTheStep6Hook()
+        public void Shortfall_FundsAndScienceWarnAsTheSameDebt()
         {
             var m = new StockPoolMeasurement();
             m.TakenBack.Add(new KeyValuePair<string, double>("b", 500));
@@ -1053,8 +1054,11 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[WARN]") && l.Contains("PatchFunds: take-back shortfall 200 of 500")
                 && l.Contains("a debt, design 3.13 part 4"));
             Assert.Equal(300.0, KspStatePatcher.NoteScienceTakeBackShortfall(m, -300));
-            Assert.Contains(logLines, l => l.Contains("PatchScience: take-back shortfall 300 of 500")
-                && l.Contains("design 3.15 step 6"));
+            // Design 3.15 step 6: the science shortfall is the same debt as funds (a tech spent
+            // from the duplicate is charged into debt, never left researched for free).
+            Assert.Contains(logLines, l => l.Contains("[WARN]") && l.Contains("PatchScience: take-back shortfall 300 of 500")
+                && l.Contains("later gains repay it first") && l.Contains("a debt, design 3.13 part 4"));
+            Assert.DoesNotContain(logLines, l => l.Contains("the 0 floor forgives it"));
             Assert.Equal(0.0, KspStatePatcher.EmitTakeBackShortfall("Funds", new StockPoolMeasurement(), -200));
         }
 

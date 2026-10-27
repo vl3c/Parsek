@@ -176,8 +176,10 @@ namespace Parsek.Tests
 
             LedgerEventIdentityEntry tech;
             Assert.True(LedgerEventIdentityRegistry.TryGet(GameActionType.ScienceSpending, null, out tech));
-            Assert.Equal("ScienceSpending key=[tech node id] rule=PurchaseStateRule planned=3.15 step 6 "
-                + "(today: charged when affordable; an unaffordable tech is not charged and stays researched)",
+            Assert.Equal("ScienceSpending key=[tech node id] rule=PurchaseStateRule enforced by "
+                + "ScienceModule.ProcessSpending (PurchaseOwnershipBook: not charged while the walk owns the item, "
+                + "bought by a purchase captured after the row; PurchaseAlreadyOwned); a tech it cannot pay is "
+                + "charged into a science debt",
                 tech.Describe());
 
             LedgerEventIdentityEntry science;
@@ -202,12 +204,12 @@ namespace Parsek.Tests
         [InlineData(GameActionType.ContractAccept, null, "OncePerAcceptLifecycle", true)]
         [InlineData(GameActionType.ScienceLabEarning, "survey", "OncePerBody", false)]
         [InlineData(GameActionType.ScienceLabEarning, "lab", "AsRecorded", true)]
-        [InlineData(GameActionType.ScienceSpending, null, "PurchaseStateRule", false)]
-        [InlineData(GameActionType.FundsSpending, "Other", "PurchaseStateRule", false)]
-        [InlineData(GameActionType.FundsSpending, "PartUpgrade", "PurchaseStateRule", false)]
-        [InlineData(GameActionType.FacilityUpgrade, null, "PurchaseStateRule", false)]
+        [InlineData(GameActionType.ScienceSpending, null, "PurchaseStateRule", true)]
+        [InlineData(GameActionType.FundsSpending, "Other", "PurchaseStateRule", true)]
+        [InlineData(GameActionType.FundsSpending, "PartUpgrade", "PurchaseStateRule", true)]
+        [InlineData(GameActionType.FacilityUpgrade, null, "PurchaseStateRule", true)]
         [InlineData(GameActionType.FacilityRepair, null, "PurchaseStateRule", true)]
-        [InlineData(GameActionType.KerbalHire, null, "PurchaseStateRule", false)]
+        [InlineData(GameActionType.KerbalHire, null, "PurchaseStateRule", true)]
         [InlineData(GameActionType.FundsSpending, "VesselBuild", "AsRecorded", true)]
         [InlineData(GameActionType.FundsEarning, "Recovery", "AsRecorded", true)]
         [InlineData(GameActionType.StrategyActivate, null, "OncePerActivation", true)]
@@ -296,6 +298,11 @@ namespace Parsek.Tests
             { "ContractCancel", ProbeContractCancelFirstOutcomeWins },
             { "ContractParameterComplete", ProbeParameterFirstWinsWhileOpen },
             { "FacilityRepair", ProbeFacilityRepairStateRule },
+            { "ScienceSpending", ProbeTechPurchaseStateRule },
+            { "FundsSpending/Other", () => ProbeFundsPurchaseStateRule(FundsSpendingSource.Other) },
+            { "FundsSpending/PartUpgrade", () => ProbeFundsPurchaseStateRule(FundsSpendingSource.PartUpgrade) },
+            { "FacilityUpgrade", ProbeFacilityLevelStateRule },
+            { "KerbalHire", ProbeHireStateRule },
         };
 
         public static IEnumerable<object[]> EnforcedDecidingEntries()
@@ -492,6 +499,72 @@ namespace Parsek.Tests
             Assert.True(repair.Effective);
             Assert.False(again.Effective);
             Assert.Equal(GameActionNotCountedReason.FacilityAlreadyIntact, again.NotCountedReason);
+        }
+
+        // The purchase state rule (3.15 step 6): a committed purchase (captured first) whose item a
+        // purchase captured after it already bought earlier on timeline is not charged.
+        private static void ProbeTechPurchaseStateRule()
+        {
+            var w = Register();
+            var actions = Seeds();
+            actions[1].InitialScience = 100f;
+            var committed = new GameAction { UT = 500, CaptureSequence = 10, Type = GameActionType.ScienceSpending, NodeId = "basicRocketry", Cost = 5f };
+            var bought = new GameAction { UT = 300, CaptureSequence = 20, Type = GameActionType.ScienceSpending, NodeId = "basicRocketry", Cost = 5f };
+            actions.Add(committed);
+            actions.Add(bought);
+            RecalculationEngine.Recalculate(actions);
+            Assert.True(bought.Effective);
+            Assert.False(committed.Effective);
+            Assert.Equal(GameActionNotCountedReason.PurchaseAlreadyOwned, committed.NotCountedReason);
+            Assert.Equal(95.0, w.Science.GetRunningScience(), 3);
+        }
+
+        private static void ProbeFundsPurchaseStateRule(FundsSpendingSource source)
+        {
+            var w = Register();
+            var actions = Seeds();
+            var committed = new GameAction { UT = 500, CaptureSequence = 10, Type = GameActionType.FundsSpending,
+                FundsSpendingSource = source, DedupKey = "item", FundsSpent = 800f };
+            var bought = new GameAction { UT = 300, CaptureSequence = 20, Type = GameActionType.FundsSpending,
+                FundsSpendingSource = source, DedupKey = "item", FundsSpent = 800f };
+            actions.Add(committed);
+            actions.Add(bought);
+            RecalculationEngine.Recalculate(actions);
+            Assert.True(bought.Effective);
+            Assert.False(committed.Effective);
+            Assert.Equal(GameActionNotCountedReason.PurchaseAlreadyOwned, committed.NotCountedReason);
+            Assert.Equal(100000.0 - 800.0, w.Funds.GetRunningBalance(), 3);
+        }
+
+        private static void ProbeFacilityLevelStateRule()
+        {
+            var w = Register();
+            var actions = Seeds();
+            const string vab = "SpaceCenter/VehicleAssemblyBuilding";
+            var committed = new GameAction { UT = 500, CaptureSequence = 10, Type = GameActionType.FacilityUpgrade, FacilityId = vab, ToLevel = 2, FacilityCost = 30000f };
+            var bought = new GameAction { UT = 300, CaptureSequence = 20, Type = GameActionType.FacilityUpgrade, FacilityId = vab, ToLevel = 2, FacilityCost = 30000f };
+            actions.Add(committed);
+            actions.Add(bought);
+            RecalculationEngine.Recalculate(actions);
+            Assert.True(bought.Effective);
+            Assert.False(committed.Effective);
+            Assert.Equal(GameActionNotCountedReason.PurchaseAlreadyOwned, committed.NotCountedReason);
+            Assert.Equal(70000.0, w.Funds.GetRunningBalance(), 3);
+        }
+
+        private static void ProbeHireStateRule()
+        {
+            var w = Register();
+            var actions = Seeds();
+            var committed = new GameAction { UT = 500, CaptureSequence = 10, Type = GameActionType.KerbalHire, KerbalName = "Bill", HireCost = 20000f };
+            var hired = new GameAction { UT = 300, CaptureSequence = 20, Type = GameActionType.KerbalHire, KerbalName = "Bill", HireCost = 20000f };
+            actions.Add(committed);
+            actions.Add(hired);
+            RecalculationEngine.Recalculate(actions);
+            Assert.True(hired.Effective);
+            Assert.False(committed.Effective);
+            Assert.Equal(GameActionNotCountedReason.PurchaseAlreadyOwned, committed.NotCountedReason);
+            Assert.Equal(80000.0, w.Funds.GetRunningBalance(), 3);
         }
 
         // ================================================================

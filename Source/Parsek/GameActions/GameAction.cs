@@ -482,7 +482,11 @@ namespace Parsek
         ContractParameterAfterCompletion,
         /// <summary>A world-record row every one of whose thresholds was already credited
         /// earlier in the walk (design 7.8, 3.15 step 4).</summary>
-        RecordThresholdsAlreadyCredited
+        RecordThresholdsAlreadyCredited,
+        /// <summary>A purchase (tech, part, part upgrade, facility level, hire) of an item the
+        /// walk already owns at that point, bought by a purchase captured after it (a rewind
+        /// separated them): not charged (design 3.15 step 6, <see cref="PurchaseStateRule"/>).</summary>
+        PurchaseAlreadyOwned
     }
 
     /// <summary>
@@ -1096,14 +1100,19 @@ namespace Parsek
         /// <summary>
         /// Whether a spending action was affordable at the time it was processed in the walk.
         /// Set by resource modules during recalculation walk. Always derived, never stored.
+        /// On a <see cref="GameActionType.ScienceSpending"/> row it is the "researched by the
+        /// walk" contract the tech patch reads: true when the walk charged the tech, in full or
+        /// into a science debt (design 3.15 step 6), or already owned it.
         /// </summary>
         public bool Affordable;
 
         /// <summary>
-        /// Running science pool at the moment <c>ScienceModule.ProcessSpending</c> REFUSED this
-        /// spend as unaffordable. Non-null ONLY on a <see cref="GameActionType.ScienceSpending"/>
-        /// row the walk actually processed and refused; null on an affordable spend and on every
-        /// row the science walk never dispatched. Always derived, never stored.
+        /// Running science pool at the moment a walk REFUSED a tech spend as unaffordable.
+        /// Non-null ONLY on a <see cref="GameActionType.ScienceSpending"/> row a walk processed
+        /// and refused; null on every other row. Always derived, never stored. Since design
+        /// 3.15 step 6 <c>ScienceModule.ProcessSpending</c> refuses no tech (one it cannot pay
+        /// is charged into a science debt and stays researched), so the walk never sets it;
+        /// the re-lock guard that reads it stays as the backstop against un-researching.
         ///
         /// <para>This is a POSITIVE marker, and that is the point: <see cref="Affordable"/> alone
         /// cannot separate "the walk refused this purchase" from "the module never ran for this

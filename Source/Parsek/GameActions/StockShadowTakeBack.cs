@@ -251,8 +251,10 @@ namespace Parsek
         /// <summary>
         /// Pure: a not-counted reason the registry classes as an identity rule (one outcome
         /// ever, first wins, once per threshold, first wins while the contract is open). The
-        /// purchase state rule (<see cref="GameActionNotCountedReason.FacilityAlreadyIntact"/>)
-        /// is step 6's and is not taken back here.
+        /// purchase state rule (<see cref="GameActionNotCountedReason.FacilityAlreadyIntact"/>,
+        /// <see cref="GameActionNotCountedReason.PurchaseAlreadyOwned"/>, step 6) is not taken
+        /// back here: stock never sells an item it owns, and a purchase the walk stops charging
+        /// is a committed row stock never charged live.
         /// </summary>
         internal static bool IsIdentityReason(GameActionNotCountedReason reason)
         {

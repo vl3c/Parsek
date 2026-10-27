@@ -112,6 +112,10 @@ namespace Parsek
         /// <summary>Stock's own pool at a repeat (<see cref="StockShadowStart"/>).</summary>
         private readonly StockShadowStart shadowStart = new StockShadowStart(StockPool.Funds);
 
+        /// <summary>The parts, part upgrades, facility levels and hires the walk owns so far
+        /// (design 3.15 step 6, the purchase state rule).</summary>
+        private readonly PurchaseOwnershipBook purchaseOwnership = new PurchaseOwnershipBook();
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -142,6 +146,7 @@ namespace Parsek
             shadowDivergence = 0.0;
             shadowStart.Reset(StockPoolReference.Funds);
             floorState.Reset();
+            purchaseOwnership.Reset();
             allowNegativeCurrency = StockCurrencyClamp.ReadAllowNegativeCurrency();
 
             ParsekLog.Verbose(Tag,
@@ -342,7 +347,7 @@ namespace Parsek
                     ProcessContractCancel(action);
                     break;
                 case GameActionType.FacilityUpgrade:
-                    ProcessFacilityCost(action, "FacilityUpgrade");
+                    ProcessFacilityUpgrade(action);
                     break;
                 case GameActionType.FacilityDestruction:
                     ProcessFacilityDestruction(action);
@@ -533,11 +538,14 @@ namespace Parsek
 
         /// <summary>
         /// Processes FundsSpending: checks affordability, deducts from running balance.
-        /// Sets <see cref="GameAction.Affordable"/>.
+        /// Sets <see cref="GameAction.Affordable"/>. A part or part upgrade purchase the walk
+        /// already owns is not charged (design 3.15 step 6).
         /// </summary>
         private void ProcessFundsSpending(GameAction action)
         {
             double cost = (double)action.FundsSpent;
+            if (SkipOwnedPurchase(action, cost))
+                return;
             bool affordable = runningBalance >= cost;
             action.Affordable = affordable;
 
@@ -788,6 +796,48 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Processes FacilityUpgrade (an upgrade or a Rebuild): a level the walk already has the
+        /// facility at is not charged (design 3.15 step 6), else the cost is deducted.
+        /// </summary>
+        private void ProcessFacilityUpgrade(GameAction action)
+        {
+            if (SkipOwnedPurchase(action, (double)action.FacilityCost))
+                return;
+            ProcessFacilityCost(action, "FacilityUpgrade");
+        }
+
+        /// <summary>
+        /// The purchase state rule (design 3.15 step 6, <see cref="PurchaseStateRule"/>): true
+        /// when the walk already owns the row's item here, bought by a purchase captured after
+        /// it; the row is then marked not counted and charges nothing. Otherwise the row's item
+        /// is recorded as owned (the caller charges it) and false is returned.
+        /// </summary>
+        private bool SkipOwnedPurchase(GameAction action, double cost)
+        {
+            PurchaseKind kind;
+            string key;
+            if (!PurchaseStateRule.TryGetItem(action, out kind, out key))
+                return false;
+            string holder;
+            if (!purchaseOwnership.IsAlreadyOwned(action, out holder))
+            {
+                purchaseOwnership.RecordCharged(action);
+                return false;
+            }
+            action.Effective = false;
+            action.NotCountedReason = GameActionNotCountedReason.PurchaseAlreadyOwned;
+            action.Affordable = true;
+            UncountPrePassSpending(cost);
+            ParsekLog.InfoRateLimited(Tag, "purchase-owned-" + (action.ActionId ?? kind + "|" + key),
+                $"{action.Type} not charged: {PurchaseStateRule.DescribeItem(kind, key, action.ToLevel)} " +
+                $"is already owned at ut={action.UT.ToString("R", IC)} " +
+                $"cseq={action.CaptureSequence.ToString(IC)} (held by {holder}, captured after this row), " +
+                $"cost={cost.ToString("R", IC)}, recording={action.RecordingId ?? "(none)"}, " +
+                $"runningBalance={runningBalance.ToString("R", IC)}");
+            return true;
+        }
+
+        /// <summary>
         /// Processes FacilityUpgrade/FacilityRepair: deducts FacilityCost from running balance.
         /// </summary>
         private void ProcessFacilityCost(GameAction action, string label)
@@ -806,11 +856,15 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Processes KerbalHire: deducts HireCost from running balance.
+        /// Processes KerbalHire: deducts the price captured with the hire (owner ruling
+        /// 2026-10-26: an earlier new hire changing the roster size never re-prices it). A
+        /// kerbal the walk already has on the roster is not charged (design 3.15 step 6).
         /// </summary>
         private void ProcessKerbalHire(GameAction action)
         {
             double cost = (double)action.HireCost;
+            if (SkipOwnedPurchase(action, cost))
+                return;
             bool affordable = runningBalance >= cost;
             action.Affordable = affordable;
 
@@ -983,6 +1037,8 @@ namespace Parsek
                     delta = (double)action.TransformedFundsReward;
                     return true;
                 case GameActionType.FundsSpending:
+                    // A part or upgrade the walk already owns is not charged (3.15 step 6).
+                    if (!action.Effective) return false;
                     delta = -(double)action.FundsSpent;
                     return true;
                 case GameActionType.ContractFail:
@@ -991,6 +1047,7 @@ namespace Parsek
                     delta = -(double)action.FundsPenalty;
                     return true;
                 case GameActionType.FacilityUpgrade:
+                    if (!action.Effective) return false;
                     delta = -(double)action.FacilityCost;
                     return true;
                 case GameActionType.FacilityRepair:
@@ -998,6 +1055,7 @@ namespace Parsek
                     delta = -(double)action.FacilityCost;
                     return true;
                 case GameActionType.KerbalHire:
+                    if (!action.Effective) return false;
                     delta = -(double)action.HireCost;
                     return true;
                 case GameActionType.StrategyActivate:

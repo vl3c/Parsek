@@ -218,6 +218,11 @@ namespace Parsek
         /// <summary>Rows the build skipped because their recording is not committed.</summary>
         internal int SkippedUncommittedRows { get; private set; }
 
+        /// <summary>Purchase rows the build skipped because the walk does not charge them: the
+        /// item is already owned there (<see cref="PurchaseStateRule"/>, design 3.15 step 6).
+        /// A facility level row is never skipped: it keeps holding the facility's controls.</summary>
+        internal int SkippedAlreadyOwnedRows { get; private set; }
+
         /// <summary>Total indexed entries (all kinds, past and future).</summary>
         internal int EntryCount { get; private set; }
 
@@ -333,6 +338,17 @@ namespace Parsek
             // Every accept of the effective ledger, by contract: a fail row is an expiry when
             // it closes an accept whose deadline it reached (the Timeline's test and input).
             Dictionary<string, List<GameAction>> acceptHistory = null;
+            // The purchase state rule (design 3.15 step 6): a purchase the walk does not charge
+            // because it already owns the item there buys nothing, so it holds no click and
+            // marks nothing. Computed over the same rows in walk order, the walk's own book.
+            // A tech, part, upgrade or hire stays owned whatever the player clicks next (nothing
+            // the player can do un-owns it), so releasing its control is safe. A facility
+            // level is the exception: a Rebuild click ends the run that owns it, and an
+            // upgrade click can take the facility past a committed Rebuild the walk owns, and
+            // either would turn the skipped row back into a level change. So an owned facility
+            // row stays in the index and keeps holding the facility's controls until its UT.
+            HashSet<GameAction> alreadyOwned = PurchaseStateRule.CollectAlreadyOwned(effectiveActions);
+            int skippedOwned = 0;
 
             if (effectiveActions != null)
             {
@@ -345,6 +361,12 @@ namespace Parsek
                     CommittedFutureKind kind = default(CommittedFutureKind);
                     string key = null;
                     if (!isAssignment && !TryClassify(a, out kind, out key)) continue;
+                    if (alreadyOwned.Count > 0 && kind != CommittedFutureKind.FacilityUpgrade
+                        && alreadyOwned.Contains(a))
+                    {
+                        skippedOwned++;
+                        continue;
+                    }
 
                     if (!string.IsNullOrEmpty(a.RecordingId)
                         && (isCommittedRecording == null || !isCommittedRecording(a.RecordingId)))
@@ -416,7 +438,13 @@ namespace Parsek
                     SortInWalkOrder(list);
 
             index.SkippedUncommittedRows = skippedUncommitted;
+            index.SkippedAlreadyOwnedRows = skippedOwned;
             index.EntryCount = entries;
+            if (skippedOwned > 0)
+                ParsekLog.VerboseOnChange("CommittedFutureIndex", "skipped-owned",
+                    skippedOwned.ToString(CultureInfo.InvariantCulture),
+                    "Build: skipped " + skippedOwned.ToString(CultureInfo.InvariantCulture)
+                    + " purchase row(s) the walk does not charge (item already owned, design 3.15 step 6)");
             return index;
         }
 

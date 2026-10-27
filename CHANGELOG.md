@@ -25,6 +25,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A purchase is paid once, and a tech is never free.** After a rewind, a tech, part, building
+  level or kerbal the timeline already bought earlier is not charged again, and the Timeline says
+  so. A committed tech the career can no longer afford stays researched and its cost becomes a
+  science debt that later science repays, like funds. (LEDGER-EVENT-IDENTITY)
 - **A reward the timeline already earned is not paid again after a rewind.** Once the clock
   passes a committed world-first, record step, contract parameter or science result, stock no
   longer pays it a second time, and if it slips through anyway the next update takes that payment

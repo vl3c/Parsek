@@ -2740,11 +2740,22 @@ namespace Parsek
 
             var crossing = new KspStatePatcher.ClockCrossing { CrossedRows = crossed.Count };
             var labels = new List<string>(Math.Min(crossed.Count, 10));
+            // A hire the walk already owns (design 3.15 step 6) is not charged, so it makes
+            // nobody: a kerbal dismissed since the purchase that owns him is not hired for free.
+            HashSet<GameAction> ownedPurchases = null;
+            int ownedHires = 0;
             for (int i = 0; i < crossed.Count; i++)
             {
                 if (crossed[i].Type == GameActionType.KerbalHire
                     && !string.IsNullOrEmpty(crossed[i].KerbalName))
-                    crossing.CrossedHireKerbals.Add(crossed[i].KerbalName);
+                {
+                    if (ownedPurchases == null)
+                        ownedPurchases = PurchaseStateRule.CollectAlreadyOwned(actions);
+                    if (ownedPurchases.Contains(crossed[i]))
+                        ownedHires++;
+                    else
+                        crossing.CrossedHireKerbals.Add(crossed[i].KerbalName);
+                }
                 if (i < 10)
                     labels.Add(crossed[i].Type + "@" + crossed[i].UT.ToString("R", CultureInfo.InvariantCulture));
             }
@@ -2752,7 +2763,8 @@ namespace Parsek
                 $"Clock-crossing reached committed-future rows: crossed={crossed.Count.ToString(CultureInfo.InvariantCulture)} " +
                 $"[{string.Join(", ", labels.ToArray())}] " +
                 $"cutoff={(utCutoff.HasValue ? utCutoff.Value.ToString("R", CultureInfo.InvariantCulture) : "null")} " +
-                $"hires={crossing.CrossedHireKerbals.Count.ToString(CultureInfo.InvariantCulture)}");
+                $"hires={crossing.CrossedHireKerbals.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"ownedHiresSkipped={ownedHires.ToString(CultureInfo.InvariantCulture)}");
             return crossing;
         }
 
@@ -4456,7 +4468,9 @@ namespace Parsek
         /// <summary>
         /// The committed KerbalHire rows of <paramref name="actions"/> whose funds row
         /// <paramref name="funds"/> counts as not applied (a NaN effect: the last funds patch
-        /// saw it ahead of its cutoff). Empty when the reference holds none.
+        /// saw it ahead of its cutoff). Empty when the reference holds none. A hire the walk
+        /// already owns (design 3.15 step 6) is left out: it is never charged, so it makes
+        /// nobody.
         /// </summary>
         internal static List<GameAction> CollectHireRowsNotAppliedByFunds(
             StockPoolReferenceState funds, IList<GameAction> actions)
@@ -4464,11 +4478,16 @@ namespace Parsek
             var rows = new List<GameAction>();
             if (funds == null || !funds.Initialized || funds.Counted.Count == 0 || actions == null)
                 return rows;
+            HashSet<GameAction> ownedPurchases = null;
             for (int i = 0; i < actions.Count; i++)
             {
                 GameAction a = actions[i];
                 if (a == null || a.Type != GameActionType.KerbalHire
                     || string.IsNullOrEmpty(a.ActionId) || string.IsNullOrEmpty(a.KerbalName))
+                    continue;
+                if (ownedPurchases == null)
+                    ownedPurchases = PurchaseStateRule.CollectAlreadyOwned(actions as IReadOnlyList<GameAction> ?? new List<GameAction>(actions));
+                if (ownedPurchases.Contains(a))
                     continue;
                 CountedRow counted;
                 if (funds.Counted.TryGetValue(a.ActionId, out counted) && double.IsNaN(counted.Effect))

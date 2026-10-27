@@ -40,6 +40,11 @@ namespace Parsek
         /// <summary>Per-facility state keyed by facilityId (e.g. "LaunchPad", "VehicleAssemblyBuilding").</summary>
         private readonly Dictionary<string, FacilityState> facilities = new Dictionary<string, FacilityState>();
 
+        /// <summary>The facility levels the walk owns so far (design 3.15 step 6): the same book
+        /// <see cref="FundsModule"/> charges by, so a level the walk already has is neither
+        /// charged nor applied again.</summary>
+        private readonly PurchaseOwnershipBook ownership = new PurchaseOwnershipBook();
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -52,6 +57,7 @@ namespace Parsek
         {
             int previousCount = facilities.Count;
             facilities.Clear();
+            ownership.Reset();
             ParsekLog.Verbose(Tag, $"Reset: cleared {previousCount.ToString(IC)} tracked facilities");
         }
 
@@ -98,11 +104,28 @@ namespace Parsek
         /// Processes FacilityUpgrade: sets the facility level to action.ToLevel.
         /// If the facility was destroyed, the upgrade still sets the new level
         /// (destruction state is preserved — the player must repair separately).
+        /// A row for a level the walk already has (the purchase state rule, design 3.15
+        /// step 6: an old timeline's upgrade a rewind bought again earlier) changes nothing,
+        /// so the level never dips below one the walk paid for.
         /// </summary>
         private void ProcessUpgrade(GameAction action)
         {
             string facilityId = action.FacilityId ?? "";
             int toLevel = action.ToLevel;
+
+            string holder;
+            if (ownership.IsAlreadyOwned(action, out holder))
+            {
+                FacilityState current;
+                int level = facilities.TryGetValue(facilityId, out current) ? current.Level : 1;
+                ParsekLog.Info(Tag,
+                    $"Upgrade not applied: facility={facilityId} toLevel={toLevel.ToString(IC)} " +
+                    $"rebuild={action.FacilityDowngrade.ToString(IC)} is already owned (held by {holder}, " +
+                    $"captured after this row); level stays {level.ToString(IC)}, " +
+                    $"UT={action.UT.ToString("R", IC)}");
+                return;
+            }
+            ownership.RecordCharged(action);
 
             FacilityState state;
             if (!facilities.TryGetValue(facilityId, out state))

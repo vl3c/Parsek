@@ -10,16 +10,17 @@ namespace Parsek.Tests
     /// not what it ought to do.
     ///
     /// Two seams under test:
-    ///   - <see cref="ScienceModule.ProcessSpending"/> deducts only when the
-    ///     reconstructed balance already covers the cost, and otherwise WARNs and
-    ///     leaves the balance untouched. The refused cost is never deducted, so the
-    ///     reconstruction from that point on runs HIGH by exactly the cost.
+    ///   - <see cref="ScienceModule.ProcessSpending"/> deducts the cost in full. When
+    ///     the reconstructed balance does not cover it, the running value goes below 0
+    ///     (a science debt, design 3.15 step 6) that later earnings repay, and the tech
+    ///     stays researched. Until step 6 the walk refused such a spend and kept the
+    ///     balance, so the reconstruction ran HIGH by exactly the cost.
     ///   - <see cref="RecalculationEngine.SortActions"/> puts earnings before
     ///     spendings at an EQUAL UT (its secondary key), which is the only thing
     ///     that keeps a same-UT earn-then-spend pair solvent.
     ///
-    /// Why synthetic. The parked c1-era finding (one 90-cost heavyRocketry spend
-    /// judged unaffordable at a reconstructed balance of 85.30028700828552) sits on
+    /// Why synthetic. The c1-era finding (one 90-cost heavyRocketry spend judged
+    /// unaffordable at a reconstructed balance of 85.30028700828552, closed by step 6) sits on
     /// a career that predates many fixes, so it cannot be adjudicated as a value
     /// oracle. The MECHANISM does not need that career: ProcessSpending is pure and
     /// the shape reproduces in three actions. That is what these cells pin.
@@ -125,7 +126,7 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void Spending_BeforeTheEarningThatFundsIt_IsRefused_AndBalanceIsKept()
+        public void Spending_BeforeTheEarningThatFundsIt_IsChargedIntoDebt_AndLaterEarningRepaysIt()
         {
             var science = RegisterScienceModule();
 
@@ -141,21 +142,22 @@ namespace Parsek.Tests
 
             RecalculationEngine.Recalculate(actions);
 
-            // Documented behavior: refused, NOT deducted, NOT clamped to zero.
-            Assert.False(actions[1].Affordable, "the spend was not covered and must be marked unaffordable");
+            // Step 6: charged in full into a science debt, NOT refused, NOT clamped to
+            // zero; the tech stays researched.
+            Assert.True(actions[1].Affordable, "a charged tech stays researched, debt or not");
 
-            // The balance is the seed plus the later earning: the 90 never left. This is
-            // also the divergence the refusal produces - the reconstruction ends exactly
-            // one full cost HIGH relative to a walk that had deducted the spend, the
-            // magnitude the parked c1 finding measured (+90.0 there, cost 90 here).
-            double keptBalance = (double)85.3f + 50.0;
-            Assert.Equal(keptBalance, science.GetRunningScience(), 3);
+            // The balance is the seed minus the cost plus the later earning: the debt was
+            // repaid first. Before step 6 the 90 never left and the reconstruction ended one
+            // full cost HIGH, the magnitude the c1 finding measured (+90.0 there).
+            double repaidBalance = (double)85.3f - 90.0 + 50.0;
+            Assert.Equal(repaidBalance, science.GetRunningScience(), 3);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[ScienceModule]")
-                && l.Contains("Spending NOT affordable")
+                && l.Contains("Spending charged into science debt")
                 && l.Contains("nodeId=heavyRocketry")
                 && l.Contains("cost=90"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Spending NOT affordable"));
         }
 
         // ================================================================
@@ -187,10 +189,11 @@ namespace Parsek.Tests
                 l.Contains("[ScienceModule]")
                 && l.Contains("Spending: nodeId=heavyRocketry")
                 && l.Contains("affordable=true"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Spending charged into science debt"));
         }
 
         [Fact]
-        public void Spending_OneTickBeforeTheEarning_IsRefused_TheTiebreakIsUTBound()
+        public void Spending_OneTickBeforeTheEarning_GoesIntoDebt_TheTiebreakIsUTBound()
         {
             var science = RegisterScienceModule();
 
@@ -205,9 +208,16 @@ namespace Parsek.Tests
 
             RecalculationEngine.Recalculate(actions);
 
-            Assert.False(actions[1].Affordable,
-                "a spend one tick before the earning is not covered by the equal-UT tiebreak");
-            Assert.Equal(100.0, science.GetRunningScience(), 3);
+            // Not covered by the equal-UT tiebreak: the spend goes into a 40 debt that the
+            // earning repays. The end balance matches the same-UT cell; the difference is
+            // the debt line, which only the uncovered spend writes.
+            Assert.True(actions[1].Affordable, "a charged tech stays researched, debt or not");
+            Assert.Equal(10.0, science.GetRunningScience(), 3);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ScienceModule]")
+                && l.Contains("Spending charged into science debt")
+                && l.Contains("nodeId=heavyRocketry")
+                && l.Contains("debt=40"));
         }
     }
 }
