@@ -813,6 +813,7 @@ namespace Parsek.Tests
                 { GameActionNotCountedReason.ContractParameterAfterCompletion, true },
                 { GameActionNotCountedReason.RecordThresholdsAlreadyCredited, true },
                 { GameActionNotCountedReason.PurchaseAlreadyOwned, true },
+                { GameActionNotCountedReason.ConversionCauseNotCounted, true },
             };
             foreach (GameActionNotCountedReason r in Enum.GetValues(typeof(GameActionNotCountedReason)))
             {

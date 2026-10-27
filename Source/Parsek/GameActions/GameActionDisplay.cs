@@ -37,11 +37,30 @@ namespace Parsek
 
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
+        /// <summary>Pure: the label of a live-only income row, e.g. <c>Income (Cheating) +500</c>.</summary>
+        internal static string FormatLiveOnlyIncome(GameAction action)
+        {
+            string reason = action.IncomeReason ?? "unknown";
+            switch (action.Type)
+            {
+                case GameActionType.ScienceLabEarning:
+                    return string.Format(IC, "Income ({0}) +{1:0.#} sci", reason, action.ScienceAwarded);
+                case GameActionType.ReputationEarning:
+                    return string.Format(IC, "Income ({0}) +{1:0.#} rep", reason, action.NominalRep);
+                default:
+                    return string.Format(IC, "Income ({0}) +{1:0}", reason, action.FundsAwarded);
+            }
+        }
+
         /// <summary>Human-readable description of the action.</summary>
         internal static string GetDescription(GameAction action, Game.Modes? currentMode)
         {
             if (action == null)
                 return "";
+
+            // Live-only income (design 3.15 step 9) names the stock reason it was paid under.
+            if (action.IsLiveOnlyIncome)
+                return FormatLiveOnlyIncome(action);
 
             switch (action.Type)
             {

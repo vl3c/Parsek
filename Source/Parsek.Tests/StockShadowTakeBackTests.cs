@@ -1078,6 +1078,11 @@ namespace Parsek.Tests
                 { GameActionNotCountedReason.ContractAlreadyResolved, new[] { "ContractComplete", "ContractParameterComplete" } },
                 { GameActionNotCountedReason.ContractOutcomeAfterEnd, new[] { "ContractFail", "ContractCancel" } },
                 { GameActionNotCountedReason.ContractParameterAfterCompletion, new[] { "ContractParameterComplete" } },
+                { GameActionNotCountedReason.ConversionCauseNotCounted, new[]
+                    {
+                        "StrategyScienceDebit/Converter", "StrategyScienceCredit", "FundsSpending/StrategyConverter",
+                        "FundsEarning/Strategy", "ReputationEarning/Strategy", "ReputationPenalty/StrategyConverter",
+                    } },
             };
             foreach (GameActionNotCountedReason r in Enum.GetValues(typeof(GameActionNotCountedReason)))
             {
@@ -1092,8 +1097,9 @@ namespace Parsek.Tests
             }
             // Science's cap is a take-back without a not-counted reason.
             Assert.True(LedgerEventIdentityRegistry.Entries.Single(e => e.Name == "ScienceEarning").TakesBackStockRepeat);
-            // Nothing else takes back (never a purchase, a floor, a strategy share).
-            Assert.Equal(7, LedgerEventIdentityRegistry.Entries.Count(e => e.TakesBackStockRepeat));
+            // Nothing else takes back (never a purchase, a floor, a strategy share); the six
+            // conversion-leg entries take back only the share of a duplicate cause (3.15 step 7).
+            Assert.Equal(13, LedgerEventIdentityRegistry.Entries.Count(e => e.TakesBackStockRepeat));
         }
 
         [Fact]

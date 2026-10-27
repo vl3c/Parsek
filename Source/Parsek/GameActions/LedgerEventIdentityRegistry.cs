@@ -137,11 +137,10 @@ namespace Parsek
     /// static: no KSP state, no ledger reads.
     ///
     /// <para>Each entry says whether the walk ENFORCES its rule today or which later step plans
-    /// it. Step numbers are the numbered parts of section 3.15 (step 4 records per threshold, built,
-    /// step 6 the purchase state rule, built, step 7 conversion legs, step 9 live-only income); the
-    /// orbital survey bonus is planned in the section's build order step 7. The registry
-    /// changes no walk behaviour by itself: the modules still hold the logic, and later steps
-    /// wire them to it.</para>
+    /// it. Step numbers are the numbered parts of section 3.15 (step 4 records per threshold, step
+    /// 6 the purchase state rule, step 7 conversion legs and step 9 live-only income, all built);
+    /// the orbital survey bonus is planned in the section's build order step 7. The registry
+    /// changes no walk behaviour by itself: the modules hold the logic.</para>
     ///
     /// <para>Step 5 (built) adds the stock side of each entry: the add-only live mirror that
     /// stops stock paying a repeat (<see cref="LedgerEventIdentityEntry.StockMirror"/>) and
@@ -174,8 +173,15 @@ namespace Parsek
         /// (<see cref="GameAction.ScanBodyName"/> set).</summary>
         internal const string OrbitalSurvey = "survey";
 
-        private const string ConversionLegToday =
-            "applied as captured, never scaled by its cause";
+        /// <summary><see cref="GameActionType.ScienceLabEarning"/> filed as live-only income
+        /// (<see cref="GameAction.IncomeReason"/> set, design 3.15 step 9).</summary>
+        internal const string LiveOnlyScience = "income";
+
+        private const string ConversionLegBy =
+            "ConversionLegBinding (the walk scales the leg by its cause row's counted share in the cause's currency; "
+            + "a leg naming no cause, or whose cause row is missing or ambiguous, is applied as captured)";
+        private const string LiveOnlyBy =
+            "LiveOnlyIncome (filed untagged at its event UT under its stock reason; a time-travel load to before it drops it)";
         private const string PurchaseStateBy =
             " (PurchaseOwnershipBook: not charged while the walk owns the item, bought by a purchase captured after the row; PurchaseAlreadyOwned)";
 
@@ -232,7 +238,7 @@ namespace Parsek
                 case GameActionType.MilestoneAchievement:
                     return new[] { MilestoneOneShot, MilestoneWorldRecord };
                 case GameActionType.ScienceLabEarning:
-                    return new[] { LabPayout, OrbitalSurvey };
+                    return new[] { LabPayout, OrbitalSurvey, LiveOnlyScience };
                 default:
                     return new string[] { null };
             }
@@ -256,6 +262,7 @@ namespace Parsek
                         ? MilestoneWorldRecord
                         : MilestoneOneShot;
                 case GameActionType.ScienceLabEarning:
+                    if (action.IsLiveOnlyIncome) return LiveOnlyScience;
                     return string.IsNullOrEmpty(action.ScanBodyName) ? LabPayout : OrbitalSurvey;
                 default:
                     return null;
@@ -363,15 +370,19 @@ namespace Parsek
                     .WithStock(MirrorScience, true),
                 Enforced(GameActionType.ScienceSpending, null, "tech node id", LedgerIdentityRule.PurchaseStateRule,
                     "ScienceModule.ProcessSpending" + PurchaseStateBy + "; a tech it cannot pay is charged into a science debt"),
-                Planned(GameActionType.StrategyScienceDebit, StrategyConversionSource.Converter.ToString(),
-                    "its cause row", LedgerIdentityRule.FollowsCause, "3.15 step 7", ConversionLegToday),
+                Enforced(GameActionType.StrategyScienceDebit, StrategyConversionSource.Converter.ToString(),
+                    "its cause row", LedgerIdentityRule.FollowsCause, "ScienceModule via " + ConversionLegBy)
+                    .WithStock(null, true),
                 Enforced(GameActionType.StrategyScienceDebit, StrategyConversionSource.Exchanger.ToString(),
                     "strategy + activation (the exchange pays with it)", LedgerIdentityRule.AsRecorded,
                     "ScienceModule (applied as captured; StrategyActivationGate never switches a one-time exchanger on again, 3.14)"),
-                Planned(GameActionType.StrategyScienceCredit, null, "its cause row", LedgerIdentityRule.FollowsCause,
-                    "3.15 step 7", ConversionLegToday),
+                Enforced(GameActionType.StrategyScienceCredit, null, "its cause row", LedgerIdentityRule.FollowsCause,
+                    "ScienceModule via " + ConversionLegBy)
+                    .WithStock(null, true),
                 Enforced(GameActionType.ScienceLabEarning, LabPayout, "none (the lab bounds itself)",
                     LedgerIdentityRule.AsRecorded, "ScienceModule.ProcessLabEarning (uncapped, as captured)"),
+                Enforced(GameActionType.ScienceLabEarning, LiveOnlyScience, "reason + event UT",
+                    LedgerIdentityRule.LiveOnly, "ScienceModule.ProcessLabEarning (uncapped) via " + LiveOnlyBy),
                 Planned(GameActionType.ScienceLabEarning, OrbitalSurvey, "body", LedgerIdentityRule.OncePerBody,
                     "3.15 build order step 7 (once a decompile confirms stock pays once per body)",
                     "every survey row is credited as captured"),
@@ -389,15 +400,16 @@ namespace Parsek
                 Enforced(GameActionType.FundsEarning, FundsEarningSource.Milestone.ToString(),
                     "progress node id (legacy source: milestone rewards ride MilestoneAchievement)",
                     LedgerIdentityRule.AsRecorded, F + " (no producer writes this source)"),
-                Planned(GameActionType.FundsEarning, FundsEarningSource.Other.ToString(),
-                    "reason + event UT", LedgerIdentityRule.LiveOnly, "3.15 step 9",
-                    "no producer writes it; income with no channel is filed as a StockPoolAdjustment"),
+                Enforced(GameActionType.FundsEarning, FundsEarningSource.Other.ToString(),
+                    "reason + event UT", LedgerIdentityRule.LiveOnly, F + " via " + LiveOnlyBy),
                 Enforced(GameActionType.FundsEarning, FundsEarningSource.LegacyMigration.ToString(),
                     "none (synthetic tag of an older save)", LedgerIdentityRule.AsRecorded,
                     F + " (default earning branch)"),
                 Enforced(GameActionType.FundsEarning, FundsEarningSource.Strategy.ToString(),
-                    "strategy + activation (the exchange pays with it)", LedgerIdentityRule.AsRecorded,
-                    F + " (as captured; StrategyActivationGate never switches a one-time exchanger on again, 3.14)"),
+                    "its cause row for a converter leg; strategy + activation for an exchanger output (it names no cause)",
+                    LedgerIdentityRule.FollowsCause,
+                    F + " via " + ConversionLegBy + "; StrategyActivationGate never switches a one-time exchanger on again, 3.14")
+                    .WithStock(null, true),
 
                 Enforced(GameActionType.FundsSpending, FundsSpendingSource.VesselBuild.ToString(),
                     "launch guid", LedgerIdentityRule.AsRecorded, F + " (rollout dedup on the launch guid)"),
@@ -419,8 +431,9 @@ namespace Parsek
                 Enforced(GameActionType.FundsSpending, FundsSpendingSource.Other.ToString(),
                     "part name (a part purchase)", LedgerIdentityRule.PurchaseStateRule,
                     F + ".ProcessFundsSpending" + PurchaseStateBy),
-                Planned(GameActionType.FundsSpending, FundsSpendingSource.StrategyConverter.ToString(),
-                    "its cause row", LedgerIdentityRule.FollowsCause, "3.15 step 7", ConversionLegToday),
+                Enforced(GameActionType.FundsSpending, FundsSpendingSource.StrategyConverter.ToString(),
+                    "its cause row", LedgerIdentityRule.FollowsCause, F + " via " + ConversionLegBy)
+                    .WithStock(null, true),
                 Enforced(GameActionType.FundsSpending, FundsSpendingSource.PartUpgrade.ToString(),
                     "part upgrade name", LedgerIdentityRule.PurchaseStateRule,
                     F + ".ProcessFundsSpending" + PurchaseStateBy),
@@ -461,11 +474,11 @@ namespace Parsek
                 Enforced(GameActionType.ReputationEarning, ReputationSource.Milestone.ToString(),
                     "progress node id (legacy source: rep rides MilestoneAchievement)", LedgerIdentityRule.AsRecorded,
                     R + " (no producer writes this source; curve re-run)"),
-                Planned(GameActionType.ReputationEarning, ReputationSource.Other.ToString(),
-                    "reason + event UT", LedgerIdentityRule.LiveOnly, "3.15 step 9",
-                    "no producer writes it; income with no channel is filed as a StockPoolAdjustment"),
-                Planned(GameActionType.ReputationEarning, ReputationSource.Strategy.ToString(),
-                    "its cause row", LedgerIdentityRule.FollowsCause, "3.15 step 7", ConversionLegToday),
+                Enforced(GameActionType.ReputationEarning, ReputationSource.Other.ToString(),
+                    "reason + event UT", LedgerIdentityRule.LiveOnly, R + " (curve re-run) via " + LiveOnlyBy),
+                Enforced(GameActionType.ReputationEarning, ReputationSource.Strategy.ToString(),
+                    "its cause row", LedgerIdentityRule.FollowsCause, R + " (curve re-run) via " + ConversionLegBy)
+                    .WithStock(null, true),
 
                 Enforced(GameActionType.ReputationPenalty, ReputationPenaltySource.ContractFail.ToString(),
                     "contract guid (legacy source: the penalty rides ContractFail)", LedgerIdentityRule.AsRecorded,
@@ -480,8 +493,9 @@ namespace Parsek
                     R + " (as captured, post-curve; StrategyActivationGate never switches a one-time exchanger on again, 3.14)"),
                 Enforced(GameActionType.ReputationPenalty, ReputationPenaltySource.Other.ToString(),
                     "reason + event UT", LedgerIdentityRule.AsRecorded, R + " (as captured; curve re-run)"),
-                Planned(GameActionType.ReputationPenalty, ReputationPenaltySource.StrategyConverter.ToString(),
-                    "its cause row", LedgerIdentityRule.FollowsCause, "3.15 step 7", ConversionLegToday),
+                Enforced(GameActionType.ReputationPenalty, ReputationPenaltySource.StrategyConverter.ToString(),
+                    "its cause row", LedgerIdentityRule.FollowsCause, R + " (curve re-run) via " + ConversionLegBy)
+                    .WithStock(null, true),
 
                 // ---- Kerbals ----
                 NoEffect(GameActionType.KerbalAssignment, "recording + kerbal"),
@@ -518,7 +532,8 @@ namespace Parsek
                 NoEffect(GameActionType.ResourceScanUnlocked, "body + biome").WithStock(MirrorScan, false),
                 Enforced(GameActionType.StockPoolAdjustment, null, "pool + patch UT",
                     LedgerIdentityRule.AsRecorded,
-                    "StockPoolReference (an older save's pool difference; 3.15 step 9 files new channel-less income live-only instead)"),
+                    "StockPoolReference (an older save's pool difference, or an earning under a reason a channel names "
+                    + "or under None; channel-less income is live-only, 3.15 step 9)"),
 
                 // ---- Reserved supply-route types ----
                 Reserved(GameActionType.RouteDispatched),

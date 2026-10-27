@@ -692,6 +692,32 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Removes every row <paramref name="predicate"/> matches and returns them, in ledger
+        /// order. Bumps the state version once when anything was removed. Used by the live-only
+        /// income drop (design 3.15 step 9).
+        /// </summary>
+        internal static List<GameAction> RemoveWhere(Func<GameAction, bool> predicate, string context)
+        {
+            var removed = new List<GameAction>();
+            if (predicate == null)
+                return removed;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                if (actions[i] != null && predicate(actions[i]))
+                    removed.Add(actions[i]);
+            }
+            if (removed.Count == 0)
+                return removed;
+            var gone = new HashSet<GameAction>(removed);
+            actions.RemoveAll(a => a != null && gone.Contains(a));
+            BumpStateVersion();
+            ParsekLog.Verbose("Ledger",
+                $"RemoveWhere ({context ?? "?"}): removed {removed.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"row(s), total={actions.Count.ToString(CultureInfo.InvariantCulture)}");
+            return removed;
+        }
+
+        /// <summary>
         /// Removes the action at the given index. Used by maintenance passes that
         /// already iterated <see cref="Actions"/> to identify rows to drop (see
         /// <see cref="LedgerRolloutAdoption.RepairDuplicateRolloutActions"/>).

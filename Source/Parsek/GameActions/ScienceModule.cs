@@ -415,7 +415,7 @@ namespace Parsek
                     // A committed currency exchange must RESERVE science exactly like a
                     // tech cost: without this arm GetAvailableScience over-reports what
                     // the player can still spend by the traded-away amount.
-                    totalCommittedSpendings += (double)action.Cost;
+                    totalCommittedSpendings += (double)action.Cost * action.ConversionShare;
                     strategyExchangeCount++;
                 }
             }
@@ -681,7 +681,8 @@ namespace Parsek
         /// </summary>
         internal void ProcessStrategyScienceDebit(GameAction action)
         {
-            double cost = (double)action.Cost;
+            // A converter leg is charged its cause's share (design 3.15 step 7; 1 elsewhere).
+            double cost = (double)action.Cost * action.ConversionShare;
             if (cost <= 0.0)
             {
                 ParsekLog.Verbose("ScienceModule",
@@ -739,7 +740,8 @@ namespace Parsek
         /// </summary>
         internal void ProcessStrategyScienceCredit(GameAction action)
         {
-            double credit = (double)action.ScienceAwarded;
+            // A converter leg yields its cause's share (design 3.15 step 7; 1 elsewhere).
+            double credit = (double)action.ScienceAwarded * action.ConversionShare;
             if (credit <= 0.0)
             {
                 ParsekLog.Verbose("ScienceModule",
@@ -1039,10 +1041,10 @@ namespace Parsek
                     delta = -(double)action.Cost;
                     return true;
                 case GameActionType.StrategyScienceDebit:
-                    delta = -(double)action.Cost;
+                    delta = -(double)action.Cost * action.ConversionShare;
                     return true;
                 case GameActionType.StrategyScienceCredit:
-                    delta = (double)action.ScienceAwarded;
+                    delta = (double)action.ScienceAwarded * action.ConversionShare;
                     return true;
                 case GameActionType.ScienceLabEarning:
                     delta = (double)action.ScienceAwarded;

@@ -6310,7 +6310,8 @@ namespace Parsek
         internal static void OnStrategyCurrencyConversion(
             double ut,
             IReadOnlyList<StrategyConversionLeg> legs,
-            string reason)
+            string reason,
+            string conversionCause = null)
         {
             if (legs == null || legs.Count == 0)
                 return;
@@ -6333,6 +6334,8 @@ namespace Parsek
                     skipped++;
                     continue;
                 }
+                // Design 3.15 step 7: the award this leg was converted from, when a scope named it.
+                action.ConversionCause = string.IsNullOrEmpty(conversionCause) ? null : conversionCause;
 
                 kscSequenceCounter++;
                 action.Sequence = kscSequenceCounter;
@@ -6381,6 +6384,50 @@ namespace Parsek
             else if (dispatch == StrategyConversionRecalcDispatch.Immediate)
             {
                 RecalculateAndPatchForLiveTimelineEvent(ut, "strategy-conversion");
+            }
+        }
+
+        /// <summary>
+        /// Live-only income (design 3.15 step 9): files the rows
+        /// <see cref="LiveOnlyIncome.BuildRows"/> built for an earning stock applied under a
+        /// reason no ledger channel converts, at the earning's own UT, untagged, as stock-applied
+        /// rows, so the next update steps them instead of filing a pool adjustment at its own
+        /// time. A time-travel load to before a row drops it
+        /// (<see cref="LiveOnlyIncome.DropAfterTimeTravelLoad"/>). Recalculates one frame later,
+        /// as the conversion door does: the query is still applying when this runs.
+        /// </summary>
+        internal static void OnLiveOnlyIncome(double ut, IList<GameAction> rows, string reason)
+        {
+            if (rows == null || rows.Count == 0)
+                return;
+
+            Initialize();
+            for (int i = 0; i < rows.Count; i++)
+            {
+                GameAction action = rows[i];
+                if (action == null)
+                    continue;
+                kscSequenceCounter++;
+                action.Sequence = kscSequenceCounter;
+                StampLiveWriteRowAgainstSeed(action, "live-only income " + action.Type);
+                Ledger.AddAction(action, LedgerRowWriter.StockApplied);
+                ParsekLog.Info(LiveOnlyIncome.Tag,
+                    $"Live-only income filed: type={action.Type} {LiveOnlyIncome.FormatAmount(action)} " +
+                    $"reason={reason ?? "(none)"} ut={ut.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"id={action.ActionId} (kept on this timeline; a rewind to before it drops it)");
+            }
+
+            var dispatch = StrategyConversionCapture.DecideRecalcDispatch(
+                rows.Count, WarpToTimeConsumer.Instance != null);
+            if (dispatch == StrategyConversionRecalcDispatch.Deferred)
+            {
+                double deferredUt = ut;
+                WarpToTimeConsumer.RunNextFrame(
+                    () => RecalculateAndPatchForLiveTimelineEvent(deferredUt, "live-only-income"));
+            }
+            else if (dispatch == StrategyConversionRecalcDispatch.Immediate)
+            {
+                RecalculateAndPatchForLiveTimelineEvent(ut, "live-only-income");
             }
         }
 

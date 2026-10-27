@@ -118,7 +118,7 @@ namespace Parsek.Patches
         /// <see cref="GameStateRecorder.BuildContractParameterIndexPath"/>), or, when the walk to
         /// the contract fails, <c>"id:" + ID</c>; null when neither resolves.
         /// </summary>
-        private static string ResolveParameterId(ContractParameter parameter)
+        internal static string ResolveParameterId(ContractParameter parameter)
         {
             var indicesLeafFirst = new List<int>();
             ContractParameter current = parameter;

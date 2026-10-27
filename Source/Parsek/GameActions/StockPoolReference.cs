@@ -207,6 +207,27 @@ namespace Parsek
             throw new ArgumentOutOfRangeException(nameof(pool), pool, "unknown StockPool");
         }
 
+        /// <summary>
+        /// Forgets <paramref name="actionIds"/> in every pool's counted rows, so a row dropped
+        /// from the ledger on purpose (live-only income a time-travel load removes, design 3.15
+        /// step 9) is not stepped back or carried by the next patch. Returns how many counted
+        /// entries it removed.
+        /// </summary>
+        internal static int ForgetCounted(ICollection<string> actionIds)
+        {
+            if (actionIds == null || actionIds.Count == 0)
+                return 0;
+            int forgotten = 0;
+            foreach (string id in actionIds)
+            {
+                if (string.IsNullOrEmpty(id)) continue;
+                if (Funds.Counted.Remove(id)) forgotten++;
+                if (Science.Counted.Remove(id)) forgotten++;
+                if (Reputation.Counted.Remove(id)) forgotten++;
+            }
+            return forgotten;
+        }
+
         internal static void ResetForTesting()
         {
             Funds.Clear();

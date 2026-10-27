@@ -81,7 +81,8 @@ namespace Parsek.Tests
             }
             Assert.Equal(new[] { LedgerEventIdentityRegistry.MilestoneOneShot, LedgerEventIdentityRegistry.MilestoneWorldRecord },
                 LedgerEventIdentityRegistry.VariantsFor(GameActionType.MilestoneAchievement));
-            Assert.Equal(new[] { LedgerEventIdentityRegistry.LabPayout, LedgerEventIdentityRegistry.OrbitalSurvey },
+            Assert.Equal(new[] { LedgerEventIdentityRegistry.LabPayout, LedgerEventIdentityRegistry.OrbitalSurvey,
+                    LedgerEventIdentityRegistry.LiveOnlyScience },
                 LedgerEventIdentityRegistry.VariantsFor(GameActionType.ScienceLabEarning));
         }
 
@@ -139,6 +140,8 @@ namespace Parsek.Tests
                 new GameAction { Type = GameActionType.ScienceLabEarning, ScanBodyName = "Mun" }).Name);
             Assert.Equal("ScienceLabEarning/lab", LedgerEventIdentityRegistry.For(
                 new GameAction { Type = GameActionType.ScienceLabEarning }).Name);
+            Assert.Equal("ScienceLabEarning/income", LedgerEventIdentityRegistry.For(
+                new GameAction { Type = GameActionType.ScienceLabEarning, IncomeReason = "Cheating" }).Name);
             Assert.Equal("FundsEarning/Recovery", LedgerEventIdentityRegistry.For(
                 new GameAction { Type = GameActionType.FundsEarning, FundsSource = FundsEarningSource.Recovery }).Name);
             Assert.Equal("ReputationPenalty/KerbalDeath", LedgerEventIdentityRegistry.For(
@@ -213,12 +216,15 @@ namespace Parsek.Tests
         [InlineData(GameActionType.FundsSpending, "VesselBuild", "AsRecorded", true)]
         [InlineData(GameActionType.FundsEarning, "Recovery", "AsRecorded", true)]
         [InlineData(GameActionType.StrategyActivate, null, "OncePerActivation", true)]
-        [InlineData(GameActionType.FundsSpending, "StrategyConverter", "FollowsCause", false)]
-        [InlineData(GameActionType.ReputationEarning, "Strategy", "FollowsCause", false)]
-        [InlineData(GameActionType.ReputationPenalty, "StrategyConverter", "FollowsCause", false)]
-        [InlineData(GameActionType.StrategyScienceCredit, null, "FollowsCause", false)]
-        [InlineData(GameActionType.StrategyScienceDebit, "Converter", "FollowsCause", false)]
-        [InlineData(GameActionType.FundsEarning, "Other", "LiveOnly", false)]
+        [InlineData(GameActionType.FundsSpending, "StrategyConverter", "FollowsCause", true)]
+        [InlineData(GameActionType.FundsEarning, "Strategy", "FollowsCause", true)]
+        [InlineData(GameActionType.ReputationEarning, "Strategy", "FollowsCause", true)]
+        [InlineData(GameActionType.ReputationPenalty, "StrategyConverter", "FollowsCause", true)]
+        [InlineData(GameActionType.StrategyScienceCredit, null, "FollowsCause", true)]
+        [InlineData(GameActionType.StrategyScienceDebit, "Converter", "FollowsCause", true)]
+        [InlineData(GameActionType.FundsEarning, "Other", "LiveOnly", true)]
+        [InlineData(GameActionType.ReputationEarning, "Other", "LiveOnly", true)]
+        [InlineData(GameActionType.ScienceLabEarning, "income", "LiveOnly", true)]
         [InlineData(GameActionType.FundsInitial, null, "NotAnEvent", true)]
         [InlineData(GameActionType.ScienceInitial, null, "NotAnEvent", true)]
         [InlineData(GameActionType.ReputationInitial, null, "NotAnEvent", true)]

@@ -311,7 +311,8 @@ namespace Parsek
 
         private void ProcessRepEarning(GameAction action)
         {
-            float nominal = action.NominalRep;
+            // A strategy conversion leg earns its cause's share (design 3.15 step 7; 1 elsewhere).
+            float nominal = action.NominalRep * action.ConversionShare;
             var result = ApplyReputationCurve(nominal, runningRep);
 
             action.EffectiveRep = result.actualDelta;
@@ -370,8 +371,9 @@ namespace Parsek
                 return;
             }
 
-            // NominalPenalty is stored as a positive magnitude; curve expects negative input for losses
-            float nominal = -action.NominalPenalty;
+            // NominalPenalty is stored as a positive magnitude; curve expects negative input for losses.
+            // A converter leg is charged its cause's share (design 3.15 step 7; 1 elsewhere).
+            float nominal = -action.NominalPenalty * action.ConversionShare;
             var result = ApplyReputationCurve(nominal, runningRep);
 
             action.EffectiveRep = result.actualDelta; // negative
