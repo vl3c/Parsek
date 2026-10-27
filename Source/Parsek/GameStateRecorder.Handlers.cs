@@ -41,6 +41,33 @@ namespace Parsek
                 : ";" + ContractStockIdDetailKey + "=" + stockContractId.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
+        /// <summary>The ContractAccepted detail key carrying the goal key of a once-per-career
+        /// goal (<see cref="ContractGoalKey"/>, owner ruling 2026-10-27). Additive.</summary>
+        internal const string ContractGoalKeyDetailKey = "goal";
+
+        /// <summary>Pure: the detail suffix for a goal key, empty for none.</summary>
+        internal static string FormatContractGoalKeyDetail(string goalKey)
+        {
+            return string.IsNullOrEmpty(goalKey) ? "" : ";" + ContractGoalKeyDetailKey + "=" + goalKey;
+        }
+
+        /// <summary>The accepted contract's goal key: from its saved node when the snapshot
+        /// succeeded, else from the live contract; null for a type with none.</summary>
+        private static string ReadContractGoalKey(Contract contract, ConfigNode contractNode)
+        {
+            try
+            {
+                string fromNode = ContractGoalKey.FromContractNode(contractNode);
+                return fromNode ?? ContractGoalKeyReader.FromLiveContract(contract);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("GameStateRecorder",
+                    $"ContractAccepted: reading the goal key threw ({ex.Message}); the row names no goal key");
+                return null;
+            }
+        }
+
         private static long ReadContractStockId(Contract contract)
         {
             try
@@ -124,7 +151,8 @@ namespace Parsek
                 $";funds={advanceFunds.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
                 $";failFunds={failFunds.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
                 $";failRep={failRep.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
-                FormatContractStockIdDetail(ReadContractStockId(contract));
+                FormatContractStockIdDetail(ReadContractStockId(contract)) +
+                FormatContractGoalKeyDetail(ReadContractGoalKey(contract, contractNode));
 
             var evt = new GameStateEvent
             {

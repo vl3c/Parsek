@@ -4114,7 +4114,8 @@ namespace Parsek
         /// Contract twins stay out of the offer pool (design 3.15 step 8): withdraws, the way
         /// stock withdraws a surplus offer (<c>Contract.Withdraw</c>), every Offered contract
         /// that twins a committed future accept (<see cref="ContractTwinRule"/>: stock's own
-        /// uniqueness id, a different guid). Returns how many it withdrew.
+        /// uniqueness id or a once-per-career goal key, a different guid). Returns how many it
+        /// withdrew.
         /// A withdrawal has no undo, so it judges only against a real clock (the patch's
         /// parameter clock: the walk's cutoff, else the committed-row clock) and withdraws
         /// nothing without one, never against a fallback UT.
@@ -4129,6 +4130,8 @@ namespace Parsek
                     $"PatchContracts: no real clock (clockUT={clockUT.ToString("R", IC)}) - no twin offer withdrawn");
                 return 0;
             }
+            double nowUT = clockUT;
+            CommittedFutureIndex twinIndex = CommittedFutureIndexCache.Current;
             var offered = new List<ContractTwinRule.OfferedContract>(current.Count);
             for (int i = 0; i < current.Count; i++)
             {
@@ -4140,19 +4143,22 @@ namespace Parsek
                 catch (Exception ex)
                 {
                     ParsekLog.VerboseRateLimited(Tag, "twin-id-" + c.ContractGuid,
-                        $"PatchContracts: reading ContractID of '{c.Title}' threw ({ex.Message}) - not judged a twin");
+                        $"PatchContracts: reading ContractID of '{c.Title}' threw ({ex.Message}) - judged on the goal key only");
                 }
+                bool isOffered = c.ContractState == Contract.State.Offered;
                 offered.Add(new ContractTwinRule.OfferedContract
                 {
                     Index = i,
                     Guid = c.ContractGuid.ToString(),
                     StockContractId = stockId,
+                    GoalKey = isOffered
+                        ? ContractGoalKeyReader.ReadIfJudged(c, twinIndex, nowUT, "PatchContracts")
+                        : null,
                     Title = c.Title,
-                    Offered = c.ContractState == Contract.State.Offered
+                    Offered = isOffered
                 });
             }
-            double nowUT = clockUT;
-            var twins = ContractTwinRule.SelectOfferedTwins(offered, CommittedFutureIndexCache.Current, nowUT);
+            var twins = ContractTwinRule.SelectOfferedTwins(offered, twinIndex, nowUT);
             int withdrawn = 0;
             for (int i = 0; i < twins.Count; i++)
             {
@@ -4163,8 +4169,10 @@ namespace Parsek
                     live.Withdraw();
                     withdrawn++;
                     ParsekLog.Info(ContractTwinRule.Tag,
-                        $"PatchContracts: withdrew offer '{t.Title}' (guid={t.Guid} stockId={t.StockContractId.ToString(IC)}): " +
-                        $"it twins {ContractTwinRule.DescribeHolder(twins[i].Value)} at ut={nowUT.ToString("R", IC)}");
+                        $"PatchContracts: withdrew offer '{t.Title}' (guid={t.Guid} stockId={t.StockContractId.ToString(IC)}" +
+                        $"{(t.GoalKey != null ? " goal=" + t.GoalKey : "")}): " +
+                        $"it twins {ContractTwinRule.DescribeHolder(twins[i].Value)} at ut={nowUT.ToString("R", IC)} " +
+                        ContractTwinRule.DescribeMatch(ContractTwinRule.MatchOf(t, twins[i].Value), twins[i].Value));
                 }
                 catch (Exception ex)
                 {

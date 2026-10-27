@@ -30,9 +30,12 @@ _(unreleased - entries accumulate here per commit)_
   a contract already done, a part already bought, science already at its cap), and that the game
   kept no payment of, is now offered in Unfinished Flights again. Any real gain still seals the
   flight, and so does a reward paid late or twice that was not taken back. (LEDGER-EVENT-IDENTITY)
+- **No twin exploration, flag or comet contracts.** After a rewind, Mission Control no longer
+  offers a copy of an "Explore" contract, a first flag on a body or a comet sample that your
+  timeline accepts later, so one goal is never paid twice. Repeatable contracts such as tourism,
+  rescues or stations are offered as before. (CONTRACT-TWIN-GUID-SEEDED-TYPES)
 - **No twin part tests, and a survey bonus pays once.** After a rewind, a part test or science
-  contract your timeline accepts later is no longer offered again as a copy before then. Other
-  contracts, such as exploring a body or planting a flag, can still be offered twice. An orbital
+  contract your timeline accepts later is no longer offered again as a copy before then. An orbital
   survey's bonus counts once per body, and a producer is not paid twice for the same time.
   (LEDGER-EVENT-IDENTITY)
 - **A strategy's cut follows its reward.** After a rewind, when a reward is not counted because

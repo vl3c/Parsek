@@ -111,6 +111,11 @@ namespace Parsek
         /// (<see cref="GameAction.ContractStockId"/>), 0 when not captured. The twin rule
         /// (<see cref="ContractTwinRule"/>, design 3.15 step 8) reads it.</summary>
         internal readonly long StockContractId;
+        /// <summary>ContractAccept only: the accept row's goal key
+        /// (<see cref="GameAction.ContractGoalKey"/>), null when the type has none or it was not
+        /// captured. The twin rule matches on it as well as on the stock id
+        /// (<see cref="ContractTwinRule"/>, owner ruling 2026-10-27).</summary>
+        internal readonly string GoalKey;
 
         internal CommittedFutureEntry(
             CommittedFutureKind kind,
@@ -130,7 +135,8 @@ namespace Parsek
             bool requirementsLost = false,
             long captureSequence = 0,
             int sequence = 0,
-            long stockContractId = 0)
+            long stockContractId = 0,
+            string goalKey = null)
         {
             Kind = kind;
             Key = key ?? "";
@@ -150,6 +156,7 @@ namespace Parsek
             CaptureSequence = captureSequence;
             Sequence = sequence;
             StockContractId = stockContractId;
+            GoalKey = string.IsNullOrEmpty(goalKey) ? null : goalKey;
         }
 
         /// <summary>A copy of this entry carrying <paramref name="agentTitle"/> as its agent.</summary>
@@ -158,7 +165,7 @@ namespace Parsek
             return new CommittedFutureEntry(
                 Kind, Key, UT, RecordingId, RecordingName, FacilityToLevel, Amount, Title,
                 FromMilestoneFallback, DeadlineUT, AutoAccept, agentTitle, DeadlineExpiry, FacilityDowngrade,
-                RequirementsLost, CaptureSequence, Sequence, StockContractId);
+                RequirementsLost, CaptureSequence, Sequence, StockContractId, GoalKey);
         }
     }
 
@@ -425,7 +432,8 @@ namespace Parsek
                         requirementsLost: kind == CommittedFutureKind.ContractCancel && a.ContractRequirementsLost,
                         captureSequence: a.CaptureSequence,
                         sequence: a.Sequence,
-                        stockContractId: isAccept ? a.ContractStockId : 0));
+                        stockContractId: isAccept ? a.ContractStockId : 0,
+                        goalKey: isAccept ? a.ContractGoalKey : null));
                     entries++;
                 }
             }
