@@ -84,7 +84,16 @@ id = "CS-6-career-mun-orbit"
 # ~1500-2500 s, so operator (stock-tree is not in the nightly instance set); (9)
 # `flight_efficiency.py` after the first green flight.
 #
-# STATUS: AUTHORED 2026-10-27 (branch `cs6-mun-orbit`), NEVER FLOWN. Owed off the first
+# STATUS: LIVE-PROVEN 2026-10-27 on its first flight, `2026-10-27_2202` PASS attempt 1 (1001 s, mission 919 s, main b7c2bf5 harness, DLL 92b715f7). MISSION-OK through
+# B5 / B11 (flyby periapsis 231.6 km, capture, 60 s park), DEPART-PLAN (MechJeb moon-return
+# plan dv=216.9 m/s, nextPe=30000 m read back), DEPART-BURN, DEPART-COAST, HOME-TRIM (return
+# periapsis 29.9 km, in window), HOME-FALL, HOME-REENTRY, HOME-SPLASHDOWN (SPLASHED, canopy).
+# Measured and pinned: rollout -11612; Mun/Orbit 24960/4/2 and Mun/ReturnFromOrbit 24960/4/2
+# (funds/rep/sci), body-qualified, zero bare 'Orbit' lines (the live proof of #2301); pod
+# recovery +949 (left a regex: distance-scaled); 21 recordings; batch passed=3 skipped=0; end
+# pools funds 214041.01, science 50.5, rep 111.0; LedgerGroundTruth hardFailures=0 reportOnly=2
+# (the same two facets as CS-4b / CS-5); zero ERROR / GUARDED / leak / ContractFailed.
+# Original note, before the first flight. Owed off the first
 # flight: the rollout debit (regex), the Mun/Orbit and Mun/ReturnFromOrbit payouts
 # (regexes), the recovery credit (regex), the recordings count (window), the batch split
 # (`total=3` pinned, the rest regexed; CS-3 / CS-3b / CS-4 / CS-4b / CS-5 measured
@@ -96,7 +105,7 @@ description = "Scripted campaign stage 6 (Career): on CS-5's produced save, laun
 instanceProfile = "stock-tree"
 tags = ["campaign", "CS-6", "career", "editor", "mechjeb", "mun", "cross-soi", "capture",
         "reentry", "recovery", "auto-commit", "ledger", "ground-truth", "ingame-batch",
-        "pending-flight"]
+        "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/cs-career-mun1"
@@ -235,7 +244,7 @@ allowedAnomalies = []
 # chain (CS-5's flyby added seven: its legs plus the dropped groups past
 # ShouldRecordDebris; the capture and departure burns inside the Mun SOI may split the
 # chain once or twice more). The ground-truth launch is unrecorded.
-count = { min = 19, max = 26 }
+count = { min = 20, max = 22 }
 
 [expectations.logContracts]
 # Source of each literal (Source/Parsek/...):
@@ -252,12 +261,12 @@ required = [
   "launchfromeditor complete scene=FLIGHT vessel=CS Mun Flyby pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
   # The craft's rollout, a regex until measured (CS-5 measured -11612 for this craft);
   # five digits, so the ground-truth Flea's -2932 cannot satisfy it.
-  "Game state: FundsChanged -1[0-9]{4} \\(VesselRollout\\)",
+  "Game state: FundsChanged -11612 \\(VesselRollout\\)",
   "Recording started",
   # The Mun orbit milestone, body-qualified (PR #2301), captured in flight.
-  "Milestone enriched: 'Mun/Orbit' funds=[0-9]+ rep=[0-9.]+ sci=[0-9.]+",
+  "Milestone enriched: 'Mun/Orbit' funds=24960 rep=4\\.0 sci=2\\.0",
   # The return from a Mun orbit, paid at the splashdown.
-  "Milestone enriched: 'Mun/ReturnFromOrbit' funds=[0-9]+ rep=[0-9.]+ sci=[0-9.]+",
+  "Milestone enriched: 'Mun/ReturnFromOrbit' funds=24960 rep=4\\.0 sci=2\\.0",
   # The recovery of the returned pod, and the scene-exit commit it causes.
   "recover observed onVesselRecovered pid=[0-9]+ vessel=CS Mun Flyby quick=false",
   # The pod recovery pays by distance from the KSC (CS-5 measured +814), so a regex.
@@ -268,7 +277,7 @@ required = [
   "Game state: FundsChanged -2932 \\(VesselRollout\\)",
   "ground-truth game mode=CAREER pools=funds,science,reputation",
   "result: hardFailures=0 ",
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
 ]
 forbidden = [
   # PR #2301 qualifies Orbit; an unqualified line is the regression.

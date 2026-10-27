@@ -673,7 +673,7 @@ class SchemaAndSpecTests(unittest.TestCase):
         self.assertFalse(repaid.search("Milestone enriched: 'Mun/ReturnFromOrbit' funds=0"))
         # The rollout regex is the craft's, never the ground-truth Flea's.
         rollout = re.compile(next(r for r in required if "VesselRollout" in r
-                                  and "-1[" in r))
+                                  and "2932" not in r))
         self.assertFalse(rollout.search("Game state: FundsChanged -2932 (VesselRollout)"))
         self.assertTrue(rollout.search("Game state: FundsChanged -11612 (VesselRollout)"))
 

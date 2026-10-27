@@ -2823,8 +2823,10 @@ OperationMoonReturn (new runner action `mj_plan_moon_return`, aimed at 30 km, al
 back, a live pending-node guard), flies it on the NodeExecutor, warps out of the Mun SOI and
 hands over to mfr's HOME-TRIM / HOME-FALL / HOME blocks. mfr's launch gate, return-tail params
 builder and tail rows became shared helpers; mfr_decide is pinned frame for frame by a trace
-digest taken before the change. Owed: CS-6's first flight (the Mun/Orbit and
-Mun/ReturnFromOrbit payouts, the departure plan's dv and predicted periapsis).
+digest taken before the change. CS-6 GREEN on its first flight 2026-10-27 (`2026-10-27_2202`, 1001 s): Mun capture, 60 s park,
+MechJeb moon-return departure (216.9 m/s, periapsis 30 km read back), splashdown, pod recovered;
+Mun/Orbit and Mun/ReturnFromOrbit paid 24960 each, body-qualified, no bare Orbit line;
+LedgerGroundTruth hardFailures=0. Next: CS-7 (Mun landing, EVA, flag, return).
 
 ---
 
