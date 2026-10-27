@@ -4571,9 +4571,12 @@ def b2_params_from_dict(params: Dict) -> B2Params:
 
 
 def b4_params_from_dict(params: Dict) -> B4Params:
-    """Build ``B4Params`` from a spec ``missionParams`` dict."""
+    """Build ``B4Params`` from a spec ``missionParams`` dict. A MechJeb setter
+    (autostageLimit / skipCircularization / ascentType) is refused without the
+    PRELAUNCH engage gate (mjEngageConfirmFrames > 0): the setters only change
+    the launch when the gate confirms the engage before staging."""
     params = params or {}
-    return B4Params(
+    p = B4Params(
         target_apoapsis=float(params.get("targetApoapsisMeters", 80000)),
         target_periapsis=float(params.get("targetPeriapsisMeters", 80000)),
         apo_error=float(params.get("apoErrorMeters", 5000)),
@@ -4612,6 +4615,15 @@ def b4_params_from_dict(params: Dict) -> B4Params:
         ascent_type=(int(params["ascentType"])
                      if params.get("ascentType") is not None else None),
     )
+    setters = [name for name, value in (("autostageLimit", p.autostage_limit),
+                                        ("skipCircularization", p.skip_circularization),
+                                        ("ascentType", p.ascent_type))
+               if value is not None]
+    if setters and p.mj_engage_confirm_frames <= 0:
+        raise ValueError("%s requires mjEngageConfirmFrames > 0 (the PRELAUNCH engage "
+                         "gate), else the launch can stage before the engage is read"
+                         % "/".join(setters))
+    return p
 
 
 def _b4_circularize_mode(value) -> str:

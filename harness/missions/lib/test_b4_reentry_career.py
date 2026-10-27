@@ -152,6 +152,21 @@ class SchemaTests(unittest.TestCase):
         # MechJeb autostage limit must stop above it.
         self.assertGreater(p.autostage_limit, p.reentry_stage_count - 1)
 
+    def test_a_mechjeb_setter_without_the_engage_gate_is_refused(self):
+        for key, value in (("autostageLimit", 2), ("skipCircularization", True),
+                           ("ascentType", 0)):
+            with self.subTest(key=key):
+                with self.assertRaises(ValueError) as ctx:
+                    mlib.b4_params_from_dict(dict(B4_PARAMS, **{key: value}))
+                self.assertIn(key, str(ctx.exception))
+                self.assertIn("mjEngageConfirmFrames", str(ctx.exception))
+                with self.assertRaises(ValueError):
+                    mlib.b4_params_from_dict(dict(B4_PARAMS, mjEngageConfirmFrames=0,
+                                                  **{key: value}))
+                p = mlib.b4_params_from_dict(dict(B4_PARAMS, mjEngageConfirmFrames=1,
+                                                  **{key: value}))
+                self.assertEqual(1, p.mj_engage_confirm_frames)
+
     def test_an_unknown_circularize_mode_is_refused(self):
         with self.assertRaises(ValueError):
             mlib.b4_params_from_dict(dict(B4_PARAMS, circularizeMode="Native"))
