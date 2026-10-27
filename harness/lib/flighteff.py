@@ -1161,7 +1161,8 @@ def warp_flags(log: MissionLog, intervals: List[Interval]) -> List[Dict]:
 MISSION_MACHINES = {
     "b11_mun_orbit": "b5_decide", "b11_mun_orbit_return": "mor_decide",
     "b12_minmus_orbit": "b5_decide",
-    "b13_mun_landing": "b5_decide", "b14_minmus_landing": "b5_decide",
+    "b13_mun_landing": "b5_decide", "b13_mun_landing_return": "mlr_decide",
+    "b14_minmus_landing": "b5_decide",
     "b15_eve_flyby": "b5_decide", "b16_eve_orbit": "b5_decide",
     "b17_duna_direct": "b5_decide", "b19_dres_orbit": "b5_decide",
     "b1_pad_hop": "b1_decide", "b1_pad_hop_career": "b1_decide",

@@ -73,6 +73,7 @@ Usage:
     python harness/tools/build_cs_orbiter_craft.py --report [--tanks N]
     python harness/tools/build_cs_orbiter_craft.py --verify-donors <stock-tree Ships dir>
     python harness/tools/build_cs_orbiter_craft.py --variant mun --check|--write|--report
+    python harness/tools/build_cs_orbiter_craft.py --variant lander --check|--write|--report
 
 Stdlib only; ASCII only.
 """
@@ -955,6 +956,431 @@ def mun_report():
 
 
 
+# ---------------------------------------------------------------------------
+# THE LANDER VARIANT (`--variant lander`): `CS Mun Lander`, CS-7's craft.
+#
+# It flies from `cs-career-mun2` (CS-6's produced save) after the KSC walk researches
+# Advanced Rocketry (45 science; the host holds 50.5) and upgrades the Astronaut Complex
+# (EVA away from Kerbin and flags need it): every part is on `start`, `basicRocketry`,
+# `engineering101`, `survivability`, `generalRocketry`, `stability` or `advRocketry`.
+# The limits are CS-5's: VAB level 0 (30 parts), Launch Pad level 1 (140 t, 36 m).
+#
+# THE STACK, top to bottom (CS Mun Flyby's layout with a Terrier lander on top):
+#     Mk16 parachute            stage 0 (the return tail deploys it)
+#     Mk1 pod (root)
+#     Heat Shield 1.25 m        staging DISABLED (as on CS Orbiter)
+#     TD-12                     stage 1: drops the lander (the return's one owed stage)
+#     2 x FL-T400 + 1 x FL-T200 the lander's tanks
+#     3 x LT-05 on the FL-T200  never staged; MechJeb's landing extends them (Gear)
+#     LV-909 Terrier            stage 2, with the TD-12 below it (hot stage)
+#     TD-12                     stage 2: drops the spent core
+#     7 x FL-T400
+#     LV-T45 Swivel (core)      stage 4 (the launch)
+#     3 x TT-38K on the core    stage 3: drops the Thumpers
+#     3 x BACC Thumper + cones  stage 4 (the launch), thrust limited to 60%
+# MechJeb's autostage is limited to stage 2, so it never fires stage 1, on Kerbin or on
+# the Mun.
+#
+# WHY A TERRIER. The lander must stand on its legs: the LT-05 (the only leg on the
+# researched tech; the LT-1 is on `landing`, 90 science behind flightControl) reaches
+# about 0.8 m below its attach point (suspensionDistance 0.8), the Swivel's bell hangs
+# 1.62 m below its tank and the Terrier's 0.82 m. The Terrier is also 1 t lighter, at
+# Isp 345 in vacuum against 320. The legs ride the FL-T200 0.06 m above its bottom
+# edge; if they still stop short of the bell, they stand as outriggers round it.
+# ELECTRIC CHARGE: the Terrier has no alternator and nothing on the tech makes power,
+# so from the core drop on the craft lives on the pod's 50 EC (CS-6's flown telemetry
+# read at most a 2 EC dip per MechJeb attitude hold). The mission watches it.
+#
+# DONORS, by stored state: the Terrier and the FL-T400 from AeroEquus (1.12.0; the
+# Terrier at thrustPercentage 100 with its shroud on and a TD-12 below it, exactly this
+# stack), the LT-05 from Making History's Acapello (1.12.0, the only KSP-written LT-05
+# in the install; its Gear action group is what MechJeb's landing fires). Every other
+# tail is CS Mun Flyby's. The legs use the fins' +X surface family (the LT-05's attach
+# normal is +X like the fin's and the TT-38K's): yaw 180 - azimuth, the attach point
+# 0.0257 m out and 0.0514 m up in the leg's own frame (its cfg node_attach).
+#
+# ASSUMPTIONS A FLIGHT CAN FALSIFY: whether the LT-05s reach below the Terrier's bell,
+# the pod's 50 EC across the Mun legs, whether MechJeb's classic ascent flies the
+# 3-Thumper stack (liftoff TWR about 1.3, as CS Mun Flyby) and the Mun ascent, and the
+# crew's mass (not in the figures).
+# ---------------------------------------------------------------------------
+
+LANDER_SHIP_NAME = "CS Mun Lander"
+LANDER_OUT = os.path.join(ROOT, "harness", "fixtures", "saves", "cs-career-mun2",
+                          "Ships", "VAB", "CS Mun Lander.craft")
+LANDER_UPPER_T400 = 2
+LANDER_UPPER_T200 = 1
+LANDER_CORE_TANKS = 7
+# The core FL-T400 the TT-38Ks ride, counted from the BOTTOM: the one that puts the
+# Thumper nozzles just above the core Swivel's (0.17 m).
+LANDER_DECOUPLER_TANK_FROM_BOTTOM = 1
+LANDER_BOOSTER_AZIMUTHS = (0.0, 120.0, 240.0)
+LANDER_LEG_AZIMUTHS = (60.0, 180.0, 300.0)
+# The LT-05's own attach point (landingLegLT-5.cfg node_attach), in its frame.
+LANDER_LEG_NODE = (0.0256775, 0.05144107, 0.0)
+# The FL-T400 / FL-T200 wall radius, and how far above the FL-T200's bottom edge the
+# legs attach.
+LANDER_TANK_RADIUS = 0.625
+LANDER_LEG_ABOVE_BOTTOM = 0.06
+
+# The CS-7 budget. Lower stages: about 3130 m/s to a low Kerbin orbit on this basis
+# (CS-6 flew CS Mun Flyby's 2707 m/s lower stages plus about 420 m/s of its upper Swivel
+# to orbit). The lander from orbit: the trans-Munar injection 860, corrections up to
+# 300, the capture 280, the descent 700, the ascent 650, the departure 220 (CS-6
+# measured 216.9) and a return trim 100: about 3110, plus margin.
+LANDER_MIN_DELTA_V = 6600.0
+LANDER_MIN_LOWER_DELTA_V = 3130.0
+LANDER_MIN_UPPER_DELTA_V = 3500.0
+LANDER_MIN_LIFTOFF_TWR = 1.25
+LANDER_MIN_MUN_TWR = 3.0
+MUN_SURFACE_G = 1.63
+
+LANDER_STAGE_LAUNCH = 4          # core Swivel + the three Thumpers
+LANDER_STAGE_BOOSTER_DROP = 3    # the three TT-38Ks
+LANDER_STAGE_CORE_DROP = 2       # TD-12 (drops the core) + the Terrier
+LANDER_STAGE_POD_SEPARATION = 1  # TD-12 under the heat shield
+LANDER_STAGE_CHUTE = 0
+
+NODE_OFFSET.update({
+    # AeroEquus: attN = top,...|0.981725|0 and attN = bottom,...|-0.9125|0
+    "fuelTank": {"top": 0.981725, "bottom": -0.9125},
+    # AeroEquus: attN = top,fuelTank...|0|0 and attN = bottom,Decoupler.1...|-0.81781|0
+    "liquidEngine3.v2": {"top": 0.0, "bottom": -0.81781},
+})
+
+PART_CFG.update({
+    "fuelTank": {"mass": 0.25, "cost": 500},             # FuelTank/Size1_Tanks/fuelTankT400
+    "liquidEngine3.v2": {"mass": 0.5, "cost": 390,       # Engine/liquidEngineLV-909_v2
+                         "thrust": 60.0, "isp_vac": 345.0, "isp_asl": 85.0},
+    "miniLandingLeg": {"mass": 0.015, "cost": 200},      # Utility/landingLegLT-5
+})
+
+LANDER_DONORS = {
+    "fuelTank": ("VAB/AeroEquus.craft", 0),
+    "liquidEngine3.v2": ("VAB/AeroEquus.craft", 0),
+    "miniLandingLeg": ("../GameData/SquadExpansion/MakingHistory/Ships/VAB/Acapello.craft", 0),
+}
+LANDER_TAILS = {
+    # <- Ships/VAB/AeroEquus.craft, occurrence 0  [stock 1.12.0, KSP-written]
+    'fuelTank': '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t}\n\tPARTDATA\n\t{\n\t}\n\tMODULE\n\t{\n\t\tname = ModulePartVariants\n\t\tisEnabled = True\n\t\tuseVariantMass = True\n\t\tstagingEnabled = True\n\t\tselectedVariant = BlackAndWhite\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tRESOURCE\n\t{\n\t\tname = LiquidFuel\n\t\tamount = 180\n\t\tmaxAmount = 180\n\t\tflowState = True\n\t\tisTweakable = True\n\t\thideFlow = False\n\t\tisVisible = True\n\t\tflowMode = Both\n\t}\n\tRESOURCE\n\t{\n\t\tname = Oxidizer\n\t\tamount = 220\n\t\tmaxAmount = 220\n\t\tflowState = True\n\t\tisTweakable = True\n\t\thideFlow = False\n\t\tisVisible = True\n\t\tflowMode = Both\n\t}',
+    # <- Ships/VAB/AeroEquus.craft, occurrence 0  [stock 1.12.0, KSP-written]
+    'liquidEngine3.v2': '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t}\n\tPARTDATA\n\t{\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleEngines\n\t\tisEnabled = True\n\t\tstaged = False\n\t\tflameout = False\n\t\tEngineIgnited = False\n\t\tengineShutdown = False\n\t\tcurrentThrottle = 0\n\t\tthrustPercentage = 100\n\t\tmanuallyOverridden = False\n\t\tincludeinDVCalcs = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tOnAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tShutdownAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tActivateAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleGimbal\n\t\tisEnabled = True\n\t\tgimbalLock = False\n\t\tgimbalLimiter = 100\n\t\tcurrentShowToggles = False\n\t\tenableYaw = True\n\t\tenablePitch = True\n\t\tenableRoll = True\n\t\tgimbalActive = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tToggleAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tLockAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tFreeAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tTogglePitchAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tToggleYawAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tToggleRollAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleJettison\n\t\tisEnabled = True\n\t\tactivejettisonName = ShortShroud\n\t\tisJettisoned = False\n\t\tshroudHideOverride = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tJettisonAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleTestSubject\n\t\tisEnabled = True\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleSurfaceFX\n\t\tisEnabled = True\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModulePartVariants\n\t\tisEnabled = True\n\t\tuseVariantMass = True\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = FXModuleAnimateThrottle\n\t\tisEnabled = True\n\t\tanimState = 0\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}',
+    # <- GameData/SquadExpansion/MakingHistory/Ships/VAB/Acapello.craft, occurrence 0  [stock 1.12.0, KSP-written]
+    'miniLandingLeg': '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t\tToggleSameVesselInteraction\n\t\t{\n\t\t\tactionGroup = None\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t\tSetSameVesselInteraction\n\t\t{\n\t\t\tactionGroup = None\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t\tRemoveSameVesselInteraction\n\t\t{\n\t\t\tactionGroup = None\n\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t}\n\t}\n\tPARTDATA\n\t{\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleWheelBase\n\t\tisEnabled = True\n\t\twheelType = LEG\n\t\tisGrounded = False\n\t\tautoFriction = False\n\t\tfrictionMultiplier = 1.10000002\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tActAutoFrictionToggle\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleWheelSuspension\n\t\tisEnabled = True\n\t\tspringTweakable = 1\n\t\tdamperTweakable = 1\n\t\tautoSpringDamper = True\n\t\tsuspensionPos = (-1, -1, -1)\n\t\tautoBoost = 0\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleWheelDeployment\n\t\tisEnabled = True\n\t\tshieldedCanDeploy = False\n\t\tstateDisplayString = Retracted\n\t\tstateString = Retracted\n\t\tstagingEnabled = True\n\t\tposition = 0\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tActionToggle\n\t\t\t{\n\t\t\t\tactionGroup = Gear\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleWheelLock\n\t\tisEnabled = True\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleWheelDamage\n\t\tisEnabled = True\n\t\tisDamaged = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}',
+}
+
+DONORS.update(LANDER_DONORS)
+TAILS.update(LANDER_TAILS)
+
+
+def lander_layout(upper400=LANDER_UPPER_T400, upper200=LANDER_UPPER_T200,
+                  core=LANDER_CORE_TANKS, dec_from_bottom=LANDER_DECOUPLER_TANK_FROM_BOTTOM):
+    """Every part of CS Mun Lander, root first, with positions, links and attN."""
+    uid = iter(range(4280000001, 4280000100))
+    off = NODE_OFFSET
+
+    def below(parent, pnode, key, name, cnode, **kw):
+        y = parent.y + off[parent.name][pnode] - off[name][cnode]
+        p = Part(key, name, next(uid), y, **kw)
+        p.parent = parent
+        parent.links.append(p.uid)
+        parent.attn.append((pnode, p.uid, off[parent.name][pnode]))
+        p.attn.append((cnode, parent.uid, off[name][cnode]))
+        return p
+
+    pod = Part("pod", "mk1pod.v2", next(uid), ROOT_Y, dstg=0)
+    chute = Part("chute", "parachuteSingle", next(uid),
+                 pod.y + off["mk1pod.v2"]["top"] - off["parachuteSingle"]["bottom"],
+                 istg=LANDER_STAGE_CHUTE, dstg=0, sidx=0)
+    chute.parent = pod
+    pod.links.append(chute.uid)
+    shield = Part("shield", "HeatShield1", next(uid),
+                  pod.y + off["mk1pod.v2"]["bottom"] - off["HeatShield1"]["top"], dstg=1)
+    shield.parent = pod
+    pod.links.append(shield.uid)
+    pod.attn = [("bottom", shield.uid, off["mk1pod.v2"]["bottom"]),
+                ("top", chute.uid, off["mk1pod.v2"]["top"])]
+    chute.attn = [("bottom", pod.uid, off["parachuteSingle"]["bottom"])]
+    dec1 = below(shield, "direct", "dec1", "Decoupler.1", "top",
+                 istg=LANDER_STAGE_POD_SEPARATION, dstg=3, sidx=0, group="upper")
+    shield.attn.append(("top", pod.uid, off["HeatShield1"]["top"]))
+    prev, pnode = dec1, "bottom"
+    upper_tanks = []
+    for i, name in enumerate(["fuelTank"] * upper400 + ["fuelTankSmall"] * upper200):
+        t = below(prev, pnode, "utank%d" % i, name, "top",
+                  istg=LANDER_STAGE_POD_SEPARATION, dstg=4, group="upper")
+        upper_tanks.append(t)
+        prev, pnode = t, "bottom"
+    leg_tank = upper_tanks[-1]
+    terrier = below(prev, pnode, "terrier", "liquidEngine3.v2", "top",
+                    istg=LANDER_STAGE_CORE_DROP, dstg=4, sidx=1, group="upper")
+    surface_y = leg_tank.y + off[leg_tank.name]["bottom"] + LANDER_LEG_ABOVE_BOTTOM
+    legs = []
+    for i, az in enumerate(LANDER_LEG_AZIMUTHS):
+        a = math.radians(az)
+        psi = 180.0 - az
+        node_w = _yaw_vec(psi, LANDER_LEG_NODE)
+        leg = Part("leg%d" % i, "miniLandingLeg", next(uid), surface_y - node_w[1],
+                   istg=LANDER_STAGE_POD_SEPARATION, dstg=4, group="upper")
+        leg.pos = (LANDER_TANK_RADIUS * math.cos(a) - node_w[0], surface_y - node_w[1],
+                   LANDER_TANK_RADIUS * math.sin(a) - node_w[2])
+        leg.rot = _quat_y(psi)
+        leg.attm = 1
+        leg.srfn = leg_tank.uid
+        leg.parent = leg_tank
+        leg_tank.links.append(leg.uid)
+        legs.append(leg)
+    for leg in legs:
+        leg.syms = [o.uid for o in legs if o is not leg]
+    dec2 = below(terrier, "bottom", "dec2", "Decoupler.1", "top",
+                 istg=LANDER_STAGE_CORE_DROP, dstg=5, sidx=0, group="core")
+    prev, pnode = dec2, "bottom"
+    core_tanks = []
+    for i in range(core):
+        t = below(prev, pnode, "ctank%d" % i, "fuelTank", "top",
+                  istg=LANDER_STAGE_CORE_DROP, dstg=6, group="core")
+        core_tanks.append(t)
+        prev, pnode = t, "bottom"
+    swivel_c = below(prev, pnode, "swivelCore", "liquidEngine2", "top",
+                     istg=LANDER_STAGE_LAUNCH, dstg=6, sidx=1, group="core")
+    swivel_c.tail = "liquidEngine2@core"
+    anchor = core_tanks[len(core_tanks) - 1 - dec_from_bottom]
+    decs, boosters, cones = [], [], []
+    for i, az in enumerate(LANDER_BOOSTER_AZIMUTHS):
+        a = math.radians(az)
+        psi_d = 180.0 - az
+        d = Part("rdec%d" % i, "radialDecoupler", next(uid), anchor.y,
+                 istg=LANDER_STAGE_BOOSTER_DROP, dstg=7, sidx=0, group="core")
+        d.pos = (MUN_DEC_RADIUS * math.cos(a), anchor.y, MUN_DEC_RADIUS * math.sin(a))
+        d.rot = _quat_y(psi_d)
+        d.attm = 1
+        d.srfn = anchor.uid
+        d.parent = anchor
+        anchor.links.append(d.uid)
+        off_w = _yaw_vec(psi_d, MUN_BOOSTER_LOCAL)
+        b = Part("thumper%d" % i, "solidBooster1-1", next(uid), d.pos[1] + off_w[1],
+                 istg=LANDER_STAGE_LAUNCH, dstg=8, sidx=0, group="boosters")
+        b.pos = tuple(c + o for c, o in zip(d.pos, off_w))
+        b.rot = _quat_y(psi_d + MUN_BOOSTER_LOCAL_PSI)
+        b.attm = 1
+        b.srfn = d.uid
+        b.parent = d
+        b.att_pos0 = MUN_BOOSTER_LOCAL
+        b.att_rot0 = _quat_y(MUN_BOOSTER_LOCAL_PSI)
+        d.links.append(b.uid)
+        c = Part("cone%d" % i, "noseCone", next(uid),
+                 b.pos[1] + off["solidBooster1-1"]["top"] - off["noseCone"]["bottom01"],
+                 istg=LANDER_STAGE_BOOSTER_DROP, dstg=8, group="boosters")
+        c.pos = (b.pos[0], c.y, b.pos[2])
+        c.rot = b.rot
+        c.parent = b
+        c.att_rot0 = "0,0,0,1"
+        b.links.append(c.uid)
+        b.attn.append(("top", c.uid, off["solidBooster1-1"]["top"]))
+        c.attn.append(("bottom01", b.uid, off["noseCone"]["bottom01"]))
+        decs.append(d)
+        boosters.append(b)
+        cones.append(c)
+    for group in (decs, boosters, cones):
+        for p in group:
+            p.syms = [o.uid for o in group if o is not p]
+    return ([pod, chute, shield, dec1] + upper_tanks + legs + [terrier, dec2] + core_tanks
+            + [swivel_c] + decs + boosters + cones)
+
+
+def lander_stack_height(parts):
+    pod = parts[0]
+    swivel_c = [p for p in parts if p.key == "swivelCore"][0]
+    top = pod.y + NODE_OFFSET["mk1pod.v2"]["top"] + CHUTE_ALLOWANCE
+    bottoms = [swivel_c.y + NODE_OFFSET["liquidEngine2"]["bottom"]]
+    bottoms += [p.y + NODE_OFFSET["solidBooster1-1"]["bottom"]
+                for p in parts if p.name == "solidBooster1-1"]
+    return top - min(bottoms)
+
+
+def lander_leg_clearance(parts=None):
+    """How far (m) the Terrier's bottom node hangs below the legs' attach points. The
+    LT-05 reaches about its suspensionDistance (0.8 m) below its attach point, so a
+    clearance under that lets the legs touch down before the bell."""
+    parts = parts or lander_layout()
+    terrier = [p for p in parts if p.name == "liquidEngine3.v2"][0]
+    leg = [p for p in parts if p.name == "miniLandingLeg"][0]
+    attach_y = leg.pos[1] + _yaw_vec(180.0, LANDER_LEG_NODE)[1]
+    return attach_y - (terrier.y + NODE_OFFSET["liquidEngine3.v2"]["bottom"])
+
+
+def lander_build():
+    parts = lander_layout()
+    xs = [p.pos[0] for p in parts]
+    zs = [p.pos[2] for p in parts]
+    header = [
+        "ship = %s" % LANDER_SHIP_NAME,
+        "version = 1.12.5",
+        "description = CS-7 craft (scripted campaign, Career): Mk1 pod, heat shield, "
+        "%d FL-T400 and %d FL-T200 on a Terrier with three LT-05 legs, over %d FL-T400 "
+        "on a Swivel core, three Thumpers. Built by construction by "
+        "harness/tools/build_cs_orbiter_craft.py --variant lander."
+        % (LANDER_UPPER_T400, LANDER_UPPER_T200, LANDER_CORE_TANKS),
+        "type = VAB",
+        "size = %s" % _vec(max(xs) - min(xs) + 1.25, lander_stack_height(parts),
+                           max(zs) - min(zs) + 1.25),
+        "steamPublishedFileId = 0",
+        "persistentId = 2600660099",
+        "rot = 0,0,0,1",
+        "missionFlag = Squad/Flags/default",
+        "vesselType = Ship",
+    ]
+    body = [render_part(p, i) for i, p in enumerate(parts)]
+    return "\n".join(header) + "\n" + "\n".join(body) + "\n"
+
+
+def lander_figures():
+    """Mass, cost, height and the per-stage delta-v, on mun_figures' model: the launch
+    stage burns the Thumpers (at their tail's thrust limit) and the core Swivel together
+    at sea-level Isp, the core finishes alone in vacuum, then the Terrier lander."""
+    parts = lander_layout()
+    mass = sum(_pmass(p) for p in parts)
+    cost = sum(_pcost(p) for p in parts)
+
+    def grp(name):
+        return [p for p in parts if p.group == name]
+
+    def prop(ps):
+        return sum(_pprop(p) for p in ps)
+
+    def dry(ps):
+        return sum(_pmass(p) - _pprop(p) for p in ps)
+
+    sw = PART_CFG["liquidEngine2"]
+    te = PART_CFG["liquidEngine3.v2"]
+    th = PART_CFG["solidBooster1-1"]
+    frac = _thrust_fraction("solidBooster1-1")
+    n_b = len([p for p in parts if p.name == "solidBooster1-1"])
+    f_b = th["thrust"] * frac
+    mdot_b = f_b / (th["isp_vac"] * G0)
+    mdot_c = sw["thrust"] / (sw["isp_vac"] * G0)
+    boosters, core_ps, upper_ps = grp("boosters"), grp("core"), grp("upper")
+    burn_b = (prop(boosters) / n_b) / mdot_b
+    core_used = min(prop(core_ps), mdot_c * burn_b)
+    f_asl = (n_b * f_b * th["isp_asl"] / th["isp_vac"]
+             + sw["thrust"] * sw["isp_asl"] / sw["isp_vac"])
+    f_vac = n_b * f_b + sw["thrust"]
+    mdot = n_b * mdot_b + mdot_c
+    stages = []
+    m0 = mass
+    m1 = m0 - prop(boosters) - core_used
+    stages.append({"stage": "S4 Thumpers+core", "m0": m0, "m1": m1,
+                   "dv_asl": f_asl / (mdot * G0) * G0 * math.log(m0 / m1),
+                   "dv_vac": f_vac / (mdot * G0) * G0 * math.log(m0 / m1),
+                   "twr_asl": f_asl / (m0 * G0), "burn_s": burn_b})
+    m0 = m1 - dry(boosters)
+    m1 = m0 - (prop(core_ps) - core_used)
+    stages.append({"stage": "S2 core Swivel", "m0": m0, "m1": m1,
+                   "dv_asl": sw["isp_asl"] * G0 * math.log(m0 / m1),
+                   "dv_vac": sw["isp_vac"] * G0 * math.log(m0 / m1),
+                   "twr_vac": sw["thrust"] / (m0 * G0),
+                   "burn_s": (prop(core_ps) - core_used) / mdot_c})
+    m0 = m1 - dry(core_ps)
+    m1 = m0 - prop(upper_ps)
+    stages.append({"stage": "S1 Terrier lander", "m0": m0, "m1": m1,
+                   "dv_asl": te["isp_asl"] * G0 * math.log(m0 / m1),
+                   "dv_vac": te["isp_vac"] * G0 * math.log(m0 / m1),
+                   "twr_vac": te["thrust"] / (m0 * G0),
+                   "burn_s": prop(upper_ps) / (te["thrust"] / (te["isp_vac"] * G0))})
+    return {
+        "parts": len(parts), "mass": mass, "cost": cost,
+        "height": lander_stack_height(parts), "stages": stages,
+        "dv_total": stages[0]["dv_asl"] + stages[1]["dv_vac"] + stages[2]["dv_vac"],
+        "dv_total_vac": sum(s["dv_vac"] for s in stages),
+        "dv_lower": stages[0]["dv_asl"] + stages[1]["dv_vac"],
+        "dv_upper": stages[2]["dv_vac"],
+        "liftoff_twr": stages[0]["twr_asl"],
+        "mun_twr": te["thrust"] / (stages[2]["m0"] * MUN_SURFACE_G),
+        "booster_thrust_fraction": frac,
+        "leg_clearance": lander_leg_clearance(parts),
+        "reentry_mass": sum(_pmass(p) for p in grp("pod")),
+    }
+
+
+def lander_stage_want():
+    return {LANDER_STAGE_LAUNCH: ["liquidEngine2", "solidBooster1-1", "solidBooster1-1",
+                                 "solidBooster1-1"],
+            LANDER_STAGE_BOOSTER_DROP: ["radialDecoupler"] * 3,
+            LANDER_STAGE_CORE_DROP: ["Decoupler.1", "liquidEngine3.v2"],
+            LANDER_STAGE_POD_SEPARATION: ["Decoupler.1"],
+            LANDER_STAGE_CHUTE: ["parachuteSingle"]}
+
+
+def lander_problems():
+    """Every post-condition of CS Mun Lander, as strings (empty = good)."""
+    out = []
+    parts = lander_layout()
+    f = lander_figures()
+    if f["parts"] > MUN_LIMIT_PARTS:
+        out.append("%d parts > the level-0 VAB limit %d" % (f["parts"], MUN_LIMIT_PARTS))
+    if f["mass"] > MUN_LIMIT_MASS_T:
+        out.append("%.3f t > the level-1 pad limit %.0f t" % (f["mass"], MUN_LIMIT_MASS_T))
+    if f["height"] > MUN_LIMIT_HEIGHT_M:
+        out.append("%.2f m > the level-1 pad height %.0f m"
+                   % (f["height"], MUN_LIMIT_HEIGHT_M))
+    for key, floor, label in (("dv_total", LANDER_MIN_DELTA_V, "delta-v"),
+                              ("dv_lower", LANDER_MIN_LOWER_DELTA_V, "lower delta-v"),
+                              ("dv_upper", LANDER_MIN_UPPER_DELTA_V, "lander delta-v"),
+                              ("liftoff_twr", LANDER_MIN_LIFTOFF_TWR, "liftoff TWR"),
+                              ("mun_twr", LANDER_MIN_MUN_TWR, "Mun TWR")):
+        if f[key] < floor:
+            out.append("%s %.2f < %.2f" % (label, f[key], floor))
+    if stage_table(parts) != lander_stage_want():
+        out.append("stage order %r != %r" % (stage_table(parts), lander_stage_want()))
+    shield = [p for p in parts if p.name == "HeatShield1"][0]
+    if shield.istg != -1:
+        out.append("the heat shield must not be staged")
+    for key in ("liquidEngine2@core", "liquidEngine3.v2"):
+        if _thrust_fraction(key) != 1.0:
+            out.append("%s donor is not at thrustPercentage 100" % key)
+    if "actionGroup = Gear" not in TAILS["miniLandingLeg"]:
+        out.append("the LT-05 must deploy on the Gear action group (MechJeb's landing)")
+    uids = [p.uid for p in parts]
+    if len(set(uids)) != len(uids):
+        out.append("duplicate part uid")
+    for p in parts:
+        for ref in p.links + [o for _, o, _ in p.attn] + ([p.srfn] if p.srfn else []):
+            if ref not in uids:
+                out.append("%s references undeclared %s" % (p.uid, ref))
+    return out
+
+
+def lander_check():
+    """[] when the committed CS Mun Lander is byte-identical to a fresh derivation and
+    every post-condition holds, else the problems."""
+    out = lander_problems()
+    if not os.path.exists(LANDER_OUT):
+        return out + ["MISSING %s - run --variant lander --write" % LANDER_OUT]
+    with open(LANDER_OUT, encoding="utf-8", newline="") as fh:
+        have = fh.read()
+    if have != lander_build():
+        out.append("DRIFT: %s differs from the derivation" % LANDER_OUT)
+    return out
+
+
+def lander_report():
+    f = lander_figures()
+    print("%s: %d parts, %.3f t, %.2f m, cost %.0f (Thumpers at %.0f%%)"
+          % (LANDER_SHIP_NAME, f["parts"], f["mass"], f["height"], f["cost"],
+             100.0 * f["booster_thrust_fraction"]))
+    for s in f["stages"]:
+        twr = s.get("twr_asl", s.get("twr_vac"))
+        print("  %-18s m0 %.3f t -> m1 %.3f t  dv vac %.0f m/s (ASL %.0f)  TWR %.2f  "
+              "burn %.0f s" % (s["stage"], s["m0"], s["m1"], s["dv_vac"], s["dv_asl"],
+                               twr, s["burn_s"]))
+    print("  total dv %.0f m/s (launch stage at ASL Isp), lower %.0f, lander %.0f"
+          % (f["dv_total"], f["dv_lower"], f["dv_upper"]))
+    print("  liftoff TWR %.3f (sea level); Mun TWR %.2f (lander full); leg clearance "
+          "%.2f m; reentry mass %.3f t"
+          % (f["liftoff_twr"], f["mun_twr"], f["leg_clearance"], f["reentry_mass"]))
+
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true")
@@ -965,10 +1391,32 @@ def main(argv=None):
                     % DEFAULT_TANKS)
     ap.add_argument("--verify-donors", metavar="SHIPS_DIR", nargs="?",
                     const=DEFAULT_DONOR_SHIPS)
-    ap.add_argument("--variant", choices=("orbiter", "mun"), default="orbiter",
+    ap.add_argument("--variant", choices=("orbiter", "mun", "lander"), default="orbiter",
                     help="orbiter = CS Orbiter (CS-4, cs-career-mc1); mun = CS Mun "
-                    "Flyby (CS-5, cs-career-ts1)")
+                    "Flyby (CS-5, cs-career-ts1); lander = CS Mun Lander (CS-7, "
+                    "cs-career-mun2)")
     a = ap.parse_args(argv)
+    if a.variant == "lander" and not a.verify_donors:
+        if a.tanks != DEFAULT_TANKS:
+            ap.error("--tanks applies to the orbiter variant only")
+        if a.report:
+            lander_report()
+            return 0
+        if a.write:
+            bad = lander_problems()
+            if bad:
+                print("\n".join(bad))
+                return 1
+            text = lander_build()
+            os.makedirs(os.path.dirname(LANDER_OUT), exist_ok=True)
+            with open(LANDER_OUT, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(text)
+            print("wrote %s (%d lines)" % (LANDER_OUT, text.count("\n")))
+            lander_report()
+            return 0
+        bad = lander_check()
+        print("\n".join(bad) or "OK committed craft matches the derivation")
+        return 1 if bad else 0
     if a.variant == "mun" and not a.verify_donors:
         if a.tanks != DEFAULT_TANKS:
             ap.error("--tanks applies to the orbiter variant only")

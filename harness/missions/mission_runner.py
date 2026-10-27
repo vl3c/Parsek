@@ -1482,6 +1482,24 @@ class KrpcMissionControl(MissionControl):
                     % self._mj_config_refusal))
                 return
             self._ascent.enabled = True
+        elif kind == mlib.ACTION_MJ_REBIND_ASCENT:
+            # Re-read the AscentAutopilot handle off the ACTIVE vessel: _ascent was
+            # cached at connect, and CS-7's Mun ascent comes after an EVA and a
+            # boarding switched the active vessel away and back. A failed read keeps
+            # the old handle and says so; the machine's engage gate reads the result.
+            if self._mechjeb is None:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "MjConfig", "ascent rebind requested without MechJeb"))
+                return
+            try:
+                self._ascent = self._mechjeb.ascent_autopilot
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Info", "MjConfig", "AscentAutopilot handle re-bound to the active "
+                    "vessel"))
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "MjConfig", "AscentAutopilot rebind failed (%s: %s); keeping "
+                    "the launch handle" % (type(exc).__name__, str(exc)[:120])))
         elif kind == mlib.ACTION_MJ_EXECUTE_CIRCULARIZATION:
             # Execute the circularization node IF the autopilot left one.
             # MechJeb's AscentAutopilot usually performs the circularization

@@ -1,0 +1,377 @@
+schema = 1
+id = "CS-7-career-mun-landing"
+# THE SCRIPTED CAMPAIGN, STAGE 7 (docs/dev/autotest-roadmap.md, "The scripted campaign
+# program"): the CS-7 row reads "Mun landing, EVA, plant a flag, board, ascend, return,
+# recover". The career's first Mun landing, on CS-6's produced save: buy what the
+# surface visit needs at the KSC (the Astronaut Complex to level 1, Advanced Rocketry),
+# launch the new CS Mun Lander from the VAB, fly B5's ascent and Mun transfer, B11's
+# capture and park, B13's landing, step Jebediah out onto the Mun, plant a flag, board,
+# fly a Mun ascent to orbit, depart for Kerbin on MechJeb's moon-return planner (CS-6),
+# trim the return periapsis, reenter on the heat shield, splash down (CS-5), recover,
+# auto-commit, then close with the ledger ground truth in FLIGHT.
+#
+# THE HOST. `cs-career-mun2`: CS-6's produced save (run `2026-10-27_2202`, PASS attempt
+# 1, LedgerGroundTruth `hardFailures=0`), harvested with `harvest_bdock_station.py
+# --keep-parsek --allow-no-vessel --expect-mode CAREER`, no edit, plus the builder's
+# `CS Mun Lander.craft` in its Ships/VAB. Career, Normal preset (FundsLossMultiplier 1),
+# funds 216973.01 (CS-6's end pools 214041.01 plus the ground-truth Flea's recovered
+# 2932), science 50.5, rep 111.0; the Tracking Station, the Launch Pad and Mission
+# Control at level 1 (lvl 0.5), every other facility at level 0 (VAB: 30 parts; the
+# Astronaut Complex: no EVA off Kerbin, no flags); start, basicRocketry, engineering101,
+# survivability, generalRocketry and stability researched; the RT-10 PartTest 1a9762e8
+# the only Active contract; four committed trees, twenty-one recordings. Two vessels,
+# both `CS Mun Flyby Debris` on Kerbin suborbits. Complete on the Mun: Flyby, Escape,
+# ReturnFromFlyBy, Orbit, ReturnFromOrbit; NOT Landing, SurfaceEVA, FlagPlant,
+# ReturnFromSurface.
+#
+# WHY THE KSC WALK COMES FIRST (decompiled GameVariables, KSP 1.12.5; dump in
+# logs/decompile/cs7/GameVariables.cs): UnlockedEVA(lvl) is `lvl > 0.2` and
+# UnlockedEVAFlags(lvl) `lvl >= 0.4`; EVAIsPossible lets a level-0 Astronaut Complex out
+# only LANDED or SPLASHED on the home body. So the Mun EVA and the flag both need the
+# Astronaut Complex at level 1 (lvl 0.5): 75000 (the KSC scene asset,
+# sharedassets9.assets, serializes its levels as 19947 / 75000 / 282000, read the way
+# CS-4b read the Tracking Station's; the same read gives the Launch Pad 50000 and
+# Mission Control 75000, both MEASURED). Advanced Rocketry (45 science, parent
+# generalRocketry; the host holds 50.5) gives the Terrier and the FL-T400 the lander is
+# built on (below). THIS IS CS-6b's WALK (lane `CS-6b-career-astronaut-complex`, the
+# CS-4b shape, on the same host): it is replayed here so this lane flies without waiting
+# for CS-6b's produced save. Once CS-6b flies green, harvest its save as this lane's
+# host and drop the two KscAction steps and their pins.
+#
+# THE CRAFT, `CS Mun Lander` (harness/tools/build_cs_orbiter_craft.py --variant lander,
+# gate harness/lib/test_cs_orbiter_craft.py): 29 parts, 47.755 t, 22.17 m, cost 13707.
+# Mk1 pod, Mk16, heat shield on a TD-12, then the lander: 2 x FL-T400 + 1 x FL-T200 on a
+# Terrier, three LT-05 legs (survivability; the LT-1 is on `landing`, out of reach);
+# below it a TD-12, 7 x FL-T400 on a Swivel core and three Thumpers at 60% on TT-38Ks.
+# Stages: 4 launch, 3 the Thumpers' drop, 2 the core drop and the Terrier, 1 the pod's
+# separation (the return's one owed stage), 0 the chute. Delta-v (vacuum unless
+# marked): launch stage 1248 (sea level), core 1942, lander 3858 (Mun TWR 5.0 full);
+# CS-6's flight put LKO at about 3130 m/s on this basis (the lower stages give 3190),
+# and the lander from LKO needs about 3110: the injection 860, corrections up to 300,
+# the capture 280, the descent 700, the ascent 650, the departure 220 (CS-6 measured
+# 216.9), the trim 100. RISKS A FLIGHT FALSIFIES: the LT-05s may not reach below the
+# Terrier's bell (0.88 m below their attach points against the leg's ~0.8 m stroke);
+# then they stand as outriggers round it. The Terrier has no alternator and nothing on
+# the tech makes power, so after the core drop the craft lives on the pod's 50 EC
+# (CS-6's telemetry read at most ~2 EC per MechJeb attitude hold); the mission's
+# electricChargeFloor watchdog names an exhausted battery instead of idling.
+#
+# THE ROUTE, mission `b13_mun_landing_return` (mlib.mlr_decide): B5's machine VERBATIM
+# with captureEnabled and landingEnabled (B11's capture, a 60 s park, B13's untargeted
+# MechJeb landing, a 30 s settled dwell), with CS-4's career launch gate. On the dwell
+# exit B5 asks for the mid-mission CommitTree; the composer drops it and sends the
+# seam's EvaExit release=true, then PlantFlag, then EvaBoard, from inside the flight
+# (each gated on its own tag's answer), waits for the lander to read back as the active
+# vessel, re-binds MechJeb's AscentAutopilot to it and flies it to a 20 km Mun orbit
+# (autostage stays limited to stage 2), then mor's departure (aimed at 30 km) and mfr's
+# return tail VERBATIM.
+#
+# THE MONEY, read from the host: the Astronaut Complex 75000, the rollout about 13700
+# (the builder's cost; CS-5 measured 11612 for a builder cost of 11577), leaving about
+# 128200. Stock pays four new Mun milestones: Mun/Landing at the touchdown, Mun/SurfaceEVA
+# at the EVA, Mun/FlagPlant at the flag and Mun/ReturnFromSurface at the splashdown
+# (CelestialBodyReturn with ReturnFrom.Surface: SPLASHED from FLYING on the home world
+# with a Land trip-log entry for the Mun; node id "ReturnFrom" + level). All four are
+# regexes until measured. The milestones CS-5 and CS-6 completed pay nothing and write
+# no `Milestone enriched:` line, so a second one is forbidden.
+#
+# THE ASSERTIONS THAT MATTER: the two KSC rows, the four body-qualified Mun milestones,
+# Parsek's EVA branch, flag event and board merge on the Mun, the recovery of the
+# returned pod, the scene-exit commit, the RT-10 PartTest still Active, and the ground
+# truth closing with all of it in the pools.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) no existing flight is a prefix of this
+# one (CS-6 parks and leaves; this lane lands, and B13's host is a different craft and
+# career); (2) no idle waits: the only game-time waits are the mission's own phase gates;
+# (3) the park dwell is CS-6's 60 game s and the landed dwell 30 (B13 holds 120 as its
+# recorded coverage; here it only has to prove the touchdown settled); (4) the coasts
+# ride B5's rails policy and MechJeb's landing-state warps, the departure coast and the
+# fall one native warp each; the burns, the surface visit and the ascent stay at 1x;
+# (5) B5's coast leads are B5's flown values; (6) fail fast: the launch engage gate,
+# B11's capture give-ups, B13's four named landing give-ups, each EVA verb's refusal by
+# name, the ascent's engage / liftoff / not-in-orbit give-ups, the electric-charge
+# watchdog, the departure's and the tail's own; `[retry] once` is kept on purpose for a
+# first flight through a new machine; (7) the recordings count is a window until the
+# first flight measures it; (8) predicted wall ~2000-3000 s, so operator (stock-tree is
+# not in the nightly instance set); (9) `flight_efficiency.py` after the first green
+# flight.
+#
+# STATUS: AUTHORED 2026-10-28, NEVER FLOWN. Owed off the first flight: the Astronaut
+# Complex cost (75000 read from the scene asset, not measured), the rollout debit, the
+# four milestone payouts, the recovery credit, the recordings count (window), the batch
+# split (`total=3` pinned, the rest regexed; every CS stage measured `passed=3 failed=0
+# skipped=0` for this category in this scene), the lander's touchdown on the LT-05s
+# (or on its bell), the lowest ElectricCharge reading (the ascendedToTargetOrbit row's
+# ecMin), the ascent's orbit and the departure plan's dv.
+tier = "operator"
+description = "Scripted campaign stage 7 (Career): on CS-6's produced save, upgrade the Astronaut Complex and research Advanced Rocketry, launch the CS Mun Lander from the VAB, fly B5's ascent and Mun transfer, B11's capture and park and B13's landing, step out onto the Mun, plant a flag and board through the seam from inside the flight, fly a Mun ascent to orbit, depart on MechJeb's moon-return planner, trim the Kerbin return periapsis, reenter on the heat shield and splash down, recover, auto-commit, then run the ledger ground truth against KSP's own career save."
+instanceProfile = "stock-tree"
+tags = ["campaign", "CS-7", "career", "facility-upgrade", "research", "editor", "mechjeb",
+        "mun", "cross-soi", "capture", "landing", "eva", "flag", "board", "reentry",
+        "recovery", "auto-commit", "ledger", "ground-truth", "ingame-batch",
+        "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun2"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind    = "autopilot"
+mission = "b13_mun_landing_return"
+
+# Budget arithmetic: runtime 8400 >= 300 LoadGame + 2 x 60 KSC actions + 120 GoToEditor
+# + 180 LaunchFromEditor + 6000 mission + 120 Recover + 120 GoToEditor + 180
+# LaunchFromEditor + 540 RunTests + 120 Recover + 120 SaveGame + FlushAndQuit + margin.
+# Mission 6000 (WALL): CS-6 flew its ascent, transfer, capture, park, departure and
+# return tail in 919 s; on top of that the descent (B13's flown fall, MechJeb's landing
+# states warping the coast), the 30 s landed dwell, the surface visit (the seam's EvaExit
+# / PlantFlag / EvaBoard, each polled up to 240 / 360 / 240 s, typically tens of
+# seconds), the ascent at 1x (a few minutes) and a second possible 600 s MechJeb
+# pre-ignition hold. Phase budgets in missionParams are GAME time.
+steps = [
+  # scene = "spacecenter": the host's two vessels are CS-6's suborbital debris.
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoMerge",          value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  # CS-6b's walk (see the header): EVA off Kerbin and flags, then the Terrier and FL-T400.
+  { cmd = "KscAction",        args = { action = "upgrade-facility", facility = "SpaceCenter/AstronautComplex" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",        args = { action = "research-node", node = "advRocketry" },                        expect = "OK", budget = 60 },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "CS Mun Lander" },   expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "munlander", expect = "OK", budget = 180 },
+  { phase = "mission",                                                                expect = "MISSION-OK", budget = 6000 },
+  # The return ends splashed with the pod active; the pod is the launch's root part, so
+  # it keeps the launch vessel's pid (CS-5's and CS-6's shape; the EVA and the boarding
+  # change neither). Recovering it leaves FLIGHT and the tree auto-commits.
+  { cmd = "Recover",          args = { pid = "${munlander.pid}" },                    expect = "OK", budget = 120 },
+  { cmd = "CommitTree",                                                               expect = "REJECTED" },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "Jumping Flea" },    expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "probe",    expect = "OK", budget = 180 },
+  { cmd = "RunTests",         args = { category = "LedgerGroundTruth" },              expect = "OK", budget = 540 },
+  { cmd = "MissionMark",      args = { label = "cs7-groundtruth-done" },              expect = "OK" },
+  # Leave no craft on the pad in the produced save (it is the next career stage's host).
+  { cmd = "Recover",          args = { pid = "${probe.pid}" },                        expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "SaveGame",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+# B5's / B11's flown values for the orbit leg (CS-6's), B13's for the landing, the
+# career launch keys CS-4 / CS-5 / CS-6 flew, CS-6's departure, CS-5's return tail, and
+# this mission's surface, ascent and electric-charge keys
+# (b13_mun_landing_return.schema.toml). Thresholds and budgets only, never a golden
+# trajectory.
+[driver.missionParams]
+targetApoapsisMeters       = 80000
+targetPeriapsisMeters      = 80000
+apoErrorMeters             = 5000
+periErrorMeters            = 5000
+ascentTimeoutSeconds       = 480
+circularizeTimeoutSeconds  = 300
+targetBodyName             = "Mun"
+homeBodyName               = "Kerbin"
+transferMinApoapsisMeters  = 10000000
+# B11's flown request: the arrival lands at ~136-141 km (finding 16d).
+courseCorrectPeriapsisMeters = 250000
+maxCorrectionDvMps         = 300
+correctionTriggerAltsMeters = [0, 6000000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+transferBurnTimeoutSeconds = 4000
+coastTimeoutSeconds        = 400000
+flybyTimeoutSeconds        = 300000
+coastWarpFactor            = 6
+flybyWarpFactor            = 5
+flybyMaxWarpFactor         = 6
+nodeArrivalMarginSeconds   = 15
+planWarpFactor             = 2
+soiLeadSeconds             = 30
+flipPhysicsWarpFactor      = 1
+targetPeriapsisFloorMeters = 10000
+# --- the capture and the park (CS-6's values) ---
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+captureBurnTimeoutSeconds  = 60000
+parkMinPeriapsisMeters     = 15000
+parkMaxApoapsisMeters      = 2000000
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+parkDwellSeconds           = 60
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 480
+# B13's SURFACE-COMMIT budget; this mission never waits on that commit (the composer
+# drops it on the landed-dwell exit frame), the key is B5's own.
+commitTimeoutSeconds       = 300
+# --- the landing (B13's flown values but the dwell) ---
+landingEnabled             = true
+descentTimeoutSeconds      = 2200
+landingTouchdownSpeedMps   = 0.5
+# Three LT-05s on the lander (the Gear action group MechJeb's landing fires).
+landingDeployGears         = true
+landingDeployChutes        = false
+landingRcsAdjustment       = false
+landingProgressWindowSeconds = 900
+landingProgressMinDropMeters = 5000
+landedSituations           = ["LANDED", "SPLASHED"]
+landedMaxVerticalSpeedMps  = 1.0
+landedMaxHorizontalSpeedMps = 0.5
+# The touchdown only has to be proven settled (B13 holds 120 s as its recorded coverage).
+landedDwellSeconds         = 30
+landedDebounceFrames       = 3
+landedTimeoutSeconds       = 600
+# --- career launch (CS-4's / CS-5's / CS-6's values) ---
+mjEngageConfirmFrames      = 20
+# MechJeb stops after the Terrier's stage (the core drop); stage 1 is the pod's own
+# separation, on Kerbin and on the Mun.
+autostageLimit             = 2
+ascentType                 = 0
+# --- the surface visit ---
+evaSettleSeconds           = 5
+evaSettleFrames            = 3
+evaPhaseTimeoutSeconds     = 900
+# --- the Mun ascent: a 20 km orbit, above the Mun's highest terrain (~7.1 km) ---
+munAscentAltitudeMeters    = 20000
+munAscentMinPeriapsisMeters = 10000
+munAscentEngageConfirmFrames = 20
+munAscentLiftoffWindowSeconds = 60
+munAscentTimeoutSeconds    = 900
+munCircularizeTimeoutSeconds = 900
+# --- the electric-charge watchdog (the lander makes no power) ---
+electricChargeFloor        = 0.5
+electricChargeDebounceFrames = 20
+# --- the departure (CS-6's values) ---
+departPeriapsisMeters      = 30000
+# A moon return from a ~20 km Mun orbit is ~260-300 m/s; twice that is a wrong plan.
+departMaxDvMps             = 600
+departPlanTimeoutSeconds   = 300
+departPlanRetrySeconds     = 10
+# Up to one Mun orbit period of executor autowarp, MechJeb's 600 s pre-ignition hold
+# and the burn, with slack.
+departBurnTimeoutSeconds   = 20000
+departCoastTimeoutSeconds  = 100000
+departSoiLeadSeconds       = 30
+# --- the return tail (CS-5's / CS-6's values) ---
+returnPeriapsisMeters      = 30000
+returnPeriapsisMinMeters   = 20000
+returnPeriapsisMaxMeters   = 40000
+returnHeadingDeg           = 90
+returnTrimThrottle         = 0.25
+returnTrimFineThrottle     = 0.03
+returnTrimFineBandMeters   = 300000
+returnTrimSettleSeconds    = 10
+returnMaxAttitudeErrorDeg  = 5
+returnTrimTimeoutSeconds   = 900
+returnStageCount           = 1
+returnStageSettleSeconds   = 2
+returnWarpAboveAltMeters   = 70000
+returnWarpHopSeconds       = 120
+returnChuteDeployAltMeters = 12000
+returnReentryTimeoutSeconds = 3600
+returnDescentTimeoutSeconds = 900
+returnLandedSituations     = ["LANDED", "SPLASHED"]
+returnFallLeadSeconds      = 600
+returnFallMinAltMeters     = 200000
+returnFallTimeoutSeconds   = 200000
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# A WINDOW until the first flight measures it: the host's twenty-one + the lander's
+# chain (CS-6's orbit flight added seven) + its landing and liftoff splits, the EVA
+# branch and the board merge, the dropped boosters, core and lander stage past
+# ShouldRecordDebris. The ground-truth launch is unrecorded.
+count = { min = 27, max = 42 }
+
+[expectations.logContracts]
+# Source of each literal (Source/Parsek/...):
+#   kscaction ... applied=true          TestCommands/TestCommandKscAction.cs:501
+#   Game state: FacilityUpgraded        GameStateFacilityRecorder.cs:140 (the arrow is
+#                                        non-ASCII, matched by `.{1,3}`)
+#   Game state: FundsChanged            GameStateRecorder.cs:945
+#   Game state: ScienceChanged          GameStateRecorder.cs:1062
+#   Game state: TechResearched          GameStateRecorder.Handlers.cs:636
+#   launchfromeditor complete           TestCommands/TestCommandEditorRoute.cs:517
+#   Milestone enriched:                 GameStateRecorder.Handlers.cs:1516 (the id from
+#                                        QualifyMilestoneId)
+#   Mid-recording EVA detected          ParsekFlight.cs:9500
+#   Tree branch created: type=          ParsekFlight.cs:6500
+#   evaexit / plantflag / evaboard      TestCommands/ParsekTestCommandAddon.Eva.cs:277 /
+#                                        700 / 946
+#   Flag event captured                 ParsekFlight.cs:13007
+#   detected boarding from EVA          ParsekFlight.cs:3868
+#   Tree board merge completed          ParsekFlight.cs:14092
+#   recover observed onVesselRecovered  TestCommands/ParsekTestCommandAddon.Recover.cs:284
+#   CommitTreeSceneExit                 ParsekFlight.cs:17182
+#   ground-truth game mode=             InGameTests/LedgerGroundTruthHarness.cs:125
+#   result: hardFailures=               InGameTests/LedgerGroundTruthHarness.cs:246
+#   BATCH_COMPLETE v1                   InGameTests/InGameTestRunner.cs:1219
+required = [
+  # The KSC walk (CS-6b's).
+  "kscaction action=upgrade-facility target=SpaceCenter/AstronautComplex applied=true manifestKind=facility-upgrade observedAfter=level=1",
+  "Game state: FacilityUpgraded 'SpaceCenter/AstronautComplex' 0\\.00 .{1,3} 0\\.50 \\(event-driven\\) cost=[0-9]+ costSource=observed-debit",
+  "Game state: FundsChanged -[0-9]{5} \\(StructureConstruction\\)",
+  "kscaction action=research-node target=advRocketry applied=true manifestKind=tech-unlock observedAfter=science=5\\.5",
+  "Game state: TechResearched 'advRocketry' \\(cost=45\\)",
+  # The flight.
+  "launchfromeditor complete scene=FLIGHT vessel=CS Mun Lander pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  # The craft's rollout, a regex until measured (the builder's cost is 13707); five
+  # digits, so the ground-truth Flea's -2932 cannot satisfy it.
+  "Game state: FundsChanged -1[0-9]{4} \\(VesselRollout\\)",
+  "Recording started",
+  # The Mun landing, captured in flight.
+  "Milestone enriched: 'Mun/Landing' funds=[0-9]+ rep=[0-9.]+ sci=[0-9.]+",
+  # The surface visit: the seam's three verbs and Parsek's EVA branch, flag and merge.
+  "evaexit complete kerbal=[^ ]+ [^ ]+ evaPid=[0-9]+ released=true",
+  "Mid-recording EVA detected",
+  "Tree branch created: type=EVA",
+  "Milestone enriched: 'Mun/SurfaceEVA' funds=[0-9]+ rep=[0-9.]+ sci=[0-9.]+",
+  "plantflag complete flagSite=.* body=Mun",
+  "Flag event captured",
+  "Milestone enriched: 'Mun/FlagPlant' funds=[0-9]+ rep=[0-9.]+ sci=[0-9.]+",
+  "evaboard complete kerbal=",
+  "detected boarding from EVA",
+  "Tree board merge completed",
+  # The return from the Mun's surface, paid at the splashdown.
+  "Milestone enriched: 'Mun/ReturnFromSurface' funds=[0-9]+ rep=[0-9.]+ sci=[0-9.]+",
+  # The recovery of the returned pod, and the scene-exit commit it causes.
+  "recover observed onVesselRecovered pid=[0-9]+ vessel=CS Mun Lander quick=false",
+  # The pod recovery pays by distance from the KSC (CS-5 +814, CS-6 +949), so a regex.
+  "Game state: FundsChanged \\+[0-9]+ \\(VesselRecovery\\)",
+  "CommitTreeSceneExit: finalizing tree at UT=[0-9.]+[\\s\\S]{0,8000}?Recording stopped\\. ",
+  # The ground truth, in FLIGHT on the unrecorded Flea.
+  "launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  "Game state: FundsChanged -2932 \\(VesselRollout\\)",
+  "ground-truth game mode=CAREER pools=funds,science,reputation",
+  "result: hardFailures=0 ",
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+]
+forbidden = [
+  # Bare milestone ids: every Mun milestone must be body-qualified (PR #2301).
+  "Milestone enriched: '(Landing|SurfaceEVA|FlagPlant|ReturnFromSurface|Orbit)' ",
+  # Milestones the host already completed pay nothing a second time.
+  "Milestone enriched: '(Mun/Flyby|Mun/Escape|Mun/ReturnFromFlyBy|Mun/Orbit|Mun/ReturnFromOrbit|Kerbin/Escape|Kerbin/Splashdown|Kerbin/Orbit)' ",
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  # KspStatePatcher.cs:5982-5983.
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  # A stock pool movement no row holds (KspStatePatcher.cs:5805, logged at :5812-5813).
+  "filed StockPoolAdjustment amount=\\S+ reason=leak ",
+  # The RT-10 PartTest stays Active (the craft carries no Hammer).
+  "AddEvent: ContractCompleted key='1a9762e8-8c97-495b-b451-ad62726c08cb'",
+  "Game state: ContractFailed ",
+  "completed by no flight, filed untagged",
+]
+
+[runtime]
+budgetSeconds = 8400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

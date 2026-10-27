@@ -1,5 +1,6 @@
 """Drift and shape gates for `CS Orbiter.craft` (CS-4's craft, in the `cs-career-mc1`
-fixture) and `CS Mun Flyby.craft` (CS-5's, `--variant mun`, in `cs-career-ts1`).
+fixture), `CS Mun Flyby.craft` (CS-5's, `--variant mun`, in `cs-career-ts1`) and
+`CS Mun Lander.craft` (CS-7's, `--variant lander`, in `cs-career-mun2`).
 
 The craft is BUILT BY CONSTRUCTION by `harness/tools/build_cs_orbiter_craft.py` from
 part tails lifted byte-for-byte out of stock craft. A hand edit to the craft, a change to
@@ -238,6 +239,127 @@ class CsMunFlybyCraftTests(unittest.TestCase):
         self.assertEqual(self.b.MUN_STAGE_CORE_DROP, params["autostageLimit"])
         self.assertEqual(1, params["returnStageCount"])
         self.assertEqual(self.b.MUN_STAGE_POD_SEPARATION, self.b.MUN_STAGE_CORE_DROP - 1)
+
+
+LANDER_CRAFT = os.path.join(HARNESS_ROOT, "fixtures", "saves", "cs-career-mun2",
+                            "Ships", "VAB", "CS Mun Lander.craft")
+CS7_SPEC = os.path.join(HARNESS_ROOT, "scenarios", "CS-7-career-mun-landing.toml")
+CS6B_SPEC = os.path.join(HARNESS_ROOT, "scenarios", "CS-6b-career-astronaut-complex.toml")
+# The node CS-7's KSC walk (and CS-6b's) researches before the editor.
+TECH_RESEARCHED_FOR_CS7 = ("advRocketry",)
+
+
+class CsMunLanderCraftTests(unittest.TestCase):
+    """`CS Mun Lander.craft` (CS-7's craft, `--variant lander`, in `cs-career-mun2`)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.b = _load_builder()
+        cls.fig = cls.b.lander_figures()
+
+    def test_the_committed_craft_is_byte_identical_to_a_fresh_derivation(self):
+        self.assertEqual([], self.b.lander_check())
+
+    def test_the_craft_fits_the_hosts_facilities(self):
+        # VAB level 0 (30 parts); Launch Pad level 1 (140 t, 36 m).
+        self.assertLessEqual(self.fig["parts"], 30)
+        self.assertLessEqual(self.fig["mass"], 140.0)
+        self.assertLessEqual(self.fig["height"], 36.0)
+        self.assertEqual(self.fig["parts"], len(_parts(_read(LANDER_CRAFT))))
+
+    def test_the_craft_carries_the_mun_landing_budget(self):
+        # The lower stages to LKO (about 3130 on this basis, CS-6's flight), the lander
+        # from LKO through the injection, corrections, capture, descent, ascent,
+        # departure and trim (about 3110), and a lander that can land and lift off.
+        self.assertGreaterEqual(self.fig["dv_lower"], 3130.0)
+        self.assertGreaterEqual(self.fig["dv_upper"], 3500.0)
+        self.assertGreaterEqual(self.fig["dv_total"], 6600.0)
+        self.assertGreaterEqual(self.fig["liftoff_twr"], 1.25)
+        self.assertGreaterEqual(self.fig["mun_twr"], 3.0)
+        self.assertEqual(0.6, self.fig["booster_thrust_fraction"])
+
+    def test_the_stage_order_is_the_one_the_mission_expects(self):
+        table = self.b.stage_table(self.b.lander_layout())
+        self.assertEqual({4: ["liquidEngine2", "solidBooster1-1", "solidBooster1-1",
+                              "solidBooster1-1"],
+                          3: ["radialDecoupler"] * 3,
+                          2: ["Decoupler.1", "liquidEngine3.v2"],
+                          1: ["Decoupler.1"],
+                          0: ["parachuteSingle"]}, table)
+
+    def test_every_part_is_on_the_hosts_tech_or_the_walks(self):
+        allowed = set()
+        for node in TECH_ON_TS1 + TECH_RESEARCHED_FOR_CS7:
+            allowed |= _unlocks(node)
+        parts = set(_parts(_read(LANDER_CRAFT)))
+        self.assertEqual([], sorted(parts - allowed))
+        # Advanced Rocketry is what makes the lander: the Terrier and the FL-T400.
+        self.assertEqual({"fuelTank", "liquidEngine3.v2"}, parts & _unlocks("advRocketry"))
+        self.assertIn("miniLandingLeg", parts & _unlocks("survivability"))
+
+    def test_the_legs_ride_the_landers_lowest_tank_and_deploy_on_gear(self):
+        parts = self.b.lander_layout()
+        legs = [p for p in parts if p.name == "miniLandingLeg"]
+        self.assertEqual(3, len(legs))
+        tank = [p for p in parts if p.group == "upper" and p.name.startswith("fuelTank")][-1]
+        for leg in legs:
+            self.assertIs(tank, leg.parent)
+            self.assertEqual(tank.uid, leg.srfn)
+            self.assertAlmostEqual(0.6507, (leg.pos[0] ** 2 + leg.pos[2] ** 2) ** 0.5,
+                                   places=3)
+        self.assertIn("actionGroup = Gear", self.b.TAILS["miniLandingLeg"])
+        # The Terrier hangs about 0.88 m below the legs' attach points; the LT-05's
+        # stroke is 0.8 m plus its foot. A longer hang means a craft redesign.
+        self.assertLess(self.fig["leg_clearance"], 1.0)
+
+    def test_the_heat_shield_is_not_staged_and_rides_the_pod(self):
+        text = _read(LANDER_CRAFT)
+        block = text.split("\tpart = HeatShield1_", 1)[1].split("\n}", 1)[0]
+        self.assertRegex(block, r"(?m)^\tistg = -1$")
+        self.assertRegex(block, r"(?m)^\tattN = top,mk1pod\.v2_\d+_0\|0\.022\|0$")
+
+    def test_the_root_is_the_pod_and_the_ship_is_named_for_the_editor_step(self):
+        text = _read(LANDER_CRAFT)
+        self.assertEqual("mk1pod.v2", _parts(text)[0])
+        self.assertRegex(text, r"(?m)^ship = CS Mun Lander$")
+        self.assertRegex(text, r"(?m)^version = 1\.12\.5$")
+
+    def test_every_child_is_linked_from_its_parent(self):
+        text = _read(LANDER_CRAFT)
+        for token in re.findall(r"(?m)^\tpart = (\S+)$", text)[1:]:
+            with self.subTest(part=token):
+                self.assertIn("\tlink = %s\n" % token, text)
+
+    def test_the_other_variants_are_unchanged(self):
+        self.assertEqual([], self.b.check())
+        self.assertEqual([], self.b.mun_check())
+
+    def test_the_spec_researches_the_node_then_flies_this_craft(self):
+        with open(CS7_SPEC, "rb") as fh:
+            spec = tomllib.load(fh)
+        self.assertEqual("fixtures/saves/cs-career-mun2", spec["fixture"]["saveTemplate"])
+        steps = spec["driver"]["steps"]
+        editor = next(i for i, s in enumerate(steps) if s.get("cmd") == "GoToEditor")
+        self.assertEqual("CS Mun Lander", steps[editor]["args"]["craft"])
+        researched = [s["args"]["node"] for s in steps[:editor]
+                      if s.get("cmd") == "KscAction"
+                      and s["args"].get("action") == "research-node"]
+        self.assertEqual(list(TECH_RESEARCHED_FOR_CS7), researched)
+        params = spec["driver"]["missionParams"]
+        # MechJeb stops after the Terrier's stage; the return's one owed stage is the
+        # pod separation; the landing extends the LT-05s.
+        self.assertEqual(self.b.LANDER_STAGE_CORE_DROP, params["autostageLimit"])
+        self.assertEqual(1, params["returnStageCount"])
+        self.assertTrue(params["landingDeployGears"])
+        self.assertEqual(self.b.LANDER_STAGE_POD_SEPARATION,
+                         self.b.LANDER_STAGE_CORE_DROP - 1)
+
+    def test_cs6b_researches_the_same_node(self):
+        with open(CS6B_SPEC, "rb") as fh:
+            steps = tomllib.load(fh)["driver"]["steps"]
+        researched = [s["args"]["node"] for s in steps if s.get("cmd") == "KscAction"
+                      and s["args"].get("action") == "research-node"]
+        self.assertEqual(list(TECH_RESEARCHED_FOR_CS7), researched)
 
 
 if __name__ == "__main__":

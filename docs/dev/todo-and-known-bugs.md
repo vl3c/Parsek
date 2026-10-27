@@ -2828,6 +2828,31 @@ MechJeb moon-return departure (216.9 m/s, periapsis 30 km read back), splashdown
 Mun/Orbit and Mun/ReturnFromOrbit paid 24960 each, body-qualified, no bare Orbit line;
 LedgerGroundTruth hardFailures=0. Next: CS-7 (Mun landing, EVA, flag, return).
 
+Progress 2026-10-28 (branch `cs7-mun-landing`): CS-7 feasibility, then CS-6b and CS-7 authored,
+never flown, on the new fixture `cs-career-mun2` (CS-6's produced save `2026-10-27_2202`). The
+gates (decompiled `GameVariables`, dumps in `logs/decompile/cs7/`): a level-0 Astronaut Complex
+lets nobody out off Kerbin (`UnlockedEVA` is `lvl > 0.2`; `EVAIsPossible` otherwise allows only
+landed or splashed on the home body) and plants no flag (`UnlockedEVAFlags` `lvl >= 0.4`); level
+1 costs 75000 (KSC scene asset; the same read gives the measured 50000 pad and 75000 Mission
+Control), affordable from 216973. The only leg on reach is the LT-05 (survivability; the LT-1 is
+on `landing`, 155 science of path); its ~0.8 m stroke cannot clear a Swivel's 1.62 m bell, so
+the walk also researches advRocketry (45 of 50.5 science) for the Terrier (0.82 m) and the
+FL-T400. The craft `CS Mun Lander` (`build_cs_orbiter_craft.py --variant lander`, 29 parts,
+47.8 t): lower stages 3190 m/s (LKO needs ~3130 on that basis), the Terrier lander 3858 m/s
+against ~3110 needed from LKO. Nothing on the tech makes power and the Terrier has no
+alternator, so after the core drop the craft lives on the pod's 50 EC (CS-6's telemetry: <= ~2
+EC per MechJeb hold); the mission names an exhausted battery (`electric-charge-exhausted`).
+The new composed mission `b13_mun_landing_return` (`mlib.mlr_decide`): B5 verbatim through
+B13's landing, the surface CommitTree dropped, the seam's EvaExit / PlantFlag / EvaBoard sent
+from inside the flight on the generalized seam command (new poll rows 240 / 360 / 240 s),
+MechJeb's AscentAutopilot re-bound to the boarded lander (new runner action
+`mj_rebind_ascent`) and flown to a 20 km Mun orbit, then mor's departure and mfr's return
+tail run on the new state. Lanes `CS-6b-career-astronaut-complex` (the KSC half, CS-4b shape)
+and `CS-7-career-mun-landing` (replays CS-6b's walk on the same host). Owed: both first flights;
+then harvest CS-6b's save as CS-7's host and drop CS-7's two KscAction steps. First-flight
+risks: the legs may stop short of the bell (they then stand as outriggers), the 50 EC, MechJeb's
+classic ascent on the Mun.
+
 ---
 
 ## ~~QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN: F9 back into a Discarded flight must record again~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-quickload-into-discarded`; the in-flight discards followed 2026-10-16, branch `claude/lanes-rc6-ql6-ir5-nh7w10` (live-proven by lane QL-6, `2026-10-16_0649` PASS attempt 1)]
