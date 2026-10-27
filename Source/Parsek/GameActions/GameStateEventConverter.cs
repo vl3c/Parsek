@@ -867,6 +867,7 @@ namespace Parsek
             float advanceFunds = 0f;
             float fundsPenalty = 0f;
             float repPenalty = 0f;
+            long stockContractId = 0;
             bool structured = evt.detail != null && evt.detail.Contains(";");
             string typeSource = "missing";
             string deadlineSource = "missing";
@@ -954,6 +955,11 @@ namespace Parsek
                 string failRepStr = ExtractDetail(evt.detail, "failRep");
                 if (failRepStr != null)
                     float.TryParse(failRepStr, NumberStyles.Float, IC, out repPenalty);
+
+                // Design 3.15 step 8: stock's uniqueness id (additive; older details omit it).
+                string cidStr = ExtractDetail(evt.detail, GameStateRecorder.ContractStockIdDetailKey);
+                if (cidStr != null)
+                    long.TryParse(cidStr, NumberStyles.Integer, IC, out stockContractId);
             }
             else
             {
@@ -977,7 +983,7 @@ namespace Parsek
                 $"contractId='{evt.key}' title='{title}' type='{contractType ?? ""}' " +
                 $"typeSource={typeSource} deadlineAbsUT={deadlineUT.ToString("R", IC)} " +
                 $"deadlineSource={deadlineSource} advance={advanceFunds} " +
-                $"failFunds={fundsPenalty} failRep={repPenalty}");
+                $"failFunds={fundsPenalty} failRep={repPenalty} stockContractId={stockContractId.ToString(IC)}");
 
             return new GameAction
             {
@@ -990,7 +996,8 @@ namespace Parsek
                 DeadlineUT = deadlineUT,
                 AdvanceFunds = advanceFunds,
                 FundsPenalty = fundsPenalty,
-                RepPenalty = repPenalty
+                RepPenalty = repPenalty,
+                ContractStockId = stockContractId
             };
         }
 

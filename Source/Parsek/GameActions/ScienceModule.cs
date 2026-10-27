@@ -43,6 +43,15 @@ namespace Parsek
         private readonly Dictionary<string, List<KeyValuePair<IdentityWitness, double>>> subjectCredits =
             new Dictionary<string, List<KeyValuePair<IdentityWitness, double>>>();
 
+        /// <summary>Per body, the orbital survey row that holds its bonus in this walk
+        /// (design 3.15 step 7: once per body, earliest first).</summary>
+        private readonly Dictionary<string, GameAction> surveyHolders =
+            new Dictionary<string, GameAction>(StringComparer.Ordinal);
+
+        /// <summary>The continuous producers' credited time slices in this walk (design 3.15
+        /// step 7: a slice the committed timeline already holds earns nothing).</summary>
+        private readonly ProducerSliceBook producerSlices = new ProducerSliceBook();
+
         /// <summary>Accumulated effective science balance (earnings minus spendings).</summary>
         private double runningScience;
 
@@ -122,6 +131,8 @@ namespace Parsek
             int subjectCount = subjects.Count;
             subjects.Clear();
             subjectCredits.Clear();
+            surveyHolders.Clear();
+            producerSlices.Reset();
             runningScience = 0.0;
             totalCommittedSpendings = 0.0;
             totalEffectiveEarnings = 0.0;
@@ -443,6 +454,17 @@ namespace Parsek
             float scienceAwarded = action.ScienceAwarded;
             float subjectMaxValue = action.SubjectMaxValue;
 
+            // A continuous producer's slice earns only the time no earlier credited slice of
+            // the same producer and subject holds (design 3.15 step 7).
+            ProducerSliceDecision slice = default(ProducerSliceDecision);
+            if (ProducerSliceBook.IsProducerSlice(action))
+            {
+                slice = producerSlices.Decide(action, StockShadowTakeBack.BreakList);
+                producerSlices.Hold(action, slice);
+                if (slice.Covered > 0.0 && !CreditProducerSlicePart(action, slice, ref scienceAwarded))
+                    return;
+            }
+
             // Get or initialize subject state
             SubjectState state;
             if (!subjects.TryGetValue(subjectId, out state))
@@ -480,6 +502,8 @@ namespace Parsek
             // Take-back (design 3.15 step 5): stock paid the captured value; the part the cap
             // left out is taken back only as far as it repeats credit a rewind made stock forget.
             ApplyCapTakeBack(action, subjectId, (double)scienceAwarded - effectiveSubjectScience, gainMultiplier);
+            // ...and a producer slice's part stock forgot after a rewind (3.15 step 7).
+            ApplyProducerSliceTakeBack(action, slice, gainMultiplier);
             // Witnesses matter only once the save has a timeline break: a career never
             // rewound records none and walks as before.
             if (effectiveSubjectScience > 0.0 && StockShadowTakeBack.Breaks.Count > 0)
@@ -531,6 +555,70 @@ namespace Parsek
                     $"runningScience={runningScience.ToString("R", IC)}, " +
                     $"recordingId={action.RecordingId ?? "(none)"}");
             }
+        }
+
+        /// <summary>
+        /// A producer slice an earlier credited slice partly or wholly holds: reduces
+        /// <paramref name="scienceAwarded"/> to the uncovered share and returns true, or, when
+        /// nothing is left, marks the row not counted
+        /// (<see cref="GameActionNotCountedReason.ProducerSliceAlreadyCredited"/>), takes back
+        /// the part stock forgot, and returns false.
+        /// </summary>
+        private bool CreditProducerSlicePart(GameAction action, ProducerSliceDecision slice, ref float scienceAwarded)
+        {
+            double keep = slice.CreditedFraction;
+            GameAction holder = slice.Holder;
+            string held = holder == null ? "(none)"
+                : $"id={holder.ActionId ?? "(none)"} slice={ProducerSliceBook.FormatSlice(holder)} " +
+                  $"cseq={holder.CaptureSequence.ToString(IC)}";
+            if (keep > 0.0)
+            {
+                scienceAwarded = (float)(action.ScienceAwarded * keep);
+                ParsekLog.Info("ScienceModule",
+                    $"Producer slice {ProducerSliceBook.Label(action)} id={action.ActionId ?? "(none)"} " +
+                    $"slice={ProducerSliceBook.FormatSlice(action)} counted in part: " +
+                    $"{slice.Covered.ToString("R", IC)}s of {slice.Length.ToString("R", IC)}s already held by {held}; " +
+                    $"awarded {action.ScienceAwarded.ToString("R", IC)} -> {scienceAwarded.ToString("R", IC)}");
+                return true;
+            }
+
+            action.Effective = false;
+            action.NotCountedReason = GameActionNotCountedReason.ProducerSliceAlreadyCredited;
+            action.EffectiveScience = 0f;
+            ApplyProducerSliceTakeBack(action, slice,
+                GameAction.NormalizeScienceGainMultiplier(action.ScienceGainMultiplier));
+            ParsekLog.Info("ScienceModule",
+                $"Producer slice {ProducerSliceBook.Label(action)} id={action.ActionId ?? "(none)"} " +
+                $"slice={ProducerSliceBook.FormatSlice(action)} not counted: the whole slice is already held by {held}" +
+                (action.TakeBackScience != 0f
+                    ? $", taking back {action.TakeBackScience.ToString("R", IC)}"
+                    : ""));
+            return false;
+        }
+
+        /// <summary>
+        /// The take-back of a producer slice's forgotten part (pool units, the row's own
+        /// multiplier): what stock paid for time a rewind made it forget an earlier slice had
+        /// already paid. Added to any cap take-back. Eligible rows only; nothing for a part
+        /// held by a slice captured after the row (stock never paid that one twice).
+        /// </summary>
+        private static void ApplyProducerSliceTakeBack(GameAction action, ProducerSliceDecision slice, double gainMultiplier)
+        {
+            double fraction = slice.ForgottenFraction;
+            if (!(fraction > 0.0) || slice.Holder == null || !StockShadowTakeBack.IsEligibleRow(action))
+                return;
+            double amount = (double)action.ScienceAwarded * gainMultiplier * fraction;
+            if (!(amount > 0.0))
+                return;
+            action.TakeBackScience += (float)amount;
+            string witness = IdentityWitness.Of(slice.Holder, ProducerSliceBook.Label(action)).Describe();
+            action.TakeBackWitness = string.IsNullOrEmpty(action.TakeBackWitness)
+                ? witness
+                : action.TakeBackWitness + "; " + witness;
+            ParsekLog.Verbose("ScienceModule",
+                $"Producer slice repeats forgotten credit: id={action.ActionId ?? "(none)"} " +
+                $"forgotten={slice.Forgotten.ToString("R", IC)}s of {slice.Length.ToString("R", IC)}s " +
+                $"takeBack={amount.ToString("R", IC)} (pool units)");
         }
 
         /// <summary>
@@ -777,6 +865,8 @@ namespace Parsek
                     $"at UT={action.UT.ToString("R", IC)} - no-op");
                 return;
             }
+            if (IsOrbitalSurveyRow(action) && !CreditOrbitalSurvey(action))
+                return;
 
             runningScience += credit;
             totalEffectiveEarnings += credit;
@@ -786,6 +876,98 @@ namespace Parsek
                 $"LabEarning: credit={credit.ToString("R", IC)}, method={action.Method}, " +
                 $"runningScience={runningScience.ToString("R", IC)}, " +
                 $"recordingId={action.RecordingId ?? "(none)"}");
+        }
+
+        /// <summary>Pure: a lab-earning row that is stock's orbital survey bonus
+        /// (<c>ModuleOrbitalSurveyor.CompleteSurvey</c>, the surveyed body in
+        /// <see cref="GameAction.ScanBodyName"/>), not a lab payout or live-only income.</summary>
+        internal static bool IsOrbitalSurveyRow(GameAction action)
+        {
+            return action != null && action.Type == GameActionType.ScienceLabEarning
+                && !action.IsLiveOnlyIncome && !string.IsNullOrEmpty(action.ScanBodyName);
+        }
+
+        /// <summary>What the walk does with an orbital survey row whose body already has a
+        /// holder (design 3.15 step 7).</summary>
+        internal enum SurveyRepeat
+        {
+            /// <summary>Credited as captured: no holder, or a repeat stock paid by its own rule
+            /// on one timeline (a second survey transmitted before the first completed).</summary>
+            Credit,
+            /// <summary>Not counted: the holder was captured after this row, so a rewind
+            /// separated them and the earlier survey on the timeline keeps the bonus.</summary>
+            HolderCapturedAfter,
+            /// <summary>Not counted and taken back: stock paid it again because a rewind made
+            /// it forget the holder's scan.</summary>
+            HolderForgotten
+        }
+
+        /// <summary>
+        /// Pure: the decision for a survey row of a body whose bonus <paramref name="holder"/>
+        /// already holds (null: none). Stock pays the bonus once per body (decompiled
+        /// <c>ModuleOrbitalSurveyor</c>: <c>PerformSurvey</c> is active only while the body is
+        /// unscanned), so a repeat is a rewind's doing: the holder captured after the row
+        /// (both capture numbers known), or the holder's scan forgotten across a timeline
+        /// break. Anything else is credited, so a career never rewound walks as before.
+        /// </summary>
+        internal static SurveyRepeat DecideSurveyRepeat(GameAction holder, GameAction row, IList<TimelineBreak> breaks)
+        {
+            if (holder == null || row == null)
+                return SurveyRepeat.Credit;
+            if (PurchaseStateRule.IsCapturedAfter(holder.CaptureSequence, row.CaptureSequence))
+                return SurveyRepeat.HolderCapturedAfter;
+            if (StockShadowTakeBack.IsWitnessForgotten(
+                    IdentityWitness.Of(holder, SurveyLabel(row.ScanBodyName)), row.CaptureSequence, breaks))
+                return SurveyRepeat.HolderForgotten;
+            return SurveyRepeat.Credit;
+        }
+
+        private static string SurveyLabel(string body)
+        {
+            return "orbital survey of '" + (body ?? "") + "'";
+        }
+
+        /// <summary>
+        /// The once-per-body rule for one survey row: true to credit it (and hold the body
+        /// when it is the first), false when the row is not counted
+        /// (<see cref="GameActionNotCountedReason.SurveyBodyAlreadyCredited"/>), with the
+        /// whole row taken back when stock paid it after forgetting the holder.
+        /// </summary>
+        private bool CreditOrbitalSurvey(GameAction action)
+        {
+            string body = action.ScanBodyName;
+            GameAction holder;
+            surveyHolders.TryGetValue(body, out holder);
+            SurveyRepeat decision = DecideSurveyRepeat(holder, action, StockShadowTakeBack.BreakList);
+            if (decision == SurveyRepeat.Credit)
+            {
+                if (holder == null)
+                    surveyHolders[body] = action;
+                else
+                    ParsekLog.Verbose("ScienceModule",
+                        $"Orbital survey of '{body}' id={action.ActionId ?? "(none)"} credited again: " +
+                        $"stock paid it on the same timeline as id={holder.ActionId ?? "(none)"} " +
+                        $"(cseq={holder.CaptureSequence.ToString(IC)}), kept as captured");
+                return true;
+            }
+
+            action.Effective = false;
+            action.NotCountedReason = GameActionNotCountedReason.SurveyBodyAlreadyCredited;
+            action.EffectiveScience = 0f;
+            bool takeBack = decision == SurveyRepeat.HolderForgotten
+                && StockShadowTakeBack.ShouldTakeBackWholeRow(action, IdentityWitness.Of(holder, SurveyLabel(body)));
+            if (takeBack)
+                action.TakeBackScience = action.ScienceAwarded;
+            ParsekLog.Info("ScienceModule",
+                $"Orbital survey of '{body}' id={action.ActionId ?? "(none)"} ut={action.UT.ToString("R", IC)} " +
+                $"cseq={action.CaptureSequence.ToString(IC)} not counted: the body's bonus is held by " +
+                $"id={holder.ActionId ?? "(none)"} ut={holder.UT.ToString("R", IC)} " +
+                $"cseq={holder.CaptureSequence.ToString(IC)} " +
+                (decision == SurveyRepeat.HolderCapturedAfter
+                    ? "(captured after this row: a rewind separated them, the earlier survey keeps it)"
+                    : "(stock forgot that scan after a rewind and paid again)") +
+                (takeBack ? $", taking back {action.ScienceAwarded.ToString("R", IC)}" : ""));
+            return false;
         }
 
         /// <summary>
@@ -1047,6 +1229,8 @@ namespace Parsek
                     delta = (double)action.ScienceAwarded * action.ConversionShare;
                     return true;
                 case GameActionType.ScienceLabEarning:
+                    // A repeated orbital survey is not counted (3.15 step 7).
+                    if (!action.Effective) return false;
                     delta = (double)action.ScienceAwarded;
                     return true;
                 case GameActionType.StrategyActivate:

@@ -30,6 +30,11 @@ _(unreleased - entries accumulate here per commit)_
   a contract already done, a part already bought, science already at its cap), and that the game
   kept no payment of, is now offered in Unfinished Flights again. Any real gain still seals the
   flight, and so does a reward paid late or twice that was not taken back. (LEDGER-EVENT-IDENTITY)
+- **No twin part tests, and a survey bonus pays once.** After a rewind, a part test or science
+  contract your timeline accepts later is no longer offered again as a copy before then. Other
+  contracts, such as exploring a body or planting a flag, can still be offered twice. An orbital
+  survey's bonus counts once per body, and a producer is not paid twice for the same time.
+  (LEDGER-EVENT-IDENTITY)
 - **A strategy's cut follows its reward.** After a rewind, when a reward is not counted because
   the timeline already earned it, the share a strategy converted from it is not counted either, and
   a conversion stock paid anyway is taken back. Money from the cheat menu or a mission now counts

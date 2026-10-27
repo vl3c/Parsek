@@ -27,6 +27,9 @@ namespace Parsek
         OncePerAcceptLifecycle,
         /// <summary>Once per celestial body.</summary>
         OncePerBody,
+        /// <summary>A continuous producer: a time slice the walk already credited for the same
+        /// producer and subject earns nothing.</summary>
+        OncePerSlice,
         /// <summary>Charged when the walk state at the row does not already own the item.</summary>
         PurchaseStateRule,
         /// <summary>Once per activation of the strategy.</summary>
@@ -165,6 +168,14 @@ namespace Parsek
         /// record (<see cref="MilestonesModule.IsRepeatableWorldRecordMilestone"/>).</summary>
         internal const string MilestoneWorldRecord = "world-record";
 
+        /// <summary><see cref="GameActionType.ScienceEarning"/> for an experiment's subject
+        /// (no <see cref="GameAction.ProducerId"/>).</summary>
+        internal const string ScienceSubject = "subject";
+
+        /// <summary><see cref="GameActionType.ScienceEarning"/> paid by a continuous producer
+        /// for a time slice (<see cref="GameAction.ProducerId"/> set, design 3.15 step 7).</summary>
+        internal const string ScienceContinuous = "continuous";
+
         /// <summary><see cref="GameActionType.ScienceLabEarning"/> paid by a Mobile Processing
         /// Lab (no <see cref="GameAction.ScanBodyName"/>).</summary>
         internal const string LabPayout = "lab";
@@ -239,6 +250,8 @@ namespace Parsek
                     return new[] { MilestoneOneShot, MilestoneWorldRecord };
                 case GameActionType.ScienceLabEarning:
                     return new[] { LabPayout, OrbitalSurvey, LiveOnlyScience };
+                case GameActionType.ScienceEarning:
+                    return new[] { ScienceSubject, ScienceContinuous };
                 default:
                     return new string[] { null };
             }
@@ -264,6 +277,8 @@ namespace Parsek
                 case GameActionType.ScienceLabEarning:
                     if (action.IsLiveOnlyIncome) return LiveOnlyScience;
                     return string.IsNullOrEmpty(action.ScanBodyName) ? LabPayout : OrbitalSurvey;
+                case GameActionType.ScienceEarning:
+                    return string.IsNullOrEmpty(action.ProducerId) ? ScienceSubject : ScienceContinuous;
                 default:
                     return null;
             }
@@ -365,9 +380,15 @@ namespace Parsek
             return new[]
             {
                 // ---- Science ----
-                Enforced(GameActionType.ScienceEarning, null, "subject id", LedgerIdentityRule.CapHeadroom,
+                Enforced(GameActionType.ScienceEarning, ScienceSubject, "subject id", LedgerIdentityRule.CapHeadroom,
                     "ScienceModule.ProcessEarning (headroom = subject cap - credited total)")
                     .WithStock(MirrorScience, true),
+                Enforced(GameActionType.ScienceEarning, ScienceContinuous, "producer + subject + time slice",
+                    LedgerIdentityRule.OncePerSlice,
+                    "ScienceModule.ProcessEarning via ProducerSliceBook (a slice earns only the time no earlier "
+                    + "credited slice holds, when a rewind separated them; then the subject cap; "
+                    + "ProducerSliceAlreadyCredited; mod-only, no capture channel writes these rows yet)")
+                    .WithStock(null, true),
                 Enforced(GameActionType.ScienceSpending, null, "tech node id", LedgerIdentityRule.PurchaseStateRule,
                     "ScienceModule.ProcessSpending" + PurchaseStateBy + "; a tech it cannot pay is charged into a science debt"),
                 Enforced(GameActionType.StrategyScienceDebit, StrategyConversionSource.Converter.ToString(),
@@ -383,9 +404,11 @@ namespace Parsek
                     LedgerIdentityRule.AsRecorded, "ScienceModule.ProcessLabEarning (uncapped, as captured)"),
                 Enforced(GameActionType.ScienceLabEarning, LiveOnlyScience, "reason + event UT",
                     LedgerIdentityRule.LiveOnly, "ScienceModule.ProcessLabEarning (uncapped) via " + LiveOnlyBy),
-                Planned(GameActionType.ScienceLabEarning, OrbitalSurvey, "body", LedgerIdentityRule.OncePerBody,
-                    "3.15 build order step 7 (once a decompile confirms stock pays once per body)",
-                    "every survey row is credited as captured"),
+                Enforced(GameActionType.ScienceLabEarning, OrbitalSurvey, "body", LedgerIdentityRule.OncePerBody,
+                    "ScienceModule.ProcessLabEarning (earliest first: a repeat a rewind separated from the "
+                    + "holder is not counted, SurveyBodyAlreadyCredited; stock pays once per body, decompiled "
+                    + "ModuleOrbitalSurveyor)")
+                    .WithStock(MirrorScan, true),
 
                 // ---- Funds ----
                 Enforced(GameActionType.FundsEarning, FundsEarningSource.ContractComplete.ToString(),
@@ -451,7 +474,11 @@ namespace Parsek
                 // ---- Contracts ----
                 Enforced(GameActionType.ContractAccept, null, "contract guid + accept",
                     LedgerIdentityRule.OncePerAcceptLifecycle,
-                    F + ".ProcessContractAccept (one advance per accept row; a twin offer is 3.15 step 8)"),
+                    F + ".ProcessContractAccept (one advance per accept row); a twin stock generates after a rewind "
+                    + "(same stock ContractID, new guid) stays out of the offer pool while the committed accept is "
+                    + "ahead (ContractTwinRule, 3.15 step 8); only types whose ContractID is goal-level (part test "
+                    + "ONCEPERPART / BODYANDSITUATION, science collection), the guid-seeded types are open "
+                    + "(CONTRACT-TWIN-GUID-SEEDED-TYPES)"),
                 Enforced(GameActionType.ContractComplete, null, "contract guid, one outcome ever (re-accept does not reopen it)",
                     LedgerIdentityRule.FirstWins,
                     "ContractsModule.ProcessComplete (once ever; not after a deadline, fail or cancel)")

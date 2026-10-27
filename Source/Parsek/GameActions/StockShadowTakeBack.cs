@@ -193,6 +193,10 @@ namespace Parsek
 
         internal static IReadOnlyList<TimelineBreak> Breaks => breaks;
 
+        /// <summary>This save's breaks as the list the pure witness predicate takes (read only;
+        /// callers never change it).</summary>
+        internal static IList<TimelineBreak> BreakList => breaks;
+
         internal static void ResetForTesting()
         {
             eligibleFrom = 0;
@@ -269,6 +273,9 @@ namespace Parsek
                 case GameActionNotCountedReason.RecordThresholdsAlreadyCredited:
                 // A conversion leg whose cause is an identity duplicate (design 3.15 step 7).
                 case GameActionNotCountedReason.ConversionCauseNotCounted:
+                // Once per body / once per producer slice (design 3.15 step 7).
+                case GameActionNotCountedReason.SurveyBodyAlreadyCredited:
+                case GameActionNotCountedReason.ProducerSliceAlreadyCredited:
                     return true;
                 default:
                     return false;

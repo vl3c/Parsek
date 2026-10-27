@@ -4110,6 +4110,75 @@ namespace Parsek
             DeferredContractPatchState.Cancel();
         }
 
+        /// <summary>
+        /// Contract twins stay out of the offer pool (design 3.15 step 8): withdraws, the way
+        /// stock withdraws a surplus offer (<c>Contract.Withdraw</c>), every Offered contract
+        /// that twins a committed future accept (<see cref="ContractTwinRule"/>: stock's own
+        /// uniqueness id, a different guid). Returns how many it withdrew.
+        /// A withdrawal has no undo, so it judges only against a real clock (the patch's
+        /// parameter clock: the walk's cutoff, else the committed-row clock) and withdraws
+        /// nothing without one, never against a fallback UT.
+        /// </summary>
+        internal static int WithdrawOfferedContractTwins(List<Contract> current, double clockUT)
+        {
+            if (current == null || current.Count == 0)
+                return 0;
+            if (!IsRealClock(clockUT))
+            {
+                ParsekLog.Verbose(ContractTwinRule.Tag,
+                    $"PatchContracts: no real clock (clockUT={clockUT.ToString("R", IC)}) - no twin offer withdrawn");
+                return 0;
+            }
+            var offered = new List<ContractTwinRule.OfferedContract>(current.Count);
+            for (int i = 0; i < current.Count; i++)
+            {
+                Contract c = current[i];
+                if (c == null)
+                    continue;
+                long stockId = 0;
+                try { stockId = c.ContractID; }
+                catch (Exception ex)
+                {
+                    ParsekLog.VerboseRateLimited(Tag, "twin-id-" + c.ContractGuid,
+                        $"PatchContracts: reading ContractID of '{c.Title}' threw ({ex.Message}) - not judged a twin");
+                }
+                offered.Add(new ContractTwinRule.OfferedContract
+                {
+                    Index = i,
+                    Guid = c.ContractGuid.ToString(),
+                    StockContractId = stockId,
+                    Title = c.Title,
+                    Offered = c.ContractState == Contract.State.Offered
+                });
+            }
+            double nowUT = clockUT;
+            var twins = ContractTwinRule.SelectOfferedTwins(offered, CommittedFutureIndexCache.Current, nowUT);
+            int withdrawn = 0;
+            for (int i = 0; i < twins.Count; i++)
+            {
+                ContractTwinRule.OfferedContract t = twins[i].Key;
+                Contract live = current[t.Index];
+                try
+                {
+                    live.Withdraw();
+                    withdrawn++;
+                    ParsekLog.Info(ContractTwinRule.Tag,
+                        $"PatchContracts: withdrew offer '{t.Title}' (guid={t.Guid} stockId={t.StockContractId.ToString(IC)}): " +
+                        $"it twins {ContractTwinRule.DescribeHolder(twins[i].Value)} at ut={nowUT.ToString("R", IC)}");
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(ContractTwinRule.Tag,
+                        $"PatchContracts: withdrawing twin offer '{t.Title}' (guid={t.Guid}) threw: {ex.Message}");
+                }
+            }
+            if (twins.Count > 0)
+                ParsekLog.Info(ContractTwinRule.Tag,
+                    $"PatchContracts: {withdrawn.ToString(IC)} of {twins.Count.ToString(IC)} twin offer(s) withdrawn " +
+                    $"({offered.Count.ToString(IC)} contract(s) checked)");
+            return withdrawn;
+        }
+
         private static void PatchContractsCore(ContractsModule contracts, double acceptClockUT,
             double parameterClockUT)
         {
@@ -4440,6 +4509,9 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     $"PatchContracts: all {restoredIds.Count.ToString(IC)} restored contract id(s): " +
                     string.Join(", ", restoredIds));
+
+            // Design 3.15 step 8: an offer that twins a committed future accept leaves the pool.
+            WithdrawOfferedContractTwins(currentContracts, parameterClockUT);
 
             // LedgerTrace Tier-B (per-contract change lines, reusing the #1098
             // removed/restored sets) + Tier-C (presence read-back reconcile). The

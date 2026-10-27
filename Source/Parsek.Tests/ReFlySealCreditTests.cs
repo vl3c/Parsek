@@ -814,6 +814,8 @@ namespace Parsek.Tests
                 { GameActionNotCountedReason.RecordThresholdsAlreadyCredited, true },
                 { GameActionNotCountedReason.PurchaseAlreadyOwned, true },
                 { GameActionNotCountedReason.ConversionCauseNotCounted, true },
+                { GameActionNotCountedReason.SurveyBodyAlreadyCredited, true },
+                { GameActionNotCountedReason.ProducerSliceAlreadyCredited, true },
             };
             foreach (GameActionNotCountedReason r in Enum.GetValues(typeof(GameActionNotCountedReason)))
             {

@@ -107,6 +107,10 @@ namespace Parsek
         /// 0 for an entry with no ledger row.</summary>
         internal readonly long CaptureSequence;
         internal readonly int Sequence;
+        /// <summary>ContractAccept only: the accept row's stock uniqueness id
+        /// (<see cref="GameAction.ContractStockId"/>), 0 when not captured. The twin rule
+        /// (<see cref="ContractTwinRule"/>, design 3.15 step 8) reads it.</summary>
+        internal readonly long StockContractId;
 
         internal CommittedFutureEntry(
             CommittedFutureKind kind,
@@ -125,7 +129,8 @@ namespace Parsek
             bool facilityDowngrade = false,
             bool requirementsLost = false,
             long captureSequence = 0,
-            int sequence = 0)
+            int sequence = 0,
+            long stockContractId = 0)
         {
             Kind = kind;
             Key = key ?? "";
@@ -144,6 +149,7 @@ namespace Parsek
             RequirementsLost = requirementsLost;
             CaptureSequence = captureSequence;
             Sequence = sequence;
+            StockContractId = stockContractId;
         }
 
         /// <summary>A copy of this entry carrying <paramref name="agentTitle"/> as its agent.</summary>
@@ -152,7 +158,7 @@ namespace Parsek
             return new CommittedFutureEntry(
                 Kind, Key, UT, RecordingId, RecordingName, FacilityToLevel, Amount, Title,
                 FromMilestoneFallback, DeadlineUT, AutoAccept, agentTitle, DeadlineExpiry, FacilityDowngrade,
-                RequirementsLost, CaptureSequence, Sequence);
+                RequirementsLost, CaptureSequence, Sequence, StockContractId);
         }
     }
 
@@ -418,7 +424,8 @@ namespace Parsek
                         facilityDowngrade: kind == CommittedFutureKind.FacilityUpgrade && a.FacilityDowngrade,
                         requirementsLost: kind == CommittedFutureKind.ContractCancel && a.ContractRequirementsLost,
                         captureSequence: a.CaptureSequence,
-                        sequence: a.Sequence));
+                        sequence: a.Sequence,
+                        stockContractId: isAccept ? a.ContractStockId : 0));
                     entries++;
                 }
             }

@@ -63,6 +63,11 @@ namespace Parsek
                 // its cause was taken back for an identity reason, so a settled leg's cause is
                 // itself out of the seal or, with no holder (a passed deadline), seals the slot.
                 case GameActionNotCountedReason.ConversionCauseNotCounted:
+                // The body's first survey and the slice's earlier credit are the holders
+                // (3.15 step 7); a repeat captured before its holder keeps stock's payment
+                // (no take-back) and seals through IsStockPaymentSettled.
+                case GameActionNotCountedReason.SurveyBodyAlreadyCredited:
+                case GameActionNotCountedReason.ProducerSliceAlreadyCredited:
                     return true;
                 default:
                     return false;
