@@ -25,6 +25,9 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Orbiting the Mun pays its milestone again.** Orbit, suborbit and flight milestones were filed
+  without their body, so the first Kerbin orbit marked every other body's orbit done and the game
+  never paid them. Each body's milestone is now its own. (MILESTONE-ORBIT-BODY-UNQUALIFIED)
 - **A repeat earned nothing, so it no longer blocks a Re-Fly.** A crashed flight whose only gains
   after its separation were rewards the timeline had already given out (a first already reached,
   a contract already done, a part already bought, science already at its cap), and that the game

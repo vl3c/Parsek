@@ -1756,16 +1756,15 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Reflection helper: extracts the private "body" CelestialBody field from
-        /// body-specific ProgressNode subclasses (CelestialBodyLanding, CelestialBodyOrbit,
-        /// CelestialBodyFlyby, etc.). Returns null for top-level nodes that have no body.
-        /// Internal static for testability.
+        /// Reflection helper: extracts the "body" CelestialBody field from body-specific
+        /// ProgressNode subclasses (CelestialBodyLanding, CelestialBodyOrbit,
+        /// CelestialBodyFlyby, etc.; see <see cref="FindProgressNodeBodyField"/>). Returns
+        /// null for top-level nodes that have no body. Internal static for testability.
         /// </summary>
         internal static CelestialBody ExtractNodeBody(ProgressNode node)
         {
             if (node == null) return null;
-            var bodyField = node.GetType().GetField("body",
-                BindingFlags.NonPublic | BindingFlags.Instance);
+            var bodyField = FindProgressNodeBodyField(node.GetType());
             if (bodyField == null) return null;
             return bodyField.GetValue(node) as CelestialBody;
         }
@@ -1803,10 +1802,7 @@ namespace Parsek
             string bareId = node.Id ?? "";
             if (string.IsNullOrEmpty(bareId)) return "";
 
-            // Try reflection to get the private "body" field present on all
-            // CelestialBody* achievement subclasses (Landing, Orbit, Flyby, etc.)
-            var bodyField = node.GetType().GetField("body",
-                BindingFlags.NonPublic | BindingFlags.Instance);
+            var bodyField = FindProgressNodeBodyField(node.GetType());
             if (bodyField != null)
             {
                 var celestialBody = bodyField.GetValue(node) as CelestialBody;
@@ -1821,6 +1817,24 @@ namespace Parsek
 
             // No body field — top-level node with unique ID (FirstLaunch, ReachSpace, etc.)
             return bareId;
+        }
+
+        /// <summary>
+        /// The <c>body</c> field of a body-specific achievement class, or null for a
+        /// top-level node. Stock declares it PUBLIC on CelestialBodyOrbit,
+        /// CelestialBodySuborbit and CelestialBodyFlight and private on every other
+        /// CelestialBody* / station / EVA class (decompiled KSP 1.12.5), so the lookup
+        /// must take both visibilities: a private-only lookup returns the bare "Orbit",
+        /// which collides across bodies.
+        /// </summary>
+        internal static FieldInfo FindProgressNodeBodyField(Type nodeType)
+        {
+            if (nodeType == null) return null;
+            var field = nodeType.GetField("body",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (field == null || !typeof(CelestialBody).IsAssignableFrom(field.FieldType))
+                return null;
+            return field;
         }
 
         #endregion

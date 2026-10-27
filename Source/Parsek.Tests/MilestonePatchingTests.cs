@@ -254,6 +254,59 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // QualifyMilestoneId — the body field, whatever its visibility
+        // ================================================================
+
+        [Theory]
+        [InlineData(typeof(CelestialBodyOrbit))]
+        [InlineData(typeof(CelestialBodySuborbit))]
+        [InlineData(typeof(CelestialBodyFlight))]
+        [InlineData(typeof(CelestialBodyLanding))]
+        [InlineData(typeof(CelestialBodyFlyby))]
+        public void FindProgressNodeBodyField_FindsTheBodyFieldPublicOrPrivate(Type nodeType)
+        {
+            // Stock declares body PUBLIC on Orbit / Suborbit / Flight and private elsewhere;
+            // a private-only lookup captured every body's orbit as the bare "Orbit".
+            FieldInfo field = GameStateRecorder.FindProgressNodeBodyField(nodeType);
+
+            Assert.NotNull(field);
+            Assert.Equal(typeof(CelestialBody), field.FieldType);
+        }
+
+        [Fact]
+        public void FindProgressNodeBodyField_EveryStockBodySpecificNodeIsFound()
+        {
+            // Assembly-CSharp references assemblies the test host does not carry, so take
+            // the types that did load.
+            Type[] types;
+            try { types = typeof(ProgressNode).Assembly.GetTypes(); }
+            catch (ReflectionTypeLoadException e) { types = e.Types; }
+
+            int bodyNodes = 0;
+            foreach (Type t in types)
+            {
+                if (t == null || t.Namespace != "KSPAchievements" || !typeof(ProgressNode).IsAssignableFrom(t))
+                    continue;
+                FieldInfo declared = t.GetField("body",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (declared == null || declared.FieldType != typeof(CelestialBody))
+                    continue;
+                bodyNodes++;
+                Assert.True(GameStateRecorder.FindProgressNodeBodyField(t) != null,
+                    t.Name + " has a body field the qualification misses");
+            }
+            Assert.True(bodyNodes >= 10, "expected the stock body-specific achievements, found " + bodyNodes);
+        }
+
+        [Fact]
+        public void FindProgressNodeBodyField_TopLevelNodeHasNone()
+        {
+            Assert.Null(GameStateRecorder.FindProgressNodeBodyField(typeof(ProgressNode)));
+            Assert.Null(GameStateRecorder.FindProgressNodeBodyField(typeof(RecordsDistance)));
+            Assert.Null(GameStateRecorder.FindProgressNodeBodyField(null));
+        }
+
+        // ================================================================
         // MilestonesModule — path-qualified IsMilestoneCredited
         // ================================================================
 

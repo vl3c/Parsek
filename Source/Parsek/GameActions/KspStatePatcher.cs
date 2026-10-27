@@ -3030,8 +3030,8 @@ namespace Parsek
         ///
         /// Body-specific nodes (under CelestialBodySubtree) are matched using path-qualified
         /// IDs ("Mun/Landing"), while top-level nodes use bare IDs ("FirstLaunch").
-        /// Old recordings with bare body-specific IDs ("Landing" instead of "Mun/Landing")
-        /// will not match and are logged for diagnostics.
+        /// A legacy bare body-specific ID ("Orbit" instead of "Kerbin/Orbit") matches only
+        /// under the home body (<see cref="IsLegacyBareIdSubtree"/>).
         ///
         /// Repeatable Records* nodes have two patch modes: normal same-branch recalculations
         /// preserve a live in-tier best value when it still fits the currently paid reward
@@ -3145,6 +3145,22 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The one subtree a legacy bare body-child milestone id ("Orbit", "Landing") may
+        /// name. Such rows carry no body, and every body's subtree has a child of that name,
+        /// so matching them under any body marked every body's node complete (one Kerbin
+        /// orbit row completed Mun/Orbit, Minmus/Orbit, ... and stock then never paid them).
+        /// The capture writes "Body/Id" for every body-specific node, so a bare row is
+        /// legacy data; legacy rows were overwhelmingly home-body ones, and no wider
+        /// compatibility is kept.
+        /// </summary>
+        internal const string LegacyBareIdBodyName = "Kerbin";
+
+        internal static bool IsLegacyBareIdSubtree(string pathPrefix)
+        {
+            return string.Equals(pathPrefix, LegacyBareIdBodyName, StringComparison.Ordinal);
+        }
+
+        /// <summary>
         /// Recursively patches a ProgressTree's nodes to match credited milestone state.
         /// For each node, computes a qualified ID (body nodes get "BodyName/NodeId"),
         /// checks whether it should be achieved, and sets/clears flags via reflection.
@@ -3152,9 +3168,8 @@ namespace Parsek
         /// reached/complete plus the stock numeric record interval state.
         ///
         /// Matching logic: tries qualified path first ("Mun/Landing"), then falls back to
-        /// bare node.Id ("Landing") for backward compat with old recordings. The bare-Id
-        /// fallback only fires for top-level nodes (empty pathPrefix) to avoid false matches
-        /// on body subtree children.
+        /// bare node.Id ("Landing") for a legacy bare row, under the home body's subtree
+        /// only (<see cref="IsLegacyBareIdSubtree"/>).
         ///
         /// Internal static for testability — the reflection FieldInfos are passed in.
         /// </summary>
@@ -3205,10 +3220,9 @@ namespace Parsek
                     {
                         // Top-level node — bare Id is already the qualified path, no fallback needed
                     }
-                    else if (!shouldBeAchieved && !string.IsNullOrEmpty(pathPrefix))
+                    else if (!shouldBeAchieved && IsLegacyBareIdSubtree(pathPrefix))
                     {
-                        // Body subtree child — try bare Id for backward compat with old recordings
-                        // that stored "Landing" instead of "Mun/Landing"
+                        // Home-body subtree child: a legacy bare row ("Orbit") names it.
                         if (milestones.IsMilestoneCredited(nodeId))
                         {
                             shouldBeAchieved = true;
@@ -3506,7 +3520,7 @@ namespace Parsek
         /// Flattens the live progress tree into the observations the pre-ledger progress
         /// seed capture decides from. Qualification mirrors <see cref="PatchProgressNodeTree"/>
         /// exactly (bare id at the top level, "Parent/NodeId" below it, the node's own id as
-        /// the legacy bare fallback for subtree nodes), so a seeded id is the id the patch
+        /// the legacy bare fallback for home-body subtree nodes), so a seeded id is the id the patch
         /// looks up.
         /// </summary>
         internal static List<PreLedgerProgressSeed.NodeObservation> ObserveProgressTreeForSeed(
@@ -3536,7 +3550,7 @@ namespace Parsek
                 var observation = new PreLedgerProgressSeed.NodeObservation
                 {
                     QualifiedId = qualifiedId,
-                    BareId = string.IsNullOrEmpty(pathPrefix) ? null : nodeId,
+                    BareId = IsLegacyBareIdSubtree(pathPrefix) ? nodeId : null,
                     IsComplete = node.IsComplete
                 };
                 if (IsRepeatableRecordType(node))

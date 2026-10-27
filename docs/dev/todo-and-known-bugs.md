@@ -54,6 +54,32 @@ Build order is in section 3.15. Each step ships unit tests and the matching harn
 
 ---
 
+## ~~MILESTONE-ORBIT-BODY-UNQUALIFIED: every body's Orbit, Suborbit and Flight milestone is captured as one bare id, so the first Kerbin orbit completes them all and the Mun orbit is never paid~~ [FILED AND FIXED 2026-10-27 on branch `milestone-public-body`, found from CS-4b's ground truth (`2026-10-27_1957`, report-only `facet=Milestone kind=MissingInRecon id=Kerbin/Orbit`); unit-tested, NOT FLOWN; product, high (an earned reward never paid)]
+
+Observed: CS-4's career ledger books the first orbit as `milestoneId = Orbit`, while its Landing,
+Science and ReturnFromOrbit rows read `Kerbin/...`; the ground truth reads stock's `Kerbin/Orbit`
+as missing from the recon. Committed recorded fixtures show the consequence: `mun-orbit-recorded`
+and `mun-minmus-recorded` hold two `Orbit` rows each and `jool-orbit-recorded` three, every one after
+the first zeroed as `MilestoneAlreadyAchieved`.
+
+Cause: `GameStateRecorder.QualifyMilestoneId` looked the achievement's `body` field up with
+`BindingFlags.NonPublic` only. Decompiled KSP 1.12.5 declares `body` PUBLIC on `CelestialBodyOrbit`,
+`CelestialBodySuborbit` and `CelestialBodyFlight` (private on the other 14 body-specific classes),
+so those three were captured bare. `KspStatePatcher.PatchProgressNodeTree`'s legacy bare-id fallback
+then matched the bare `Orbit` under EVERY body's subtree, marking Mun/Orbit, Minmus/Orbit and the rest
+complete on the next patch, so stock never paid them; a Mun orbit captured bare would also have been
+zeroed as a duplicate of Kerbin's.
+
+Fix: `GameStateRecorder.FindProgressNodeBodyField` takes the field at either visibility (and only
+when it is a `CelestialBody`), so the capture writes `Kerbin/Orbit`, `Mun/Orbit`. The legacy bare
+fallback (patcher and the pre-ledger seed observation) now applies under the home body's subtree
+only (`KspStatePatcher.IsLegacyBareIdSubtree`, `Kerbin`), so a legacy bare row keeps its Kerbin node
+and completes nothing else; no wider compatibility is kept. Cells: `MilestonePatchingTests`
+`FindProgressNodeBodyField_*` (including a sweep of every stock `KSPAchievements` class with a body
+field) and `PreLedgerProgressSeedTests` `PatchProgressNodeTree_LegacyBareRow_CompletesOnlyTheHomeBodyNode`
+/ `_QualifiedRows_CompleteTheirOwnBodiesOnly`; reverting either half reds them. Live proof: the
+campaign's CS-6 (Mun orbit) books `Mun/Orbit`.
+
 ## ~~CONTRACT-TWIN-GUID-SEEDED-TYPES: a regenerated copy of a guid-seeded contract is offered again after a rewind, and both copies pay~~ [FILED 2026-10-27 from the step 7b review; owner ruling 2026-10-27 ("check both IDs and the other identifiers"); BUILT 2026-10-27 on branch `contract-twin-goal`, unit-tested only, NOT FLOWN; product, medium (a duplicate contract payment across a rewind)]
 
 LEDGER-EVENT-IDENTITY step 7b keeps a twin of a committed future accept out of the offer pool by stock's own `Contract.ContractID`. That id is a goal identity only for `PartTest` with `ONCEPERPART` or `BODYANDSITUATION` repeatability and for `CollectScience` (plus the Breaking Ground `CollectDeployedScience`, `CollectROCScienceArm` and `CollectROCScienceRetrieval`, which hash subject id and body). Everything else is per copy: `Contract.SetupID` hashes the type name, `GetHashString()` and each top-level parameter's type and `HashString`, after `Contract.Generate` has set a fresh `contractGuid`, and most types hash `SystemUtilities.SuperSeed(this)` (guid + mission seed): `ARMContract`, `BaseContract`, `ISRUContract`, `SatelliteContract`, `StationContract`, `SurveyContract`, `TourismContract`, `CometSampleContract`, `GrandTour`, `PlantFlag`, `RecoverAsset`, `VesselRepairContract`, `OrbitalConstructionContract`, `RoverConstructionContract`. `ExplorationContract`'s `ProgressTrackingParameter` hashes `SuperSeed(Root)` plus its id, and a `PartTest` with `ALWAYS` adds a seeded unique id.
