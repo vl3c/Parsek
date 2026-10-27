@@ -1973,6 +1973,11 @@ namespace Parsek
             lock (worldActionSafetyCacheLock)
             {
                 worldActionSafetyCache.Clear();
+                cachedSealCreditWalk = null;
+                cachedPendingSealCreditWalk = null;
+                cachedPendingSealCreditRows = null;
+                SealCreditWalkerForTesting = null;
+                SealCreditWalkCountForTesting = 0;
                 worldActionSafetyCacheScenarioIdentity = null;
                 worldActionSafetyCacheLedgerVersion = int.MinValue;
                 worldActionSafetyCacheStoreVersion = int.MinValue;
@@ -2000,6 +2005,9 @@ namespace Parsek
                 return;
 
             worldActionSafetyCache.Clear();
+            cachedSealCreditWalk = null;
+            cachedPendingSealCreditWalk = null;
+            cachedPendingSealCreditRows = null;
             worldActionSafetyCacheScenarioIdentity = scenario;
             worldActionSafetyCacheLedgerVersion = Ledger.StateVersion;
             worldActionSafetyCacheStoreVersion = RecordingStore.StateVersion;

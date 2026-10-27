@@ -25,6 +25,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            StockShadowTakeBack.ResetForTesting();
             RecalculationEngine.ClearModules();
             LedgerGroundTruthDiff.StrictPerIdentityForTesting = false;
             ParsekLog.ResetTestOverrides();
@@ -129,6 +130,78 @@ namespace Parsek.Tests
             Assert.Contains("ScanResearchedTechIds(clockUT, out bool hasTechSurface)", src);
             Assert.Contains("ScanRecoveryCredits(clockUT)", src);
             Assert.Equal(2, CountOccurrences(src, "if (!IsAtOrBeforeClock(a, clockUT))"));
+        }
+
+        // Design 3.15 "ledger readers move with each step": the ground truth reads take-back
+        // as part of the replay, never as an adjustment. A world-first stock paid again after
+        // a rewind is taken back by the walk (no StockPoolAdjustment row), so the
+        // reconstruction is the replay (one credit), it matches a save the write corrected,
+        // and a save that kept the second payment still reds.
+        // catches: the reconstruction adding the take-back amounts back, or treating them as
+        // adjustment rows the comparison leaves out (which would hide a failed take-back).
+        [Fact]
+        public void TakeBack_IsPartOfTheReplay_NeverAnAdjustment()
+        {
+            StockShadowTakeBack.ResetForTesting();
+            StockShadowTakeBack.SetEligibleFromForTesting(1);
+            StockShadowTakeBack.AddBreakForTesting(15, 50.0, "PlainRewind");
+            RecalculationEngine.ClearModules();
+            var milestones = new MilestonesModule();
+            var funds = new FundsModule();
+            RecalculationEngine.RegisterModule(milestones, RecalculationEngine.ModuleTier.FirstTier);
+            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            var repeat = new GameAction
+            {
+                ActionId = "b", UT = 120.0, CaptureSequence = 20, Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "Mun/Landing", MilestoneFundsAwarded = 5000f,
+            };
+            var ledger = new List<GameAction>
+            {
+                new GameAction { ActionId = "seedF", UT = 0.0, Type = GameActionType.FundsInitial, InitialFunds = 1000f },
+                new GameAction
+                {
+                    ActionId = "a", UT = 100.0, CaptureSequence = 10, Type = GameActionType.MilestoneAchievement,
+                    MilestoneId = "Mun/Landing", MilestoneFundsAwarded = 5000f,
+                },
+                repeat,
+            };
+            RecalculationEngine.Recalculate(ledger, 200.0);
+
+            Assert.Equal(GameActionNotCountedReason.MilestoneAlreadyAchieved, repeat.NotCountedReason);
+            Assert.Equal(5000f, repeat.TakeBackFunds);
+
+            int rows;
+            double adjustment = LedgerGroundTruthDiff.SumWalkedStockPoolAdjustments(
+                StockPool.Funds, ledger, funds.GetRowEffects(), out rows);
+            Assert.Equal(0, rows);
+            Assert.Equal(0.0, adjustment);
+            var recon = new LedgerReconstructionSnapshot
+            {
+                HasFunds = true, Funds = funds.GetRunningBalance(),
+                FundsAdjustment = adjustment, FundsAdjustmentRows = rows,
+            };
+            Assert.Equal(6000.0, LedgerGroundTruthDiff.FundsExcludingAdjustments(recon), 6);
+
+            var corrected = new CareerSaveSnapshot { Parsed = true, HasFunds = true, Funds = 6000.0 };
+            Assert.Empty(LedgerGroundTruthDiff.Compare(corrected, recon, FacetTolerances.Default,
+                new Dictionary<string, int>()).HardFailures(false));
+            var paidTwice = new CareerSaveSnapshot { Parsed = true, HasFunds = true, Funds = 11000.0 };
+            Assert.NotEmpty(LedgerGroundTruthDiff.Compare(paidTwice, recon, FacetTolerances.Default,
+                new Dictionary<string, int>()).HardFailures(false));
+        }
+
+        // catches: the harness reconstruction growing a take-back read (it must read the
+        // walk's running pools, which already are the replay).
+        [Fact]
+        public void Harness_NeverReadsTakeBackAmounts()
+        {
+            string path = Path.Combine(AppContext.BaseDirectory,
+                "..", "..", "..", "..", "..", "Source", "Parsek", "InGameTests", "LedgerGroundTruthHarness.cs");
+            string src = File.ReadAllText(Path.GetFullPath(path));
+            Assert.DoesNotContain("TakeBack", src);
+            string diffPath = Path.Combine(AppContext.BaseDirectory,
+                "..", "..", "..", "..", "..", "Source", "Parsek", "LedgerGroundTruthDiff.cs");
+            Assert.DoesNotContain("TakeBack", File.ReadAllText(Path.GetFullPath(diffPath)));
         }
 
         private static int CountOccurrences(string text, string needle)

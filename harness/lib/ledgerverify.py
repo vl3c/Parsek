@@ -62,6 +62,8 @@ def manifest_entry_to_dict(e) -> Dict:
         d["attempt"] = e.attempt
     if e.once_key:
         d["onceKey"] = e.once_key
+    if e.subject_cap is not None:
+        d["subjectCap"] = e.subject_cap
     return d
 
 

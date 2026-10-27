@@ -12,9 +12,10 @@ namespace Parsek
     /// Rule 1 value gate. One builder (<see cref="BuildRetireSet"/>) computes the rows
     /// a merge would tombstone; <see cref="CommitTombstones"/> writes exactly those
     /// rows, and <see cref="RetireSetHoldsSealingRow(Recording, RewindPoint, ChildSlot, out string)"/>
-    /// refuses a Re-Fly whose retire set holds any row that is not a loss row, so a
-    /// merge can only ever retire value the player lost, never value the player
-    /// gained.
+    /// refuses a Re-Fly whose retire set holds a row that is not a loss row and that the
+    /// ledger replay counts (resources design 3.15 item 10, <see cref="SelectSealingRows"/>),
+    /// so a merge can only ever retire value the player lost or a duplicate the replay
+    /// already gives nothing for, never value the player gained.
     /// </summary>
     internal static partial class SupersedeCommit
     {
@@ -247,9 +248,10 @@ namespace Parsek
         /// re-recorded by the replacement flight from its own events. The complete list:
         /// <c>KerbalAssignment</c> ending <c>Dead</c> / <c>Aboard</c> / <c>Unknown</c>,
         /// <c>ReputationPenalty</c> from <c>KerbalDeath</c> / <c>Other</c>, and
-        /// <c>FacilityDestruction</c>. Every other row in a retire set is a SEALING row,
-        /// including any type or source added later until it is reviewed into this list
-        /// (the default arms return false on purpose).
+        /// <c>FacilityDestruction</c>. Every other row in a retire set is a SEALING row when
+        /// the replay counts it (<see cref="SelectSealingRows"/>, 3.15 item 10), including
+        /// any type or source added later until it is reviewed into this list (the default
+        /// arms return false on purpose).
         /// </summary>
         internal static bool IsLossRow(GameAction action)
         {
@@ -452,6 +454,7 @@ namespace Parsek
         {
             var scope = new PendingCommitRowsScope(pendingCommitRows);
             pendingCommitRows = rows;
+            ClearPendingSealCreditWalk();
             return scope;
         }
 
@@ -470,6 +473,7 @@ namespace Parsek
                 if (disposed) return;
                 disposed = true;
                 pendingCommitRows = previous;
+                ClearPendingSealCreditWalk();
             }
         }
 
@@ -498,12 +502,28 @@ namespace Parsek
             ids.Add(spanning.RecordingId);
         }
 
+        /// <summary>What <see cref="CollectRetireSetSealingRows"/> found besides the sealing
+        /// rows, for the gate's log line.</summary>
+        internal struct SealingScanStats
+        {
+            internal int RetireSetCount;
+            internal int ClosureCount;
+            /// <summary>Non-loss rows the replay does not count (they do not seal).</summary>
+            internal int NotCountedCount;
+            /// <summary>Those rows as <c>Type:ActionId(reason)</c>, capped.</summary>
+            internal string NotCountedSummary;
+            /// <summary>Which walk decided (<see cref="ResolveReplayNotCounted"/>), or
+            /// <c>none</c> when the retire set held no non-loss row.</summary>
+            internal string CreditSource;
+        }
+
         /// <summary>
         /// Every sealing row in the retire set rooted at <paramref name="tip"/>
         /// (design section 2.12 Rule 1), in tombstone order. Uncached.
         /// <paramref name="extraActions"/> are rows not yet filed to
         /// <see cref="Ledger.Actions"/> (a Re-Fly attempt's rows before its tree
-        /// commits); they are read as if they were already in the ledger.
+        /// commits); they are read as if they were already in the ledger, by the retire
+        /// set and by the replay that decides which rows count (3.15 item 10).
         /// </summary>
         internal static List<GameAction> CollectRetireSetSealingRows(
             Recording tip,
@@ -514,15 +534,35 @@ namespace Parsek
             out int retireSetCount,
             out int closureCount)
         {
+            SealingScanStats stats;
+            List<GameAction> sealing = CollectRetireSetSealingRows(
+                tip, originRecordingId, rewindPointId, rewindCutoffUT, extraActions, out stats);
+            retireSetCount = stats.RetireSetCount;
+            closureCount = stats.ClosureCount;
+            return sealing;
+        }
+
+        /// <summary>
+        /// <see cref="CollectRetireSetSealingRows(Recording, string, string, double, IReadOnlyList{GameAction}, out int, out int)"/>
+        /// with the not-counted count and the deciding walk. A retire set that holds only
+        /// loss rows runs no walk.
+        /// </summary>
+        internal static List<GameAction> CollectRetireSetSealingRows(
+            Recording tip,
+            string originRecordingId,
+            string rewindPointId,
+            double rewindCutoffUT,
+            IReadOnlyList<GameAction> extraActions,
+            out SealingScanStats stats)
+        {
             var sealing = new List<GameAction>();
-            retireSetCount = 0;
-            closureCount = 0;
+            stats = new SealingScanStats { CreditSource = "none", NotCountedSummary = string.Empty };
             if (tip == null)
                 return sealing;
 
             HashSet<string> closure = ComputeRetireClosure(
                 tip, originRecordingId, rewindPointId, rewindCutoffUT);
-            closureCount = closure.Count;
+            stats.ClosureCount = closure.Count;
 
             IReadOnlyList<GameAction> actions = Ledger.Actions;
             if (extraActions != null && extraActions.Count > 0)
@@ -535,12 +575,18 @@ namespace Parsek
 
             RetireSetScan scan = BuildRetireSet(
                 closure, rewindCutoffUT, actions, CollectTombstonedActionIds(), logDecisions: false);
-            retireSetCount = scan.Rows.Count;
-            for (int i = 0; i < scan.Rows.Count; i++)
-            {
-                if (!IsLossRow(scan.Rows[i]))
-                    sealing.Add(scan.Rows[i]);
-            }
+            stats.RetireSetCount = scan.Rows.Count;
+            if (!HasNonLossRow(scan.Rows))
+                return sealing;
+
+            // 3.15 item 10: a non-loss row seals only when the replay counts it.
+            string source;
+            IReadOnlyDictionary<string, string> notCounted = ResolveReplayNotCounted(extraActions, out source);
+            var notCountedRows = new List<GameAction>();
+            sealing = SelectSealingRows(scan.Rows, notCounted, notCountedRows);
+            stats.CreditSource = source;
+            stats.NotCountedCount = notCountedRows.Count;
+            stats.NotCountedSummary = FormatNotCountedRows(notCountedRows, notCounted);
             return sealing;
         }
 
@@ -727,7 +773,8 @@ namespace Parsek
 
         /// <summary>
         /// Design section 2.12 Rule 1, the value gate: true when the retire set of the
-        /// slot (rooted at <see cref="ResolveRetireSetTip"/>) holds a sealing row;
+        /// slot (rooted at <see cref="ResolveRetireSetTip"/>) holds a sealing row (a row
+        /// that is not a loss row and that a fresh replay of the ELS counts, 3.15 item 10);
         /// <paramref name="summary"/> is the first one as <c>Type:ActionId</c>. Read by
         /// Site A (every <see cref="UnfinishedFlightClassifier"/> arm), the Stash
         /// resolver, Site B-1, the merge-dialog auto-seal preview,
@@ -775,11 +822,12 @@ namespace Parsek
             }
 
             double cutoff = ComputeTombstoneRewindCutoffUT(rp);
-            int retireSetCount;
-            int closureCount;
+            SealingScanStats stats;
             List<GameAction> sealing = CollectRetireSetSealingRows(
                 tip, slot?.OriginChildRecordingId, rp?.RewindPointId, cutoff,
-                extraActions: readPending ? pendingRows : null, out retireSetCount, out closureCount);
+                readPending ? pendingRows : null, out stats);
+            int retireSetCount = stats.RetireSetCount;
+            int closureCount = stats.ClosureCount;
 
             var entry = new WorldActionSafetyCacheEntry
             {
@@ -793,14 +841,17 @@ namespace Parsek
             string identity = "retire-set|" + (rp?.RewindPointId ?? "<no-rp>") + "|"
                 + (slot != null ? slot.SlotIndex.ToString(ic) : "-") + "|" + tip.RecordingId;
             string state = (entry.HasAction ? "sealed|" + entry.ActionSummary : "open")
-                + "|" + retireSetCount.ToString(ic) + "|" + sealing.Count.ToString(ic);
+                + "|" + retireSetCount.ToString(ic) + "|" + sealing.Count.ToString(ic)
+                + "|" + stats.NotCountedCount.ToString(ic);
             ParsekLog.VerboseOnChange(Tag, identity, state,
                 $"RetireSet gate (section 2.12 Rule 1): rp={rp?.RewindPointId ?? "<no-rp>"} " +
                 $"slot={(slot != null ? slot.SlotIndex.ToString(ic) : "<none>")} " +
                 $"subject={subject?.RecordingId ?? "<none>"} tip={tip.RecordingId} " +
                 $"closure={closureCount.ToString(ic)} retireSet={retireSetCount.ToString(ic)} " +
-                $"lossRows={(retireSetCount - sealing.Count).ToString(ic)} " +
+                $"lossRows={(retireSetCount - sealing.Count - stats.NotCountedCount).ToString(ic)} " +
                 $"sealingRows={sealing.Count.ToString(ic)} " +
+                $"notCounted={stats.NotCountedCount.ToString(ic)} credit={stats.CreditSource} " +
+                (stats.NotCountedCount > 0 ? $"notCountedRows=[{stats.NotCountedSummary}] " : string.Empty) +
                 $"cutoffUT={(double.IsNaN(cutoff) ? "<none>" : cutoff.ToString("R", ic))} " +
                 $"-> {(entry.HasAction ? "sealed by " + entry.ActionSummary : "nothing to give back")}");
 
@@ -824,20 +875,24 @@ namespace Parsek
             if (marker == null || provisional == null)
                 return new List<GameAction>();
             double cutoff = ComputeTombstoneRewindCutoffUT(marker);
-            int retireSetCount;
-            int closureCount;
+            SealingScanStats stats;
             List<GameAction> sealing = CollectRetireSetSealingRows(
                 provisional, marker.OriginChildRecordingId, marker.RewindPointId, cutoff,
-                attemptRows, out retireSetCount, out closureCount);
+                attemptRows, out stats);
+            int retireSetCount = stats.RetireSetCount;
+            int closureCount = stats.ClosureCount;
             var ic = CultureInfo.InvariantCulture;
             ParsekLog.VerboseOnChange(Tag,
                 "retire-set-attempt|" + (marker.SessionId ?? "<no-sess>") + "|" + (provisional.RecordingId ?? "<no-id>"),
                 retireSetCount.ToString(ic) + "|" + sealing.Count.ToString(ic)
-                    + "|" + (attemptRows?.Count ?? 0).ToString(ic),
+                    + "|" + (attemptRows?.Count ?? 0).ToString(ic)
+                    + "|" + stats.NotCountedCount.ToString(ic),
                 $"RetireSet attempt read (section 2.12 Rule 1): sess={marker.SessionId ?? "<no-sess>"} " +
                 $"rec={provisional.RecordingId ?? "<no-id>"} closure={closureCount.ToString(ic)} " +
                 $"extraRows={(attemptRows?.Count ?? 0).ToString(ic)} " +
-                $"retireSet={retireSetCount.ToString(ic)} sealingRows={sealing.Count.ToString(ic)}" +
+                $"retireSet={retireSetCount.ToString(ic)} sealingRows={sealing.Count.ToString(ic)} " +
+                $"notCounted={stats.NotCountedCount.ToString(ic)} credit={stats.CreditSource}" +
+                (stats.NotCountedCount > 0 ? " notCountedRows=[" + stats.NotCountedSummary + "]" : string.Empty) +
                 (sealing.Count > 0 ? " named=" + FormatRetireSetRowSummary(PickNamedSealingRow(sealing)) : string.Empty));
             return sealing;
         }
