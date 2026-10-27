@@ -211,7 +211,8 @@ required = [
   # Measured on the first flight: the orbiter rollout and the milestone payouts.
   "Game state: FundsChanged -5807 \\(VesselRollout\\)",
   "Milestone enriched: 'ReachedSpace' funds=16000 rep=3\\.0 sci=2\\.0",
-  "Milestone enriched: 'Orbit' funds=24000 rep=5\\.0 sci=2\\.0",
+  # Body-qualified since MILESTONE-ORBIT-BODY-UNQUALIFIED (the first flight read the bare 'Orbit').
+  "Milestone enriched: 'Kerbin/Orbit' funds=24000 rep=5\\.0 sci=2\\.0",
   "Milestone enriched: 'Kerbin/ReturnFromOrbit' funds=24000 rep=5\\.0 sci=2\\.0",
   "ground-truth game mode=CAREER pools=funds,science,reputation",
   "result: hardFailures=0 ",

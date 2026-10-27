@@ -420,6 +420,12 @@ namespace Parsek.Tests
             SetFlags(firstLaunch, true, true);
             tree.AddNode(firstLaunch);
 
+            var kerbin = new ProgressNode("Kerbin", false);
+            var kerbinOrbit = new ProgressNode("Orbit", false);
+            SetFlags(kerbinOrbit, true, true);
+            kerbin.Subtree.AddNode(kerbinOrbit);
+            tree.AddNode(kerbin);
+
             var mun = new ProgressNode("Mun", false);
             SetFlags(mun, true, true);
             var munLanding = new ProgressNode("Landing", false);
@@ -437,10 +443,12 @@ namespace Parsek.Tests
 
             var observed = KspStatePatcher.ObserveProgressTreeForSeed(tree);
 
-            Assert.Equal(new[] { "FirstLaunch", "Mun", "Mun/Landing", "RecordsDistance" },
+            Assert.Equal(new[] { "FirstLaunch", "Kerbin", "Kerbin/Orbit", "Mun", "Mun/Landing", "RecordsDistance" },
                 observed.Select(o => o.QualifiedId).ToArray());
+            // The legacy bare id names the home body's node only.
+            Assert.Equal("Orbit", observed.Single(o => o.QualifiedId == "Kerbin/Orbit").BareId);
             var landing = observed.Single(o => o.QualifiedId == "Mun/Landing");
-            Assert.Equal("Landing", landing.BareId);
+            Assert.Null(landing.BareId);
             Assert.True(landing.IsComplete);
             Assert.Null(observed.Single(o => o.QualifiedId == "FirstLaunch").BareId);
             var record = observed.Single(o => o.QualifiedId == "RecordsDistance");
@@ -562,6 +570,62 @@ namespace Parsek.Tests
             Assert.Equal(0, credited);
             Assert.Equal(1, unreached);
             Assert.Equal(1, seedKept);
+        }
+
+        [Fact]
+        public void PatchProgressNodeTree_LegacyBareRow_CompletesOnlyTheHomeBodyNode()
+        {
+            // A bare "Orbit" row (captured before the body field was read on the public
+            // CelestialBodyOrbit.body) used to complete every body's Orbit node, so stock
+            // never paid the Mun orbit. It names Kerbin/Orbit only.
+            var tree = new ProgressTree();
+            var kerbin = new ProgressNode("Kerbin", false);
+            var kerbinOrbit = new ProgressNode("Orbit", false);
+            kerbin.Subtree.AddNode(kerbinOrbit);
+            tree.AddNode(kerbin);
+            var mun = new ProgressNode("Mun", false);
+            var munOrbit = new ProgressNode("Orbit", false);
+            mun.Subtree.AddNode(munOrbit);
+            tree.AddNode(mun);
+
+            var rows = new[] { MilestoneRow("Orbit", 100.0, "recOld") };
+            var module = new MilestonesModule();
+            module.SetPreLedgerProgressSeed(Capture(KspStatePatcher.ObserveProgressTreeForSeed(tree), rows, null));
+            module.Reset();
+            module.ProcessAction(rows[0]);
+
+            PatchTree(tree, module, authoritative: false, out int credited, out _, out _, out _);
+
+            Assert.True(kerbinOrbit.IsComplete);
+            Assert.False(munOrbit.IsComplete);
+            Assert.False(munOrbit.IsReached);
+            Assert.Equal(1, credited);
+        }
+
+        [Fact]
+        public void PatchProgressNodeTree_QualifiedRows_CompleteTheirOwnBodiesOnly()
+        {
+            var tree = new ProgressTree();
+            var kerbin = new ProgressNode("Kerbin", false);
+            var kerbinOrbit = new ProgressNode("Orbit", false);
+            kerbin.Subtree.AddNode(kerbinOrbit);
+            tree.AddNode(kerbin);
+            var mun = new ProgressNode("Mun", false);
+            var munOrbit = new ProgressNode("Orbit", false);
+            mun.Subtree.AddNode(munOrbit);
+            tree.AddNode(mun);
+
+            var rows = new[] { MilestoneRow("Mun/Orbit", 100.0, "recMun") };
+            var module = new MilestonesModule();
+            module.SetPreLedgerProgressSeed(Capture(KspStatePatcher.ObserveProgressTreeForSeed(tree), rows, null));
+            module.Reset();
+            module.ProcessAction(rows[0]);
+
+            PatchTree(tree, module, authoritative: false, out int credited, out _, out _, out _);
+
+            Assert.True(munOrbit.IsComplete);
+            Assert.False(kerbinOrbit.IsComplete);
+            Assert.Equal(1, credited);
         }
 
         [Fact]
