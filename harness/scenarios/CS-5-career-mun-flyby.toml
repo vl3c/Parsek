@@ -1,0 +1,254 @@
+schema = 1
+id = "CS-5-career-mun-flyby"
+# THE SCRIPTED CAMPAIGN, STAGE 5 (docs/dev/autotest-roadmap.md, "The scripted campaign
+# program"): the CS-5 row reads "Mun flyby and return | B5 | a reentry tail after B5 (B5
+# ends at Kerbin SOI re-entry)". The career's first trip past the Mun, on CS-4b's
+# produced save: launch a Mun-capable crewed craft from the VAB, fly MechJeb's ascent to
+# a low orbit, a planned transfer to the Mun with patched conics and maneuver nodes (the
+# Tracking Station and Mission Control are at level 1), the Mun flyby, a return trim,
+# reentry on the heat shield, splash down, recover, auto-commit, then close with the
+# ledger ground truth in FLIGHT.
+#
+# THE HOST. `cs-career-ts1`: CS-4b's produced save (run `2026-10-27_1957`, PASS attempt 1,
+# LedgerGroundTruth `hardFailures=0`), harvested with `harvest_bdock_station.py
+# --keep-parsek --allow-no-vessel --expect-mode CAREER`, no edit. Career, Normal preset,
+# funds 76994.30, science 9.5, rep 84.0; the Tracking Station, the Launch Pad and Mission
+# Control at level 1 (lvl 0.5), every other facility at level 0 (VAB: 30 parts); start,
+# basicRocketry, engineering101, survivability, generalRocketry and stability researched
+# (BypassEntryPurchaseAfterResearch = True, so no part fees); the RT-10 PartTest 1a9762e8
+# the only Active contract (no Mun contract is offered on the host); two committed trees,
+# seven recordings, no vessel. Its Ships/VAB carries `CS Mun Flyby.craft`, built by
+# `harness/tools/build_cs_orbiter_craft.py --variant mun` (gate:
+# harness/lib/test_cs_orbiter_craft.py). Nothing is researched or upgraded here.
+#
+# THE CRAFT, `CS Mun Flyby` (28 parts, 36.505 t, 21.47 m, cost 11577 by the builder;
+# level-0 VAB 30 parts, level-1 pad 140 t and 36 m per the decompiled
+# GameVariables.GetPartCountLimit / GetCraftMassLimit / GetCraftSizeLimit): Mk16 chute,
+# Mk1 pod, 1.25 m heat shield (staging disabled), TD-12 (stage 1, the pod separation), 4
+# FL-T200 on a Swivel (stage 2, hot-staged with the TD-12 below it), 11 FL-T200 on a
+# Swivel core (stage 4, the launch) with two TT-38K (stage 3) carrying two Thumpers at
+# 60% thrust (stage 4) and their nose cones. Delta-v 5266 m/s (the launch stage at
+# sea-level Isp: 1217 + 1493 + 2556), liftoff TWR 1.31 before the crew's mass. The core
+# runs dry below orbit, so MechJeb's autostage (limited to stage 2) lights the upper
+# Swivel inside the ascent, which leaves it about 1850 m/s in orbit for the 860 m/s
+# transfer, the corrections and the return trim.
+#
+# THE ROUTE, mission `b5_mun_flyby_return` (mlib.mfr_decide): B5's machine VERBATIM
+# (MechJeb ascent with its own circularization, which the level-1 Tracking Station now
+# allows; the ManeuverPlanner transfer and course corrections through KRPC.MechJeb; rails
+# coasts; the flyby; RETURN at the Mun SOI exit), with the career launch gate (the
+# setters before the engage, the stage held until the AscentAutopilot READS enabled),
+# then a horizontal return trim that puts the Kerbin periapsis in [20, 40] km, then
+# B4's machine VERBATIM from its REENTRY (the service section dropped, one native warp
+# down the fall, bounded hops above 70 km, the chute armed at 12 km, SPLASHDOWN).
+# courseCorrectPeriapsisMeters = 1500000: a distant flyby (Mun SOI 2429 km) bends the
+# transfer little, so the return trim stays small on either side of the Mun. A 2-D
+# patched-conic estimate over 12.5-15 Mm transfer apoapses gives an impact-side return
+# (periapsis -120 to -380 km, a RAISE) or a 970-1170 km one (a LOWER of about 133-195 m/s
+# horizontal at the SOI exit); B5's own flown 250 km flyby left 7430 km, a 400+ m/s
+# return. MechJeb's planner and executor need no MechJebUnlocked switch: KRPC.MechJeb
+# calls the operations' MakeNodesImpl and the executor directly, and both gate only on
+# patched conics (the Tracking Station level), which the host has.
+#
+# THE MONEY, read from the host: the rollout is the craft's cost (11577 by the builder;
+# CS-4's measured rollout ran 35 over its builder's figure, the crew's kit), leaving about
+# 65380. Stock pays the Mun milestones in flight: Mun/Flyby at the SOI entry
+# (CelestialBodyFlyby, onVesselSOIChanged to the Mun) and, by the decompile, Mun/Escape at
+# the SOI exit (CelestialBodyEscape) and Mun/ReturnFromFlyBy at the splashdown
+# (CelestialBodyReturn, ReturnFrom.FlyBy). Milestone ids are body-qualified
+# (GameStateRecorder.QualifyMilestoneId; PR #2301 qualifies Orbit / Suborbit / Flight
+# too), so every milestone line is pinned qualified, never bare. Only Mun/Flyby is pinned;
+# the other two and every payout are the first flight's reading. The pod's recovery pays a
+# distance-scaled share of the pod, chute and shield. The ground-truth Flea's rollout
+# (-2932) is refunded by its pad recovery.
+#
+# THE ASSERTIONS THAT MATTER: the Mun/Flyby milestone captured in the recorded flight, the
+# recovery of the returned pod, the scene-exit commit, the RT-10 PartTest still Active,
+# and the ground truth closing with all of it in the pools.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) no existing flight is a prefix of this one
+# (new career fixture, new craft); (2) no idle waits: the only game-time waits are the
+# mission's own phase gates; (3) no dwell keys; (4) the coasts ride B5's rails policy and
+# the fall one native warp; the burns stay at 1x; (5) B5's coast leads are B5's flown
+# values; (6) fail fast: the launch engage gate ends a refused ascent computer on the pad,
+# B5's give-ups are its own, the trim gives up by name on an engine that never lights or
+# runs dry, the fall on a stalled warp; `[retry] once` is kept on purpose for a first
+# flight of a new craft through MechJeb; (7) the recordings count is a window until the
+# first flight measures it; (8) predicted wall ~1200-1800 s, so operator (stock-tree is
+# not in the nightly instance set); (9) `flight_efficiency.py` after the first green
+# flight.
+#
+# STATUS: AUTHORED 2026-10-27, NEVER FLOWN. The batch line pins `total=3` with the split
+# regexed (registered in IngameBatchWiringGroupTests.INTERIM_PIN_IDS); CS-3, CS-3b, CS-4
+# and CS-4b measured `passed=3 failed=0 skipped=0` for the same category in the same
+# scene on this career.
+tier = "operator"
+description = "Scripted campaign stage 5 (Career): on CS-4b's produced save, launch the CS Mun Flyby from the VAB, fly MechJeb's ascent, a planned Mun transfer and the flyby (B5), trim the Kerbin return periapsis, reenter on the heat shield and splash down (B4's tail), recover, auto-commit, then run the ledger ground truth against KSP's own career save."
+instanceProfile = "stock-tree"
+tags = ["campaign", "CS-5", "career", "editor", "mechjeb", "mun", "cross-soi", "reentry",
+        "recovery", "auto-commit", "ledger", "ground-truth", "ingame-batch",
+        "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-ts1"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind    = "autopilot"
+mission = "b5_mun_flyby_return"
+
+# Budget arithmetic: runtime 5400 >= 300 LoadGame + 120 GoToEditor + 180 LaunchFromEditor
+# + 3000 mission + 120 Recover + 120 GoToEditor + 180 LaunchFromEditor + 540 RunTests +
+# 120 Recover + 120 SaveGame + FlushAndQuit + margin. Mission 3000 (WALL): B5's flown
+# 469 s on its sandbox lane, MechJeb's ascent of a heavier stack, the return trim at 1x
+# (settle plus up to ~200 m/s at a quarter throttle), one native fall warp, B4's hops and
+# the chute descent. Phase budgets in missionParams are GAME time.
+steps = [
+  # scene = "spacecenter": the host holds no vessel.
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoMerge",          value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "CS Mun Flyby" },    expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "munflyer", expect = "OK", budget = 180 },
+  { phase = "mission",                                                                expect = "MISSION-OK", budget = 3000 },
+  # The return ends splashed with the pod active; the pod is the launch's root part, so
+  # it keeps the launch vessel's pid (CS-4's shape). Recovering it leaves FLIGHT and the
+  # tree auto-commits.
+  { cmd = "Recover",          args = { pid = "${munflyer.pid}" },                     expect = "OK", budget = 120 },
+  { cmd = "CommitTree",                                                               expect = "REJECTED" },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "Jumping Flea" },    expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "probe",    expect = "OK", budget = 180 },
+  { cmd = "RunTests",         args = { category = "LedgerGroundTruth" },              expect = "OK", budget = 540 },
+  { cmd = "MissionMark",      args = { label = "cs5-groundtruth-done" },              expect = "OK" },
+  # Leave no craft on the pad in the produced save (it is the next career stage's host).
+  { cmd = "Recover",          args = { pid = "${probe.pid}" },                        expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "SaveGame",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+# B5's flown values (B5-mun-flyby) for the flyby leg, the career launch keys CS-4 flew,
+# and the return tail (b5_mun_flyby_return.schema.toml). Thresholds and budgets only,
+# never a golden trajectory.
+[driver.missionParams]
+targetApoapsisMeters       = 80000
+targetPeriapsisMeters      = 80000
+apoErrorMeters             = 5000
+periErrorMeters            = 5000
+ascentTimeoutSeconds       = 480
+circularizeTimeoutSeconds  = 300
+targetBodyName             = "Mun"
+homeBodyName               = "Kerbin"
+transferMinApoapsisMeters  = 10000000
+# A distant flyby (see the header): the return trim stays small on either side.
+courseCorrectPeriapsisMeters = 1500000
+maxCorrectionDvMps         = 300
+correctionTriggerAltsMeters = [0, 6000000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+transferBurnTimeoutSeconds = 4000
+coastTimeoutSeconds        = 400000
+flybyTimeoutSeconds        = 300000
+coastWarpFactor            = 6
+flybyWarpFactor            = 5
+flybyMaxWarpFactor         = 6
+nodeArrivalMarginSeconds   = 15
+planWarpFactor             = 2
+soiLeadSeconds             = 30
+flipPhysicsWarpFactor      = 1
+targetPeriapsisFloorMeters = 10000
+# --- career launch (CS-4's values) ---
+mjEngageConfirmFrames      = 20
+# MechJeb stops after the upper Swivel's stage; stage 1 is the pod's own separation.
+autostageLimit             = 2
+ascentType                 = 0
+# --- the return tail ---
+returnPeriapsisMeters      = 30000
+returnPeriapsisMinMeters   = 20000
+returnPeriapsisMaxMeters   = 40000
+returnHeadingDeg           = 90
+returnTrimThrottle         = 0.25
+returnTrimFineThrottle     = 0.03
+returnTrimFineBandMeters   = 300000
+returnTrimSettleSeconds    = 10
+returnMaxAttitudeErrorDeg  = 5
+returnTrimTimeoutSeconds   = 900
+# One stage after the trim: the TD-12 under the heat shield drops the service section.
+returnStageCount           = 1
+returnStageSettleSeconds   = 2
+returnWarpAboveAltMeters   = 70000
+returnWarpHopSeconds       = 120
+# The ARM altitude, B4's: the Mk16 persists `automateSafeDeploy = 0` (opens only when
+# safe), so an armed chute waits for a survivable speed and opens by itself.
+returnChuteDeployAltMeters = 12000
+returnReentryTimeoutSeconds = 3600
+returnDescentTimeoutSeconds = 900
+returnLandedSituations     = ["LANDED", "SPLASHED"]
+returnFallLeadSeconds      = 600
+returnFallMinAltMeters     = 200000
+returnFallTimeoutSeconds   = 200000
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# A WINDOW until the first flight measures it: the host's seven + the flyer's root chain
+# (the optimizer's environment and body splits: ascent, the cross-SOI coast, reentry;
+# CS-4's orbit-and-return measured three legs) + the dropped groups past
+# ShouldRecordDebris (two Thumpers, the core, the service section). The ground-truth
+# launch is unrecorded.
+count = { min = 11, max = 20 }
+
+[expectations.logContracts]
+# Source of each literal (Source/Parsek/...):
+#   launchfromeditor complete          TestCommands/TestCommandEditorRoute.cs:517
+#   Game state: FundsChanged           GameStateRecorder.cs:945
+#   Milestone enriched:                GameStateRecorder.Handlers.cs:1516 (the id from
+#                                       QualifyMilestoneId, :1799)
+#   recover observed onVesselRecovered TestCommands/ParsekTestCommandAddon.Recover.cs:284
+#   ground-truth game mode=            InGameTests/LedgerGroundTruthHarness.cs:125
+#   result: hardFailures=              InGameTests/LedgerGroundTruthHarness.cs:246
+#   BATCH_COMPLETE v1                  InGameTests/InGameTestRunner.cs:1219
+required = [
+  # The flight.
+  "launchfromeditor complete scene=FLIGHT vessel=CS Mun Flyby pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  "Game state: FundsChanged -[0-9]+ \\(VesselRollout\\)",
+  "Recording started",
+  # The Mun flyby milestone, body-qualified, captured in flight.
+  "Milestone enriched: 'Mun/Flyby' funds=[0-9]+ rep=[0-9.]+ sci=[0-9.]+",
+  # The recovery of the returned pod, and the scene-exit commit it causes.
+  "recover observed onVesselRecovered pid=[0-9]+ vessel=CS Mun Flyby quick=false",
+  "Game state: FundsChanged \\+[0-9]+ \\(VesselRecovery\\)",
+  "CommitTreeSceneExit: finalizing tree at UT=[0-9.]+[\\s\\S]{0,8000}?Recording stopped\\. ",
+  # The ground truth, in FLIGHT on the unrecorded Flea.
+  "launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  "Game state: FundsChanged -2932 \\(VesselRollout\\)",
+  "ground-truth game mode=CAREER pools=funds,science,reputation",
+  "result: hardFailures=0 ",
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  # KspStatePatcher.cs:5982-5983.
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  # A stock pool movement no row holds (KspStatePatcher.cs:5805, logged at :5812-5813).
+  "filed StockPoolAdjustment amount=\\S+ reason=leak ",
+  # The RT-10 PartTest stays Active (the craft carries no Hammer).
+  "AddEvent: ContractCompleted key='1a9762e8-8c97-495b-b451-ad62726c08cb'",
+  "Game state: ContractFailed ",
+  "completed by no flight, filed untagged",
+]
+
+[runtime]
+budgetSeconds = 5400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

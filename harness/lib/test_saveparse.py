@@ -3756,6 +3756,33 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "1b605e0e87fa47ab91bf1c9fe4c9df9f"],
             "schemaGeneration": 4,
         },
+        # PROVENANCE: cs-career-ts1 <- CS-4b-career-tracking-station, run 2026-10-27_1957
+        # (PASS attempt 1, LedgerGroundTruth hardFailures=0), harvested from that run's
+        # `_save` snapshot (logs/flights/cs-campaign/cs4b-run2-save) with --keep-parsek
+        # --allow-no-vessel --expect-mode CAREER, no edit. CS-4's career after the KSC
+        # half: funds 76994.30, science 9.5, rep 84.0; the Tracking Station, the Launch
+        # Pad and Mission Control at level 1 (lvl 0.5), every other facility at level 0;
+        # start / basicRocketry / engineering101 / survivability / generalRocketry /
+        # stability researched; the RT-10 PartTest the only Active contract; no vessel.
+        # CS-4b recorded nothing (its ground-truth Flea was unrecorded), so the payload is
+        # cs-career-orbit's unchanged. Carries CS-5's craft `CS Mun Flyby.craft`
+        # (harness/tools/build_cs_orbiter_craft.py --variant mun). CS-5's host.
+        "cs-career-ts1": {
+            "trees": 2, "committedTrees": 2, "recordings": 7,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Recovered": 2, "Destroyed": 3},
+            "branchPoints": {"JointBreak": 3},
+            "minAuthoritativeSidecars": 25,
+            "recordingIds": ["71288de785d2472ea60da273f42ce1c6",
+                             "692da78791dd4026a5bb8b49931987b1",
+                             "e312c6a92d184ddc8eeab566190f94d7",
+                             "a7ec24c9538443d5b18a22b7607e2b24",
+                             "8b1aa915654e43d28f21d4d4342aa153",
+                             "146cafb405004973aa10a51e4fb708f6",
+                             "1b605e0e87fa47ab91bf1c9fe4c9df9f"],
+            "schemaGeneration": 4,
+        },
     }
     # --- THE CAREER ROUTE COPIES (H74-H79) ---------------------------------
     # Built by harness/tools/build_route_career.py from the four recorded route hosts

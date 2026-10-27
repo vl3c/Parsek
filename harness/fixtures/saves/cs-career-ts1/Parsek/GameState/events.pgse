@@ -1,0 +1,478 @@
+version = 1
+GAME_STATE_EVENT
+{
+	ut = 1389.0243090813549
+	type = 10
+	key = Jebediah Kerman
+	detail = from=Assigned;to=Available
+	cseq = 164
+}
+GAME_STATE_EVENT
+{
+	ut = 1389.0243090813549
+	type = 22
+	key = Jebediah Kerman
+	detail = flight=3;entries=3,Land,Kerbin|3,Flight,Kerbin|3,Suborbit,Kerbin|3,Orbit,Kerbin|3,Recover,;trait=Pilot
+	cseq = 165
+}
+GAME_STATE_EVENT
+{
+	ut = 1389.0243090813549
+	type = 16
+	key = VesselRecovery
+	valBefore = 37.5
+	valAfter = 47.5
+	cseq = 166
+}
+GAME_STATE_EVENT
+{
+	ut = 1389.0243090813549
+	type = 15
+	key = VesselRecovery
+	detail = vessel=CS%20Orbiter;rawVessel=CS%20Orbiter;pid=2600440077;vesselType=Ship;fundsEarned=(unknown);recoveryFactor=0.351843029
+	valBefore = 276539.038523674
+	valAfter = 276994.29577875137
+	cseq = 168
+}
+GAME_STATE_EVENT
+{
+	ut = 1389.2043090813547
+	type = 10
+	key = Jebediah Kerman
+	detail = from=Available;to=Assigned
+	cseq = 170
+}
+GAME_STATE_EVENT
+{
+	ut = 1389.4843090813545
+	type = 15
+	key = VesselRollout
+	valBefore = 276994.29577875137
+	valAfter = 274062.29577875137
+	cseq = 171
+}
+GAME_STATE_EVENT
+{
+	ut = 1391.6843090813525
+	type = 10
+	key = Jebediah Kerman
+	detail = from=Assigned;to=Available
+	cseq = 173
+}
+GAME_STATE_EVENT
+{
+	ut = 1391.6843090813525
+	type = 22
+	key = Jebediah Kerman
+	detail = flight=4;entries=4,Recover,;trait=Pilot
+	cseq = 174
+}
+GAME_STATE_EVENT
+{
+	ut = 1391.6843090813525
+	type = 15
+	key = VesselRecovery
+	detail = vessel=Jumping%20Flea;rawVessel=Jumping%20Flea;pid=2905720181;vesselType=Ship;fundsEarned=(unknown);recoveryFactor=1
+	valBefore = 274062.29577875137
+	valAfter = 276994.29577875137
+	cseq = 175
+}
+GAME_STATE_EVENT
+{
+	ut = 1392.3443090813519
+	type = 15
+	key = StructureConstruction
+	valBefore = 276994.29577875137
+	valAfter = 126994.29577875137
+	cseq = 177
+}
+GAME_STATE_EVENT
+{
+	ut = 1392.3443090813519
+	type = 11
+	key = SpaceCenter/TrackingStation
+	detail = cost=150000
+	valAfter = 0.5
+	cseq = 178
+}
+GAME_STATE_EVENT
+{
+	ut = 1392.3843090813518
+	type = 16
+	key = RnDTechResearch
+	valBefore = 47.5
+	valAfter = 9.5
+	cseq = 179
+}
+GAME_STATE_EVENT
+{
+	ut = 1392.3843090813518
+	type = 7
+	key = fuelTankSmall
+	detail = cost=0;entryCost=2500
+	valBefore = 126994.29577875137
+	valAfter = 126994.29577875137
+	cseq = 180
+}
+GAME_STATE_EVENT
+{
+	ut = 1392.3843090813518
+	type = 7
+	key = solidBooster1-1
+	detail = cost=0;entryCost=2800
+	valBefore = 126994.29577875137
+	valAfter = 126994.29577875137
+	cseq = 181
+}
+GAME_STATE_EVENT
+{
+	ut = 1392.3843090813518
+	type = 7
+	key = liquidEngine.v2
+	detail = cost=0;entryCost=3200
+	valBefore = 126994.29577875137
+	valAfter = 126994.29577875137
+	cseq = 182
+}
+GAME_STATE_EVENT
+{
+	ut = 1392.3843090813518
+	type = 7
+	key = liquidEngine
+	detail = cost=0;entryCost=0
+	valBefore = 126994.29577875137
+	valAfter = 126994.29577875137
+	cseq = 183
+}
+GAME_STATE_EVENT
+{
+	ut = 1392.3843090813518
+	type = 6
+	key = generalRocketry
+	detail = cost=20;parts=liquidEngine,liquidEngine.v2,solidBooster1-1,fuelTankSmall
+	valBefore = 47.5
+	valAfter = 27.5
+	cseq = 184
+}
+GAME_STATE_EVENT
+{
+	ut = 1392.4443090813518
+	type = 7
+	key = radialDecoupler
+	detail = cost=0;entryCost=1200
+	valBefore = 126994.29577875137
+	valAfter = 126994.29577875137
+	cseq = 185
+}
+GAME_STATE_EVENT
+{
+	ut = 1392.4443090813518
+	type = 7
+	key = winglet
+	detail = cost=0;entryCost=1500
+	valBefore = 126994.29577875137
+	valAfter = 126994.29577875137
+	cseq = 186
+}
+GAME_STATE_EVENT
+{
+	ut = 1392.4443090813518
+	type = 7
+	key = noseCone
+	detail = cost=0;entryCost=2000
+	valBefore = 126994.29577875137
+	valAfter = 126994.29577875137
+	cseq = 187
+}
+GAME_STATE_EVENT
+{
+	ut = 1392.4443090813518
+	type = 6
+	key = stability
+	detail = cost=18;parts=noseCone,winglet,radialDecoupler
+	valBefore = 27.5
+	valAfter = 9.5
+	cseq = 188
+}
+GAME_STATE_EVENT
+{
+	ut = 1392.5043090813517
+	type = 15
+	key = StructureConstruction
+	valBefore = 126994.29577875137
+	valAfter = 76994.295778751373
+	cseq = 189
+}
+GAME_STATE_EVENT
+{
+	ut = 1392.5043090813517
+	type = 11
+	key = SpaceCenter/LaunchPad
+	detail = cost=50000
+	valAfter = 0.5
+	cseq = 190
+}
+GAME_STATE_EVENT
+{
+	ut = 1392.5843090813516
+	type = 10
+	key = Jebediah Kerman
+	detail = from=Available;to=Assigned
+	cseq = 191
+}
+GAME_STATE_EVENT
+{
+	ut = 1392.8643090813514
+	type = 15
+	key = VesselRollout
+	valBefore = 76994.295778751373
+	valAfter = 74062.295778751373
+	cseq = 192
+}
+GAME_STATE_EVENT
+{
+	ut = 1394.8843090813496
+	type = 10
+	key = Jebediah Kerman
+	detail = from=Assigned;to=Available
+	cseq = 194
+}
+GAME_STATE_EVENT
+{
+	ut = 1394.8843090813496
+	type = 22
+	key = Jebediah Kerman
+	detail = flight=5;entries=5,Recover,;trait=Pilot
+	cseq = 195
+}
+GAME_STATE_EVENT
+{
+	ut = 1394.8843090813496
+	type = 15
+	key = VesselRecovery
+	detail = vessel=Jumping%20Flea;rawVessel=Jumping%20Flea;pid=2905720181;vesselType=Ship;fundsEarned=(unknown);recoveryFactor=1
+	valBefore = 74062.295778751373
+	valAfter = 76994.295778751373
+	cseq = 196
+}
+CONTRACT_SNAPSHOT
+{
+	guid = a5a1f217-d79b-4ef9-8122-f051ecdd1681
+	ut = 0.6000000000000002
+	CONTRACT
+	{
+		guid = a5a1f217-d79b-4ef9-8122-f051ecdd1681
+		type = ExplorationContract
+		prestige = 0
+		seed = -1389357970
+		state = Active
+		viewed = Unseen
+		agent = Kerbin World-Firsts Record-Keeping Society
+		agentName = Kerbin World-Firsts Record-Keeping Society
+		deadlineType = None
+		expiryType = Floating
+		ignoresWeight = True
+		values = 43200,0,1120,2080,1120,1,1,0,43200.06,0.6,0,0
+		targetBody = 1
+		bodyRatio = 0
+		PARAM
+		{
+			name = ProgressTrackingParameter
+			state = Incomplete
+			values = 3200,0,1,1,0
+			targetBody = 1
+			targetType = FIRSTLAUNCH
+		}
+	}
+}
+CONTRACT_SNAPSHOT
+{
+	guid = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
+	ut = 0.64000000000000024
+	CONTRACT
+	{
+		guid = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
+		type = ExplorationContract
+		prestige = 0
+		seed = -1389357967
+		state = Active
+		viewed = Unseen
+		agent = Kerbin World-Firsts Record-Keeping Society
+		agentName = Kerbin World-Firsts Record-Keeping Society
+		deadlineType = None
+		expiryType = Floating
+		ignoresWeight = True
+		values = 86400,0,2240,4160,2240,1,2,0,86400.06,0.64,0,0
+		targetBody = 1
+		bodyRatio = 0
+		PARAM
+		{
+			name = ProgressTrackingParameter
+			state = Incomplete
+			values = 6400,0,1,2,0
+			targetBody = 1
+			targetType = SCIENCE
+		}
+	}
+}
+CONTRACT_SNAPSHOT
+{
+	guid = 31f5240c-4c87-4a98-803b-1e84e1f19ce6
+	ut = 348.87999999997265
+	CONTRACT
+	{
+		guid = 31f5240c-4c87-4a98-803b-1e84e1f19ce6
+		type = ExplorationContract
+		prestige = 1
+		seed = -1389357956
+		state = Active
+		viewed = Unseen
+		agent = Kerbin World-Firsts Record-Keeping Society
+		agentName = Kerbin World-Firsts Record-Keeping Society
+		deadlineType = None
+		expiryType = Floating
+		ignoresWeight = True
+		values = 108000,0,11200,20800,11200,4,8,0,108000.06,348.879999999973,0,0
+		targetBody = 1
+		bodyRatio = 0
+		PARAM
+		{
+			name = ProgressTrackingParameter
+			state = Incomplete
+			values = 32000,0,4,8,0
+			targetBody = 1
+			targetType = REACHSPACE
+		}
+	}
+}
+CONTRACT_SNAPSHOT
+{
+	guid = 31559641-5ef7-481b-adc7-41a6b6d39237
+	ut = 348.9399999999726
+	CONTRACT
+	{
+		guid = 31559641-5ef7-481b-adc7-41a6b6d39237
+		type = ExplorationContract
+		prestige = 2
+		seed = -1389357945
+		state = Active
+		viewed = Unseen
+		agent = Kerbin World-Firsts Record-Keeping Society
+		agentName = Kerbin World-Firsts Record-Keeping Society
+		deadlineType = None
+		expiryType = Floating
+		ignoresWeight = True
+		values = 43200,0,16800,31200,16800,6,10,0,43200.06,348.939999999973,0,0
+		targetBody = 1
+		bodyRatio = 0
+		PARAM
+		{
+			name = ProgressTrackingParameter
+			state = Incomplete
+			values = 48000,0,6,10,0
+			targetBody = 1
+			targetType = ORBIT
+		}
+	}
+}
+CONTRACT_SNAPSHOT
+{
+	guid = 1a9762e8-8c97-495b-b451-ad62726c08cb
+	ut = 349.01999999997253
+	CONTRACT
+	{
+		guid = 1a9762e8-8c97-495b-b451-ad62726c08cb
+		type = PartTest
+		prestige = 0
+		seed = 790942467
+		state = Active
+		viewed = Unseen
+		agent = Periapsis Rocket Supplies Co
+		agentName = Periapsis Rocket Supplies Co
+		deadlineType = Floating
+		expiryType = Floating
+		values = 21600,9201600,9000,22500,9000,3,6,4,21604.82,349.019999999973,9201949.02,0
+		part = solidBooster.v2
+		haul = False
+		dest = 1
+		sit = FLYING
+		exp = True
+		PARAM
+		{
+			name = PartTest
+			state = Incomplete
+			values = 0,0,0,0,0
+			part = solidBooster.v2
+			body = Kerbin
+			situation = FLYING
+			uniqueID = 0.77449567978014089
+			haul = False
+			repeatability = ONCEPERPART
+			notes = To perform the test, activate the part through the staging sequence when all test conditions are met.
+			PARAM
+			{
+				name = ReachDestination
+				state = Incomplete
+				disableOnStateChange = False
+				values = 0,0,0,0,0
+				dest = 1
+				title = 
+			}
+			PARAM
+			{
+				name = ReachSituation
+				state = Incomplete
+				disableOnStateChange = False
+				values = 0,0,0,0,0
+				sit = FLYING
+				title = 
+			}
+			PARAM
+			{
+				name = ReachAltitudeEnvelope
+				state = Incomplete
+				disableOnStateChange = False
+				values = 0,0,0,0,0
+				minAlt = 36000
+				maxAlt = 41000
+			}
+			PARAM
+			{
+				name = ReachSpeedEnvelope
+				state = Incomplete
+				disableOnStateChange = False
+				values = 0,0,0,0,0
+				minSpd = 260
+				maxSpd = 390
+			}
+		}
+	}
+}
+SCIENCE_SUBJECTS
+{
+	SUBJECT
+	{
+		id = crewReport@KerbinFlyingLowShores
+		science = 3.5
+	}
+	SUBJECT
+	{
+		id = mysteryGoo@KerbinSrfLandedLaunchPad
+		science = 3
+	}
+	SUBJECT
+	{
+		id = mysteryGoo@KerbinFlyingLow
+		science = 7
+	}
+	SUBJECT
+	{
+		id = recovery@KerbinFlew
+		science = 5
+	}
+	SUBJECT
+	{
+		id = recovery@KerbinOrbited
+		science = 10
+	}
+}

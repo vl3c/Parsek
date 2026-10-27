@@ -1,5 +1,5 @@
 """Drift and shape gates for `CS Orbiter.craft` (CS-4's craft, in the `cs-career-mc1`
-fixture).
+fixture) and `CS Mun Flyby.craft` (CS-5's, `--variant mun`, in `cs-career-ts1`).
 
 The craft is BUILT BY CONSTRUCTION by `harness/tools/build_cs_orbiter_craft.py` from
 part tails lifted byte-for-byte out of stock craft. A hand edit to the craft, a change to
@@ -134,6 +134,110 @@ class CsOrbiterCraftTests(unittest.TestCase):
         self.assertEqual(self.b.STAGE_SWIVEL, params["autostageLimit"])
         self.assertEqual(1, params["reentryStageCount"])
         self.assertEqual(self.b.STAGE_POD_SEPARATION, self.b.STAGE_SWIVEL - 1)
+
+
+MUN_CRAFT = os.path.join(HARNESS_ROOT, "fixtures", "saves", "cs-career-ts1",
+                         "Ships", "VAB", "CS Mun Flyby.craft")
+MUN_SPEC = os.path.join(HARNESS_ROOT, "scenarios", "CS-5-career-mun-flyby.toml")
+# Every node the CS-5 host (`cs-career-ts1`) has researched; the lane researches none.
+TECH_ON_TS1 = ("start", "basicRocketry", "engineering101", "survivability",
+               "generalRocketry", "stability")
+
+
+class CsMunFlybyCraftTests(unittest.TestCase):
+    """`CS Mun Flyby.craft` (CS-5's craft, `--variant mun`, in `cs-career-ts1`)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.b = _load_builder()
+        cls.fig = cls.b.mun_figures()
+
+    def test_the_committed_craft_is_byte_identical_to_a_fresh_derivation(self):
+        self.assertEqual([], self.b.mun_check())
+
+    def test_the_craft_fits_the_hosts_facilities(self):
+        # VAB level 0 (30 parts); Launch Pad level 1 (140 t, 36 m), per the decompiled
+        # GameVariables limits the builder names.
+        self.assertLessEqual(self.fig["parts"], 30)
+        self.assertLessEqual(self.fig["mass"], 140.0)
+        self.assertLessEqual(self.fig["height"], 36.0)
+        self.assertEqual(self.fig["parts"], len(_parts(_read(MUN_CRAFT))))
+
+    def test_the_craft_carries_the_mun_budget(self):
+        # ~3400 to orbit + 860 transfer + up to 200 of corrections and return trim + margin.
+        self.assertGreaterEqual(self.fig["dv_total"], 4800.0)
+        self.assertGreaterEqual(self.fig["dv_upper"], 1500.0)
+        self.assertGreaterEqual(self.fig["liftoff_twr"], 1.25)
+        self.assertEqual(0.6, self.fig["booster_thrust_fraction"])
+
+    def test_the_stage_order_is_the_one_the_mission_expects(self):
+        table = self.b.stage_table(self.b.mun_layout())
+        self.assertEqual({4: ["liquidEngine2", "solidBooster1-1", "solidBooster1-1"],
+                          3: ["radialDecoupler", "radialDecoupler"],
+                          2: ["Decoupler.1", "liquidEngine2"],
+                          1: ["Decoupler.1"],
+                          0: ["parachuteSingle"]}, table)
+
+    def test_every_part_is_on_the_hosts_tech(self):
+        allowed = set()
+        for node in TECH_ON_TS1:
+            allowed |= _unlocks(node)
+        parts = set(_parts(_read(MUN_CRAFT)))
+        self.assertEqual([], sorted(parts - allowed))
+        # The two nodes CS-4b researched are what make this craft possible.
+        self.assertTrue(parts & _unlocks("generalRocketry"))
+        self.assertTrue(parts & _unlocks("stability"))
+
+    def test_the_heat_shield_is_not_staged_and_rides_the_pod(self):
+        text = _read(MUN_CRAFT)
+        block = text.split("\tpart = HeatShield1_", 1)[1].split("\n}", 1)[0]
+        self.assertRegex(block, r"(?m)^\tistg = -1$")
+        self.assertRegex(block, r"(?m)^\tattN = top,mk1pod\.v2_\d+_0\|0\.022\|0$")
+        self.assertRegex(block, r"name = ModuleDecouple\n(?:\t\t.*\n)*?\t\tstagingEnabled = False")
+
+    def test_the_root_is_the_pod_and_the_ship_is_named_for_the_editor_step(self):
+        text = _read(MUN_CRAFT)
+        self.assertEqual("mk1pod.v2", _parts(text)[0])
+        self.assertRegex(text, r"(?m)^ship = CS Mun Flyby$")
+        self.assertRegex(text, r"(?m)^version = 1\.12\.5$")
+
+    def test_every_child_is_linked_from_its_parent(self):
+        text = _read(MUN_CRAFT)
+        for token in re.findall(r"(?m)^\tpart = (\S+)$", text)[1:]:
+            with self.subTest(part=token):
+                self.assertIn("\tlink = %s\n" % token, text)
+
+    def test_a_child_of_a_rotated_decoupler_writes_its_offset_in_that_frame(self):
+        # Kerbal 1's convention: the +x booster's attPos0 equals the -x one's, and
+        # the world offset is that local offset turned by the decoupler's yaw.
+        parts = self.b.mun_layout()
+        boosters = [p for p in parts if p.name == "solidBooster1-1"]
+        self.assertEqual(2, len(boosters))
+        for p in boosters:
+            self.assertEqual(self.b.MUN_BOOSTER_LOCAL, p.att_pos0)
+            world = tuple(a - b for a, b in zip(p.pos, p.parent.pos))
+            self.assertAlmostEqual(abs(self.b.MUN_BOOSTER_LOCAL[0]), abs(world[0]), places=6)
+            self.assertAlmostEqual(self.b.MUN_BOOSTER_LOCAL[1], world[1], places=9)
+        self.assertAlmostEqual(boosters[0].pos[0], -boosters[1].pos[0], places=9)
+
+    def test_the_orbiter_variant_is_unchanged(self):
+        # The variant adds tails and parts; the CS-4 craft must still derive byte-for-byte.
+        self.assertEqual([], self.b.check())
+
+    def test_the_spec_flies_this_craft_and_stops_autostage_above_the_pod(self):
+        with open(MUN_SPEC, "rb") as fh:
+            spec = tomllib.load(fh)
+        self.assertEqual("fixtures/saves/cs-career-ts1", spec["fixture"]["saveTemplate"])
+        steps = spec["driver"]["steps"]
+        editor = next(i for i, s in enumerate(steps) if s.get("cmd") == "GoToEditor")
+        self.assertEqual("CS Mun Flyby", steps[editor]["args"]["craft"])
+        self.assertEqual([], [s for s in steps[:editor] if s.get("cmd") == "KscAction"])
+        params = spec["driver"]["missionParams"]
+        # MechJeb stops after the upper Swivel's stage; the return's one owed stage is
+        # the pod separation.
+        self.assertEqual(self.b.MUN_STAGE_CORE_DROP, params["autostageLimit"])
+        self.assertEqual(1, params["returnStageCount"])
+        self.assertEqual(self.b.MUN_STAGE_POD_SEPARATION, self.b.MUN_STAGE_CORE_DROP - 1)
 
 
 if __name__ == "__main__":

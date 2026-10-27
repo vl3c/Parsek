@@ -72,6 +72,7 @@ Usage:
     python harness/tools/build_cs_orbiter_craft.py --write
     python harness/tools/build_cs_orbiter_craft.py --report [--tanks N]
     python harness/tools/build_cs_orbiter_craft.py --verify-donors <stock-tree Ships dir>
+    python harness/tools/build_cs_orbiter_craft.py --variant mun --check|--write|--report
 
 Stdlib only; ASCII only.
 """
@@ -243,6 +244,12 @@ class Part(object):
         self.parent = None
         # Which stage's drop takes this part off the vessel: "pod" stays to the end.
         self.group = group
+        # The TAILS key (the part name unless one part carries two donor tails) and
+        # the attach overrides a child of a ROTATED parent needs (its attPos0 /
+        # attRot0 are in the parent's frame); None keeps the world-frame defaults.
+        self.tail = name
+        self.att_pos0 = None
+        self.att_rot0 = None
 
     @property
     def uid(self):
@@ -323,10 +330,12 @@ def render_part(p, index):
            "\tpersistentId = %d" % (1700000000 + index * 7717),
            "\tpos = %s" % _vec(*p.pos),
            "\tattPos = 0,0,0",
-           "\tattPos0 = %s" % _vec(*rel),
+           "\tattPos0 = %s" % (_vec(*p.att_pos0) if p.att_pos0 is not None
+                                 else _vec(*rel)),
            "\trot = %s" % p.rot,
            "\tattRot = 0,0,0,1",
-           "\tattRot0 = %s" % (p.rot if p.attm else "0,0,0,1"),
+           "\tattRot0 = %s" % (p.att_rot0 if p.att_rot0 is not None
+                                 else (p.rot if p.attm else "0,0,0,1")),
            "\tmir = 1,1,1",
            "\tsymMethod = Radial",
            "\tautostrutMode = Off",
@@ -346,7 +355,7 @@ def render_part(p, index):
     out += ["\tattN = %s,%s_0|%s|0" % (node, other, _fmt(dy)) for node, other, dy in p.attn]
     if p.srfn:
         out.append("\tsrfN = srfAttach,%s" % p.srfn)
-    out.append(TAILS[p.name])
+    out.append(TAILS[p.tail])
     out.append("}")
     return "\n".join(out)
 
@@ -509,12 +518,13 @@ def _donor_tail(ships_dir, name, rel, occurrence):
 def verify_donors(ships_dir):
     """[] when every embedded tail is byte-identical to its donor in ``ships_dir``."""
     out = []
-    for name, (rel, occ) in sorted(DONORS.items()):
+    for key, (rel, occ) in sorted(DONORS.items()):
+        name = key.split("@", 1)[0]
         got = _donor_tail(ships_dir, name, rel, occ)
         if got is None:
             out.append("%s: no occurrence %d in %s" % (name, occ, rel))
-        elif got != TAILS[name]:
-            out.append("%s: tail differs from %s occurrence %d" % (name, rel, occ))
+        elif got != TAILS[key]:
+            out.append("%s: tail differs from %s occurrence %d" % (key, rel, occ))
     return out
 
 
@@ -531,6 +541,420 @@ def report(tanks):
           % (f["liftoff_twr"], f["reentry_mass"]))
 
 
+
+# ---------------------------------------------------------------------------
+# THE MUN VARIANT (`--variant mun`): `CS Mun Flyby`, CS-5's craft.
+#
+# It flies from `cs-career-ts1` (CS-4b's produced save): `start`, `basicRocketry`,
+# `engineering101`, `survivability`, `generalRocketry` and `stability` researched,
+# the Launch Pad at level 1 and the VAB at level 0. The limits are stock's own
+# (decompiled GameVariables, KSP 1.12.5): GetPartCountLimit(VAB 0.0) = 30,
+# GetCraftMassLimit(pad 0.5) = 140 t, GetCraftSizeLimit(pad 0.5) = 28 x 36 x 28 m.
+#
+# THE STACK, top to bottom (Science Jr.'s layout - radial Thumpers on a Swivel
+# core - grown into a two-stage Mun craft):
+#     Mk16 parachute            stage 0 (the mission deploys it)
+#     Mk1 pod (root)
+#     Heat Shield 1.25 m        staging DISABLED (as on CS Orbiter)
+#     TD-12                     stage 1: drops the service section (the return's
+#                               one owed stage, returnStageCount = 1)
+#     4 x FL-T200
+#     LV-T45 Swivel (upper)     stage 2, with the TD-12 below it (hot stage)
+#     TD-12                     stage 2: drops the spent core
+#     11 x FL-T200
+#     LV-T45 Swivel (core)      stage 4 (the launch)
+#     2 x TT-38K on the core    stage 3: drops the Thumpers
+#     2 x BACC Thumper + cones  stage 4 (the launch), thrust limited to 60%
+# MechJeb's autostage is limited to stage 2, so it never fires stage 1.
+#
+# DONORS, by stored state: the Thumper from GDLV3 (1.12.0) because no stock craft
+# carries one at 100% (GDLV3 60, Science Jr. 50) and 60% is what lifts this stack
+# at about 1.3; the core Swivel from Orbiter One's LOWER Swivel (thrustPercentage
+# 100, nothing below it, shroud off); the FL-T200 from ComSat Lx (1.12.0); the
+# TT-38K and the nose cone from Kerbal 1 (1.12.0). Every other tail is CS
+# Orbiter's.
+#
+# RADIAL GEOMETRY. Science Jr. carries this exact pair (a Thumper on a TT-38K on a
+# 1.25 m core), so its measured attach is used: the decoupler 0.630977273 m off
+# the core axis, the Thumper at (-0.796787977, -0.338456988, 0) in the
+# decoupler's own frame with attRot0 yaw(-90). Radial parts take Kerbal 1's yaw
+# convention (decoupler yaw = 180 - azimuth), the one CS Orbiter's fins use, and a
+# child of a ROTATED parent writes its attPos0 / attRot0 in that parent's frame
+# (Kerbal 1's +x Hammer: world offset (+0.786, -0.493, 0), attPos0 (-0.786,
+# -0.493, 0) under a yaw(180) decoupler).
+#
+# ASSUMPTIONS A FLIGHT CAN FALSIFY: the decoupler height on the core (cosmetic up
+# to the pad contact), whether MechJeb's classic ascent flies a 1.3 TWR stack with
+# only the core Swivel's 3 degree gimbal and no fins, and the crew's mass (not in
+# the figures, as on CS Orbiter).
+# ---------------------------------------------------------------------------
+
+MUN_SHIP_NAME = "CS Mun Flyby"
+MUN_OUT = os.path.join(ROOT, "harness", "fixtures", "saves", "cs-career-ts1",
+                       "Ships", "VAB", "CS Mun Flyby.craft")
+MUN_UPPER_TANKS = 4
+MUN_CORE_TANKS = 11
+# The core tank the TT-38Ks ride, counted from the BOTTOM (0 = the lowest): the
+# one that puts the Thumper nozzles level with the core Swivel's.
+MUN_DECOUPLER_TANK_FROM_BOTTOM = 2
+
+MUN_LIMIT_PARTS = 30          # GetPartCountLimit(VAB level 0)
+MUN_LIMIT_MASS_T = 140.0      # GetCraftMassLimit(Launch Pad level 1)
+MUN_LIMIT_HEIGHT_M = 36.0     # GetCraftSizeLimit(Launch Pad level 1).y
+# The CS-5 budget: about 3400 m/s to a low Kerbin orbit, 860 for the trans-Munar
+# injection, up to 200 of corrections and a return trim, plus margin.
+MUN_MIN_DELTA_V = 4800.0
+MUN_MIN_UPPER_DELTA_V = 1500.0
+MUN_MIN_LIFTOFF_TWR = 1.25
+
+MUN_DEC_RADIUS = 0.630977273                          # Science Jr. TT-38K attPos0
+MUN_BOOSTER_LOCAL = (-0.796787977, -0.338456988, 0.0)  # Science Jr. Thumper attPos0
+MUN_BOOSTER_LOCAL_PSI = -90.0                          # Science Jr. Thumper attRot0
+MUN_AZIMUTHS = (0.0, 180.0)
+
+MUN_STAGE_LAUNCH = 4          # core Swivel + both Thumpers
+MUN_STAGE_BOOSTER_DROP = 3    # the two TT-38Ks
+MUN_STAGE_CORE_DROP = 2       # TD-12 (drops the core) + the upper Swivel
+MUN_STAGE_POD_SEPARATION = 1  # TD-12 under the heat shield
+MUN_STAGE_CHUTE = 0
+
+NODE_OFFSET.update({
+    # Orbiter One: attN = top,...|0.55525|0 and attN = bottom,...|-0.55525|0
+    "fuelTankSmall": {"top": 0.55525, "bottom": -0.55525},
+    # Science Jr.: attN = top,noseCone...|3.92|0; bottom from the cfg
+    # (solidBoosterBACC.cfg node_stack_bottom -3.914617, rescaleFactor 1).
+    "solidBooster1-1": {"top": 3.92, "bottom": -3.914617},
+    # Kerbal 1 / Science Jr.: attN = bottom01,...|0|0
+    "noseCone": {"bottom01": 0.0},
+})
+
+PART_CFG.update({
+    "fuelTankSmall": {"mass": 0.125, "cost": 275},        # FuelTank/Size1_Tanks/fuelTankT200
+    "solidBooster1-1": {"mass": 1.5, "cost": 850,         # Engine/solidBoosterBACC
+                        "thrust": 300.0, "isp_vac": 210.0, "isp_asl": 175.0},
+    "radialDecoupler": {"mass": 0.025, "cost": 600},      # Utility/decouplerRadialTT-38K
+    "noseCone": {"mass": 0.03, "cost": 240},              # Aero/aerodynamicNoseCone
+})
+
+MUN_DONORS = {
+    'fuelTankSmall': ('VAB/ComSat Lx.craft', 0),
+    'liquidEngine2@core': ('VAB/Orbiter One.craft', 1),
+    'solidBooster1-1': ('VAB/GDLV3.craft', 0),
+    'radialDecoupler': ('VAB/Kerbal 1.craft', 0),
+    'noseCone': ('VAB/Kerbal 1.craft', 0),
+}
+MUN_TAILS = {
+    # <- Ships/VAB/ComSat Lx.craft, occurrence 0  [stock, KSP-written]
+    'fuelTankSmall': '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t}\n\tPARTDATA\n\t{\n\t}\n\tMODULE\n\t{\n\t\tname = ModulePartVariants\n\t\tisEnabled = True\n\t\tuseVariantMass = True\n\t\tstagingEnabled = True\n\t\tselectedVariant = BlackAndWhite\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tRESOURCE\n\t{\n\t\tname = LiquidFuel\n\t\tamount = 90\n\t\tmaxAmount = 90\n\t\tflowState = True\n\t\tisTweakable = True\n\t\thideFlow = False\n\t\tisVisible = True\n\t\tflowMode = Both\n\t}\n\tRESOURCE\n\t{\n\t\tname = Oxidizer\n\t\tamount = 110\n\t\tmaxAmount = 110\n\t\tflowState = True\n\t\tisTweakable = True\n\t\thideFlow = False\n\t\tisVisible = True\n\t\tflowMode = Both\n\t}',
+    # <- Ships/VAB/Orbiter One.craft, occurrence 1  [stock, KSP-written]
+    'liquidEngine2@core': '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t}\n\tPARTDATA\n\t{\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleEngines\n\t\tisEnabled = True\n\t\tstaged = False\n\t\tflameout = False\n\t\tEngineIgnited = False\n\t\tengineShutdown = False\n\t\tcurrentThrottle = 0\n\t\tthrustPercentage = 100\n\t\tmanuallyOverridden = False\n\t\tincludeinDVCalcs = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tOnAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tShutdownAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tActivateAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleJettison\n\t\tisEnabled = True\n\t\tactivejettisonName = fairing\n\t\tisJettisoned = True\n\t\tshroudHideOverride = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tJettisonAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleGimbal\n\t\tisEnabled = True\n\t\tgimbalLock = False\n\t\tgimbalLimiter = 100\n\t\tcurrentShowToggles = False\n\t\tenableYaw = True\n\t\tenablePitch = True\n\t\tenableRoll = True\n\t\tgimbalActive = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tToggleAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tLockAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tFreeAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tTogglePitchAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tToggleYawAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tToggleRollAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = FXModuleAnimateThrottle\n\t\tisEnabled = True\n\t\tanimState = 0\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleAlternator\n\t\tisEnabled = True\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleSurfaceFX\n\t\tisEnabled = True\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleTestSubject\n\t\tisEnabled = True\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleTestSubject\n\t\tisEnabled = True\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tRESOURCE\n\t{\n\t\tname = ElectricCharge\n\t\tamount = 0\n\t\tmaxAmount = 0.12\n\t\tflowState = True\n\t\tisTweakable = False\n\t\thideFlow = True\n\t\tisVisible = False\n\t\tflowMode = Both\n\t}',
+    # <- Ships/VAB/GDLV3.craft, occurrence 0  [stock, KSP-written]
+    'solidBooster1-1': '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t}\n\tPARTDATA\n\t{\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleEngines\n\t\tisEnabled = True\n\t\tstaged = False\n\t\tflameout = False\n\t\tEngineIgnited = False\n\t\tengineShutdown = False\n\t\tcurrentThrottle = 0\n\t\tthrustPercentage = 60\n\t\tmanuallyOverridden = False\n\t\tincludeinDVCalcs = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tOnAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tShutdownAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tActivateAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = FXModuleAnimateThrottle\n\t\tisEnabled = True\n\t\tanimState = 0\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleTestSubject\n\t\tisEnabled = True\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleSurfaceFX\n\t\tisEnabled = True\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tRESOURCE\n\t{\n\t\tname = SolidFuel\n\t\tamount = 820\n\t\tmaxAmount = 820\n\t\tflowState = True\n\t\tisTweakable = True\n\t\thideFlow = False\n\t\tisVisible = True\n\t\tflowMode = Both\n\t}',
+    # <- Ships/VAB/Kerbal 1.craft, occurrence 0  [stock, KSP-written]
+    'radialDecoupler': '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t}\n\tPARTDATA\n\t{\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleAnchoredDecoupler\n\t\tisEnabled = True\n\t\tejectionForcePercent = 100\n\t\tisDecoupled = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tDecoupleAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleToggleCrossfeed\n\t\tisEnabled = True\n\t\tcrossfeedStatus = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tToggleAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tEnableAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tDisableAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleTestSubject\n\t\tisEnabled = True\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}',
+    # <- Ships/VAB/Kerbal 1.craft, occurrence 0  [stock, KSP-written]
+    'noseCone': '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t}\n\tPARTDATA\n\t{\n\t}\n\tMODULE\n\t{\n\t\tname = ModulePartVariants\n\t\tisEnabled = True\n\t\tuseVariantMass = True\n\t\tstagingEnabled = True\n\t\tselectedVariant = BlackAndWhite\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}',
+}
+
+DONORS.update(MUN_DONORS)
+TAILS.update(MUN_TAILS)
+
+
+def _yaw_vec(psi_deg, v):
+    """``v`` rotated by yaw(psi) about +Y (the rotation _quat_y writes)."""
+    a = math.radians(psi_deg)
+    x, y, z = v
+    return (x * math.cos(a) + z * math.sin(a), y, -x * math.sin(a) + z * math.cos(a))
+
+
+def _thrust_fraction(tail_key):
+    m = re.search(r"thrustPercentage = (\S+)", TAILS[tail_key])
+    return float(m.group(1)) / 100.0 if m else 1.0
+
+
+def _pmass(p):
+    return PART_CFG[p.name]["mass"] + sum(a * RESOURCES[r][0]
+                                          for r, a, _ in tail_resources(p.tail))
+
+
+def _pcost(p):
+    return PART_CFG[p.name]["cost"] - sum((m - a) * RESOURCES[r][1]
+                                          for r, a, m in tail_resources(p.tail))
+
+
+def _pprop(p):
+    return sum(a * RESOURCES[r][0] for r, a, _ in tail_resources(p.tail)
+               if r in ("LiquidFuel", "Oxidizer", "SolidFuel"))
+
+
+def mun_layout(upper=MUN_UPPER_TANKS, core=MUN_CORE_TANKS,
+               dec_from_bottom=MUN_DECOUPLER_TANK_FROM_BOTTOM):
+    """Every part of CS Mun Flyby, root first, with positions, links and attN."""
+    uid = iter(range(4270000001, 4270000100))
+    off = NODE_OFFSET
+
+    def below(parent, pnode, key, name, cnode, **kw):
+        y = parent.y + off[parent.name][pnode] - off[name][cnode]
+        p = Part(key, name, next(uid), y, **kw)
+        p.parent = parent
+        parent.links.append(p.uid)
+        parent.attn.append((pnode, p.uid, off[parent.name][pnode]))
+        p.attn.append((cnode, parent.uid, off[name][cnode]))
+        return p
+
+    pod = Part("pod", "mk1pod.v2", next(uid), ROOT_Y, dstg=0)
+    chute = Part("chute", "parachuteSingle", next(uid),
+                 pod.y + off["mk1pod.v2"]["top"] - off["parachuteSingle"]["bottom"],
+                 istg=MUN_STAGE_CHUTE, dstg=0, sidx=0)
+    chute.parent = pod
+    pod.links.append(chute.uid)
+    shield = Part("shield", "HeatShield1", next(uid),
+                  pod.y + off["mk1pod.v2"]["bottom"] - off["HeatShield1"]["top"], dstg=1)
+    shield.parent = pod
+    pod.links.append(shield.uid)
+    pod.attn = [("bottom", shield.uid, off["mk1pod.v2"]["bottom"]),
+                ("top", chute.uid, off["mk1pod.v2"]["top"])]
+    chute.attn = [("bottom", pod.uid, off["parachuteSingle"]["bottom"])]
+    dec1 = below(shield, "direct", "dec1", "Decoupler.1", "top",
+                 istg=MUN_STAGE_POD_SEPARATION, dstg=3, sidx=0, group="upper")
+    shield.attn.append(("top", pod.uid, off["HeatShield1"]["top"]))
+    prev, pnode = dec1, "bottom"
+    upper_tanks = []
+    for i in range(upper):
+        t = below(prev, pnode, "utank%d" % i, "fuelTankSmall", "top",
+                  istg=MUN_STAGE_POD_SEPARATION, dstg=4, group="upper")
+        upper_tanks.append(t)
+        prev, pnode = t, "bottom"
+    swivel_u = below(prev, pnode, "swivelUpper", "liquidEngine2", "top",
+                     istg=MUN_STAGE_CORE_DROP, dstg=4, sidx=1, group="upper")
+    dec2 = below(swivel_u, "bottom", "dec2", "Decoupler.1", "top",
+                 istg=MUN_STAGE_CORE_DROP, dstg=5, sidx=0, group="core")
+    prev, pnode = dec2, "bottom"
+    core_tanks = []
+    for i in range(core):
+        t = below(prev, pnode, "ctank%d" % i, "fuelTankSmall", "top",
+                  istg=MUN_STAGE_CORE_DROP, dstg=6, group="core")
+        core_tanks.append(t)
+        prev, pnode = t, "bottom"
+    swivel_c = below(prev, pnode, "swivelCore", "liquidEngine2", "top",
+                     istg=MUN_STAGE_LAUNCH, dstg=6, sidx=1, group="core")
+    swivel_c.tail = "liquidEngine2@core"
+    anchor = core_tanks[len(core_tanks) - 1 - dec_from_bottom]
+    decs, boosters, cones = [], [], []
+    for i, az in enumerate(MUN_AZIMUTHS):
+        a = math.radians(az)
+        psi_d = 180.0 - az
+        d = Part("rdec%d" % i, "radialDecoupler", next(uid), anchor.y,
+                 istg=MUN_STAGE_BOOSTER_DROP, dstg=7, sidx=0, group="core")
+        d.pos = (MUN_DEC_RADIUS * math.cos(a), anchor.y, MUN_DEC_RADIUS * math.sin(a))
+        d.rot = _quat_y(psi_d)
+        d.attm = 1
+        d.srfn = anchor.uid
+        d.parent = anchor
+        anchor.links.append(d.uid)
+        off_w = _yaw_vec(psi_d, MUN_BOOSTER_LOCAL)
+        b = Part("thumper%d" % i, "solidBooster1-1", next(uid), d.pos[1] + off_w[1],
+                 istg=MUN_STAGE_LAUNCH, dstg=8, sidx=0, group="boosters")
+        b.pos = tuple(c + o for c, o in zip(d.pos, off_w))
+        b.rot = _quat_y(psi_d + MUN_BOOSTER_LOCAL_PSI)
+        b.attm = 1
+        b.srfn = d.uid
+        b.parent = d
+        b.att_pos0 = MUN_BOOSTER_LOCAL
+        b.att_rot0 = _quat_y(MUN_BOOSTER_LOCAL_PSI)
+        d.links.append(b.uid)
+        c = Part("cone%d" % i, "noseCone", next(uid),
+                 b.pos[1] + off["solidBooster1-1"]["top"] - off["noseCone"]["bottom01"],
+                 istg=MUN_STAGE_BOOSTER_DROP, dstg=8, group="boosters")
+        c.pos = (b.pos[0], c.y, b.pos[2])
+        c.rot = b.rot
+        c.parent = b
+        c.att_rot0 = "0,0,0,1"
+        b.links.append(c.uid)
+        b.attn.append(("top", c.uid, off["solidBooster1-1"]["top"]))
+        c.attn.append(("bottom01", b.uid, off["noseCone"]["bottom01"]))
+        decs.append(d)
+        boosters.append(b)
+        cones.append(c)
+    for group in (decs, boosters, cones):
+        for p in group:
+            p.syms = [o.uid for o in group if o is not p]
+    return ([pod, chute, shield, dec1] + upper_tanks + [swivel_u, dec2] + core_tanks
+            + [swivel_c] + decs + boosters + cones)
+
+
+def mun_stack_height(parts):
+    pod = parts[0]
+    swivel_c = [p for p in parts if p.key == "swivelCore"][0]
+    top = pod.y + NODE_OFFSET["mk1pod.v2"]["top"] + CHUTE_ALLOWANCE
+    bottoms = [swivel_c.y + NODE_OFFSET["liquidEngine2"]["bottom"]]
+    bottoms += [p.y + NODE_OFFSET["solidBooster1-1"]["bottom"]
+                for p in parts if p.name == "solidBooster1-1"]
+    return top - min(bottoms)
+
+
+def mun_build():
+    parts = mun_layout()
+    xs = [p.pos[0] for p in parts]
+    zs = [p.pos[2] for p in parts]
+    header = [
+        "ship = %s" % MUN_SHIP_NAME,
+        "version = 1.12.5",
+        "description = CS-5 craft (scripted campaign, Career): Mk1 pod, heat shield, "
+        "%d FL-T200 on a Swivel over %d FL-T200 on a Swivel core, two Thumpers. Built by "
+        "construction by harness/tools/build_cs_orbiter_craft.py --variant mun."
+        % (MUN_UPPER_TANKS, MUN_CORE_TANKS),
+        "type = VAB",
+        "size = %s" % _vec(max(xs) - min(xs) + 1.25, mun_stack_height(parts),
+                           max(zs) - min(zs) + 1.25),
+        "steamPublishedFileId = 0",
+        "persistentId = 2600550088",
+        "rot = 0,0,0,1",
+        "missionFlag = Squad/Flags/default",
+        "vesselType = Ship",
+    ]
+    body = [render_part(p, i) for i, p in enumerate(parts)]
+    return "\n".join(header) + "\n" + "\n".join(body) + "\n"
+
+
+def mun_figures(upper=MUN_UPPER_TANKS, core=MUN_CORE_TANKS):
+    """Mass, cost, height and the per-stage delta-v: the launch stage burns the
+    Thumpers (at their tail's thrust limit) and the core Swivel together, at
+    sea-level Isp; the core then finishes alone, then the upper stage, both in
+    vacuum. KSP's thrust limiter scales the propellant flow with the thrust."""
+    parts = mun_layout(upper, core)
+    mass = sum(_pmass(p) for p in parts)
+    cost = sum(_pcost(p) for p in parts)
+
+    def grp(name):
+        return [p for p in parts if p.group == name]
+
+    def prop(ps):
+        return sum(_pprop(p) for p in ps)
+
+    def dry(ps):
+        return sum(_pmass(p) - _pprop(p) for p in ps)
+
+    sw = PART_CFG["liquidEngine2"]
+    th = PART_CFG["solidBooster1-1"]
+    frac = _thrust_fraction("solidBooster1-1")
+    n_b = len([p for p in parts if p.name == "solidBooster1-1"])
+    f_b = th["thrust"] * frac
+    mdot_b = f_b / (th["isp_vac"] * G0)
+    mdot_c = sw["thrust"] / (sw["isp_vac"] * G0)
+    boosters, core_ps, upper_ps = grp("boosters"), grp("core"), grp("upper")
+    burn_b = (prop(boosters) / n_b) / mdot_b
+    core_used = min(prop(core_ps), mdot_c * burn_b)
+    f_asl = n_b * f_b * th["isp_asl"] / th["isp_vac"] + sw["thrust"] * sw["isp_asl"] / sw["isp_vac"]
+    f_vac = n_b * f_b + sw["thrust"]
+    mdot = n_b * mdot_b + mdot_c
+    stages = []
+    m0 = mass
+    m1 = m0 - prop(boosters) - core_used
+    stages.append({"stage": "S4 Thumpers+core", "m0": m0, "m1": m1,
+                   "dv_asl": f_asl / (mdot * G0) * G0 * math.log(m0 / m1),
+                   "dv_vac": f_vac / (mdot * G0) * G0 * math.log(m0 / m1),
+                   "twr_asl": f_asl / (m0 * G0), "burn_s": burn_b})
+    m0 = m1 - dry(boosters)
+    m1 = m0 - (prop(core_ps) - core_used)
+    stages.append({"stage": "S2 core Swivel", "m0": m0, "m1": m1,
+                   "dv_asl": sw["isp_asl"] * G0 * math.log(m0 / m1),
+                   "dv_vac": sw["isp_vac"] * G0 * math.log(m0 / m1),
+                   "twr_asl": sw["thrust"] * sw["isp_asl"] / sw["isp_vac"] / (m0 * G0),
+                   "burn_s": (prop(core_ps) - core_used) / mdot_c})
+    m0 = m1 - dry(core_ps)
+    m1 = m0 - prop(upper_ps)
+    stages.append({"stage": "S1 upper Swivel", "m0": m0, "m1": m1,
+                   "dv_asl": sw["isp_asl"] * G0 * math.log(m0 / m1),
+                   "dv_vac": sw["isp_vac"] * G0 * math.log(m0 / m1),
+                   "twr_vac": sw["thrust"] / (m0 * G0),
+                   "burn_s": prop(upper_ps) / mdot_c})
+    return {
+        "parts": len(parts), "mass": mass, "cost": cost,
+        "height": mun_stack_height(parts), "stages": stages,
+        "dv_total": stages[0]["dv_asl"] + stages[1]["dv_vac"] + stages[2]["dv_vac"],
+        "dv_total_vac": sum(s["dv_vac"] for s in stages),
+        "dv_upper": stages[2]["dv_vac"],
+        "liftoff_twr": stages[0]["twr_asl"],
+        "booster_thrust_fraction": frac,
+        "reentry_mass": sum(_pmass(p) for p in grp("pod")),
+    }
+
+
+def mun_problems():
+    """Every post-condition of CS Mun Flyby, as strings (empty = good)."""
+    out = []
+    parts = mun_layout()
+    f = mun_figures()
+    if f["parts"] > MUN_LIMIT_PARTS:
+        out.append("%d parts > the level-0 VAB limit %d" % (f["parts"], MUN_LIMIT_PARTS))
+    if f["mass"] > MUN_LIMIT_MASS_T:
+        out.append("%.3f t > the level-1 pad limit %.0f t" % (f["mass"], MUN_LIMIT_MASS_T))
+    if f["height"] > MUN_LIMIT_HEIGHT_M:
+        out.append("%.2f m > the level-1 pad height %.0f m"
+                   % (f["height"], MUN_LIMIT_HEIGHT_M))
+    if f["dv_total"] < MUN_MIN_DELTA_V:
+        out.append("delta-v %.0f < %.0f" % (f["dv_total"], MUN_MIN_DELTA_V))
+    if f["dv_upper"] < MUN_MIN_UPPER_DELTA_V:
+        out.append("upper delta-v %.0f < %.0f" % (f["dv_upper"], MUN_MIN_UPPER_DELTA_V))
+    if f["liftoff_twr"] < MUN_MIN_LIFTOFF_TWR:
+        out.append("liftoff TWR %.2f < %.2f" % (f["liftoff_twr"], MUN_MIN_LIFTOFF_TWR))
+    if stage_table(parts) != mun_stage_want():
+        out.append("stage order %r != %r" % (stage_table(parts), mun_stage_want()))
+    shield = [p for p in parts if p.name == "HeatShield1"][0]
+    if shield.istg != -1:
+        out.append("the heat shield must not be staged")
+    for key in ("liquidEngine2", "liquidEngine2@core"):
+        if _thrust_fraction(key) != 1.0:
+            out.append("%s donor is not at thrustPercentage 100" % key)
+    uids = [p.uid for p in parts]
+    if len(set(uids)) != len(uids):
+        out.append("duplicate part uid")
+    for p in parts:
+        for ref in p.links + [o for _, o, _ in p.attn] + ([p.srfn] if p.srfn else []):
+            if ref not in uids:
+                out.append("%s references undeclared %s" % (p.uid, ref))
+    return out
+
+
+def mun_stage_want():
+    return {MUN_STAGE_LAUNCH: ["liquidEngine2", "solidBooster1-1", "solidBooster1-1"],
+            MUN_STAGE_BOOSTER_DROP: ["radialDecoupler", "radialDecoupler"],
+            MUN_STAGE_CORE_DROP: ["Decoupler.1", "liquidEngine2"],
+            MUN_STAGE_POD_SEPARATION: ["Decoupler.1"],
+            MUN_STAGE_CHUTE: ["parachuteSingle"]}
+
+
+def mun_check():
+    """[] when the committed CS Mun Flyby is byte-identical to a fresh derivation
+    and every post-condition holds, else the problems."""
+    out = mun_problems()
+    if not os.path.exists(MUN_OUT):
+        return out + ["MISSING %s - run --variant mun --write" % MUN_OUT]
+    with open(MUN_OUT, encoding="utf-8", newline="") as fh:
+        have = fh.read()
+    if have != mun_build():
+        out.append("DRIFT: %s differs from the derivation" % MUN_OUT)
+    return out
+
+
+def mun_report():
+    f = mun_figures()
+    print("%s: %d parts, %.3f t, %.2f m, cost %.0f (Thumpers at %.0f%%)"
+          % (MUN_SHIP_NAME, f["parts"], f["mass"], f["height"], f["cost"],
+             100.0 * f["booster_thrust_fraction"]))
+    for s in f["stages"]:
+        twr = s.get("twr_asl", s.get("twr_vac"))
+        print("  %-18s m0 %.3f t -> m1 %.3f t  dv vac %.0f m/s (ASL %.0f)  TWR %.2f  "
+              "burn %.0f s" % (s["stage"], s["m0"], s["m1"], s["dv_vac"], s["dv_asl"],
+                               twr, s["burn_s"]))
+    print("  total dv %.0f m/s (launch stage at ASL Isp), %.0f m/s all vacuum"
+          % (f["dv_total"], f["dv_total_vac"]))
+    print("  liftoff TWR %.3f (sea level); reentry mass %.3f t"
+          % (f["liftoff_twr"], f["reentry_mass"]))
+
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true")
@@ -541,7 +965,31 @@ def main(argv=None):
                     % DEFAULT_TANKS)
     ap.add_argument("--verify-donors", metavar="SHIPS_DIR", nargs="?",
                     const=DEFAULT_DONOR_SHIPS)
+    ap.add_argument("--variant", choices=("orbiter", "mun"), default="orbiter",
+                    help="orbiter = CS Orbiter (CS-4, cs-career-mc1); mun = CS Mun "
+                    "Flyby (CS-5, cs-career-ts1)")
     a = ap.parse_args(argv)
+    if a.variant == "mun" and not a.verify_donors:
+        if a.tanks != DEFAULT_TANKS:
+            ap.error("--tanks applies to the orbiter variant only")
+        if a.report:
+            mun_report()
+            return 0
+        if a.write:
+            bad = mun_problems()
+            if bad:
+                print("\n".join(bad))
+                return 1
+            text = mun_build()
+            os.makedirs(os.path.dirname(MUN_OUT), exist_ok=True)
+            with open(MUN_OUT, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(text)
+            print("wrote %s (%d lines)" % (MUN_OUT, text.count("\n")))
+            mun_report()
+            return 0
+        bad = mun_check()
+        print("\n".join(bad) or "OK committed craft matches the derivation")
+        return 1 if bad else 0
     if a.tanks != DEFAULT_TANKS and not a.report:
         ap.error("--tanks applies to --report only")
     if a.report:
