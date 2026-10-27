@@ -549,8 +549,8 @@ class SchemaAndSpecTests(unittest.TestCase):
     def test_milestone_pins_are_body_qualified(self):
         required = _cs5_spec()["expectations"]["logContracts"]["required"]
         lines = [r for r in required if r.startswith("Milestone enriched: ")]
-        self.assertIn("Milestone enriched: 'Mun/Flyby' funds=[0-9]+ rep=[0-9.]+ "
-                      "sci=[0-9.]+", lines)
+        self.assertTrue(any(l.startswith("Milestone enriched: 'Mun/Flyby' ") for l in lines),
+                        lines)
         for line in lines:
             self.assertRegex(line, r"^Milestone enriched: '[A-Z][A-Za-z]+/[A-Za-z]+'")
 

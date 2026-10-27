@@ -2806,7 +2806,10 @@ pod to B4's machine verbatim at its REENTRY; `b5_decide` and `b4_decide` are unt
 folder, a DLL or a `:FOR[MechJebUnlocked]` patch) that only unhides MechJeb's windows, and
 KRPC.MechJeb reaches the planner operations and the node executor directly, gated only by patched
 conics; a stock-tree profile cannot write a GameData folder without a provisioner change.
-Owed: CS-5's first flight.
+CS-5 GREEN on its first flight 2026-10-27 (`2026-10-27_2101`, 1118 s): Mun flyby at 1352 km,
+return periapsis trimmed to 31.2 km, splashdown, pod recovered; Mun/Flyby, Kerbin/Escape,
+Mun/Escape, Mun/ReturnFromFlyBy and Kerbin/Splashdown paid and ledgered; LedgerGroundTruth
+hardFailures=0. Next: CS-6 (Mun orbit and return).
 
 ---
 

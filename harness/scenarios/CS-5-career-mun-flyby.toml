@@ -78,8 +78,16 @@ id = "CS-5-career-mun-flyby"
 # not in the nightly instance set); (9) `flight_efficiency.py` after the first green
 # flight.
 #
-# STATUS: AUTHORED 2026-10-27, NEVER FLOWN. The batch line pins `total=3` with the split
-# regexed (registered in IngameBatchWiringGroupTests.INTERIM_PIN_IDS); CS-3, CS-3b, CS-4
+# STATUS: LIVE-PROVEN 2026-10-27 on its first flight, `2026-10-27_2101` PASS attempt 1 (1118 s, mission 989 s, main f7e5c0a8, DLL 92b715f7). MISSION-OK through
+# PRELAUNCH, MJ-ASCENT, CIRCULARIZE, ORBIT, PLAN-TRANSFER, TRANSFER-BURN, two corrections,
+# TARGET-FLYBY (flyby periapsis 1352 km), RETURN, HOME-TRIM (about 89 s, return periapsis
+# 31.2 km), HOME-FALL, HOME-REENTRY, HOME-SPLASHDOWN (SPLASHED, canopy observed). Measured and
+# pinned: rollout -11612, pod recovery +814; milestones Mun/Flyby 26000/4/2, Kerbin/Escape
+# 26400/5/3, Mun/Escape 18720/3/1, Mun/ReturnFromFlyBy 26000/4/2, Kerbin/Splashdown 4800/1/0
+# (funds/rep/sci); 14 recordings; batch passed=3 skipped=0; end pools funds 174783.98, science
+# 30.5, rep 103.0; LedgerGroundTruth hardFailures=0 reportOnly=2 (Milestone MissingInRecon
+# Kerbin/Orbit, Vessel Consistency pid-only Flea, as on CS-4b); zero ERROR / GUARDED / leak.
+# Original note: the batch line pinned `total=3` with the split regexed; CS-3, CS-3b, CS-4
 # and CS-4b measured `passed=3 failed=0 skipped=0` for the same category in the same
 # scene on this career.
 tier = "operator"
@@ -87,7 +95,7 @@ description = "Scripted campaign stage 5 (Career): on CS-4b's produced save, lau
 instanceProfile = "stock-tree"
 tags = ["campaign", "CS-5", "career", "editor", "mechjeb", "mun", "cross-soi", "reentry",
         "recovery", "auto-commit", "ledger", "ground-truth", "ingame-batch",
-        "pending-flight"]
+        "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/cs-career-ts1"
@@ -201,7 +209,7 @@ allowedAnomalies = []
 # CS-4's orbit-and-return measured three legs) + the dropped groups past
 # ShouldRecordDebris (two Thumpers, the core, the service section). The ground-truth
 # launch is unrecorded.
-count = { min = 11, max = 20 }
+count = { min = 13, max = 15 }
 
 [expectations.logContracts]
 # Source of each literal (Source/Parsek/...):
@@ -216,12 +224,17 @@ count = { min = 11, max = 20 }
 required = [
   # The flight.
   "launchfromeditor complete scene=FLIGHT vessel=CS Mun Flyby pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
-  "Game state: FundsChanged -[0-9]+ \\(VesselRollout\\)",
+  "Game state: FundsChanged -11612 \\(VesselRollout\\)",
   "Recording started",
   # The Mun flyby milestone, body-qualified, captured in flight.
-  "Milestone enriched: 'Mun/Flyby' funds=[0-9]+ rep=[0-9.]+ sci=[0-9.]+",
+  "Milestone enriched: 'Mun/Flyby' funds=26000 rep=4\\.0 sci=2\\.0",
+  "Milestone enriched: 'Kerbin/Escape' funds=26400 rep=5\\.0 sci=3\\.0",
+  "Milestone enriched: 'Mun/Escape' funds=18720 rep=3\\.0 sci=1\\.0",
+  "Milestone enriched: 'Mun/ReturnFromFlyBy' funds=26000 rep=4\\.0 sci=2\\.0",
+  "Milestone enriched: 'Kerbin/Splashdown' funds=4800 rep=1\\.0 sci=0\\.0",
   # The recovery of the returned pod, and the scene-exit commit it causes.
   "recover observed onVesselRecovered pid=[0-9]+ vessel=CS Mun Flyby quick=false",
+  # The pod recovery pays by distance from the KSC (measured +814 on the first flight), so it stays a regex.
   "Game state: FundsChanged \\+[0-9]+ \\(VesselRecovery\\)",
   "CommitTreeSceneExit: finalizing tree at UT=[0-9.]+[\\s\\S]{0,8000}?Recording stopped\\. ",
   # The ground truth, in FLIGHT on the unrecorded Flea.
@@ -229,7 +242,7 @@ required = [
   "Game state: FundsChanged -2932 \\(VesselRollout\\)",
   "ground-truth game mode=CAREER pools=funds,science,reputation",
   "result: hardFailures=0 ",
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
