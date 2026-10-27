@@ -1159,7 +1159,8 @@ def warp_flags(log: MissionLog, intervals: List[Interval]) -> List[Dict]:
 # Mission shell -> the mlib state machine it drives. Pinned against the shells
 # by test_flighteff (each shell must call mlib.<decide>).
 MISSION_MACHINES = {
-    "b11_mun_orbit": "b5_decide", "b12_minmus_orbit": "b5_decide",
+    "b11_mun_orbit": "b5_decide", "b11_mun_orbit_return": "mor_decide",
+    "b12_minmus_orbit": "b5_decide",
     "b13_mun_landing": "b5_decide", "b14_minmus_landing": "b5_decide",
     "b15_eve_flyby": "b5_decide", "b16_eve_orbit": "b5_decide",
     "b17_duna_direct": "b5_decide", "b19_dres_orbit": "b5_decide",

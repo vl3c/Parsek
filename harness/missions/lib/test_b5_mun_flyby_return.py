@@ -225,7 +225,10 @@ class ParamsTests(unittest.TestCase):
         self.assertEqual(30.0, p.flyby.max_attitude_error_deg)
 
     def test_every_return_key_is_read(self):
+        # The return keys are read by the shared builder mfr_params_from_dict calls
+        # (return_tail_param_kwargs, shared with CS-6's mor machine).
         src = (inspect.getsource(mlib.mfr_params_from_dict)
+               + inspect.getsource(mlib.return_tail_param_kwargs)
                + repr(mlib.MFR_HOME_KEY_MAP))
         for key in MISSION_KEYS:
             self.assertIn('"%s"' % key if '"%s"' % key in src else "'%s'" % key, src, key)

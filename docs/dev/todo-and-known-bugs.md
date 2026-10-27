@@ -2811,6 +2811,21 @@ return periapsis trimmed to 31.2 km, splashdown, pod recovered; Mun/Flyby, Kerbi
 Mun/Escape, Mun/ReturnFromFlyBy and Kerbin/Splashdown paid and ledgered; LedgerGroundTruth
 hardFailures=0. Next: CS-6 (Mun orbit and return).
 
+Progress 2026-10-27 (branch `cs6-mun-orbit`): CS-6 (`CS-6-career-mun-orbit`) authored, never
+flown, on the new fixture `cs-career-mun1` (CS-5's produced save `2026-10-27_2101`; it carries
+CS-5's service section on a 29 km-periapsis suborbit, which survived its first pass on rails).
+The craft stays `CS Mun Flyby`: CS-5's flown fuel readings (orbit 280.5 LF, transfer 135.0,
+corrections 33.1 + 5.5, trim 12.5, 91.8 LF dropped unused) leave about 400 m/s over a ~280 m/s
+capture and a ~250-300 m/s departure. The new composed mission `b11_mun_orbit_return`
+(`mlib.mor_decide`) runs B5's machine verbatim with captureEnabled through B11's capture and a
+60 s park, drops the CommitTree B5 sends at the PARK exit, plans the departure with MechJeb's
+OperationMoonReturn (new runner action `mj_plan_moon_return`, aimed at 30 km, altitude read
+back, a live pending-node guard), flies it on the NodeExecutor, warps out of the Mun SOI and
+hands over to mfr's HOME-TRIM / HOME-FALL / HOME blocks. mfr's launch gate, return-tail params
+builder and tail rows became shared helpers; mfr_decide is pinned frame for frame by a trace
+digest taken before the change. Owed: CS-6's first flight (the Mun/Orbit and
+Mun/ReturnFromOrbit payouts, the departure plan's dv and predicted periapsis).
+
 ---
 
 ## ~~QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN: F9 back into a Discarded flight must record again~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-quickload-into-discarded`; the in-flight discards followed 2026-10-16, branch `claude/lanes-rc6-ql6-ir5-nh7w10` (live-proven by lane QL-6, `2026-10-16_0649` PASS attempt 1)]

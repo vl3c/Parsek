@@ -1,0 +1,305 @@
+version = 1
+GAME_STATE_EVENT
+{
+	ut = 59960.136146171724
+	type = 10
+	key = Jebediah Kerman
+	detail = from=Assigned;to=Available
+	cseq = 233
+}
+GAME_STATE_EVENT
+{
+	ut = 59960.136146171724
+	type = 22
+	key = Jebediah Kerman
+	detail = flight=6;entries=6,Flight,Kerbin|6,Suborbit,Kerbin|6,Orbit,Kerbin|6,Flyby,Mun|6,Escape,Mun|6,Flyby,Kerbin|6,Land,Kerbin|6,Recover,;trait=Pilot
+	cseq = 234
+}
+GAME_STATE_EVENT
+{
+	ut = 59960.136146171724
+	type = 16
+	key = VesselRecovery
+	valBefore = 18.5
+	valAfter = 30.5
+	cseq = 235
+}
+GAME_STATE_EVENT
+{
+	ut = 59960.136146171724
+	type = 15
+	key = VesselRecovery
+	detail = vessel=CS%20Mun%20Flyby;rawVessel=CS%20Mun%20Flyby;pid=2600550088;vesselType=Ship;fundsEarned=(unknown);recoveryFactor=0.6393392
+	valBefore = 176902.29284906387
+	valAfter = 177715.98483943939
+	cseq = 237
+}
+GAME_STATE_EVENT
+{
+	ut = 59960.2761461717
+	type = 10
+	key = Jebediah Kerman
+	detail = from=Available;to=Assigned
+	cseq = 239
+}
+GAME_STATE_EVENT
+{
+	ut = 59960.576146171654
+	type = 15
+	key = VesselRollout
+	valBefore = 177715.98483943939
+	valAfter = 174783.98483943939
+	cseq = 240
+}
+GAME_STATE_EVENT
+{
+	ut = 59962.396146171362
+	type = 10
+	key = Jebediah Kerman
+	detail = from=Assigned;to=Available
+	cseq = 242
+}
+GAME_STATE_EVENT
+{
+	ut = 59962.396146171362
+	type = 22
+	key = Jebediah Kerman
+	detail = flight=7;entries=7,Recover,;trait=Pilot
+	cseq = 243
+}
+GAME_STATE_EVENT
+{
+	ut = 59962.396146171362
+	type = 15
+	key = VesselRecovery
+	detail = vessel=Jumping%20Flea;rawVessel=Jumping%20Flea;pid=2905720181;vesselType=Ship;fundsEarned=(unknown);recoveryFactor=1
+	valBefore = 174783.98483943939
+	valAfter = 177715.98483943939
+	cseq = 244
+}
+CONTRACT_SNAPSHOT
+{
+	guid = a5a1f217-d79b-4ef9-8122-f051ecdd1681
+	ut = 0.6000000000000002
+	CONTRACT
+	{
+		guid = a5a1f217-d79b-4ef9-8122-f051ecdd1681
+		type = ExplorationContract
+		prestige = 0
+		seed = -1389357970
+		state = Active
+		viewed = Unseen
+		agent = Kerbin World-Firsts Record-Keeping Society
+		agentName = Kerbin World-Firsts Record-Keeping Society
+		deadlineType = None
+		expiryType = Floating
+		ignoresWeight = True
+		values = 43200,0,1120,2080,1120,1,1,0,43200.06,0.6,0,0
+		targetBody = 1
+		bodyRatio = 0
+		PARAM
+		{
+			name = ProgressTrackingParameter
+			state = Incomplete
+			values = 3200,0,1,1,0
+			targetBody = 1
+			targetType = FIRSTLAUNCH
+		}
+	}
+}
+CONTRACT_SNAPSHOT
+{
+	guid = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
+	ut = 0.64000000000000024
+	CONTRACT
+	{
+		guid = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
+		type = ExplorationContract
+		prestige = 0
+		seed = -1389357967
+		state = Active
+		viewed = Unseen
+		agent = Kerbin World-Firsts Record-Keeping Society
+		agentName = Kerbin World-Firsts Record-Keeping Society
+		deadlineType = None
+		expiryType = Floating
+		ignoresWeight = True
+		values = 86400,0,2240,4160,2240,1,2,0,86400.06,0.64,0,0
+		targetBody = 1
+		bodyRatio = 0
+		PARAM
+		{
+			name = ProgressTrackingParameter
+			state = Incomplete
+			values = 6400,0,1,2,0
+			targetBody = 1
+			targetType = SCIENCE
+		}
+	}
+}
+CONTRACT_SNAPSHOT
+{
+	guid = 31f5240c-4c87-4a98-803b-1e84e1f19ce6
+	ut = 348.87999999997265
+	CONTRACT
+	{
+		guid = 31f5240c-4c87-4a98-803b-1e84e1f19ce6
+		type = ExplorationContract
+		prestige = 1
+		seed = -1389357956
+		state = Active
+		viewed = Unseen
+		agent = Kerbin World-Firsts Record-Keeping Society
+		agentName = Kerbin World-Firsts Record-Keeping Society
+		deadlineType = None
+		expiryType = Floating
+		ignoresWeight = True
+		values = 108000,0,11200,20800,11200,4,8,0,108000.06,348.879999999973,0,0
+		targetBody = 1
+		bodyRatio = 0
+		PARAM
+		{
+			name = ProgressTrackingParameter
+			state = Incomplete
+			values = 32000,0,4,8,0
+			targetBody = 1
+			targetType = REACHSPACE
+		}
+	}
+}
+CONTRACT_SNAPSHOT
+{
+	guid = 31559641-5ef7-481b-adc7-41a6b6d39237
+	ut = 348.9399999999726
+	CONTRACT
+	{
+		guid = 31559641-5ef7-481b-adc7-41a6b6d39237
+		type = ExplorationContract
+		prestige = 2
+		seed = -1389357945
+		state = Active
+		viewed = Unseen
+		agent = Kerbin World-Firsts Record-Keeping Society
+		agentName = Kerbin World-Firsts Record-Keeping Society
+		deadlineType = None
+		expiryType = Floating
+		ignoresWeight = True
+		values = 43200,0,16800,31200,16800,6,10,0,43200.06,348.939999999973,0,0
+		targetBody = 1
+		bodyRatio = 0
+		PARAM
+		{
+			name = ProgressTrackingParameter
+			state = Incomplete
+			values = 48000,0,6,10,0
+			targetBody = 1
+			targetType = ORBIT
+		}
+	}
+}
+CONTRACT_SNAPSHOT
+{
+	guid = 1a9762e8-8c97-495b-b451-ad62726c08cb
+	ut = 349.01999999997253
+	CONTRACT
+	{
+		guid = 1a9762e8-8c97-495b-b451-ad62726c08cb
+		type = PartTest
+		prestige = 0
+		seed = 790942467
+		state = Active
+		viewed = Unseen
+		agent = Periapsis Rocket Supplies Co
+		agentName = Periapsis Rocket Supplies Co
+		deadlineType = Floating
+		expiryType = Floating
+		values = 21600,9201600,9000,22500,9000,3,6,4,21604.82,349.019999999973,9201949.02,0
+		part = solidBooster.v2
+		haul = False
+		dest = 1
+		sit = FLYING
+		exp = True
+		PARAM
+		{
+			name = PartTest
+			state = Incomplete
+			values = 0,0,0,0,0
+			part = solidBooster.v2
+			body = Kerbin
+			situation = FLYING
+			uniqueID = 0.77449567978014089
+			haul = False
+			repeatability = ONCEPERPART
+			notes = To perform the test, activate the part through the staging sequence when all test conditions are met.
+			PARAM
+			{
+				name = ReachDestination
+				state = Incomplete
+				disableOnStateChange = False
+				values = 0,0,0,0,0
+				dest = 1
+				title = 
+			}
+			PARAM
+			{
+				name = ReachSituation
+				state = Incomplete
+				disableOnStateChange = False
+				values = 0,0,0,0,0
+				sit = FLYING
+				title = 
+			}
+			PARAM
+			{
+				name = ReachAltitudeEnvelope
+				state = Incomplete
+				disableOnStateChange = False
+				values = 0,0,0,0,0
+				minAlt = 36000
+				maxAlt = 41000
+			}
+			PARAM
+			{
+				name = ReachSpeedEnvelope
+				state = Incomplete
+				disableOnStateChange = False
+				values = 0,0,0,0,0
+				minSpd = 260
+				maxSpd = 390
+			}
+		}
+	}
+}
+SCIENCE_SUBJECTS
+{
+	SUBJECT
+	{
+		id = crewReport@KerbinFlyingLowShores
+		science = 3.5
+	}
+	SUBJECT
+	{
+		id = mysteryGoo@KerbinSrfLandedLaunchPad
+		science = 3
+	}
+	SUBJECT
+	{
+		id = mysteryGoo@KerbinFlyingLow
+		science = 7
+	}
+	SUBJECT
+	{
+		id = recovery@KerbinFlew
+		science = 5
+	}
+	SUBJECT
+	{
+		id = recovery@KerbinOrbited
+		science = 10
+	}
+	SUBJECT
+	{
+		id = recovery@MunFlewBy
+		science = 12
+	}
+}

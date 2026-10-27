@@ -1904,6 +1904,8 @@ class KrpcMissionControl(MissionControl):
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Capture",
                     "operation_circularize.make_nodes failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_MJ_PLAN_MOON_RETURN:
+            self._perform_plan_moon_return(action, control)
         elif kind == mlib.ACTION_MJ_LAND_UNTARGETED:
             self._perform_land_untargeted(action)
         elif kind == mlib.ACTION_MJ_STOP_LANDING:
@@ -3703,6 +3705,82 @@ class KrpcMissionControl(MissionControl):
         ("deploy_chutes", "DeployChutes", True),
         ("rcs_adjustment", "RcsAdjustment", False),
     )
+
+    # A read-back of OperationMoonReturn.MoonReturnAltitude within this of the
+    # value written counts as confirmed (the backing EditableDoubleMult stores the
+    # double verbatim; the slack only absorbs a wire round-trip).
+    _MOON_RETURN_READBACK_TOLERANCE_M = 1.0
+
+    def _perform_plan_moon_return(self, action: "mlib.Action", control) -> None:
+        """ACTION_MJ_PLAN_MOON_RETURN: MechJeb's OperationMoonReturn aimed at
+        ``action.value`` metres above the parent body (KRPC.MechJeb
+        ManeuverPlanner.OperationMoonReturn; decompiled MechJeb2 2.15.1
+        MakeNodesImpl solves the ejection for that periapsis RADIUS).
+
+        Three guards, each the contract a sibling plan action already carries:
+        LIVE node truth first (make_nodes PLACES nodes, so a stale node_count read
+        would stack a second ejection - the ACTION_ADD_MANEUVER_NODE guard);
+        SET-then-READ-BACK of the target altitude (the setting is SHARED,
+        PERSISTED MechJeb state, so a refused write would plan for an inherited
+        altitude - the ACTION_MJ_PLAN_CAPTURE guard); and throw/log/swallow, so a
+        refused plan leaves node_count at 0 for the machine's bounded re-plan.
+        The plan's own node, and its predicted parent periapsis, are logged off
+        the nodes make_nodes returned, never control.nodes[0]."""
+        try:
+            pending = len(control.nodes)
+        except Exception:
+            pending = 0
+        if pending > 0:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Depart",
+                "moon-return plan SKIPPED: %d node(s) already pending (the "
+                "machine's node_count read was stale; planning would stack a "
+                "second ejection)" % pending))
+            return
+        want = float(action.value)
+        try:
+            op = self._mechjeb.maneuver_planner.operation_moon_return
+            try:
+                op.moon_return_altitude = want
+                back = float(op.moon_return_altitude)
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Depart",
+                    "moon-return altitude set FAILED (%s): REFUSING to plan rather "
+                    "than let MechJeb's inherited altitude aim the ejection" % (exc,)))
+                return
+            if not (math.isfinite(back)
+                    and abs(back - want) <= self._MOON_RETURN_READBACK_TOLERANCE_M):
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Depart",
+                    "moon-return altitude READ BACK as %s, not %.1f: REFUSING to "
+                    "plan" % (_fmt(back), want)))
+                return
+            planned = op.make_nodes()
+        except Exception as exc:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Depart", "operation_moon_return.make_nodes failed: %s"
+                % (exc,)))
+            return
+        node_ut = node_dv = next_pe = float("nan")
+        next_body = "?"
+        try:
+            if planned:
+                node = planned[0]
+                node_ut = float(node.ut)
+                node_dv = float(node.delta_v)
+                nxt = node.orbit.next_orbit
+                if nxt is not None:
+                    next_body = str(nxt.body.name)
+                    next_pe = float(nxt.periapsis_altitude)
+        except Exception:
+            pass  # observability only; the machine reads node_count / node_dv
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info", "Depart",
+            "moon-return plan issued (target periapsis %.0f m READ BACK confirmed); "
+            "nodes=%d ut=%s dv=%s nextBody=%s nextPe=%s"
+            % (want, len(planned or ()), _fmt(node_ut), _fmt(node_dv), next_body,
+               _fmt(next_pe))))
 
     def _perform_land_untargeted(self, action: "mlib.Action") -> None:
         """Configure and engage MechJeb's UNTARGETED LandingAutopilot, then READ

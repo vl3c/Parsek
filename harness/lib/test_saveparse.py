@@ -3783,6 +3783,40 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "1b605e0e87fa47ab91bf1c9fe4c9df9f"],
             "schemaGeneration": 4,
         },
+        # PROVENANCE: cs-career-mun1 <- CS-5-career-mun-flyby, run 2026-10-27_2101
+        # (PASS attempt 1, LedgerGroundTruth hardFailures=0), harvested from that run's
+        # `_save` snapshot (logs/flights/cs-campaign/2026-10-27_2101_CS-5-career-mun-flyby_save)
+        # with --keep-parsek --allow-no-vessel --expect-mode CAREER, no edit. CS-5's career
+        # after the Mun flyby and return: funds 177715.98, science 30.5, rep 103.0; the
+        # Tracking Station, the Launch Pad and Mission Control at level 1 (lvl 0.5), every
+        # other facility at level 0; the same six research nodes; the RT-10 PartTest the
+        # only Active contract; Mun/Flyby, Mun/Escape and Mun/ReturnFromFlyBy complete,
+        # Mun/Orbit not. One vessel: CS-5's suborbital service section (`CS Mun Flyby
+        # Debris`, periapsis 29 km). cs-career-ts1's seven recordings plus CS-5's seven.
+        # Carries `CS Mun Flyby.craft` byte-identical to cs-career-ts1's. CS-6's host.
+        "cs-career-mun1": {
+            "trees": 3, "committedTrees": 3, "recordings": 14,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Recovered": 3, "Destroyed": 7},
+            "branchPoints": {"JointBreak": 6},
+            "minAuthoritativeSidecars": 51,
+            "recordingIds": ["71288de785d2472ea60da273f42ce1c6",
+                             "692da78791dd4026a5bb8b49931987b1",
+                             "8b1aa915654e43d28f21d4d4342aa153",
+                             "146cafb405004973aa10a51e4fb708f6",
+                             "1b605e0e87fa47ab91bf1c9fe4c9df9f",
+                             "e312c6a92d184ddc8eeab566190f94d7",
+                             "a7ec24c9538443d5b18a22b7607e2b24",
+                             "3ce9a29163014b6d8c41680e0c04572a",
+                             "72f97fedf0a0480583bf0a6e7957528f",
+                             "7a000d8672824b1b81c3baf945bde74e",
+                             "330e0030342b471db8c675ea164be98d",
+                             "1b78459868c14400833863bc332c6250",
+                             "9304afa793d0466f8ed29eaba8aef02a",
+                             "ce600894986744d3b623c7e3141c7a5d"],
+            "schemaGeneration": 4,
+        },
     }
     # --- THE CAREER ROUTE COPIES (H74-H79) ---------------------------------
     # Built by harness/tools/build_route_career.py from the four recorded route hosts

@@ -1,0 +1,297 @@
+schema = 1
+id = "CS-6-career-mun-orbit"
+# THE SCRIPTED CAMPAIGN, STAGE 6 (docs/dev/autotest-roadmap.md, "The scripted campaign
+# program"): the CS-6 row reads "Mun orbit and return | B11 | the same return tail". The
+# career's first Mun orbit, on CS-5's produced save: launch the same Mun-capable crewed
+# craft from the VAB, fly MechJeb's ascent and a planned Mun transfer (B5), capture into
+# a Mun orbit and hold a short park (B11's capture tail), depart for Kerbin on MechJeb's
+# moon-return planner, trim the return periapsis, reenter on the heat shield, splash
+# down, recover, auto-commit, then close with the ledger ground truth in FLIGHT.
+#
+# THE HOST. `cs-career-mun1`: CS-5's produced save (run `2026-10-27_2101`, PASS attempt 1,
+# LedgerGroundTruth `hardFailures=0`), harvested with `harvest_bdock_station.py
+# --keep-parsek --allow-no-vessel --expect-mode CAREER`, no edit. Career, Normal preset,
+# funds 177715.98 (CS-5's end pools 174783.98 plus the ground-truth Flea's recovered
+# 2932), science 30.5, rep 103.0; the Tracking Station, the Launch Pad and Mission Control
+# at level 1 (lvl 0.5), every other facility at level 0 (VAB: 30 parts); start,
+# basicRocketry, engineering101, survivability, generalRocketry and stability researched;
+# the RT-10 PartTest 1a9762e8 the only Active contract (eleven Offered, none a Mun
+# orbit); three committed trees, fourteen recordings. ONE vessel: `CS Mun Flyby Debris`,
+# CS-5's dropped service section, SUB_ORBITAL about Kerbin with a 29 km periapsis (it
+# survived its first atmosphere pass on rails; its next periapsis is near UT 114000,
+# inside this flight). The Mun milestones Flyby, Escape and ReturnFromFlyBy and Kerbin's
+# Escape and Splashdown are already complete; Mun/Orbit and Mun/ReturnFromOrbit are not.
+# Its Ships/VAB carries `CS Mun Flyby.craft` byte-identical to cs-career-ts1's (built by
+# `harness/tools/build_cs_orbiter_craft.py --variant mun`, gate
+# harness/lib/test_cs_orbiter_craft.py). Nothing is researched or upgraded here.
+#
+# THE CRAFT, `CS Mun Flyby`, unchanged (28 parts, 36.505 t, cost 11577 by the builder;
+# upper stage 7.180 t -> 3.180 t dry, 2556 m/s vacuum). CS-5's flown spend, read off its
+# mission stdout (the vessel's LiquidFuel; the upper stage's 360 LF hold 4.0 t of
+# propellant at 0.0111 t per LF unit, Swivel vacuum Isp 320): in orbit 280.5 LF (about
+# 2140 m/s left), the transfer 135.0 LF (about 850 m/s), the two corrections 33.1 + 5.5
+# LF (about 250 + 45 m/s), a coast drift 1.6 LF, the return trim 12.5 LF (about 100 m/s),
+# leaving 91.8 LF (about 870 m/s) dropped with the service section. A Mun capture from a
+# Hohmann arrival into the ~140 km orbit B11's 250 km correction request delivers costs
+# about 280 m/s (B11 measured a 277 m/s capture node), and a moon-return ejection from
+# there to a 30 km Kerbin periapsis about 250-300 m/s, so the same craft carries the
+# orbit and the return with about 400 m/s to spare at CS-5's correction spend (about
+# 80 m/s if both correction rounds hit their 300 m/s cap). No new builder variant.
+#
+# THE ROUTE, mission `b11_mun_orbit_return` (mlib.mor_decide): B5's machine VERBATIM with
+# captureEnabled (B11's capture tail: capture-mode flyby warp to periapsis, MechJeb's
+# circularize-at-periapsis node, the NodeExecutor capture burn, a held park under 4x
+# physics warp), with CS-4's career launch gate (the setters before the engage, the stage
+# held until the AscentAutopilot READS enabled). On the PARK exit frame B5 asks for the
+# mid-mission CommitTree; the composer drops it (the recovery commits at the scene exit)
+# and plans the departure: MechJeb's OperationMoonReturn aimed at a 30 km Kerbin
+# periapsis (new runner action `mj_plan_moon_return`, MoonReturnAltitude read back), the
+# NodeExecutor flies it, one native warp to the Mun SOI exit, then mfr's return tail
+# VERBATIM: HOME-TRIM (skipped when the departure already lands in 20-40 km), the
+# service section dropped, one native fall warp, B4's machine from its REENTRY to the
+# SPLASHDOWN. courseCorrectPeriapsisMeters = 250000 is B11's flown value (finding 16d:
+# MechJeb under-delivers toward a low target; B11's five arrivals read 136-141 km).
+#
+# THE MONEY, read from the host: the rollout is the craft's cost (CS-5 measured -11612
+# for this craft on this career), leaving about 166100. Stock pays two new Mun milestones
+# in flight: Mun/Orbit when the capture reaches ORBITING (CelestialBodyOrbit) and
+# Mun/ReturnFromOrbit at the splashdown (CelestialBodyReturn with ReturnFrom.Orbit:
+# SPLASHED from FLYING on the home world with an Orbit trip-log entry for the Mun; its
+# node id is "ReturnFrom" + level). ProgressUtilities.ScoreProgressType scores a
+# non-home ORBIT / ORBITRETURN at 0.8 of FLYBY / FLYBYRETURN, so from CS-5's measured
+# Mun/Flyby 26000/4/2 both are predicted near 20800 funds, 3.2 rep, 1.6 science; both are
+# pinned as regexes until measured. The milestones CS-5 already completed pay nothing and
+# write no `Milestone enriched:` line, so a second one is forbidden. The pod's recovery
+# pays a distance-scaled share of the pod, chute and shield (CS-5: +814). The
+# ground-truth Flea's rollout (-2932) is refunded by its pad recovery.
+#
+# THE ASSERTIONS THAT MATTER: the body-qualified Mun/Orbit milestone (the live proof of
+# PR #2301's Orbit qualification; a bare 'Orbit' line is forbidden), Mun/ReturnFromOrbit
+# at the splashdown, the recovery of the returned pod, the scene-exit commit, the RT-10
+# PartTest still Active, and the ground truth closing with all of it in the pools.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) no existing flight is a prefix of this one
+# (CS-5 is a flyby; this lane must capture); (2) no idle waits: the only game-time waits
+# are the mission's own phase gates; (3) the park dwell is 60 game s (B11 holds 180;
+# here it only has to prove the capture held), under 4x physics warp; (4) the coasts ride
+# B5's rails policy, the departure coast and the fall one native warp each; the burns
+# stay at 1x; (5) B5's coast leads are B5's flown values; (6) fail fast: the launch engage
+# gate ends a refused ascent computer on the pad, B11's capture give-ups are its own, the
+# departure gives up by name on a refused or over-cap plan, a dead executor, a missed
+# window, an under-burn or a stalled coast warp, the trim and the fall on theirs;
+# `[retry] once` is kept on purpose for a first flight through a new planner; (7) the
+# recordings count is a window until the first flight measures it; (8) predicted wall
+# ~1500-2500 s, so operator (stock-tree is not in the nightly instance set); (9)
+# `flight_efficiency.py` after the first green flight.
+#
+# STATUS: AUTHORED 2026-10-27 (branch `cs6-mun-orbit`), NEVER FLOWN. Owed off the first
+# flight: the rollout debit (regex), the Mun/Orbit and Mun/ReturnFromOrbit payouts
+# (regexes), the recovery credit (regex), the recordings count (window), the batch split
+# (`total=3` pinned, the rest regexed; CS-3 / CS-3b / CS-4 / CS-4b / CS-5 measured
+# `passed=3 failed=0 skipped=0` for this category in this scene on this career), the
+# departure plan's dv and predicted periapsis (the mission stdout's `moon-return plan
+# issued` line) and whether HOME-TRIM burns.
+tier = "operator"
+description = "Scripted campaign stage 6 (Career): on CS-5's produced save, launch the CS Mun Flyby from the VAB, fly MechJeb's ascent and a planned Mun transfer (B5), capture into a Mun orbit and hold a short park (B11), depart on MechJeb's moon-return planner, trim the Kerbin return periapsis, reenter on the heat shield and splash down (B4's tail), recover, auto-commit, then run the ledger ground truth against KSP's own career save."
+instanceProfile = "stock-tree"
+tags = ["campaign", "CS-6", "career", "editor", "mechjeb", "mun", "cross-soi", "capture",
+        "reentry", "recovery", "auto-commit", "ledger", "ground-truth", "ingame-batch",
+        "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun1"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind    = "autopilot"
+mission = "b11_mun_orbit_return"
+
+# Budget arithmetic: runtime 6600 >= 300 LoadGame + 120 GoToEditor + 180 LaunchFromEditor
+# + 4200 mission + 120 Recover + 120 GoToEditor + 180 LaunchFromEditor + 540 RunTests +
+# 120 Recover + 120 SaveGame + FlushAndQuit + margin. Mission 4200 (WALL): CS-5's flown
+# 989 s for the ascent, transfer and return tail, plus the capture (B11 measured up to
+# ~620 wall with MechJeb's 1x pre-ignition hold; CS-5's own transfer burn took 84),
+# the 60 s park (~20 wall), the departure (up to one park period of executor autowarp
+# plus another possible 600 s hold) and the SOI-exit warp. Phase budgets in
+# missionParams are GAME time.
+steps = [
+  # scene = "spacecenter": the host's one vessel is CS-5's suborbital debris.
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoMerge",          value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "CS Mun Flyby" },    expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "munorbiter", expect = "OK", budget = 180 },
+  { phase = "mission",                                                                expect = "MISSION-OK", budget = 4200 },
+  # The return ends splashed with the pod active; the pod is the launch's root part, so
+  # it keeps the launch vessel's pid (CS-5's shape). Recovering it leaves FLIGHT and the
+  # tree auto-commits.
+  { cmd = "Recover",          args = { pid = "${munorbiter.pid}" },                   expect = "OK", budget = 120 },
+  { cmd = "CommitTree",                                                               expect = "REJECTED" },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "Jumping Flea" },    expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "probe",    expect = "OK", budget = 180 },
+  { cmd = "RunTests",         args = { category = "LedgerGroundTruth" },              expect = "OK", budget = 540 },
+  { cmd = "MissionMark",      args = { label = "cs6-groundtruth-done" },              expect = "OK" },
+  # Leave no craft on the pad in the produced save (it is the next career stage's host).
+  { cmd = "Recover",          args = { pid = "${probe.pid}" },                        expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "SaveGame",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+# B5's / B11's flown values for the orbit leg, the career launch keys CS-4 and CS-5 flew,
+# CS-5's return tail, and the departure (b11_mun_orbit_return.schema.toml). Thresholds
+# and budgets only, never a golden trajectory.
+[driver.missionParams]
+targetApoapsisMeters       = 80000
+targetPeriapsisMeters      = 80000
+apoErrorMeters             = 5000
+periErrorMeters            = 5000
+ascentTimeoutSeconds       = 480
+circularizeTimeoutSeconds  = 300
+targetBodyName             = "Mun"
+homeBodyName               = "Kerbin"
+transferMinApoapsisMeters  = 10000000
+# B11's flown request: the arrival lands at ~136-141 km (finding 16d).
+courseCorrectPeriapsisMeters = 250000
+maxCorrectionDvMps         = 300
+correctionTriggerAltsMeters = [0, 6000000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+transferBurnTimeoutSeconds = 4000
+coastTimeoutSeconds        = 400000
+flybyTimeoutSeconds        = 300000
+coastWarpFactor            = 6
+flybyWarpFactor            = 5
+flybyMaxWarpFactor         = 6
+nodeArrivalMarginSeconds   = 15
+planWarpFactor             = 2
+soiLeadSeconds             = 30
+flipPhysicsWarpFactor      = 1
+targetPeriapsisFloorMeters = 10000
+# --- the capture and the park (B11's values but the dwell) ---
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+captureBurnTimeoutSeconds  = 60000
+parkMinPeriapsisMeters     = 15000
+parkMaxApoapsisMeters      = 2000000
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+# The capture only has to be proven held (B11 holds 180 s as its recorded coverage).
+parkDwellSeconds           = 60
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 480
+# B11's ORBIT-COMMIT budget; this mission never enters that phase (the composer drops
+# the commit on the PARK exit frame), the key is B5's own.
+commitTimeoutSeconds       = 300
+# --- career launch (CS-4's / CS-5's values) ---
+mjEngageConfirmFrames      = 20
+# MechJeb stops after the upper Swivel's stage; stage 1 is the pod's own separation.
+autostageLimit             = 2
+ascentType                 = 0
+# --- the departure ---
+departPeriapsisMeters      = 30000
+# A moon return from a ~140 km Mun orbit is ~250-300 m/s; twice that is a wrong plan.
+departMaxDvMps             = 600
+departPlanTimeoutSeconds   = 300
+departPlanRetrySeconds     = 10
+# Up to one Mun park period (~4600 s at 140 km) of executor autowarp, MechJeb's 600 s
+# pre-ignition hold and the burn, with slack.
+departBurnTimeoutSeconds   = 20000
+departCoastTimeoutSeconds  = 100000
+departSoiLeadSeconds       = 30
+# --- the return tail (CS-5's values) ---
+returnPeriapsisMeters      = 30000
+returnPeriapsisMinMeters   = 20000
+returnPeriapsisMaxMeters   = 40000
+returnHeadingDeg           = 90
+returnTrimThrottle         = 0.25
+returnTrimFineThrottle     = 0.03
+returnTrimFineBandMeters   = 300000
+returnTrimSettleSeconds    = 10
+returnMaxAttitudeErrorDeg  = 5
+returnTrimTimeoutSeconds   = 900
+returnStageCount           = 1
+returnStageSettleSeconds   = 2
+returnWarpAboveAltMeters   = 70000
+returnWarpHopSeconds       = 120
+returnChuteDeployAltMeters = 12000
+returnReentryTimeoutSeconds = 3600
+returnDescentTimeoutSeconds = 900
+returnLandedSituations     = ["LANDED", "SPLASHED"]
+returnFallLeadSeconds      = 600
+returnFallMinAltMeters     = 200000
+returnFallTimeoutSeconds   = 200000
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# A WINDOW until the first flight measures it: the host's fourteen + the flyer's root
+# chain (CS-5's flyby added seven: its legs plus the dropped groups past
+# ShouldRecordDebris; the capture and departure burns inside the Mun SOI may split the
+# chain once or twice more). The ground-truth launch is unrecorded.
+count = { min = 19, max = 26 }
+
+[expectations.logContracts]
+# Source of each literal (Source/Parsek/...):
+#   launchfromeditor complete          TestCommands/TestCommandEditorRoute.cs:517
+#   Game state: FundsChanged           GameStateRecorder.cs:945
+#   Milestone enriched:                GameStateRecorder.Handlers.cs:1516 (the id from
+#                                       QualifyMilestoneId, :1799)
+#   recover observed onVesselRecovered TestCommands/ParsekTestCommandAddon.Recover.cs:284
+#   ground-truth game mode=            InGameTests/LedgerGroundTruthHarness.cs:125
+#   result: hardFailures=              InGameTests/LedgerGroundTruthHarness.cs:246
+#   BATCH_COMPLETE v1                  InGameTests/InGameTestRunner.cs:1219
+required = [
+  # The flight.
+  "launchfromeditor complete scene=FLIGHT vessel=CS Mun Flyby pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  # The craft's rollout, a regex until measured (CS-5 measured -11612 for this craft);
+  # five digits, so the ground-truth Flea's -2932 cannot satisfy it.
+  "Game state: FundsChanged -1[0-9]{4} \\(VesselRollout\\)",
+  "Recording started",
+  # The Mun orbit milestone, body-qualified (PR #2301), captured in flight.
+  "Milestone enriched: 'Mun/Orbit' funds=[0-9]+ rep=[0-9.]+ sci=[0-9.]+",
+  # The return from a Mun orbit, paid at the splashdown.
+  "Milestone enriched: 'Mun/ReturnFromOrbit' funds=[0-9]+ rep=[0-9.]+ sci=[0-9.]+",
+  # The recovery of the returned pod, and the scene-exit commit it causes.
+  "recover observed onVesselRecovered pid=[0-9]+ vessel=CS Mun Flyby quick=false",
+  # The pod recovery pays by distance from the KSC (CS-5 measured +814), so a regex.
+  "Game state: FundsChanged \\+[0-9]+ \\(VesselRecovery\\)",
+  "CommitTreeSceneExit: finalizing tree at UT=[0-9.]+[\\s\\S]{0,8000}?Recording stopped\\. ",
+  # The ground truth, in FLIGHT on the unrecorded Flea.
+  "launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  "Game state: FundsChanged -2932 \\(VesselRollout\\)",
+  "ground-truth game mode=CAREER pools=funds,science,reputation",
+  "result: hardFailures=0 ",
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+]
+forbidden = [
+  # PR #2301 qualifies Orbit; an unqualified line is the regression.
+  "Milestone enriched: 'Orbit' ",
+  # Milestones the host already completed pay nothing a second time.
+  "Milestone enriched: '(Mun/Flyby|Mun/Escape|Mun/ReturnFromFlyBy|Kerbin/Escape|Kerbin/Splashdown|Kerbin/Orbit)' ",
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  # KspStatePatcher.cs:5982-5983.
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  # A stock pool movement no row holds (KspStatePatcher.cs:5805, logged at :5812-5813).
+  "filed StockPoolAdjustment amount=\\S+ reason=leak ",
+  # The RT-10 PartTest stays Active (the craft carries no Hammer).
+  "AddEvent: ContractCompleted key='1a9762e8-8c97-495b-b451-ad62726c08cb'",
+  "Game state: ContractFailed ",
+  "completed by no flight, filed untagged",
+]
+
+[runtime]
+budgetSeconds = 6600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

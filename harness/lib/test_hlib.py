@@ -4643,7 +4643,14 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # Like CN-1 it is not an H-series id, so this class's own cells never read it;
     # CommittedBatchTallySourceSyncTests gates its `total=`. It LEFT on its first flight, run 2026-10-27_2101 (PASS attempt 1),
     # which measured `passed=3 failed=0 skipped=0`; the spec pinned the line whole.
-    INTERIM_PIN_IDS: set = set()
+    #
+    # CS-6-career-mun-orbit ENTERED on 2026-10-27 (scripted campaign stage 6: the Mun
+    # orbit and return on `cs-career-mun1`, then the LedgerGroundTruth category's three
+    # FLIGHT cells, `total=3` literal with the split regexed, predicted passed=3
+    # skipped=0 from CS-3 / CS-3b / CS-4 / CS-4b / CS-5's measured tally on the same
+    # career in the same scene). Not an H-series id; CommittedBatchTallySourceSyncTests
+    # gates its `total=`. It leaves on its first flight.
+    INTERIM_PIN_IDS: set = {"CS-6-career-mun-orbit"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -10442,6 +10449,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "CS-3b-career-hire-upgrade.toml": "operator by the calibration discipline, NOT debt: scripted campaign stage 3's KSC half on `cs-career-contracts` (CS-3's produced save plus one seeded applicant): three contract accepts, the career's first hire, the Mission Control upgrade and basicRocketry research, each ledgered, then a same-craft relaunch whose rollout must be ledgered, closed by LedgerGroundTruth. LIVE-PROVEN 2026-10-26 (`2026-10-26_0426`); owed: the ordinary promotion call",
         "CS-4b-career-tracking-station.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 4's KSC half on `cs-career-orbit` (CS-4's produced save, stock-tree, not in the nightly instance set): the Tracking Station and the Launch Pad upgraded to level 1, generalRocketry and stability researched, each ledgered, then a same-craft Flea relaunch inside the duplicate-rollout window whose rollout must be ledgered as a new launch, closed by LedgerGroundTruth. LIVE-PROVEN 2026-10-27 (`2026-10-27_1957`, after a first flight red on a spec cost error); owed: the ordinary promotion call",
         "CS-5-career-mun-flyby.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 5 on `cs-career-ts1` (CS-4b's produced save, stock-tree, not in the nightly instance set): the CS Mun Flyby launched from the VAB, B5's ascent / Mun transfer / flyby and a Kerbin return through B4's reentry tail in the composed mission `b5_mun_flyby_return`, the pod recovered and auto-committed, closed by LedgerGroundTruth. AUTHORED 2026-10-27, NEVER FLOWN; owed: the first flight (tag `pending-flight`), then the ordinary promotion call LIVE-PROVEN 2026-10-27 (`2026-10-27_2101`, first flight); owed: the ordinary promotion call",
+        "CS-6-career-mun-orbit.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 6 on `cs-career-mun1` (CS-5's produced save, stock-tree, not in the nightly instance set): the CS Mun Flyby launched from the VAB, B5's ascent and Mun transfer, B11's capture and park, a MechJeb moon-return departure and CS-5's return tail in the composed mission `b11_mun_orbit_return`, the pod recovered and auto-committed, closed by LedgerGroundTruth. AUTHORED 2026-10-27, NEVER FLOWN; owed: the first flight (tag `pending-flight`), then the ordinary promotion call",
         "CS-4-career-orbit-return.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 4 on `cs-career-mc1` (CS-3b's produced save): research engineering101 + survivability, fly the CS Orbiter to LKO through MechJeb's classic ascent and a node-free native circularization (Tracking Station at level 0), deorbit, splash down, recover, completing REACHSPACE and ORBIT, then LedgerGroundTruth. LIVE-PROVEN 2026-10-26 (`2026-10-26_0521`); owed: the ordinary promotion call (stock-tree is not in the nightly set)",
         "CS-0-new-career-game.toml":"tier=operator as a FIXTURE BUILDER, NOT debt: CS-0-new-science-game's Career twin; its produced save is harvested once as `cs-career-new`, the host of the Career half of the campaign ladder. FLOWN PASS `2026-10-25_1744` and harvested; owed: nothing but the ordinary promotion call",
         # THE GC-3 INERT-TREE LANE, 2026-10-22.
