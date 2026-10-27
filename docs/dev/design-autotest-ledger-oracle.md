@@ -514,7 +514,19 @@ amount of game-actions design 3.9, not the sum. A ledger block that declares
   `timeline-unplaceable` divergence: the spec author narrows the window.
 - **Selection.** An entry whose `attempt` label is in the block's `retiredAttempts`
   is dropped (a Re-Fly tombstone retired it). Among entries sharing an `onceKey`,
-  only the earliest kept one counts (a milestone or contract credits once).
+  only the earliest kept one counts (a milestone or contract credits once). The
+  shipped identity rules of game-actions design 3.15: a world record is keyed per
+  threshold (one entry per threshold, each pays once, earliest crossing first); a
+  purchase kind (`tech-unlock`, `part-purchase`, `part-upgrade-purchase`,
+  `facility-upgrade`, `kerbal-hire`) is not charged only when the entry holding its
+  key was captured after it (a higher `seq`), so a re-hire or a re-upgrade charges
+  again; a science entry may declare `subjectCap` (one subject, a positive earning)
+  and then earns only what the cap leaves, earliest first (`apply_subject_caps`,
+  report `subjectCapped`).
+- **Take-back.** A once-shadowed or capped-down entry is the replay's take-back of
+  a payment stock may have made live: it is out of EXPECTED, never an adjustment
+  entry. The capture cross-check reads every declared entry, so stock's live payment
+  of it still corroborates.
 - **Funds and science (HARD).** `available = max(0, min(running, every projected
   future balance))`: `running` replays every row with `ut <= endUt`; the future
   replays earnings before spendings at one UT, then by `seq`. The report carries

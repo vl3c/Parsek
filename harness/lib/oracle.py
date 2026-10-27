@@ -251,7 +251,21 @@ class ManifestEntry:
     groups once-ever awards (a milestone, a contract completion): among the kept
     entries sharing one key only the earliest ``(ut, seq)`` counts, the way the
     ledger credits the chronologically first recording and marks later ones not
-    effective. The legacy ``compute_expected`` ignores both.
+    effective. A world record is keyed per THRESHOLD (one entry per threshold a
+    record row pays, ``onceKey = "RecordsAltitude#3"``), because the ledger credits
+    each threshold once, earliest crossing first (game-actions design 3.15 step 4).
+    A purchase kind (``PURCHASE_KINDS``) follows the purchase state rule instead
+    (3.15 step 6): a repeat is not charged only when the entry holding the key was
+    captured AFTER it (a higher ``seq``: a rewind separated them); a holder captured
+    before it charges again (a re-hire, a re-upgrade after a rebuild).
+    ``subject_cap`` (``subjectCap``, OPTIONAL) is a science earning's subject cap:
+    the kept entries of one subject earn in timeline order only what the cap leaves
+    (3.15 "cap headroom, earliest first"), so a later copy earns the remainder.
+    A once-shadowed or capped-down entry is the replay's TAKE-BACK: stock may have
+    paid it live, and the next update writes the pool from the replay, so its effect
+    never reaches EXPECTED and is never modelled as an adjustment (3.15 step 5); the
+    capture cross-check still reads every declared entry, so stock's live payment of
+    it corroborates. The legacy ``compute_expected`` ignores all four.
 
     MIGRATION CAVEAT for ``repMode = "nominal"`` entries: ``compute_expected``
     accumulates in ``(ut is None, ut, seq)`` order and the reputation curve is
@@ -275,6 +289,7 @@ class ManifestEntry:
     ut_window: Optional[Tuple[float, float]] = None
     attempt: str = ""
     once_key: str = ""
+    subject_cap: Optional[float] = None
 
     @property
     def seq_key(self):
@@ -621,6 +636,22 @@ def parse_manifest_entries(
             errors.append(label_error)
             continue
 
+        # OPTIONAL subject cap (see ManifestEntry.subject_cap): a science earning of
+        # exactly one subject. Every malformed shape rejects: a silently-dropped cap
+        # would credit a capped copy in full and the expectation would drift.
+        subject_cap: Optional[float] = None
+        raw_cap = raw.get("subjectCap", raw.get("subject_cap"))
+        if raw_cap is not None:
+            if not _is_finite_number(raw_cap) or float(raw_cap) < 0.0:
+                errors.append("entry[%d].subjectCap: %r must be a finite number >= 0"
+                              % (i, raw_cap))
+                continue
+            if len(subject_ids) != 1 or not (science > 0.0):
+                errors.append("entry[%d].subjectCap: needs exactly one subjectIds member "
+                              "and a positive science earning" % (i,))
+                continue
+            subject_cap = float(raw_cap)
+
         # funds is state-INDEPENDENT: a null amount fills from an unambiguous single
         # captured line matching (seqKey, kind, contractGuid, FUNDS-FACET). The facet
         # filter (``c.funds != 0.0``) guards the multi-facet case: an entry whose captured
@@ -655,6 +686,7 @@ def parse_manifest_entries(
             contract_guid=contract_guid, provenance=provenance,
             stock_reasons=stock_reasons, ut_window=ut_window,
             attempt=labels["attempt"], once_key=labels["onceKey"],
+            subject_cap=subject_cap,
         ))
 
     return ManifestParse(tuple(entries), tuple(errors))
@@ -965,14 +997,65 @@ def select_timeline_entries(
     kept: List[ManifestEntry] = []
     shadowed: List[ManifestEntry] = []
     seen_once = set()
+    holders: Dict[str, ManifestEntry] = {}
     for e in live:
-        if e.once_key:
+        if e.once_key and e.kind in PURCHASE_KINDS:
+            # The purchase state rule (3.15 step 6): owned only when the holder was
+            # captured after this entry; otherwise this entry charges and holds.
+            holder = holders.get(e.once_key)
+            if holder is not None and purchase_already_owned(holder.seq, e.seq):
+                shadowed.append(e)
+                continue
+            holders[e.once_key] = e
+        elif e.once_key:
             if e.once_key in seen_once:
                 shadowed.append(e)
                 continue
             seen_once.add(e.once_key)
         kept.append(e)
     return kept, retired, shadowed
+
+
+# The kinds the purchase state rule judges (game-actions design 3.15 step 6).
+PURCHASE_KINDS: Tuple[str, ...] = (
+    "tech-unlock", "part-purchase", "part-upgrade-purchase", "facility-upgrade", "kerbal-hire",
+)
+
+
+def purchase_already_owned(holder_seq: int, entry_seq: int) -> bool:
+    """Pure: a purchase is not charged when the entry holding its item was captured
+    after it (``PurchaseStateRule.IsCapturedAfter``: a rewind separated them). The
+    manifest's ``seq`` is its capture order."""
+    return holder_seq > entry_seq
+
+
+def apply_subject_caps(kept: Sequence[ManifestEntry]) -> Tuple[List[ManifestEntry], int]:
+    """Pure: the science identity rule over timeline-ordered ``kept`` entries. Each
+    entry declaring ``subject_cap`` earns ``min(science, cap - credited)`` (floored at
+    zero) for its one subject, earliest first; the cap is the largest declared for the
+    subject so far (the walk's monotonic cap). Returns the entries (capped ones
+    replaced) and how many earned less than declared."""
+    from dataclasses import replace
+    credited: Dict[str, float] = {}
+    caps: Dict[str, float] = {}
+    out: List[ManifestEntry] = []
+    capped = 0
+    for e in kept:
+        if e.subject_cap is None or not e.subject_ids:
+            out.append(e)
+            continue
+        sid = e.subject_ids[0]
+        cap = max(caps.get(sid, 0.0), e.subject_cap)
+        caps[sid] = cap
+        headroom = cap - credited.get(sid, 0.0)
+        earned = min(e.science, headroom) if headroom > 0.0 else 0.0
+        credited[sid] = credited.get(sid, 0.0) + earned
+        if earned < e.science:
+            capped += 1
+            out.append(replace(e, science=earned))
+        else:
+            out.append(e)
+    return out, capped
 
 
 def project_available(
@@ -1031,7 +1114,9 @@ def compute_expected_rewind_aware(
       - Per-subject science / active contracts (REPORT-ONLY): the past entries.
 
     Retired attempts and once-shadowed duplicates are left out of every facet
-    (``select_timeline_entries``)."""
+    (``select_timeline_entries``), and a capped science copy keeps only what its
+    subject cap leaves (``apply_subject_caps``): the replay's take-back, never an
+    adjustment."""
     errors: List[str] = []
     placeable: List[ManifestEntry] = []
     for e in entries:
@@ -1049,12 +1134,14 @@ def compute_expected_rewind_aware(
         placeable.append(e)
 
     kept, retired, shadowed = select_timeline_entries(placeable, retired_attempts)
+    kept, capped = apply_subject_caps(kept)
     past = [e for e in kept if _entry_ut_bounds(e)[1] <= end_ut]
     future = [e for e in kept if _entry_ut_bounds(e)[0] > end_ut]
     timeline: Dict = {
         "endUt": end_ut,
         "kept": len(kept), "past": len(past), "future": len(future),
         "retired": len(retired), "onceShadowed": len(shadowed),
+        "subjectCapped": capped,
     }
     ut_windows: Dict[str, Tuple[Optional[float], Optional[float]]] = {}
 

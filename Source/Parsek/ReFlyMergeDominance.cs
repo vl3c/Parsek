@@ -48,6 +48,9 @@ namespace Parsek
 
         internal int AttemptRowCount;
         internal int RetireSetCount;
+        /// <summary>Retire-set rows that are not loss rows but that the replay of <c>L</c>
+        /// does not count (3.15 item 10): they do not seal, and the merge retires them.</summary>
+        internal int RetireSetNotCountedCount;
 
         internal static ReFlyMergeDominanceVerdict NotApplicable()
             => new ReFlyMergeDominanceVerdict { Applicable = false, Pass = true };
@@ -167,27 +170,6 @@ namespace Parsek
             var retire = inputs.RetireSet ?? (IReadOnlyList<GameAction>)new List<GameAction>();
             var newRows = inputs.NewRows ?? (IReadOnlyList<GameAction>)new List<GameAction>();
 
-            // Rule 1 re-check: the retire set holds only loss rows.
-            var sealingRows = new List<GameAction>();
-            for (int i = 0; i < retire.Count; i++)
-            {
-                if (retire[i] != null && !SupersedeCommit.IsLossRow(retire[i]))
-                    sealingRows.Add(retire[i]);
-            }
-            if (sealingRows.Count > 0)
-            {
-                GameAction named = SupersedeCommit.PickNamedSealingRow(sealingRows);
-                v.RetireSetCount = retire.Count;
-                v.Pass = false;
-                v.Pool = "sealing";
-                v.UT = named.UT;
-                v.SealingRow = SupersedeCommit.FormatRetireSetRowSummary(named);
-                return v;
-            }
-            if (inputs.RetiresNothing)
-                retire = new List<GameAction>();
-            v.RetireSetCount = retire.Count;
-
             // L and the attempt's rows.
             var baseline = new List<GameAction>(els.Count);
             var attemptRows = new List<GameAction>();
@@ -200,6 +182,37 @@ namespace Parsek
             }
             for (int i = 0; i < newRows.Count; i++)
                 if (newRows[i] != null) attemptRows.Add(newRows[i]);
+            double clock = ResolveDeadlineClockUT(inputs.DeadlineClockUT, baseline, attemptRows);
+
+            // Rule 1 re-check: every retire-set row is a loss row or a row the replay of L
+            // does not count (3.15 item 10). The verdict comes from this check's own walk of
+            // L, plus any retire-set row the ledger has not filed yet, never from flags an
+            // earlier walk left on the rows.
+            RecalculationEngine.IsolatedBalanceWalk creditWalk = null;
+            bool creditWalkIsBaseline = false;
+            if (SupersedeCommit.HasNonLossRow(retire))
+            {
+                List<GameAction> creditRows = ComposeCreditRows(baseline, retire, out creditWalkIsBaseline);
+                creditWalk = Walk(creditRows, clock);
+                var notCountedRows = new List<GameAction>();
+                List<GameAction> sealingRows = SupersedeCommit.SelectSealingRows(
+                    retire, creditWalk?.NotCountedByActionId, notCountedRows);
+                v.RetireSetNotCountedCount = notCountedRows.Count;
+                if (sealingRows.Count > 0)
+                {
+                    GameAction named = SupersedeCommit.PickNamedSealingRow(sealingRows);
+                    v.RetireSetCount = retire.Count;
+                    v.AttemptRowCount = attemptRows.Count;
+                    v.Pass = false;
+                    v.Pool = "sealing";
+                    v.UT = named.UT;
+                    v.SealingRow = SupersedeCommit.FormatRetireSetRowSummary(named);
+                    return v;
+                }
+            }
+            if (inputs.RetiresNothing)
+                retire = new List<GameAction>();
+            v.RetireSetCount = retire.Count;
             v.AttemptRowCount = attemptRows.Count;
 
             var retireIds = new HashSet<string>(StringComparer.Ordinal);
@@ -222,9 +235,10 @@ namespace Parsek
                     v.RepLossNew += a.NominalPenalty;
             }
 
-            double clock = ResolveDeadlineClockUT(inputs.DeadlineClockUT, baseline, attemptRows);
             List<GameAction> afterA = ComposeAfter(baseline, attemptRows, retireIds, null, null);
-            var walkBefore = Walk(baseline, clock);
+            var walkBefore = creditWalkIsBaseline && creditWalk != null
+                ? creditWalk
+                : Walk(baseline, clock);
             var walkA = Walk(afterA, clock);
 
             // Rule 2: A when reputation over L'(A) never drops below L.
@@ -312,6 +326,48 @@ namespace Parsek
             }
 
             return v;
+        }
+
+        /// <summary>
+        /// The list the Rule 1 re-check walks: <paramref name="baseline"/> (<c>L</c>) plus
+        /// every retire-set row not already in it (a replaced-flight row the build step
+        /// files with the tree commit), so the replay judges each retire-set row in the
+        /// ledger it will be retired from. <paramref name="isBaseline"/> is true when nothing
+        /// was added, so the same walk can serve as <c>L</c>'s.
+        /// </summary>
+        internal static List<GameAction> ComposeCreditRows(
+            IReadOnlyList<GameAction> baseline, IReadOnlyList<GameAction> retire, out bool isBaseline)
+        {
+            var rows = new List<GameAction>(baseline != null ? baseline.Count : 0);
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            var refs = new HashSet<GameAction>();
+            if (baseline != null)
+            {
+                for (int i = 0; i < baseline.Count; i++)
+                {
+                    var a = baseline[i];
+                    if (a == null) continue;
+                    rows.Add(a);
+                    refs.Add(a);
+                    if (!string.IsNullOrEmpty(a.ActionId)) ids.Add(a.ActionId);
+                }
+            }
+            int added = 0;
+            if (retire != null)
+            {
+                for (int i = 0; i < retire.Count; i++)
+                {
+                    var r = retire[i];
+                    if (r == null || refs.Contains(r)) continue;
+                    if (!string.IsNullOrEmpty(r.ActionId) && ids.Contains(r.ActionId)) continue;
+                    rows.Add(r);
+                    refs.Add(r);
+                    if (!string.IsNullOrEmpty(r.ActionId)) ids.Add(r.ActionId);
+                    added++;
+                }
+            }
+            isBaseline = added == 0;
+            return rows;
         }
 
         private static bool IsAttemptRow(GameAction a, ICollection<string> attemptIds)
@@ -837,7 +893,8 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"Merge dominance check sess={sess} result={(v.Pass ? "pass" : "refuse")} {fields} " +
                 $"context={context ?? "<none>"} attemptRows={v.AttemptRowCount.ToString(ic)} " +
-                $"retireSet={v.RetireSetCount.ToString(ic)} closure={closureCount.ToString(ic)}");
+                $"retireSet={v.RetireSetCount.ToString(ic)} closure={closureCount.ToString(ic)} " +
+                $"notCounted={v.RetireSetNotCountedCount.ToString(ic)}");
         }
 
         /// <summary>

@@ -25,6 +25,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A repeat earned nothing, so it no longer blocks a Re-Fly.** A crashed flight whose only gains
+  after its separation were rewards the timeline had already given out (a first already reached,
+  a contract already done, a part already bought, science already at its cap), and that the game
+  kept no payment of, is now offered in Unfinished Flights again. Any real gain still seals the
+  flight, and so does a reward paid late or twice that was not taken back. (LEDGER-EVENT-IDENTITY)
 - **A purchase is paid once, and a tech is never free.** After a rewind, a tech, part, building
   level or kerbal the timeline already bought earlier is not charged again, and the Timeline says
   so. A committed tech the career can no longer afford stays researched and its cost becomes a

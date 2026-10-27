@@ -461,13 +461,22 @@ namespace Parsek
             /// <summary>Per input row (by ActionId): the Effective flag the walk set.</summary>
             internal readonly Dictionary<string, bool> EffectiveByActionId =
                 new Dictionary<string, bool>(StringComparer.Ordinal);
+            /// <summary>Per input row (by ActionId) the walk did not count and that may stay
+            /// out of a Re-Fly seal, with why (<see cref="ReplayCredit.NotCountedLabel"/>, read
+            /// right after this walk). A row absent here seals (rewind design 2.12). An id two
+            /// rows share is here only when neither seals.</summary>
+            internal readonly Dictionary<string, string> NotCountedByActionId =
+                new Dictionary<string, string>(StringComparer.Ordinal);
+            /// <summary>True when a science module took part in the walk.</summary>
+            internal bool ScienceWalked;
         }
 
         /// <summary>
         /// A full walk of <paramref name="actions"/> (no cutoff, as the live recalculation
         /// walks) over CLONES of the registered modules, sampling the running funds,
         /// science and reputation after every dispatched action, and reading back each
-        /// input row's Affordable / Effective flags. Nothing registered changes, no state
+        /// input row's Affordable / Effective flags and whether the walk counted it
+        /// (<see cref="IsolatedBalanceWalk.NotCountedByActionId"/>). Nothing registered changes, no state
         /// is patched, the action-derived fields the walk rewrites are restored, and the
         /// walk logs nothing. The Re-Fly merge dominance check (design section 2.12 Rule 5)
         /// compares two of these, so it passes the same <paramref name="deadlineClockUT"/> to
@@ -512,12 +521,26 @@ namespace Parsek
                         });
                     });
 
+                    result.ScienceWalked = science != null;
+                    // Older saves can carry two rows with one ActionId: the id is out of the
+                    // seal only when NO row with it seals (a counted copy keeps it sealing).
+                    var sealingIds = new HashSet<string>(StringComparer.Ordinal);
                     for (int i = 0; i < all.Count; i++)
                     {
                         var a = all[i];
                         if (string.IsNullOrEmpty(a.ActionId)) continue;
                         result.AffordableByActionId[a.ActionId] = a.Affordable;
                         result.EffectiveByActionId[a.ActionId] = a.Effective;
+                        string notCounted = ReplayCredit.NotCountedLabel(a, result.ScienceWalked);
+                        if (notCounted == null)
+                        {
+                            sealingIds.Add(a.ActionId);
+                            result.NotCountedByActionId.Remove(a.ActionId);
+                        }
+                        else if (!sealingIds.Contains(a.ActionId))
+                        {
+                            result.NotCountedByActionId[a.ActionId] = notCounted;
+                        }
                     }
                 }
             }

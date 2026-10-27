@@ -13,6 +13,7 @@ red path fires.
 """
 
 import copy
+import dataclasses
 import math
 import unittest
 
@@ -1011,6 +1012,87 @@ class RewindAwareTimelineTests(unittest.TestCase):
         exp, _ = oracle.compute_expected_rewind_aware(_seed(funds=0.0), rows, 50.0)
         self.assertEqual(exp.active_contract_guids, ("g1",))
         self.assertEqual(exp.subject_science, {"crewReport@KerbinSrfLanded": 2.0})
+
+    # -- the shipped identity rules (game-actions design 3.15) -------------------
+
+    def test_record_thresholds_pay_once_each_keyed_per_threshold(self):
+        # A committed climb at UT 500 crossed thresholds 1 and 2; after a rewind a flight
+        # at UT 50 crosses 1 again and 3 for the first time. Each threshold pays once,
+        # earliest crossing first: the committed row keeps only threshold 2.
+        rows = [_tl_entry(ut=500.0, seq=0, funds=1000.0, once_key="RecordsAltitude#1"),
+                _tl_entry(ut=500.0, seq=1, funds=2000.0, once_key="RecordsAltitude#2"),
+                _tl_entry(ut=50.0, seq=2, funds=1000.0, once_key="RecordsAltitude#1"),
+                _tl_entry(ut=50.0, seq=3, funds=3000.0, once_key="RecordsAltitude#3")]
+        exp, _ = oracle.compute_expected_rewind_aware(_seed(funds=0.0), rows, 1000.0)
+        self.assertAlmostEqual(exp.funds, 6000.0)
+        self.assertEqual(exp.timeline["onceShadowed"], 1)
+
+    def test_purchase_repeat_captured_before_its_holder_is_not_charged(self):
+        # Rewind: the committed tech at UT 500 (captured first, seq 0) and the same tech
+        # bought again at UT 100 after the rewind (seq 1). The walk owns it at UT 500
+        # through a purchase captured after it: charged once.
+        rows = [_tl_entry(kind="tech-unlock", ut=500.0, seq=0, science=-5.0, once_key="tech:basicRocketry"),
+                _tl_entry(kind="tech-unlock", ut=100.0, seq=1, science=-5.0, once_key="tech:basicRocketry")]
+        exp, _ = oracle.compute_expected_rewind_aware(_seed(science=20.0), rows, 1000.0)
+        self.assertAlmostEqual(exp.science, 15.0)
+        self.assertEqual(exp.timeline["onceShadowed"], 1)
+
+    def test_purchase_legitimate_repeat_charges_again(self):
+        # One timeline: hire at UT 100 (seq 0), dismissal (no row), re-hire at UT 300
+        # (seq 1). The holder was captured before the re-hire, so it charges again,
+        # where a first-wins once key would have shadowed it.
+        rows = [_tl_entry(kind="kerbal-hire", ut=100.0, seq=0, funds=-1000.0, once_key="hire:Bob"),
+                _tl_entry(kind="kerbal-hire", ut=300.0, seq=1, funds=-1000.0, once_key="hire:Bob")]
+        exp, _ = oracle.compute_expected_rewind_aware(_seed(funds=5000.0), rows, 1000.0)
+        self.assertAlmostEqual(exp.funds, 3000.0)
+        self.assertEqual(exp.timeline["onceShadowed"], 0)
+        self.assertFalse(oracle.purchase_already_owned(0, 1))
+        self.assertTrue(oracle.purchase_already_owned(1, 0))
+
+    def test_science_cap_remainder_earliest_first(self):
+        # The design's example: committed recovery at UT 1000 (3.0 declared), the same
+        # goo at UT 200 after a rewind (3.0). Cap 3.9: UT 200 earns 3, UT 1000 the 0.9 left.
+        late = dataclasses.replace(_tl_entry(kind="science-recover", ut=1000.0, seq=0, science=3.0,
+                                             subject_ids=["mysteryGoo@KerbinSrfLanded"]),
+                                   subject_cap=3.9)
+        early = dataclasses.replace(_tl_entry(kind="science-recover", ut=200.0, seq=1, science=3.0,
+                                              subject_ids=["mysteryGoo@KerbinSrfLanded"]),
+                                    subject_cap=3.9)
+        exp, _ = oracle.compute_expected_rewind_aware(_seed(science=0.0), [late, early], 2000.0)
+        self.assertAlmostEqual(exp.science, 3.9)
+        self.assertAlmostEqual(exp.subject_science["mysteryGoo@KerbinSrfLanded"], 3.9)
+        self.assertEqual(exp.timeline["subjectCapped"], 1)
+        # A cap already spent leaves the later copy nothing; an uncapped entry is untouched.
+        out, capped = oracle.apply_subject_caps([early, early])
+        self.assertEqual(capped, 1)
+        self.assertAlmostEqual(out[1].science, 0.9)
+
+    def test_subject_cap_parses_round_trips_and_rejects_bad_shapes(self):
+        good = {"kind": "science-recover", "ut": 10.0, "science": 3.0,
+                "subjectIds": ["mysteryGoo@KerbinSrfLanded"], "subjectCap": 3.9}
+        parsed = oracle.parse_manifest_entries([good])
+        self.assertEqual(parsed.errors, ())
+        self.assertEqual(parsed.entries[0].subject_cap, 3.9)
+        import ledgerverify
+        self.assertEqual(ledgerverify.manifest_entry_to_dict(parsed.entries[0])["subjectCap"], 3.9)
+        for bad in (dict(good, subjectCap=-1.0), dict(good, subjectCap="x"),
+                    dict(good, subjectIds=[]), dict(good, science=-1.0)):
+            with self.subTest(bad=bad):
+                self.assertEqual(len(oracle.parse_manifest_entries([bad]).errors), 1)
+
+    def test_take_back_is_part_of_the_replay_and_stock_payment_still_corroborates(self):
+        # Stock paid the repeated world-first live (a rewind made it forget); the replay
+        # takes it back. EXPECTED holds one credit, with no adjustment entry, and the
+        # captured live payment of the repeat is not an unexpected award.
+        first = _tl_entry(ut=100.0, seq=0, reputation=5.0, once_key="Mun/Landing")
+        repeat = _tl_entry(ut=120.0, seq=1, reputation=5.0, once_key="Mun/Landing")
+        exp, _ = oracle.compute_expected_rewind_aware(_seed(funds=0.0, rep=0.0), [first, repeat], 1000.0)
+        once, _ = oracle.compute_expected_rewind_aware(_seed(funds=0.0, rep=0.0), [first], 1000.0)
+        self.assertAlmostEqual(exp.reputation, once.reputation)
+        self.assertEqual(exp.timeline["onceShadowed"], 1)
+        paid = [hlib.CapturedAward("stock-reputation-award", "reputation", r, "", "", ut, 0, "line")
+                for r, ut in ((once.reputation, 100.0), (once.reputation, 120.0))]
+        self.assertEqual(hlib.unmatched_captured_awards([first, repeat], paid), [])
 
     def test_sandbox_seed_skips_every_pool(self):
         exp, _ = oracle.compute_expected_rewind_aware(
