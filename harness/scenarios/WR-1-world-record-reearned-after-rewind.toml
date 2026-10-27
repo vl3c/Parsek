@@ -75,7 +75,14 @@ tier = "operator"
 #   - `launchfromeditor refused`: the hop-1 Flea is still on the pad (its recovery did not
 #     land), or the stand-in crew could not be seated.
 #
-# STATUS: AUTHORED 2026-10-27 (cloud, branch `claude/project-thread-25edvc`), NOT YET FLOWN.
+# STATUS: AUTHORED 2026-10-27 (cloud, branch `claude/project-thread-25edvc`). First flight
+# `2026-10-27_1631_..._run2` (main 4e99926, DLL c5ed3518) INVALID autopilot-flake at hop 2's RECOVER:
+# the mission never asked for hop 2's recovery (asks=0). The runner's recover token is a sticky level
+# never reset within a mission, so hop 2's SBR latched hop 1's ISSUED; fixed in the mission
+# (`mlib.rcr_hop_snapshot`: a hop that has not asked reads the token as UNREAD). Everything before
+# it read as designed: hop 1 `Credited milestone 'RecordsSpeed'/'RecordsAltitude' ... thresholds=3`,
+# after the rewind `[CommittedMilestones] Apply: ... raised 1 record band(s)` (reason=flight-clock),
+# the hold reached 374.56 against target 374.16, zero leak and zero ERROR lines.
 # `operator` (stock-tree is not in the nightly instance set).
 description = "Career world record re-earned after a rewind: on a new Career save, fly a committed Jumping Flea hop that crosses stock's altitude and speed record thresholds, rewind to its launch, relaunch, hold on the pad past the committed crossings with a live recorder, fly the same hop again, and check the committed hop keeps each threshold's credit, stock pays the second hop nothing for them (the band is raised to the committed count), and nothing is repeated, taken back or leaked; then run LedgerGroundTruth."
 instanceProfile = "stock-tree"
