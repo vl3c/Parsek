@@ -1,0 +1,172 @@
+schema = 1
+id = "CS-6b-career-astronaut-complex"
+# THE SCRIPTED CAMPAIGN, STAGE 6, KSC HALF (docs/dev/autotest-roadmap.md, "The scripted
+# campaign program"): what CS-7 (the Mun landing, EVA, flag, board, ascent and return)
+# needs bought at the KSC on CS-6's produced save, each booked by the ledger and closed by
+# the ledger ground truth. The CS-4b shape (KSC actions, then the ground truth on an
+# unrecorded Flea relaunched inside the duplicate-rollout window).
+#
+# THE HOST. `cs-career-mun2`: CS-6's produced save (run `2026-10-27_2202`, PASS attempt
+# 1, LedgerGroundTruth `hardFailures=0`), harvested with `harvest_bdock_station.py
+# --keep-parsek --allow-no-vessel --expect-mode CAREER`, no edit (its Ships/VAB adds the
+# builder's `CS Mun Lander.craft`, CS-7's craft, unused here). Career, Normal preset
+# (FundsLossMultiplier 1), funds 216973.01, science 50.5, rep 111.0 (110.996407); the
+# Tracking Station, the Launch Pad and Mission Control at level 1 (lvl 0.5), every other
+# facility at level 0, the Astronaut Complex included; start, basicRocketry,
+# engineering101, survivability, generalRocketry and stability researched; the RT-10
+# PartTest 1a9762e8 the only Active contract; four committed trees, twenty-one
+# recordings; two vessels, both `CS Mun Flyby Debris` on Kerbin suborbits; save UT
+# 119603.01. CS-6's own ground-truth Flea left an UNADOPTED rollout row at UT
+# 119600.94833370799 (guid f44fcfac7aa54b8f9b854169fe6b0e3c, unrecorded), so this lane's
+# Flea relaunch lands inside the 60 s duplicate window, the same-craft relaunch case
+# CS-4b proved (fix #2283): it must read as a new launch.
+#
+# WHAT CS-7 NEEDS, from stock, not memory (decompiled GameVariables, KSP 1.12.5; dump in
+# logs/decompile/cs7/GameVariables.cs):
+# - the Astronaut Complex 0 -> 1: UnlockedEVA(lvl) is `lvl > 0.2`, UnlockedEVAFlags(lvl)
+#   `lvl >= 0.4`, and EVAIsPossible lets a level-0 complex out only LANDED or SPLASHED on
+#   the home body, so the Mun EVA and the flag both need lvl 0.5. Its cost:
+#   `UpgradeableFacility.GetUpgradeCost` is `upgradeLevels[level + 1].levelCost *
+#   FundsLossMultiplier`, and the KSC scene asset (sharedassets9.assets) serializes the
+#   Astronaut Complex's levels as 19947 / 75000 / 282000, so 75000; the same read gives
+#   the Launch Pad 50000 and Mission Control 75000, the two upgrades a lane has
+#   MEASURED. Funds 216973.01 -> 141973.01;
+# - Advanced Rocketry: 45 science (parent generalRocketry, researched; R&D level 0 caps a
+#   node at 100), `BypassEntryPurchaseAfterResearch = True` so no part fees: the LV-909
+#   Terrier (the lander's engine: its bell hangs 0.82 m below the tank against the
+#   Swivel's 1.62 m, which the LT-05 legs cannot clear) and the FL-T400 (half the part
+#   count per tonne under the VAB's 30-part limit). Science 50.5 -> 5.5. Nothing else
+#   fits: Basic Science (45, the Z-100 battery) or Flight Control (45) cost the Terrier.
+# - the ground-truth launch: the Jumping Flea's rollout, 2932 (every CS stage's measured
+#   debit), refunded by its pad recovery.
+#
+# THE WALK (all in SPACECENTER): upgrade the Astronaut Complex (funds -> 141973.01),
+# research advRocketry (science -> 5.5). Then the LEDGER GROUND TRUTH, which is
+# FLIGHT-only: autoRecordOnLaunch off, launch the Flea (-> 139041.01), run
+# LedgerGroundTruth in that FLIGHT scene, recover the pad craft (-> 141973.01), save,
+# quit. No mission flies. Expected end pools: funds 141973.01, science 5.5, rep 111.0.
+#
+# THE ASSERTIONS THAT MATTER: each KSC action reaches the ledger as its own untagged row
+# (`AddEvent: <type> key='<key>' tag=''` and `KSC spending recorded: type=<row>`), stock
+# charged the cost (the FundsChanged / ScienceChanged lines; the Astronaut Complex cost
+# is a regex until measured), the relaunch's rollout is written as a new launch past
+# the in-window unadopted row (never a duplicate skip, never a leak row), and the
+# ground truth closes with all of it in the pools.
+#
+# THE NEXT STAGE. This lane's produced save is CS-7's intended host (CS-7, the Mun
+# landing, EVA, flag, board, ascent and return, is pending a power redesign).
+#
+# STATUS: LIVE-PROVEN 2026-10-28 on its first flight, `2026-10-27_2316` PASS attempt 1 (80 s, DLL 92b715f7): the Astronaut Complex
+# upgrade debited 75000 (measured, as the scene asset said), advRocketry researched (science
+# 50.5 -> 5.5), the same-craft Flea relaunch ledgered as a new launch, batch `passed=3 failed=0
+# skipped=0` (pinned whole), LedgerGroundTruth hardFailures=0 reportOnly=2; funds 141973.01.
+# Its produced save is CS-7's intended host. Original note: Owed off the first flight: the Astronaut
+# Complex debit (75000 read off the scene asset), the batch split (`total=3` pinned, the
+# rest regexed).
+tier = "operator"
+description = "Scripted campaign stage 6, KSC half (Career): on CS-6's produced save, upgrade the Astronaut Complex to level 1 (EVA away from Kerbin and flags) and research Advanced Rocketry (the Terrier), then relaunch the Flea unrecorded inside the duplicate-rollout window and run the ledger ground truth against KSP's own career save."
+instanceProfile = "stock-tree"
+tags = ["campaign", "CS-6b", "career", "facility-upgrade", "research", "editor", "ledger",
+        "ground-truth", "ingame-batch", "flown"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun2"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: runtime 1800 >= 300 LoadGame + 2 x 60 KSC actions + 120 GoToEditor +
+# 180 LaunchFromEditor + 540 RunTests + 120 Recover + 120 SaveGame + FlushAndQuit + margin.
+steps = [
+  # scene = "spacecenter": the host's two vessels are CS-6's suborbital debris.
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "KscAction",        args = { action = "upgrade-facility", facility = "SpaceCenter/AstronautComplex" }, expect = "OK", budget = 60 },
+  # advRocketry's parent, generalRocketry, is researched on the host.
+  { cmd = "KscAction",        args = { action = "research-node", node = "advRocketry" },                        expect = "OK", budget = 60 },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "Jumping Flea" },    expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "probe",    expect = "OK", budget = 180 },
+  { cmd = "RunTests",         args = { category = "LedgerGroundTruth" },              expect = "OK", budget = 540 },
+  { cmd = "MissionMark",      args = { label = "cs6b-groundtruth-done" },             expect = "OK" },
+  # Leave no craft on the pad in the produced save (it is CS-7's host).
+  { cmd = "Recover",          args = { pid = "${probe.pid}" },                        expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "SaveGame",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's twenty-one recordings and nothing else: the ground-truth launch is unrecorded.
+count = { min = 21, max = 21 }
+
+[expectations.logContracts]
+# Source of each literal (Source/Parsek/...):
+#   kscaction ... applied=true          TestCommands/TestCommandKscAction.cs:501 (LogApplied;
+#                                        observedAfter from :588 research, :672 upgrade;
+#                                        manifestKind from :222 / :223)
+#   Game state: FacilityUpgraded        GameStateFacilityRecorder.cs:140 (the arrow is
+#                                        non-ASCII, matched by `.{1,3}`)
+#   Game state: FundsChanged            GameStateRecorder.cs:945
+#   Game state: ScienceChanged          GameStateRecorder.cs:1062
+#   Game state: TechResearched          GameStateRecorder.Handlers.cs:636
+#   AddEvent:                           GameStateStore.cs:124
+#   KSC spending recorded:              GameActions/LedgerOrchestrator.cs:5979
+#   recording rollout as a new launch   GameActions/LedgerRolloutAdoption.cs:147
+#   VesselRollout spending recorded:    GameActions/LedgerRolloutAdoption.cs:171
+#   launchfromeditor complete           TestCommands/TestCommandEditorRoute.cs:517
+#   ground-truth game mode=             InGameTests/LedgerGroundTruthHarness.cs:125
+#   result: hardFailures=               InGameTests/LedgerGroundTruthHarness.cs:246
+#   BATCH_COMPLETE v1                   InGameTests/InGameTestRunner.cs:1219
+required = [
+  # The Astronaut Complex: the seam's confirmation, stock's debit, the ledger rows. The
+  # cost is a regex until measured (75000 read off the scene asset).
+  "kscaction action=upgrade-facility target=SpaceCenter/AstronautComplex applied=true manifestKind=facility-upgrade observedAfter=level=1",
+  "Game state: FacilityUpgraded 'SpaceCenter/AstronautComplex' 0\\.00 .{1,3} 0\\.50 \\(event-driven\\) cost=75000 costSource=observed-debit",
+  "Game state: FundsChanged -75000 \\(StructureConstruction\\)",
+  "AddEvent: FacilityUpgraded key='SpaceCenter/AstronautComplex' tag=''",
+  "KSC spending recorded: type=FacilityUpgrade, UT=[0-9.]+, key=SpaceCenter/AstronautComplex",
+  # Advanced Rocketry.
+  "kscaction action=research-node target=advRocketry applied=true manifestKind=tech-unlock observedAfter=science=5\\.5",
+  "Game state: ScienceChanged -45\\.0 \\(RnDTechResearch\\)",
+  "Game state: TechResearched 'advRocketry' \\(cost=45\\)",
+  "AddEvent: TechResearched key='advRocketry' tag=''",
+  "KSC spending recorded: type=ScienceSpending, UT=[0-9.]+, key=advRocketry",
+  # The ground-truth relaunch: its rollout is a new launch, not CS-6's in-window Flea row.
+  "launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  "Game state: FundsChanged -2932 \\(VesselRollout\\)",
+  "OnVesselRolloutSpending: recording rollout as a new launch - an unadopted rollout of the same cost and site is inside the 60s window but its launch guid differs \\(verdict=GuidDiffers, existingGuid=f44fcfac7aa54b8f9b854169fe6b0e3c, newGuid=[0-9a-f]{32}, existingUT=119600\\.94833370799, newUT=[0-9.]+, cost=2932\\.0\\)",
+  "VesselRollout spending recorded: cost=2932, UT=[0-9.]+, dedupKey=rollout:[0-9.]+\\|pid=[0-9]+\\|site=Launch%20Pad\\|vessel=Jumping%20Flea\\|guid=[0-9a-f]{32}",
+  # The ground truth, in FLIGHT on the unrecorded Flea.
+  "ground-truth game mode=CAREER pools=funds,science,reputation",
+  "result: hardFailures=0 ",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  # KspStatePatcher.cs:5982-5983.
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  # A stock pool movement no row holds (KspStatePatcher.cs:5805, logged at :5812-5813).
+  "filed StockPoolAdjustment amount=\\S+ reason=leak ",
+  # The #710 revert guard swallowing the relaunch (LedgerRolloutAdoption.cs:120 / :133).
+  "OnVesselRolloutSpending: skipping duplicate rollout",
+  # Nothing completes or fails a contract in this walk (the RT-10 PartTest stays Active).
+  "Game state: ContractCompleted ",
+  "Game state: ContractFailed ",
+]
+
+[runtime]
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
