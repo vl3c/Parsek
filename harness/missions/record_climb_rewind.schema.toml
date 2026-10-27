@@ -1,0 +1,248 @@
+# Declared param schema for mission record_climb_rewind (two Jumping Flea hops with a
+# Rewind-to-Launch between them; lane WR-1).
+#
+# hlib.validate_spec does NOT read this file itself: run.py parses every
+# harness/missions/<mission>.schema.toml into a registry and injects it as
+# validate_spec's `mission_schemas`; hlib's pure _validate_mission_params drives
+# required-key presence and per-value type / range checks from the `params` table.
+#
+# THE HOP HALF is science_bench_recover's, key for key: `mlib.rcr_params_from_dict`
+# delegates to `mlib.sbr_params_from_dict` over the SAME dict, and both hops fly it.
+# Every SBR declaration is repeated below VERBATIM (a cell pins that) because hlib
+# validates only what this file declares. The per-key rationale is NOT restated:
+# read it in science_bench_recover.schema.toml (career half) and
+# b1_pad_hop.schema.toml (flight half), which own it.
+#
+# THE REWIND HALF is the keys at the end, each described at its declaration.
+
+# ---------------------------------------------------------------------------
+# Hop half (science_bench_recover's declarations, verbatim).
+# ---------------------------------------------------------------------------
+
+[params.throttle]
+required = true
+type = "float"
+min = 0.0
+max = 1.0
+
+[params.apoapsisWindowMeters]
+required = true
+type = "window"
+
+[params.chuteArmMaxRateMps]
+required = true
+type = "number"
+min = 1.0
+max = 100.0
+
+[params.chuteFullDeployAltMeters]
+required = true
+type = "number"
+min = 500.0
+max = 5000.0
+
+[params.landedSituations]
+required = true
+type = "list"
+
+[params.ascentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.coastTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.descentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000
+
+[params.frozenToleranceAbs]
+required = false
+type = "number"
+min = 0.0
+max = 1.0
+
+[params.downMaxAltMeters]
+required = false
+type = "number"
+min = 10.0
+max = 5000.0
+
+[params.collectMinExperiments]
+required = true
+type = "int"
+min = 1
+max = 32
+
+[params.collectTimeoutSeconds]
+required = true
+type = "number"
+min = 10.0
+
+[params.transmitMinScienceGain]
+required = true
+type = "number"
+min = 0.001
+max = 10000.0
+
+[params.transmitTimeoutSeconds]
+required = true
+type = "number"
+min = 10.0
+
+[params.recoverMinFundsGain]
+required = true
+type = "number"
+min = 0.0
+max = 10000000.0
+
+[params.recoverTimeoutSeconds]
+required = true
+type = "number"
+min = 10.0
+
+[params.preRecoverDwellSeconds]
+required = false
+type = "number"
+min = 0.0
+max = 120.0
+
+[params.recoverCreditPool]
+required = false
+type = "string"
+values = ["funds", "science"]
+
+[params.recoverMinScienceGain]
+required = false
+type = "number"
+min = 0.001
+max = 10000.0
+
+[params.transmitMaxExperiments]
+required = false
+type = "int"
+min = 0
+max = 32
+
+[params.padExperiments]
+required = false
+type = "list"
+
+[params.padCollectTimeoutSeconds]
+required = false
+type = "number"
+min = 10.0
+max = 600.0
+
+[params.flightExperiments]
+required = false
+type = "list"
+
+[params.landedExperiments]
+required = false
+type = "list"
+# ---------------------------------------------------------------------------
+# Rewind half.
+# ---------------------------------------------------------------------------
+
+# REQUIRED. The craft GoToEditor loads for the relaunch (the craft file's name in the
+# save's Ships/<editorFacility>/, e.g. "Jumping Flea"). Required rather than defaulted:
+# a wrong default would put the wrong craft on the pad after an irreversible rewind.
+# The machine percent-encodes it for the seam line, so a space is fine.
+[params.craftName]
+required = true
+type = "string"
+
+# OPTIONAL, default "VAB". The editor GoToEditor opens; a closed set.
+[params.editorFacility]
+required = false
+type = "string"
+values = ["VAB", "SPH"]
+
+# OPTIONAL, default 30.0. Game seconds past hop 1's recovery UT the relaunched craft
+# holds on the pad at 1x before hop 2 ignites, so every committed crossing is behind
+# the clock first. 0 = ignite on the first poll at or past the recovery UT.
+[params.holdPastFirstRecoverySeconds]
+required = false
+type = "number"
+min = 0.0
+
+# OPTIONAL, default 1800. Game-time bound on the hold, measured from its entry; expiry
+# is the FLAKE `hold-never-reached-target`. Size it above (hop-1 recovery UT - the
+# rewind's landing UT) + holdPastFirstRecoverySeconds, minus the relaunch's own time.
+[params.holdTimeoutSeconds]
+required = false
+type = "number"
+min = 1.0
+
+# OPTIONAL, default true. Start a recorder on the pad (seam StartRecording) before
+# the hold, so the hold runs with every Parsek KSP patch deferred. false = no
+# StartRecording; autoRecordOnLaunch then starts one at liftoff.
+[params.holdStartRecording]
+required = false
+type = "bool"
+
+# OPTIONAL seam reply / settle bounds, in polls (about 0.5 s each). Defaults:
+# committedFrames 120 (the recovery's scene change is not awaited by any verb, so the
+# census waits out the reload), rewindFrames 40, spaceCenterFrames 120, editorFrames
+# 40, launchFrames 40, readyFrames 240, recordFrames 40. A seam command blocks the
+# poll loop until it answers (the per-verb wall window in mlib), so these bound a
+# reply that never rides a snapshot, not the verb's own work.
+[params.committedFrames]
+required = false
+type = "int"
+min = 1
+
+[params.rewindFrames]
+required = false
+type = "int"
+min = 1
+
+[params.spaceCenterFrames]
+required = false
+type = "int"
+min = 1
+
+[params.editorFrames]
+required = false
+type = "int"
+min = 1
+
+[params.launchFrames]
+required = false
+type = "int"
+min = 1
+
+[params.readyFrames]
+required = false
+type = "int"
+min = 1
+
+# OPTIONAL, default 2. Consecutive live PRE_LAUNCH frames READY needs.
+[params.readyDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 20
+
+[params.recordFrames]
+required = false
+type = "int"
+min = 1
+
+# OPTIONAL, default 1.0. How far below hop 1's recovery UT the post-rewind clock must
+# read before the rewind counts as observed (it lands 15 s before hop 1's launch).
+[params.minUtRegressionSeconds]
+required = false
+type = "number"
+min = 0.0

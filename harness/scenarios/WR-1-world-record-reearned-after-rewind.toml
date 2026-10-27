@@ -1,0 +1,203 @@
+schema = 1
+id = "WR-1-world-record-reearned-after-rewind"
+tier = "operator"
+# WORLD RECORD RE-EARNED AFTER A REWIND. WF-1's twin for the repeatable world-record nodes
+# (todo RECORD-BAND-REEARNED-AFTER-REWIND-PAID-AGAIN, owner ruling 2026-10-26 "pay once per
+# career, earliest crossing wins"). A committed Jumping Flea hop crosses stock's altitude and
+# speed record thresholds; a Rewind-to-Launch goes back before it; a second hop of the same
+# craft re-crosses the same thresholds after the clock has passed the committed crossings.
+# The committed hop keeps the credit, stock pays the second hop nothing for those thresholds,
+# and the ledger credits each threshold once.
+#
+# THE HOST. `cs-career-new`, CS-0-new-career-game's produced save: a genuine stock New Game
+# (Career, Normal) on `stock-tree`, funds 25000, every facility at level 0, an empty
+# ProgressTracking tree, the stock Jumping Flea overlaid from the shared craft library (every
+# part on the start node). CS-3 flies the same hop on the same host (its missionParams below
+# are CS-3's flight half).
+#
+# WHY ONE MISSION FLIES BOTH HOPS. An autopilot spec has exactly one mission step
+# (`hlib.validate_spec`), and no seam verb can make a craft climb. So the mission
+# `record_climb_rewind` composes the proven science_bench_recover hop twice, with the rewind
+# and the relaunch between them as seam commands it sends itself (the r1_rewind_loop /
+# kx_rewind_watch shape):
+#   HOP1 (the CS-3 hop, recovered; the recovery leaves FLIGHT, autoMerge commits the tree)
+#   -> InvokeRewindToLaunch tree=latest (from the Space Center) -> the clock observed back
+#   -> GoToEditor VAB "Jumping Flea" -> LaunchFromEditor -> PRELAUNCH
+#   -> StartRecording on the pad -> a 1x HOLD until 30 s past hop 1's recovery UT
+#   -> HOP2 (the same hop, recovered; autoMerge commits that tree too).
+# The hold puts the clock past every committed record row before hop 2 can cross anything,
+# and the live recorder makes it the deferred case the fix targets: while a recorder lives
+# every KSP patch is deferred, so before the fix nothing raised stock's band and hop 2 was
+# paid again. 1x, not a warp: a fresh launch holds the TIMEWARP lock (WF-1's third flight).
+#
+# THE MECHANISM (from source, main 20d611f, not comments):
+#   1. Stock's record nodes (decompiled KSPAchievements.RecordsAltitude / RecordsSpeed) pay
+#      an interval each time the active vessel passes `rewardThreshold`, then advance
+#      `rewardInterval`; thresholds are FindNextRecord's ladder (1% of the maximum upward).
+#      Parsek captures the first crossing of a flight as `Game state: MilestoneAchieved
+#      (standalone) '<node>' funds=.. threshold=<interval>` (GameStateRecorder.Handlers.cs
+#      ~1605) and folds the later ones into that row (`Coalesced world-record milestone`).
+#   2. The rewind's cutoff walk rebuilds each band from the rows at or before the rewind UT
+#      only, so stock's band is back at the pre-hop-1 interval.
+#   3. The fix, CommittedMilestoneReach: once the clock is at or past a committed record row,
+#      the add-only pass raises stock's band to the committed count without reward, logged
+#      `[CommittedMilestones] Apply: marked N ... and raised M record band(s) without reward,
+#      ... (reason=<flight-clock|deferred-patch>; ...) ids=[..] records=[<node>:<live>-><count>]`
+#      (CommittedMilestoneReach.cs ~618). The flight clock cursor runs it every frame, so the
+#      1x hold reaches it with no recalc. The same pass marks hop 1's world-firsts
+#      (FirstLaunch and the rest) complete, WF-1's fix.
+#   4. MilestonesModule walks record rows through RecordThresholdBook: each threshold is
+#      credited once, earliest in walk order; a fully repeated row logs `Record row '<node>'
+#      zeroed at UT=..`, a partly repeated one `partly credited`, a second first payment of
+#      an interval `.. as new a second time: take-back` (MilestonesModule.cs 198 / 217 / 282).
+#
+# THE ASSERTION THAT MATTERS: after the rewind, no seed capture for a record node at the
+# interval hop 1 first crossed (a raised band starts hop 2 above it), none of the three
+# repeat lines, no take-back, no leak, and LedgerGroundTruth closes. A higher hop 2 may
+# legitimately cross a NEW threshold and be paid for it, so post-rewind record awards are
+# not forbidden as such.
+#
+# PREDICTED VALUES. The reward amounts and interval indices are not pinned (no lane has
+# measured this host's record ladder). Recordings: CS-3 measured 1 to 2 per hop (the hop plus
+# the post-recovery continuation), two hops = 2..4; the ground-truth launch is unrecorded.
+# LedgerGroundTruth: total=3 (the category's three declarations), the split regexed.
+#
+# PRE-REGISTERED READINGS (what to check first if the first flight reds):
+#   - The backreference forbidden pin fires: stock paid hop 2 an interval hop 1 holds. Look
+#     between the rewind and hop 2's liftoff for the `[CommittedMilestones]` lines: `Clock
+#     cursor (flight-clock)` absent (the cursor never passed a row), `recordBandsAtOrAbove`
+#     instead of raised (the live band read higher than expected), or `Apply skipped`.
+#   - A `Record row .. zeroed` / `partly credited` line with no seed pin firing: hop 2 was
+#     paid a repeated threshold through a coalesced crossing; the same finding.
+#   - `Credited milestone 'RecordsAltitude'` naming hop 2's recording and not hop 1's: the
+#     credit moved to the later crossing; a product finding against the ruling.
+#   - The mission fails in its HOLD: read its evidence row for the target and reached UT.
+#   - `launchfromeditor refused`: the hop-1 Flea is still on the pad (its recovery did not
+#     land), or the stand-in crew could not be seated.
+#
+# STATUS: AUTHORED 2026-10-27 (cloud, branch `claude/project-thread-25edvc`), NOT YET FLOWN.
+# `operator` (stock-tree is not in the nightly instance set).
+description = "Career world record re-earned after a rewind: on a new Career save, fly a committed Jumping Flea hop that crosses stock's altitude and speed record thresholds, rewind to its launch, relaunch, hold on the pad past the committed crossings with a live recorder, fly the same hop again, and check the committed hop keeps each threshold's credit, stock pays the second hop nothing for them (the band is raised to the committed count), and nothing is repeated, taken back or leaked; then run LedgerGroundTruth."
+instanceProfile = "stock-tree"
+tags = ["WR1", "campaign", "career", "ledger", "milestone", "world-record", "rewind",
+        "rewind-to-launch", "editor", "recovery", "auto-commit", "ingame-batch",
+        "ground-truth", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-new"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind    = "autopilot"
+mission = "record_climb_rewind"
+
+# Budget arithmetic: runtime 5400 >= 300 LoadGame + 120 GoToEditor + 180 LaunchFromEditor
+# + 3600 mission (two hops of up to 900 each, the rewind 300, the relaunch 300, the hold up
+# to hop 1's span) + 120 GoToEditor + 180 LaunchFromEditor + 540 RunTests + 120 Recover
+# + 120 SaveGame + FlushAndQuit.
+steps = [
+  # scene = "spacecenter": the host holds stock's asteroid (CS-1's first-flight trap).
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoMerge",          value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "Jumping Flea" },    expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                         expect = "OK", budget = 180 },
+  # Both hops, the rewind, the relaunch and the hold (the header).
+  { phase = "mission",                                                                expect = "MISSION-OK", budget = 3600 },
+  # Hop 2's recovery left FLIGHT, so its tree auto-committed at the scene exit.
+  { cmd = "CommitTree",                                                               expect = "REJECTED" },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "MissionMark",      args = { label = "wr1-second-committed" },              expect = "OK" },
+  # ---- the ground truth: an unrecorded launch (LedgerGroundTruth scene-skips at the Space
+  # Center and skips with a live or pending tree), CS-3's tail ----
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "Jumping Flea" },    expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "probe",    expect = "OK", budget = 180 },
+  { cmd = "RunTests",         args = { category = "LedgerGroundTruth" },              expect = "OK", budget = 540 },
+  { cmd = "MissionMark",      args = { label = "wr1-groundtruth-done" },              expect = "OK" },
+  { cmd = "Recover",          args = { pid = "${probe.pid}" },                        expect = "OK", budget = 120 },
+  { cmd = "SaveGame",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+# The flight half is CS-3's, key for key (the same stock Jumping Flea off the same pad), cut
+# to ONE landed crew report: the science is not this lane's subject, and the hop machine
+# needs at least one experiment. transmit 0: the pod's built-in antenna cannot send science.
+[driver.missionParams]
+throttle                 = 1.0
+apoapsisWindowMeters     = { min = 6000, max = 30000 }
+chuteArmMaxRateMps       = 30
+chuteFullDeployAltMeters = 2500
+landedSituations         = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds     = 90
+coastTimeoutSeconds      = 180
+descentTimeoutSeconds    = 360
+landedExperiments        = ["crewReport"]
+collectMinExperiments    = 1
+collectTimeoutSeconds    = 120
+transmitMaxExperiments   = 0
+transmitMinScienceGain   = 0.5
+transmitTimeoutSeconds   = 120
+recoverMinFundsGain      = 1.0
+recoverTimeoutSeconds    = 180
+# The relaunch and the hold (the mission's own keys).
+craftName                    = "Jumping Flea"
+editorFacility               = "VAB"
+holdPastFirstRecoverySeconds = 30.0
+holdTimeoutSeconds           = 1800.0
+holdStartRecording           = true
+
+[dimensionsCovered]
+D1  = ["commit-scene-exit"]
+D8  = ["milestones", "funds", "reputation", "recalc-engine", "ksp-state-patcher", "ground-truth-harness"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "career", "scene-flight", "scene-ksc", "scene-editor"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Two hops of 1..2 recordings each (CS-3's measured shape); the probe launch is unrecorded
+# and the rewind removes no recording. A window until the first flight measures it.
+count = { min = 2, max = 4 }
+
+[expectations.logContracts]
+# The Credited and Coalesced lines are Verbose (the verboseLogging pin above).
+required = [
+  # Both hops committed at their recovery scene exits.
+  "\\A(?:[\\s\\S]*?CommitTreeSceneExit: finalizing tree at UT=){2}",
+  # Hop 1 crossed an altitude record threshold before the rewind.
+  "Game state: MilestoneAchieved \\(standalone\\) 'RecordsAltitude' funds=[^\\n]*threshold=[0-9]+[\\s\\S]*\\[Rewind\\] Rewind-to-Launch initiated to UT ",
+  # After the rewind, stock's altitude band raised to the committed count without reward.
+  "\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*\\[CommittedMilestones\\] Apply: marked [0-9]+ stock progress node\\(s\\) complete without reward and raised [1-9][0-9]* record band\\(s\\) without reward[^\\n]*reason=(?:flight-clock|deferred-patch)[^\\n]*records=\\[[^\\]\\n]*RecordsAltitude:[0-9]+->[1-9]",
+  # The committed hop's row is credited (a 32-hex recording id), naming its thresholds.
+  "Credited milestone 'RecordsAltitude' at UT=[0-9.]+ \\(recording=[0-9a-f]{32}, [^\\n]*thresholds=[1-9]",
+  "result: hardFailures=0 ",
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  # Stock paid hop 2 the interval hop 1 first crossed: the band was not raised (the defect).
+  "Game state: MilestoneAchieved \\(standalone\\) '(Records[A-Za-z]+)' funds=[^\\n]*threshold=([0-9]+)[\\s\\S]*\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*Game state: MilestoneAchieved \\(standalone\\) '\\1' funds=[^\\n]*threshold=\\2(?![0-9])",
+  # The walk found a repeated threshold (stock paid it again through any road).
+  "Record row 'Records[A-Za-z]+' zeroed at UT=",
+  "Record row 'Records[A-Za-z]+' partly credited at UT=",
+  "threshold\\(s\\) as new a second time",
+  "\\[TakeBack\\] Took back ",
+  "filed StockPoolAdjustment amount=\\S+ reason=leak",
+  # Hop 1's world-firsts re-earned by hop 2 (WF-1's fix, on the same pass).
+  "\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*Game state: MilestoneAchieved (?:\\(standalone\\) )?'FirstLaunch'",
+]
+
+[runtime]
+budgetSeconds = 5400
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

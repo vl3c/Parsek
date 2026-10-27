@@ -404,6 +404,7 @@ are drawn nowhere and cannot be turned off.
 ### Resources
 
 - **Balances follow stock** - With no committed cost ahead, funds and science stop at zero and reputation can go negative, as in stock. With a committed cost ahead, a loss stops at what that cost needs and the rest is a debt paid from later gains (see Reserved Resources).
+- **Science after a rewind** - Science is counted per subject (an experiment in one situation), as in stock: the first reading in timeline order earns the most and later readings earn what is left. If you rewind and take a reading earlier than a committed flight did, the new reading earns the full value and the committed flight's share shrinks to the remainder. Your total science for that subject never goes down and is never paid twice.
 - **Quicksave safety** - Resource application progress is saved, so quickloading doesn't double-apply deltas.
 - **Resource deduction on revert** - When you revert, committed resource costs are deducted from game state so KSP's funds/science/reputation displays and purchase checks reflect what's actually available.
 - **Action blocking** - Stock actions the committed timeline performs later (tech, part purchases, contracts, strategies, hires, facility upgrades) are greyed out on the stock screens with a dated reason; see Action Blocking above.

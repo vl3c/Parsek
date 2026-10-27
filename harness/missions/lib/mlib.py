@@ -4150,6 +4150,15 @@ SEAM_COMMAND_POLL_SECONDS_BY_VERB: Dict[str, float] = {
     # 120 s default here already polls with 2x margin (the same call
     # SimulateStockSwitchClick's absence records).
     "StartLoopPlayback": 240.0,
+    # record_climb_rewind's relaunch and pad recorder. Same arithmetic as TimeJump's
+    # row: hlib's C# dispatch budgets are GoToEditor 120 s, LaunchFromEditor 180 s
+    # and StartRecording 180 s, so the 120 s default would poll with zero margin
+    # (GoToEditor) or BELOW the budget (the other two) and manufacture a TIMEOUT out
+    # of a healthy scene wait. Each row is twice its budget; the bound, not the
+    # expectation.
+    "GoToEditor": 240.0,
+    "LaunchFromEditor": 360.0,
+    "StartRecording": 360.0,
 }
 
 
@@ -4305,6 +4314,25 @@ def decode_seam_value(value: str) -> str:
         return out.decode("utf-8")
     except UnicodeDecodeError:
         return text
+
+
+def encode_seam_value(value: str) -> str:
+    """Percent-ENCODE one seam command arg value, byte for byte what run.py's
+    ``encode_value`` and the C# ``TestCommandProtocol.Encode`` write: every byte
+    at or below 0x20, ``%``, ``=`` and every byte at or above 0x7F becomes ``%XX``.
+
+    ``format_seam_command_line`` passes values through VERBATIM, so a mission that
+    sends a value which can carry a space (a craft name such as ``Jumping Flea``)
+    must encode it here first; unencoded, the seam grammar splits it into two
+    tokens and the verb reads the wrong craft. Token-safe values come back
+    unchanged, so encoding one is harmless."""
+    out = []
+    for b in str(value if value is not None else "").encode("utf-8"):
+        if b <= 0x20 or b == 0x25 or b == 0x3D or b >= 0x7F:
+            out.append("%%%02X" % b)
+        else:
+            out.append(chr(b))
+    return "".join(out)
 
 
 def format_seam_command_line(command_id: str, verb: str,
@@ -4571,9 +4599,12 @@ def b2_params_from_dict(params: Dict) -> B2Params:
 
 
 def b4_params_from_dict(params: Dict) -> B4Params:
-    """Build ``B4Params`` from a spec ``missionParams`` dict."""
+    """Build ``B4Params`` from a spec ``missionParams`` dict. A MechJeb setter
+    (autostageLimit / skipCircularization / ascentType) is refused without the
+    PRELAUNCH engage gate (mjEngageConfirmFrames > 0): the setters only change
+    the launch when the gate confirms the engage before staging."""
     params = params or {}
-    return B4Params(
+    p = B4Params(
         target_apoapsis=float(params.get("targetApoapsisMeters", 80000)),
         target_periapsis=float(params.get("targetPeriapsisMeters", 80000)),
         apo_error=float(params.get("apoErrorMeters", 5000)),
@@ -4612,6 +4643,15 @@ def b4_params_from_dict(params: Dict) -> B4Params:
         ascent_type=(int(params["ascentType"])
                      if params.get("ascentType") is not None else None),
     )
+    setters = [name for name, value in (("autostageLimit", p.autostage_limit),
+                                        ("skipCircularization", p.skip_circularization),
+                                        ("ascentType", p.ascent_type))
+               if value is not None]
+    if setters and p.mj_engage_confirm_frames <= 0:
+        raise ValueError("%s requires mjEngageConfirmFrames > 0 (the PRELAUNCH engage "
+                         "gate), else the launch can stage before the engage is read"
+                         % "/".join(setters))
+    return p
 
 
 def _b4_circularize_mode(value) -> str:
@@ -21917,6 +21957,21 @@ MISSION_HANDOFF_CONTRACTS: Dict[str, Dict] = {
         "unverifiedByMission": ["ledgerRecoveryCapture", "spawnClaimCleared"],
         "verifiedBy": ["logContracts", "saveParse"],
     },
+    # record_climb_rewind (WR-1) is SBR's kind of gap, twice over: it terminates ON
+    # its own outcome (both hops recovered, the clock observed backward and the hold
+    # observed past the first recovery, all on frames it read), and the reason it is
+    # flown is a Parsek claim it has no view of. Whether the stock record band was
+    # raised to the committed count before the second hop crossed it, whether stock
+    # paid that second hop nothing for the re-crossed RecordsAltitude / RecordsSpeed /
+    # RecordsDistance thresholds, and whether the ledger credited each threshold once,
+    # belong to the spec's log contracts and the LedgerGroundTruth batch. The terminal
+    # is the literal "DONE" because RCR_DONE is defined below this table.
+    "record_climb_rewind": {
+        "terminal": "DONE",
+        "unverifiedByMission": ["recordBandRaised", "secondHopUnpaid",
+                                "ledgerThresholdCreditedOnce"],
+        "verifiedBy": ["logContracts", "LedgerGroundTruth"],
+    },
 }
 
 # What MISSION-OK means for a handoff mission, spelled out in the reason line the
@@ -30474,3 +30529,670 @@ def evaluate_bay1_assertions(frames, params: Bay1Params,
              "holdFrames": params.bay_hold_frames,
              "phasesReached": list(st.phases_reached) if st is not None else []}),
     ]
+
+
+# ---------------------------------------------------------------------------
+# RECORD-CLIMB-REWIND phase state machine (mission record_climb_rewind). Pure.
+#
+# WHAT IT IS FOR. Lane WR-1 asks whether a stock world-record threshold
+# (RecordsAltitude / RecordsSpeed / RecordsDistance) paid on a COMMITTED flight is
+# paid AGAIN when a second flight re-crosses it after a Rewind-to-Launch. That needs
+# two powered hops with a rewind between them in ONE run, and hlib.validate_spec
+# allows one mission-kind step per autopilot spec, so the second hop and the rewind
+# live inside this one machine.
+#
+# THE PHASE PLAN (every state name is an RCR_*):
+#   HOP1         a nested SBR state; every frame is handed to sbr_decide VERBATIM
+#                until SBR's own RECOVERED terminal. The reported phase is
+#                "HOP1-<SBR phase>", so the per-phase budget accounting and the
+#                status line read the delegated phase, and the two hops stay
+#                distinguishable in phasesReached. The recovery leaves FLIGHT and,
+#                under the scenario's autoMerge, Parsek auto-commits the hop-1 tree
+#                at that scene exit; this machine commits nothing itself.
+#   COMMITTED    seam ListHandles kind=committed, re-probed under a fresh tag until
+#                it enumerates count >= 1. The recovery's scene change is not
+#                awaited by any verb, so the census converts "the auto-commit has
+#                not landed yet" (a rewind REJECTED no-committed-tree, or
+#                recording-active while the recorder still runs) into a wait.
+#   REWIND       seam InvokeRewindToLaunch tree=latest, from the Space Center
+#                (RequiresRewindScene accepts it there: WF-1 / SCI-1 / HC-2).
+#   SPACECENTER  the OBSERVED backward clock: ut must read at least
+#                minUtRegressionSeconds below first_recovered_ut. The seam's OK is
+#                a commanded reading; only the clock says the world moved.
+#   EDITOR       seam GoToEditor facility=<editorFacility> craft=<craftName>
+#   LAUNCH       seam LaunchFromEditor
+#   READY        the active vessel reads PRE_LAUNCH on readyDebounceFrames
+#                consecutive live frames
+#   RECORD       seam StartRecording (holdStartRecording only)
+#   HOLD         1x on the pad until ut >= first_recovered_ut +
+#                holdPastFirstRecoverySeconds; throttle 0, nothing staged
+#   HOP2         a FRESH SBR state built from the same params, delegated verbatim
+#                from PRELAUNCH to its RECOVERED terminal
+#   DONE         terminal success, verdict None (the assertions decide)
+#
+# WHY THE RELAUNCH GOES THROUGH THE SEAM rather than kRPC launch_vessel: GoToEditor
+# + LaunchFromEditor are the verbs every career lane on this host flies (CS-3,
+# SCI-1); they honour Parsek's crew reservations (the committed hop 1 holds
+# Jebediah, so the editor seats a stand-in) and stock charges the rollout through
+# them. GoToEditor's craft name can carry a space, so it is percent-encoded
+# (encode_seam_value) before it reaches the verbatim command line.
+#
+# WHY THE HOLD RUNS UNDER A LIVE RECORDER. With a recorder live every Parsek KSP
+# patch is deferred, which is the exact condition the product fix under test (the
+# flight clock cursor raising stock's record band to the committed count) targets.
+# autoRecordOnLaunch would start a recorder only at liftoff, so RECORD starts one on
+# the pad first. The hold then walks the clock past hop 1's recovery, so every
+# committed record crossing is behind the clock before hop 2 lifts off.
+#
+# THE READY GATE READS NO VESSEL NAME, unlike kx_rewind_watch's rollout. KXRW needs
+# the name because a launch there REPLACES a craft already sitting PRE_LAUNCH on
+# the same pad. Here nothing is active from the hop-1 recovery onward (SPACECENTER
+# and the editor have no active vessel, every frame reads vessel_lost), the rewind
+# strips the recorded craft from the save, and READY only starts counting after
+# LaunchFromEditor answered OK, whose own completion line names the vessel it put
+# on the pad in PRELAUNCH. So the first live PRE_LAUNCH reading is that craft.
+#
+# VESSEL LOSS. Inside a hop SBR owns it. From COMMITTED through READY a dead handle
+# is the NORMAL reading (no active vessel), so it is counted and never fatal; the
+# phase frame bounds still apply. In RECORD and HOLD the craft is the subject, so a
+# loss is the named ASSERT-FAIL `vessel-lost-on-pad`.
+#
+# THE HOLD'S STALL GUARD is a clock rule, not the vessel-frozen detector: a pad
+# craft legitimately reports identical altitude and apsides on every poll, which is
+# the frozen detector's dead-vessel signature, so that detector would false-trip.
+# What the hold must not do is wait on a clock that does not move (a game budget
+# cannot see that), so RCR_HOLD_CLOCK_STALL_FRAMES consecutive polls whose UT did
+# not strictly advance end it as the FLAKE `hold-clock-stalled` (the frozen
+# detector's own non-advancing-UT rule, used as the trip instead of the hold).
+# ---------------------------------------------------------------------------
+
+RCR_HOP1 = "HOP1"
+RCR_COMMITTED = "COMMITTED"
+RCR_REWIND = "REWIND"
+RCR_SPACECENTER = "SPACECENTER"
+RCR_EDITOR = "EDITOR"
+RCR_LAUNCH = "LAUNCH"
+RCR_READY = "READY"
+RCR_RECORD = "RECORD"
+RCR_HOLD = "HOLD"
+RCR_HOP2 = "HOP2"
+RCR_DONE = "DONE"
+RCR_PHASES: Tuple[str, ...] = (RCR_HOP1, RCR_COMMITTED, RCR_REWIND, RCR_SPACECENTER,
+                               RCR_EDITOR, RCR_LAUNCH, RCR_READY, RCR_RECORD,
+                               RCR_HOLD, RCR_HOP2, RCR_DONE)
+# Blocks where no active vessel is the expected reading (counted, never fatal).
+RCR_VESSEL_FREE_PHASES: Tuple[str, ...] = (RCR_COMMITTED, RCR_REWIND, RCR_SPACECENTER,
+                                           RCR_EDITOR, RCR_LAUNCH, RCR_READY)
+# Blocks where the relaunched craft sits on the pad and a loss is fatal.
+RCR_PAD_PHASES: Tuple[str, ...] = (RCR_RECORD, RCR_HOLD)
+
+RCR_EDITOR_FACILITIES: Tuple[str, ...] = ("VAB", "SPH")
+# What READY waits for: LaunchFromEditor completes with the craft in PRELAUNCH.
+RCR_READY_SITUATIONS: Tuple[str, ...] = ("PRE_LAUNCH",)
+# What HOLD accepts while it waits. LANDED is the situation a pad craft can settle
+# into without leaving the pad; anything airborne or splashed means it left.
+RCR_HOLD_PAD_SITUATIONS: Tuple[str, ...] = ("PRE_LAUNCH", "LANDED")
+RCR_OFF_PAD_DEBOUNCE_K = 2
+# Consecutive non-advancing HOLD polls before `hold-clock-stalled` (about 20 s of
+# wall at the 0.5 s poll): several times any seam settle, far below the hold.
+RCR_HOLD_CLOCK_STALL_FRAMES = 40
+
+RCR_TAG_REWIND = "rewind"
+RCR_TAG_EDITOR = "editor"
+RCR_TAG_LAUNCH = "launch"
+RCR_TAG_RECORD = "record"
+RCR_REWIND_ARGS: Tuple[Tuple[str, str], ...] = (("tree", "latest"),)
+RCR_COMMITTED_LIST_ARGS: Tuple[Tuple[str, str], ...] = (("kind", "committed"),)
+
+
+def rcr_commit_probe_tag(probe: int) -> str:
+    """A FRESH wire tag per census probe: the C# seam skips duplicate ids, so a
+    re-probe under the same tag would be a silent no-op."""
+    return "commit%d" % int(probe)
+
+
+def rcr_hop_phase(block: str, inner_phase: str) -> str:
+    """The reported phase while a hop runs: ``"HOP1-ASCENT"``."""
+    return "%s-%s" % (block, inner_phase)
+
+
+def rcr_editor_args(params: "RcrParams") -> Tuple[Tuple[str, str], ...]:
+    """GoToEditor's args, each value percent-encoded for the verbatim wire line."""
+    return (("facility", encode_seam_value(params.editor_facility)),
+            ("craft", encode_seam_value(params.craft_name)))
+
+
+def rcr_hold_target_ut(first_recovered_ut: Optional[float],
+                       hold_past_seconds: float) -> Optional[float]:
+    """The UT the hold waits for, or None when the hop-1 recovery UT is unknown."""
+    if first_recovered_ut is None or not _is_finite(first_recovered_ut):
+        return None
+    return float(first_recovered_ut) + float(hold_past_seconds)
+
+
+def rcr_hold_reached(ut: float, target_ut: Optional[float]) -> bool:
+    """``ut >= target``, fail-closed on either side unreadable. Inclusive, so a hold
+    of exactly D ends on the first poll at first_recovered_ut + D, never before."""
+    if target_ut is None or not _is_finite(target_ut) or not _is_finite(ut):
+        return False
+    return float(ut) >= float(target_ut)
+
+
+@dataclass(frozen=True)
+class RcrParams:
+    """record_climb_rewind tuning (spec [driver.missionParams]). ``hop`` is SBR's
+    params built from the SAME dict, so both hops fly SBR's keys exactly."""
+    hop: SbrParams
+    craft_name: str
+    editor_facility: str = "VAB"
+    hold_past_first_recovery: float = 30.0
+    hold_timeout: float = 1800.0
+    hold_start_recording: bool = True
+    # Seam reply / settle bounds, in polls (KXRW's shape).
+    committed_frames: int = 120
+    rewind_frames: int = 40
+    space_center_frames: int = 120
+    editor_frames: int = 40
+    launch_frames: int = 40
+    ready_frames: int = 240
+    ready_debounce: int = 2
+    record_frames: int = 40
+    min_ut_regression: float = 1.0
+
+
+def rcr_params_from_dict(params: Dict) -> RcrParams:
+    """Build ``RcrParams`` from a spec ``missionParams`` dict (shape and ranges are
+    enforced upstream by hlib against record_climb_rewind.schema.toml). The hop half
+    is delegated to ``sbr_params_from_dict`` over the SAME dict.
+
+    ``craftName`` is required and ``editorFacility`` is a closed set; both RAISE
+    rather than fall back, because a silent default would put the wrong craft (or
+    no craft) on the pad after an irreversible rewind."""
+    params = params or {}
+    craft = params.get("craftName")
+    if not isinstance(craft, str) or not craft.strip():
+        raise ValueError("craftName is required (the VAB / SPH craft to relaunch)")
+    facility = params.get("editorFacility", "VAB")
+    if facility not in RCR_EDITOR_FACILITIES:
+        raise ValueError("editorFacility %r is not one of %s"
+                         % (facility, ", ".join(RCR_EDITOR_FACILITIES)))
+    return RcrParams(
+        hop=sbr_params_from_dict(params),
+        craft_name=craft,
+        editor_facility=str(facility),
+        hold_past_first_recovery=float(params.get("holdPastFirstRecoverySeconds", 30.0)),
+        hold_timeout=float(params.get("holdTimeoutSeconds", 1800.0)),
+        hold_start_recording=bool(params.get("holdStartRecording", True)),
+        committed_frames=int(params.get("committedFrames", 120)),
+        rewind_frames=int(params.get("rewindFrames", 40)),
+        space_center_frames=int(params.get("spaceCenterFrames", 120)),
+        editor_frames=int(params.get("editorFrames", 40)),
+        launch_frames=int(params.get("launchFrames", 40)),
+        ready_frames=int(params.get("readyFrames", 240)),
+        ready_debounce=int(params.get("readyDebounceFrames", 2)),
+        record_frames=int(params.get("recordFrames", 40)),
+        min_ut_regression=float(params.get("minUtRegressionSeconds", 1.0)),
+    )
+
+
+@dataclass(frozen=True)
+class RcrState:
+    """record_climb_rewind machine state. ``verdict`` is None while running and at
+    DONE; MISSION-FLAKE with ``flake_reason`` on a seam give-up or a stalled clock;
+    MISSION-ASSERT-FAIL with ``loss_reason`` on a hop's own failure, a hop whose SBR
+    rows did not hold, or a pad loss. ``block`` is the RCR_* block; ``phase`` is the
+    reported phase (the block, or "HOPn-<SBR phase>" inside a hop)."""
+    params: RcrParams
+    block: str = RCR_HOP1
+    phase: str = RCR_HOP1
+    phase_entry_ut: float = 0.0
+    phase_frames: int = 0
+    hop1: Optional[SbrState] = None
+    hop2: Optional[SbrState] = None
+    last_finite_ut: Optional[float] = None
+    vessel_free_lost_frames: int = 0
+    # Evidence, each stamped from the frame that produced it.
+    first_recovered_ut: Optional[float] = None
+    commit_probe: int = 0
+    committed_count: Optional[int] = None
+    committed_ut: Optional[float] = None
+    pre_rewind_ut: Optional[float] = None
+    rewind_result: str = ""
+    rewind_reject_reason: str = ""
+    rewind_ut: Optional[float] = None
+    post_rewind_ut: Optional[float] = None
+    ut_regression: Optional[float] = None
+    editor_result: str = ""
+    editor_ut: Optional[float] = None
+    launch_result: str = ""
+    launch_ut: Optional[float] = None
+    ready_streak: int = 0
+    ready_ut: Optional[float] = None
+    ready_situation: str = ""
+    record_result: str = ""
+    record_ut: Optional[float] = None
+    hold_entry_ut: Optional[float] = None
+    hold_target_ut: Optional[float] = None
+    hold_last_ut: Optional[float] = None
+    hold_stall_frames: int = 0
+    hold_off_pad_streak: int = 0
+    hold_reached_ut: Optional[float] = None
+    hop2_recovered_ut: Optional[float] = None
+    phases_reached: Tuple[str, ...] = ()
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    done: bool = False
+    skip_settle_tail: bool = False
+
+    @property
+    def flight(self) -> Optional[B1State]:
+        """The active hop's delegated B1 machine, or None outside a hop. Exposed so
+        ``frozen_detector_holder`` resolves the hop's frozen counter (and its
+        tolerance) exactly as it does for SBR."""
+        hop = (self.hop1 if self.block == RCR_HOP1
+               else self.hop2 if self.block == RCR_HOP2 else None)
+        return getattr(hop, "flight", None)
+
+
+def rcr_initial_state(params: RcrParams) -> RcrState:
+    """Fresh machine, inside hop 1's own initial SBR phase."""
+    hop1 = sbr_initial_state(params.hop)
+    phase = rcr_hop_phase(RCR_HOP1, hop1.phase)
+    return RcrState(params=params, block=RCR_HOP1, phase=phase, hop1=hop1,
+                    phases_reached=(RCR_HOP1, phase))
+
+
+def _rcr_enter(state: RcrState, block: str, ut: float, **changes) -> RcrState:
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(state, block=block, phase=block, phase_entry_ut=entry,
+                   phase_frames=0, phases_reached=state.phases_reached + (block,),
+                   done=(block == RCR_DONE),
+                   skip_settle_tail=(block == RCR_DONE) or state.skip_settle_tail,
+                   **changes)
+
+
+def _rcr_flake(state: RcrState, reason: str) -> RcrState:
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason=reason, done=True)
+
+
+def _rcr_fail(state: RcrState, reason: str) -> RcrState:
+    return replace(state, verdict=MISSION_ASSERT_FAIL, loss_reason=reason, done=True)
+
+
+def _rcr_seam_action(verb: str, tag: str,
+                     args: Tuple[Tuple[str, str], ...] = ()) -> Action:
+    return Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb=verb, seam_args=args,
+                  seam_tag=tag)
+
+
+def _rcr_carry_hop_terminal(state: RcrState, hop: SbrState, label: str) -> RcrState:
+    """Map a TERMINATED hop that did not reach RECOVERED onto this machine's
+    terminal, carrying SBR's verdict and reason behind a ``hopN`` prefix."""
+    if hop.verdict == MISSION_FLAKE:
+        inner = hop.flake_phase or hop.phase
+        return replace(
+            state, done=True, verdict=MISSION_FLAKE,
+            flake_phase=rcr_hop_phase(state.block, inner),
+            flake_reason="%s %s" % (label, hop.flake_reason
+                                    or ("phase %s timed out" % (inner,))))
+    if hop.loss_reason:
+        return _rcr_fail(state, "%s %s" % (label, hop.loss_reason))
+    return _rcr_fail(state, "%s ended at phase %s without reaching %s (verdict %s)"
+                     % (label, hop.phase, SBR_RECOVERED, hop.verdict))
+
+
+def _rcr_hop(state: RcrState, snapshot: TelemetrySnapshot) -> Tuple[RcrState, List[Action]]:
+    """One delegated hop frame: sbr_decide verbatim, the phase mirrored, and the
+    RECOVERED terminal turned into the next block."""
+    first = state.block == RCR_HOP1
+    label = "hop1" if first else "hop2"
+    hop = state.hop1 if first else state.hop2
+    hop, actions = sbr_decide(hop, snapshot)
+    phase = rcr_hop_phase(state.block, hop.phase)
+    reached = state.phases_reached
+    if phase != state.phase:
+        reached = reached + (phase,)
+    state = replace(state, phase=phase, phase_entry_ut=hop.phase_entry_ut,
+                    phases_reached=reached,
+                    **({"hop1": hop} if first else {"hop2": hop}))
+    if not hop.done:
+        return state, actions
+    if hop.verdict is not None or hop.phase != SBR_RECOVERED:
+        return _rcr_carry_hop_terminal(state, hop, label), actions
+    # RECOVERED. SBR leaves its verdict to its assertion rows, so they are read
+    # HERE as well as in the evaluator: a hop whose rows did not hold must not fly
+    # an irreversible rewind (hop 1) or report DONE (hop 2).
+    unmet = [o.name for o in evaluate_sbr_assertions((), hop.params, hop) if not o.met]
+    if unmet:
+        return _rcr_fail(state, "%s-assertions-unmet: the hop reached %s but its SBR "
+                                "rows did not hold: %s"
+                         % (label, SBR_RECOVERED, ", ".join(unmet))), actions
+    ut = snapshot.ut if _is_finite(snapshot.ut) else state.last_finite_ut
+    if not first:
+        return _rcr_enter(state, RCR_DONE, snapshot.ut, hop2_recovered_ut=ut), actions
+    if ut is None:
+        return _rcr_flake(state, "phase %s: first-recovery-ut-unread: hop 1 was "
+                                 "recovered but no finite UT was ever read, so the "
+                                 "hold target cannot be set" % (state.phase,)), actions
+    state = _rcr_enter(state, RCR_COMMITTED, snapshot.ut, first_recovered_ut=float(ut),
+                       commit_probe=0)
+    return state, actions + [_rcr_seam_action("ListHandles", rcr_commit_probe_tag(0),
+                                              RCR_COMMITTED_LIST_ARGS)]
+
+
+def _rcr_enter_hold(state: RcrState, snapshot: TelemetrySnapshot) -> RcrState:
+    ut = snapshot.ut if _is_finite(snapshot.ut) else state.last_finite_ut
+    return _rcr_enter(
+        state, RCR_HOLD, snapshot.ut, hold_entry_ut=ut,
+        hold_target_ut=rcr_hold_target_ut(state.first_recovered_ut,
+                                          state.params.hold_past_first_recovery),
+        hold_last_ut=ut, hold_stall_frames=0, hold_off_pad_streak=0)
+
+
+def _rcr_seam_give_up(state: RcrState, snapshot: TelemetrySnapshot, tag: str,
+                      verb: str, result: str, why: str) -> RcrState:
+    reason = _seam_reject_reason(snapshot, tag)
+    return _rcr_flake(state, "phase %s: %s returned %s; %s. %s"
+                      % (state.phase, verb, result, _seam_because(reason), why))
+
+
+def rcr_decide(state: RcrState,
+               snapshot: TelemetrySnapshot) -> Tuple[RcrState, List[Action]]:
+    """Advance the record_climb_rewind machine one frame; return (new_state, actions).
+
+    See the block note above RCR_HOP1 for the plan. Every seam verb goes out on the
+    frame that ENTERS the phase waiting for it, and that phase advances only on its
+    OWN tag's OK (``_seam_result`` is tag-gated). Once ``done`` the machine is
+    idempotent."""
+    if state.done:
+        return state, []
+    if _is_finite(snapshot.ut):
+        state = replace(state, last_finite_ut=float(snapshot.ut))
+
+    if state.block in (RCR_HOP1, RCR_HOP2):
+        return _rcr_hop(state, snapshot)
+
+    p = state.params
+    state = replace(state, phase_frames=state.phase_frames + 1)
+
+    if snapshot.vessel_lost:
+        if state.block in RCR_PAD_PHASES:
+            return _rcr_fail(state, "vessel-lost-on-pad: the relaunched craft became "
+                                    "unreadable in phase %s, before hop 2 lifted off"
+                             % (state.phase,)), []
+        state = replace(state, vessel_free_lost_frames=state.vessel_free_lost_frames + 1)
+
+    # ---- COMMITTED: READ that the hop-1 tree auto-committed ----------------
+    if state.block == RCR_COMMITTED:
+        tag = rcr_commit_probe_tag(state.commit_probe)
+        result = _seam_result(snapshot, tag)
+        if result == "OK":
+            raw = seam_handle_from_payload(snapshot, tag, "count")
+            count = _seam_parse_int(raw)
+            if count is None:
+                return _rcr_flake(state, "phase %s: the ListHandles reply carried no "
+                                         "readable `count` (read %r); refusing to rewind "
+                                         "against an unverified commit"
+                                  % (state.phase, raw)), []
+            if count >= 1:
+                st = replace(state, committed_count=count, committed_ut=snapshot.ut)
+                st = _rcr_enter(st, RCR_REWIND, snapshot.ut, pre_rewind_ut=snapshot.ut)
+                return st, [_rcr_seam_action("InvokeRewindToLaunch", RCR_TAG_REWIND,
+                                             RCR_REWIND_ARGS)]
+            st = replace(state, committed_count=0, commit_probe=state.commit_probe + 1)
+            if st.phase_frames > p.committed_frames:
+                return _rcr_flake(st, "phase %s: hop-1-never-committed: ListHandles "
+                                      "kind=committed still enumerated count=0 after %d "
+                                      "frames (%d probes); the recovery's scene exit "
+                                      "did not auto-commit the hop-1 tree (is autoMerge "
+                                      "on?), and InvokeRewindToLaunch is refused without "
+                                      "one" % (st.phase, p.committed_frames,
+                                               st.commit_probe)), []
+            return st, [_rcr_seam_action("ListHandles",
+                                         rcr_commit_probe_tag(st.commit_probe),
+                                         RCR_COMMITTED_LIST_ARGS)]
+        if result in ("ERROR", "TIMEOUT"):
+            return _rcr_seam_give_up(state, snapshot, tag, "ListHandles", result,
+                                     "Whether hop 1's tree committed could not be "
+                                     "read"), []
+        if state.phase_frames > p.committed_frames:
+            return _rcr_flake(state, "phase %s: the ListHandles seam command never "
+                                     "answered within %d frames"
+                              % (state.phase, p.committed_frames)), []
+        return state, []
+
+    # ---- REWIND -------------------------------------------------------------
+    if state.block == RCR_REWIND:
+        result = _seam_result(snapshot, RCR_TAG_REWIND)
+        if result == "OK":
+            return _rcr_enter(state, RCR_SPACECENTER, snapshot.ut, rewind_result="OK",
+                              rewind_ut=snapshot.ut), []
+        if result in ("ERROR", "TIMEOUT"):
+            st = replace(state, rewind_result=result,
+                         rewind_reject_reason=_seam_reject_reason(snapshot,
+                                                                  RCR_TAG_REWIND))
+            return _rcr_seam_give_up(st, snapshot, RCR_TAG_REWIND,
+                                     "InvokeRewindToLaunch tree=latest", result,
+                                     "Without the rewind there is no second crossing "
+                                     "to measure"), []
+        if state.phase_frames > p.rewind_frames:
+            return _rcr_flake(state, "phase %s: the InvokeRewindToLaunch seam command "
+                                     "never answered within %d frames"
+                              % (state.phase, p.rewind_frames)), []
+        return state, []
+
+    # ---- SPACECENTER: the OBSERVED backward clock --------------------------
+    if state.block == RCR_SPACECENTER:
+        regression = float("nan")
+        if state.first_recovered_ut is not None and _is_finite(snapshot.ut):
+            regression = float(state.first_recovered_ut) - float(snapshot.ut)
+        if _is_finite(regression) and regression >= p.min_ut_regression:
+            st = replace(state, post_rewind_ut=snapshot.ut, ut_regression=regression)
+            return (_rcr_enter(st, RCR_EDITOR, snapshot.ut),
+                    [_rcr_seam_action("GoToEditor", RCR_TAG_EDITOR, rcr_editor_args(p))])
+        if state.phase_frames > p.space_center_frames:
+            return _rcr_flake(
+                replace(state, ut_regression=regression),
+                "phase %s: clock-never-ran-backward: InvokeRewindToLaunch reported OK "
+                "but UT never read at least %.1f s below hop 1's recovery UT within "
+                "%d frames (firstRecoveredUT=%s nowUT=%s regression=%s s)"
+                % (state.phase, p.min_ut_regression, p.space_center_frames,
+                   _obs_fmt(state.first_recovered_ut), _obs_fmt(snapshot.ut),
+                   _obs_fmt(regression))), []
+        return state, []
+
+    # ---- EDITOR / LAUNCH: the relaunch, through the seam -------------------
+    if state.block == RCR_EDITOR:
+        result = _seam_result(snapshot, RCR_TAG_EDITOR)
+        if result == "OK":
+            return (_rcr_enter(state, RCR_LAUNCH, snapshot.ut, editor_result="OK",
+                               editor_ut=snapshot.ut),
+                    [_rcr_seam_action("LaunchFromEditor", RCR_TAG_LAUNCH)])
+        if result in ("ERROR", "TIMEOUT"):
+            return _rcr_seam_give_up(
+                replace(state, editor_result=result), snapshot, RCR_TAG_EDITOR,
+                "GoToEditor facility=%s craft=%r" % (p.editor_facility, p.craft_name),
+                result, "Nothing can be relaunched for hop 2"), []
+        if state.phase_frames > p.editor_frames:
+            return _rcr_flake(state, "phase %s: the GoToEditor seam command never "
+                                     "answered within %d frames"
+                              % (state.phase, p.editor_frames)), []
+        return state, []
+
+    if state.block == RCR_LAUNCH:
+        result = _seam_result(snapshot, RCR_TAG_LAUNCH)
+        if result == "OK":
+            return _rcr_enter(state, RCR_READY, snapshot.ut, launch_result="OK",
+                              launch_ut=snapshot.ut, ready_streak=0), []
+        if result in ("ERROR", "TIMEOUT"):
+            return _rcr_seam_give_up(
+                replace(state, launch_result=result), snapshot, RCR_TAG_LAUNCH,
+                "LaunchFromEditor", result, "Hop 2 has no craft on the pad"), []
+        if state.phase_frames > p.launch_frames:
+            return _rcr_flake(state, "phase %s: the LaunchFromEditor seam command "
+                                     "never answered within %d frames"
+                              % (state.phase, p.launch_frames)), []
+        return state, []
+
+    # ---- READY: the relaunched craft OBSERVED on the pad -------------------
+    if state.block == RCR_READY:
+        settled = (not snapshot.vessel_lost
+                   and snapshot.situation in RCR_READY_SITUATIONS)
+        st = replace(state, ready_streak=(state.ready_streak + 1) if settled else 0)
+        if st.ready_streak >= max(1, p.ready_debounce):
+            st = replace(st, ready_ut=snapshot.ut, ready_situation=snapshot.situation)
+            if p.hold_start_recording:
+                return (_rcr_enter(st, RCR_RECORD, snapshot.ut),
+                        [_rcr_seam_action("StartRecording", RCR_TAG_RECORD)])
+            return _rcr_enter_hold(st, snapshot), []
+        if st.phase_frames > p.ready_frames:
+            return _rcr_flake(st, "phase %s: relaunch-never-ready: LaunchFromEditor "
+                                  "answered OK but the active vessel never read one of "
+                                  "%s on %d consecutive live frames within %d frames "
+                                  "(last situation %s)"
+                              % (st.phase, list(RCR_READY_SITUATIONS),
+                                 max(1, p.ready_debounce), p.ready_frames,
+                                 snapshot.situation or "UNREAD")), []
+        return st, []
+
+    # ---- RECORD: a LIVE recorder on the pad --------------------------------
+    if state.block == RCR_RECORD:
+        result = _seam_result(snapshot, RCR_TAG_RECORD)
+        if result == "OK":
+            st = replace(state, record_result="OK", record_ut=snapshot.ut)
+            return _rcr_enter_hold(st, snapshot), []
+        if result in ("ERROR", "TIMEOUT"):
+            return _rcr_seam_give_up(
+                replace(state, record_result=result), snapshot, RCR_TAG_RECORD,
+                "StartRecording", result,
+                "The hold would run without the live recorder it exists to test"), []
+        if state.phase_frames > p.record_frames:
+            return _rcr_flake(state, "phase %s: the StartRecording seam command never "
+                                     "answered within %d frames"
+                              % (state.phase, p.record_frames)), []
+        return state, []
+
+    # ---- HOLD: 1x on the pad past hop 1's recovery UT ----------------------
+    if state.block == RCR_HOLD:
+        situation = snapshot.situation or ""
+        streak = state.hold_off_pad_streak
+        if situation:
+            streak = 0 if situation in RCR_HOLD_PAD_SITUATIONS else streak + 1
+        st = replace(state, hold_off_pad_streak=streak)
+        if streak >= RCR_OFF_PAD_DEBOUNCE_K:
+            return _rcr_fail(st, "pad-craft-left-prelaunch: the relaunched craft read "
+                                 "%s on %d consecutive frames during the hold, before "
+                                 "anything was staged" % (situation, streak)), []
+        if rcr_hold_reached(snapshot.ut, st.hold_target_ut):
+            hop2 = sbr_initial_state(p.hop)
+            phase = rcr_hop_phase(RCR_HOP2, hop2.phase)
+            st = replace(st, hold_reached_ut=float(snapshot.ut), block=RCR_HOP2,
+                         phase=phase, phase_frames=0, hop2=hop2,
+                         phase_entry_ut=float(snapshot.ut),
+                         phases_reached=st.phases_reached + (RCR_HOP2, phase))
+            # The same frame goes to hop 2's first decision, so ignition follows the
+            # target by zero polls.
+            return _rcr_hop(st, snapshot)
+        last = st.hold_last_ut
+        advanced = (_is_finite(snapshot.ut)
+                    and (last is None or float(snapshot.ut) > float(last)))
+        if advanced:
+            st = replace(st, hold_last_ut=float(snapshot.ut), hold_stall_frames=0)
+        else:
+            st = replace(st, hold_stall_frames=st.hold_stall_frames + 1)
+        if st.hold_stall_frames >= RCR_HOLD_CLOCK_STALL_FRAMES:
+            return _rcr_flake(st, "phase %s: hold-clock-stalled: UT did not advance on "
+                                  "%d consecutive polls (stuck at %s, target %s); a "
+                                  "game-time budget cannot see a stopped clock"
+                              % (st.phase, st.hold_stall_frames, _obs_fmt(last),
+                                 _obs_fmt(st.hold_target_ut))), []
+        if (st.hold_target_ut is None
+                or (_is_finite(snapshot.ut) and st.hold_entry_ut is not None
+                    and float(snapshot.ut) - float(st.hold_entry_ut) > p.hold_timeout)):
+            return _rcr_flake(st, "phase %s: hold-never-reached-target: UT %s did not "
+                                  "reach first_recovered_ut + %.1f s = %s within %.0f s "
+                                  "of game time (entry %s)"
+                              % (st.phase, _obs_fmt(snapshot.ut),
+                                 p.hold_past_first_recovery, _obs_fmt(st.hold_target_ut),
+                                 p.hold_timeout, _obs_fmt(st.hold_entry_ut))), []
+        return st, []
+
+    return state, []
+
+
+def _rcr_hop_rows(n: int, params: RcrParams,
+                  hop: Optional[SbrState]) -> List[AssertionOutcome]:
+    """SBR's own rows for one hop, renamed ``hopN<Row>``. The peak apoapsis is the
+    hop's own (the delegated B1 carries it); the frames would mix both hops."""
+    rows = []
+    for o in evaluate_sbr_assertions((), params.hop, hop):
+        detail = dict(o.detail or {})
+        if "peakApoapsis" in detail:
+            detail["peakApoapsis"] = getattr(getattr(hop, "flight", None),
+                                             "peak_apoapsis", None)
+        rows.append(AssertionOutcome("hop%d%s%s" % (n, o.name[:1].upper(), o.name[1:]),
+                                     o.met, o.value, detail))
+    return rows
+
+
+def evaluate_rcr_assertions(frames, params: RcrParams,
+                            state: Optional[RcrState] = None) -> List[AssertionOutcome]:
+    """Machine-carried evidence only, each row stamped with the UT of the frame
+    that produced it. Each hop contributes SBR's own rows (``hop1...`` /
+    ``hop2...``); the rows between them cover the rewind and the hold. ``frames``
+    is accepted for signature symmetry and not read."""
+    st = state
+    g = (lambda name, default=None: getattr(st, name, default))
+    regression = g("ut_regression")
+    rows = list(_rcr_hop_rows(1, params, g("hop1")))
+    rows.append(AssertionOutcome(
+        "hop1RecoveredObserved", g("first_recovered_ut") is not None,
+        g("first_recovered_ut"), {"ut": g("first_recovered_ut")}))
+    rows.append(AssertionOutcome(
+        "hop1CommittedObserved", (g("committed_count") or 0) >= 1, g("committed_count"),
+        {"ut": g("committed_ut"), "probes": int(g("commit_probe", 0) or 0) + 1}))
+    rows.append(AssertionOutcome(
+        "rewindVerdictOk", g("rewind_result") == "OK", g("rewind_result") or None,
+        {"ut": g("rewind_ut"), "tree": "latest",
+         "rejectReason": g("rewind_reject_reason") or None}))
+    rows.append(AssertionOutcome(
+        "clockObservedBackward",
+        bool(regression is not None and _is_finite(regression)
+             and regression >= params.min_ut_regression),
+        regression,
+        {"ut": g("post_rewind_ut"), "firstRecoveredUt": g("first_recovered_ut"),
+         "requiredSeconds": params.min_ut_regression}))
+    rows.append(AssertionOutcome(
+        "relaunchVerdictsOk",
+        g("editor_result") == "OK" and g("launch_result") == "OK",
+        g("launch_result") or None,
+        {"editorUt": g("editor_ut"), "launchUt": g("launch_ut"),
+         "editorResult": g("editor_result") or None,
+         "launchResult": g("launch_result") or None,
+         "craftName": params.craft_name, "editorFacility": params.editor_facility}))
+    rows.append(AssertionOutcome(
+        "relaunchReadyObserved", g("ready_ut") is not None, g("ready_situation") or None,
+        {"ut": g("ready_ut"), "debounceFrames": max(1, params.ready_debounce)}))
+    if params.hold_start_recording:
+        rows.append(AssertionOutcome(
+            "recorderStartedObserved", g("record_result") == "OK",
+            g("record_result") or None, {"ut": g("record_ut")}))
+    reached = g("hold_reached_ut")
+    target = g("hold_target_ut")
+    rows.append(AssertionOutcome(
+        "holdReachedTarget",
+        bool(reached is not None and target is not None and reached >= target),
+        reached,
+        {"targetUt": target, "reachedUt": reached, "entryUt": g("hold_entry_ut"),
+         "holdPastFirstRecoverySeconds": params.hold_past_first_recovery}))
+    rows.extend(_rcr_hop_rows(2, params, g("hop2")))
+    rows.append(AssertionOutcome(
+        "hop2RecoveredObserved",
+        bool(g("hop2_recovered_ut") is not None and g("phase") == RCR_DONE),
+        g("hop2_recovered_ut"),
+        {"ut": g("hop2_recovered_ut"),
+         "phasesReached": list(g("phases_reached", ()) or ())}))
+    return rows

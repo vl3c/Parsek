@@ -1001,7 +1001,7 @@ RecalculateScienceTimeline():
            action.affordable = true        (the tech stays researched)
 ```
 
-Chronological order on the timeline determines priority. Earlier recordings get full credit. Later recordings get the remainder. If a recording is added to the past (player rewinds and commits a new mission), the recalculation gives it priority and reduces later recordings' effective values.
+Chronological order on the timeline determines priority. Earlier recordings get full credit. Later recordings get the remainder. If a recording is added to the past (player rewinds and commits a new mission), the recalculation gives it priority and reduces later recordings' effective values. Owner ruling 2026-10-26 (lane SCI-1): this is intended, the same rule as stock's per-subject value, and it is not a retroactive loss: the never-reduce rule protects the career total (never lower, never paid twice), not which recording holds a subject's credit, and an unrecorded re-run after a rewind is paid in full by stock because the committed row is still ahead of the clock.
 
 The `affordable` flag on a spending action means "researched by the walk": it is true on every row the walk charged, in full or into debt, and on a row it did not charge because it already owns the tech.
 
