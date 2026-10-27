@@ -60,7 +60,7 @@ namespace Parsek.Patches
 
         /// <summary>
         /// The auto-accept twin door: an <c>AutoAccept</c> contract still Offered whose stock id
-        /// twins a committed future accept (<see cref="ContractTwinRule"/>), outside an action
+        /// or once-per-career goal key twins a committed future accept (<see cref="ContractTwinRule"/>), outside an action
         /// replay. A player accept is never refused here: an Offered twin never stays in Mission
         /// Control (the generator refuses it and the contract patch withdraws it).
         /// </summary>
@@ -70,10 +70,12 @@ namespace Parsek.Patches
                 return false;
             if (GameStateRecorder.IsReplayingActions)
                 return false;
-            long stockId;
+            long stockId = 0;
             try { stockId = contract.ContractID; }
-            catch (Exception) { return false; }
-            return ContractTwinRule.IsTwinNow(stockId, keyString, title, "Auto-accept");
+            catch (Exception) { stockId = 0; }
+            string goalKey = ContractGoalKeyReader.ReadIfJudged(contract, CommittedFutureIndexCache.Current,
+                CommittedFutureIndexCache.CurrentUT(), "Auto-accept");
+            return ContractTwinRule.IsTwinNow(stockId, keyString, title, "Auto-accept", goalKey: goalKey);
         }
 
         /// <summary>The committed-accept block only (no slot model): an Offered contract.</summary>

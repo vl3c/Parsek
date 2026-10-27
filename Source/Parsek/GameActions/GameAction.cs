@@ -947,6 +947,18 @@ namespace Parsek
         internal const string ContractStockIdKey = "stockContractId";
 
         /// <summary>
+        /// A <see cref="GameActionType.ContractAccept"/> row's goal key
+        /// (<see cref="Parsek.ContractGoalKey"/>): set only for a contract type whose goal stock
+        /// offers once per career and whose ContractID is seeded by the guid (exploration,
+        /// Significant plant flag, comet sample). The twin rule matches on it as well as on
+        /// <see cref="ContractStockId"/> (design 3.15 step 8, owner ruling 2026-10-27). Additive
+        /// sparse key <see cref="ContractGoalKeyKey"/>, no schema bump; null when unset.
+        /// </summary>
+        public string ContractGoalKey;
+
+        internal const string ContractGoalKeyKey = "contractGoal";
+
+        /// <summary>
         /// The parameter a <see cref="GameActionType.ContractParameterComplete"/> row pays for:
         /// its index path inside the contract (<c>"0"</c>, <c>"1.0"</c>), built by
         /// <see cref="GameStateRecorder.BuildContractParameterIndexPath"/>. Null on every other
@@ -1787,6 +1799,8 @@ namespace Parsek
                 n.AddValue("repPenalty", RepPenalty.ToString("R", IC));
             if (ContractStockId != 0)
                 n.AddValue(ContractStockIdKey, ContractStockId.ToString(IC));
+            if (!string.IsNullOrEmpty(ContractGoalKey))
+                n.AddValue(ContractGoalKeyKey, ContractGoalKey);
         }
 
         /// <summary>
@@ -1884,6 +1898,9 @@ namespace Parsek
             long stockId;
             if (long.TryParse(n.GetValue(ContractStockIdKey), NumberStyles.Integer, IC, out stockId))
                 a.ContractStockId = stockId;
+            string goal = n.GetValue(ContractGoalKeyKey);
+            if (!string.IsNullOrEmpty(goal))
+                a.ContractGoalKey = goal;
         }
 
         private void SerializeContractComplete(ConfigNode n)

@@ -475,10 +475,12 @@ namespace Parsek
                 Enforced(GameActionType.ContractAccept, null, "contract guid + accept",
                     LedgerIdentityRule.OncePerAcceptLifecycle,
                     F + ".ProcessContractAccept (one advance per accept row); a twin stock generates after a rewind "
-                    + "(same stock ContractID, new guid) stays out of the offer pool while the committed accept is "
-                    + "ahead (ContractTwinRule, 3.15 step 8); only types whose ContractID is goal-level (part test "
-                    + "ONCEPERPART / BODYANDSITUATION, science collection), the guid-seeded types are open "
-                    + "(CONTRACT-TWIN-GUID-SEEDED-TYPES)"),
+                    + "(new guid) stays out of the offer pool while the committed accept is ahead (ContractTwinRule, "
+                    + "3.15 step 8) when either identity matches: the same stock ContractID (goal-level for the part "
+                    + "test ONCEPERPART / BODYANDSITUATION and science collection) or, owner ruling 2026-10-27 "
+                    + "(CONTRACT-TWIN-GUID-SEEDED-TYPES), the same goal key of a guid-seeded type stock offers once "
+                    + "per career (ContractGoalKey: exploration milestones, Significant plant flag body, comet "
+                    + "sample comet; repeatable types carry none)"),
                 Enforced(GameActionType.ContractComplete, null, "contract guid, one outcome ever (re-accept does not reopen it)",
                     LedgerIdentityRule.FirstWins,
                     "ContractsModule.ProcessComplete (once ever; not after a deadline, fail or cancel)")

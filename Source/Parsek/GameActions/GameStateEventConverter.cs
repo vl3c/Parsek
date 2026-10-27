@@ -868,6 +868,7 @@ namespace Parsek
             float fundsPenalty = 0f;
             float repPenalty = 0f;
             long stockContractId = 0;
+            string goalKey = null;
             bool structured = evt.detail != null && evt.detail.Contains(";");
             string typeSource = "missing";
             string deadlineSource = "missing";
@@ -960,6 +961,11 @@ namespace Parsek
                 string cidStr = ExtractDetail(evt.detail, GameStateRecorder.ContractStockIdDetailKey);
                 if (cidStr != null)
                     long.TryParse(cidStr, NumberStyles.Integer, IC, out stockContractId);
+
+                // Owner ruling 2026-10-27: the goal key of a once-per-career goal (additive).
+                string goalStr = ExtractDetail(evt.detail, GameStateRecorder.ContractGoalKeyDetailKey);
+                if (!string.IsNullOrEmpty(goalStr))
+                    goalKey = goalStr;
             }
             else
             {
@@ -983,7 +989,8 @@ namespace Parsek
                 $"contractId='{evt.key}' title='{title}' type='{contractType ?? ""}' " +
                 $"typeSource={typeSource} deadlineAbsUT={deadlineUT.ToString("R", IC)} " +
                 $"deadlineSource={deadlineSource} advance={advanceFunds} " +
-                $"failFunds={fundsPenalty} failRep={repPenalty} stockContractId={stockContractId.ToString(IC)}");
+                $"failFunds={fundsPenalty} failRep={repPenalty} stockContractId={stockContractId.ToString(IC)} " +
+                $"goal={goalKey ?? "(none)"}");
 
             return new GameAction
             {
@@ -997,7 +1004,8 @@ namespace Parsek
                 AdvanceFunds = advanceFunds,
                 FundsPenalty = fundsPenalty,
                 RepPenalty = repPenalty,
-                ContractStockId = stockContractId
+                ContractStockId = stockContractId,
+                ContractGoalKey = goalKey
             };
         }
 

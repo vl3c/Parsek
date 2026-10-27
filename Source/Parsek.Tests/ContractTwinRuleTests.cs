@@ -10,7 +10,8 @@ namespace Parsek.Tests
     /// Design 3.15 step 8 (owner ruling 2026-10-26): a contract the committed future accepts
     /// keeps its twin (the same goal stock generates again after a rewind, under a new guid)
     /// out of the offer pool, AutoAccept included. The identity is stock's own uniqueness id
-    /// (<c>Contract.ContractID</c>), captured on the accept row; never contract type and target.
+    /// (<c>Contract.ContractID</c>), captured on the accept row, or (owner ruling 2026-10-27)
+    /// the goal key of a once-per-career goal (<see cref="ContractTwinGoalKeyTests"/>).
     /// </summary>
     [Collection("Sequential")]
     public class ContractTwinRuleTests : IDisposable
@@ -179,21 +180,21 @@ namespace Parsek.Tests
             Assert.Equal(2, logLines.Count(l => l.Contains("Auto-accept:")));
         }
 
-        // Pins the rule's honest scope (design 3.15 item 8): the identity is stock's own
-        // ContractID, which names the goal only for the part test (ONCEPERPART /
-        // BODYANDSITUATION) and the science collection contract; the guid-seeded types are an
-        // open todo awaiting an owner ruling, not caught. No stock id is built here: the hash
-        // is stock's, and faking one would prove nothing about which types repeat it.
+        // Pins the rule's scope (design 3.15 item 8, owner ruling 2026-10-27): stock's own
+        // ContractID for the goal-level types, plus the goal key for the guid-seeded types whose
+        // goal stock offers once per career; the todo is closed. No stock id is built here: the
+        // hash is stock's, and faking one would prove nothing about which types repeat it.
         [Fact]
-        public void Scope_IsStatedAsTheGoalLevelTypes_AndTheGapIsAnOpenTodo()
+        public void Scope_NamesBothIdentities_AndTheTodoIsClosed()
         {
             var e = LedgerEventIdentityRegistry.Entries.Single(x => x.Name == "ContractAccept");
             Assert.Contains("goal-level", e.EnforcedBy);
+            Assert.Contains("ContractGoalKey", e.EnforcedBy);
             Assert.Contains("CONTRACT-TWIN-GUID-SEEDED-TYPES", e.EnforcedBy);
 
             string todo = File.ReadAllText(Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                 "..", "..", "..", "..", "..", "docs", "dev", "todo-and-known-bugs.md")));
-            Assert.Contains("\n## CONTRACT-TWIN-GUID-SEEDED-TYPES:", todo.Replace("\r\n", "\n"));
+            Assert.Contains("\n## ~~CONTRACT-TWIN-GUID-SEEDED-TYPES:", todo.Replace("\r\n", "\n"));
         }
 
         // ------------------------------------------------------------------
@@ -282,14 +283,18 @@ namespace Parsek.Tests
             string gen = Code(Path.Combine("Patches", "ContractTwinGenerationPatch.cs"));
             Assert.Contains("typeof(int), typeof(Contract.ContractPrestige), typeof(Type)", gen);
             Assert.Contains("ContractTwinRule.IsTwinNow(stockId, __result.ContractGuid.ToString(), __result.Title, \"Generation\", "
-                + "rateLimitPerHolder: true)", gen);
+                + "rateLimitPerHolder: true, goalKey: goalKey)", gen);
+            Assert.Contains("string goalKey = ContractGoalKeyReader.ReadIfJudged(__result, CommittedFutureIndexCache.Current, "
+                + "CommittedFutureIndexCache.CurrentUT(), \"Generation\");", gen);
             Assert.Contains("__result.GenerateFailed();", gen);
             Assert.Contains("__result = null;", gen);
             Assert.NotNull(Parsek.Patches.ContractTwinGenerationPatch.ResolveTargetMethodForTesting());
 
             string accept = Code(Path.Combine("Patches", "ContractAcceptPatch.cs"));
             Assert.Contains("if (ShouldWithdrawAutoAcceptTwin(__instance, keyString, title))", accept);
-            Assert.Contains("ContractTwinRule.IsTwinNow(stockId, keyString, title, \"Auto-accept\")", accept);
+            Assert.Contains("ContractTwinRule.IsTwinNow(stockId, keyString, title, \"Auto-accept\", goalKey: goalKey)", accept);
+            Assert.Contains("string goalKey = ContractGoalKeyReader.ReadIfJudged(contract, CommittedFutureIndexCache.Current, "
+                + "CommittedFutureIndexCache.CurrentUT(), \"Auto-accept\");", accept);
             Assert.Contains("if (!contract.AutoAccept || contract.ContractState != Contracts.Contract.State.Offered)", accept);
 
             string patcher = Code(Path.Combine("GameActions", "KspStatePatcher.cs"));
@@ -305,11 +310,15 @@ namespace Parsek.Tests
             Assert.True(guard > withdraw && guard < select, "the withdrawal no longer refuses without a real clock");
             Assert.Contains("double nowUT = clockUT;", patcher);
             Assert.DoesNotContain("CommittedFutureIndexCache.CurrentUT()", patcher.Substring(withdraw, select - withdraw));
-            Assert.Contains("ContractTwinRule.SelectOfferedTwins(offered, CommittedFutureIndexCache.Current, nowUT)", patcher);
+            Assert.Contains("CommittedFutureIndex twinIndex = CommittedFutureIndexCache.Current;", patcher);
+            Assert.Contains("ContractTwinRule.SelectOfferedTwins(offered, twinIndex, nowUT)", patcher);
+            Assert.Contains("ContractGoalKeyReader.ReadIfJudged(c, twinIndex, nowUT, \"PatchContracts\")",
+                patcher.Substring(withdraw, select - withdraw));
             Assert.Contains("live.Withdraw();", patcher);
 
             string handlers = Code("GameStateRecorder.Handlers.cs");
             Assert.Contains("FormatContractStockIdDetail(ReadContractStockId(contract))", handlers);
+            Assert.Contains("FormatContractGoalKeyDetail(ReadContractGoalKey(contract, contractNode))", handlers);
         }
 
         [Fact]
