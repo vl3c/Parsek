@@ -1,42 +1,30 @@
 schema = 1
 id = "SCI-1-science-reearned-after-rewind"
-# WHAT IT PROVES. Science re-earned after a Rewind-to-Launch. A committed flight earns a
-# science subject (the Mystery Goo on the pad), the player rewinds to before that
-# flight's launch and earns the SAME subject again on an unrecorded re-run, before the
-# committed flight's own earning UT. The owner rule under test (brief 2026-10-25): stock
-# pays the re-run only the REMAINDER of the subject, and the committed flight keeps its
-# FULL effective credit.
+# WHAT IT PROVES. Science re-earned after a Rewind-to-Launch, under the OWNER RULING of
+# 2026-10-26 ("Earliest recovery wins (as today)"; design sections 12.6 / 12.7 stand). A
+# committed flight earns a science subject (the Mystery Goo on the pad); the player rewinds to
+# before that flight's launch and earns the SAME subject again on an unrecorded re-run,
+# recovered before the committed flight's own earning UT. Science is keyed by subject
+# (experiment + situation): the first earning in UT order is paid the most and later earnings
+# the shrinking remainder, as stock does. So the re-run is paid in full, the committed flight is
+# capped to the remainder in the replay, the career total never drops, and nothing is paid twice
+# or taken back.
 #
-# THE MECHANISM, FROM SOURCE (main 54037b4).
-#   (a) `Patches/ScienceSubjectPatch.cs` postfixes `ResearchAndDevelopment.
-#       GetExperimentSubject` and `GetSubjectByID`: when the ledger has credited the
-#       subject (`TryResolveCommittedScience` -> `LedgerOrchestrator.Science.
-#       GetSubjectCredited`), it raises `subject.science` to that value, logging
-#       `Applied committed science: <id> <old> -> <new>` (VerboseRateLimited, key
-#       `apply-committed`, 30 s). Stock's value for a new reading falls as
-#       `subject.science` rises, so a raised subject pays only the remainder.
-#   (b) `GameActions/ScienceModule.ProcessEarning` walks earnings in UT order and caps
-#       each subject: headroom = maxValue - creditedTotal, effective = min(awarded,
-#       headroom). The earlier-UT earning gets priority. Every walk logs `Earning:` (or
-#       `Earning (cap hit):`) with awarded (float R), effective (double R) and recordingId.
-#   (c) The re-run is UNRECORDED (autoRecordOnLaunch off, nothing staged), so its
-#       recovery science goes `GameStateRecorder.OnScienceReceived` ->
-#       `LedgerOrchestrator.TryRecordKscScienceSubject`, a direct ledger row:
-#       `KSC science recorded: subject='...' ... recordingId=(none)`. The fresh launch
-#       guid keeps `ResolveKscScienceRecordingId` from tagging it to the first flight.
-#   (d) PREDICTED DEFECT (todo SCIENCE-REEARN-AFTER-REWIND-TAKES-FULL-CREDIT). After the
-#       rewind, `ApplyRewindResourceAdjustment` runs a CUTOFF walk (`RecalculateAndPatch(
-#       adjustedUT)`), and every later recalc while committed rows lie ahead of the clock
-#       is a cutoff walk too. `LedgerOrchestrator.Science` is that cutoff module, so the
-#       Goo subject's credit reads 0 (its only credit is the committed recovery, still in
-#       the future). The patch raises nothing, stock pays the re-run the FULL first-reading
-#       value, the re-run's earlier UT takes priority in the full walk, and the committed
-#       flight is capped. The lane is written to the OWNER RULE, so on main it is
-#       predicted to red PARSEK-FAIL: (B) missing, (C) matching, (D) missing and the
-#       cap-hit forbidden matching. NOTE: design `docs/parsek-game-actions-and-resources-
-#       recorder-design.md` sections 12.6 / 12.7 describe exactly that redistribution as
-#       intended ("Committing T0 retroactively reduced T1's effective from 10 to 5"), so
-#       the rule this lane pins needs an owner ruling before either side is changed.
+# THE MECHANISM, FROM SOURCE (main 20d611f, after LEDGER-EVENT-IDENTITY steps 1-8).
+#   (a) `GameActions/ScienceModule.ProcessEarning` walks earnings in UT order (capture UT since
+#       step 1, cseq as the tie key) and caps each subject: headroom = maxValue - creditedTotal,
+#       effective = min(awarded, headroom). Every walk logs `Earning:` or `Earning (cap hit):`
+#       with awarded (float R), effective (double R) and recordingId (`ScienceModule.cs` 541 /
+#       551). A recovered reading's capture UT is the recovery UT, so the committed row stays
+#       near UT 338 and the re-run's near UT 200: the re-run walks first.
+#   (b) The re-run is UNRECORDED (autoRecordOnLaunch off), so its recovery science is a direct
+#       untagged ledger row: `KSC science recorded: subject='...' ... recordingId=(none)`. The
+#       fresh launch guid keeps it from being tagged to the first flight.
+#   (c) Nothing raises the subject before the re-run: the committed-future mirror counts only
+#       rows at or before the clock (`CommittedMilestoneReach`), and the committed row is still
+#       ahead, so stock pays the re-run the full first-reading value. No take-back fires: the
+#       re-run is the first payment of the subject on this timeline (`StockShadowTakeBack`
+#       takes back only what a forgotten earlier witness already covers).
 #
 # THE SHAPE (re-cut 2026-10-26 onto the stock tree, see STATUS). Host `cs-science-new`
 # on `stock-tree` (CS-1's host: a genuine stock Science game, science 0, start node only,
@@ -62,60 +50,47 @@ id = "SCI-1-science-reearned-after-rewind"
 # (`RecoveredRecordingEvidence`: the recovered Flea never respawns). No funds anywhere.
 #
 # THE CONTRACTS AND WHY EACH IS SOUND.
-#   (B) required: `Applied committed science: mysteryGoo@KerbinSrfLandedLaunchPad`
-#       between `sci1-rewound` and `sci1-second-recovered`. On a fixed build the raise
-#       runs at the Goo press and at the first recovery submission. CAVEAT: the rate-limit
-#       key is shared by every subject, so a crew-report raise inside the previous 30 s
-#       would hide it; the fix should key the limit per subject (todo entry).
-#   (C) forbidden, the defect signature: a post-rewind untagged earning carries the SAME
-#       `awarded=` string as the pre-rewind tagged earning (backreference). Stock computes
-#       the re-run's FIRST reading and flight 1's reading from `subject.science = 0` when
-#       nothing raised it; with the raise every re-run reading is strictly smaller (below),
-#       so no string can match.
-#   (D) required: after `sci1-second-recovered`, the committed earning logs again with
-#       the pre-rewind `awarded`, `effective` and recordingId (all three
-#       backreferenced), i.e. un-capped; and forbidden: the same earning in the
-#       `Earning (cap hit):` form after that mark.
+#   (A) required, the first-run rule: a post-rewind untagged earning carries the SAME
+#       `awarded=` string as the pre-rewind tagged earning (backreference), i.e. the re-run's
+#       first reading was paid from `subject.science = 0`, in full.
+#   (B) required: an untagged `Earning:` (not the cap-hit form) after `sci1-rewound`.
+#   (C) required, the remainder rule: after `sci1-second-recovered`, the committed earning logs
+#       in the `Earning (cap hit):` form with the pre-rewind `awarded` and recordingId
+#       (backreferenced). It appears only in a FULL walk (flight 3 past UT 900, the ground
+#       truth), when the committed row is behind the clock.
+#   (D) forbidden: any take-back (`[TakeBack] Took back`), the over-cap forgotten-credit line,
+#       and a kept `reason=leak` adjustment. Each would mean the career paid or booked the
+#       subject twice. The pool must close (`result: hardFailures=0`).
 #   Premise lines: flight 1's tagged Goo capture, the rewind, three VAB launches, the
 #   three-unit Goo press, all three canisters holding data, the untagged KSC science row,
 #   the ground truth running in SCIENCE_SANDBOX.
 #
-# PREDICTED NUMBERS (measured on first flight). `mysteryGoo@KerbinSrfLandedLaunchPad`:
-# HC-2 read `increment=3.60 total=3.6` on that subject, so a first reading is predicted 3.6
-# subject units (B), cap C = 4.68 (B x Goo scienceCap / baseValue 13 / 10). Stock pays each
-# reading B x (1 - science / C) and adds it to `subject.science`, one `SubmitScienceData`
-# per canister in order, so the headroom C - science shrinks by 1 - B/C = 3/13 per reading.
-# From 0 three readings pay 3.6, 0.83, 0.19 (headroom 4.68 -> 1.08 -> 0.249 -> 0.0575);
-# from a raised 3.6 they pay 0.83, 0.19, 0.044. Owner rule: the re-run pays about 1.07,
-# the committed earning's headroom is 4.68 - 1.067 = 3.613 >= 3.6, so it stays un-capped
-# by 0.013 (1.08 x (3/13)^3), far above float noise. Defect: the re-run pays 3.6 + 0.83 +
-# 0.19 = 4.62 at the earlier UT and the committed earning is capped to about 0.058.
+# MEASURED (reading run 2026-10-26 on DLL 2d8150c5, main with #2275, before the identity work;
+# it red PARSEK-FAIL against the old pre-ruling pins, exactly in this shape): committed
+# `Earning: subject=mysteryGoo@KerbinSrfLandedLaunchPad, awarded=3, effective=3 ...
+# recordingId=4d46922b...`; after the rewind (UT 0.08) the re-read recovered at UT 200 paid
+# `awarded=3, effective=3 ... recordingId=(none)`, the second and third cans 0.69 and 0.16; at
+# the crossing (UT 338) the committed flight `Earning (cap hit): ... awarded=3,
+# effective=0.0479, headroom=0.0479`; LedgerGroundTruth science 10.4 / 10.4, hardFailures=0.
 #
-# PRE-REGISTERED READINGS. `recover-button-locked` on the second Recover (stock's
-# experiment results dialog is up): a seam limit, not Parsek. `partaction-event-unavailable`
-# on the Goo press (the launch came up uncrewed and stock hides the event): a premise miss.
-# `partaction applied ... count=` other than 3: the craft lost a Goo unit at load (CS-1's
-# missing `link` trap). `backward-warp` on the UT 200 wait (the rewound clock was later
-# than estimated: rewind target about UT 0-40, plus the KSC / VAB time): raise the target,
-# keep it below the committed recovery UT. (B) alone red with (C) silent and (D) green: the
-# rate limit hid the line. (D) red with `headroom` within 1e-5 of `awarded`: float
-# rounding, not the defect. An untagged row carrying a 32-hex recordingId: the re-run was
-# tagged to the first flight, a second defect.
+# PRE-REGISTERED READINGS. `recover-button-locked` on the second Recover (stock's experiment
+# results dialog is up): a seam limit, not Parsek. `partaction-event-unavailable` on the Goo
+# press: a premise miss. `partaction applied ... count=` other than 3: the craft lost a Goo unit
+# at load. `backward-warp` on the UT 200 wait: raise the target, keep it below the committed
+# recovery UT. (A) red with (B) green: the re-run was paid less than a first reading, so
+# something raised the subject before it (read the `Applied committed science` lines). A
+# `[TakeBack] Took back` line: read its identity and reason first; a take-back of the re-run is
+# a product defect, one of an unrelated subject is a lane premise to re-read. An untagged row
+# carrying a 32-hex recordingId: the re-run was tagged to the first flight, a second defect.
 #
-# STATUS: NOT YET FLOWN IN THIS SHAPE. Authored 2026-10-25 (branch `sci1-local`) on
-# `career-science-pad` (stock-minimal). First flight (owner's PC, main after PR #2273, stock
-# DLL) INVALID on both attempts on a LANE-AUTHORING fault: the rewind worked
-# (`invokerewindtolaunch complete ... adjustedUT=0.0`), but the post-rewind
-# LaunchFromEditor (flea2) went ERROR after 180 s on stock's `[Pre-Flight Check]: Checking
-# for ExperimentalPartsAvailable: FAIL!`: stock-minimal loads ProbesBeforeCrew, which locks
-# the Jumping Flea's Mk1 pod and Mk16 chute in the VAB (the ZF-1 trap,
-# `fixtures/shared-ships.toml`); the Goo steps then timed out and Recover had no
-# `${flea2.pid}`. Re-cut 2026-10-26 onto `cs-science-new` / `stock-tree`, where CS-1 flew
-# this exact VAB launch PASS (`2026-10-25_2243`); the career-science-pad shared-ships row
-# went with it. `operator` and `pending-flight` until the first flight reads the shape.
-# Every pin is a regex; nothing numeric is pinned.
+# STATUS: NOT YET GREEN. Authored 2026-10-25 (branch `sci1-local`) on `career-science-pad`; its
+# first flight was INVALID (stock-minimal's ProbesBeforeCrew locked the Flea's parts in the VAB),
+# re-cut 2026-10-26 onto `cs-science-new` / `stock-tree`. The reading run above red as predicted
+# against the pre-ruling pins; RE-PINNED 2026-10-27 (branch `claude/project-thread-25edvc`) to the
+# owner ruling and the identity build, not yet flown on either. `operator` and `pending-flight`
+# until it flies green.
 tier = "operator"
-description = "Science re-earned after Rewind-to-Launch, in a stock Science game: a committed CS Flea hop earns the pad Goo subject, the player rewinds and re-earns it with three Goo readings on an unrecorded pad re-run before the committed earning UT; the re-run must be paid only the remainder (ScienceSubjectPatch raise) and the committed flight must keep its full effective credit in the ledger walk."
+description = "Science re-earned after Rewind-to-Launch, in a stock Science game: a committed CS Flea hop earns the pad Goo subject, the player rewinds and re-earns it with three Goo readings on an unrecorded pad re-run before the committed earning UT; by the owner ruling the earliest recovery wins, so the re-run is paid in full, the committed flight is capped to the remainder in the replay, and nothing is paid twice or taken back."
 instanceProfile = "stock-tree"
 tags = ["SCI-1", "science", "science-mode", "rewind", "rewind-to-launch", "ledger",
         "ground-truth", "recovery", "editor", "pending-flight"]
@@ -227,10 +202,12 @@ required = [
   "MISSIONMARK label=sci1-rewound ut=[\\s\\S]*?partaction applied button=inspect pid=[0-9]+ part='GooExperiment' [^\\r\\n]*state='[0-9]+:[^'|\\r\\n]*exp:data=1[^'|\\r\\n]*\\| [0-9]+:[^'|\\r\\n]*exp:data=1[^'|\\r\\n]*\\| [0-9]+:[^'|\\r\\n]*exp:data=1",
   # (c) the re-run's recovery science is an untagged direct ledger row.
   "MISSIONMARK label=sci1-rewound ut=[\\s\\S]*?KSC science recorded: subject='mysteryGoo@KerbinSrfLandedLaunchPad' science=[^ ]+ method=[A-Za-z]+ ut=[0-9.]+ recordingId=\\(none\\) vessel='[^'\\r\\n]*'[\\s\\S]*?MISSIONMARK label=sci1-second-recovered ut=",
-  # (B) the raise: stock is told the subject is already credited.
-  "MISSIONMARK label=sci1-rewound ut=[\\s\\S]*?Applied committed science: mysteryGoo@KerbinSrfLandedLaunchPad [\\s\\S]*?MISSIONMARK label=sci1-second-recovered ut=",
-  # (D) the committed earning keeps its pre-rewind awarded / effective, un-capped.
-  "\\[ScienceModule\\] Earning: subject=mysteryGoo@KerbinSrfLandedLaunchPad, awarded=([^,]+), effective=([^,]+), [^\\r\\n]*?recordingId=([0-9a-f]{32})[\\s\\S]*?MISSIONMARK label=sci1-rewound ut=[\\s\\S]*?MISSIONMARK label=sci1-second-recovered ut=[\\s\\S]*?\\[ScienceModule\\] Earning: subject=mysteryGoo@KerbinSrfLandedLaunchPad, awarded=\\1, effective=\\2, [^\\r\\n]*?recordingId=\\3",
+  # (A) the first-run rule: the re-run's first reading is paid what flight 1's was.
+  "\\[ScienceModule\\] Earning: subject=mysteryGoo@KerbinSrfLandedLaunchPad, awarded=([^,]+), [^\\r\\n]*?recordingId=[0-9a-f]{32}[\\s\\S]*?MISSIONMARK label=sci1-rewound ut=[\\s\\S]*?\\[ScienceModule\\] Earning: subject=mysteryGoo@KerbinSrfLandedLaunchPad, awarded=\\1, [^\\r\\n]*?recordingId=\\(none\\)",
+  # (B) the re-run walks first, un-capped.
+  "MISSIONMARK label=sci1-rewound ut=[\\s\\S]*?\\[ScienceModule\\] Earning: subject=mysteryGoo@KerbinSrfLandedLaunchPad, awarded=[^,]+, [^\\r\\n]*?recordingId=\\(none\\)",
+  # (C) the remainder rule: the committed earning capped once the full walk reaches it.
+  "\\[ScienceModule\\] Earning: subject=mysteryGoo@KerbinSrfLandedLaunchPad, awarded=([^,]+), [^\\r\\n]*?recordingId=([0-9a-f]{32})[\\s\\S]*?MISSIONMARK label=sci1-second-recovered ut=[\\s\\S]*?\\[ScienceModule\\] Earning \\(cap hit\\): subject=mysteryGoo@KerbinSrfLandedLaunchPad, awarded=\\1, [^\\r\\n]*?recordingId=\\2",
   # The ground truth RAN in the Science game (not skipped), on the science pool alone.
   "ground-truth game mode=SCIENCE_SANDBOX pools=science",
   # Never flown on this host: total pinned, the rest regexed (CS-2 read passed=2 skipped=1).
@@ -240,10 +217,10 @@ required = [
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "result: hardFailures=[1-9]",
-  # (C) the defect signature: the re-run paid the full first-reading value.
-  "\\[ScienceModule\\] Earning: subject=mysteryGoo@KerbinSrfLandedLaunchPad, awarded=([^,]+), [^\\r\\n]*?recordingId=[0-9a-f]{32}[\\s\\S]*?MISSIONMARK label=sci1-rewound ut=[\\s\\S]*?\\[ScienceModule\\] Earning: subject=mysteryGoo@KerbinSrfLandedLaunchPad, awarded=\\1, [^\\r\\n]*?recordingId=\\(none\\)",
-  # (D) the committed earning capped after the re-run.
-  "\\[ScienceModule\\] Earning: subject=mysteryGoo@KerbinSrfLandedLaunchPad, awarded=([^,]+), [^\\r\\n]*?recordingId=([0-9a-f]{32})[\\s\\S]*?MISSIONMARK label=sci1-second-recovered ut=[\\s\\S]*?\\[ScienceModule\\] Earning \\(cap hit\\): subject=mysteryGoo@KerbinSrfLandedLaunchPad, awarded=\\1, [^\\r\\n]*?recordingId=\\2",
+  # (D) nothing paid twice, booked twice or taken back.
+  "\\[TakeBack\\] Took back ",
+  "Earning over the cap repeats forgotten credit: subject=mysteryGoo@KerbinSrfLandedLaunchPad",
+  "filed StockPoolAdjustment amount=\\S+ reason=leak",
 ]
 
 [runtime]

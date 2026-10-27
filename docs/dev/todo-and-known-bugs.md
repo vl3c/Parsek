@@ -224,7 +224,7 @@ Built (LEDGER-EVENT-IDENTITY step 4, owner ruling "pay once per career, earliest
 
 ---
 
-## SCIENCE-REEARN-AFTER-REWIND-TAKES-FULL-CREDIT: after a Rewind-to-Launch, re-earning a subject the committed future already credits pays the re-run in full and caps the committed flight [FILED 2026-10-25 on branch `sci1-local`, PREDICTED FROM SOURCE, NOT FLOWN; witness lane SCI-1-science-reearned-after-rewind; NEEDS AN OWNER RULING]
+## ~~SCIENCE-REEARN-AFTER-REWIND-TAKES-FULL-CREDIT: after a Rewind-to-Launch, re-earning a subject the committed future already credits pays the re-run in full and caps the committed flight~~ [FILED 2026-10-25 on branch `sci1-local`; MEASURED 2026-10-26; CLOSED BY DESIGN 2026-10-26 (owner ruling: the earliest recovery wins); witness lane SCI-1-science-reearned-after-rewind re-pinned to the ruling 2026-10-27, not yet flown green]
 
 Owner rule as briefed: after a rewind, `ScienceSubjectPatch` raises `ScienceSubject.science` to the
 ledger's credited value, so stock pays a re-run only the remainder and the committed flight keeps
@@ -257,7 +257,7 @@ effective=0.0479, headroom=0.0479`; `Applied committed science: ... 3.9 -> 3.9` 
 the crossing. The pool itself closes (LedgerGroundTruth `hardFailures=0`, science 10.4 / 10.4), so
 the question is which flight the credit belongs to: still the owner's ruling.
 
-RULED 2026-10-26 (owner): the earliest recovery keeps the science, as today, and design 12.6 / 12.7 stand. Re-earning earlier after a rewind is fine because the subject's total only grows. The remaining work is LEDGER-EVENT-IDENTITY steps 2 and 5. Lane SCI-1 is re-pinned to this rule when the Mun campaign resumes.
+RULED 2026-10-26 (owner): the earliest recovery keeps the science, as today, and design 12.6 / 12.7 stand. Re-earning earlier after a rewind is fine because the subject's total only grows. The remaining work is LEDGER-EVENT-IDENTITY steps 2 and 5. Science is keyed by subject (experiment + situation): the first earning in UT order is paid the most and later ones the shrinking remainder, as stock does, and the full-ledger replay exists to allow that re-ordering. The "Owner rule as briefed" paragraph above is superseded and no fix is owed. Lane SCI-1 is RE-PINNED 2026-10-27 (branch `claude/project-thread-25edvc`) to this rule on the identity build: the re-run's first earning paid what flight 1's was, the committed earning capped in the full walk, and no take-back, over-cap forgotten-credit or leak line. Owed: its first green flight.
 
 ---
 
