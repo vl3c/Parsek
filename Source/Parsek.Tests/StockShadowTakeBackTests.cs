@@ -1083,6 +1083,8 @@ namespace Parsek.Tests
                         "StrategyScienceDebit/Converter", "StrategyScienceCredit", "FundsSpending/StrategyConverter",
                         "FundsEarning/Strategy", "ReputationEarning/Strategy", "ReputationPenalty/StrategyConverter",
                     } },
+                { GameActionNotCountedReason.SurveyBodyAlreadyCredited, new[] { "ScienceLabEarning/survey" } },
+                { GameActionNotCountedReason.ProducerSliceAlreadyCredited, new[] { "ScienceEarning/continuous" } },
             };
             foreach (GameActionNotCountedReason r in Enum.GetValues(typeof(GameActionNotCountedReason)))
             {
@@ -1096,10 +1098,11 @@ namespace Parsek.Tests
                 }
             }
             // Science's cap is a take-back without a not-counted reason.
-            Assert.True(LedgerEventIdentityRegistry.Entries.Single(e => e.Name == "ScienceEarning").TakesBackStockRepeat);
+            Assert.True(LedgerEventIdentityRegistry.Entries.Single(e => e.Name == "ScienceEarning/subject").TakesBackStockRepeat);
             // Nothing else takes back (never a purchase, a floor, a strategy share); the six
-            // conversion-leg entries take back only the share of a duplicate cause (3.15 step 7).
-            Assert.Equal(13, LedgerEventIdentityRegistry.Entries.Count(e => e.TakesBackStockRepeat));
+            // conversion-leg entries take back only the share of a duplicate cause, the survey
+            // and the producer slice only a repeat stock paid after forgetting (3.15 step 7).
+            Assert.Equal(15, LedgerEventIdentityRegistry.Entries.Count(e => e.TakesBackStockRepeat));
         }
 
         [Fact]
@@ -1113,7 +1116,10 @@ namespace Parsek.Tests
                 "MilestoneAchievement/one-shot",
                 "MilestoneAchievement/world-record",
                 "ResourceScanUnlocked",
-                "ScienceEarning",
+                // The survey's stock gate is the body's scan, which the same survey's
+                // ResourceScanUnlocked row mirrors (3.15 step 7).
+                "ScienceEarning/subject",
+                "ScienceLabEarning/survey",
             }, mirrored);
 
             Assert.True(CommittedMilestoneReach.IsMirroredRow(Milestone("a", "Mun/Landing", 1, 1, 1, 0, 0)));

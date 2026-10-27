@@ -41,9 +41,39 @@ namespace Parsek.Patches
 
             string keyString = __instance.ContractGuid.ToString();
             string title = __instance.Title ?? keyString;
+            // Design 3.15 step 8: a contract stock accepts on its own that twins a committed
+            // future accept is withdrawn instead (a generator other than the patched offer loop).
+            if (ShouldWithdrawAutoAcceptTwin(__instance, keyString, title))
+            {
+                try { __instance.Withdraw(); }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(ContractTwinRule.Tag,
+                        $"Auto-accept: withdrawing twin '{title}' threw: {ex.Message} (accept refused anyway)");
+                }
+                return false;
+            }
             return ShouldAllowAccept(keyString, title, __instance.ContractState, __instance.AutoAccept, true,
                 ContractSlotReservation.NewAcceptReleaseUT(__instance, CommittedFutureIndexCache.CurrentUT()),
                 ClickReservationGate.InputFor(__instance, ClickReservationGate.Current()));
+        }
+
+        /// <summary>
+        /// The auto-accept twin door: an <c>AutoAccept</c> contract still Offered whose stock id
+        /// twins a committed future accept (<see cref="ContractTwinRule"/>), outside an action
+        /// replay. A player accept is never refused here: an Offered twin never stays in Mission
+        /// Control (the generator refuses it and the contract patch withdraws it).
+        /// </summary>
+        private static bool ShouldWithdrawAutoAcceptTwin(Contracts.Contract contract, string keyString, string title)
+        {
+            if (!contract.AutoAccept || contract.ContractState != Contracts.Contract.State.Offered)
+                return false;
+            if (GameStateRecorder.IsReplayingActions)
+                return false;
+            long stockId;
+            try { stockId = contract.ContractID; }
+            catch (Exception) { return false; }
+            return ContractTwinRule.IsTwinNow(stockId, keyString, title, "Auto-accept");
         }
 
         /// <summary>The committed-accept block only (no slot model): an Offered contract.</summary>

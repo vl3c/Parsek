@@ -529,6 +529,45 @@ namespace Parsek.Tests
             Assert.Null(ReplayCredit.NotCountedLabel(kept, scienceWalked: false));
         }
 
+        // catches: a leg's take-back exceeding the part of it the walk left out (the cause's
+        // take-back fraction applied uncapped).
+        [Fact]
+        public void Decide_LegTakeBack_NeverExceedsThePartTheWalkLeftOut()
+        {
+            StockShadowTakeBack.SetEligibleFromForTesting(1);
+            string c = Cause(GameActionType.ScienceEarning, StockPool.Science, "goo@Kerbin");
+            GameAction cause = Subject("s", "goo@Kerbin", 100, 10, 8f, 8f);
+            cause.Effective = true;
+            cause.EffectiveScience = 6f;   // share 0.75
+            cause.TakeBackScience = 4f;    // fraction 0.5, more than the 0.25 left out
+            GameAction leg = ScienceDebitLeg("d", 100, 11, 100f, c);
+            var rows = new List<GameAction> { cause, leg };
+            List<ConversionLegDecision> d = ConversionLegBinding.Decide(rows, rows);
+            Assert.Single(d);
+            Assert.Equal(0.75f, d[0].Share);
+            Assert.Equal(-25.0, (double)d[0].TakeBackScience, 4);
+            Assert.Contains(logLines, l => l.Contains("takingBack=1"));
+        }
+
+        // catches: a leg counted as taken back when its cause takes nothing back.
+        [Fact]
+        public void Decide_CauseTakingNothingBack_TakesNothingBackFromItsLeg()
+        {
+            StockShadowTakeBack.SetEligibleFromForTesting(1);
+            string c = Cause(GameActionType.ScienceEarning, StockPool.Science, "goo@Kerbin");
+            GameAction cause = Subject("s", "goo@Kerbin", 100, 10, 8f, 8f);
+            cause.Effective = true;
+            cause.EffectiveScience = 6f;
+            GameAction leg = ScienceDebitLeg("d", 100, 11, 100f, c);
+            var rows = new List<GameAction> { cause, leg };
+            List<ConversionLegDecision> d = ConversionLegBinding.Decide(rows, rows);
+            Assert.Single(d);
+            Assert.Equal(0.75f, d[0].Share);
+            Assert.Equal(0f, d[0].TakeBackScience);
+            Assert.Contains(logLines, l => l.Contains("Conversion legs:") && l.Contains("takingBack=0"));
+            Assert.DoesNotContain(logLines, l => l.Contains("takeBack funds="));
+        }
+
         // catches: the probe / balance walks doubling their samples on the second walk.
         [Fact]
         public void BalanceWalk_OnARewalk_KeepsOneSamplePerRow()

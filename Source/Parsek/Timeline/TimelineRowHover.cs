@@ -53,6 +53,10 @@ namespace Parsek
                     return "Not counted: already bought earlier on timeline, so nothing was charged.";
                 case GameActionNotCountedReason.ConversionCauseNotCounted:
                     return "Not counted: the reward it came from was not counted, so nothing was converted.";
+                case GameActionNotCountedReason.SurveyBodyAlreadyCredited:
+                    return "Not counted: this body was already surveyed earlier on timeline, so no bonus was paid.";
+                case GameActionNotCountedReason.ProducerSliceAlreadyCredited:
+                    return "Not counted: this time was already counted for the same experiment, so no science was paid.";
                 default:
                     return null;
             }

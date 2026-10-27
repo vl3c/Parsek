@@ -186,8 +186,8 @@ namespace Parsek.Tests
                 tech.Describe());
 
             LedgerEventIdentityEntry science;
-            Assert.True(LedgerEventIdentityRegistry.TryGet(GameActionType.ScienceEarning, null, out science));
-            Assert.StartsWith("ScienceEarning key=[subject id] rule=CapHeadroom enforced by ScienceModule.ProcessEarning",
+            Assert.True(LedgerEventIdentityRegistry.TryGet(GameActionType.ScienceEarning, "subject", out science));
+            Assert.StartsWith("ScienceEarning/subject key=[subject id] rule=CapHeadroom enforced by ScienceModule.ProcessEarning",
                 science.Describe());
             Assert.DoesNotContain("\n", science.Describe());
 
@@ -197,7 +197,8 @@ namespace Parsek.Tests
 
         // The rows design 3.15 step 1's table names, pinned to the registry's rule for them.
         [Theory]
-        [InlineData(GameActionType.ScienceEarning, null, "CapHeadroom", true)]
+        [InlineData(GameActionType.ScienceEarning, "subject", "CapHeadroom", true)]
+        [InlineData(GameActionType.ScienceEarning, "continuous", "OncePerSlice", true)]
         [InlineData(GameActionType.MilestoneAchievement, "one-shot", "FirstWins", true)]
         [InlineData(GameActionType.MilestoneAchievement, "world-record", "OncePerThreshold", true)]
         [InlineData(GameActionType.ContractComplete, null, "FirstWins", true)]
@@ -205,7 +206,7 @@ namespace Parsek.Tests
         [InlineData(GameActionType.ContractCancel, null, "FirstWins", true)]
         [InlineData(GameActionType.ContractParameterComplete, null, "FirstWinsWhileContractOpen", true)]
         [InlineData(GameActionType.ContractAccept, null, "OncePerAcceptLifecycle", true)]
-        [InlineData(GameActionType.ScienceLabEarning, "survey", "OncePerBody", false)]
+        [InlineData(GameActionType.ScienceLabEarning, "survey", "OncePerBody", true)]
         [InlineData(GameActionType.ScienceLabEarning, "lab", "AsRecorded", true)]
         [InlineData(GameActionType.ScienceSpending, null, "PurchaseStateRule", true)]
         [InlineData(GameActionType.FundsSpending, "Other", "PurchaseStateRule", true)]
@@ -249,6 +250,7 @@ namespace Parsek.Tests
             LedgerIdentityRule.FirstWinsWhileContractOpen,
             LedgerIdentityRule.OncePerThreshold,
             LedgerIdentityRule.OncePerBody,
+            LedgerIdentityRule.OncePerSlice,
             LedgerIdentityRule.PurchaseStateRule,
         };
 
@@ -296,7 +298,9 @@ namespace Parsek.Tests
 
         private static readonly Dictionary<string, Action> Probes = new Dictionary<string, Action>
         {
-            { "ScienceEarning", ProbeScienceCapHeadroom },
+            { "ScienceEarning/subject", ProbeScienceCapHeadroom },
+            { "ScienceEarning/continuous", ProbeProducerSliceOncePerSlice },
+            { "ScienceLabEarning/survey", ProbeSurveyOncePerBody },
             { "MilestoneAchievement/one-shot", ProbeMilestoneFirstWins },
             { "MilestoneAchievement/world-record", ProbeWorldRecordOncePerThreshold },
             { "ContractComplete", ProbeContractCompleteFirstWins },
@@ -359,6 +363,48 @@ namespace Parsek.Tests
             Assert.Equal(3.0, earlier.EffectiveScience, 3);
             Assert.Equal(0.9, later.EffectiveScience, 3);
             Assert.Equal(3.9, w.Science.GetRunningScience(), 3);
+        }
+
+        // A rewind separated two surveys of Mun: the one earlier on the timeline (captured
+        // later) keeps the bonus.
+        private static void ProbeSurveyOncePerBody()
+        {
+            var w = Register();
+            var actions = Seeds();
+            var committed = new GameAction { UT = 1000, CaptureSequence = 10, Type = GameActionType.ScienceLabEarning, ScanBodyName = "Mun", ScienceAwarded = 12f };
+            var rewound = new GameAction { UT = 200, CaptureSequence = 50, Type = GameActionType.ScienceLabEarning, ScanBodyName = "Mun", ScienceAwarded = 12f };
+            actions.Add(committed);
+            actions.Add(rewound);
+            RecalculationEngine.Recalculate(actions);
+            Assert.True(rewound.Effective);
+            Assert.False(committed.Effective);
+            Assert.Equal(GameActionNotCountedReason.SurveyBodyAlreadyCredited, committed.NotCountedReason);
+            Assert.Equal(12.0, w.Science.GetRunningScience(), 3);
+        }
+
+        // A rewind separated two slices of one producer over the same time: the slice earlier
+        // in walk order keeps it.
+        private static void ProbeProducerSliceOncePerSlice()
+        {
+            var w = Register();
+            var actions = Seeds();
+            var committed = new GameAction
+            {
+                UT = 200, CaptureSequence = 10, Type = GameActionType.ScienceEarning, SubjectId = "goo@MunSrfLanded",
+                ScienceAwarded = 4f, SubjectMaxValue = 100f, ProducerId = "station-1", SliceStartUT = 100, SliceEndUT = 200
+            };
+            var rewound = new GameAction
+            {
+                UT = 150, CaptureSequence = 50, Type = GameActionType.ScienceEarning, SubjectId = "goo@MunSrfLanded",
+                ScienceAwarded = 4f, SubjectMaxValue = 100f, ProducerId = "station-1", SliceStartUT = 100, SliceEndUT = 200
+            };
+            actions.Add(committed);
+            actions.Add(rewound);
+            RecalculationEngine.Recalculate(actions);
+            Assert.Equal(4.0, rewound.EffectiveScience, 3);
+            Assert.False(committed.Effective);
+            Assert.Equal(GameActionNotCountedReason.ProducerSliceAlreadyCredited, committed.NotCountedReason);
+            Assert.Equal(4.0, w.Science.GetRunningScience(), 3);
         }
 
         private static void ProbeMilestoneFirstWins()
@@ -571,28 +617,6 @@ namespace Parsek.Tests
             Assert.False(committed.Effective);
             Assert.Equal(GameActionNotCountedReason.PurchaseAlreadyOwned, committed.NotCountedReason);
             Assert.Equal(80000.0, w.Funds.GetRunningBalance(), 3);
-        }
-
-        // ================================================================
-        // Planned entries still behave as their "today" text says
-        // ================================================================
-
-        // catches: the survey bonus becoming once per body without the registry entry flipping
-        // to enforced.
-        [Fact]
-        public void PlannedOrbitalSurvey_TodayEverySurveyRowIsCredited()
-        {
-            LedgerEventIdentityEntry e;
-            Assert.True(LedgerEventIdentityRegistry.TryGet(GameActionType.ScienceLabEarning,
-                LedgerEventIdentityRegistry.OrbitalSurvey, out e));
-            Assert.False(e.EnforcedToday);
-
-            var w = Register();
-            var actions = Seeds();
-            actions.Add(new GameAction { UT = 100, Type = GameActionType.ScienceLabEarning, ScanBodyName = "Mun", ScienceAwarded = 12f });
-            actions.Add(new GameAction { UT = 300, Type = GameActionType.ScienceLabEarning, ScanBodyName = "Mun", ScienceAwarded = 12f });
-            RecalculationEngine.Recalculate(actions);
-            Assert.Equal(24.0, w.Science.GetRunningScience(), 3);
         }
     }
 }

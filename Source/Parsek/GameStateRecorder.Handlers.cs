@@ -29,6 +29,33 @@ namespace Parsek
                 $"Game state: ContractOffered '{title}' (diagnostic, not stored)");
         }
 
+        /// <summary>The ContractAccepted detail key carrying stock's uniqueness id
+        /// (<c>Contract.ContractID</c>, design 3.15 step 8). Additive.</summary>
+        internal const string ContractStockIdDetailKey = "cid";
+
+        /// <summary>Pure: the detail suffix for a stock contract id, empty for 0 (unknown).</summary>
+        internal static string FormatContractStockIdDetail(long stockContractId)
+        {
+            return stockContractId == 0
+                ? ""
+                : ";" + ContractStockIdDetailKey + "=" + stockContractId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        private static long ReadContractStockId(Contract contract)
+        {
+            try
+            {
+                return contract != null ? contract.ContractID : 0;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("GameStateRecorder",
+                    $"ContractAccepted: reading Contract.ContractID threw ({ex.Message}); the row names no stock id " +
+                    "and is never judged a twin");
+                return 0;
+            }
+        }
+
         private void OnContractAccepted(Contract contract)
         {
             if (contract == null)
@@ -96,7 +123,8 @@ namespace Parsek
                 (string.IsNullOrEmpty(contractType) ? "" : $";type={contractType}") +
                 $";funds={advanceFunds.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
                 $";failFunds={failFunds.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
-                $";failRep={failRep.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}";
+                $";failRep={failRep.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}" +
+                FormatContractStockIdDetail(ReadContractStockId(contract));
 
             var evt = new GameStateEvent
             {

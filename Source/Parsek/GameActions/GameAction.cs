@@ -490,7 +490,14 @@ namespace Parsek
         /// <summary>A strategy conversion leg whose cause row the walk did not count (a
         /// duplicate award): the leg follows its cause and converts nothing (design 3.15
         /// step 7, <see cref="ConversionLegBinding"/>).</summary>
-        ConversionCauseNotCounted
+        ConversionCauseNotCounted,
+        /// <summary>An orbital survey bonus for a body the walk already credited, by a survey
+        /// a rewind separated from this one: stock pays the bonus once per body (design 3.15
+        /// step 7).</summary>
+        SurveyBodyAlreadyCredited,
+        /// <summary>A continuous producer's science for a time slice the walk already credited
+        /// to the same producer and subject (design 3.15 step 7).</summary>
+        ProducerSliceAlreadyCredited
     }
 
     /// <summary>
@@ -702,6 +709,25 @@ namespace Parsek
         public float ScienceGainMultiplier = 1f;
 
         /// <summary>
+        /// A continuous producer's id (a Breaking Ground deployed experiment, Kerbalism's
+        /// background science): set on a <c>ScienceEarning</c> that pays for a span of time,
+        /// keyed with its subject and <see cref="SliceStartUT"/> / <see cref="SliceEndUT"/>
+        /// (design 3.15 step 7, <see cref="ProducerSliceBook"/>). Additive sparse key
+        /// <see cref="ProducerIdKey"/>, no schema bump; null on every other row.
+        /// </summary>
+        public string ProducerId;
+
+        /// <summary>Start of the producer's time slice (UT, inclusive); NaN when unset.</summary>
+        public double SliceStartUT = double.NaN;
+
+        /// <summary>End of the producer's time slice (UT, exclusive); NaN when unset.</summary>
+        public double SliceEndUT = double.NaN;
+
+        internal const string ProducerIdKey = "producerId";
+        internal const string SliceStartUTKey = "sliceStartUT";
+        internal const string SliceEndUTKey = "sliceEndUT";
+
+        /// <summary>
         /// TRANSIENT, never serialized: true on a freshly converted <c>ScienceEarning</c>
         /// candidate whose <see cref="ActionId"/> is the per-callback capture identity
         /// (<see cref="PendingScienceSubject.captureActionId"/>). The ledger dedup then
@@ -906,6 +932,19 @@ namespace Parsek
 
         /// <summary>Human-readable contract title.</summary>
         public string ContractTitle;
+
+        /// <summary>
+        /// A <see cref="GameActionType.ContractAccept"/> row's stock uniqueness id
+        /// (<c>Contract.ContractID</c>: a hash of the contract type and its and its parameters'
+        /// hash strings, the value <c>ContractSystem.GenerateContract</c> refuses a duplicate
+        /// offer on). Lets the walk tell a twin stock generated after a rewind under a new
+        /// guid (design 3.15 step 8, <see cref="ContractTwinRule"/>). Additive sparse key
+        /// <see cref="ContractStockIdKey"/>, no schema bump; 0 when not captured (older rows,
+        /// never judged).
+        /// </summary>
+        public long ContractStockId;
+
+        internal const string ContractStockIdKey = "stockContractId";
 
         /// <summary>
         /// The parameter a <see cref="GameActionType.ContractParameterComplete"/> row pays for:
@@ -1539,6 +1578,15 @@ namespace Parsek
                 n.AddValue("startUT", StartUT.ToString("R", IC));
                 n.AddValue("endUT", EndUT.ToString("R", IC));
             }
+            // Sparse (design 3.15 step 7): only a continuous producer's slice carries them.
+            if (!string.IsNullOrEmpty(ProducerId))
+            {
+                n.AddValue(ProducerIdKey, ProducerId);
+                if (!double.IsNaN(SliceStartUT))
+                    n.AddValue(SliceStartUTKey, SliceStartUT.ToString("R", IC));
+                if (!double.IsNaN(SliceEndUT))
+                    n.AddValue(SliceEndUTKey, SliceEndUT.ToString("R", IC));
+            }
         }
 
         private static void DeserializeScienceEarning(ConfigNode n, GameAction a)
@@ -1559,6 +1607,16 @@ namespace Parsek
             TryParseFloat(n, "startUT", out a.StartUT);
             if (!TryParseFloat(n, "endUT", out a.EndUT))
                 a.EndUT = float.NaN;
+            string producer = n.GetValue(ProducerIdKey);
+            if (!string.IsNullOrEmpty(producer))
+            {
+                a.ProducerId = producer;
+                double sliceStart, sliceEnd;
+                a.SliceStartUT = double.TryParse(n.GetValue(SliceStartUTKey), NumberStyles.Float, IC, out sliceStart)
+                    ? sliceStart : double.NaN;
+                a.SliceEndUT = double.TryParse(n.GetValue(SliceEndUTKey), NumberStyles.Float, IC, out sliceEnd)
+                    ? sliceEnd : double.NaN;
+            }
         }
 
         /// <summary>Sparse ScienceEarning key for <see cref="ScienceGainMultiplier"/>.</summary>
@@ -1727,6 +1785,8 @@ namespace Parsek
                 n.AddValue("fundsPenalty", FundsPenalty.ToString("R", IC));
             if (RepPenalty != 0f)
                 n.AddValue("repPenalty", RepPenalty.ToString("R", IC));
+            if (ContractStockId != 0)
+                n.AddValue(ContractStockIdKey, ContractStockId.ToString(IC));
         }
 
         /// <summary>
@@ -1821,6 +1881,9 @@ namespace Parsek
 
             TryParseFloat(n, "fundsPenalty", out a.FundsPenalty);
             TryParseFloat(n, "repPenalty", out a.RepPenalty);
+            long stockId;
+            if (long.TryParse(n.GetValue(ContractStockIdKey), NumberStyles.Integer, IC, out stockId))
+                a.ContractStockId = stockId;
         }
 
         private void SerializeContractComplete(ConfigNode n)
