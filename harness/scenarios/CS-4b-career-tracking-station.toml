@@ -39,21 +39,22 @@ id = "CS-4b-career-tracking-station"
 #   radial decoupler, AV-T1 winglet): science 47.5 -> 27.5 -> 9.5. Nothing else fits: the
 #   next rocketry node, advRocketry (Terrier), is 45 on top of generalRocketry, and
 #   basicScience alone (45) buys no propulsion;
-# - Launch Pad 0 -> 1: the same scene asset reads 19000 / 75000 / 282000 (Mission Control's
-#   identical row is the 75000 CS-3b observed), so 75000. Level 1 lifts the pad's 18 t mass
+# - Launch Pad 0 -> 1: 50000, MEASURED on the first flight (`2026-10-27_1951`: `FacilityUpgraded
+#   'SpaceCenter/LaunchPad' ... cost=50000 costSource=observed-debit`, `FundsChanged -50000`); the
+#   draft's 75000, inferred from Mission Control's row, was wrong. Level 1 lifts the pad's 18 t mass
 #   limit, the one CS-5's Mun-capable craft will exceed first (CS Orbiter is 16.7 t). The
 #   VAB (225000 per the same asset; 30 -> 255 parts) is not affordable after the Tracking
-#   Station. Left over: 51994.30, a buffer for several rollouts (CS Orbiter's was 5807);
+#   Station. Left over: 76994.30, a buffer for several rollouts (CS Orbiter's was 5807);
 # - the ground-truth launch: the Jumping Flea's rollout, 2932 (CS-3b's and CS-4's measured
 #   debit), refunded by its pad recovery.
 #
 # THE WALK (all in SPACECENTER): upgrade the Tracking Station (funds -> 126994.30), research
 # generalRocketry (science -> 27.5), research stability (science -> 9.5), upgrade the Launch
-# Pad (funds -> 51994.30). Then the LEDGER GROUND TRUTH, which is FLIGHT-only
+# Pad (funds -> 76994.30). Then the LEDGER GROUND TRUTH, which is FLIGHT-only
 # (`LedgerGroundTruthHarness`, all three cells `Scene = GameScenes.FLIGHT`):
-# autoRecordOnLaunch off, launch the Flea (-> 49062.30), run LedgerGroundTruth in that FLIGHT
-# scene, recover the pad craft (-> 51994.30), save, quit. No mission flies. Expected end
-# pools: funds 51994.30, science 9.5, rep 84.0.
+# autoRecordOnLaunch off, launch the Flea (-> 74062.30), run LedgerGroundTruth in that FLIGHT
+# scene, recover the pad craft (-> 76994.30), save, quit. No mission flies. Expected end
+# pools: funds 76994.30, science 9.5, rep 84.0.
 #
 # THE ASSERTIONS THAT MATTER: each KSC action reaches the ledger as its own untagged row
 # (`AddEvent: <type> key='<key>' tag=''` and `KSC spending recorded: type=<row>`), stock
@@ -61,15 +62,21 @@ id = "CS-4b-career-tracking-station"
 # rollout is written as a new launch past the in-window unadopted row (never a duplicate
 # skip, never a leak row), and the ground truth closes with all of it in the pools.
 #
-# STATUS: AUTHORED 2026-10-26, never flown. The batch line pins `total=3` with the split
-# regexed (registered in IngameBatchWiringGroupTests.INTERIM_PIN_IDS); CS-3b and CS-4
-# measured `passed=3 failed=0 skipped=0` for the same category in the same scene on this
-# career. `operator` (stock-tree is not in the nightly instance set).
+# STATUS: LIVE-PROVEN 2026-10-27 `2026-10-27_1957` PASS attempt 1 (66 s, DLL c5ed3518) on the measured Launch Pad cost:
+# every KSC action booked, the relaunch a new launch, batch `passed=3 failed=0 skipped=0`,
+# LedgerGroundTruth `hardFailures=0 reportOnly=2` (the same two facets as below), funds
+# 76994.30 / science 9.5 / rep 84.0, 7 recordings.
+# FIRST FLIGHT 2026-10-27 `2026-10-27_1951` PARSEK-FAIL attempt 1 ON A SPEC COST ERROR
+# (the Launch Pad pins said 75000, stock charged 50000); everything else read green: the relaunch
+# `recording rollout as a new launch ... verdict=GuidDiffers` (existingUT 1389.48, newUT 1392.68),
+# batch `passed=3 failed=0 skipped=0` (pinned whole), LedgerGroundTruth `hardFailures=0
+# reportOnly=2` (facet Milestone MissingInRecon Kerbin/Orbit; facet Vessel Consistency, the Flea
+# recovery matched by pid only). Re-pinned to the measured cost. Authored 2026-10-26. `operator` (stock-tree is not in the nightly instance set).
 tier = "operator"
 description = "Scripted campaign stage 4, KSC half (Career): on CS-4's produced save, upgrade the Tracking Station to level 1, research General Rocketry and Stability, upgrade the Launch Pad to level 1, then relaunch the Flea unrecorded inside the duplicate-rollout window and run the ledger ground truth against KSP's own career save."
 instanceProfile = "stock-tree"
 tags = ["campaign", "CS-4b", "career", "facility-upgrade", "research", "editor", "ledger",
-        "ground-truth", "ingame-batch", "pending-flight"]
+        "ground-truth", "ingame-batch", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/cs-career-orbit"
@@ -149,8 +156,8 @@ required = [
   "KSC spending recorded: type=ScienceSpending, UT=[0-9.]+, key=stability",
   # The Launch Pad.
   "kscaction action=upgrade-facility target=SpaceCenter/LaunchPad applied=true manifestKind=facility-upgrade observedAfter=level=1",
-  "Game state: FacilityUpgraded 'SpaceCenter/LaunchPad' 0\\.00 .{1,3} 0\\.50 \\(event-driven\\) cost=75000 costSource=observed-debit",
-  "Game state: FundsChanged -75000 \\(StructureConstruction\\)",
+  "Game state: FacilityUpgraded 'SpaceCenter/LaunchPad' 0\\.00 .{1,3} 0\\.50 \\(event-driven\\) cost=50000 costSource=observed-debit",
+  "Game state: FundsChanged -50000 \\(StructureConstruction\\)",
   "AddEvent: FacilityUpgraded key='SpaceCenter/LaunchPad' tag=''",
   "KSC spending recorded: type=FacilityUpgrade, UT=[0-9.]+, key=SpaceCenter/LaunchPad",
   # The ground-truth relaunch: its rollout is a new launch, not CS-4's in-window Flea row.
@@ -161,7 +168,7 @@ required = [
   # The ground truth, in FLIGHT on the unrecorded Flea.
   "ground-truth game mode=CAREER pools=funds,science,reputation",
   "result: hardFailures=0 ",
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

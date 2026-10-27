@@ -2764,7 +2764,9 @@ nodes, so the new `b4_reentry_career` shell has MechJeb fly the ascent only and 
 kRPC's AutoPilot (B4 `circularizeMode = "native"`, RF-13's pitch program), stages the launch
 only after MechJeb's autopilot reads enabled, and limits MechJeb's autostage to stage 2; the
 default B4 walk is unchanged. Owed: its first flight (the MechJeb-in-career reading run), then
-harvest `cs-career-orbit` and CS-4b (Tracking Station upgrade, KSC only).
+harvest `cs-career-orbit` and CS-4b (Tracking Station upgrade, KSC only). CS-4 green
+2026-10-26 (`2026-10-26_0521`); CS-4b green 2026-10-27 (`2026-10-27_1957`). Next: CS-5, the
+Mun flyby, with MechJeb's `MechJebUnlocked` switch in the stock-tree profile (owner ruling).
 
 ---
 
