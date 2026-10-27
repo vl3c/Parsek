@@ -1184,6 +1184,7 @@ MISSION_MACHINES = {
     "gs2_orbital_probe_deploy": "gs2_decide", "kx_rewind_watch": "kxrw_decide",
     "m3_loop_arrival_dwell": "m3_decide", "r1_rewind_loop": "r1_decide",
     "rf12s_refly_orbit_insert": "rfo_decide", "science_bench_recover": "sbr_decide",
+    "record_climb_rewind": "rcr_decide",
     "v1_map_dwell": "v1_map_dwell_decide",
 }
 

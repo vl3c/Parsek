@@ -2309,9 +2309,20 @@ class ManeuverNodeReadGuardTests(unittest.TestCase):
         # ascent-complete latch AND an apoapsis within apoErrorMeters of 80 km, and
         # the native circularization it flies reads no node at all; written out in
         # its make_control.
+        #
+        # `record_climb_rewind.py` joined on 2026-10-27 for `WR-1-world-record-
+        # reearned-after-rewind`, which flies science_bench_recover TWICE (with a
+        # Rewind-to-Launch between) on the career host `cs-career-new`, so it
+        # inherits SBR's measured finding and SBR's flag set verbatim. Its safety
+        # argument is SBR's per hop (each hop's only success terminal is SBR's
+        # RECOVERED behind B1's phase progression, plus every SBR row held before
+        # the machine moves on), and the phases between the hops gate on seam
+        # verdicts and the space_center clock, whose pad guards can only END the
+        # run; written out in its make_control.
         self.assertEqual(["b1_pad_hop_career.py", "b4_reentry_career.py",
                           "cl3_refly_crew_tombstone.py",
                           "gs1_auto_chute_booster_career.py",
+                          "record_climb_rewind.py",
                           "science_bench_recover.py"],
                          sorted(opters))
 
