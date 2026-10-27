@@ -1171,7 +1171,7 @@ MISSION_MACHINES = {
     "b28_laythe_jool": "b5_decide", "b29_jool_kerbin": "b5_decide",
     "b2_lko_ascent": "b2_decide", "b30_mun_minmus": "b5_decide",
     "b4_reentry": "b4_decide", "b4_reentry_career": "b4_decide",
-    "b5_mun_flyby": "b5_decide",
+    "b5_mun_flyby": "b5_decide", "b5_mun_flyby_return": "mfr_decide",
     "b6_minmus_flyby": "b5_decide", "b7_duna_flyby": "b5_decide",
     "bay1_runway_bays": "bay1_decide", "bdock_dock_transfer": "bdock_decide",
     "bdock_second_dock": "sdock_decide", "cl1_pod_impact": "cl1_decide",

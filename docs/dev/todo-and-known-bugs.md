@@ -2794,6 +2794,23 @@ harvest `cs-career-orbit` and CS-4b (Tracking Station upgrade, KSC only). CS-4 g
 2026-10-26 (`2026-10-26_0521`); CS-4b green 2026-10-27 (`2026-10-27_1957`). Next: CS-5, the
 Mun flyby, with MechJeb's `MechJebUnlocked` switch in the stock-tree profile (owner ruling).
 
+Progress 2026-10-27 (branch `cs5-mun-flyby`): CS-5 (`CS-5-career-mun-flyby`) authored, never
+flown, on the new fixture `cs-career-ts1` (CS-4b's produced save `2026-10-27_1957`). Its craft
+`CS Mun Flyby` is the builder's new `--variant mun` (28 parts, 36.5 t, 5266 m/s, liftoff TWR
+1.31: two Thumpers at 60% on a Swivel core, a Swivel upper stage, the CS Orbiter's pod section).
+The new composed mission `b5_mun_flyby_return` runs B5's machine verbatim to its RETURN (with
+CS-4's launch engage gate and setters), trims the Kerbin periapsis into 20-40 km with one
+horizontal burn, drops the service section, takes one native warp down the fall and hands the
+pod to B4's machine verbatim at its REENTRY; `b5_decide` and `b4_decide` are untouched. The
+`MechJebUnlocked` switch was NOT added: it is a ModuleManager mod name (a top-level GameData
+folder, a DLL or a `:FOR[MechJebUnlocked]` patch) that only unhides MechJeb's windows, and
+KRPC.MechJeb reaches the planner operations and the node executor directly, gated only by patched
+conics; a stock-tree profile cannot write a GameData folder without a provisioner change.
+CS-5 GREEN on its first flight 2026-10-27 (`2026-10-27_2101`, 1118 s): Mun flyby at 1352 km,
+return periapsis trimmed to 31.2 km, splashdown, pod recovered; Mun/Flyby, Kerbin/Escape,
+Mun/Escape, Mun/ReturnFromFlyBy and Kerbin/Splashdown paid and ledgered; LedgerGroundTruth
+hardFailures=0. Next: CS-6 (Mun orbit and return).
+
 ---
 
 ## ~~QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN: F9 back into a Discarded flight must record again~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-quickload-into-discarded`; the in-flight discards followed 2026-10-16, branch `claude/lanes-rc6-ql6-ir5-nh7w10` (live-proven by lane QL-6, `2026-10-16_0649` PASS attempt 1)]

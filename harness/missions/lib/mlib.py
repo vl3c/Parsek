@@ -31211,3 +31211,604 @@ def evaluate_rcr_assertions(frames, params: RcrParams,
         {"ut": g("hop2_recovered_ut"),
          "phasesReached": list(g("phases_reached", ()) or ())}))
     return rows
+
+
+# ---------------------------------------------------------------------------
+# MUN-FLYBY-RETURN composed machine (mission b5_mun_flyby_return; the scripted
+# campaign's CS-5, "Mun flyby and return"). Pure.
+#
+# WHY A COMPOSED MACHINE. B5 ends at its RETURN terminal, the frame the craft's
+# SOI body is the home body again after the flyby; nothing lands. B4 owns the
+# return half every Kerbin lane flies (the owed service-stage drop, the bounded
+# exo hops, the chute armed at an altitude, the OBSERVED canopy latch, the
+# landed / splashed terminal). hlib.validate_spec allows ONE mission step per
+# autopilot spec, so the two run inside one machine. Both are delegated
+# VERBATIM: b5_decide and b4_decide are not touched, so every lane that flies
+# them (B5, B6, B7, B11-B14, B4, CS-4 ...) is byte-identical by construction.
+# The V1 / RCR precedent (a wrapper owning a nested machine).
+#
+# THE PHASE PLAN (reported phase in brackets):
+#   FLYBY   b5_decide verbatim [B5's own phase names], with ONE composer edit to
+#           its launch frame: the career setters (ascentType, autostageLimit)
+#           are inserted before B5's engage, and B5's same-frame ACTIVATE_STAGE
+#           is HELD until the AscentAutopilot READS enabled (B4's career engage
+#           gate, mjEngageConfirmFrames; the runner withholds the engage when a
+#           setter is refused, so an ungated stage would launch an unguided
+#           stack). B5 is not fed while the stage is held; its MJ-ASCENT clock
+#           is re-stamped at the release. B5's terminal is read the way RCR
+#           reads SBR's: a loss is ASSERT-FAIL, a flake is a flake, and a clean
+#           RETURN whose own B5 rows do not hold is ASSERT-FAIL before any burn.
+#   TRIM    [HOME-TRIM] one horizontal burn at the Mun SOI exit that brings the
+#           home periapsis into [returnPeriapsisMinMeters,
+#           returnPeriapsisMaxMeters]: heading returnHeadingDeg + 180 to LOWER a
+#           high periapsis, returnHeadingDeg to RAISE an impact one, pitch 0,
+#           cut on crossing returnPeriapsisMeters. Already inside the window: no
+#           burn. Horizontal, not retrograde: at ~12 Mm the exit velocity carries
+#           a large radial part, and only the horizontal part moves the
+#           periapsis. Two throttle levels (coarse far from the target, fine
+#           inside returnTrimFineBandMeters) because one m/s moves the periapsis
+#           by several km at that altitude.
+#   HOME    b4_decide verbatim [HOME-<B4 phase>], entered at B4's REENTRY with
+#           the service-stage drop OWED (what B4's own DEORBIT cutoff hands its
+#           REENTRY), then the exo hops, the chute at returnChuteDeployAltMeters
+#           and the SPLASHDOWN terminal.
+#   FALL    [HOME-FALL] once B4 has paid the stage drop, ONE native warp to
+#           returnFallLeadSeconds before periapsis (B4's 120 s hops would take
+#           hundreds of blocking hops down from ~12 Mm), then back to HOME with
+#           B4's REENTRY clock re-stamped, so returnReentryTimeoutSeconds bounds
+#           the hops and the atmosphere rather than the hours-long fall.
+#
+# PARAMS. The B5 keys are b5_params_from_dict over the same dict; the B4 delegate
+# is built from return* keys only (mfr_home_param_dict), because B5 and B4 share
+# key NAMES with different meanings (maxAttitudeErrorDeg, descentTimeoutSeconds,
+# landedSituations).
+# ---------------------------------------------------------------------------
+
+MFR_FLYBY = "FLYBY"
+MFR_TRIM = "HOME-TRIM"
+MFR_HOME = "HOME"
+MFR_FALL = "HOME-FALL"
+MFR_HOME_PREFIX = "HOME-"
+MFR_BLOCKS: Tuple[str, ...] = (MFR_FLYBY, MFR_TRIM, MFR_HOME, MFR_FALL)
+# The terminal phase a clean run reports (B4's SPLASHDOWN behind the prefix).
+MFR_TERMINAL_PHASE = MFR_HOME_PREFIX + B4_SPLASHDOWN
+MFR_TRIM_NONE = "none"
+MFR_TRIM_LOWER = "lower"
+MFR_TRIM_RAISE = "raise"
+MFR_MJ_NOT_ENABLED_GIVEUP = "mechjeb-ascent-not-enabled"
+MFR_TRIM_NOT_LIT_GIVEUP = "return-trim-engine-never-lit"
+MFR_TRIM_DRY_GIVEUP = "return-trim-propellant-exhausted"
+MFR_FALL_STALLED_GIVEUP = "return-fall-warp-stalled"
+# A fall warp shorter than this is not worth one: B4's hops cover it.
+MFR_FALL_MIN_WARP_SECONDS = 120.0
+# UT within this of the fall target counts as arrived (the server leaves warp a
+# little short of the target).
+MFR_FALL_ARRIVAL_SLACK_SECONDS = 5.0
+# Polls with no native warp active and the target not reached before a re-issue.
+MFR_FALL_STALL_FRAMES = 40
+MFR_FALL_REISSUE_LIMIT = 3
+
+
+@dataclass(frozen=True)
+class MfrParams:
+    """b5_mun_flyby_return tuning. ``flyby`` is B5's params over the SAME dict;
+    ``home`` is B4's params built from the return* keys (mfr_home_param_dict)."""
+    flyby: B5Params
+    home: B4Params
+    ascent_type: Optional[int] = None
+    autostage_limit: Optional[int] = None
+    mj_engage_confirm_frames: int = 0
+    return_periapsis: float = 30000.0
+    return_periapsis_min: float = 15000.0
+    return_periapsis_max: float = 45000.0
+    trim_heading_deg: float = 90.0
+    trim_throttle: float = 0.25
+    trim_fine_throttle: float = 0.03
+    trim_fine_band: float = 300000.0
+    trim_settle_seconds: float = 10.0
+    trim_max_attitude_error_deg: float = 5.0
+    trim_ignite_frames: int = 20
+    trim_timeout: float = 900.0
+    fall_lead_seconds: float = 600.0
+    fall_min_altitude: float = 200000.0
+    fall_timeout: float = 200000.0
+
+
+# B4 key <- (the return* key that feeds it, its default here).
+MFR_HOME_KEY_MAP: Tuple[Tuple[str, str, object], ...] = (
+    ("deorbitPeriapsisMeters", "returnPeriapsisMeters", 30000),
+    ("reentryStageCount", "returnStageCount", 1),
+    ("stageSettleSeconds", "returnStageSettleSeconds", 2.0),
+    ("warpAboveAltMeters", "returnWarpAboveAltMeters", 70000),
+    ("warpHopSeconds", "returnWarpHopSeconds", 120),
+    ("chuteDeployAltMeters", "returnChuteDeployAltMeters", 12000),
+    ("reentryTimeoutSeconds", "returnReentryTimeoutSeconds", 3600),
+    ("descentTimeoutSeconds", "returnDescentTimeoutSeconds", 900),
+    ("landedSituations", "returnLandedSituations", ("LANDED", "SPLASHED")),
+)
+
+
+def mfr_home_param_dict(params: Dict) -> Dict:
+    """The dict B4's delegate is built from. B4's ascent keys pass through (the
+    delegate starts at REENTRY, so no decision reads them); every return key is
+    renamed per MFR_HOME_KEY_MAP. Pure."""
+    params = params or {}
+    out = {k: params[k] for k in ("targetApoapsisMeters", "targetPeriapsisMeters",
+                                  "apoErrorMeters", "periErrorMeters",
+                                  "ascentTimeoutSeconds", "circularizeTimeoutSeconds",
+                                  "frozenTelemetrySamples")
+           if k in params}
+    for b4_key, return_key, default in MFR_HOME_KEY_MAP:
+        out[b4_key] = params.get(return_key, default)
+    return out
+
+
+def mfr_params_from_dict(params: Dict) -> MfrParams:
+    """Build ``MfrParams`` from a spec ``missionParams`` dict (shape and ranges are
+    enforced upstream by hlib against b5_mun_flyby_return.schema.toml). RAISES on
+    a B5 mode the return tail cannot follow and on an inconsistent window: each is
+    a spec error a flight would otherwise discover at the Mun."""
+    params = params or {}
+    flyby = b5_params_from_dict(params)
+    for flag, name in ((flyby.capture_enabled, "captureEnabled"),
+                       (flyby.landing_enabled, "landingEnabled"),
+                       (flyby.start_in_orbit, "startInOrbit"),
+                       (flyby.pad_align_ejection, "padAlignEjection"),
+                       (flyby.interplanetary_transfer, "interplanetaryTransfer"),
+                       (flyby.parent_relay_transfer, "parentRelayTransfer")):
+        if flag:
+            raise ValueError("%s is not a flyby that returns to the home SOI; the "
+                             "return tail cannot follow it" % name)
+    if flyby.return_body not in ("", flyby.home_body):
+        raise ValueError("returnBody %r is not the home body %r"
+                         % (flyby.return_body, flyby.home_body))
+    p = MfrParams(
+        flyby=flyby,
+        home=b4_params_from_dict(mfr_home_param_dict(params)),
+        ascent_type=(int(params["ascentType"])
+                     if params.get("ascentType") is not None else None),
+        autostage_limit=(int(params["autostageLimit"])
+                         if params.get("autostageLimit") is not None else None),
+        mj_engage_confirm_frames=int(params.get("mjEngageConfirmFrames", 0)),
+        return_periapsis=float(params.get("returnPeriapsisMeters", 30000)),
+        return_periapsis_min=float(params.get("returnPeriapsisMinMeters", 15000)),
+        return_periapsis_max=float(params.get("returnPeriapsisMaxMeters", 45000)),
+        trim_heading_deg=float(params.get("returnHeadingDeg", 90.0)),
+        trim_throttle=float(params.get("returnTrimThrottle", 0.25)),
+        trim_fine_throttle=float(params.get("returnTrimFineThrottle", 0.03)),
+        trim_fine_band=float(params.get("returnTrimFineBandMeters", 300000)),
+        trim_settle_seconds=float(params.get("returnTrimSettleSeconds", 10)),
+        trim_max_attitude_error_deg=float(params.get("returnMaxAttitudeErrorDeg", 5.0)),
+        trim_ignite_frames=int(params.get("returnTrimIgniteFrames", 20)),
+        trim_timeout=float(params.get("returnTrimTimeoutSeconds", 900)),
+        fall_lead_seconds=float(params.get("returnFallLeadSeconds", 600)),
+        fall_min_altitude=float(params.get("returnFallMinAltMeters", 200000)),
+        fall_timeout=float(params.get("returnFallTimeoutSeconds", 200000)),
+    )
+    if not (p.return_periapsis_min < p.return_periapsis < p.return_periapsis_max):
+        raise ValueError("returnPeriapsisMinMeters < returnPeriapsisMeters < "
+                         "returnPeriapsisMaxMeters is required (%.0f, %.0f, %.0f)"
+                         % (p.return_periapsis_min, p.return_periapsis,
+                            p.return_periapsis_max))
+    if p.return_periapsis_max >= p.home.warp_above_alt:
+        raise ValueError("returnPeriapsisMaxMeters %.0f must sit below the "
+                         "atmosphere gate returnWarpAboveAltMeters %.0f, or the "
+                         "return never enters the atmosphere"
+                         % (p.return_periapsis_max, p.home.warp_above_alt))
+    if not (0.0 < p.trim_fine_throttle <= p.trim_throttle <= 1.0):
+        raise ValueError("0 < returnTrimFineThrottle <= returnTrimThrottle <= 1 is "
+                         "required (%.3f, %.3f)" % (p.trim_fine_throttle, p.trim_throttle))
+    setters = [n for n, v in (("ascentType", p.ascent_type),
+                              ("autostageLimit", p.autostage_limit)) if v is not None]
+    if setters and p.mj_engage_confirm_frames <= 0:
+        raise ValueError("%s requires mjEngageConfirmFrames > 0 (the launch engage "
+                         "gate), else the launch can stage before the engage is read"
+                         % "/".join(setters))
+    return p
+
+
+@dataclass(frozen=True)
+class MfrState:
+    """b5_mun_flyby_return machine state. ``flight`` is the delegated B5 machine
+    (named so ``frozen_detector_holder`` resolves it); ``home`` the delegated B4
+    machine once the return tail starts. ``warp_to_cmd`` mirrors B5's during the
+    flyby and is the composer's own during the fall, so the runner's
+    warp-liveness episode reads one field."""
+    params: MfrParams
+    flight: B5State
+    home: Optional[B4State] = None
+    block: str = MFR_FLYBY
+    phase: str = B5_PRELAUNCH
+    phase_entry_ut: float = 0.0
+    phase_frames: int = 0
+    phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
+    # The launch engage gate.
+    stage_held: bool = False
+    engage_wait_frames: int = 0
+    setters_injected: Tuple[str, ...] = ()
+    # The trim.
+    trim_direction: str = ""
+    trim_heading: float = float("nan")
+    trim_entry_periapsis: float = float("nan")
+    trim_burn_started: bool = False
+    trim_fine: bool = False
+    trim_burn_frames: int = 0
+    trim_peak_thrust: float = float("nan")
+    trim_cut_periapsis: float = float("nan")
+    trim_cut_ut: float = float("nan")
+    # The fall.
+    fall_done: bool = False
+    fall_skip_reason: str = ""
+    fall_target_ut: Optional[float] = None
+    fall_issues: int = 0
+    fall_stall_frames: int = 0
+    warp_to_cmd: Optional[float] = None
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    done: bool = False
+
+
+def mfr_initial_state(params: MfrParams) -> MfrState:
+    """Fresh machine inside B5's own PRELAUNCH."""
+    flight = b5_initial_state(params.flyby)
+    return MfrState(params=params, flight=flight, phase=flight.phase,
+                    phases_reached=(flight.phase,))
+
+
+def mfr_inject_launch_actions(params: MfrParams, actions: List[Action]
+                              ) -> Tuple[List[Action], bool, Tuple[str, ...]]:
+    """B5's launch actions with the career setters inserted before its engage and
+    its same-frame ACTIVATE_STAGE removed when the engage gate is armed. Returns
+    (actions, stage_held, setter kinds). A frame without an engage is returned
+    unchanged, so only B5's kickoff frame is ever edited. Pure."""
+    kinds = [a.kind for a in actions]
+    if ACTION_MJ_ENGAGE_ASCENT not in kinds:
+        return list(actions), False, ()
+    setters: List[Action] = []
+    if params.ascent_type is not None:
+        setters.append(Action(ACTION_MJ_SET_ASCENT_TYPE, float(params.ascent_type)))
+    if params.autostage_limit is not None:
+        setters.append(Action(ACTION_MJ_SET_AUTOSTAGE_LIMIT, float(params.autostage_limit)))
+    out: List[Action] = []
+    for a in actions:
+        if a.kind == ACTION_MJ_ENGAGE_ASCENT:
+            out.extend(setters)
+        out.append(a)
+    held = params.mj_engage_confirm_frames > 0 and ACTION_ACTIVATE_STAGE in kinds
+    if held:
+        out = [a for a in out if a.kind != ACTION_ACTIVATE_STAGE]
+    return out, held, tuple(a.kind for a in setters)
+
+
+def mfr_trim_direction(periapsis: float, params: MfrParams) -> str:
+    """Which way the return trim burns, from the home periapsis read at the Mun
+    SOI exit: "" when unreadable (wait), else none / lower / raise. Pure."""
+    if not _is_finite(periapsis):
+        return ""
+    if params.return_periapsis_min <= periapsis <= params.return_periapsis_max:
+        return MFR_TRIM_NONE
+    return MFR_TRIM_LOWER if periapsis > params.return_periapsis_max else MFR_TRIM_RAISE
+
+
+def mfr_trim_heading(direction: str, params: MfrParams) -> float:
+    """The pitch-0 heading of the trim burn: the horizontal prograde heading to
+    raise the periapsis, its reverse to lower it. Pure."""
+    if direction == MFR_TRIM_RAISE:
+        return params.trim_heading_deg % 360.0
+    return (params.trim_heading_deg + 180.0) % 360.0
+
+
+def mfr_trim_cut(direction: str, periapsis: float, params: MfrParams) -> bool:
+    """True on the frame the burning trim has carried the periapsis across the
+    target. A non-finite periapsis never cuts. Pure."""
+    if not _is_finite(periapsis):
+        return False
+    if direction == MFR_TRIM_LOWER:
+        return periapsis <= params.return_periapsis
+    if direction == MFR_TRIM_RAISE:
+        return periapsis >= params.return_periapsis
+    return True
+
+
+def mfr_fall_target(ut: float, altitude: float, time_to_periapsis: float,
+                    params: MfrParams) -> Tuple[Optional[float], str]:
+    """(target UT, "") for the one fall warp, or (None, reason) when it is not
+    taken: a clock unreadable, already at or below returnFallMinAltMeters, or a
+    warp shorter than MFR_FALL_MIN_WARP_SECONDS. B4's own hops cover every
+    skipped case. Pure."""
+    if not (_is_finite(ut) and _is_finite(time_to_periapsis) and _is_finite(altitude)):
+        return None, "unreadable (ut=%s ttPe=%s alt=%s)" % (
+            _obs_fmt(ut), _obs_fmt(time_to_periapsis), _obs_fmt(altitude))
+    if altitude <= params.fall_min_altitude:
+        return None, "altitude %.0f at or below %.0f" % (altitude, params.fall_min_altitude)
+    span = time_to_periapsis - params.fall_lead_seconds
+    if span < MFR_FALL_MIN_WARP_SECONDS:
+        return None, "warp span %.1f s under %.0f s" % (span, MFR_FALL_MIN_WARP_SECONDS)
+    return ut + span, ""
+
+
+def _mfr_report(state: MfrState, phase: str, entry_ut: float) -> MfrState:
+    reached = state.phases_reached
+    if phase != state.phase:
+        reached = reached + (phase,)
+    return replace(state, phase=phase, phase_entry_ut=entry_ut, phases_reached=reached)
+
+
+def _mfr_enter(state: MfrState, block: str, phase: str, ut: float, **changes) -> MfrState:
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return _mfr_report(replace(state, block=block, phase_frames=0, **changes), phase, entry)
+
+
+def _mfr_flake(state: MfrState, reason: str) -> MfrState:
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason=reason, done=True)
+
+
+def _mfr_fail(state: MfrState, reason: str) -> MfrState:
+    return replace(state, verdict=MISSION_ASSERT_FAIL, loss_reason=reason, done=True)
+
+
+def _mfr_trim_stop() -> List[Action]:
+    return [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_AP_DISENGAGE)]
+
+
+def _mfr_flyby(state: MfrState, snapshot: TelemetrySnapshot) -> Tuple[MfrState, List[Action]]:
+    p = state.params
+    if state.stage_held:
+        # The launch engage gate: B5 is not fed until the autopilot reads enabled.
+        if snapshot.vessel_lost:
+            return _mfr_fail(state, "vessel-lost on the pad before the launch was "
+                                    "staged"), []
+        if snapshot.mj_autopilot_enabled:
+            entry = (snapshot.ut if _is_finite(snapshot.ut)
+                     else state.flight.phase_entry_ut)
+            flight = replace(state.flight, phase_entry_ut=entry, launch_ut=snapshot.ut)
+            return (replace(state, flight=flight, stage_held=False, phase_entry_ut=entry),
+                    [Action(ACTION_ACTIVATE_STAGE)])
+        waited = state.engage_wait_frames + 1
+        if waited >= p.mj_engage_confirm_frames:
+            return _mfr_flake(replace(state, engage_wait_frames=waited),
+                              "%s: the AscentAutopilot read enabled=False on %d frames "
+                              "after the engage; the launch was never staged"
+                              % (MFR_MJ_NOT_ENABLED_GIVEUP, waited)), []
+        return replace(state, engage_wait_frames=waited), []
+
+    flight, actions = b5_decide(state.flight, snapshot)
+    actions, held, setters = mfr_inject_launch_actions(p, actions)
+    st = replace(state, flight=flight, warp_to_cmd=flight.warp_to_cmd,
+                 stage_held=held, setters_injected=setters or state.setters_injected)
+    st = _mfr_report(st, flight.phase, flight.phase_entry_ut)
+    if not flight.done:
+        return st, actions
+    if flight.loss_reason:
+        return _mfr_fail(st, "flyby leg: %s" % flight.loss_reason), actions
+    if flight.verdict is not None:
+        inner = flight.flake_phase or flight.phase
+        return (replace(st, done=True, verdict=flight.verdict, flake_phase=inner,
+                        flake_reason="flyby leg %s in phase %s: %s"
+                        % (flight.verdict, inner,
+                           flight.flake_reason or ("phase %s timed out" % inner))),
+                actions)
+    if B5_RETURN not in flight.phases_reached:
+        return _mfr_flake(st, "flyby leg reported done with a clean verdict but never "
+                              "reached %s (phases=%s)"
+                          % (B5_RETURN, list(flight.phases_reached))), actions
+    unmet = [o.name for o in evaluate_b5_assertions(
+        (), flight.params, phases_reached=flight.phases_reached,
+        min_target_altitude=flight.min_target_altitude) if not o.met]
+    if unmet:
+        return _mfr_fail(st, "flyby-assertions-unmet: B5 reached %s but its rows did "
+                             "not hold: %s" % (B5_RETURN, ", ".join(unmet))), actions
+    # B5's RETURN frame carries its own warp teardown; the trim starts next frame.
+    return (_mfr_enter(st, MFR_TRIM, MFR_TRIM, snapshot.ut, warp_to_cmd=None),
+            actions)
+
+
+def _mfr_handoff_home(state: MfrState, snapshot: TelemetrySnapshot,
+                      cut_ut: float) -> MfrState:
+    """Enter B4 at REENTRY with the service-stage drop owed, as B4's own DEORBIT
+    cutoff would."""
+    p = state.params
+    entry = snapshot.ut if _is_finite(snapshot.ut) else state.phase_entry_ut
+    home = replace(b4_initial_state(p.home), phase=B4_REENTRY, phase_entry_ut=entry,
+                   phases_reached=(B4_REENTRY,),
+                   stages_owed=max(1, p.home.reentry_stage_count),
+                   last_stage_ut=cut_ut if _is_finite(cut_ut) else entry)
+    return _mfr_enter(state, MFR_HOME, MFR_HOME_PREFIX + B4_REENTRY, entry, home=home)
+
+
+def _mfr_trim(state: MfrState, snapshot: TelemetrySnapshot) -> Tuple[MfrState, List[Action]]:
+    p = state.params
+    if snapshot.vessel_lost:
+        return _mfr_fail(state, "vessel-lost (unreadable after repeated telemetry "
+                                "failures) in phase %s" % state.phase), []
+    st = replace(state, phase_frames=state.phase_frames + 1)
+    burning_dir = state.trim_direction in (MFR_TRIM_LOWER, MFR_TRIM_RAISE)
+    if (_is_finite(snapshot.ut)
+            and snapshot.ut - state.phase_entry_ut > p.trim_timeout):
+        return (_mfr_flake(st, "phase %s timed out after %.0f game s (direction=%s "
+                               "pe=%s)" % (state.phase, p.trim_timeout,
+                                           state.trim_direction or "unread",
+                                           _obs_fmt(snapshot.periapsis))),
+                _mfr_trim_stop() if burning_dir else [])
+    if not state.trim_direction:
+        direction = mfr_trim_direction(snapshot.periapsis, p)
+        if not direction:
+            return st, []
+        if direction == MFR_TRIM_NONE:
+            skipped = replace(st, trim_direction=direction,
+                              trim_entry_periapsis=float(snapshot.periapsis),
+                              trim_cut_periapsis=float(snapshot.periapsis),
+                              trim_cut_ut=snapshot.ut)
+            return _mfr_handoff_home(skipped, snapshot, snapshot.ut), []
+        heading = mfr_trim_heading(direction, p)
+        return (replace(st, trim_direction=direction, trim_heading=heading,
+                        trim_entry_periapsis=float(snapshot.periapsis)),
+                [Action(ACTION_AP_SET_PITCH_HEADING, pitch_heading=(0.0, heading))])
+    if not state.trim_burn_started:
+        settled = (_is_finite(snapshot.ut)
+                   and snapshot.ut - state.phase_entry_ut >= p.trim_settle_seconds)
+        # abs(): kRPC's error reads signed (B4's DEORBIT lesson).
+        aligned = (_is_finite(snapshot.ap_error)
+                   and abs(snapshot.ap_error) <= p.trim_max_attitude_error_deg)
+        if settled and aligned:
+            fine = (_is_finite(snapshot.periapsis)
+                    and abs(snapshot.periapsis - p.return_periapsis) <= p.trim_fine_band)
+            return (replace(st, trim_burn_started=True, trim_fine=fine),
+                    [Action(ACTION_SET_THROTTLE,
+                            p.trim_fine_throttle if fine else p.trim_throttle)])
+        return st, []
+    st = replace(st, trim_burn_frames=st.trim_burn_frames + 1)
+    thrust = snapshot.available_thrust
+    if _is_finite(thrust) and (not _is_finite(st.trim_peak_thrust)
+                               or thrust > st.trim_peak_thrust):
+        st = replace(st, trim_peak_thrust=thrust)
+    lit = _is_finite(st.trim_peak_thrust) and st.trim_peak_thrust > 0.0
+    if mfr_trim_cut(state.trim_direction, snapshot.periapsis, p):
+        cut = replace(st, trim_cut_periapsis=float(snapshot.periapsis),
+                      trim_cut_ut=snapshot.ut)
+        return _mfr_handoff_home(cut, snapshot, snapshot.ut), _mfr_trim_stop()
+    if not lit and st.trim_burn_frames >= p.trim_ignite_frames:
+        return (_mfr_fail(st, "%s: available_thrust stayed 0 for %d frames after the "
+                              "throttle-up" % (MFR_TRIM_NOT_LIT_GIVEUP,
+                                               p.trim_ignite_frames)),
+                _mfr_trim_stop())
+    if lit and _is_finite(thrust) and thrust <= 0.0:
+        return (_mfr_fail(st, "%s short of the return window (direction=%s pe=%s "
+                              "target=%.0f)" % (MFR_TRIM_DRY_GIVEUP, state.trim_direction,
+                                                _obs_fmt(snapshot.periapsis),
+                                                p.return_periapsis)),
+                _mfr_trim_stop())
+    if (not st.trim_fine and _is_finite(snapshot.periapsis)
+            and abs(snapshot.periapsis - p.return_periapsis) <= p.trim_fine_band):
+        return (replace(st, trim_fine=True),
+                [Action(ACTION_SET_THROTTLE, p.trim_fine_throttle)])
+    return st, []
+
+
+def _mfr_home(state: MfrState, snapshot: TelemetrySnapshot) -> Tuple[MfrState, List[Action]]:
+    p = state.params
+    home = state.home
+    if (not state.fall_done and home.phase == B4_REENTRY and home.stages_owed == 0
+            and not snapshot.vessel_lost):
+        target, why = mfr_fall_target(snapshot.ut, snapshot.altitude,
+                                      snapshot.time_to_periapsis, p)
+        if target is None:
+            state = replace(state, fall_done=True, fall_skip_reason=why)
+        else:
+            return (_mfr_enter(state, MFR_FALL, MFR_FALL, snapshot.ut,
+                               fall_target_ut=target, fall_issues=1,
+                               fall_stall_frames=0, warp_to_cmd=target),
+                    [Action(ACTION_WARP_TO_UT, target)])
+    home, actions = b4_decide(home, snapshot)
+    st = _mfr_report(replace(state, home=home), MFR_HOME_PREFIX + home.phase,
+                     home.phase_entry_ut)
+    if not home.done:
+        return st, actions
+    if home.verdict is None:
+        return replace(st, done=True), actions
+    if home.verdict == MISSION_FLAKE:
+        inner = home.flake_phase or home.phase
+        return (replace(st, done=True, verdict=MISSION_FLAKE,
+                        flake_phase=MFR_HOME_PREFIX + inner,
+                        flake_reason="return leg: %s" % (home.flake_reason or (
+                            "phase %s timed out" % inner))), actions)
+    return (replace(st, done=True, verdict=home.verdict,
+                    loss_reason="return leg: %s" % (home.loss_reason or home.verdict)),
+            actions)
+
+
+def _mfr_fall(state: MfrState, snapshot: TelemetrySnapshot) -> Tuple[MfrState, List[Action]]:
+    p = state.params
+    cancel = [Action(ACTION_CANCEL_WARP)]
+    if snapshot.vessel_lost:
+        return (_mfr_fail(replace(state, warp_to_cmd=None),
+                          "vessel-lost (unreadable after repeated telemetry failures) in "
+                          "phase %s" % state.phase), cancel)
+    st = replace(state, phase_frames=state.phase_frames + 1)
+    target = state.fall_target_ut
+    if (_is_finite(snapshot.ut)
+            and snapshot.ut - state.phase_entry_ut > p.fall_timeout):
+        return (_mfr_flake(replace(st, warp_to_cmd=None),
+                           "phase %s timed out after %.0f game s short of the fall "
+                           "target %.1f" % (state.phase, p.fall_timeout, target)), cancel)
+    if _is_finite(snapshot.ut) and snapshot.ut >= target - MFR_FALL_ARRIVAL_SLACK_SECONDS:
+        # Arrived: B4's REENTRY clock restarts here, so its budget bounds the hops
+        # and the atmosphere, not the fall. A warp still reported active is torn
+        # down so B4's blocking hops never race it.
+        home = replace(state.home, phase_entry_ut=float(snapshot.ut))
+        arrived = _mfr_enter(st, MFR_HOME, MFR_HOME_PREFIX + home.phase, snapshot.ut,
+                             home=home, fall_done=True, warp_to_cmd=None)
+        return arrived, (cancel if _is_finite(snapshot.warping_to) else [])
+    if _is_finite(snapshot.warping_to):
+        return replace(st, fall_stall_frames=0), []
+    stalls = st.fall_stall_frames + 1
+    if stalls < MFR_FALL_STALL_FRAMES:
+        return replace(st, fall_stall_frames=stalls), []
+    if st.fall_issues >= MFR_FALL_REISSUE_LIMIT:
+        return (_mfr_flake(replace(st, warp_to_cmd=None),
+                           "%s: no native warp active and ut=%s short of the target %.1f "
+                           "after %d issues" % (MFR_FALL_STALLED_GIVEUP,
+                                                _obs_fmt(snapshot.ut), target,
+                                                st.fall_issues)), cancel)
+    return (replace(st, fall_issues=st.fall_issues + 1, fall_stall_frames=0),
+            [Action(ACTION_WARP_TO_UT, target)])
+
+
+def mfr_decide(state: MfrState,
+               snapshot: TelemetrySnapshot) -> Tuple[MfrState, List[Action]]:
+    """Advance the b5_mun_flyby_return machine one frame; return (new_state,
+    actions). See the block note above MFR_FLYBY. Once ``done`` the machine is
+    idempotent."""
+    if state.done:
+        return state, []
+    if state.block == MFR_FLYBY:
+        return _mfr_flyby(state, snapshot)
+    if state.block == MFR_TRIM:
+        return _mfr_trim(state, snapshot)
+    if state.block == MFR_FALL:
+        return _mfr_fall(state, snapshot)
+    if state.block == MFR_HOME:
+        return _mfr_home(state, snapshot)
+    return _mfr_flake(state, "unknown block %r" % (state.block,)), []
+
+
+def evaluate_mfr_assertions(frames, params: MfrParams,
+                            state: Optional[MfrState] = None) -> List[AssertionOutcome]:
+    """B5's four rows (reachedOrbit, reachedTargetSoi, flybyPeriapsisFloor,
+    returnedToHome) over the delegated B5 state, then the return tail's three:
+    ``returnPeriapsisInWindow`` (the periapsis read on the trim's cut, or on its
+    skip, inside the window: a return that neither skips off the atmosphere nor
+    dives in steeply), and B4's ``landedSituation`` and ``craftCanopyObserved``
+    over the delegated B4 state (the OBSERVED canopy, never the commanded
+    deploy)."""
+    flight = getattr(state, "flight", None)
+    rows = evaluate_b5_assertions(
+        frames, params.flyby,
+        phases_reached=tuple(getattr(flight, "phases_reached", ()) or ()),
+        min_target_altitude=getattr(flight, "min_target_altitude", None))
+    pe = getattr(state, "trim_cut_periapsis", float("nan"))
+    rows.append(AssertionOutcome(
+        "returnPeriapsisInWindow",
+        bool(_is_finite(pe) and params.return_periapsis_min <= pe
+             <= params.return_periapsis_max),
+        pe,
+        {"min": params.return_periapsis_min, "max": params.return_periapsis_max,
+         "target": params.return_periapsis,
+         "direction": getattr(state, "trim_direction", "") or None,
+         "entryPeriapsis": getattr(state, "trim_entry_periapsis", float("nan"))}))
+    home = getattr(state, "home", None)
+    b4_rows = evaluate_b4_assertions(
+        frames, params.home,
+        phases_reached=tuple(getattr(home, "phases_reached", ()) or ()),
+        craft_canopy_observed=bool(getattr(home, "craft_chute_full_seen", False)),
+        arm_commanded=bool(getattr(home, "chute_deployed", False)),
+        last_chute_state=str(getattr(home, "last_chute_state", "") or ""))
+    for row in b4_rows:
+        if row.name in ("landedSituation", "craftCanopyObserved"):
+            if home is None:
+                row = AssertionOutcome(row.name, False, None, row.detail)
+            rows.append(row)
+    return rows
