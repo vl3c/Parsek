@@ -1088,6 +1088,18 @@ ACTION_UNDOCK = "undock"                                   # value = None
 # contract as every other plan action -- a failed plan leaves node_count at 0 and
 # the machine's bounded re-plan cadence owns the retry.
 ACTION_MJ_PLAN_CAPTURE = "mj_plan_capture"                 # value = None
+# MOON-RETURN departure (mission b11_mun_orbit_return, the composed mor machine):
+# plan the ejection from a parked moon orbit back to its parent with MechJeb's
+# OperationMoonReturn (KRPC.MechJeb ManeuverPlanner.OperationMoonReturn,
+# MoonReturnAltitude in METRES above the parent's surface; decompiled MechJeb2
+# 2.15.1 OperationMoonReturn.MakeNodesImpl -> DeltaVAndTimeForMoonReturnEjection,
+# the ReturnFromMoon solver aimed at that periapsis radius). value = the target
+# parent periapsis ALTITUDE (m). Same SET-then-READ-BACK and throw/log/swallow
+# contract as ACTION_MJ_PLAN_CAPTURE: a refused or failed plan leaves node_count
+# at 0 and the machine's bounded re-plan cadence owns it. The runner also refuses
+# to plan while a node is already pending (make_nodes PLACES nodes, so a stale
+# node_count read would stack a second ejection).
+ACTION_MJ_PLAN_MOON_RETURN = "mj_plan_moon_return"         # value = parent pe altitude m
 # LANDING-mission descent (B13/B14): engage MechJeb's LandingAutopilot in its
 # UNTARGETED mode. The runner writes the module's configuration FIRST (touchdown
 # speed, DeployGears, DeployChutes, RcsAdjustment -- carried on
@@ -31362,8 +31374,17 @@ def mfr_params_from_dict(params: Dict) -> MfrParams:
     if flyby.return_body not in ("", flyby.home_body):
         raise ValueError("returnBody %r is not the home body %r"
                          % (flyby.return_body, flyby.home_body))
-    p = MfrParams(
-        flyby=flyby,
+    p = MfrParams(flyby=flyby, **return_tail_param_kwargs(params))
+    validate_return_tail_params(p)
+    return p
+
+
+def return_tail_param_kwargs(params: Dict) -> Dict:
+    """The career launch keys and the return-tail keys every composed Kerbin-return
+    machine reads (mfr, CS-5; mor, CS-6), as the keyword arguments of their params
+    dataclasses, which carry these field names verbatim. Pure."""
+    params = params or {}
+    return dict(
         home=b4_params_from_dict(mfr_home_param_dict(params)),
         ascent_type=(int(params["ascentType"])
                      if params.get("ascentType") is not None else None),
@@ -31385,6 +31406,12 @@ def mfr_params_from_dict(params: Dict) -> MfrParams:
         fall_min_altitude=float(params.get("returnFallMinAltMeters", 200000)),
         fall_timeout=float(params.get("returnFallTimeoutSeconds", 200000)),
     )
+
+
+def validate_return_tail_params(p) -> None:
+    """RAISES on an inconsistent return window, a fine throttle above the coarse one,
+    or a career setter without the launch engage gate. Shared by the mfr and mor
+    params builders (``p`` carries the return_tail_param_kwargs fields). Pure."""
     if not (p.return_periapsis_min < p.return_periapsis < p.return_periapsis_max):
         raise ValueError("returnPeriapsisMinMeters < returnPeriapsisMeters < "
                          "returnPeriapsisMaxMeters is required (%.0f, %.0f, %.0f)"
@@ -31404,7 +31431,6 @@ def mfr_params_from_dict(params: Dict) -> MfrParams:
         raise ValueError("%s requires mjEngageConfirmFrames > 0 (the launch engage "
                          "gate), else the launch can stage before the engage is read"
                          % "/".join(setters))
-    return p
 
 
 @dataclass(frozen=True)
@@ -31554,26 +31580,37 @@ def _mfr_trim_stop() -> List[Action]:
     return [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_AP_DISENGAGE)]
 
 
+def return_launch_gate_step(state, snapshot: TelemetrySnapshot) -> Tuple[object, List[Action]]:
+    """One frame of the career launch engage gate while the launch stage is HELD:
+    the delegated B5 machine is not fed until the AscentAutopilot reads enabled,
+    then its MJ-ASCENT clock is re-stamped and the stage fires; a refused engage is
+    the named flake. Shared by the mfr and mor composers (``state`` carries
+    ``flight``, ``stage_held`` and ``engage_wait_frames``; its params carry
+    ``mj_engage_confirm_frames``). Pure."""
+    p = state.params
+    if snapshot.vessel_lost:
+        return _mfr_fail(state, "vessel-lost on the pad before the launch was "
+                                "staged"), []
+    if snapshot.mj_autopilot_enabled:
+        entry = (snapshot.ut if _is_finite(snapshot.ut)
+                 else state.flight.phase_entry_ut)
+        flight = replace(state.flight, phase_entry_ut=entry, launch_ut=snapshot.ut)
+        return (replace(state, flight=flight, stage_held=False, phase_entry_ut=entry),
+                [Action(ACTION_ACTIVATE_STAGE)])
+    waited = state.engage_wait_frames + 1
+    if waited >= p.mj_engage_confirm_frames:
+        return _mfr_flake(replace(state, engage_wait_frames=waited),
+                          "%s: the AscentAutopilot read enabled=False on %d frames "
+                          "after the engage; the launch was never staged"
+                          % (MFR_MJ_NOT_ENABLED_GIVEUP, waited)), []
+    return replace(state, engage_wait_frames=waited), []
+
+
 def _mfr_flyby(state: MfrState, snapshot: TelemetrySnapshot) -> Tuple[MfrState, List[Action]]:
     p = state.params
     if state.stage_held:
         # The launch engage gate: B5 is not fed until the autopilot reads enabled.
-        if snapshot.vessel_lost:
-            return _mfr_fail(state, "vessel-lost on the pad before the launch was "
-                                    "staged"), []
-        if snapshot.mj_autopilot_enabled:
-            entry = (snapshot.ut if _is_finite(snapshot.ut)
-                     else state.flight.phase_entry_ut)
-            flight = replace(state.flight, phase_entry_ut=entry, launch_ut=snapshot.ut)
-            return (replace(state, flight=flight, stage_held=False, phase_entry_ut=entry),
-                    [Action(ACTION_ACTIVATE_STAGE)])
-        waited = state.engage_wait_frames + 1
-        if waited >= p.mj_engage_confirm_frames:
-            return _mfr_flake(replace(state, engage_wait_frames=waited),
-                              "%s: the AscentAutopilot read enabled=False on %d frames "
-                              "after the engage; the launch was never staged"
-                              % (MFR_MJ_NOT_ENABLED_GIVEUP, waited)), []
-        return replace(state, engage_wait_frames=waited), []
+        return return_launch_gate_step(state, snapshot)
 
     flight, actions = b5_decide(state.flight, snapshot)
     actions, held, setters = mfr_inject_launch_actions(p, actions)
@@ -31789,6 +31826,15 @@ def evaluate_mfr_assertions(frames, params: MfrParams,
         frames, params.flyby,
         phases_reached=tuple(getattr(flight, "phases_reached", ()) or ()),
         min_target_altitude=getattr(flight, "min_target_altitude", None))
+    rows.extend(return_tail_rows(frames, params, state))
+    return rows
+
+
+def return_tail_rows(frames, params, state) -> List[AssertionOutcome]:
+    """The return tail's three rows, shared by the mfr and mor evaluators:
+    ``returnPeriapsisInWindow`` and B4's ``landedSituation`` /
+    ``craftCanopyObserved`` over the delegated B4 state. Pure."""
+    rows: List[AssertionOutcome] = []
     pe = getattr(state, "trim_cut_periapsis", float("nan"))
     rows.append(AssertionOutcome(
         "returnPeriapsisInWindow",
@@ -31811,4 +31857,510 @@ def evaluate_mfr_assertions(frames, params: MfrParams,
             if home is None:
                 row = AssertionOutcome(row.name, False, None, row.detail)
             rows.append(row)
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# MUN-ORBIT-RETURN composed machine (mission b11_mun_orbit_return; the scripted
+# campaign's CS-6, "Mun orbit and return"). Pure.
+#
+# WHY A COMPOSED MACHINE. B11 (b5_decide with captureEnabled) captures into a Mun
+# orbit, holds a recorded park and then COMMITS the tree in the Mun SOI through
+# the mid-mission seam; nothing comes home. CS-6 needs the opposite end: the
+# capture and the park, then a departure back to Kerbin and the same return tail
+# CS-5 flew (mfr's HOME-TRIM, HOME-FALL and B4's machine from its REENTRY), with
+# the tree committed at the scene exit by the recovery. hlib.validate_spec allows
+# ONE mission step per autopilot spec, so B5, the departure and B4 run inside one
+# machine. b5_decide and b4_decide are delegated VERBATIM, and the return tail is
+# mfr's own block functions (_mfr_trim / _mfr_fall / _mfr_home), shared rather
+# than copied: MorState and MorParams carry every field name those functions
+# read (test_b11_mun_orbit_return pins the superset), so mfr_decide is unchanged.
+#
+# THE PHASE PLAN (reported phase in brackets):
+#   ORBIT   b5_decide verbatim with captureEnabled [B5's own phase names, B11's
+#           capture tail: PLAN-CAPTURE, CAPTURE-BURN, PARK], with mfr's career
+#           launch edit (the setters before the engage, the stage held until the
+#           AscentAutopilot reads enabled) and ONE edit on the PARK exit frame:
+#           B5 enters ORBIT-COMMIT and emits the mid-mission CommitTree there;
+#           the composer DROPS that action (CS-6 commits at the scene exit, after
+#           the recovery) and stops feeding B5. B5's own rows through
+#           parkedStable hold on that frame (ORBIT-COMMIT is in its phase list).
+#   DEPART  [DEPART-PLAN] MechJeb's OperationMoonReturn aimed at
+#           departPeriapsisMeters above the home body (re-issued on
+#           departPlanRetrySeconds while no node stands, bounded), the planned
+#           dv checked against departMaxDvMps; [DEPART-BURN] the NodeExecutor
+#           flies it (autowarp), supervised from the OBSERVED executor-enabled
+#           channel; done when the node is consumed AND the target-frame orbit
+#           is no longer bound; [DEPART-COAST] one native warp to the SOI exit
+#           minus departSoiLeadSeconds, 1x across the boundary.
+#   TRIM / HOME / FALL   mfr's blocks, entered at the home SOI exactly as CS-5
+#           enters them at B5's RETURN.
+# ---------------------------------------------------------------------------
+
+MOR_ORBIT = "MUN-ORBIT"
+MOR_DEPART = "DEPART"
+MOR_DEPART_PLAN = "DEPART-PLAN"
+MOR_DEPART_BURN = "DEPART-BURN"
+MOR_DEPART_COAST = "DEPART-COAST"
+MOR_BLOCKS: Tuple[str, ...] = (MOR_ORBIT, MOR_DEPART, MFR_TRIM, MFR_HOME, MFR_FALL)
+MOR_TERMINAL_PHASE = MFR_TERMINAL_PHASE
+MOR_DEPART_PLAN_MAX_ATTEMPTS = 3
+# Consecutive polls the NodeExecutor reads disabled with a node pending before a
+# re-issue, and how many re-issues before the named give-up.
+MOR_EXEC_DOWN_FRAMES = 5
+MOR_EXEC_REISSUE_LIMIT = 2
+# Consecutive polls with the node consumed and the orbit still bound.
+MOR_UNDERBURN_FRAMES = 5
+# A pending node this far past its UT with the orbit still bound is a missed window.
+MOR_DEPART_WINDOW_GRACE_SECONDS = 300.0
+# The SOI-exit warp: skipped under this span; arrival slack; stall re-issues.
+MOR_COAST_MIN_WARP_SECONDS = 60.0
+MOR_COAST_ARRIVAL_SLACK_SECONDS = 5.0
+MOR_COAST_STALL_FRAMES = 40
+MOR_COAST_REISSUE_LIMIT = 3
+MOR_PLAN_REFUSED_GIVEUP = "depart-plan-refused"
+MOR_PLAN_OVER_CAP_GIVEUP = "depart-plan-over-cap"
+MOR_EXEC_DOWN_GIVEUP = "depart-executor-not-enabled"
+MOR_UNDERBURN_GIVEUP = "depart-under-burn"
+MOR_WINDOW_MISSED_GIVEUP = "depart-window-missed"
+MOR_NO_HOME_GIVEUP = "depart-no-home-encounter"
+MOR_COAST_STALLED_GIVEUP = "depart-coast-warp-stalled"
+# mor_depart_dv_verdict results.
+MOR_DV_FLY = "fly"
+MOR_DV_UNREAD = "unread"
+MOR_DV_OVER_CAP = "over-cap"
+
+
+@dataclass(frozen=True)
+class MorParams:
+    """b11_mun_orbit_return tuning. ``orbit`` is B5's params (captureEnabled) over
+    the SAME dict; ``home`` and the trim / fall / launch fields are mfr's, built by
+    return_tail_param_kwargs under the same names, so mfr's tail blocks read them
+    unchanged."""
+    orbit: B5Params
+    home: B4Params
+    ascent_type: Optional[int] = None
+    autostage_limit: Optional[int] = None
+    mj_engage_confirm_frames: int = 0
+    return_periapsis: float = 30000.0
+    return_periapsis_min: float = 15000.0
+    return_periapsis_max: float = 45000.0
+    trim_heading_deg: float = 90.0
+    trim_throttle: float = 0.25
+    trim_fine_throttle: float = 0.03
+    trim_fine_band: float = 300000.0
+    trim_settle_seconds: float = 10.0
+    trim_max_attitude_error_deg: float = 5.0
+    trim_ignite_frames: int = 20
+    trim_timeout: float = 900.0
+    fall_lead_seconds: float = 600.0
+    fall_min_altitude: float = 200000.0
+    fall_timeout: float = 200000.0
+    depart_periapsis: float = 30000.0
+    depart_max_dv: float = 600.0
+    depart_plan_timeout: float = 300.0
+    depart_plan_retry: float = 10.0
+    depart_burn_timeout: float = 20000.0
+    depart_coast_timeout: float = 100000.0
+    depart_soi_lead: float = 30.0
+
+
+def mor_params_from_dict(params: Dict) -> MorParams:
+    """Build ``MorParams`` from a spec ``missionParams`` dict (shape and ranges are
+    enforced upstream by hlib against b11_mun_orbit_return.schema.toml). RAISES on
+    a B5 mode that does not end in a parked capture, on a target that is the home
+    body, and on every return-tail inconsistency mfr refuses."""
+    params = params or {}
+    orbit = b5_params_from_dict(params)
+    if not orbit.capture_enabled:
+        raise ValueError("captureEnabled is required: the departure starts from the "
+                         "PARK exit of B5's capture tail")
+    for flag, name in ((orbit.landing_enabled, "landingEnabled"),
+                       (orbit.start_in_orbit, "startInOrbit"),
+                       (orbit.pad_align_ejection, "padAlignEjection"),
+                       (orbit.interplanetary_transfer, "interplanetaryTransfer"),
+                       (orbit.parent_relay_transfer, "parentRelayTransfer")):
+        if flag:
+            raise ValueError("%s is not a park the return tail can depart from"
+                             % name)
+    if orbit.target_body == orbit.home_body:
+        raise ValueError("targetBodyName %r is the home body" % (orbit.target_body,))
+    tail = return_tail_param_kwargs(params)
+    p = MorParams(
+        orbit=orbit, **tail,
+        depart_periapsis=float(params.get("departPeriapsisMeters",
+                                          tail["return_periapsis"])),
+        depart_max_dv=float(params.get("departMaxDvMps", 600)),
+        depart_plan_timeout=float(params.get("departPlanTimeoutSeconds", 300)),
+        depart_plan_retry=float(params.get("departPlanRetrySeconds", 10)),
+        depart_burn_timeout=float(params.get("departBurnTimeoutSeconds", 20000)),
+        depart_coast_timeout=float(params.get("departCoastTimeoutSeconds", 100000)),
+        depart_soi_lead=float(params.get("departSoiLeadSeconds", 30)),
+    )
+    validate_return_tail_params(p)
+    if not (p.return_periapsis_min <= p.depart_periapsis <= p.return_periapsis_max):
+        raise ValueError("departPeriapsisMeters %.0f must sit inside the return window "
+                         "[%.0f, %.0f]: the departure aims where the trim cuts"
+                         % (p.depart_periapsis, p.return_periapsis_min,
+                            p.return_periapsis_max))
+    if p.depart_max_dv <= 0.0:
+        raise ValueError("departMaxDvMps must be positive")
+    return p
+
+
+@dataclass(frozen=True)
+class MorState:
+    """b11_mun_orbit_return machine state. ``flight`` is the delegated B5 machine
+    (named so ``frozen_detector_holder`` resolves it); ``home`` the delegated B4
+    machine once the return tail starts. Every MfrState field is here under the
+    same name (mfr's tail blocks run on this state), plus the departure's own."""
+    params: MorParams
+    flight: B5State
+    home: Optional[B4State] = None
+    block: str = MOR_ORBIT
+    phase: str = B5_PRELAUNCH
+    phase_entry_ut: float = 0.0
+    phase_frames: int = 0
+    phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
+    # The launch engage gate.
+    stage_held: bool = False
+    engage_wait_frames: int = 0
+    setters_injected: Tuple[str, ...] = ()
+    # The departure.
+    park_exit_ut: Optional[float] = None
+    depart_plan_attempts: int = 0
+    depart_last_plan_ut: Optional[float] = None
+    depart_node_ut: float = float("nan")
+    depart_node_dv: float = float("nan")
+    depart_exec_down_frames: int = 0
+    depart_exec_reissues: int = 0
+    depart_underburn_frames: int = 0
+    depart_burn_end_ut: Optional[float] = None
+    depart_next_body: str = ""
+    depart_next_pe: float = float("nan")
+    depart_coast_target_ut: Optional[float] = None
+    depart_coast_issues: int = 0
+    depart_coast_stall_frames: int = 0
+    depart_coast_warp_done: bool = False
+    depart_home_ut: Optional[float] = None
+    # The trim (mfr's fields).
+    trim_direction: str = ""
+    trim_heading: float = float("nan")
+    trim_entry_periapsis: float = float("nan")
+    trim_burn_started: bool = False
+    trim_fine: bool = False
+    trim_burn_frames: int = 0
+    trim_peak_thrust: float = float("nan")
+    trim_cut_periapsis: float = float("nan")
+    trim_cut_ut: float = float("nan")
+    # The fall (mfr's fields).
+    fall_done: bool = False
+    fall_skip_reason: str = ""
+    fall_target_ut: Optional[float] = None
+    fall_issues: int = 0
+    fall_stall_frames: int = 0
+    warp_to_cmd: Optional[float] = None
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    done: bool = False
+
+
+def mor_initial_state(params: MorParams) -> MorState:
+    """Fresh machine inside B5's own PRELAUNCH."""
+    flight = b5_initial_state(params.orbit)
+    return MorState(params=params, flight=flight, phase=flight.phase,
+                    phases_reached=(flight.phase,))
+
+
+def mor_depart_dv_verdict(node_dv: float, params: MorParams) -> str:
+    """MOR_DV_FLY when the planned departure is flyable, MOR_DV_UNREAD on an
+    unreadable dv (wait a frame), MOR_DV_OVER_CAP above departMaxDvMps. Pure."""
+    if not _is_finite(node_dv):
+        return MOR_DV_UNREAD
+    if node_dv > params.depart_max_dv:
+        return MOR_DV_OVER_CAP
+    return MOR_DV_FLY
+
+
+def mor_depart_escaped(snapshot: TelemetrySnapshot, params: MorParams) -> bool:
+    """True once the target-frame orbit is no longer bound: the home body already
+    reads, or the apoapsis reads NEGATIVE (hyperbolic), or the eccentricity is at
+    or above 1. A non-finite reading never counts. Pure."""
+    if snapshot.body == params.orbit.home_body:
+        return True
+    if _is_finite(snapshot.apoapsis) and snapshot.apoapsis < 0.0:
+        return True
+    return _is_finite(snapshot.eccentricity) and snapshot.eccentricity >= 1.0
+
+
+def mor_coast_target(ut: float, time_to_soi: float,
+                     params: MorParams) -> Tuple[Optional[float], str]:
+    """(target UT, "") for the one SOI-exit warp, or (None, reason) when it is not
+    taken: a clock unreadable, or a span under MOR_COAST_MIN_WARP_SECONDS (the 1x
+    coast covers it). Pure."""
+    if not (_is_finite(ut) and _is_finite(time_to_soi)):
+        return None, "unreadable (ut=%s tts=%s)" % (_obs_fmt(ut), _obs_fmt(time_to_soi))
+    span = time_to_soi - params.depart_soi_lead
+    if span < MOR_COAST_MIN_WARP_SECONDS:
+        return None, "warp span %.1f s under %.0f s" % (span, MOR_COAST_MIN_WARP_SECONDS)
+    return ut + span, ""
+
+
+def _mor_plan_action(params: MorParams) -> Action:
+    return Action(ACTION_MJ_PLAN_MOON_RETURN, float(params.depart_periapsis))
+
+
+def _mor_orbit(state: MorState, snapshot: TelemetrySnapshot) -> Tuple[MorState, List[Action]]:
+    if state.stage_held:
+        return return_launch_gate_step(state, snapshot)
+    flight, actions = b5_decide(state.flight, snapshot)
+    actions, held, setters = mfr_inject_launch_actions(state.params, actions)
+    st = replace(state, flight=flight, warp_to_cmd=flight.warp_to_cmd,
+                 stage_held=held, setters_injected=setters or state.setters_injected)
+    if flight.phase == B5_ORBIT_COMMIT and not flight.done:
+        # THE PARK EXIT FRAME. B5's dwell held; it asks for the mid-mission commit.
+        # The commit is dropped (the recovery commits at the scene exit) and the
+        # departure is planned on the same frame. B5's physics-warp teardown rides.
+        kept = [a for a in actions if a.kind != ACTION_PARSEK_COMMIT_TREE]
+        entered = _mfr_enter(st, MOR_DEPART, MOR_DEPART_PLAN, snapshot.ut,
+                             warp_to_cmd=None, park_exit_ut=snapshot.ut,
+                             depart_plan_attempts=1, depart_last_plan_ut=snapshot.ut)
+        return entered, kept + [_mor_plan_action(state.params)]
+    st = _mfr_report(st, flight.phase, flight.phase_entry_ut)
+    if not flight.done:
+        return st, actions
+    if flight.loss_reason:
+        return _mfr_fail(st, "orbit leg: %s" % flight.loss_reason), actions
+    if flight.verdict is not None:
+        inner = flight.flake_phase or flight.phase
+        return (replace(st, done=True, verdict=flight.verdict, flake_phase=inner,
+                        flake_reason="orbit leg %s in phase %s: %s"
+                        % (flight.verdict, inner,
+                           flight.flake_reason or ("phase %s timed out" % inner))),
+                actions)
+    return _mfr_flake(st, "orbit leg reported done with a clean verdict before its "
+                          "PARK exit (phases=%s)" % (list(flight.phases_reached),)), actions
+
+
+def _mor_over(state: MorState, snapshot: TelemetrySnapshot, budget: float) -> bool:
+    return _is_finite(snapshot.ut) and snapshot.ut - state.phase_entry_ut > budget
+
+
+def _mor_depart_plan(state: MorState, snapshot: TelemetrySnapshot
+                     ) -> Tuple[MorState, List[Action]]:
+    p = state.params
+    if snapshot.vessel_lost:
+        return _mfr_fail(state, "vessel-lost (unreadable after repeated telemetry "
+                                "failures) in phase %s" % state.phase), []
+    st = replace(state, phase_frames=state.phase_frames + 1)
+    if snapshot.body not in ("", p.orbit.target_body):
+        return _mfr_fail(st, "left the %s SOI before the departure burn: body=%r"
+                             % (p.orbit.target_body, snapshot.body)), []
+    clear = [Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)]
+    if snapshot.node_count >= 1:
+        verdict = mor_depart_dv_verdict(snapshot.node_dv, p)
+        if verdict == MOR_DV_OVER_CAP:
+            return (_mfr_flake(st, "%s: the planned departure wants %.1f m/s, over "
+                                   "departMaxDvMps %.1f" % (MOR_PLAN_OVER_CAP_GIVEUP,
+                                                            snapshot.node_dv,
+                                                            p.depart_max_dv)), clear)
+        if verdict == MOR_DV_FLY:
+            burn = _mfr_enter(st, MOR_DEPART, MOR_DEPART_BURN, snapshot.ut,
+                              depart_node_ut=float(snapshot.node_ut),
+                              depart_node_dv=float(snapshot.node_dv))
+            return burn, [Action(ACTION_MJ_EXECUTE_NODES)]
+    if _mor_over(st, snapshot, p.depart_plan_timeout):
+        return (_mfr_flake(st, "%s: no flyable departure node after %d plan(s) in %.0f "
+                               "game s" % (MOR_PLAN_REFUSED_GIVEUP,
+                                           st.depart_plan_attempts,
+                                           p.depart_plan_timeout)), clear)
+    if snapshot.node_count >= 1:
+        return st, []
+    due = (st.depart_last_plan_ut is None
+           or (_is_finite(snapshot.ut)
+               and snapshot.ut - st.depart_last_plan_ut >= p.depart_plan_retry))
+    if not due:
+        return st, []
+    if st.depart_plan_attempts >= MOR_DEPART_PLAN_MAX_ATTEMPTS:
+        return (_mfr_flake(st, "%s: MechJeb's moon-return plan placed no node in %d "
+                               "attempts" % (MOR_PLAN_REFUSED_GIVEUP,
+                                             st.depart_plan_attempts)), [])
+    return (replace(st, depart_plan_attempts=st.depart_plan_attempts + 1,
+                    depart_last_plan_ut=snapshot.ut),
+            [_mor_plan_action(p)])
+
+
+def _mor_depart_burn(state: MorState, snapshot: TelemetrySnapshot
+                     ) -> Tuple[MorState, List[Action]]:
+    p = state.params
+    stop = [Action(ACTION_MJ_ABORT_AND_CLEAR_NODES), Action(ACTION_CUT_THROTTLE, 0.0)]
+    if snapshot.vessel_lost:
+        return _mfr_fail(state, "vessel-lost (unreadable after repeated telemetry "
+                                "failures) in phase %s" % state.phase), []
+    st = replace(state, phase_frames=state.phase_frames + 1)
+    escaped = mor_depart_escaped(snapshot, p)
+    if snapshot.node_count == 0:
+        if escaped:
+            coast = _mfr_enter(st, MOR_DEPART, MOR_DEPART_COAST, snapshot.ut,
+                               depart_burn_end_ut=snapshot.ut,
+                               depart_next_body=snapshot.next_body or "",
+                               depart_next_pe=float(snapshot.next_pe),
+                               depart_underburn_frames=0)
+            return coast, [Action(ACTION_CUT_THROTTLE, 0.0)]
+        under = st.depart_underburn_frames + 1
+        if under >= MOR_UNDERBURN_FRAMES:
+            return (_mfr_fail(replace(st, depart_underburn_frames=under),
+                              "%s: the departure node is gone and the %s orbit is "
+                              "still bound (ap=%s ecc=%s lf=%s)"
+                              % (MOR_UNDERBURN_GIVEUP, p.orbit.target_body,
+                                 _obs_fmt(snapshot.apoapsis),
+                                 _obs_fmt(snapshot.eccentricity),
+                                 _obs_fmt(snapshot.liquid_fuel))),
+                    [Action(ACTION_CUT_THROTTLE, 0.0)])
+        return replace(st, depart_underburn_frames=under), []
+    st = replace(st, depart_underburn_frames=0)
+    if _mor_over(st, snapshot, p.depart_burn_timeout):
+        return (_mfr_flake(st, "phase %s timed out after %.0f game s with the departure "
+                               "node still pending" % (state.phase,
+                                                       p.depart_burn_timeout)), stop)
+    if (not escaped and _is_finite(snapshot.ut) and _is_finite(st.depart_node_ut)
+            and snapshot.ut > st.depart_node_ut + MOR_DEPART_WINDOW_GRACE_SECONDS):
+        return (_mfr_flake(st, "%s: ut=%.1f is more than %.0f s past the node (%.1f) "
+                               "with the orbit still bound"
+                           % (MOR_WINDOW_MISSED_GIVEUP, snapshot.ut,
+                              MOR_DEPART_WINDOW_GRACE_SECONDS, st.depart_node_ut)), stop)
+    if snapshot.node_executor_enabled == 0:
+        down = st.depart_exec_down_frames + 1
+        if down < MOR_EXEC_DOWN_FRAMES:
+            return replace(st, depart_exec_down_frames=down), []
+        if st.depart_exec_reissues >= MOR_EXEC_REISSUE_LIMIT:
+            return (_mfr_flake(st, "%s: the NodeExecutor read disabled with the node "
+                                   "pending after %d re-issues"
+                                   % (MOR_EXEC_DOWN_GIVEUP, st.depart_exec_reissues)),
+                    stop)
+        return (replace(st, depart_exec_down_frames=0,
+                        depart_exec_reissues=st.depart_exec_reissues + 1),
+                [Action(ACTION_MJ_EXECUTE_NODES)])
+    return replace(st, depart_exec_down_frames=0), []
+
+
+def _mor_depart_coast(state: MorState, snapshot: TelemetrySnapshot
+                      ) -> Tuple[MorState, List[Action]]:
+    p = state.params
+    cancel = [Action(ACTION_CANCEL_WARP)]
+    warping = _is_finite(snapshot.warping_to)
+    if snapshot.vessel_lost:
+        return (_mfr_fail(replace(state, warp_to_cmd=None),
+                          "vessel-lost (unreadable after repeated telemetry failures) "
+                          "in phase %s" % state.phase), cancel)
+    st = replace(state, phase_frames=state.phase_frames + 1)
+    if snapshot.body == p.orbit.home_body:
+        # Across the boundary: mfr's trim takes it from here, as at CS-5's RETURN.
+        trim = _mfr_enter(st, MFR_TRIM, MFR_TRIM, snapshot.ut, warp_to_cmd=None,
+                          depart_home_ut=snapshot.ut)
+        return trim, (cancel if (warping or state.warp_to_cmd is not None) else [])
+    if snapshot.body not in ("", p.orbit.target_body):
+        return (_mfr_fail(replace(st, warp_to_cmd=None),
+                          "%s: the departure crossed into %r, not %r"
+                          % (MOR_NO_HOME_GIVEUP, snapshot.body, p.orbit.home_body)),
+                cancel)
+    if snapshot.next_body and snapshot.next_body != p.orbit.home_body:
+        return (_mfr_fail(replace(st, warp_to_cmd=None),
+                          "%s: the next patch reads %r, not %r"
+                          % (MOR_NO_HOME_GIVEUP, snapshot.next_body, p.orbit.home_body)),
+                cancel)
+    if _mor_over(st, snapshot, p.depart_coast_timeout):
+        return (_mfr_flake(replace(st, warp_to_cmd=None),
+                           "phase %s timed out after %.0f game s inside the %s SOI"
+                           % (state.phase, p.depart_coast_timeout, p.orbit.target_body)),
+                cancel)
+    if st.depart_coast_warp_done:
+        return st, []
+    if st.depart_coast_target_ut is None:
+        target, _why = mor_coast_target(snapshot.ut, snapshot.time_to_soi, p)
+        if target is None:
+            return st, []
+        return (replace(st, depart_coast_target_ut=target, depart_coast_issues=1,
+                        depart_coast_stall_frames=0, warp_to_cmd=target),
+                [Action(ACTION_WARP_TO_UT, target)])
+    target = st.depart_coast_target_ut
+    if _is_finite(snapshot.ut) and snapshot.ut >= target - MOR_COAST_ARRIVAL_SLACK_SECONDS:
+        done = replace(st, depart_coast_warp_done=True, warp_to_cmd=None)
+        return done, (cancel if warping else [])
+    if warping:
+        return replace(st, depart_coast_stall_frames=0), []
+    stalls = st.depart_coast_stall_frames + 1
+    if stalls < MOR_COAST_STALL_FRAMES:
+        return replace(st, depart_coast_stall_frames=stalls), []
+    if st.depart_coast_issues >= MOR_COAST_REISSUE_LIMIT:
+        return (_mfr_flake(replace(st, warp_to_cmd=None),
+                           "%s: no native warp active and ut=%s short of the target "
+                           "%.1f after %d issues" % (MOR_COAST_STALLED_GIVEUP,
+                                                     _obs_fmt(snapshot.ut), target,
+                                                     st.depart_coast_issues)), cancel)
+    return (replace(st, depart_coast_issues=st.depart_coast_issues + 1,
+                    depart_coast_stall_frames=0),
+            [Action(ACTION_WARP_TO_UT, target)])
+
+
+def _mor_depart(state: MorState, snapshot: TelemetrySnapshot) -> Tuple[MorState, List[Action]]:
+    if state.phase == MOR_DEPART_PLAN:
+        return _mor_depart_plan(state, snapshot)
+    if state.phase == MOR_DEPART_BURN:
+        return _mor_depart_burn(state, snapshot)
+    if state.phase == MOR_DEPART_COAST:
+        return _mor_depart_coast(state, snapshot)
+    return _mfr_flake(state, "unknown departure phase %r" % (state.phase,)), []
+
+
+def mor_decide(state: MorState,
+               snapshot: TelemetrySnapshot) -> Tuple[MorState, List[Action]]:
+    """Advance the b11_mun_orbit_return machine one frame; return (new_state,
+    actions). See the block note above MOR_ORBIT. The TRIM / FALL / HOME blocks are
+    mfr's own functions. Once ``done`` the machine is idempotent."""
+    if state.done:
+        return state, []
+    if state.block == MOR_ORBIT:
+        return _mor_orbit(state, snapshot)
+    if state.block == MOR_DEPART:
+        return _mor_depart(state, snapshot)
+    if state.block == MFR_TRIM:
+        return _mfr_trim(state, snapshot)
+    if state.block == MFR_FALL:
+        return _mfr_fall(state, snapshot)
+    if state.block == MFR_HOME:
+        return _mfr_home(state, snapshot)
+    return _mfr_flake(state, "unknown block %r" % (state.block,)), []
+
+
+def evaluate_mor_assertions(frames, params: MorParams,
+                            state: Optional[MorState] = None) -> List[AssertionOutcome]:
+    """B11's rows through the park over the delegated B5 state (reachedOrbit,
+    reachedTargetSoi, flybyPeriapsisFloor, capturedInTargetOrbit, parkedStable;
+    its treeCommitted row is dropped, the commit happens at the scene exit),
+    then ``departedTargetOrbit`` (the departure burn left the target SOI and the
+    HOME body was observed after it), then the shared return tail's three rows."""
+    flight = getattr(state, "flight", None)
+    rows = [r for r in evaluate_b5_assertions(
+        frames, params.orbit,
+        phases_reached=tuple(getattr(flight, "phases_reached", ()) or ()),
+        min_target_altitude=getattr(flight, "min_target_altitude", None),
+        state=flight) if r.name != "treeCommitted"]
+    phases = tuple(getattr(state, "phases_reached", ()) or ())
+    home_ut = getattr(state, "depart_home_ut", None)
+    rows.append(AssertionOutcome(
+        "departedTargetOrbit",
+        bool(MOR_DEPART_COAST in phases and home_ut is not None),
+        getattr(state, "depart_next_pe", float("nan")),
+        {"target": params.orbit.target_body, "home": params.orbit.home_body,
+         "aimPeriapsis": params.depart_periapsis,
+         "nodeUt": getattr(state, "depart_node_ut", float("nan")),
+         "nodeDv": getattr(state, "depart_node_dv", float("nan")),
+         "planAttempts": getattr(state, "depart_plan_attempts", 0),
+         "burnEndUt": getattr(state, "depart_burn_end_ut", None),
+         "nextBody": getattr(state, "depart_next_body", "") or None,
+         "homeUt": home_ut}))
+    rows.extend(return_tail_rows(frames, params, state))
     return rows

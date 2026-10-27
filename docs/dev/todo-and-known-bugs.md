@@ -54,7 +54,7 @@ Build order is in section 3.15. Each step ships unit tests and the matching harn
 
 ---
 
-## ~~MILESTONE-ORBIT-BODY-UNQUALIFIED: every body's Orbit, Suborbit and Flight milestone is captured as one bare id, so the first Kerbin orbit completes them all and the Mun orbit is never paid~~ [FILED AND FIXED 2026-10-27 on branch `milestone-public-body`, found from CS-4b's ground truth (`2026-10-27_1957`, report-only `facet=Milestone kind=MissingInRecon id=Kerbin/Orbit`); unit-tested, NOT FLOWN; product, high (an earned reward never paid)]
+## ~~MILESTONE-ORBIT-BODY-UNQUALIFIED: every body's Orbit, Suborbit and Flight milestone is captured as one bare id, so the first Kerbin orbit completes them all and the Mun orbit is never paid~~ [FILED AND FIXED 2026-10-27 on branch `milestone-public-body`, found from CS-4b's ground truth (`2026-10-27_1957`, report-only `facet=Milestone kind=MissingInRecon id=Kerbin/Orbit`); PR #2301; LIVE-PROVEN 2026-10-27 by CS-6 `2026-10-27_2202` (`Milestone enriched: 'Mun/Orbit' funds=24960`, zero bare `'Orbit'` lines); product, high (an earned reward never paid)]
 
 Observed: CS-4's career ledger books the first orbit as `milestoneId = Orbit`, while its Landing,
 Science and ReturnFromOrbit rows read `Kerbin/...`; the ground truth reads stock's `Kerbin/Orbit`
@@ -77,8 +77,8 @@ only (`KspStatePatcher.IsLegacyBareIdSubtree`, `Kerbin`), so a legacy bare row k
 and completes nothing else; no wider compatibility is kept. Cells: `MilestonePatchingTests`
 `FindProgressNodeBodyField_*` (including a sweep of every stock `KSPAchievements` class with a body
 field) and `PreLedgerProgressSeedTests` `PatchProgressNodeTree_LegacyBareRow_CompletesOnlyTheHomeBodyNode`
-/ `_QualifiedRows_CompleteTheirOwnBodiesOnly`; reverting either half reds them. Live proof: the
-campaign's CS-6 (Mun orbit) books `Mun/Orbit`.
+/ `_QualifiedRows_CompleteTheirOwnBodiesOnly`; reverting either half reds them. Live proof: CS-6
+`2026-10-27_2202` books `Mun/Orbit` and `Mun/ReturnFromOrbit`, with no CS-5 milestone paid twice.
 
 ## ~~CONTRACT-TWIN-GUID-SEEDED-TYPES: a regenerated copy of a guid-seeded contract is offered again after a rewind, and both copies pay~~ [FILED 2026-10-27 from the step 7b review; owner ruling 2026-10-27 ("check both IDs and the other identifiers"); BUILT 2026-10-27 on branch `contract-twin-goal`, unit-tested only, NOT FLOWN; product, medium (a duplicate contract payment across a rewind)]
 
@@ -2810,6 +2810,23 @@ CS-5 GREEN on its first flight 2026-10-27 (`2026-10-27_2101`, 1118 s): Mun flyby
 return periapsis trimmed to 31.2 km, splashdown, pod recovered; Mun/Flyby, Kerbin/Escape,
 Mun/Escape, Mun/ReturnFromFlyBy and Kerbin/Splashdown paid and ledgered; LedgerGroundTruth
 hardFailures=0. Next: CS-6 (Mun orbit and return).
+
+Progress 2026-10-27 (branch `cs6-mun-orbit`): CS-6 (`CS-6-career-mun-orbit`) authored, never
+flown, on the new fixture `cs-career-mun1` (CS-5's produced save `2026-10-27_2101`; it carries
+CS-5's service section on a 29 km-periapsis suborbit, which survived its first pass on rails).
+The craft stays `CS Mun Flyby`: CS-5's flown fuel readings (orbit 280.5 LF, transfer 135.0,
+corrections 33.1 + 5.5, trim 12.5, 91.8 LF dropped unused) leave about 400 m/s over a ~280 m/s
+capture and a ~250-300 m/s departure. The new composed mission `b11_mun_orbit_return`
+(`mlib.mor_decide`) runs B5's machine verbatim with captureEnabled through B11's capture and a
+60 s park, drops the CommitTree B5 sends at the PARK exit, plans the departure with MechJeb's
+OperationMoonReturn (new runner action `mj_plan_moon_return`, aimed at 30 km, altitude read
+back, a live pending-node guard), flies it on the NodeExecutor, warps out of the Mun SOI and
+hands over to mfr's HOME-TRIM / HOME-FALL / HOME blocks. mfr's launch gate, return-tail params
+builder and tail rows became shared helpers; mfr_decide is pinned frame for frame by a trace
+digest taken before the change. CS-6 GREEN on its first flight 2026-10-27 (`2026-10-27_2202`, 1001 s): Mun capture, 60 s park,
+MechJeb moon-return departure (216.9 m/s, periapsis 30 km read back), splashdown, pod recovered;
+Mun/Orbit and Mun/ReturnFromOrbit paid 24960 each, body-qualified, no bare Orbit line;
+LedgerGroundTruth hardFailures=0. Next: CS-7 (Mun landing, EVA, flag, return).
 
 ---
 
