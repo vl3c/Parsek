@@ -23,8 +23,13 @@ id = "RW-13-tech-research-across-rewind"
 #   research   warp to 119760 (T1, 60 s after H's recovery, outside every lead window):
 #              advRocketry researched with science (45; the pool 50.5 -> 5.5).
 #   rewind     InvokeRewindToLaunch onto H's tree: the clock goes to ~119645.
-#   refused    advRocketry researched again before T1: blocked as committed future, the node still
-#              Unavailable and no science moved.
+#   refused    advRocketry researched again before T1: refused because the committed research
+#              already reserves its 45. MEASURED (`2026-10-28_2106`): after the rewind the live
+#              science pool reads 5.5, the end of the committed timeline (the currency reservation:
+#              a committed future spend is reserved, never offered twice), so the research is
+#              refused `insufficient-science` before stock runs, exactly as the R&D button shows a
+#              player; `TechResearchPatch`'s committed-row block is never reached and no dialog
+#              opens. Nothing moves.
 #   crossing   warp to 119820: the committed unlock makes advRocketry available, the science is
 #              not charged again (the pools equal the ones before the rewind), and a probe answers
 #              `node-already-unlocked`.
@@ -89,9 +94,8 @@ steps = [
   { cmd = "MissionMark",    args = { label = "rw13-rewound" },                             expect = "OK" },
   { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
   { cmd = "SaveGame",       args = { name = "rw13-03-after-rtl" },                        expect = "OK", budget = 120 },
-  # ---- the same node researched again before T1: blocked as committed future ----
+  # ---- the same node researched again before T1: refused, its science already reserved ----
   { cmd = "KscAction",      args = { action = "research-node", node = "advRocketry" },     expect = "REJECTED", budget = 60 },
-  { cmd = "UiAction",       args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
   { cmd = "MissionMark",    args = { label = "rw13-refused" },                             expect = "OK" },
   # ---- the crossing ----
   { cmd = "WarpToUT",       args = { ut = "119820", maxRate = "100" },                     expect = "OK", budget = 120 },
@@ -138,9 +142,11 @@ required = [
   "MISSIONMARK label=rw13-before-rewind ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=rw13-rewound ut=1196[0-9]{2}\\.",
   "MISSIONMARK label=rw13-before-rewind ut=(?:(?!MISSIONMARK label=rw13-refused )[\\s\\S])*?PatchTechTree: available=[0-9]+, madeAvailable=0, madeUnavailable=1, [^\\r\\n]*madeUnavailableIds=\\[advRocketry\\]",
 
-  # ---- the second research before T1: blocked as committed future, nothing moved ----
-  "MISSIONMARK label=rw13-rewound ut=(?:(?!MISSIONMARK label=rw13-refused )[\\s\\S])*?kscaction research-node not applied: target=advRocketry stateBefore=Unavailable stateAfter=Unavailable fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0",
-  "MISSIONMARK label=rw13-rewound ut=(?:(?!MISSIONMARK label=rw13-refused )[\\s\\S])*?kscaction refused action=research-node reason=blocked-committed target=advRocketry",
+  # ---- the second research before T1: refused, its science reserved by the committed row ----
+  # The pool the rewind leaves live is the committed timeline's end: 5.5, the research's 45
+  # already taken (the walk's science after the rewind equals the one after the research).
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\S+ science=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw13-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\S+ science=\\1 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw13-refused ut=",
+  "MISSIONMARK label=rw13-rewound ut=(?:(?!MISSIONMARK label=rw13-refused )[\\s\\S])*?kscaction refused action=research-node reason=insufficient-science target=advRocketry",
 
   # ---- the crossing: the committed unlock, the science spent once ----
   "MISSIONMARK label=rw13-refused ut=(?:(?!MISSIONMARK label=rw13-crossed )[\\s\\S])*?Clock-crossing reached committed-future rows: [^\\r\\n]*ScienceSpending@(?:11975|11976)[0-9]\\.",
