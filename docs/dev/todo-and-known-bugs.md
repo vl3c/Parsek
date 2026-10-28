@@ -54,6 +54,48 @@ Build order is in section 3.15. Each step ships unit tests and the matching harn
 
 ---
 
+## ~~SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY: a vessel recovery worth under 100 funds has no ledger row, so an authoritative patch erases it~~ [FILED AND FIXED 2026-10-28 from code reading, branch `fix-small-recovery-funds`; unit-tested only, NOT FLOWN, lane owed; product, medium (a gain lost for good, a reduction of the career total)]
+
+`GameStateRecorder.OnFundsChanged` dropped every funds change under `FundsThreshold = 100`, and
+`LedgerRecoveryFundsPairing.ShouldSkipRecoveryFundsBeforePairing` skipped a recovery whose known
+payout was under 100 ("below recorder threshold"). So a cheap recovery (debris, an EVA kerbal, a
+small probe) got no `FundsEarning(Recovery)` row. A measured patch kept the gap as an untagged
+`StockPoolAdjustment` (the total survived without identity), but an authoritative patch
+(`LedgerOrchestrator.IsAuthoritativeReduction`: rewind, Re-Fly marker, merge journal, tombstone
+path, Re-Fly discard) skips the measurement (`StockPoolReference.Measure` returns early) and writes
+the pool back to the ledger target. Every patch of a Re-Fly session is authoritative, so 60-funds
+debris recovered inside the attempt lost its 60 funds for good, breaking "never reduce the career
+total". Separately, Science and Sandbox careers have no Funding, yet `OnVesselRecoveryFunds` queued
+a pairing request whenever the payout was unknown, and `FlushStalePendingRecoveryFunds` then
+Warned "evicting ... unclaimed recovery request(s)" at the next scene switch (32 archived runs,
+all Science / Sandbox, harmless noise).
+
+**Fix.** `GameStateRecorder.IsFundsDeltaBelowThreshold` exempts a positive `VesselRecovery` delta
+from the threshold, so the payout event exists at any size and both producers (the #444 direct
+pairing and the commit-time `CreateVesselCostActions` pairing) build the exact row; every other
+reason keeps the 100 floor, and a zero or negative recovery delta is still dropped. The pairing's
+under-100 skip is gone (the zero skip stays). The other `FundsChanged` consumers were checked: the
+commit converter drops non-strategy `FundsChanged`, the KSC reconcile and the post-walk reconciler
+skip recovery earnings, the commit earnings window sums the event against the row it pairs (equal),
+coalescing already keeps a recovery event apart, and live-only income excludes the reason, so
+nothing else turns the small event into a row. The deferred queue now runs only when the career has
+a funds pool (`LedgerOrchestrator.GetResourceTrackingAvailability`); otherwise one Verbose skip
+line ("career has no funds pool").
+
+Tests: `SmallRecoveryFundsTests` (the threshold truth table; a small `ContractReward` change is
+still ignored by the real handler; a 60- and a 150-funds recovery through the real handler each
+give one row with the paired amount, dedup key and tag; a callback ahead of its 42-funds payout
+defers and pairs; the headline: a 60-funds debris recovery inside a Re-Fly session is tagged to the
+provisional and the next authoritative funds patch writes 1060, not 1000; no funds pool queues
+nothing and the flush stays quiet), `GameStateRecorderLedgerTests` (a 99-funds payout context now
+defers like any positive payout). Mutation-checked: reverting the recorder exemption reds the
+headline (1000 against 1060), the 60-funds cells and the truth table; restoring the pairing's
+under-100 skip reds the headline and the two small-payout cells; dropping the no-pool gate reds the
+no-pool cell. Not flown yet; lane owed: a Re-Fly that recovers cheap debris (under 100 funds),
+merge, then LedgerGroundTruth and no GUARDED line.
+
+---
+
 ## ~~STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED: a strategy discount on a part purchase, a repair or a contract penalty has no ledger leg, so a rewind and a repeat pays it twice~~ [FILED AND FIXED 2026-10-28 from code reading plus the stock `Strategies.cfg`, branch `fix-strategy-gross-legs`; unit-tested only, NOT FLOWN, lane owed; product, medium (a discount credited twice, breaking "nothing is paid twice")]
 
 Stock `AgressiveNegotiations` multiplies funds under `VesselRollout` / `RnDPartPurchase` (0.70 at

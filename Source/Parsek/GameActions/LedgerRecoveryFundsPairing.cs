@@ -384,18 +384,13 @@ namespace Parsek
 
             if (payoutContext != null && payoutContext.HasFundsEarned)
             {
+                // Only a zero payout is skipped: the recorder keeps a positive
+                // FundsChanged(VesselRecovery) of any size (GameStateRecorder
+                // .IsFundsDeltaBelowThreshold), so a payout under the recorder's funds
+                // threshold still has an event to pair with.
                 if (payoutContext.FundsEarned <= 0.0)
                 {
                     reason = "stock expected zero recovery funds";
-                    return true;
-                }
-
-                if (payoutContext.FundsEarned < GameStateRecorder.FundsThreshold)
-                {
-                    reason = "stock expected recovery funds " +
-                             payoutContext.FundsEarned.ToString("F1", CultureInfo.InvariantCulture) +
-                             " below recorder threshold " +
-                             GameStateRecorder.FundsThreshold.ToString("F1", CultureInfo.InvariantCulture);
                     return true;
                 }
 
@@ -514,6 +509,7 @@ namespace Parsek
             bool quick,
             VesselType vesselType,
             RecoveryPayoutContext payoutContext,
+            bool fundsPoolTracked,
             Func<double, RecoveredVesselIdentity, bool, bool> tryAddRecoveryFundsAction)
         {
             if (!identity.HasName)
@@ -541,6 +537,18 @@ namespace Parsek
                     $"OnVesselRecoveryFunds: {identity.FormatForLog()} (VesselType.{vesselType}) " +
                     $"at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} — " +
                     $"skipping deferred recovery-funds pairing ({skipReason})");
+                return;
+            }
+
+            if (!fundsPoolTracked)
+            {
+                // Science and Sandbox careers have no Funding: stock pays no recovery funds,
+                // so no FundsChanged(VesselRecovery) can ever arrive to pair with and a
+                // queued request would only be evicted with a Warn at the next scene switch.
+                ParsekLog.Verbose(Tag,
+                    $"OnVesselRecoveryFunds: {identity.FormatForLog()} (VesselType.{vesselType}) " +
+                    $"at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} - " +
+                    "skipping deferred recovery-funds pairing (career has no funds pool)");
                 return;
             }
 
