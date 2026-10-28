@@ -13,6 +13,7 @@ import importlib.util
 import math
 import os
 import re
+import tomllib
 import unittest
 
 HARNESS_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -24,6 +25,7 @@ HOST_DIR = os.path.join(HARNESS_ROOT, "fixtures", "saves", "cs-career-mun4")
 VAB = os.path.join(HOST_DIR, "Ships", "VAB")
 CRAFT = os.path.join(VAB, "CS Flea Probe.craft")
 HOST_SFS = os.path.join(HOST_DIR, "persistent.sfs")
+SPEC = os.path.join(HARNESS_ROOT, "scenarios", "RW-5-rewind-refly-discard.toml")
 
 ADDED = ["radialDecoupler", "fuelTankSmallFlat", "probeCoreSphere.v2"]
 # Parts whose stock cfg carries ModuleCommand (the controllable test,
@@ -185,6 +187,17 @@ class CsFleaProbeCraftTests(unittest.TestCase):
 
     def test_the_ship_is_named_for_the_editor_step(self):
         self.assertRegex(self.text, r"(?m)^ship = CS Flea Probe$")
+
+    def test_the_spec_launches_this_craft_from_this_fixture_and_decouples_its_stand(self):
+        with open(SPEC, "rb") as fh:
+            spec = tomllib.load(fh)
+        self.assertEqual("fixtures/saves/cs-career-mun4", spec["fixture"]["saveTemplate"])
+        steps = spec["driver"]["steps"]
+        editors = [s["args"]["craft"] for s in steps if s.get("cmd") == "GoToEditor"]
+        self.assertIn("CS Flea Probe", editors)
+        decouples = [s["args"] for s in steps if s.get("cmd") == "PartAction"
+                     and s["args"].get("button") == "decouple"]
+        self.assertEqual([{"button": "decouple", "part": "radialDecoupler"}], decouples)
 
     def test_the_jumping_flea_base_is_the_committed_shared_library_craft(self):
         # The derivation reads the library copy; this pins that the base did not move

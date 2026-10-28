@@ -1,0 +1,569 @@
+schema = 1
+id = "RW-5-rewind-refly-discard"
+# =====================================================================================
+# RW-5: A RE-FLY STARTED AND DISCARDED INSIDE A REWOUND TIMELINE (the rewind ledger campaign,
+# plan row 8: "commit a future F, Rewind-to-Launch to H, fly and commit G, start a Re-Fly on
+# G, do something the ledger records, then Discard Re-fly").
+#
+# THE RULINGS UNDER TEST: Re-Fly is losses-only and any gain seals; DISCARD RESTORES THE LEDGER
+# TO JUST BEFORE THE RE-FLY STARTED (design docs/parsek-rewind-to-separation-design.md section
+# 2.12 Rule 3: "Invocation, the live session, Retry and every Discard leave L exactly as it was
+# before the invocation"); a plain Rewind-to-Launch only moves the clock; committed costs are
+# reserved. The flight the Re-Fly came from (G) stays: its recordings, its rows, its rewind
+# point; nothing is superseded or tombstoned.
+#
+# HOW THE LANE MAKES ITS PAST (RW-1's shape). H: the Jumping Flea recorded on the pad,
+# committed in flight, recovered. F: the survey contract f1fb89dc accepted at the Space Center
+# (+37500, RW-1 measured), a committed future with a ledger effect. Then InvokeRewindToLaunch
+# back to H (the clock lands at H's recording start minus 15 s, ~185785.2, before H's rollout
+# row at ~185800.1).
+#
+# G AND ITS REWIND POINT. A Re-Fly needs a rewind point, and one is authored only when a split
+# leaves two or more controllable vessels (SegmentBoundaryLogic.IsMultiControllableSplit,
+# SegmentBoundaryLogic.cs:545; ParsekFlight.TryAuthorRewindPointForBreakup, ParsekFlight.cs:6927,
+# logs `Single-controllable split: no RP` otherwise; controllable = ParsekFlight.IsTrackableVessel,
+# ParsekFlight.cs:4861: a ModuleCommand part, power not required). Every craft this career could
+# launch has one command part, so the lane flies its own: `CS Flea Probe`
+# (harness/tools/build_cs_flea_probe_craft.py, committed in cs-career-mun4's Ships/VAB): the
+# Jumping Flea plus a probe stand on the RT-5's side (TT-38K radial decoupler, FL-T100,
+# Stayputnik), cost 3982 from the part cfgs. G is launched right after the rewind (the
+# reserved Jeb is swapped for his stand-in in the manifest, RW-2 measured that at UT 185786),
+# recorded, and `PartAction button=decouple part=radialDecoupler` separates the stand on the
+# pad: the Flea keeps the root (the pod, crewed) and focus, the stand is a controlled child
+# (ParsekFlight.ProcessBreakupEvent, breakup-continuous: the launch recording continues as
+# the pod and the stand gets one child recording, VN-8 measured 2 legs for a pad decouple).
+# G's flight is held under UT 185800 (WarpToUT 185797 at 1x) so it ends before H's ghost
+# starts on the same pad. G is committed IN FLIGHT (CommitTree), which promotes the staging
+# rewind point to persistent (RecordingStore.PromoteNormalStagingRewindPoints).
+#
+# WHY THE STASH, AND WHY IN FLIGHT. Both of G's slots end Landed on the pad, a stable
+# terminal (UnfinishedFlightClassifier.TryQualify, UnfinishedFlightClassifier.cs:417), so
+# both tips commit Immutable and the rewind point is reap-eligible
+# (RewindPointReaper.IsReapEligible): the next OnLoad's housekeeping reap
+# (ParsekScenario.cs:4841 / :5256) would delete it. `StashSlot` on slot 0 (the pod, the focus
+# slot) BEFORE any scene change opens it (Immutable -> CommittedProvisional, the player's
+# per-row Stash button, LAB-10b / RF-L4's shape) and keeps the point; Landed is a stashable
+# terminal (StashedTerminalQualifies, UnfinishedFlightClassifier.cs:1150). The Re-Fly is then
+# invoked from the same flight (FLIGHT is an invokable scene, RewindInvoker.cs:3412), so no
+# reap runs between the commit and the invoke.
+#
+# THE RE-FLY AND ITS EARNING. InvokeRewind slot 0 loads the rewind point's game; the
+# invocation walk runs with cutoff double.MaxValue BY DESIGN (RewindInvoker.cs:1526; it lifts
+# the pool by the committed future, so this lane does not gate the pools inside the session).
+# The stand-in steps onto the hatch ladder (EvaExit, no release) and earns Kerbin/SurfaceEVA,
+# a world-first the host has not reached (RW-3 read its ProgressTracking): stock pays 3200
+# funds and 1 reputation (RW-2 / RW-3 measured `Milestone enriched: 'Kerbin/SurfaceEVA'
+# funds=3200 rep=1.0 sci=0.0` on this host), the event is tagged to the attempt (a live Re-Fly
+# recorder; ReFlyAwardTagging covers an unbound one, GameStateRecorder.cs:258), and he boards
+# back.
+#
+# THE DISCARD. ReFlyRevert choice=discard target=launch (Esc > Revert Flight > Revert to
+# Launch > Discard Re-Fly; RF-L4 / LAB-10b's route): RevertInterceptor.DiscardReFlyHandler
+# purges the attempt's events (PurgeEventsForRecordings), prunes its topology
+# (PruneActiveReFlyAttemptOwnedTopology), loads the rewind point's game, writes it to
+# persistent.sfs and lands at the Space Center at the rewind point's UT; the OnLoad is
+# classified DiscardReFly and walks at that clock (useCurrentUtCutoff=True: H's rollout,
+# H's recovery and F's accept are all still ahead of it). THE GATE: the pools and the ledger
+# row count after the discard equal those just before the invoke, read off the same lines
+# (backreferences, no hand-typed numbers): the last `[LedgerTrace] phase=Structural` line
+# before the invoke and every one after the discard until the crossing (funds, science, rep;
+# facilities and active contracts too on one of them), and the last `RecalculateAndPatch: actionsTotal=` before the invoke
+# and the first after the discard. Stock's `PatchFunds: no change needed` is not used: it is
+# logged on change only (KspStatePatcher.cs:33), so an unchanged target prints nothing.
+# Predicted from the rows: 157546.18 - G's rollout - H's reserved rollout 2932 = 150632.18 at
+# both reads if G costs 3982.
+#
+# THE CROSSING AND THE CLOSE. WarpToUT 186100 at the Space Center crosses H's rollout and
+# recovery and F's accept, each applied once. The rewind point's game holds G's two vessels on
+# the pad, so both are recovered from the Tracking Station (TrackingStationRecover, CI-7's
+# verb) before the unrecorded check Flea can launch; then the default-slot save and
+# LedgerGroundTruth in that FLIGHT scene (RW-1's close).
+#
+# THE TIMELINE (UTs planned):
+#   185800     WarpToUT at the Space Center (RW-1's reason: clear of the fixture's last rows).
+#   H          launch ~185800.1, StartRecording, warp in flight to 186000, commit, recover.
+#   F          ~186000.3 at the Space Center: accept f1fb89dc (+37500).
+#   rewind     InvokeRewindToLaunch tree=latest: clock ~185785.2.
+#   G          launch ~185785.4 (rollout -3982 expected), StartRecording, decouple, 1x to
+#              185797, StopRecording, CommitTree, StashSlot slot 0.
+#   Re-Fly     InvokeRewind slot 0 from that flight: clock back to the split (~185785.6);
+#              EvaExit (settleSeconds 3), EvaBoard.
+#   discard    ReFlyRevert discard: Space Center at the rewind point's UT.
+#   crossing   WarpToUT 186100 maxRate 100 at the Space Center.
+#   close      TrackingStationRecover G's two vessels, the Flea relaunched unrecorded, warp to
+#              186130 in flight, SaveGame (default), LedgerGroundTruth.
+#
+# NAMED STEP SAVES (side files a harvest ignores; read after the flight): rw05-01-after-h-commit,
+# rw05-02-after-f-accept, rw05-03-after-rtl, rw05-04-after-g-commit (FLIGHT, G committed and
+# stashed), rw05-05-after-discard, rw05-06-after-crossing, rw05-07-pad-cleared,
+# rw05-08-check-flight. None is taken INSIDE the Re-Fly session: a save there writes the
+# attempt's sidecars to disk, and the discard's on-disk cleanup is not this lane's subject.
+#
+# DEPARTURES FROM THE PLAN AND THE BRIEF (each following the code or the host):
+#   - THE CRAFT: the brief's TD-12 + Stayputnik stack cannot be built (the Stayputnik has only
+#     a bottom stack node, probeStackSphere_v2.cfg) and a vertical split leaves the upper half
+#     resting on the lower one, which stock reads FLYING (Landed comes only from a layer-15
+#     collision, decompiled Part.OnCollisionEnter); a TT-38K radial stand leaves both halves on
+#     the pad. See the builder's header.
+#   - THE STASH: needed only because a pad split ends both slots Landed (closed); the plan's
+#     "start a Re-Fly on G" assumed an open slot.
+#   - THE EARNING is the pad EVA world-first, not a crash: a probe or Flea crash on Kerbin
+#     writes no ledger row on this career (the altitude / speed records are long reached).
+#   - THE POOLS INSIDE THE SESSION are not gated: the invocation walk's cutoff=MaxValue lift is
+#     by design (the brief), so the RW-2 symptom forbid is scoped to the rewind-to-invoke and
+#     discard-to-crossing windows, and the discard's restoring walk is pinned instead.
+#   - THE CLOSE recovers G's vessels first: the discard brings back the rewind point's world,
+#     which holds them on the pad, and LaunchFromEditor refuses an obstructed site
+#     (`launchfromeditor-site-obstructed`, TestCommandEditorRoute.cs:124).
+#
+# LITERALS (Source/Parsek/..., verified 2026-10-28 by grep):
+#   launchfromeditor complete scene=FLIGHT    TestCommands/TestCommandEditorRoute.cs:517
+#   Game state: FundsChanged                  GameStateRecorder.cs:945 (arrow non-ASCII)
+#   MISSIONMARK label=                        TestCommands/TestCommandMissionMark.cs:22
+#   kscaction action=... applied=true         TestCommands/TestCommandKscAction.cs:501
+#   KSC spending recorded: type=              GameActions/LedgerOrchestrator.cs:6095
+#   Rewind-to-Launch initiated to UT          RecordingStore.cs:5651
+#   invokerewindtolaunch invoking             TestCommands/ParsekTestCommandAddon.InvokeRewindToLaunch.cs:176
+#   Load classified:                          LoadReconcilePolicy.cs:381
+#   partaction applied button=                TestCommands/TestCommandPartAction.cs:687
+#   SEPARATION / DECOUPLE emitted:            CrashCoalescer.cs:221 / :245
+#   ProcessBreakupEvent: controlled child created
+#                                             ParsekFlight.cs:9022
+#   Controllable split children:              SegmentBoundaryLogic.cs:518
+#   RewindPoint begin: / slot capture:        RewindPointAuthor.cs:174 / :305
+#   Single-controllable split: no RP          ParsekFlight.cs:6854 / :6947
+#   committree committed=true                 TestCommands/ParsekTestCommandAddon.cs:2626
+#   Current-UT ledger recalculation: reason=  GameActions/LedgerOrchestrator.cs:2428 (the
+#                                             flight-tree-commit reason, ParsekFlight.cs:14976)
+#   CommitTree: promoted normal staging rp=   RecordingStore.cs:1326
+#   listhandles kind=                         TestCommands/ParsekTestCommandAddon.ListHandles.cs:92
+#   Stashed slot=                             UnfinishedFlightStashHandler.cs:107
+#   stashslot complete                        TestCommands/ParsekTestCommandAddon.StashSlot.cs:186
+#   IsUnfinishedFlight=true ... stashedStableLeaf
+#                                             UnfinishedFlightClassifier.cs:1255 (reason :409)
+#   RetireSet gate (section 2.12 Rule 1):     SupersedeCommit.RetireSet.cs:847
+#   Re-Fly (Rewind-to-Separation) StartInvoke / Invocation complete
+#                                             RewindInvoker.cs:960 / :1539
+#   RecalculateAndPatch: actionsTotal=        GameActions/LedgerOrchestrator.cs:4302
+#   recordingstate ... awaitRecorderLive=     TestCommands/ParsekTestCommandAddon.cs:1931
+#   evaexit start / complete, evaboard complete
+#                                             TestCommands/ParsekTestCommandAddon.Eva.cs:160 / :277 / :946
+#   Game state: MilestoneAchieved             GameStateRecorder.Handlers.cs:1165
+#   Milestone enriched:                       GameStateRecorder.Handlers.cs:1516
+#   Emit: <type> key= tag=                    GameStateRecorder.cs:176
+#   reflyrevert start / pressed / complete    TestCommands/TestCommandReFlyRevert.cs:507 / :518 / :530
+#   Revert dialog shown                       ReFlyRevertDialog.cs:123
+#   PurgeEventsForRecordings (                GameStateStore.cs:683
+#   PruneActiveReFlyAttemptOwnedTopology      MergeDialog.ReFlyDiscard.cs:224
+#   Origin RP promoted / already persistent   RevertInterceptor.cs:455 / :460
+#   DiscardReFly: rewind point game written   RevertInterceptor.cs:785 / :833
+#   End reason=discardReFly                   RevertInterceptor.cs:637
+#   In-session staged lists from memory:      ParsekScenario.InSessionHandoff.cs:154
+#   OnLoad: post-rewind current-UT cutoff decision
+#                                             ParsekScenario.cs:839
+#   [LoadSweep] Marker valid=                 LoadTimeSweep.cs:280
+#   [LedgerTrace] phase=Structural / Anomaly  LedgerTrace.cs:268 / :333
+#   PatchFunds: no change needed / a -> b     GameActions/KspStatePatcher.cs:2471 / :2494
+#   Clock-crossing reached                    GameActions/LedgerOrchestrator.cs:2763
+#   tsrecover complete                        TestCommands/TestCommandTrackingStationRecover.cs:329
+#   savegame name=<n> folder= saved=true      TestCommands/ParsekTestCommandAddon.cs:2098
+#   ground-truth game mode= / result: hardFailures=
+#                                             InGameTests/LedgerGroundTruthHarness.cs:125 / :246
+#   BATCH_COMPLETE v1                         InGameTests/InGameTestRunner.cs:1219
+#   forbidden: Split origin (RecordingTreeSplitter.cs:1163), Added N supersede relations
+#   (SupersedeCommit.cs:456), Tombstoned N career actions (SupersedeCommit.cs:2663),
+#   ClearRecordingTagForRecordings: cleared= (GameActions/Ledger.cs:674), re-homed
+#   (GameActions/LedgerOrchestrator.cs:6877), outcome=unbound-refly-provisional
+#   (ParsekFlight.cs:15579, ParsekScenario.cs:2234), outcome=retired-empty-provisional
+#   (ParsekFlight.TerminalOrbit.cs:227), Reaped rp= (RewindPointReaper.cs:174), Purged rp=
+#   (TreeDiscardPurge.cs:366), In-session load found no staged-list handoff
+#   (ParsekScenario.InSessionHandoff.cs:89), DiscardReFly load intent dropped as stale
+#   (DiscardReFlyLoadIntent.cs:73), Took back (GameActions/StockShadowTakeBack.cs:514),
+#   ABORTING rewind ledger patch (GameActions/KspStatePatcher.cs:89), GUARDED clamps
+#   (KspStatePatcher.cs:6287), filed StockPoolAdjustment (KspStatePatcher.cs:6117), Debt
+#   charge: (GameActions/FundsModule.cs:245), skipping duplicate rollout
+#   (GameActions/LedgerRolloutAdoption.cs:125 / :140), Credited milestone
+#   (GameActions/MilestonesModule.cs:137).
+#
+# PRE-REGISTERED READINGS (check these first if the first flight reds):
+#   - `Single-controllable split: no RP` at the decouple: the stand did not count as
+#     controllable, or the stand did not separate (read `partaction applied ... vessels=`).
+#   - `partaction applied ... activePid=` not G's pid: stock switched focus to the stand (the
+#     control point is the pod, so it should not).
+#   - `stashslot ... msg=stash-refused` with `alreadyUnfinishedFlight`: slot 0's terminal was
+#     not Landed (the pod read FLYING or SubOrbital); with `recordingAction:` a G row sealed
+#     the slot (read the `RetireSet gate` line: a rollout is a loss row and must not seal).
+#   - `invokerewind refused`: read the msg; `in your future` means the clock was not past the
+#     rewind point (G's flight is ~11 s of game time after it).
+#   - `evaexit refused reason=kerbal-not-aboard`: G rolled out with crew=0 (read `Cleared
+#     reserved` / `Swapped reserved` against G's launch).
+#   - `Emit: MilestoneAchieved key='Kerbin/SurfaceEVA' tag=''` or a `KSC spending recorded:
+#     type=MilestoneAchievement`: the Re-Fly's earning was filed untagged, as a Space Center
+#     row the discard cannot purge; a product finding (file it).
+#   - the post-discard Structural differs from the pre-invoke one: read `OnLoad: post-rewind
+#     current-UT cutoff decision` (useCurrentUtCutoff=False with hasFutureLedgerActions=True
+#     is RW-2's cutoff=null symptom on the discard road) and `RecalculateAndPatch:
+#     actionsTotal=` (a different count means a row survived or was lost).
+#   - `reflyrevert complete ... rpKept=false` or `slotListed=false`: the discard dropped the
+#     point or the stash.
+#   - `tsrecover` REJECTED / ERROR naming a missing pid: the rewind point's world does not hold
+#     the stand (or the Flea) under the pid the decouple reported; the check launch then reads
+#     `launchfromeditor-site-obstructed`.
+#   - recordings 38: G's launch recording was split by the optimizer, or an attempt recording
+#     outlived the discard (read `PruneActiveReFlyAttemptOwnedTopology ... removedCommitted=`).
+#
+# Owed off the first flight:
+#   - G's rollout cost (regexed `-[0-9]+`; 3982 predicted from the part cfgs) and the two
+#     Tracking Station recovery payouts;
+#   - the in-session pools (the invocation walk's lift, 40432 = H's recovery 2932 + F's 37500
+#     predicted, and stock's +3200 / +1 rep on top), report-only;
+#   - the side stand's terminal and its slot's CommitTree verdict (Landed predicted);
+#   - the decouple's emitted line (SEPARATION or DECOUPLE) and the stand's vessel name;
+#   - the batch split (`total=3` pinned from the source, `passed` / `skipped` regexed;
+#     IngameBatchWiringGroupTests.INTERIM_PIN_IDS until then);
+#   - the end pools (no ledger oracle block until they are measured), the recordings count
+#     (37 pinned from RW-1's 35 and VN-8's two legs), the saveParse rewind block (report-only),
+#     the tier call (operator: stock-tree is not in the nightly instance set).
+#
+# FAST-LANE CHECKLIST: (1) reuse: RW-1's H, F and close, VN-8's pad decouple, LAB-10b / RF-L4's
+# stash, invoke and Esc discard, RW-2 / RW-3's pad EVA; (2) explicit-UT warps only; (3)-(5) no
+# dwell, burn or coast beyond the 11 s pad recording and a 3 s EVA settle; (6) retry `once`;
+# (7) recordings window 37..37; (8) operator, ~15 min expected; (9) flight_efficiency.py after
+# the first green flight.
+#
+# STATUS: AUTHORED 2026-10-28 (branch `rw5-refly-discard`), NEVER FLOWN. Every pinned literal is
+# derived from source (file:line above), the host and the flown RW-1 / RW-2 / RW-3 logs.
+tier = "operator"
+description = "Rewind ledger campaign, a Re-Fly started and discarded inside a rewound timeline (plan row 8): on cs-career-mun4 a pad flight H is recorded and committed and a contract accepted at the Space Center; after a Rewind-to-Launch a two-command craft G is recorded on the pad, decoupled into two controllable vessels (a rewind point), committed and its pod slot stashed; a Re-Fly of that slot earns Kerbin's SurfaceEVA world-first from the ladder, then Discard Re-fly restores the ledger to exactly the pools and row count it held before the Re-Fly started, with G's recordings, rows and rewind point kept and nothing superseded or tombstoned; warping past the committed rows applies each once and LedgerGroundTruth closes the career."
+instanceProfile = "stock-tree"
+tags = ["RW-5", "career", "ledger", "rewind", "rewind-to-launch", "refly", "discard-refly",
+        "revert-dialog", "stash", "unfinished-flights", "controlled-child", "milestone", "eva",
+        "editor", "tracking-station", "recover", "ground-truth", "ingame-batch",
+        "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 300 LoadGame + 5 x 120 warps + 3 x (120 GoToEditor + 180 LaunchFromEditor)
+# + 2 x 180 StartRecording + 2 x 120 CommitTree + 120 Recover + 60 KscAction + 300 rewind
+# + 300 InvokeRewind + 120 EvaExit + 240 EvaBoard + 300 ReFlyRevert + 2 x 120 TS recover
+# + 9 x 120 SaveGame + 540 RunTests = 5900; runtime 7000 adds the inert steps and FlushAndQuit.
+steps = [
+  # scene = "spacecenter": the host's three vessels are Mun debris (RW-1's boot).
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  # Clear of the fixture's last rows (185732-185734) and their 60 s rollout window.
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+
+  # ---- flight H: recorded on the pad, committed, recovered (RW-1 verbatim) ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "h",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "186000" },                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "${h.pid}" },                                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw5-h-committed" },                          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw05-01-after-h-commit" },                   expect = "OK", budget = 120 },
+
+  # ---- F: the committed future, a contract accept at the Space Center ----
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "f1fb89dc-a471-42cf-94da-de4bb1080512" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw5-f-committed" },                          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw05-02-after-f-accept" },                   expect = "OK", budget = 120 },
+
+  # ---- the rewind to H's launch ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rw5-rewound" },                              expect = "OK" },
+  # The rewind save carries the settings of H's recording start; asserted so only G records.
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw05-03-after-rtl" },                        expect = "OK", budget = 120 },
+
+  # ---- flight G: recorded on the pad, the stand decoupled (a rewind point), committed ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "CS Flea Probe" },          expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "g",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "PartAction",     args = { button = "decouple", part = "radialDecoupler" }, label = "dec", expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  # 1x so the split's deferred frame, the rewind point's deferred quicksave and the live-tree
+  # self-heal all run with the recorder live; held under 185800, where H's ghost starts.
+  { cmd = "WarpToUT",       args = { ut = "185797", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c1",                   expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "handles",           expect = "OK" },
+  # Both slots ended Landed (closed): the stash opens the pod's slot before any OnLoad reap.
+  { cmd = "StashSlot",      args = { rp = "${handles.rp0}", slot = "0" },                  expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw5-g-committed" },                          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw05-04-after-g-commit" },                   expect = "OK", budget = 120 },
+
+  # ---- the Re-Fly of G's pod slot, and an earning inside it ----
+  { cmd = "MissionMark",    args = { label = "rw5-refly-armed" },                          expect = "OK" },
+  { cmd = "InvokeRewind",   args = { rp = "${handles.rp0}", slot = "0" },                  expect = "OK", budget = 300 },
+  # THE FLIGHT-READY WAIT (REFLY-LANES-JUMP-BEFORE-FLIGHT-READY, RF-3's order).
+  { cmd = "ListHandles",    args = { kind = "chains" },                                    expect = "OK" },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                        expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw5-refly-started" },                        expect = "OK" },
+  # No release: the stand-in stays on the hatch ladder; the EVA itself is the world-first.
+  { cmd = "EvaExit",        args = { settleSeconds = "3" },                                expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw5-refly-eva" },                            expect = "OK" },
+  { cmd = "EvaBoard",                                                                      expect = "OK", budget = 240 },
+  { cmd = "MissionMark",    args = { label = "rw5-refly-boarded" },                        expect = "OK" },
+
+  # ---- Discard Re-fly: Esc > Revert Flight > Revert to Launch > Discard Re-Fly ----
+  { cmd = "MissionMark",    args = { label = "rw5-discard" },                              expect = "OK" },
+  { cmd = "ReFlyRevert",    args = { choice = "discard", target = "launch" },              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rw5-discarded" },                            expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "after",             expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c2",                   expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw05-05-after-discard" },                    expect = "OK", budget = 120 },
+
+  # ---- the crossing: every committed row reached at the Space Center ----
+  { cmd = "MissionMark",    args = { label = "rw5-before-crossing" },                      expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "186100", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw5-crossed" },                              expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw05-06-after-crossing" },                   expect = "OK", budget = 120 },
+
+  # ---- the pad cleared: the rewind point's world holds G's two vessels on it ----
+  { cmd = "TrackingStationRecover", args = { pid = "${g.pid}" },                           expect = "OK", budget = 120 },
+  { cmd = "TrackingStationRecover", args = { pid = "${dec.newPid}" },                      expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw5-pad-cleared" },                          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw05-07-pad-cleared" },                      expect = "OK", budget = 120 },
+
+  # ---- the check: an unrecorded launch, the save, the ground truth ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "186130" },                                      expect = "OK", budget = 120 },
+  { cmd = "SaveGame",       args = { name = "rw05-08-check-flight" },                     expect = "OK", budget = 120 },
+  # The DEFAULT slot (persistent): the one a harvest reads; the named slots above are side files.
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+# Every value is backed by a REQUIRED token below.
+#   controlled-decoupled-child  <- `ProcessBreakupEvent: controlled child created: pid=<stand>`
+#   rewind-to-separation        <- StartInvoke + Invocation complete
+#   unfinished-flights-stash    <- `Stashed slot=0 ...` + `reflyrevert complete ... slotListed=true`
+#   revert-during-refly-dialog  <- `Revert dialog shown` + `reflyrevert pressed dialog button='Discard Re-Fly'`
+#   scene-ts                    <- `tsrecover complete`
+D5  = ["controlled-decoupled-child"]
+D8  = ["funds", "reputation", "milestones", "contracts", "recalc-engine", "ksp-state-patcher", "ground-truth-harness"]
+D9  = ["rewind-to-launch", "rewind-to-separation", "unfinished-flights-stash", "revert-during-refly-dialog"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight", "scene-ts"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 34, H (RW-1 measured 35 with the same H) and G's two (the launch recording that
+# continues as the pod and the stand's child; VN-8 measured two legs for a pad decouple). The
+# discarded attempt's recordings are gone; the check Flea is unrecorded.
+count = { min = 37, max = 37 }
+
+[expectations.logContracts]
+required = [
+  # ---- three Flea-family launches: H and the check (the Jumping Flea), G (CS Flea Probe) ----
+  "\\A(?:[\\s\\S]*?launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH){2}",
+  "\\A(?:[\\s\\S]*?Game state: FundsChanged -2932 \\(VesselRollout\\)){2}",
+  "Game state: FundsChanged \\+2932 \\(VesselRecovery\\)[\\s\\S]*?MISSIONMARK label=rw5-h-committed ut=",
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=",
+
+  # ---- F: the accept, its own untagged row (RW-1 measured) ----
+  "MISSIONMARK label=rw5-h-committed ut=[\\s\\S]*?kscaction action=accept-contract target=f1fb89dc-a471-42cf-94da-de4bb1080512 applied=true manifestKind=contract-accept observedAfter=state=Active ",
+  "MISSIONMARK label=rw5-h-committed ut=[\\s\\S]*?Game state: FundsChanged \\+37500 \\(ContractAdvance\\)[\\s\\S]*?MISSIONMARK label=rw5-f-committed ut=",
+  "MISSIONMARK label=rw5-h-committed ut=[\\s\\S]*?KSC spending recorded: type=ContractAccept, UT=[0-9.]+, key=f1fb89dc-a471-42cf-94da-de4bb1080512[\\s\\S]*?MISSIONMARK label=rw5-f-committed ut=",
+
+  # ---- the rewind: a plain Rewind-to-Launch onto H's tree ----
+  "MISSIONMARK label=rw5-f-committed ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=rw5-rewound ut=",
+  "MISSIONMARK label=rw5-f-committed ut=[\\s\\S]*?Load classified: early=PlainRewind refined=PlainRewind [\\s\\S]*?MISSIONMARK label=rw5-rewound ut=",
+  "invokerewindtolaunch invoking tree=[0-9a-f]{32} rec=[0-9a-f]{32} startUT=1858[0-9]{2}\\.[0-9] - plain Rewind-to-Launch \\(NOT a Re-Fly\\)",
+
+  # ---- G: launched, its stand decoupled on the pad into a second controllable vessel ----
+  "MISSIONMARK label=rw5-rewound ut=[\\s\\S]*?launchfromeditor complete scene=FLIGHT vessel=CS Flea Probe pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  # G's rollout; the cost (3982 from the part cfgs) is owed off the first flight.
+  "MISSIONMARK label=rw5-rewound ut=[\\s\\S]*?Game state: FundsChanged -[0-9]+ \\(VesselRollout\\)[\\s\\S]*?MISSIONMARK label=rw5-g-committed ut=",
+  # The decouple acts on G, the stand is the new vessel, and focus stays on G (the pod holds
+  # the control point).
+  "launchfromeditor complete scene=FLIGHT vessel=CS Flea Probe pid=([0-9]+) [\\s\\S]*?partaction applied button=decouple pid=\\1 part='radialDecoupler' partId=[0-9]+ event=Decouple newPid=[1-9][0-9]* newName='[^'\\r\\n]*' vessels=[0-9]+->[0-9]+ activePid=\\1 ",
+  "partaction applied button=decouple pid=[0-9]+ part='radialDecoupler' [^\\r\\n]*newPid=([0-9]+) [\\s\\S]*?ProcessBreakupEvent: controlled child created: pid=\\1, name='[^'\\r\\n]*', recId=[0-9a-f]{32}, alive=True, bgRecorder=True",
+  "(?:SEPARATION|DECOUPLE) emitted: ut=[0-9.]+ type=JointBreak splitCause=DECOUPLE decouplerPartId=[0-9]+ controlledChildren=1 debris=0 ",
+  "Controllable split children: \\[[0-9]+,[0-9]+\\] \\(orig=[0-9]+, ",
+  "RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 focusSlot=0 ut=1857[0-9]{2}\\.[0-9]{2}[\\s\\S]*?RewindPoint slot capture: rp=\\1 populated=2/2 disabled=0",
+  # The commit in flight: the rewound clock's walk (H's and F's rows ahead), the point kept.
+  "MISSIONMARK label=rw5-rewound ut=[\\s\\S]*?committree committed=true[\\s\\S]*?MISSIONMARK label=rw5-g-committed ut=",
+  "MISSIONMARK label=rw5-rewound ut=[\\s\\S]*?Current-UT ledger recalculation: reason=flight-tree-commit cutoffUT=1857[0-9]{2}[\\s\\S]*?MISSIONMARK label=rw5-g-committed ut=",
+  "MISSIONMARK label=rw5-rewound ut=[\\s\\S]*?CommitTree: promoted normal staging rp=rp_[0-9a-f]{32} tree=\\S+ to persistent[\\s\\S]*?MISSIONMARK label=rw5-g-committed ut=",
+  # The stash opens the pod's Landed slot (stand-alone it would read closed and be reaped).
+  "Stashed slot=0 rec=\\S+ bp=\\S+ rp=rp_[0-9a-f]{32} tip=\\S+ tipMergeState=CommittedProvisional tipDemoted=True terminal=Landed reaperBlocked=True",
+  "stashslot complete rp=rp_[0-9a-f]{32} slot=0 tip=\\S+ tipMergeState=Immutable->CommittedProvisional stashed=true unfinishedFlight=true unfinishedRow=\\S+",
+  "IsUnfinishedFlight=true rec=\\S+ reason=stashedStableLeaf slot=0 ",
+  # G earned nothing the value gate counts: a rollout is a loss row.
+  "MISSIONMARK label=rw5-rewound ut=[\\s\\S]*?RetireSet gate \\(section 2\\.12 Rule 1\\): rp=rp_[0-9a-f]{32} slot=0 [^\\r\\n]*-> nothing to give back[\\s\\S]*?MISSIONMARK label=rw5-refly-started ut=",
+
+  # ---- the Re-Fly ----
+  "MISSIONMARK label=rw5-refly-armed ut=[\\s\\S]*?Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_[0-9a-f]{32} slot=0",
+  "MISSIONMARK label=rw5-refly-armed ut=[\\s\\S]*?Load classified: early=ReFlyStart refined=ReFlyStart scene=FLIGHT ",
+  "Invocation complete: sess=\\S+ rp=rp_[0-9a-f]{32} slot=0 activePid=[0-9]+",
+  # The invocation walk is the full ledger (cutoff double.MaxValue, by design).
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: (?:(?!Invocation complete: )[\\s\\S])*RecalculateAndPatch: actionsTotal=[0-9]+, actionsAfterCutoff=[0-9]+, cutoffUT=1\\.7976931348623157E\\+308",
+  "recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true",
+  # The earning: the stand-in's EVA is Kerbin's SurfaceEVA world-first, paid by stock and
+  # filed under the attempt (a non-empty tag), never as a Space Center row.
+  "MISSIONMARK label=rw5-refly-started ut=[\\s\\S]*?evaexit start kerbal=[^\\r\\n]+ fromPid=[0-9]+ release=false[\\s\\S]*?evaexit complete kerbal=[^\\r\\n]+ evaPid=[0-9]+ released=false [\\s\\S]*?MISSIONMARK label=rw5-refly-eva ut=",
+  "MISSIONMARK label=rw5-refly-started ut=[\\s\\S]*?Game state: MilestoneAchieved 'Kerbin/SurfaceEVA' \\(awaiting reward enrichment\\)[\\s\\S]*?MISSIONMARK label=rw5-refly-eva ut=",
+  "MISSIONMARK label=rw5-refly-started ut=[\\s\\S]*?Emit: MilestoneAchieved key='Kerbin/SurfaceEVA' tag='[^'\\r\\n]+' [\\s\\S]*?MISSIONMARK label=rw5-refly-eva ut=",
+  # RW-2 / RW-3 measured this reward for the same node on this host.
+  "MISSIONMARK label=rw5-refly-started ut=[\\s\\S]*?Milestone enriched: 'Kerbin/SurfaceEVA' funds=3200 rep=1\\.0 sci=0\\.0[\\s\\S]*?MISSIONMARK label=rw5-refly-eva ut=",
+  "MISSIONMARK label=rw5-refly-started ut=[\\s\\S]*?Game state: FundsChanged \\+3200 \\(Progression\\)[\\s\\S]*?MISSIONMARK label=rw5-refly-eva ut=",
+  "MISSIONMARK label=rw5-refly-eva ut=[\\s\\S]*?evaboard complete kerbal=[^\\r\\n]+ boardedPid=[0-9]+[\\s\\S]*?MISSIONMARK label=rw5-refly-boarded ut=",
+
+  # ---- Discard Re-fly (RF-L4 / LAB-10b's tokens; slot= is the slot origin, G's recording) ----
+  "MISSIONMARK label=rw5-discard ut=[\\s\\S]*?reflyrevert start choice=discard target=launch sess=\\S+ rp=rp_[0-9a-f]{32} slot=[0-9a-f]{32} ",
+  "reflyrevert pressed revert-option button='[^'\\r\\n]*' target=launch launchOffered=true",
+  "Revert dialog shown sess=\\S+ target=Launch",
+  "reflyrevert pressed dialog button='Discard Re-Fly' choice=discard",
+  # The attempt's events (its world-first among them) go with it.
+  "PurgeEventsForRecordings \\(RevertInterceptor:DiscardReFly sess=\\S+\\): live=[1-9][0-9]*, ",
+  "PruneActiveReFlyAttemptOwnedTopology callSite=RevertInterceptor:DiscardReFly sess=\\S+ tree=\\S+ attemptIds=[1-9][0-9]* [^\\r\\n]*purgedEvents=[1-9][0-9]* [^\\r\\n]*ledgerRowsRemoved=[0-9]+ ",
+  "Origin RP (?:promoted to persistent|already persistent) rp=rp_[0-9a-f]{32}",
+  "DiscardReFly: rewind point game written to persistent\\.sfs rp=rp_[0-9a-f]{32} sess=\\S+ ",
+  "End reason=discardReFly sess=\\S+ target=Launch facility=-- dispatched=true persistentWritten=true ",
+  "Load classified: early=DiscardReFly refined=DiscardReFly scene=SPACECENTER [^\\r\\n]*discardReFly=Launch handoff=present",
+  # No supersede row, no retirement, no tombstone, no journal comes back with the discard.
+  "In-session staged lists from memory: kind=DiscardReFly captured=\\S+; supersedes installed=0 loadedFromSave=[0-9]+ restored=0 staleDropped=0; retirements installed=0 [^;\\r\\n]*; tombstones installed=0 [^;\\r\\n]*; journal installed=none ",
+  "Load classified: early=DiscardReFly [\\s\\S]*?\\[LoadSweep\\] Marker valid=False; spare=0 discarded=0 selfSupersedes=0 orphanSupersedes=0 removedFullyOrphanSupersedes=0 removedOrphanRewindRetirements=0 orphanTombstones=0 strayFields=0 discardedRps=0 ",
+  # The discard's walk is at the rewind point's clock (H's and F's rows still ahead).
+  "Load classified: early=DiscardReFly [\\s\\S]*?OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff=True loadedUT=1857[0-9]{2}(?:\\.[0-9]+)? [^\\r\\n]*loadedScene=SPACECENTER [^\\r\\n]*hasFutureLedgerActions=True",
+  "reflyrevert complete choice=discard target=launch scene=SPACECENTER sess=\\S+ rp=rp_[0-9a-f]{32} rpKept=true slot=[0-9a-f]{32} slotListed=true unfinishedFlights=[1-9][0-9]* marker=none",
+  "MISSIONMARK label=rw5-discarded ut=[\\s\\S]*?listhandles kind=rewindpoints count=1 truncated=false",
+
+  # ---- THE GATE: the ledger exactly as just before the Re-Fly started ----
+  # Pools: the last structural walk before the invoke and the walk after the discard agree on
+  # funds, science, reputation, facilities and active contracts.
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) facilities=\\[([^\\]\\r\\n]*)\\] targetTechNodes=[0-9]+ contracts=([0-9]+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw5-refly-armed ut=[\\s\\S]*?Load classified: early=DiscardReFly refined=DiscardReFly [\\s\\S]*?\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 facilities=\\[\\4\\] targetTechNodes=[0-9]+ contracts=\\5 ",
+  # Rows: the same ledger row count before the invoke and after the discard (G's rows kept,
+  # the attempt's none).
+  "RecalculateAndPatch: actionsTotal=([0-9]+), (?:(?!RecalculateAndPatch: actionsTotal=)[\\s\\S])*?MISSIONMARK label=rw5-refly-armed ut=[\\s\\S]*?Load classified: early=DiscardReFly refined=DiscardReFly (?:(?!RecalculateAndPatch: actionsTotal=)[\\s\\S])*RecalculateAndPatch: actionsTotal=\\1, ",
+  # Recordings: G's tree as committed, the attempt's recordings gone.
+  "listhandles kind=committed count=([0-9]+) truncated=false[\\s\\S]*?MISSIONMARK label=rw5-g-committed ut=[\\s\\S]*?MISSIONMARK label=rw5-discarded ut=[\\s\\S]*?listhandles kind=committed count=\\1 truncated=false",
+
+  # ---- the crossing: the rows reached at the Space Center, F's accept among them ----
+  "MISSIONMARK label=rw5-before-crossing ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=rw5-crossed ut=",
+  "MISSIONMARK label=rw5-before-crossing ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[0-9]+ \\[[^\\]]*ContractAccept@[\\s\\S]*?MISSIONMARK label=rw5-crossed ut=",
+
+  # ---- the pad cleared: G's two vessels recovered at the Tracking Station ----
+  "\\A(?:[\\s\\S]*?tsrecover complete pid=[0-9]+ vessel=CS Flea Probe[^\\r\\n]* scene=\\S+ ){2}",
+
+  # ---- the step saves (named side slots for after-flight reading) and the default slot ----
+  "savegame name=rw05-01-after-h-commit folder=\\S+ saved=true",
+  "savegame name=rw05-02-after-f-accept folder=\\S+ saved=true",
+  "savegame name=rw05-03-after-rtl folder=\\S+ saved=true",
+  "savegame name=rw05-04-after-g-commit folder=\\S+ saved=true",
+  "savegame name=rw05-05-after-discard folder=\\S+ saved=true",
+  "savegame name=rw05-06-after-crossing folder=\\S+ saved=true",
+  "savegame name=rw05-07-pad-cleared folder=\\S+ saved=true",
+  "savegame name=rw05-08-check-flight folder=\\S+ saved=true",
+  "MISSIONMARK label=rw5-pad-cleared ut=[\\s\\S]*?savegame name=persistent folder=\\S+ saved=true",
+
+  # ---- the ground truth, in FLIGHT on the unrecorded check Flea ----
+  "ground-truth game mode=CAREER pools=funds,science,reputation",
+  "result: hardFailures=0 ",
+  # INTERIM: total=3 from the source (the LedgerGroundTruth category's FLIGHT cells); the
+  # split is owed off the first flight (RW-1 / RW-3 read passed=3 skipped=0 on this host).
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "\\[LedgerTrace\\] phase=Anomaly ",
+  "ABORTING rewind ledger patch",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  "filed StockPoolAdjustment amount=\\S+ reason=leak ",
+  "Debt charge:",
+  "\\[TakeBack\\] Took back ",
+  "invokerewindtolaunch refused",
+  "invokerewind refused",
+  "stashslot refused",
+  "stashslot readback-failed",
+  "partaction rejected",
+  "partaction error ",
+  "reflyrevert rejected",
+  "reflyrevert error",
+  "warptout refused",
+  "kscaction refused",
+  "savegame refused ",
+  "savegame failed ",
+  # One rewind to launch only, onto H.
+  "\\A(?:[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT ){2}",
+  # The decouple authors the point (two controllable outputs).
+  "Single-controllable split: no RP",
+  "OnVesselRolloutSpending: skipping duplicate rollout",
+  # ---- the RW-2 symptom outside the Re-Fly session: no pool lifts while the committed rows
+  # are ahead, from the rewind to the invoke and from the discard to the crossing (the
+  # invocation walk's lift inside the session is by design) ----
+  "MISSIONMARK label=rw5-rewound ut=(?:(?!MISSIONMARK label=rw5-refly-armed )[\\s\\S])*\\[KspStatePatcher\\] PatchFunds: [0-9.]+ -> [0-9.]+ \\(delta=[1-9]",
+  "Load classified: early=DiscardReFly (?:(?!MISSIONMARK label=rw5-before-crossing )[\\s\\S])*\\[KspStatePatcher\\] PatchFunds: [0-9.]+ -> [0-9.]+ \\(delta=[1-9]",
+  # Every structural walk from the discard to the crossing reads the pre-invoke pools.
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw5-refly-armed ut=[\\s\\S]*?Load classified: early=DiscardReFly refined=DiscardReFly (?:(?!MISSIONMARK label=rw5-before-crossing )[\\s\\S])*?\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ (?!funds=\\1 science=\\2 rep=\\3 )",
+  # ---- the Re-Fly's earning never reaches the ledger: never credited by a walk, never a
+  # Space Center row, never kept untagged by the discard ----
+  "Credited milestone 'Kerbin/SurfaceEVA'",
+  "KSC spending recorded: type=MilestoneAchievement",
+  "Emit: MilestoneAchieved key='Kerbin/SurfaceEVA' tag='' ",
+  "ClearRecordingTagForRecordings: cleared=[1-9]",
+  "PreserveIrreversibleLiveGameplayOnDiscard \\([^)\\r\\n]*\\): re-homed",
+  # ---- a discard is not a merge: no split, no supersede row, no tombstone, no seal ----
+  "Split origin \\S+ at UT=",
+  "Added [1-9][0-9]* supersede relations",
+  "Tombstoned [1-9][0-9]* career actions",
+  "End reason=merged ",
+  "End reason=retry ",
+  "End reason=discardReFlyAttemptFromMergeDialog",
+  # ---- no Re-Fly leftovers ----
+  "outcome=unbound-refly-provisional",
+  "outcome=retired-empty-provisional",
+  "In-session load found no staged-list handoff",
+  "DiscardReFly load intent dropped as stale",
+  # G's point survives from its commit to the crossing (the stash keeps it open).
+  "MISSIONMARK label=rw5-rewound ut=(?:(?!MISSIONMARK label=rw5-crossed )[\\s\\S])*Reaped rp=",
+  "MISSIONMARK label=rw5-rewound ut=(?:(?!MISSIONMARK label=rw5-crossed )[\\s\\S])*Purged rp=",
+  # ---- F's accept applies once at the crossing ----
+  "Clock-crossing reached committed-future rows: [^\\r\\n]*ContractAccept@[\\s\\S]*Clock-crossing reached committed-future rows: [^\\r\\n]*ContractAccept@",
+  "kscaction action=accept-contract target=f1fb89dc-a471-42cf-94da-de4bb1080512 applied=true[\\s\\S]*kscaction action=accept-contract target=f1fb89dc-a471-42cf-94da-de4bb1080512 applied=true",
+  # ---- nothing records after G but the Re-Fly ----
+  "MISSIONMARK label=rw5-discarded ut=[\\s\\S]*Recording started: vessel=",
+  "Game state: ContractCompleted ",
+  "Game state: ContractFailed ",
+]
+
+# REPORT-ONLY until the reading run: the point survives the discard (the final recovery of
+# the stashed slot's vessel may close it later), nothing is superseded or tombstoned.
+[expectations.rewind]
+gating        = false
+rewindPoints  = { min = 0, max = 1 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+budgetSeconds = 7000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

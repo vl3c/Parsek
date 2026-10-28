@@ -3143,6 +3143,23 @@ GC-2's `Blocked <action> of claimed vessel` cannot print after a plain rewind (t
 the vessel first) and GC-2 reads ghost chains only, so a vessel the committed future merely recovers
 is never a GC-2 claim; no seam verb drives the Tracking Station Delete.
 
+Progress 2026-10-28 (branch `rw5-refly-discard`): lane `RW-5-rewind-refly-discard` authored, never flown, plan
+row 8 (a Re-Fly started and discarded inside a rewound timeline): RW-1's committed pad flight H and contract
+accept F, a Rewind-to-Launch, then G, a pad flight of the new craft `CS Flea Probe`, decoupled on the pad into
+two controllable vessels (the rewind point) and committed in flight; a Re-Fly of G's pod slot earns Kerbin's
+SurfaceEVA world-first, and Discard Re-fly must restore the pools and the ledger row count held just before the
+Re-Fly started (read off the same `[LedgerTrace] phase=Structural` and `RecalculateAndPatch: actionsTotal=` lines),
+keep G's recordings and point and write no supersede row or tombstone; then a Space Center warp across the
+committed rows and LedgerGroundTruth. The craft is new because a rewind point needs two command parts on separate
+halves and every craft this career had carries one: `harness/tools/build_cs_flea_probe_craft.py` derives it from
+the Jumping Flea plus a TT-38K radial decoupler, an FL-T100 and a Stayputnik standing beside the RT-5 (all
+researched on the host; drift test `harness/lib/test_cs_flea_probe_craft.py`). Corrections to the plan from the
+code: the planned TD-12 + Stayputnik stack cannot work (the Stayputnik has only a bottom node, and a stacked
+split leaves the upper half resting on the lower one, which stock reads FLYING); a pad split ends both slots
+Landed (closed), so the lane stashes the pod's slot before any load would reap the point; the invocation walk's
+cutoff=MaxValue lift is by design, so the pools are gated before the invoke and after the discard, not inside
+the session.
+
 ---
 
 ## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
