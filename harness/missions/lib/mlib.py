@@ -1313,6 +1313,13 @@ ACTION_TARGET_NEAREST_NAMED_VESSEL = "target_nearest_named_vessel"  # text = ves
 # so the lane knows only the name of the half it must NOT fly. The pick is
 # `pick_nearest_other`.
 ACTION_SWITCH_TO_NEAREST_OTHER_VESSEL = "switch_to_nearest_other_vessel"  # text = name to skip
+# mlr's ragdoll recovery switch-back: `sc.active_vessel = <the EVA kerbal>`. kRPC 0.5.4
+# exposes no vessel persistentId (KRPC.SpaceCenter.json lists only Vessel_get_Name),
+# so the pick cannot be by the pid EvaExit answered: it is the nearest vessel named
+# `text`, else a vessel named `text` whose position could not be read, else the
+# nearest EVA-type vessel. The runner logs EVERY candidate (name, type, distance,
+# any read error), so a miss names itself. The pick is `pick_switch_back_kerbal`.
+ACTION_SWITCH_TO_EVA_KERBAL = "switch_to_eva_kerbal"          # text = kerbal name
 # d5_redock's separated start: `v.parts.controlling = <a docking port's part>` on the
 # ACTIVE vessel (the Ready port first, `pick_ready_port_index`). MechJeb's docking
 # autopilot aligns the vessel's control reference with the target port, so a craft
@@ -26001,6 +26008,57 @@ def pick_nearest_named(candidates: Sequence[Tuple[str, float, bool]],
     return best
 
 
+SWITCH_BACK_BY_NAME = "name"
+SWITCH_BACK_BY_NAME_UNPLACED = "name-unplaced"
+SWITCH_BACK_BY_EVA_TYPE = "eva-type"
+SWITCH_BACK_NONE = "none"
+
+
+def pick_switch_back_kerbal(candidates: Sequence[Tuple[str, bool, float, bool]],
+                            name: str) -> Tuple[Optional[int], str]:
+    """The pick ACTION_SWITCH_TO_EVA_KERBAL switches to, over candidates
+    ``(vessel_name, is_eva, distance_m, is_active)``, never the active vessel:
+    the nearest FINITE-distance vessel named ``name``; else the first vessel named
+    ``name`` whose distance is unreadable (a failed position read is not proof the
+    kerbal is gone); else the nearest finite-distance EVA vessel. Returns
+    ``(index, how)`` with ``how`` one of the SWITCH_BACK_* tokens. Pure."""
+    best, best_d = None, float("inf")
+    unplaced = None
+    eva, eva_d = None, float("inf")
+    for i, (n, is_eva, d, is_active) in enumerate(candidates or ()):
+        if is_active:
+            continue
+        named = bool(name) and str(n) == str(name)
+        if named and _is_finite(d):
+            if float(d) < best_d:
+                best, best_d = i, float(d)
+        elif named and unplaced is None:
+            unplaced = i
+        if is_eva and _is_finite(d) and float(d) < eva_d:
+            eva, eva_d = i, float(d)
+    if best is not None:
+        return best, SWITCH_BACK_BY_NAME
+    if unplaced is not None:
+        return unplaced, SWITCH_BACK_BY_NAME_UNPLACED
+    if eva is not None:
+        return eva, SWITCH_BACK_BY_EVA_TYPE
+    return None, SWITCH_BACK_NONE
+
+
+def format_switch_candidates(candidates: Sequence[Tuple[str, str, float, bool, str]]) -> str:
+    """One log field per scanned vessel ``(name, type, distance_m, is_active,
+    error)``: ``'name'/type@12.3m[*active][!error]``, ';'-joined. Pure."""
+    out = []
+    for n, t, d, is_active, err in candidates or ():
+        cell = "%r/%s@%s" % (n, t or "?", ("%.1fm" % d) if _is_finite(d) else "nan")
+        if is_active:
+            cell += "*active"
+        if err:
+            cell += "!" + err
+        out.append(cell)
+    return ";".join(out) or "none"
+
+
 def pick_nearest_other(candidates: Sequence[Tuple[str, float, bool]],
                        skip_name: str) -> Optional[int]:
     """Index of the candidate ``(vessel_name, distance_m, is_active)`` that
@@ -32446,11 +32504,18 @@ def evaluate_mor_assertions(frames, params: MorParams,
 # With the knob set, [EVA-RECOVER] switches the active vessel to the nearest other
 # vessel (the lander; a plain kRPC switch skipping the kerbal's name), holds until
 # the lander reads back (mlr_aboard_lander) for evaRagdollRecoverSeconds GAME s since
-# the phase's entry, switches back to the kerbal by name, and sends PlantFlag only
-# once the active vessel's NAME reads as the kerbal (read_vessel_name) for
-# evaRecoverConfirmFrames frames. A PlantFlag that still answers ERROR
+# the phase's entry, switches back to the kerbal (ACTION_SWITCH_TO_EVA_KERBAL: by name,
+# else the nearest EVA vessel; re-sent every evaRecoverReissueSeconds, at most
+# MLR_RECOVER_BACK_ISSUES times in all), and sends PlantFlag only once the active
+# vessel reads as the kerbal (its NAME, read_vessel_name, or no liquid fuel while
+# landed on the target) for evaRecoverConfirmFrames frames. CS-7 run 2026-10-28_0357
+# proved the recovery (EvaRagdollEnded 2.6 s after the switch away) and lost the
+# switch back to a name scan that found no 'Jebediah Kerman' among four vessels. A PlantFlag that still answers ERROR
 # flag-gate-timeout runs the recovery ONCE more and re-sends under its own tag
 # (cs7plantflag2); any other answer, or a second timeout, gives up by name as before.
+# THE EVA EXIT RETRY (evaExitRetrySeconds, off by default): an EvaExit refused with
+# eva-refused (stock spawnEVA returned null, run 2026-10-28_0432_a2) is re-sent ONCE,
+# under its own tag (cs7evaexit2), after that many GAME s of settle.
 # THE ASCENT-COAST WHEEL RELEASE (ascentCoastWheelRelease, off by default). CS-7's
 # first flight (2026-10-27_2326) emptied the pod's 50 EC on ONE coast: MechJeb's hold
 # on the long stack (the full lander on the empty core) after the core cut off at the
@@ -32487,6 +32552,9 @@ MLR_TERMINAL_PHASE = MFR_TERMINAL_PHASE
 MLR_TAG_EVA_EXIT = "cs7evaexit"
 MLR_TAG_FLAG = "cs7plantflag"
 MLR_TAG_FLAG_RETRY = "cs7plantflag2"
+MLR_TAG_EVA_EXIT_RETRY = "cs7evaexit2"
+MLR_EVA_EXIT_REFUSED_MSG = "eva-refused"
+MLR_RECOVER_BACK_ISSUES = 3
 # The ragdoll recovery: its two steps, the PlantFlag answer that earns one re-run.
 MLR_RECOVER_AWAY = "away"
 MLR_RECOVER_BACK = "back"
@@ -32551,6 +32619,9 @@ class MlrParams:
     # None = no ragdoll recovery (EVA-EXIT goes straight to EVA-FLAG).
     eva_recover_seconds: Optional[float] = None
     eva_recover_frames: int = 3
+    eva_recover_reissue: float = 15.0
+    # None = an eva-refused EvaExit gives up at once.
+    eva_exit_retry_seconds: Optional[float] = None
     # The Mun ascent.
     ascent_altitude: float = 20000.0
     ascent_min_periapsis: float = 10000.0
@@ -32605,6 +32676,9 @@ def mlr_params_from_dict(params: Dict) -> MlrParams:
         eva_recover_seconds=(None if params.get("evaRagdollRecoverSeconds") is None
                              else float(params["evaRagdollRecoverSeconds"])),
         eva_recover_frames=int(params.get("evaRecoverConfirmFrames", 3)),
+        eva_recover_reissue=float(params.get("evaRecoverReissueSeconds", 15)),
+        eva_exit_retry_seconds=(None if params.get("evaExitRetrySeconds") is None
+                                else float(params["evaExitRetrySeconds"])),
         ascent_altitude=float(params.get("munAscentAltitudeMeters", 20000)),
         ascent_min_periapsis=float(params.get("munAscentMinPeriapsisMeters", 10000)),
         ascent_engage_frames=int(params.get("munAscentEngageConfirmFrames", 20)),
@@ -32682,7 +32756,11 @@ class MlrState:
     eva_recover_step: str = ""
     eva_recover_streak: int = 0
     eva_recover_runs: int = 0
+    eva_recover_back_ut: Optional[float] = None
+    eva_recover_back_issues: int = 0
     flag_tries: int = 0
+    eva_exit_tries: int = 0
+    eva_exit_retry_ut: Optional[float] = None
     # The ascent.
     ascent_engaged: bool = False
     ascent_engaged_ut: Optional[float] = None
@@ -32752,7 +32830,8 @@ def mlr_initial_state(params: MlrParams) -> MlrState:
 
 
 def mlr_eva_actions(verb: str, params: MlrParams,
-                    flag_tag: str = MLR_TAG_FLAG) -> List[Action]:
+                    flag_tag: str = MLR_TAG_FLAG,
+                    exit_tag: str = MLR_TAG_EVA_EXIT) -> List[Action]:
     """The one seam command a surface phase sends. EvaExit carries release=true
     (off the hatch onto the ground) and the named kerbal when the spec names one;
     PlantFlag and EvaBoard act on the active EVA kerbal. Pure."""
@@ -32761,7 +32840,7 @@ def mlr_eva_actions(verb: str, params: MlrParams,
         if params.eva_kerbal:
             args = args + (("kerbal", params.eva_kerbal),)
         return [Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="EvaExit", seam_args=args,
-                       seam_tag=MLR_TAG_EVA_EXIT)]
+                       seam_tag=exit_tag)]
     if verb == "PlantFlag":
         return [Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="PlantFlag",
                        seam_tag=flag_tag)]
@@ -32786,7 +32865,7 @@ def mlr_recover_actions(step: str, kerbal: str) -> List[Action]:
     if step == MLR_RECOVER_AWAY:
         return [Action(ACTION_SWITCH_TO_NEAREST_OTHER_VESSEL, text=kerbal)]
     if step == MLR_RECOVER_BACK:
-        return [Action(ACTION_SWITCH_TO_NEAREST_NAMED_VESSEL, text=kerbal)]
+        return [Action(ACTION_SWITCH_TO_EVA_KERBAL, text=kerbal)]
     raise ValueError("unknown recover step %r" % (step,))
 
 
@@ -32803,6 +32882,19 @@ def mlr_ascent_actions(params: MlrParams) -> List[Action]:
     actions.extend([Action(ACTION_MJ_SET_TARGET_APOAPSIS, float(params.ascent_altitude)),
                     Action(ACTION_MJ_ENGAGE_ASCENT)])
     return actions
+
+
+def mlr_active_is_eva_kerbal(snapshot: TelemetrySnapshot, params: MlrParams,
+                             kerbal: str) -> bool:
+    """True when the active vessel reads as the EVA kerbal: its name is the
+    kerbal's, or (a name that is not the lander's craft is not required) it carries
+    no liquid fuel (a READ zero; NaN never counts) while landed on the target body.
+    Pure."""
+    if kerbal and (snapshot.vessel_name or "") == kerbal:
+        return True
+    return (_is_finite(snapshot.liquid_fuel) and snapshot.liquid_fuel <= 0.0
+            and snapshot.body == params.orbit.target_body
+            and (snapshot.situation or "").upper() in params.orbit.landed_situations)
 
 
 def mlr_aboard_lander(snapshot: TelemetrySnapshot, params: MlrParams) -> bool:
@@ -32969,16 +33061,28 @@ def _mlr_eva(state: MlrState, snapshot: TelemetrySnapshot) -> Tuple[MlrState, Li
         return _mfr_flake(st, "phase %s timed out after %.0f game s"
                               % (state.phase, p.eva_timeout)), []
     if state.phase == MLR_EVA_EXIT:
-        result, flaked = _mlr_eva_answer(st, snapshot, MLR_TAG_EVA_EXIT, "EvaExit",
+        if st.eva_exit_retry_ut is not None:
+            if not (_is_finite(snapshot.ut) and snapshot.ut >= st.eva_exit_retry_ut):
+                return st, []
+            return (replace(st, eva_exit_retry_ut=None),
+                    mlr_eva_actions("EvaExit", p, exit_tag=MLR_TAG_EVA_EXIT_RETRY))
+        tag = MLR_TAG_EVA_EXIT if st.eva_exit_tries == 0 else MLR_TAG_EVA_EXIT_RETRY
+        if (p.eva_exit_retry_seconds is not None and st.eva_exit_tries < 1
+                and _is_finite(snapshot.ut)
+                and _seam_result(snapshot, tag) == "ERROR"
+                and _seam_payload(snapshot, tag, "msg") == MLR_EVA_EXIT_REFUSED_MSG):
+            return replace(st, eva_exit_tries=1,
+                           eva_exit_retry_ut=snapshot.ut + p.eva_exit_retry_seconds), []
+        result, flaked = _mlr_eva_answer(st, snapshot, tag, "EvaExit",
                                          MLR_EVA_EXIT_REFUSED)
         if flaked is not None:
             return replace(flaked, eva_exit_result=result), []
         if not result:
             return st, []
         out = replace(st, eva_exit_result="OK",
-                      eva_kerbal_name=_seam_payload(snapshot, MLR_TAG_EVA_EXIT, "kerbal"),
-                      eva_pid=_seam_payload(snapshot, MLR_TAG_EVA_EXIT, "evaPid"),
-                      eva_released=_seam_payload(snapshot, MLR_TAG_EVA_EXIT, "released"))
+                      eva_kerbal_name=_seam_payload(snapshot, tag, "kerbal"),
+                      eva_pid=_seam_payload(snapshot, tag, "evaPid"),
+                      eva_released=_seam_payload(snapshot, tag, "released"))
         if p.eva_recover_seconds is not None and mlr_eva_kerbal_name(out):
             return _mlr_enter_recover(out, snapshot)
         return (_mfr_enter(out, MLR_EVA, MLR_EVA_FLAG, snapshot.ut),
@@ -32991,10 +33095,18 @@ def _mlr_eva(state: MlrState, snapshot: TelemetrySnapshot) -> Tuple[MlrState, Li
             if not (_is_finite(snapshot.ut)
                     and snapshot.ut - state.phase_entry_ut >= p.eva_recover_seconds):
                 return st, []
-            return (replace(st, eva_recover_step=MLR_RECOVER_BACK, eva_recover_streak=0),
+            return (replace(st, eva_recover_step=MLR_RECOVER_BACK, eva_recover_streak=0,
+                            eva_recover_back_ut=snapshot.ut, eva_recover_back_issues=1),
                     mlr_recover_actions(MLR_RECOVER_BACK, kerbal))
-        if (snapshot.vessel_name or "") != kerbal:
-            return replace(st, eva_recover_streak=0), []
+        if not mlr_active_is_eva_kerbal(snapshot, p, kerbal):
+            st = replace(st, eva_recover_streak=0)
+            if (st.eva_recover_back_issues < MLR_RECOVER_BACK_ISSUES
+                    and _is_finite(snapshot.ut) and st.eva_recover_back_ut is not None
+                    and snapshot.ut - st.eva_recover_back_ut >= p.eva_recover_reissue):
+                return (replace(st, eva_recover_back_ut=snapshot.ut,
+                                eva_recover_back_issues=st.eva_recover_back_issues + 1),
+                        mlr_recover_actions(MLR_RECOVER_BACK, kerbal))
+            return st, []
         streak = st.eva_recover_streak + 1
         if streak < p.eva_recover_frames:
             return replace(st, eva_recover_streak=streak), []

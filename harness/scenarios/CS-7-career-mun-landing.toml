@@ -255,6 +255,9 @@ evaSettleFrames            = 3
 # recovers, then back to him for the flag (mlib THE RAGDOLL RECOVERY).
 evaRagdollRecoverSeconds   = 20
 evaRecoverConfirmFrames    = 3
+evaRecoverReissueSeconds   = 15
+# Stock refused one EVA (spawnEVA returned null, run 2026-10-28_0432_a2): retry once.
+evaExitRetrySeconds        = 5
 evaPhaseTimeoutSeconds     = 900
 # --- the Mun ascent: a 20 km orbit, above the Mun's highest terrain (~7.1 km) ---
 munAscentAltitudeMeters    = 20000

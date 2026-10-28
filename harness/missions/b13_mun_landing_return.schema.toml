@@ -746,6 +746,22 @@ type = "number"
 min = 1.0
 max = 100.0
 
+# EVA-RECOVER's switch-back re-send period (GAME s) while the kerbal has not read
+# back as the active vessel; at most mlib.MLR_RECOVER_BACK_ISSUES sends in all.
+[params.evaRecoverReissueSeconds]
+required = false
+type = "number"
+min = 1.0
+max = 300.0
+
+# EVA-EXIT (opt-in; absent = off): an EvaExit refused with eva-refused is re-sent once
+# after this many GAME s of settle.
+[params.evaExitRetrySeconds]
+required = false
+type = "number"
+min = 1.0
+max = 120.0
+
 # Per surface phase budget (GAME s). Each seam verb's own wall poll is bounded in
 # mlib.SEAM_COMMAND_POLL_SECONDS_BY_VERB; this bounds the phase that waits on it.
 [params.evaPhaseTimeoutSeconds]

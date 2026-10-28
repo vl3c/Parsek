@@ -635,7 +635,7 @@ class RagdollRecoverTests(unittest.TestCase):
         # The lander past the dwell: switch back by name.
         st, a = mlib.mlr_decide(st, _lander(50020.0))
         self.assertEqual(mlib.MLR_RECOVER_BACK, st.eva_recover_step)
-        self.assertEqual([Action(mlib.ACTION_SWITCH_TO_NEAREST_NAMED_VESSEL,
+        self.assertEqual([Action(mlib.ACTION_SWITCH_TO_EVA_KERBAL,
                                  text="Jebediah Kerman")], a)
 
     def test_back_sends_the_flag_after_the_name_confirms(self):
@@ -721,6 +721,202 @@ class RagdollRecoverTests(unittest.TestCase):
         self.assertEqual(3, p.eva_recover_frames)
 
 
+class SwitchBackAndExitRetryTests(unittest.TestCase):
+    """The switch-back pick (by name, else unplaced name, else nearest EVA vessel), its
+    bounded re-send, the no-fuel read-back, and the once-only eva-refused EvaExit retry."""
+
+    def _back(self, **over):
+        p = _params(evaRagdollRecoverSeconds=20, evaRecoverConfirmFrames=2,
+                    evaRecoverReissueSeconds=15)
+        return p, _at(mlib.MLR_EVA, mlib.MLR_EVA_RECOVER, params=p,
+                      eva_recover_step=mlib.MLR_RECOVER_BACK, eva_recover_back_ut=50000.0,
+                      eva_recover_back_issues=1, eva_kerbal_name="Jebediah Kerman", **over)
+
+    def test_the_pick_prefers_the_name_then_unplaced_then_eva_type(self):
+        pick = mlib.pick_switch_back_kerbal
+        jeb = "Jebediah Kerman"
+        self.assertEqual((1, mlib.SWITCH_BACK_BY_NAME), pick(
+            [("Lander", False, 0.0, True), (jeb, True, 2.4, False),
+             ("Bill Kerman", True, 1.0, False)], jeb))
+        self.assertEqual((1, mlib.SWITCH_BACK_BY_NAME_UNPLACED), pick(
+            [("Lander", False, 0.0, True), (jeb, True, float("nan"), False),
+             ("Bill Kerman", True, 1.0, False)], jeb))
+        self.assertEqual((2, mlib.SWITCH_BACK_BY_EVA_TYPE), pick(
+            [("Lander", False, 0.0, True), ("Debris", False, 1.0, False),
+             ("?", True, 2.4, False), ("?", True, 9.0, False)], jeb))
+        self.assertEqual((None, mlib.SWITCH_BACK_NONE), pick(
+            [(jeb, True, 0.0, True), ("Debris", False, 1.0, False)], jeb))
+        self.assertEqual((None, mlib.SWITCH_BACK_NONE), pick([], jeb))
+
+    def test_the_candidate_log_names_every_vessel_and_error(self):
+        line = mlib.format_switch_candidates([
+            ("CS Mun Solar Lander", "lander", float("nan"), True, ""),
+            ("Jebediah Kerman", "eva", 2.44, False, ""),
+            ("?", "", float("nan"), False, "name RuntimeError")])
+        self.assertEqual("'CS Mun Solar Lander'/lander@nan*active;"
+                         "'Jebediah Kerman'/eva@2.4m;'?'/?@nan!name RuntimeError", line)
+        self.assertEqual("none", mlib.format_switch_candidates([]))
+
+    def test_the_back_step_switches_to_the_eva_kerbal(self):
+        self.assertEqual([Action(mlib.ACTION_SWITCH_TO_EVA_KERBAL, text="Jebediah Kerman")],
+                         mlib.mlr_recover_actions(mlib.MLR_RECOVER_BACK, "Jebediah Kerman"))
+
+    def test_a_kerbal_that_reads_back_without_fuel_confirms(self):
+        p, st = self._back()
+        for ut in (50001.0, 50002.0):
+            st, a = mlib.mlr_decide(st, _answer("", ut=ut, seam_command_result="",
+                                                vessel_name="Jeb (kRPC name)"))
+        self.assertEqual(mlib.MLR_EVA_FLAG, st.phase)
+        self.assertEqual("PlantFlag", a[0].seam_verb)
+
+    def test_an_unread_fuel_never_confirms(self):
+        p, st = self._back()
+        for ut in (50001.0, 50002.0, 50003.0):
+            st, a = mlib.mlr_decide(st, _answer("", ut=ut, seam_command_result="",
+                                                liquid_fuel=float("nan")))
+        self.assertEqual((mlib.MLR_EVA_RECOVER, []), (st.phase, a))
+
+    def test_the_switch_back_is_resent_on_a_period_and_bounded(self):
+        p, st = self._back()
+        st, a = mlib.mlr_decide(st, _lander(50014.0))
+        self.assertEqual([], a)
+        st, a = mlib.mlr_decide(st, _lander(50015.0))
+        self.assertEqual([mlib.ACTION_SWITCH_TO_EVA_KERBAL], _kinds(a))
+        self.assertEqual((2, 50015.0), (st.eva_recover_back_issues, st.eva_recover_back_ut))
+        st, a = mlib.mlr_decide(st, _lander(50030.0))
+        self.assertEqual(3, st.eva_recover_back_issues)
+        st, a = mlib.mlr_decide(st, _lander(50060.0))
+        self.assertEqual(([], 3), (a, st.eva_recover_back_issues))
+        self.assertIsNone(st.verdict)
+
+    def _exit(self, **over):
+        p = _params(evaExitRetrySeconds=5, **over)
+        return p, _at(mlib.MLR_EVA, mlib.MLR_EVA_EXIT, params=p)
+
+    def test_an_eva_refused_exit_is_retried_once_after_the_settle(self):
+        p, st = self._exit()
+        refused = (("msg", "eva-refused"),)
+        st, a = mlib.mlr_decide(st, _answer(mlib.MLR_TAG_EVA_EXIT, result="ERROR",
+                                            payload=refused, ut=50001.0))
+        self.assertEqual(([], 1, 50006.0, None),
+                         (a, st.eva_exit_tries, st.eva_exit_retry_ut, st.verdict))
+        st, a = mlib.mlr_decide(st, _answer(mlib.MLR_TAG_EVA_EXIT, result="ERROR",
+                                            payload=refused, ut=50005.0))
+        self.assertEqual(([], None), (a, st.verdict))
+        st, a = mlib.mlr_decide(st, _answer(mlib.MLR_TAG_EVA_EXIT, result="ERROR",
+                                            payload=refused, ut=50006.0))
+        self.assertEqual([mlib.MLR_TAG_EVA_EXIT_RETRY], [x.seam_tag for x in a])
+        self.assertEqual("EvaExit", a[0].seam_verb)
+        self.assertIsNone(st.eva_exit_retry_ut)
+        # The first tag's stale ERROR is not the retry's answer.
+        st, a = mlib.mlr_decide(st, _answer(mlib.MLR_TAG_EVA_EXIT, result="ERROR",
+                                            payload=refused, ut=50007.0))
+        self.assertEqual(([], None), (a, st.verdict))
+        st, a = mlib.mlr_decide(st, _answer(mlib.MLR_TAG_EVA_EXIT_RETRY,
+                                            payload=_EXIT_PAYLOAD, ut=50008.0))
+        self.assertEqual((mlib.MLR_EVA_FLAG, "OK", "4242"),
+                         (st.phase, st.eva_exit_result, st.eva_pid))
+
+    def test_a_second_refusal_gives_up_by_name(self):
+        p, st = self._exit()
+        st = dataclasses.replace(st, eva_exit_tries=1)
+        st, a = mlib.mlr_decide(st, _answer(mlib.MLR_TAG_EVA_EXIT_RETRY, result="ERROR",
+                                            payload=(("msg", "eva-refused"),)))
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn(mlib.MLR_EVA_EXIT_REFUSED, st.flake_reason)
+
+    def test_another_exit_error_or_the_knob_off_gives_up_at_once(self):
+        p, st = self._exit()
+        st2, _ = mlib.mlr_decide(st, _answer(mlib.MLR_TAG_EVA_EXIT, result="ERROR",
+                                             payload=(("msg", "not-crewed"),)))
+        self.assertEqual(mlib.MISSION_FLAKE, st2.verdict)
+        st3 = _at(mlib.MLR_EVA, mlib.MLR_EVA_EXIT)
+        st3, _ = mlib.mlr_decide(st3, _answer(mlib.MLR_TAG_EVA_EXIT, result="ERROR",
+                                              payload=(("msg", "eva-refused"),)))
+        self.assertEqual(mlib.MISSION_FLAKE, st3.verdict)
+
+    def test_cs7_turns_both_on(self):
+        p = mlib.mlr_params_from_dict(_spec(CS7_SPEC)["driver"]["missionParams"])
+        self.assertEqual((5.0, 15.0), (p.eva_exit_retry_seconds, p.eva_recover_reissue))
+
+
+class _SwVessel:
+    def __init__(self, name, vtype="VesselType.ship", pos=(1.0, 0.0, 0.0),
+                 name_raises=False, pos_raises=False):
+        self._name, self.type, self._pos = name, vtype, pos
+        self._name_raises, self._pos_raises = name_raises, pos_raises
+        self.reference_frame = object()
+
+    @property
+    def name(self):
+        if self._name_raises:
+            raise RuntimeError("dead handle")
+        return self._name
+
+    def position(self, frame):
+        if self._pos_raises:
+            raise RuntimeError("no position")
+        return self._pos
+
+
+class _SwSc:
+    def __init__(self, vessels):
+        self.vessels = vessels
+        self.active_vessel = None
+
+
+class SwitchBackRunnerTests(unittest.TestCase):
+    def setUp(self):
+        self.lines = []
+        self._sink = mission_runner._stdout_sink
+        mission_runner._stdout_sink = self.lines.append
+
+    def tearDown(self):
+        mission_runner._stdout_sink = self._sink
+
+    def _run(self, vessels, active, name="Jebediah Kerman"):
+        sc = _SwSc(vessels)
+        mission_runner.KrpcMissionControl(client_name="t")._switch_to_eva_kerbal(
+            sc, active, name)
+        return sc
+
+    def test_a_kerbal_whose_position_raises_is_still_picked_by_name_and_logged(self):
+        lander = _SwVessel("CS Mun Solar Lander")
+        jeb = _SwVessel("Jebediah Kerman", "VesselType.eva", pos_raises=True)
+        sc = self._run([lander, _SwVessel("Debris", pos=(9e6, 0, 0)), jeb], lander)
+        self.assertIs(jeb, sc.active_vessel)
+        log = "\n".join(self.lines)
+        self.assertIn("pick=name-unplaced", log)
+        self.assertIn("'Jebediah Kerman'/eva@nan!position RuntimeError", log)
+
+    def test_a_kerbal_under_another_name_is_picked_by_eva_type(self):
+        lander = _SwVessel("CS Mun Solar Lander")
+        jeb = _SwVessel("Jeb", "VesselType.eva", pos=(2.0, 0.0, 0.0))
+        sc = self._run([lander, _SwVessel("Debris", pos=(1.0, 0, 0)), jeb], lander)
+        self.assertIs(jeb, sc.active_vessel)
+        self.assertIn("pick=eva-type", "\n".join(self.lines))
+
+    def test_a_name_read_error_keeps_the_candidate_and_logs_it(self):
+        lander = _SwVessel("CS Mun Solar Lander")
+        ghost = _SwVessel("x", name_raises=True)
+        sc = self._run([lander, ghost], lander)
+        self.assertIsNone(sc.active_vessel)
+        log = "\n".join(self.lines)
+        self.assertIn("!name RuntimeError", log)
+        self.assertIn("(2 vessel(s) scanned)", log)
+
+    def test_the_named_switch_logs_every_candidate(self):
+        lander = _SwVessel("CS Mun Solar Lander")
+        jeb = _SwVessel("Jebediah Kerman", "VesselType.eva", pos_raises=True)
+        sc = _SwSc([lander, jeb])
+        mission_runner.KrpcMissionControl(client_name="t")._switch_to_nearest_named_vessel(
+            sc, lander, "Jebediah Kerman")
+        log = "\n".join(self.lines)
+        self.assertIn("candidates: 'CS Mun Solar Lander'/?@nan*active;"
+                      "'Jebediah Kerman'/?@nan!RuntimeError: no position", log)
+        self.assertIn("(2 vessel(s) scanned)", log)
+
+
 class ShellTests(unittest.TestCase):
     def test_the_control_is_cs6s_plus_b13s_reads(self):
         mine = b13_mun_landing_return.make_control()
@@ -757,6 +953,8 @@ class SchemaAndSpecTests(unittest.TestCase):
     OWN_KEYS = set(SURFACE_PARAMS) | {"evaKerbalName", "ascentCoastWheelRelease",
                                       "evaRagdollRecoverSeconds",
                                       "evaRecoverConfirmFrames",
+                                      "evaRecoverReissueSeconds",
+                                      "evaExitRetrySeconds",
                                       "ascentCoastWheelFloorMeters",
                                       "ascentCoastWheelCeilingMeters"}
 
