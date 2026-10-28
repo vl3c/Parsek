@@ -1,0 +1,1414 @@
+version = 1
+MILESTONE
+{
+	id = dbc6501fa9c94eb0a00414edfd344775
+	startUT = 0
+	endUT = 0.68000000000000027
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 1
+	GAME_STATE_EVENT
+	{
+		ut = 0.6000000000000002
+		type = 1
+		key = a5a1f217-d79b-4ef9-8122-f051ecdd1681
+		detail = title=Launch our first vessel!;deadlineAbsUT=NaN;type=ExplorationContract;funds=1120;failFunds=1120;failRep=0
+		cseq = 2
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 0.64000000000000024
+		type = 1
+		key = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
+		detail = title=Gather scientific data from Kerbin.;deadlineAbsUT=NaN;type=ExplorationContract;funds=2240;failFunds=2240;failRep=0
+		cseq = 3
+	}
+}
+MILESTONE
+{
+	id = b822262d7b304bc1aec06f4c1d5041fa
+	startUT = 0.68000000000000027
+	endUT = 345.179999999976
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 5
+	GAME_STATE_EVENT
+	{
+		ut = 4.219999999999998
+		type = 18
+		key = RecordsSpeed
+		detail = funds=28800;rep=6;sci=3;thresholds=3
+		recordingId = 71288de785d2472ea60da273f42ce1c6
+		cseq = 10
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 4.8199999999999852
+		type = 26
+		key = a5a1f217-d79b-4ef9-8122-f051ecdd1681
+		detail = paramId=0;fundsReward=3200;repReward=1;sciReward=1;title=Launch our first vessel!
+		recordingId = 71288de785d2472ea60da273f42ce1c6
+		cseq = 14
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 4.8199999999999852
+		type = 2
+		key = a5a1f217-d79b-4ef9-8122-f051ecdd1681
+		detail = title=Launch our first vessel!;fundsReward=2080;repReward=1;sciReward=1
+		recordingId = 71288de785d2472ea60da273f42ce1c6
+		cseq = 15
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 4.8199999999999852
+		type = 18
+		key = FirstLaunch
+		detail = funds=1600;rep=0;sci=0
+		recordingId = 71288de785d2472ea60da273f42ce1c6
+		cseq = 16
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 7.6399999999999251
+		type = 18
+		key = RecordsAltitude
+		detail = funds=28800;rep=6;sci=3;thresholds=3
+		recordingId = 71288de785d2472ea60da273f42ce1c6
+		cseq = 24
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 342.93999999997806
+		type = 18
+		key = Kerbin/Landing
+		detail = funds=1600;rep=0;sci=0
+		recordingId = 71288de785d2472ea60da273f42ce1c6
+		cseq = 34
+	}
+}
+MILESTONE
+{
+	id = a7b44b91ba1548df900e16f78fec3e4d
+	startUT = 345.179999999976
+	endUT = 345.33999999997587
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 4
+	GAME_STATE_EVENT
+	{
+		ut = 345.33999999997587
+		type = 18
+		key = FirstCrewToSurvive
+		detail = funds=1600;rep=0;sci=0
+		recordingId = 71288de785d2472ea60da273f42ce1c6
+		cseq = 37
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 345.33999999997587
+		type = 22
+		key = Jebediah Kerman
+		detail = flight=0;entries=0,Flight,Kerbin|0,Land,Kerbin|0,Recover,;trait=Pilot
+		cseq = 41
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 345.33999999997587
+		type = 26
+		key = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
+		detail = paramId=0;fundsReward=6400;repReward=2;sciReward=1;title=Gather scientific data from Kerbin.
+		cseq = 46
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 345.33999999997587
+		type = 2
+		key = cae56da0-8ac5-4381-9e41-7080bf9c0e1b
+		detail = title=Gather scientific data from Kerbin.;fundsReward=4160;repReward=2;sciReward=1
+		cseq = 47
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 345.33999999997587
+		type = 18
+		key = Kerbin/Science
+		detail = funds=3200;rep=1;sci=0
+		recordingId = 71288de785d2472ea60da273f42ce1c6
+		cseq = 48
+	}
+}
+MILESTONE
+{
+	id = ccb775fedd11416fb9bf8aa066511189
+	startUT = 345.33999999997587
+	endUT = 348.41999999997307
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 348.41999999997307
+		type = 22
+		key = Jebediah Kerman
+		detail = flight=1;entries=1,Recover,;trait=Pilot
+		cseq = 62
+	}
+}
+MILESTONE
+{
+	id = c6ddc01f39204bbf96f196b1c9164b61
+	startUT = 348.41999999997307
+	endUT = 348.97999999997256
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 3
+	GAME_STATE_EVENT
+	{
+		ut = 348.87999999997265
+		type = 1
+		key = 31f5240c-4c87-4a98-803b-1e84e1f19ce6
+		detail = title=Escape the atmosphere!;deadlineAbsUT=NaN;type=ExplorationContract;funds=11200;failFunds=11200;failRep=0
+		cseq = 66
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 348.9399999999726
+		type = 1
+		key = 31559641-5ef7-481b-adc7-41a6b6d39237
+		detail = title=Orbit Kerbin!;deadlineAbsUT=NaN;type=ExplorationContract;funds=16800;failFunds=16800;failRep=0
+		cseq = 67
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 348.95999999997258
+		type = 8
+		key = Verhat Kerman
+		detail = trait=Engineer;cost=62113
+		cseq = 68
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 348.97999999997256
+		type = 11
+		key = SpaceCenter/MissionControl
+		detail = cost=75000
+		valAfter = 0.5
+		cseq = 71
+	}
+}
+MILESTONE
+{
+	id = 9d122e2b30eb431d9df45a6e7928c38a
+	startUT = 348.97999999997256
+	endUT = 349.13999999997242
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 5
+	GAME_STATE_EVENT
+	{
+		ut = 349.01999999997253
+		type = 1
+		key = 1a9762e8-8c97-495b-b451-ad62726c08cb
+		detail = title=Test RT-10 "Hammer" Solid Fuel Booster in flight over Kerbin.;deadlineAbsUT=9201949.02;type=PartTest;funds=9000;failFunds=9000;failRep=4
+		cseq = 73
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 349.03999999997251
+		type = 7
+		key = fuelTankSmallFlat
+		detail = cost=0;entryCost=1200
+		valBefore = 9546.0399885177612
+		valAfter = 9546.0399885177612
+		cseq = 75
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 349.03999999997251
+		type = 7
+		key = solidBooster.v2
+		detail = cost=0;entryCost=1200
+		valBefore = 9546.0399885177612
+		valAfter = 9546.0399885177612
+		cseq = 76
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 349.03999999997251
+		type = 7
+		key = liquidEngine2.v2
+		detail = cost=0;entryCost=3500
+		valBefore = 9546.0399885177612
+		valAfter = 9546.0399885177612
+		cseq = 77
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 349.03999999997251
+		type = 7
+		key = liquidEngine2
+		detail = cost=0;entryCost=0
+		valBefore = 9546.0399885177612
+		valAfter = 9546.0399885177612
+		cseq = 78
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 349.03999999997251
+		type = 6
+		key = basicRocketry
+		detail = cost=5;parts=liquidEngine2,liquidEngine2.v2,solidBooster.v2,fuelTankSmallFlat
+		valBefore = 28.5
+		valAfter = 23.5
+		cseq = 79
+	}
+}
+MILESTONE
+{
+	id = 15f2f849d6fb444db849bb2135da964f
+	startUT = 349.13999999997242
+	endUT = 351.43999999997033
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 351.43999999997033
+		type = 22
+		key = Jebediah Kerman
+		detail = flight=2;entries=2,Recover,;trait=Pilot
+		cseq = 84
+	}
+}
+MILESTONE
+{
+	id = 4ec475c3079746d0bbf801a7a0aac8ac
+	startUT = 351.43999999997033
+	endUT = 351.89999999996991
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 13
+	GAME_STATE_EVENT
+	{
+		ut = 351.83999999996996
+		type = 7
+		key = SurfAntenna
+		detail = cost=0;entryCost=750
+		valBefore = 9546.0399885177612
+		valAfter = 9546.0399885177612
+		cseq = 88
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 351.83999999996996
+		type = 7
+		key = longAntenna
+		detail = cost=0;entryCost=750
+		valBefore = 9546.0399885177612
+		valAfter = 9546.0399885177612
+		cseq = 89
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 351.83999999996996
+		type = 7
+		key = sensorThermometer
+		detail = cost=0;entryCost=2500
+		valBefore = 9546.0399885177612
+		valAfter = 9546.0399885177612
+		cseq = 90
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 351.83999999996996
+		type = 7
+		key = Decoupler.1
+		detail = cost=0;entryCost=1600
+		valBefore = 9546.0399885177612
+		valAfter = 9546.0399885177612
+		cseq = 91
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 351.83999999996996
+		type = 6
+		key = engineering101
+		detail = cost=5;parts=Decoupler.1,sensorThermometer,longAntenna,SurfAntenna
+		valBefore = 23.5
+		valAfter = 18.5
+		cseq = 92
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 351.85999999996994
+		type = 7
+		key = ServiceBay.125.v2
+		detail = cost=0;entryCost=1000
+		valBefore = 9546.0399885177612
+		valAfter = 9546.0399885177612
+		cseq = 93
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 351.85999999996994
+		type = 7
+		key = parachuteRadial
+		detail = cost=0;entryCost=2800
+		valBefore = 9546.0399885177612
+		valAfter = 9546.0399885177612
+		cseq = 94
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 351.85999999996994
+		type = 7
+		key = radialDrogue
+		detail = cost=0;entryCost=600
+		valBefore = 9546.0399885177612
+		valAfter = 9546.0399885177612
+		cseq = 95
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 351.85999999996994
+		type = 7
+		key = miniLandingLeg
+		detail = cost=0;entryCost=820
+		valBefore = 9546.0399885177612
+		valAfter = 9546.0399885177612
+		cseq = 96
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 351.85999999996994
+		type = 7
+		key = radPanelSm
+		detail = cost=0;entryCost=1500
+		valBefore = 9546.0399885177612
+		valAfter = 9546.0399885177612
+		cseq = 97
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 351.85999999996994
+		type = 7
+		key = sensorBarometer
+		detail = cost=0;entryCost=2200
+		valBefore = 9546.0399885177612
+		valAfter = 9546.0399885177612
+		cseq = 98
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 351.85999999996994
+		type = 7
+		key = HeatShield1
+		detail = cost=0;entryCost=600
+		valBefore = 9546.0399885177612
+		valAfter = 9546.0399885177612
+		cseq = 99
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 351.85999999996994
+		type = 7
+		key = HeatShield0
+		detail = cost=0;entryCost=600
+		valBefore = 9546.0399885177612
+		valAfter = 9546.0399885177612
+		cseq = 100
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 351.85999999996994
+		type = 6
+		key = survivability
+		detail = cost=15;parts=HeatShield0,HeatShield1,sensorBarometer,radPanelSm,miniLandingLeg,radialDrogue,parachuteRadial,ServiceBay.125.v2
+		valBefore = 18.5
+		valAfter = 3.5
+		cseq = 101
+	}
+}
+MILESTONE
+{
+	id = 4037c0f81f8f47c6954e3be60a246aed
+	startUT = 351.89999999996991
+	endUT = 651.93373901344194
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 10
+	GAME_STATE_EVENT
+	{
+		ut = 394.33999999993131
+		type = 18
+		key = RecordsDistance
+		detail = funds=48000;rep=10;sci=5;thresholds=5
+		recordingId = 692da78791dd4026a5bb8b49931987b1
+		cseq = 108
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 433.25999999989591
+		type = 18
+		key = RecordsSpeed
+		detail = funds=9600;rep=2;sci=1
+		recordingId = 692da78791dd4026a5bb8b49931987b1
+		cseq = 118
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 443.59999999988651
+		type = 18
+		key = RecordsAltitude
+		detail = funds=19200;rep=4;sci=2;thresholds=2
+		recordingId = 692da78791dd4026a5bb8b49931987b1
+		cseq = 122
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 516.07988739002985
+		type = 18
+		key = RecordsDistance
+		detail = funds=0;rep=0;sci=0;thresholds=0
+		recordingId = 692da78791dd4026a5bb8b49931987b1
+		cseq = 129
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 533.35988739001414
+		type = 18
+		key = RecordsAltitude
+		detail = funds=0;rep=0;sci=0;thresholds=0
+		recordingId = 692da78791dd4026a5bb8b49931987b1
+		cseq = 133
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 533.3998873900141
+		type = 26
+		key = 31f5240c-4c87-4a98-803b-1e84e1f19ce6
+		detail = paramId=0;fundsReward=32000;repReward=8;sciReward=4;title=Escape the atmosphere!
+		recordingId = 692da78791dd4026a5bb8b49931987b1
+		cseq = 137
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 533.3998873900141
+		type = 2
+		key = 31f5240c-4c87-4a98-803b-1e84e1f19ce6
+		detail = title=Escape the atmosphere!;fundsReward=20800;repReward=8;sciReward=4
+		recordingId = 692da78791dd4026a5bb8b49931987b1
+		cseq = 138
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 533.3998873900141
+		type = 18
+		key = ReachedSpace
+		detail = funds=16000;rep=3;sci=2
+		recordingId = 692da78791dd4026a5bb8b49931987b1
+		cseq = 139
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 611.79373901347844
+		type = 26
+		key = 31559641-5ef7-481b-adc7-41a6b6d39237
+		detail = paramId=0;fundsReward=48000;repReward=10;sciReward=6;title=Orbit Kerbin!
+		recordingId = 692da78791dd4026a5bb8b49931987b1
+		cseq = 150
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 611.79373901347844
+		type = 2
+		key = 31559641-5ef7-481b-adc7-41a6b6d39237
+		detail = title=Orbit Kerbin!;fundsReward=31200;repReward=10;sciReward=6
+		recordingId = 692da78791dd4026a5bb8b49931987b1
+		cseq = 151
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 611.79373901347844
+		type = 18
+		key = Orbit
+		detail = funds=24000;rep=5;sci=2
+		recordingId = 692da78791dd4026a5bb8b49931987b1
+		cseq = 152
+	}
+}
+MILESTONE
+{
+	id = 0822a9f6dc3c4527922d05362b1c4b9e
+	startUT = 651.93373901344194
+	endUT = 1388.8043090813551
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 1386.4043090813573
+		type = 18
+		key = Kerbin/ReturnFromOrbit
+		detail = funds=24000;rep=5;sci=2
+		recordingId = 692da78791dd4026a5bb8b49931987b1
+		cseq = 156
+	}
+}
+MILESTONE
+{
+	id = aaaba6c6d3d245c2a39eabe456899c0c
+	startUT = 1388.8043090813551
+	endUT = 1389.0243090813549
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 1389.0243090813549
+		type = 22
+		key = Jebediah Kerman
+		detail = flight=3;entries=3,Land,Kerbin|3,Flight,Kerbin|3,Suborbit,Kerbin|3,Orbit,Kerbin|3,Recover,;trait=Pilot
+		cseq = 165
+	}
+}
+MILESTONE
+{
+	id = 596083f2afe04a6e9bb66ff35c18c6e2
+	startUT = 1389.0243090813549
+	endUT = 1391.6843090813525
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 1391.6843090813525
+		type = 22
+		key = Jebediah Kerman
+		detail = flight=4;entries=4,Recover,;trait=Pilot
+		cseq = 174
+	}
+}
+MILESTONE
+{
+	id = 570e2eec344e4b46bfe2df4c34226579
+	startUT = 1391.6843090813525
+	endUT = 1392.3443090813519
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 1392.3443090813519
+		type = 11
+		key = SpaceCenter/TrackingStation
+		detail = cost=150000
+		valAfter = 0.5
+		cseq = 178
+	}
+}
+MILESTONE
+{
+	id = b69d622143a149a5bc03600b2898442c
+	startUT = 1392.3443090813519
+	endUT = 1392.5043090813517
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 9
+	GAME_STATE_EVENT
+	{
+		ut = 1392.3843090813518
+		type = 7
+		key = fuelTankSmall
+		detail = cost=0;entryCost=2500
+		valBefore = 126994.29577875137
+		valAfter = 126994.29577875137
+		cseq = 180
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 1392.3843090813518
+		type = 7
+		key = solidBooster1-1
+		detail = cost=0;entryCost=2800
+		valBefore = 126994.29577875137
+		valAfter = 126994.29577875137
+		cseq = 181
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 1392.3843090813518
+		type = 7
+		key = liquidEngine.v2
+		detail = cost=0;entryCost=3200
+		valBefore = 126994.29577875137
+		valAfter = 126994.29577875137
+		cseq = 182
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 1392.3843090813518
+		type = 7
+		key = liquidEngine
+		detail = cost=0;entryCost=0
+		valBefore = 126994.29577875137
+		valAfter = 126994.29577875137
+		cseq = 183
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 1392.3843090813518
+		type = 6
+		key = generalRocketry
+		detail = cost=20;parts=liquidEngine,liquidEngine.v2,solidBooster1-1,fuelTankSmall
+		valBefore = 47.5
+		valAfter = 27.5
+		cseq = 184
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 1392.4443090813518
+		type = 7
+		key = radialDecoupler
+		detail = cost=0;entryCost=1200
+		valBefore = 126994.29577875137
+		valAfter = 126994.29577875137
+		cseq = 185
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 1392.4443090813518
+		type = 7
+		key = winglet
+		detail = cost=0;entryCost=1500
+		valBefore = 126994.29577875137
+		valAfter = 126994.29577875137
+		cseq = 186
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 1392.4443090813518
+		type = 7
+		key = noseCone
+		detail = cost=0;entryCost=2000
+		valBefore = 126994.29577875137
+		valAfter = 126994.29577875137
+		cseq = 187
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 1392.4443090813518
+		type = 6
+		key = stability
+		detail = cost=18;parts=noseCone,winglet,radialDecoupler
+		valBefore = 27.5
+		valAfter = 9.5
+		cseq = 188
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 1392.5043090813517
+		type = 11
+		key = SpaceCenter/LaunchPad
+		detail = cost=50000
+		valAfter = 0.5
+		cseq = 190
+	}
+}
+MILESTONE
+{
+	id = 99eddff4fee94ad1937b48f67a6c3ad5
+	startUT = 1392.5043090813517
+	endUT = 1394.8843090813496
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 1394.8843090813496
+		type = 22
+		key = Jebediah Kerman
+		detail = flight=5;entries=5,Recover,;trait=Pilot
+		cseq = 195
+	}
+}
+MILESTONE
+{
+	id = e4fa13506aac48c6b446904223d0c04a
+	startUT = 1394.8843090813496
+	endUT = 59501.489317626758
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 8
+	GAME_STATE_EVENT
+	{
+		ut = 3150.3338952627219
+		type = 18
+		key = RecordsSpeed
+		detail = funds=9600;rep=2;sci=1;band=5:9600:2:1
+		recordingId = 3ce9a29163014b6d8c41680e0c04572a
+		cseq = 204
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 3150.3338952627219
+		type = 18
+		key = RecordsSpeed
+		detail = funds=0;rep=0;sci=0;thresholds=0
+		recordingId = 3ce9a29163014b6d8c41680e0c04572a
+		cseq = 205
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 16674.27230102543
+		type = 18
+		key = Mun/Flyby
+		detail = funds=26000;rep=4;sci=2
+		recordingId = 3ce9a29163014b6d8c41680e0c04572a
+		cseq = 206
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 16674.27230102543
+		type = 18
+		key = Kerbin/Escape
+		detail = funds=26400;rep=5;sci=3
+		recordingId = 3ce9a29163014b6d8c41680e0c04572a
+		cseq = 210
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 17919.766502685587
+		type = 9
+		key = Stadin Kerman
+		detail = trait=Tourist
+		cseq = 211
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 17919.766502685587
+		type = 9
+		key = Chaddock Kerman
+		detail = trait=Tourist
+		cseq = 212
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 17919.766502685587
+		type = 9
+		key = Kimfrey Kerman
+		detail = trait=Tourist
+		cseq = 213
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 17919.766502685587
+		type = 9
+		key = Gia Kerman
+		detail = trait=Tourist
+		cseq = 214
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 23714.988829345821
+		type = 18
+		key = Mun/Escape
+		detail = funds=18720;rep=3;sci=1
+		recordingId = 3ce9a29163014b6d8c41680e0c04572a
+		cseq = 216
+	}
+}
+MILESTONE
+{
+	id = 59df8129b68b4a138fb848ecfcc69c4b
+	startUT = 59501.489317626758
+	endUT = 59959.896146171763
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 1
+	GAME_STATE_EVENT
+	{
+		ut = 59957.316146172176
+		type = 18
+		key = Mun/ReturnFromFlyBy
+		detail = funds=26000;rep=4;sci=2
+		recordingId = 3ce9a29163014b6d8c41680e0c04572a
+		cseq = 224
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 59957.316146172176
+		type = 18
+		key = Kerbin/Splashdown
+		detail = funds=4800;rep=1;sci=0
+		recordingId = 3ce9a29163014b6d8c41680e0c04572a
+		cseq = 228
+	}
+}
+MILESTONE
+{
+	id = fa7b541ecc20491ea1df92295cebceb9
+	startUT = 59959.896146171763
+	endUT = 59960.136146171724
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 59960.136146171724
+		type = 22
+		key = Jebediah Kerman
+		detail = flight=6;entries=6,Flight,Kerbin|6,Suborbit,Kerbin|6,Orbit,Kerbin|6,Flyby,Mun|6,Escape,Mun|6,Flyby,Kerbin|6,Land,Kerbin|6,Recover,;trait=Pilot
+		cseq = 234
+	}
+}
+MILESTONE
+{
+	id = 0b0d182b6bad484e85f08b213881c8c4
+	startUT = 59960.136146171724
+	endUT = 59962.396146171362
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 59962.396146171362
+		type = 22
+		key = Jebediah Kerman
+		detail = flight=7;entries=7,Recover,;trait=Pilot
+		cseq = 243
+	}
+}
+MILESTONE
+{
+	id = cd65877e4f12421ca958c4646455d2db
+	startUT = 59962.396146171362
+	endUT = 94250.895120759553
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 88074.5601225795
+		type = 18
+		key = Mun/Orbit
+		detail = funds=24960;rep=4;sci=2
+		recordingId = 2b72f070d93343389794c124edcf2732
+		cseq = 253
+	}
+}
+MILESTONE
+{
+	id = 17e0221af8b34c65b7991342a254e5db
+	startUT = 94250.895120759553
+	endUT = 119600.26833370785
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 119597.5883337073
+		type = 18
+		key = Mun/ReturnFromOrbit
+		detail = funds=24960;rep=4;sci=2
+		recordingId = 2b72f070d93343389794c124edcf2732
+		cseq = 259
+	}
+}
+MILESTONE
+{
+	id = 9b8bc88bf06843b291f89a101e2d65df
+	startUT = 119600.26833370785
+	endUT = 119600.48833370789
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 119600.48833370789
+		type = 22
+		key = Jebediah Kerman
+		detail = flight=8;entries=8,Land,Kerbin|8,Flight,Kerbin|8,Suborbit,Kerbin|8,Orbit,Kerbin|8,Flyby,Mun|8,Escape,Mun|8,Orbit,Mun|8,Flyby,Kerbin|8,Recover,;trait=Pilot
+		cseq = 268
+	}
+}
+MILESTONE
+{
+	id = 81b4ce640f644d4dadad30c2c44fc816
+	startUT = 119600.48833370789
+	endUT = 119602.76833370836
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 119602.76833370836
+		type = 22
+		key = Jebediah Kerman
+		detail = flight=9;entries=9,Recover,;trait=Pilot
+		cseq = 277
+	}
+}
+MILESTONE
+{
+	id = 4a4c4bb8d8b847b4acb2965ec10d66b6
+	startUT = 119602.76833370836
+	endUT = 119603.32833370847
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 119603.32833370847
+		type = 11
+		key = SpaceCenter/AstronautComplex
+		detail = cost=75000
+		valAfter = 0.5
+		cseq = 281
+	}
+}
+MILESTONE
+{
+	id = abcf412d6cf242b9bf3f73e8c3c1cb6c
+	startUT = 119603.32833370847
+	endUT = 119603.42833370849
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 7
+	GAME_STATE_EVENT
+	{
+		ut = 119603.36833370848
+		type = 7
+		key = Size1p5.Tank.01
+		detail = cost=0;entryCost=1750
+		valBefore = 141973.00675535202
+		valAfter = 141973.00675535202
+		cseq = 283
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 119603.36833370848
+		type = 7
+		key = Size1p5.Size1.Adapter.02
+		detail = cost=0;entryCost=1550
+		valBefore = 141973.00675535202
+		valAfter = 141973.00675535202
+		cseq = 284
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 119603.36833370848
+		type = 7
+		key = fireworksLauncherSmall
+		detail = cost=0;entryCost=400
+		valBefore = 141973.00675535202
+		valAfter = 141973.00675535202
+		cseq = 285
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 119603.36833370848
+		type = 7
+		key = fireworksLauncherBig
+		detail = cost=0;entryCost=50
+		valBefore = 141973.00675535202
+		valAfter = 141973.00675535202
+		cseq = 286
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 119603.36833370848
+		type = 7
+		key = fuelTank
+		detail = cost=0;entryCost=1600
+		valBefore = 141973.00675535202
+		valAfter = 141973.00675535202
+		cseq = 287
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 119603.36833370848
+		type = 7
+		key = radialLiquidEngine1-2
+		detail = cost=0;entryCost=3500
+		valBefore = 141973.00675535202
+		valAfter = 141973.00675535202
+		cseq = 288
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 119603.36833370848
+		type = 7
+		key = liquidEngine3.v2
+		detail = cost=0;entryCost=1600
+		valBefore = 141973.00675535202
+		valAfter = 141973.00675535202
+		cseq = 289
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 119603.36833370848
+		type = 6
+		key = advRocketry
+		detail = cost=45;parts=liquidEngine3.v2,radialLiquidEngine1-2,fuelTank,fireworksLauncherBig,fireworksLauncherSmall,Size1p5.Size1.Adapter.02,Size1p5.Tank.01
+		valBefore = 50.5
+		valAfter = 5.5
+		cseq = 290
+	}
+}
+MILESTONE
+{
+	id = bcea6ea72c044e269db4875b9e0b0575
+	startUT = 119603.42833370849
+	endUT = 119605.56833370893
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 119605.56833370893
+		type = 22
+		key = Jebediah Kerman
+		detail = flight=10;entries=10,Recover,;trait=Pilot
+		cseq = 295
+	}
+}
+MILESTONE
+{
+	id = 2d29e4ff28ed4b288b59f8754d1a9fba
+	startUT = 119605.56833370893
+	endUT = 151260.32516319081
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 131549.17346405072
+		type = 9
+		key = Catwig Kerman
+		detail = trait=Tourist
+		cseq = 301
+	}
+}
+MILESTONE
+{
+	id = bb0f6283ac964400bafd73422f92a814
+	startUT = 151260.32516319081
+	endUT = 155234.84219307193
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 151275.78488608348
+		type = 18
+		key = Mun/Spacewalk
+		detail = funds=15600;rep=2;sci=1
+		recordingId = 1d1f4b52d0cd4843b58ffa814b1a0eb2
+		cseq = 303
+	}
+}
+MILESTONE
+{
+	id = 442ca4baf4c74ffb85d1d38ce3249d04
+	startUT = 155234.84219307193
+	endUT = 157536.94643348767
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 3
+	GAME_STATE_EVENT
+	{
+		ut = 157176.37409230211
+		type = 9
+		key = Jenry Kerman
+		detail = trait=Tourist
+		cseq = 310
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 157176.37409230211
+		type = 9
+		key = Macott Kerman
+		detail = trait=Tourist
+		cseq = 311
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 157176.37409230211
+		type = 9
+		key = Arpont Kerman
+		detail = trait=Tourist
+		cseq = 312
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 157176.37409230211
+		type = 9
+		key = Lanly Kerman
+		detail = trait=Tourist
+		cseq = 313
+	}
+}
+MILESTONE
+{
+	id = 73a9ec7a68af46f9b90523d1001512ce
+	startUT = 157536.94643348767
+	endUT = 185731.52058351794
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 1
+	GAME_STATE_EVENT
+	{
+		ut = 185731.52058351794
+		type = 22
+		key = Jebediah Kerman
+		detail = flight=11;entries=11,Flight,Kerbin|11,Suborbit,Kerbin|11,Orbit,Kerbin|11,Flyby,Mun|11,Escape,Mun|11,Orbit,Mun|11,ExitVessel,Mun|11,BoardVessel,Mun|11,Flyby,Kerbin|11,Land,Kerbin|11,Recover,;trait=Pilot
+		cseq = 328
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.52058351794
+		type = 18
+		key = Mun/Science
+		detail = funds=12480;rep=2;sci=1
+		recordingId = e14df3fa19054f8a8b5614f35105fe22
+		cseq = 330
+	}
+}
+MILESTONE
+{
+	id = f424597104eb425f903f487f6bd6be9e
+	startUT = 185731.52058351794
+	endUT = 185731.72058351783
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 20
+	GAME_STATE_EVENT
+	{
+		ut = 185731.64058351787
+		type = 7
+		key = HighGainAntenna5.v2
+		detail = cost=0;entryCost=1500
+		valBefore = 157546.18482685089
+		valAfter = 157546.18482685089
+		cseq = 346
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.64058351787
+		type = 7
+		key = HighGainAntenna5
+		detail = cost=0;entryCost=0
+		valBefore = 157546.18482685089
+		valAfter = 157546.18482685089
+		cseq = 347
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.64058351787
+		type = 7
+		key = radPanelLg
+		detail = cost=0;entryCost=2200
+		valBefore = 157546.18482685089
+		valAfter = 157546.18482685089
+		cseq = 348
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.64058351787
+		type = 7
+		key = radPanelEdge
+		detail = cost=0;entryCost=2200
+		valBefore = 157546.18482685089
+		valAfter = 157546.18482685089
+		cseq = 349
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.64058351787
+		type = 7
+		key = ScienceBox
+		detail = cost=0;entryCost=2200
+		valBefore = 157546.18482685089
+		valAfter = 157546.18482685089
+		cseq = 350
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.64058351787
+		type = 7
+		key = science.module
+		detail = cost=0;entryCost=5500
+		valBefore = 157546.18482685089
+		valAfter = 157546.18482685089
+		cseq = 351
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.64058351787
+		type = 7
+		key = batteryPack
+		detail = cost=0;entryCost=800
+		valBefore = 157546.18482685089
+		valAfter = 157546.18482685089
+		cseq = 352
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.64058351787
+		type = 7
+		key = probeCoreSphere.v2
+		detail = cost=0;entryCost=1400
+		valBefore = 157546.18482685089
+		valAfter = 157546.18482685089
+		cseq = 353
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.64058351787
+		type = 6
+		key = basicScience
+		detail = cost=45;parts=probeCoreSphere.v2,batteryPack,science.module,ScienceBox,radPanelEdge,radPanelLg,HighGainAntenna5,HighGainAntenna5.v2
+		valBefore = 155.16667175292969
+		valAfter = 110.16667175292969
+		cseq = 354
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.66058351786
+		type = 7
+		key = solarPanels5
+		detail = cost=0;entryCost=1200
+		valBefore = 157546.18482685089
+		valAfter = 157546.18482685089
+		cseq = 364
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.66058351786
+		type = 7
+		key = batteryBankMini
+		detail = cost=0;entryCost=3200
+		valBefore = 157546.18482685089
+		valAfter = 157546.18482685089
+		cseq = 363
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.66058351786
+		type = 7
+		key = foldingRadSmall
+		detail = cost=0;entryCost=2200
+		valBefore = 157546.18482685089
+		valAfter = 157546.18482685089
+		cseq = 362
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.66058351786
+		type = 7
+		key = domeLight1
+		detail = cost=0;entryCost=700
+		valBefore = 157546.18482685089
+		valAfter = 157546.18482685089
+		cseq = 361
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.66058351786
+		type = 7
+		key = spotLight3
+		detail = cost=0;entryCost=800
+		valBefore = 157546.18482685089
+		valAfter = 157546.18482685089
+		cseq = 360
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.66058351786
+		type = 7
+		key = spotLight2.v2
+		detail = cost=0;entryCost=800
+		valBefore = 157546.18482685089
+		valAfter = 157546.18482685089
+		cseq = 356
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.66058351786
+		type = 7
+		key = spotLight1.v2
+		detail = cost=0;entryCost=800
+		valBefore = 157546.18482685089
+		valAfter = 157546.18482685089
+		cseq = 358
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.66058351786
+		type = 7
+		key = spotLight2
+		detail = cost=0;entryCost=0
+		valBefore = 157546.18482685089
+		valAfter = 157546.18482685089
+		cseq = 357
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.66058351786
+		type = 7
+		key = probeCoreOcto.v2
+		detail = cost=0;entryCost=2800
+		valBefore = 157546.18482685089
+		valAfter = 157546.18482685089
+		cseq = 365
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.66058351786
+		type = 7
+		key = DeployedSolarPanel
+		detail = cost=0;entryCost=1000
+		valBefore = 157546.18482685089
+		valAfter = 157546.18482685089
+		cseq = 355
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.66058351786
+		type = 7
+		key = spotLight1
+		detail = cost=0;entryCost=0
+		valBefore = 157546.18482685089
+		valAfter = 157546.18482685089
+		cseq = 359
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 185731.66058351786
+		type = 6
+		key = electrics
+		detail = cost=90;parts=probeCoreOcto.v2,solarPanels5,batteryBankMini,foldingRadSmall,domeLight1,spotLight3,spotLight1,spotLight1.v2,spotLight2,spotLight2.v2,DeployedSolarPanel
+		valBefore = 110.16667175292969
+		valAfter = 20.166671752929688
+		cseq = 366
+	}
+}
+MILESTONE
+{
+	id = ca25ecc314d04c8f897b685d48768af5
+	startUT = 185731.72058351783
+	endUT = 185733.72058351678
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 185733.72058351678
+		type = 22
+		key = Jebediah Kerman
+		detail = flight=12;entries=12,Recover,;trait=Pilot
+		cseq = 371
+	}
+}

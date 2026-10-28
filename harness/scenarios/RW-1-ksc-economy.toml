@@ -1,0 +1,364 @@
+schema = 1
+id = "RW-1-ksc-economy"
+# =====================================================================================
+# RW-1: THE SPACE CENTER ECONOMY ACROSS TWO REWINDS-TO-LAUNCH (the rewind ledger campaign,
+# rows RW-3 contract race, RW-4 spend conflict, RW-9 facility upgrade crossed by time and
+# RW-11 two rewinds to the same point; RW-10 committed hire is NOT carried, see "DEPARTURES").
+#
+# THE RULINGS UNDER TEST: each purchase is charged once per item; a plain Rewind-to-Launch only
+# moves the clock; committed costs are reserved. A Space Center action committed ahead of the
+# clock blocks the same stock control after a rewind, and applies once when the clock reaches
+# its row.
+#
+# HOW THE LANE MAKES ITS PAST. A harvested fixture cannot be rewound to launch (the harvest
+# drops Parsek/Saves and blanks every rewindSave key), so the lane records its own short flight
+# H and commits it, L8's / L10's pad shape: the Jumping Flea rolled out of the VAB, recorded on
+# the pad, the tree committed in flight (a tree that never left the pad is auto-discarded at
+# the scene exit), then recovered. The Space Center actions done after it are the committed
+# future the two rewinds land behind.
+#
+# THE HOST. `cs-career-mun4` (CS-6c's produced save, commit d29cb6a9f): Career, Normal preset
+# (FundsLossMultiplier 1, AllowNegativeCurrency False, BypassEntryPurchaseAfterResearch True),
+# funds 157546.18, science 20.17, rep 115.0, save UT 185734.04, no vessel on the pad (three
+# Mun debris on suborbits), Runway / VAB / SPH / R&D / Administration at level 0, Mission
+# Control at level 1 with one Active contract (1a9762e8), eleven Offered. The shared Jumping
+# Flea is staged into its Ships/VAB by harness/fixtures/shared-ships.toml.
+#
+# THE TARGETS, read off the host and the KSC scene asset:
+#   contract   f1fb89dc-a471-42cf-94da-de4bb1080512, SurveyContract "Kerbin near Dinkelstein's
+#              Plain" (barometerScan waypoints; the Flea carries no barometer, so nothing in the
+#              lane can complete it), Offered, advance 37500 = FundsFailure 37500, dateExpire
+#              211975.5, far past every UT here. No vessel spawns on its accept (not a
+#              RecoverAsset / Tourism offer).
+#   facility   SpaceCenter/Runway 0 -> 1. Cost 75000: `GetUpgradeCost` is
+#              `upgradeLevels[level + 1].levelCost * FundsLossMultiplier`, and the KSC scene
+#              asset (KSP_x64_Data/sharedassets9.assets, read 2026-10-28) serializes the
+#              Runway's levels as 19947 / 75000 / 282000, the same triple as Mission Control
+#              and the Astronaut Complex, whose 0 -> 1 upgrades CS-3b and CS-6b MEASURED at
+#              75000. The VAB the brief names costs 225000 there (59911 / 225000 / 845000),
+#              more than the host holds, so the seam would refuse it insufficient-funds.
+#   rollout    the Jumping Flea, 2932 (CS-3b / CS-4b / CS-6b measured it on this career line).
+#
+# THE TIMELINE (UTs are the plan; every row lands between H's launch and the crossing warp):
+#   185800     WarpToUT at the Space Center first, so H's launch sits clear of the fixture's
+#              last rows (CS-6c's ground-truth Flea rollout at 185732.0, its recovery, save UT
+#              185734.04): the rewinds land at H's recording start minus 15 s
+#              (RecordingStore.RewindToLaunchLeadTimeSeconds), ~185786, after all of them, and
+#              H's rollout is outside the 60 s duplicate-rollout window of 185732.
+#   H          VAB launch (rollout -2932), StartRecording, warp in flight to 186000, stop,
+#              CommitTree, Recover on the pad (+2932 expected, regex).
+#   KSC        at ~186000: accept f1fb89dc (+37500), upgrade the Runway (-75000).
+#   rewind 1   InvokeRewindToLaunch tree=latest from the Space Center: clock ~185786. Accept
+#              f1fb89dc again: REFUSED by ContractAcceptPatch's committed-future check (it runs
+#              before the slot and reservation checks). Upgrade the Runway again: REFUSED by
+#              FacilityUpgradePatch, the Runway reading level 0 on both sides of the call (the
+#              level stays as at the clock until the crossing). Each refusal raises the
+#              action-blocked dialog, dismissed.
+#   rewind 2   the same tree again (RW-11): clock ~185786 again; the Runway upgrade REFUSED again.
+#   crossing   WarpToUT 186100 at the Space Center (maxRate 100): the clock cursor reaches the
+#              committed rows (`Clock-crossing reached committed-future rows`), the Runway is
+#              patched 0 -> 1 once, the accept applies.
+#   check      the Flea relaunched unrecorded (rollout -2932), warp to 186130 in flight so the
+#              save clock is off the rollout row (L8's reason), SaveGame to the default slot,
+#              then LedgerGroundTruth in that FLIGHT scene (it skips at the Space Center and with
+#              a live tree, so this launch is its only window).
+#
+# WHY EVERY SEAM REFUSAL READS REJECTED, NOT ERROR. `KscAction` answers REJECTED for every
+# refusal, the committed-timeline block included (`Refuse` in TestCommandKscAction.cs:477-481,
+# reason `blocked-committed` after a guard left the state unmoved, :1013-1016 accept /
+# :663-668 upgrade). A REJECTED step met by `expect = "REJECTED"` is a met step (KB-3, L8,
+# L10 fly it). A seam PRE-check refusal (insufficient-funds, contract-not-offered) also reads
+# REJECTED, so the `kscaction refused ... reason=blocked-committed` tokens are what say the
+# committed-timeline backstop refused each click. Funds at the refusals: the rewind patches
+# live funds to the projected minimum, ~120046 (157546.18 - 2932 + 2932 + 37500 - 75000), so
+# the seam's 75000 pre-check passes and Parsek's guard is the refuser.
+#
+# DEPARTURES FROM THE BRIEF (rw1-brief.md), each following the code or the host:
+#   - NO TECH RESEARCH (RW-4 tech half, RW-11 as written). The host holds 20.17 science and
+#     every node it could research costs 45 or more: start, basicRocketry, engineering101
+#     (5), survivability (15), stability (18) and generalRocketry (20) are all researched,
+#     and the seam refuses `insufficient-science` before stock is called
+#     (TestCommandKscAction.cs:284). A pad hop earns a fraction of the 25 missing. RW-11 runs
+#     on the Runway upgrade instead: the purchase state rule covers facility levels too
+#     (PurchaseStateRule.TryGetItem, PurchaseKind.FacilityLevel).
+#   - THE SECOND BUY AFTER THE SECOND REWIND IS BLOCKED, NOT "already owned". The committed
+#     row is still after the clock, so FacilityUpgradePatch refuses the click before stock
+#     charges anything and no second row exists. `is already owned at ut=` (FundsModule.cs:837)
+#     only prints in the walk for a SECOND row of an item already owned, and the tech form is
+#     `is already researched at` (ScienceModule.cs:691). The lane forbids every path to a
+#     second row instead.
+#   - NO HIRE (RW-10). The host's roster has NO applicant: every kerbal is Crew or a tourist
+#     reserved for an offered Tourism contract. Stock fills the pool at run time with random
+#     names (KerbalRoster.AddApplicant, CrewGenerator.RandomCrewMemberPrototype), and
+#     `hire-kerbal` resolves by name only, with no `offered-first`-style arg. Sacking Verhat
+#     to make a named applicant does not work: his ToD (128319.4) is before the clock, so
+#     stock's KerbalRoster.Update removes him from the pool at once. Needs a seam arg
+#     (`kerbal=applicant-first`) or a host with a seeded applicant (CS-3b's shape).
+#   - THE RUNWAY, NOT THE VAB (RW-9): cost, above.
+#   - H IS A PAD RECORDING, NOT A HOP: L8 / L10's proven seam shape (no mission, no
+#     autopilot); a Rewind-to-Launch needs only a committed tree with a rewind save.
+#
+# READING-GUIDE LITERALS (the coordinator's log hunt; all exist in Source/Parsek): `[LedgerTrace]
+# phase=Structural` (LedgerTrace.cs:268) and `phase=Anomaly` (:333), `Credited milestone '`
+# (MilestonesModule.cs:137), `Reset: cleared` (ContractsModule.cs:275), `[TakeBack]` / `Took
+# back` (StockShadowTakeBack.cs:182 / :514), `Timeline break not recorded for load kind=`
+# (StockShadowTakeBack.cs:318), `filed StockPoolAdjustment` (KspStatePatcher.cs:6117), `Debt
+# charge:` (FundsModule.cs:245), `ABORTING rewind ledger patch` (KspStatePatcher.cs:89),
+# `Load classified:` (LoadReconcilePolicy.cs:381).
+#
+# PRE-REGISTERED READINGS (check these first if the first flight reds):
+#   - `kscaction refused action=upgrade-facility reason=insufficient-funds` after a rewind: live
+#     funds fell under 75000; read the post-rewind PatchFunds target (expected ~120046).
+#   - `kscaction refused ... reason=contract-not-offered` / `unknown-contract`: the rewound
+#     world does not carry f1fb89dc as Offered (a premise miss, or the twin-offer withdrawal
+#     withdrew it; read `PatchContracts: withdrew offer`).
+#   - `kscaction action=... applied=true` on a REJECTED step: the committed row did not block
+#     the control after that rewind, a product finding (file it).
+#   - `invokerewindtolaunch refused`: read the reason; `invoking ... startUT=` outside 1858xx
+#     means `latest` picked a fixture tree, not H.
+#   - `PatchFacilities: 'SpaceCenter/Runway' level 1 -> 0`: the rewound Space Center came up
+#     with the upgraded Runway (REWIND-TO-LAUNCH-LANDS-IN-THE-LATEST-PERSISTENT-WORLD, #2181).
+#   - a `[LedgerTrace] phase=Anomaly` line: a ledger-vs-truth read-back divergence; read its
+#     resource / id before anything else.
+#   - recordings 36: H split on the pad (L8's pad flight measured 1).
+#
+# STATUS: LIVE-PROVEN 2026-10-28 on its first flight, `2026-10-28_0743` PASS attempt 1 (147 s, DLL 92b715f7). The accept and
+# the Runway upgrade were refused blocked-committed after the first rewind, the upgrade
+# again after the second; the crossings applied each once (ContractAccept@186000.34 with
+# FundsEarning, then FacilityUpgrade@186000.36; Runway level 0 -> 1, f1fb89dc Active in the
+# produced save); funds 157546.18 -> 117114.18 (two rollouts -2932, recovery +2932, advance
+# +37500, upgrade -75000); pool held at 120046.18 across both rewinds; 35 recordings; batch
+# passed=3 skipped=0; LedgerGroundTruth hardFailures=0 reportOnly facets Milestone, Vessel;
+# ledger_audit.py PASS (0 LedgerTrace anomalies in 39 lines, 0 paid twice, 11 loads
+# classified). Original note: every pinned literal is
+# derived from source (file:line beside each block) and the host, not from a log.
+# Owed off the first flight:
+#   - the batch split (`total=3` pinned from the source, `passed` / `skipped` regexed;
+#     IngameBatchWiringGroupTests.INTERIM_PIN_IDS until then);
+#   - H's pad recovery payout (regexed `+[0-9]+`; CS-6b read +2932 for the same craft);
+#   - the crossing's contract effect (which PatchContracts line turns the rewound Offered
+#     f1fb89dc Active at its accept row is not derived; only the generic crossing is pinned);
+#   - the recordings count (35 expected, 36 allowed);
+#   - the row UTs and the end pools (no ledger oracle block until they are measured);
+#   - the tier call (operator: stock-tree is not in the nightly instance set).
+#
+# FAST-LANE CHECKLIST: (1) reuse: L8's pad flight and rewind verbs, KB-3's refusal tokens,
+# CS-6b's ground-truth tail; (2) explicit-UT warps only; (3)-(5) no dwell, burn or coast; (6)
+# retry `once`; (7) recordings window 35..36; (8) operator, ~15 min expected; (9)
+# flight_efficiency.py after the first green flight.
+tier = "operator"
+description = "Rewind ledger campaign, the Space Center economy (RW-3 / RW-4 / RW-9 / RW-11): on cs-career-mun4 a pad flight is recorded and committed, a survey contract is accepted and the Runway upgraded at the Space Center; after a Rewind-to-Launch the same accept and upgrade are refused by the committed rows, after a second rewind to the same launch the upgrade is refused again, warping past the rows applies them once, and LedgerGroundTruth closes the career."
+instanceProfile = "stock-tree"
+tags = ["RW-1", "career", "ledger", "rewind", "rewind-to-launch", "repeated-rewinds",
+        "action-blocking", "contracts", "facilities", "editor", "ground-truth",
+        "ingame-batch", "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 300 LoadGame + 120 warp + 2 x (120 GoToEditor + 180 LaunchFromEditor)
+# + 180 StartRecording + 120 warp + 120 CommitTree + 120 Recover + 5 x 60 KscAction
+# + 2 x 300 rewind + 120 warp + 120 warp + 120 SaveGame + 540 RunTests = 3240; runtime 4200
+# adds the inert steps and FlushAndQuit.
+steps = [
+  # scene = "spacecenter": the host's three vessels are Mun debris (CS-6b's boot).
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  # Clear of the fixture's last rows (185732-185734) and their 60 s rollout window.
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+
+  # ---- flight H: recorded on the pad, committed, recovered ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "h",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "186000" },                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "${h.pid}" },                                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw1-h-committed" },                          expect = "OK" },
+
+  # ---- the committed Space Center future ----
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "f1fb89dc-a471-42cf-94da-de4bb1080512" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/Runway" },               expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw1-ksc-committed" },                        expect = "OK" },
+
+  # ---- rewind 1: both clicks refused by the committed rows ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rw1-rewound-1" },                            expect = "OK" },
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "f1fb89dc-a471-42cf-94da-de4bb1080512" }, expect = "REJECTED", budget = 60 },
+  { cmd = "UiAction",       args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/Runway" },               expect = "REJECTED", budget = 60 },
+  { cmd = "UiAction",       args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+
+  # ---- rewind 2, to the same launch: the same purchase refused again ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rw1-rewound-2" },                            expect = "OK" },
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/Runway" },               expect = "REJECTED", budget = 60 },
+  { cmd = "UiAction",       args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+  # The rewind save carries the settings of H's recording start; asserted so the check
+  # launch stays unrecorded (the ground truth skips with a live tree).
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+
+  # ---- the crossing: every committed row reached at the Space Center ----
+  { cmd = "WarpToUT",       args = { ut = "186100", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw1-crossed" },                              expect = "OK" },
+
+  # ---- the check: an unrecorded launch, the save, the ground truth ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "186130" },                                      expect = "OK", budget = 120 },
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "contracts", "facilities", "recalc-engine", "ksp-state-patcher", "ground-truth-harness", "action-blocking"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 34 recordings plus H; the check launch is unrecorded and no rewind removes one.
+count = { min = 35, max = 35 }
+
+[expectations.logContracts]
+# Source of each literal (Source/Parsek/...):
+#   launchfromeditor complete           TestCommands/TestCommandEditorRoute.cs:517
+#   Game state: FundsChanged            GameStateRecorder.cs:945
+#   Game state: FacilityUpgraded        GameStateFacilityRecorder.cs:140 (arrow non-ASCII: `.{1,3}`)
+#   AddEvent:                           GameStateStore.cs:124
+#   KSC spending recorded:              GameActions/LedgerOrchestrator.cs:6095
+#   kscaction action=... applied=true   TestCommands/TestCommandKscAction.cs:501 (accept :1022,
+#                                        upgrade :672 observedAfter=level=)
+#   kscaction ... not applied:          TestCommands/TestCommandKscAction.cs:924 (accept :1013,
+#                                        upgrade :663)
+#   kscaction refused                   TestCommands/TestCommandKscAction.cs:480
+#   invokerewindtolaunch target resolved / invoking
+#                                       TestCommands/ParsekTestCommandAddon.InvokeRewindToLaunch.cs:115 / :175
+#   Rewind-to-Launch initiated to UT    RecordingStore.cs:5651
+#   Load classified:                    LoadReconcilePolicy.cs:381
+#   blocking accept for guid=           Patches/ContractAcceptPatch.cs:155
+#   Blocking facility upgrade:          Patches/FacilityUpgradePatch.cs:128
+#   uiaction dismiss ok                 TestCommands/ParsekTestCommandAddon.UiRaiseDismiss.cs:578
+#   Clock-crossing reached              GameActions/LedgerOrchestrator.cs:2763
+#   PatchFacilities: '<id>' level       GameActions/FacilityStatePatcher.cs:151
+#   [LedgerTrace] phase=Structural      LedgerTrace.cs:268 (emitted from LedgerOrchestrator.cs:4463)
+#   MISSIONMARK label=                  TestCommands/TestCommandMissionMark.cs:22
+#   ground-truth game mode=             InGameTests/LedgerGroundTruthHarness.cs:125
+#   result: hardFailures=               InGameTests/LedgerGroundTruthHarness.cs:246
+#   BATCH_COMPLETE v1                   InGameTests/InGameTestRunner.cs:1219
+required = [
+  # ---- H: two Flea launches in all (H and the check), each rolled out at the measured cost ----
+  "\\A(?:[\\s\\S]*?launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH){2}",
+  "\\A(?:[\\s\\S]*?Game state: FundsChanged -2932 \\(VesselRollout\\)){2}",
+  # H's pad recovery, measured on the first flight.
+  "Game state: FundsChanged \\+2932 \\(VesselRecovery\\)[\\s\\S]*?MISSIONMARK label=rw1-h-committed ut=",
+  # The ledger tracer is on (the gated Tier-A line, once per recalc).
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=",
+
+  # ---- the committed future: the accept and the upgrade, each its own untagged row ----
+  "MISSIONMARK label=rw1-h-committed ut=[\\s\\S]*?kscaction action=accept-contract target=f1fb89dc-a471-42cf-94da-de4bb1080512 applied=true manifestKind=contract-accept observedAfter=state=Active funds=[0-9.]+ contract=f1fb89dc-a471-42cf-94da-de4bb1080512",
+  "Game state: FundsChanged \\+37500 \\(ContractAdvance\\)",
+  "AddEvent: ContractAccepted key='f1fb89dc-a471-42cf-94da-de4bb1080512' tag=''",
+  "KSC spending recorded: type=ContractAccept, UT=[0-9.]+, key=f1fb89dc-a471-42cf-94da-de4bb1080512",
+  "kscaction action=upgrade-facility target=SpaceCenter/Runway applied=true manifestKind=facility-upgrade observedAfter=level=1",
+  "Game state: FacilityUpgraded 'SpaceCenter/Runway' 0\\.00 .{1,3} 0\\.50 \\(event-driven\\) cost=75000 costSource=observed-debit",
+  "Game state: FundsChanged -75000 \\(StructureConstruction\\)",
+  "AddEvent: FacilityUpgraded key='SpaceCenter/Runway' tag=''",
+  "KSC spending recorded: type=FacilityUpgrade, UT=[0-9.]+, key=SpaceCenter/Runway[\\s\\S]*?MISSIONMARK label=rw1-ksc-committed ut=",
+
+  # ---- both rewinds are plain Rewind-to-Launch, and both land on H's tree ----
+  "\\A(?:[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT ){2}",
+  "\\A(?:[\\s\\S]*?Load classified: early=PlainRewind refined=PlainRewind ){2}",
+  "invokerewindtolaunch target resolved tree=([0-9a-f]{32}) resolvedBy=\\S+ arg=latest committedTrees=([0-9]+)[\\s\\S]*?invokerewindtolaunch target resolved tree=\\1 resolvedBy=\\S+ arg=latest committedTrees=\\2",
+  # H's root starts after the 185800 warp: `latest` picked the lane's own tree.
+  "\\A(?:[\\s\\S]*?invokerewindtolaunch invoking tree=[0-9a-f]{32} rec=[0-9a-f]{32} startUT=1858[0-9]{2}\\.[0-9] - plain Rewind-to-Launch \\(NOT a Re-Fly\\)){2}",
+
+  # ---- rewind 1, RW-3: the accept refused by the committed accept, nothing moved ----
+  "MISSIONMARK label=rw1-rewound-1 ut=[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[ContractAcceptPatch\\] blocking accept for guid=f1fb89dc-a471-42cf-94da-de4bb1080512 - committed future accept ut=\\d+ nowUT=\\d+ recording=\\(ksc\\)",
+  "MISSIONMARK label=rw1-rewound-1 ut=[\\s\\S]*?kscaction accept-contract not applied: target=f1fb89dc-a471-42cf-94da-de4bb1080512 stateBefore=Offered stateAfter=Offered fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0",
+  "kscaction refused action=accept-contract reason=blocked-committed target=f1fb89dc-a471-42cf-94da-de4bb1080512",
+  # ---- rewind 1, RW-4 / RW-9: the upgrade refused, the Runway at level 0 on the clock ----
+  "MISSIONMARK label=rw1-rewound-1 ut=[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[FacilityUpgradePatch\\] Blocking facility upgrade: 'SpaceCenter/Runway' - 1 committed future upgrade\\(s\\), last ut=\\d+ toLevel=\\d+ nowUT=\\d+ rebuilds=0 repairs=0[\\s\\S]*?MISSIONMARK label=rw1-rewound-2 ut=",
+  "MISSIONMARK label=rw1-rewound-1 ut=[\\s\\S]*?kscaction upgrade-facility not applied: target=SpaceCenter/Runway levelBefore=0 levelAfter=0 fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0[\\s\\S]*?MISSIONMARK label=rw1-rewound-2 ut=",
+  # ---- rewind 2, RW-11: the same purchase refused again, at level 0 again ----
+  "MISSIONMARK label=rw1-rewound-2 ut=[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[FacilityUpgradePatch\\] Blocking facility upgrade: 'SpaceCenter/Runway' - 1 committed future upgrade\\(s\\), last ut=\\d+ toLevel=\\d+ nowUT=\\d+ rebuilds=0 repairs=0",
+  "MISSIONMARK label=rw1-rewound-2 ut=[\\s\\S]*?kscaction upgrade-facility not applied: target=SpaceCenter/Runway levelBefore=0 levelAfter=0 fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0",
+  "\\A(?:[\\s\\S]*?kscaction refused action=upgrade-facility reason=blocked-committed target=SpaceCenter/Runway){2}",
+  # All three blocked dialogs were up and were dismissed.
+  "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false){3}",
+
+  # ---- the crossing, RW-9: the rows reached at the Space Center, the Runway raised once ----
+  "MISSIONMARK label=rw1-rewound-2 ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=rw1-crossed ut=",
+  # Measured on the first flight: the accept row crosses with the H recovery batch, the
+  # upgrade row on its own.
+  "MISSIONMARK label=rw1-rewound-2 ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[0-9]+ \\[[^\\]]*ContractAccept@",
+  "MISSIONMARK label=rw1-rewound-2 ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=1 \\[FacilityUpgrade@",
+  "MISSIONMARK label=rw1-rewound-2 ut=[\\s\\S]*?PatchFacilities: 'SpaceCenter/Runway' level 0 -> 1 [\\s\\S]*?MISSIONMARK label=rw1-crossed ut=",
+
+  # ---- the ground truth, in FLIGHT on the unrecorded check Flea ----
+  "ground-truth game mode=CAREER pools=funds,science,reputation",
+  "result: hardFailures=0 ",
+  # INTERIM: total=3 from the source (the LedgerGroundTruth category's FLIGHT cells); the
+  # split is owed off the first flight (L8 read passed=2 skipped=1 after a rewind with no
+  # KerbalExperience row at or before the clock; this host has many, so passed=3 is likely).
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  # A stock pool movement no ledger row accounts for (KspStatePatcher.cs:6117 / the guard's
+  # clamp line, KspStatePatcher.cs:6287).
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  "filed StockPoolAdjustment amount=\\S+ reason=leak ",
+  # Nothing paid twice and taken back (StockShadowTakeBack.cs:514), no ledger-vs-truth
+  # read-back divergence under the tracer (LedgerTrace.cs:333), no aborted rewind patch
+  # (KspStatePatcher.cs:89).
+  "\\[TakeBack\\] Took back ",
+  "\\[LedgerTrace\\] phase=Anomaly ",
+  "ABORTING rewind ledger patch",
+  "invokerewindtolaunch refused",
+  # Each purchase charged once per item (RW-4 / RW-11): no second applied click, no second
+  # stock event, no second ledger row for either item, no row the walk skips as owned.
+  "kscaction action=accept-contract target=f1fb89dc-a471-42cf-94da-de4bb1080512 applied=true[\\s\\S]*kscaction action=accept-contract target=f1fb89dc-a471-42cf-94da-de4bb1080512 applied=true",
+  "kscaction action=upgrade-facility target=SpaceCenter/Runway applied=true[\\s\\S]*kscaction action=upgrade-facility target=SpaceCenter/Runway applied=true",
+  "AddEvent: ContractAccepted key='f1fb89dc-a471-42cf-94da-de4bb1080512'[\\s\\S]*AddEvent: ContractAccepted key='f1fb89dc-a471-42cf-94da-de4bb1080512'",
+  "AddEvent: FacilityUpgraded key='SpaceCenter/Runway'[\\s\\S]*AddEvent: FacilityUpgraded key='SpaceCenter/Runway'",
+  "KSC spending recorded: type=FacilityUpgrade, UT=[0-9.]+, key=SpaceCenter/Runway[\\s\\S]*KSC spending recorded: type=FacilityUpgrade, UT=[0-9.]+, key=SpaceCenter/Runway",
+  "KSC spending recorded: type=ContractAccept, UT=[0-9.]+, key=f1fb89dc-a471-42cf-94da-de4bb1080512[\\s\\S]*KSC spending recorded: type=ContractAccept, UT=[0-9.]+, key=f1fb89dc-a471-42cf-94da-de4bb1080512",
+  "FacilityUpgrade not charged: [^\\r\\n]*is already owned at ut=",
+  # The backstops never let a click through while the rows are ahead, between the first
+  # rewind and the crossing (ContractAcceptPatch.cs:147, FacilityUpgradePatch.cs:105).
+  "MISSIONMARK label=rw1-rewound-1 ut=(?:(?!MISSIONMARK label=rw1-crossed )[\\s\\S])*allowing accept for guid=f1fb89dc-a471-42cf-94da-de4bb1080512",
+  "MISSIONMARK label=rw1-rewound-1 ut=(?:(?!MISSIONMARK label=rw1-crossed )[\\s\\S])*Allowing facility upgrade: 'SpaceCenter/Runway'",
+  # The rewound Space Center never comes up with the upgraded Runway (#2181's defect;
+  # FacilityStatePatcher.cs:151).
+  "PatchFacilities: 'SpaceCenter/Runway' level 1 -> 0 ",
+  # The seam's own pre-checks never refuse (a pre-check refusal reads REJECTED too).
+  "kscaction refused action=(?:accept-contract|upgrade-facility) reason=(?!blocked-committed )",
+  # The check launch is not a duplicate of H's rollout (LedgerRolloutAdoption.cs:125 / :140).
+  "OnVesselRolloutSpending: skipping duplicate rollout",
+  # Nothing completes or fails a contract in this walk.
+  "Game state: ContractCompleted ",
+  "Game state: ContractFailed ",
+]
+
+[runtime]
+budgetSeconds = 4200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
