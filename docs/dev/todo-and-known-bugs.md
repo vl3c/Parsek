@@ -343,6 +343,12 @@ rewind, re-buy, warp past the first purchase's UT, then LedgerGroundTruth and no
 
 ---
 
+**Lane (2026-10-28, branch `rw9-strategy-rebuy`).** `RW-9-strategy-repair-rebuy` on `cs-career-mun4` takes
+the repair path (the entry-purchase hosts cannot afford Aggressive Negotiations' reputation cost, and the
+rep-rich hosts bypass entry purchases): Aggressive Negotiations, a discounted repair inside a committed
+timeline, a Rewind-to-Launch that must refuse a second repair as committed, and the crossing that must
+apply the repair and its legs once with no pool adjustment. Authored, never flown.
+
 ## ~~FREE-TECH-NODE-LOST-AFTER-REWIND: a tech node stock unlocks for free has no ledger row, so the first tech patch after a rewind re-locks it for good~~ [FILED AND FIXED 2026-10-28 from code reading, branch `fix-free-tech-row`; unit-tested only, NOT FLOWN, lane owed; product, high (a node and its parts lost for good, a reduction of the career total)]
 
 Stock `ResearchAndDevelopment.UnlockProtoTechNode(ProtoTechNode)` unlocks a node for free and
