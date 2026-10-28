@@ -283,6 +283,89 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // Non-rewind discard: KSP keeps the node, so the ledger must too
+        // ================================================================
+
+        private static void AddTaggedTech(string recordingId, double ut, string detail)
+        {
+            var e = new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.TechResearched,
+                key = GiftTech,
+                detail = detail,
+                recordingId = recordingId,
+            };
+            GameStateStore.AddEvent(ref e);
+        }
+
+        // catches: a discarded flight's gift being dropped with its tagged event while KSP
+        // keeps the node, so the next tech patch re-locks it.
+        [Fact]
+        public void Discard_FreeUnlock_IsReHomedAsAnUntaggedZeroCostRow()
+        {
+            GameStateRecorder.TagResolverForTesting = () => "rec-A";
+            GameStateRecorder.HasLiveRecorderProviderForTesting = () => true;
+            new GameStateRecorder().CaptureFreeTechUnlock(GiftTech, 45f, null, 5000.0, 0.0);
+            Assert.Empty(TechRows());
+
+            LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard(new HashSet<string> { "rec-A" }, "test");
+
+            var rows = TechRows();
+            Assert.Single(rows);
+            Assert.Equal(GiftTech, rows[0].NodeId);
+            Assert.Equal(0f, rows[0].Cost);
+            Assert.Equal(5000.0, rows[0].UT);
+            Assert.True(string.IsNullOrEmpty(rows[0].RecordingId));
+            Assert.Contains(logLines, l => l.Contains("PreserveIrreversibleLiveGameplayOnDiscard (test): re-homed 1")
+                && l.Contains("freeTech=1"));
+        }
+
+        // catches: a paid research tagged to a flight (research is a Space Center act, filed
+        // untagged at once) being re-homed as a second, charged row.
+        [Fact]
+        public void Discard_PaidResearch_IsNotReHomed()
+        {
+            AddTaggedTech("rec-A", 5000.0, "cost=45;parts=");
+            Assert.False(LedgerOrchestrator.IsIrreversibleLiveGameplayEvent(GameStateStore.Events[0]));
+
+            LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard(new HashSet<string> { "rec-A" }, "test");
+
+            Assert.Empty(TechRows());
+        }
+
+        // catches: a substring match on "free=1" reading the marker out of another field's value.
+        [Theory]
+        [InlineData("cost=45;parts=free=1")]
+        [InlineData("cost=45;nonfree=1;parts=")]
+        [InlineData("cost=45;free=10;parts=")]
+        public void Discard_FreeMarkerOnlyInsideAnotherValue_IsNotMatched(string detail)
+        {
+            AddTaggedTech("rec-A", 5000.0, detail);
+            Assert.False(LedgerOrchestrator.IsFreeTechUnlockEvent(GameStateStore.Events[0]));
+
+            LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard(new HashSet<string> { "rec-A" }, "test");
+
+            Assert.Empty(TechRows());
+        }
+
+        // catches: the committed-tree restore attempt's discard tail dropping a gift the clone
+        // earned after its cutoff.
+        [Fact]
+        public void RestoreAttemptTailDiscard_FreeUnlockAfterCutoff_IsReHomed()
+        {
+            AddTaggedTech("rec-A", 5000.0, GameStateRecorder.BuildFreeTechUnlockDetail(45f, null));
+
+            LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard(
+                new Dictionary<string, double> { { "rec-A", 4000.0 } }, "test");
+
+            var rows = TechRows();
+            Assert.Single(rows);
+            Assert.Equal(0f, rows[0].Cost);
+            Assert.True(string.IsNullOrEmpty(rows[0].RecordingId));
+        }
+
+        // ================================================================
         // Headline regression
         // ================================================================
 

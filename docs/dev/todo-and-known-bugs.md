@@ -87,14 +87,23 @@ and blocks a paid research of the same node while it is ahead of the clock (the 
 a zero cost). The purchase state rule decides it like any tech purchase: when the walk already owns
 the node through a later-captured purchase the free row is `PurchaseAlreadyOwned` and uncounts 0, a
 no-op, never a refund. A Re-Fly merge tombstones it with the rest of a superseded flight's rows,
-like any gain of that flight. The event log reads `"<node>" (free)`.
+like any gain of that flight. A non-rewind discard of the flight (no quicksave rolls KSP back, so
+KSP keeps the node) re-homes the tagged free event as an untagged zero-cost ScienceSpending row:
+`LedgerOrchestrator.IsIrreversibleLiveGameplayEvent(GameStateEvent)` names a TechResearched whose
+detail carries the field `free=1` (`IsFreeTechUnlockEvent`, exact key match), so both
+`PreserveIrreversibleLiveGameplayOnDiscard` and the restore-attempt tail path keep it. A paid
+TechResearched stays out (research is filed untagged at the Space Center at once). The event log
+reads `"<node>" (free)`.
 
 Tests: `FreeTechUnlockCaptureTests` (capture decision, report, invariant detail, converter round
 trip, display, untagged capture writes one zero-cost row, a tagged capture stays off the ledger,
 replay suppression, the free row charges nothing, a repeat is a no-op, and the headline: B0 at 100
 without X, the gift at 5000 through the capture door, B1 at 6000 with X, prune after 100, target at
-7000 holds X and at 4000 does not). Mutation-checked: dropping the ledger forward reds the capture
-cell and the headline. In-game: `FreeTechUnlock` category, one SPACECENTER cell that calls the stock
+7000 holds X and at 4000 does not; the discard cells: a free event re-homed as one untagged Cost 0
+row, a paid one not re-homed, `free=1` inside another field's value not matched, and the
+restore-attempt tail re-home). Mutation-checked: dropping the ledger forward reds the capture cell
+and the headline; dropping the predicate branch reds both re-home cells; a substring match reds the
+three not-matched cases. In-game: `FreeTechUnlock` category, one SPACECENTER cell that calls the stock
 method on a locked node with a probe subscriber and restores the node. Not flown yet; lane owed (a
 debug-menu or anomaly free unlock, a commit, a Rewind-to-Launch, and the node still Available after
 the post-rewind patch).
