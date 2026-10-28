@@ -730,6 +730,22 @@ type = "number"
 min = 1.0
 max = 100.0
 
+# EVA-RECOVER (opt-in; absent = off): after EvaExit, switch to the lander for this
+# many GAME s so a ragdolled kerbal (not the active vessel) stands up, then switch
+# back and send PlantFlag once the active vessel's name reads as the kerbal for
+# evaRecoverConfirmFrames frames. See mlib's THE RAGDOLL RECOVERY.
+[params.evaRagdollRecoverSeconds]
+required = false
+type = "number"
+min = 1.0
+max = 600.0
+
+[params.evaRecoverConfirmFrames]
+required = false
+type = "number"
+min = 1.0
+max = 100.0
+
 # Per surface phase budget (GAME s). Each seam verb's own wall poll is bounded in
 # mlib.SEAM_COMMAND_POLL_SECONDS_BY_VERB; this bounds the phase that waits on it.
 [params.evaPhaseTimeoutSeconds]

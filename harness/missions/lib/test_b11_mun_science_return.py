@@ -86,7 +86,10 @@ PARAMS = dict(PLAIN_PARAMS, **CAREER_PARAMS)
 # and three ascendedToTargetOrbit details; the flag is off in this fixture, and
 # test_b13_mun_landing_return pins mlr's action stream unchanged with it off).
 MOR_TRACE_DIGEST = "e3881eada1b717c44f211535cc307a348b7fe24fb7a0a63cfa47d213daef0cf7"
-MLR_TRACE_DIGEST = "06a77ecb0ec8427990810c817170053278af3d59de318194269660a417e6d230"
+# MLR RE-PINNED 2026-10-28 for CS-7's ragdoll recovery (four MlrState fields, two
+# MlrParams fields; the knob is off in this fixture and the action stream plus the
+# phase sequence hash identically before and after).
+MLR_TRACE_DIGEST = "d87d3f713bd039ce8ad4d1335e59bbad29bd412ba834f987ea1deaa8051751ff"
 
 _PARK_EXIT_UT = 48_200.0
 _PARK = dict(body="Mun", situation="ORBITING", periapsis=989_990.0, apoapsis=1_010_010.0,

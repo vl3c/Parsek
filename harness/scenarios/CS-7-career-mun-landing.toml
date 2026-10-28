@@ -250,6 +250,11 @@ ascentType                 = 0
 # --- the surface visit ---
 evaSettleSeconds           = 5
 evaSettleFrames            = 3
+# Off the ladder, Jeb lands in Ragdoll and, as the ACTIVE vessel, never stands up
+# without a movement key (stock CanRecover); switch to the lander for 20 s so he
+# recovers, then back to him for the flag (mlib THE RAGDOLL RECOVERY).
+evaRagdollRecoverSeconds   = 20
+evaRecoverConfirmFrames    = 3
 evaPhaseTimeoutSeconds     = 900
 # --- the Mun ascent: a 20 km orbit, above the Mun's highest terrain (~7.1 km) ---
 munAscentAltitudeMeters    = 20000

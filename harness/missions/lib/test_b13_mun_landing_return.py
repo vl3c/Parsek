@@ -586,6 +586,141 @@ class FullFlightTests(unittest.TestCase):
         self.assertFalse(rows["flagPlanted"].met)
 
 
+class RagdollRecoverTests(unittest.TestCase):
+    """EVA-RECOVER: off by default; with evaRagdollRecoverSeconds the kerbal is left
+    inactive (stock CanRecover stands an INACTIVE ragdolled kerbal up on its own) and
+    PlantFlag goes out only once the active vessel's name reads as the kerbal."""
+
+    def _recover(self, **over):
+        return _params(evaRagdollRecoverSeconds=20, evaRecoverConfirmFrames=2, **over)
+
+    def _exit_ok(self, p):
+        st = _at(mlib.MLR_EVA, mlib.MLR_EVA_EXIT, params=p)
+        return mlib.mlr_decide(st, _answer(mlib.MLR_TAG_EVA_EXIT, payload=_EXIT_PAYLOAD))
+
+    def test_off_by_default_goes_straight_to_the_flag(self):
+        st, a = self._exit_ok(_params())
+        self.assertIsNone(_params().eva_recover_seconds)
+        self.assertEqual(mlib.MLR_EVA_FLAG, st.phase)
+        self.assertEqual([mlib.MLR_TAG_FLAG], [x.seam_tag for x in a])
+
+    def test_exit_switches_away_skipping_the_kerbal(self):
+        st, a = self._exit_ok(self._recover())
+        self.assertEqual((mlib.MLR_EVA_RECOVER, mlib.MLR_RECOVER_AWAY, 1),
+                         (st.phase, st.eva_recover_step, st.eva_recover_runs))
+        self.assertEqual([Action(mlib.ACTION_SWITCH_TO_NEAREST_OTHER_VESSEL,
+                                 text="Jebediah Kerman")], a)
+
+    def test_the_seam_name_is_percent_decoded(self):
+        p = self._recover()
+        st = _at(mlib.MLR_EVA, mlib.MLR_EVA_EXIT, params=p)
+        payload = (("kerbal", "Jebediah%20Kerman"),) + _EXIT_PAYLOAD[1:]
+        st, a = mlib.mlr_decide(st, _answer(mlib.MLR_TAG_EVA_EXIT, payload=payload))
+        self.assertEqual("Jebediah Kerman", a[0].text)
+
+    def test_the_spec_name_wins(self):
+        st, a = self._exit_ok(self._recover(evaKerbalName="Bill Kerman"))
+        self.assertEqual("Bill Kerman", a[0].text)
+
+    def test_away_holds_until_the_lander_reads_and_the_dwell_passes(self):
+        p = self._recover()
+        st = _at(mlib.MLR_EVA, mlib.MLR_EVA_RECOVER, params=p,
+                 eva_recover_step=mlib.MLR_RECOVER_AWAY, eva_kerbal_name="Jebediah Kerman")
+        # Still the kerbal (no fuel): hold.
+        st, a = mlib.mlr_decide(st, _answer("", ut=50030.0, seam_command_result=""))
+        self.assertEqual(([], mlib.MLR_RECOVER_AWAY), (a, st.eva_recover_step))
+        # The lander, but inside the dwell: hold.
+        st, a = mlib.mlr_decide(st, _lander(50010.0))
+        self.assertEqual(([], mlib.MLR_RECOVER_AWAY), (a, st.eva_recover_step))
+        # The lander past the dwell: switch back by name.
+        st, a = mlib.mlr_decide(st, _lander(50020.0))
+        self.assertEqual(mlib.MLR_RECOVER_BACK, st.eva_recover_step)
+        self.assertEqual([Action(mlib.ACTION_SWITCH_TO_NEAREST_NAMED_VESSEL,
+                                 text="Jebediah Kerman")], a)
+
+    def test_back_sends_the_flag_after_the_name_confirms(self):
+        p = self._recover()
+        st = _at(mlib.MLR_EVA, mlib.MLR_EVA_RECOVER, params=p,
+                 eva_recover_step=mlib.MLR_RECOVER_BACK, eva_kerbal_name="Jebediah Kerman")
+        st, a = mlib.mlr_decide(st, _lander(50021.0, vessel_name="CS Mun Lander"))
+        self.assertEqual(([], 0), (a, st.eva_recover_streak))
+        st, a = mlib.mlr_decide(st, _lander(50022.0, vessel_name="Jebediah Kerman"))
+        self.assertEqual(([], 1), (a, st.eva_recover_streak))
+        # An unread name ("") resets the streak: fail-closed.
+        st, a = mlib.mlr_decide(st, _lander(50023.0, vessel_name=""))
+        self.assertEqual(([], 0), (a, st.eva_recover_streak))
+        st, _ = mlib.mlr_decide(st, _lander(50024.0, vessel_name="Jebediah Kerman"))
+        st, a = mlib.mlr_decide(st, _lander(50025.0, vessel_name="Jebediah Kerman"))
+        self.assertEqual(mlib.MLR_EVA_FLAG, st.phase)
+        self.assertEqual([mlib.MLR_TAG_FLAG], [x.seam_tag for x in a])
+        self.assertEqual("PlantFlag", a[0].seam_verb)
+
+    def test_a_gate_timeout_reruns_the_recovery_once_under_a_new_tag(self):
+        p = self._recover()
+        st = _at(mlib.MLR_EVA, mlib.MLR_EVA_FLAG, params=p, eva_kerbal_name="Jebediah Kerman")
+        st, a = mlib.mlr_decide(st, _answer(mlib.MLR_TAG_FLAG, result="ERROR",
+                                            payload=(("msg", "flag-gate-timeout"),)))
+        self.assertIsNone(st.verdict)
+        self.assertEqual((mlib.MLR_EVA_RECOVER, mlib.MLR_RECOVER_AWAY, 1, 1),
+                         (st.phase, st.eva_recover_step, st.flag_tries, st.eva_recover_runs))
+        self.assertEqual(mlib.ACTION_SWITCH_TO_NEAREST_OTHER_VESSEL, a[0].kind)
+        # Back on the kerbal, the re-send carries the retry tag...
+        st = dataclasses.replace(st, eva_recover_step=mlib.MLR_RECOVER_BACK)
+        for ut in (50101.0, 50102.0):
+            st, a = mlib.mlr_decide(st, _lander(ut, vessel_name="Jebediah Kerman"))
+        self.assertEqual([mlib.MLR_TAG_FLAG_RETRY], [x.seam_tag for x in a])
+        # ...a stale answer under the FIRST tag is not this one's...
+        st, a = mlib.mlr_decide(st, _answer(mlib.MLR_TAG_FLAG, result="ERROR",
+                                            payload=(("msg", "flag-gate-timeout"),)))
+        self.assertEqual((mlib.MLR_EVA_FLAG, None, []), (st.phase, st.verdict, a))
+        # ...and OK under the retry tag reads the flag and boards.
+        st, a = mlib.mlr_decide(st, _answer(mlib.MLR_TAG_FLAG_RETRY, payload=_FLAG_PAYLOAD))
+        self.assertEqual((mlib.MLR_EVA_BOARD, "OK", "Mun"),
+                         (st.phase, st.flag_result, st.flag_body))
+        self.assertEqual([mlib.MLR_TAG_BOARD], [x.seam_tag for x in a])
+
+    def test_a_second_gate_timeout_gives_up_by_name(self):
+        p = self._recover()
+        st = _at(mlib.MLR_EVA, mlib.MLR_EVA_FLAG, params=p, flag_tries=1,
+                 eva_kerbal_name="Jebediah Kerman")
+        st, a = mlib.mlr_decide(st, _answer(mlib.MLR_TAG_FLAG_RETRY, result="ERROR",
+                                            payload=(("msg", "flag-gate-timeout"),)))
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn(mlib.MLR_FLAG_REFUSED, st.flake_reason)
+
+    def test_any_other_flag_error_gives_up_at_once(self):
+        p = self._recover()
+        st = _at(mlib.MLR_EVA, mlib.MLR_EVA_FLAG, params=p, eva_kerbal_name="Jebediah Kerman")
+        st, a = mlib.mlr_decide(st, _answer(mlib.MLR_TAG_FLAG, result="REJECTED",
+                                            payload=(("msg", "not-eva"),)))
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(0, st.flag_tries)
+
+    def test_without_the_knob_a_gate_timeout_gives_up_as_before(self):
+        st = _at(mlib.MLR_EVA, mlib.MLR_EVA_FLAG, eva_kerbal_name="Jebediah Kerman")
+        st, a = mlib.mlr_decide(st, _answer(mlib.MLR_TAG_FLAG, result="ERROR",
+                                            payload=(("msg", "flag-gate-timeout"),)))
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+
+    def test_a_recovery_that_never_comes_back_times_out_by_name(self):
+        p = self._recover()
+        st = _at(mlib.MLR_EVA, mlib.MLR_EVA_RECOVER, params=p,
+                 eva_recover_step=mlib.MLR_RECOVER_BACK, eva_kerbal_name="Jebediah Kerman")
+        st, a = mlib.mlr_decide(st, _lander(50000.0 + p.eva_timeout + 1.0,
+                                            vessel_name="CS Mun Lander"))
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("EVA-RECOVER", st.flake_reason)
+        self.assertIn("step back", st.flake_reason)
+
+    def test_the_shell_reads_the_vessel_name(self):
+        self.assertTrue(b13_mun_landing_return.make_control()._read_vessel_name)
+
+    def test_cs7_turns_the_recovery_on(self):
+        p = mlib.mlr_params_from_dict(_spec(CS7_SPEC)["driver"]["missionParams"])
+        self.assertEqual(20.0, p.eva_recover_seconds)
+        self.assertEqual(3, p.eva_recover_frames)
+
+
 class ShellTests(unittest.TestCase):
     def test_the_control_is_cs6s_plus_b13s_reads(self):
         mine = b13_mun_landing_return.make_control()
@@ -620,6 +755,8 @@ class ShellTests(unittest.TestCase):
 
 class SchemaAndSpecTests(unittest.TestCase):
     OWN_KEYS = set(SURFACE_PARAMS) | {"evaKerbalName", "ascentCoastWheelRelease",
+                                      "evaRagdollRecoverSeconds",
+                                      "evaRecoverConfirmFrames",
                                       "ascentCoastWheelFloorMeters",
                                       "ascentCoastWheelCeilingMeters"}
 

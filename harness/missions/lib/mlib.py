@@ -32413,8 +32413,9 @@ def evaluate_mor_assertions(frames, params: MorParams,
 #           feeding B5. B5's own rows through landedStable hold on that frame
 #           (SURFACE-COMMIT is in its phase list).
 #   EVA     [EVA-EXIT] the seam's EvaExit (release=true: off the hatch onto the
-#           Mun), [EVA-FLAG] PlantFlag, [EVA-BOARD] EvaBoard, each gated on ITS OWN
-#           tag's answer and given up by name on any answer but OK; then
+#           Mun), [EVA-RECOVER] (opt-in, evaRagdollRecoverSeconds; see THE RAGDOLL
+#           RECOVERY below), [EVA-FLAG] PlantFlag, [EVA-BOARD] EvaBoard, each gated
+#           on ITS OWN tag's answer and given up by name on any answer but OK; then
 #           [EVA-SETTLE] until the lander (liquid fuel aboard, landed on the
 #           target body) reads back as the active vessel for evaSettleFrames
 #           frames and evaSettleSeconds.
@@ -32433,6 +32434,23 @@ def evaluate_mor_assertions(frames, params: MorParams,
 # Outside the EVA block (where the active vessel is the kerbal) a reading under
 # electricChargeFloor for electricChargeDebounceFrames frames ends the flight by name
 # before any phase idles to its budget with an attitude it cannot hold.
+# THE RAGDOLL RECOVERY (evaRagdollRecoverSeconds, off by default). Released off the
+# ladder, the kerbal drops to the surface and often lands in Ragdoll. Stock
+# KerbalEVA (decompiled, CanRecover) stands a ragdolled kerbal up once its rigidbody
+# is under recoverThreshold (0.6 m/s), BUT for the ACTIVE vessel only while a
+# movement key is held (tgtRpos != 0, set only from the EVA_forward / back / left /
+# right GameSettings keys); a kerbal that is NOT the active vessel recovers on its
+# own. A scripted flight presses no key, so an active kerbal lies at rest in Ragdoll
+# forever: CS-7 runs 2026-10-28_0201, _0303 and _0325_a2 each ended the PlantFlag
+# gate at 180 s with blocked=fsm=Ragdoll and the kerbal at rest (hspd 0.000).
+# With the knob set, [EVA-RECOVER] switches the active vessel to the nearest other
+# vessel (the lander; a plain kRPC switch skipping the kerbal's name), holds until
+# the lander reads back (mlr_aboard_lander) for evaRagdollRecoverSeconds GAME s since
+# the phase's entry, switches back to the kerbal by name, and sends PlantFlag only
+# once the active vessel's NAME reads as the kerbal (read_vessel_name) for
+# evaRecoverConfirmFrames frames. A PlantFlag that still answers ERROR
+# flag-gate-timeout runs the recovery ONCE more and re-sends under its own tag
+# (cs7plantflag2); any other answer, or a second timeout, gives up by name as before.
 # THE ASCENT-COAST WHEEL RELEASE (ascentCoastWheelRelease, off by default). CS-7's
 # first flight (2026-10-27_2326) emptied the pod's 50 EC on ONE coast: MechJeb's hold
 # on the long stack (the full lander on the empty core) after the core cut off at the
@@ -32456,6 +32474,7 @@ def evaluate_mor_assertions(frames, params: MorParams,
 MLR_LAND = "MUN-LANDING"
 MLR_EVA = "EVA"
 MLR_EVA_EXIT = "EVA-EXIT"
+MLR_EVA_RECOVER = "EVA-RECOVER"
 MLR_EVA_FLAG = "EVA-FLAG"
 MLR_EVA_BOARD = "EVA-BOARD"
 MLR_EVA_SETTLE = "EVA-SETTLE"
@@ -32467,6 +32486,12 @@ MLR_TERMINAL_PHASE = MFR_TERMINAL_PHASE
 # The seam tags (each command's wire id is "<reservedId>.<tag>").
 MLR_TAG_EVA_EXIT = "cs7evaexit"
 MLR_TAG_FLAG = "cs7plantflag"
+MLR_TAG_FLAG_RETRY = "cs7plantflag2"
+# The ragdoll recovery: its two steps, the PlantFlag answer that earns one re-run.
+MLR_RECOVER_AWAY = "away"
+MLR_RECOVER_BACK = "back"
+MLR_FLAG_GATE_TIMEOUT = "flag-gate-timeout"
+MLR_FLAG_RETRY_LIMIT = 1
 MLR_TAG_BOARD = "cs7evaboard"
 # The ascent engage gate: re-issues after a disabled read streak, then the give-up.
 MLR_ASCENT_REISSUE_LIMIT = 2
@@ -32523,6 +32548,9 @@ class MlrParams:
     eva_settle_seconds: float = 5.0
     eva_settle_frames: int = 3
     eva_timeout: float = 900.0
+    # None = no ragdoll recovery (EVA-EXIT goes straight to EVA-FLAG).
+    eva_recover_seconds: Optional[float] = None
+    eva_recover_frames: int = 3
     # The Mun ascent.
     ascent_altitude: float = 20000.0
     ascent_min_periapsis: float = 10000.0
@@ -32574,6 +32602,9 @@ def mlr_params_from_dict(params: Dict) -> MlrParams:
         eva_settle_seconds=float(params.get("evaSettleSeconds", 5)),
         eva_settle_frames=int(params.get("evaSettleFrames", 3)),
         eva_timeout=float(params.get("evaPhaseTimeoutSeconds", 900)),
+        eva_recover_seconds=(None if params.get("evaRagdollRecoverSeconds") is None
+                             else float(params["evaRagdollRecoverSeconds"])),
+        eva_recover_frames=int(params.get("evaRecoverConfirmFrames", 3)),
         ascent_altitude=float(params.get("munAscentAltitudeMeters", 20000)),
         ascent_min_periapsis=float(params.get("munAscentMinPeriapsisMeters", 10000)),
         ascent_engage_frames=int(params.get("munAscentEngageConfirmFrames", 20)),
@@ -32648,6 +32679,10 @@ class MlrState:
     eva_refusal: str = ""
     eva_settle_streak: int = 0
     eva_aboard_ut: Optional[float] = None
+    eva_recover_step: str = ""
+    eva_recover_streak: int = 0
+    eva_recover_runs: int = 0
+    flag_tries: int = 0
     # The ascent.
     ascent_engaged: bool = False
     ascent_engaged_ut: Optional[float] = None
@@ -32716,7 +32751,8 @@ def mlr_initial_state(params: MlrParams) -> MlrState:
                     phases_reached=(flight.phase,))
 
 
-def mlr_eva_actions(verb: str, params: MlrParams) -> List[Action]:
+def mlr_eva_actions(verb: str, params: MlrParams,
+                    flag_tag: str = MLR_TAG_FLAG) -> List[Action]:
     """The one seam command a surface phase sends. EvaExit carries release=true
     (off the hatch onto the ground) and the named kerbal when the spec names one;
     PlantFlag and EvaBoard act on the active EVA kerbal. Pure."""
@@ -32728,11 +32764,30 @@ def mlr_eva_actions(verb: str, params: MlrParams) -> List[Action]:
                        seam_tag=MLR_TAG_EVA_EXIT)]
     if verb == "PlantFlag":
         return [Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="PlantFlag",
-                       seam_tag=MLR_TAG_FLAG)]
+                       seam_tag=flag_tag)]
     if verb == "EvaBoard":
         return [Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="EvaBoard",
                        seam_tag=MLR_TAG_BOARD)]
     raise ValueError("unknown surface verb %r" % (verb,))
+
+
+def mlr_eva_kerbal_name(state: MlrState) -> str:
+    """The EVA kerbal's vessel name: the spec's evaKerbalName, else EvaExit's own
+    ``kerbal`` payload (percent-decoded; the seam encodes the space). Pure."""
+    if state.params.eva_kerbal:
+        return state.params.eva_kerbal
+    from urllib.parse import unquote
+    return unquote(state.eva_kerbal_name or "")
+
+
+def mlr_recover_actions(step: str, kerbal: str) -> List[Action]:
+    """The ragdoll recovery's switch: AWAY to the nearest other vessel (skipping the
+    kerbal's name), BACK to the nearest vessel named as the kerbal. Pure."""
+    if step == MLR_RECOVER_AWAY:
+        return [Action(ACTION_SWITCH_TO_NEAREST_OTHER_VESSEL, text=kerbal)]
+    if step == MLR_RECOVER_BACK:
+        return [Action(ACTION_SWITCH_TO_NEAREST_NAMED_VESSEL, text=kerbal)]
+    raise ValueError("unknown recover step %r" % (step,))
 
 
 def mlr_ascent_actions(params: MlrParams) -> List[Action]:
@@ -32882,6 +32937,16 @@ def _mlr_eva_answer(state: MlrState, snapshot: TelemetrySnapshot, tag: str,
                               % (giveup, verb, result, payload))
 
 
+def _mlr_enter_recover(state: MlrState, snapshot: TelemetrySnapshot
+                       ) -> Tuple[MlrState, List[Action]]:
+    """Into EVA-RECOVER's AWAY step: switch to the lander so the kerbal, no longer
+    the active vessel, stands up on its own."""
+    out = _mfr_enter(state, MLR_EVA, MLR_EVA_RECOVER, snapshot.ut,
+                     eva_recover_step=MLR_RECOVER_AWAY, eva_recover_streak=0,
+                     eva_recover_runs=state.eva_recover_runs + 1)
+    return out, mlr_recover_actions(MLR_RECOVER_AWAY, mlr_eva_kerbal_name(state))
+
+
 def _mlr_eva(state: MlrState, snapshot: TelemetrySnapshot) -> Tuple[MlrState, List[Action]]:
     p = state.params
     if snapshot.vessel_lost:
@@ -32896,6 +32961,11 @@ def _mlr_eva(state: MlrState, snapshot: TelemetrySnapshot) -> Tuple[MlrState, Li
                               % (MLR_BOARD_NOT_ABOARD, p.eva_timeout,
                                  snapshot.body or "?", snapshot.situation or "?",
                                  _obs_fmt(snapshot.liquid_fuel))), []
+        if state.phase == MLR_EVA_RECOVER:
+            return _mfr_flake(st, "phase %s timed out after %.0f game s in step %s "
+                                  "(active vessel=%r lf=%s)"
+                              % (state.phase, p.eva_timeout, state.eva_recover_step,
+                                 snapshot.vessel_name, _obs_fmt(snapshot.liquid_fuel))), []
         return _mfr_flake(st, "phase %s timed out after %.0f game s"
                               % (state.phase, p.eva_timeout)), []
     if state.phase == MLR_EVA_EXIT:
@@ -32909,18 +32979,45 @@ def _mlr_eva(state: MlrState, snapshot: TelemetrySnapshot) -> Tuple[MlrState, Li
                       eva_kerbal_name=_seam_payload(snapshot, MLR_TAG_EVA_EXIT, "kerbal"),
                       eva_pid=_seam_payload(snapshot, MLR_TAG_EVA_EXIT, "evaPid"),
                       eva_released=_seam_payload(snapshot, MLR_TAG_EVA_EXIT, "released"))
+        if p.eva_recover_seconds is not None and mlr_eva_kerbal_name(out):
+            return _mlr_enter_recover(out, snapshot)
         return (_mfr_enter(out, MLR_EVA, MLR_EVA_FLAG, snapshot.ut),
                 mlr_eva_actions("PlantFlag", p))
+    if state.phase == MLR_EVA_RECOVER:
+        kerbal = mlr_eva_kerbal_name(st)
+        if st.eva_recover_step == MLR_RECOVER_AWAY:
+            if not mlr_aboard_lander(snapshot, p):
+                return st, []
+            if not (_is_finite(snapshot.ut)
+                    and snapshot.ut - state.phase_entry_ut >= p.eva_recover_seconds):
+                return st, []
+            return (replace(st, eva_recover_step=MLR_RECOVER_BACK, eva_recover_streak=0),
+                    mlr_recover_actions(MLR_RECOVER_BACK, kerbal))
+        if (snapshot.vessel_name or "") != kerbal:
+            return replace(st, eva_recover_streak=0), []
+        streak = st.eva_recover_streak + 1
+        if streak < p.eva_recover_frames:
+            return replace(st, eva_recover_streak=streak), []
+        tag = MLR_TAG_FLAG if st.flag_tries == 0 else MLR_TAG_FLAG_RETRY
+        out = replace(st, eva_recover_streak=streak, eva_recover_step="")
+        return (_mfr_enter(out, MLR_EVA, MLR_EVA_FLAG, snapshot.ut),
+                mlr_eva_actions("PlantFlag", p, flag_tag=tag))
     if state.phase == MLR_EVA_FLAG:
-        result, flaked = _mlr_eva_answer(st, snapshot, MLR_TAG_FLAG, "PlantFlag",
+        tag = MLR_TAG_FLAG if st.flag_tries == 0 else MLR_TAG_FLAG_RETRY
+        if (p.eva_recover_seconds is not None and st.flag_tries < MLR_FLAG_RETRY_LIMIT
+                and _seam_result(snapshot, tag) == "ERROR"
+                and _seam_payload(snapshot, tag, "msg") == MLR_FLAG_GATE_TIMEOUT
+                and mlr_eva_kerbal_name(st)):
+            return _mlr_enter_recover(replace(st, flag_tries=st.flag_tries + 1), snapshot)
+        result, flaked = _mlr_eva_answer(st, snapshot, tag, "PlantFlag",
                                          MLR_FLAG_REFUSED)
         if flaked is not None:
             return replace(flaked, flag_result=result), []
         if not result:
             return st, []
         out = replace(st, flag_result="OK",
-                      flag_site=_seam_payload(snapshot, MLR_TAG_FLAG, "flagSite"),
-                      flag_body=_seam_payload(snapshot, MLR_TAG_FLAG, "body"))
+                      flag_site=_seam_payload(snapshot, tag, "flagSite"),
+                      flag_body=_seam_payload(snapshot, tag, "body"))
         return (_mfr_enter(out, MLR_EVA, MLR_EVA_BOARD, snapshot.ut),
                 mlr_eva_actions("EvaBoard", p))
     if state.phase == MLR_EVA_BOARD:

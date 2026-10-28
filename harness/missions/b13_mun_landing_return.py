@@ -70,7 +70,7 @@ def make_control() -> mission_runner.MissionControl:
     return mission_runner.KrpcMissionControl(
         use_mechjeb=True, client_name=MISSION_NAME, read_docking=True,
         read_node_executor=True, read_periapsis=True, read_landing=True,
-        read_chute=True)
+        read_chute=True, read_vessel_name=True)
 
 
 SPEC = mission_runner.MissionSpec(
