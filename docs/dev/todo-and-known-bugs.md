@@ -75,7 +75,8 @@ goes through `ParsekScenario.RecalculateAndPatchAfterRevert`, which cuts off at 
 clock in a cutoff scene when rows lie ahead (`Revert budget walk:` line), else replays in full as
 before. This also covers a revert to the editor, which the design doc listed as the one load still
 walking without a cutoff. Cells: `RewindUtCutoffTests.InSessionRevertLoad_WithCommittedFutureRows_UsesCurrentUtCutoff`,
-`RevertBudgetWalk_*`. Lane: RW-2-crewed-relaunch-revert forbids the positive `PatchFunds` between
+`RevertBudgetWalk_*`, and the source gate `CareerSeedReadinessTests.BudgetDeduction_WalksThroughTheRevertCutoffHelper`
+(mutation-checked: a plain `RecalculateAndPatch()` in the coroutine reds it). Lane: RW-2-crewed-relaunch-revert forbids the positive `PatchFunds` between
 the EVA and the revert. Audit follow-up: `ledger_audit.py` should flag a patched walk with
 `cutoffUT=null` while committed rows lie ahead of a time-travel load's clock.
 
