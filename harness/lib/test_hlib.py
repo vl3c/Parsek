@@ -4722,7 +4722,9 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # committed rows, then the LedgerGroundTruth category's three FLIGHT cells, `total=3`
     # literal with the split regexed). Not an H-series id; CommittedBatchTallySourceSyncTests
     # gates its `total=`. It leaves on its first flight.
-    INTERIM_PIN_IDS: set = {"RW-6-refly-science-discard-merge"}
+    # RW-6-refly-science-discard-merge LEFT on the Discard Re-fly fix, run 2026-10-28_1214
+    # (passed=3 failed=0 skipped=0, pinned whole).
+    INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against

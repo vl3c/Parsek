@@ -237,7 +237,16 @@ id = "RW-6-refly-science-discard-merge"
 # (7) recordings window 39..39; (8) operator, ~18 min expected; (9) flight_efficiency.py after
 # the first green flight.
 #
-# STATUS: AUTHORED 2026-10-28 (branch `rw6-refly-science`, stacked on `rw5-refly-discard`),
+# STATUS: LIVE-PROVEN 2026-10-28 on the Discard Re-fly fix, `2026-10-28_1214` PASS attempt 1 (DLL 0216c8e5 built from 530e783, the Discard Re-fly pool fix). Attempt 1's crew
+# report was discarded without a trace (attempt 2's pod read exp:data=0, no capture); attempt 2's
+# report merged and, recovered at the Tracking Station (+2932), was credited once at its full value
+# (crewReport@KerbinSrfLandedLaunchPad 1.5 of cap 1.5; science 20.17 -> 21.67); the merged slot
+# auto-sealed and the probe re-invoke was refused; the crossing applied the committed +2932 and
+# +37500 once; 39 recordings; batch passed=3 skipped=0; LedgerGroundTruth hardFailures=0;
+# ledger_audit.py PASS but for the by-design unbound-refly-provisional lines. History: the reading
+# run `2026-10-28_1145` stalled at the second InvokeRewind (FLIGHT-only after a SPACECENTER discard),
+# fixed by the step-save re-entry. Original note: AUTHORED 2026-10-28 (branch `rw6-refly-science`,
+# stacked on `rw5-refly-discard`),
 # First flight 2026-10-28_1145: steps 1-57 met (H, F, the rewind, G and its stash, attempt 1
 # with `exp:data=0` on G's pod and `exp:data=1` after the report, the Discard and both discard
 # gates), then the second InvokeRewind deferred `not-in-flight` at the Space Center to TIMEOUT;
@@ -542,10 +551,10 @@ required = [
   "MISSIONMARK label=rw6-recover-start ut=[\\s\\S]*?Science subject captured: crewReport@KerbinSrfLandedLaunchPad amount=([0-9.]+) increment=[0-9.]+ total=\\1 gainMultiplier=1 reason='VesselRecovery' ut=1857[0-9]{2}\\.[0-9] tag='' deployed=False directLedger=True[\\s\\S]*?MISSIONMARK label=rw6-recovered ut=",
   # Filed under the merged attempt's recording (design 2.12 Rule 3: under the vessel that caused it).
   "Auto-sealed re-fly slot=0 rec=(\\S+) [\\s\\S]*?KSC science recorded: subject='crewReport@KerbinSrfLandedLaunchPad' science=[0-9.]+ method=\\S+ ut=1857[0-9]{2}\\.[0-9] recordingId=\\1 vessel='CS Flea Probe'",
-  "MISSIONMARK label=rw6-recover-start ut=[\\s\\S]*?VesselRecovery funds patched: vessel='CS Flea Probe' amount=[1-9][0-9]* ut=1857[0-9]{2}\\.[0-9] recordingId=\\S+ quick=\\S+[\\s\\S]*?MISSIONMARK label=rw6-recovered ut=",
+  "MISSIONMARK label=rw6-recover-start ut=[\\s\\S]*?VesselRecovery funds patched: vessel='CS Flea Probe' amount=2932 ut=1857[0-9]{2}\\.[0-9] recordingId=\\S+ quick=\\S+[\\s\\S]*?MISSIONMARK label=rw6-recovered ut=",
   # Credited in full, at its cap, and the pool is the pre-invoke 20.17 plus that value
   # (1.5 from the cfgs, 3 as L3 measured; owed off the first flight).
-  "MISSIONMARK label=rw6-recover-start ut=[\\s\\S]*?Earning: subject=crewReport@KerbinSrfLandedLaunchPad, awarded=(?:1\\.5, effective=1\\.5, creditedTotal=1\\.5, maxValue=1\\.5, [^\\r\\n]*(?:(?!MISSIONMARK label=rw6-before-crossing )[\\s\\S])*?\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\S+ science=21\\.67 |3, effective=3, creditedTotal=3, maxValue=3, [^\\r\\n]*(?:(?!MISSIONMARK label=rw6-before-crossing )[\\s\\S])*?\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\S+ science=23\\.17 )",
+  "MISSIONMARK label=rw6-recover-start ut=[\\s\\S]*?Earning: subject=crewReport@KerbinSrfLandedLaunchPad, awarded=1\\.5, effective=1\\.5, creditedTotal=1\\.5, maxValue=1\\.5, [^\\r\\n]*(?:(?!MISSIONMARK label=rw6-before-crossing )[\\s\\S])*?\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\S+ science=21\\.67 ",
 
   # ---- THE SLOT NOW HOLDS A COUNTED GAIN: Re-Fly is not offered ----
   "MISSIONMARK label=rw6-recovered ut=[\\s\\S]*?RetireSet gate \\(section 2\\.12 Rule 1\\): rp=rp_[0-9a-f]{32} slot=0 [^\\r\\n]*sealingRows=[1-9][0-9]* [^\\r\\n]*-> sealed by ",
@@ -572,7 +581,7 @@ required = [
   "result: hardFailures=0 ",
   # INTERIM: total=3 from the source (the LedgerGroundTruth category's FLIGHT cells); the
   # split is owed off the first flight (RW-1 / RW-3 read passed=3 skipped=0 on this host).
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

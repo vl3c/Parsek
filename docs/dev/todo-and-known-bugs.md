@@ -3168,7 +3168,8 @@ cutoff=MaxValue lift is by design, so the pools are gated before the invoke and 
 the session.
 
 Progress 2026-10-28 (branch `rw6-refly-science`, stacked on `rw5-refly-discard`): lane
-`RW-6-refly-science-discard-merge` authored, never flown, plan row 7 (Re-Fly a stage that carries science,
+`RW-6-refly-science-discard-merge` LIVE-PROVEN on the Discard Re-fly fix (`2026-10-28_1214`; evidence
+`logs/flights/rewind-campaign/rw-06-refly-science-discard-merge/`), plan row 7 (Re-Fly a stage that carries science,
 discard one attempt and merge another). RW-5's prefix (H, F, a Rewind-to-Launch, G decoupled on the pad and
 committed without science, its pod slot stashed), then two Re-Flys of the pod slot that take the Mk1 pod's crew
 report (`crewReport@KerbinSrfLandedLaunchPad`, a first reading on this host): the first is discarded through
