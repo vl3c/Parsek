@@ -723,8 +723,15 @@ namespace Parsek
                 "pending-tree-discard");
         }
 
+        /// <summary>
+        /// Pure: does the in-session load's ledger walk take the current-UT cutoff? A stock
+        /// revert takes it like any other in-session load (todo
+        /// REVERT-AFTER-REWIND-WALKS-PAST-THE-CLOCK): the revert prune has already removed the
+        /// reverted flight's own untagged rows, so any row still ahead of the loaded clock is
+        /// committed future, and a walk without the cutoff would patch its gains into the pools
+        /// before the clock reaches it.
+        /// </summary>
         internal static bool ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
-            bool isRevert,
             bool loadedSceneSupportsCurrentUtCutoff,
             bool planetariumReady,
             bool hasPendingTree,
@@ -733,8 +740,7 @@ namespace Parsek
             bool hasActiveUncommittedTree,
             bool hasFutureLedgerActions)
         {
-            return !isRevert
-                && loadedSceneSupportsCurrentUtCutoff
+            return loadedSceneSupportsCurrentUtCutoff
                 && planetariumReady
                 && !hasPendingTree
                 && restoreMode == ActiveTreeRestoreMode.None
@@ -822,7 +828,6 @@ namespace Parsek
             bool hasFutureLedgerActions = LedgerOrchestrator.HasActionsAfterUT(loadedUT);
             bool useCurrentUtCutoffForPostRewindFlightLoad =
                 ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
-                    isRevert,
                     loadedSceneSupportsCurrentUtCutoff,
                     planetariumReady,
                     hasPendingTree,
@@ -7516,8 +7521,36 @@ namespace Parsek
             // Audited for #527: this coroutine only runs on true revert follow-up
             // budget restoration. The rewind path marks this guard itself and
             // uses ApplyRewindResourceAdjustment(adjustedUT) instead.
-            LedgerOrchestrator.RecalculateAndPatch();
+            // This can run synchronously inside OnLoad (the singletons are often already
+            // there), where Planetarium may still read the pre-load clock, so the loaded save's
+            // own clock wins, as in the in-session load's walk.
+            double planetariumUT;
+            bool planetariumReady = TryReadReadyUniverseTime(out planetariumUT);
+            double revertUT = ResolveInSessionLoadLedgerClockUT(
+                KerbalsModule.ReadLoadedSaveUT(), planetariumReady, planetariumUT);
+            RecalculateAndPatchAfterRevert(HighLogic.LoadedScene, !double.IsNaN(revertUT), revertUT);
+        }
 
+        /// <summary>
+        /// The revert follow-up walk. A revert inside a rewound timeline still has committed
+        /// future rows ahead of the reverted clock, so in a cutoff scene it walks at that clock
+        /// (todo REVERT-AFTER-REWIND-WALKS-PAST-THE-CLOCK); with nothing ahead, or with no ready
+        /// clock, it is the plain full replay it always was.
+        /// </summary>
+        internal static void RecalculateAndPatchAfterRevert(
+            GameScenes loadedScene, bool clockReady, double revertUT)
+        {
+            bool cutoffScene = IsCurrentUtCutoffSupportedScene(loadedScene);
+            ParsekLog.Info("Scenario",
+                $"Revert budget walk: scene={loadedScene} cutoffScene={cutoffScene} clockReady={clockReady} " +
+                $"revertUT={revertUT.ToString("R", CultureInfo.InvariantCulture)}");
+            if (cutoffScene && clockReady)
+            {
+                LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
+                    revertUT, "revert-budget");
+                return;
+            }
+            LedgerOrchestrator.RecalculateAndPatch();
         }
 
         /// <summary>

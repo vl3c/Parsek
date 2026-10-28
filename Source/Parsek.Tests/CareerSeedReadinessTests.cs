@@ -154,6 +154,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void BudgetDeduction_WalksThroughTheRevertCutoffHelper()
+        {
+            // REVERT-AFTER-REWIND-WALKS-PAST-THE-CLOCK: the revert follow-up walk must take the
+            // current-UT cutoff when committed rows lie ahead, which only the helper decides; a
+            // plain RecalculateAndPatch() here patched the committed future into the pools.
+            string budget = ReadMethodBody(
+                "private IEnumerator ApplyBudgetDeductionWhenReady()",
+                "internal static void RecalculateAndPatchAfterRevert(");
+            Assert.Contains("RecalculateAndPatchAfterRevert(HighLogic.LoadedScene,", budget);
+            Assert.DoesNotContain("LedgerOrchestrator.RecalculateAndPatch(", budget);
+            Assert.Contains("KerbalsModule.ReadLoadedSaveUT()", budget);
+        }
+
+        [Fact]
         public void OnLoad_StartsTheRecorderBaselineTopUpRightAfterSubscribe()
         {
             string source = ReadParsekScenarioSource();

@@ -54,6 +54,34 @@ Build order is in section 3.15. Each step ships unit tests and the matching harn
 
 ---
 
+## ~~REVERT-AFTER-REWIND-WALKS-PAST-THE-CLOCK: a stock revert inside a rewound timeline patches the committed future's gains into the pools~~ [FILED AND FIXED 2026-10-28 from RW-2's first flight (`2026-10-28_0837`, PARSEK-FAIL attempt 1), branch `claude/project-thread-25edvc`; LIVE-PROVEN 2026-10-28 by RW-2 `2026-10-28_0902` PASS (funds held at 151682.18 through the revert, the +40432 applied at the crossing); product, high (future money spendable now)]
+
+After a Rewind-to-Launch, the stand-in's relaunch and a stock Revert-to-Launch loaded at
+185786.01 with committed future rows still ahead (a contract accept +37500 and H's recovery
++2932). Both revert walks ran with `cutoffUT=null`: the budget-deduction coroutine
+(`ApplyBudgetDeductionWhenReady`, which ran synchronously inside OnLoad because the currency
+singletons were already there) called the plain `RecalculateAndPatch()`, and the in-session
+decision `ShouldUseCurrentUtCutoffForPostRewindFlightLoad` rejected the cutoff on `isRevert`
+alone (`useCurrentUtCutoff=False ... isRevert=True ... hasFutureLedgerActions=True`). So
+`PatchFunds: 151682.2 -> 192114.2 (delta=40432.0)` and the future accept counted as Active until
+the next load (a Space Center scene change about 6 s later) walked with the cutoff again.
+`ledger_audit.py` passed the run: the ledger and KSP agreed because the ledger's own target was
+past the clock.
+
+**Fix.** A revert takes the current-UT cutoff like every other in-session load: the predicate no
+longer reads `isRevert` (the revert prune has already removed the reverted flight's own untagged
+rows, so a row still ahead of the loaded clock is committed future), and the revert follow-up walk
+goes through `ParsekScenario.RecalculateAndPatchAfterRevert`, which cuts off at the loaded save's
+clock in a cutoff scene when rows lie ahead (`Revert budget walk:` line), else replays in full as
+before. This also covers a revert to the editor, which the design doc listed as the one load still
+walking without a cutoff. Cells: `RewindUtCutoffTests.InSessionRevertLoad_WithCommittedFutureRows_UsesCurrentUtCutoff`,
+`RevertBudgetWalk_*`, and the source gate `CareerSeedReadinessTests.BudgetDeduction_WalksThroughTheRevertCutoffHelper`
+(mutation-checked: a plain `RecalculateAndPatch()` in the coroutine reds it). Lane: RW-2-crewed-relaunch-revert forbids the positive `PatchFunds` between
+the EVA and the revert. Audit follow-up: `ledger_audit.py` should flag a patched walk with
+`cutoffUT=null` while committed rows lie ahead of a time-travel load's clock.
+
+---
+
 ## ~~MILESTONE-ORBIT-BODY-UNQUALIFIED: every body's Orbit, Suborbit and Flight milestone is captured as one bare id, so the first Kerbin orbit completes them all and the Mun orbit is never paid~~ [FILED AND FIXED 2026-10-27 on branch `milestone-public-body`, found from CS-4b's ground truth (`2026-10-27_1957`, report-only `facet=Milestone kind=MissingInRecon id=Kerbin/Orbit`); PR #2301; LIVE-PROVEN 2026-10-27 by CS-6 `2026-10-27_2202` (`Milestone enriched: 'Mun/Orbit' funds=24960`, zero bare `'Orbit'` lines); product, high (an earned reward never paid)]
 
 Observed: CS-4's career ledger books the first orbit as `milestoneId = Orbit`, while its Landing,
@@ -663,8 +691,8 @@ patched it back down, which turns the build into debt and spends money the caree
 
 **Fix.** EDITOR takes the current-UT cutoff like FLIGHT, the Space Center and the Tracking Station
 (in-session load, cold load reconcile and the deferred seed all read the same predicate). The
-editor clock does not move, so it needs no clock cursor; a revert to the editor still walks plain
-(`isRevert`). Cells: `RewindUtCutoffTests.CurrentUtCutoffSupportedScene_AcceptsFlightSpaceCenterTrackingStationAndEditor`,
+editor clock does not move, so it needs no clock cursor; a revert to the editor walked plain
+(`isRevert`) until REVERT-AFTER-REWIND-WALKS-PAST-THE-CLOCK. Cells: `RewindUtCutoffTests.CurrentUtCutoffSupportedScene_AcceptsFlightSpaceCenterTrackingStationAndEditor`,
 `EditorLoadLedgerCutoffTests` (mutation-checked). Lane: L13 requires the editor load's
 `useCurrentUtCutoff=True ... loadedScene=EDITOR` line.
 
@@ -2914,6 +2942,21 @@ once at the crossing; LedgerGroundTruth hardFailures=0 and `ledger_audit.py` PAS
 host: the tech half of RW-4 and RW-11's tech buy (20.17 science, every affordable node owned) and
 RW-10 (no applicant in the roster and `hire-kerbal` resolves by name only; needs a seeded applicant
 or an applicant-first seam argument). Evidence: `logs/flights/rewind-campaign/rw-01-ksc-economy/`.
+RW-2-crewed-relaunch-revert (plan rows 13, 14) found REVERT-AFTER-REWIND-WALKS-PAST-THE-CLOCK on its first
+flight (`2026-10-28_0837`) and is LIVE-PROVEN on the fix (`2026-10-28_0902`): the reserved kerbal is
+swapped for a stand-in, the revert prunes only its own untagged row and now walks at the clock.
+Evidence: `logs/flights/rewind-campaign/rw-02-crewed-relaunch-revert{,-run2}/`.
+
+Progress 2026-10-28 (branch `rw2-crewed-revert`): lane `RW-2-crewed-relaunch-revert` authored, never flown,
+plan rows 13 (crewed launch after a rewind) and 14 (revert inside a rewound timeline): RW-1's committed pad
+flight with Jebediah and its contract accept, a Rewind-to-Launch, a relaunch whose VAB manifest swaps Jeb for his
+stand-in, the stand-in's pad EVA (Kerbin SurfaceEVA, an untagged row), Revert to Launch pruning that row and
+keeping the committed accept, the stand-in recovered, a flight warp across the committed rows, LedgerGroundTruth.
+Corrections to the plan from the code: the stand-in's experience reaches the roster but not the ledger (an
+unrecorded recovery's XP row is refused, `no-recovery-recording`, by design), and `Revert (Launch): pruned N`
+needs an in-flight untagged earning (a pad flight's rollout shares the post-init frame and is kept), hence the EVA.
+Open question the RW-1 log raises: after the rewind Jeb's hold ends at H's recording end (185807.6, the KSC
+retirement bound), not at H's committed recovery (186000.2), so the rewound timeline frees him early.
 
 ---
 
