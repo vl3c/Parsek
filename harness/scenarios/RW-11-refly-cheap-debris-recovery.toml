@@ -156,7 +156,10 @@ steps = [
   { cmd = "SaveGame",       args = { name = "rw11-05-after-crossing" },                   expect = "OK", budget = 120 },
 
   # ---- the check: an unrecorded launch onto the pad, the save, the ground truth ----
-  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  # The CS Flea Probe, not the Jumping Flea: Jebediah is still reserved by the committed G and
+  # his stand-in sits in the merged pod on the grass, so the pod rolls out empty, and only the
+  # Stayputnik keeps stock's "No Control" launch dialog away (run `2026-10-28_1910` stalled on it, stopped).
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "CS Flea Probe" },          expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
   { cmd = "WarpToUT",       args = { ut = "186130" },                                      expect = "OK", budget = 120 },
   { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
@@ -197,6 +200,12 @@ required = [
   # ---- the merge and the cheap recovery: under 100 funds, kept and booked once ----
   "MISSIONMARK label=rw11-exploded ut=[\\s\\S]*?MISSIONMARK label=rw11-merged ut=",
   "MISSIONMARK label=rw11-exploded ut=(?:(?!MISSIONMARK label=rw11-before-rewind )[\\s\\S])*?Game state: FundsChanged \\+[1-9][0-9]?(?:\\.[0-9]+)? \\(VesselRecovery\\)",
+  # Stock's clean-up recovers each fin inside its own payout scope, and the row is booked at
+  # stock's exact 25. The row is UNTAGGED (recordingId=(none)): a one-part fin is trivial debris,
+  # never given a recording (`skippedTrivial=`), so the clean-up has no owner to resolve and the
+  # row is a Space Center row dated at the clean-up (`2026-10-28_1910` measured both).
+  "MISSIONMARK label=rw11-landed ut=(?:(?!MISSIONMARK label=rw11-exploded )[\\s\\S])*?ProcessBreakupEvent: JointBreak attached to tree=[0-9a-f]{32}, [^\\r\\n]*debris=([1-9]), skippedTrivial=\\1,",
+  "MISSIONMARK label=rw11-exploded ut=(?:(?!MISSIONMARK label=rw11-before-rewind )[\\s\\S])*?Recovery scope opened: route=proto-vessel-clean vessel='CS Flea Probe Debris' pid=([0-9]+) [\\s\\S]*?Game state: FundsChanged \\+25 \\(VesselRecovery\\)[\\s\\S]*?VesselRecovery funds patched: vessel='CS Flea Probe Debris' amount=25 ut=1860[0-9]{2}\\.[0-9] recordingId=\\(none\\) quick=True[\\s\\S]*?Recovery scope closed: route=proto-vessel-clean vessel='CS Flea Probe Debris' pid=\\1 owner=unresolved recordingId=\\(none\\) ",
   "MISSIONMARK label=rw11-exploded ut=(?:(?!MISSIONMARK label=rw11-before-rewind )[\\s\\S])*?VesselRecovery funds patched: vessel='[^'\\r\\n]*' amount=[1-9][0-9]? ut=",
 
   # ---- the rewind and the crossing: the recovery crosses, the pools come back ----
