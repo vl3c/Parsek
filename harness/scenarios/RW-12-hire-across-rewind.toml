@@ -134,7 +134,7 @@ required = [
   "MISSIONMARK label=rw12-before-hire ut=(?:(?!MISSIONMARK label=rw12-hired )[\\s\\S])*?kscaction hire-kerbal resolved applicant-first -> '[^'\\r\\n]+' applicants=[1-9][0-9]*",
   "MISSIONMARK label=rw12-before-hire ut=(?:(?!MISSIONMARK label=rw12-hired )[\\s\\S])*?kscaction action=hire-kerbal target=[^\\r\\n]* applied=true",
   "MISSIONMARK label=rw12-before-hire ut=(?:(?!MISSIONMARK label=rw12-hired )[\\s\\S])*?Game state: FundsChanged -[0-9]+ \\(CrewRecruited\\)",
-  "MISSIONMARK label=rw12-before-hire ut=(?:(?!MISSIONMARK label=rw12-hired )[\\s\\S])*?KSC spending recorded: type=KerbalHire, UT=1859[0-9]{2}\\.[0-9]",
+  "MISSIONMARK label=rw12-before-hire ut=(?:(?!MISSIONMARK label=rw12-hired )[\\s\\S])*?KSC spending recorded: type=KerbalHire, UT=(?:18589|18590)[0-9]\\.[0-9]",
 
   # ---- the rewind ----
   "MISSIONMARK label=rw12-before-rewind ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=rw12-rewound ut=1857[0-9]{2}\\.",
@@ -144,7 +144,7 @@ required = [
   "MISSIONMARK label=rw12-rewound ut=(?:(?!MISSIONMARK label=rw12-refused )[\\s\\S])*?kscaction refused action=hire-kerbal reason=blocked-committed target=",
 
   # ---- the crossing: the row reached once, the kerbal promoted, no second charge ----
-  "MISSIONMARK label=rw12-refused ut=(?:(?!MISSIONMARK label=rw12-crossed )[\\s\\S])*?Clock-crossing reached committed-future rows: [^\\r\\n]*KerbalHire@1859[0-9]{2}\\.",
+  "MISSIONMARK label=rw12-refused ut=(?:(?!MISSIONMARK label=rw12-crossed )[\\s\\S])*?Clock-crossing reached committed-future rows: [^\\r\\n]*KerbalHire@(?:18589|18590)[0-9]\\.",
   "kscaction hire-kerbal resolved applicant-first -> '([^'\\r\\n]+)' [\\s\\S]*?MISSIONMARK label=rw12-refused ut=(?:(?!MISSIONMARK label=rw12-crossed )[\\s\\S])*?Committed hire applied: '\\1' Applicant -> Crew as the clock reached its row",
   "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw12-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw12-crossed ut=",
 
