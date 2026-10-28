@@ -3167,6 +3167,31 @@ Landed (closed), so the lane stashes the pod's slot before any load would reap t
 cutoff=MaxValue lift is by design, so the pools are gated before the invoke and after the discard, not inside
 the session.
 
+Progress 2026-10-28 (branch `rw6-refly-science`, stacked on `rw5-refly-discard`): lane
+`RW-6-refly-science-discard-merge` LIVE-PROVEN on the Discard Re-fly fix (`2026-10-28_1214`; evidence
+`logs/flights/rewind-campaign/rw-06-refly-science-discard-merge/`), plan row 7 (Re-Fly a stage that carries science,
+discard one attempt and merge another). RW-5's prefix (H, F, a Rewind-to-Launch, G decoupled on the pad and
+committed without science, its pod slot stashed), then two Re-Flys of the pod slot that take the Mk1 pod's crew
+report (`crewReport@KerbinSrfLandedLaunchPad`, a first reading on this host): the first is discarded through
+the Esc menu (the report never reaches the ledger, the second attempt's pod reads `exp:data=0`, the walk's pools
+and row count equal the pre-invoke ones, and no live funds patch follows the discard load); the second merges
+(the HEAD / TIP split, supersede rows, 0 tombstones, `mergeState=Immutable` by `stableTerminalFocusSlot`) and its
+pod is recovered from the Tracking Station, which credits the subject once at full value under the merged
+recording with the science pool equal to the pre-invoke 20.17 plus that value; then InvokeRewind on the same
+slot must be refused `refly-gate recordingAction:` (the "not offered" half, `SupersedeCommit.RetireSetHoldsSealingRow`).
+Corrections to the plan from the code: "recovers or transmits it" cannot be driven inside a session on this
+craft (the pod's only antenna is INTERNAL, and the Recover verb refuses a live session's scene exit as
+`dialog-required` because it raises the Re-Fly merge modal), so the discarded report stays aboard as data and
+the merged one is credited by the post-merge Tracking Station recovery. The lane reds on the RW-5 discard funds
+defect (`PatchFunds: 150632.2 -> 110200.2`) until its fix lands, and forbids the same mis-read on the merge's own
+Space Center load. First flight `2026-10-28_1145`: steps 1-57 met (attempt 1's report
+read `exp:data=1`, the Discard and both discard gates matched, the RW-5 funds defect fired as expected),
+then the second InvokeRewind deferred `not-in-flight` at the Space Center to TIMEOUT (InvokeRewind is
+FLIGHT-only, TestCommandDispatcher.cs:497). Re-cut: RF-3's re-entry, a mid-session LoadGame with no scene arg
+of the discard's step save (an InSession load onto the host's debris, pinned with unmoved pools), and the
+sealed-slot probe moved into the check flight. RW-5's three pins its first flight disproved (truncated=true,
+`stashslot rejected`, the unbound-provisional forbid) are fixed on its branch (796808140) and merged here.
+
 ---
 
 ## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
