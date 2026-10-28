@@ -42,8 +42,17 @@ id = "RW-13-tech-research-across-rewind"
 #   PatchCommittedTechUnlocks: madeAvailable=            GameActions/KspStatePatcher.cs (RW-8)
 #   PatchTechTree: ... madeUnavailableIds=[...]          GameActions/KspStatePatcher.cs (RW-8)
 #
-# STATUS: AUTHORED 2026-10-28 (branch `rw13-tech`), NEVER FLOWN. The recordings count and the
-# batch split are interim until measured.
+# STATUS: LIVE-PROVEN 2026-10-28, `2026-10-28_2114` PASS attempt 1 (DLL 9d907c87, main 43df8d097). advRocketry
+# researched at 119759.9 (`ScienceChanged -45.0 (RnDTechResearch) -> 5.5`, one `TechResearched`,
+# one KSC ScienceSpending row; its seven parts unlocked at chargedCost=0, BypassEntryPurchase on).
+# The rewind's walk re-locked it (`madeUnavailableIds=[advRocketry]`), the second research was
+# refused `insufficient-science` (the live pool 5.5: the committed row reserves its 45), the
+# crossing named `ScienceSpending@119759.94` once with the part rows and
+# `PatchCommittedTechUnlocks: madeAvailable=1 ... [advRocketry]`, a probe then answered
+# `node-already-unlocked`; science 50.5 -> 5.5 once, funds unchanged; no pool adjustment, no guard
+# clamp; LedgerGroundTruth 3/3 hardFailures=0; ledger_audit PASS. Before it: `_2106` stopped at a
+# popup step (the measured refusal opens none), `_2111` / `_2113` INVALID on the KSP window losing
+# focus on the PC (ApplicationFocus input locks), `_2111` meeting every lane pin before it.
 # =====================================================================================
 tier = "operator"
 description = "Rewind ledger campaign, a tech node researched with science inside a committed timeline: on cs-career-mun2 a committed pad Flea, then advRocketry researched at T1 for 45 science; after a Rewind-to-Launch before T1 the node is locked again and a second research is blocked as committed future, and the warp past T1 unlocks it through the committed row with the science spent exactly once; LedgerGroundTruth closes the career."
@@ -121,8 +130,8 @@ D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The host's 21 recordings plus H; the check launch is unrecorded. INTERIM window.
-count = { min = 22, max = 23 }
+# The host's 21 recordings plus H; the check launch is unrecorded. Measured on `2026-10-28_2114`.
+count = 22
 
 [expectations.logContracts]
 required = [
@@ -156,7 +165,7 @@ required = [
   "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw13-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw13-crossed ut=",
 
   # ---- the ground truth ----
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
   "result: hardFailures=0 ",
 ]
 forbidden = [
