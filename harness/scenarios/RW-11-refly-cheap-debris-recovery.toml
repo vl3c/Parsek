@@ -61,7 +61,15 @@ id = "RW-11-refly-cheap-debris-recovery"
 #   Clock-crossing reached committed-future rows:       GameActions/LedgerOrchestrator.cs
 #   partaction applied button=explode                   TestCommands/TestCommandPartAction.cs
 #
-# STATUS: AUTHORED 2026-10-28 (branch `rw11-cheap-debris`); the first flight a lane-design miss (above). The number of fins
+# STATUS: LIVE-PROVEN 2026-10-28, `2026-10-28_1919` PASS attempt 1 (DLL faa3d04d, branch fff626e9f: main 7c5c58126 plus the chute button). The Flea landed under its
+# chute, the booster went at 186000.1 (3 fins, `skippedTrivial=3`), and the merge's Space
+# Center clean-up recovered 2 of them: `VesselRecovery funds patched: vessel='CS Flea Probe Debris'
+# amount=25 ut=186015.1 recordingId=(none) quick=True` twice (stock's own line says 24: the
+# payout is 24.5, stock rounds half to even and the F0 log half away). After the Rewind-to-Launch
+# `crossed=2 [FundsEarning@186015.13, FundsEarning@186015.13]`; the pools after the crossing equal
+# those before the rewind; no pool adjustment, no guard clamp, no skipped pairing; LedgerGroundTruth
+# 3/3 hardFailures=0; ledger_audit PASS. Before it: `_1854` (pad-deck debris never cleaned) and
+# `_1910` (stopped at the uncrewed check launch), both lane-design misses. The number of fins
 # that fall free and are recovered, the recovery UT, the recordings count and the batch split
 # are interim until measured.
 # =====================================================================================
@@ -179,7 +187,7 @@ allowedAnomalies = []
 [expectations.recordings]
 # The host's 34, G's launch recording and its stand, the TIP the merge's split cuts, the merged
 # attempt's recording, and the debris recordings of the exploded booster's fins. INTERIM window.
-count = { min = 38, max = 44 }
+count = 39
 
 [expectations.logContracts]
 required = [
@@ -214,7 +222,7 @@ required = [
   "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw11-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw11-crossed ut=",
 
   # ---- the ground truth ----
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
   "result: hardFailures=0 ",
 ]
 forbidden = [
