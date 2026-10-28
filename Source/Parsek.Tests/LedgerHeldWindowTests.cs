@@ -637,5 +637,71 @@ namespace Parsek.Tests
             Assert.False(LiveOnlyIncome.ShouldDrop(row, 185795.0));
             Assert.True(LiveOnlyIncome.ShouldDrop(row, 185788.0));
         }
+        private static GameAction CheatIncome(double ut, float funds) =>
+            new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.FundsEarning,
+                FundsAwarded = funds,
+                FundsSource = FundsEarningSource.Other,
+                IncomeReason = "Cheating"
+            };
+
+        [Fact]
+        public void PlainRewind_KeepsLiveOnlyIncomeEarnedInTheLeadWindow_DropsOnlyIncomeAfterTheSave()
+        {
+            var window = CheatIncome(SaveUT - 5.0, 1000f);
+            var after = CheatIncome(SaveUT + 30.0, 500f);
+            AddAll(FundsSeed(10000f), window, after);
+
+            // The defect: the wound-back clock as the drop UT forgets the window's income.
+            Assert.True(LiveOnlyIncome.ShouldDrop(window,
+                ParsekScenario.ResolvePlainRewindBreakUT(WoundBackUT, SaveUT)));
+
+            double worldUT = ParsekScenario.ResolvePlainRewindWorldUT(WoundBackUT, SaveUT, double.NaN);
+            Assert.Equal(SaveUT, worldUT);
+            Assert.Equal(1, LiveOnlyIncome.DropAfterTimeTravelLoad(LoadKind.PlainRewind, worldUT));
+            Assert.Contains(window, Ledger.Actions);
+            Assert.DoesNotContain(after, Ledger.Actions);
+
+            LedgerHeldWindow.SetAtRewind(WoundBackUT, SaveUT, double.NaN);
+            LedgerOrchestrator.RecalculateAndPatch(WoundBackUT, suppressSuspiciousDrawdownWarnings: true);
+            // The rewind save's world holds the cheat: the pool is not written 1000 low.
+            Assert.Equal(11000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+        }
+
+        [Fact]
+        public void PlainRewind_TimelineBreakAtTheWorldUT_KeepsAWindowWitnessRemembered()
+        {
+            var witness = IdentityWitness.At(SaveUT - 5.0, 10, "window credit");
+            var atWoundBack = new List<TimelineBreak>
+            {
+                new TimelineBreak { CaptureHighWater = 20, UT = ParsekScenario.ResolvePlainRewindBreakUT(WoundBackUT, SaveUT), Kind = "PlainRewind" }
+            };
+            var atWorld = new List<TimelineBreak>
+            {
+                new TimelineBreak { CaptureHighWater = 20, UT = ParsekScenario.ResolvePlainRewindWorldUT(WoundBackUT, SaveUT, double.NaN), Kind = "PlainRewind" }
+            };
+            // The rewind save's world holds a credit made in the lead window, so stock will
+            // not pay its repeat again: the witness is not forgotten.
+            Assert.True(StockShadowTakeBack.IsWitnessForgotten(witness, 30, atWoundBack));
+            Assert.False(StockShadowTakeBack.IsWitnessForgotten(witness, 30, atWorld));
+            // A credit after the save UT is still forgotten.
+            Assert.True(StockShadowTakeBack.IsWitnessForgotten(
+                IdentityWitness.At(SaveUT + 10.0, 10, "later credit"), 30, atWorld));
+        }
+
+        [Fact]
+        public void InSessionLoadIntoAWindowSave_AndTheReFlyBundleDrop_ReadTheCarriedFloor()
+        {
+            var window = CheatIncome(SaveUT - 5.0, 1000f);
+            AddAll(FundsSeed(10000f), window);
+            // A save written inside the window, loaded: the prologue installs its floor.
+            LedgerHeldWindow.InstallAfterLoad(SaveUT - 8.0, SaveUT, "test load");
+            Assert.Equal(0, LiveOnlyIncome.DropAfterTimeTravelLoad(LoadKind.StockRevert,
+                LedgerHeldWindow.ResolveLedgerNowUT(SaveUT - 8.0)));
+            Assert.Equal(0, LiveOnlyIncome.DropAfterReFlyBundleRestore(SaveUT - 8.0, SaveUT - 8.0));
+            Assert.Contains(window, Ledger.Actions);
+        }
     }
 }

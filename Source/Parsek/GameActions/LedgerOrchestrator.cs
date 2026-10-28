@@ -3456,7 +3456,9 @@ namespace Parsek
                 bool inLoad = ParsekScenario.IsOnLoadInProgress;
                 captureUT = ResolveSeedCaptureUT(
                     inLoad, inLoad ? ReadLoadedFlightStateUT() : double.NaN,
-                    inLoad ? double.NaN : GetNowUT());
+                    // The raw clock, not the ledger's held now: the capture UT is compared
+                    // with recording rows, which keep their trajectory UTs.
+                    inLoad ? double.NaN : GetRawClockUT());
             }
             catch (Exception ex)
             {

@@ -4089,16 +4089,19 @@ namespace Parsek
                         // Timeline break (design 3.15 step 5): a plain rewind keeps the in-memory
                         // ledger and loads the rewind save's stock state. This branch returns
                         // before the refined classification below, so it records its own break.
+                        // Both read the rewind save's WORLD UT, not the wound-back clock: the
+                        // world holds everything up to the save's own UT (and the held-through
+                        // UT it carries), so income earned in the lead window is not forgotten
+                        // (todo REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE).
                         loadPhase = "timeline-break";
+                        double rewindWorldUT = ResolvePlainRewindWorldUT(
+                            KerbalsModule.ReadLoadedSaveUT(), RewindContext.RewindSaveOwnClockUT,
+                            RewindContext.RewindSaveLedgerHeldThroughUT);
                         StockShadowTakeBack.NoteLoad(
-                            LoadKind.PlainRewind,
-                            ResolvePlainRewindBreakUT(KerbalsModule.ReadLoadedSaveUT(), RewindContext.RewindSaveOwnClockUT),
-                            CaptureSequence.CurrentHighWater());
+                            LoadKind.PlainRewind, rewindWorldUT, CaptureSequence.CurrentHighWater());
                         // Live-only income (design 3.15 step 9): the rewind save's stock state
                         // forgets income no ledger channel converts that was earned after its UT.
-                        LiveOnlyIncome.DropAfterTimeTravelLoad(
-                            LoadKind.PlainRewind,
-                            ResolvePlainRewindBreakUT(KerbalsModule.ReadLoadedSaveUT(), RewindContext.RewindSaveOwnClockUT));
+                        LiveOnlyIncome.DropAfterTimeTravelLoad(LoadKind.PlainRewind, rewindWorldUT);
 
                         loadPhase = "rewind";
                         HandleRewindOnLoad(node, recordings);
@@ -4266,11 +4269,15 @@ namespace Parsek
                     // Timeline break (design 3.15 step 5): a load that keeps the in-memory
                     // ledger and loads an earlier stock state makes stock forget every credit
                     // after the loaded UT, so a later live repeat of one is a duplicate payment.
+                    // The loaded world's UT: the loaded clock raised to the held-through UT the
+                    // prologue installed from this save (a save written inside a Rewind-to-Launch
+                    // lead window holds everything up to it).
+                    double loadedWorldUT = LedgerHeldWindow.ResolveLedgerNowUT(KerbalsModule.ReadLoadedSaveUT());
                     StockShadowTakeBack.NoteLoad(
-                        refinedLoadKind, KerbalsModule.ReadLoadedSaveUT(), CaptureSequence.CurrentHighWater());
+                        refinedLoadKind, loadedWorldUT, CaptureSequence.CurrentHighWater());
                     // Live-only income (design 3.15 step 9): the same load forgets income no
                     // ledger channel converts that was earned after the loaded UT.
-                    LiveOnlyIncome.DropAfterTimeTravelLoad(refinedLoadKind, KerbalsModule.ReadLoadedSaveUT());
+                    LiveOnlyIncome.DropAfterTimeTravelLoad(refinedLoadKind, loadedWorldUT);
 
                     // Vessel names (design 7.6, ruling 5): a stock revert or Discard Re-fly cancels
                     // the current flight epoch, and with it the stock renames made inside it.
@@ -5347,6 +5354,22 @@ namespace Parsek
             }
 
             RewindInvoker.ConsumePostLoad(loadedScenarioNode);
+        }
+
+        /// <summary>
+        /// Pure: the world UT a plain rewind's timeline break and live-only income drop read.
+        /// The loaded clock is the wound-back one (the lead window); the world is the rewind
+        /// save's own (<see cref="LedgerHeldWindow.ResolveAtRewind"/>: its own UT raised to the
+        /// held-through UT it carries) whenever that lies ahead of it, else
+        /// <see cref="ResolvePlainRewindBreakUT"/>.
+        /// </summary>
+        internal static double ResolvePlainRewindWorldUT(
+            double loadedSaveUT, double rewindSaveOwnClockUT, double carriedHeldThroughUT)
+        {
+            double held = LedgerHeldWindow.ResolveAtRewind(loadedSaveUT, rewindSaveOwnClockUT, carriedHeldThroughUT);
+            if (LedgerHeldWindow.IsUsableHeldUT(held))
+                return held;
+            return ResolvePlainRewindBreakUT(loadedSaveUT, rewindSaveOwnClockUT);
         }
 
         /// <summary>

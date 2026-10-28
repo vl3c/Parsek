@@ -73,7 +73,13 @@ the rewind's baseline prune. Rows after it stay committed future and cross once 
 load but a plain rewind installs the loaded save's copy while its clock is behind it (policy
 category `LedgerHeldWindow`), the Discard Re-fly splice keeps the rewind point's own, the rewind's
 persistent.sfs write carries the new one, and a trusted clock (OnSave, the clock cursor, a time jump)
-expires it once reached. No row is rewritten. Tests: `LedgerHeldWindowTests` (the second paid repair
+expires it once reached. The time-travel facts read the loaded WORLD UT, not the wound-back clock:
+the plain rewind's timeline break and live-only income drop run at `ResolvePlainRewindWorldUT` (the
+rewind save's own UT raised to its carried floor, else the loaded clock as before), and the in-session
+break / drop and the Re-Fly bundle drop at the loaded clock raised to the floor the load installed, so
+income stock paid in the window (a cheat, a Making History reward, a mod payment) is not dropped and
+the authoritative rewind patch does not write the pool below stock's; a credit made in the window is
+not read as forgotten by the identity-repeat rule either. No row is rewritten. Tests: `LedgerHeldWindowTests` (the second paid repair
 and the crossing re-fire reproduced without the floor and refused with it). Not shared by Re-Fly (an RP
 quicksave loads at its own clock) or `TimeJumpManager` (forward only: nothing ahead is held). The
 Timeline window still draws the window's rows ahead of its now line (display only). Owed: a flight of
@@ -110,7 +116,8 @@ absent reads NaN), and every reader that pairs a row with a game-state event or 
 `LedgerHeldWindow.CaptureMomentUT`: the KSC reconcile (`KscActionReconciler`, so two window charges
 stock coalesced into one event still reconcile), milestone enrichment and the record-threshold
 coalesce, the pending-recent KSC science helpers (which now take the raw clock, `GetRawClockUT`: the
-first commit's floored `GetNowUT` made them miss their own event inside the window), the post-walk
+first commit's floored `GetNowUT` made them miss their own event inside the window; the live-pool
+reputation seed's capture UT reads the raw clock too, since recording rows keep raw UTs), the post-walk
 reconcile, the load migrations' event matches and the live-only income time-travel drop. Flight rows
 are NOT restamped: a row tagged to a recording belongs to its trajectory's UTs (playback, the
 recording's own event and threshold pairing, its commit and supersede all key on them), and the
