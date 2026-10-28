@@ -608,7 +608,9 @@ class RagdollRecoverTests(unittest.TestCase):
         st, a = self._exit_ok(self._recover())
         self.assertEqual((mlib.MLR_EVA_RECOVER, mlib.MLR_RECOVER_AWAY, 1),
                          (st.phase, st.eva_recover_step, st.eva_recover_runs))
-        self.assertEqual([Action(mlib.ACTION_SWITCH_TO_NEAREST_OTHER_VESSEL,
+        # The kerbal's own handle is captured FIRST, while he is still active.
+        self.assertEqual([Action(mlib.ACTION_CAPTURE_HOME_VESSEL),
+                          Action(mlib.ACTION_SWITCH_TO_NEAREST_OTHER_VESSEL,
                                  text="Jebediah Kerman")], a)
 
     def test_the_seam_name_is_percent_decoded(self):
@@ -616,11 +618,11 @@ class RagdollRecoverTests(unittest.TestCase):
         st = _at(mlib.MLR_EVA, mlib.MLR_EVA_EXIT, params=p)
         payload = (("kerbal", "Jebediah%20Kerman"),) + _EXIT_PAYLOAD[1:]
         st, a = mlib.mlr_decide(st, _answer(mlib.MLR_TAG_EVA_EXIT, payload=payload))
-        self.assertEqual("Jebediah Kerman", a[0].text)
+        self.assertEqual("Jebediah Kerman", a[1].text)
 
     def test_the_spec_name_wins(self):
         st, a = self._exit_ok(self._recover(evaKerbalName="Bill Kerman"))
-        self.assertEqual("Bill Kerman", a[0].text)
+        self.assertEqual("Bill Kerman", a[1].text)
 
     def test_away_holds_until_the_lander_reads_and_the_dwell_passes(self):
         p = self._recover()
@@ -635,7 +637,8 @@ class RagdollRecoverTests(unittest.TestCase):
         # The lander past the dwell: switch back by name.
         st, a = mlib.mlr_decide(st, _lander(50020.0))
         self.assertEqual(mlib.MLR_RECOVER_BACK, st.eva_recover_step)
-        self.assertEqual([Action(mlib.ACTION_SWITCH_TO_EVA_KERBAL,
+        self.assertEqual([Action(mlib.ACTION_SWITCH_TO_HOME_VESSEL),
+                          Action(mlib.ACTION_SWITCH_TO_EVA_KERBAL,
                                  text="Jebediah Kerman")], a)
 
     def test_back_sends_the_flag_after_the_name_confirms(self):
@@ -663,7 +666,8 @@ class RagdollRecoverTests(unittest.TestCase):
         self.assertIsNone(st.verdict)
         self.assertEqual((mlib.MLR_EVA_RECOVER, mlib.MLR_RECOVER_AWAY, 1, 1),
                          (st.phase, st.eva_recover_step, st.flag_tries, st.eva_recover_runs))
-        self.assertEqual(mlib.ACTION_SWITCH_TO_NEAREST_OTHER_VESSEL, a[0].kind)
+        self.assertEqual([mlib.ACTION_CAPTURE_HOME_VESSEL,
+                          mlib.ACTION_SWITCH_TO_NEAREST_OTHER_VESSEL], _kinds(a))
         # Back on the kerbal, the re-send carries the retry tag...
         st = dataclasses.replace(st, eva_recover_step=mlib.MLR_RECOVER_BACK)
         for ut in (50101.0, 50102.0):
@@ -758,7 +762,8 @@ class SwitchBackAndExitRetryTests(unittest.TestCase):
         self.assertEqual("none", mlib.format_switch_candidates([]))
 
     def test_the_back_step_switches_to_the_eva_kerbal(self):
-        self.assertEqual([Action(mlib.ACTION_SWITCH_TO_EVA_KERBAL, text="Jebediah Kerman")],
+        self.assertEqual([Action(mlib.ACTION_SWITCH_TO_HOME_VESSEL),
+                          Action(mlib.ACTION_SWITCH_TO_EVA_KERBAL, text="Jebediah Kerman")],
                          mlib.mlr_recover_actions(mlib.MLR_RECOVER_BACK, "Jebediah Kerman"))
 
     def test_a_kerbal_that_reads_back_without_fuel_confirms(self):
@@ -781,7 +786,8 @@ class SwitchBackAndExitRetryTests(unittest.TestCase):
         st, a = mlib.mlr_decide(st, _lander(50014.0))
         self.assertEqual([], a)
         st, a = mlib.mlr_decide(st, _lander(50015.0))
-        self.assertEqual([mlib.ACTION_SWITCH_TO_EVA_KERBAL], _kinds(a))
+        self.assertEqual([mlib.ACTION_SWITCH_TO_HOME_VESSEL,
+                          mlib.ACTION_SWITCH_TO_EVA_KERBAL], _kinds(a))
         self.assertEqual((2, 50015.0), (st.eva_recover_back_issues, st.eva_recover_back_ut))
         st, a = mlib.mlr_decide(st, _lander(50030.0))
         self.assertEqual(3, st.eva_recover_back_issues)

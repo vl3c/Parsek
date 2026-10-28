@@ -32504,13 +32504,14 @@ def evaluate_mor_assertions(frames, params: MorParams,
 # With the knob set, [EVA-RECOVER] switches the active vessel to the nearest other
 # vessel (the lander; a plain kRPC switch skipping the kerbal's name), holds until
 # the lander reads back (mlr_aboard_lander) for evaRagdollRecoverSeconds GAME s since
-# the phase's entry, switches back to the kerbal (ACTION_SWITCH_TO_EVA_KERBAL: by name,
-# else the nearest EVA vessel; re-sent every evaRecoverReissueSeconds, at most
-# MLR_RECOVER_BACK_ISSUES times in all), and sends PlantFlag only once the active
+# the phase's entry, switches back to the kerbal (the kRPC handle captured before
+# the switch away, then ACTION_SWITCH_TO_EVA_KERBAL's logged scan as a fallback;
+# re-sent every evaRecoverReissueSeconds, at most MLR_RECOVER_BACK_ISSUES times), and sends PlantFlag only once the active
 # vessel reads as the kerbal (its NAME, read_vessel_name, or no liquid fuel while
 # landed on the target) for evaRecoverConfirmFrames frames. CS-7 run 2026-10-28_0357
 # proved the recovery (EvaRagdollEnded 2.6 s after the switch away) and lost the
-# switch back to a name scan that found no 'Jebediah Kerman' among four vessels. A PlantFlag that still answers ERROR
+# switch back to a name scan that found no 'Jebediah Kerman' among four vessels; run
+# _0514's candidate log showed why: kRPC's vessel list omits EVA kerbals. A PlantFlag that still answers ERROR
 # flag-gate-timeout runs the recovery ONCE more and re-sends under its own tag
 # (cs7plantflag2); any other answer, or a second timeout, gives up by name as before.
 # THE EVA EXIT RETRY (evaExitRetrySeconds, off by default): an EvaExit refused with
@@ -32860,12 +32861,19 @@ def mlr_eva_kerbal_name(state: MlrState) -> str:
 
 
 def mlr_recover_actions(step: str, kerbal: str) -> List[Action]:
-    """The ragdoll recovery's switch: AWAY to the nearest other vessel (skipping the
-    kerbal's name), BACK to the nearest vessel named as the kerbal. Pure."""
+    """The ragdoll recovery's switch. AWAY: capture the kerbal's own kRPC handle
+    while he is the active vessel, then switch to the nearest other vessel (skipping
+    his name). BACK: switch to that captured handle, then the logged
+    switch_to_eva_kerbal scan as the fallback. The capture is the switch-back's
+    real path: kRPC 0.5.4's SpaceCenter.Vessels leaves EVA kerbals out (CS-7 run
+    2026-10-28_0514 scanned three debris and the lander while KSP still
+    background-recorded Jeb), so no name or type scan can find him. Pure."""
     if step == MLR_RECOVER_AWAY:
-        return [Action(ACTION_SWITCH_TO_NEAREST_OTHER_VESSEL, text=kerbal)]
+        return [Action(ACTION_CAPTURE_HOME_VESSEL),
+                Action(ACTION_SWITCH_TO_NEAREST_OTHER_VESSEL, text=kerbal)]
     if step == MLR_RECOVER_BACK:
-        return [Action(ACTION_SWITCH_TO_EVA_KERBAL, text=kerbal)]
+        return [Action(ACTION_SWITCH_TO_HOME_VESSEL),
+                Action(ACTION_SWITCH_TO_EVA_KERBAL, text=kerbal)]
     raise ValueError("unknown recover step %r" % (step,))
 
 
