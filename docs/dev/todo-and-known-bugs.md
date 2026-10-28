@@ -422,8 +422,11 @@ before. This also covers a revert to the editor, which the design doc listed as 
 walking without a cutoff. Cells: `RewindUtCutoffTests.InSessionRevertLoad_WithCommittedFutureRows_UsesCurrentUtCutoff`,
 `RevertBudgetWalk_*`, and the source gate `CareerSeedReadinessTests.BudgetDeduction_WalksThroughTheRevertCutoffHelper`
 (mutation-checked: a plain `RecalculateAndPatch()` in the coroutine reds it). Lane: RW-2-crewed-relaunch-revert forbids the positive `PatchFunds` between
-the EVA and the revert. Audit follow-up: `ledger_audit.py` should flag a patched walk with
-`cutoffUT=null` while committed rows lie ahead of a time-travel load's clock.
+the EVA and the revert. ~~Audit follow-up: `ledger_audit.py` should flag a patched walk with
+`cutoffUT=null` while committed rows lie ahead of a time-travel load's clock.~~ Done 2026-10-28
+(branch `ledger-audit-upgrades`): check `walk-past-clock` FAILs a `useCurrentUtCutoff=False ...
+hasFutureLedgerActions=True` (or `hasFutureActions=True`) walk at a ready clock that lifts a pool,
+and reports the full replays whose decision line cannot say.
 
 ---
 

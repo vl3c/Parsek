@@ -614,10 +614,13 @@ as the report and the expectations file name them):
 | `hard-stop` | `ABORTING rewind ledger patch`, `Failed to deserialize action`, `refusing to upgrade to amount=`; `NOT affordable` | FAIL; `NOT affordable` FAIL unless EXPECTED |
 | `deferred-patch` | `RecalculateAndPatch: deferred KSP state patch (` vs the next `drawdown-guard authoritativeReduction=` | REPORT (see below) |
 | `load-kind` | `[LoadPolicy] Load classified:` per `[Diagnostics] OnLoad: Nms (...)` | FAIL on two classifications in one OnLoad; REPORT when no OnLoad line delimits loads |
-| `refly-leftover` | `outcome=unbound-refly-provisional`, `retired-empty-provisional` | FAIL unless EXPECTED |
+| `refly-leftover` | `outcome=unbound-refly-provisional`, `retired-empty-provisional` | REPORT (by design: a Re-Fly provisional with no recorder bound is reachable from ordinary play, one line per InvokeRewind); EXPECTED when the lane lists it |
 | `merge-refused` | `Merge dominance check sess=... result=refuse` | REPORT; FAIL only with `mergeMustPass = true` |
 | `already-owned`, `same-craft`, `finalizer-oddity` | `is already owned at ut=`; `chain is pid-only`, `live-launch-guid-unknown`; `subsurface-destroyed-suppressed`, `recovered sub-surface live-orbit fallback` (with recording ids) | REPORT |
 | `ground-truth` | `[LedgerGroundTruth] result: hardFailures=` + the divergence report's `facet=` lines | FAIL on `hardFailures > 0`; lists facets, hard vs report-only |
+| `walk-past-clock` | the walk decision lines (`OnLoad: post-rewind current-UT cutoff decision`, `OnKspLoad recalc decision:`, `Commit ledger walk: full replay (cutoffUT=null), live clock not trusted`, `Current-timeline recalc: full replay (cutoffUT=null)`), `RecalculateAndPatch: actionsTotal=... cutoffUT=`, then the walk's `PatchFunds` / `PatchScience` / `PatchReputation: a -> b` | FAIL when the decision says `useCurrentUtCutoff=False` with rows ahead of a ready clock and a pool then rose (RW-2, L13); REPORT for a rising full replay whose line cannot say (untrusted commit clock, unready clock, no decision line) and for the Re-Fly start's `cutoffUT` 1e308 horizon walk (by design) |
+| `guarded-clamp` | `Patch<Pool>: GUARDED UPLIFT clamped` / `GUARDED DRAWDOWN clamped` (leak = `clampedTo - wouldBeTarget`) | PASS for an opposite pair on one resource within 10 s that nets to about 0 (an ordering transient); a one-sided line FAILs unless the lane lists `guarded-one-sided` |
+| `leak-shape` | `[StockPoolReference] Patch<Pool>: filed StockPoolAdjustment amount=X reason=leak`, the walk's `... skipped (not effective):` funds / science amounts, `Loaded (DiscardReFly)` | FAIL when a leak equals (within 0.01) the zeroed rows' sum or one of them in the same walk (stock paid the duplicate, the patch filed it again), or when a leak row lands in the first two patched walks after a `Loaded (DiscardReFly)` (RW-5) |
 | `warnings` | every `[Parsek][WARN]` / `[ERROR]` line by subsystem | REPORT; with `--baseline` lists the normalized keys only this run has |
 | `ledger-ut0` | saved `ledger.pgld` rows at UT 0 other than the three seed types | REPORT; SKIP with no saved ledger |
 
@@ -630,11 +633,18 @@ module-clone walk in `RecalculationEngine` is one of those four suppressed metho
 change (a live tree defers in FLIGHT and the commit's recalc after the scene change
 patches), so the report lists the scene changes crossed with a deferral open and
 whether one is open at log end, without judging them.
+`walk-past-clock` binds each walk to the decision line that started it (or its input
+summary; the cutoff-less summary is `VerboseOnChange`, so it can be missing) and its
+patch lines to the `drawdown-guard` line up to the next walk boundary. The log does not
+say how much of a rise is the rows ahead, so a rise after a stated rows-ahead decision
+is the RW-2 signature rather than a measured amount. The audit writes stdout as UTF-8
+with replacement, so a log line with an arrow or a dash never crashes a cp1252 console.
 
 Expectations (TOML, or JSON for a `.json` file) say what a lane does on purpose. A
 key or name the audit does not know is a usage error, and only the expectable
-findings (`take-back`, `debt`, `not-affordable`, `refly-leftover`) can read EXPECTED,
-so no expectation can mask an anomaly, a double credit or an abort:
+findings (`take-back`, `debt`, `not-affordable`, `refly-leftover`, `guarded-one-sided`)
+can read EXPECTED, so no expectation can mask an anomaly, a double credit, an abort, a
+walk past the clock or a leak that repeats a zeroed duplicate:
 
 ```toml
 expected = ["not-affordable"]          # whole finding kinds

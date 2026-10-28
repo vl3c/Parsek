@@ -28,6 +28,29 @@ lane's expectations file declared), SKIP (the input the check needs is not in
 the log, e.g. ``ledgerTracing`` off), REPORT (informational; never fails unless
 an expectation arms it).
 
+Judgement calls the checks make (the report text repeats each one):
+
+* ``refly-leftover`` is REPORT-only. ``outcome=unbound-refly-provisional`` and
+  ``retired-empty-provisional`` are by design (a Re-Fly session whose provisional
+  never had a recorder bound is reachable from ordinary play, one line per
+  InvokeRewind); ``expected = ["refly-leftover"]`` still marks them EXPECTED.
+* ``walk-past-clock`` FAILs only when the walk's own decision line says committed
+  rows lie ahead of a ready clock (``useCurrentUtCutoff=False`` with
+  ``hasFutureLedgerActions=True`` / ``hasFutureActions=True``) and the walk then
+  patched a pool upward. A full replay whose decision does not say (the commit walk
+  with an untrusted clock, a current-timeline replay with no ready clock) is REPORT:
+  the log does not state whether rows lie ahead. The Re-Fly start's
+  ``RecalculateAndPatch(double.MaxValue)`` (``cutoffUT`` of 1e308 and up) is by
+  design and only reported.
+* ``guarded-clamp``: an UPLIFT / DRAWDOWN pair on one resource inside
+  ``GUARDED_BURST_SECONDS`` whose leaks net to about zero is an ordering transient
+  (PASS); a one-sided GUARDED line is a missing channel and FAILs unless the lane
+  lists ``guarded-one-sided`` (or a literal of its line) as expected.
+* ``leak-shape`` FAILs a ``reason=leak`` StockPoolAdjustment whose amount equals,
+  within ``LEAK_MATCH_TOLERANCE``, the funds / science of the rows the same walk
+  zeroed as not effective (all of them, or one), and any ``reason=leak`` row in the
+  first two patched walks after a ``Loaded (DiscardReFly)`` reference load (RW-5).
+
 ASCII only; stdlib only.
 """
 
@@ -78,6 +101,8 @@ SRC_EXTRAPOLATOR = "Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs"
 SRC_GT_HARNESS = "Source/Parsek/InGameTests/LedgerGroundTruthHarness.cs"
 SRC_GT_REPORT = "Source/Parsek/LedgerGroundTruth.cs"
 SRC_LOG = "Source/Parsek/ParsekLog.cs"
+SRC_REWIND_INVOKER = "Source/Parsek/RewindInvoker.cs"
+SRC_POOL_REF = "Source/Parsek/GameActions/StockPoolReference.cs"
 
 LIT_TRACE_TAG = "LedgerTrace"
 LIT_ANOMALY = "phase=Anomaly"
@@ -112,6 +137,32 @@ LIT_FALLBACK = "recovered sub-surface live-orbit fallback for '"
 LIT_GT_RESULT = "result: hardFailures="
 LIT_GT_REPORT = "LedgerDivergenceReport: total={0} facetsCompared={1}"
 LIT_GT_FACET = "facet={0} kind={1} id={2} expected={3} recon={4} detail={5}"
+# walk-past-clock
+LIT_INSESSION_DECISION = "OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff="
+LIT_KSPLOAD_DECISION = "OnKspLoad recalc decision: useCurrentUtCutoff="
+LIT_COMMIT_FULL = "Commit ledger walk: full replay (cutoffUT=null), live clock not trusted - reason="
+# The C# line continues with a non-ASCII dash before " reason="; key on the ASCII head.
+LIT_CURRENT_FULL = "Current-timeline recalc: full replay (cutoffUT=null) "
+LIT_INPUT_SUMMARY = "RecalculateAndPatch: actionsTotal="
+LIT_PATCH_FUNDS = 'PatchFunds: {currentFunds.ToString("F1", IC)} -> {afterFunds.ToString("F1", IC)} '
+LIT_PATCH_SCIENCE = ('PatchScience: {currentScience.ToString("F1", IC)} -> '
+                     '{afterScience.ToString("F1", IC)} ')
+LIT_PATCH_REP = 'PatchReputation: {currentRep.ToString("F2", IC)} -> {afterRep.ToString("F2", IC)} '
+# guarded-clamp
+LIT_GUARDED_UPLIFT = "GUARDED UPLIFT clamped"
+LIT_GUARDED_DRAWDOWN = "GUARDED DRAWDOWN clamped"
+LIT_GUARDED_HEAD = "Patch{resource}: {label} resource={resource} "
+LIT_GUARDED_NUMBERS = ('wouldBeTarget={wouldBeTarget.ToString("R", IC)} '
+                       'clampedTo={clampedTo.ToString("R", IC)} ')
+# leak-shape
+LIT_POOL_REF_TAG = 'internal const string Tag = "StockPoolReference";'
+LIT_FILED = "Patch{resource}: filed StockPoolAdjustment amount="
+LIT_FILED_REASON = 'm.LeakKept ? "leak"'
+LIT_REF_LOADED = 'Loaded ({loadKindLabel ?? "unknown"}): pools='
+LIT_MS_FUNDS_SKIPPED = "Milestone funds skipped (not effective): "
+LIT_CTR_FUNDS_SKIPPED = "funds skipped (not effective): "
+LIT_EARN_SKIPPED = "FundsEarning skipped (not effective): "
+LIT_SCI_SKIPPED = "science skipped (not effective): "
 
 SOURCE_ANCHORS: Tuple[Tuple[str, str, str], ...] = (
     ("ledger-anomaly", SRC_LEDGER_TRACE, 'Tag = "' + LIT_TRACE_TAG + '"'),
@@ -154,6 +205,34 @@ SOURCE_ANCHORS: Tuple[Tuple[str, str, str], ...] = (
     ("ground-truth", SRC_GT_HARNESS, LIT_GT_RESULT),
     ("ground-truth", SRC_GT_REPORT, LIT_GT_REPORT),
     ("ground-truth", SRC_GT_REPORT, LIT_GT_FACET),
+    ("walk-past-clock", SRC_SCENARIO, LIT_INSESSION_DECISION),
+    ("walk-past-clock", SRC_SCENARIO, "planetariumReady={planetariumReady} "),
+    ("walk-past-clock", SRC_SCENARIO, "hasFutureLedgerActions={hasFutureLedgerActions}"),
+    ("walk-past-clock", SRC_ORCHESTRATOR, LIT_KSPLOAD_DECISION),
+    ("walk-past-clock", SRC_ORCHESTRATOR, '" currentUtReady=" + currentUtReady'),
+    ("walk-past-clock", SRC_ORCHESTRATOR, '" hasFutureActions=" + hasFutureActions'),
+    ("walk-past-clock", SRC_ORCHESTRATOR, LIT_COMMIT_FULL),
+    ("walk-past-clock", SRC_ORCHESTRATOR, LIT_CURRENT_FULL),
+    ("walk-past-clock", SRC_ORCHESTRATOR, LIT_INPUT_SUMMARY),
+    ("walk-past-clock", SRC_ORCHESTRATOR, "cutoffUT={cutoffLabel}"),
+    ("walk-past-clock", SRC_REWIND_INVOKER, "double.MaxValue, deadlineClockUT: retireCutoffUT"),
+    ("walk-past-clock", SRC_PATCHER, LIT_PATCH_FUNDS),
+    ("walk-past-clock", SRC_PATCHER, LIT_PATCH_SCIENCE),
+    ("walk-past-clock", SRC_PATCHER, LIT_PATCH_REP),
+    ("guarded-clamp", SRC_PATCHER, LIT_GUARDED_UPLIFT),
+    ("guarded-clamp", SRC_PATCHER, LIT_GUARDED_DRAWDOWN),
+    ("guarded-clamp", SRC_PATCHER, LIT_GUARDED_HEAD),
+    ("guarded-clamp", SRC_PATCHER, LIT_GUARDED_NUMBERS),
+    ("leak-shape", SRC_POOL_REF, LIT_POOL_REF_TAG),
+    ("leak-shape", SRC_PATCHER, LIT_FILED),
+    ("leak-shape", SRC_PATCHER, LIT_FILED_REASON),
+    ("leak-shape", SRC_POOL_REF, LIT_REF_LOADED),
+    ("leak-shape", SRC_LOAD_POLICY, "DiscardReFly,"),
+    ("leak-shape", SRC_FUNDS, LIT_MS_FUNDS_SKIPPED),
+    ("leak-shape", SRC_FUNDS, "{action.Type} " + LIT_CTR_FUNDS_SKIPPED),
+    ("leak-shape", SRC_FUNDS, LIT_EARN_SKIPPED),
+    ("leak-shape", SRC_SCIENCE, "{action.Type} " + LIT_SCI_SKIPPED),
+    ("leak-shape", SRC_SCIENCE, "MilestoneAchievement " + LIT_SCI_SKIPPED),
 )
 
 # Check ids in report order, with a one-line title each.
@@ -175,6 +254,9 @@ CHECKS: Tuple[Tuple[str, str], ...] = (
     ("same-craft", "Same-craft identity fallbacks (pid-only / guid unknown)"),
     ("finalizer-oddity", "Scene-exit finalizer oddities"),
     ("ground-truth", "LedgerGroundTruth in-game harness result"),
+    ("walk-past-clock", "No-cutoff walk with committed rows ahead of the clock"),
+    ("guarded-clamp", "GUARDED clamps: paired transients vs one-sided"),
+    ("leak-shape", "Leak rows that repeat a zeroed duplicate or follow a Discard Re-fly"),
     ("warnings", "Parsek WARN / ERROR surface"),
     ("ledger-ut0", "Saved ledger rows at UT 0 that are not seeds"),
 )
@@ -184,7 +266,22 @@ CHECK_TITLES = dict(CHECKS)
 # Names an expectations file may list under ``expected``. Only these findings can
 # read EXPECTED; every other FAIL (an anomaly, a double credit, an abort) cannot be
 # masked by a lane's expectations.
-EXPECTABLE_NAMES = ("take-back", "debt", "not-affordable", "refly-leftover")
+EXPECTABLE_NAMES = ("take-back", "debt", "not-affordable", "refly-leftover", "guarded-one-sided")
+# The check each expectable finding belongs to.
+EXPECTABLE_CHECK = {"take-back": "take-back", "debt": "debt", "not-affordable": "hard-stop",
+                    "refly-leftover": "refly-leftover", "guarded-one-sided": "guarded-clamp"}
+
+# guarded-clamp: an opposite pair this close in wall time is one burst ...
+GUARDED_BURST_SECONDS = 10.0
+# ... and nets to about zero when the leaks cancel within the larger of these.
+GUARDED_NET_ABS = 0.01
+GUARDED_NET_REL = 1e-3
+# leak-shape: a leak "equals" a zeroed amount within this.
+LEAK_MATCH_TOLERANCE = 0.01
+# walk-past-clock: a cutoff at or above this is the Re-Fly start's double.MaxValue horizon.
+HORIZON_CUTOFF = 1e308
+# A pool patch "rises" when it moves up by more than this.
+RISE_EPSILON = 0.01
 
 # GameActionType values (Source/Parsek/GameActions/GameAction.cs; pinned by
 # SourceSyncTests) and the seed types RecalculationEngine.IsSeedType names.
@@ -704,10 +801,29 @@ def check_hard_stop(recs, exp, used):
 
 
 def check_refly_leftover(recs, exp, used):
-    return _scan_check("refly-leftover", recs, exp, used, (
+    """REPORT-only. Both outcomes are by design: a Re-Fly session whose provisional
+    never had a recorder bound is reachable from ordinary play (rewind, F5/F9,
+    conclude without flying; see ``ReFlyProvisionalBinding``), so a green lane logs
+    one per InvokeRewind. An expectation still marks them EXPECTED (and the header
+    lists it when the lane showed none)."""
+    findings = _scan(recs, (
         (LIT_UNBOUND, None, "refly-leftover", True),
         (LIT_RETIRED, None, "refly-leftover", True),
-    ), "Re-Fly leftover")
+    ))
+    _apply_expectations(findings, exp, used)
+    n_exp = sum(1 for f in findings if f["expected"])
+    if not findings:
+        status = PASS
+    elif n_exp == len(findings):
+        status = EXPECTED
+    else:
+        status = REPORT
+    summary = "%d Re-Fly leftover line(s)" % len(findings)
+    if n_exp:
+        summary += ", %d expected" % n_exp
+    if findings:
+        summary += " (report-only: by design, see ReFlyProvisionalBinding)"
+    return _result("refly-leftover", status, summary, _finding_lines(findings), findings)
 
 
 # ---------------------------------------------------------------------------
@@ -968,6 +1084,438 @@ def check_ground_truth(recs: Sequence[Rec], exp: Expectations) -> Dict:
 
 
 # ---------------------------------------------------------------------------
+# walk-past-clock: a no-cutoff walk while committed rows lie ahead
+# ---------------------------------------------------------------------------
+
+_INSESSION_RE = re.compile(
+    r"^OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff=(True|False) "
+    r"loadedUT=(\S+) .*?\bisRevert=(\S+) loadedScene=(\S+) .*?\bplanetariumReady=(True|False) "
+    r".*?\bhasFutureLedgerActions=(True|False)")
+_KSPLOAD_RE = re.compile(
+    r"^OnKspLoad recalc decision: useCurrentUtCutoff=(True|False) maxUT=(\S+) "
+    r"featureSupportsCutoff=(\S+) currentUtReady=(True|False) hasFutureActions=(True|False)")
+_CURRENT_FULL_RE = re.compile(r"reason=(\S+) currentUT=(\S+) currentUtReady=(True|False)")
+_COMMIT_FULL_RE = re.compile(r"reason=(\S+) onLoadInProgress=(\S+) rewindUTAdjustmentPending=(\S+)")
+_INPUT_RE = re.compile(r"^RecalculateAndPatch: actionsTotal=(\d+), actionsAfterCutoff=(\d+), "
+                       r"cutoffUT=(\S+)")
+_PATCH_MOVE_RE = re.compile(r"^Patch(Funds|Science|Reputation): (\S+) -> (\S+) ")
+
+# Decision outcomes: what the walk's own decision line says about rows ahead.
+AHEAD_KNOWN = "ahead"        # no cutoff, and the line says committed rows lie ahead of a ready clock
+AHEAD_NONE = "none-ahead"    # no cutoff because nothing lies ahead (or a cutoff walk)
+AHEAD_UNKNOWN = "unknown"    # no cutoff, and the line cannot say
+AHEAD_HORIZON = "horizon"    # the Re-Fly start's double.MaxValue walk (by design)
+
+
+def _classify_decision(r: Rec) -> Optional[Tuple[str, str, str]]:
+    """(kind, ahead-outcome, why) for a walk decision / full-replay line, else None."""
+    if r.sub == "Scenario" and r.msg.startswith(LIT_INSESSION_DECISION):
+        m = _INSESSION_RE.match(r.msg)
+        if not m:
+            return ("in-session-load", AHEAD_UNKNOWN, "decision line did not parse")
+        use, loaded_ut, revert, scn, ready, future = m.groups()
+        ut = _num(loaded_ut)
+        why = "in-session load scene=%s isRevert=%s loadedUT=%s" % (scn, revert, loaded_ut)
+        if use == "True":
+            return ("in-session-load", AHEAD_NONE, why + " (cutoff walk)")
+        if future == "False":
+            return ("in-session-load", AHEAD_NONE, why + " hasFutureLedgerActions=False")
+        if ready == "True" and ut is not None and ut > 0.0 and ut == ut:
+            return ("in-session-load", AHEAD_KNOWN, why + " hasFutureLedgerActions=True")
+        return ("in-session-load", AHEAD_UNKNOWN,
+                why + " planetariumReady=%s: the clock was not ready, so rows-ahead is not "
+                "a reading against it" % ready)
+    if r.sub != "LedgerOrchestrator":
+        return None
+    if r.msg.startswith(LIT_KSPLOAD_DECISION):
+        m = _KSPLOAD_RE.match(r.msg)
+        if not m:
+            return ("ksp-load", AHEAD_UNKNOWN, "decision line did not parse")
+        use, max_ut, feature, ready, future = m.groups()
+        why = "cold load maxUT=%s featureSupportsCutoff=%s" % (max_ut, feature)
+        if use == "True" or future == "False":
+            return ("ksp-load", AHEAD_NONE, why)
+        if ready == "True":
+            return ("ksp-load", AHEAD_KNOWN, why + " currentUtReady=True hasFutureActions=True")
+        return ("ksp-load", AHEAD_UNKNOWN,
+                why + " currentUtReady=False: hasFutureActions is read against an unready "
+                "clock (BUG-F full replay; the deferred seed walks again)")
+    if r.msg.startswith(LIT_COMMIT_FULL):
+        m = _COMMIT_FULL_RE.search(r.msg)
+        return ("commit", AHEAD_UNKNOWN,
+                "commit walk with an untrusted clock (%s): the commit path does not check for "
+                "rows ahead then" % (" ".join(m.groups()) if m else "?"))
+    if r.msg.startswith(LIT_CURRENT_FULL):
+        m = _CURRENT_FULL_RE.search(r.msg)
+        if m and m.group(3) == "True":
+            return ("current-timeline", AHEAD_NONE,
+                    "reason=%s currentUT=%s: nothing ahead of a ready clock" % m.groups()[:2])
+        return ("current-timeline", AHEAD_UNKNOWN,
+                "reason=%s currentUT=%s currentUtReady=False: rows-ahead was not checked"
+                % (m.group(1), m.group(2)) if m else "full replay line did not parse")
+    return None
+
+
+def split_patch_walks(recs: Sequence[Rec]) -> List[Dict]:
+    """Recalc units in log order. A unit opens at a walk decision / full-replay line
+    (``_classify_decision``) or, with none pending, at the walk's input summary
+    ``RecalculateAndPatch: actionsTotal=`` (a no-cutoff summary is VerboseOnChange,
+    so it can be missing; a cutoff summary always prints). It is ``deferred`` at
+    ``RecalculateAndPatch: deferred KSP state patch (``, or ``patched`` at the
+    ``drawdown-guard authoritativeReduction=`` line, after which every
+    ``Patch<Pool>: a -> b`` line belongs to it until the next walk boundary (a
+    decision, an input summary, a guard / deferred line, a milestones reset)."""
+    units: List[Dict] = []
+    cur: Optional[Dict] = None
+
+    def close():
+        if cur is not None:
+            units.append(cur)
+
+    def new(rec, kind, ahead, why, cutoff=None, state="await"):
+        return {"rec": rec, "kind": kind, "ahead": ahead, "why": why, "cutoff": cutoff,
+                "state": state, "outcome": None, "patches": [], "input": None}
+
+    for r in _parsek(recs):
+        d = _classify_decision(r)
+        if d is not None:
+            close()
+            cur = new(r, d[0], d[1], d[2])
+            continue
+        if r.sub == "LedgerOrchestrator" and r.msg.startswith(LIT_INPUT_SUMMARY):
+            m = _INPUT_RE.match(r.msg)
+            cutoff = m.group(3) if m else "?"
+            if cur is not None and cur["state"] == "await" and cur["input"] is None:
+                cur["input"] = r
+                cur["cutoff"] = cutoff
+                continue
+            close()
+            val = _num(cutoff)
+            if val is not None and val >= HORIZON_CUTOFF:
+                cur = new(r, "refly-start", AHEAD_HORIZON,
+                          "cutoffUT=%s (RewindInvoker's RecalculateAndPatch(double.MaxValue))"
+                          % cutoff, cutoff)
+            elif cutoff == "null":
+                cur = new(r, "plain", AHEAD_UNKNOWN,
+                          "cutoffUT=null with no decision line before it", cutoff)
+            else:
+                cur = new(r, "cutoff", AHEAD_NONE, "cutoffUT=%s" % cutoff, cutoff)
+            continue
+        if r.sub == "LedgerOrchestrator" and r.msg.startswith(LIT_DEFERRED):
+            if cur is not None and cur["state"] == "await":
+                cur["outcome"] = "deferred"
+                cur["state"] = "done"
+            close()
+            cur = None
+            continue
+        if r.sub == "LedgerOrchestrator" and r.msg.startswith(LIT_PATCHED):
+            if cur is not None and cur["state"] == "await":
+                cur["state"] = "patch"
+                cur["outcome"] = "patched"
+                cur["guard"] = r
+                continue
+            close()
+            cur = new(r, "plain", AHEAD_UNKNOWN, "a patched walk with no decision or input line",
+                      state="patch")
+            cur["outcome"] = "patched"
+            cur["guard"] = r
+            continue
+        if _is_milestone_reset(r):
+            if cur is not None and cur["state"] == "patch":
+                close()
+                cur = None
+            continue
+        if cur is not None and cur["state"] == "patch" and r.sub == "KspStatePatcher":
+            m = _PATCH_MOVE_RE.match(r.msg)
+            if m:
+                before, after = _num(m.group(2)), _num(m.group(3))
+                if before is not None and after is not None:
+                    cur["patches"].append((m.group(1), before, after, r))
+    close()
+    return units
+
+
+def _rises(unit: Dict) -> List[str]:
+    return ["%s %s -> %s (L%d)" % (pool, _fmt_pool(b), _fmt_pool(a), r.n)
+            for pool, b, a, r in unit["patches"] if a - b > RISE_EPSILON]
+
+
+def check_walk_past_clock(recs: Sequence[Rec], exp: Expectations) -> Dict:
+    """RW-2 / L13: a ledger walk with no cutoff while committed rows are dated after
+    the clock pays the committed future early. FAIL only on full evidence: the walk's
+    own decision line says rows lie ahead of a ready clock, the walk was not deferred,
+    and a pool patch after it rose. The log does not say how much of a rise is the
+    rows ahead, so a rise is the RW-2 signature, not a measured amount. A full replay
+    whose decision line cannot say (an untrusted commit clock, an unready clock, a
+    plain walk with no decision line) is REPORT. The Re-Fly start's horizon walk is
+    by design and REPORT."""
+    units = split_patch_walks(recs)
+    if not units:
+        return _result("walk-past-clock", SKIP, "no ledger walk decision or input line "
+                       "(verbose logging off, or no recalc ran)")
+    findings = []
+    unknown_rises = []
+    horizon = []
+    ahead_quiet = 0
+    for u in units:
+        rises = _rises(u)
+        if u["ahead"] == AHEAD_KNOWN:
+            if u["outcome"] == "patched" and rises:
+                findings.append(_finding(u["rec"], "walk-past-clock", False,
+                                         "%s; no cutoff, then %s" % (u["why"], ", ".join(rises))))
+            else:
+                ahead_quiet += 1
+        elif u["ahead"] == AHEAD_HORIZON:
+            horizon.append("L%d %s %s; %s" % (u["rec"].n, fmt_wall(u["rec"].t), u["why"],
+                                              ("rose: " + ", ".join(rises)) if rises
+                                              else (u["outcome"] or "no patch line")))
+        elif u["ahead"] == AHEAD_UNKNOWN and u["outcome"] == "patched" and rises:
+            unknown_rises.append("L%d %s [%s] %s; rose: %s" % (
+                u["rec"].n, fmt_wall(u["rec"].t), u["kind"], u["why"], ", ".join(rises)))
+    counts: Dict[str, int] = {}
+    for u in units:
+        counts[u["ahead"]] = counts.get(u["ahead"], 0) + 1
+    details = _finding_lines(findings)
+    details.append("walks: %d (rows ahead stated: %d, nothing ahead or a cutoff: %d, "
+                   "rows ahead unknown: %d, Re-Fly start horizon: %d)" % (
+                       len(units), counts.get(AHEAD_KNOWN, 0), counts.get(AHEAD_NONE, 0),
+                       counts.get(AHEAD_UNKNOWN, 0), counts.get(AHEAD_HORIZON, 0)))
+    if ahead_quiet:
+        details.append("no-cutoff walks with rows ahead that deferred or lifted no pool: %d"
+                       % ahead_quiet)
+    if unknown_rises:
+        details.append("REPORT: no-cutoff walks that lifted a pool where the log does not say "
+                       "whether committed rows lie ahead: %d" % len(unknown_rises))
+        details.extend("  " + x for x in unknown_rises[:DETAIL_LIMIT])
+    if horizon:
+        details.append("REPORT: Re-Fly start horizon walks (by design, RewindInvoker): %d"
+                       % len(horizon))
+        details.extend("  " + x for x in horizon[:DETAIL_LIMIT])
+    if findings:
+        status = FAIL
+    elif unknown_rises or horizon:
+        status = REPORT
+    else:
+        status = PASS
+    return _result("walk-past-clock", status,
+                   "%d walk(s); %d paid committed rows past the clock, %d unknown with a rise, "
+                   "%d Re-Fly start horizon" % (len(units), len(findings), len(unknown_rises),
+                                                len(horizon)),
+                   details, findings)
+
+
+# ---------------------------------------------------------------------------
+# guarded-clamp: paired transients vs one-sided
+# ---------------------------------------------------------------------------
+
+_GUARDED_RE = re.compile(
+    r"^Patch(\w+): GUARDED (UPLIFT|DRAWDOWN) clamped resource=(\S+) running=(\S+) live=(\S+) "
+    r"wouldBeTarget=(\S+) clampedTo=(\S+)")
+
+
+def parse_guarded(recs: Sequence[Rec]) -> List[Dict]:
+    """Every GUARDED clamp line. The signed leak is ``clampedTo - wouldBeTarget``: the
+    patch writes the target plus the kept leak (KspStatePatcher.EmitStockPoolLeak), so
+    DRAWDOWN (live above the expectation) is positive and UPLIFT negative."""
+    out = []
+    for r in _parsek(recs, "KspStatePatcher"):
+        if "GUARDED " not in r.msg:
+            continue
+        m = _GUARDED_RE.match(r.msg)
+        if not m:
+            out.append({"rec": r, "resource": None, "dir": None, "leak": None})
+            continue
+        would, clamped = _num(m.group(6)), _num(m.group(7))
+        leak = (clamped - would) if would is not None and clamped is not None else None
+        out.append({"rec": r, "resource": m.group(3), "dir": m.group(2), "leak": leak})
+    return out
+
+
+def _nets_to_zero(a: float, b: float) -> bool:
+    tol = max(GUARDED_NET_ABS, GUARDED_NET_REL * max(abs(a), abs(b)))
+    return abs(a + b) <= tol
+
+
+def _same_burst(ra: Rec, rb: Rec) -> bool:
+    if ra.t is None or rb.t is None:
+        return True  # unstamped lines: the next opposite line of the resource is the burst
+    return abs(rb.t - ra.t) <= GUARDED_BURST_SECONDS
+
+
+def pair_guarded(lines: Sequence[Dict]) -> Tuple[List[Tuple[Dict, Dict]], List[Dict]]:
+    """Greedy in log order: each unpaired line pairs with the next unpaired line of the
+    same resource in the opposite direction inside one burst whose leak cancels it."""
+    paired = set()
+    pairs = []
+    for i, a in enumerate(lines):
+        if i in paired or a["leak"] is None:
+            continue
+        for j in range(i + 1, len(lines)):
+            b = lines[j]
+            if j in paired or b["leak"] is None:
+                continue
+            if not _same_burst(a["rec"], b["rec"]):
+                break
+            if b["resource"] == a["resource"] and b["dir"] != a["dir"] \
+                    and _nets_to_zero(a["leak"], b["leak"]):
+                paired.update((i, j))
+                pairs.append((a, b))
+                break
+    single = [x for k, x in enumerate(lines) if k not in paired]
+    return pairs, single
+
+
+def check_guarded_clamp(recs: Sequence[Rec], exp: Expectations, used: Dict[str, int]) -> Dict:
+    """A GUARDED clamp keeps a leak the ledger has no row for. An UPLIFT / DRAWDOWN
+    pair on one resource inside one burst that nets to about zero is an ordering
+    transient (a row landing one patch late) and passes. A one-sided line is a
+    missing spending / earning channel and FAILs, unless the lane names
+    ``guarded-one-sided`` (or a literal of the line) as expected."""
+    lines = parse_guarded(recs)
+    if not lines:
+        return _result("guarded-clamp", PASS, "no GUARDED clamp line")
+    pairs, single = pair_guarded(lines)
+    findings = []
+    for x in single:
+        note = ("resource=%s %s leak=%s, no opposite line within %gs nets it out"
+                % (x["resource"], x["dir"], _fmt_pool(x["leak"]), GUARDED_BURST_SECONDS)
+                if x["leak"] is not None else "GUARDED line did not parse (format drift?)")
+        findings.append(_finding(x["rec"], "guarded-one-sided", x["leak"] is not None, note))
+    _apply_expectations(findings, exp, used)
+    details = _finding_lines(findings)
+    details.append("paired transients (opposite directions, one burst, net about 0): %d"
+                   % len(pairs))
+    for a, b in pairs[:DETAIL_LIMIT]:
+        details.append("  L%d %s %s %s + L%d %s %s = %s" % (
+            a["rec"].n, a["resource"], a["dir"], _fmt_pool(a["leak"]),
+            b["rec"].n, b["dir"], _fmt_pool(b["leak"]), _fmt_pool(a["leak"] + b["leak"])))
+    n_exp = sum(1 for f in findings if f["expected"])
+    summary = "%d GUARDED line(s): %d paired transient(s), %d one-sided" % (
+        len(lines), len(pairs), len(single))
+    if n_exp:
+        summary += ", %d expected" % n_exp
+    return _result("guarded-clamp", _status_of(findings), summary, details, findings,
+                   pairs=len(pairs))
+
+
+# ---------------------------------------------------------------------------
+# leak-shape: a leak that repeats a zeroed duplicate, or follows a Discard Re-fly
+# ---------------------------------------------------------------------------
+
+_FILED_RE = re.compile(r"^Patch(\w+): filed StockPoolAdjustment amount=(\S+) reason=(\S+) ut=(\S+)")
+_ZEROED_RES = (
+    ("Funds", "Funds", re.compile(r"^Milestone funds skipped \(not effective\): .*?"
+                                  r"fundsAwarded=(\S+?),?$")),
+    ("Funds", "Funds", re.compile(r"^\w+ funds skipped \(not effective\): .*?fundsReward=(\S+?),?$")),
+    ("Funds", "Funds", re.compile(r"^FundsEarning skipped \(not effective\): fundsAwarded=([^,\s]+)")),
+    ("ScienceModule", "Science", re.compile(r"^\w+ science skipped \(not effective\): .*?"
+                                            r"(?:scienceReward|sciAwarded)=(\S+?),?$")),
+)
+_REF_LOADED_RE = re.compile(r"^Loaded \((\w+)\): pools=")
+DISCARD_WALKS = 2
+
+
+def _zeroed_amount(r: Rec) -> Optional[Tuple[str, float]]:
+    for sub, pool, rx in _ZEROED_RES:
+        if r.sub != sub:
+            continue
+        m = rx.match(r.msg)
+        if m:
+            v = _num(m.group(1))
+            return (pool, v) if v is not None else None
+    return None
+
+
+def check_leak_shape(recs: Sequence[Rec], exp: Expectations) -> Dict:
+    """Two shapes of a ``reason=leak`` StockPoolAdjustment that a pool already paid:
+
+    * The leak equals (within LEAK_MATCH_TOLERANCE) the funds / science the same walk
+      zeroed as not effective - their sum, or one row: stock paid the duplicate and
+      the patch filed it again instead of taking it back. A walk opens at the
+      milestones reset; the zeroed rows are the module lines
+      ``Milestone funds skipped (not effective):``, ``<Type> funds skipped (not
+      effective):``, ``FundsEarning skipped (not effective):`` and their science
+      twins (reputation logs no amount, so it is not matched). Only a positive leak
+      can repeat a payment.
+    * RW-5 (fixed by PR #2314): any ``reason=leak`` row in the first DISCARD_WALKS
+      patched walks after ``[StockPoolReference] Loaded (DiscardReFly)`` (the load's
+      first walk and its currency re-patch), before the next scene change or
+      reference load. That patch is authoritative, so it never measures a leak."""
+    zeroed: List[Tuple[str, float, int]] = []
+    findings = []
+    leaks = 0
+    filed = 0
+    discard: Optional[Rec] = None
+    discard_walks = 0
+    for r in recs:
+        if r.scene is not None:
+            discard = None
+            continue
+        if not r.is_parsek:
+            continue
+        if _is_milestone_reset(r):
+            zeroed = []
+            continue
+        z = _zeroed_amount(r)
+        if z is not None:
+            if z[1] > 0.0:
+                zeroed.append((z[0], z[1], r.n))
+            continue
+        if r.sub == "StockPoolReference":
+            lm = _REF_LOADED_RE.match(r.msg)
+            if lm:
+                discard = r if lm.group(1) == "DiscardReFly" else None
+                discard_walks = 0
+                continue
+        if discard is not None and r.sub == "LedgerOrchestrator" and r.msg.startswith(LIT_PATCHED):
+            discard_walks += 1
+            if discard_walks > DISCARD_WALKS:
+                discard = None
+            continue
+        if r.sub != "StockPoolReference":
+            continue
+        m = _FILED_RE.match(r.msg)
+        if not m:
+            continue
+        filed += 1
+        if m.group(3) != "leak":
+            continue
+        leaks += 1
+        pool, amount = m.group(1), _num(m.group(2))
+        if discard is not None:
+            findings.append(_finding(r, "leak-after-discard-refly", False,
+                                     "%s leak %s in patched walk %d after the Loaded (DiscardReFly) "
+                                     "of L%d (RW-5)" % (pool, m.group(2), max(discard_walks, 1),
+                                                        discard.n)))
+        if amount is None or amount <= 0.0:
+            continue
+        mine = [(v, n) for p, v, n in zeroed if p == pool]
+        if not mine:
+            continue
+        total = sum(v for v, _ in mine)
+        hit = None
+        if abs(amount - total) <= LEAK_MATCH_TOLERANCE:
+            hit = "the sum %s of %d zeroed row(s) (lines %s)" % (
+                _fmt_pool(total), len(mine), ",".join(str(n) for _, n in mine[:10]))
+        else:
+            for v, n in mine:
+                if abs(amount - v) <= LEAK_MATCH_TOLERANCE:
+                    hit = "the zeroed row at L%d (%s)" % (n, _fmt_pool(v))
+                    break
+        if hit:
+            findings.append(_finding(r, "leak-equals-zeroed", False,
+                                     "%s leak %s equals %s in the same walk: stock paid the "
+                                     "duplicate and the patch filed it again" % (pool, m.group(2), hit)))
+    details = _finding_lines(findings)
+    return _result("leak-shape", FAIL if findings else PASS,
+                   "%d StockPoolAdjustment filed, %d reason=leak, %d repeat a zeroed duplicate, "
+                   "%d after a Discard Re-fly load" % (
+                       filed, leaks, sum(1 for f in findings if f["key"] == "leak-equals-zeroed"),
+                       sum(1 for f in findings if f["key"] == "leak-after-discard-refly")),
+                   details, findings)
+
+
+# ---------------------------------------------------------------------------
 # 18: warnings surface
 # ---------------------------------------------------------------------------
 
@@ -1114,6 +1662,9 @@ def audit(lines: Sequence[str], expectations: Optional[Expectations] = None,
         check_same_craft(recs, exp),
         check_finalizer_oddity(recs, exp),
         check_ground_truth(recs, exp),
+        check_walk_past_clock(recs, exp),
+        check_guarded_clamp(recs, exp, used),
+        check_leak_shape(recs, exp),
         check_warnings(recs, exp, base),
         check_ledger_ut0(ledgers),
     ]
