@@ -86,8 +86,8 @@ and blocks a paid research of the same node while it is ahead of the clock (the 
 `IsTechResearchBlocked` reads every `ScienceSpending` row; the dialog shows no reserved science for
 a zero cost). The purchase state rule decides it like any tech purchase: when the walk already owns
 the node through a later-captured purchase the free row is `PurchaseAlreadyOwned` and uncounts 0, a
-no-op, never a refund. A Re-Fly merge tombstones it with the rest of a superseded flight's rows,
-like any gain of that flight. A non-rewind discard of the flight (no quicksave rolls KSP back, so
+no-op, never a refund. In a Re-Fly a counted free row is a gain, so it seals the slot
+and is never retired; only a `PurchaseAlreadyOwned` free row (which seals nothing) can be retired. A non-rewind discard of the flight (no quicksave rolls KSP back, so
 KSP keeps the node) re-homes the tagged free event as an untagged zero-cost ScienceSpending row:
 `LedgerOrchestrator.IsIrreversibleLiveGameplayEvent(GameStateEvent)` names a TechResearched whose
 detail carries the field `free=1` (`IsFreeTechUnlockEvent`, exact key match), so both

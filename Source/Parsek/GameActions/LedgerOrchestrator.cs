@@ -6704,8 +6704,8 @@ namespace Parsek
 
         /// <summary>
         /// Key-aware form of <see cref="IsIrreversibleLiveGameplayEvent(GameStateEventType)"/>,
-        /// used by <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/>. Adds exactly
-        /// one event beyond the type-only set: a NEGATIVE
+        /// used by <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/>. Adds two
+        /// events beyond the type-only set. The first is a NEGATIVE
         /// <see cref="GameStateEventType.ScienceChanged"/> keyed
         /// <c>TransactionReasons.StrategyInput</c> - the science INPUT leg of a stock
         /// CurrencyExchanger (Patents Licensing; STRATEGY-SCIENCE-CONVERSION-LEAK).
@@ -6722,7 +6722,7 @@ namespace Parsek
         /// StrategyInput delta is not something KSP took away, and
         /// <c>ConvertStrategyExchangeScience</c> returns null for it anyway.</para>
         ///
-        /// <para>And a FREE <see cref="GameStateEventType.TechResearched"/> (detail field
+        /// <para>The second is a FREE <see cref="GameStateEventType.TechResearched"/> (detail field
         /// <c>free=1</c>, read by exact key like the converter reads details; todo
         /// FREE-TECH-NODE-LOST-AFTER-REWIND): stock's <c>UnlockProtoTechNode</c> (an anomaly's
         /// tech gift) unlocks the node in flight and KSP keeps it after a non-rewind discard,
