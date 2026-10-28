@@ -468,10 +468,20 @@ namespace Parsek
 
             int mismatches = 0;
             int phantoms = 0;
+            int buildingsSkipped = 0;
 
             foreach (var kvp in recon.FacilityLevel)
             {
                 string facilityId = kvp.Key;
+                // A destroyed or repaired building's id (FacilityDestruction / FacilityRepair key)
+                // also lands in the module's map, but the save's ScenarioUpgradeableFacilities
+                // carries upgradeable facilities only, and the level patcher skips building ids
+                // the same way; comparing it as a level would read every repair as a phantom.
+                if (FacilityStatePatcher.IsDestructibleBuildingId(facilityId))
+                {
+                    buildingsSkipped++;
+                    continue;
+                }
                 int reconLevel1 = kvp.Value;
                 int reconLevel0 = FacilityStatePatcher.ToKspFacilityLevel(reconLevel1);
 
@@ -516,7 +526,8 @@ namespace Parsek
             ParsekLog.Verbose(Tag,
                 $"CompareFacilities: reconFacilities={recon.FacilityLevel.Count.ToString(IC)} " +
                 $"saveFacilities={save.FacilityLevelFrac.Count.ToString(IC)} " +
-                $"mismatches={mismatches.ToString(IC)} phantoms={phantoms.ToString(IC)}");
+                $"mismatches={mismatches.ToString(IC)} phantoms={phantoms.ToString(IC)} " +
+                $"buildingsSkipped={buildingsSkipped.ToString(IC)}");
         }
 
         // ----------------------------------------------------------------

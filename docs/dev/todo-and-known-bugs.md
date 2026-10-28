@@ -197,6 +197,12 @@ reached up to 15 s before its own UT, and the time-travel break witness (`Identi
 reads a dated row's UT. (2) The Timeline window draws the window's rows, held and newly dated, ahead
 of its now line until the clock passes the floor (display only).
 
+## ~~GROUND-TRUTH-FACILITY-PHANTOM-ON-REPAIRED-BUILDING: LedgerGroundTruth reports a repaired building as a facility-level phantom~~ [FILED AND FIXED 2026-10-28 from RW-10 run `2026-10-28_1744` (also in RW-9 `_1538`), branch `rw10-lead-window`; test harness only, low]
+
+The ground-truth comparator compared every key of the facilities module as an upgradeable facility level. A demolished or repaired building's id (`SpaceCenter/ResearchAndDevelopment/Facility/ForeverAlone`, the key of a FacilityDestruction / FacilityRepair row) lands in that map too, but the save's `ScenarioUpgradeableFacilities` carries upgradeable facilities only, so every career that repaired a building read `facet=Facility kind=PhantomInRecon ... detail=facility tracked in recon but absent from save` (report-only, `hardFailures=0`). No player effect: the level patcher already skips building ids (`FacilityStatePatcher.IsDestructibleBuildingId`).
+
+Fix: `LedgerGroundTruthDiff.CompareFacilities` skips building ids the same way (`buildingsSkipped=` on its summary line). Test: `LedgerGroundTruthDiffTests.Diff_DestructibleBuildingIdInRecon_IsNotAFacilityLevelPhantom`. Destroyed-state ground truth (the save's `ScenarioDestructibles` against the module's `Destroyed`) is still not compared.
+
 ## REWIND-PRUNE-AND-WALK-AT-UT-ZERO: a Rewind-to-Launch prunes baselines and walks the ledger at UT 0, not at the rewind save's own UT [FILED 2026-10-28 from the rewind campaign's log mining; code-read, NOT FIXED; product, low-medium]
 
 The rewind branch of `ParsekScenario.OnLoad` (~5534) runs
