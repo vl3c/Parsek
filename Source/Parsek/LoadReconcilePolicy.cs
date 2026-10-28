@@ -1034,9 +1034,12 @@ namespace Parsek
                         StockPoolReferenceFromSave + StockPoolReferenceAuthoritative);
                 case LoadKind.DiscardReFly:
                     return Today(LoadReconcileAction.Save,
-                        StockPoolReferenceFromSave + "; the node is persistent.sfs's own PARSEK node, kept by "
-                        + "RevertInterceptor.DiscardReFlyHandler around the rewind point's game, written before the "
-                        + "attempt added any row" + StockPoolReferenceAuthoritative);
+                        StockPoolReferenceFromSave + "; RevertInterceptor.DiscardReFlyHandler carries persistent.sfs's "
+                        + "own PARSEK node around the rewind point's game but keeps the rewind point's own "
+                        + "STOCK_POOL_REFERENCE (SpliceLiveParsekScenarioNode), because the file holds the rewind "
+                        + "point's pools and the session's copy describes the pools its Re-Fly start wrote after the "
+                        + "full-ledger walk (REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE); the load's first "
+                        + "walk passes reFlyDiscard" + StockPoolReferenceAuthoritative);
                 // Consumed in the prologue, before the revert detector: the three refined
                 // in-session kinds share one cell (a stock revert's flight rows were never
                 // committed, so the save's reference describes the reverted pool exactly).

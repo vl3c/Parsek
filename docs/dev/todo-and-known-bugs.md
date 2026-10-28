@@ -17,6 +17,52 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE: a Discard Re-fly after a Rewind-to-Launch takes the committed future's earnings away for good~~ [FILED AND FIXED 2026-10-28 from RW-5's flight `2026-10-28_1056`, branch `fix-refly-discard-pool-reference`; unit-tested only, NOT FLOWN, lane RW-5 will live-prove it; product, high (a reduction of the career total)]
+
+RW-5: a committed pad hop H (recovery +2932) and a Space Center contract accept F (+37500
+advance), a Rewind-to-Launch that leaves both ahead of the clock, flight G decoupling on the pad
+(a rewind point), a Re-Fly on one slot, a pad EVA world-first, then Discard Re-fly. The career
+ended at 150632.18 instead of 191064.18: 40432 lost for good.
+
+**Why.** The Re-Fly start walks the whole ledger (`RewindInvoker`, cutoff `double.MaxValue`), so
+`PatchFunds: 150632.2 -> 191064.2` lifted the committed future into the live pool, and the flight
+start's persistent.sfs write saved that pool's stock pool reference (lastWritten 191064.18, H and
+F counted as walked). `RevertInterceptor.DiscardReFlyHandler` writes the rewind point's game
+(stock funds 150632.2) to persistent.sfs but splices in the session's PARSEK node whole
+(`SpliceLiveParsekScenarioNode`), reference included, so the loaded reference no longer described
+its own file's pools. The load's first walk (`ParsekScenario.OnLoad` ->
+`RecalculateLedgerForInSessionLoad`, current-UT cutoff) was a MEASURED patch (no Re-Fly marker, no
+`reFlyDiscard`): H and F were past the cutoff now, so `StockPoolReference.Measure` stepped nothing
+for them, expected 191064.18 against live 150632.2, and filed the -40432 gap as a
+`StockPoolAdjustment` leak row (`PatchFunds: 150632.2 -> 110200.2`). The crossing later paid +2932
+and +37500 on top of that row, ending at 150632.18. The policy cell claimed the opposite on both
+counts (a node "written before the attempt added any row", an authoritative first patch). The same
+holds for science and reputation, and needs no rewind: any committed row past the rewind point
+(the flight's own later rows, a Rewind-to-Launch's future) is lifted the same way.
+
+**Fix.** `SpliceLiveParsekScenarioNode` carries everything except `STOCK_POOL_REFERENCE`, which
+stays the rewind point's own (none when it had none, so each pool starts afresh); one
+`[RewindSave] DiscardReFly: carried the session's Parsek node, keeping the rewind point's own
+STOCK_POOL_REFERENCE` Info line. The in-session `DiscardReFly` load's first walk and its currency
+re-patch pass `reFlyDiscard`, an authoritative patch like the merge dialog's discard and the cold
+zombie sweep: without it a gain stock paid in flight before the split with no row (filed as an
+adjustment row at a later clock) would be filed again at the rewind point and paid twice at the
+crossing. Policy cell `DiscardReFly x StockPoolReference` and design docs updated. Tests:
+`ReFlyDiscardPoolReferenceTests` (RW-5's sequence through the real walk, reference and splice:
+measured and authoritative first patch, science, the mechanism cell with the exact -40432 /
+110200 shape, no committed future unchanged, a row past the rewind point with no rewind, the
+untracked gain paid once, the Re-Fly merge mirror, the splice cells, the OnLoad wiring gate).
+Mutation-checked: reverting the splice reds the headline (`write=110200`), the science cell
+(`leak=-25`), the no-rewind cell (`leak=-1200`) and both splice cells; dropping `reFlyDiscard`
+from the first walk reds the wiring gate.
+
+Observed, not changed: the Re-Fly start's full-ledger walk itself leaves the committed future in
+the live pool for the whole attempt (patches are deferred while the recorder runs); a merge's
+post-marker-clear walk (journal active, current-UT cutoff) takes it back out, and a discard now
+does too, but during the attempt the funds display shows it.
+
+---
+
 ## LEDGER-EVENT-IDENTITY: the replay, not stock, decides every repeated ledger event [FILED 2026-10-26 from the event-keyed ledger research (two independent code reviews plus a hand-simulated career with repeated rewinds); RULED 2026-10-26; build order step 1 BUILT 2026-10-26 on branch `ledger-identity-step1`, step 2 BUILT 2026-10-26 on branch `ledger-identity-step2`, step 3 BUILT 2026-10-26 on branch `ledger-identity-step3`, step 4 BUILT 2026-10-26 on branch `ledger-identity-step4`, step 5 BUILT 2026-10-26 on branch `ledger-identity-step5`, step 6 BUILT 2026-10-26 on branch `ledger-identity-step6`, step 7a (conversion legs, live-only income) and step 7b (contract twins for goal-level stock ids, survey once per body, continuous producers once per slice) BUILT 2026-10-26 on branch `ledger-identity-step7`, step 8 BUILT 2026-10-27 on branch `ledger-identity-step8`, NOT FLOWN, steps 1 to 8 built; product, high (the duplicate-payment class)]
 
 Design authority: `docs/parsek-game-actions-and-resources-recorder-design.md` section 3.15.

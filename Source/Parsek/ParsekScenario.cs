@@ -4750,10 +4750,17 @@ namespace Parsek
                     double ledgerClockUT = ResolveInSessionLoadLedgerClockUT(
                         loadedSaveUTForRoutes, planetariumReady, loadedUT);
                     double inSessionLedgerCutoffUT = double.IsNaN(ledgerClockUT) ? loadedUT : ledgerClockUT;
+                    // A Discard Re-fly load lands on the rewind point's pools after a session whose
+                    // Re-Fly start walked the whole ledger (committed future included), so its first
+                    // patch is a time-travel patch like the merge dialog's discard: it writes the
+                    // ledger at the loaded clock and re-baselines the stock pool reference instead of
+                    // measuring a leak (LoadReconcilePolicy, StockPoolReference category;
+                    // REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE).
                     bool inSessionLedgerUsedCutoff = RecalculateLedgerForInSessionLoad(
                         isRevert, HighLogic.LoadedScene, !double.IsNaN(ledgerClockUT),
                         inSessionLedgerCutoffUT,
-                        planetariumReady ? loadedUT : double.NaN);
+                        planetariumReady ? loadedUT : double.NaN,
+                        reFlyDiscard: refinedLoadKind == LoadKind.DiscardReFly);
                     // KSP loads the save's SCENARIO modules in file order, and R&D and
                     // Reputation usually come after this one: the patch above skipped
                     // their pools, and their own OnLoad then installs the save's values.
@@ -4770,7 +4777,8 @@ namespace Parsek
                             $"loaded={CurrencyScenarioReadiness.Format(loadedCurrency)}); " +
                             "scheduling a re-patch once they have");
                         StartCoroutine(RepatchAfterInSessionLoadWhenCurrenciesLoaded(
-                            inSessionLedgerUsedCutoff, inSessionLedgerCutoffUT));
+                            inSessionLedgerUsedCutoff, inSessionLedgerCutoffUT,
+                            refinedLoadKind == LoadKind.DiscardReFly));
                     }
                     if (KerbalLoadRepairDiagnostics.IsActive)
                         KerbalLoadRepairDiagnostics.EmitAndReset();
@@ -7365,7 +7373,8 @@ namespace Parsek
         /// a quicksave load the science spent by a later committed action stays available.
         /// The coroutine dies with this module, so a later load never sees a stale one.
         /// </summary>
-        private IEnumerator RepatchAfterInSessionLoadWhenCurrenciesLoaded(bool useCutoff, double cutoffUT)
+        private IEnumerator RepatchAfterInSessionLoadWhenCurrenciesLoaded(
+            bool useCutoff, double cutoffUT, bool reFlyDiscard)
         {
             // OnLoad runs inside ScenarioRunner.LoadModules; the remaining modules are
             // constructed and loaded before the next frame.
@@ -7390,11 +7399,16 @@ namespace Parsek
                 $"OnLoad: in-session ledger re-patch after the currency modules loaded " +
                 $"(present={CurrencyScenarioReadiness.Format(CurrencyScenarioReadiness.PresentNow())} " +
                 $"loaded={CurrencyScenarioReadiness.Format(CurrencyScenarioReadiness.LoadedNow())} " +
-                $"useCutoff={useCutoff} cutoffUT={cutoffUT.ToString("R", ic)})");
-            if (useCutoff)
+                $"useCutoff={useCutoff} cutoffUT={cutoffUT.ToString("R", ic)} reFlyDiscard={reFlyDiscard})");
+            // A pool the first patch skipped gets its first patch here, so a Discard Re-fly load
+            // walks it as the same time-travel patch.
+            if (useCutoff && reFlyDiscard)
+                LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(
+                    cutoffUT, "post-rewind-load", reFlyDiscard: true);
+            else if (useCutoff)
                 RecalculateAndPatchForPostRewindFlightLoad(cutoffUT);
             else
-                LedgerOrchestrator.RecalculateAndPatch();
+                LedgerOrchestrator.RecalculateAndPatch(reFlyDiscard: reFlyDiscard);
         }
 
         /// <summary>
