@@ -1,0 +1,707 @@
+# Declared param schema for mission b11_mun_science_return (CS-6c, "a science run to
+# the Mun": B11's capture and park, readings and an EVA report in high Mun space, two
+# lowering nodes, readings and an EVA report in low Mun space, CS-6's departure,
+# CS-5's return tail and B4's reentry and splashdown).
+#
+# hlib.validate_spec does not read this file itself: run.py injects every
+# harness/missions/<mission>.schema.toml as validate_spec's `mission_schemas`
+# argument (see b5_mun_flyby.schema.toml for the shape). Every value is a
+# tolerance / threshold / budget, never a golden trajectory.
+#
+# THE FIRST BLOCKS ARE b11_mun_orbit_return.schema.toml's params VERBATIM (B11's
+# orbit leg, the career launch and the return tail, the departure); the EVA and
+# electric-charge keys after them and the science and lowering block at the bottom
+# are this mission's own. test_b11_mun_science_return pins both.
+
+[params.targetApoapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.targetPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.apoErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.periErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.ascentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.circularizeTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# Transfer target / home SOI body names (kRPC orbit.body.name values). The
+# machine's SOI gates compare snapshot.body against these.
+[params.targetBodyName]
+required = true
+type = "string"
+
+[params.homeBodyName]
+required = true
+type = "string"
+
+# TRANSFER-BURN exit floor: the TLI burn must have raised apoapsis at/above
+# this (evidence the NodeExecutor actually burned toward the target, not just
+# consumed an empty node list).
+[params.transferMinApoapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+# > 0: after the TLI burn, plan + execute a MechJeb course correction to this
+# target-flyby periapsis (metres) -- pins the flyby geometry and keeps the
+# periapsis off the terrain. 0 disables the two correction phases.
+[params.courseCorrectPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+# PLAN-* phase budget (GAME seconds). PLAN-TRANSFER expiry flakes (no transfer
+# = no mission); PLAN-CORRECTION expiry falls through to the coast (the
+# correction is best-effort).
+[params.planTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# Re-issue a failed plan every this many game seconds while no node appeared
+# (a no-encounter plan throws server-side and leaves the node list empty).
+[params.planRetrySeconds]
+required = false
+type = "number"
+min = 1.0
+max = 600.0
+
+# TRANSFER-BURN / CORRECTION-BURN budget (GAME seconds): the NodeExecutor
+# autowarps to the node (up to ~1 parking orbit ahead) then burns it.
+[params.transferBurnTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# COAST-TO-TARGET budget (GAME seconds; the LKO->Mun transfer coast is ~2 days
+# of game time, advanced fast by the bounded rails hops).
+[params.coastTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# TARGET-FLYBY budget (GAME seconds; SOI entry to SOI exit).
+[params.flybyTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# Non-blocking rails-warp factors (KSP factor INDEX 0-7; the machine holds
+# the factor via on-change set_rails_warp emissions and keeps polling -- no
+# blocking warp RPC, no per-hop ramp sawtooth). Optional; mlib defaults 6
+# (10,000x) coast cap / 5 (100x) flyby floor. Every commanded factor is
+# additionally pre-clamped to the stock per-body altitude-limit table
+# (mlib.STOCK_WARP_ALTITUDE_LIMITS) so the command is always achievable and
+# escalates as the vessel climbs.
+[params.coastWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+[params.flybyWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+# TARGET-FLYBY stair-down cap: far above periapsis the factor rises toward
+# this with the remaining (altitude - periapsis) distance, falling back to
+# the flybyWarpFactor floor (the proven 100x evidence cadence) near
+# periapsis. Optional; mlib defaults 6 (10,000x).
+[params.flybyMaxWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+# AIM-THEN-WARP arrival margin (GAME seconds; operator PR gate,
+# no-1x-coast): after the attitude flip locks, CORRECTION-BURN warps
+# natively to node UT minus this margin (rails warp freezes orientation);
+# the coast's pending-node path uses the same margin. 1x is allowed only
+# inside the margin or on a NaN node UT (fail closed). Replaces the retired
+# nodeWarpLeadSeconds. Optional; mlib defaults 15.
+[params.nodeArrivalMarginSeconds]
+required = false
+type = "number"
+min = 5.0
+max = 120.0
+
+# PLAN-* rails hold factor INDEX (operator PR gate): the plan phases ride
+# this altitude-legality-clamped factor between plan attempts instead of 1x
+# (make_nodes is an RPC; 10x bounds plan-position drift to ~5 game-s per
+# poll). Optional; mlib defaults 2 (10x).
+[params.planWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+# Native SOI warp lead (GAME seconds): the post-correction coast and the
+# flyby outer legs issue a native warp_to_ut to now + timeToSoi minus this
+# lead, so the machine regains poll control just before the boundary (the
+# inside-lead fallback rides the flyby-factor floor, never 1x) and the body
+# change never happens inside a high-rate warp. Optional; mlib defaults 30
+# (operator PR gate: halved from 60).
+[params.soiLeadSeconds]
+required = false
+type = "number"
+min = 5.0
+max = 600.0
+
+# CORRECTION-BURN pre-burn attitude-flip physics warp factor INDEX (0-3;
+# 1 = 2x, MechJeb's own WarpToUT physics cap). The flip is the single
+# biggest 1x wall-time block (~340 s worst case); 2x physics halves it. The
+# machine always drops physics warp to 0 BEFORE throttle-up. 0 disables
+# (the proven 1x flip). Optional; mlib defaults 1.
+[params.flipPhysicsWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 3
+
+# Flyby min-altitude assertion floor (metres above the target body; the Mun has
+# ~7 km peaks). The machine tracks the min finite altitude inside the target
+# SOI; the assertion requires it at/above this floor.
+[params.targetPeriapsisFloorMeters]
+required = true
+type = "number"
+min = 0.0
+
+# Correction ROUNDS: COAST-TO-TARGET enters PLAN-CORRECTION once per entry
+# when altitude crosses that trigger (0 = immediately post-TLI). A mid-coast
+# round is live-proven necessary: executor residual over the long coast
+# drifted a corrected +60 km flyby periapsis to -29 km (impact) on the fourth
+# B5 flight; refining near the trigger altitude prices the residual at a few
+# m/s.
+[params.correctionTriggerAltsMeters]
+required = false
+type = "list"
+
+# dv cap (m/s) an acceptable course-correction plan must fit under. A genuine
+# correction is a small tweak; the runner removes an over-cap plan's nodes so
+# PLAN-CORRECTION's bounded fall-through coasts on the raw Hohmann intercept
+# (second live flight 2026-07-21: an oversized "correction" wedged the
+# executor until the burn budget flaked).
+[params.maxCorrectionDvMps]
+required = false
+type = "number"
+min = 1.0
+max = 2000.0
+
+# BURN-phase stagnation watchdog (game seconds): once the orbit has CHANGED
+# since burn entry and then sat static at 1x with the node still pending for
+# this long, the executor is wedged holding a completed node -> abort+clear
+# and move on (fifth live flight 2026-07-22). Optional; mlib defaults 120.
+[params.burnStagnantSeconds]
+required = false
+type = "number"
+min = 30.0
+max = 3600.0
+
+# CORRECTION-BURN no-start watchdog (game seconds): orbit UNCHANGED since burn
+# entry and static at 1x for this long = the executor never began -> abort+
+# clear and consume the round. Must exceed the worst-case pre-burn attitude
+# flip (~340 s). Optional; mlib defaults 600.
+[params.burnNoStartSeconds]
+required = false
+type = "number"
+min = 60.0
+max = 3600.0
+
+# DIY correction burner (live finding 8: MechJeb's executor demands an
+# AlignedAndSettled gate a low-torque craft never meets for close-in nodes, so
+# corrections are flown with the native AP + throttle). All optional.
+[params.correctionThrottle]
+required = false
+type = "number"
+min = 0.05
+max = 1.0
+
+[params.correctionCutDvMps]
+required = false
+type = "number"
+min = 0.5
+max = 20.0
+
+[params.correctionSettleSeconds]
+required = false
+type = "number"
+min = 1.0
+max = 120.0
+
+[params.maxAttitudeErrorDeg]
+required = false
+type = "number"
+min = 0.5
+max = 45.0
+
+# Optional: consecutive AIRBORNE frozen-telemetry samples (bit-identical orbit
+# fields while UT advances) before the mission declares the vessel lost and
+# terminates. mlib.B5Params defaults it to 10 when absent. Always an
+# ASSERT-FAIL loss (survival is the contract).
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000
+
+# =============================================================================
+# ORBIT TAIL (the B11/B12-only block). With captureEnabled false every one of
+# these is inert and the machine is the byte-identical B5 flyby.
+# =============================================================================
+
+# REQUIRED true for an orbit mission: inside the target SOI, plan + fly a
+# periapsis circularization, hold a stable park, and COMMIT the tree there. Also
+# flips the return-body exit from the success terminal to an ASSERT-FAIL.
+[params.captureEnabled]
+required = true
+type = "bool"
+
+# PLAN-CAPTURE budget (GAME seconds). Expiry FLAKES with a named reason: unlike
+# a best-effort course correction, a capture node IS the mission.
+[params.capturePlanTimeoutSeconds]
+required = true
+type = "number"
+min = 30.0
+
+# CAPTURE-BURN budget (GAME seconds): the NodeExecutor autowarps from the SOI
+# boundary DOWN to periapsis, which on a Mun/Minmus arrival is hours of game
+# time. Sized as a SLOW bound; the no-start / under-burn watchdogs bound BROKEN.
+[params.captureBurnTimeoutSeconds]
+required = true
+type = "number"
+min = 60.0
+
+# The CAPTURE WINDOW (also the PARK gate). A bound orbit reads a POSITIVE
+# apoapsis in the target's frame; a hyperbolic (uncaptured) approach reads a
+# NEGATIVE one, so "0 < apoapsis <= parkMaxApoapsisMeters" is the real
+# captured-or-not evidence, not a trajectory assertion. The periapsis floor
+# keeps the park clear of terrain, and the eccentricity ceiling is the
+# "circularized, not a grazing ellipse" signal.
+[params.parkMinPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.parkMaxApoapsisMeters]
+required = true
+type = "number"
+min = 1000.0
+
+[params.parkMaxEccentricity]
+required = true
+type = "number"
+min = 0.0
+max = 1.0
+
+# PARK tumble ceiling (rad/s): with SAS stability-assist + RCS held a settled
+# stage reads ~0. NaN (unread) fails closed, so the mission must run with the
+# opt-in angular-velocity telemetry (the shells pass read_docking=True).
+[params.parkMaxAngularVelocityRadPerSec]
+required = false
+type = "number"
+min = 0.0
+max = 1.0
+
+# Accepted kRPC situations for the park (upper-cased enum names).
+[params.parkSituations]
+required = false
+type = "list"
+
+# GAME seconds the stable park must be HELD before the commit. This dwell IS the
+# recorded parked-in-foreign-SOI coverage the lane exists for, and the machine
+# holds 1x through it, so it is also the flight's main wall-clock cost.
+[params.parkDwellSeconds]
+required = true
+type = "number"
+min = 10.0
+
+# Consecutive in-gate PARK frames before the dwell may complete.
+[params.parkDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 100
+
+# PARK budget (GAME seconds). Expiry flakes with a reason that distinguishes
+# "never stabilized" from "stabilized but never HELD through the dwell".
+[params.parkTimeoutSeconds]
+required = true
+type = "number"
+min = 60.0
+
+# ORBIT-COMMIT budget (GAME seconds) for the command-seam CommitTree round trip.
+# The seam's own ERROR / TIMEOUT tokens are the fast-fail; this bounds a seam
+# that never answers at all.
+[params.commitTimeoutSeconds]
+required = false
+type = "number"
+min = 30.0
+max = 3600.0
+
+# --- career launch (mlib.mfr_inject_launch_actions) -------------------------
+# The PRELAUNCH engage gate: B5's same-frame ACTIVATE_STAGE is held until the
+# AscentAutopilot READS enabled, K frames without it end MISSION-FLAKE
+# `mechjeb-ascent-not-enabled`. Required > 0 when a setter below is set (the
+# runner withholds the engage when a setter is refused).
+[params.mjEngageConfirmFrames]
+required = false
+type = "int"
+min = 0
+max = 200
+
+# MechJeb StagingController.AutostageLimit, written before the engage: autostage
+# stops at this stage number, so it never fires the pod's own separation.
+[params.autostageLimit]
+required = false
+type = "int"
+min = 0
+max = 20
+
+# MechJeb AscentAutopilot.AscentType, written before the engage (0 = classic).
+[params.ascentType]
+required = false
+type = "int"
+min = 0
+max = 1
+
+# --- return trim (HOME-TRIM) ------------------------------------------------
+# The trim cuts on crossing returnPeriapsisMeters; a periapsis already inside
+# [returnPeriapsisMinMeters, returnPeriapsisMaxMeters] at the Mun SOI exit is not
+# burned at all. Required min < target < max < returnWarpAboveAltMeters.
+[params.returnPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.returnPeriapsisMinMeters]
+required = true
+type = "number"
+
+[params.returnPeriapsisMaxMeters]
+required = true
+type = "number"
+min = 0.0
+
+# The horizontal PROGRADE heading (pitch 0) of the home orbit; the trim burns it
+# to raise the periapsis and its reverse to lower it. 90 for an equatorial
+# prograde Kerbin return.
+[params.returnHeadingDeg]
+required = false
+type = "number"
+min = 0.0
+max = 360.0
+
+# Coarse throttle far from the target, fine throttle inside the band (one m/s
+# moves the periapsis by several km at the Mun's distance).
+[params.returnTrimThrottle]
+required = false
+type = "number"
+min = 0.01
+max = 1.0
+
+[params.returnTrimFineThrottle]
+required = false
+type = "number"
+min = 0.005
+max = 1.0
+
+[params.returnTrimFineBandMeters]
+required = false
+type = "number"
+min = 0.0
+
+# GAME-time settle before the throttle-up, AND-gated with the AutoPilot error.
+[params.returnTrimSettleSeconds]
+required = false
+type = "number"
+min = 0.0
+max = 600.0
+
+[params.returnMaxAttitudeErrorDeg]
+required = false
+type = "number"
+min = 0.5
+max = 45.0
+
+# Burn frames before "engine never lit".
+[params.returnTrimIgniteFrames]
+required = false
+type = "int"
+min = 1
+max = 1000
+
+# HOME-TRIM budget (GAME s).
+[params.returnTrimTimeoutSeconds]
+required = false
+type = "number"
+min = 1.0
+
+# --- the B4 delegate (HOME-<B4 phase>), renamed by mlib.mfr_home_param_dict ---
+# Stage activations owed after the trim (B4 reentryStageCount): the pod's own
+# separation from the service section.
+[params.returnStageCount]
+required = false
+type = "int"
+min = 1
+max = 5
+
+# B4 stageSettleSeconds.
+[params.returnStageSettleSeconds]
+required = false
+type = "number"
+min = 0.0
+max = 60.0
+
+# B4 warpAboveAltMeters: bounded hops only above this altitude.
+[params.returnWarpAboveAltMeters]
+required = false
+type = "number"
+min = 0.0
+
+# B4 warpHopSeconds.
+[params.returnWarpHopSeconds]
+required = false
+type = "number"
+min = 1.0
+max = 3600.0
+
+# B4 chuteDeployAltMeters: the ARM altitude (the Mk16 opens only when safe).
+[params.returnChuteDeployAltMeters]
+required = true
+type = "number"
+min = 0.0
+
+# B4 reentryTimeoutSeconds, measured from the fall's arrival (GAME s).
+[params.returnReentryTimeoutSeconds]
+required = false
+type = "number"
+min = 1.0
+
+# B4 descentTimeoutSeconds: the chute descent (GAME s).
+[params.returnDescentTimeoutSeconds]
+required = false
+type = "number"
+min = 1.0
+
+# B4 landedSituations: the accepted terminal situations.
+[params.returnLandedSituations]
+required = false
+type = "list"
+
+# --- the fall (HOME-FALL) ---------------------------------------------------
+# One native warp from the stage drop to this many GAME seconds before periapsis;
+# skipped at or below returnFallMinAltMeters or for a span under 120 s.
+[params.returnFallLeadSeconds]
+required = false
+type = "number"
+min = 60.0
+max = 7200.0
+
+[params.returnFallMinAltMeters]
+required = false
+type = "number"
+min = 0.0
+
+# HOME-FALL budget (GAME s): the fall from the Mun's distance is hours of game time.
+[params.returnFallTimeoutSeconds]
+required = false
+type = "number"
+min = 1.0
+
+# --- the departure (DEPART-PLAN / DEPART-BURN / DEPART-COAST) ---------------
+# MechJeb OperationMoonReturn's target home periapsis ALTITUDE (m). Defaults to
+# returnPeriapsisMeters; required inside the return window, so a precise plan
+# needs no trim at all.
+[params.departPeriapsisMeters]
+required = false
+type = "number"
+min = 0.0
+
+# The planned departure's dv cap (m/s): a plan above it is the named flake
+# `depart-plan-over-cap`, never flown.
+[params.departMaxDvMps]
+required = false
+type = "number"
+min = 1.0
+max = 3000.0
+
+# DEPART-PLAN budget (GAME s) and its re-plan cadence while no node stands.
+[params.departPlanTimeoutSeconds]
+required = false
+type = "number"
+min = 1.0
+
+[params.departPlanRetrySeconds]
+required = false
+type = "number"
+min = 1.0
+
+# DEPART-BURN budget (GAME s): up to one park period of executor autowarp to the
+# ejection, MechJeb's 600 s pre-ignition hold, the burn.
+[params.departBurnTimeoutSeconds]
+required = false
+type = "number"
+min = 1.0
+
+# DEPART-COAST budget (GAME s): the coast out of the target SOI.
+[params.departCoastTimeoutSeconds]
+required = false
+type = "number"
+min = 1.0
+
+# The SOI-exit warp lands this many GAME seconds before the boundary.
+[params.departSoiLeadSeconds]
+required = false
+type = "number"
+min = 0.0
+max = 3600.0
+
+
+# --- The EVA cycles and the electric-charge watchdog. ---
+
+# The kerbal EvaExit sends out (a crew member's full name); "" = the seam's default
+# (the first crew member aboard).
+[params.evaKerbalName]
+required = false
+type = "string"
+
+# SCI-*-SETTLE: after each boarding, the craft must read back as the active vessel
+# (liquid fuel aboard, ORBITING the target, every pod reading still read) for this
+# many consecutive frames and at least this many GAME seconds before the next step.
+[params.evaSettleSeconds]
+required = false
+type = "number"
+min = 0.0
+max = 600.0
+
+[params.evaSettleFrames]
+required = false
+type = "number"
+min = 1.0
+max = 100.0
+
+# Per EVA phase budget (GAME s). Each seam verb's own wall poll is bounded in
+# mlib.SEAM_COMMAND_POLL_SECONDS_BY_VERB; this bounds the phase that waits on it.
+[params.evaPhaseTimeoutSeconds]
+required = false
+type = "number"
+min = 60.0
+
+# The electric-charge watchdog: a reading under the floor for the debounce frames,
+# on the pod-only science and lowering phases and in the departure and trim blocks,
+# is the named flake electric-charge-exhausted. 0 = off.
+[params.electricChargeFloor]
+required = false
+type = "number"
+min = 0.0
+
+[params.electricChargeDebounceFrames]
+required = false
+type = "number"
+min = 1.0
+
+
+# --- This mission's own keys: the readings and the lowering. ---
+
+# The pod experiments (part-config experiment names, one module per entry) run in
+# the park (high space) and in the lowered orbit (low space). The kerbal's evaReport
+# is taken on each EVA and is not listed here. Each part holds one reading, so a
+# name listed in both runs needs two parts of that kind on the craft.
+[params.sciHighExperiments]
+required = false
+type = "list"
+
+[params.sciLowExperiments]
+required = false
+type = "list"
+
+# The high gate: the park's periapsis (above sea level) at or over this, so the
+# whole orbit is above the target's space threshold (the Mun's: 60000 m).
+[params.sciHighMinPeriapsisMeters]
+required = false
+type = "number"
+min = 1000.0
+
+# The low gate: the lowered orbit's apoapsis at or under the max (the whole orbit
+# below the threshold) and its periapsis at or over the min (above the terrain).
+[params.sciLowMaxApoapsisMeters]
+required = false
+type = "number"
+min = 1000.0
+
+[params.sciLowMinPeriapsisMeters]
+required = false
+type = "number"
+min = 1000.0
+
+# A run's budget (GAME s) for the OBSERVED reading count, and its bounded re-run
+# cadence (the runner skips a module that already holds data).
+[params.sciRunTimeoutSeconds]
+required = false
+type = "number"
+min = 10.0
+
+[params.sciRunRetrySeconds]
+required = false
+type = "number"
+min = 1.0
+
+# The lowering's two aims: the first node (at the park's periapsis) drops the far
+# side to sciLowPeriapsisMeters, the second (at the new periapsis) drops the
+# apoapsis to sciLowApoapsisMeters. msc_params_from_dict requires sciLowMin <
+# sciLowPeriapsis < sciLowApoapsis < sciLowMaxApoapsis < sciHighMin.
+[params.sciLowPeriapsisMeters]
+required = false
+type = "number"
+min = 1000.0
+
+[params.sciLowApoapsisMeters]
+required = false
+type = "number"
+min = 1000.0
+
+# The per-node dv cap (m/s): a larger planned lowering is a wrong orbit read.
+[params.sciLowerMaxDvMps]
+required = false
+type = "number"
+min = 1.0
+
+# LOWER-PLAN and LOWER-BURN budgets (GAME s; the burn waits up to an orbit of the
+# executor's autowarp to the node), and the lead under which a periapsis is taken
+# one orbit later.
+[params.sciLowerPlanTimeoutSeconds]
+required = false
+type = "number"
+min = 10.0
+
+[params.sciLowerBurnTimeoutSeconds]
+required = false
+type = "number"
+min = 60.0
+
+[params.sciNodeLeadSeconds]
+required = false
+type = "number"
+min = 0.0
+max = 3600.0

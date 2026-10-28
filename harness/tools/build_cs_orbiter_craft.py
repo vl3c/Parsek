@@ -73,6 +73,7 @@ Usage:
     python harness/tools/build_cs_orbiter_craft.py --report [--tanks N]
     python harness/tools/build_cs_orbiter_craft.py --verify-donors <stock-tree Ships dir>
     python harness/tools/build_cs_orbiter_craft.py --variant mun --check|--write|--report
+    python harness/tools/build_cs_orbiter_craft.py --variant munsci --check|--write|--report
 
 Stdlib only; ASCII only.
 """
@@ -688,9 +689,13 @@ def _pprop(p):
 
 
 def mun_layout(upper=MUN_UPPER_TANKS, core=MUN_CORE_TANKS,
-               dec_from_bottom=MUN_DECOUPLER_TANK_FROM_BOTTOM):
-    """Every part of CS Mun Flyby, root first, with positions, links and attN."""
-    uid = iter(range(4270000001, 4270000100))
+               dec_from_bottom=MUN_DECOUPLER_TANK_FROM_BOTTOM, upper_names=None,
+               uid_base=4270000001):
+    """Every part of CS Mun Flyby, root first, with positions, links and attN.
+    ``upper_names`` (the upper stage's tank part names, top first; None = ``upper``
+    FL-T200s) and ``uid_base`` are the munsci variant's; their defaults derive CS
+    Mun Flyby."""
+    uid = iter(range(uid_base, uid_base + 99))
     off = NODE_OFFSET
 
     def below(parent, pnode, key, name, cnode, **kw):
@@ -720,8 +725,8 @@ def mun_layout(upper=MUN_UPPER_TANKS, core=MUN_CORE_TANKS,
     shield.attn.append(("top", pod.uid, off["HeatShield1"]["top"]))
     prev, pnode = dec1, "bottom"
     upper_tanks = []
-    for i in range(upper):
-        t = below(prev, pnode, "utank%d" % i, "fuelTankSmall", "top",
+    for i, name in enumerate(upper_names or ["fuelTankSmall"] * upper):
+        t = below(prev, pnode, "utank%d" % i, name, "top",
                   istg=MUN_STAGE_POD_SEPARATION, dstg=4, group="upper")
         upper_tanks.append(t)
         prev, pnode = t, "bottom"
@@ -817,12 +822,13 @@ def mun_build():
     return "\n".join(header) + "\n" + "\n".join(body) + "\n"
 
 
-def mun_figures(upper=MUN_UPPER_TANKS, core=MUN_CORE_TANKS):
+def mun_figures(upper=MUN_UPPER_TANKS, core=MUN_CORE_TANKS, parts=None):
     """Mass, cost, height and the per-stage delta-v: the launch stage burns the
     Thumpers (at their tail's thrust limit) and the core Swivel together, at
     sea-level Isp; the core then finishes alone, then the upper stage, both in
-    vacuum. KSP's thrust limiter scales the propellant flow with the thrust."""
-    parts = mun_layout(upper, core)
+    vacuum. KSP's thrust limiter scales the propellant flow with the thrust.
+    ``parts`` (the munsci variant's layout) replaces the derived CS Mun Flyby."""
+    parts = parts or mun_layout(upper, core)
     mass = sum(_pmass(p) for p in parts)
     cost = sum(_pcost(p) for p in parts)
 
@@ -955,6 +961,280 @@ def mun_report():
 
 
 
+# The FL-T400 (advRocketry), the munsci upper stage's tank: AeroEquus' attach nodes,
+# part cfg and stored tail.
+NODE_OFFSET.update({
+    # AeroEquus: attN = top,...|0.981725|0 and attN = bottom,...|-0.9125|0
+    "fuelTank": {"top": 0.981725, "bottom": -0.9125},
+})
+
+PART_CFG.update({
+    "fuelTank": {"mass": 0.25, "cost": 500},             # FuelTank/Size1_Tanks/fuelTankT400
+})
+
+FLT400_DONORS = {
+    "fuelTank": ("VAB/AeroEquus.craft", 0),
+}
+FLT400_TAILS = {
+    # <- Ships/VAB/AeroEquus.craft, occurrence 0  [stock 1.12.0, KSP-written]
+    'fuelTank': '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t}\n\tPARTDATA\n\t{\n\t}\n\tMODULE\n\t{\n\t\tname = ModulePartVariants\n\t\tisEnabled = True\n\t\tuseVariantMass = True\n\t\tstagingEnabled = True\n\t\tselectedVariant = BlackAndWhite\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tRESOURCE\n\t{\n\t\tname = LiquidFuel\n\t\tamount = 180\n\t\tmaxAmount = 180\n\t\tflowState = True\n\t\tisTweakable = True\n\t\thideFlow = False\n\t\tisVisible = True\n\t\tflowMode = Both\n\t}\n\tRESOURCE\n\t{\n\t\tname = Oxidizer\n\t\tamount = 220\n\t\tmaxAmount = 220\n\t\tflowState = True\n\t\tisTweakable = True\n\t\thideFlow = False\n\t\tisVisible = True\n\t\tflowMode = Both\n\t}',
+}
+
+DONORS.update(FLT400_DONORS)
+TAILS.update(FLT400_TAILS)
+
+
+# ---------------------------------------------------------------------------
+# THE MUN SCIENCE VARIANT (`--variant munsci`): `CS Mun Science`, CS-6c's craft.
+#
+# It flies from `cs-career-mun3` (CS-6b's produced save): `start`, `basicRocketry`,
+# `engineering101`, `survivability`, `generalRocketry`, `stability` and `advRocketry`
+# researched, the Launch Pad at level 1 and the VAB at level 0 (30 parts).
+#
+# THE STACK is CS Mun Flyby's (CS-5 flew it to a Mun flyby, CS-6 to a Mun orbit and
+# back), with two edits:
+#   - the upper stage's 4 x FL-T200 become 2 x FL-T400 (advRocketry): the same 360
+#     LiquidFuel / 440 Oxidizer and the same dry mass, two parts fewer;
+#   - the pod carries the science: two Mystery Goo canisters (start) and two 2HOT
+#     thermometers (engineering101), surface-attached to the Mk1 pod. Each part holds
+#     one reading and the pod's own container takes data only from a boarding
+#     kerbal, so one Goo and one thermometer read high Mun space and the other two
+#     low Mun space; everything rides the pod through the reentry to the recovery.
+# 30 parts, the VAB's limit.
+#
+# DONORS, by stored state: the Goo tail and its attach from AeroEquus (1.12.0), the
+# one stock craft with Goo on a Mk1 pod (its pair at x = +/-0.2997 m, 0.3645 m up the
+# pod; AeroEquus also nudged them with the offset gizmo, attPos / attRot, which this
+# builder does not carry: the parts sit at the donor's attPos0 / attRot0, the attach
+# KSP computed, with the 1e-8 m z noise dropped); the thermometer tail and its attach
+# from Science Jr. (1.12.0, on its Mk1 pod at azimuth -30 deg, 0.495 m up); the
+# FL-T400 from AeroEquus. The second Goo and the second thermometer are the first
+# ones turned 180 deg about the pod axis (position by _yaw_vec, rotation by
+# quat_y(180) * donor rotation), a symmetric pair each.
+#
+# THE HATCH. The Mk1 pod's airlock transform sits at (0.0008, 0.165, -0.581) in the
+# pod's frame (Mk1Pod_v2.mu), azimuth -90 deg; a part over it obstructs the EVA. The
+# Goo pair sits at 0 / 180 deg and the thermometers at -30 / 150 deg, every one at
+# least 60 deg off the hatch (gated below).
+#
+# ASSUMPTIONS A FLIGHT CAN FALSIFY: that the Goo canisters and thermometers (maxTemp
+# 1200 K each) survive a Mun-return reentry on the pod behind the 1.25 m heat shield
+# (stock's own AeroEquus mounts its Goo there for an orbital return; the mission's
+# scienceKeptToSplashdown row reads it), and CS Mun Flyby's own (see above).
+# ---------------------------------------------------------------------------
+
+MUNSCI_SHIP_NAME = "CS Mun Science"
+MUNSCI_OUT = os.path.join(ROOT, "harness", "fixtures", "saves", "cs-career-mun3",
+                          "Ships", "VAB", "CS Mun Science.craft")
+MUNSCI_UPPER_NAMES = ["fuelTank", "fuelTank"]
+MUNSCI_UID_BASE = 4290000001
+# AeroEquus GooExperiment_4294265902: attPos0 (z noise 8.6e-9 dropped) and attRot0.
+MUNSCI_GOO_POS = (0.299666911, 0.364496231, 0.0)
+MUNSCI_GOO_ROT = (-0.00661472185, 0.707075894, -0.00661472743, -0.707075834)
+# Science Jr. sensorThermometer_4294596382: attPos0 and attRot0.
+MUNSCI_THERMO_POS = (0.305041492, 0.495138168, -0.176115841)
+MUNSCI_THERMO_ROT = (-0.121066101, 0.495090187, -0.0698975325, -0.857521474)
+# The Mk1 pod's airlock (Mk1Pod_v2.mu transform `airlock`), and the least azimuth a
+# science part keeps from it.
+MUNSCI_HATCH_POS = (0.0008, 0.165, -0.581)
+MUNSCI_HATCH_CLEARANCE_DEG = 45.0
+# The two runs' parts: two Goo and two thermometers.
+MUNSCI_SCIENCE_PARTS = {"GooExperiment": 2, "sensorThermometer": 2}
+
+PART_CFG.update({
+    "GooExperiment": {"mass": 0.05, "cost": 800},        # Science/GooExperiment
+    "sensorThermometer": {"mass": 0.005, "cost": 900},   # Science/sensorThermometer
+})
+
+MUNSCI_DONORS = {
+    "GooExperiment": ("VAB/AeroEquus.craft", 0),
+    "sensorThermometer": ("VAB/Science Jr.craft", 0),
+}
+MUNSCI_TAILS = {
+    # <- Ships/VAB/AeroEquus.craft, occurrence 0  [stock 1.12.0, KSP-written]
+    "GooExperiment": '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t}\n\tPARTDATA\n\t{\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleAnimateGeneric\n\t\tisEnabled = True\n\t\taniState = LOCKED\n\t\tanimSwitch = True\n\t\tanimTime = 0\n\t\tanimSpeed = 1\n\t\tdeployPercent = 100\n\t\tanimationIsDisabled = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tToggleAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleScienceExperiment\n\t\tisEnabled = True\n\t\tDeployed = False\n\t\tInoperable = False\n\t\tcooldownToGo = 0\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tDeployAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tResetAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}',
+    # <- Ships/VAB/Science Jr.craft, occurrence 0  [stock 1.12.0, KSP-written]
+    "sensorThermometer": '\tEVENTS\n\t{\n\t}\n\tACTIONS\n\t{\n\t}\n\tPARTDATA\n\t{\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleEnviroSensor\n\t\tisEnabled = True\n\t\tsensorActive = False\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tToggleAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}\n\tMODULE\n\t{\n\t\tname = ModuleScienceExperiment\n\t\tisEnabled = True\n\t\tDeployed = False\n\t\tInoperable = False\n\t\tcooldownToGo = 0\n\t\tstagingEnabled = True\n\t\tEVENTS\n\t\t{\n\t\t}\n\t\tACTIONS\n\t\t{\n\t\t\tDeployAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t\tResetAction\n\t\t\t{\n\t\t\t\tactionGroup = None\n\t\t\t\twasActiveBeforePartWasAdjusted = False\n\t\t\t}\n\t\t}\n\t\tUPGRADESAPPLIED\n\t\t{\n\t\t}\n\t}',
+}
+
+DONORS.update(MUNSCI_DONORS)
+TAILS.update(MUNSCI_TAILS)
+
+
+def _quat_mul(a, b):
+    """Hamilton product a * b of two (x, y, z, w) quaternions (Unity's operator *)."""
+    ax, ay, az, aw = a
+    bx, by, bz, bw = b
+    return (aw * bx + ax * bw + ay * bz - az * by,
+            aw * by - ax * bz + ay * bw + az * bx,
+            aw * bz + ax * by - ay * bx + az * bw,
+            aw * bw - ax * bx - ay * by - az * bz)
+
+
+def _quat_tuple_y(psi_deg):
+    h = math.radians(psi_deg) / 2.0
+    return (0.0, math.sin(h), 0.0, math.cos(h))
+
+
+def _quat_str(q):
+    return ",".join(_fmt(round(c, 9)) for c in q)
+
+
+def _azimuth_deg(pos):
+    """The builder's azimuth of a pod-frame position: atan2(z, x), the convention the
+    radial parts' (r cos a, y, r sin a) placement uses."""
+    return math.degrees(math.atan2(pos[2], pos[0]))
+
+
+def munsci_layout():
+    """Every part of CS Mun Science, root first: CS Mun Flyby's layout with the
+    FL-T400 upper stage, then the four science parts on the pod."""
+    parts = mun_layout(upper_names=MUNSCI_UPPER_NAMES, uid_base=MUNSCI_UID_BASE)
+    pod = parts[0]
+    uid = iter(range(MUNSCI_UID_BASE + 900, MUNSCI_UID_BASE + 999))
+    science = []
+    for name, (pos, rot) in (("GooExperiment", (MUNSCI_GOO_POS, MUNSCI_GOO_ROT)),
+                             ("sensorThermometer", (MUNSCI_THERMO_POS,
+                                                    MUNSCI_THERMO_ROT))):
+        pair = []
+        for i, psi in enumerate((0.0, 180.0)):
+            local = _yaw_vec(psi, pos)
+            p = Part("%s%d" % (name, i), name, next(uid), pod.y + local[1])
+            p.pos = tuple(c + o for c, o in zip(pod.pos, local))
+            p.rot = _quat_str(_quat_mul(_quat_tuple_y(psi), rot))
+            p.attm = 1
+            p.srfn = pod.uid
+            p.parent = pod
+            pod.links.append(p.uid)
+            pair.append(p)
+        for p in pair:
+            p.syms = [o.uid for o in pair if o is not p]
+        science += pair
+    return parts + science
+
+
+def munsci_hatch_clearances(parts=None):
+    """Each science part's azimuth distance (deg) from the pod's airlock."""
+    parts = parts or munsci_layout()
+    pod = parts[0]
+    hatch = _azimuth_deg(MUNSCI_HATCH_POS)
+    out = {}
+    for p in parts:
+        if p.name in MUNSCI_SCIENCE_PARTS:
+            local = tuple(a - b for a, b in zip(p.pos, pod.pos))
+            d = abs((_azimuth_deg(local) - hatch + 180.0) % 360.0 - 180.0)
+            out[p.key] = d
+    return out
+
+
+def munsci_build():
+    parts = munsci_layout()
+    xs = [p.pos[0] for p in parts]
+    zs = [p.pos[2] for p in parts]
+    header = [
+        "ship = %s" % MUNSCI_SHIP_NAME,
+        "version = 1.12.5",
+        "description = CS-6c craft (scripted campaign, Career): Mk1 pod with two Goo "
+        "canisters and two 2HOT thermometers, heat shield, %d FL-T400 on a Swivel over "
+        "%d FL-T200 on a Swivel core, two Thumpers. Built by construction by "
+        "harness/tools/build_cs_orbiter_craft.py --variant munsci."
+        % (len(MUNSCI_UPPER_NAMES), MUN_CORE_TANKS),
+        "type = VAB",
+        "size = %s" % _vec(max(xs) - min(xs) + 1.25, mun_stack_height(parts),
+                           max(zs) - min(zs) + 1.25),
+        "steamPublishedFileId = 0",
+        "persistentId = 2600770011",
+        "rot = 0,0,0,1",
+        "missionFlag = Squad/Flags/default",
+        "vesselType = Ship",
+    ]
+    body = [render_part(p, i) for i, p in enumerate(parts)]
+    return "\n".join(header) + "\n" + "\n".join(body) + "\n"
+
+
+def munsci_figures():
+    """mun_figures over CS Mun Science's layout (the science parts ride the pod
+    group, so the upper stage carries them and the reentry mass counts them)."""
+    return mun_figures(parts=munsci_layout())
+
+
+def munsci_problems():
+    """Every post-condition of CS Mun Science, as strings (empty = good)."""
+    out = []
+    parts = munsci_layout()
+    f = munsci_figures()
+    if f["parts"] > MUN_LIMIT_PARTS:
+        out.append("%d parts > the level-0 VAB limit %d" % (f["parts"], MUN_LIMIT_PARTS))
+    if f["mass"] > MUN_LIMIT_MASS_T:
+        out.append("%.3f t > the level-1 pad limit %.0f t" % (f["mass"], MUN_LIMIT_MASS_T))
+    if f["height"] > MUN_LIMIT_HEIGHT_M:
+        out.append("%.2f m > the level-1 pad height %.0f m"
+                   % (f["height"], MUN_LIMIT_HEIGHT_M))
+    if f["dv_total"] < MUN_MIN_DELTA_V:
+        out.append("delta-v %.0f < %.0f" % (f["dv_total"], MUN_MIN_DELTA_V))
+    if f["dv_upper"] < MUN_MIN_UPPER_DELTA_V:
+        out.append("upper delta-v %.0f < %.0f" % (f["dv_upper"], MUN_MIN_UPPER_DELTA_V))
+    if f["liftoff_twr"] < MUN_MIN_LIFTOFF_TWR:
+        out.append("liftoff TWR %.2f < %.2f" % (f["liftoff_twr"], MUN_MIN_LIFTOFF_TWR))
+    if stage_table(parts) != mun_stage_want():
+        out.append("stage order %r != %r" % (stage_table(parts), mun_stage_want()))
+    shield = [p for p in parts if p.name == "HeatShield1"][0]
+    if shield.istg != -1:
+        out.append("the heat shield must not be staged")
+    pod = parts[0]
+    counts = {}
+    for p in parts:
+        if p.name in MUNSCI_SCIENCE_PARTS:
+            counts[p.name] = counts.get(p.name, 0) + 1
+            if p.parent is not pod or p.group != "pod" or p.sidx != -1:
+                out.append("%s must ride the pod, unstaged" % p.key)
+    if counts != MUNSCI_SCIENCE_PARTS:
+        out.append("science parts %r != %r" % (counts, MUNSCI_SCIENCE_PARTS))
+    for key, d in sorted(munsci_hatch_clearances(parts).items()):
+        if d < MUNSCI_HATCH_CLEARANCE_DEG:
+            out.append("%s sits %.0f deg off the hatch (< %.0f)"
+                       % (key, d, MUNSCI_HATCH_CLEARANCE_DEG))
+    uids = [p.uid for p in parts]
+    if len(set(uids)) != len(uids):
+        out.append("duplicate part uid")
+    for p in parts:
+        for ref in p.links + [o for _, o, _ in p.attn] + ([p.srfn] if p.srfn else []):
+            if ref not in uids:
+                out.append("%s references undeclared %s" % (p.uid, ref))
+    return out
+
+
+def munsci_check():
+    """[] when the committed CS Mun Science is byte-identical to a fresh derivation
+    and every post-condition holds, else the problems."""
+    out = munsci_problems()
+    if not os.path.exists(MUNSCI_OUT):
+        return out + ["MISSING %s - run --variant munsci --write" % MUNSCI_OUT]
+    with open(MUNSCI_OUT, encoding="utf-8", newline="") as fh:
+        have = fh.read()
+    if have != munsci_build():
+        out.append("DRIFT: %s differs from the derivation" % MUNSCI_OUT)
+    return out
+
+
+def munsci_report():
+    f = munsci_figures()
+    print("%s: %d parts, %.3f t, %.2f m, cost %.0f (Thumpers at %.0f%%)"
+          % (MUNSCI_SHIP_NAME, f["parts"], f["mass"], f["height"], f["cost"],
+             100.0 * f["booster_thrust_fraction"]))
+    for s in f["stages"]:
+        twr = s.get("twr_asl", s.get("twr_vac"))
+        print("  %-18s m0 %.3f t -> m1 %.3f t  dv vac %.0f m/s (ASL %.0f)  TWR %.2f  "
+              "burn %.0f s" % (s["stage"], s["m0"], s["m1"], s["dv_vac"], s["dv_asl"],
+                               twr, s["burn_s"]))
+    print("  total dv %.0f m/s (launch stage at ASL Isp), %.0f m/s all vacuum"
+          % (f["dv_total"], f["dv_total_vac"]))
+    print("  liftoff TWR %.3f (sea level); reentry mass %.3f t"
+          % (f["liftoff_twr"], f["reentry_mass"]))
+    print("  hatch clearances (deg): %s" % ", ".join(
+        "%s %.0f" % kv for kv in sorted(munsci_hatch_clearances().items())))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true")
@@ -965,10 +1245,33 @@ def main(argv=None):
                     % DEFAULT_TANKS)
     ap.add_argument("--verify-donors", metavar="SHIPS_DIR", nargs="?",
                     const=DEFAULT_DONOR_SHIPS)
-    ap.add_argument("--variant", choices=("orbiter", "mun"), default="orbiter",
+    ap.add_argument("--variant", choices=("orbiter", "mun", "munsci"),
+                    default="orbiter",
                     help="orbiter = CS Orbiter (CS-4, cs-career-mc1); mun = CS Mun "
-                    "Flyby (CS-5, cs-career-ts1)")
+                    "Flyby (CS-5, cs-career-ts1); munsci = CS Mun Science (CS-6c, "
+                    "cs-career-mun3)")
     a = ap.parse_args(argv)
+    if a.variant == "munsci" and not a.verify_donors:
+        if a.tanks != DEFAULT_TANKS:
+            ap.error("--tanks applies to the orbiter variant only")
+        if a.report:
+            munsci_report()
+            return 0
+        if a.write:
+            bad = munsci_problems()
+            if bad:
+                print("\n".join(bad))
+                return 1
+            text = munsci_build()
+            os.makedirs(os.path.dirname(MUNSCI_OUT), exist_ok=True)
+            with open(MUNSCI_OUT, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(text)
+            print("wrote %s (%d lines)" % (MUNSCI_OUT, text.count("\n")))
+            munsci_report()
+            return 0
+        bad = munsci_check()
+        print("\n".join(bad) or "OK committed craft matches the derivation")
+        return 1 if bad else 0
     if a.variant == "mun" and not a.verify_donors:
         if a.tanks != DEFAULT_TANKS:
             ap.error("--tanks applies to the orbiter variant only")
