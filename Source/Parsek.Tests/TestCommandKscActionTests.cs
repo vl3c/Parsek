@@ -41,6 +41,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveHireTarget_ApplicantFirst_PicksTheFirstName_OrRefusesAnEmptyPool()
+        {
+            string resolved;
+            // A plain name passes through for the ordinary gates.
+            Assert.Null(TestCommandKscAction.ResolveHireTarget("Verhat Kerman", new[] { "Bob Kerman" }, out resolved));
+            Assert.Equal("Verhat Kerman", resolved);
+            Assert.Null(TestCommandKscAction.ResolveHireTarget(null, new string[0], out resolved));
+            Assert.Null(resolved);
+
+            // applicant-first (any case) takes the first non-empty name in roster order.
+            Assert.Null(TestCommandKscAction.ResolveHireTarget("applicant-first",
+                new[] { null, "", "Lodbert Kerman", "Gerdun Kerman" }, out resolved));
+            Assert.Equal("Lodbert Kerman", resolved);
+            Assert.Null(TestCommandKscAction.ResolveHireTarget(" Applicant-First ",
+                new[] { "Gerdun Kerman" }, out resolved));
+            Assert.Equal("Gerdun Kerman", resolved);
+
+            // An empty pool refuses before any gate runs.
+            Assert.Equal("no-applicant", TestCommandKscAction.ResolveHireTarget("applicant-first",
+                new string[0], out resolved));
+            Assert.Null(resolved);
+            Assert.Equal("no-applicant", TestCommandKscAction.ResolveHireTarget("applicant-first",
+                null, out resolved));
+            Assert.Equal("applicant-first", TestCommandKscAction.FirstApplicantArg);
+        }
+
+        [Fact]
         public void Decide_GiftTech_RefusalsAndAccept()
         {
             Assert.Equal(KscActionKind.GiftTech, TestCommandKscAction.ParseKind("gift-tech"));

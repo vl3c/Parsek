@@ -11948,6 +11948,8 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "facility-at-max": "driver-career",
     "node-already-unlocked": "driver-career",
     "kerbal-not-applicant": "driver-career",
+    # hire-kerbal kerbal=applicant-first with an empty applicant pool: a live career state.
+    "no-applicant": "driver-career",
     "kerbal-parsek-managed": "driver-career",
     "kerbal-not-dismissable": "driver-career",
     "blocked-committed": "driver-career",
