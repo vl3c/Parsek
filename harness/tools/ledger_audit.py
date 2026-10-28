@@ -17,12 +17,19 @@ Usage::
 Expectations (TOML, or JSON when the file ends in ``.json``)::
 
     expected = ["take-back"]                # take-back | debt | not-affordable | refly-leftover
+                                            # | guarded-one-sided
     expectedLines = ["NOT affordable"]      # literals; mark matching expectable lines EXPECTED
     maxStructuralPerMinute = 30             # arms recalc-rate
     mergeMustPass = true                    # arms merge-refused
 
 Exit code: 0 when no check FAILs, 1 when one does, 2 on a usage error (no log,
 an unreadable or invalid expectations file).
+
+The report quotes KSP.log lines verbatim, and those can carry non-ASCII text (an
+arrow, a dash), so stdout is switched to UTF-8 with ``errors="replace"`` before the
+write (a Windows console or a redirect under cp1252 would otherwise raise
+UnicodeEncodeError); a stream that cannot be reconfigured gets the text encoded in
+its own encoding with replacement. ``audit.txt`` is always UTF-8.
 """
 
 from __future__ import annotations
@@ -124,6 +131,32 @@ def load_expectations(path: Optional[str]) -> ledgeraudit.Expectations:
         raise UsageError("expectations %s: %s" % (path, exc))
 
 
+def write_text_safely(text: str, stream=None) -> None:
+    """Write ``text`` to ``stream`` (default ``sys.stdout``) without ever raising
+    UnicodeEncodeError: reconfigure a TextIOWrapper to UTF-8 / replace when it allows
+    it, else encode in the stream's own encoding with replacement."""
+    stream = stream if stream is not None else sys.stdout
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is not None:
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError, AttributeError, TypeError):
+            pass
+    try:
+        stream.write(text)
+        return
+    except UnicodeEncodeError:
+        pass
+    encoding = getattr(stream, "encoding", None) or "ascii"
+    buffer = getattr(stream, "buffer", None)
+    if buffer is not None:
+        stream.flush()
+        buffer.write(text.encode(encoding, errors="replace"))
+        buffer.flush()
+    else:
+        stream.write(text.encode(encoding, errors="replace").decode(encoding, errors="replace"))
+
+
 def run(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("target", help="run folder or a KSP.log / KSP.log.gz")
@@ -138,12 +171,12 @@ def run(argv: Optional[List[str]] = None) -> int:
         baseline = read_log_lines(find_log(args.baseline)) if args.baseline else None
         lines = read_log_lines(log_path)
     except (UsageError, OSError) as exc:
-        print("ledger_audit: %s" % exc, file=sys.stderr)
+        write_text_safely("ledger_audit: %s\n" % exc, sys.stderr)
         return 2
     run_dir = args.target if os.path.isdir(args.target) else None
     result = ledgeraudit.audit(lines, exp, baseline, find_ledgers(run_dir), log_label=log_path)
     text = ledgeraudit.render(result)
-    sys.stdout.write(text)
+    write_text_safely(text)
     if not args.no_write:
         out = args.out or os.path.join(run_dir or os.path.dirname(os.path.abspath(log_path)),
                                        "audit.txt")
@@ -151,7 +184,7 @@ def run(argv: Optional[List[str]] = None) -> int:
             with open(out, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(text)
         except OSError as exc:
-            print("ledger_audit: cannot write %s: %s" % (out, exc), file=sys.stderr)
+            write_text_safely("ledger_audit: cannot write %s: %s\n" % (out, exc), sys.stderr)
             return 2
     return ledgeraudit.exit_code(result)
 
