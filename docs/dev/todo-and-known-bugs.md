@@ -426,7 +426,11 @@ the EVA and the revert. ~~Audit follow-up: `ledger_audit.py` should flag a patch
 `cutoffUT=null` while committed rows lie ahead of a time-travel load's clock.~~ Done 2026-10-28
 (branch `ledger-audit-upgrades`): check `walk-past-clock` FAILs a `useCurrentUtCutoff=False ...
 hasFutureLedgerActions=True` (or `hasFutureActions=True`) walk at a ready clock that lifts a pool,
-and reports the full replays whose decision line cannot say.
+and reports the full replays whose decision line cannot say. The revert follow-up walk
+(`ApplyBudgetDeduction`) prints no decision of its own and often runs before the load's
+in-session decision line, so it takes that line's rows-ahead reading inside one `Load classified`
+window; checked against the archive (the pre-fix RW-2 `2026-10-28_0837`, L13 `2026-10-25_0144` and
+LAB-10 `2026-10-17_2337` read REPORT before this binding).
 
 ---
 

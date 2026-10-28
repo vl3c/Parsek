@@ -291,6 +291,22 @@ def input_summary(cutoff="null", total=10, t=36000.0):
              % (total, total, cutoff), t)
 
 
+def budget_ready(t=36000.0):
+    # ParsekScenario.ApplyBudgetDeductionWhenReady
+    return P("VERBOSE", "Scenario", "ApplyBudgetDeduction: singletons ready after 0 frames "
+             "(expected=Funding,R&D,Reputation). Funding=True, R&D=True, Rep=True", t)
+
+
+def budget_done(t=36000.0):
+    return P("VERBOSE", "Scenario", "Budget deduction already applied for this revert load", t)
+
+
+def revert_budget(cut=True, ready=True, scn="FLIGHT", revert_ut=185785.98, t=36000.0):
+    # ParsekScenario.RecalculateAndPatchAfterRevert
+    return P("INFO", "Scenario", "Revert budget walk: scene=%s cutoffScene=%s clockReady=%s "
+             "revertUT=%r" % (scn, _b(cut), _b(ready), revert_ut), t)
+
+
 def patch_move(pool, before, after, t=36000.0):
     # KspStatePatcher.PatchFunds / PatchScience / PatchReputation
     if pool == "Reputation":
@@ -901,6 +917,70 @@ class WalkPastClockTests(unittest.TestCase):
         self.assertFalse(r["findings"][0]["expectable"])
         self.assertEqual(1, la.exit_code(res))
 
+    def test_rw2_real_order_fails(self):
+        # The live order: the revert walk runs synchronously inside OnLoad, BEFORE the
+        # in-session decision line that says rows lie ahead.
+        lines = [classified("InSessionOther", "StockRevert", "FLIGHT"), budget_ready(),
+                 input_summary("null"), patched(), patch_move("Funds", *RW2_POOLS),
+                 insession_decision(revert=True)]
+        r = self._r(lines)
+        self.assertEqual(la.FAIL, r["status"])
+        note = r["findings"][0]["note"]
+        self.assertIn("revert budget walk (ApplyBudgetDeduction)", note)
+        self.assertIn("the same load's decision (L6)", note)
+        self.assertEqual(2, r["findings"][0]["n"])
+
+    def test_a_revert_walk_after_the_decision_binds_too(self):
+        # Singletons not ready yet: the coroutine walks a few frames after OnLoad.
+        lines = [classified("InSessionOther", "StockRevert", "FLIGHT"),
+                 insession_decision(use=True), input_summary("150000"), patched(),
+                 patch_move("Funds", 5.0, 1.0), budget_ready(t=36001.0), patched(t=36001.0),
+                 patch_move("Funds", 1.0, 9.0, t=36001.0)]
+        self.assertEqual(la.FAIL, self._r(lines)["status"])
+
+    def test_the_fixed_revert_walk_cuts_off_and_passes(self):
+        lines = [classified("InSessionOther", "StockRevert", "FLIGHT"), budget_ready(),
+                 revert_budget(), input_summary("185785.98"), patched(),
+                 patch_move("Funds", 151682.2, 160000.0), insession_decision(use=True)]
+        r = self._r(lines)
+        self.assertEqual(la.PASS, r["status"])
+        units = la.split_patch_walks(la.parse_log(lines))
+        self.assertEqual(["revert-budget", "in-session-load"], [u["kind"] for u in units])
+
+    def test_a_fixed_revert_walk_with_no_ready_clock_still_binds(self):
+        lines = [classified("InSessionOther", "StockRevert", "FLIGHT"), budget_ready(),
+                 revert_budget(ready=False), patched(), patch_move("Funds", 1.0, 9.0),
+                 insession_decision()]
+        r = self._r(lines)
+        self.assertEqual(la.FAIL, r["status"])
+        self.assertIn("clockReady=False", r["findings"][0]["note"])
+
+    def test_what_does_not_bind(self):
+        rise = [budget_ready(), patched(), patch_move("Funds", 1.0, 9.0)]
+        cases = (
+            # no Load classified line: the load is unknown
+            rise + [insession_decision()],
+            # another load
+            [classified()] + rise + [classified(), insession_decision()],
+            # too far apart in wall time
+            [classified()] + rise + [insession_decision(t=36000.0 + la.LOAD_BIND_SECONDS + 1)],
+            # the decision says nothing lies ahead, or the clock was not ready
+            [classified()] + rise + [insession_decision(future=False)],
+            [classified()] + rise + [insession_decision(ready=False)],
+            # a plain walk after the decision is a later walk of the scene
+            [classified(), insession_decision(), deferred(), patched(),
+             patch_move("Funds", 1.0, 2.0)],
+        )
+        for lines in cases:
+            r = self._r(lines)
+            self.assertNotEqual(la.FAIL, r["status"], lines)
+            self.assertEqual([], r["findings"])
+
+    def test_an_already_applied_budget_walk_is_no_walk(self):
+        units = la.split_patch_walks(la.parse_log(
+            [classified(), budget_ready(), budget_done(), insession_decision(), deferred()]))
+        self.assertEqual(["in-session-load"], [u["kind"] for u in units])
+
     def test_without_the_input_summary_still_binds(self):
         # The cutoff-less input summary is VerboseOnChange and often absent.
         lines = [insession_decision(scn="EDITOR"), patched(), patch_move("Science", 10.0, 30.0)]
@@ -1009,6 +1089,44 @@ class GuardedClampTests(unittest.TestCase):
         self.assertIn("2 GUARDED line(s): 1 paired transient(s), 0 one-sided", r["summary"])
         self.assertIn("UPLIFT -800.00 + L2 DRAWDOWN 800.00 = 0.00", "\n".join(r["details"]))
         self.assertEqual(0, la.exit_code(res))
+
+    def test_the_filed_amount_is_the_leak(self):
+        # StockPoolReference era: the row is carried, so clampedTo == wouldBeTarget and
+        # the patch's filed amount is the leak (CS-3 2026-10-26_0146, 2.35 s apart).
+        lines = [filed(amount=-2.0, t=36000.0),
+                 guarded("UPLIFT", running=12.0, live=10.0, would=10.0, clamped=10.0, t=36000.0),
+                 filed(amount=2.0, t=36002.35),
+                 guarded("DRAWDOWN", running=10.0, live=12.0, would=12.0, clamped=12.0,
+                         t=36002.35)]
+        g = la.parse_guarded(la.parse_log(lines))
+        self.assertEqual([-2.0, 2.0], [x["leak"] for x in g])
+        self.assertEqual(["filed L1", "filed L3"], [x["leakFrom"] for x in g])
+        r = self._r(lines)
+        self.assertEqual(la.PASS, r["status"])
+        self.assertEqual(1, r["pairs"])
+
+    def test_leak_fallbacks(self):
+        # A filed line of another patch (older than a second) is not this clamp's.
+        g = la.parse_guarded(la.parse_log([
+            filed(amount=-7.0, t=36000.0),
+            guarded("UPLIFT", running=12.0, live=10.0, would=10.0, clamped=10.0, t=36005.0)]))
+        self.assertEqual((-2.0, "live-running"), (g[0]["leak"], g[0]["leakFrom"]))
+        # A filed line of another resource is not this clamp's either.
+        g = la.parse_guarded(la.parse_log([
+            filed("Science", amount=-7.0),
+            guarded("UPLIFT", would=1000.0, clamped=200.0)]))
+        self.assertEqual((-800.0, "clampedTo-wouldBeTarget"), (g[0]["leak"], g[0]["leakFrom"]))
+        # A filed amount of the wrong sign for the direction is not this clamp's.
+        g = la.parse_guarded(la.parse_log([
+            filed(amount=7.0),
+            guarded("UPLIFT", running=12.0, live=10.0, would=10.0, clamped=10.0)]))
+        self.assertEqual((-2.0, "live-running"), (g[0]["leak"], g[0]["leakFrom"]))
+        # A filed line is used once.
+        g = la.parse_guarded(la.parse_log([
+            filed(amount=-7.0),
+            guarded("UPLIFT", running=12.0, live=10.0, would=10.0, clamped=10.0),
+            guarded("UPLIFT", running=12.0, live=10.0, would=10.0, clamped=10.0)]))
+        self.assertEqual([-7.0, -2.0], [x["leak"] for x in g])
 
     def test_one_sided_fails_unless_expected(self):
         r = self._r([REAL_GUARDED])
@@ -1153,10 +1271,10 @@ class AuditTests(unittest.TestCase):
         lines = green_run() + [
             unbound(36400), input_summary("1.7976931348623157E+308", t=36401), ms_reset(1, t=36401),
             patched(36401), patch_move("Funds", 150632.2, 191064.2, 36401),
-            guarded("UPLIFT", would=1000.0, clamped=200.0, t=36500),
             filed("Funds", -800.0, t=36500),
-            guarded("DRAWDOWN", would=200.0, clamped=1000.0, t=36501),
+            guarded("UPLIFT", would=1000.0, clamped=200.0, t=36500),
             filed("Funds", 800.0, t=36501),
+            guarded("DRAWDOWN", would=200.0, clamped=1000.0, t=36501),
             scene("FLIGHT", "SPACECENTER", 36600), ref_loaded("DiscardReFly", 36601),
             insession_decision(use=True, scn="SPACECENTER", t=36601),
             input_summary("150000", t=36601), patched(36601),

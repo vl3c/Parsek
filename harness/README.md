@@ -635,7 +635,13 @@ patches), so the report lists the scene changes crossed with a deferral open and
 whether one is open at log end, without judging them.
 `walk-past-clock` binds each walk to the decision line that started it (or its input
 summary; the cutoff-less summary is `VerboseOnChange`, so it can be missing) and its
-patch lines to the `drawdown-guard` line up to the next walk boundary. The log does not
+patch lines to the `drawdown-guard` line up to the next walk boundary. The revert
+follow-up walk (`ApplyBudgetDeduction: singletons ready after`, plus `Revert budget walk:`
+on a fixed build) has no rows-ahead reading of its own and often runs before the
+in-session decision line of the same load, so it takes that decision's reading when both
+sit in one `Load classified` window within 10 s. `guarded-clamp` reads each clamp's leak
+from the `filed StockPoolAdjustment amount=` line its patch filed just before it (older
+builds: `clampedTo - wouldBeTarget`, then `live - running`). The log does not
 say how much of a rise is the rows ahead, so a rise after a stated rows-ahead decision
 is the RW-2 signature rather than a measured amount. The audit writes stdout as UTF-8
 with replacement, so a log line with an arrow or a dash never crashes a cp1252 console.

@@ -39,12 +39,18 @@ Judgement calls the checks make (the report text repeats each one):
   ``hasFutureLedgerActions=True`` / ``hasFutureActions=True``) and the walk then
   patched a pool upward. A full replay whose decision does not say (the commit walk
   with an untrusted clock, a current-timeline replay with no ready clock) is REPORT:
-  the log does not state whether rows lie ahead. The Re-Fly start's
+  the log does not state whether rows lie ahead. A revert walk with no decision of
+  its own (the ``ApplyBudgetDeduction`` walk, which runs inside OnLoad and often
+  BEFORE the in-session decision line) takes that load's decision when it says rows
+  lie ahead of a ready clock (same ``Load classified`` window, within
+  ``LOAD_BIND_SECONDS``; RW-2, L13, LAB-10). The Re-Fly start's
   ``RecalculateAndPatch(double.MaxValue)`` (``cutoffUT`` of 1e308 and up) is by
   design and only reported.
 * ``guarded-clamp``: an UPLIFT / DRAWDOWN pair on one resource inside
   ``GUARDED_BURST_SECONDS`` whose leaks net to about zero is an ordering transient
-  (PASS); a one-sided GUARDED line is a missing channel and FAILs unless the lane
+  (PASS); the leak is the patch's ``filed StockPoolAdjustment amount=`` (falling back
+  to ``clampedTo - wouldBeTarget``, then ``live - running``, on older builds); a
+  one-sided GUARDED line is a missing channel and FAILs unless the lane
   lists ``guarded-one-sided`` (or a literal of its line) as expected.
 * ``leak-shape`` FAILs a ``reason=leak`` StockPoolAdjustment whose amount equals,
   within ``LEAK_MATCH_TOLERANCE``, the funds / science of the rows the same walk
@@ -144,6 +150,11 @@ LIT_COMMIT_FULL = "Commit ledger walk: full replay (cutoffUT=null), live clock n
 # The C# line continues with a non-ASCII dash before " reason="; key on the ASCII head.
 LIT_CURRENT_FULL = "Current-timeline recalc: full replay (cutoffUT=null) "
 LIT_INPUT_SUMMARY = "RecalculateAndPatch: actionsTotal="
+# The revert follow-up walk (ParsekScenario.ApplyBudgetDeductionWhenReady): the
+# singletons line opens it on every build; the fixed build adds its own decision line.
+LIT_BUDGET_READY = "ApplyBudgetDeduction: singletons ready after "
+LIT_REVERT_BUDGET = "Revert budget walk: scene="
+LIT_BUDGET_DONE = "Budget deduction already applied for this revert load"
 LIT_PATCH_FUNDS = 'PatchFunds: {currentFunds.ToString("F1", IC)} -> {afterFunds.ToString("F1", IC)} '
 LIT_PATCH_SCIENCE = ('PatchScience: {currentScience.ToString("F1", IC)} -> '
                      '{afterScience.ToString("F1", IC)} ')
@@ -214,6 +225,11 @@ SOURCE_ANCHORS: Tuple[Tuple[str, str, str], ...] = (
     ("walk-past-clock", SRC_ORCHESTRATOR, LIT_COMMIT_FULL),
     ("walk-past-clock", SRC_ORCHESTRATOR, LIT_CURRENT_FULL),
     ("walk-past-clock", SRC_ORCHESTRATOR, LIT_INPUT_SUMMARY),
+    ("walk-past-clock", SRC_SCENARIO, LIT_BUDGET_READY),
+    ("walk-past-clock", SRC_SCENARIO, LIT_REVERT_BUDGET),
+    ("walk-past-clock", SRC_SCENARIO, LIT_BUDGET_DONE),
+    ("walk-past-clock", SRC_SCENARIO, "cutoffScene={cutoffScene} clockReady={clockReady}"),
+    ("walk-past-clock", SRC_LOAD_POLICY, LIT_CLASSIFIED),
     ("walk-past-clock", SRC_ORCHESTRATOR, "cutoffUT={cutoffLabel}"),
     ("walk-past-clock", SRC_REWIND_INVOKER, "double.MaxValue, deadlineClockUT: retireCutoffUT"),
     ("walk-past-clock", SRC_PATCHER, LIT_PATCH_FUNDS),
@@ -280,6 +296,9 @@ GUARDED_NET_REL = 1e-3
 LEAK_MATCH_TOLERANCE = 0.01
 # walk-past-clock: a cutoff at or above this is the Re-Fly start's double.MaxValue horizon.
 HORIZON_CUTOFF = 1e308
+# walk-past-clock: a revert walk with no decision of its own binds to the same load's
+# in-session decision line when the two are this close in wall time.
+LOAD_BIND_SECONDS = 10.0
 # A pool patch "rises" when it moves up by more than this.
 RISE_EPSILON = 0.01
 
@@ -1099,6 +1118,8 @@ _COMMIT_FULL_RE = re.compile(r"reason=(\S+) onLoadInProgress=(\S+) rewindUTAdjus
 _INPUT_RE = re.compile(r"^RecalculateAndPatch: actionsTotal=(\d+), actionsAfterCutoff=(\d+), "
                        r"cutoffUT=(\S+)")
 _PATCH_MOVE_RE = re.compile(r"^Patch(Funds|Science|Reputation): (\S+) -> (\S+) ")
+_REVERT_BUDGET_RE = re.compile(r"^Revert budget walk: scene=(\S+) cutoffScene=(True|False) "
+                               r"clockReady=(True|False) revertUT=(\S+)")
 
 # Decision outcomes: what the walk's own decision line says about rows ahead.
 AHEAD_KNOWN = "ahead"        # no cutoff, and the line says committed rows lie ahead of a ready clock
@@ -1107,8 +1128,34 @@ AHEAD_UNKNOWN = "unknown"    # no cutoff, and the line cannot say
 AHEAD_HORIZON = "horizon"    # the Re-Fly start's double.MaxValue walk (by design)
 
 
+def _insession_rows_ahead(r: Rec) -> bool:
+    """Does an in-session decision line say committed rows lie ahead of a ready loaded
+    clock (whatever its own walk then did)?"""
+    if r.sub != "Scenario" or not r.msg.startswith(LIT_INSESSION_DECISION):
+        return False
+    m = _INSESSION_RE.match(r.msg)
+    if not m:
+        return False
+    ut = _num(m.group(2))
+    return m.group(5) == "True" and m.group(6) == "True" and ut is not None and ut > 0.0
+
+
 def _classify_decision(r: Rec) -> Optional[Tuple[str, str, str]]:
     """(kind, ahead-outcome, why) for a walk decision / full-replay line, else None."""
+    if r.sub == "Scenario" and r.msg.startswith(LIT_BUDGET_READY):
+        return ("revert-budget", AHEAD_UNKNOWN,
+                "revert budget walk (ApplyBudgetDeduction) with no decision line of its own")
+    if r.sub == "Scenario" and r.msg.startswith(LIT_REVERT_BUDGET):
+        m = _REVERT_BUDGET_RE.match(r.msg)
+        if not m:
+            return ("revert-budget", AHEAD_UNKNOWN, "revert budget line did not parse")
+        scn, cut, ready, revert_ut = m.groups()
+        why = "revert budget walk scene=%s revertUT=%s" % (scn, revert_ut)
+        if cut == "True" and ready == "True":
+            return ("revert-budget", AHEAD_NONE,
+                    why + " (walks at the revert clock when rows lie ahead)")
+        return ("revert-budget", AHEAD_UNKNOWN,
+                why + " cutoffScene=%s clockReady=%s: a plain full replay" % (cut, ready))
     if r.sub == "Scenario" and r.msg.startswith(LIT_INSESSION_DECISION):
         m = _INSESSION_RE.match(r.msg)
         if not m:
@@ -1167,6 +1214,7 @@ def split_patch_walks(recs: Sequence[Rec]) -> List[Dict]:
     decision, an input summary, a guard / deferred line, a milestones reset)."""
     units: List[Dict] = []
     cur: Optional[Dict] = None
+    window = 0  # count of ``Load classified`` lines seen: the load each unit belongs to
 
     def close():
         if cur is not None:
@@ -1174,11 +1222,20 @@ def split_patch_walks(recs: Sequence[Rec]) -> List[Dict]:
 
     def new(rec, kind, ahead, why, cutoff=None, state="await"):
         return {"rec": rec, "kind": kind, "ahead": ahead, "why": why, "cutoff": cutoff,
-                "state": state, "outcome": None, "patches": [], "input": None}
+                "state": state, "outcome": None, "patches": [], "input": None,
+                "window": window}
 
     for r in _parsek(recs):
+        if r.sub == "LoadPolicy" and r.msg.startswith(LIT_CLASSIFIED):
+            window += 1
+            continue
         d = _classify_decision(r)
         if d is not None:
+            if d[0] == "revert-budget" and cur is not None and cur["kind"] == "revert-budget" \
+                    and cur["state"] == "await" and cur["input"] is None:
+                # The fixed build's decision line follows its singletons line: one walk.
+                cur["ahead"], cur["why"] = d[1], d[2]
+                continue
             close()
             cur = new(r, d[0], d[1], d[2])
             continue
@@ -1200,6 +1257,11 @@ def split_patch_walks(recs: Sequence[Rec]) -> List[Dict]:
                           "cutoffUT=null with no decision line before it", cutoff)
             else:
                 cur = new(r, "cutoff", AHEAD_NONE, "cutoffUT=%s" % cutoff, cutoff)
+            continue
+        if r.sub == "Scenario" and r.msg.startswith(LIT_BUDGET_DONE):
+            # The singletons line opened a revert walk that does not run.
+            if cur is not None and cur["kind"] == "revert-budget" and cur["state"] == "await":
+                cur = None
             continue
         if r.sub == "LedgerOrchestrator" and r.msg.startswith(LIT_DEFERRED):
             if cur is not None and cur["state"] == "await":
@@ -1232,7 +1294,45 @@ def split_patch_walks(recs: Sequence[Rec]) -> List[Dict]:
                 if before is not None and after is not None:
                     cur["patches"].append((m.group(1), before, after, r))
     close()
+    _bind_load_decisions(units, recs)
     return units
+
+
+def _bind_load_decisions(units: List[Dict], recs: Sequence[Rec]) -> None:
+    """A revert walk with no cutoff and no decision of its own (``revert-budget``, or a
+    ``plain`` walk before the decision line) runs inside the same OnLoad as the in-session
+    decision, often BEFORE it (the singletons are already there, so the coroutine runs
+    synchronously). When that load's decision line says committed rows lie ahead of a
+    ready clock, the walk had the same rows ahead: it reads AHEAD_KNOWN. Bound only inside
+    one load (between ``Load classified`` lines, so never on a log without one) and within
+    ``LOAD_BIND_SECONDS``; a ``plain`` walk binds only to a decision AFTER it, since a
+    plain walk after the decision is some later walk of that scene."""
+    window = 0
+    decisions: List[Tuple[int, Rec]] = []
+    for r in _parsek(recs):
+        if r.sub == "LoadPolicy" and r.msg.startswith(LIT_CLASSIFIED):
+            window += 1
+        elif window > 0 and _insession_rows_ahead(r):
+            decisions.append((window, r))
+    if not decisions:
+        return
+    for u in units:
+        if u["ahead"] != AHEAD_UNKNOWN or u["kind"] not in ("revert-budget", "plain") \
+                or u["window"] == 0:
+            continue
+        for w, d in decisions:
+            if w != u["window"]:
+                continue
+            if u["kind"] == "plain" and d.n < u["rec"].n:
+                continue
+            if u["rec"].t is not None and d.t is not None \
+                    and abs(d.t - u["rec"].t) > LOAD_BIND_SECONDS:
+                continue
+            u["ahead"] = AHEAD_KNOWN
+            u["why"] += ("; the same load's decision (L%d) says committed rows lie ahead of "
+                         "a ready clock (hasFutureLedgerActions=True, planetariumReady=True)"
+                         % d.n)
+            break
 
 
 def _rises(unit: Dict) -> List[str]:
@@ -1314,20 +1414,44 @@ _GUARDED_RE = re.compile(
 
 
 def parse_guarded(recs: Sequence[Rec]) -> List[Dict]:
-    """Every GUARDED clamp line. The signed leak is ``clampedTo - wouldBeTarget``: the
-    patch writes the target plus the kept leak (KspStatePatcher.EmitStockPoolLeak), so
-    DRAWDOWN (live above the expectation) is positive and UPLIFT negative."""
+    """Every GUARDED clamp line with its signed leak: DRAWDOWN (live above the
+    expectation) positive, UPLIFT negative. With the stock pool reference the leak is the
+    ``filed StockPoolAdjustment amount=`` (``reason=leak``) of the same patch, filed just
+    before the WARN (KspStatePatcher.MeasureStockPool, then EmitStockPoolLeak; used once,
+    when within a second and of the direction's sign); there
+    ``clampedTo - wouldBeTarget`` reads 0 once the row is carried. With no filed line (a
+    pre-reference build) it is ``clampedTo - wouldBeTarget``, and when that is 0 too,
+    ``live - running``. ``leakFrom`` names the source."""
     out = []
-    for r in _parsek(recs, "KspStatePatcher"):
-        if "GUARDED " not in r.msg:
+    last_filed: Dict[str, Tuple[float, Rec]] = {}
+    for r in _parsek(recs):
+        if r.sub == "StockPoolReference":
+            fm = _FILED_RE.match(r.msg)
+            if fm and fm.group(3) == "leak":
+                amount = _num(fm.group(2))
+                if amount is not None:
+                    last_filed[fm.group(1)] = (amount, r)
+            continue
+        if r.sub != "KspStatePatcher" or "GUARDED " not in r.msg:
             continue
         m = _GUARDED_RE.match(r.msg)
         if not m:
-            out.append({"rec": r, "resource": None, "dir": None, "leak": None})
+            out.append({"rec": r, "resource": None, "dir": None, "leak": None, "leakFrom": None})
             continue
+        running, live = _num(m.group(4)), _num(m.group(5))
         would, clamped = _num(m.group(6)), _num(m.group(7))
-        leak = (clamped - would) if would is not None and clamped is not None else None
-        out.append({"rec": r, "resource": m.group(3), "dir": m.group(2), "leak": leak})
+        leak, source = None, None
+        filed_line = last_filed.pop(m.group(1), None)
+        if filed_line is not None and (filed_line[0] < 0.0) == (m.group(2) == "UPLIFT") \
+                and (filed_line[1].t is None or r.t is None
+                     or abs(r.t - filed_line[1].t) <= 1.0):
+            leak, source = filed_line[0], "filed L%d" % filed_line[1].n
+        elif would is not None and clamped is not None and abs(clamped - would) > GUARDED_NET_ABS:
+            leak, source = clamped - would, "clampedTo-wouldBeTarget"
+        elif running is not None and live is not None:
+            leak, source = live - running, "live-running"
+        out.append({"rec": r, "resource": m.group(3), "dir": m.group(2), "leak": leak,
+                    "leakFrom": source})
     return out
 
 
@@ -1377,8 +1501,9 @@ def check_guarded_clamp(recs: Sequence[Rec], exp: Expectations, used: Dict[str, 
     pairs, single = pair_guarded(lines)
     findings = []
     for x in single:
-        note = ("resource=%s %s leak=%s, no opposite line within %gs nets it out"
-                % (x["resource"], x["dir"], _fmt_pool(x["leak"]), GUARDED_BURST_SECONDS)
+        note = ("resource=%s %s leak=%s (%s), no opposite line within %gs nets it out"
+                % (x["resource"], x["dir"], _fmt_pool(x["leak"]), x["leakFrom"],
+                   GUARDED_BURST_SECONDS)
                 if x["leak"] is not None else "GUARDED line did not parse (format drift?)")
         findings.append(_finding(x["rec"], "guarded-one-sided", x["leak"] is not None, note))
     _apply_expectations(findings, exp, used)
