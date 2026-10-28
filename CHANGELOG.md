@@ -25,6 +25,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A tech node an anomaly gives you stays yours after a rewind.** A node the game unlocks for
+  free (a monolith's tech gift, or the debug menu) was never written down, so after a
+  Rewind-to-Launch it was locked again for good, parts and all. It is now kept like a researched
+  node, costs no science, and unlocks again when the timeline reaches it.
+  (FREE-TECH-NODE-LOST-AFTER-REWIND)
 - **A revert after a rewind no longer pays the future early.** Reverting a flight to launch (or
   to the VAB / SPH) after a Rewind-to-Launch briefly added money and contracts your timeline only
   earns later, which you could spend before the next scene change. A revert now shows only what

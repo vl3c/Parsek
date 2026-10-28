@@ -1082,7 +1082,7 @@ namespace Parsek
         // regression without spamming per-call.
         private static bool protoTechNodesReflectionWarnEmitted;
 
-        private static Dictionary<string, ProtoTechNode> GetProtoTechNodesDictionary()
+        internal static Dictionary<string, ProtoTechNode> GetProtoTechNodesDictionary()
         {
             if (ResearchAndDevelopment.Instance == null)
                 return null;

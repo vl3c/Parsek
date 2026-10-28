@@ -6704,8 +6704,8 @@ namespace Parsek
 
         /// <summary>
         /// Key-aware form of <see cref="IsIrreversibleLiveGameplayEvent(GameStateEventType)"/>,
-        /// used by <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/>. Adds exactly
-        /// one event beyond the type-only set: a NEGATIVE
+        /// used by <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/>. Adds two
+        /// events beyond the type-only set. The first is a NEGATIVE
         /// <see cref="GameStateEventType.ScienceChanged"/> keyed
         /// <c>TransactionReasons.StrategyInput</c> - the science INPUT leg of a stock
         /// CurrencyExchanger (Patents Licensing; STRATEGY-SCIENCE-CONVERSION-LEAK).
@@ -6721,10 +6721,21 @@ namespace Parsek
         /// <para>Sign gate: only the debit direction is preserved. A non-negative
         /// StrategyInput delta is not something KSP took away, and
         /// <c>ConvertStrategyExchangeScience</c> returns null for it anyway.</para>
+        ///
+        /// <para>The second is a FREE <see cref="GameStateEventType.TechResearched"/> (detail field
+        /// <c>free=1</c>, read by exact key like the converter reads details; todo
+        /// FREE-TECH-NODE-LOST-AFTER-REWIND): stock's <c>UnlockProtoTechNode</c> (an anomaly's
+        /// tech gift) unlocks the node in flight and KSP keeps it after a non-rewind discard,
+        /// so the discard re-homes it as an untagged zero-cost ScienceSpending row; without
+        /// it the next tech patch re-locks the node. A PAID TechResearched stays out: research
+        /// happens at the Space Center, written untagged at once, never on a flight.</para>
         /// </summary>
         internal static bool IsIrreversibleLiveGameplayEvent(GameStateEvent e)
         {
             if (IsIrreversibleLiveGameplayEvent(e.eventType))
+                return true;
+
+            if (IsFreeTechUnlockEvent(e))
                 return true;
 
             return e.eventType == GameStateEventType.ScienceChanged
@@ -6736,6 +6747,21 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True for a TechResearched event the free-unlock capture filed: its detail carries
+        /// the field <c>free=1</c> (exact key match through
+        /// <see cref="GameStateEventDisplay.ExtractDetailField"/>, so <c>free=1</c> inside
+        /// another field's value does not count).
+        /// </summary>
+        internal static bool IsFreeTechUnlockEvent(GameStateEvent e)
+        {
+            return e.eventType == GameStateEventType.TechResearched
+                && string.Equals(
+                    GameStateEventDisplay.ExtractDetailField(e.detail, GameStateRecorder.FreeTechUnlockDetailKey),
+                    "1",
+                    StringComparison.Ordinal);
+        }
+
+        /// <summary>
         /// Preserves irreversible live-gameplay economy when a recording is DISCARDED on a
         /// NON-rewind path (which has no quicksave to roll KSP back). The player flew live,
         /// so KSP already applied these irreversibly; they must survive into the ledger or
@@ -6744,8 +6770,10 @@ namespace Parsek
         /// silent fund drop), or un-crediting collected science / achieved milestones.
         ///
         /// Re-homes the discarded recordings' tagged irreversible terminal events
-        /// (ContractCompleted/Failed/Cancelled, MilestoneAchieved, and a stock strategy
-        /// currency exchange's ScienceChanged(StrategyInput) debit) and their collected
+        /// (ContractCompleted/ParameterCompleted/Failed/Cancelled, MilestoneAchieved,
+        /// BuildingDestroyed, ScienceLabCredited, a stock strategy currency exchange's
+        /// ScienceChanged(StrategyInput) debit, and a free TechResearched unlock as a
+        /// zero-cost ScienceSpending row) and their collected
         /// science subjects into DIRECT ledger actions (recordingId cleared), so the ledger
         /// keeps what KSP applied while the discard still drops the ghost / trajectory. The
         /// contract / milestone reward (funds / rep / science) rides the re-homed action
@@ -6791,7 +6819,7 @@ namespace Parsek
             // 1. Tagged irreversible terminal events from the discarded recordings ->
             //    direct ledger actions (ConvertEvent with recordingId=null clears the tag).
             var rehomed = new List<GameAction>();
-            int contractEvents = 0, milestoneEvents = 0, strategyExchangeEvents = 0, buildingEvents = 0, labEvents = 0;
+            int contractEvents = 0, milestoneEvents = 0, strategyExchangeEvents = 0, buildingEvents = 0, labEvents = 0, freeTechEvents = 0;
             var storeEvents = GameStateStore.Events;
             for (int i = 0; i < storeEvents.Count; i++)
             {
@@ -6816,6 +6844,7 @@ namespace Parsek
                 else if (e.eventType == GameStateEventType.ScienceChanged) strategyExchangeEvents++;
                 else if (e.eventType == GameStateEventType.BuildingDestroyed) buildingEvents++;
                 else if (e.eventType == GameStateEventType.ScienceLabCredited) labEvents++;
+                else if (e.eventType == GameStateEventType.TechResearched) freeTechEvents++;
                 else contractEvents++;
             }
 
@@ -6881,6 +6910,7 @@ namespace Parsek
                 $"strategyExchange={strategyExchangeEvents.ToString(CultureInfo.InvariantCulture)}, " +
                 $"building={buildingEvents.ToString(CultureInfo.InvariantCulture)}, " +
                 $"lab={labEvents.ToString(CultureInfo.InvariantCulture)}, " +
+                $"freeTech={freeTechEvents.ToString(CultureInfo.InvariantCulture)}, " +
                 $"science={scienceSubjectCount.ToString(CultureInfo.InvariantCulture)}, " +
                 $"deduped={deduped.ToString(CultureInfo.InvariantCulture)}, " +
                 $"subjectsRemoved={subjectsRemoved.ToString(CultureInfo.InvariantCulture)}, " +

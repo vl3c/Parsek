@@ -412,6 +412,8 @@ namespace Parsek
                     return FormatContractDescription(key, detail, "declined");
                 case GameStateEventType.TechResearched:
                 {
+                    if (ExtractDetailField(detail, GameStateRecorder.FreeTechUnlockDetailKey) == "1")
+                        return $"\"{key}\" (free)";
                     string cost = ExtractDetailField(detail, "cost");
                     return cost != null ? $"\"{key}\" ({cost} sci)" : $"\"{key}\"";
                 }

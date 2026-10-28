@@ -52,6 +52,7 @@ namespace Parsek.Tests
         [InlineData("SurveyConversionCauseScopePatch", "strategy currency conversions")]
         [InlineData("CrewDialogFillPatch", "crew reservations")]
         [InlineData("RecoveryScopeVesselRetrievalPatch", "science and milestone rewards")]
+        [InlineData("FreeTechUnlockCapturePatch", "science and milestone rewards")]
         [InlineData("PhysicsFramePatch", "flight recording")]
         [InlineData("RevertToLaunchInterceptor", "revert, rewind and scene changes")]
         [InlineData("FlightResultsDialogLogPatches.DisplayPatch", "diagnostic logging")]

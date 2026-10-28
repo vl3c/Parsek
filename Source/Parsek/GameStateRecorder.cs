@@ -697,6 +697,8 @@ namespace Parsek
 
             // Tech
             GameEvents.OnTechnologyResearched.Add(OnTechResearched);
+            // A free unlock (anomaly tech gift, debug menu) fires no OnTechnologyResearched.
+            Patches.FreeTechUnlockCapturePatch.FreeUnlockCaptured += OnFreeTechUnlocked;
             GameEvents.OnPartPurchased.Add(OnPartPurchased);
             GameEvents.OnPartUpgradePurchased.Add(OnPartUpgradePurchased);
 
@@ -777,6 +779,7 @@ namespace Parsek
 
             // Tech
             GameEvents.OnTechnologyResearched.Remove(OnTechResearched);
+            Patches.FreeTechUnlockCapturePatch.FreeUnlockCaptured -= OnFreeTechUnlocked;
             GameEvents.OnPartPurchased.Remove(OnPartPurchased);
             GameEvents.OnPartUpgradePurchased.Remove(OnPartUpgradePurchased);
 
