@@ -101,7 +101,9 @@ namespace Parsek.TestCommands
             int matchingConverters = 0;
             int experimentModules = 0;
             int radiatorModules = 0;
+            int engineModules = 0;
             bool radiatorKind = TestCommandPartAction.IsRadiatorKind(kind);
+            bool engineKind = TestCommandPartAction.IsEngineKind(kind);
             var found = new List<PartActionCandidate>();
             string[] eventNames = TestCommandPartAction.EventNamesFor(kind);
             for (int i = 0; i < v.parts.Count; i++)
@@ -112,9 +114,14 @@ namespace Parsek.TestCommands
                 if (partName != null && !string.Equals(runtimeName, partName, StringComparison.Ordinal))
                     continue;
                 namedParts++;
-                if (kind == PartActionKind.Inspect)
+                if (TestCommandPartAction.IsWholePartKind(kind))
                 {
-                    found.Add(new PartActionCandidate { Part = p, EventName = string.Empty });
+                    found.Add(new PartActionCandidate
+                    {
+                        Part = p,
+                        EventName = kind == PartActionKind.Explode
+                            ? TestCommandPartAction.ExplodeEventName : string.Empty,
+                    });
                     continue;
                 }
                 for (int m = 0; m < p.Modules.Count; m++)
@@ -139,6 +146,13 @@ namespace Parsek.TestCommands
                         // the part may carry an event of the same name.
                         if (!(module is ModuleActiveRadiator)) continue;
                         radiatorModules++;
+                    }
+                    if (engineKind)
+                    {
+                        // Only the engine module's "Activate Engine" (ModuleEnginesFX derives
+                        // from ModuleEngines): a radiator on the part has an Activate too.
+                        if (!(module is ModuleEngines)) continue;
+                        engineModules++;
                     }
                     if (converterName != null)
                     {
@@ -175,15 +189,17 @@ namespace Parsek.TestCommands
                 foreach (int k in TestCommandPartAction.FoldUndockPairs(ports)) candidates.Add(found[k]);
             }
 
+            int typedModules = radiatorKind ? radiatorModules : engineKind ? engineModules : -1;
             reason = TestCommandPartAction.DecideCandidates(kind, partName, namedParts, converterName,
-                matchingConverters, experimentModules, radiatorKind ? radiatorModules : -1,
+                matchingConverters, experimentModules, typedModules,
                 candidates.Count, all);
             if (reason != null)
             {
                 RejectPartAction(reason, $"button={actArg} pid={v.persistentId} part={partName ?? "<any>"} " +
                     $"converter={converterName ?? string.Empty} all={all} namedParts={namedParts} " +
                     $"matchingConverters={matchingConverters} experimentModules={experimentModules} " +
-                    $"radiatorModules={radiatorModules} candidates={candidates.Count}");
+                    $"radiatorModules={radiatorModules} engineModules={engineModules} " +
+                    $"candidates={candidates.Count}");
                 return;
             }
 
@@ -238,6 +254,9 @@ namespace Parsek.TestCommands
                         labRoutes.Add(labRoute);
                         labValues.Add(labValue);
                     }
+                    else if (kind == PartActionKind.Explode)
+                        // Stock's crash path on the part itself: FX, then Die().
+                        c.Part.explode();
                     else if (c.Event != null)
                         // The part-menu button's own handler, as the PAW invokes it.
                         c.Event.Invoke();
@@ -267,7 +286,12 @@ namespace Parsek.TestCommands
             string activeName = active != null ? active.vesselName : null;
 
             string state;
-            if (all)
+            if (kind == PartActionKind.Explode)
+            {
+                // The part is destroyed; there is no module state to read.
+                state = string.Empty;
+            }
+            else if (all)
             {
                 // One entry per acted-on part; candidates are collected in vessel part order.
                 var perPart = new List<KeyValuePair<uint, IList<PartActionModuleReading>>>();
@@ -476,6 +500,8 @@ namespace Parsek.TestCommands
                     readings.Add(PartActionModuleReading.AnimationGroup(anim.isDeployed));
                 else if (module is ModuleActiveRadiator rad)
                     readings.Add(PartActionModuleReading.Radiator(rad.IsCooling));
+                else if (module is ModuleEngines eng)
+                    readings.Add(PartActionModuleReading.Engine(eng.EngineIgnited));
             }
             return readings;
         }

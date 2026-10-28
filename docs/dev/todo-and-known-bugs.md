@@ -125,6 +125,19 @@ TESTS: `ReFlyMergedDeathCoRowTests` (10 cells: RW-7 shape in session and after t
 that recovers the kerbal, the live co-row mirror, the attribution key theory x5, the tail-overlap
 retire set). Reverting the key reds 7 of the 10.
 
+FLOWN ON THE FIX (2026-10-28, branch `rw7-death-push` merged with #2323, DLL 321353a0; evidence
+`logs/flights/rewind-campaign/rw-07-refly-kerbal-death-fix/`). In all three runs (`_1616`, `_1627`,
+`_1637`) the merge retired the replaced flight's Aboard row (`Step9: 1 pre-rewind-boarded open-ended
+crew row(s) retagged to TIP by endUT`, `PreRewindTombstoneGuard: 1 pre-rewind-boarded open-ended crew
+interval(s) kept in scope by endUT`, `Tombstoned 2 career actions (... Reputation=1, Kerbal=1 ...)`),
+no `respawn suppressed: open-ended co-row` line, permanent=0, and the death respawned at its timer
+(`Reservation released: 'Jebediah Kerman' endUT=193096.9 nowUT=193097.8 (respawn applied ...)`). The
+lane is not green yet: `_1616` PARSEK-FAIL on two pins that encoded the old Kerbal=0 shape (fixed);
+`_1627` PARSEK-FAIL because the first attempt's pod landed intact (a lane flake, ledger_audit PASS);
+`_1637` PARSEK-FAIL on KSC-DEBRIS-CLEANUP-REFUND-UNLEDGERED below (a different defect). GREEN on `_1810`
+(PASS attempt 1, with #2324 / #2325 merged and the pod destroyed by `PartAction button=explode`): the
+same retire, `Tombstoned 2 ... Reputation=1, Kerbal=1`, the death held with its respawn at 193069.8.
+
 ## ~~REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE: a Space Center action in the 15 s before a launch is ahead of the clock after a Rewind-to-Launch, while the rewind save already holds its effect~~ [FILED 2026-10-28 from RW-9's flights; live-measured. FIXED 2026-10-28 on branch `fix-rewind-lead-window`; xUnit only, not flown. product, medium-high (a second paid repair, and the repaired building knocked down again)]
 
 A Rewind-to-Launch loads the save taken at the launch and then winds the clock back 15 s
@@ -3632,6 +3645,22 @@ FLIGHT-only, TestCommandDispatcher.cs:497). Re-cut: RF-3's re-entry, a mid-sessi
 of the discard's step save (an InSession load onto the host's debris, pinned with unmoved pools), and the
 sealed-slot probe moved into the check flight. RW-5's three pins its first flight disproved (truncated=true,
 `stashslot rejected`, the unbound-provisional forbid) are fixed on its branch (796808140) and merged here.
+
+Progress 2026-10-28 (branch `rw7-death-push`): lane `RW-7-refly-kerbal-death` authored, never flown, plan
+row 5 (a kerbal dies in a Re-Fly; the attempt is discarded once and merged once). RW-6's prefix (H, F, a
+Rewind-to-Launch, G decoupled on the pad and committed, its pod slot stashed), then two Re-Flys of the pod slot
+that light the RT-5 with the new `PartAction button=activate` (ModuleEngines "Activate Engine": no staging, so
+the Mk16 chute stays stowed) and let the unchuted Mk1 pod crash with its generated stand-in. The first is
+discarded through the Esc menu (the death never reaches a walk or the KerbalDeath penalty producer, no tombstone,
+the pools and row count equal the pre-invoke ones, attempt 2's SRB reads `engine:ignited=0`). The second merges
+under loss swap variant B (`ReFlyMergeDominance.Evaluate`: the replaced slot holds no loss and the re-fly's
+KerbalDeath penalty lowers L'(A)), which tombstones the re-fly's own ReputationPenalty row (`Tombstoned N ...
+Reputation=N, Kerbal=0`, rep back at the pre-invoke 115.00) and keeps its death: the walk holds the kerbal
+Missing with a stock respawn after 7200 s (`MissingCrewsRespawn = True` on this host), and the lane warps past
+the respawn and requires the `respawn applied` release. Correction to the plan from the code: "the merge is
+refused if a later committed row uses the dead kerbal" is dropped, because the pod carries a stand-in whose
+death files under the slot owner and the only later committed use (H's KerbalAssignment) starts before the crash,
+which the world clause skips (`ReFlyMergeDominance.TryFindWorldConflict`).
 
 ---
 

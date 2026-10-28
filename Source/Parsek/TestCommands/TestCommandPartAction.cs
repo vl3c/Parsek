@@ -39,6 +39,16 @@ namespace Parsek.TestCommands
         RadiatorOn,
         /// <summary>A radiator's "Shutdown Radiator" (<c>ModuleActiveRadiator.Shutdown</c>).</summary>
         RadiatorOff,
+        /// <summary>An engine's "Activate Engine" (<c>ModuleEngines.Activate</c>, KSP 1.12.5
+        /// decompiled: <c>[KSPEvent(guiActive = true, guiName = "#autoLOC_6001382")]</c>, the
+        /// localization key reading "Activate Engine"; <c>ModuleEnginesFX</c> inherits it). It
+        /// ignites the engine without staging, as the player's PAW click does.</summary>
+        EngineActivate,
+        /// <summary>Destroys the named part the way a crash does: stock's
+        /// <c>Part.explode()</c> (explosion FX, then <c>Die()</c>, which fires
+        /// <c>onPartDie</c> / <c>onCrewKilled</c> for its crew). Not a part-menu button; it lets a
+        /// lane end a part deterministically when a physics impact may miss it.</summary>
+        Explode,
     }
 
     /// <summary>One module reading of the target part for the <c>state=</c> answer field: plain
@@ -46,7 +56,7 @@ namespace Parsek.TestCommands
     /// <see cref="TestCommandPartAction.FormatState"/>.</summary>
     internal struct PartActionModuleReading
     {
-        internal enum ReadingKind { Converter, Lab, Experiment, AnimationGroup, Radiator }
+        internal enum ReadingKind { Converter, Lab, Experiment, AnimationGroup, Radiator, Engine }
 
         internal ReadingKind Kind;
         internal string Name;
@@ -72,6 +82,9 @@ namespace Parsek.TestCommands
 
         internal static PartActionModuleReading Radiator(bool cooling)
             => new PartActionModuleReading { Kind = ReadingKind.Radiator, Flag = cooling };
+
+        internal static PartActionModuleReading Engine(bool ignited)
+            => new PartActionModuleReading { Kind = ReadingKind.Engine, Flag = ignited };
     }
 
     /// <summary>The warp context of a press, read right after it: the target vessel's
@@ -111,7 +124,10 @@ namespace Parsek.TestCommands
     /// experiment, labprocess, labtransmit, inspect) let a lane drive a drill, a converter, a
     /// science lab and an experiment the way a player clicks them, and read the part's module
     /// state back. <c>radiatoron</c> / <c>radiatoroff</c> press a radiator's Activate / Shutdown
-    /// (<c>ModuleActiveRadiator</c>), the switch a mining craft's overheating parts depend on.</para>
+    /// (<c>ModuleActiveRadiator</c>), the switch a mining craft's overheating parts depend on.
+    /// <c>activate</c> presses an engine's "Activate Engine" (<c>ModuleEngines.Activate</c>, which
+    /// <c>ModuleEnginesFX</c> inherits): it ignites the engine without staging, so a lane can
+    /// fire a solid booster whose stage also holds a parachute without deploying it.</para>
     ///
     /// <para><b>Packed vessels.</b> Nothing here refuses a PACKED (on-rails) vessel: it is still
     /// loaded and its part modules and events still exist, so a press in rails warp runs the same
@@ -120,8 +136,8 @@ namespace Parsek.TestCommands
     /// a converter catches up over the warp from its <c>lastUpdateTime</c>.</para>
     ///
     /// <para><b>Grammar.</b> <c>cmd=PartAction button=undock|decouple|controlfrom|deploy|retract|
-    /// startconverter|stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff
-    /// [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [all=true] [pid=&lt;persistentId&gt;]
+    /// startconverter|stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|
+    /// activate|explode [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [all=true] [pid=&lt;persistentId&gt;]
     /// [expectSnapshot=true|false rec=&lt;recordingId&gt; tolerance=&lt;abs&gt;]</c>. The three snapshot
     /// args are for <c>inspect</c> only (<c>snapshot-arg-unexpected</c> elsewhere, and for
     /// <c>rec=</c> / <c>tolerance=</c> without <c>expectSnapshot=true</c>).
@@ -165,7 +181,16 @@ namespace Parsek.TestCommands
     /// <c>ModuleActiveRadiator</c>s whose <c>Activate</c> / <c>Shutdown</c> event is live (stock
     /// shows only the one that changes <c>IsCooling</c>, and neither on a deployable radiator,
     /// which its own Extend / Retract drives); named parts carrying no such module refuse
-    /// <c>radiator-not-found</c>.</para>
+    /// <c>radiator-not-found</c>. <b>activate</b> candidates are the named part's
+    /// <c>ModuleEngines</c> (and so <c>ModuleEnginesFX</c>) modules whose <c>Activate</c> event is
+    /// live (stock hides it on an ignited engine, and on a non-restartable one already shut
+    /// down); named parts carrying no engine module refuse <c>engine-not-found</c>. Only the
+    /// engine module's event is pressed: a radiator on the same part also carries an
+    /// <c>Activate</c>. <b>explode</b> is no part-menu button: its candidate is the one part
+    /// carrying the name, and it calls stock's <c>Part.explode()</c> on it (the crash path:
+    /// FX, then <c>Die()</c>, so <c>onPartDie</c> and, for a crewed part, <c>onCrewKilled</c>
+    /// fire as on an impact); <c>all=true</c> is <c>all-arg-unexpected</c> and <c>state=</c> is
+    /// empty (the part is gone).</para>
     ///
     /// <para><b>Answer.</b> OK payload <c>button= pid= part= partId= event= newPid= newName=
     /// vesselsBefore= vesselsAfter= activePid= activeName= converter= state= count=</c>: <c>newPid</c> /
@@ -214,6 +239,11 @@ namespace Parsek.TestCommands
         internal const string InspectToken = "inspect";
         internal const string RadiatorOnToken = "radiatoron";
         internal const string RadiatorOffToken = "radiatoroff";
+        internal const string ActivateToken = "activate";
+        internal const string ExplodeToken = "explode";
+
+        /// <summary>The <c>event=</c> of every explode: stock's <c>Part.explode()</c>.</summary>
+        internal const string ExplodeEventName = "explode";
 
         /// <summary>The closed <c>button=</c> vocabulary. hlib.PARTACTION_BUTTON_VALUES mirrors it
         /// (PartActionSourceSyncTests).</summary>
@@ -221,7 +251,8 @@ namespace Parsek.TestCommands
         {
             UndockToken, DecoupleToken, ControlFromToken, DeployToken, RetractToken,
             StartConverterToken, StopConverterToken, ExperimentToken, LabProcessToken,
-            LabTransmitToken, InspectToken, RadiatorOnToken, RadiatorOffToken,
+            LabTransmitToken, InspectToken, RadiatorOnToken, RadiatorOffToken, ActivateToken,
+            ExplodeToken,
         };
 
         /// <summary>The <c>event=</c> of every labprocess: the results dialog page's own lab
@@ -269,6 +300,7 @@ namespace Parsek.TestCommands
         internal const string LabValueZeroReason = "partaction-lab-value-zero";
         internal const string LabUnavailableReason = "partaction-lab-unavailable";
         internal const string RadiatorNotFoundReason = "partaction-radiator-not-found";
+        internal const string EngineNotFoundReason = "partaction-engine-not-found";
 
         // Post-call ERROR terminal: the event was invoked and threw.
         internal const string EventThrewReason = "partaction-event-threw";
@@ -309,6 +341,7 @@ namespace Parsek.TestCommands
             "partaction-lab-value-zero",
             "partaction-lab-unavailable",
             "partaction-radiator-not-found",
+            "partaction-engine-not-found",
         };
 
         /// <summary>The post-call ERROR vocabulary.</summary>
@@ -339,6 +372,8 @@ namespace Parsek.TestCommands
                 case InspectToken: kind = PartActionKind.Inspect; return null;
                 case RadiatorOnToken: kind = PartActionKind.RadiatorOn; return null;
                 case RadiatorOffToken: kind = PartActionKind.RadiatorOff; return null;
+                case ActivateToken: kind = PartActionKind.EngineActivate; return null;
+                case ExplodeToken: kind = PartActionKind.Explode; return null;
                 default: return ButtonArgInvalidReason;
             }
         }
@@ -361,6 +396,8 @@ namespace Parsek.TestCommands
                 case PartActionKind.Inspect: return InspectToken;
                 case PartActionKind.RadiatorOn: return RadiatorOnToken;
                 case PartActionKind.RadiatorOff: return RadiatorOffToken;
+                case PartActionKind.EngineActivate: return ActivateToken;
+                case PartActionKind.Explode: return ExplodeToken;
                 default: return "unknown";
             }
         }
@@ -375,6 +412,17 @@ namespace Parsek.TestCommands
         /// <c>ModuleActiveRadiator</c> only.</summary>
         internal static bool IsRadiatorKind(PartActionKind kind)
             => kind == PartActionKind.RadiatorOn || kind == PartActionKind.RadiatorOff;
+
+        /// <summary>True for the engine button, whose candidates come from <c>ModuleEngines</c>
+        /// (and its subclass <c>ModuleEnginesFX</c>) only.</summary>
+        internal static bool IsEngineKind(PartActionKind kind)
+            => kind == PartActionKind.EngineActivate;
+
+        /// <summary>True for the buttons whose candidates come from one module type only (the
+        /// radiator pair, the engine button): the applier counts that type's modules on the
+        /// named parts for the <c>radiator-not-found</c> / <c>engine-not-found</c> gate.</summary>
+        internal static bool IsTypedModuleKind(PartActionKind kind)
+            => IsRadiatorKind(kind) || IsEngineKind(kind);
 
         /// <summary>True for the two buttons a <c>converter=</c> filter applies to.</summary>
         internal static bool AcceptsConverter(PartActionKind kind)
@@ -405,11 +453,18 @@ namespace Parsek.TestCommands
             return null;
         }
 
-        /// <summary>True for the buttons <c>all=true</c> applies to: every button but the three
-        /// whose single press reshapes or re-points the vessel (undock, decouple, controlfrom).</summary>
+        /// <summary>True for the buttons <c>all=true</c> applies to: every button but the four
+        /// whose single press reshapes or re-points the vessel (undock, decouple, controlfrom,
+        /// explode).</summary>
         internal static bool AcceptsAll(PartActionKind kind)
             => kind != PartActionKind.Unknown && kind != PartActionKind.Undock
-                && kind != PartActionKind.Decouple && kind != PartActionKind.ControlFrom;
+                && kind != PartActionKind.Decouple && kind != PartActionKind.ControlFrom
+                && kind != PartActionKind.Explode;
+
+        /// <summary>True for the buttons whose candidates are the named parts themselves rather
+        /// than a live module event on them: inspect (reads) and explode (destroys the part).</summary>
+        internal static bool IsWholePartKind(PartActionKind kind)
+            => kind == PartActionKind.Inspect || kind == PartActionKind.Explode;
 
         /// <summary>Parses the OPTIONAL closed <c>all=</c>: absent or empty is false; <c>true</c>
         /// (case-sensitive) is true on a button that accepts it; any other value is
@@ -468,7 +523,11 @@ namespace Parsek.TestCommands
                 case PartActionKind.LabTransmit: return new[] { "TransmitScience" };
                 case PartActionKind.RadiatorOn: return new[] { "Activate" };
                 case PartActionKind.RadiatorOff: return new[] { "Shutdown" };
-                // labprocess presses the results dialog page's callback; inspect presses nothing.
+                // ModuleEngines: [KSPEvent(guiActive = true, guiName = "#autoLOC_6001382")]
+                // public virtual void Activate(), "Activate Engine" (KSP 1.12.5 decompiled).
+                case PartActionKind.EngineActivate: return new[] { "Activate" };
+                // labprocess presses the results dialog page's callback; inspect presses nothing;
+                // explode calls Part.explode() on the part itself (no KSPEvent).
                 default: return new string[0];
             }
         }
@@ -507,19 +566,22 @@ namespace Parsek.TestCommands
             => DecideCandidates(kind, partName, namedParts, converterName, matchingConverters,
                 experimentModules, -1, candidates, all);
 
-        /// <summary>The candidate gate with the radiator count: a radiator button on named
-        /// part(s) carrying no <c>ModuleActiveRadiator</c> at all
-        /// (<paramref name="radiatorModules"/> 0, counted whatever the event state) is
-        /// <c>radiator-not-found</c>, a spec fault like <c>converter-not-found</c>; a radiator
-        /// that is there but already in the asked state (stock hides the pressed button) stays
-        /// <c>event-unavailable</c>. A negative count means "not counted" and never refuses.</summary>
+        /// <summary>The candidate gate with the typed-module count: a radiator button on named
+        /// part(s) carrying no <c>ModuleActiveRadiator</c> at all, or the engine button on named
+        /// part(s) carrying no <c>ModuleEngines</c> (<paramref name="typedModules"/> 0, counted
+        /// whatever the event state), is <c>radiator-not-found</c> / <c>engine-not-found</c>, a
+        /// spec fault like <c>converter-not-found</c>; a module that is there but already in the
+        /// asked state (stock hides the pressed button: a cooling radiator's Activate, an
+        /// ignited engine's Activate) stays <c>event-unavailable</c>. A negative count means
+        /// "not counted" and never refuses.</summary>
         internal static string DecideCandidates(
             PartActionKind kind, string partName, int namedParts, string converterName,
-            int matchingConverters, int experimentModules, int radiatorModules, int candidates, bool all)
+            int matchingConverters, int experimentModules, int typedModules, int candidates, bool all)
         {
             if (partName != null && namedParts == 0) return PartNotFoundReason;
             if (converterName != null && matchingConverters == 0) return ConverterNotFoundReason;
-            if (IsRadiatorKind(kind) && radiatorModules == 0) return RadiatorNotFoundReason;
+            if (IsRadiatorKind(kind) && typedModules == 0) return RadiatorNotFoundReason;
+            if (IsEngineKind(kind) && typedModules == 0) return EngineNotFoundReason;
             if (candidates == 0)
                 return kind == PartActionKind.LabProcess && experimentModules > 0
                     ? ExperimentNoDataReason
@@ -557,7 +619,8 @@ namespace Parsek.TestCommands
         /// <c>&lt;ConverterName&gt;:active=0|1</c>; a science lab
         /// <c>lab:storedScience=&lt;F2&gt; dataStored=&lt;F2&gt;</c>; an experiment
         /// <c>exp:data=&lt;count&gt;</c>; an animation group <c>deployed=0|1</c>; an active
-        /// radiator <c>radiator:cooling=0|1</c>. Invariant culture; empty for no readings.
+        /// radiator <c>radiator:cooling=0|1</c>; an engine <c>engine:ignited=0|1</c>
+        /// (<c>ModuleEngines.EngineIgnited</c>). Invariant culture; empty for no readings.
         /// </summary>
         internal static string FormatState(IList<PartActionModuleReading> readings)
         {
@@ -584,6 +647,9 @@ namespace Parsek.TestCommands
                         break;
                     case PartActionModuleReading.ReadingKind.Radiator:
                         parts.Add("radiator:cooling=" + (r.Flag ? "1" : "0"));
+                        break;
+                    case PartActionModuleReading.ReadingKind.Engine:
+                        parts.Add("engine:ignited=" + (r.Flag ? "1" : "0"));
                         break;
                 }
             }

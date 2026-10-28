@@ -4740,6 +4740,15 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # gates its `total=`. It leaves on its first flight.
     # RW-8-free-tech-gift-rewind LEFT on run 2026-10-28_1505 (passed=3 failed=0 skipped=0,
     # pinned whole).
+    # RW-7-refly-kerbal-death ENTERED on 2026-10-28 (the rewind ledger campaign's plan row 5 on
+    # `cs-career-mun4`: RW-6's prefix, then two Re-Flys of the CS Flea Probe's pod slot whose
+    # SRB is lit without staging so the unchuted pod crashes with its stand-in, the first
+    # discarded and the second merged (loss swap variant B), a Space Center warp across the
+    # committed rows and past the kerbal's stock respawn, then the LedgerGroundTruth category's
+    # three FLIGHT cells, `total=3` literal with the split regexed). Not an H-series id;
+    # CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first flight.
+    # RW-7-refly-kerbal-death LEFT on run 2026-10-28_1810 (passed=3 failed=0 skipped=0, pinned
+    # whole).
     # RW-10-lead-window-ksc-actions ENTERED on 2026-10-28 (the rewind ledger campaign's lead
     # window lane on `cs-career-mun4`: a strategy activated and the R&D annex demolished in
     # the 15 s before a committed pad launch, a discounted repair, a Rewind-to-Launch, the
@@ -10554,6 +10563,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "RW-3-save-reload-takeback.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's save-and-reload lane (plan row 15) on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): a Jumping Flea recorded on the pad and committed, an unrecorded Flea's pad EVA earning Kerbin's SurfaceEVA world-first, a Rewind-to-Launch, a SaveGame loaded back as the player's load (a cold save-file load that must restore the timeline break from the save's ledger and lift no pool), a Space Center warp across the committed rows, the world-first repeated from a relaunched Flea (paid once), then LedgerGroundTruth. Authored 2026-10-28, never flown; owed: the first flight, then the ordinary promotion call LIVE-PROVEN 2026-10-28 (`2026-10-28_0916`, first flight); owed: the ordinary promotion call",
         "RW-5-rewind-refly-discard.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's Re-Fly discard lane (plan row 8) on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): RW-1's committed pad flight and its contract accept, a Rewind-to-Launch, a CS Flea Probe flight decoupled on the pad into two controllable vessels (a rewind point) and committed with its pod slot stashed, a Re-Fly of that slot whose stand-in earns Kerbin's SurfaceEVA world-first, Discard Re-fly restoring the pools and ledger rows held before the Re-Fly started, a Space Center warp across the committed rows, then LedgerGroundTruth. Authored 2026-10-28, never flown; owed: the first flight, then the ordinary promotion call",
         "RW-6-refly-science-discard-merge.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's Re-Fly science lane (plan row 7) on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): RW-5's committed pad flight, contract accept, Rewind-to-Launch and pad-decoupled CS Flea Probe flight with its pod slot stashed, then two Re-Flys of that slot that take the Mk1 pod's crew report: the first discarded (the report never reaches the ledger, the pools and rows return to their pre-invoke values), the second merged and its pod recovered from the Tracking Station (the subject credited once at full value under the merged flight), the sealed slot refused by the value gate, a Space Center warp across the committed rows, then LedgerGroundTruth. Authored 2026-10-28, never flown; owed: the first flight, then the ordinary promotion call",
+        "RW-7-refly-kerbal-death.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's Re-Fly kerbal death lane (plan row 5) on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): RW-6's committed pad flight, contract accept, Rewind-to-Launch and pad-decoupled CS Flea Probe flight with its pod slot stashed, then two Re-Flys of that slot that light the SRB without staging (PartAction activate) so the unchuted pod crashes with its stand-in: the first discarded (no death row, no rep penalty, no tombstone, the pools and rows back to their pre-invoke values), the second merged (loss swap variant B tombstones the re-fly's own KerbalDeath rep penalty, the death stays under the merged flight with a stock respawn after 7200 s), a Space Center warp across the committed rows and past the respawn, then LedgerGroundTruth. LIVE-PROVEN 2026-10-28 (`2026-10-28_1810`, the pod destroyed by PartAction explode); owed: the ordinary promotion call",
         "RW-1-ksc-economy.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's Space Center economy lane on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): a Jumping Flea recorded on the pad and committed, a survey contract accepted and the Runway upgraded at the Space Center, two Rewinds-to-Launch to the same launch whose accept and upgrade clicks the committed rows refuse, a Space Center warp across the rows (each applied once), then LedgerGroundTruth. Authored 2026-10-28, never flown; owed: the first flight, then the ordinary promotion call LIVE-PROVEN 2026-10-28 (`2026-10-28_0743`, first flight); owed: the ordinary promotion call",
         "RW-4-claimed-vessel-disposal.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's plan row 6 (claimed vessel disposal) on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): a Jumping Flea recorded on the pad and left standing, a second Flea recorded on the Runway, both recovered at the Space Center, a Rewind-to-Launch to the Runway launch that holds the pad Flea out of the world for its committed recovery, its Space Center marker and Tracking Station Recover both refused vessel-not-found, the committed recovery rows crossed once, then LedgerGroundTruth. Authored 2026-10-28, never flown; owed: the first flight, then the ordinary promotion call LIVE-PROVEN 2026-10-28 (`2026-10-28_0942`, first flight); owed: the ordinary promotion call",
         "RW-9-strategy-repair-rebuy.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's strategy discount lane on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): Aggressive Negotiations active, the R&D annex demolished, a Jumping Flea recorded on the pad, committed and recovered, the R&D facility repaired with the discount, a Rewind-to-Launch, the refused second repair and the crossing; LIVE-PROVEN 2026-10-28 (`2026-10-28_1538`); owed: the ordinary promotion call",
@@ -17488,7 +17498,7 @@ class PartActionSourceSyncTests(unittest.TestCase):
         consts = ("UndockToken", "DecoupleToken", "ControlFromToken", "DeployToken",
                   "RetractToken", "StartConverterToken", "StopConverterToken", "ExperimentToken",
                   "LabProcessToken", "LabTransmitToken", "InspectToken", "RadiatorOnToken",
-                  "RadiatorOffToken")
+                  "RadiatorOffToken", "ActivateToken", "ExplodeToken")
         self.assertEqual(len(consts), len(hlib.PARTACTION_BUTTON_VALUES))
         for token, const in zip(hlib.PARTACTION_BUTTON_VALUES, consts):
             self.assertIn('internal const string %s = "%s";' % (const, token), text)
@@ -17508,10 +17518,11 @@ class PartActionSourceSyncTests(unittest.TestCase):
         self.assertEqual(("true",), hlib.PARTACTION_ALL_VALUES)
         self.assertIn('internal const string AllTrueToken = "true";', text)
         self.assertIn("=> kind != PartActionKind.Unknown && kind != PartActionKind.Undock\n"
-                      "                && kind != PartActionKind.Decouple && kind != PartActionKind.ControlFrom;",
+                      "                && kind != PartActionKind.Decouple && kind != PartActionKind.ControlFrom\n"
+                      "                && kind != PartActionKind.Explode;",
                       text)
         self.assertEqual(tuple(b for b in hlib.PARTACTION_BUTTON_VALUES
-                               if b not in ("undock", "decouple", "controlfrom")),
+                               if b not in ("undock", "decouple", "controlfrom", "explode")),
                          hlib.PARTACTION_BUTTONS_ACCEPTING_ALL)
         self.assertEqual(list(hlib.PARTACTION_REASONS),
                          StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
@@ -17533,7 +17544,11 @@ class PartActionSourceSyncTests(unittest.TestCase):
         # pass the module count to the radiator-not-found gate; every press reports the
         # packed / warp context.
         self.assertIn("if (!(module is ModuleActiveRadiator)) continue;", applier)
-        self.assertIn("radiatorKind ? radiatorModules : -1", applier)
+        # The engine button presses ModuleEngines' own "Activate Engine" (ModuleEnginesFX
+        # inherits it) and nothing else on the part, and counts the engine modules for its
+        # engine-not-found gate.
+        self.assertIn("if (!(module is ModuleEngines)) continue;", applier)
+        self.assertIn("radiatorKind ? radiatorModules : engineKind ? engineModules : -1", applier)
         self.assertIn("new PartActionWarpContext(v.packed,", applier)
         # labprocess: the experiment's own Review Data opens a missing page, the page's
         # labValue is written before the gates, and only then the page's lab callback runs.
@@ -17548,7 +17563,10 @@ class PartActionSourceSyncTests(unittest.TestCase):
         pure = self._source("TestCommands", "TestCommandPartAction.cs")
         self.assertIn('case PartActionKind.RadiatorOn: return new[] { "Activate" };', pure)
         self.assertIn('case PartActionKind.RadiatorOff: return new[] { "Shutdown" };', pure)
-        self.assertIn('if (IsRadiatorKind(kind) && radiatorModules == 0) return RadiatorNotFoundReason;',
+        self.assertIn('if (IsRadiatorKind(kind) && typedModules == 0) return RadiatorNotFoundReason;',
+                      pure)
+        self.assertIn('case PartActionKind.EngineActivate: return new[] { "Activate" };', pure)
+        self.assertIn('if (IsEngineKind(kind) && typedModules == 0) return EngineNotFoundReason;',
                       pure)
 
     def test_the_verb_is_registered_on_every_axis(self):
@@ -17572,6 +17590,7 @@ class PartActionSourceSyncTests(unittest.TestCase):
         for reason in ("partaction-vessel-not-found", "partaction-event-unavailable",
                        "partaction-no-active-vessel", "partaction-converter-not-found",
                        "partaction-experiment-no-data", "partaction-radiator-not-found",
+                       "partaction-engine-not-found",
                        "partaction-unknown-recording", "partaction-lab-not-active-vessel",
                        "partaction-lab-page-missing", "partaction-lab-value-zero",
                        "partaction-lab-unavailable"):
@@ -17630,7 +17649,8 @@ class PartActionSourceSyncTests(unittest.TestCase):
     def test_the_step_validator_isru_and_lab_buttons(self):
         v = hlib.validate_part_action_step
         for button in ("deploy", "retract", "startconverter", "stopconverter", "experiment",
-                       "labprocess", "labtransmit", "inspect", "radiatoron", "radiatoroff"):
+                       "labprocess", "labtransmit", "inspect", "radiatoron", "radiatoroff",
+                       "activate"):
             with self.subTest(button=button):
                 self.assertEqual([], v(0, {"button": button, "part": "MiniDrill"}))
                 self.assertIn("partaction-part-arg-missing", v(0, {"button": button})[0])
@@ -17640,7 +17660,7 @@ class PartActionSourceSyncTests(unittest.TestCase):
                                    "converter": "Surface Harvester", "pid": "7"}))
         self.assertEqual([], v(0, {"button": "startconverter", "part": "MiniISRU",
                                    "converter": ""}))
-        for button in ("deploy", "inspect", "labtransmit", "undock", "radiatoron"):
+        for button in ("deploy", "inspect", "labtransmit", "undock", "radiatoron", "activate"):
             with self.subTest(converter_on=button):
                 errs = v(0, {"button": button, "part": "MiniISRU", "converter": "Lf+Ox"})
                 self.assertEqual(1, len(errs), errs)
