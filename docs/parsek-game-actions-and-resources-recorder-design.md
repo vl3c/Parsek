@@ -928,6 +928,8 @@ ScienceSpending
   cost:        float — science points spent
 ```
 
+A paid research is captured from stock's `OnTechnologyResearched`. A node stock unlocks for free (`ResearchAndDevelopment.UnlockProtoTechNode`: a point-of-interest anomaly's tech gift, or the debug menu) fires no event, so `Patches/FreeTechUnlockCapturePatch.cs` captures it when the call takes the node from locked to Available outside Parsek's own replay, and the recorder files the same `TechResearched` event with `cost=0;free=1` (tagged to the live recording in flight, written to the ledger at once at the Space Center). The resulting row costs nothing and keeps the node in every tech patch target, so a rewind that prunes the baseline holding the gift does not re-lock it (todo FREE-TECH-NODE-LOST-AFTER-REWIND); a row ahead of the clock blocks researching the node like any committed research, and the purchase state rule makes it a no-op when the walk already owns the node.
+
 ### 12.5 Science reservation system
 
 Science uses the same cashflow reservation system as funds (section 7.6). Committed science spendings (tech node unlocks) — past, present, and future — constrain the amount that is spendable at the current UT. The player can only spend an amount that leaves the science balance non-negative from the current UT through the future committed ledger.

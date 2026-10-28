@@ -54,6 +54,53 @@ Build order is in section 3.15. Each step ships unit tests and the matching harn
 
 ---
 
+## ~~FREE-TECH-NODE-LOST-AFTER-REWIND: a tech node stock unlocks for free has no ledger row, so the first tech patch after a rewind re-locks it for good~~ [FILED AND FIXED 2026-10-28 from code reading, branch `fix-free-tech-row`; unit-tested only, NOT FLOWN, lane owed; product, high (a node and its parts lost for good, a reduction of the career total)]
+
+Stock `ResearchAndDevelopment.UnlockProtoTechNode(ProtoTechNode)` unlocks a node for free and
+fires no `GameEvents.OnTechnologyResearched` (KSP 1.12.5, decompiled). Its two callers are
+`ProgressNode.AwardProgressRandomTech`, reached from `KSPAchievements.PointOfInterest` for an
+"uplifting" anomaly (the Randolith tech gift, CAREER and SCIENCE_SANDBOX), and
+`ResearchAndDevelopment.CheatTechnology` (debug menu). Under BypassEntryPurchaseAfterResearch it
+also marks the node's parts purchased. Parsek's only tech capture was `OnTechResearched`, so a
+free unlock made no event and no `ScienceSpending` row. `KspStatePatcher.BuildTargetTechIdsForPatch`
+builds the patch target from the latest baseline at or before the cutoff plus the ledger's
+`ScienceSpending` rows, and `PatchTechTree` re-locks everything else. Scenario: flight A launches
+at UT 100, its probe is gifted node X at UT 5000, the commit at 6000 captures a baseline holding X.
+A Rewind-to-Launch prunes that baseline (`PruneBaselinesAfterUT`); A's ghost replays but stock is
+not called again (the milestone mirror marks the anomaly reached), so every later current-UT tech
+patch lacks X and re-locks it, parts and all. Predicted from source, not observed: the same gap
+re-locks a free unlock at the Space Center at the next current-UT recalc (one with committed rows
+ahead of the clock) before a baseline captures it.
+
+**Fix.** `Patches/FreeTechUnlockCapturePatch.cs` patches `UnlockProtoTechNode`: the prefix reads
+whether the node was Available (`GetTechState`), the postfix captures only a node the call made
+Available, outside `IsReplayingActions` (pure `DecideCapture`; Parsek itself writes tech state
+through `SetTechState` and never calls this method), and raises `FreeUnlockCaptured`.
+`GameStateRecorder.CaptureFreeTechUnlock` files the same `TechResearched` event shape with detail
+`cost=0;free=1;nodeCost=<R>;parts=...`, tagged to the live recording in flight through `Emit` and
+written to the ledger at once at the Space Center through `ShouldForwardDirectLedgerEvent` ->
+`OnKscSpending`, one Info line per capture. The converter reads `cost=0`, so the row charges
+nothing and is Affordable, stays in the patch target after a baseline prune, crosses at the clock
+like any committed research (`BuildTargetTechIdsForPatch` / `PlanCommittedTechUnlocksForPatch`),
+and blocks a paid research of the same node while it is ahead of the clock (the existing
+`IsTechResearchBlocked` reads every `ScienceSpending` row; the dialog shows no reserved science for
+a zero cost). The purchase state rule decides it like any tech purchase: when the walk already owns
+the node through a later-captured purchase the free row is `PurchaseAlreadyOwned` and uncounts 0, a
+no-op, never a refund. A Re-Fly merge tombstones it with the rest of a superseded flight's rows,
+like any gain of that flight. The event log reads `"<node>" (free)`.
+
+Tests: `FreeTechUnlockCaptureTests` (capture decision, report, invariant detail, converter round
+trip, display, untagged capture writes one zero-cost row, a tagged capture stays off the ledger,
+replay suppression, the free row charges nothing, a repeat is a no-op, and the headline: B0 at 100
+without X, the gift at 5000 through the capture door, B1 at 6000 with X, prune after 100, target at
+7000 holds X and at 4000 does not). Mutation-checked: dropping the ledger forward reds the capture
+cell and the headline. In-game: `FreeTechUnlock` category, one SPACECENTER cell that calls the stock
+method on a locked node with a probe subscriber and restores the node. Not flown yet; lane owed (a
+debug-menu or anomaly free unlock, a commit, a Rewind-to-Launch, and the node still Available after
+the post-rewind patch).
+
+---
+
 ## ~~REVERT-AFTER-REWIND-WALKS-PAST-THE-CLOCK: a stock revert inside a rewound timeline patches the committed future's gains into the pools~~ [FILED AND FIXED 2026-10-28 from RW-2's first flight (`2026-10-28_0837`, PARSEK-FAIL attempt 1), branch `claude/project-thread-25edvc`; LIVE-PROVEN 2026-10-28 by RW-2 `2026-10-28_0902` PASS (funds held at 151682.18 through the revert, the +40432 applied at the crossing); product, high (future money spendable now)]
 
 After a Rewind-to-Launch, the stand-in's relaunch and a stock Revert-to-Launch loaded at
