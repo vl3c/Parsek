@@ -698,7 +698,14 @@ today. The auto-commit of the stashed flight runs as today.
     splices in the Parsek node `persistent.sfs` already held (the last live save), so the file
     carries that node's `GAME_STATE`, hashes and stamp unchanged. That is correct: it is the
     state the session last saved, and the load that follows is a `DiscardReFly`, not a save-file
-    load. The harness `SaveGame(game, ...)` sites copy their stored nodes the same way.
+    load. The one child it does not carry is `STOCK_POOL_REFERENCE`, which describes the stock
+    pools of the file that holds it: the written file holds the rewind point's pools, so the
+    rewind point's own reference stays (none when it had none), and that load's first ledger walk
+    runs as a Re-Fly discard (authoritative), like the merge dialog's discard. The session's
+    reference describes the pools its Re-Fly start wrote after walking the whole ledger, and
+    measured against the rewind point's pools it read the committed future as a loss
+    (REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE). The harness `SaveGame(game, ...)` sites
+    copy their stored nodes the same way.
 13. **Two writers in one OnSave** (a recording rewritten twice in one session without a save in
     between): only the head that a save might reference needs retaining, but the design retains
     every replaced head; collection removes the unreferenced ones.

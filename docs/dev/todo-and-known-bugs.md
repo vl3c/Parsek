@@ -17,6 +17,58 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE: a Discard Re-fly after a Rewind-to-Launch takes the committed future's earnings away for good~~ [FILED AND FIXED 2026-10-28 from RW-5's flight `2026-10-28_1056`, branch `fix-refly-discard-pool-reference`; LIVE-PROVEN by lane RW-5, run `2026-10-28_1200` (DLL built from 530e783); product, high (a reduction of the career total)]
+
+RW-5: a committed pad hop H (recovery +2932) and a Space Center contract accept F (+37500
+advance), a Rewind-to-Launch that leaves both ahead of the clock, flight G decoupling on the pad
+(a rewind point), a Re-Fly on one slot, a pad EVA world-first, then Discard Re-fly. The career
+ended at 150632.18 instead of 191064.18: 40432 lost for good.
+
+**Why.** The Re-Fly start walks the whole ledger (`RewindInvoker`, cutoff `double.MaxValue`), so
+`PatchFunds: 150632.2 -> 191064.2` lifted the committed future into the live pool, and the flight
+start's persistent.sfs write saved that pool's stock pool reference (lastWritten 191064.18, H and
+F counted as walked). `RevertInterceptor.DiscardReFlyHandler` writes the rewind point's game
+(stock funds 150632.2) to persistent.sfs but splices in the session's PARSEK node whole
+(`SpliceLiveParsekScenarioNode`), reference included, so the loaded reference no longer described
+its own file's pools. The load's first walk (`ParsekScenario.OnLoad` ->
+`RecalculateLedgerForInSessionLoad`, current-UT cutoff) was a MEASURED patch (no Re-Fly marker, no
+`reFlyDiscard`): H and F were past the cutoff now, so `StockPoolReference.Measure` stepped nothing
+for them, expected 191064.18 against live 150632.2, and filed the -40432 gap as a
+`StockPoolAdjustment` leak row (`PatchFunds: 150632.2 -> 110200.2`). The crossing later paid +2932
+and +37500 on top of that row, ending at 150632.18. The policy cell claimed the opposite on both
+counts (a node "written before the attempt added any row", an authoritative first patch). The same
+holds for science and reputation, and needs no rewind: any committed row past the rewind point
+(the flight's own later rows, a Rewind-to-Launch's future) is lifted the same way.
+
+**Fix.** `SpliceLiveParsekScenarioNode` carries everything except `STOCK_POOL_REFERENCE`, which
+stays the rewind point's own (none when it had none, so each pool starts afresh); one
+`[RewindSave] DiscardReFly: carried the session's Parsek node, keeping the rewind point's own
+STOCK_POOL_REFERENCE` Info line. The in-session `DiscardReFly` load's first walk and its currency
+re-patch pass `reFlyDiscard`, an authoritative patch like the merge dialog's discard and the cold
+zombie sweep: without it a gain stock paid in flight before the split with no row (filed as an
+adjustment row at a later clock) would be filed again at the rewind point and paid twice at the
+crossing. Policy cell `DiscardReFly x StockPoolReference` and design docs updated. Tests:
+`ReFlyDiscardPoolReferenceTests` (RW-5's sequence through the real walk, reference and splice:
+measured and authoritative first patch, science, the mechanism cell with the exact -40432 /
+110200 shape, no committed future unchanged, a row past the rewind point with no rewind, the
+untracked gain paid once, the Re-Fly merge mirror, the splice cells, the OnLoad wiring gate).
+Mutation-checked: reverting the splice reds the headline (`write=110200`), the science cell
+(`leak=-25`), the no-rewind cell (`leak=-1200`) and both splice cells; dropping `reFlyDiscard`
+from the first walk reds the wiring gate.
+
+Live proof: RW-5 run `2026-10-28_1200` PASS attempt 1. The discard logged `DiscardReFly: carried the
+session's Parsek node, keeping the rewind point's own STOCK_POOL_REFERENCE` and loaded the reference at
+`lastWritten=150632.18` (191064.18 before the fix); the post-discard walk held 150632.18 with no leak row and
+no GUARDED clamp, and the crossing applied the committed +2932 and +37500 once (191064.18). Evidence:
+`logs/flights/rewind-campaign/rw-05-rewind-refly-discard-run2/`.
+
+Observed, not changed: the Re-Fly start's full-ledger walk itself leaves the committed future in
+the live pool for the whole attempt (patches are deferred while the recorder runs); a merge's
+post-marker-clear walk (journal active, current-UT cutoff) takes it back out, and a discard now
+does too, but during the attempt the funds display shows it.
+
+---
+
 ## LEDGER-EVENT-IDENTITY: the replay, not stock, decides every repeated ledger event [FILED 2026-10-26 from the event-keyed ledger research (two independent code reviews plus a hand-simulated career with repeated rewinds); RULED 2026-10-26; build order step 1 BUILT 2026-10-26 on branch `ledger-identity-step1`, step 2 BUILT 2026-10-26 on branch `ledger-identity-step2`, step 3 BUILT 2026-10-26 on branch `ledger-identity-step3`, step 4 BUILT 2026-10-26 on branch `ledger-identity-step4`, step 5 BUILT 2026-10-26 on branch `ledger-identity-step5`, step 6 BUILT 2026-10-26 on branch `ledger-identity-step6`, step 7a (conversion legs, live-only income) and step 7b (contract twins for goal-level stock ids, survey once per body, continuous producers once per slice) BUILT 2026-10-26 on branch `ledger-identity-step7`, step 8 BUILT 2026-10-27 on branch `ledger-identity-step8`, NOT FLOWN, steps 1 to 8 built; product, high (the duplicate-payment class)]
 
 Design authority: `docs/parsek-game-actions-and-resources-recorder-design.md` section 3.15.
@@ -3096,6 +3148,24 @@ world for its committed recovery (`evidence=recovery`), both stock recover press
 GC-2's `Blocked <action> of claimed vessel` cannot print after a plain rewind (the #2181 hold removes
 the vessel first) and GC-2 reads ghost chains only, so a vessel the committed future merely recovers
 is never a GC-2 claim; no seam verb drives the Tracking Station Delete.
+
+Progress 2026-10-28 (branch `rw5-refly-discard`): lane `RW-5-rewind-refly-discard` LIVE-PROVEN on the Discard Re-fly fix
+(`2026-10-28_1200`; its first flight `2026-10-28_1056` found REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE, a -40432 leak row), plan
+row 8 (a Re-Fly started and discarded inside a rewound timeline): RW-1's committed pad flight H and contract
+accept F, a Rewind-to-Launch, then G, a pad flight of the new craft `CS Flea Probe`, decoupled on the pad into
+two controllable vessels (the rewind point) and committed in flight; a Re-Fly of G's pod slot earns Kerbin's
+SurfaceEVA world-first, and Discard Re-fly must restore the pools and the ledger row count held just before the
+Re-Fly started (read off the same `[LedgerTrace] phase=Structural` and `RecalculateAndPatch: actionsTotal=` lines),
+keep G's recordings and point and write no supersede row or tombstone; then a Space Center warp across the
+committed rows and LedgerGroundTruth. The craft is new because a rewind point needs two command parts on separate
+halves and every craft this career had carries one: `harness/tools/build_cs_flea_probe_craft.py` derives it from
+the Jumping Flea plus a TT-38K radial decoupler, an FL-T100 and a Stayputnik standing beside the RT-5 (all
+researched on the host; drift test `harness/lib/test_cs_flea_probe_craft.py`). Corrections to the plan from the
+code: the planned TD-12 + Stayputnik stack cannot work (the Stayputnik has only a bottom node, and a stacked
+split leaves the upper half resting on the lower one, which stock reads FLYING); a pad split ends both slots
+Landed (closed), so the lane stashes the pod's slot before any load would reap the point; the invocation walk's
+cutoff=MaxValue lift is by design, so the pools are gated before the invoke and after the discard, not inside
+the session.
 
 ---
 
