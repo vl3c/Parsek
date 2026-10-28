@@ -422,10 +422,20 @@ class AscentTests(unittest.TestCase):
         self.assertIn(mlib.MLR_ASCENT_NOT_ENABLED, st.flake_reason)
 
     def test_a_re_engage_rebinds_first(self):
+        # The autostage limit is re-applied after the rebind (the re-bound handle reads 0).
+        self.assertEqual([mlib.ACTION_MJ_REBIND_ASCENT, mlib.ACTION_MJ_SET_AUTOSTAGE_LIMIT,
+                          mlib.ACTION_MJ_SET_TARGET_APOAPSIS, mlib.ACTION_MJ_ENGAGE_ASCENT],
+                         _kinds(mlib.mlr_ascent_actions(_params())))
+        actions = mlib.mlr_ascent_actions(_params())
+        self.assertEqual(float(_params().autostage_limit), actions[1].value)
+        self.assertEqual(20000.0, actions[2].value)
+
+    def test_no_autostage_limit_means_no_limit_action(self):
+        import dataclasses
+        params = dataclasses.replace(_params(), autostage_limit=None)
         self.assertEqual([mlib.ACTION_MJ_REBIND_ASCENT, mlib.ACTION_MJ_SET_TARGET_APOAPSIS,
                           mlib.ACTION_MJ_ENGAGE_ASCENT],
-                         _kinds(mlib.mlr_ascent_actions(_params())))
-        self.assertEqual(20000.0, mlib.mlr_ascent_actions(_params())[1].value)
+                         _kinds(mlib.mlr_ascent_actions(params)))
 
     def test_an_engaged_autopilot_that_never_lifts_is_named(self):
         st = self._ascent(ascent_engaged=True, ascent_engaged_ut=50001.0)

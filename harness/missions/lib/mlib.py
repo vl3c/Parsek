@@ -32738,10 +32738,16 @@ def mlr_eva_actions(verb: str, params: MlrParams) -> List[Action]:
 def mlr_ascent_actions(params: MlrParams) -> List[Action]:
     """The Mun ascent's engage: MechJeb's AscentAutopilot handle re-bound to the
     landed vessel (the runner cached the launch's), the target orbit, the engage.
-    Autostage and its limit are left as the launch set them. Pure."""
-    return [Action(ACTION_MJ_REBIND_ASCENT),
-            Action(ACTION_MJ_SET_TARGET_APOAPSIS, float(params.ascent_altitude)),
-            Action(ACTION_MJ_ENGAGE_ASCENT)]
+    The autostage limit is set AGAIN after the rebind: boarding re-creates the
+    vessel, the re-bound handle reads limit 0, and MechJeb's autostage then fires the
+    pod separation on the Mun (CS-7 run 2026-10-28_0223 attempt 2: a TD-12 decouple
+    0.7 s after the engage left the pod on the surface). Pure."""
+    actions = [Action(ACTION_MJ_REBIND_ASCENT)]
+    if params.autostage_limit is not None:
+        actions.append(Action(ACTION_MJ_SET_AUTOSTAGE_LIMIT, float(params.autostage_limit)))
+    actions.extend([Action(ACTION_MJ_SET_TARGET_APOAPSIS, float(params.ascent_altitude)),
+                    Action(ACTION_MJ_ENGAGE_ASCENT)])
+    return actions
 
 
 def mlr_aboard_lander(snapshot: TelemetrySnapshot, params: MlrParams) -> bool:
