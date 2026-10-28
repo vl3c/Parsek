@@ -39,8 +39,19 @@ id = "RW-12-hire-across-rewind"
 #   Clock-crossing reached committed-future rows:                GameActions/LedgerOrchestrator.cs
 #   KSC spending recorded: type=KerbalHire                       GameActions/LedgerOrchestrator.cs
 #
-# STATUS: AUTHORED 2026-10-28 (branch `rw12-hire`), NEVER FLOWN. The refusal kind after the
-# rewind, the hire cost, the recordings count and the batch split are interim until measured.
+# STATUS: LIVE-PROVEN 2026-10-28, `2026-10-28_2035` (attempt 2) PASS (DLL ce34c29a, branch d33731c45: main b7d02854b plus kerbal=applicant-first). The Astronaut Complex
+# filled the pool with 8 applicants; the first, hired at 185899.9 for 71031 (stock's one
+# `FundsChanged -71031 (CrewRecruited)`, a KSC KerbalHire row). MEASURED ANSWER after the rewind:
+# he is still an applicant in the rewind save and his second hire is blocked as committed future
+# (`KerbalHirePatch blocking hire ... committed future hire ut=185900 nowUT=185800`, funds
+# untouched, `reason=blocked-committed`). The warp past T1 crossed the row once
+# (`crossed=1 [KerbalHire@185899.90]`) and promoted him (`Committed hire applied: ... Applicant ->
+# Crew`, `promoted=1`) with no second charge; the pools after the crossing equal those before
+# the rewind; no pool adjustment, no guard clamp; LedgerGroundTruth 3/3 hardFailures=0;
+# ledger_audit PASS. Attempt 1 of `_2027` and of `_2033` were INVALID on the KSP window losing focus
+# on the PC (`ksc_ApplicationFocus` / `EditorDriver_AppFocus` input locks), not the lane; `_2024`
+# PARSEK-FAIL on two UT windows written 1859xx (the hire lands at 185899.9), every other pin met;
+# `_2020` INVALID `no-applicant` before the Astronaut Complex step.
 # =====================================================================================
 tier = "operator"
 description = "Rewind ledger campaign, a Space Center hire inside a committed timeline: on cs-career-mun4 a committed pad Flea, then the first applicant hired at T1 (kerbal=applicant-first); after a Rewind-to-Launch before T1 the same applicant's second hire is refused, the warp past T1 promotes him to Crew through the committed row with the hire cost charged once, and the pools come back; LedgerGroundTruth closes the career."
@@ -127,7 +138,7 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # The host's 34 recordings plus H; the check launch is unrecorded. INTERIM window.
-count = { min = 35, max = 36 }
+count = 35
 
 [expectations.logContracts]
 required = [
@@ -152,7 +163,7 @@ required = [
   "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw12-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw12-crossed ut=",
 
   # ---- the ground truth ----
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
   "result: hardFailures=0 ",
 ]
 forbidden = [
