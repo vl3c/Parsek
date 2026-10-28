@@ -77,6 +77,7 @@ namespace Parsek.Tests
         [InlineData("radiatoroff", "RadiatorOff")]
         [InlineData("activate", "EngineActivate")]
         [InlineData("explode", "Explode")]
+        [InlineData("chute", "ChuteDeploy")]
         public void ParseButton_AcceptsTheClosedVocabulary(string raw, string expected)
         {
             Assert.Null(TestCommandPartAction.ParseButton(raw, out PartActionKind kind));
@@ -110,7 +111,7 @@ namespace Parsek.Tests
         {
             Assert.Equal(new[] { "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
                 "stopconverter", "experiment", "labprocess", "labtransmit", "inspect", "radiatoron",
-                "radiatoroff", "activate", "explode" },
+                "radiatoroff", "activate", "explode", "chute" },
                 TestCommandPartAction.ButtonValues);
             foreach (string v in TestCommandPartAction.ButtonValues)
                 Assert.Null(TestCommandPartAction.ParseButton(v, out _));
@@ -319,8 +320,8 @@ namespace Parsek.Tests
             {
                 Assert.Null(TestCommandPartAction.ParseButton(token, out PartActionKind kind));
                 Assert.Equal(token == "activate", TestCommandPartAction.IsEngineKind(kind));
-                Assert.Equal(token == "activate" || token == "radiatoron" || token == "radiatoroff",
-                    TestCommandPartAction.IsTypedModuleKind(kind));
+                Assert.Equal(token == "activate" || token == "radiatoron" || token == "radiatoroff"
+                    || token == "chute", TestCommandPartAction.IsTypedModuleKind(kind));
             }
             Assert.False(TestCommandPartAction.IsEngineKind(PartActionKind.Unknown));
             Assert.False(TestCommandPartAction.IsTypedModuleKind(PartActionKind.Unknown));
@@ -358,6 +359,39 @@ namespace Parsek.Tests
             ParsedCommand cmd = Cmd("button=explode part=mk1pod.v2");
             Assert.True(cmd.ParseOk);
             Assert.Equal("explode", cmd.Args["button"]);
+        }
+
+        [Fact]
+        public void Chute_PressesTheParachuteDeployEvent_AndRefusesAPartWithNoParachute()
+        {
+            Assert.Null(TestCommandPartAction.ParseButton("chute", out PartActionKind kind));
+            Assert.Equal(PartActionKind.ChuteDeploy, kind);
+            Assert.Equal("chute", TestCommandPartAction.Token(kind));
+            Assert.True(TestCommandPartAction.RequiresPart(kind));
+            Assert.True(TestCommandPartAction.IsParachuteKind(kind));
+            Assert.True(TestCommandPartAction.IsTypedModuleKind(kind));
+            Assert.False(TestCommandPartAction.IsEngineKind(kind));
+            Assert.False(TestCommandPartAction.IsWholePartKind(kind));
+            Assert.Equal(new[] { "Deploy" }, TestCommandPartAction.EventNamesFor(kind));
+            foreach (string token in TestCommandPartAction.ButtonValues)
+            {
+                Assert.Null(TestCommandPartAction.ParseButton(token, out PartActionKind k));
+                Assert.Equal(token == "chute", TestCommandPartAction.IsParachuteKind(k));
+            }
+            // A named part with no ModuleParachute is a spec fault; a stowed chute already armed
+            // (stock hides Deploy) is a live state.
+            Assert.Equal("partaction-parachute-not-found", TestCommandPartAction.DecideCandidates(
+                kind, "mk1pod.v2", 1, null, 0, 0, 0, 0, false));
+            Assert.Equal("partaction-event-unavailable", TestCommandPartAction.DecideCandidates(
+                kind, "parachuteSingle", 1, null, 0, 0, 1, 0, false));
+            Assert.Equal("partaction-part-not-found", TestCommandPartAction.DecideCandidates(
+                kind, "parachuteSingle", 0, null, 0, 0, 0, 0, false));
+            Assert.Null(TestCommandPartAction.DecideCandidates(
+                kind, "parachuteSingle", 1, null, 0, 0, 1, 1, false));
+            Assert.Contains("partaction-parachute-not-found", TestCommandPartAction.Reasons);
+            ParsedCommand cmd = Cmd("button=chute part=parachuteSingle");
+            Assert.True(cmd.ParseOk);
+            Assert.Equal("chute", cmd.Args["button"]);
         }
 
         [Fact]
@@ -800,7 +834,7 @@ namespace Parsek.Tests
         [Fact]
         public void Reasons_AreTheGateOrder_AndDisjointFromTheErrors()
         {
-            Assert.Equal(28, TestCommandPartAction.Reasons.Length);
+            Assert.Equal(29, TestCommandPartAction.Reasons.Length);
             Assert.Equal("partaction-button-arg-missing", TestCommandPartAction.Reasons[0]);
             Assert.Equal("partaction-converter-arg-unexpected", TestCommandPartAction.Reasons[3]);
             Assert.Equal("partaction-all-arg-invalid", TestCommandPartAction.Reasons[4]);

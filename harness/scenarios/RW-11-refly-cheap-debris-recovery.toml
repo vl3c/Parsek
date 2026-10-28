@@ -25,12 +25,27 @@ id = "RW-11-refly-cheap-debris-recovery"
 #   boot       LoadGame persistent at the Space Center; warp to 185800.
 #   G          CS Flea Probe on the pad, recorded, its stand decoupled there (a rewind point),
 #              committed in flight with the pod's Landed slot stashed.
-#   refly      Re-Fly slot 0 (the Flea with its pod): the booster exploded on the pad, the fins
-#              fall free as debris, then the merge (the Space Center exit and the merge dialog).
-#   cleanup    at the Space Center the fins are recovered, each under 100 funds, booked once.
+#   refly      Re-Fly slot 0 (the Flea with its pod): the SRB lit (`PartAction button=activate`),
+#              the Mk16 armed in the descent (`PartAction button=chute`, new on this branch), a soft
+#              landing on KSC grass, the booster exploded on the ground so its fins drop onto
+#              terrain as LANDED debris, then the merge (the Space Center exit and the dialog).
+#   cleanup    as the merge lands at the Space Center, stock's clean-up recovers the fins, each
+#              under 100 funds, booked once.
 #   rewind     Rewind-to-Launch onto G's tree: the recovery rows are committed future.
-#   crossing   warp to 185900: each recovery crosses once and the pools come back to the ones
+#   crossing   warp to 186100: each recovery crosses once and the pools come back to the ones
 #              held before the rewind.
+#
+# NOT COVERED (option B): a recovery pressed INSIDE the Re-Fly (Recover concluded through the merge
+# dialog). The seam's Recover refuses in a Re-Fly (`dialog-required`) and AnswerMergeDialog exits
+# plainly, so the fins are recovered by stock's clean-up during the merge's own scene change
+# (coordinator ruling 2026-10-28, option A).
+#
+# FIRST FLIGHT `2026-10-28_1854` (main's DLL, the booster exploded ON THE PAD): driver valid, no
+# recovery at all. Debris on the pad deck reads FLYING (so does the probe stand standing there:
+# the deck is not ground for `Vessel.Landed`), stock's KSC clean-up (decompiled `FlightState`:
+# debris LANDED in the KSC or at a launch site gets `SetAutoClean`) never took it, and 2 of 3 fins
+# were gone after the scene change. A fin breaks above 4 m/s (basicFin crashTolerance), so it
+# cannot fall from altitude either; hence the chute landing before the booster goes.
 #   check      an unrecorded Flea onto the pad, the default save, LedgerGroundTruth.
 #
 # PATENTS LICENSING IS LEFT FOR ITS OWN LANE: it costs 135 to 2700 science to activate
@@ -46,7 +61,7 @@ id = "RW-11-refly-cheap-debris-recovery"
 #   Clock-crossing reached committed-future rows:       GameActions/LedgerOrchestrator.cs
 #   partaction applied button=explode                   TestCommands/TestCommandPartAction.cs
 #
-# STATUS: AUTHORED 2026-10-28 (branch `rw11-cheap-debris`), NEVER FLOWN. The number of fins
+# STATUS: AUTHORED 2026-10-28 (branch `rw11-cheap-debris`); the first flight a lane-design miss (above). The number of fins
 # that fall free and are recovered, the recovery UT, the recordings count and the batch split
 # are interim until measured.
 # =====================================================================================
@@ -101,9 +116,19 @@ steps = [
   { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                        expect = "OK" },
   { cmd = "PartAction",     args = { button = "inspect", part = "solidBooster.sm.v2" },    expect = "OK" },
   { cmd = "MissionMark",    args = { label = "rw11-refly-started" },                       expect = "OK" },
+  # The hop (RW-7's measured profile: impact ~110 s after the light without a chute), the
+  # Mk16 armed in the descent so the Flea lands softly on KSC grass. Debris left on the pad deck
+  # reads FLYING (run `2026-10-28_1854`), and stock auto-cleans LANDED debris only.
+  { cmd = "PartAction",     args = { button = "activate", part = "solidBooster.sm.v2" },   expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185860", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "chute", part = "parachuteSingle" },         expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "186000", maxRate = "1" },                       expect = "OK", budget = 240 },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "mk1pod.v2" },             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw11-landed" },                              expect = "OK" },
+  # Landed on grass: the booster destroyed, its fins drop a few centimetres onto terrain.
   { cmd = "PartAction",     args = { button = "explode", part = "solidBooster.sm.v2" }, label = "ex", expect = "OK" },
-  # The pod drops the booster's length onto the pad and the fins settle.
-  { cmd = "WarpToUT",       args = { ut = "185815", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",       args = { ut = "186015", maxRate = "1" },                       expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                                expect = "OK" },
   { cmd = "PartAction",     args = { button = "inspect", part = "mk1pod.v2" },             expect = "OK" },
   { cmd = "MissionMark",    args = { label = "rw11-exploded" },                            expect = "OK" },
@@ -126,14 +151,14 @@ steps = [
   { cmd = "SaveGame",       args = { name = "rw11-04-after-rtl" },                        expect = "OK", budget = 120 },
 
   # ---- the crossing ----
-  { cmd = "WarpToUT",       args = { ut = "185900", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",       args = { ut = "186100", maxRate = "100" },                     expect = "OK", budget = 120 },
   { cmd = "MissionMark",    args = { label = "rw11-crossed" },                             expect = "OK" },
   { cmd = "SaveGame",       args = { name = "rw11-05-after-crossing" },                   expect = "OK", budget = 120 },
 
   # ---- the check: an unrecorded launch onto the pad, the save, the ground truth ----
   { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
-  { cmd = "WarpToUT",       args = { ut = "185930" },                                      expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",       args = { ut = "186130" },                                      expect = "OK", budget = 120 },
   { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
   { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit",                                                                  expect = "OK" },
@@ -162,9 +187,12 @@ required = [
   "RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 focusSlot=0 ut=1858[0-9]{2}\\.[0-9]{2}[\\s\\S]*?RewindPoint slot capture: rp=\\1 populated=2/2 disabled=0",
 
   # ---- the Re-Fly: the booster destroyed on the pad, a fin split off as debris ----
-  "MISSIONMARK label=rw11-refly-started ut=(?:(?!MISSIONMARK label=rw11-exploded )[\\s\\S])*?partaction applied button=explode pid=[0-9]+ part='solidBooster\\.sm\\.v2' partId=[0-9]+ event=explode newPid=[1-9][0-9]* ",
-  # The pod survives its drop onto the pad.
-  "MISSIONMARK label=rw11-refly-started ut=(?:(?!MISSIONMARK label=rw11-exploded )[\\s\\S])*?partaction applied button=inspect pid=[0-9]+ part='mk1pod\\.v2' ",
+  "MISSIONMARK label=rw11-landed ut=(?:(?!MISSIONMARK label=rw11-exploded )[\\s\\S])*?partaction applied button=explode pid=[0-9]+ part='solidBooster\\.sm\\.v2' partId=[0-9]+ event=explode newPid=[1-9][0-9]* ",
+  # The SRB lit, the chute armed, the pod alive on the ground before and after the booster goes.
+  "MISSIONMARK label=rw11-refly-started ut=(?:(?!MISSIONMARK label=rw11-landed )[\\s\\S])*?partaction applied button=activate pid=[0-9]+ part='solidBooster\\.sm\\.v2' [^\\r\\n]*state='engine:ignited=1'",
+  "MISSIONMARK label=rw11-refly-started ut=(?:(?!MISSIONMARK label=rw11-landed )[\\s\\S])*?partaction applied button=chute pid=[0-9]+ part='parachuteSingle' partId=[0-9]+ event=Deploy ",
+  "MISSIONMARK label=rw11-refly-started ut=(?:(?!MISSIONMARK label=rw11-landed )[\\s\\S])*?partaction applied button=inspect pid=[0-9]+ part='mk1pod\\.v2' ",
+  "MISSIONMARK label=rw11-landed ut=(?:(?!MISSIONMARK label=rw11-exploded )[\\s\\S])*?partaction applied button=explode [\\s\\S]*?partaction applied button=inspect pid=[0-9]+ part='mk1pod\\.v2' ",
 
   # ---- the merge and the cheap recovery: under 100 funds, kept and booked once ----
   "MISSIONMARK label=rw11-exploded ut=[\\s\\S]*?MISSIONMARK label=rw11-merged ut=",

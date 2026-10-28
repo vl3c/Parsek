@@ -17506,7 +17506,7 @@ class PartActionSourceSyncTests(unittest.TestCase):
         consts = ("UndockToken", "DecoupleToken", "ControlFromToken", "DeployToken",
                   "RetractToken", "StartConverterToken", "StopConverterToken", "ExperimentToken",
                   "LabProcessToken", "LabTransmitToken", "InspectToken", "RadiatorOnToken",
-                  "RadiatorOffToken", "ActivateToken", "ExplodeToken")
+                  "RadiatorOffToken", "ActivateToken", "ExplodeToken", "ChuteToken")
         self.assertEqual(len(consts), len(hlib.PARTACTION_BUTTON_VALUES))
         for token, const in zip(hlib.PARTACTION_BUTTON_VALUES, consts):
             self.assertIn('internal const string %s = "%s";' % (const, token), text)
@@ -17556,7 +17556,7 @@ class PartActionSourceSyncTests(unittest.TestCase):
         # inherits it) and nothing else on the part, and counts the engine modules for its
         # engine-not-found gate.
         self.assertIn("if (!(module is ModuleEngines)) continue;", applier)
-        self.assertIn("radiatorKind ? radiatorModules : engineKind ? engineModules : -1", applier)
+        self.assertIn("radiatorKind ? radiatorModules : engineKind ? engineModules : parachuteKind ? parachuteModules : -1", applier)
         self.assertIn("new PartActionWarpContext(v.packed,", applier)
         # labprocess: the experiment's own Review Data opens a missing page, the page's
         # labValue is written before the gates, and only then the page's lab callback runs.

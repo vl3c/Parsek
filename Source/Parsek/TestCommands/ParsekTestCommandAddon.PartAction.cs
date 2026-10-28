@@ -102,8 +102,10 @@ namespace Parsek.TestCommands
             int experimentModules = 0;
             int radiatorModules = 0;
             int engineModules = 0;
+            int parachuteModules = 0;
             bool radiatorKind = TestCommandPartAction.IsRadiatorKind(kind);
             bool engineKind = TestCommandPartAction.IsEngineKind(kind);
+            bool parachuteKind = TestCommandPartAction.IsParachuteKind(kind);
             var found = new List<PartActionCandidate>();
             string[] eventNames = TestCommandPartAction.EventNamesFor(kind);
             for (int i = 0; i < v.parts.Count; i++)
@@ -154,6 +156,12 @@ namespace Parsek.TestCommands
                         if (!(module is ModuleEngines)) continue;
                         engineModules++;
                     }
+                    if (parachuteKind)
+                    {
+                        // Only the parachute module's "Deploy Chute".
+                        if (!(module is ModuleParachute)) continue;
+                        parachuteModules++;
+                    }
                     if (converterName != null)
                     {
                         if (!(module is BaseConverter bc)
@@ -189,7 +197,7 @@ namespace Parsek.TestCommands
                 foreach (int k in TestCommandPartAction.FoldUndockPairs(ports)) candidates.Add(found[k]);
             }
 
-            int typedModules = radiatorKind ? radiatorModules : engineKind ? engineModules : -1;
+            int typedModules = radiatorKind ? radiatorModules : engineKind ? engineModules : parachuteKind ? parachuteModules : -1;
             reason = TestCommandPartAction.DecideCandidates(kind, partName, namedParts, converterName,
                 matchingConverters, experimentModules, typedModules,
                 candidates.Count, all);
@@ -199,6 +207,7 @@ namespace Parsek.TestCommands
                     $"converter={converterName ?? string.Empty} all={all} namedParts={namedParts} " +
                     $"matchingConverters={matchingConverters} experimentModules={experimentModules} " +
                     $"radiatorModules={radiatorModules} engineModules={engineModules} " +
+                    $"parachuteModules={parachuteModules} " +
                     $"candidates={candidates.Count}");
                 return;
             }
