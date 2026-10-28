@@ -25,6 +25,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Recovering cheap debris during a Re-Fly keeps its funds.** A recovery worth under 100 funds
+  (cheap debris, a kerbal on EVA, a small probe) was never written down, so in a Re-Fly or after
+  a rewind its money vanished. Every recovery is now booked at its exact payout, and with Patents
+  Licensing active the science-to-funds share is no longer mistaken for the recovery payout.
+  (SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY)
 - **Discarding a Re-Fly after a rewind keeps the money still to come.** After a Rewind-to-Launch,
   starting a Re-Fly and then choosing Discard Re-fly took away the funds, science or reputation
   your committed future flights earn later, for good. Discard now returns the career to just before

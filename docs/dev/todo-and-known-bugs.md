@@ -210,6 +210,80 @@ Build order is in section 3.15. Each step ships unit tests and the matching harn
 
 ---
 
+## ~~SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY: a vessel recovery worth under 100 funds has no ledger row, so an authoritative patch erases it~~ [FILED AND FIXED 2026-10-28 from code reading, branch `fix-small-recovery-funds`; unit-tested only, NOT FLOWN, lane owed; product, medium (a gain lost for good, a reduction of the career total)]
+
+`GameStateRecorder.OnFundsChanged` dropped every funds change under `FundsThreshold = 100`, and
+`LedgerRecoveryFundsPairing.ShouldSkipRecoveryFundsBeforePairing` skipped a recovery whose known
+payout was under 100 ("below recorder threshold"). So a cheap recovery (debris, an EVA kerbal, a
+small probe) got no `FundsEarning(Recovery)` row. A measured patch kept the gap as an untagged
+`StockPoolAdjustment` (the total survived without identity), but an authoritative patch
+(`LedgerOrchestrator.IsAuthoritativeReduction`: rewind, Re-Fly marker, merge journal, tombstone
+path, Re-Fly discard) skips the measurement (`StockPoolReference.Measure` returns early) and writes
+the pool back to the ledger target. Every patch of a Re-Fly session is authoritative, so 60-funds
+debris recovered inside the attempt lost its 60 funds for good, breaking "never reduce the career
+total". Separately, Science and Sandbox careers have no Funding, yet `OnVesselRecoveryFunds` queued
+a pairing request whenever the payout was unknown, and `FlushStalePendingRecoveryFunds` then
+Warned "evicting ... unclaimed recovery request(s)" at the next scene switch (32 archived runs,
+all Science / Sandbox, harmless noise).
+
+**Fix.** Only stock's own payout is exempt from the threshold, and only it may be paired. KSP
+1.12.5 (decompiled) pays a recovery in one place, `Funding.onVesselRecoveryProcessing`, with one
+`AddFunds(value, VesselRecovery)`. A strategy's effect on another currency's query under the same
+reason fires its own `FundsChanged(VesselRecovery)` from `Funding.OnCurrenciesModified`: under
+Patents Licensing (AffectReasons ScienceTransmission, VesselRecovery, Progression) a recovered
+subject (R&D's `SubmitScienceData`, which runs before Funding's handler), a recovered lab
+(`RecoverScienceLabs`) or ground-station science yields funds that way, already booked as
+`FundsEarning(Strategy)` by `StrategyConversionCapture.EvaluateLegs`. The first version of this fix
+(exempting every positive `VesselRecovery` delta) recorded that yield too (LAB-12 measured +52.5),
+and the pairing (`TryFindRecoveryFundsEvent`, `OnRecoveryFundsEventRecorded`) and
+`RecoveryPayoutContextStore.TryFindForFundsEvent` took it as the payout: the yield paid twice and
+the payout got no row (review repro: 52.5 against 1500). A yield of 100 or more already did that
+before this entry. Now `Patches/RecoveryPayoutScopePatches.cs` scope both stock methods
+(`RecoveryPayoutScope`, payout wins when nested, since the payout's own query effect folds into one
+net event plus a zero-delta one). Only a query with no funds input opens the funds-effect scope
+(`OpensFundsEffectScope`), so a mod's own `AddFunds(x, VesselRecovery)` under a strategy stays a
+pairable payout (found by re-review). `GameStateRecorder.IsFundsDeltaBelowThreshold` exempts a positive
+`VesselRecovery` change only inside the payout scope; a change inside the funds-effect scope keeps
+the 100 floor and, when recorded, carries the `notPayout=strategyEffect` detail and claims no payout
+context; `LedgerRecoveryFundsPairing`'s finder (shared by the #444 direct pairing, the deferred
+queue and the commit-time `CreateVesselCostActions` pairing) and its dedup repair skip that detail.
+A change inside neither scope (a mod's own `AddFunds`, or patches that did not apply) is handled as
+before: the 100 floor, and it pairs. The yield cannot fire inside the payout scope: R&D's and the
+lab's handlers are separate `onVesselRecoveryProcessing` subscribers, not called from Funding's.
+The pairing's under-100 skip is gone (the zero skip stays). The other `FundsChanged` consumers were
+checked: the commit converter drops non-strategy `FundsChanged`, the KSC reconcile and the
+post-walk reconciler skip recovery earnings, the commit earnings window sums the event against the
+row it pairs (equal), coalescing already keeps a recovery event apart, and live-only income
+excludes the reason. The deferred queue now runs only when the career has a funds pool
+(`LedgerOrchestrator.GetResourceTrackingAvailability`); otherwise one Verbose skip line ("career
+has no funds pool"). Residue: a mod that pays a recovery outside stock's method keeps the 100 floor,
+and if the payout patch ever failed to apply a payout under 100 would again have no row (its
+deferred request would be evicted with the old Warn).
+
+Tests: `SmallRecoveryFundsTests` (the threshold truth table by source; the scope classification; the
+two patches' targets resolve on the stock assembly and open their scopes; a small `ContractReward`
+change and a small unscoped `VesselRecovery` change are still ignored by the real handler; a 60- and
+a 150-funds payout through the real handler and the real payout patch each give one row with the
+paired amount, dedup key and tag; a callback ahead of its 42-funds payout defers and pairs; the
+headline: a 60-funds debris recovery inside a Re-Fly session is tagged to the provisional and the
+next authoritative funds patch writes 1060, not 1000; the review's two cells, a Patents Licensing
+yield of 52.5 and of 150 before a 1500 payout, with the callback first and last, give one 1500 row;
+a recorded yield is no commit-time recovery event; no funds pool queues nothing and the flush stays
+quiet), `GameStateRecorderLedgerTests` (a 99-funds payout context now defers like any positive
+payout). Mutation-checked: classifying the effect scope as payout reds the four yield cells, the
+commit-time cell, the classification and the patch cell; exempting regardless of source reds the
+52.5 callback-last cell, the unscoped cell and the truth table; not stamping the yield reds the
+three 150 yield cells; dropping the finder's stamp check reds the commit-time cell, and with the
+deferred-queue check also dropped the 150 callback-first cell (the finder's check alone covers the
+queue); a payout scope that never opens reds the headline (1000 against 1060) and the small-payout
+cells; restoring the pairing's under-100 skip reds the headline and the two small-payout cells;
+dropping the no-pool gate reds the no-pool cell. Not flown yet; lane owed: a Re-Fly that recovers
+cheap debris (under 100 funds), merge, then LedgerGroundTruth and no GUARDED line; and a recovery of
+a science-carrying vessel under Patents Licensing (one `VesselRecovery funds patched` at the payout,
+the yield as its strategy leg only).
+
+---
+
 ## ~~STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED: a strategy discount on a part purchase, a repair or a contract penalty has no ledger leg, so a rewind and a repeat pays it twice~~ [FILED AND FIXED 2026-10-28 from code reading plus the stock `Strategies.cfg`, branch `fix-strategy-gross-legs`; unit-tested only, NOT FLOWN, lane owed; product, medium (a discount credited twice, breaking "nothing is paid twice")]
 
 Stock `AgressiveNegotiations` multiplies funds under `VesselRollout` / `RnDPartPurchase` (0.70 at

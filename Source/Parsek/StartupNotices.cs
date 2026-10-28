@@ -47,6 +47,7 @@ namespace Parsek
             (new[] { "Strategy", "Administration" }, "strategy reservations"),
             (new[] { "Kerbal", "Crew", "AstronautComplex", "ActiveCrewCount", "FlightEvaSpawn" }, "crew reservations"),
             (new[] { "ScienceSubject", "ScienceLab", "ProgressReward", "RecoveryScope", "DeployedScienceSubmit", "SentinelDetection", "OrbitalSurveyCredit", "FreeTechUnlock" }, "science and milestone rewards"),
+            (new[] { "RecoveryPayoutScope", "RecoveryFundsEffectScope" }, "vessel recovery funds"),
             (new[] { "PhysicsFrame", "PartMassivePartCheck", "CheatTeleport", "HackGravity", "DockingNodeUndockIntent" }, "flight recording"),
             (new[] { "Revert", "HighLogic_LoadScene", "FloatingOrigin", "VesselCycleReFly" }, "revert, rewind and scene changes"),
             (new[] { "FlightResultsDialogLog" }, "diagnostic logging"),

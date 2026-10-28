@@ -158,6 +158,7 @@ namespace Parsek
                 if (e.eventType != GameStateEventType.FundsChanged) continue;
                 if (e.key != LedgerOrchestrator.VesselRecoveryReasonKey) continue;
                 if (Math.Abs(e.ut - ut) > LedgerOrchestrator.VesselRecoveryEventEpsilonSeconds) continue;
+                if (RecoveryPayoutContextStore.IsNotPayoutFundsEventDetail(e.detail)) continue;
 
                 string candidateKey = BuildRecoveryEventDedupKey(e);
                 if (skipConsumed && consumedRecoveryEventKeys.Contains(candidateKey)) continue;
@@ -177,6 +178,13 @@ namespace Parsek
         {
             if (pendingRecoveryFunds.Count == 0)
                 return;
+            if (RecoveryPayoutContextStore.IsNotPayoutFundsEventDetail(evt.detail))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"OnRecoveryFundsEventRecorded: event at ut={evt.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    "is a strategy effect, not a recovery payout - no pending request pairs it");
+                return;
+            }
 
             RecoveredVesselIdentity eventIdentity =
                 RecoveryPayoutContextStore.ExtractIdentityFromFundsEventDetail(evt.detail);
@@ -384,18 +392,13 @@ namespace Parsek
 
             if (payoutContext != null && payoutContext.HasFundsEarned)
             {
+                // Only a zero payout is skipped: the recorder keeps stock's positive recovery
+                // payout of any size (GameStateRecorder.IsFundsDeltaBelowThreshold, inside
+                // RecoveryPayoutScope), so a payout under the recorder's funds threshold still
+                // has an event to pair with.
                 if (payoutContext.FundsEarned <= 0.0)
                 {
                     reason = "stock expected zero recovery funds";
-                    return true;
-                }
-
-                if (payoutContext.FundsEarned < GameStateRecorder.FundsThreshold)
-                {
-                    reason = "stock expected recovery funds " +
-                             payoutContext.FundsEarned.ToString("F1", CultureInfo.InvariantCulture) +
-                             " below recorder threshold " +
-                             GameStateRecorder.FundsThreshold.ToString("F1", CultureInfo.InvariantCulture);
                     return true;
                 }
 
@@ -485,6 +488,7 @@ namespace Parsek
                 var e = events[i];
                 if (e.eventType != GameStateEventType.FundsChanged) continue;
                 if (e.key != LedgerOrchestrator.VesselRecoveryReasonKey) continue;
+                if (RecoveryPayoutContextStore.IsNotPayoutFundsEventDetail(e.detail)) continue;
 
                 double utDistance = Math.Abs(e.ut - action.UT);
                 if (utDistance > LedgerOrchestrator.VesselRecoveryEventEpsilonSeconds) continue;
@@ -514,6 +518,7 @@ namespace Parsek
             bool quick,
             VesselType vesselType,
             RecoveryPayoutContext payoutContext,
+            bool fundsPoolTracked,
             Func<double, RecoveredVesselIdentity, bool, bool> tryAddRecoveryFundsAction)
         {
             if (!identity.HasName)
@@ -541,6 +546,18 @@ namespace Parsek
                     $"OnVesselRecoveryFunds: {identity.FormatForLog()} (VesselType.{vesselType}) " +
                     $"at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} — " +
                     $"skipping deferred recovery-funds pairing ({skipReason})");
+                return;
+            }
+
+            if (!fundsPoolTracked)
+            {
+                // Science and Sandbox careers have no Funding: stock pays no recovery funds,
+                // so no FundsChanged(VesselRecovery) can ever arrive to pair with and a
+                // queued request would only be evicted with a Warn at the next scene switch.
+                ParsekLog.Verbose(Tag,
+                    $"OnVesselRecoveryFunds: {identity.FormatForLog()} (VesselType.{vesselType}) " +
+                    $"at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} - " +
+                    "skipping deferred recovery-funds pairing (career has no funds pool)");
                 return;
             }
 
