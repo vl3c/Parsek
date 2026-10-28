@@ -1,0 +1,191 @@
+schema = 1
+id = "RW-13-tech-research-across-rewind"
+# =====================================================================================
+# RW-13: A TECH NODE RESEARCHED WITH SCIENCE INSIDE A COMMITTED TIMELINE, ACROSS A
+# REWIND-TO-LAUNCH (the rewind ledger campaign, todo REWIND-LEDGER-CAMPAIGN).
+#
+# THE RULES UNDER TEST: a Space Center research is a committed-future ScienceSpending row once
+# the clock is wound back before it. The rewind save shows the node locked; a second research
+# before T1 is blocked by the stock-UI reservation rule (`TechResearchPatch`, the committed-future
+# index); when the clock reaches the row the committed unlock makes the node available again
+# (`PatchCommittedTechUnlocks`) and the science stays spent exactly once.
+#
+# THE HOST IS cs-career-mun2, NOT cs-career-mun4 (departure from the brief): mun4 holds 20.17
+# science and every node it has not researched costs 45 or more (RW-1's tech half was dropped for
+# the same reason); its cheap Kerbin science is taken, so a Flea hop and pad reports would earn
+# about 10. mun2 is the same CS campaign one stage earlier: 50.5 science, advRocketry (45) open with
+# its prerequisite generalRocketry researched, 216973 funds, a clear pad, UT 119603.
+#
+# PLAN (cs-career-mun2, UT ~119603):
+#   boot       LoadGame persistent at the Space Center; warp to 119660; advRocketry probed:
+#              REJECTED? no - it is affordable, so the probe is skipped; the save shows it locked.
+#   H          a Jumping Flea on the pad, recorded to 119700, committed, recovered at its marker.
+#   research   warp to 119760 (T1, 60 s after H's recovery, outside every lead window):
+#              advRocketry researched with science (45; the pool 50.5 -> 5.5).
+#   rewind     InvokeRewindToLaunch onto H's tree: the clock goes to ~119645.
+#   refused    advRocketry researched again before T1: refused because the committed research
+#              already reserves its 45. MEASURED (`2026-10-28_2106`): after the rewind the live
+#              science pool reads 5.5, the end of the committed timeline (the currency reservation:
+#              a committed future spend is reserved, never offered twice), so the research is
+#              refused `insufficient-science` before stock runs, exactly as the R&D button shows a
+#              player; `TechResearchPatch`'s committed-row block is never reached and no dialog
+#              opens. Nothing moves.
+#   crossing   warp to 119820: the committed unlock makes advRocketry available, the science is
+#              not charged again (the pools equal the ones before the rewind), and a probe answers
+#              `node-already-unlocked`.
+#   check      an unrecorded Flea onto the pad, the default save, LedgerGroundTruth.
+#
+# PINNED LITERALS (read 2026-10-28 on main 43df8d097):
+#   Game state: TechResearched '<node>' (cost=N)         GameStateRecorder (RW-1 / L-lanes)
+#   KSC spending recorded: type=ScienceSpending          GameActions/LedgerOrchestrator.cs:6162
+#   kscaction research-node not applied / refused        TestCommands/TestCommandKscAction.cs (KB-3)
+#   PatchCommittedTechUnlocks: madeAvailable=            GameActions/KspStatePatcher.cs (RW-8)
+#   PatchTechTree: ... madeUnavailableIds=[...]          GameActions/KspStatePatcher.cs (RW-8)
+#
+# STATUS: LIVE-PROVEN 2026-10-28, `2026-10-28_2114` PASS attempt 1 (DLL 9d907c87, main 43df8d097). advRocketry
+# researched at 119759.9 (`ScienceChanged -45.0 (RnDTechResearch) -> 5.5`, one `TechResearched`,
+# one KSC ScienceSpending row; its seven parts unlocked at chargedCost=0, BypassEntryPurchase on).
+# The rewind's walk re-locked it (`madeUnavailableIds=[advRocketry]`), the second research was
+# refused `insufficient-science` (the live pool 5.5: the committed row reserves its 45), the
+# crossing named `ScienceSpending@119759.94` once with the part rows and
+# `PatchCommittedTechUnlocks: madeAvailable=1 ... [advRocketry]`, a probe then answered
+# `node-already-unlocked`; science 50.5 -> 5.5 once, funds unchanged; no pool adjustment, no guard
+# clamp; LedgerGroundTruth 3/3 hardFailures=0; ledger_audit PASS. Before it: `_2106` stopped at a
+# popup step (the measured refusal opens none), `_2111` / `_2113` INVALID on the KSP window losing
+# focus on the PC (ApplicationFocus input locks), `_2111` meeting every lane pin before it.
+# =====================================================================================
+tier = "operator"
+description = "Rewind ledger campaign, a tech node researched with science inside a committed timeline: on cs-career-mun2 a committed pad Flea, then advRocketry researched at T1 for 45 science; after a Rewind-to-Launch before T1 the node is locked again and a second research is blocked as committed future, and the warp past T1 unlocks it through the committed row with the science spent exactly once; LedgerGroundTruth closes the career."
+instanceProfile = "stock-tree"
+tags = ["RW-13", "career", "ledger", "rewind", "rewind-to-launch", "tech-research", "science",
+        "ksc-marker", "editor", "ground-truth", "ingame-batch", "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun2"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 300 LoadGame + 3 x 120 warps + 2 x (120 GoToEditor + 180 LaunchFromEditor)
+# + 180 StartRecording + 120 warp + 120 CommitTree + 120 ExitToSpaceCenter + 60 KscMarkerRecover
+# + 300 rewind + 120 check warp + 5 x 120 SaveGame + 3 x 60 KscAction + 540 RunTests = 3980;
+# runtime 4800 adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "119660", maxRate = "100" },                     expect = "OK", budget = 120 },
+  # ---- H: the Flea on the pad, recorded, committed, recovered at its marker ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "h",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "119700" },                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw13-h-committed" },                         expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw13-01-after-h-commit" },                   expect = "OK", budget = 120 },
+  { cmd = "ExitToSpaceCenter",                                                             expect = "OK", budget = 120 },
+  { cmd = "KscMarkerRecover", args = { pid = "${h.pid}" },                                 expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw13-h-recovered" },                         expect = "OK" },
+  # ---- the research at T1 = 119760 ----
+  { cmd = "WarpToUT",       args = { ut = "119760", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw13-before-research" },                     expect = "OK" },
+  { cmd = "KscAction",      args = { action = "research-node", node = "advRocketry" },     expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw13-researched" },                          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw13-02-after-research" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw13-before-rewind" },                       expect = "OK" },
+  # ---- the rewind: the research is committed future ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rw13-rewound" },                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw13-03-after-rtl" },                        expect = "OK", budget = 120 },
+  # ---- the same node researched again before T1: refused, its science already reserved ----
+  { cmd = "KscAction",      args = { action = "research-node", node = "advRocketry" },     expect = "REJECTED", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw13-refused" },                             expect = "OK" },
+  # ---- the crossing ----
+  { cmd = "WarpToUT",       args = { ut = "119820", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw13-crossed" },                             expect = "OK" },
+  { cmd = "KscAction",      args = { action = "research-node", node = "advRocketry" },     expect = "REJECTED", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw13-unlocked-probed" },                     expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw13-04-after-crossing" },                   expect = "OK", budget = 120 },
+  # ---- the check: an unrecorded launch onto the pad, the save, the ground truth ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "119850" },                                      expect = "OK", budget = 120 },
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["science", "funds", "recalc-engine", "ksp-state-patcher", "ground-truth-harness"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 21 recordings plus H; the check launch is unrecorded. Measured on `2026-10-28_2114`.
+count = 22
+
+[expectations.logContracts]
+required = [
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=",
+
+  # ---- H committed and recovered ----
+  "launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH [\\s\\S]*?MISSIONMARK label=rw13-h-committed ut=",
+  "MISSIONMARK label=rw13-h-committed ut=[\\s\\S]*?kscrecover complete pid=[0-9]+ vessel=Jumping Flea scene=SPACECENTER [\\s\\S]*?MISSIONMARK label=rw13-h-recovered ut=",
+
+  # ---- the research at T1: 45 science, stock's one charge, one KSC row ----
+  "MISSIONMARK label=rw13-before-research ut=(?:11975|11976)[0-9]\\.",
+  "MISSIONMARK label=rw13-before-research ut=(?:(?!MISSIONMARK label=rw13-researched )[\\s\\S])*?kscaction action=research-node target=advRocketry applied=true",
+  "MISSIONMARK label=rw13-before-research ut=(?:(?!MISSIONMARK label=rw13-researched )[\\s\\S])*?Game state: TechResearched 'advRocketry' \\(cost=45(?:\\.0+)?\\)",
+  "MISSIONMARK label=rw13-before-research ut=(?:(?!MISSIONMARK label=rw13-before-rewind )[\\s\\S])*?KSC spending recorded: type=ScienceSpending, UT=(?:11975|11976)[0-9]\\.[0-9], key=advRocketry",
+
+  # ---- the rewind: the node locked again by the rewind's walk ----
+  "MISSIONMARK label=rw13-before-rewind ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=rw13-rewound ut=1196[0-9]{2}\\.",
+  "MISSIONMARK label=rw13-before-rewind ut=(?:(?!MISSIONMARK label=rw13-refused )[\\s\\S])*?PatchTechTree: available=[0-9]+, madeAvailable=0, madeUnavailable=1, [^\\r\\n]*madeUnavailableIds=\\[advRocketry\\]",
+
+  # ---- the second research before T1: refused, its science reserved by the committed row ----
+  # The pool the rewind leaves live is the committed timeline's end: 5.5, the research's 45
+  # already taken (the walk's science after the rewind equals the one after the research).
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\S+ science=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw13-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\S+ science=\\1 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw13-refused ut=",
+  "MISSIONMARK label=rw13-rewound ut=(?:(?!MISSIONMARK label=rw13-refused )[\\s\\S])*?kscaction refused action=research-node reason=insufficient-science target=advRocketry",
+
+  # ---- the crossing: the committed unlock, the science spent once ----
+  "MISSIONMARK label=rw13-refused ut=(?:(?!MISSIONMARK label=rw13-crossed )[\\s\\S])*?Clock-crossing reached committed-future rows: [^\\r\\n]*ScienceSpending@(?:11975|11976)[0-9]\\.",
+  "MISSIONMARK label=rw13-refused ut=(?:(?!MISSIONMARK label=rw13-crossed )[\\s\\S])*?PatchCommittedTechUnlocks: madeAvailable=[1-9][0-9]*, [^\\r\\n]*madeAvailableIds=\\[[^\\]\\r\\n]*advRocketry",
+  "MISSIONMARK label=rw13-crossed ut=(?:(?!MISSIONMARK label=rw13-unlocked-probed )[\\s\\S])*?kscaction refused action=research-node reason=node-already-unlocked target=advRocketry",
+  # The pools after the crossing are the ones held after the research (before the rewind).
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw13-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw13-crossed ut=",
+
+  # ---- the ground truth ----
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=0 ",
+]
+forbidden = [
+  # The research is paid once: stock never researches it again.
+  "\\A(?:[\\s\\S]*?Game state: TechResearched 'advRocketry'){2}",
+  "MISSIONMARK label=rw13-rewound ut=[\\s\\S]*kscaction action=research-node target=advRocketry applied=true",
+  # A reconstructed pool too small for a kept unlock row; the node re-locked after the crossing.
+  "PatchTechTree: relock-refusal-summary",
+  "MISSIONMARK label=rw13-crossed ut=[\\s\\S]*madeUnavailableIds=\\[[^\\]\\r\\n]*advRocketry",
+  "filed StockPoolAdjustment amount=",
+  "GUARDED (?:UPLIFT|DRAWDOWN) clamped",
+  "Game state: ContractCompleted ",
+  "Game state: ContractFailed ",
+]
+
+[runtime]
+budgetSeconds = 4800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

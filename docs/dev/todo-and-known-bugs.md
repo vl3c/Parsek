@@ -3671,6 +3671,12 @@ which the world clause skips (`ReFlyMergeDominance.TryFindWorldConflict`).
 
 ---
 
+Progress 2026-10-28 (branch `rw13-tech`): lane `RW-13-tech-research-across-rewind` LIVE-PROVEN (`2026-10-28_2114`) on
+`cs-career-mun2` (mun4 cannot afford a node): advRocketry researched with 45 science inside a committed
+timeline, re-locked by a Rewind-to-Launch, a second research refused `insufficient-science` (the committed
+row reserves its 45 in the live pool; the committed-row click-block behind it is not reached), and the
+crossing unlocking it with the science spent once. No defect.
+
 ## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
 
 While Jeb stood (or lay ragdolled) on the Mun's surface as a BACKGROUND vessel during the CS-7
