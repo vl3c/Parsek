@@ -30,6 +30,11 @@ _(unreleased - entries accumulate here per commit)_
   a rewind its money vanished. Every recovery is now booked at its exact payout, and with Patents
   Licensing active the science-to-funds share is no longer mistaken for the recovery payout.
   (SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY)
+- **Discarding a Re-Fly after a rewind keeps the money still to come.** After a Rewind-to-Launch,
+  starting a Re-Fly and then choosing Discard Re-fly took away the funds, science or reputation
+  your committed future flights earn later, for good. Discard now returns the career to just before
+  the Re-Fly, and those earnings arrive when the timeline reaches them.
+  (REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE)
 - **A strategy discount on a part, a repair or a penalty is counted once.** With Aggressive
   Negotiations or Leadership Initiative active, buying a part, repairing a building or failing a
   contract was booked at full price and the discount filed later as a correction, so a rewind and
