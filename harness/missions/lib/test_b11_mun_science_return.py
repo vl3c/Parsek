@@ -82,8 +82,11 @@ PARAMS = dict(PLAIN_PARAMS, **CAREER_PARAMS)
 # mor_decide / mlr_decide trace digests, taken on the base commit bdcf4bb07 (before
 # this machine) over the CS-6 and CS-7 full-flight fixtures and their rows. A change
 # to either machine moves it; re-pin only for a deliberate change to that machine.
+# MLR RE-PINNED 2026-10-28 for CS-7's ascent-coast wheel release (four MlrState fields
+# and three ascendedToTargetOrbit details; the flag is off in this fixture, and
+# test_b13_mun_landing_return pins mlr's action stream unchanged with it off).
 MOR_TRACE_DIGEST = "e3881eada1b717c44f211535cc307a348b7fe24fb7a0a63cfa47d213daef0cf7"
-MLR_TRACE_DIGEST = "a782c07ee15e8975befe7e4b1429c4b763cf96c785f8d054470ccc0d5ac8a503"
+MLR_TRACE_DIGEST = "06a77ecb0ec8427990810c817170053278af3d59de318194269660a417e6d230"
 
 _PARK_EXIT_UT = 48_200.0
 _PARK = dict(body="Mun", situation="ORBITING", periapsis=989_990.0, apoapsis=1_010_010.0,

@@ -1416,6 +1416,31 @@ class KrpcMissionControl(MissionControl):
                     continue
             _stdout_sink(mlib.format_mission_log_line(
                 "Info", "Sweep", "set active=%s on %d engine(s)" % (want, set_count)))
+        elif kind == mlib.ACTION_SET_REACTION_WHEELS:
+            # Per-wheel, guarded per part like ACTION_SET_ENGINES_ACTIVE, then read
+            # back: the log names how many wheels the vessel holds, how many took the
+            # command and how many read the wanted state, so a coast that still drains
+            # is diagnosable from the mission stdout alone.
+            want = bool(action.value)
+            wheels = list(v.parts.reaction_wheels)
+            set_count = 0
+            read_ok = 0
+            for w in wheels:
+                try:
+                    w.active = want
+                    set_count += 1
+                except Exception:
+                    continue
+            for w in wheels:
+                try:
+                    if bool(w.active) == want:
+                        read_ok += 1
+                except Exception:
+                    continue
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Wheels", "set active=%s on %d of %d reaction wheel(s), %d read "
+                "back (%s)" % (want, set_count, len(wheels), read_ok,
+                               action.text or "-")))
         elif kind == mlib.ACTION_ARM_CHUTES:
             arm_count = 0
             for p in v.parts.parachutes:

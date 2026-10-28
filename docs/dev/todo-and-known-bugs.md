@@ -2877,6 +2877,30 @@ pod-mounted Goo and thermometers, maxTemp 1200 K, survive the Mun-return reentry
 heat shield; the mission's scienceKeptToSplashdown row reads it); then harvest its produced save
 as CS-7's host and give the CS-7 lander a Z-100 and OX-STATs.
 
+Progress 2026-10-28 (branch `cs6c-science`): CS-6c flew green (`2026-10-28_0028`), and CS-7 is
+re-cut for power, never flown in that shape. CS-7's first flight (`2026-10-27_2326` /
+`_2331_a2`, INVALID autopilot-flake on both attempts) ended MISSION-FLAKE
+`electric-charge-exhausted` in MJ-ASCENT: after the core Swivel cut off at the 80 km target
+apoapsis (~53 km up), MechJeb's coast hold on the long stack saturated the Mk1 pod's wheel and
+drained its 50 EC at 0.42-0.47 EC/s; CS-6c's flown upper stage (the same pod, the same mass)
+drew 0.002-0.045 EC/s on its coasts, so the drain is the long stack's, not the lander's. New
+host `cs-career-mun4` (CS-6c's produced save: funds 157546.18, science 20.17, basicScience and
+electrics researched). New craft `CS Mun Solar Lander` (`build_cs_orbiter_craft.py --variant
+solar`): CS Mun Lander with the three Thumper cones off (3 parts; ~30-60 m/s of drag the
+Terrier pays out of a 750 m/s margin), three OX-STAT panels on the lander's top FL-T400 at 90 /
+210 / 330 deg and a Z-100 on the second (tails and attach from Kerbal 1, `--verify-donors`
+clean); 30 parts, lander 3838 m/s, 150 EC, 0.303-0.350 EC/s with the sun broadside; legs,
+Terrier and bell clearance unchanged; every other variant byte-identical. The mission
+`b13_mun_landing_return` gains `ascentCoastWheelRelease` (mlib.mlr_decide only): every
+reaction wheel off (kRPC `ReactionWheel.active`, runner action `set_reaction_wheels`, read
+back and logged) on the first Kerbin-coast frame with the apoapsis at the target between 40
+and 70 km, back on at 70 km, a node, the apoapsis under its window or B5 leaving MJ-ASCENT,
+once per flight; the surface stay keeps B5's SAS tip guard. B5, mor and msc pinned by trace
+digests from the base commit, mlr's action stream with the flag off likewise. The lane also
+forbids a second Mun/Spacewalk and Mun/Science (CS-6c's). Owed: the first flight in this
+shape (risks: the open Thumper tops' drag, the powered Mun phases' draw, the landing site's
+sun, the legs against the bell).
+
 ---
 
 ## ~~QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN: F9 back into a Discarded flight must record again~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-quickload-into-discarded`; the in-flight discards followed 2026-10-16, branch `claude/lanes-rc6-ql6-ir5-nh7w10` (live-proven by lane QL-6, `2026-10-16_0649` PASS attempt 1)]

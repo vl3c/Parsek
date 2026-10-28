@@ -788,3 +788,23 @@ min = 0.0
 required = false
 type = "number"
 min = 1.0
+
+# The ascent-coast wheel release (mlib.mlr_decide; block note above MLR_LAND): every
+# reaction wheel OFF on the Kerbin ascent coast once the apoapsis reaches the target,
+# between the floor and the ceiling altitude (m), and back ON at the ceiling, at a
+# node, when the apoapsis falls out of its window, or when B5 leaves MJ-ASCENT. One
+# release per flight. Optional; off by default. RAISES unless
+# 0 < floor < ceiling < targetApoapsisMeters.
+[params.ascentCoastWheelRelease]
+required = false
+type = "bool"
+
+[params.ascentCoastWheelFloorMeters]
+required = false
+type = "number"
+min = 0.0
+
+[params.ascentCoastWheelCeilingMeters]
+required = false
+type = "number"
+min = 0.0

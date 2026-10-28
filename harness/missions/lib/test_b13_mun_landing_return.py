@@ -17,11 +17,15 @@ pins one part:
   5. THE ELECTRIC-CHARGE WATCHDOG: where it reads and where it does not.
   6. THE WHOLE FLIGHT over the fake seam, the rows, the shell, the schema, the spec,
      the runner's rebind action and the seam poll windows.
+  7. THE ASCENT-COAST WHEEL RELEASE: its verdicts, its one release, B5's actions kept,
+     the runner's wheel action, and the other machines pinned frame for frame by trace
+     digests taken on the base commit 2d0bc512e (before the release existed).
 
 NO krpc, NO KSP, NO network. Import path matches the sibling suites.
 """
 
 import dataclasses
+import hashlib
 import inspect
 import os
 import re
@@ -51,6 +55,7 @@ from test_b5_mun_flyby_return import RETURN_PARAMS  # noqa: E402
 
 CS7_SPEC = "CS-7-career-mun-landing"
 CS6B_SPEC = "CS-6b-career-astronaut-complex"
+CS6C_SPEC = "CS-6c-career-mun-science"
 
 SURFACE_PARAMS = {
     "evaSettleSeconds": 5,
@@ -604,7 +609,9 @@ class ShellTests(unittest.TestCase):
 
 
 class SchemaAndSpecTests(unittest.TestCase):
-    OWN_KEYS = set(SURFACE_PARAMS) | {"evaKerbalName"}
+    OWN_KEYS = set(SURFACE_PARAMS) | {"evaKerbalName", "ascentCoastWheelRelease",
+                                      "ascentCoastWheelFloorMeters",
+                                      "ascentCoastWheelCeilingMeters"}
 
     def test_mor_and_b13_keys_are_declared_identically(self):
         mine = _schema("b13_mun_landing_return")["params"]
@@ -630,13 +637,19 @@ class SchemaAndSpecTests(unittest.TestCase):
         self.assertLess(p.return_periapsis_max, p.home.warp_above_alt)
         self.assertLess(p.home.chute_deploy_alt, p.return_periapsis_min)
         self.assertGreater(p.ec_floor, 0.0)
+        # The first flight's charge went on the Kerbin ascent coast: the release is on,
+        # inside the atmosphere and below the apoapsis MechJeb circularizes at.
+        self.assertTrue(p.wheel_release)
+        self.assertLess(p.wheel_release_floor, p.wheel_release_ceiling)
+        self.assertLess(p.wheel_release_ceiling, p.orbit.target_apoapsis)
+        self.assertEqual(70000.0, p.wheel_release_ceiling)
         # The park dwell fits its budget with the stabilization slack B11 keeps.
         self.assertGreaterEqual(p.orbit.park_timeout - p.orbit.park_dwell, 420.0)
         self.assertGreater(p.orbit.landed_timeout, p.orbit.landed_dwell)
 
     def test_the_spec_buys_the_walk_then_flies_once_and_recovers_the_flyer(self):
         spec = _spec(CS7_SPEC)
-        self.assertEqual("fixtures/saves/cs-career-mun3", spec["fixture"]["saveTemplate"])
+        self.assertEqual("fixtures/saves/cs-career-mun4", spec["fixture"]["saveTemplate"])
         steps = spec["driver"]["steps"]
         self.assertEqual(1, sum(1 for s in steps if s.get("phase") == "mission"))
         mission = next(i for i, s in enumerate(steps) if s.get("phase") == "mission")
@@ -645,15 +658,20 @@ class SchemaAndSpecTests(unittest.TestCase):
         recover = steps[mission + 1]
         self.assertEqual("Recover", recover["cmd"])
         self.assertEqual("${%s.pid}" % launch["label"], recover["args"]["pid"])
-        self.assertEqual("CS Mun Lander", steps[mission - 2]["args"]["craft"])
-        # The ladder is a chain: CS-6b buys the walk on CS-6's save; CS-7 flies from
-        # CS-6b's produced save and runs no KSC step of its own.
+        self.assertEqual("CS Mun Solar Lander", steps[mission - 2]["args"]["craft"])
+        # The ladder is a chain: CS-6b buys the walk on CS-6's save, CS-6c the power's
+        # research on CS-6b's; CS-7 flies from CS-6c's produced save and runs no KSC
+        # step of its own.
         self.assertFalse(any(s.get("cmd") == "KscAction" for s in steps[:mission]))
         walk = [s["args"] for s in _spec(CS6B_SPEC)["driver"]["steps"]
                 if s.get("cmd") == "KscAction"]
         self.assertEqual([{"action": "upgrade-facility",
                            "facility": "SpaceCenter/AstronautComplex"},
                           {"action": "research-node", "node": "advRocketry"}], walk)
+        power = [s["args"] for s in _spec(CS6C_SPEC)["driver"]["steps"]
+                 if s.get("cmd") == "KscAction"]
+        self.assertEqual([{"action": "research-node", "node": "basicScience"},
+                          {"action": "research-node", "node": "electrics"}], power)
         self.assertFalse(any(s.get("cmd") == "CommitTree" and s.get("expect") == "OK"
                              for s in steps))
 
@@ -671,8 +689,12 @@ class SchemaAndSpecTests(unittest.TestCase):
         bare = re.compile(forbidden[0])
         self.assertTrue(bare.search("Milestone enriched: 'FlagPlant' funds=1 rep=1 sci=1"))
         self.assertFalse(bare.search("Milestone enriched: 'Mun/FlagPlant' funds=1"))
+        for mid in ("Spacewalk", "Science"):
+            self.assertTrue(bare.search("Milestone enriched: '%s' funds=1" % mid), mid)
         repaid = re.compile(forbidden[1])
-        for mid in ("Mun/Flyby", "Mun/Orbit", "Mun/ReturnFromOrbit", "Mun/ReturnFromFlyBy"):
+        # CS-5's and CS-6's, and CS-6c's in-space EVA and first Mun science.
+        for mid in ("Mun/Flyby", "Mun/Orbit", "Mun/ReturnFromOrbit", "Mun/ReturnFromFlyBy",
+                    "Mun/Spacewalk", "Mun/Science", "Kerbin/Science"):
             self.assertTrue(repaid.search("Milestone enriched: '%s' funds=0" % mid), mid)
         for mid in ("Mun/Landing", "Mun/SurfaceEVA", "Mun/FlagPlant",
                     "Mun/ReturnFromSurface"):
@@ -682,6 +704,7 @@ class SchemaAndSpecTests(unittest.TestCase):
                                   and "2932" not in r))
         self.assertFalse(rollout.search("Game state: FundsChanged -2932 (VesselRollout)"))
         self.assertTrue(rollout.search("Game state: FundsChanged -13742 (VesselRollout)"))
+        self.assertTrue(rollout.search("Game state: FundsChanged -13327 (VesselRollout)"))
         # The seam's own completion lines, as the C# writes them.
         exit_re = re.compile(next(r for r in required if r.startswith("evaexit complete")))
         self.assertTrue(exit_re.search("evaexit complete kerbal=Jebediah Kerman "
@@ -735,6 +758,288 @@ class RunnerRebindTests(unittest.TestCase):
         ctrl, lines = self._perform(self._MechJeb(raise_on_read=True))
         self.assertEqual("launch-handle", ctrl._ascent)
         self.assertTrue(any("rebind failed" in l for l in lines), lines)
+
+
+# The base commit 2d0bc512e's trace digests (before the ascent-coast wheel release):
+# B5 over B13's landing fixture, mor over CS-6's full flight, msc over CS-6c's, and the
+# composed mlr machine's ACTION stream over CS-7's with the release off. A change to
+# any of those machines moves its digest; re-pin only for a deliberate change to it.
+B5_LANDING_TRACE_DIGEST = "036dac47a43bbc3e2b7ab676c364ee63406778cad35b41e05a3c687219af88ce"
+MOR_TRACE_DIGEST = "e3881eada1b717c44f211535cc307a348b7fe24fb7a0a63cfa47d213daef0cf7"
+MSC_TRACE_DIGEST = "e14554d19b193a8f0b29f29dd000dbb187d6312bf22340e5b2c1d56c2267cedd"
+MLR_RELEASE_OFF_ACTIONS_DIGEST = (
+    "19c29a559fca2e2e26938935b0eb6d27d4a583846d1ad4f5a5da6609d2d82f67")
+
+_COAST_TARGET = 80000.0
+RELEASE_PARAMS = {"ascentCoastWheelRelease": True, "ascentCoastWheelFloorMeters": 40000,
+                  "ascentCoastWheelCeilingMeters": 70000,
+                  "targetApoapsisMeters": _COAST_TARGET, "apoErrorMeters": 5000}
+
+
+def _release_params(**over):
+    return mlib.mlr_params_from_dict(dict(PARAMS, **dict(RELEASE_PARAMS, **over)))
+
+
+def _coast(ut, altitude, apoapsis=_COAST_TARGET + 44.0, **kw):
+    fields = dict(ut=ut, body="Kerbin", situation="SUB_ORBITAL", altitude=altitude,
+                  apoapsis=apoapsis, periapsis=-90000.0, electric_charge=140.0,
+                  liquid_fuel=520.0, mj_autopilot_enabled=True)
+    fields.update(kw)
+    return snap(**fields)
+
+
+def _in_mj_ascent(params):
+    """An mlr state whose delegated B5 machine is in MJ-ASCENT since UT 1000."""
+    st = mlib.mlr_initial_state(params)
+    flight = dataclasses.replace(st.flight, phase=mlib.B5_MJ_ASCENT,
+                                 phase_entry_ut=1000.0,
+                                 phases_reached=(mlib.B5_PRELAUNCH, mlib.B5_MJ_ASCENT))
+    return dataclasses.replace(st, flight=flight, phase=mlib.B5_MJ_ASCENT,
+                               phase_entry_ut=1000.0,
+                               phases_reached=(mlib.B5_PRELAUNCH, mlib.B5_MJ_ASCENT))
+
+
+def _wheel_actions(actions):
+    return [a for a in actions if a.kind == mlib.ACTION_SET_REACTION_WHEELS]
+
+
+class AscentCoastWheelReleaseTests(unittest.TestCase):
+    def _verdict(self, frame, released=False, used=False, phase=mlib.B5_MJ_ASCENT,
+                 params=None):
+        return mlib.mlr_wheel_release_verdict(params or _release_params(), phase,
+                                              released, used, frame)
+
+    def test_off_by_default(self):
+        p = _params()
+        self.assertFalse(p.wheel_release)
+        self.assertEqual("", mlib.mlr_wheel_release_verdict(
+            p, mlib.B5_MJ_ASCENT, False, False, _coast(1100.0, 55000.0)))
+
+    def test_the_first_coasting_frame_releases(self):
+        self.assertEqual(mlib.MLR_WHEELS_RELEASE, self._verdict(_coast(1100.0, 55000.0)))
+        # At the floor exactly, and at the target apoapsis exactly.
+        self.assertEqual(mlib.MLR_WHEELS_RELEASE, self._verdict(_coast(1100.0, 40000.0)))
+        self.assertEqual(mlib.MLR_WHEELS_RELEASE,
+                         self._verdict(_coast(1100.0, 55000.0, apoapsis=_COAST_TARGET)))
+
+    def test_nothing_releases_outside_the_coast_window(self):
+        for frame, why in (
+                (_coast(1100.0, 39999.0), "under the floor"),
+                (_coast(1100.0, 70000.0), "at the ceiling"),
+                (_coast(1100.0, 55000.0, apoapsis=_COAST_TARGET - 1.0), "still burning"),
+                (_coast(1100.0, 55000.0, node_count=1), "a node is planned"),
+                (_coast(1100.0, float("nan")), "altitude unreadable"),
+                (_coast(1100.0, 55000.0, apoapsis=float("nan")), "apoapsis unreadable")):
+            with self.subTest(why=why):
+                self.assertEqual("", self._verdict(frame))
+        self.assertEqual("", self._verdict(_coast(1100.0, 55000.0),
+                                           phase=mlib.B5_CIRCULARIZE))
+
+    def test_one_release_per_flight(self):
+        self.assertEqual("", self._verdict(_coast(1100.0, 55000.0), used=True))
+
+    def test_each_restore_by_name(self):
+        for frame, phase, want in (
+                (_coast(1200.0, 70000.0), mlib.B5_MJ_ASCENT, mlib.MLR_WHEELS_RESTORE_CEILING),
+                (_coast(1200.0, 60000.0, node_count=1), mlib.B5_MJ_ASCENT,
+                 mlib.MLR_WHEELS_RESTORE_NODE),
+                (_coast(1200.0, 60000.0, apoapsis=74999.0), mlib.B5_MJ_ASCENT,
+                 mlib.MLR_WHEELS_RESTORE_APOAPSIS),
+                (_coast(1200.0, 60000.0), mlib.B5_CIRCULARIZE, mlib.MLR_WHEELS_RESTORE_PHASE)):
+            with self.subTest(want=want):
+                self.assertEqual(want, self._verdict(frame, released=True, used=True,
+                                                     phase=phase))
+
+    def test_a_released_coast_holds_through_a_drag_dip_and_a_blank_frame(self):
+        for frame in (_coast(1200.0, 60000.0, apoapsis=75000.0),
+                      _coast(1200.0, float("nan"), apoapsis=float("nan"))):
+            self.assertEqual("", self._verdict(frame, released=True, used=True))
+
+    def test_the_params_refuse_a_window_above_the_apoapsis(self):
+        for over in ({"ascentCoastWheelCeilingMeters": 80000},
+                     {"ascentCoastWheelFloorMeters": 70000},
+                     {"ascentCoastWheelFloorMeters": 0}):
+            with self.subTest(over=over):
+                with self.assertRaises(ValueError):
+                    _release_params(**over)
+        # Off, the window is never read.
+        mlib.mlr_params_from_dict(dict(PARAMS, ascentCoastWheelCeilingMeters=90000))
+
+    def test_the_composer_keeps_b5s_actions_and_adds_one_off_one_on(self):
+        p = _release_params()
+        st = _in_mj_ascent(p)
+        b5 = st.flight
+        frames = [_coast(1100.0, 30000.0, apoapsis=60000.0),     # burning: nothing
+                  _coast(1150.0, 53000.0),                       # coast: released
+                  _coast(1160.0, 60000.0),                       # held
+                  _coast(1190.0, 70400.0),                       # ceiling: back on
+                  _coast(1200.0, 72000.0),                       # nothing (latched)
+                  _coast(1210.0, 55000.0)]                       # never a second release
+        wheels = []
+        for frame in frames:
+            st, got = mlib.mlr_decide(st, frame)
+            b5, want = mlib.b5_decide(b5, frame)
+            self.assertEqual(want, [a for a in got
+                                    if a.kind != mlib.ACTION_SET_REACTION_WHEELS])
+            self.assertEqual(b5, st.flight)
+            wheels.append([a.value for a in _wheel_actions(got)])
+        self.assertEqual([[], [0.0], [], [1.0], [], []], wheels)
+        self.assertEqual(1150.0, st.wheels_release_ut)
+        self.assertEqual(1190.0, st.wheels_restore_ut)
+        self.assertEqual(mlib.MLR_WHEELS_RESTORE_CEILING, st.wheels_restore_reason)
+        self.assertFalse(st.wheels_released)
+        row = {r.name: r for r in mlib.evaluate_mlr_assertions([], p, st)}[
+            "ascendedToTargetOrbit"]
+        self.assertEqual(1150.0, row.detail["kerbinCoastWheelsReleasedUt"])
+        self.assertEqual(1190.0, row.detail["kerbinCoastWheelsRestoredUt"])
+        self.assertEqual("ceiling", row.detail["kerbinCoastWheelsRestoreReason"])
+
+    def test_b5_leaving_the_ascent_brings_the_wheels_back_on_that_frame(self):
+        p = _release_params()
+        st = _in_mj_ascent(p)
+        st, got = mlib.mlr_decide(st, _coast(1150.0, 53000.0))
+        self.assertEqual([0.0], [a.value for a in _wheel_actions(got)])
+        # MechJeb reports its ascent complete with the apoapsis in the window: B5 hands
+        # to CIRCULARIZE and the composer restores on the same frame.
+        st, got = mlib.mlr_decide(st, _coast(1160.0, 60000.0, mj_ascent_complete=True))
+        self.assertEqual(mlib.B5_CIRCULARIZE, st.flight.phase)
+        self.assertIn(mlib.ACTION_MJ_EXECUTE_CIRCULARIZATION, _kinds(got))
+        self.assertEqual([1.0], [a.value for a in _wheel_actions(got)])
+        self.assertEqual(mlib.MLR_WHEELS_RESTORE_PHASE, st.wheels_restore_reason)
+
+    def test_the_release_never_fires_on_the_mun(self):
+        # The Mun ascent is mlr's own block, never B5's MJ-ASCENT: no wheel action there.
+        p = _release_params()
+        st = _at(mlib.MLR_ASCENT, mlib.MLR_ASCENT, params=p, ascent_engaged=True,
+                 ascent_lifted=True)
+        _, got = mlib.mlr_decide(st, _lander(50100.0, mj_autopilot_enabled=True,
+                                             situation="SUB_ORBITAL", altitude=50000.0,
+                                             apoapsis=90000.0))
+        self.assertEqual([], _wheel_actions(got))
+
+    def test_the_whole_flight_with_the_release_on_is_b13s_with_two_wheel_actions_at_most(self):
+        off = mlib.mlr_initial_state(mlib.mlr_params_from_dict(PLAIN_PARAMS))
+        on = mlib.mlr_initial_state(mlib.mlr_params_from_dict(dict(PLAIN_PARAMS,
+                                                                    **RELEASE_PARAMS)))
+        count = 0
+        for frame in _whole_flight():
+            off, want = mlib.mlr_decide(off, frame)
+            on, got = mlib.mlr_decide(on, frame)
+            count += len(_wheel_actions(got))
+            self.assertEqual(want, [a for a in got
+                                    if a.kind != mlib.ACTION_SET_REACTION_WHEELS])
+        self.assertLessEqual(count, 2)
+        self.assertTrue(on.done)
+        self.assertIsNone(on.verdict)
+
+
+def _actions_digest(decide, state, frames):
+    out = []
+    for f in frames:
+        state, acts = decide(state, f)
+        out.append(repr(acts))
+    return hashlib.sha256("\n".join(out).encode("utf-8")).hexdigest()
+
+
+def _trace_digest(decide, state, frames, evaluate):
+    out = []
+    for f in frames:
+        state, acts = decide(state, f)
+        out.append(repr(acts))
+        out.append(repr(state))
+    out.append(repr(evaluate([], state.params, state)))
+    return hashlib.sha256("\n".join(out).encode("utf-8")).hexdigest()
+
+
+class OtherMachinesAreUnchangedTests(unittest.TestCase):
+    """The release lives in the composer only: B5, mor and msc trace frame for frame as
+    on the base commit, and mlr's own action stream is unchanged with the flag off."""
+
+    def test_b5_over_b13s_landing_fixture(self):
+        p = mlib.mlr_params_from_dict(PLAIN_PARAMS)
+
+        def rows(frames, params, state):
+            return mlib.evaluate_b5_assertions(
+                frames, params, phases_reached=tuple(state.phases_reached),
+                min_target_altitude=state.min_target_altitude, state=state)
+        self.assertEqual(B5_LANDING_TRACE_DIGEST, _trace_digest(
+            mlib.b5_decide, mlib.b5_initial_state(p.orbit), _landing_frames(), rows))
+
+    def test_mor_and_msc_over_their_full_flights(self):
+        import test_b11_mun_orbit_return as t11
+        import test_b11_mun_science_return as tsc
+        st = mlib.mor_initial_state(mlib.mor_params_from_dict(t11.PLAIN_PARAMS))
+        self.assertEqual(MOR_TRACE_DIGEST, _trace_digest(
+            mlib.mor_decide, st, t11.FullFlightTests()._frames(),
+            mlib.evaluate_mor_assertions))
+        st = mlib.msc_initial_state(mlib.msc_params_from_dict(tsc.PLAIN_PARAMS))
+        self.assertEqual(MSC_TRACE_DIGEST, _trace_digest(
+            mlib.msc_decide, st, tsc._whole_flight(), mlib.evaluate_msc_assertions))
+
+    def test_mlr_with_the_release_off_emits_what_it_emitted(self):
+        st = mlib.mlr_initial_state(mlib.mlr_params_from_dict(PLAIN_PARAMS))
+        self.assertEqual(MLR_RELEASE_OFF_ACTIONS_DIGEST,
+                         _actions_digest(mlib.mlr_decide, st, _whole_flight()))
+
+
+class RunnerReactionWheelTests(unittest.TestCase):
+    class _Wheel:
+        def __init__(self, raise_on_set=False):
+            self._raise = raise_on_set
+            self._active = True
+
+        @property
+        def active(self):
+            return self._active
+
+        @active.setter
+        def active(self, value):
+            if self._raise:
+                raise RuntimeError("wheel is broken")
+            self._active = value
+
+    def _perform(self, wheels, value):
+        class _Parts:
+            reaction_wheels = wheels
+
+        class _Vessel:
+            control = object()
+            parts = _Parts()
+
+        class _Sc:
+            active_vessel = _Vessel()
+
+        class _Conn:
+            space_center = _Sc()
+
+        ctrl = mission_runner.KrpcMissionControl(use_mechjeb=True)
+        ctrl._conn = _Conn()
+        lines = []
+        orig = mission_runner._stdout_sink
+        mission_runner._stdout_sink = lines.append
+        try:
+            ctrl.perform(Action(mlib.ACTION_SET_REACTION_WHEELS, value,
+                                text="ascent coast: wheels released"))
+        finally:
+            mission_runner._stdout_sink = orig
+        return lines
+
+    def test_every_wheel_is_set_and_read_back(self):
+        wheels = [self._Wheel(), self._Wheel()]
+        lines = self._perform(wheels, 0.0)
+        self.assertEqual([False, False], [w.active for w in wheels])
+        self.assertTrue(any("set active=False on 2 of 2 reaction wheel(s), 2 read back"
+                            in l for l in lines), lines)
+
+    def test_a_wheel_that_refuses_does_not_cost_the_others(self):
+        wheels = [self._Wheel(raise_on_set=True), self._Wheel()]
+        lines = self._perform(wheels, 0.0)
+        self.assertFalse(wheels[1].active)
+        self.assertTrue(any("on 1 of 2 reaction wheel(s), 1 read back" in l
+                            for l in lines), lines)
+
+    def test_the_action_needs_a_vessel(self):
+        self.assertNotIn(mlib.ACTION_SET_REACTION_WHEELS, mlib.VESSEL_FREE_ACTION_KINDS)
 
 
 if __name__ == "__main__":

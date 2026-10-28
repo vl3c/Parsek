@@ -1271,6 +1271,11 @@ ACTION_CUT_CHUTES = "cut_chutes"                           # value = None
 # on the kRPC 0.5.4 Engine class (verified in the installed client source); the
 # module ACTIVATING is what the recorder reads, so no propellant need flow.
 ACTION_SET_ENGINES_ACTIVE = "set_engines_active"            # value = 1.0 on / 0.0 off
+# Every ReactionWheel on the ACTIVE vessel -> `.active = (value != 0)` (kRPC 0.5.4
+# `ReactionWheel.active`, a settable property in the installed client's
+# services/spacecenter.py). An inactive wheel takes no torque command and draws no
+# ElectricCharge; the runner reads each wheel back and logs the count.
+ACTION_SET_REACTION_WHEELS = "set_reaction_wheels"          # value = 1.0 on / 0.0 off
 # B-DOCK-2 (mission bdock_second_dock) vessel-handle actions. The runner keeps two
 # extra kRPC vessel handles beside the captured station:
 #   CAPTURE_HOME_VESSEL  stores the CURRENT active vessel as "home" (the docked
@@ -32424,10 +32429,28 @@ def evaluate_mor_assertions(frames, params: MorParams,
 #           any left-over node cleared first.
 #   TRIM / HOME / FALL   mfr's blocks, entered at the home SOI as on CS-5 / CS-6.
 # ELECTRIC CHARGE. The lander's Terrier makes no power, so from the core drop on
-# the craft lives on the pod's battery. Outside the EVA block (where the active
-# vessel is the kerbal) a reading under electricChargeFloor for
-# electricChargeDebounceFrames frames ends the flight by name before any phase
-# idles to its budget with an attitude it cannot hold.
+# the craft lives on its batteries (and, on CS-7's re-cut, three OX-STAT panels).
+# Outside the EVA block (where the active vessel is the kerbal) a reading under
+# electricChargeFloor for electricChargeDebounceFrames frames ends the flight by name
+# before any phase idles to its budget with an attitude it cannot hold.
+# THE ASCENT-COAST WHEEL RELEASE (ascentCoastWheelRelease, off by default). CS-7's
+# first flight (2026-10-27_2326) emptied the pod's 50 EC on ONE coast: MechJeb's hold
+# on the long stack (the full lander on the empty core) after the core cut off at the
+# target apoapsis, still inside the atmosphere where no rails warp is legal, at a
+# measured 0.42-0.47 EC/s. With the flag on, the composer switches every reaction
+# wheel OFF on the first frame of that coast (B5 still in MJ-ASCENT, the apoapsis at
+# or past the target, the altitude between ascentCoastWheelFloorMeters and
+# ascentCoastWheelCeilingMeters, no node yet) and back ON on the first frame any of
+# these holds: the altitude reaches the ceiling (the atmosphere's top, where MechJeb
+# plans its circularization), a node exists, the apoapsis falls under the target
+# window (MechJeb will burn), or B5 leaves MJ-ASCENT. One release per flight, latched;
+# b5_decide is untouched and every action B5 emits is kept. WHY IT IS SAFE: the
+# coasting stack carries its mass forward (the full lander) and its empty tanks aft,
+# so the thin air at 40-70 km turns it prograde, the attitude MechJeb holds there;
+# MechJeb's node executor will not warp or burn until it is aligned, and the wheels
+# are back with a full battery before it plans the node. The surface stay keeps
+# B5's SAS hold (its tip guard on the landed dwell), and every other coast is either
+# on rails (no draw) or a burn.
 # ---------------------------------------------------------------------------
 
 MLR_LAND = "MUN-LANDING"
@@ -32510,6 +32533,10 @@ class MlrParams:
     # The electric-charge watchdog (0 = off).
     ec_floor: float = 0.0
     ec_debounce: int = 20
+    # The ascent-coast wheel release (see the block note; off by default).
+    wheel_release: bool = False
+    wheel_release_floor: float = 40000.0
+    wheel_release_ceiling: float = 70000.0
 
 
 def mlr_params_from_dict(params: Dict) -> MlrParams:
@@ -32555,8 +32582,19 @@ def mlr_params_from_dict(params: Dict) -> MlrParams:
         ascent_circularize_timeout=float(params.get("munCircularizeTimeoutSeconds", 900)),
         ec_floor=float(params.get("electricChargeFloor", 0)),
         ec_debounce=int(params.get("electricChargeDebounceFrames", 20)),
+        wheel_release=bool(params.get("ascentCoastWheelRelease", False)),
+        wheel_release_floor=float(params.get("ascentCoastWheelFloorMeters", 40000)),
+        wheel_release_ceiling=float(params.get("ascentCoastWheelCeilingMeters", 70000)),
     )
     validate_return_tail_params(p)
+    if p.wheel_release and not (0.0 < p.wheel_release_floor < p.wheel_release_ceiling
+                                < p.orbit.target_apoapsis):
+        raise ValueError("0 < ascentCoastWheelFloorMeters < ascentCoastWheelCeilingMeters "
+                         "< targetApoapsisMeters is required for the ascent-coast wheel "
+                         "release (%.0f, %.0f, %.0f): the wheels must be back below the "
+                         "apoapsis MechJeb circularizes at"
+                         % (p.wheel_release_floor, p.wheel_release_ceiling,
+                            p.orbit.target_apoapsis))
     if not (p.return_periapsis_min <= p.depart_periapsis <= p.return_periapsis_max):
         raise ValueError("departPeriapsisMeters %.0f must sit inside the return window "
                          "[%.0f, %.0f]: the departure aims where the trim cuts"
@@ -32625,6 +32663,11 @@ class MlrState:
     # The electric-charge watchdog.
     ec_low_frames: int = 0
     ec_min: float = float("nan")
+    # The ascent-coast wheel release (one per flight).
+    wheels_released: bool = False
+    wheels_release_ut: Optional[float] = None
+    wheels_restore_ut: Optional[float] = None
+    wheels_restore_reason: str = ""
     # The departure (mor's fields).
     park_exit_ut: Optional[float] = None
     depart_plan_attempts: int = 0
@@ -32723,6 +32766,67 @@ def _mlr_payload_text(snapshot: TelemetrySnapshot) -> str:
     return ",".join("%s=%s" % kv for kv in (snapshot.seam_command_payload or ())) or "-"
 
 
+# The ascent-coast wheel release's verdicts (mlr_wheel_release_verdict).
+MLR_WHEELS_RELEASE = "release"
+MLR_WHEELS_RESTORE_PHASE = "phase"
+MLR_WHEELS_RESTORE_NODE = "node"
+MLR_WHEELS_RESTORE_CEILING = "ceiling"
+MLR_WHEELS_RESTORE_APOAPSIS = "apoapsis-low"
+
+
+def mlr_wheel_release_verdict(params: MlrParams, phase: str, released: bool,
+                              used: bool, snapshot: TelemetrySnapshot) -> str:
+    """One frame of the ascent-coast wheel release (see the block note above
+    MLR_LAND): MLR_WHEELS_RELEASE, a MLR_WHEELS_RESTORE_* reason, or "" (no change).
+    ``phase`` is B5's phase AFTER this frame's b5_decide; ``used`` latches the one
+    release. Off when the flag is off. An unreadable altitude or apoapsis never
+    releases and never restores on its own. Pure."""
+    if not params.wheel_release:
+        return ""
+    alt, apo = snapshot.altitude, snapshot.apoapsis
+    target = params.orbit.target_apoapsis
+    if released:
+        if phase != B5_MJ_ASCENT:
+            return MLR_WHEELS_RESTORE_PHASE
+        if snapshot.node_count >= 1:
+            return MLR_WHEELS_RESTORE_NODE
+        if _is_finite(alt) and alt >= params.wheel_release_ceiling:
+            return MLR_WHEELS_RESTORE_CEILING
+        if _is_finite(apo) and apo < target - params.orbit.apo_error:
+            return MLR_WHEELS_RESTORE_APOAPSIS
+        return ""
+    if used or phase != B5_MJ_ASCENT or snapshot.node_count >= 1:
+        return ""
+    if not (_is_finite(alt) and _is_finite(apo)):
+        return ""
+    if (apo >= target and params.wheel_release_floor <= alt
+            < params.wheel_release_ceiling):
+        return MLR_WHEELS_RELEASE
+    return ""
+
+
+def mlr_wheel_release_step(state: MlrState, snapshot: TelemetrySnapshot
+                           ) -> Tuple[MlrState, List[Action]]:
+    """Apply mlr_wheel_release_verdict to the state after this frame's b5_decide:
+    (state, [the one SET_REACTION_WHEELS action] or []). Pure."""
+    verdict = mlr_wheel_release_verdict(
+        state.params, state.flight.phase, state.wheels_released,
+        state.wheels_release_ut is not None, snapshot)
+    if not verdict:
+        return state, []
+    if verdict == MLR_WHEELS_RELEASE:
+        return (replace(state, wheels_released=True, wheels_release_ut=snapshot.ut),
+                [Action(ACTION_SET_REACTION_WHEELS, 0.0,
+                        text="ascent coast: wheels released alt=%s ap=%s"
+                        % (_obs_fmt(snapshot.altitude), _obs_fmt(snapshot.apoapsis)))])
+    return (replace(state, wheels_released=False, wheels_restore_ut=snapshot.ut,
+                    wheels_restore_reason=verdict),
+            [Action(ACTION_SET_REACTION_WHEELS, 1.0,
+                    text="ascent coast: wheels back (%s) alt=%s ap=%s nodes=%d"
+                    % (verdict, _obs_fmt(snapshot.altitude), _obs_fmt(snapshot.apoapsis),
+                       snapshot.node_count))])
+
+
 def _mlr_land(state: MlrState, snapshot: TelemetrySnapshot) -> Tuple[MlrState, List[Action]]:
     if state.stage_held:
         return return_launch_gate_step(state, snapshot)
@@ -32730,6 +32834,8 @@ def _mlr_land(state: MlrState, snapshot: TelemetrySnapshot) -> Tuple[MlrState, L
     actions, held, setters = mfr_inject_launch_actions(state.params, actions)
     st = replace(state, flight=flight, warp_to_cmd=flight.warp_to_cmd,
                  stage_held=held, setters_injected=setters or state.setters_injected)
+    st, wheels = mlr_wheel_release_step(st, snapshot)
+    actions = actions + wheels
     if flight.phase == B5_SURFACE_COMMIT and not flight.done:
         # THE LANDED-DWELL EXIT FRAME. B5's settled dwell held; it asks for the
         # mid-mission commit. The commit is dropped (the recovery commits at the
@@ -33019,7 +33125,10 @@ def evaluate_mlr_assertions(frames, params: MlrParams,
          "liftoffUt": g("ascent_liftoff_ut"), "orbitUt": g("ascent_orbit_ut"),
          "reissues": g("ascent_reissues", 0),
          "circularizeIssued": bool(g("ascent_circularize_issued", False)),
-         "ecMin": g("ec_min", float("nan"))}))
+         "ecMin": g("ec_min", float("nan")),
+         "kerbinCoastWheelsReleasedUt": g("wheels_release_ut"),
+         "kerbinCoastWheelsRestoredUt": g("wheels_restore_ut"),
+         "kerbinCoastWheelsRestoreReason": g("wheels_restore_reason", "") or None}))
     home_ut = g("depart_home_ut")
     rows.append(AssertionOutcome(
         "departedTargetOrbit",

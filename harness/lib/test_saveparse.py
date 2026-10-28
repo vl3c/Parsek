@@ -3894,6 +3894,57 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "b3e3206e3c9946668b8c8ae93d53dc7f"],
             "schemaGeneration": 4,
         },
+        # PROVENANCE: cs-career-mun4 <- CS-6c-career-mun-science, run 2026-10-28_0028
+        # (PASS attempt 1, LedgerGroundTruth hardFailures=0), harvested from that run's `_save`
+        # snapshot with --keep-parsek --allow-no-vessel --expect-mode CAREER, no edit. The
+        # payload is cs-career-mun3's 21 recordings plus CS-6c's science flight (13: the CS
+        # Mun Science chain, its debris and the two EVA / Board branches); the career gained
+        # basicScience and electrics (the Z-100 and the OX-STAT): funds 157546.18 (CS-6c's
+        # end 154614.18 plus the ground-truth Flea's recovered 2932), science 20.17, rep
+        # 115.0. CS-7's host.
+        "cs-career-mun4": {
+            "trees": 5, "committedTrees": 5, "recordings": 34,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Recovered": 5, "Destroyed": 15, "Boarded": 4},
+            "branchPoints": {"JointBreak": 12, "EVA": 2, "Board": 2},
+            "minAuthoritativeSidecars": 127,
+            "recordingIds": ["71288de785d2472ea60da273f42ce1c6",
+                             "692da78791dd4026a5bb8b49931987b1",
+                             "8b1aa915654e43d28f21d4d4342aa153",
+                             "146cafb405004973aa10a51e4fb708f6",
+                             "1b605e0e87fa47ab91bf1c9fe4c9df9f",
+                             "e312c6a92d184ddc8eeab566190f94d7",
+                             "a7ec24c9538443d5b18a22b7607e2b24",
+                             "3ce9a29163014b6d8c41680e0c04572a",
+                             "72f97fedf0a0480583bf0a6e7957528f",
+                             "7a000d8672824b1b81c3baf945bde74e",
+                             "330e0030342b471db8c675ea164be98d",
+                             "1b78459868c14400833863bc332c6250",
+                             "9304afa793d0466f8ed29eaba8aef02a",
+                             "ce600894986744d3b623c7e3141c7a5d",
+                             "2b72f070d93343389794c124edcf2732",
+                             "75dfc474f7c345f7a005350c1baa6de3",
+                             "41f3ad5e08c24103a464a74823809bf8",
+                             "dd0a319c3d9345a4be0c5a0fb365db1e",
+                             "4f85e796cee24c7aa4a0b4787db824eb",
+                             "23e7405759aa4b04bd01ea2a126dbfc3",
+                             "b3e3206e3c9946668b8c8ae93d53dc7f",
+                             "1d1f4b52d0cd4843b58ffa814b1a0eb2",
+                             "1c8c468e471c4f0c8ddad59fa825a160",
+                             "4ee69b144f29443ab0e7d4c9946e5f49",
+                             "302e6b5e66de4f2182b1db964cedd649",
+                             "1c5e05ea150349b1879a2bf854657db5",
+                             "5a5f80762dfb4b038c0f33fb08524d8b",
+                             "15c0f49ce938433798fc113015640ff8",
+                             "39b3f5d641a24f4da6d65d51dec9b438",
+                             "debce1a4cbd34a0e82f42429e922a2ef",
+                             "5fa61a1a147c473ebac37eded11f783c",
+                             "30dcf6644b67464ba3e9cb3fd4f10422",
+                             "335e03990a334c2f82bf01a7dd169415",
+                             "e14df3fa19054f8a8b5614f35105fe22"],
+            "schemaGeneration": 4,
+        },
     }
     # --- THE CAREER ROUTE COPIES (H74-H79) ---------------------------------
     # Built by harness/tools/build_route_career.py from the four recorded route hosts

@@ -1,7 +1,8 @@
 """Drift and shape gates for `CS Orbiter.craft` (CS-4's craft, in the `cs-career-mc1`
 fixture), `CS Mun Flyby.craft` (CS-5's, `--variant mun`, in `cs-career-ts1`),
-`CS Mun Lander.craft` (CS-7's, `--variant lander`, in `cs-career-mun2`) and
-`CS Mun Science.craft` (CS-6c's, `--variant munsci`, in `cs-career-mun3`).
+`CS Mun Lander.craft` (CS-7's first cut, `--variant lander`, in `cs-career-mun2`),
+`CS Mun Science.craft` (CS-6c's, `--variant munsci`, in `cs-career-mun3`) and
+`CS Mun Solar Lander.craft` (CS-7's re-cut, `--variant solar`, in `cs-career-mun4`).
 
 The craft is BUILT BY CONSTRUCTION by `harness/tools/build_cs_orbiter_craft.py` from
 part tails lifted byte-for-byte out of stock craft. A hand edit to the craft, a change to
@@ -335,30 +336,16 @@ class CsMunLanderCraftTests(unittest.TestCase):
         self.assertEqual([], self.b.check())
         self.assertEqual([], self.b.mun_check())
 
-    def test_the_spec_researches_the_node_then_flies_this_craft(self):
+    def test_cs7_now_flies_the_solar_re_cut_of_this_craft(self):
+        # CS-7's first flight (2026-10-27_2326) flew this craft and ran out of charge;
+        # the lane now flies `--variant solar` from CS-6c's save. This cut stays
+        # derivable (cs-career-mun2 / mun3 carry it) and stays out of the spec.
         with open(CS7_SPEC, "rb") as fh:
             spec = tomllib.load(fh)
-        # The ladder is a chain: CS-7 flies from CS-6b's produced save, which already
-        # researched the node, so CS-7 itself runs no KSC step.
-        self.assertEqual("fixtures/saves/cs-career-mun3", spec["fixture"]["saveTemplate"])
         steps = spec["driver"]["steps"]
         editor = next(i for i, s in enumerate(steps) if s.get("cmd") == "GoToEditor")
-        self.assertEqual("CS Mun Lander", steps[editor]["args"]["craft"])
-        self.assertFalse(any(s.get("cmd") == "KscAction" for s in steps[:editor]))
-        with open(CS6B_SPEC, "rb") as fh:
-            cs6b_steps = tomllib.load(fh)["driver"]["steps"]
-        researched = [s["args"]["node"] for s in cs6b_steps
-                      if s.get("cmd") == "KscAction"
-                      and s["args"].get("action") == "research-node"]
-        self.assertEqual(list(TECH_RESEARCHED_FOR_CS7), researched)
-        params = spec["driver"]["missionParams"]
-        # MechJeb stops after the Terrier's stage; the return's one owed stage is the
-        # pod separation; the landing extends the LT-05s.
-        self.assertEqual(self.b.LANDER_STAGE_CORE_DROP, params["autostageLimit"])
-        self.assertEqual(1, params["returnStageCount"])
-        self.assertTrue(params["landingDeployGears"])
-        self.assertEqual(self.b.LANDER_STAGE_POD_SEPARATION,
-                         self.b.LANDER_STAGE_CORE_DROP - 1)
+        self.assertEqual(self.b.SOLAR_SHIP_NAME, steps[editor]["args"]["craft"])
+        self.assertNotEqual(self.b.LANDER_SHIP_NAME, steps[editor]["args"]["craft"])
 
     def test_cs6b_researches_the_same_node(self):
         with open(CS6B_SPEC, "rb") as fh:
@@ -522,6 +509,221 @@ class CsMunScienceCraftTests(unittest.TestCase):
                 if name in by_experiment:
                     counts[by_experiment[name]] += 1
         self.assertEqual(self.b.MUNSCI_SCIENCE_PARTS, counts)
+
+SOLAR_CRAFT = os.path.join(HARNESS_ROOT, "fixtures", "saves", "cs-career-mun4",
+                           "Ships", "VAB", "CS Mun Solar Lander.craft")
+# The nodes CS-6c researched after its flight: the Z-100 and the OX-STAT.
+TECH_RESEARCHED_FOR_POWER = ("basicScience", "electrics")
+# Kerbal 1 (1.12.0) on its FL-T400: each OX-STAT's and each Z-100's attPos0 (noise of
+# 1e-7 and below dropped) and rot, the four placements stock's radial symmetry wrote.
+KERBAL1_PANELS = (
+    ((-0.621777415, 0.575105727, 0.0), (0.0, -0.707106829, 0.0, 0.707106829)),
+    ((0.0, 0.575105727, 0.621777415), (0.0, 0.0, 0.0, 1.0)),
+    ((0.621777415, 0.575105727, 0.0), (0.0, 0.707106888, 0.0, 0.707106709)),
+    ((0.0, 0.575105727, -0.621777415), (0.0, 1.0, 0.0, 0.0)),
+)
+KERBAL1_BATTERIES = (
+    ((-0.448293895, 0.610907614, -0.448293895), (0.0, -0.382683456, 0.0, -0.923879564)),
+    ((-0.448293895, 0.610907614, 0.448293895), (0.0, -0.923879564, 0.0, -0.382683456)),
+    ((0.448294014, 0.610907614, 0.448293895), (0.0, -0.923879504, 0.0, 0.382683486)),
+    ((0.448293805, 0.610907614, -0.448293895), (0.0, -0.382683456, 0.0, 0.923879564)),
+)
+
+
+def _same_rotation(a, b):
+    """q and -q are one rotation: |<a, b>| == 1 for unit quaternions."""
+    return abs(abs(sum(x * y for x, y in zip(a, b))) - 1.0) < 1e-6
+
+
+class CsMunSolarLanderCraftTests(unittest.TestCase):
+    """`CS Mun Solar Lander.craft` (CS-7's re-cut, `--variant solar`, in
+    `cs-career-mun4`)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.b = _load_builder()
+        cls.fig = cls.b.solar_figures()
+
+    def test_the_committed_craft_is_byte_identical_to_a_fresh_derivation(self):
+        self.assertEqual([], self.b.solar_check())
+
+    def test_the_other_variants_are_unchanged(self):
+        # lander_layout / lander_figures gained keyword arguments whose defaults derive
+        # CS Mun Lander: every committed craft must still derive byte-for-byte.
+        self.assertEqual([], self.b.check())
+        self.assertEqual([], self.b.mun_check())
+        self.assertEqual([], self.b.lander_check())
+        self.assertEqual([], self.b.munsci_check())
+
+    def test_the_craft_fits_the_hosts_facilities(self):
+        # VAB level 0 (30 parts: exactly at the limit); Launch Pad level 1 (140 t, 36 m).
+        self.assertEqual(30, self.fig["parts"])
+        self.assertLessEqual(self.fig["mass"], 140.0)
+        self.assertLessEqual(self.fig["height"], 36.0)
+        self.assertEqual(self.fig["parts"], len(_parts(_read(SOLAR_CRAFT))))
+
+    def test_it_is_cs_mun_lander_without_the_cones_plus_the_power(self):
+        lander = _parts(_read(LANDER_CRAFT))
+        mine = _parts(_read(SOLAR_CRAFT))
+        self.assertEqual(3, lander.count("noseCone"))
+        self.assertEqual(0, mine.count("noseCone"))
+        self.assertEqual(3, mine.count("solarPanels5"))
+        self.assertEqual(1, mine.count("batteryPack"))
+        rest = sorted(n for n in mine if n not in ("solarPanels5", "batteryPack"))
+        self.assertEqual(sorted(n for n in lander if n != "noseCone"), rest)
+        # The same propellant in every stage, the legs and the Terrier to the digit.
+        layout = self.b.solar_layout()
+        base = self.b.lander_layout()
+        for which in ("upper", "core", "boosters"):
+            mine_prop = sum(self.b._pprop(p) for p in layout if p.group == which)
+            theirs = sum(self.b._pprop(p) for p in base if p.group == which)
+            self.assertAlmostEqual(theirs, mine_prop, places=6, msg=which)
+        for name in ("miniLandingLeg", "liquidEngine3.v2", "mk1pod.v2"):
+            self.assertEqual([p.pos for p in base if p.name == name],
+                             [p.pos for p in layout if p.name == name], name)
+        self.assertAlmostEqual(self.b.lander_figures()["leg_clearance"],
+                               self.fig["leg_clearance"], places=12)
+
+    def test_the_craft_keeps_the_mun_landing_budget(self):
+        self.assertGreaterEqual(self.fig["dv_lower"], 3130.0)
+        self.assertGreaterEqual(self.fig["dv_upper"], 3500.0)
+        self.assertGreaterEqual(self.fig["dv_total"], 6600.0)
+        self.assertGreaterEqual(self.fig["liftoff_twr"], 1.25)
+        self.assertGreaterEqual(self.fig["mun_twr"], 3.0)
+        # The power costs the lander under 30 m/s (0.02 t on a 7.35 t stage).
+        self.assertLess(self.b.lander_figures()["dv_upper"] - self.fig["dv_upper"], 30.0)
+
+    def test_the_stage_order_is_cs_mun_landers(self):
+        self.assertEqual(self.b.lander_stage_want(),
+                         self.b.stage_table(self.b.solar_layout()))
+
+    def test_every_part_is_on_the_hosts_tech(self):
+        allowed = set()
+        for node in TECH_ON_TS1 + TECH_RESEARCHED_FOR_CS7 + TECH_RESEARCHED_FOR_POWER:
+            allowed |= _unlocks(node)
+        parts = set(_parts(_read(SOLAR_CRAFT)))
+        self.assertEqual([], sorted(parts - allowed))
+        self.assertIn("batteryPack", _unlocks("basicScience"))
+        self.assertIn("solarPanels5", _unlocks("electrics"))
+        self.assertEqual({"batteryPack", "solarPanels5"},
+                         parts - set(_parts(_read(LANDER_CRAFT))))
+
+    def test_the_power_rides_the_lander_tanks_unstaged_and_off_the_hatch(self):
+        parts = self.b.solar_layout()
+        upper = [p for p in parts if p.key.startswith("utank")]
+        power = [p for p in parts if p.name in ("solarPanels5", "batteryPack")]
+        self.assertEqual(4, len(power))
+        for p in power:
+            with self.subTest(part=p.key):
+                self.assertEqual("upper", p.group)
+                self.assertEqual((1, -1), (p.istg, p.sidx))
+                self.assertEqual(1, p.attm)
+                self.assertEqual(p.parent.uid, p.srfn)
+                self.assertIn(p.uid, p.parent.links)
+        panels = [p for p in power if p.name == "solarPanels5"]
+        self.assertTrue(all(p.parent is upper[0] for p in panels))
+        battery = [p for p in power if p.name == "batteryPack"][0]
+        self.assertIs(upper[1], battery.parent)
+        clear = self.b.solar_hatch_clearances(parts)
+        self.assertEqual(4, len(clear))
+        self.assertTrue(all(d >= 59.0 for d in clear.values()), clear)
+
+    def test_the_attach_is_kerbal_1s_and_the_yaw_family_matches_every_donor(self):
+        b = self.b
+        for pos, rot in KERBAL1_PANELS:
+            az = b._azimuth_deg(pos)
+            self.assertAlmostEqual(b.SOLAR_PANEL_RADIUS, (pos[0] ** 2 + pos[2] ** 2) ** 0.5,
+                                   places=6)
+            self.assertAlmostEqual(b.SOLAR_PANEL_DY, pos[1], places=9)
+            mine = tuple(float(c) for c in b._quat_y(90.0 - az).split(","))
+            self.assertTrue(_same_rotation(rot, mine), (az, rot, mine))
+        for pos, rot in KERBAL1_BATTERIES:
+            az = b._azimuth_deg(pos)
+            self.assertAlmostEqual(b.SOLAR_BATTERY_RADIUS,
+                                   (pos[0] ** 2 + pos[2] ** 2) ** 0.5, places=6)
+            self.assertAlmostEqual(b.SOLAR_BATTERY_DY, pos[1], places=9)
+            mine = tuple(float(c) for c in b._quat_y(270.0 - az).split(","))
+            self.assertTrue(_same_rotation(rot, mine), (az, rot, mine))
+        # Ours sit where the formula puts them, on their parent tank.
+        for p in b.solar_layout():
+            if p.name not in ("solarPanels5", "batteryPack"):
+                continue
+            local = tuple(a - c for a, c in zip(p.pos, p.parent.pos))
+            az = b._azimuth_deg(local)
+            psi = 90.0 - az if p.name == "solarPanels5" else 270.0 - az
+            got = tuple(float(c) for c in p.rot.split(","))
+            want = tuple(float(c) for c in b._quat_y(psi).split(","))
+            self.assertTrue(_same_rotation(want, got), p.key)
+
+    def test_the_tails_are_the_static_panel_and_the_full_battery(self):
+        panel = self.b.TAILS["solarPanels5"]
+        self.assertIn("name = ModuleDeployableSolarPanel", panel)
+        self.assertIn("deployState = EXTENDED", panel)
+        self.assertNotIn("actionGroup = Custom", panel)
+        self.assertEqual([("ElectricCharge", 100.0, 100.0)],
+                         self.b.tail_resources("batteryPack"))
+        self.assertEqual(("VAB/Kerbal 1.craft", 0), self.b.DONORS["solarPanels5"])
+        self.assertEqual(("VAB/Kerbal 1.craft", 0), self.b.DONORS["batteryPack"])
+
+    def test_the_electric_charge_budget(self):
+        ec = self.fig["ec"]
+        # The pod's 50 + the Z-100's 100.
+        self.assertEqual(150.0, ec["capacity"])
+        self.assertEqual(3, ec["panels"])
+        self.assertAlmostEqual(1.05, ec["peak"], places=9)
+        # Broadside sun: 0.35 x (cos 30 = 0.866 .. 1.0), 3 / pi x 0.35 on average.
+        self.assertAlmostEqual(0.303, ec["broadside_min"], places=3)
+        self.assertAlmostEqual(0.350, ec["broadside_max"], places=3)
+        self.assertAlmostEqual(0.334, ec["broadside_avg"], places=3)
+        # The first flight's saturated coast draw empties the battery in about 6 min.
+        self.assertAlmostEqual(357.0, ec["saturated_hold_s"], delta=1.0)
+
+    def test_the_root_is_the_pod_and_the_ship_is_named_for_the_editor_step(self):
+        text = _read(SOLAR_CRAFT)
+        self.assertEqual("mk1pod.v2", _parts(text)[0])
+        self.assertRegex(text, r"(?m)^ship = CS Mun Solar Lander$")
+        self.assertRegex(text, r"(?m)^version = 1\.12\.5$")
+
+    def test_every_child_is_linked_from_its_parent(self):
+        text = _read(SOLAR_CRAFT)
+        for token in re.findall(r"(?m)^\tpart = (\S+)$", text)[1:]:
+            with self.subTest(part=token):
+                self.assertIn("\tlink = %s\n" % token, text)
+        # No Thumper keeps a top attach node it has nothing on.
+        self.assertNotRegex(text, r"(?m)^\tattN = top,noseCone")
+
+    def test_the_spec_flies_this_craft_from_cs6cs_save(self):
+        with open(CS7_SPEC, "rb") as fh:
+            spec = tomllib.load(fh)
+        # The ladder is a chain: CS-7 flies from CS-6c's produced save, which holds
+        # every node the craft needs, so CS-7 runs no KSC step.
+        self.assertEqual("fixtures/saves/cs-career-mun4", spec["fixture"]["saveTemplate"])
+        steps = spec["driver"]["steps"]
+        editor = next(i for i, s in enumerate(steps) if s.get("cmd") == "GoToEditor")
+        self.assertEqual("CS Mun Solar Lander", steps[editor]["args"]["craft"])
+        self.assertFalse(any(s.get("cmd") == "KscAction" for s in steps[:editor]))
+        with open(CS6C_SPEC, "rb") as fh:
+            cs6c_steps = tomllib.load(fh)["driver"]["steps"]
+        researched = [s["args"]["node"] for s in cs6c_steps
+                      if s.get("cmd") == "KscAction"
+                      and s["args"].get("action") == "research-node"]
+        self.assertEqual(list(TECH_RESEARCHED_FOR_POWER), researched)
+        host = _read(os.path.join(HARNESS_ROOT, "fixtures", "saves", "cs-career-mun4",
+                                  "persistent.sfs"))
+        for node in TECH_ON_TS1 + TECH_RESEARCHED_FOR_CS7 + TECH_RESEARCHED_FOR_POWER:
+            self.assertRegex(host, r"\n\t\tTech\n\t\t\{\n\t\t\tid = %s\n\t\t\tstate = "
+                                   r"Available\n" % node, node)
+        params = spec["driver"]["missionParams"]
+        # MechJeb stops after the Terrier's stage; the return's one owed stage is the
+        # pod separation; the landing extends the LT-05s; the coast releases the wheels.
+        self.assertEqual(self.b.LANDER_STAGE_CORE_DROP, params["autostageLimit"])
+        self.assertEqual(1, params["returnStageCount"])
+        self.assertTrue(params["landingDeployGears"])
+        self.assertTrue(params["ascentCoastWheelRelease"])
+        self.assertGreater(params["electricChargeFloor"], 0.0)
+        self.assertEqual(self.b.LANDER_STAGE_POD_SEPARATION,
+                         self.b.LANDER_STAGE_CORE_DROP - 1)
+
 
 if __name__ == "__main__":
     unittest.main()
