@@ -1,0 +1,676 @@
+schema = 1
+id = "RW-7-refly-kerbal-death"
+# =====================================================================================
+# RW-7: A KERBAL DEATH IN A RE-FLY, DISCARDED THEN MERGED (the rewind ledger campaign, plan
+# row 5: a kerbal dies in a Re-Fly attempt; the attempt is discarded once and merged once).
+#
+# THE RULINGS UNDER TEST: Re-Fly is losses-only and a merge must dominate (design
+# docs/parsek-rewind-to-separation-design.md section 2.12, Rules 2 and 3); DISCARD RESTORES THE
+# LEDGER TO JUST BEFORE THE RE-FLY STARTED (Rule 3); a MERGED loss follows the vessel that
+# caused it, and Rule 2's loss swap decides which ReputationPenalty rows count. Here the
+# replaced flight (G's pod slot) holds NO loss, the re-fly's crash files one ReputationPenalty
+# (KerbalDeath) row, so L'(A) reads a lower reputation than L and the check takes VARIANT B
+# (ReFlyMergeDominance.Evaluate, ReFlyMergeDominance.cs:244-256: `if (repA.Failed)` ->
+# `v.Variant = LossSwapVariant.B`): the replaced flight's ReputationPenalty loss rows (none)
+# are kept and the re-fly's OWN ReputationPenalty loss rows are tombstoned by the merge
+# (SupersedeCommit.CommitTombstones, SupersedeCommit.cs:2580-2600, logged `Loss swap variant B
+# applied ... tombstonedAttemptRepLoss=N` :2652 and `Tombstoned N career actions (...
+# Reputation=N, Kerbal=0 ...)` :2663). The death row itself (KerbalAssignment Dead) is NOT a
+# loss row of that rule and stays: the death follows the re-fly.
+#
+# THE KERBAL: the pod carries a GENERATED STAND-IN, not Jeb. H (the committed Jumping Flea)
+# reserves Jebediah, so G's VAB manifest swaps him (RW-6's flight 2026-10-28_1214: `Stand-in
+# generated: 'Isarigh Kerman' (Pilot) for slot 'Jebediah Kerman' depth 0`, KerbalsModule.cs:3981;
+# `Swapped reserved 'Jebediah Kerman' -> stand-in '...' in part 'Mk1 Command Pod' seat 0`,
+# Patches/CrewAutoAssignPatch.cs:253). The ledger files a stand-in-flown pod's crew under the
+# slot owner (KerbalsModule.ReverseMapCrewNames, the #254 reverse map; RW-6's produced ledger
+# carries `kerbalName = Jebediah Kerman` for G's and the merged attempt's KerbalAssignment
+# rows), so the merged death is predicted to read as Jebediah's in the walk: the name is
+# regexed and owed off the first flight.
+#
+# THE RESPAWN: cs-career-mun4 has `MissingCrewsRespawn = True` and `RespawnTimer = 7200`
+# (persistent.sfs:86-87). Stock's crew death calls Die() and then StartRespawnPeriod()
+# (Missing until death + RespawnTimer, then Available; KerbalsModule.cs:2738-2743), and Parsek
+# stamps that policy on the recording at the death (`Crew death respawn policy stamped:
+# recording='<rec>' (CS Flea Probe) deadCrew=1 respawn=True timer=7200`, KerbalsModule.cs:2812)
+# and holds the kerbal as MISSING, not dead for good: `Death hold: '<name>' recording '<rec>'
+# respawn scheduled deathUT=<d> respawnUT=<d+7200> timer=7200 (stock crew respawn was on at the
+# death)` (:1698, reason :2847), never `is permanent` (:1696). The respawn is reachable inside
+# the lane's budget (7200 game seconds is a ~75 s Space Center warp at x100), so the lane warps
+# past it and requires `Reservation released: '<name>' ... (respawn applied: the clock has
+# reached the recorded death's stock respawn instant - the kerbal is available again)` (:2198 /
+# :2206). The open-ended co-row rule (KerbalsModule.ResolveOpenEndedRespawnDeaths, :682) would
+# turn the death permanent if an un-closed Aboard / Unknown row of the same kerbal started
+# before the respawn; RW-6's flight shows every such Jebediah row bounded (H's at 185807.9, G's
+# TIP at 185797.0, the fixture's by split handoff), so it is forbidden.
+#
+# THE SHAPE: RW-6's prefix verbatim (H, the Jumping Flea recorded on the pad, committed,
+# recovered; F, the survey contract f1fb89dc accepted, +37500; a Rewind-to-Launch to H; G, the
+# CS Flea Probe recorded on the pad, its stand decoupled into a second controllable vessel so
+# the split authors a rewind point, committed in flight and its pod slot stashed).
+#   Each attempt: InvokeRewind slot 0, the flight-ready wait, `PartAction button=activate
+#     part=solidBooster.sm.v2` (the RT-5 Flea's ModuleEngines "Activate Engine": it lights the
+#     SRB WITHOUT staging, so the Mk16 chute, alone in stage 0, is never deployed), then a 1x
+#     WarpToUT to 185930: the unchuted Mk1 pod (crashTolerance 14 m/s) comes back down and is
+#     destroyed with its kerbal. CL-2 measured the same hop (the stock Jumping Flea, full SRB,
+#     no chute) igniting at UT ~11 and impacting at 119.7-120.9, ~109 s; the re-fly lights at
+#     ~185787.5, so the impact is predicted at ~185897 and 185930 leaves ~33 s of margin.
+#   Attempt 1: Discard through the Esc menu (ReFlyRevert discard target=launch, RW-6's
+#     measured route; the verb's resume wait reaches the 30 s settle budget when the crash
+#     already stashed the tree, TestCommandReFlyRevert.cs:316-324, then drives the menu).
+#   Back into FLIGHT: RW-6's re-entry, a mid-session LoadGame with no scene arg of the step
+#     save written at the Space Center right after the discard (an InSession load).
+#   Attempt 2: the same flight and crash, then AnswerMergeDialog merge (the post-crash
+#     conclusion: the verb waits the same 30 s settle, then drives the Space Center exit and
+#     answers the Re-Fly merge dialog). The clock is still under 186000 there (pinned on the
+#     merged mark), so H's recovery and F's accept are still ahead and the pools must equal
+#     the pre-invoke ones.
+#   Close: WarpToUT 186100 at the Space Center across the committed rows, WarpToUT 193300
+#     past the respawn, an unrecorded check Flea, the default-slot save and LedgerGroundTruth.
+#
+# THE GATES:
+#   - attempt 1's death happens (`Active vessel destroyed in tree mode`, `PopulateCrewEndStates:
+#     ... dead=1`, the respawn policy stamped) and is GONE after the Discard: no `Death hold:`
+#     line before the merged attempt's crash, never a death hold or a KerbalDeath rep penalty
+#     naming the discarded attempt's recording, no tombstone, and the walk's pools and ledger
+#     row count equal those just before the first invoke (RW-6's backreferences, pre-invoke
+#     150632.18 / 20.17 / 115.00);
+#   - the stand-in is not dead after the Discard: the Discard Re-fly loads the rewind point's
+#     game, whose roster holds the stand-in alive in the pod, and attempt 2's SRB reads
+#     `engine:ignited=0` again (the attempt left nothing in the world);
+#   - the merge: dominance pass, `Loss swap ... variant=B repLossOld=0`, the split, supersede
+#     rows, `Loss swap variant B applied ... keptReplacedRepLoss=0 tombstonedAttemptRepLoss=N`
+#     with `Tombstoned N career actions (... Reputation=N, Kerbal=0 ...)`, End reason=merged once;
+#   - the death follows the re-fly: the merged provisional is the recording whose crew died,
+#     `KerbalDeath rep penalty: ... -> ReputationPenalty(KerbalDeath) candidate`, the death
+#     hold on that recording is `respawn scheduled ... timer=7200`, `respawnPending>=1` until
+#     the respawn, and the reputation the walk reads after the merge is the pre-invoke 115.00
+#     (the penalty tombstoned, variant B);
+#   - the respawn: `Reservation released: ... (respawn applied: ...)` once the clock passes it.
+#
+# DEPARTURES FROM THE PLAN (each following the code):
+#   - DROPPED: "the merge is refused if a later committed row uses the dead kerbal". The pod
+#     carries a generated stand-in; the later committed rows (H's KerbalAssignment, start
+#     185800.3) name Jebediah, and the world clause (ReFlyMergeDominance.TryFindWorldConflict,
+#     ReFlyMergeDominance.cs:616-658) compares KerbalAssignment names and skips a use that
+#     starts before the death (`start < deadFrom`): even with the death filed under Jebediah's
+#     slot, H's row starts ~100 s before the crash. No committed row after the crash uses either
+#     name, so the refusal half has no reachable shape on this host; this lane forbids
+#     `result=refuse` instead.
+#   - Attempt 1's discard runs after the crash, so ReFlyRevert reaches the Esc menu through
+#     its settle budget instead of the active-tree wait (above). `AnswerMergeDialog choice=
+#     discard` would conclude the same session without reloading the rewind point (clock and
+#     roster left post-crash), so it is not used.
+#   - The stock roster's Missing reading of the stand-in (Missing after the merged crash,
+#     Available after the respawn) has no Parsek log literal: stock's status changes of a
+#     managed stand-in are suppressed to a rate-limited Verbose line
+#     (GameStateRecorder.Handlers.cs:1088), so it is read from the step saves (ROSTER
+#     `state =` in rw07-06 / rw07-08), owed off the first flight; the gated reading is Parsek's
+#     own respawn-scheduled hold and its release.
+#   - `outcome=unbound-refly-provisional` is NOT forbidden (by design, CLAUDE.md
+#     ReFlyProvisionalBinding); `Single-controllable split: no RP` is forbidden only before the
+#     first invoke (the crash breakup prints it with controllable=0, as RF-12W's flight did).
+#
+# LITERALS (Source/Parsek/..., verified 2026-10-28 by grep in this worktree):
+#   launchfromeditor complete scene=FLIGHT    TestCommands/TestCommandEditorRoute.cs:517
+#   Game state: FundsChanged                  GameStateRecorder.cs:948 (arrow non-ASCII)
+#   MISSIONMARK label=                        TestCommands/TestCommandMissionMark.cs:22
+#   kscaction ... applied=true manifestKind=  TestCommands/TestCommandKscAction.cs:501
+#   KSC spending recorded: type=              GameActions/LedgerOrchestrator.cs:6095
+#   Rewind-to-Launch initiated to UT          RecordingStore.cs:5651
+#   invokerewindtolaunch invoking             TestCommands/ParsekTestCommandAddon.InvokeRewindToLaunch.cs:176
+#   Load classified:                          LoadReconcilePolicy.cs:381
+#   partaction applied button= / state=       TestCommands/TestCommandPartAction.cs:729 / :740
+#     (engine:ignited=<0|1> :628; the activate press is BaseEvent Activate, :505)
+#   Swapped reserved ... -> stand-in          Patches/CrewAutoAssignPatch.cs:253
+#   DECOUPLE emitted: ut=                     CrashCoalescer.cs:244
+#   ProcessBreakupEvent: controlled child created
+#                                             ParsekFlight.cs:9022
+#   Controllable split children:              SegmentBoundaryLogic.cs:518
+#   RewindPoint begin: / slot capture:        RewindPointAuthor.cs:174 / :305
+#   Single-controllable split: no RP          ParsekFlight.cs:6854 / :6947
+#   committree committed=                     TestCommands/ParsekTestCommandAddon.cs:2626
+#   Current-UT ledger recalculation: reason=  GameActions/LedgerOrchestrator.cs:2428
+#   CommitTree: promoted normal staging rp=   RecordingStore.cs:1326
+#   listhandles kind=                         TestCommands/ParsekTestCommandAddon.ListHandles.cs:92
+#   Stashed slot=                             UnfinishedFlightStashHandler.cs:107
+#   stashslot complete / rejected             TestCommands/ParsekTestCommandAddon.StashSlot.cs:186 / :57
+#   IsUnfinishedFlight=true                   EffectiveState.cs:1045
+#   RetireSet gate (section 2.12 Rule 1)      SupersedeCommit.RetireSet.cs:847
+#   Re-Fly ... StartInvoke / Invocation complete
+#                                             RewindInvoker.cs:960 / :1539
+#   InvokeRewind RequiresFlight               TestCommands/TestCommandDispatcher.cs:497
+#   loadgame start ... requestedScene= / loadgame complete scene= ... expected=
+#                                             TestCommands/ParsekTestCommandAddon.cs:2192 / :1268
+#   RecalculateAndPatch: actionsTotal=        GameActions/LedgerOrchestrator.cs:4302
+#   recordingstate ... awaitRecorderLive=     TestCommands/ParsekTestCommandAddon.cs:1931
+#   Active vessel destroyed in tree mode      ParsekFlight.cs:3580 (the line goes on past an em dash)
+#   PopulateCrewEndStates: recording=         KerbalsModule.cs:2931
+#   Crew death respawn policy stamped:        KerbalsModule.cs:2812
+#   Death hold: ... respawn scheduled / is permanent
+#                                             KerbalsModule.cs:1698 / :1696 (policy text :2847)
+#   respawn suppressed: open-ended co-row     KerbalsModule.cs:682
+#   PostWalk summary: ... respawnPending=     KerbalsModule.cs:777
+#   Reservation released: ... (respawn applied: ...)
+#                                             KerbalsModule.cs:2198 / :2206
+#   reflyrevert start / pressed / complete    TestCommands/TestCommandReFlyRevert.cs:507 / :518 / :530
+#   Revert dialog shown                       ReFlyRevertDialog.cs:123
+#   PurgeEventsForRecordings (                GameStateStore.cs:683
+#   PruneActiveReFlyAttemptOwnedTopology      MergeDialog.ReFlyDiscard.cs:224
+#   Origin RP promoted / already persistent   RevertInterceptor.cs:455 / :460
+#   DiscardReFly: rewind point game written   RevertInterceptor.cs:785 / :835
+#   End reason=discardReFly ... dispatched=   RevertInterceptor.cs:494-531
+#   In-session staged lists from memory:      ParsekScenario.InSessionHandoff.cs:154
+#   OnLoad: post-rewind current-UT cutoff decision
+#                                             ParsekScenario.cs:839
+#   [LoadSweep] Marker valid=                 LoadTimeSweep.cs:280
+#   [LedgerTrace] phase=Structural / Anomaly  LedgerTrace.cs:268 / :333
+#   PatchFunds: a -> b                        GameActions/KspStatePatcher.cs:2404-2431
+#   answermergedialog choice= / complete      TestCommands/ParsekTestCommandAddon.cs:2980 / :3162
+#   Merge dominance check / Loss swap         ReFlyMergeDominance.cs:894 / :890
+#   KerbalDeath rep penalty: ... candidate    GameActions/LedgerOrchestrator.cs:2229-2234
+#   Split origin <id> at UT=                  RecordingTreeSplitter.cs:1163
+#   Added N supersede relations               SupersedeCommit.cs:456
+#   Loss swap variant B applied               SupersedeCommit.cs:2652
+#   Tombstoned N career actions               SupersedeCommit.cs:2663
+#   provisional= mergeState= ... classifierReason=
+#                                             SupersedeCommit.cs:993-1001
+#   End reason=merged                         MergeJournalOrchestrator.cs:321 / :627
+#   Clock-crossing reached                    GameActions/LedgerOrchestrator.cs:2763
+#   savegame name=<n> folder= saved=          TestCommands/ParsekTestCommandAddon.cs:2098
+#   ground-truth game mode= / result: hardFailures=
+#                                             InGameTests/LedgerGroundTruthHarness.cs:125 / :246
+#   BATCH_COMPLETE v1                         InGameTests/InGameTestRunner.cs:1219
+#   forbidden: AppendRelations outcome=refused-unflown-provisional (SupersedeCommit.cs:274),
+#   ClearRecordingTagForRecordings: cleared= (GameActions/Ledger.cs:674), re-homed
+#   (GameActions/LedgerOrchestrator.cs:6909), outcome=retired-empty-provisional
+#   (ParsekFlight.TerminalOrbit.cs:227), Reaped rp= (RewindPointReaper.cs:174), Purged rp=
+#   (TreeDiscardPurge.cs:366), In-session load found no staged-list handoff
+#   (ParsekScenario.InSessionHandoff.cs:89), DiscardReFly load intent dropped as stale
+#   (DiscardReFlyLoadIntent.cs:73), Took back (GameActions/StockShadowTakeBack.cs:514),
+#   ABORTING rewind ledger patch (GameActions/KspStatePatcher.cs:89), GUARDED clamps
+#   (KspStatePatcher.cs:6287), filed StockPoolAdjustment (KspStatePatcher.cs:6117), Debt
+#   charge: (GameActions/FundsModule.cs:245), skipping duplicate rollout
+#   (GameActions/LedgerRolloutAdoption.cs:125 / :140), Recording started: vessel=
+#   (FlightRecorder.cs:6826), End reason=retry (RevertInterceptor.cs:294).
+#
+# PRE-REGISTERED READINGS (check these first if the first flight reds):
+#   - `partaction rejected reason=partaction-event-unavailable` on the activate press: the
+#     engine's Activate was not live (stock leaves it inactive after a PRELAUNCH OnStart and
+#     re-arms it in ThrustUpdate on the first non-warped FixedUpdate; decompiled
+#     ModuleEngines.cs:3949 / :3737); read the press's `engineModules=` / `candidates=`.
+#   - `partaction-engine-not-found`: the part name is not `solidBooster.sm.v2` at runtime.
+#   - no `Active vessel destroyed in tree mode` before the crashed mark: the hop outlasted
+#     185930 (raise the warp target; keep the merged mark under 186000) or the pod survived.
+#   - the 1x WarpToUT stalls after the crash: stock's crash screen (FlightResultsDialog.Display
+#     calls FlightDriver.SetPause(true); `PostFlightDialog` lines) paused the clock. Neither
+#     CL-2 nor RF-12W's crashes logged it.
+#   - `reflyrevert` times out in AwaitingResume or after the Esc menu: the post-crash pause or
+#     the stashed tree kept the menu or the Revert to Launch option away; the fallback is
+#     `AnswerMergeDialog choice=discard` (no rewind-point reload; the clock gate then moves).
+#   - `Loss swap ... variant=A`: the attempt filed no ReputationPenalty row (read `KerbalDeath
+#     rep penalty:` for `- no row` and its reason, and `Game state: ReputationChanged ...
+#     (VesselLoss)` for the stand-in's death).
+#   - `Merge dominance check ... result=refuse world=kerbal:`: the crash came before H's
+#     KerbalAssignment start (185800.3), which cannot happen for a ~109 s hop from 185787.5.
+#   - `Death hold: ... is permanent` or `respawn suppressed: open-ended co-row`: the stamp did
+#     not reach the stored recording, or an un-closed row of the kerbal spans the window; read
+#     the `Reservation bounded by` lines of the same walk.
+#   - the merged mark at or past 186000: the crash or the 30 s settle ran late; H's recovery
+#     and F's accept then cross before the pool gate and the pre-invoke equality reds.
+#   - recordings outside 39..48: the debris the crash breakup records (committed with the
+#     merged attempt) differ from the 0..9 window; read `ProcessBreakupEvent: debris child`.
+#
+# Owed off the first flight:
+#   - the dead kerbal's name in the walk (Jebediah predicted, the slot owner) and the stand-in's
+#     stock ROSTER state in rw07-06 (Missing predicted) and rw07-08 (Available predicted);
+#   - the impact UT (~185897 predicted) and the death / respawn UTs (regexed 1858xx-1859xx /
+#     1930xx-1931xx);
+#   - the KerbalDeath penalty magnitude, repLossNew, tombstonedAttemptRepLoss (1 predicted);
+#   - the merged mergeState / terminalKind / classifierReason / autoSeal (regexed);
+#   - the recordings count (39 + the crash's debris recordings; window 39..48), the rewind
+#     point count after the merge (1 predicted), the saveParse rewind block (report-only);
+#   - the batch split (`total=3` pinned from the source, `passed` / `skipped` regexed;
+#     IngameBatchWiringGroupTests.INTERIM_PIN_IDS until then); the tier call (operator:
+#     stock-tree is not in the nightly instance set).
+#
+# FAST-LANE CHECKLIST: (1) reuse: RW-6's prefix and its Esc discard and FLIGHT re-entry,
+# RW-1's close. Not merged INTO RW-6: RW-6 gates science credited once across the same two
+# attempts on a LIVE pod, this lane a death, which leaves no pod to take the report. (2)
+# explicit-UT warps only; (3)-(5) no dwell, burn or coast beyond the 11 s pad recording and two
+# ~143 s 1x hops (the crash needs the real flight); (6) retry `once`; (7) recordings window
+# 39..48; (8) operator, ~25 min expected; (9) flight_efficiency.py after the first green flight.
+#
+# STATUS: AUTHORED 2026-10-28 (branch `rw7-death-push`, on the PartAction activate button of the
+# same branch), never flown. Every pinned literal is derived from source (file:line above), the
+# host, RW-6's flown log (2026-10-28_1214) and the crash shapes of CL-2 (2026-10-25_1043) and
+# RF-12W (2026-10-16_1135).
+tier = "operator"
+description = "Rewind ledger campaign, a kerbal death in a Re-Fly, discarded then merged (plan row 5): on cs-career-mun4, RW-6's committed pad flight and contract accept, a Rewind-to-Launch and a CS Flea Probe flight decoupled on the pad (a rewind point) and committed; a first Re-Fly of the pod slot lights the SRB without staging (PartAction activate) and the unchuted pod crashes with its stand-in, then is discarded (no death row, no rep penalty, no tombstone, pools and rows back to their pre-invoke values); a second Re-Fly crashes the same way and merges (variant B: the re-fly's own KerbalDeath rep penalty tombstoned, the death kept under the merged flight with a stock respawn after 7200 s); a warp across the committed rows and past the respawn, then LedgerGroundTruth."
+instanceProfile = "stock-tree"
+tags = ["RW-7", "career", "ledger", "reputation", "crew-loss", "kerbal-death", "respawn",
+        "rewind", "rewind-to-launch", "refly", "discard-refly", "refly-merge", "loss-swap",
+        "variant-b", "tombstone", "supersede", "head-tip-split", "revert-dialog", "stash",
+        "unfinished-flights", "controlled-child", "editor", "ground-truth", "ingame-batch",
+        "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 300 LoadGame + 120 + 120 + 120 (three warps) + 2 x 240 (the 1x hops)
+# + 120 + 240 (the KSC warps) + 120 (check warp) + 2 x (120 GoToEditor + 180 LaunchFromEditor)
+# + 120 (G's GoToEditor) + 180 (G's launch) + 2 x 180 StartRecording + 2 x 120 CommitTree
+# + 120 Recover + 60 KscAction + 300 rewind + 2 x 300 InvokeRewind + 300 ReFlyRevert
+# + 300 re-entry LoadGame + 240 AnswerMergeDialog + 11 x 120 SaveGame + 540 RunTests = 7640;
+# runtime 8600 adds the inert steps and FlushAndQuit.
+steps = [
+  # scene = "spacecenter": the host's three vessels are Mun debris (RW-1's boot).
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  # Clear of the fixture's last rows (185732-185734) and their 60 s rollout window.
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+
+  # ---- flight H: recorded on the pad, committed, recovered (RW-1 / RW-6 verbatim) ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "h",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "186000" },                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "${h.pid}" },                                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw7-h-committed" },                          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw07-01-after-h-commit" },                   expect = "OK", budget = 120 },
+
+  # ---- F: the committed future, a contract accept at the Space Center ----
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "f1fb89dc-a471-42cf-94da-de4bb1080512" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw7-f-committed" },                          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw07-02-after-f-accept" },                   expect = "OK", budget = 120 },
+
+  # ---- the rewind to H's launch ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rw7-rewound" },                              expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw07-03-after-rtl" },                        expect = "OK", budget = 120 },
+
+  # ---- flight G: recorded on the pad, the stand decoupled (a rewind point), committed ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "CS Flea Probe" },          expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "g",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "PartAction",     args = { button = "decouple", part = "radialDecoupler" }, label = "dec", expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  # Held under 185800, where H's ghost starts on the same pad.
+  { cmd = "WarpToUT",       args = { ut = "185797", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c1",                   expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "handles",           expect = "OK" },
+  # Both slots end Landed / SubOrbital on a pad split; the stash keeps the pod's slot open.
+  { cmd = "StashSlot",      args = { rp = "${handles.rp0}", slot = "0" },                  expect = "OK" },
+  # G never lit its SRB.
+  { cmd = "PartAction",     args = { button = "inspect", part = "solidBooster.sm.v2" },    expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw7-g-committed" },                          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw07-04-after-g-commit" },                   expect = "OK", budget = 120 },
+
+  # ---- attempt 1: the SRB lit, the pod crashes with its stand-in, then Discard Re-fly ----
+  { cmd = "MissionMark",    args = { label = "rw7-refly1-armed" },                         expect = "OK" },
+  { cmd = "InvokeRewind",   args = { rp = "${handles.rp0}", slot = "0" },                  expect = "OK", budget = 300 },
+  # THE FLIGHT-READY WAIT (REFLY-LANES-JUMP-BEFORE-FLIGHT-READY, RF-3's order).
+  { cmd = "ListHandles",    args = { kind = "chains" },                                    expect = "OK" },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                        expect = "OK" },
+  { cmd = "PartAction",     args = { button = "inspect", part = "solidBooster.sm.v2" },    expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw7-refly1-started" },                       expect = "OK" },
+  # "Activate Engine": the SRB burns without staging, the chute (stage 0) stays stowed.
+  { cmd = "PartAction",     args = { button = "activate", part = "solidBooster.sm.v2" },   expect = "OK" },
+  # 1x through the ~109 s hop and the impact (CL-2's measured profile).
+  { cmd = "WarpToUT",       args = { ut = "185930", maxRate = "1" },                       expect = "OK", budget = 240 },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw7-refly1-crashed" },                       expect = "OK" },
+  # Esc > Revert Flight > Revert to Launch > Discard Re-Fly (RW-6's measured route).
+  { cmd = "ReFlyRevert",    args = { choice = "discard", target = "launch" },              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rw7-discarded1" },                           expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "after1",            expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c2",                   expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw07-05-after-discard" },                    expect = "OK", budget = 120 },
+
+  # ---- back into FLIGHT (RW-6's re-entry): InvokeRewind is FLIGHT-only and the Discard lands
+  # at the Space Center; a mid-session LoadGame with NO scene arg of the step save just written
+  # (an InSession load: the ledger and the staged lists stay memory's) routes to FLIGHT on the
+  # host's debris (the save's FLIGHTSTATE activeVessel=0). Not `persistent`: at this point that
+  # file holds the rewind point's game the discard wrote there.
+  { cmd = "MissionMark",    args = { label = "rw7-reenter" },                              expect = "OK" },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "rw07-05-after-discard" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "handles2",          expect = "OK" },
+
+  # ---- attempt 2: the same crash, merged ----
+  { cmd = "MissionMark",    args = { label = "rw7-refly2-armed" },                         expect = "OK" },
+  { cmd = "InvokeRewind",   args = { rp = "${handles2.rp0}", slot = "0" },                 expect = "OK", budget = 300 },
+  { cmd = "ListHandles",    args = { kind = "chains" },                                    expect = "OK" },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                        expect = "OK" },
+  # The discarded attempt left nothing in the world: the SRB is unlit again.
+  { cmd = "PartAction",     args = { button = "inspect", part = "solidBooster.sm.v2" },    expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw7-refly2-started" },                       expect = "OK" },
+  { cmd = "PartAction",     args = { button = "activate", part = "solidBooster.sm.v2" },   expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185930", maxRate = "1" },                       expect = "OK", budget = 240 },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw7-refly2-crashed" },                       expect = "OK" },
+  # The post-crash conclusion: the settle wait, the Space Center exit, the Re-Fly merge dialog.
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                                expect = "OK", budget = 240 },
+  { cmd = "MissionMark",    args = { label = "rw7-merged" },                               expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "after2",            expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c3",                   expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw07-06-after-merge" },                      expect = "OK", budget = 120 },
+
+  # ---- the crossing: every committed row reached at the Space Center ----
+  { cmd = "MissionMark",    args = { label = "rw7-before-crossing" },                      expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "186100", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw7-crossed" },                              expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw07-07-after-crossing" },                   expect = "OK", budget = 120 },
+
+  # ---- the respawn: past death + RespawnTimer (7200) at the Space Center ----
+  { cmd = "MissionMark",    args = { label = "rw7-before-respawn" },                       expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "193300", maxRate = "100" },                     expect = "OK", budget = 240 },
+  { cmd = "MissionMark",    args = { label = "rw7-respawned" },                            expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw07-08-after-respawn" },                    expect = "OK", budget = 120 },
+
+  # ---- the check: an unrecorded launch, the save, the ground truth ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "193330" },                                      expect = "OK", budget = 120 },
+  { cmd = "SaveGame",       args = { name = "rw07-09-check-flight" },                     expect = "OK", budget = 120 },
+  # The DEFAULT slot (persistent): the one a harvest reads; the named slots above are side files.
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+# Every value is backed by a REQUIRED token below.
+#   reputation / tombstones (D8)  <- the pre-invoke rep 115.00 after the merge and `Tombstoned N
+#                                    ... Reputation=N, Kerbal=0`
+#   kerbals (D8)                  <- `Death hold: ... respawn scheduled` + the respawn release
+#   controlled-decoupled-child    <- `ProcessBreakupEvent: controlled child created: pid=<stand>`
+#   rewind-to-separation          <- two StartInvoke + Invocation complete
+#   unfinished-flights-stash      <- `Stashed slot=0 ...` + `reflyrevert complete ... slotListed=true`
+#   revert-during-refly-dialog    <- `Revert dialog shown` + `reflyrevert pressed dialog button='Discard Re-Fly'`
+#   supersede-relation            <- `Added N supersede relations`
+#   head-tip-split                <- `Split origin <id> at UT=`
+#   tombstones (D9)               <- `Loss swap variant B applied ... tombstonedAttemptRepLoss=N`
+#   crew-death-in-flight          <- `PopulateCrewEndStates: recording='CS Flea Probe' ... dead=1`
+#   tombstone-rep-penalty         <- the KerbalDeath candidate + `Reputation=N` in the tombstone line
+D5  = ["controlled-decoupled-child"]
+D8  = ["funds", "reputation", "kerbals", "contracts", "tombstones", "recalc-engine",
+       "ksp-state-patcher", "ground-truth-harness"]
+D9  = ["rewind-to-launch", "rewind-to-separation", "unfinished-flights-stash",
+       "revert-during-refly-dialog", "supersede-relation", "head-tip-split", "tombstones"]
+D12 = ["crew-death-in-flight", "tombstone-rep-penalty"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# RW-6's measured 39 (the host's 34, H, G's launch recording and its stand, the TIP of the
+# merge's split, the merged attempt's recording) plus the debris recordings the merged crash's
+# breakup creates (alive=False children, committed with the attempt). Attempt 1's recording and
+# its debris are pruned by its discard; the check Flea is unrecorded.
+count = { min = 39, max = 48 }
+
+[expectations.logContracts]
+required = [
+  # ---- three Flea-family launches: H and the check (the Jumping Flea), G (CS Flea Probe) ----
+  "\\A(?:[\\s\\S]*?launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH){2}",
+  "\\A(?:[\\s\\S]*?Game state: FundsChanged -2932 \\(VesselRollout\\)){2}",
+  "Game state: FundsChanged \\+2932 \\(VesselRecovery\\)[\\s\\S]*?MISSIONMARK label=rw7-h-committed ut=",
+
+  # ---- F: the accept, its own untagged row (RW-1 measured) ----
+  "MISSIONMARK label=rw7-h-committed ut=[\\s\\S]*?kscaction action=accept-contract target=f1fb89dc-a471-42cf-94da-de4bb1080512 applied=true manifestKind=contract-accept observedAfter=state=Active ",
+  "MISSIONMARK label=rw7-h-committed ut=[\\s\\S]*?Game state: FundsChanged \\+37500 \\(ContractAdvance\\)[\\s\\S]*?MISSIONMARK label=rw7-f-committed ut=",
+  "MISSIONMARK label=rw7-h-committed ut=[\\s\\S]*?KSC spending recorded: type=ContractAccept, UT=[0-9.]+, key=f1fb89dc-a471-42cf-94da-de4bb1080512[\\s\\S]*?MISSIONMARK label=rw7-f-committed ut=",
+
+  # ---- the rewind: a plain Rewind-to-Launch onto H's tree ----
+  "MISSIONMARK label=rw7-f-committed ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=rw7-rewound ut=",
+  "MISSIONMARK label=rw7-f-committed ut=[\\s\\S]*?Load classified: early=PlainRewind refined=PlainRewind [\\s\\S]*?MISSIONMARK label=rw7-rewound ut=",
+  "invokerewindtolaunch invoking tree=[0-9a-f]{32} rec=[0-9a-f]{32} startUT=1858[0-9]{2}\\.[0-9] - plain Rewind-to-Launch \\(NOT a Re-Fly\\)",
+
+  # ---- G: launched with Jebediah's stand-in, decoupled on the pad into a second controllable
+  # vessel (RW-5 / RW-6 measured) ----
+  "MISSIONMARK label=rw7-rewound ut=[\\s\\S]*?Swapped reserved 'Jebediah Kerman' -> stand-in '[^'\\r\\n]+' in part 'Mk1 Command Pod' seat 0[\\s\\S]*?MISSIONMARK label=rw7-g-committed ut=",
+  "MISSIONMARK label=rw7-rewound ut=[\\s\\S]*?launchfromeditor complete scene=FLIGHT vessel=CS Flea Probe pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  "MISSIONMARK label=rw7-rewound ut=[\\s\\S]*?Game state: FundsChanged -3982 \\(VesselRollout\\)[\\s\\S]*?MISSIONMARK label=rw7-g-committed ut=",
+  "launchfromeditor complete scene=FLIGHT vessel=CS Flea Probe pid=([0-9]+) [\\s\\S]*?partaction applied button=decouple pid=\\1 part='radialDecoupler' partId=[0-9]+ event=Decouple newPid=[1-9][0-9]* newName='[^'\\r\\n]*' vessels=[0-9]+->[0-9]+ activePid=\\1 ",
+  "partaction applied button=decouple pid=[0-9]+ part='radialDecoupler' [^\\r\\n]*newPid=([0-9]+) [\\s\\S]*?ProcessBreakupEvent: controlled child created: pid=\\1, name='[^'\\r\\n]*', recId=[0-9a-f]{32}, alive=True, bgRecorder=True",
+  "DECOUPLE emitted: ut=[0-9.]+ type=JointBreak splitCause=DECOUPLE decouplerPartId=[0-9]+ controlledChildren=1 debris=0 ",
+  "Controllable split children: \\[[0-9]+,[0-9]+\\] \\(orig=[0-9]+, ",
+  "RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 focusSlot=0 ut=1857[0-9]{2}\\.[0-9]{2}[\\s\\S]*?RewindPoint slot capture: rp=\\1 populated=2/2 disabled=0",
+  "MISSIONMARK label=rw7-rewound ut=[\\s\\S]*?committree committed=true[\\s\\S]*?MISSIONMARK label=rw7-g-committed ut=",
+  "MISSIONMARK label=rw7-rewound ut=[\\s\\S]*?Current-UT ledger recalculation: reason=flight-tree-commit cutoffUT=1857[0-9]{2}[\\s\\S]*?MISSIONMARK label=rw7-g-committed ut=",
+  "MISSIONMARK label=rw7-rewound ut=[\\s\\S]*?CommitTree: promoted normal staging rp=rp_[0-9a-f]{32} tree=\\S+ to persistent[\\s\\S]*?MISSIONMARK label=rw7-g-committed ut=",
+  "Stashed slot=0 rec=\\S+ bp=\\S+ rp=rp_[0-9a-f]{32} tip=\\S+ tipMergeState=CommittedProvisional tipDemoted=True terminal=Landed reaperBlocked=True",
+  "stashslot complete rp=rp_[0-9a-f]{32} slot=0 tip=\\S+ tipMergeState=Immutable->CommittedProvisional stashed=true unfinishedFlight=true unfinishedRow=\\S+",
+  "IsUnfinishedFlight=true rec=\\S+ reason=stashedStableLeaf slot=0 ",
+  "MISSIONMARK label=rw7-rewound ut=[\\s\\S]*?RetireSet gate \\(section 2\\.12 Rule 1\\): rp=rp_[0-9a-f]{32} slot=0 [^\\r\\n]*sealingRows=0 [^\\r\\n]*-> nothing to give back[\\s\\S]*?MISSIONMARK label=rw7-refly1-started ut=",
+  # G never lit its SRB (the new reading of the PartAction activate button's module).
+  "stashslot complete rp=[\\s\\S]*?partaction applied button=inspect pid=[0-9]+ part='solidBooster\\.sm\\.v2' [^\\r\\n]*state='engine:ignited=0'[\\s\\S]*?MISSIONMARK label=rw7-g-committed ut=",
+
+  # ---- attempt 1: invoked, the SRB lit without staging, the pod and its kerbal lost ----
+  "MISSIONMARK label=rw7-refly1-armed ut=[\\s\\S]*?Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_[0-9a-f]{32} slot=0",
+  "MISSIONMARK label=rw7-refly1-armed ut=[\\s\\S]*?Load classified: early=ReFlyStart refined=ReFlyStart scene=FLIGHT [\\s\\S]*?MISSIONMARK label=rw7-refly1-started ut=",
+  # The invocation walk is the full ledger (cutoff double.MaxValue, by design).
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: (?:(?!Invocation complete: )[\\s\\S])*RecalculateAndPatch: actionsTotal=[0-9]+, actionsAfterCutoff=[0-9]+, cutoffUT=1\\.7976931348623157E\\+308",
+  "\\A(?:[\\s\\S]*?Invocation complete: sess=\\S+ rp=rp_[0-9a-f]{32} slot=0 activePid=[0-9]+){2}",
+  "\\A(?:[\\s\\S]*?recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true){2}",
+  "MISSIONMARK label=rw7-refly1-armed ut=[\\s\\S]*?partaction applied button=inspect pid=[0-9]+ part='solidBooster\\.sm\\.v2' [^\\r\\n]*state='engine:ignited=0'[\\s\\S]*?MISSIONMARK label=rw7-refly1-started ut=",
+  "MISSIONMARK label=rw7-refly1-started ut=[\\s\\S]*?partaction applied button=activate pid=([0-9]+) part='solidBooster\\.sm\\.v2' partId=[0-9]+ event=Activate newPid=0 newName='' vessels=[0-9]+->[0-9]+ activePid=\\1 activeName='CS Flea Probe' converter='' state='engine:ignited=1' count=1 packed=0 warpIndex=0 [\\s\\S]*?MISSIONMARK label=rw7-refly1-crashed ut=",
+  "MISSIONMARK label=rw7-refly1-started ut=(?:(?!MISSIONMARK label=rw7-refly1-crashed )[\\s\\S])*?\\[Flight\\] Active vessel destroyed in tree mode",
+  "MISSIONMARK label=rw7-refly1-started ut=(?:(?!MISSIONMARK label=rw7-discarded1 )[\\s\\S])*?PopulateCrewEndStates: recording='CS Flea Probe' \\(id=rec_[0-9a-f]{32}\\) crew=1 aboard=0 dead=1 recovered=0 unknown=0",
+  "MISSIONMARK label=rw7-refly1-started ut=(?:(?!MISSIONMARK label=rw7-discarded1 )[\\s\\S])*?Crew death respawn policy stamped: recording='rec_[0-9a-f]{32}' \\(CS Flea Probe\\) deadCrew=1 respawn=True timer=7200",
+
+  # ---- Discard Re-fly (RW-5 / RW-6's tokens; slot= is the slot origin) ----
+  "MISSIONMARK label=rw7-refly1-crashed ut=[\\s\\S]*?reflyrevert start choice=discard target=launch sess=\\S+ rp=rp_[0-9a-f]{32} slot=[0-9a-f]{32} ",
+  "MISSIONMARK label=rw7-refly1-crashed ut=[\\s\\S]*?reflyrevert pressed revert-option button='[^'\\r\\n]*' target=launch launchOffered=true",
+  "MISSIONMARK label=rw7-refly1-crashed ut=[\\s\\S]*?Revert dialog shown sess=\\S+ target=Launch",
+  "MISSIONMARK label=rw7-refly1-crashed ut=[\\s\\S]*?reflyrevert pressed dialog button='Discard Re-Fly' choice=discard",
+  "PurgeEventsForRecordings \\(RevertInterceptor:DiscardReFly sess=\\S+\\): live=[0-9]+, ",
+  "PruneActiveReFlyAttemptOwnedTopology callSite=RevertInterceptor:DiscardReFly sess=\\S+ tree=\\S+ attemptIds=[1-9][0-9]* [^\\r\\n]*purgedEvents=[0-9]+ [^\\r\\n]*ledgerRowsRemoved=[0-9]+ ",
+  "Origin RP (?:promoted to persistent|already persistent) rp=rp_[0-9a-f]{32}",
+  "DiscardReFly: rewind point game written to persistent\\.sfs rp=rp_[0-9a-f]{32} sess=\\S+ ",
+  "End reason=discardReFly sess=\\S+ target=Launch facility=-- dispatched=true persistentWritten=true ",
+  "Load classified: early=DiscardReFly refined=DiscardReFly scene=SPACECENTER [^\\r\\n]*discardReFly=Launch handoff=present",
+  "In-session staged lists from memory: kind=DiscardReFly captured=\\S+; supersedes installed=0 loadedFromSave=[0-9]+ restored=0 staleDropped=0; retirements installed=0 [^;\\r\\n]*; tombstones installed=0 [^;\\r\\n]*; journal installed=none ",
+  "Load classified: early=DiscardReFly [\\s\\S]*?\\[LoadSweep\\] Marker valid=False; spare=0 discarded=0 selfSupersedes=0 orphanSupersedes=0 removedFullyOrphanSupersedes=0 removedOrphanRewindRetirements=0 orphanTombstones=0 strayFields=0 discardedRps=0 ",
+  "Load classified: early=DiscardReFly [\\s\\S]*?OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff=True loadedUT=1857[0-9]{2}(?:\\.[0-9]+)? [^\\r\\n]*loadedScene=SPACECENTER [^\\r\\n]*hasFutureLedgerActions=True",
+  "reflyrevert complete choice=discard target=launch scene=SPACECENTER sess=\\S+ rp=rp_[0-9a-f]{32} rpKept=true slot=[0-9a-f]{32} slotListed=true unfinishedFlights=[1-9][0-9]* marker=none",
+  "MISSIONMARK label=rw7-discarded1 ut=[\\s\\S]*?listhandles kind=rewindpoints count=1 truncated=false",
+
+  # ---- THE DISCARD GATE: the ledger exactly as just before the first Re-Fly started ----
+  # The pre-invoke pools (RW-5 / RW-6 measured on the same history): 157546.18 - 2932 - 3982.
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=150632\\.18 science=20\\.17 rep=115\\.00 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw7-refly1-armed ut=",
+  # Pools, facilities and active contracts after the discard read back by backreference.
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) facilities=\\[([^\\]\\r\\n]*)\\] targetTechNodes=[0-9]+ contracts=([0-9]+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw7-refly1-armed ut=[\\s\\S]*?Load classified: early=DiscardReFly refined=DiscardReFly [\\s\\S]*?\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 facilities=\\[\\4\\] targetTechNodes=[0-9]+ contracts=\\5 ",
+  # Rows: the same ledger row count before the invoke and after the discard (no death row, no
+  # KerbalDeath penalty row survives the attempt).
+  "RecalculateAndPatch: actionsTotal=([0-9]+), (?:(?!RecalculateAndPatch: actionsTotal=)[\\s\\S])*?MISSIONMARK label=rw7-refly1-armed ut=[\\s\\S]*?Load classified: early=DiscardReFly refined=DiscardReFly (?:(?!RecalculateAndPatch: actionsTotal=)[\\s\\S])*RecalculateAndPatch: actionsTotal=\\1, ",
+  # Recordings: G's tree as committed, the attempt's recording and debris gone.
+  "listhandles kind=committed count=([0-9]+) truncated=(?:true|false)[\\s\\S]*?MISSIONMARK label=rw7-g-committed ut=[\\s\\S]*?MISSIONMARK label=rw7-discarded1 ut=[\\s\\S]*?listhandles kind=committed count=\\1 truncated=(?:true|false)",
+  # Nobody is held for a death after the discard: every walk's summary before the merged crash
+  # has no respawn-pending hold.
+  "MISSIONMARK label=rw7-discarded1 ut=[\\s\\S]*?PostWalk summary: reservations=[0-9]+ permanent=0 temporary=[0-9]+ slots=[0-9]+ retired=[0-9]+ slotsCreated=[0-9]+ released=[0-9]+ respawnPending=0[\\s\\S]*?MISSIONMARK label=rw7-refly2-armed ut=",
+
+  # ---- back into FLIGHT: an InSession load of the discard's step save (RW-6 measured), onto
+  # the host's debris, moving no pool ----
+  "MISSIONMARK label=rw7-reenter ut=[\\s\\S]*?loadgame start save=\\S+ name=rw07-05-after-discard scene=SPACECENTER requestedScene=Unspecified [\\s\\S]*?Load classified: early=InSession refined=InSessionOther scene=FLIGHT [\\s\\S]*?loadgame complete scene=FLIGHT save=\\S+ game-loaded=true expected=Flight[\\s\\S]*?MISSIONMARK label=rw7-refly2-armed ut=",
+  "MISSIONMARK label=rw7-reenter ut=[\\s\\S]*?Load classified: early=InSession refined=InSessionOther scene=FLIGHT [\\s\\S]*?\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=150632\\.18 science=20\\.17 rep=115\\.00 [\\s\\S]*?MISSIONMARK label=rw7-refly2-armed ut=",
+  "MISSIONMARK label=rw7-reenter ut=[\\s\\S]*?listhandles kind=rewindpoints count=1 truncated=false[\\s\\S]*?MISSIONMARK label=rw7-refly2-armed ut=",
+
+  # ---- attempt 2: a NEW session on the same point and slot; the SRB starts unlit ----
+  "StartInvoke: sess=(\\S+) rp=(rp_[0-9a-f]{32}) slot=0[\\s\\S]*?MISSIONMARK label=rw7-refly2-armed ut=[\\s\\S]*?Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=(?!\\1 )\\S+ rp=\\2 slot=0",
+  "MISSIONMARK label=rw7-refly2-armed ut=[\\s\\S]*?Load classified: early=ReFlyStart refined=ReFlyStart scene=FLIGHT [\\s\\S]*?MISSIONMARK label=rw7-refly2-started ut=",
+  # THE DISCARDED ATTEMPT LEFT NO TRACE IN THE WORLD: the SRB the first attempt burnt is unlit.
+  "MISSIONMARK label=rw7-refly2-armed ut=[\\s\\S]*?partaction applied button=inspect pid=[0-9]+ part='solidBooster\\.sm\\.v2' [^\\r\\n]*state='engine:ignited=0'[\\s\\S]*?MISSIONMARK label=rw7-refly2-started ut=",
+  "MISSIONMARK label=rw7-refly2-started ut=[\\s\\S]*?partaction applied button=activate pid=([0-9]+) part='solidBooster\\.sm\\.v2' partId=[0-9]+ event=Activate newPid=0 newName='' vessels=[0-9]+->[0-9]+ activePid=\\1 activeName='CS Flea Probe' converter='' state='engine:ignited=1' count=1 packed=0 warpIndex=0 [\\s\\S]*?MISSIONMARK label=rw7-refly2-crashed ut=",
+  "MISSIONMARK label=rw7-refly2-started ut=(?:(?!MISSIONMARK label=rw7-refly2-crashed )[\\s\\S])*?\\[Flight\\] Active vessel destroyed in tree mode",
+  "MISSIONMARK label=rw7-refly2-started ut=(?:(?!MISSIONMARK label=rw7-merged )[\\s\\S])*?Crew death respawn policy stamped: recording='rec_[0-9a-f]{32}' \\(CS Flea Probe\\) deadCrew=1 respawn=True timer=7200",
+
+  # ---- THE MERGE: dominance (variant B), split, supersede, the re-fly's rep penalty tombstoned ----
+  "MISSIONMARK label=rw7-refly2-crashed ut=[\\s\\S]*?Merge dominance check sess=\\S+ result=pass pool=\\S+ ut=\\S+ before=\\S+ after=\\S+ context=\\S+ ",
+  "MISSIONMARK label=rw7-refly2-crashed ut=[\\s\\S]*?Loss swap sess=\\S+ variant=B repLossOld=0 repLossNew=[0-9]",
+  "MISSIONMARK label=rw7-refly2-crashed ut=[\\s\\S]*?KerbalDeath rep penalty: recording='rec_[0-9a-f]{32}' applied=[0-9][0-9.E+-]* ut=185[89][0-9]{2}\\.[0-9]+ dead=1 repSeedOrigin=\\S+ insideRepSeed=\\S+ -> ReputationPenalty\\(KerbalDeath\\) candidate \\(dedup decides\\)",
+  "MISSIONMARK label=rw7-refly2-crashed ut=[\\s\\S]*?Split origin [0-9a-f]{32} at UT=1857[0-9]{2}\\.[0-9]{2}: HEAD=\\[",
+  "MISSIONMARK label=rw7-refly2-crashed ut=[\\s\\S]*?Added [1-9][0-9]* supersede relations for subtree rooted at ",
+  "MISSIONMARK label=rw7-refly2-crashed ut=[\\s\\S]*?Loss swap variant B applied sess=\\S+ keptReplacedRepLoss=0 tombstonedAttemptRepLoss=([1-9][0-9]*) retiring=\\S+[\\s\\S]*?Tombstoned \\1 career actions \\(Contract=0, Milestone=0, Facility=0, Strategy=0, ScienceSpending=0, Science=0, Funds=0, Reputation=\\1, Kerbal=0, Other=0\\)",
+  # THE DEATH FOLLOWS THE RE-FLY: the merged provisional is the recording whose crew died, and
+  # the walk holds its kerbal Missing (respawn scheduled), not dead for good.
+  "MISSIONMARK label=rw7-refly2-started ut=[\\s\\S]*?PopulateCrewEndStates: recording='CS Flea Probe' \\(id=(rec_[0-9a-f]{32})\\) crew=1 aboard=0 dead=1 recovered=0 unknown=0[\\s\\S]*?provisional=\\1 mergeState=\\S+ terminalKind=\\S+ qualifies=\\S+ slot=0 rp=rp_[0-9a-f]{32} focusSlot=0 focusSlotOverride=0 classifierReason=\\S+ autoSeal=\\S+ ",
+  "provisional=(rec_[0-9a-f]{32}) mergeState=[\\s\\S]*?Death hold: '[^'\\r\\n]+' recording '\\1' respawn scheduled deathUT=185[89][0-9]{2}\\.[0-9] respawnUT=193[01][0-9]{2}\\.[0-9] timer=7200 \\(stock crew respawn was on at the death\\)",
+  "MISSIONMARK label=rw7-refly2-crashed ut=[\\s\\S]*?End reason=merged sess=\\S+ ",
+  "answermergedialog complete choice=merge result=committed",
+  # Still before H's recovery and F's accept (186000.19 / 186000.47).
+  "MISSIONMARK label=rw7-merged ut=1859[0-9]{2}\\.",
+  # Variant B leaves the reputation the walk reads where it was before the Re-Fly: the last walk
+  # before the crossing reads the pre-invoke pools.
+  "MISSIONMARK label=rw7-merged ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=150632\\.18 science=20\\.17 rep=115\\.00 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw7-before-crossing ut=",
+  "MISSIONMARK label=rw7-merged ut=[\\s\\S]*?PostWalk summary: reservations=[0-9]+ permanent=0 temporary=[0-9]+ slots=[0-9]+ retired=[0-9]+ slotsCreated=[0-9]+ released=[0-9]+ respawnPending=[1-9][0-9]*[\\s\\S]*?MISSIONMARK label=rw7-before-respawn ut=",
+
+  # ---- the crossing: the rows reached at the Space Center, F's accept among them ----
+  "MISSIONMARK label=rw7-before-crossing ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=rw7-crossed ut=",
+  "MISSIONMARK label=rw7-before-crossing ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[0-9]+ \\[[^\\]]*ContractAccept@[\\s\\S]*?MISSIONMARK label=rw7-crossed ut=",
+
+  # ---- THE RESPAWN: the clock passes death + 7200 and the kerbal is available again ----
+  "MISSIONMARK label=rw7-before-respawn ut=[\\s\\S]*?Reservation released: '[^'\\r\\n]+' endUT=193[01][0-9]{2}\\.[0-9] nowUT=[0-9.]+ \\(respawn applied: the clock has reached the recorded death's stock respawn instant - the kerbal is available again\\)[\\s\\S]*?MISSIONMARK label=rw7-respawned ut=",
+
+  # ---- the step saves (named side slots for after-flight reading) and the default slot ----
+  "savegame name=rw07-01-after-h-commit folder=\\S+ saved=true",
+  "savegame name=rw07-02-after-f-accept folder=\\S+ saved=true",
+  "savegame name=rw07-03-after-rtl folder=\\S+ saved=true",
+  "savegame name=rw07-04-after-g-commit folder=\\S+ saved=true",
+  "savegame name=rw07-05-after-discard folder=\\S+ saved=true",
+  "savegame name=rw07-06-after-merge folder=\\S+ saved=true",
+  "savegame name=rw07-07-after-crossing folder=\\S+ saved=true",
+  "savegame name=rw07-08-after-respawn folder=\\S+ saved=true",
+  "savegame name=rw07-09-check-flight folder=\\S+ saved=true",
+  "MISSIONMARK label=rw7-respawned ut=[\\s\\S]*?savegame name=persistent folder=\\S+ saved=true",
+
+  # ---- the ground truth, in FLIGHT on the unrecorded check Flea ----
+  "ground-truth game mode=CAREER pools=funds,science,reputation",
+  "result: hardFailures=0 ",
+  # INTERIM: total=3 from the source (the LedgerGroundTruth category's FLIGHT cells); the
+  # split is owed off the first flight (RW-1 / RW-3 / RW-6 read passed=3 skipped=0 on this host).
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "\\[LedgerTrace\\] phase=Anomaly ",
+  "ABORTING rewind ledger patch",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  "filed StockPoolAdjustment amount=\\S+ reason=leak ",
+  "Debt charge:",
+  "\\[TakeBack\\] Took back ",
+  "invokerewindtolaunch refused",
+  "invokerewind refused",
+  "stashslot (?:refused|rejected)",
+  "stashslot readback-failed",
+  "partaction rejected",
+  "partaction error ",
+  "reflyrevert rejected",
+  "reflyrevert error",
+  "answermergedialog refused",
+  "answermergedialog failed",
+  "warptout refused",
+  "kscaction refused",
+  "savegame refused ",
+  "savegame failed ",
+  # One rewind to launch only, onto H.
+  "\\A(?:[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT ){2}",
+  # G's decouple authors the point (two controllable outputs); the crash breakups after the
+  # invokes print this line for their debris (controllable=0) by design.
+  "\\A(?:(?!MISSIONMARK label=rw7-refly1-armed )[\\s\\S])*?Single-controllable split: no RP",
+  "OnVesselRolloutSpending: skipping duplicate rollout",
+  # ---- the RW-2 symptom: no pool lift while the committed rows are ahead, from the rewind
+  # to the first invoke (the invocation walk's lift inside a session is by design) ----
+  "MISSIONMARK label=rw7-rewound ut=(?:(?!MISSIONMARK label=rw7-refly1-armed )[\\s\\S])*\\[KspStatePatcher\\] PatchFunds: [0-9.]+ -> [0-9.]+ \\(delta=[1-9]",
+  # ---- the RW-5 symptom: the discard load needs no live funds patch at all (the rewind
+  # point's quicksave holds the pre-invoke pool), and the merge hands the lift back to the
+  # pre-invoke 150632.2, never below it ----
+  "Load classified: early=DiscardReFly (?:(?!MISSIONMARK label=rw7-refly2-armed )[\\s\\S])*\\[KspStatePatcher\\] PatchFunds: [0-9.]+ -> [0-9.]+ \\(delta=",
+  "answermergedialog choice=merge result=committed(?:(?!MISSIONMARK label=rw7-before-crossing )[\\s\\S])*\\[KspStatePatcher\\] PatchFunds: [0-9.]+ -> (?!150632\\.2 )[0-9.]+ \\(delta=",
+  # Every structural walk from the discard to the second invoke reads the pre-invoke pools.
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw7-refly1-armed ut=[\\s\\S]*?Load classified: early=DiscardReFly refined=DiscardReFly (?:(?!MISSIONMARK label=rw7-refly2-armed )[\\s\\S])*?\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ (?!funds=\\1 science=\\2 rep=\\3 )",
+  # ---- THE DISCARDED DEATH: never held, never penalised, never tombstoned ----
+  # No death hold at all before the merged attempt's crash (the host holds none: RW-6's flight
+  # logs zero `Death hold:` lines).
+  "\\A(?:(?!MISSIONMARK label=rw7-refly2-crashed )[\\s\\S])*?Death hold: ",
+  # The discarded attempt's recording never reaches a death hold or the penalty producer.
+  "MISSIONMARK label=rw7-refly1-started ut=(?:(?!MISSIONMARK label=rw7-discarded1 )[\\s\\S])*?PopulateCrewEndStates: recording='CS Flea Probe' \\(id=(rec_[0-9a-f]{32})\\) crew=1 aboard=0 dead=1 [\\s\\S]*?MISSIONMARK label=rw7-discarded1 ut=[\\s\\S]*?(?:Death hold: '[^'\\r\\n]+' recording '\\1'|KerbalDeath rep penalty: recording='\\1')",
+  "\\A(?:(?!MISSIONMARK label=rw7-refly2-armed )[\\s\\S])*?Tombstoned [1-9][0-9]* career actions",
+  # ---- THE MERGED DEATH: kept (never tombstoned), never permanent, the swap is B ----
+  "Tombstoned [0-9]+ career actions \\([^)\\r\\n]*Kerbal=[1-9]",
+  "Death hold: '[^'\\r\\n]+' recording '[^'\\r\\n]+' is permanent",
+  "respawn suppressed: open-ended co-row",
+  "MISSIONMARK label=rw7-refly2-crashed ut=[\\s\\S]*?Loss swap sess=\\S+ variant=A ",
+  "Merge dominance check sess=\\S+ result=refuse",
+  # ---- the discard untags nothing and re-homes nothing ----
+  "ClearRecordingTagForRecordings: cleared=[1-9]",
+  "PreserveIrreversibleLiveGameplayOnDiscard \\([^)\\r\\n]*\\): re-homed",
+  # ---- the discard is not a merge; the merge runs once ----
+  "\\A(?:(?!MISSIONMARK label=rw7-refly2-armed )[\\s\\S])*?Split origin \\S+ at UT=",
+  "\\A(?:(?!MISSIONMARK label=rw7-refly2-armed )[\\s\\S])*?Added [1-9][0-9]* supersede relations",
+  "\\A(?:(?!MISSIONMARK label=rw7-refly2-armed )[\\s\\S])*?End reason=merged ",
+  "\\A(?:[\\s\\S]*?End reason=merged ){2}",
+  "AppendRelations outcome=refused-unflown-provisional",
+  "End reason=concluded-no-supersede",
+  "End reason=retry ",
+  "End reason=discardReFlyAttemptFromMergeDialog",
+  # ---- no Re-Fly leftovers ----
+  "outcome=retired-empty-provisional",
+  "In-session load found no staged-list handoff",
+  "DiscardReFly load intent dropped as stale",
+  # G's point survives from its commit to the check save (slot 1 stays open).
+  "MISSIONMARK label=rw7-rewound ut=(?:(?!savegame name=rw07-09-check-flight )[\\s\\S])*Reaped rp=",
+  "MISSIONMARK label=rw7-rewound ut=(?:(?!savegame name=rw07-09-check-flight )[\\s\\S])*Purged rp=",
+  # ---- F's accept applies once at the crossing ----
+  "Clock-crossing reached committed-future rows: [^\\r\\n]*ContractAccept@[\\s\\S]*Clock-crossing reached committed-future rows: [^\\r\\n]*ContractAccept@",
+  "kscaction action=accept-contract target=f1fb89dc-a471-42cf-94da-de4bb1080512 applied=true[\\s\\S]*kscaction action=accept-contract target=f1fb89dc-a471-42cf-94da-de4bb1080512 applied=true",
+  # ---- nothing records after the merge ----
+  "MISSIONMARK label=rw7-merged ut=[\\s\\S]*Recording started: vessel=",
+  "Game state: ContractCompleted ",
+  "Game state: ContractFailed ",
+]
+
+# REPORT-ONLY until the reading run: the point survives (the stand's slot stays open), the
+# merge writes its supersede rows and tombstones the re-fly's own rep penalty (variant B).
+[expectations.rewind]
+gating        = false
+rewindPoints  = { min = 1, max = 1 }
+supersedeRows = { min = 1 }
+tombstones    = { min = 1 }
+
+[runtime]
+budgetSeconds = 8600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

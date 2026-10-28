@@ -3192,6 +3192,22 @@ of the discard's step save (an InSession load onto the host's debris, pinned wit
 sealed-slot probe moved into the check flight. RW-5's three pins its first flight disproved (truncated=true,
 `stashslot rejected`, the unbound-provisional forbid) are fixed on its branch (796808140) and merged here.
 
+Progress 2026-10-28 (branch `rw7-death-push`): lane `RW-7-refly-kerbal-death` authored, never flown, plan
+row 5 (a kerbal dies in a Re-Fly; the attempt is discarded once and merged once). RW-6's prefix (H, F, a
+Rewind-to-Launch, G decoupled on the pad and committed, its pod slot stashed), then two Re-Flys of the pod slot
+that light the RT-5 with the new `PartAction button=activate` (ModuleEngines "Activate Engine": no staging, so
+the Mk16 chute stays stowed) and let the unchuted Mk1 pod crash with its generated stand-in. The first is
+discarded through the Esc menu (the death never reaches a walk or the KerbalDeath penalty producer, no tombstone,
+the pools and row count equal the pre-invoke ones, attempt 2's SRB reads `engine:ignited=0`). The second merges
+under loss swap variant B (`ReFlyMergeDominance.Evaluate`: the replaced slot holds no loss and the re-fly's
+KerbalDeath penalty lowers L'(A)), which tombstones the re-fly's own ReputationPenalty row (`Tombstoned N ...
+Reputation=N, Kerbal=0`, rep back at the pre-invoke 115.00) and keeps its death: the walk holds the kerbal
+Missing with a stock respawn after 7200 s (`MissingCrewsRespawn = True` on this host), and the lane warps past
+the respawn and requires the `respawn applied` release. Correction to the plan from the code: "the merge is
+refused if a later committed row uses the dead kerbal" is dropped, because the pod carries a stand-in whose
+death files under the slot owner and the only later committed use (H's KerbalAssignment) starts before the crash,
+which the world clause skips (`ReFlyMergeDominance.TryFindWorldConflict`).
+
 ---
 
 ## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
