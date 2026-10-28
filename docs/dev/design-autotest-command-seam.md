@@ -603,6 +603,13 @@ the updates below record how each verb arrived.
 > reading `engine:ignited=0|1` joins `state=`; new refusal `partaction-engine-not-found`.
 > Contract below (`#### PartAction`).
 
+> Update (PartAction chute, 2026-10-28): no new verb. `PartAction` gains `button=chute`
+> (REQUIRES `part=`): a parachute's "Deploy Chute", the `Deploy` `KSPEvent` of `ModuleParachute`
+> (KSP 1.12.5 decompiled `[KSPEvent(guiActive = true, guiName = "#autoLOC_6001348")]`). It arms the
+> chute without staging, so a lane lights a solid booster (`activate`) and lands under the chute
+> (RW-11). Candidates come from `ModuleParachute` modules only; a named part carrying none refuses
+> `partaction-parachute-not-found`. Contract below (`#### PartAction`).
+
 > Update (PartAction explode, 2026-10-28): no new verb. `PartAction` gains `button=explode`
 > (REQUIRES `part=`, no `all=true`: `partaction-all-arg-unexpected`): stock's `Part.explode()` on the
 > one part carrying the name (explosion FX, then `Die()`, so `onPartDie` and, for a crewed part,
@@ -4622,7 +4629,7 @@ after the split). The PAW buttons are `KSPEvent`s; the verb invokes the module's
 way a player clicks them, and read the part's module state back.
 
 **Grammar.** `cmd=PartAction button=<undock|decouple|controlfrom|deploy|retract|startconverter|
-stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|activate|explode>
+stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|activate|explode|chute>
 [part=<part name>]
 [converter=<ConverterName>] [all=true] [pid=<persistentId>] [expectSnapshot=true|false
 rec=<recordingId> tolerance=<abs>]`, issued in FLIGHT. `button=` REQUIRED, closed,

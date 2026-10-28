@@ -49,6 +49,11 @@ namespace Parsek.TestCommands
         /// <c>onPartDie</c> / <c>onCrewKilled</c> for its crew). Not a part-menu button; it lets a
         /// lane end a part deterministically when a physics impact may miss it.</summary>
         Explode,
+        /// <summary>A parachute's "Deploy Chute" (<c>ModuleParachute.Deploy</c>, KSP 1.12.5
+        /// decompiled: <c>[KSPEvent(guiActive = true, guiName = "#autoLOC_6001348")]</c>). It arms
+        /// the chute without staging, as the player's PAW click does; stock opens it once its own
+        /// pressure and altitude conditions hold.</summary>
+        ChuteDeploy,
     }
 
     /// <summary>One module reading of the target part for the <c>state=</c> answer field: plain
@@ -137,7 +142,7 @@ namespace Parsek.TestCommands
     ///
     /// <para><b>Grammar.</b> <c>cmd=PartAction button=undock|decouple|controlfrom|deploy|retract|
     /// startconverter|stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|
-    /// activate|explode [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [all=true] [pid=&lt;persistentId&gt;]
+    /// activate|explode|chute [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [all=true] [pid=&lt;persistentId&gt;]
     /// [expectSnapshot=true|false rec=&lt;recordingId&gt; tolerance=&lt;abs&gt;]</c>. The three snapshot
     /// args are for <c>inspect</c> only (<c>snapshot-arg-unexpected</c> elsewhere, and for
     /// <c>rec=</c> / <c>tolerance=</c> without <c>expectSnapshot=true</c>).
@@ -241,6 +246,7 @@ namespace Parsek.TestCommands
         internal const string RadiatorOffToken = "radiatoroff";
         internal const string ActivateToken = "activate";
         internal const string ExplodeToken = "explode";
+        internal const string ChuteToken = "chute";
 
         /// <summary>The <c>event=</c> of every explode: stock's <c>Part.explode()</c>.</summary>
         internal const string ExplodeEventName = "explode";
@@ -252,7 +258,7 @@ namespace Parsek.TestCommands
             UndockToken, DecoupleToken, ControlFromToken, DeployToken, RetractToken,
             StartConverterToken, StopConverterToken, ExperimentToken, LabProcessToken,
             LabTransmitToken, InspectToken, RadiatorOnToken, RadiatorOffToken, ActivateToken,
-            ExplodeToken,
+            ExplodeToken, ChuteToken,
         };
 
         /// <summary>The <c>event=</c> of every labprocess: the results dialog page's own lab
@@ -301,6 +307,7 @@ namespace Parsek.TestCommands
         internal const string LabUnavailableReason = "partaction-lab-unavailable";
         internal const string RadiatorNotFoundReason = "partaction-radiator-not-found";
         internal const string EngineNotFoundReason = "partaction-engine-not-found";
+        internal const string ParachuteNotFoundReason = "partaction-parachute-not-found";
 
         // Post-call ERROR terminal: the event was invoked and threw.
         internal const string EventThrewReason = "partaction-event-threw";
@@ -342,6 +349,7 @@ namespace Parsek.TestCommands
             "partaction-lab-unavailable",
             "partaction-radiator-not-found",
             "partaction-engine-not-found",
+            "partaction-parachute-not-found",
         };
 
         /// <summary>The post-call ERROR vocabulary.</summary>
@@ -374,6 +382,7 @@ namespace Parsek.TestCommands
                 case RadiatorOffToken: kind = PartActionKind.RadiatorOff; return null;
                 case ActivateToken: kind = PartActionKind.EngineActivate; return null;
                 case ExplodeToken: kind = PartActionKind.Explode; return null;
+                case ChuteToken: kind = PartActionKind.ChuteDeploy; return null;
                 default: return ButtonArgInvalidReason;
             }
         }
@@ -398,6 +407,7 @@ namespace Parsek.TestCommands
                 case PartActionKind.RadiatorOff: return RadiatorOffToken;
                 case PartActionKind.EngineActivate: return ActivateToken;
                 case PartActionKind.Explode: return ExplodeToken;
+                case PartActionKind.ChuteDeploy: return ChuteToken;
                 default: return "unknown";
             }
         }
@@ -418,11 +428,17 @@ namespace Parsek.TestCommands
         internal static bool IsEngineKind(PartActionKind kind)
             => kind == PartActionKind.EngineActivate;
 
+        /// <summary>True for the chute button, whose candidates come from <c>ModuleParachute</c>
+        /// only.</summary>
+        internal static bool IsParachuteKind(PartActionKind kind)
+            => kind == PartActionKind.ChuteDeploy;
+
         /// <summary>True for the buttons whose candidates come from one module type only (the
-        /// radiator pair, the engine button): the applier counts that type's modules on the
-        /// named parts for the <c>radiator-not-found</c> / <c>engine-not-found</c> gate.</summary>
+        /// radiator pair, the engine button, the chute button): the applier counts that type's
+        /// modules on the named parts for the <c>radiator-not-found</c> / <c>engine-not-found</c> /
+        /// <c>parachute-not-found</c> gate.</summary>
         internal static bool IsTypedModuleKind(PartActionKind kind)
-            => IsRadiatorKind(kind) || IsEngineKind(kind);
+            => IsRadiatorKind(kind) || IsEngineKind(kind) || IsParachuteKind(kind);
 
         /// <summary>True for the two buttons a <c>converter=</c> filter applies to.</summary>
         internal static bool AcceptsConverter(PartActionKind kind)
@@ -526,6 +542,9 @@ namespace Parsek.TestCommands
                 // ModuleEngines: [KSPEvent(guiActive = true, guiName = "#autoLOC_6001382")]
                 // public virtual void Activate(), "Activate Engine" (KSP 1.12.5 decompiled).
                 case PartActionKind.EngineActivate: return new[] { "Activate" };
+                // ModuleParachute: [KSPEvent(guiActive = true, guiName = "#autoLOC_6001348")]
+                // public void Deploy(), "Deploy Chute" (KSP 1.12.5 decompiled).
+                case PartActionKind.ChuteDeploy: return new[] { "Deploy" };
                 // labprocess presses the results dialog page's callback; inspect presses nothing;
                 // explode calls Part.explode() on the part itself (no KSPEvent).
                 default: return new string[0];
@@ -582,6 +601,7 @@ namespace Parsek.TestCommands
             if (converterName != null && matchingConverters == 0) return ConverterNotFoundReason;
             if (IsRadiatorKind(kind) && typedModules == 0) return RadiatorNotFoundReason;
             if (IsEngineKind(kind) && typedModules == 0) return EngineNotFoundReason;
+            if (IsParachuteKind(kind) && typedModules == 0) return ParachuteNotFoundReason;
             if (candidates == 0)
                 return kind == PartActionKind.LabProcess && experimentModules > 0
                     ? ExperimentNoDataReason

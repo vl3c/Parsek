@@ -459,7 +459,7 @@ Build order is in section 3.15. Each step ships unit tests and the matching harn
 
 ---
 
-## ~~SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY: a vessel recovery worth under 100 funds has no ledger row, so an authoritative patch erases it~~ [FILED AND FIXED 2026-10-28 from code reading, branch `fix-small-recovery-funds`; unit-tested only, NOT FLOWN, lane owed; product, medium (a gain lost for good, a reduction of the career total)]
+## ~~SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY: a vessel recovery worth under 100 funds has no ledger row, so an authoritative patch erases it~~ [FILED AND FIXED 2026-10-28 from code reading, branch `fix-small-recovery-funds`; LIVE-PROVEN 2026-10-28 by RW-11 (`2026-10-28_1919`); product, medium (a gain lost for good, a reduction of the career total)]
 
 `GameStateRecorder.OnFundsChanged` dropped every funds change under `FundsThreshold = 100`, and
 `LedgerRecoveryFundsPairing.ShouldSkipRecoveryFundsBeforePairing` skipped a recovery whose known
@@ -532,6 +532,13 @@ a science-carrying vessel under Patents Licensing (one `VesselRecovery funds pat
 the yield as its strategy leg only).
 
 ---
+
+LIVE PROOF (RW-11 `2026-10-28_1919`, branch `rw11-cheap-debris`): a Re-Fly lands the CS Flea under its chute on
+KSC grass and explodes its booster; when the merge lands at the Space Center, stock's clean-up recovers two
+25-funds fins inside the payout scope, each booked once (`VesselRecovery funds patched ... amount=25 ...
+recordingId=(none)`, untagged: one-part debris gets no recording), and after a Rewind-to-Launch both cross
+once with the pools back to their pre-rewind values. Not covered: Recover pressed inside a Re-Fly (the seam
+cannot drive it) and the Patents Licensing yield (needs 135+ science on that host).
 
 ## ~~STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED: a strategy discount on a part purchase, a repair or a contract penalty has no ledger leg, so a rewind and a repeat pays it twice~~ [FILED AND FIXED 2026-10-28 from code reading plus the stock `Strategies.cfg`, branch `fix-strategy-gross-legs`; unit-tested only, NOT FLOWN, lane owed; product, medium (a discount credited twice, breaking "nothing is paid twice")]
 

@@ -3959,7 +3959,7 @@ PARTACTION_BUTTONS_ACCEPTING_SNAPSHOT: Tuple[str, ...] = ("inspect",)
 PARTACTION_BUTTON_VALUES: Tuple[str, ...] = (
     "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
     "stopconverter", "experiment", "labprocess", "labtransmit", "inspect", "radiatoron",
-    "radiatoroff", "activate", "explode",
+    "radiatoroff", "activate", "explode", "chute",
 )
 PARTACTION_BUTTONS_REQUIRING_PART: Tuple[str, ...] = tuple(
     b for b in PARTACTION_BUTTON_VALUES if b != "undock")
@@ -3984,6 +3984,7 @@ PARTACTION_REASONS: Tuple[str, ...] = (
     "partaction-experiment-no-data", "partaction-lab-not-active-vessel",
     "partaction-lab-page-missing", "partaction-lab-value-zero", "partaction-lab-unavailable",
     "partaction-radiator-not-found", "partaction-engine-not-found",
+    "partaction-parachute-not-found",
 )
 
 
@@ -12174,6 +12175,8 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "partaction-radiator-not-found": "driver-arg",
     # The engine button on a part carrying no ModuleEngines: the same spec typo.
     "partaction-engine-not-found": "driver-arg",
+    # The chute button on a part carrying no ModuleParachute: the same spec typo.
+    "partaction-parachute-not-found": "driver-arg",
     # RevertToLaunch: a live Re-Fly marker and stock not offering the option are live states
     # (RevertToLaunchSourceSyncTests).
     "reverttolaunch-refly-session": "driver-gate",

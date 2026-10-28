@@ -4758,6 +4758,15 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # leaves on its first flight.
     # RW-10-lead-window-ksc-actions LEFT on run 2026-10-28_1750 (passed=3 failed=0 skipped=0,
     # pinned whole).
+    # RW-11-refly-cheap-debris-recovery ENTERED on 2026-10-28 (the rewind ledger campaign's
+    # cheap recovery lane on `cs-career-mun4`: a CS Flea Probe decoupled on the pad and
+    # committed, a Re-Fly of its pod slot that explodes the booster so the 25-funds fins fall
+    # free, the merge and the Space Center debris cleanup, a Rewind-to-Launch and the crossing,
+    # then the LedgerGroundTruth category's three FLIGHT cells, `total=3` literal with the split
+    # regexed). Not an H-series id; CommittedBatchTallySourceSyncTests gates its `total=`. It
+    # leaves on its first flight.
+    # RW-11-refly-cheap-debris-recovery LEFT on run 2026-10-28_1919 (passed=3 failed=0
+    # skipped=0, pinned whole).
     INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -10569,6 +10578,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "RW-9-strategy-repair-rebuy.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's strategy discount lane on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): Aggressive Negotiations active, the R&D annex demolished, a Jumping Flea recorded on the pad, committed and recovered, the R&D facility repaired with the discount, a Rewind-to-Launch, the refused second repair and the crossing; LIVE-PROVEN 2026-10-28 (`2026-10-28_1538`); owed: the ordinary promotion call",
         "RW-8-free-tech-gift-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's free tech gift lane on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): a Jumping Flea recorded on the pad, committed and recovered, the Aviation node gifted for free at the Space Center (KscAction gift-tech, stock's UnlockProtoTechNode), a Rewind-to-Launch to before the gift, the crossing and a cold reload; LIVE-PROVEN 2026-10-28 (`2026-10-28_1505`); owed: the ordinary promotion call",
         "RW-10-lead-window-ksc-actions.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lead window lane on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): Aggressive Negotiations activated and the R&D annex demolished inside the 15 s before a committed pad Flea's launch, the annex repaired with the discount, a Rewind-to-Launch whose window holds those rows as reached, the refused second repair, a contract accepted inside the window and dated at the held-through UT, and the crossing past the rewind save's UT; LIVE-PROVEN 2026-10-28 (`2026-10-28_1750`); owed: the ordinary promotion call",
+        "RW-11-refly-cheap-debris-recovery.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's cheap recovery lane on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): a CS Flea Probe decoupled on the pad and committed with its pod slot stashed, a Re-Fly of that slot that explodes the booster so its 25-funds fins fall free as debris, the merge and the Space Center debris cleanup recovering each fin under 100 funds, a Rewind-to-Launch and the crossing; LIVE-PROVEN 2026-10-28 (`2026-10-28_1919`); owed: the ordinary promotion call",
         "CS-6c-career-mun-science.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 6c on `cs-career-mun3` (CS-6b's produced save, stock-tree, not in the nightly instance set): the CS Mun Science launched from the VAB, CS-6's ascent, Mun transfer, capture and park, Goo / 2HOT / EVA-report readings in high Mun space, two lowering nodes under the Mun's 60 km threshold, crew report / Goo / 2HOT / EVA-report readings in low space, a MechJeb moon-return departure and CS-5's return tail in the composed mission `b11_mun_science_return`, the pod recovered and auto-committed, basicScience and electrics researched, closed by LedgerGroundTruth. LIVE-PROVEN 2026-10-28 (`2026-10-28_0028`, first flight); owed: the ordinary promotion call",
         "CS-4-career-orbit-return.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 4 on `cs-career-mc1` (CS-3b's produced save): research engineering101 + survivability, fly the CS Orbiter to LKO through MechJeb's classic ascent and a node-free native circularization (Tracking Station at level 0), deorbit, splash down, recover, completing REACHSPACE and ORBIT, then LedgerGroundTruth. LIVE-PROVEN 2026-10-26 (`2026-10-26_0521`); owed: the ordinary promotion call (stock-tree is not in the nightly set)",
         "CS-0-new-career-game.toml":"tier=operator as a FIXTURE BUILDER, NOT debt: CS-0-new-science-game's Career twin; its produced save is harvested once as `cs-career-new`, the host of the Career half of the campaign ladder. FLOWN PASS `2026-10-25_1744` and harvested; owed: nothing but the ordinary promotion call",
@@ -17498,7 +17508,7 @@ class PartActionSourceSyncTests(unittest.TestCase):
         consts = ("UndockToken", "DecoupleToken", "ControlFromToken", "DeployToken",
                   "RetractToken", "StartConverterToken", "StopConverterToken", "ExperimentToken",
                   "LabProcessToken", "LabTransmitToken", "InspectToken", "RadiatorOnToken",
-                  "RadiatorOffToken", "ActivateToken", "ExplodeToken")
+                  "RadiatorOffToken", "ActivateToken", "ExplodeToken", "ChuteToken")
         self.assertEqual(len(consts), len(hlib.PARTACTION_BUTTON_VALUES))
         for token, const in zip(hlib.PARTACTION_BUTTON_VALUES, consts):
             self.assertIn('internal const string %s = "%s";' % (const, token), text)
@@ -17548,7 +17558,7 @@ class PartActionSourceSyncTests(unittest.TestCase):
         # inherits it) and nothing else on the part, and counts the engine modules for its
         # engine-not-found gate.
         self.assertIn("if (!(module is ModuleEngines)) continue;", applier)
-        self.assertIn("radiatorKind ? radiatorModules : engineKind ? engineModules : -1", applier)
+        self.assertIn("radiatorKind ? radiatorModules : engineKind ? engineModules : parachuteKind ? parachuteModules : -1", applier)
         self.assertIn("new PartActionWarpContext(v.packed,", applier)
         # labprocess: the experiment's own Review Data opens a missing page, the page's
         # labValue is written before the gates, and only then the page's lab callback runs.
