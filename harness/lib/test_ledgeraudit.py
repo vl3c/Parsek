@@ -1,0 +1,1069 @@
+"""Unit tests for harness/lib/ledgeraudit.py (the offline ledger audit) and its
+thin shell harness/tools/ledger_audit.py.
+
+Every synthetic line is built from the C# format string that writes it (the
+builders below name the file); ``SourceSyncTests`` reads those files with
+comments stripped so a reworded literal reds here instead of turning a check into
+a silent 0.
+
+Runs under ``python -m unittest discover -s lib -q``. ASCII only; stdlib only.
+"""
+
+import contextlib
+import gzip
+import io
+import json
+import os
+import re
+import shutil
+import sys
+import tempfile
+import unittest
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_HARNESS = os.path.dirname(_HERE)
+_TOOLS = os.path.join(_HARNESS, "tools")
+for _p in (_HERE, _TOOLS):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+import ledgeraudit as la  # noqa: E402
+import ledger_audit as tool  # noqa: E402
+
+REPO_ROOT = os.path.dirname(_HARNESS)
+
+
+# ---------------------------------------------------------------------------
+# Line builders (each mirrors one C# format; file named per builder)
+# ---------------------------------------------------------------------------
+
+def stamp(sec):
+    s = int(sec)
+    ms = int(round((sec - s) * 1000))
+    return "[LOG %02d:%02d:%02d.%03d] " % ((s // 3600) % 24, (s // 60) % 60, s % 60, ms)
+
+
+def P(level, sub, msg, t=36000.0):
+    """ParsekLog.Write: "[Parsek][{level}][{safeSubsystem}] {safeMessage}" behind Debug.Log."""
+    return stamp(t) + "[Parsek][%s][%s] %s" % (level, sub, msg)
+
+
+def scene(frm, to, t=36000.0):
+    return stamp(t) + ("[HighLogic]: =========================== Scene Change : From %s to %s "
+                       "(Async) =====================" % (frm, to))
+
+
+def structural(seq, funds=25000.0, sci=1.5, rep=0.0, contracts=0, t=36000.0, cutoff="null",
+               facilities="LaunchPad:0"):
+    # LedgerTrace.FormatStructural
+    return P("INFO", "LedgerTrace",
+             "phase=Structural recalcSeq=%d funds=%.2f science=%.2f rep=%.2f facilities=[%s] "
+             "targetTechNodes=0 contracts=%d cutoff=%s authReduction=false"
+             % (seq, funds, sci, rep, facilities, contracts, cutoff), t)
+
+
+def anomaly(seq=1, resource="funds", ident="pool", t=36000.0):
+    # LedgerTrace.FormatAnomaly
+    return P("WARN", "LedgerTrace",
+             "phase=Anomaly recalcSeq=%d resource=%s id=%s reason=ledger-vs-truth "
+             "target=1 actual=2 delta=1 tol=0.01" % (seq, resource, ident), t)
+
+
+def trace_change(seq=1, t=36000.0):
+    return P("VERBOSE", "LedgerTrace", "phase=Change recalcSeq=%d resource=funds id=pool "
+             "change=1->2" % seq, t)
+
+
+def ms_reset(prev=0, seeded=False, t=36000.0):
+    # MilestonesModule.Reset (both shapes)
+    if seeded:
+        return P("VERBOSE", "Milestones", "Reset: cleared %d credited milestones; pre-ledger seed "
+                 "credits 2 node(s) and 1 record band(s)" % prev, t)
+    return P("VERBOSE", "Milestones", "Reset: cleared %d credited milestones" % prev, t)
+
+
+def credited(mid, ut=15.1, total=1, record=False, t=36000.0):
+    # MilestonesModule.ProcessAction / ProcessRecordRow
+    tail = ", thresholds=1, crossed=[1]" if record else ""
+    return P("VERBOSE", "Milestones",
+             "Credited milestone '%s' at UT=%.1f (recording=r1, funds=800, rep=0, sci=0.0%s), "
+             "total credited=%d" % (mid, ut, tail, total), t)
+
+
+def earning(subject, credited_total, max_value, cap_hit=False, t=36000.0):
+    # ScienceModule.ProcessEarning (both shapes)
+    if cap_hit:
+        msg = ("Earning (cap hit): subject=%s, awarded=5, effective=1, headroom=1, "
+               "creditedTotal=%r, maxValue=%r, runningScience=3, recordingId=r1"
+               % (subject, credited_total, max_value))
+    else:
+        msg = ("Earning: subject=%s, awarded=1.5, effective=1.5, creditedTotal=%r, maxValue=%r, "
+               "runningScience=1.5, recordingId=r1" % (subject, credited_total, max_value))
+    return P("VERBOSE", "ScienceModule", msg, t)
+
+
+def took_back(t=36000.0):
+    # StockShadowTakeBack.FormatTakeBack
+    return P("WARN", "TakeBack", "Took back 800 Funds stock paid again for milestone 'FirstLaunch' "
+             "(row act_1 ut=15.1 cseq=3 reason=MilestoneAlreadyAchieved; already credited by "
+             "row act_0; FirstLaunch)", t)
+
+
+def shortfall(t=36000.0):
+    # KspStatePatcher.EmitTakeBackShortfall
+    return P("WARN", "TakeBack", "PatchFunds: take-back shortfall 100 of 800: the duplicate payment "
+             "was spent before this update; running=-100 stays below 0 and later gains repay it "
+             "first (a debt, design 3.13 part 4)", t)
+
+
+def break_off(t=36000.0):
+    # StockShadowTakeBack.NoteLoad
+    return P("WARN", "TakeBack", "Timeline break not recorded for load kind=QuickloadFlight: the "
+             "loaded UT is unknown (a duplicate stock payment after this load is kept as before)", t)
+
+
+def pool_adj(sub="Funds", amount="250", ident="act_9", t=36000.0):
+    # FundsModule / ScienceModule / ReputationModule ProcessStockPoolAdjustment
+    if sub == "Reputation":
+        return P("VERBOSE", sub, "StockPoolAdjustment: %s (post-curve) id=%s ut=12 runningRep=3"
+                 % (amount, ident), t)
+    return P("VERBOSE", sub, "StockPoolAdjustment: %s id=%s ut=12 runningBalance=900"
+             % (amount, ident), t)
+
+
+def debt_charge(sub="Funds", t=36000.0):
+    return P("VERBOSE", sub, "Debt charge: FundsSpending id=act_2 ut=40 charged=100 debt=100 "
+             "runningBalance=-100", t)
+
+
+def science_debt(t=36000.0):
+    return P("INFO", "ScienceModule", "Spending charged into science debt: nodeId=basicRocketry "
+             "ut=40 cost=5 runningBefore=2 debt=3 runningScience=-3 (the tech stays researched; "
+             "later earnings repay the debt before the pool rises)", t)
+
+
+def aborting(t=36000.0):
+    return P("WARN", "KspStatePatcher", "PatchAll: ABORTING rewind ledger patch: divergence flagged "
+             "and abort forced; economy/tech/contracts/milestones NOT patched, crew roster already "
+             "applied; loaded quicksave values stand", t)
+
+
+def deserialize_fail(t=36000.0):
+    return P("WARN", "Ledger", "Failed to deserialize action at index 4: bad type", t)
+
+
+def refuse_upgrade(t=36000.0):
+    return P("WARN", "Ledger", "SeedInitialScience: ScienceInitial already exists (amount=0), "
+             "refusing to upgrade to amount=12 (#557 / PR #499: baseline is authoritative once "
+             "seeded)", t)
+
+
+def not_affordable(t=36000.0):
+    return P("WARN", "Funds", "FundsSpending NOT affordable: -500, source=VesselBuild, "
+             "runningBalance=100, recordingId=(none) - possible bug or data corruption", t)
+
+
+def deferred(reason="live recorder active", t=36000.0):
+    return P("VERBOSE", "LedgerOrchestrator", "RecalculateAndPatch: deferred KSP state patch (%s)"
+             % reason, t)
+
+
+def patched(t=36000.0):
+    return P("VERBOSE", "LedgerOrchestrator", "RecalculateAndPatch: drawdown-guard "
+             "authoritativeReduction=False (rewinding=False, reFlyMarker=False, mergeJournal=False, "
+             "tombstone=False, rewindResAdjust=False, reFlyDiscard=False)", t)
+
+
+def classified(early="Cold", refined="Cold", scn="SPACECENTER", t=36000.0):
+    # LoadReconcilePolicy.FormatClassificationLine
+    return P("INFO", "LoadPolicy", "Load classified: early=%s refined=%s scene=%s "
+             "initialLoadDone=false rewinding=false reFlyInvoke=false discardReFly=none "
+             "handoff=absent coldReason=none saveFileLoad=false revertPending=false "
+             "intentAgeFrames=-1 nodeUT=NaN" % (early, refined, scn), t)
+
+
+def onload_done(t=36000.0, status="completed"):
+    # ParsekScenario.FormatLoadTimingMessage
+    return P("VERBOSE", "Diagnostics", "OnLoad: 120ms (3 recordings) phase=done status=%s" % status, t)
+
+
+def unbound(t=36000.0):
+    return P("WARN", "ReFlySession", "outcome=unbound-refly-provisional reason=restore-give-up "
+             "sess=s1 provisional=p1 markerTree=t1", t)
+
+
+def retired(t=36000.0):
+    return P("INFO", "ReFlySession", "outcome=retired-empty-provisional rec=p1 sess=s1 origin=o1 "
+             "prune=leaf - the session's provisional carries no payload", t)
+
+
+def dominance(result="pass", t=36000.0):
+    # ReFlyMergeDominance.LogVerdict
+    fields = ("pool=funds ut=12 before=1 after=2" if result == "pass"
+              else "world=milestone:FirstLaunch ut=12")
+    return P("INFO", "LedgerSwap", "Merge dominance check sess=s1 result=%s %s context=merge "
+             "attemptRows=1 retireSet=0 closure=1 notCounted=0" % (result, fields), t)
+
+
+def owned(t=36000.0):
+    return P("INFO", "Funds", "FacilityUpgrade not charged: facility LaunchPad level 1 is already "
+             "owned at ut=40 cseq=7 (held by act_3, captured after this row), cost=100, "
+             "recording=(none), runningBalance=900", t)
+
+
+def pid_only(t=36000.0):
+    return P("VERBOSE", "ChainWalker", "Claim PID=100000 tree=t1 bp=b1 resolved no launch guid; "
+             "chain is pid-only", t)
+
+
+def guid_unknown(t=36000.0):
+    return P("INFO", "LedgerOrchestrator", "PickRecoveryRecordingId path: vessel='X' pid=1 ut=40 "
+             "path=name reason=live-launch-guid-unknown nameMatches=2", t)
+
+
+def subsurface(rec="rec42", t=36000.0):
+    return P("VERBOSE", "FinalizerCache", "Refresh declined: owner=flight rec=%s pid=7 "
+             "reason=subsurface-destroyed-suppressed" % rec, t)
+
+
+def fallback(rec="rec43", t=36000.0):
+    return P("INFO", "Extrapolator", "TryFinalizeRecording: recovered sub-surface live-orbit "
+             "fallback for '%s' by extrapolating recorded surface point (pointUT=1.000, "
+             "source=last, recordedAlt=-3.0) -> terminal=Orbiting terminalUT=50.0 "
+             "appendedSegments=1" % rec, t)
+
+
+def gt_report(facets, t=36000.0):
+    # LedgerDivergenceReport.Format: header + one raw line per divergence
+    lines = [P("WARN", "LedgerGroundTruth", "LedgerDivergenceReport: total=%d facetsCompared=7"
+               % len(facets), t)]
+    for facet, kind, detail in facets:
+        lines.append("facet=%s kind=%s id=x expected=1 recon=2 detail=%s" % (facet, kind, detail))
+    return lines
+
+
+def gt_result(hard=0, report_only=0, t=36000.0):
+    return P("INFO", "LedgerGroundTruth", "result: hardFailures=%d reportOnly=%d facetsCompared=7 "
+             "strict=False" % (hard, report_only), t)
+
+
+def run_audit(lines, exp=None, baseline=None, ledgers=None):
+    return la.audit(lines, exp, baseline, ledgers)
+
+
+def by_check(result, check):
+    for r in result["results"]:
+        if r["check"] == check:
+            return r
+    raise KeyError(check)
+
+
+# ---------------------------------------------------------------------------
+# Parsing
+# ---------------------------------------------------------------------------
+
+class ParseLogTests(unittest.TestCase):
+    def test_stamped_parsek_line(self):
+        recs = la.parse_log([P("INFO", "Funds", "hello world", t=3661.5)])
+        self.assertEqual(1, len(recs))
+        r = recs[0]
+        self.assertEqual(("INFO", "Funds", "hello world"), (r.level, r.sub, r.msg))
+        self.assertAlmostEqual(3661.5, r.t)
+        self.assertEqual(1, r.n)
+
+    def test_warn_stamp_and_colon_variant(self):
+        recs = la.parse_log(["[WRN 01:00:00.250]: [Parsek][WARN][Ledger] x",
+                             "[ERR 01:00:01] [Parsek][ERROR][Ledger] y"])
+        self.assertEqual(["x", "y"], [r.msg for r in recs])
+        self.assertAlmostEqual(3600.25, recs[0].t)
+
+    def test_bare_parsek_line_has_no_time(self):
+        recs = la.parse_log(["[Parsek][VERBOSE][Milestones] Reset: cleared 0 credited milestones"])
+        self.assertIsNone(recs[0].t)
+        self.assertEqual("Milestones", recs[0].sub)
+
+    def test_continuation_lines_attach_to_previous_record(self):
+        recs = la.parse_log(gt_report([("Funds", "ValueMismatch", "d")]))
+        self.assertEqual(1, len(recs))
+        self.assertEqual(1, len(recs[0].cont))
+
+    def test_midnight_rollover_unwraps(self):
+        recs = la.parse_log([P("INFO", "A", "a", t=86399.0), P("INFO", "A", "b", t=1.0)])
+        self.assertAlmostEqual(86401.0, recs[1].t)
+
+    def test_scene_change_record(self):
+        recs = la.parse_log([scene("SPACECENTER", "FLIGHT")])
+        self.assertEqual(("SPACECENTER", "FLIGHT"), recs[0].scene)
+        self.assertFalse(recs[0].is_parsek)
+
+    def test_the_real_committed_excerpt_parses(self):
+        path = os.path.join(_HERE, "testdata", "flighteff_b11_ksp_excerpt.log")
+        with open(path, "r", encoding="utf-8") as fh:
+            recs = la.parse_log(fh.read().splitlines())
+        parsek = [r for r in recs if r.is_parsek]
+        self.assertTrue(parsek)
+        self.assertTrue(all(r.t is not None for r in parsek))
+        self.assertTrue(any(r.scene for r in recs))
+        self.assertEqual("TestCommands", parsek[0].sub)
+
+
+# ---------------------------------------------------------------------------
+# 1 + 2
+# ---------------------------------------------------------------------------
+
+class LedgerTraceTests(unittest.TestCase):
+    def test_no_trace_line_skips_both(self):
+        res = run_audit([P("INFO", "Funds", "x")])
+        self.assertEqual(la.SKIP, by_check(res, "ledger-anomaly")["status"])
+        self.assertIn("ledgerTracing off", by_check(res, "ledger-anomaly")["summary"])
+        self.assertEqual(la.SKIP, by_check(res, "recalc-rate")["status"])
+
+    def test_clean_trace_passes(self):
+        res = run_audit([structural(1), trace_change(1)])
+        self.assertEqual(la.PASS, by_check(res, "ledger-anomaly")["status"])
+
+    def test_anomaly_fails_and_cannot_be_expected(self):
+        exp = la.parse_expectations({"expectedLines": ["phase=Anomaly"]})
+        res = run_audit([structural(1), anomaly(1, "science", "pool")], exp)
+        r = by_check(res, "ledger-anomaly")
+        self.assertEqual(la.FAIL, r["status"])
+        self.assertIn("resource=science id=pool reason=ledger-vs-truth", "\n".join(r["details"]))
+        self.assertEqual(1, la.exit_code(res))
+
+    def test_structural_rows_and_rate(self):
+        lines = [structural(i + 1, funds=1000.0 + i, t=36000.0 + i * 10) for i in range(12)]
+        r = by_check(run_audit(lines), "recalc-rate")
+        self.assertEqual(la.REPORT, r["status"])
+        self.assertEqual(12, len(r["rows"]))
+        self.assertEqual(7, r["peakPerMinute"])  # 0..60 s inclusive holds 7 rows
+        self.assertAlmostEqual(1001.0, r["rows"][1]["funds"])
+
+    def test_rate_expectation_arms_the_check(self):
+        lines = [structural(i + 1, t=36000.0 + i) for i in range(10)]
+        exp = la.parse_expectations({"maxStructuralPerMinute": 5})
+        self.assertEqual(la.FAIL, by_check(run_audit(lines, exp), "recalc-rate")["status"])
+        exp = la.parse_expectations({"maxStructuralPerMinute": 10})
+        self.assertEqual(la.PASS, by_check(run_audit(lines, exp), "recalc-rate")["status"])
+
+    def test_seq_restart_and_gap_reported(self):
+        r = by_check(run_audit([structural(3), structural(5), structural(1)]), "recalc-rate")
+        self.assertIn("recalcSeq restarts: 1, gaps (a burst with no structural line): 1",
+                      r["details"][0])
+
+    def test_peak_window(self):
+        self.assertEqual(0, la.peak_window_count([]))
+        self.assertEqual(3, la.peak_window_count([0, 30, 60, 61]))
+
+    def test_pool_timeline_collapses_unchanged_rows(self):
+        rows = la.parse_structural(la.parse_log(
+            [structural(1, funds=10), structural(2, funds=10), structural(3, funds=20)]))
+        out = la.pool_timeline(rows)
+        self.assertEqual(4, len(out))  # header, row 1, collapse note, row 3
+        self.assertIn("(1 unchanged recalc(s))", out[2])
+        self.assertIn("20.00", out[3])
+
+
+# ---------------------------------------------------------------------------
+# 3
+# ---------------------------------------------------------------------------
+
+class PaidTwiceTests(unittest.TestCase):
+    def test_credit_once_per_walk_passes(self):
+        lines = [ms_reset(0), credited("FirstLaunch"), credited("RecordsSpeed", record=True),
+                 ms_reset(2), credited("FirstLaunch"), credited("RecordsSpeed", record=True)]
+        r = by_check(run_audit(lines), "paid-twice")
+        self.assertEqual(la.PASS, r["status"])
+        self.assertIn("2 walk(s), 4 credit line(s), 0 id(s)", r["summary"])
+
+    def test_same_id_twice_in_one_walk_fails(self):
+        lines = [ms_reset(0), credited("FirstLaunch"), credited("Kerbin/Orbit"),
+                 credited("FirstLaunch")]
+        res = run_audit(lines, la.parse_expectations({"expectedLines": ["Credited milestone"]}))
+        r = by_check(res, "paid-twice")
+        self.assertEqual(la.FAIL, r["status"])
+        self.assertEqual([{"walk": 1, "walkLine": 1, "id": "FirstLaunch", "count": 2,
+                           "lines": [2, 4]}], r["dups"])
+        self.assertIn("FirstLaunch", "\n".join(la.credited_twice_table(r["dups"])))
+
+    def test_seeded_reset_shape_splits_walks(self):
+        lines = [ms_reset(0, seeded=True), credited("A"), ms_reset(1, seeded=True), credited("A")]
+        self.assertEqual(la.PASS, by_check(run_audit(lines), "paid-twice")["status"])
+
+    def test_other_modules_reset_lines_do_not_split(self):
+        # ScienceModule / FacilitiesModule / ContractsModule print their own Reset lines.
+        lines = [ms_reset(0), credited("A"),
+                 P("VERBOSE", "ScienceModule", "Reset: cleared 3 subjects, runningScience=0, "
+                   "totalCommittedSpendings=0, totalEffectiveEarnings=0"),
+                 P("VERBOSE", "Facilities", "Reset: cleared 9 tracked facilities"),
+                 credited("A")]
+        self.assertEqual(la.FAIL, by_check(run_audit(lines), "paid-twice")["status"])
+
+    def test_conversion_leg_rewalk_is_its_own_walk(self):
+        # RunWalk's second RunWalkPass resets every module again, so it logs a Reset.
+        lines = [ms_reset(0), credited("A"),
+                 P("VERBOSE", "RecalcEngine",
+                   "Conversion legs follow their cause: walking again with the rescaled legs"),
+                 ms_reset(1), credited("A")]
+        self.assertEqual(la.PASS, by_check(run_audit(lines), "paid-twice")["status"])
+
+    def test_probe_and_projection_walks_are_silent_so_nothing_is_excluded(self):
+        # A probe walk between two visible walks logs nothing (SuppressScope); the
+        # visible walks' credits stay separated by their own resets.
+        walks = la.split_milestone_walks(la.parse_log(
+            [ms_reset(0), credited("A"), ms_reset(1), credited("A"), credited("B")]))
+        self.assertEqual([1, 2], [w["index"] for w in walks])
+        self.assertEqual([["A"], ["A", "B"]], [[c[0] for c in w["credits"]] for w in walks])
+
+    def test_credits_before_any_reset_form_walk_zero(self):
+        walks = la.split_milestone_walks(la.parse_log([credited("A"), credited("A"), ms_reset(2)]))
+        self.assertEqual(0, walks[0]["index"])
+        self.assertIsNone(walks[0]["startLine"])
+        self.assertEqual(1, len(la.credited_twice(walks)))
+
+    def test_no_milestone_line_skips(self):
+        self.assertEqual(la.SKIP, by_check(run_audit([P("INFO", "X", "y")]), "paid-twice")["status"])
+
+    def test_duplicate_line_is_not_a_credit(self):
+        lines = [ms_reset(0), credited("A"),
+                 P("VERBOSE", "Milestones", "Duplicate milestone 'A' zeroed at UT=20.0 "
+                   "(recording=r2)")]
+        self.assertEqual(la.PASS, by_check(run_audit(lines), "paid-twice")["status"])
+
+
+# ---------------------------------------------------------------------------
+# 4
+# ---------------------------------------------------------------------------
+
+class SubjectCapTests(unittest.TestCase):
+    def test_within_cap_passes_both_shapes(self):
+        lines = [earning("s1", 1.5, 1.5), earning("s1", 6.0, 6.0, cap_hit=True),
+                 earning("s2", 6.0000001, 6.0)]
+        r = by_check(run_audit(lines), "subject-over-cap")
+        self.assertEqual(la.PASS, r["status"])
+        self.assertIn("3 earning line(s), 0 over", r["summary"])
+
+    def test_over_cap_fails(self):
+        r = by_check(run_audit([earning("crewReport@KerbinSrfLanded", 7.5, 6.0, cap_hit=True)]),
+                     "subject-over-cap")
+        self.assertEqual(la.FAIL, r["status"])
+        self.assertIn("subject=crewReport@KerbinSrfLanded creditedTotal=7.5 > maxValue=6.0",
+                      r["details"][0])
+
+    def test_exponent_values_parse(self):
+        r = by_check(run_audit([earning("s", 1e-05, 2e-05)]), "subject-over-cap")
+        self.assertEqual(la.PASS, r["status"])
+
+    def test_unparsed_earning_line_fails(self):
+        r = by_check(run_audit([P("VERBOSE", "ScienceModule", "Earning: subject=s, awarded=1")]),
+                     "subject-over-cap")
+        self.assertEqual(la.FAIL, r["status"])
+        self.assertIn("did not parse", r["details"][-1])
+
+    def test_no_earning_skips(self):
+        self.assertEqual(la.SKIP, by_check(run_audit([]), "subject-over-cap")["status"])
+
+
+# ---------------------------------------------------------------------------
+# 5, 6, 8, 9, 12 + expectations
+# ---------------------------------------------------------------------------
+
+class LiteralScanTests(unittest.TestCase):
+    def test_clean_log_passes_every_absence_check(self):
+        res = run_audit([P("INFO", "Funds", "nothing to see")])
+        for check in ("take-back", "take-back-off", "debt", "hard-stop", "refly-leftover"):
+            self.assertEqual(la.PASS, by_check(res, check)["status"], check)
+        self.assertEqual(0, la.exit_code(res))
+
+    def test_take_back_fails_unless_expected(self):
+        lines = [took_back(), shortfall()]
+        self.assertEqual(la.FAIL, by_check(run_audit(lines), "take-back")["status"])
+        exp = la.parse_expectations({"expected": ["take-back"]})
+        r = by_check(run_audit(lines, exp), "take-back")
+        self.assertEqual(la.EXPECTED, r["status"])
+        self.assertIn("2 expected", r["summary"])
+
+    def test_expected_line_literal_marks_only_matching_lines(self):
+        exp = la.parse_expectations({"expectedLines": ["Took back"]})
+        r = by_check(run_audit([took_back(), shortfall()], exp), "take-back")
+        self.assertEqual(la.FAIL, r["status"])  # the shortfall is not covered
+        self.assertEqual([True, False], [f["expected"] for f in r["findings"]])
+
+    def test_take_back_off_is_never_expectable(self):
+        exp = la.parse_expectations({"expectedLines": ["Timeline break"], "expected": ["take-back"]})
+        self.assertEqual(la.FAIL, by_check(run_audit([break_off()], exp), "take-back-off")["status"])
+
+    def test_debt(self):
+        lines = [debt_charge("Funds"), debt_charge("ScienceModule"), debt_charge("Reputation"),
+                 science_debt()]
+        r = by_check(run_audit(lines), "debt")
+        self.assertEqual(la.FAIL, r["status"])
+        self.assertEqual(4, len(r["findings"]))
+        exp = la.parse_expectations({"expected": ["debt"]})
+        self.assertEqual(la.EXPECTED, by_check(run_audit(lines, exp), "debt")["status"])
+
+    def test_hard_stops_fail_and_cannot_be_masked(self):
+        exp = la.parse_expectations({"expected": ["not-affordable"],
+                                     "expectedLines": ["ABORTING", "Failed", "refusing"]})
+        for line in (aborting(), deserialize_fail(), refuse_upgrade()):
+            self.assertEqual(la.FAIL, by_check(run_audit([line], exp), "hard-stop")["status"])
+
+    def test_not_affordable_expectable(self):
+        self.assertEqual(la.FAIL, by_check(run_audit([not_affordable()]), "hard-stop")["status"])
+        for exp in (la.parse_expectations({"expected": ["not-affordable"]}),
+                    la.parse_expectations({"expectedLines": ["NOT affordable"]})):
+            self.assertEqual(la.EXPECTED,
+                             by_check(run_audit([not_affordable()], exp), "hard-stop")["status"])
+        sci = P("WARN", "ScienceModule", "StrategyActivate science NOT affordable: strategyId=x, "
+                "cost=5, runningScience=1")
+        exp = la.parse_expectations({"expected": ["not-affordable"]})
+        self.assertEqual(la.EXPECTED, by_check(run_audit([sci], exp), "hard-stop")["status"])
+
+    def test_not_affordable_expected_but_abort_still_fails(self):
+        exp = la.parse_expectations({"expected": ["not-affordable"]})
+        r = by_check(run_audit([not_affordable(), aborting()], exp), "hard-stop")
+        self.assertEqual(la.FAIL, r["status"])
+
+    def test_refly_leftovers(self):
+        lines = [unbound(), retired()]
+        self.assertEqual(la.FAIL, by_check(run_audit(lines), "refly-leftover")["status"])
+        exp = la.parse_expectations({"expected": ["refly-leftover"]})
+        self.assertEqual(la.EXPECTED, by_check(run_audit(lines, exp), "refly-leftover")["status"])
+
+    def test_literal_in_other_subsystem_ignored_where_scoped(self):
+        # "Took back" is scoped to the TakeBack tag.
+        r = by_check(run_audit([P("INFO", "UI", "Took back the window")]), "take-back")
+        self.assertEqual(la.PASS, r["status"])
+
+    def test_unused_expectations_are_listed(self):
+        exp = la.parse_expectations({"expected": ["debt"], "expectedLines": ["NOT affordable"]})
+        res = run_audit([P("INFO", "X", "y")], exp)
+        self.assertEqual(["debt", "NOT affordable"], res["unusedExpectations"])
+        self.assertIn("expectations never matched", la.render(res))
+        self.assertEqual(0, la.exit_code(res))
+
+
+class ExpectationsParseTests(unittest.TestCase):
+    def test_none_is_empty(self):
+        e = la.parse_expectations(None)
+        self.assertEqual((), e.expected)
+        self.assertFalse(e.merge_must_pass)
+
+    def test_valid_table(self):
+        e = la.parse_expectations({"expected": ["take-back"], "expectedLines": ["Took back"],
+                                   "maxStructuralPerMinute": 30, "mergeMustPass": True}, "x.toml")
+        self.assertEqual(("take-back",), e.expected)
+        self.assertEqual(30.0, e.max_structural_per_minute)
+        self.assertTrue(e.merge_must_pass)
+        self.assertEqual("x.toml", e.source)
+
+    def test_rejections(self):
+        for bad in ({"expect": []}, {"expected": ["paid-twice"]}, {"expected": ["nope"]},
+                    {"expected": "debt"}, {"expectedLines": [""]}, {"expectedLines": [3]},
+                    {"maxStructuralPerMinute": 0}, {"maxStructuralPerMinute": True},
+                    {"maxStructuralPerMinute": "5"}, {"mergeMustPass": "yes"}, ["debt"]):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                la.parse_expectations(bad)
+
+
+# ---------------------------------------------------------------------------
+# 7, 10, 11, 13 - 16
+# ---------------------------------------------------------------------------
+
+class ReportChecksTests(unittest.TestCase):
+    def test_stock_pool_adjustment_dedupes_per_row(self):
+        lines = [pool_adj("Funds", "250", "act_9"), pool_adj("Funds", "250", "act_9"),
+                 pool_adj("Reputation", "1.5", "act_8"), pool_adj("ScienceModule", "-2", "act_7")]
+        r = by_check(run_audit(lines), "stock-pool-adjustment")
+        self.assertEqual(la.REPORT, r["status"])
+        self.assertIn("3 distinct row(s), 4 line(s)", r["summary"])
+        self.assertIn("[Funds] id=act_9 amount=250 ut=12 walked 2x (first L1)", r["details"])
+        self.assertIn("[Reputation] id=act_8 amount=1.5 ut=12 walked 1x (first L3)", r["details"])
+
+    def test_deferred_patch_closed_before_scene_change(self):
+        r = by_check(run_audit([deferred(), patched(), scene("FLIGHT", "SPACECENTER")]),
+                     "deferred-patch")
+        self.assertEqual(la.REPORT, r["status"])
+        self.assertIn("scene changes with a deferral open: 0", r["details"])
+        self.assertIn("open at log end: no", r["details"])
+
+    def test_deferred_patch_open_across_scene_change_is_reported_not_failed(self):
+        lines = [deferred("pending tree 'Kerbal X' state=Limbo"), scene("FLIGHT", "SPACECENTER"),
+                 patched(), deferred()]
+        res = run_audit(lines)
+        r = by_check(res, "deferred-patch")
+        self.assertEqual(la.REPORT, r["status"])
+        self.assertIn("1 scene change(s) with one open", r["summary"])
+        self.assertIn("reason 'pending tree '<tree>' state=Limbo': 1", r["details"])
+        self.assertTrue(any(d.startswith("open at log end: yes, since L4") for d in r["details"]))
+        self.assertEqual(0, la.exit_code(res))
+
+    def test_deferred_patch_skip_without_lines(self):
+        self.assertEqual(la.SKIP, by_check(run_audit([]), "deferred-patch")["status"])
+
+    def test_load_kind_one_per_load_passes(self):
+        lines = [classified("Cold", "Cold"), onload_done(),
+                 classified("InSession", "QuickloadFlight", "FLIGHT"), onload_done(),
+                 onload_done()]  # an inert / early-return load classifies nothing
+        r = by_check(run_audit(lines), "load-kind")
+        self.assertEqual(la.PASS, r["status"])
+        self.assertIn("sequence: Cold(Cold)@SPACECENTER -> QuickloadFlight(InSession)@FLIGHT",
+                      r["details"])
+        self.assertIn("2 classification(s) over 3 OnLoad(s)", r["summary"])
+
+    def test_two_classifications_in_one_load_fail(self):
+        lines = [classified("Cold", "Cold"), classified("InSession", "StockRevert"), onload_done()]
+        r = by_check(run_audit(lines), "load-kind")
+        self.assertEqual(la.FAIL, r["status"])
+        self.assertIn("second classification in the load that began at L1", r["details"][-1])
+
+    def test_load_kind_without_terminators_reports_only(self):
+        r = by_check(run_audit([classified(), classified()]), "load-kind")
+        self.assertEqual(la.REPORT, r["status"])
+        self.assertIn("loads cannot be delimited", r["details"][1])
+
+    def test_load_kind_skip(self):
+        self.assertEqual(la.SKIP, by_check(run_audit([onload_done()]), "load-kind")["status"])
+
+    def test_merge_refused_report_and_armed(self):
+        lines = [dominance("pass"), dominance("refuse")]
+        r = by_check(run_audit(lines), "merge-refused")
+        self.assertEqual(la.REPORT, r["status"])
+        self.assertIn("2 verdict(s), 1 refused", r["summary"])
+        exp = la.parse_expectations({"mergeMustPass": True})
+        self.assertEqual(la.FAIL, by_check(run_audit(lines, exp), "merge-refused")["status"])
+        self.assertEqual(la.PASS, by_check(run_audit([dominance("pass")], exp),
+                                           "merge-refused")["status"])
+
+    def test_merge_skipped_and_threw_lines_are_not_verdicts(self):
+        lines = [P("INFO", "LedgerSwap", "Merge dominance check skipped (merge): no marker")]
+        r = by_check(run_audit(lines), "merge-refused")
+        self.assertIn("0 verdict(s)", r["summary"])
+
+    def test_already_owned_and_same_craft(self):
+        res = run_audit([owned(), pid_only(), guid_unknown()])
+        self.assertIn("1 line(s)", by_check(res, "already-owned")["summary"])
+        r = by_check(res, "same-craft")
+        self.assertEqual(la.REPORT, r["status"])
+        self.assertIn("2 line(s)", r["summary"])
+
+    def test_finalizer_oddities_name_recording_ids(self):
+        r = by_check(run_audit([subsurface("recA"), subsurface("recA"), fallback("recB")]),
+                     "finalizer-oddity")
+        text = "\n".join(r["details"])
+        self.assertIn("'subsurface-destroyed-suppressed': 2 line(s) ids: recA", text)
+        self.assertIn("ids: recB", text)
+
+
+# ---------------------------------------------------------------------------
+# 17
+# ---------------------------------------------------------------------------
+
+class GroundTruthTests(unittest.TestCase):
+    def test_clean_result_passes_and_lists_report_only_facets(self):
+        lines = gt_report([("Milestone", "ValueMismatch", "x"),
+                           ("Funds", "UpliftClampedExpected", "y")]) + [gt_result(0, 2)]
+        r = by_check(run_audit(lines), "ground-truth")
+        self.assertEqual(la.PASS, r["status"])
+        self.assertIn("report-only facets: Funds, Milestone", r["summary"])
+
+    def test_hard_failures_fail(self):
+        lines = gt_report([("Funds", "ValueMismatch", "x")]) + [gt_result(1, 0)]
+        r = by_check(run_audit(lines), "ground-truth")
+        self.assertEqual(la.FAIL, r["status"])
+        self.assertIn("facet Funds kind=ValueMismatch x1 (hard)", r["details"])
+
+    def test_facet_hardness_mirrors_the_csharp_rule(self):
+        self.assertTrue(la.gt_facet_is_hard("SciencePool", "ValueMismatch", ""))
+        self.assertFalse(la.gt_facet_is_hard("Reputation", "UpliftClampedExpected", ""))
+        self.assertTrue(la.gt_facet_is_hard("Vessel", "Consistency", "a guidCorroborated=true b"))
+        self.assertFalse(la.gt_facet_is_hard("Vessel", "Consistency", "guidCorroborated=false"))
+        self.assertFalse(la.gt_facet_is_hard("Contract", "Missing", ""))
+
+    def test_skip_without_result(self):
+        self.assertEqual(la.SKIP, by_check(run_audit([]), "ground-truth")["status"])
+
+
+# ---------------------------------------------------------------------------
+# 18, 19
+# ---------------------------------------------------------------------------
+
+class WarningsTests(unittest.TestCase):
+    def test_counts_by_subsystem(self):
+        lines = [P("WARN", "Funds", "a 1"), P("WARN", "Funds", "a 2"), P("ERROR", "Ledger", "b"),
+                 P("INFO", "Funds", "c")]
+        r = by_check(run_audit(lines), "warnings")
+        self.assertEqual(la.REPORT, r["status"])
+        self.assertIn("2 WARN, 1 ERROR in 2 subsystem(s)", r["summary"])
+
+    def test_key_normalisation(self):
+        k1 = la.warning_key("Funds", "WARN", "row act_0123456789abcdef0123456789abcdef at ut=12.5 "
+                            "for 'Kerbal X' guid=0f8fad5b-d9cb-469f-a165-70867728950e")
+        k2 = la.warning_key("Funds", "WARN", "row act_fedcba9876543210fedcba9876543210 at ut=99 "
+                            "for 'Other' guid=7c9e6679-7425-40de-944b-e07fc1f90ae7")
+        self.assertEqual(k1, k2)
+        self.assertNotEqual(k1, la.warning_key("Science", "WARN", "row"))
+
+    def test_baseline_diff(self):
+        base = [P("WARN", "Funds", "drift 1.5"), P("WARN", "Ledger", "old")]
+        mine = [P("WARN", "Funds", "drift 3.0"), P("WARN", "Ledger", "brand new thing 7")]
+        r = by_check(run_audit(mine, baseline=base), "warnings")
+        self.assertEqual(["WARN [Ledger] brand new thing <n>"], r["newKeys"])
+        self.assertIn("1 key(s) not in the baseline", r["summary"])
+
+
+LEDGER_TEXT = """version = 0
+recordingSchemaGeneration = 4
+GAME_ACTION
+{
+	ut = 0
+	type = 20
+	actionId = act_seed
+	initialFunds = 500000
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 15
+	actionId = act_fac
+	recordingId =
+	CHILD
+	{
+		ut = 99
+	}
+}
+GAME_ACTION
+{
+	ut = 12.5
+	type = 4
+	actionId = act_ms
+}
+"""
+
+
+class LedgerUt0Tests(unittest.TestCase):
+    def test_parse_ledger_actions(self):
+        rows = la.parse_ledger_actions(LEDGER_TEXT)
+        self.assertEqual(3, len(rows))
+        self.assertEqual("0", rows[1]["ut"])  # the child node's ut does not leak
+
+    def test_non_seed_ut0_reported(self):
+        r = la.check_ledger_ut0([("saves/x/Parsek/GameState/ledger.pgld", LEDGER_TEXT)])
+        self.assertEqual(la.REPORT, r["status"])
+        self.assertIn("1 non-seed row(s) at UT 0", r["summary"])
+        self.assertIn("  FacilityUpgrade actionId=act_fac recordingId=-", r["details"])
+
+    def test_skip_without_ledger(self):
+        self.assertEqual(la.SKIP, la.check_ledger_ut0([])["status"])
+
+
+# ---------------------------------------------------------------------------
+# Whole audit, render, exit code
+# ---------------------------------------------------------------------------
+
+def green_run():
+    return [
+        scene("MAINMENU", "SPACECENTER", 36000), classified(t=36001), onload_done(36001.5),
+        ms_reset(0, t=36002), credited("FirstLaunch", t=36002),
+        earning("s1", 1.5, 1.5, t=36002), patched(36002), structural(1, t=36002),
+        deferred(t=36100), scene("SPACECENTER", "FLIGHT", 36110), patched(36200),
+        ms_reset(1, t=36200), credited("FirstLaunch", t=36200), structural(2, funds=26000, t=36200),
+        dominance("pass", 36300), *gt_report([]), gt_result(0, 0, 36301),
+    ]
+
+
+class AuditTests(unittest.TestCase):
+    def test_green_run_has_no_fail(self):
+        res = run_audit(green_run())
+        self.assertEqual(la.PASS, res["verdict"])
+        self.assertEqual(0, la.exit_code(res))
+        self.assertEqual(0, res["counts"][la.FAIL])
+        self.assertEqual(len(la.CHECK_IDS), len(res["results"]))
+        self.assertEqual(list(la.CHECK_IDS), [r["check"] for r in res["results"]])
+
+    def test_one_fail_flips_exit_code(self):
+        res = run_audit(green_run() + [aborting()])
+        self.assertEqual(la.FAIL, res["verdict"])
+        self.assertEqual(1, la.exit_code(res))
+
+    def test_render_sections(self):
+        text = la.render(run_audit(green_run() + [ms_reset(1), credited("X"), credited("X")]))
+        for heading in ("SUMMARY", "RECALC / POOL TIMELINE", "IDENTITIES CREDITED TWICE WITHIN "
+                        "ONE LEDGER WALK", "DETAILS", "verdict: FAIL"):
+            self.assertIn(heading, text)
+        self.assertIn("26000.00", text)
+        text.encode("ascii")
+
+    def test_every_check_has_a_title_and_unique_id(self):
+        self.assertEqual(len(la.CHECK_IDS), len(set(la.CHECK_IDS)))
+        for check, _, _ in la.SOURCE_ANCHORS:
+            self.assertIn(check, la.CHECK_IDS)
+        for name in la.EXPECTABLE_NAMES:
+            self.assertTrue(name in la.CHECK_IDS or name == "not-affordable")
+
+
+# ---------------------------------------------------------------------------
+# The thin shell
+# ---------------------------------------------------------------------------
+
+class ShellTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ledgeraudit-")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _write(self, rel, text, gz=False):
+        path = os.path.join(self.tmp, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if gz:
+            with gzip.open(path, "wt", encoding="utf-8") as fh:
+                fh.write(text)
+        else:
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
+        return path
+
+    def _run(self, argv):
+        out = io.StringIO()
+        err = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = tool.run(argv)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_run_folder_with_gz_log_and_ledger(self):
+        self._write("KSP.log.gz", "\n".join(green_run()) + "\n", gz=True)
+        self._write("saves/s/Parsek/GameState/ledger.pgld", LEDGER_TEXT)
+        code, out, _ = self._run([self.tmp])
+        self.assertEqual(0, code)
+        self.assertIn("verdict: PASS", out)
+        with open(os.path.join(self.tmp, "audit.txt"), encoding="utf-8") as fh:
+            self.assertEqual(out, fh.read())
+        self.assertIn("1 non-seed row(s) at UT 0", out)
+
+    def test_log_one_level_down(self):
+        self._write("2026-10-01_1200_X_shots/KSP.log", "\n".join(green_run()) + "\n")
+        code, out, _ = self._run([self.tmp, "--no-write"])
+        self.assertEqual(0, code)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "audit.txt")))
+
+    def test_fail_exit_and_out_path(self):
+        log = self._write("KSP.log", "\n".join(green_run() + [not_affordable()]) + "\n")
+        out_path = os.path.join(self.tmp, "custom.txt")
+        code, _, _ = self._run([log, "--out", out_path])
+        self.assertEqual(1, code)
+        self.assertTrue(os.path.isfile(out_path))
+
+    def test_toml_and_json_expectations(self):
+        self._write("KSP.log", "\n".join(green_run() + [not_affordable()]) + "\n")
+        toml = self._write("exp.toml", 'expectedLines = ["NOT affordable"]\n')
+        code, out, _ = self._run([self.tmp, "--expect", toml, "--no-write"])
+        self.assertEqual(0, code)
+        self.assertIn("EXPECTED  hard-stop", out)
+        js = self._write("exp.json", json.dumps({"expected": ["not-affordable"]}))
+        code, _, _ = self._run([self.tmp, "--expect", js, "--no-write"])
+        self.assertEqual(0, code)
+
+    def test_bad_expectations_and_missing_log_exit_2(self):
+        self._write("KSP.log", "\n".join(green_run()) + "\n")
+        bad = self._write("bad.toml", 'expected = ["paid-twice"]\n')
+        code, _, err = self._run([self.tmp, "--expect", bad, "--no-write"])
+        self.assertEqual(2, code)
+        self.assertIn("cannot read EXPECTED", err)
+        code, _, err = self._run([os.path.join(self.tmp, "nope"), "--no-write"])
+        self.assertEqual(2, code)
+        empty = os.path.join(self.tmp, "empty")
+        os.makedirs(empty)
+        code, _, err = self._run([empty, "--no-write"])
+        self.assertEqual(2, code)
+        self.assertIn("no KSP.log", err)
+
+    def test_baseline(self):
+        self._write("KSP.log", "\n".join(green_run() + [P("WARN", "Ledger", "new 1")]) + "\n")
+        base = self._write("base/KSP.log", "\n".join(green_run()) + "\n")
+        code, out, _ = self._run([self.tmp, "--baseline", base, "--no-write"])
+        self.assertEqual(0, code)
+        self.assertIn("WARN [Ledger] new <n>", out)
+
+
+# ---------------------------------------------------------------------------
+# Source sync: the C# literals the audit keys on
+# ---------------------------------------------------------------------------
+
+def _strip_cs_comments(text):
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return re.sub(r"//[^\n]*", "", text)
+
+
+def _src(rel):
+    with open(os.path.join(REPO_ROOT, *rel.split("/")), "r", encoding="utf-8") as fh:
+        return _strip_cs_comments(fh.read().replace("\r\n", "\n"))
+
+
+def _method_body(src, name):
+    """Body of the method DECLARED as ``name`` (a call site never matches: the
+    pattern needs an access modifier and a return type in front)."""
+    m = re.search(r"(?:internal|private|public|protected)\s+(?:static\s+)?[\w<>\[\], ?]+?\s+"
+                  r"%s\s*(?:<[^>]*>)?\s*\(" % re.escape(name), src)
+    if not m:
+        return None
+    start = src.index("{", m.end())
+    depth = 0
+    for i in range(start, len(src)):
+        if src[i] == "{":
+            depth += 1
+        elif src[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return src[start:i + 1]
+    return None
+
+
+class SourceSyncTests(unittest.TestCase):
+    def test_every_anchor_literal_is_in_its_source_file(self):
+        missing = []
+        cache = {}
+        for check, rel, lit in la.SOURCE_ANCHORS:
+            src = cache.get(rel)
+            if src is None:
+                src = cache[rel] = _src(rel)
+            if lit not in src:
+                missing.append("%s: %r not in %s" % (check, lit, rel))
+        self.assertEqual([], missing)
+
+    def test_parsek_log_line_shape(self):
+        src = _src(la.SRC_LOG)
+        self.assertIn('string line = $"[Parsek][{level}][{safeSubsystem}] {safeMessage}";', src)
+        for level in ("INFO", "VERBOSE", "WARN", "ERROR"):
+            self.assertIn('Write("%s", subsystem, message);' % level, src)
+
+    def test_structural_and_anomaly_field_order(self):
+        src = _src(la.SRC_LEDGER_TRACE)
+        self.assertRegex(src, r'(?s)"phase=Structural"\s*\+ " recalcSeq=".*?\+ " funds=".*?'
+                         r'\+ " science=".*?\+ " rep=".*?\+ " facilities=\[".*?'
+                         r'\+ " targetTechNodes=".*?\+ " contracts=".*?\+ " cutoff=".*?'
+                         r'\+ " authReduction="')
+        self.assertRegex(src, r'(?s)"phase=Anomaly"\s*\+ " recalcSeq=".*?\+ " resource=".*?'
+                         r'\+ " id=".*?\+ " reason="')
+        self.assertIn("ParsekLog.Info(Tag, FormatStructural(", src)
+        self.assertIn("ParsekLog.Warn(Tag, FormatAnomaly(", src)
+
+    def test_milestone_reset_and_credit_lines(self):
+        src = _src(la.SRC_MILESTONES)
+        self.assertIn('ParsekLog.Verbose("Milestones", $"Reset: cleared {previousCount} '
+                      'credited milestones");', src)
+        self.assertIn('$"Reset: cleared {previousCount} credited milestones; pre-ledger seed', src)
+        self.assertEqual(2, src.count(
+            """$"Credited milestone '{milestoneId}' at UT={action.UT.ToString("F1", IC)}\""""))
+
+    def test_visible_walks_reset_every_module(self):
+        src = _src("Source/Parsek/GameActions/RecalculationEngine.cs")
+        body = _method_body(src, "RunWalkPass")
+        self.assertIsNotNone(body)
+        self.assertIn("ResetAllModules(firstTier, strategy, secondTier, facilities);", body)
+
+    def test_probe_and_clone_walks_log_nothing(self):
+        # The walk split relies on every non-visible walk running under SuppressScope.
+        src = _src("Source/Parsek/GameActions/RecalculationEngine.cs")
+        allowed = ("RunProjectionWalk", "ProbeModuleAtCutoff", "ProbeClickReservationAtCutoff",
+                   "WalkBalancesOnClones")
+        for name in allowed:
+            body = _method_body(src, name)
+            self.assertIsNotNone(body, name)
+            self.assertIn("using (ParsekLog.SuppressScope())", body, name)
+        heads = [(m.start(), m.group(1)) for m in re.finditer(
+            r"(?:internal|private|public)\s+static\s+[\w<>\[\], ]+?\s+(\w+)\s*(?:<[^>]*>)?\s*\(", src)]
+        callers = set()
+        for m in re.finditer(r"CreateProjectionModules?\(", src):
+            owner = [n for pos, n in heads if pos < m.start()][-1]
+            if owner not in ("CreateProjectionModules", "CreateProjectionModule"):
+                callers.add(owner)
+        self.assertEqual(set(allowed), callers)
+
+    def test_science_earning_field_order(self):
+        src = _src(la.SRC_SCIENCE)
+        for head in ("Earning (cap hit): subject={subjectId}, awarded=",
+                     "Earning: subject={subjectId}, awarded="):
+            i = src.index(head)
+            seg = src[i:i + 700]
+            self.assertLess(seg.index("creditedTotal="), seg.index("maxValue="))
+            self.assertIn('$"creditedTotal={state.CreditedTotal.ToString("R", IC)}, " +', seg)
+            self.assertIn('$"maxValue={state.MaxValue.ToString("R", IC)}, " +', seg)
+        self.assertIn('ParsekLog.Verbose("ScienceModule",\n                    $"Earning (cap hit)', src)
+
+    def test_take_back_tag(self):
+        self.assertIn('internal const string Tag = "TakeBack";', _src(la.SRC_TAKE_BACK))
+        self.assertIn("ParsekLog.Warn(StockShadowTakeBack.Tag,", _src(la.SRC_PATCHER))
+
+    def test_pool_adjustment_shapes(self):
+        self.assertIn('$"StockPoolAdjustment: {amount.ToString("R", IC)} id={action.ActionId',
+                      _src(la.SRC_FUNDS))
+        self.assertIn('$"StockPoolAdjustment: {amount.ToString("R", IC)} (post-curve) id=',
+                      _src(la.SRC_REPUTATION))
+
+    def test_deferred_and_patched_lines(self):
+        src = _src(la.SRC_ORCHESTRATOR)
+        self.assertIn('$"RecalculateAndPatch: deferred KSP state patch ({patchDeferralReason})");',
+                      src)
+        self.assertIn('internal const string Tag = "LedgerOrchestrator";', src)
+
+    def test_classification_and_onload_lines(self):
+        src = _src(la.SRC_LOAD_POLICY)
+        self.assertRegex(src, r'"Load classified: early=" \+ early\s*\+ " refined=" \+ refined\s*'
+                         r'\+ " scene="')
+        self.assertIn('internal const string LogTag = "LoadPolicy";', src)
+        scen = _src(la.SRC_SCENARIO)
+        self.assertEqual(2, scen.count("LogLoadClassification(earlyLoadKind,"))
+        self.assertIn("if (earlyLoadKind != EarlyLoadKind.InSession)\n"
+                      "                    LogLoadClassification(", scen)
+        self.assertIn("if (earlyLoadKind == EarlyLoadKind.InSession)\n"
+                      "                        LogLoadClassification(", scen)
+        self.assertIn('ParsekLog.Verbose("Diagnostics",\n                '
+                      'FormatLoadTimingMessage(', scen)
+        self.assertEqual(1, scen.count("WriteLoadTiming(sw,"))
+
+    def test_dominance_verdict_shape(self):
+        self.assertIn('$"Merge dominance check sess={sess} result={(v.Pass ? "pass" : "refuse")} '
+                      '{fields} " +', _src(la.SRC_DOMINANCE))
+
+    def test_guid_unknown_and_owned(self):
+        self.assertIn('reason={(identity.HasLaunchGuid ? "no-recording-carries-launch-guid" : '
+                      '"live-launch-guid-unknown")}', _src(la.SRC_ORCHESTRATOR))
+        self.assertIn('$"is already owned at ut={action.UT.ToString("R", IC)} " +',
+                      _src(la.SRC_FUNDS))
+
+    def test_finalizer_shapes(self):
+        self.assertIn('Fail(cache, "subsurface-destroyed-suppressed")', _src(la.SRC_FINALIZER_CACHE))
+        self.assertIn("\"TryFinalizeRecording: recovered sub-surface live-orbit fallback for '{0}' \"",
+                      _src(la.SRC_EXTRAPOLATOR))
+
+    def test_ground_truth_shapes(self):
+        src = _src(la.SRC_GT_HARNESS)
+        self.assertIn('private const string Tag = "LedgerGroundTruth";', src)
+        self.assertIn('$"result: hardFailures={hard.ToString(IC)} reportOnly={reportOnly.ToString(IC)} " +',
+                      src)
+        self.assertIn('$"facetsCompared={report.FacetsCompared.ToString(IC)} " +', src)
+        self.assertIn('$"strict={LedgerGroundTruthDiff.StrictPerIdentityForTesting.ToString(IC)}");',
+                      src)
+        self.assertIn("ParsekLog.Warn(Tag, report.Format());", src)
+        rep = _src(la.SRC_GT_REPORT)
+        body = _method_body(rep, "IsAlwaysHard")
+        for token in ("DivergenceFacet.Funds:", "DivergenceFacet.SciencePool:",
+                      "DivergenceFacet.Reputation:",
+                      "return d.Kind != DivergenceKind.UpliftClampedExpected;",
+                      "d.Kind == DivergenceKind.Consistency", '"guidCorroborated=true"'):
+            self.assertIn(token, body)
+
+    def test_game_action_types_and_seeds(self):
+        src = _src("Source/Parsek/GameActions/GameAction.cs")
+        block = src[src.index("enum GameActionType"):]
+        block = block[:block.index("}")]
+        found = {int(v): n for n, v in re.findall(r"\b([A-Z]\w*)\s*=\s*(\d+)\s*,?", block)}
+        self.assertEqual(la.GAME_ACTION_TYPES, found)
+        seeds = _method_body(_src("Source/Parsek/GameActions/RecalculationEngine.cs"), "IsSeedType")
+        names = set(re.findall(r"GameActionType\.(\w+)", seeds))
+        self.assertEqual({la.GAME_ACTION_TYPES[t] for t in la.SEED_ACTION_TYPES}, names)
+        self.assertIn('node.AddValue("type", ((int)Type).ToString(IC));', src)
+
+
+if __name__ == "__main__":
+    unittest.main()
