@@ -310,7 +310,6 @@ namespace Parsek.Tests
         }
 
         private static bool ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
-            bool isRevert = false,
             bool loadedSceneIsFlight = true,
             bool planetariumReady = true,
             bool hasPendingTree = false,
@@ -320,7 +319,6 @@ namespace Parsek.Tests
             bool hasFutureLedgerActions = true)
         {
             return ParsekScenario.ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
-                isRevert,
                 loadedSceneIsFlight,
                 planetariumReady,
                 hasPendingTree,
@@ -888,9 +886,69 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void PostRewindFlightLoadCurrentUtCutoffDecision_RejectsRevert()
+        public void InSessionRevertLoad_WithCommittedFutureRows_UsesCurrentUtCutoff()
         {
-            Assert.False(ShouldUseCurrentUtCutoffForPostRewindFlightLoad(isRevert: true));
+            // REVERT-AFTER-REWIND-WALKS-PAST-THE-CLOCK (RW-2, run 2026-10-28_0837): a stock
+            // Revert-to-Launch inside a rewound timeline walked with no cutoff and patched the
+            // committed future's contract advance and recovery into the pools early.
+            AddAll(
+                FundsSeed(10000f),
+                ContractAccept(500.0, "future-contract", 400f),
+                Milestone(500.0, "future-funds", 1000f));
+
+            bool usedCutoff = ParsekScenario.RecalculateLedgerForInSessionLoad(
+                isRevert: true, loadedScene: GameScenes.FLIGHT, planetariumReady: true,
+                loadedUT: 200.0);
+
+            Assert.True(usedCutoff);
+            AssertLogHasCutoffSummary(logLines, 3, 1, "200");
+            Assert.Equal(10000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Equal(0, LedgerOrchestrator.Contracts.GetActiveContractCount());
+            Assert.Contains(logLines, l => l.Contains("[Scenario]")
+                && l.Contains("useCurrentUtCutoff=True") && l.Contains("isRevert=True"));
+        }
+
+        [Fact]
+        public void RevertBudgetWalk_WithCommittedFutureRows_UsesCurrentUtCutoff()
+        {
+            AddAll(
+                FundsSeed(10000f),
+                ContractAccept(500.0, "future-contract", 400f),
+                Milestone(500.0, "future-funds", 1000f));
+
+            ParsekScenario.RecalculateAndPatchAfterRevert(GameScenes.FLIGHT, clockReady: true, revertUT: 200.0);
+
+            AssertLogHasCutoffSummary(logLines, 3, 1, "200");
+            Assert.Equal(10000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Equal(0, LedgerOrchestrator.Contracts.GetActiveContractCount());
+            Assert.Contains(logLines, l => l.Contains("[Scenario]") && l.Contains("Revert budget walk:")
+                && l.Contains("cutoffScene=True") && l.Contains("clockReady=True"));
+        }
+
+        [Fact]
+        public void RevertBudgetWalk_ClockNotReady_FallsBackToFullReplay()
+        {
+            AddAll(
+                FundsSeed(10000f),
+                Milestone(500.0, "future-funds", 1000f));
+
+            ParsekScenario.RecalculateAndPatchAfterRevert(GameScenes.FLIGHT, clockReady: false, revertUT: 0.0);
+
+            AssertLogHasCutoffSummary(logLines, 2, 2, "null");
+            Assert.Equal(11000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+        }
+
+        [Fact]
+        public void RevertBudgetWalk_NothingAhead_IsFullReplay()
+        {
+            AddAll(
+                FundsSeed(10000f),
+                Milestone(100.0, "past-funds", 1000f));
+
+            ParsekScenario.RecalculateAndPatchAfterRevert(GameScenes.FLIGHT, clockReady: true, revertUT: 200.0);
+
+            AssertLogHasCutoffSummary(logLines, 2, 2, "null");
+            Assert.Equal(11000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
         }
 
         [Fact]

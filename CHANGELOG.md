@@ -25,6 +25,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A revert after a rewind no longer pays the future early.** Reverting a flight to launch (or
+  to the VAB / SPH) after a Rewind-to-Launch briefly added money and contracts your timeline only
+  earns later, which you could spend before the next scene change. A revert now shows only what
+  the clock has reached, like every other load. (REVERT-AFTER-REWIND-WALKS-PAST-THE-CLOCK)
 - **Orbiting the Mun pays its milestone again.** Orbit, suborbit and flight milestones were filed
   without their body, so the first Kerbin orbit marked every other body's orbit done and the game
   never paid them. Each body's milestone is now its own. (MILESTONE-ORBIT-BODY-UNQUALIFIED)

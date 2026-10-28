@@ -54,6 +54,33 @@ Build order is in section 3.15. Each step ships unit tests and the matching harn
 
 ---
 
+## ~~REVERT-AFTER-REWIND-WALKS-PAST-THE-CLOCK: a stock revert inside a rewound timeline patches the committed future's gains into the pools~~ [FILED AND FIXED 2026-10-28 from RW-2's first flight (`2026-10-28_0837`, PARSEK-FAIL attempt 1), branch `claude/project-thread-25edvc`; product, high (future money spendable now)]
+
+After a Rewind-to-Launch, the stand-in's relaunch and a stock Revert-to-Launch loaded at
+185786.01 with committed future rows still ahead (a contract accept +37500 and H's recovery
++2932). Both revert walks ran with `cutoffUT=null`: the budget-deduction coroutine
+(`ApplyBudgetDeductionWhenReady`, which ran synchronously inside OnLoad because the currency
+singletons were already there) called the plain `RecalculateAndPatch()`, and the in-session
+decision `ShouldUseCurrentUtCutoffForPostRewindFlightLoad` rejected the cutoff on `isRevert`
+alone (`useCurrentUtCutoff=False ... isRevert=True ... hasFutureLedgerActions=True`). So
+`PatchFunds: 151682.2 -> 192114.2 (delta=40432.0)` and the future accept counted as Active until
+the next load (a Space Center scene change about 6 s later) walked with the cutoff again.
+`ledger_audit.py` passed the run: the ledger and KSP agreed because the ledger's own target was
+past the clock.
+
+**Fix.** A revert takes the current-UT cutoff like every other in-session load: the predicate no
+longer reads `isRevert` (the revert prune has already removed the reverted flight's own untagged
+rows, so a row still ahead of the loaded clock is committed future), and the revert follow-up walk
+goes through `ParsekScenario.RecalculateAndPatchAfterRevert`, which cuts off at the loaded save's
+clock in a cutoff scene when rows lie ahead (`Revert budget walk:` line), else replays in full as
+before. This also covers a revert to the editor, which the design doc listed as the one load still
+walking without a cutoff. Cells: `RewindUtCutoffTests.InSessionRevertLoad_WithCommittedFutureRows_UsesCurrentUtCutoff`,
+`RevertBudgetWalk_*`. Lane: RW-2-crewed-relaunch-revert forbids the positive `PatchFunds` between
+the EVA and the revert. Audit follow-up: `ledger_audit.py` should flag a patched walk with
+`cutoffUT=null` while committed rows lie ahead of a time-travel load's clock.
+
+---
+
 ## ~~MILESTONE-ORBIT-BODY-UNQUALIFIED: every body's Orbit, Suborbit and Flight milestone is captured as one bare id, so the first Kerbin orbit completes them all and the Mun orbit is never paid~~ [FILED AND FIXED 2026-10-27 on branch `milestone-public-body`, found from CS-4b's ground truth (`2026-10-27_1957`, report-only `facet=Milestone kind=MissingInRecon id=Kerbin/Orbit`); PR #2301; LIVE-PROVEN 2026-10-27 by CS-6 `2026-10-27_2202` (`Milestone enriched: 'Mun/Orbit' funds=24960`, zero bare `'Orbit'` lines); product, high (an earned reward never paid)]
 
 Observed: CS-4's career ledger books the first orbit as `milestoneId = Orbit`, while its Landing,
@@ -663,8 +690,8 @@ patched it back down, which turns the build into debt and spends money the caree
 
 **Fix.** EDITOR takes the current-UT cutoff like FLIGHT, the Space Center and the Tracking Station
 (in-session load, cold load reconcile and the deferred seed all read the same predicate). The
-editor clock does not move, so it needs no clock cursor; a revert to the editor still walks plain
-(`isRevert`). Cells: `RewindUtCutoffTests.CurrentUtCutoffSupportedScene_AcceptsFlightSpaceCenterTrackingStationAndEditor`,
+editor clock does not move, so it needs no clock cursor; a revert to the editor walked plain
+(`isRevert`) until REVERT-AFTER-REWIND-WALKS-PAST-THE-CLOCK. Cells: `RewindUtCutoffTests.CurrentUtCutoffSupportedScene_AcceptsFlightSpaceCenterTrackingStationAndEditor`,
 `EditorLoadLedgerCutoffTests` (mutation-checked). Lane: L13 requires the editor load's
 `useCurrentUtCutoff=True ... loadedScene=EDITOR` line.
 
