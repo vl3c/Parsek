@@ -341,6 +341,11 @@ steps = [
   # 1x through the ~109 s hop and the impact (CL-2's measured profile).
   { cmd = "WarpToUT",       args = { ut = "185930", maxRate = "1" },                       expect = "OK", budget = 240 },
   { cmd = "RecordingState",                                                                expect = "OK" },
+  # FAIL FAST on a survived crash: the impact is physics (the stowed chute or the SRB can touch
+  # first and the pod has landed intact, run `2026-10-28_1627`), so the pod must be GONE here.
+  # An intact pod answers OK, the step is unmet, and the run is driver-INVALID and retried
+  # instead of reading the missing death as a Parsek defect. No ledger pin is loosened.
+  { cmd = "PartAction",     args = { button = "inspect", part = "mk1pod.v2" },             expect = "REJECTED" },
   { cmd = "MissionMark",    args = { label = "rw7-refly1-crashed" },                       expect = "OK" },
   # Esc > Revert Flight > Revert to Launch > Discard Re-Fly (RW-6's measured route).
   { cmd = "ReFlyRevert",    args = { choice = "discard", target = "launch" },              expect = "OK", budget = 300 },
@@ -377,6 +382,11 @@ steps = [
   { cmd = "PartAction",     args = { button = "activate", part = "solidBooster.sm.v2" },   expect = "OK" },
   { cmd = "WarpToUT",       args = { ut = "185930", maxRate = "1" },                       expect = "OK", budget = 240 },
   { cmd = "RecordingState",                                                                expect = "OK" },
+  # FAIL FAST on a survived crash: the impact is physics (the stowed chute or the SRB can touch
+  # first and the pod has landed intact, run `2026-10-28_1627`), so the pod must be GONE here.
+  # An intact pod answers OK, the step is unmet, and the run is driver-INVALID and retried
+  # instead of reading the missing death as a Parsek defect. No ledger pin is loosened.
+  { cmd = "PartAction",     args = { button = "inspect", part = "mk1pod.v2" },             expect = "REJECTED" },
   { cmd = "MissionMark",    args = { label = "rw7-refly2-crashed" },                       expect = "OK" },
   # The post-crash conclusion: the settle wait, the Space Center exit, the Re-Fly merge dialog.
   { cmd = "AnswerMergeDialog", args = { choice = "merge" },                                expect = "OK", budget = 240 },
