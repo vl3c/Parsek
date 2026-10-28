@@ -95,7 +95,7 @@ id = "RW-5-rewind-refly-discard"
 #
 # NAMED STEP SAVES (side files a harvest ignores; read after the flight): rw05-01-after-h-commit,
 # rw05-02-after-f-accept, rw05-03-after-rtl, rw05-04-after-g-commit (FLIGHT, G committed and
-# stashed), rw05-05-after-discard, rw05-06-after-crossing, rw05-07-pad-cleared,
+# stashed), rw05-05-after-discard, rw05-06-after-crossing (rw05-07 dropped with the pad clearing),
 # rw05-08-check-flight. None is taken INSIDE the Re-Fly session: a save there writes the
 # attempt's sidecars to disk, and the discard's on-disk cleanup is not this lane's subject.
 #
@@ -337,11 +337,9 @@ steps = [
   { cmd = "MissionMark",    args = { label = "rw5-crossed" },                              expect = "OK" },
   { cmd = "SaveGame",       args = { name = "rw05-06-after-crossing" },                   expect = "OK", budget = 120 },
 
-  # ---- the pad cleared: the rewind point's world holds G's two vessels on it ----
-  { cmd = "TrackingStationRecover", args = { pid = "${g.pid}" },                           expect = "OK", budget = 120 },
-  { cmd = "TrackingStationRecover", args = { pid = "${dec.newPid}" },                      expect = "OK", budget = 120 },
-  { cmd = "MissionMark",    args = { label = "rw5-pad-cleared" },                          expect = "OK" },
-  { cmd = "SaveGame",       args = { name = "rw05-07-pad-cleared" },                      expect = "OK", budget = 120 },
+  # No pad clearing: the first flight (2026-10-28_1056) showed the discard's world holds G for
+  # its committed future (`Rewind held vessel for its committed future: pid=<g>`), so G is not in
+  # the world and `TrackingStationRecover` refused tsrecover-vessel-not-found.
 
   # ---- the check: an unrecorded launch, the save, the ground truth ----
   { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
@@ -360,11 +358,10 @@ steps = [
 #   rewind-to-separation        <- StartInvoke + Invocation complete
 #   unfinished-flights-stash    <- `Stashed slot=0 ...` + `reflyrevert complete ... slotListed=true`
 #   revert-during-refly-dialog  <- `Revert dialog shown` + `reflyrevert pressed dialog button='Discard Re-Fly'`
-#   scene-ts                    <- `tsrecover complete`
 D5  = ["controlled-decoupled-child"]
 D8  = ["funds", "reputation", "milestones", "contracts", "recalc-engine", "ksp-state-patcher", "ground-truth-harness"]
 D9  = ["rewind-to-launch", "rewind-to-separation", "unfinished-flights-stash", "revert-during-refly-dialog"]
-D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight", "scene-ts"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
 
 [expectations]
 allowedAnomalies = []
@@ -467,7 +464,6 @@ required = [
   "MISSIONMARK label=rw5-before-crossing ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[0-9]+ \\[[^\\]]*ContractAccept@[\\s\\S]*?MISSIONMARK label=rw5-crossed ut=",
 
   # ---- the pad cleared: G's two vessels recovered at the Tracking Station ----
-  "\\A(?:[\\s\\S]*?tsrecover complete pid=[0-9]+ vessel=CS Flea Probe[^\\r\\n]* scene=\\S+ ){2}",
 
   # ---- the step saves (named side slots for after-flight reading) and the default slot ----
   "savegame name=rw05-01-after-h-commit folder=\\S+ saved=true",
@@ -476,9 +472,8 @@ required = [
   "savegame name=rw05-04-after-g-commit folder=\\S+ saved=true",
   "savegame name=rw05-05-after-discard folder=\\S+ saved=true",
   "savegame name=rw05-06-after-crossing folder=\\S+ saved=true",
-  "savegame name=rw05-07-pad-cleared folder=\\S+ saved=true",
   "savegame name=rw05-08-check-flight folder=\\S+ saved=true",
-  "MISSIONMARK label=rw5-pad-cleared ut=[\\s\\S]*?savegame name=persistent folder=\\S+ saved=true",
+  "MISSIONMARK label=rw5-crossed ut=[\\s\\S]*?savegame name=persistent folder=\\S+ saved=true",
 
   # ---- the ground truth, in FLIGHT on the unrecorded check Flea ----
   "ground-truth game mode=CAREER pools=funds,science,reputation",
