@@ -214,7 +214,7 @@ Because recordings can only be added to the timeline (never removed by the playe
 
 However, the invariant does not prevent the player from adding **new** spendings after a rewind that would exceed the available budget. Each new recording adds a vessel build cost (funds), and the player can unlock new tech nodes (science) or hire kerbals (funds) at KSC. Without further protection, these new spendings could create a deficit downstream.
 
-The **reservation system** (sections 6.5 and 7.6) covers this gap: committed spendings — past, present, and future — are reserved against projected cashflow. The player can only add new spendings if the projected minimum balance is sufficient. Together, the no-delete invariant protects existing spendings, and the reservation system prevents new overspending.
+The **reservation system** ("Reservation system" in the Funds section and 12.5 "Science reservation system") covers this gap: committed spendings — past, present, and future — are reserved against projected cashflow. The player can only add new spendings if the projected minimum balance is sufficient. Together, the no-delete invariant protects existing spendings, and the reservation system prevents new overspending.
 
 **STASH / Re-Fly interaction:** Re-Fly supersede keeps old ledger rows physically append-only but may tombstone reviewed, recording-scoped career actions from the superseded subtree so they leave ELS. Superseded recording events remain in `Ledger.Actions` for audit/recovery, while recalculation consumes only the post-tombstone ELS and patches stock KSP state for removed science, contracts, facilities, and safe roster-created kerbals. Null-scoped KSC/system rows, initial seeds, already-paid rollout costs, and unknown future action types remain preserved until reviewed.
 
@@ -938,7 +938,7 @@ A paid research is captured from stock's `OnTechnologyResearched`. A node stock 
 
 ### 12.5 Science reservation system
 
-Science uses the same cashflow reservation system as funds (section 7.6). Committed science spendings (tech node unlocks) — past, present, and future — constrain the amount that is spendable at the current UT. The player can only spend an amount that leaves the science balance non-negative from the current UT through the future committed ledger.
+Science uses the same cashflow reservation system as funds ("Reservation system" in the Funds section). Committed science spendings (tech node unlocks) — past, present, and future — constrain the amount that is spendable at the current UT. The player can only spend an amount that leaves the science balance non-negative from the current UT through the future committed ledger.
 
 **Available science at any UT:**
 
@@ -1266,7 +1266,7 @@ RecalculateFunds():
 
 The `affordable` flag is defensive. With proper seeding and the reservation system preventing overspending, it should always be true. If it's false, it indicates a bug or data corruption.
 
-**Implementation handles more action types:** Beyond `FundsEarning` and `FundsSpending`, the walk also processes: `ContractAccept` (advance payment), `ContractComplete` (rewards, using TransformedFundsReward, see section 13.4), `ContractFail`/`ContractCancel` (penalties), `FacilityUpgrade`/`FacilityRepair` (costs via FacilityCost field), `KerbalHire` (hiring cost), and `StrategyActivate` (setup cost). All spending-type actions are included in the reservation total.
+**Implementation handles more action types:** Beyond `FundsEarning` and `FundsSpending`, the walk also processes: `ContractAccept` (advance payment), `ContractComplete` (rewards, using TransformedFundsReward, see 11.4 "Transforms during recalculation"), `ContractFail`/`ContractCancel` (penalties), `FacilityUpgrade`/`FacilityRepair` (costs via FacilityCost field), `KerbalHire` (hiring cost), and `StrategyActivate` (setup cost). All spending-type actions are included in the reservation total.
 
 ### 15.9 UI patching
 
@@ -1856,7 +1856,7 @@ During fast-forward, the deadline crossing is visual only — the actual failure
 
 Contract advance payments are fund earnings — they increase the balance on accept. Contract rewards are fund earnings on completion. Contract penalties are fund losses on failure/cancel.
 
-All of these participate in the funds reservation system (section 7.6). The advance payment increases available funds at the accept UT. Future rewards are not counted until the recording that completes the contract is committed (earnings are recording-associated).
+All of these participate in the funds reservation system ("Reservation system" in the Funds section). The advance payment increases available funds at the accept UT. Future rewards are not counted until the recording that completes the contract is committed (earnings are recording-associated).
 
 **Committed outcomes and open penalties (owner rulings 2026-10-21, section 3.13, built in 0.10.6).** (1) A contract whose completion, failure or cancellation is committed cannot be failed before that outcome: stock's fail is refused and logged. Completing it earlier stays allowed. This extends D7 (section 14.4) from the Cancel button to in-flight fails. (2) An open contract's fail penalties (funds and reputation; stock contracts carry no science penalty) are reserved from its accept to its outcome while a committed purchase or strategy cost lies ahead. (3) Accept, Cancel and Decline are greyed with the reason, and refused, when the reservation they add, or the penalty they charge, would leave a later committed purchase or strategy cost unpaid. A deadline expiry needs nothing more: the committed timeline holds the same synthetic fail at the same UT (section 8.6), and stock's own fail row is filed under no flight (section 3.14).
 
