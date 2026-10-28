@@ -17,6 +17,48 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE: a Space Center action in the 15 s before a launch is ahead of the clock after a Rewind-to-Launch, while the rewind save already holds its effect [FILED 2026-10-28 from RW-9's flights; live-measured, NOT FIXED; product, medium-high (a second paid repair, and the repaired building knocked down again)]
+
+A Rewind-to-Launch loads the save taken at the launch and then winds the clock back 15 s
+(`Rewind-to-Launch initiated to UT 185800.285736677`, `UT adjusted: 185800.3 -> 185785.3 (lead
+time 15s)`). A Space Center action taken in that window before the launch is in the rewind save's
+world, but its ledger row now lies AHEAD of the clock. Lane `RW-9` met it first (runs
+`2026-10-28_1522` / `_1524`, cs-career-mun4, main DLL 8723aa01): Aggressive Negotiations activated at
+UT 185790.07 and the R&D annex demolished at 185790.1 (`kscaction action=demolish-building
+target=SpaceCenter/ResearchAndDevelopment/Facility/ForeverAlone applied=true ... intact=false`),
+V rolled out at 185800.2, recorded, committed and recovered, the R&D facility repaired at 185899.9
+(`cost=2000 fundsDelta=-1999`). After the rewind the annex is down in the world, but the repair block
+(KB-2, `CommittedRepairCoveringDestruction`) needs the destruction behind the clock, so it reads
+`Allowing facility repair: 'SpaceCenter/ResearchAndDevelopment' - destroyedBuildings=1, no committed
+future repair covers the destruction (nowUT=185786)` and a second paid repair goes through
+(`kscaction action=repair-facility ... applied=true ... fundsDelta=-1999 funds=152659.16`, with a second
+conversion leg pair at UT=185785.6).
+
+Measured crossing outcome (temporary reading variant RW-9R, run `2026-10-28_1535` PASS, evidence
+`logs/flights/rewind-campaign/rw-09r-lead-window-reading/`): the warp re-crosses the window's rows
+(`Clock-crossing reached committed-future rows: crossed=2 [StrategyActivate@185790.02069345751,
+FacilityDestruction@185790.06069345749]`), and the destruction row knocks the just-repaired annex
+down again (`PatchDestructionState: demolished 'SpaceCenter/ResearchAndDevelopment/Facility/ForeverAlone'
+(ledger: destroyed at or before UT 185790.1)`); the committed repair then crosses at 185899.9 and
+repairs it, charged. Pools: 155591.16 funds / 97.96 rep after the one repair before the rewind,
+153592.16 / 96.69 after the crossing: one extra repair (-1999) and one extra discount leg (-1.27
+rep after the curve). The ledger agrees with stock (both repairs are real rows), so it is a SILENT
+double charge: no StockPoolAdjustment, no GUARDED line, `ledger_audit.py` PASS, LedgerGroundTruth
+hardFailures=0 with a report-only `facet=Facility kind=PhantomInRecon id=...ForeverAlone`. Between
+the rewind and the 185790 crossing the reputation pool also reads the strategy's 14.5 setup cost as
+not yet paid (115.00) while the strategy is active in the world.
+
+Exposure: every Space Center action in the 15 s before a launch, not only a repair: a strategy
+activation or cancel, a part or upgrade purchase, a hire or dismissal, a facility upgrade, a
+building demolition or repair, a contract accept / decline / cancel. Clicking an action and then
+Launch inside 15 s of game time is ordinary play. Same window, same shape as
+ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS (route rows).
+
+Two obvious directions, not decided: treat ledger rows in (rewindUT, rewind-save UT] as already
+held by the rewind save (in the past for blocks, crossings and patches), or rewind to a save taken
+before the lead window. NOT FIXED. Lane `RW-9-strategy-repair-rebuy` now acts at UT 185750, outside
+the window.
+
 ## REWIND-PRUNE-AND-WALK-AT-UT-ZERO: a Rewind-to-Launch prunes baselines and walks the ledger at UT 0, not at the rewind save's own UT [FILED 2026-10-28 from the rewind campaign's log mining; code-read, NOT FIXED; product, low-medium]
 
 The rewind branch of `ParsekScenario.OnLoad` (~5534) runs
@@ -342,6 +384,16 @@ repair and reconcile cells. Not flown yet; lane owed: activate Aggressive Negoti
 rewind, re-buy, warp past the first purchase's UT, then LedgerGroundTruth and no GUARDED line.
 
 ---
+
+**Lane (2026-10-28, branch `rw9-strategy-rebuy`).** `RW-9-strategy-repair-rebuy` on `cs-career-mun4` takes
+the repair path (the entry-purchase hosts cannot afford Aggressive Negotiations' reputation cost, and the
+rep-rich hosts bypass entry purchases): Aggressive Negotiations, a discounted repair inside a committed
+timeline, a Rewind-to-Launch that must refuse a second repair as committed, and the crossing that must
+apply the repair and its legs once with no pool adjustment. LIVE-PROVEN on `2026-10-28_1538` (evidence
+`logs/flights/rewind-campaign/rw-09-strategy-repair-rebuy/`): legs split onto the annex at the repair,
+the second repair refused with nothing charged, the pools after the crossing equal to the pools after
+the original repair (155591.16 funds / 97.96 rep), no StockPoolAdjustment, no GUARDED, ledger_audit
+PASS. Its first flights found REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE.
 
 ## ~~FREE-TECH-NODE-LOST-AFTER-REWIND: a tech node stock unlocks for free has no ledger row, so the first tech patch after a rewind re-locks it for good~~ [FILED AND FIXED 2026-10-28 from code reading, branch `fix-free-tech-row`; LIVE-PROVEN 2026-10-28 by lane RW-8 (`2026-10-28_1505`); product, high (a node and its parts lost for good, a reduction of the career total)]
 
