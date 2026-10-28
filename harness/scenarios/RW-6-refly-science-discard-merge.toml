@@ -35,15 +35,26 @@ id = "RW-6-refly-science-discard-merge"
 #   Attempt 1: InvokeRewind slot 0, `PartAction button=experiment part=mk1pod.v2` (the crew
 #     report, the stand-in aboard), a 1x wait, `exp:data=1`, then Discard Re-fly
 #     (ReFlyRevert discard target=launch, RW-5's measured route).
-#   Attempt 2: InvokeRewind slot 0 again from the Space Center; the pod comes back EMPTY
+#   Back into FLIGHT: InvokeRewind is FLIGHT-only (TestCommandDispatcher.cs:497) and the
+#     Discard lands at the Space Center, so the lane re-enters RF-3's way: a mid-session
+#     LoadGame with no scene arg of the step save `rw06-05-after-discard` (written at the Space
+#     Center right after the discard; its FLIGHTSTATE holds only the host's three Kerbin
+#     debris, activeVessel=0, so the save-derived route, TestCommandLoadGame.DecideLoadRoute,
+#     is FLIGHT on `CS Mun Flyby Debris` ~11000 km up). Mid-session and without playerLoad it
+#     classifies `early=InSession refined=InSessionOther` (RF-3's archived 2026-10-16_1130
+#     flight, LoadReconcilePolicy.ClassifyEarly): the ledger and the staged lists stay memory's,
+#     and the pools must not move (pinned). Not `persistent`: at this point that file holds the
+#     rewind point's game the discard wrote there (RevertInterceptor.cs:785).
+#   Attempt 2: InvokeRewind slot 0 again from that flight; the pod comes back EMPTY
 #     (`exp:data=0`: the discarded report is gone with its attempt); the same crew report,
 #     `exp:data=1`, then AnswerMergeDialog merge (the HEAD / TIP split of G's launch recording,
 #     supersede rows, no tombstone, the slot auto-sealed Immutable on its Landed ending); then
 #     the pod is recovered from the Tracking Station (L13 / STR-2 / RF-L2's live-proven
 #     route), which is when stock pays the report and the ledger files it under the merged
-#     recording; then InvokeRewind slot 0 once more must be REFUSED by the value gate.
+#     recording.
 #   Close: WarpToUT 186100 at the Space Center across the committed rows, an unrecorded check
-#   Flea, the default-slot save and LedgerGroundTruth (RW-1 / RW-5's close).
+#   Flea; in that flight InvokeRewind slot 0 once more must be REFUSED by the value gate (a
+#   refusal starts nothing); the default-slot save and LedgerGroundTruth (RW-1 / RW-5's close).
 #
 # THE GATES:
 #   - the discarded science never reaches the ledger: no `Science subject captured:
@@ -125,6 +136,9 @@ id = "RW-6-refly-science-discard-merge"
 #                                             RewindInvoker.cs:960 / :1539
 #   invokerewind complete / refused: refly-gate
 #                                             TestCommands/ParsekTestCommandAddon.cs:2853 / :2816
+#   InvokeRewind RequiresFlight               TestCommands/TestCommandDispatcher.cs:497
+#   loadgame start ... requestedScene= / loadgame complete scene= ... expected=
+#                                             TestCommands/ParsekTestCommandAddon.cs:2192 / :1268
 #   RecalculateAndPatch: actionsTotal=        GameActions/LedgerOrchestrator.cs:4302
 #   recordingstate ... awaitRecorderLive=     TestCommands/ParsekTestCommandAddon.cs:1931
 #   reflyrevert start / pressed / complete    TestCommands/TestCommandReFlyRevert.cs:507 / :518 / :530
@@ -193,6 +207,9 @@ id = "RW-6-refly-science-discard-merge"
 #   - `KSC science recorded: ... recordingId=` not the merged attempt's rec: the recovery picker
 #     filed the science under HEAD, TIP or none; the sealed-slot probe then answers OK (it would
 #     start a third session). Read `PickRecoveryRecordingId` / `ResolveKscScienceRecordingId`.
+#   - the re-entry LoadGame lands anywhere but `scene=FLIGHT`, or classifies Cold: read
+#     `loadgame start ... requestedScene=` and the save's FLIGHTSTATE activeVessel; a pool
+#     move there (the discard-window forbids span it) is a load defect, not the lane's.
 #   - the probe refused with a different reason (`unknown-rp`): the merge reaped the point
 #     (slot 1 was predicted open, RW-5 measured `stableLeafUnconcluded ... terminal=SubOrbital`).
 #   - recordings 38 or 40: the split did not run, or the optimizer split a recording; read
@@ -221,8 +238,12 @@ id = "RW-6-refly-science-discard-merge"
 # the first green flight.
 #
 # STATUS: AUTHORED 2026-10-28 (branch `rw6-refly-science`, stacked on `rw5-refly-discard`),
-# NEVER FLOWN. Every pinned literal is derived from source (file:line above), the host and the
-# flown RW-1 / RW-3 / RW-5 (first flight, steps 1-60) logs.
+# First flight 2026-10-28_1145: steps 1-57 met (H, F, the rewind, G and its stash, attempt 1
+# with `exp:data=0` on G's pod and `exp:data=1` after the report, the Discard and both discard
+# gates), then the second InvokeRewind deferred `not-in-flight` at the Space Center to TIMEOUT;
+# re-cut with the FLIGHT re-entry above and the sealed-slot probe moved into the check flight.
+# Every pinned literal is derived from source (file:line above), the host and the flown RW-1 /
+# RW-3 / RW-5 / RW-6 (1145, steps 1-57) logs.
 tier = "operator"
 description = "Rewind ledger campaign, science across a discarded and a merged Re-Fly of one slot (plan row 7): on cs-career-mun4, RW-5's committed pad flight and contract accept, a Rewind-to-Launch and a CS Flea Probe flight decoupled on the pad (a rewind point) and committed without science; a first Re-Fly of the pod slot takes the crew report and is discarded (the report never reaches the ledger, the next attempt's pod starts empty, the pools and rows return to their pre-invoke values); a second Re-Fly takes the same report and merges (split, supersede rows, no tombstone, auto-sealed), and the pod's Tracking Station recovery credits the subject once at full value under the merged flight, after which the value gate refuses that slot; then a warp across the committed rows and LedgerGroundTruth."
 instanceProfile = "stock-tree"
@@ -242,9 +263,9 @@ kind = "seam"
 
 # Budget arithmetic: 300 LoadGame + 7 x 120 warps + 3 x (120 GoToEditor + 180 LaunchFromEditor)
 # + 2 x 180 StartRecording + 2 x 120 CommitTree + 120 Recover + 60 KscAction + 300 rewind
-# + 2 x 300 InvokeRewind + 60 refused InvokeRewind + 300 ReFlyRevert + 240 AnswerMergeDialog
-# + 120 TS recover + 10 x 120 SaveGame + 540 RunTests = 6180; runtime 7400 adds the inert
-# steps and FlushAndQuit.
+# + 2 x 300 InvokeRewind + 60 refused InvokeRewind + 300 ReFlyRevert + 300 re-entry LoadGame
+# + 240 AnswerMergeDialog + 120 TS recover + 10 x 120 SaveGame + 540 RunTests = 6480; runtime
+# 7700 adds the inert steps and FlushAndQuit.
 steps = [
   # scene = "spacecenter": the host's three vessels are Mun debris (RW-1's boot).
   { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
@@ -321,9 +342,25 @@ steps = [
   { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
   { cmd = "SaveGame",       args = { name = "rw06-05-after-discard" },                    expect = "OK", budget = 120 },
 
-  # ---- attempt 2: the same report, merged (invoked from the Space Center) ----
+  # ---- back into FLIGHT: InvokeRewind is FLIGHT-only and the Discard lands at the Space Center
+  # (first flight 2026-10-28_1145: `dispatch id=0058 -> DEFER reason=not-in-flight` to TIMEOUT).
+  # RF-3's re-entry: a mid-session LoadGame with NO scene arg (an InSession load, the ledger and
+  # the staged lists stay memory's), of the step save just written at the Space Center: its
+  # FLIGHTSTATE holds only the host's three debris with activeVessel=0, so the save-derived route
+  # is FLIGHT on `CS Mun Flyby Debris` (pid 3430425143) coasting ~11000 km over Kerbin. Not
+  # `persistent`: at this point that file holds the rewind point's game the discard wrote there.
+  { cmd = "MissionMark",    args = { label = "rw6-reenter" },                              expect = "OK" },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "rw06-05-after-discard" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "handles2",          expect = "OK" },
+
+  # ---- attempt 2: the same report, merged ----
   { cmd = "MissionMark",    args = { label = "rw6-refly2-armed" },                         expect = "OK" },
-  { cmd = "InvokeRewind",   args = { rp = "${handles.rp0}", slot = "0" },                  expect = "OK", budget = 300 },
+  { cmd = "InvokeRewind",   args = { rp = "${handles2.rp0}", slot = "0" },                 expect = "OK", budget = 300 },
   { cmd = "ListHandles",    args = { kind = "chains" },                                    expect = "OK" },
   { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                        expect = "OK" },
   # The pod's VESSEL pid for the recovery (the invoke payload's activePid is a root part's),
@@ -349,9 +386,6 @@ steps = [
   { cmd = "TrackingStationRecover", args = { pid = "${p2.pid}" },                          expect = "OK", budget = 120 },
   { cmd = "MissionMark",    args = { label = "rw6-recovered" },                            expect = "OK" },
   { cmd = "SaveGame",       args = { name = "rw06-07-after-recovery" },                   expect = "OK", budget = 120 },
-  # The slot now holds a counted gain: the value gate refuses it (precondition 7).
-  { cmd = "MissionMark",    args = { label = "rw6-sealed-probe" },                         expect = "OK" },
-  { cmd = "InvokeRewind",   args = { rp = "${handles.rp0}", slot = "0" },                  expect = "REJECTED", budget = 60 },
 
   # ---- the crossing: every committed row reached at the Space Center ----
   { cmd = "MissionMark",    args = { label = "rw6-before-crossing" },                      expect = "OK" },
@@ -363,6 +397,10 @@ steps = [
   { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
   { cmd = "WarpToUT",       args = { ut = "186130" },                                      expect = "OK", budget = 120 },
+  # The slot now holds a counted gain: the value gate refuses it (precondition 7). In this
+  # flight because InvokeRewind is FLIGHT-only; a refusal starts nothing.
+  { cmd = "MissionMark",    args = { label = "rw6-sealed-probe" },                         expect = "OK" },
+  { cmd = "InvokeRewind",   args = { rp = "${handles2.rp0}", slot = "0" },                 expect = "REJECTED", budget = 60 },
   { cmd = "SaveGame",       args = { name = "rw06-09-check-flight" },                     expect = "OK", budget = 120 },
   # The DEFAULT slot (persistent): the one a harvest reads; the named slots above are side files.
   { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
@@ -465,8 +503,15 @@ required = [
   "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) facilities=\\[([^\\]\\r\\n]*)\\] targetTechNodes=[0-9]+ contracts=([0-9]+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw6-refly1-armed ut=[\\s\\S]*?Load classified: early=DiscardReFly refined=DiscardReFly [\\s\\S]*?\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 facilities=\\[\\4\\] targetTechNodes=[0-9]+ contracts=\\5 ",
   # Rows: the same ledger row count before the invoke and after the discard.
   "RecalculateAndPatch: actionsTotal=([0-9]+), (?:(?!RecalculateAndPatch: actionsTotal=)[\\s\\S])*?MISSIONMARK label=rw6-refly1-armed ut=[\\s\\S]*?Load classified: early=DiscardReFly refined=DiscardReFly (?:(?!RecalculateAndPatch: actionsTotal=)[\\s\\S])*RecalculateAndPatch: actionsTotal=\\1, ",
-  # Recordings: G's tree as committed, the attempt's recording gone (RW-5 read truncated=true).
-  "listhandles kind=committed count=([0-9]+) truncated=\\S+[\\s\\S]*?MISSIONMARK label=rw6-g-committed ut=[\\s\\S]*?MISSIONMARK label=rw6-discarded1 ut=[\\s\\S]*?listhandles kind=committed count=\\1 truncated=",
+  # Recordings: G's tree as committed, the attempt's recording gone (RW-5 and the 1145 flight
+  # read `count=37 truncated=true`).
+  "listhandles kind=committed count=([0-9]+) truncated=(?:true|false)[\\s\\S]*?MISSIONMARK label=rw6-g-committed ut=[\\s\\S]*?MISSIONMARK label=rw6-discarded1 ut=[\\s\\S]*?listhandles kind=committed count=\\1 truncated=(?:true|false)",
+
+  # ---- back into FLIGHT: an InSession load of the discard's step save (RF-3's measured
+  # classification for a mid-session no-scene LoadGame), onto the host's debris, moving no pool ----
+  "MISSIONMARK label=rw6-reenter ut=[\\s\\S]*?loadgame start save=\\S+ name=rw06-05-after-discard scene=SPACECENTER requestedScene=Unspecified [\\s\\S]*?Load classified: early=InSession refined=InSessionOther scene=FLIGHT [\\s\\S]*?loadgame complete scene=FLIGHT save=\\S+ game-loaded=true expected=Flight[\\s\\S]*?MISSIONMARK label=rw6-refly2-armed ut=",
+  "MISSIONMARK label=rw6-reenter ut=[\\s\\S]*?Load classified: early=InSession refined=InSessionOther scene=FLIGHT [\\s\\S]*?\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=150632\\.18 science=20\\.17 rep=115\\.00 [\\s\\S]*?MISSIONMARK label=rw6-refly2-armed ut=",
+  "MISSIONMARK label=rw6-reenter ut=[\\s\\S]*?listhandles kind=rewindpoints count=1 truncated=false[\\s\\S]*?MISSIONMARK label=rw6-refly2-armed ut=",
 
   # ---- attempt 2: a NEW session on the same point and slot; the pod starts empty ----
   "StartInvoke: sess=(\\S+) rp=(rp_[0-9a-f]{32}) slot=0[\\s\\S]*?MISSIONMARK label=rw6-refly2-armed ut=[\\s\\S]*?Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=(?!\\1 )\\S+ rp=\\2 slot=0",
@@ -504,7 +549,7 @@ required = [
 
   # ---- THE SLOT NOW HOLDS A COUNTED GAIN: Re-Fly is not offered ----
   "MISSIONMARK label=rw6-recovered ut=[\\s\\S]*?RetireSet gate \\(section 2\\.12 Rule 1\\): rp=rp_[0-9a-f]{32} slot=0 [^\\r\\n]*sealingRows=[1-9][0-9]* [^\\r\\n]*-> sealed by ",
-  "MISSIONMARK label=rw6-sealed-probe ut=[\\s\\S]*?invokerewind refused: refly-gate recordingAction:[A-Za-z]+:act_[0-9a-f]{32}[\\s\\S]*?MISSIONMARK label=rw6-before-crossing ut=",
+  "MISSIONMARK label=rw6-sealed-probe ut=[\\s\\S]*?invokerewind refused: refly-gate recordingAction:[A-Za-z]+:act_[0-9a-f]{32}[\\s\\S]*?savegame name=rw06-09-check-flight ",
 
   # ---- the crossing: the rows reached at the Space Center, F's accept among them ----
   "MISSIONMARK label=rw6-before-crossing ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=rw6-crossed ut=",
@@ -602,8 +647,8 @@ forbidden = [
   "In-session load found no staged-list handoff",
   "DiscardReFly load intent dropped as stale",
   # G's point survives from its commit to the sealed-slot probe (slot 1 stays open).
-  "MISSIONMARK label=rw6-rewound ut=(?:(?!MISSIONMARK label=rw6-before-crossing )[\\s\\S])*Reaped rp=",
-  "MISSIONMARK label=rw6-rewound ut=(?:(?!MISSIONMARK label=rw6-before-crossing )[\\s\\S])*Purged rp=",
+  "MISSIONMARK label=rw6-rewound ut=(?:(?!savegame name=rw06-09-check-flight )[\\s\\S])*Reaped rp=",
+  "MISSIONMARK label=rw6-rewound ut=(?:(?!savegame name=rw06-09-check-flight )[\\s\\S])*Purged rp=",
   # ---- F's accept applies once at the crossing ----
   "Clock-crossing reached committed-future rows: [^\\r\\n]*ContractAccept@[\\s\\S]*Clock-crossing reached committed-future rows: [^\\r\\n]*ContractAccept@",
   "kscaction action=accept-contract target=f1fb89dc-a471-42cf-94da-de4bb1080512 applied=true[\\s\\S]*kscaction action=accept-contract target=f1fb89dc-a471-42cf-94da-de4bb1080512 applied=true",
@@ -622,7 +667,7 @@ supersedeRows = { min = 1 }
 tombstones    = { max = 0 }
 
 [runtime]
-budgetSeconds = 7400
+budgetSeconds = 7700
 
 [retry]
 policy = "once"

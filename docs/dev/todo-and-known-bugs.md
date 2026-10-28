@@ -3183,10 +3183,13 @@ craft (the pod's only antenna is INTERNAL, and the Recover verb refuses a live s
 `dialog-required` because it raises the Re-Fly merge modal), so the discarded report stays aboard as data and
 the merged one is credited by the post-merge Tracking Station recovery. The lane reds on the RW-5 discard funds
 defect (`PatchFunds: 150632.2 -> 110200.2`) until its fix lands, and forbids the same mis-read on the merge's own
-Space Center load. Read off RW-5's first flight while authoring: RW-5 forbids `outcome=unbound-refly-provisional`,
-which its own flight logged once at the invoke's first save (KSP.log line 25144, before the recorder bound); its
-`stashslot refused` forbid never matches (the seam logs `stashslot rejected`); and its committed-count gate
-requires `truncated=false` where the flight read `count=37 truncated=true`.
+Space Center load. First flight `2026-10-28_1145`: steps 1-57 met (attempt 1's report
+read `exp:data=1`, the Discard and both discard gates matched, the RW-5 funds defect fired as expected),
+then the second InvokeRewind deferred `not-in-flight` at the Space Center to TIMEOUT (InvokeRewind is
+FLIGHT-only, TestCommandDispatcher.cs:497). Re-cut: RF-3's re-entry, a mid-session LoadGame with no scene arg
+of the discard's step save (an InSession load onto the host's debris, pinned with unmoved pools), and the
+sealed-slot probe moved into the check flight. RW-5's three pins its first flight disproved (truncated=true,
+`stashslot rejected`, the unbound-provisional forbid) are fixed on its branch (796808140) and merged here.
 
 ---
 
