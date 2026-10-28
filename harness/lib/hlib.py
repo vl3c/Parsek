@@ -12012,6 +12012,9 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "upgrade-already-unlocked": "driver-career",
     "upgrade-handler-missing": "driver-gate",
     "define-not-applied": "driver-gate",
+    # KscAction gift-tech (stock's free tech unlock, UnlockProtoTechNode): the node did not
+    # read Available after the call.
+    "gift-not-applied": "driver-gate",
     # R12 (design "> Update (R12)"). Both verbs ship a TYPED refusal taxonomy; without
     # these rows every one of them collapses to the coarse driver-verdict-mismatch and the
     # taxonomy is decorative on the harness side. Same retryability either way - these

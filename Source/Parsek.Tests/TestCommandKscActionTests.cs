@@ -41,6 +41,23 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Decide_GiftTech_RefusalsAndAccept()
+        {
+            Assert.Equal(KscActionKind.GiftTech, TestCommandKscAction.ParseKind("gift-tech"));
+            Assert.Equal("missing-arg", TestCommandKscAction.Decide("gift-tech", null,
+                new KscActionInputs { ArgPresent = false }).RejectReason);
+            Assert.Equal("unknown-tech-node", TestCommandKscAction.Decide("gift-tech", "x",
+                new KscActionInputs { ArgPresent = true, TargetResolves = false }).RejectReason);
+            Assert.Equal("node-already-unlocked", TestCommandKscAction.Decide("gift-tech", "x",
+                new KscActionInputs { ArgPresent = true, TargetResolves = true, AlreadyApplied = true }).RejectReason);
+            // A gift is free: a node costing more science than the pool holds is still accepted.
+            var ok = TestCommandKscAction.Decide("gift-tech", "x",
+                new KscActionInputs { ArgPresent = true, TargetResolves = true, CostAmount = 90, AvailableAmount = 0 });
+            Assert.True(ok.Accepted);
+            Assert.Equal("tech-unlock", ok.ManifestKind);
+        }
+
+        [Fact]
         public void Decide_Demolish_RefusalsAndAccept()
         {
             Assert.Equal("unknown-building", TestCommandKscAction.Decide("demolish-building", "x",

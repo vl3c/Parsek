@@ -951,6 +951,19 @@ accounted whatever DID happen.
 > refusal. `UiAction op=dismiss` now runs with no Parsek UI host (the editor), so a blocked
 > dialog raised there can be dismissed. First flown on `KB-4-ksc-click-blocks-remaining`.
 
+> Update (2026-10-28, lane RW-8, todo FREE-TECH-NODE-LOST-AFTER-REWIND). `gift-tech
+> node=<techId>` unlocks one tech node for free the way stock's point-of-interest tech gift
+> (`ProgressNode.AwardProgressRandomTech`) does: `ResearchAndDevelopment.UnlockProtoTechNode`,
+> then `ResearchAndDevelopment.RefreshTechTreeUI`. The gift's third call,
+> `FinePrint.ContractDefs.TechResearched`, is internal to stock and only refreshes the
+> contract generator, so the seam skips it. Stock picks the gift's node at random; the seam
+> names it, so a lane is deterministic. No science is charged, so there is no affordability check. The
+> effect is confirmed by the node reading `Available`; otherwise the `not applied:` line and
+> `gift-not-applied` (gate class). Refusals after `missing-arg`: `unknown-tech-node` (arg
+> class), `node-already-unlocked` (career class). Dispatch: CAREER, any scene (the R&D
+> singleton must be live, the default `career-not-ready` defer). Manifest kind `tech-unlock`;
+> payload `scienceAfter`.
+
 **Payload.** `OK action=<action> target=<target> applied=true` plus an observed-after
 field for logging only (`scienceAfter` / `fundsAfter` / `level` / `crewCount`). The
 observed-after values are for the KSP.log / debugging; they are NEVER the oracle's
