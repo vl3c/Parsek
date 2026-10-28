@@ -25,6 +25,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A kerbal killed in a Re-Fly comes back with stock crew respawn on.** Re-flying a crewed
+  stage that first ended with its kerbal aboard and losing him in the re-fly marked him lost for
+  good, as if the replaced flight still held him. The replaced flight now lets him go: he respawns
+  on stock's timer, and a re-fly that recovers him frees him.
+  (REFLY-MERGED-DEATH-PERMANENT-VIA-SUPERSEDED-CO-ROW)
 - **Recovering cheap debris during a Re-Fly keeps its funds.** A recovery worth under 100 funds
   (cheap debris, a kerbal on EVA, a small probe) was never written down, so in a Re-Fly or after
   a rewind its money vanished. Every recovery is now booked at its exact payout, and with Patents

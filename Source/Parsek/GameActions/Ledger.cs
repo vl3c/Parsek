@@ -575,8 +575,10 @@ namespace Parsek
         /// EndUT and follows the terminal (and the crew end states
         /// <c>RecordingOptimizer.MoveCrewEndStatesToSecondHalf</c> moves) to the second
         /// half, and its KerbalDeath reputation penalty moves with it wherever the cut
-        /// falls (DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT); a non-death row stays
-        /// with its boarding UT on the first. Left in place,
+        /// falls (DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT); an Aboard / Unknown row
+        /// is screened by its EndUT as well and follows the end-of-flight fate to the
+        /// second half (REFLY-MERGED-DEATH-PERMANENT-VIA-SUPERSEDED-CO-ROW); a Recovered
+        /// row stays with its boarding UT on the first. Left in place,
         /// the rows stayed on the first segment, where a later re-fly of the second
         /// segment cannot reach them (outside its closure). Row CONTENT is left to the
         /// next load's <c>MigrateKerbalAssignments</c>, which re-derives it under the same

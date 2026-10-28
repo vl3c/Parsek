@@ -17,6 +17,64 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REFLY-MERGED-DEATH-PERMANENT-VIA-SUPERSEDED-CO-ROW: a kerbal killed in a merged Re-Fly with stock crew respawn on is lost for good, because the replaced flight's Aboard row was never retired~~ [FILED AND FIXED 2026-10-28 from lane RW-7, run `2026-10-28_1318`, branch `fix-refly-death-co-row`; unit-tested only, NOT FLOWN, RW-7 re-flight owed; product, high (a kerbal lost for good, and a kerbal held forever after any crewed-slot Re-Fly)]
+
+EVIDENCE (RW-7, host career with `MissingCrewsRespawn=True`, `RespawnTimer=7200`). Flight G launched
+at UT 185785.91 and decoupled on the pad, authoring a rewind point at 185786.49. G's pod recording
+`13ccecab` flew on past the decouple (breakup-continuous) and ended Landed with Jebediah aboard. The
+pod slot was re-flown; attempt 2 crashed and was merged. The merge split `13ccecab` at the rewind
+point (`HEAD=[185785.91..185786.49] (kept), TIP=f3cba0b6 [185786.41..185797.01]`), wrote the supersede
+row `old=f3cba0b6 new=rec_b27a95e8`, and tombstoned `Kerbal=0` rows. Every later walk logged
+`Death hold: ... respawn scheduled deathUT=185896.8 respawnUT=193096.8` then `respawn suppressed:
+open-ended co-row (coRowStartUT=185786.4 ...); permanent loss`. The save's ledger holds
+`act_4c0ac12c KerbalAssignment Jebediah recordingId=f3cba0b6 endState=Aboard ut=185786.41`: an
+untombstoned open-ended row on the superseded TIP.
+
+ROOT CAUSE. `TombstoneAttributionHelper.ComputeAttributionUT` keyed every non-death `KerbalAssignment`
+by its boarding `UT`. The original Aboard row (boarded at launch, before the rewind) therefore stayed
+on HEAD at the split's step 2.9 retag (`RecordingTreeSplitter.ShouldRetagLedgerActionToTip`), outside
+the supersede closure, and the pre-rewind guard would have kept it anyway. In session HEAD's stale
+row (content is re-derived only on the next load) held Jeb open-ended from launch; after the next
+load `MigrateKerbalAssignments` re-derived HEAD as a Recovered handoff and gave the superseded TIP a
+FRESH-id Aboard row no tombstone covers. Either row is an open-ended co-row starting before the
+respawn, so `KerbalsModule.ResolveOpenEndedRespawnDeaths` made the death permanent. The walk reads
+ELS (tombstones are its only filter, by design), so the gap was in the retirement, not in the walk.
+The 0.08 s tail overlap (the TIP's samples start before the cutoff) would also have kept a TIP row
+dated at the TIP's start. Without a death the same gap held the kerbal forever (a re-fly that
+recovers him stayed reserved). Reproduced headlessly before the fix: in session `coRow=8` (HEAD),
+after a reload `coRow=34` (TIP fresh row), both `perm=True`.
+
+FIX. An `Aboard` / `Unknown` `KerbalAssignment` is keyed by its `EndUT`, like a death
+(`TombstoneAttributionHelper.IsOpenEndedCrewInterval`): the row records the crew's fate at the end of
+the flight, a loss row (design section 2.12) the replacement re-records from its own crew. The one
+key moves the row to the TIP with the terminal at the split (and to the second half of an optimizer
+split, with the end states), puts it in the merge's retire set, and the tombstone pass retires it;
+the next load's TIP derivation inherits the retired id (ruling a1), and HEAD re-derives its Recovered
+handoff. `Recovered` rows keep the boarding UT. New logs: `[Splitter] Step9: N pre-rewind-boarded
+open-ended crew row(s) retagged to TIP by endUT`, `[LedgerSwap] PreRewindTombstoneGuard: open-ended
+crew interval screened by endUT ... -> in scope` and its summary line.
+
+RULING TOUCHED. This amends one clause of the operator ruling of 2026-09-22
+(TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START: "every other interval action staying on
+UT"): Aboard / Unknown now share the death's EndUT key. The clause predates the 2026-10-19 loss-row
+list of design section 2.12, which names Aboard / Unknown as rows the merge retires; owner
+confirmation is owed before the PR. The ruling-preserving alternative (the walk skips open-ended
+crew rows of superseded recordings) fixes the post-load row only, not HEAD's in-session row.
+`TombstoneScreeningMirrorTests`, `RecordingTreeSplitterTests` and `SupersedeCommitTombstoneTests`
+cells that pinned the old clause now pin the new key (Recovered still stays on its UT).
+
+SAFETY. Earned value: the change only moves loss rows into the retire set; no gain, spend or
+Recovered row changes side, so Rule 1's seal and Invariant LS are unchanged. Losses-only: the re-fly's
+own death row is untouched and still reads Lost until the stock respawn. Paradox: a kerbal is still
+held by every effective committed flight that carries him (the mirror cell: a live flight aboard
+across the dead window keeps the death permanent), and the retired row belonged to a flight that no
+longer exists. NOT REPAIRED: a save merged on an older build keeps its untombstoned TIP row (no
+migration).
+
+TESTS: `ReFlyMergedDeathCoRowTests` (10 cells: RW-7 shape in session and after two reloads, a re-fly
+that recovers the kerbal, the live co-row mirror, the attribution key theory x5, the tail-overlap
+retire set). Reverting the key reds 7 of the 10.
+
 ## REWIND-PRUNE-AND-WALK-AT-UT-ZERO: a Rewind-to-Launch prunes baselines and walks the ledger at UT 0, not at the rewind save's own UT [FILED 2026-10-28 from the rewind campaign's log mining; code-read, NOT FIXED; product, low-medium]
 
 The rewind branch of `ParsekScenario.OnLoad` (~5534) runs
