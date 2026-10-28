@@ -2880,6 +2880,33 @@ pid. (2) One landing refused the EVA (`spawnEVA returned null`, hatch most likel
 the rest attitude). The work sits on the operator PC's `cs6c-science` branch (5a00a9d7b),
 unpushed; runs `2026-10-28_0144` .. `_0432_a2`.
 
+Progress 2026-10-28 later (CS-7, still not on main; `cs6c-science` tip 32a26a35c on the operator
+PC): the flag step is solved. kRPC 0.5.4's vessel list leaves out EVA kerbals, so the switch back to
+Jeb now goes through his kRPC handle captured while he is active; run `2026-10-28_0626` cleared the
+whole surface visit (EvaExit, ragdoll recovery, PlantFlag, EvaBoard). Still open, both mission-side:
+(1) Mun liftoff: on engage MechJeb logs `prelaunch killing throttle`, the Terrier ignites and 0.5 s
+later a joint break (breakForce=0.0) drops the tank, engine and legs under the pod (same signature
+as `_0223_a2`, so re-setting the autostage limit after the boarding rebind is not the cure); lead:
+MechJeb's landed launch step stages by itself and, after boarding rebuilt the stage list, the next
+stage is the TD-12 under the pod. Next: read the stage list after EvaBoard, or lift off on our own
+throttle for the first seconds. (2) `_0649_a2`: EvaExit refused twice (`spawnEVA returned null`,
+retry after 5 s too), most likely a hatch blocked by the rest attitude.
+
+---
+
+## REWIND-LEDGER-CAMPAIGN: rewind-and-replay lanes on the campaign careers to hunt ledger bugs [FILED 2026-10-28 at the owner's request. OPEN]
+
+The owner asked for missions flown after rewinding into the past, with a save point after each and
+every log kept, to investigate ledger correctness beyond unit tests and single lanes. Plan (reviewed
+by a fresh agent, corrections folded in): https://claude.ai/artifact/DLBfi97SWfvRzYmtQmHcCF - 19
+missions RW-1..RW-19 on the CS campaign fixtures, a harvested fixture after each, the whole
+`results/<runId>_save` copied to `logs/flights/rewind-campaign/`, `ledgerTracing` on. A harvested
+fixture cannot be rewound to launch (`Parsek/Saves` pruned, `rewindSave` keys blanked), so each lane
+makes its own past: a short hop H committed in-lane, the future actions, then `InvokeRewindToLaunch`
+back to H. Tooling: `harness/tools/ledger_audit.py` (pure core `harness/lib/ledgeraudit.py`) audits
+one run's KSP.log and ledger offline. Wave 1 (Space Center economy, one composite lane on fixture
+`cs-career-mun4`) is being authored.
+
 ---
 
 ## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
