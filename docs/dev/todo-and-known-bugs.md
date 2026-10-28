@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE: a Discard Re-fly after a Rewind-to-Launch takes the committed future's earnings away for good~~ [FILED AND FIXED 2026-10-28 from RW-5's flight `2026-10-28_1056`, branch `fix-refly-discard-pool-reference`; unit-tested only, NOT FLOWN, lane RW-5 will live-prove it; product, high (a reduction of the career total)]
+## ~~REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE: a Discard Re-fly after a Rewind-to-Launch takes the committed future's earnings away for good~~ [FILED AND FIXED 2026-10-28 from RW-5's flight `2026-10-28_1056`, branch `fix-refly-discard-pool-reference`; LIVE-PROVEN by lane RW-5, run `2026-10-28_1200` (DLL built from 530e783); product, high (a reduction of the career total)]
 
 RW-5: a committed pad hop H (recovery +2932) and a Space Center contract accept F (+37500
 advance), a Rewind-to-Launch that leaves both ahead of the clock, flight G decoupling on the pad
@@ -55,6 +55,12 @@ untracked gain paid once, the Re-Fly merge mirror, the splice cells, the OnLoad 
 Mutation-checked: reverting the splice reds the headline (`write=110200`), the science cell
 (`leak=-25`), the no-rewind cell (`leak=-1200`) and both splice cells; dropping `reFlyDiscard`
 from the first walk reds the wiring gate.
+
+Live proof: RW-5 run `2026-10-28_1200` PASS attempt 1. The discard logged `DiscardReFly: carried the
+session's Parsek node, keeping the rewind point's own STOCK_POOL_REFERENCE` and loaded the reference at
+`lastWritten=150632.18` (191064.18 before the fix); the post-discard walk held 150632.18 with no leak row and
+no GUARDED clamp, and the crossing applied the committed +2932 and +37500 once (191064.18). Evidence:
+`logs/flights/rewind-campaign/rw-05-rewind-refly-discard-run2/`.
 
 Observed, not changed: the Re-Fly start's full-ledger walk itself leaves the committed future in
 the live pool for the whole attempt (patches are deferred while the recorder runs); a merge's
@@ -3143,7 +3149,8 @@ GC-2's `Blocked <action> of claimed vessel` cannot print after a plain rewind (t
 the vessel first) and GC-2 reads ghost chains only, so a vessel the committed future merely recovers
 is never a GC-2 claim; no seam verb drives the Tracking Station Delete.
 
-Progress 2026-10-28 (branch `rw5-refly-discard`): lane `RW-5-rewind-refly-discard` authored, never flown, plan
+Progress 2026-10-28 (branch `rw5-refly-discard`): lane `RW-5-rewind-refly-discard` LIVE-PROVEN on the Discard Re-fly fix
+(`2026-10-28_1200`; its first flight `2026-10-28_1056` found REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE, a -40432 leak row), plan
 row 8 (a Re-Fly started and discarded inside a rewound timeline): RW-1's committed pad flight H and contract
 accept F, a Rewind-to-Launch, then G, a pad flight of the new craft `CS Flea Probe`, decoupled on the pad into
 two controllable vessels (the rewind point) and committed in flight; a Re-Fly of G's pod slot earns Kerbin's

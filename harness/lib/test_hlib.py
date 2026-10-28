@@ -4713,7 +4713,9 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # split regexed; RW-1 and RW-3 read passed=3 skipped=0 on this host). Not an H-series
     # id; CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first
     # flight.
-    INTERIM_PIN_IDS: set = {"RW-5-rewind-refly-discard"}
+    # RW-5-rewind-refly-discard LEFT on the Discard Re-fly fix, run 2026-10-28_1200 (passed=3
+    # failed=0 skipped=0, pinned whole).
+    INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against

@@ -231,7 +231,16 @@ id = "RW-5-rewind-refly-discard"
 # (7) recordings window 37..37; (8) operator, ~15 min expected; (9) flight_efficiency.py after
 # the first green flight.
 #
-# STATUS: AUTHORED 2026-10-28 (branch `rw5-refly-discard`), NEVER FLOWN. Every pinned literal is
+# STATUS: LIVE-PROVEN 2026-10-28 on the fix, `2026-10-28_1200` PASS attempt 1 (DLL 0216c8e5 built from 530e783, the Discard Re-fly pool fix). The CS Flea Probe pad decouple
+# authored the rewind point, the Re-Fly started (by-design lift 150632.18 -> 191064.18), the pad
+# EVA world-first was earned, and the Discard Re-fly returned the walk to 150632.18 with the rewind
+# point's own STOCK_POOL_REFERENCE kept (`DiscardReFly: carried the session's Parsek node, keeping the
+# rewind point's own STOCK_POOL_REFERENCE`): no leak row, no GUARDED clamp; the crossing then applied
+# the committed +2932 and +37500 once (191064.18). G rollout measured -3982. 37 recordings; batch
+# passed=3 skipped=0; LedgerGroundTruth hardFailures=0; ledger_audit.py PASS but for the by-design
+# unbound-refly-provisional line at the invoke's first save. History: FIRST FLIGHT 2026-10-28
+# `2026-10-28_1056` INVALID (a Tracking Station step, since dropped) after finding the Discard Re-fly
+# pool loss (PatchFunds 150632.2 -> 110200.2, a -40432 leak row). Original note: every pinned literal is
 # derived from source (file:line above), the host and the flown RW-1 / RW-2 / RW-3 logs.
 tier = "operator"
 description = "Rewind ledger campaign, a Re-Fly started and discarded inside a rewound timeline (plan row 8): on cs-career-mun4 a pad flight H is recorded and committed and a contract accepted at the Space Center; after a Rewind-to-Launch a two-command craft G is recorded on the pad, decoupled into two controllable vessels (a rewind point), committed and its pod slot stashed; a Re-Fly of that slot earns Kerbin's SurfaceEVA world-first from the ladder, then Discard Re-fly restores the ledger to exactly the pools and row count it held before the Re-Fly started, with G's recordings, rows and rewind point kept and nothing superseded or tombstoned; warping past the committed rows applies each once and LedgerGroundTruth closes the career."
@@ -393,7 +402,7 @@ required = [
   # ---- G: launched, its stand decoupled on the pad into a second controllable vessel ----
   "MISSIONMARK label=rw5-rewound ut=[\\s\\S]*?launchfromeditor complete scene=FLIGHT vessel=CS Flea Probe pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
   # G's rollout; the cost (3982 from the part cfgs) is owed off the first flight.
-  "MISSIONMARK label=rw5-rewound ut=[\\s\\S]*?Game state: FundsChanged -[0-9]+ \\(VesselRollout\\)[\\s\\S]*?MISSIONMARK label=rw5-g-committed ut=",
+  "MISSIONMARK label=rw5-rewound ut=[\\s\\S]*?Game state: FundsChanged -3982 \\(VesselRollout\\)[\\s\\S]*?MISSIONMARK label=rw5-g-committed ut=",
   # The decouple acts on G, the stand is the new vessel, and focus stays on G (the pod holds
   # the control point).
   "launchfromeditor complete scene=FLIGHT vessel=CS Flea Probe pid=([0-9]+) [\\s\\S]*?partaction applied button=decouple pid=\\1 part='radialDecoupler' partId=[0-9]+ event=Decouple newPid=[1-9][0-9]* newName='[^'\\r\\n]*' vessels=[0-9]+->[0-9]+ activePid=\\1 ",
@@ -480,7 +489,7 @@ required = [
   "result: hardFailures=0 ",
   # INTERIM: total=3 from the source (the LedgerGroundTruth category's FLIGHT cells); the
   # split is owed off the first flight (RW-1 / RW-3 read passed=3 skipped=0 on this host).
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
