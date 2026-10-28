@@ -122,7 +122,15 @@ id = "RW-1-ksc-economy"
 #     resource / id before anything else.
 #   - recordings 36: H split on the pad (L8's pad flight measured 1).
 #
-# STATUS: AUTHORED 2026-10-28 (branch `rw-ksc-economy`), NEVER FLOWN. Every pinned literal is
+# STATUS: LIVE-PROVEN 2026-10-28 on its first flight, `2026-10-28_0743` PASS attempt 1 (147 s, DLL 92b715f7). The accept and
+# the Runway upgrade were refused blocked-committed after the first rewind, the upgrade
+# again after the second; the crossings applied each once (ContractAccept@186000.34 with
+# FundsEarning, then FacilityUpgrade@186000.36; Runway level 0 -> 1, f1fb89dc Active in the
+# produced save); funds 157546.18 -> 117114.18 (two rollouts -2932, recovery +2932, advance
+# +37500, upgrade -75000); pool held at 120046.18 across both rewinds; 35 recordings; batch
+# passed=3 skipped=0; LedgerGroundTruth hardFailures=0 reportOnly facets Milestone, Vessel;
+# ledger_audit.py PASS (0 LedgerTrace anomalies in 39 lines, 0 paid twice, 11 loads
+# classified). Original note: every pinned literal is
 # derived from source (file:line beside each block) and the host, not from a log.
 # Owed off the first flight:
 #   - the batch split (`total=3` pinned from the source, `passed` / `skipped` regexed;
@@ -222,7 +230,7 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # The host's 34 recordings plus H; the check launch is unrecorded and no rewind removes one.
-count = { min = 35, max = 36 }
+count = { min = 35, max = 35 }
 
 [expectations.logContracts]
 # Source of each literal (Source/Parsek/...):
@@ -254,8 +262,8 @@ required = [
   # ---- H: two Flea launches in all (H and the check), each rolled out at the measured cost ----
   "\\A(?:[\\s\\S]*?launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH){2}",
   "\\A(?:[\\s\\S]*?Game state: FundsChanged -2932 \\(VesselRollout\\)){2}",
-  # H's pad recovery (payout owed off the first flight).
-  "Game state: FundsChanged \\+[0-9]+ \\(VesselRecovery\\)[\\s\\S]*?MISSIONMARK label=rw1-h-committed ut=",
+  # H's pad recovery, measured on the first flight.
+  "Game state: FundsChanged \\+2932 \\(VesselRecovery\\)[\\s\\S]*?MISSIONMARK label=rw1-h-committed ut=",
   # The ledger tracer is on (the gated Tier-A line, once per recalc).
   "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=",
 
@@ -293,6 +301,10 @@ required = [
 
   # ---- the crossing, RW-9: the rows reached at the Space Center, the Runway raised once ----
   "MISSIONMARK label=rw1-rewound-2 ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=rw1-crossed ut=",
+  # Measured on the first flight: the accept row crosses with the H recovery batch, the
+  # upgrade row on its own.
+  "MISSIONMARK label=rw1-rewound-2 ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[0-9]+ \\[[^\\]]*ContractAccept@",
+  "MISSIONMARK label=rw1-rewound-2 ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=1 \\[FacilityUpgrade@",
   "MISSIONMARK label=rw1-rewound-2 ut=[\\s\\S]*?PatchFacilities: 'SpaceCenter/Runway' level 0 -> 1 [\\s\\S]*?MISSIONMARK label=rw1-crossed ut=",
 
   # ---- the ground truth, in FLIGHT on the unrecorded check Flea ----
@@ -301,7 +313,7 @@ required = [
   # INTERIM: total=3 from the source (the LedgerGroundTruth category's FLIGHT cells); the
   # split is owed off the first flight (L8 read passed=2 skipped=1 after a rewind with no
   # KerbalExperience row at or before the clock; this host has many, so passed=3 is likely).
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

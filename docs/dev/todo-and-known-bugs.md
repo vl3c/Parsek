@@ -2904,8 +2904,16 @@ missions RW-1..RW-19 on the CS campaign fixtures, a harvested fixture after each
 fixture cannot be rewound to launch (`Parsek/Saves` pruned, `rewindSave` keys blanked), so each lane
 makes its own past: a short hop H committed in-lane, the future actions, then `InvokeRewindToLaunch`
 back to H. Tooling: `harness/tools/ledger_audit.py` (pure core `harness/lib/ledgeraudit.py`) audits
-one run's KSP.log and ledger offline. Wave 1 (Space Center economy, one composite lane on fixture
-`cs-career-mun4`) is being authored.
+one run's KSP.log and ledger offline.
+
+Progress 2026-10-28: fixture `cs-career-mun4` (CS-6c's produced save) landed, and wave 1's composite
+lane `RW-1-ksc-economy` (rows RW-3, RW-4, RW-9, RW-11) is LIVE-PROVEN on its first flight
+(`2026-10-28_0743`, 147 s): a contract accept and the Runway upgrade committed at the Space Center,
+both refused after a Rewind-to-Launch, the upgrade refused again after a second rewind, each applied
+once at the crossing; LedgerGroundTruth hardFailures=0 and `ledger_audit.py` PASS. Not covered on this
+host: the tech half of RW-4 and RW-11's tech buy (20.17 science, every affordable node owned) and
+RW-10 (no applicant in the roster and `hire-kerbal` resolves by name only; needs a seeded applicant
+or an applicant-first seam argument). Evidence: `logs/flights/rewind-campaign/rw-01-ksc-economy/`.
 
 ---
 
