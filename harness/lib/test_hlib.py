@@ -4684,7 +4684,9 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # rows, then the LedgerGroundTruth category's three FLIGHT cells, `total=3` literal with
     # the split regexed; RW-1 read passed=3 skipped=0 on this host). Not an H-series id;
     # CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first flight.
-    INTERIM_PIN_IDS: set = {"RW-2-crewed-relaunch-revert"}
+    # RW-2-crewed-relaunch-revert LEFT after its first flight, run 2026-10-28_0837, which measured
+    # passed=3 failed=0 skipped=0 (pinned whole; that run reds only on the revert-cutoff defect).
+    INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against

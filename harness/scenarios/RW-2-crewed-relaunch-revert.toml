@@ -153,7 +153,16 @@ id = "RW-2-crewed-relaunch-revert"
 #   - `reverttolaunch rejected reason=reverttolaunch-unavailable`: stock did not offer it.
 #   - recordings 36: something recorded after the rewind (the EVA auto-record setting).
 #
-# STATUS: AUTHORED 2026-10-28 (branch `rw2-crewed-revert`), NEVER FLOWN. Every pinned
+# STATUS: FIRST FLIGHT 2026-10-28 `2026-10-28_0837` PARSEK-FAIL attempt 1 (DLL 92b715f7) on ONE
+# forbid, a real defect: the StockRevert load inside the rewound timeline ran its recalc with
+# cutoffUT=null (`post-rewind current-UT cutoff decision useCurrentUtCutoff=False ... isRevert=True
+# ... hasFutureLedgerActions=True`), so `PatchFunds: 151682.2 -> 192114.2 (delta=40432.0)` paid the
+# committed future's gains (the +37500 advance, H's +2932 recovery) at a clock of 185786; the next
+# load restored the cutoff and funds 151682.2. Every other pin held: the VAB swap of Jebediah for
+# a stand-in, the stand-in's XP, the revert pruning 1 untagged row (Kerbin/SurfaceEVA, measured
+# 3200 / 1.0 / 0.0) with keptFromFlightEntry=1, each committed row crossed once, 35 recordings,
+# batch passed=3 failed=0 skipped=0, LedgerGroundTruth hardFailures=0. The lane is expected green
+# with the cutoff fix. Original note: every pinned
 # literal is derived from source (file:line above) and RW-1's flown log of the same H, not
 # from a flight of this lane.
 # Owed off the first flight:
@@ -316,15 +325,15 @@ required = [
   # ---- row 14: the in-flight earning, an untagged row written at once ----
   "MISSIONMARK label=rw2-launched ut=[\\s\\S]*?Game state: MilestoneAchieved 'Kerbin/SurfaceEVA' \\(awaiting reward enrichment\\)[\\s\\S]*?MISSIONMARK label=rw2-eva ut=",
   "MISSIONMARK label=rw2-launched ut=[\\s\\S]*?KSC spending recorded: type=MilestoneAchievement, UT=[0-9.]+, key=Kerbin/SurfaceEVA[\\s\\S]*?MISSIONMARK label=rw2-eva ut=",
-  "MISSIONMARK label=rw2-launched ut=[\\s\\S]*?Milestone enriched: 'Kerbin/SurfaceEVA' funds=[0-9]+ rep=[0-9.]+ sci=[0-9.]+[\\s\\S]*?MISSIONMARK label=rw2-eva ut=",
+  "MISSIONMARK label=rw2-launched ut=[\\s\\S]*?Milestone enriched: 'Kerbin/SurfaceEVA' funds=3200 rep=1\\.0 sci=0\\.0[\\s\\S]*?MISSIONMARK label=rw2-eva ut=",
   # ---- the stock revert, unrecorded ----
   "MISSIONMARK label=rw2-eva ut=[\\s\\S]*?reverttolaunch start pid=[0-9]+ name='[^'\\r\\n]+' situation=\\S+ recording=false hasActiveTree=false",
   "MISSIONMARK label=rw2-eva ut=[\\s\\S]*?Prefix: no active re-fly session [^\\r\\n]*allowing stock RevertToLaunch",
   "MISSIONMARK label=rw2-eva ut=[\\s\\S]*?GameEvents\\.OnRevertToLaunchFlightState fired; armed RevertKind\\.Launch for next OnLoad",
   "MISSIONMARK label=rw2-eva ut=[\\s\\S]*?Load classified: early=\\w+ refined=StockRevert scene=FLIGHT",
   # THE GATE: the reverted flight's untagged row goes, the committed accept stays.
-  "MISSIONMARK label=rw2-eva ut=[\\s\\S]*?\\[Ledger\\] PruneOrphanActionsAfterUT: removed [1-9][0-9]* untagged action\\(s\\) after UT 1857[0-9.]+, keptFromFlightEntry=[1-9][0-9]*, total=[0-9]+[\\s\\S]*?MISSIONMARK label=rw2-reverted ut=",
-  "MISSIONMARK label=rw2-eva ut=[\\s\\S]*?\\[Scenario\\] Revert \\(Launch\\): pruned [1-9][0-9]* untagged ledger action\\(s\\) after launchUT=1857[0-9.]+ \\(launch-pad/PRELAUNCH currency earned before auto-record\\)[\\s\\S]*?MISSIONMARK label=rw2-reverted ut=",
+  "MISSIONMARK label=rw2-eva ut=[\\s\\S]*?\\[Ledger\\] PruneOrphanActionsAfterUT: removed 1 untagged action\\(s\\) after UT 1857[0-9.]+, keptFromFlightEntry=1, total=[0-9]+[\\s\\S]*?MISSIONMARK label=rw2-reverted ut=",
+  "MISSIONMARK label=rw2-eva ut=[\\s\\S]*?\\[Scenario\\] Revert \\(Launch\\): pruned 1 untagged ledger action\\(s\\) after launchUT=1857[0-9.]+ \\(launch-pad/PRELAUNCH currency earned before auto-record\\)[\\s\\S]*?MISSIONMARK label=rw2-reverted ut=",
   "MISSIONMARK label=rw2-eva ut=[\\s\\S]*?reverttolaunch complete pid=[0-9]+ name='Jumping Flea' situation=PRELAUNCH elapsed=",
 
   # ---- row 13's experience half: the stand-in's recovery, Jeb untouched ----
@@ -354,7 +363,7 @@ required = [
   "result: hardFailures=0 ",
   # INTERIM: total=3 from the source (the LedgerGroundTruth category's FLIGHT cells); the
   # split is owed off the first flight (RW-1 read passed=3 skipped=0 on this host).
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
