@@ -2828,6 +2828,19 @@ MechJeb moon-return departure (216.9 m/s, periapsis 30 km read back), splashdown
 Mun/Orbit and Mun/ReturnFromOrbit paid 24960 each, body-qualified, no bare Orbit line;
 LedgerGroundTruth hardFailures=0. Next: CS-7 (Mun landing, EVA, flag, return).
 
+Progress 2026-10-28 (branch `cs6b-push`): CS-6b green on its first flight. The CS-7 gates
+(decompiled `GameVariables`, dumps in `logs/decompile/cs7/`): a level-0 Astronaut Complex lets
+nobody out off Kerbin (`UnlockedEVA` is `lvl > 0.2`; `EVAIsPossible` otherwise allows only
+landed or splashed on the home body) and plants no flag (`UnlockedEVAFlags` `lvl >= 0.4`). The
+only leg on reach is the LT-05, whose ~0.8 m stroke cannot clear a Swivel's 1.62 m bell, so a
+lander needs advRocketry's Terrier. Lane `CS-6b-career-astronaut-complex` on the new fixture
+`cs-career-mun2` (CS-6's produced save `2026-10-27_2202`) upgraded the Astronaut Complex
+(75000, measured) and researched advRocketry (45 science), then ran LedgerGroundTruth on a
+same-craft Flea relaunch inside the duplicate-rollout window: `2026-10-27_2316` PASS attempt 1,
+hardFailures=0, funds 141973.01, science 5.5. Next: CS-7 (Mun landing, EVA, flag, board,
+ascent, return), which flew once INVALID on electric charge (nothing on the tech makes power and
+the Terrier has no alternator) and is pending a power redesign before it lands.
+
 ---
 
 ## ~~QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN: F9 back into a Discarded flight must record again~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-quickload-into-discarded`; the in-flight discards followed 2026-10-16, branch `claude/lanes-rc6-ql6-ir5-nh7w10` (live-proven by lane QL-6, `2026-10-16_0649` PASS attempt 1)]
