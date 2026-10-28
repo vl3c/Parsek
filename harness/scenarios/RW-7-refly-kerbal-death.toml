@@ -454,6 +454,10 @@ count = { min = 39, max = 48 }
 
 [expectations.logContracts]
 required = [
+  # The fail-fast probe found the pod gone after attempt 1's crash.
+  "MISSIONMARK label=rw7-refly1-started ut=(?:(?!MISSIONMARK label=rw7-refly1-crashed )[\\s\\S])*?partaction rejected reason=partaction-part-not-found button=inspect pid=[0-9]+ part=mk1pod\\.v2 ",
+  # The fail-fast probe found the pod gone after attempt 2's crash.
+  "MISSIONMARK label=rw7-refly2-started ut=(?:(?!MISSIONMARK label=rw7-refly2-crashed )[\\s\\S])*?partaction rejected reason=partaction-part-not-found button=inspect pid=[0-9]+ part=mk1pod\\.v2 ",
   # ---- three Flea-family launches: H and the check (the Jumping Flea), G (CS Flea Probe) ----
   "\\A(?:[\\s\\S]*?launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH){2}",
   "\\A(?:[\\s\\S]*?Game state: FundsChanged -2932 \\(VesselRollout\\)){2}",
@@ -611,7 +615,8 @@ forbidden = [
   "invokerewind refused",
   "stashslot (?:refused|rejected)",
   "stashslot readback-failed",
-  "partaction rejected",
+  # Any PartAction refusal but the fail-fast pod probe after a crash (the pod is gone).
+  "partaction rejected (?!reason=partaction-part-not-found button=inspect pid=[0-9]+ part=mk1pod\\.v2 )",
   "partaction error ",
   "reflyrevert rejected",
   "reflyrevert error",
