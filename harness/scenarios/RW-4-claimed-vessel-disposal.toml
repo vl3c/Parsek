@@ -1,0 +1,453 @@
+schema = 1
+id = "RW-4-claimed-vessel-disposal"
+# =====================================================================================
+# RW-4: A VESSEL THE COMMITTED FUTURE RECOVERS, OFFERED FOR RECOVERY AFTER A
+# REWIND-TO-LAUNCH (the rewind ledger campaign, plan row 6 "claimed vessel disposal":
+# after a Rewind-to-Launch, recover or delete a vessel a committed flight later uses; the
+# plan expects the refusal `Blocked <action> of claimed vessel` and the committed recovery
+# row kept).
+#
+# THE RULINGS UNDER TEST: a plain Rewind-to-Launch only moves the clock; a vessel the
+# committed future uses after the rewind UT is held back (rewind design 10.13, todos
+# REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE / CLAIMED-VESSEL-DESPAWN-AT-REWIND-
+# OUTSIDE-FLIGHT); the committed recovery row is kept and pays once, at its UT.
+#
+# WHAT THE CODE DOES (read 2026-10-28; this is where the lane departs from the plan row):
+#   - THE PLAN'S LITERAL IS UNREACHABLE AFTER A PLAIN REWIND, TWICE OVER.
+#     (a) Since #2181 the plain rewind holds every vessel of the rewind save's world that the
+#         committed future uses after the rewind UT OUT OF THE WORLD, in every scene
+#         (`ParsekScenario.ApplyRewindVesselHolds`, ParsekScenario.RewindVesselHold.cs:44-148;
+#         `RewindVesselHold`): its ProtoVessel leaves flightState before any scene loads it.
+#         At the Space Center there is no vessel to recover or delete, so both stock-path
+#         seam verbs refuse at their pre-click gate with `vessel-not-found`, before stock or
+#         the GC-2 hooks are reached (EVA-11 measured exactly this, 2026-10-22, and its
+#         header records the owner ruling: hidden outside flight until the committed flight's
+#         ghost). GC-2's greyed buttons now apply only to a live claimed vessel a load
+#         WITHOUT the hold shows (Revert to VAB / SPH, Discard Re-fly, a cold load; GC9's todo
+#         entry), which LS-1 covers for the launch-site clear.
+#     (b) GC-2 reads ghost chains only: `ClaimedVesselDisposalGate.IsHeldByCommittedFuture`
+#         (ClaimedVesselDisposalGate.cs:49-66) holds a pid a NON-terminated chain ghosts
+#         (`GhostChainWalker.ShouldGhostChainAtUT` + `ParsekFlight.SelectChainPidsToGhost`),
+#         i.e. a vessel a committed dock / board / switch continuation claims. A vessel the
+#         committed future only RECOVERS is no chain claim (and a chain whose tip is
+#         recovered is terminated), so `Blocked ... of claimed vessel`
+#         (ClaimedVesselDisposalGate.cs:188) never prints for it even when it is live; GC2's
+#         todo entry records this as "left as is, matching flight (#174)". The protection for
+#         that vessel is the rewind hold alone, with evidence `recovery`
+#         (ReFlyInvokeHold.TryFirstFutureUse, ReFlyInvokeHold.cs:390-428).
+#   - So the lane pins what the code does for plan row 6's case: after the rewind the vessel
+#     the committed future recovers is held (`evidence=recovery`, held until that recovery's
+#     UT), the Space Center marker Recover and the Tracking Station Recover both refuse
+#     `vessel-not-found`, nothing is recovered or terminated, and the committed recovery row
+#     crosses once at its UT. The specific negatives: the vessel recovered or deleted before
+#     its committed row, or a second recovery credit.
+#   - NO DELETE. No seam verb drives the Tracking Station Delete (`TestCommandVerbs.cs` has
+#     none; DeleteRecording, the only delete verb ever, was removed 2026-09-26), and with the
+#     vessel held there is nothing for it to delete. The lane forbids any terminate of the
+#     vessel instead (`Vessel '<n>' terminated`, ParsekScenario.cs:8905).
+#   - kRPC is not used: both recover verbs press stock's own controls (the KSC marker's
+#     Recover, `KSCVesselMarkers.RecoverVessel`; the Tracking Station's Recover +
+#     `OnRecoverConfirm`), the paths GC-2 patches.
+#
+# HOW THE LANE MAKES ITS PAST. A harvested fixture cannot be rewound to launch, so the lane
+# records its own. The held vessel V must exist BEFORE the rewound launch and be recovered by
+# the committed future AFTER it, so there are two launches:
+#   V  the Jumping Flea from the VAB onto the Launch Pad, recorded (R1), committed, LEFT
+#      STANDING on the pad (R1's terminal Landed; RW-1 measured a pad recording's terminal
+#      Landed and its tail trimmed to ~7 s after the start).
+#   W  the same craft from the SPH onto the Runway (the pad is occupied; RR-1 / SE-1 /
+#      CI-10 fly the SPH-to-Runway route), recorded (R2), committed. W is the rewound tree.
+#   Then both are recovered through their Space Center markers (W first, then V): V's
+#   recovery rows (VesselRecovered / KerbalRecovered / FundsEarning) are tagged to R1 by
+#   launch guid (`PickRecoveryRecordingId path=launch-guid`, RW-1's log) and lie AFTER W's
+#   rewind UT. InvokeRewindToLaunch tree=latest rewinds to W's recording start minus 15 s
+#   (RecordingStore.RewindToLaunchLeadTimeSeconds, RecordingStore.cs:67): R1 is history (it ended before the
+#   rewind UT and never replays, PlaybackScopeTracker.IsHistoricalNeverReplayed with the
+#   2 s tolerance), so the rewind save keeps V (the owner strip keeps a same-named vessel of
+#   another launch, RecordingStore.cs:6479, RR-1's live proof; the PID strip scope keeps a
+#   holder that does not replay, RecordingStore.RewindHistorySpawnScope.cs:216), and the
+#   hold then removes V with evidence `recovery`: R1 matches V by positive launch identity
+#   (pid AND guid, R1's guid forwarded at StartRecording, FlightRecorder.cs:7395), R1 ends
+#   before the rewind UT (not `flies`), its terminal Landed is an outlived terminal and its
+#   recovery rows lie after the rewind UT.
+#   V's pid is the craft-baked 2905720181: V is the first launch of the craft with no live
+#   collision (RW-1's H, the same craft on the same host, measured `pid=2905720181`); W
+#   launches while V stands on the pad, so KSP regenerates W's pid (pinned as `not
+#   2905720181`). The check launch after the crossing may take 2905720181 again (V is gone),
+#   which is why every pid-keyed forbid below is windowed or names a recovery event the
+#   check Flea never has.
+#
+# THE HOST. `cs-career-mun4` (CS-6c's produced save), as RW-1 / RW-2 / RW-3: Career,
+# funds 157546.18, save UT 185734.04, three Mun debris on suborbits, no vessel on the pad or
+# the runway, Jebediah / Bill / Bob / Valentina Available, the SPH and the Runway at level 0
+# (the 8-part, ~1.5 t Flea is inside both limits). The shared Jumping Flea is staged into
+# Ships/VAB (harness/fixtures/shared-ships.toml); GoToEditor SPH finds it through the other
+# facility's folder (TestCommandEditorRoute.cs:76-78).
+#
+# THE TIMELINE (UTs are the plan):
+#   185800     WarpToUT at the Space Center (RW-1's reason: clear of the fixture's last rows).
+#   V          VAB launch (rollout -2932), StartRecording ~185800.2, warp in flight to 185840,
+#              stop, CommitTree. R1 ends <= 185840. ExitToSpaceCenter, V stays on the pad.
+#   185900     WarpToUT at the Space Center: W's rollout lands 100 s after V's, outside the
+#              60 s duplicate-rollout window, and W's start minus 15 s (~185885) stays after
+#              R1's end with a 45 s margin.
+#   W          SPH launch onto the Runway (rollout -2932), StartRecording ~185900.2, warp in
+#              flight to 185940, stop, CommitTree. ExitToSpaceCenter.
+#   recover    KscMarkerRecover W (+N, tagged R2), then V (+2932, tagged R1), ~185945.
+#   rewind     InvokeRewindToLaunch tree=latest from the Space Center: clock ~185885.2. V held
+#              (firstClaimUT = its recovery UT). Funds stay at the projected minimum,
+#              151682.18 (157546.18 - 2 x 2932 rollouts; W's rollout row is ahead of the clock),
+#              the rewind save's own value, so the rewind patch moves nothing.
+#   refuse     KscMarkerRecover V -> REJECTED kscrecover-vessel-not-found; TrackingStationRecover
+#              V -> REJECTED tsrecover-vessel-not-found (gate refusal at the Space Center, no
+#              scene change).
+#   crossing   WarpToUT 186000 at the Space Center (maxRate 100, RW-1's shape): W's rollout and
+#              assignment, then both recoveries' rows cross once each; the pool rises to the
+#              final 157546.18 here and only here.
+#   check      the Flea relaunched unrecorded from the VAB (the pad must be clear: a returned V
+#              would refuse it `launchfromeditor-site-obstructed`), warp to 186030 in flight,
+#              SaveGame to the default slot, LedgerGroundTruth in that FLIGHT scene.
+#
+# THE STEP SAVES (owner's ask, for after-flight bug hunting). `SaveGame name=<slot>` writes
+# `saves/<run save>/<slot>.sfs` (ParsekTestCommandAddon.cs:2098, RW-2's shape); named slots
+# are side files the harvest ignores, the last SaveGame writes the DEFAULT slot.
+#   rw04-01-after-v-commit       FLIGHT, V committed on the pad (~185840)
+#   rw04-02-after-w-commit       FLIGHT, W committed on the Runway (~185940)
+#   rw04-03-after-recoveries     Space Center, W and V recovered (~185945)
+#   rw04-04-after-rtl            Space Center, rewound to ~185885, V held
+#   rw04-05-after-refusals       Space Center, both recover presses refused
+#   rw04-06-after-crossing       Space Center at ~186000, every committed row crossed
+#   persistent                   FLIGHT at ~186030 on the check Flea, the default slot
+#
+# LITERALS (Source/Parsek/..., verified 2026-10-28 against this branch):
+#   launchfromeditor complete                TestCommands/TestCommandEditorRoute.cs:517
+#   Game state: FundsChanged                 GameStateRecorder.cs:945
+#   StartRecording: forwarded launch guid    FlightRecorder.cs:7395 (Verbose)
+#   startrecording recordingId=              TestCommands/ParsekTestCommandAddon.cs:1965
+#   Captured rewind save at UT               FlightRecorder.cs:5631
+#   exittospacecenter complete / refused / timeout
+#                                            TestCommands/ParsekTestCommandAddon.ExitToSpaceCenter.cs:128 / :80 / :144
+#   kscrecover pressed / observed / complete TestCommands/TestCommandKscMarkerRecover.cs:215 / :226 / :236
+#   kscrecover rejected reason= (gate)       TestCommands/ParsekTestCommandAddon.KscMarkerRecover.cs:307
+#                                            (detail pid= scene= ghost= found=, :86-87; Bool, ParsekTestCommandAddon.cs:1825)
+#   kscrecover error                         TestCommands/TestCommandKscMarkerRecover.cs:248
+#   tsrecover enter / pressed                TestCommands/TestCommandTrackingStationRecover.cs:308 / :318
+#   tsrecover observed onVesselRecovered     TestCommands/ParsekTestCommandAddon.TrackingStationRecover.cs:448
+#   tsrecover rejected reason= (gate)        TestCommands/ParsekTestCommandAddon.TrackingStationRecover.cs:455 (detail :78-79)
+#   tsrecover error                          TestCommands/ParsekTestCommandAddon.TrackingStationRecover.cs:318
+#   Vessel recovered recorded:               GameActions/LedgerOrchestrator.cs:7599
+#   VesselRecovery funds patched:            GameActions/LedgerRecoveryFundsPairing.cs:644
+#   invokerewindtolaunch target resolved / invoking / complete
+#                                            TestCommands/ParsekTestCommandAddon.InvokeRewindToLaunch.cs:116 / :176 / :243
+#   Rewind-to-Launch initiated to UT         RecordingStore.cs:5651
+#   Rewind owner strip: keeping vessel       RecordingStore.cs:6479
+#   Stripped N vessel(s) from save (...)     RecordingStore.cs:6503
+#   Rewind strip scope: strip spawned pid=   RecordingStore.RewindHistorySpawnScope.cs:192
+#   Keeping vessel '<n>' ... pre-existing    ParsekScenario.cs:7792 (reason :7712; dash non-ASCII: `.{1,3}`)
+#   Stripping orphaned spawned vessel        ParsekScenario.cs:7798
+#   Rewind held vessel for its committed future
+#                                            RewindVesselHold.cs:296
+#   Rewind vessel hold: survivors=           ParsekScenario.RewindVesselHold.cs:142
+#   Load classified:                         LoadReconcilePolicy.cs:381
+#   Clock-crossing reached committed-future rows
+#                                            GameActions/LedgerOrchestrator.cs:2763 (labels Type@UT, first 10)
+#   PatchFunds: <from> -> <to> (delta=       GameActions/KspStatePatcher.cs:2494
+#   Vessel '<n>' terminated                  ParsekScenario.cs:8905
+#   Blocked <action> of claimed vessel       ClaimedVesselDisposalGate.cs:188
+#   savegame name= ... saved=true / refused / failed
+#                                            TestCommands/ParsekTestCommandAddon.cs:2098 / :2059, :2074 / :2086, :2093
+#   goeditor rejected                        TestCommands/ParsekTestCommandAddon.EditorRoute.cs:60
+#   launchfromeditor refused                 TestCommands/ParsekTestCommandAddon.EditorRoute.cs:309 / :389
+#   OnVesselRolloutSpending: skipping duplicate rollout
+#                                            GameActions/LedgerRolloutAdoption.cs:125 / :140
+#   MISSIONMARK label=                       TestCommands/TestCommandMissionMark.cs:22
+#   [LedgerTrace] phase=Structural / Anomaly LedgerTrace.cs:268 / :333
+#   Took back                                GameActions/StockShadowTakeBack.cs:514
+#   ABORTING rewind ledger patch             GameActions/KspStatePatcher.cs:89
+#   filed StockPoolAdjustment / GUARDED      GameActions/KspStatePatcher.cs:6117 / :6287
+#   ground-truth game mode= / result: hardFailures=
+#                                            InGameTests/LedgerGroundTruthHarness.cs:125 / :246
+#   BATCH_COMPLETE v1                        InGameTests/InGameTestRunner.cs:1219
+#
+# PRE-REGISTERED READINGS (check these first if the first flight reds):
+#   - `kscrecover rejected reason=kscrecover-button-locked` on the PRE-rewind V recovery
+#     (`interactable=false`): something greyed V's marker; read for a `[ClaimedVessel]
+#     Blocked KSC marker Recover (greyed)` line (a chain claiming V would be a product
+#     surprise: nothing in this lane docks, boards or switches).
+#   - `launchfromeditor refused reason=launchfromeditor-site-obstructed` on W: the SPH
+#     launched to the pad, not the Runway; read `launchfromeditor start ... site=`.
+#   - W's launch `pid=2905720181`: KSP did not regenerate the colliding pid; every R1 / R2
+#     tie below is then ambiguous - read the strip scope and the hold before anything else.
+#   - no `Rewind held vessel` line and `kscrecover complete pid=2905720181` AFTER the rewind
+#     (or an OK answer on a REJECTED step): the hold missed V and the player could recover a
+#     vessel the committed future recovers (REWIND-LEAVES-VESSELS-WITH-A-COMMITTED-FUTURE-LIVE
+#     reopened; file it). Read `Rewind vessel hold: ... matchedWithoutFuture=` and R1's
+#     recovery rows' tags.
+#   - `notInWorld=1` / `Rewind strip scope: strip spawned pid=2905720181` / `kept 0 other
+#     launch(es)`: V was stripped from the rewind save as if R1 replayed (the
+#     REWIND-NAME-STRIP-TAKES-EARLIER-SAME-CRAFT-VESSEL family); the refusals would still read
+#     vessel-not-found, so these lines, not the answers, say which mechanism removed V.
+#   - `evidence=flies`: R1 ended after W's rewind UT (the 45 s margin was eaten: read R1's
+#     trimmed end and W's start).
+#   - a positive `PatchFunds: ... (delta=` between the V recovery and the crossing warp: the
+#     RW-2 symptom (committed future credits paid at the clock); read the cutoff decision line.
+#   - recordings 37 or 38: a pad / Runway recording split (RW-1 measured one per pad flight).
+#
+# STATUS: AUTHORED 2026-10-28 (branch `rw4-claimed-vessel`), NEVER FLOWN. Every pinned literal
+# is derived from source (file:line above), RW-1's / RW-2's flown logs of the same craft on the
+# same host and EVA-11 / RR-1's live proofs of the hold refusal and the owner-strip keep.
+# Owed off the first flight:
+#   - the batch split (`total=3` pinned from the source, `passed` / `skipped` regexed;
+#     IngameBatchWiringGroupTests.INTERIM_PIN_IDS until then; RW-1 read passed=3 skipped=0);
+#   - W's Runway recovery payout (regexed `\+[0-9]+`; the pad's +2932 is RW-1's measure);
+#   - the recordings count (36 expected, 37..38 allowed);
+#   - the crossing's batching and the funds movement there (151682.18 -> 157546.18 expected
+#     before the check rollout; no PatchFunds shape is pinned for it), the end pools (no
+#     ledger oracle block until measured);
+#   - the hold summary's survivors / matchedWithoutFuture counts (4 / 3 expected: three
+#     debris and V, the debris matching fixture recordings as in RW-1);
+#   - the tier call (operator: stock-tree is not in the nightly instance set).
+#
+# FAST-LANE CHECKLIST: (1) reuse: RW-1's pad flight H verbatim for V, RR-1's SPH-to-Runway
+# relaunch for W, CI-10's ExitToSpaceCenter + KscMarkerRecover, EVA-11's post-rewind refusal
+# pair, RW-1's Space Center crossing and ground-truth tail; no existing lane leaves a vessel
+# standing for a later committed recovery, so it cannot be a host addition; (2) explicit-UT
+# warps only; (3)-(5) no dwell, burn or coast; (6) retry `once`; (7) recordings window
+# 36..38, tightened after the first flight; (8) operator, ~6 min expected (RW-1 flew 147 s
+# with one launch less); (9) flight_efficiency.py after the first green flight.
+tier = "operator"
+description = "Rewind ledger campaign, plan row 6 (a vessel the committed future uses, offered for recovery after a Rewind-to-Launch): on cs-career-mun4 a Jumping Flea V is recorded on the pad and left standing, a second Flea W is recorded on the Runway, both are recovered at the Space Center; after a Rewind-to-Launch to W's launch V is held out of the world for its committed recovery, so the Space Center marker Recover and the Tracking Station Recover of V both refuse vessel-not-found, nothing is recovered or deleted, the committed recovery rows cross once at the Space Center warp, and LedgerGroundTruth closes the career."
+instanceProfile = "stock-tree"
+tags = ["RW-4", "career", "ledger", "rewind", "rewind-to-launch", "rewind-hold",
+        "claimed-vessel", "recover", "ksc-marker", "tracking-station", "editor",
+        "ground-truth", "ingame-batch", "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 300 LoadGame + 2 x 120 KSC warps + 3 x (120 GoToEditor + 180
+# LaunchFromEditor) + 2 x (180 StartRecording + 120 warp + 120 CommitTree) + 2 x 120
+# ExitToSpaceCenter + 3 x 60 KscMarkerRecover + 120 TrackingStationRecover + 300 rewind
+# + 120 crossing warp + 120 check warp + 7 x 120 SaveGame + 540 RunTests = 4560; runtime
+# 5600 adds the inert steps and FlushAndQuit.
+steps = [
+  # scene = "spacecenter": the host's three vessels are Mun debris (RW-1's boot).
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  # Clear of the fixture's last rows (185732-185734) and their 60 s rollout window.
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+
+  # ---- V: the Flea on the pad, recorded, committed, LEFT STANDING (RW-1's H) ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "v",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "185840" },                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw4-v-committed" },                          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw04-01-after-v-commit" },                   expect = "OK", budget = 120 },
+  { cmd = "ExitToSpaceCenter",                                                             expect = "OK", budget = 120 },
+  # W's rollout 100 s after V's (outside the 60 s duplicate window); W's start - 15 s
+  # stays 45 s after R1's end.
+  { cmd = "WarpToUT",       args = { ut = "185900", maxRate = "100" },                     expect = "OK", budget = 120 },
+
+  # ---- W: the same craft from the SPH onto the Runway, recorded, committed ----
+  { cmd = "GoToEditor",     args = { facility = "SPH", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "w",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "185940" },                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw4-w-committed" },                          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw04-02-after-w-commit" },                   expect = "OK", budget = 120 },
+  { cmd = "ExitToSpaceCenter",                                                             expect = "OK", budget = 120 },
+
+  # ---- the committed future: both Fleas recovered from their Space Center markers ----
+  # The verb closes stock's MissionRecoveryDialog itself, so no summary holds a lock.
+  { cmd = "KscMarkerRecover", args = { pid = "${w.pid}" },                                 expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw4-w-recovered" },                          expect = "OK" },
+  { cmd = "KscMarkerRecover", args = { pid = "${v.pid}" },                                 expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw4-v-recovered" },                          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw04-03-after-recoveries" },                 expect = "OK", budget = 120 },
+
+  # ---- the rewind to W's launch: V held out of the world for its committed recovery ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rw4-rewound" },                              expect = "OK" },
+  # The rewind save carries the settings of W's recording start; asserted so the check
+  # launch stays unrecorded (the ground truth skips with a live tree).
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw04-04-after-rtl" },                        expect = "OK", budget = 120 },
+
+  # ---- plan row 6: recover V through both stock paths; both refuse, nothing moves ----
+  { cmd = "KscMarkerRecover", args = { pid = "${v.pid}" },                                 expect = "REJECTED", budget = 60 },
+  { cmd = "TrackingStationRecover", args = { pid = "${v.pid}" },                           expect = "REJECTED", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw4-refused" },                              expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw04-05-after-refusals" },                   expect = "OK", budget = 120 },
+
+  # ---- the crossing: the committed recovery rows reached at the Space Center ----
+  { cmd = "MissionMark",    args = { label = "rw4-pre-crossing" },                         expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "186000", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw4-crossed" },                              expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw04-06-after-crossing" },                   expect = "OK", budget = 120 },
+
+  # ---- the check: an unrecorded launch onto the (clear) pad, the save, the ground truth ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "186030" },                                      expect = "OK", budget = 120 },
+  # The DEFAULT slot (persistent): the one a harvest reads; the named slots above are side files.
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "recalc-engine", "ksp-state-patcher", "ground-truth-harness"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 34 recordings plus R1 and R2 (RW-1 measured 35 with one pad recording); the
+# check launch is unrecorded and the rewind removes none. INTERIM window until measured.
+count = { min = 36, max = 38 }
+
+[expectations.logContracts]
+required = [
+  # ---- three Flea launches: V on the pad with the craft-baked pid, W on the Runway with a
+  # regenerated one, the check on the pad; three rollouts at the measured cost ----
+  "launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=2905720181 site=LaunchPad situation=PRELAUNCH [\\s\\S]*?MISSIONMARK label=rw4-v-committed ut=",
+  "MISSIONMARK label=rw4-v-committed ut=[\\s\\S]*?launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=(?!2905720181 )[0-9]+ site=Runway situation=PRELAUNCH [\\s\\S]*?MISSIONMARK label=rw4-w-committed ut=",
+  "MISSIONMARK label=rw4-crossed ut=[\\s\\S]*?launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH ",
+  "\\A(?:[\\s\\S]*?Game state: FundsChanged -2932 \\(VesselRollout\\)){3}",
+  "\\A(?:[\\s\\S]*?exittospacecenter complete scene=SPACECENTER game-loaded=true ){2}",
+  # The ledger tracer is on (the gated Tier-A line, once per recalc).
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=",
+
+  # ---- the committed future: W, then V, recovered at their Space Center markers ----
+  "MISSIONMARK label=rw4-w-committed ut=[\\s\\S]*?kscrecover complete pid=(?!2905720181 )[0-9]+ vessel=Jumping Flea scene=SPACECENTER quick=false elapsed=[\\s\\S]*?MISSIONMARK label=rw4-w-recovered ut=",
+  "MISSIONMARK label=rw4-w-committed ut=[\\s\\S]*?Game state: FundsChanged \\+[0-9]+ \\(VesselRecovery\\)[\\s\\S]*?MISSIONMARK label=rw4-w-recovered ut=",
+  "MISSIONMARK label=rw4-w-recovered ut=[\\s\\S]*?kscrecover complete pid=2905720181 vessel=Jumping Flea scene=SPACECENTER quick=false elapsed=[\\s\\S]*?MISSIONMARK label=rw4-v-recovered ut=",
+  # V's payout on the pad: RW-1 / RW-2 measured +2932 for the same unfired craft there.
+  "MISSIONMARK label=rw4-w-recovered ut=[\\s\\S]*?Game state: FundsChanged \\+2932 \\(VesselRecovery\\)[\\s\\S]*?MISSIONMARK label=rw4-v-recovered ut=",
+  # W's recovery row is tagged to R2 (the second recording started), V's to R1 (the first).
+  "MISSIONMARK label=rw4-v-committed ut=[\\s\\S]*?startrecording recordingId=([0-9a-f]+) already=false[\\s\\S]*?MISSIONMARK label=rw4-w-committed ut=[\\s\\S]*?Vessel recovered recorded: vessel='Jumping Flea' pid=(?!2905720181 )[0-9]+ recoveryUT=[0-9.]+ recordingId=\\1 terminal=Landed [\\s\\S]*?MISSIONMARK label=rw4-w-recovered ut=",
+  "\\A(?:(?!MISSIONMARK label=rw4-v-committed )[\\s\\S])*?startrecording recordingId=([0-9a-f]+) already=false[\\s\\S]*?MISSIONMARK label=rw4-w-recovered ut=[\\s\\S]*?Vessel recovered recorded: vessel='Jumping Flea' pid=2905720181 recoveryUT=[0-9.]+ recordingId=\\1 terminal=Landed [\\s\\S]*?MISSIONMARK label=rw4-v-recovered ut=",
+
+  # ---- the rewind: a plain Rewind-to-Launch onto W's tree (the latest of 5 + 2) ----
+  "MISSIONMARK label=rw4-v-recovered ut=[\\s\\S]*?invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=7",
+  "MISSIONMARK label=rw4-v-committed ut=[\\s\\S]*?startrecording recordingId=([0-9a-f]+) already=false[\\s\\S]*?MISSIONMARK label=rw4-v-recovered ut=[\\s\\S]*?invokerewindtolaunch invoking tree=[0-9a-f]{32} rec=\\1 startUT=1859[0-9]{2}\\.[0-9] - plain Rewind-to-Launch \\(NOT a Re-Fly\\)",
+  "Captured rewind save at UT ([0-9.]+): vessel \"Jumping Flea\" in PRELAUNCH \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*MISSIONMARK label=rw4-v-recovered ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
+  "MISSIONMARK label=rw4-v-recovered ut=[\\s\\S]*?Load classified: early=PlainRewind refined=PlainRewind [\\s\\S]*?MISSIONMARK label=rw4-rewound ut=",
+  "MISSIONMARK label=rw4-v-recovered ut=[\\s\\S]*?invokerewindtolaunch complete rec=[0-9a-f]+ tree=[0-9a-f]{32} adjustedUT=1858[0-9]{2}\\.[0-9] [\\s\\S]*?MISSIONMARK label=rw4-rewound ut=",
+
+  # ---- V survives into the rewind save (another launch of the owner's craft, R1 history) ----
+  "\\A(?:(?!MISSIONMARK label=rw4-v-committed )[\\s\\S])*?StartRecording: forwarded launch guid ([0-9a-f]{32}) to active tree recording '[0-9a-f]+'[\\s\\S]*?MISSIONMARK label=rw4-v-recovered ut=[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[Rewind\\] Rewind owner strip: keeping vessel 'Jumping Flea' \\(pid=2905720181, guid=\\1\\) in rewind save: owner's name but a different launch \\(owner guid=(?!\\1)[0-9a-f]{32}\\)",
+  "MISSIONMARK label=rw4-v-recovered ut=[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[Rewind\\] Stripped [1-9][0-9]* vessel\\(s\\) from save \\(1 by name \\[Jumping Flea\\], 0 by owner guid, [0-9]+ by PID; kept 1 other launch\\(es\\) of the owner's craft\\)",
+  "MISSIONMARK label=rw4-v-recovered ut=[\\s\\S]*?Keeping vessel 'Jumping Flea' \\(pid=2905720181, guid=[0-9a-f]{32}, situation=[A-Z_]+\\) .{1,3} pre-existing in launch/rewind quicksave",
+
+  # ---- THE HOLD (plan row 6's protection): V out of the world until its committed recovery,
+  # evidence recovery, held by R1, firstClaimUT = V's recovery row UT (both F1 of the row UT) ----
+  "\\A(?:(?!MISSIONMARK label=rw4-v-committed )[\\s\\S])*?startrecording recordingId=([0-9a-f]+) already=false[\\s\\S]*?MISSIONMARK label=rw4-w-recovered ut=[\\s\\S]*?Vessel recovered recorded: vessel='Jumping Flea' pid=2905720181 recoveryUT=([0-9.]+) recordingId=\\1 [\\s\\S]*?MISSIONMARK label=rw4-v-recovered ut=[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[RewindHold\\] Rewind held vessel for its committed future: pid=2905720181 name='Jumping Flea' guid=[0-9a-f]{32} rec=\\1 firstClaimUT=\\2 evidence=recovery flying=0 snapshot=yes",
+  "MISSIONMARK label=rw4-v-recovered ut=[\\s\\S]*?\\[RewindHold\\] Rewind vessel hold: survivors=[0-9]+ held=1 chainHolds=0 futureHolds=1 notInWorld=0 [^\\r\\n]*source=plain-rewind[\\s\\S]*?MISSIONMARK label=rw4-rewound ut=",
+
+  # ---- plan row 6: both stock-path recoveries of V refused at their gate, nothing pressed ----
+  "MISSIONMARK label=rw4-rewound ut=[\\s\\S]*?kscrecover rejected reason=kscrecover-vessel-not-found pid=2905720181 scene=SPACECENTER ghost=false found=false[\\s\\S]*?MISSIONMARK label=rw4-refused ut=",
+  "MISSIONMARK label=rw4-rewound ut=[\\s\\S]*?tsrecover rejected reason=tsrecover-vessel-not-found pid=2905720181 scene=SPACECENTER ghost=false found=false [\\s\\S]*?MISSIONMARK label=rw4-refused ut=",
+
+  # ---- the crossing: both recoveries' rows reached at the Space Center warp, once each ----
+  "MISSIONMARK label=rw4-pre-crossing ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=rw4-crossed ut=",
+  "MISSIONMARK label=rw4-rewound ut=[\\s\\S]*?VesselRecovered@[\\s\\S]*?VesselRecovered@[\\s\\S]*?MISSIONMARK label=rw4-crossed ut=",
+  "MISSIONMARK label=rw4-rewound ut=[\\s\\S]*?FundsEarning@[\\s\\S]*?FundsEarning@[\\s\\S]*?MISSIONMARK label=rw4-crossed ut=",
+
+  # ---- the step saves (named side slots for after-flight reading) and the default slot ----
+  "savegame name=rw04-01-after-v-commit folder=\\S+ saved=true",
+  "savegame name=rw04-02-after-w-commit folder=\\S+ saved=true",
+  "savegame name=rw04-03-after-recoveries folder=\\S+ saved=true",
+  "savegame name=rw04-04-after-rtl folder=\\S+ saved=true",
+  "savegame name=rw04-05-after-refusals folder=\\S+ saved=true",
+  "savegame name=rw04-06-after-crossing folder=\\S+ saved=true",
+  "MISSIONMARK label=rw4-crossed ut=[\\s\\S]*?savegame name=persistent folder=\\S+ saved=true",
+
+  # ---- the ground truth, in FLIGHT on the unrecorded check Flea ----
+  "ground-truth game mode=CAREER pools=funds,science,reputation",
+  "result: hardFailures=0 ",
+  # INTERIM: total=3 from the source (the LedgerGroundTruth category's FLIGHT cells); the
+  # split is owed off the first flight (RW-1 / RW-2 read passed=3 skipped=0 on this host).
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  "filed StockPoolAdjustment amount=\\S+ reason=leak ",
+  "\\[TakeBack\\] Took back ",
+  "\\[LedgerTrace\\] phase=Anomaly ",
+  "ABORTING rewind ledger patch",
+  "invokerewindtolaunch refused",
+  "goeditor rejected",
+  "launchfromeditor refused",
+  "exittospacecenter refused",
+  "exittospacecenter timeout",
+  "kscrecover error ",
+  "tsrecover error ",
+  "savegame refused ",
+  "savegame failed ",
+  # No duplicate rollout row for any of the three launches (LedgerRolloutAdoption.cs:125 / :140).
+  "OnVesselRolloutSpending: skipping duplicate rollout",
+  # ---- THE RW-2 SYMPTOM: no positive funds patch between V's recovery and the crossing warp
+  # (no committed credit is reached there: the rewind lands on the projected minimum, and the
+  # only rows the clock reaches before the warp are W's rollout and assignment) ----
+  "MISSIONMARK label=rw4-v-recovered ut=(?:(?!MISSIONMARK label=rw4-pre-crossing )[\\s\\S])*\\[KspStatePatcher\\] PatchFunds: [0-9.]+ -> [0-9.]+ \\(delta=[1-9]",
+  # ---- PLAN ROW 6'S NEGATIVE: V recovered or deleted before its committed row ----
+  # After the rewind nothing is pressed, recovered or terminated: the check Flea is never
+  # recovered, so these hold to the end of the log.
+  "MISSIONMARK label=rw4-rewound ut=[\\s\\S]*kscrecover pressed pid=",
+  "MISSIONMARK label=rw4-rewound ut=[\\s\\S]*kscrecover observed onVesselRecovered pid=",
+  "MISSIONMARK label=rw4-rewound ut=[\\s\\S]*tsrecover enter pid=",
+  "MISSIONMARK label=rw4-rewound ut=[\\s\\S]*tsrecover pressed pid=",
+  "MISSIONMARK label=rw4-rewound ut=[\\s\\S]*tsrecover observed onVesselRecovered pid=",
+  "MISSIONMARK label=rw4-rewound ut=[\\s\\S]*Vessel recovered recorded: ",
+  "MISSIONMARK label=rw4-rewound ut=[\\s\\S]*VesselRecovery funds patched: ",
+  "MISSIONMARK label=rw4-rewound ut=[\\s\\S]*Game state: FundsChanged \\+[0-9]+ \\(VesselRecovery\\)",
+  "MISSIONMARK label=rw4-rewound ut=[\\s\\S]*Vessel 'Jumping Flea' terminated ",
+  # ... or V left in the world, or removed by the wrong mechanism (the hold must do it).
+  "Rewind strip scope: strip spawned pid=2905720181 ",
+  "Stripping orphaned spawned vessel 'Jumping Flea' \\(pid=2905720181,",
+  "Rewind vessel hold: [^\\r\\n]*notInWorld=[1-9]",
+  "kept 0 other launch\\(es\\) of the owner's craft",
+  # GC-2 never fires in this lane: nothing docks, boards or switches, so no ghost chain
+  # claims V (ClaimedVesselDisposalGate.cs:49-66); a block would grey the pre-rewind
+  # recovery or name a claim that does not exist.
+  "\\[ClaimedVessel\\] Blocked ",
+  # ---- PLAN ROW 6'S NEGATIVE: a second recovery credit ----
+  # Exactly two recoveries in the lane (W, then V), each recorded once.
+  "\\A(?:[\\s\\S]*?Vessel recovered recorded: ){3}",
+  "\\A(?:[\\s\\S]*?Game state: FundsChanged \\+[0-9]+ \\(VesselRecovery\\)){3}",
+  # Each committed recovery row crosses once: two VesselRecovered labels between the rewind
+  # and the crossing mark, none after it.
+  "MISSIONMARK label=rw4-rewound ut=(?:(?!MISSIONMARK label=rw4-crossed )[\\s\\S])*VesselRecovered@(?:(?!MISSIONMARK label=rw4-crossed )[\\s\\S])*VesselRecovered@(?:(?!MISSIONMARK label=rw4-crossed )[\\s\\S])*VesselRecovered@",
+  "MISSIONMARK label=rw4-crossed ut=[\\s\\S]*Clock-crossing reached committed-future rows: [^\\r\\n]*VesselRecovered@",
+  # Nothing completes or fails a contract in this walk.
+  "Game state: ContractCompleted ",
+  "Game state: ContractFailed ",
+]
+
+[runtime]
+budgetSeconds = 5600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
