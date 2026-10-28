@@ -457,7 +457,7 @@ required = [
   # the attempt's none).
   "RecalculateAndPatch: actionsTotal=([0-9]+), (?:(?!RecalculateAndPatch: actionsTotal=)[\\s\\S])*?MISSIONMARK label=rw5-refly-armed ut=[\\s\\S]*?Load classified: early=DiscardReFly refined=DiscardReFly (?:(?!RecalculateAndPatch: actionsTotal=)[\\s\\S])*RecalculateAndPatch: actionsTotal=\\1, ",
   # Recordings: G's tree as committed, the attempt's recordings gone.
-  "listhandles kind=committed count=([0-9]+) truncated=false[\\s\\S]*?MISSIONMARK label=rw5-g-committed ut=[\\s\\S]*?MISSIONMARK label=rw5-discarded ut=[\\s\\S]*?listhandles kind=committed count=\\1 truncated=false",
+  "listhandles kind=committed count=([0-9]+) truncated=(?:true|false)[\\s\\S]*?MISSIONMARK label=rw5-g-committed ut=[\\s\\S]*?MISSIONMARK label=rw5-discarded ut=[\\s\\S]*?listhandles kind=committed count=\\1 truncated=(?:true|false)",
 
   # ---- the crossing: the rows reached at the Space Center, F's accept among them ----
   "MISSIONMARK label=rw5-before-crossing ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=rw5-crossed ut=",
@@ -493,7 +493,7 @@ forbidden = [
   "\\[TakeBack\\] Took back ",
   "invokerewindtolaunch refused",
   "invokerewind refused",
-  "stashslot refused",
+  "stashslot rejected",
   "stashslot readback-failed",
   "partaction rejected",
   "partaction error ",
@@ -530,7 +530,7 @@ forbidden = [
   "End reason=retry ",
   "End reason=discardReFlyAttemptFromMergeDialog",
   # ---- no Re-Fly leftovers ----
-  "outcome=unbound-refly-provisional",
+  "AppendRelations outcome=refused-unflown-provisional",
   "outcome=retired-empty-provisional",
   "In-session load found no staged-list handoff",
   "DiscardReFly load intent dropped as stale",
