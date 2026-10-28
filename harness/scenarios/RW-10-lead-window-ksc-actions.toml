@@ -1,0 +1,197 @@
+schema = 1
+id = "RW-10-lead-window-ksc-actions"
+# =====================================================================================
+# RW-10: SPACE CENTER ACTIONS IN THE 15 S BEFORE A LAUNCH, ACROSS A REWIND-TO-LAUNCH (the
+# rewind ledger campaign; the live proof of #2324, todo
+# REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE).
+#
+# THE RULE UNDER TEST (game-actions design 15.4 "The lead window and the held-through UT"):
+# a Rewind-to-Launch loads the save taken at the launch and winds the clock back 15 s. Rows
+# whose UT lies in (wound-back clock, rewind save UT] are already in that save's world, so they
+# count as reached until the clock passes the save UT; a new Space Center row clicked inside
+# the window after the rewind is dated at the save UT (the held-through UT), after them.
+#
+# THE FLIGHT THAT FOUND IT. RW-9's first flights (`2026-10-28_1522` / `_1524`) and the reading
+# variant RW-9R (`_1535`) acted at UT 185790, inside the window of V's launch at ~185800.3: the
+# repair block missed the second repair, the warp re-crossed the window's rows and knocked the
+# just-repaired annex down again, and the player paid two repairs. This lane is RW-9R's shape
+# made gating, plus a fresh Space Center click inside the window after the rewind.
+#
+# PLAN (cs-career-mun4 = CS-6c's produced save, UT ~185734):
+#   boot       LoadGame persistent at the Space Center; warp to 185790.
+#   window     Aggressive Negotiations activated and the R&D annex (ForeverAlone) demolished at
+#              ~185790, inside the 15 s before V's launch.
+#   V          warp to 185800, Jumping Flea on the pad, recorded to 185840, committed, recovered.
+#   repair     warp to 185900 (T1): repair-facility R&D -> OK, with the strategy's discount.
+#   rewind     InvokeRewindToLaunch tree=latest: clock ~185785.3, rewind save UT ~185800.3.
+#   refused    repair again -> REJECTED by the committed-repair block (the destruction is held,
+#              not future); the blocked dialog dismissed.
+#   fresh      accept-contract f1fb89dc (Offered on the host) inside the window: the ContractAccept
+#              row is dated at the held-through UT and sticks; its advance is paid once.
+#   crossing   warp to 185960: the floor expires at the save UT, no window row is crossed again,
+#              the annex is not knocked down, and the committed repair crosses once.
+#   check      an unrecorded Flea onto the pad, the default save, LedgerGroundTruth.
+#
+# STEP SAVES (temporary analysis artifacts): rw10-01-after-v-commit, rw10-02-after-repair,
+# rw10-03-after-rtl, rw10-04-after-crossing.
+#
+# PINNED LITERALS (read 2026-10-28 on main 54b50b3ff):
+#   Rewind: ledger held-through UT ... -> ...      GameActions/LedgerHeldWindow.cs:178
+#   ...: the clock ... reached the ledger held-through UT ...; floor expired   LedgerHeldWindow.cs:226
+#   ... captured at ut=... dated at the ledger held-through UT ...   LedgerHeldWindow.cs:116
+#   Blocking facility repair: ...                   Patches/FacilityRepairBlock.cs:67
+#   Allowing facility repair: ...                   Patches/FacilityRepairBlock.cs:60
+#   Clock-crossing reached committed-future rows:   GameActions/LedgerOrchestrator.cs:2779
+#   PatchDestructionState: demolished '...'         GameActions/FacilityStatePatcher.cs:520
+#
+# STATUS: AUTHORED 2026-10-28 (branch `rw10-lead-window`), NEVER FLOWN. The recording count, the
+# batch split and the funds after the crossing are interim until measured.
+# =====================================================================================
+tier = "operator"
+description = "Rewind ledger campaign, Space Center actions in the 15 s Rewind-to-Launch lead window (#2324): on cs-career-mun4 Aggressive Negotiations is activated and the R&D annex demolished inside the 15 s before a committed pad Flea's launch, the annex is repaired at a discount later; after a Rewind-to-Launch the destruction reads as already held, so a second repair is refused, a contract accepted inside the window is dated at the held-through UT and paid once, and the warp past the rewind save's UT crosses no window row again and charges the committed repair once; LedgerGroundTruth closes the career."
+instanceProfile = "stock-tree"
+tags = ["RW-10", "career", "ledger", "rewind", "rewind-to-launch", "lead-window", "strategy",
+        "facility-repair", "demolish", "contract-accept", "ksc-marker", "editor", "ground-truth",
+        "ingame-batch", "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 300 LoadGame + 4 x 120 KSC warps + 2 x (120 GoToEditor + 180
+# LaunchFromEditor) + 180 StartRecording + 120 warp + 120 CommitTree + 120 ExitToSpaceCenter
+# + 60 KscMarkerRecover + 300 rewind + 120 check warp + 5 x 120 SaveGame + 6 x 60 KscAction
+# + 540 RunTests = 4200; runtime 5300 adds the inert steps and FlushAndQuit.
+steps = [
+  # scene = "spacecenter": the host's three vessels are Mun debris (RW-1's boot).
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  # ---- the window actions: ~10 s before V's launch, so inside the 15 s lead window ----
+  { cmd = "WarpToUT",       args = { ut = "185790", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "KscAction",      args = { action = "activate-strategy", strategy = "AgressiveNegotiations" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw10-an-active" },                           expect = "OK" },
+  { cmd = "KscAction",      args = { action = "demolish-building", building = "ForeverAlone" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw10-demolished" },                          expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+  # ---- V: the Flea on the pad, recorded, committed, recovered at its marker ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "v",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "185840" },                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw10-v-committed" },                         expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw10-01-after-v-commit" },                   expect = "OK", budget = 120 },
+  { cmd = "ExitToSpaceCenter",                                                             expect = "OK", budget = 120 },
+  { cmd = "KscMarkerRecover", args = { pid = "${v.pid}" },                                 expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw10-v-recovered" },                         expect = "OK" },
+  # ---- the discounted repair at T1 = 185900 ----
+  { cmd = "WarpToUT",       args = { ut = "185900", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw10-before-repair" },                       expect = "OK" },
+  { cmd = "KscAction",      args = { action = "repair-facility", facility = "SpaceCenter/ResearchAndDevelopment" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw10-repaired" },                            expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw10-02-after-repair" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw10-before-rewind" },                       expect = "OK" },
+  # ---- the rewind: clock wound back to launch - 15 s, the window rows held ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rw10-rewound" },                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  # ---- inside the window: a second repair is refused as committed ----
+  { cmd = "KscAction",      args = { action = "repair-facility", facility = "SpaceCenter/ResearchAndDevelopment" }, expect = "REJECTED", budget = 60 },
+  { cmd = "UiAction",       args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw10-refused" },                             expect = "OK" },
+  # ---- inside the window: a fresh Space Center click, dated at the held-through UT ----
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "f1fb89dc-a471-42cf-94da-de4bb1080512" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw10-accepted" },                            expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw10-03-after-rtl" },                        expect = "OK", budget = 120 },
+  # ---- the crossing: past the rewind save's UT and the committed repair ----
+  { cmd = "WarpToUT",       args = { ut = "185960", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw10-crossed" },                             expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw10-04-after-crossing" },                   expect = "OK", budget = 120 },
+  # ---- the check: an unrecorded launch onto the (clear) pad, the save, the ground truth ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "186000" },                                      expect = "OK", budget = 120 },
+  # The DEFAULT slot (persistent): the one a harvest reads; the named slots above are side files.
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "reputation", "recalc-engine", "ksp-state-patcher", "ground-truth-harness"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 34 recordings plus V; the check launch is unrecorded. INTERIM window.
+count = { min = 35, max = 36 }
+
+[expectations.logContracts]
+required = [
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=",
+
+  # ---- the window actions, inside the 15 s before V's launch ----
+  "kscaction action=activate-strategy target=AgressiveNegotiations applied=true manifestKind=strategy-activate [\\s\\S]*?MISSIONMARK label=rw10-an-active ut=1857[89][0-9]\\.",
+  "MISSIONMARK label=rw10-an-active ut=[\\s\\S]*?kscaction action=demolish-building target=SpaceCenter/ResearchAndDevelopment/Facility/ForeverAlone applied=true[\\s\\S]*?MISSIONMARK label=rw10-demolished ut=1857[89][0-9]\\.",
+
+  # ---- the repair at T1 with its two strategy legs split onto the annex ----
+  "MISSIONMARK label=rw10-before-repair ut=[\\s\\S]*?kscaction action=repair-facility target=SpaceCenter/ResearchAndDevelopment applied=true[\\s\\S]*?MISSIONMARK label=rw10-repaired ut=",
+  "MISSIONMARK label=rw10-before-repair ut=(?:(?!MISSIONMARK label=rw10-repaired )[\\s\\S])*?Facility repair conversion split: legs=2 buildings=1 totalCost=2000 rows=2 unsplitLegs=1 unsplitCause=SpaceCenter/ResearchAndDevelopment/Facility/ForeverAlone",
+
+  # ---- the rewind installs the held-through UT at the rewind save's own UT ----
+  "MISSIONMARK label=rw10-before-rewind ut=[\\s\\S]*?Rewind: ledger held-through UT [^\\r\\n]* -> 1858[0-9]{2}\\.[0-9]+ \\(woundBackClock=1857[0-9]{2}\\.[0-9]+ rewindSaveUT=1858[0-9]{2}\\.[0-9]+ [^\\r\\n]*: rows up to it are in the rewind save's world and count as reached until the clock passes it[\\s\\S]*?MISSIONMARK label=rw10-rewound ut=1857[0-9]{2}\\.",
+
+  # ---- inside the window: the destruction reads as held, so the second repair is refused ----
+  "MISSIONMARK label=rw10-rewound ut=(?:(?!MISSIONMARK label=rw10-refused )[\\s\\S])*?Blocking facility repair: 'SpaceCenter/ResearchAndDevelopment' - 1 destroyed building\\(s\\) of 1 already repaired by a committed future row[\\s\\S]*?kscaction refused action=repair-facility reason=repair-not-applied target=SpaceCenter/ResearchAndDevelopment",
+
+  # ---- inside the window: the fresh accept is dated at the held-through UT and sticks ----
+  "MISSIONMARK label=rw10-refused ut=(?:(?!MISSIONMARK label=rw10-accepted )[\\s\\S])*?kscaction action=accept-contract target=f1fb89dc-a471-42cf-94da-de4bb1080512 applied=true",
+  "MISSIONMARK label=rw10-refused ut=(?:(?!MISSIONMARK label=rw10-crossed )[\\s\\S])*?ContractAccept id=\\S+ captured at ut=1857[0-9]{2}\\.[0-9]+ dated at the ledger held-through UT 1858[0-9]{2}\\.[0-9]+ \\(after the held rows the loaded world shows\\)",
+
+  # ---- the crossing: the floor expires, the committed repair crosses once ----
+  "MISSIONMARK label=rw10-accepted ut=(?:(?!MISSIONMARK label=rw10-crossed )[\\s\\S])*?reached the ledger held-through UT 1858[0-9]{2}\\.[0-9]+; floor expired",
+  "MISSIONMARK label=rw10-accepted ut=(?:(?!MISSIONMARK label=rw10-crossed )[\\s\\S])*?Clock-crossing reached committed-future rows: [^\\r\\n]*FacilityRepair@(?:18589|18590)[0-9]\\.",
+
+  # ---- the pools: reputation and science after the crossing equal those after the original
+  # repair (the accept moves funds only) ----
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\S+ science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw10-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\S+ science=\\1 rep=\\2 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw10-crossed ut=",
+
+  # ---- the ground truth ----
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=0 ",
+]
+forbidden = [
+  # The pre-#2324 shape: the block missing the held destruction.
+  "MISSIONMARK label=rw10-rewound ut=(?:(?!MISSIONMARK label=rw10-refused )[\\s\\S])*?Allowing facility repair: 'SpaceCenter/ResearchAndDevelopment'",
+  # The window's rows are never crossed again, and the annex is never knocked down again.
+  "MISSIONMARK label=rw10-rewound ut=[\\s\\S]*Clock-crossing reached committed-future rows: [^\\r\\n]*(?:StrategyActivate|FacilityDestruction)@1857",
+  "MISSIONMARK label=rw10-rewound ut=[\\s\\S]*PatchDestructionState: demolished 'SpaceCenter/ResearchAndDevelopment/Facility/ForeverAlone'",
+  # The repair is made once: no second applied repair after the rewind.
+  "MISSIONMARK label=rw10-rewound ut=[\\s\\S]*kscaction action=repair-facility target=SpaceCenter/ResearchAndDevelopment applied=true",
+  # No pool adjustment, no guard clamp, no phantom facility in the ground truth.
+  "filed StockPoolAdjustment amount=",
+  "GUARDED (?:UPLIFT|DRAWDOWN) clamped",
+  "facet=Facility kind=PhantomInRecon",
+  "Game state: ContractCompleted ",
+  "Game state: ContractFailed ",
+]
+
+[runtime]
+budgetSeconds = 5300
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
