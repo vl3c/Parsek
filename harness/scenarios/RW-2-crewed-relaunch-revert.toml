@@ -1,0 +1,410 @@
+schema = 1
+id = "RW-2-crewed-relaunch-revert"
+# =====================================================================================
+# RW-2: A CREWED RELAUNCH AND A STOCK REVERT INSIDE A REWOUND TIMELINE (the rewind ledger
+# campaign, plan rows 13 "crewed launch after a rewind" and 14 "revert inside a rewound
+# timeline").
+#
+# THE RULINGS UNDER TEST: a kerbal a committed flight holds is reserved; a relaunch after a
+# Rewind-to-Launch seats his stand-in, and only the stand-in earns experience on it. A stock
+# Revert to Launch removes only the rows the reverted flight wrote (owner ruling O2,
+# game-actions design 3.13): the committed future a rewind left behind is kept.
+#
+# HOW THE LANE MAKES ITS PAST. RW-1's proven H verbatim: the Jumping Flea rolled out of the
+# VAB, recorded on the pad, committed in flight and recovered. Stock seats Jebediah Kerman
+# (RW-1 measured `crew=1` and `Stand-in generated: '...' (Pilot) for slot 'Jebediah Kerman'`
+# on this host and craft), so H's KerbalAssignment row holds Jeb. A contract accept at the
+# Space Center then adds one UNTAGGED committed-future row (RW-1's f1fb89dc, +37500): the
+# row O2 must keep through the revert. H's own rows are tagged to H and the prune skips
+# tagged rows, so only a Space Center row can test the keep.
+#
+# THE HOST. `cs-career-mun4`, as RW-1: Career, funds 157546.18, save UT 185734.04, roster
+# Jeb Available, the Astronaut Complex at 0.5 (EVA allowed, `EVAIsPossible` needs > 0.2).
+# Kerbin's ProgressTracking subtree is reached but carries no SurfaceEVA node, so the first
+# EVA from a landed Kerbin vessel is a world-first stock pays (decompiled
+# `KSPAchievements.SurfaceEVA.OnGoEVA`: `from.vessel.LandedOrSplashed`, home body, not yet
+# complete -> Complete + AwardProgressStandard; WF-1 measured it from a PRELAUNCH pod).
+#
+# THE TIMELINE (UTs are the plan):
+#   185800     WarpToUT at the Space Center, RW-1's reason (clear of the fixture's last rows).
+#   H          VAB launch (rollout -2932), StartRecording, warp in flight to 186000, stop,
+#              CommitTree, Recover on the pad (+2932). H's recovery XP row is tagged to H.
+#   KSC        at ~186000: accept f1fb89dc (+37500), an untagged committed-future row.
+#   rewind     InvokeRewindToLaunch tree=latest from the Space Center: clock ~185785.2 (H's
+#              start minus 15 s). Jeb is re-reserved (RW-1: `Reservation re-reserved:
+#              'Jebediah Kerman' endUT=185807.6`, H's recording END, the KSC-retirement
+#              bound, not its 186000.2 recovery row) and his stand-in recreated.
+#   row 13     The Flea from the VAB again (unrecorded; autoRecordOnEva off too): stock fills
+#              the pod with Jeb, `CrewAutoAssignPatch` swaps him for the stand-in in the
+#              manifest (WF-1 and KB-4 measured the swap on this load path), launch crew=1.
+#   row 14     The stand-in EVAs onto the hatch ladder (no release): stock pays
+#              Kerbin/SurfaceEVA, written at once as an UNTAGGED ledger row (no recorder:
+#              `ShouldForwardDirectLedgerEvent` -> `OnKscSpending`). RevertToLaunch: stock
+#              reloads the post-init state; `PruneRevertedFlightLedgerRows` removes the
+#              untagged rows after the launch UT that the flight-entry set does not name
+#              (the SurfaceEVA row) and keeps those it names (the accept).
+#   XP         Recover the reverted Flea at once (~185787, before H's rows): stock archives
+#              the STAND-IN's flight log (`ExperienceGained` for him). Jeb earns nothing in
+#              this timeline until H's own KerbalExperience row crosses.
+#   crossing   The Flea relaunched (the stand-in again: Jeb's hold runs to 185807.6),
+#              WarpToUT 186100 in flight (SCI-1's live-proven shape; the in-flight Recover's
+#              mission summary would hold the TIMEWARP lock at the Space Center, WF-1's
+#              fourth flight): H's rows and the accept cross once each.
+#   check      SaveGame to the default slot, LedgerGroundTruth in that FLIGHT scene.
+#
+# THE STEP SAVES (owner's ask, for after-flight bug hunting). `SaveGame name=<slot>` is a sync
+# AnyScene verb (TestCommandDispatcher.cs:504) that writes the live game to
+# `saves/<run save>/<slot>.sfs` through GamePersistence.SaveGame and answers `OK saved=<slot>`
+# (TestCommandSaveGame.BuildPayload). Named slots are side files the harvest ignores; the
+# last SaveGame writes the DEFAULT slot `persistent`, the one a harvest reads.
+#   rw02-01-after-h-commit          Space Center, H committed and recovered (~186000)
+#   rw02-02-after-ksc-accept        Space Center, the committed accept written
+#   rw02-03-after-rtl               Space Center, rewound to ~185785, Jeb re-reserved
+#   rw02-04-after-crewed-launch     FLIGHT, the stand-in's Flea on the pad
+#   rw02-05-after-eva               FLIGHT, the stand-in on the ladder, SurfaceEVA row written
+#   rw02-06-after-revert            FLIGHT, reverted to the launch, the row pruned
+#   rw02-07-after-standin-recovery  Space Center, the stand-in's Flea recovered
+#   rw02-08-before-crossing         FLIGHT, the check Flea on the pad, H's rows still ahead
+#   rw02-09-after-crossing          FLIGHT at ~186100, every committed row crossed
+#   persistent                      the same instant as rw02-09, the default slot
+#
+# DEPARTURES FROM THE PLAN (rw1-brief.md plan rows), each following the code:
+#   - "XP goes only to the stand-in" holds on the ROSTER, not in the ledger: the stand-in's
+#     recovery is of an unrecorded vessel, and `TryRecordRecoveryKerbalExperience` refuses a
+#     null recording pick (`Recovery kerbal XP refused: ... reason=no-recovery-recording`,
+#     LedgerOrchestrator.cs:7307, the fail-safe kept by design). So the lane gates stock's
+#     capture (the `ExperienceGained` emit for the stand-in) and Jeb's absence from every
+#     XP line after the rewind; the stand-in's ledger outcome is report-only, owed.
+#   - "Revert (...): pruned N untagged" prints only when N > 0 (ParsekScenario.cs:4576), and
+#     a pad flight writes no untagged row after its launch UT on its own: the rollout row and
+#     stock's PostInitState share one frame (decompiled `FlightDriver.PostInit`:
+#     OnVesselRollout.Fire then `PostInitState = new GameBackup(...)`), so the exclusive
+#     cutoff keeps it. The EVA's SurfaceEVA world-first is the in-flight earning that gives
+#     the prune a row to remove.
+#   - The swap happens in the VAB manifest, not in flight: `SwapReservedCrewInFlight`'s
+#     Pass 1 only catches a reserved kerbal who reached a seat, and a fresh rollout skips its
+#     Pass 2. The lane forbids the in-flight swap of Jeb as the sign the manifest let him on.
+#   - The committed future is a Space Center accept, not one of H's rows (tagged rows are
+#     never pruned, so they cannot show the keep).
+#
+# LITERALS (Source/Parsek/..., verified 2026-10-28):
+#   Stand-in generated: '<n>' (<trait>)      KerbalsModule.cs:3981
+#   Recreated stand-in '<n>' (<trait>)       KerbalsModule.cs:3967
+#   Reservation re-reserved / released       KerbalsModule.cs:2198 (transition :2224-2225)
+#   Swapped reserved '<k>' -> stand-in       Patches/CrewAutoAssignPatch.cs:253 (Verbose)
+#   Crew manifest adjusted:                  Patches/CrewAutoAssignPatch.cs:291
+#   Cleared reserved '<k>'                   Patches/CrewAutoAssignPatch.cs:266 / :279
+#   Swapped '<k>' -> '<s>' (in flight)       CrewReservationManager.cs:326 (arrow non-ASCII)
+#   launchfromeditor start / complete        TestCommands/TestCommandEditorRoute.cs:499 / :517
+#   evaexit start kerbal=                    TestCommands/ParsekTestCommandAddon.Eva.cs:160
+#   Game state: MilestoneAchieved '<id>'     GameStateRecorder.Handlers.cs:1165
+#   Milestone enriched: '<id>'               GameStateRecorder.Handlers.cs:1516
+#   KSC spending recorded:                   GameActions/LedgerOrchestrator.cs:6095
+#   Flight entry: remembered                 ParsekScenario.RevertLedgerSnapshot.cs:94
+#   reverttolaunch start / complete          TestCommands/TestCommandRevertToLaunch.cs:99 / :108
+#   Prefix: no active re-fly session         RevertInterceptor.cs:171 (dash non-ASCII)
+#   armed RevertKind.Launch                  RevertDetector.cs:44
+#   Load classified:                         LoadReconcilePolicy.cs:381
+#   Revert (<kind>): pruned N untagged       ParsekScenario.cs:4578
+#   PruneOrphanActionsAfterUT: removed       GameActions/Ledger.cs:472 (no-op form :478)
+#   no revert-target ledger rows remembered  ParsekScenario.RevertLedgerSnapshot.cs:116
+#   Emit: <type> key='<k>' tag=              GameStateRecorder.cs:176
+#   Game state: ExperienceGained crew=       GameStateRecorder.Handlers.cs:2455
+#   Recovery kerbal XP recorded / refused    GameActions/LedgerOrchestrator.cs:7388 / :7307
+#   Game state: CrewStatusChanged            GameStateRecorder.Handlers.cs:1044 (arrow non-ASCII)
+#   Recording started: vessel=               FlightRecorder.cs:6826
+#   Clock-crossing reached                   GameActions/LedgerOrchestrator.cs:2763
+#   PatchFunds: <from> -> <to>               GameActions/KspStatePatcher.cs:2494
+#   savegame name=<n> folder= saved=true     TestCommands/ParsekTestCommandAddon.cs:2098 (refused
+#                                            :2059 / :2074, failed :2086 / :2093)
+#   and RW-1's set (its header): Game state: FundsChanged GameStateRecorder.cs:945, AddEvent:
+#   GameStateStore.cs:124, kscaction ... applied=true TestCommands/TestCommandKscAction.cs:501,
+#   invokerewindtolaunch ... ParsekTestCommandAddon.InvokeRewindToLaunch.cs:116 / :176,
+#   Rewind-to-Launch initiated RecordingStore.cs:5651, MISSIONMARK
+#   TestCommands/TestCommandMissionMark.cs:22, [LedgerTrace] phase=Structural LedgerTrace.cs:268
+#   and phase=Anomaly :319, ground-truth game mode= / result: hardFailures=
+#   InGameTests/LedgerGroundTruthHarness.cs:125 / :246, BATCH_COMPLETE v1
+#   InGameTests/InGameTestRunner.cs:1219, ABORTING rewind ledger patch
+#   GameActions/KspStatePatcher.cs:89, Took back GameActions/StockShadowTakeBack.cs:514,
+#   filed StockPoolAdjustment GameActions/KspStatePatcher.cs:6117.
+#
+# PRE-REGISTERED READINGS (check these first if the first flight reds):
+#   - no `Swapped reserved 'Jebediah Kerman'` and `evaexit start kerbal=Jebediah Kerman`: the
+#     relaunch came after Jeb's hold ended. RW-1 measured that hold ending at 185807.6 (H's
+#     recording end, `Reservation bounded by KSC retirement`), not at H's recovery row
+#     (186000.2), so the rewound timeline frees Jeb ~190 s before the committed future
+#     recovers him; read `Reservation released: 'Jebediah Kerman'` against the launch UT.
+#     If the launch UT is under 185807.6 and Jeb still flew, that is a product finding.
+#   - `Cleared reserved 'Jebediah Kerman'` (launch crew=0): no stand-in was registered;
+#     read the `Recreated stand-in` / `Failed to recreate stand-in` lines after the rewind.
+#   - no `Revert (Launch): pruned` line: read `PruneOrphanActionsAfterUT: no untagged
+#     actions` and the SurfaceEVA emit's `tag=`; a tagged emit means a recorder was live
+#     (autoRecordOnEva), no `KSC spending recorded: ... Kerbin/SurfaceEVA` means the row
+#     never reached the ledger.
+#   - `pruned 2`: the R rollout row's UT is above the post-init UT (the cutoff); read both
+#     and the ground truth's funds facet (stock kept the rollout).
+#   - `keptFromFlightEntry=0` or no ContractAccept@ in a crossing line: the revert dropped
+#     the committed future, O2's defect; file it.
+#   - `Stand-in '<n>' displaced -> deleted (unused)` for a stand-in with career entries:
+#     the unrecorded flight leaves no recording, so the stand-in reads unused. Expected here
+#     `retained (on live vessel)` at the crossing (he sits in the check Flea); a deletion
+#     of a flown stand-in elsewhere is worth a todo.
+#   - `evaexit refused reason=eva-refused`: the K2 backstop refused the stand-in.
+#   - `reverttolaunch rejected reason=reverttolaunch-unavailable`: stock did not offer it.
+#   - recordings 36: something recorded after the rewind (the EVA auto-record setting).
+#
+# STATUS: AUTHORED 2026-10-28 (branch `rw2-crewed-revert`), NEVER FLOWN. Every pinned
+# literal is derived from source (file:line above) and RW-1's flown log of the same H, not
+# from a flight of this lane.
+# Owed off the first flight:
+#   - the batch split (`total=3` pinned from the source, `passed` / `skipped` regexed;
+#     IngameBatchWiringGroupTests.INTERIM_PIN_IDS until then);
+#   - N in `Revert (Launch): pruned N` (1 expected: the Kerbin/SurfaceEVA row) and the
+#     `keptFromFlightEntry` count (1 expected: the accept);
+#   - the SurfaceEVA reward (funds / rep / sci, not derived for this career);
+#   - the stand-in's recovery XP ledger outcome (a refusal, no-recovery-recording, expected)
+#     and his disposal at the crossing (retained on the live check Flea expected);
+#   - the crossing lines' batching (which rows share a line);
+#   - the end pools (no ledger oracle block until measured); the tier call (operator:
+#     stock-tree is not in the nightly instance set).
+#
+# FAST-LANE CHECKLIST: (1) reuse: RW-1's H and its accept verbatim, SCI-1's
+# recover-relaunch-warp tail, WF-1's pad EVA, STR-3's revert gates; (2) explicit-UT warps
+# only; (3)-(5) no dwell, burn or coast, the EVA stays on the ladder; (6) retry `once`; (7)
+# recordings window 35..35; (8) operator, ~5 min expected (RW-1 flew 147 s); (9)
+# flight_efficiency.py after the first green flight.
+tier = "operator"
+description = "Rewind ledger campaign, a crewed relaunch and a stock revert inside a rewound timeline (plan rows 13 and 14): on cs-career-mun4 a crewed pad flight is recorded and committed and a contract accepted at the Space Center; after a Rewind-to-Launch the relaunch seats the reserved Jebediah's stand-in, the stand-in's pad EVA earns Kerbin's SurfaceEVA world-first, Revert to Launch prunes that untagged row and keeps the committed accept, the stand-in alone gains experience on recovery, and warping past the committed rows applies each once before LedgerGroundTruth."
+instanceProfile = "stock-tree"
+tags = ["RW-2", "career", "ledger", "rewind", "rewind-to-launch", "stock-revert", "crew",
+        "stand-ins", "eva", "milestone", "contracts", "editor", "ground-truth",
+        "ingame-batch", "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 300 LoadGame + 120 warp + 3 x (120 GoToEditor + 180 LaunchFromEditor)
+# + 180 StartRecording + 120 warp + 120 CommitTree + 2 x 120 Recover + 60 KscAction + 300
+# rewind + 120 EvaExit + 180 RevertToLaunch + 120 warp + 10 x 120 SaveGame + 540 RunTests
+# = 4620; runtime 5600 adds the inert steps and FlushAndQuit.
+steps = [
+  # scene = "spacecenter": the host's three vessels are Mun debris (RW-1's boot).
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  # Clear of the fixture's last rows (185732-185734) and their 60 s rollout window.
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+
+  # ---- flight H: Jeb's pad flight, recorded, committed, recovered (RW-1 verbatim) ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "h",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "186000" },                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "${h.pid}" },                                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw2-h-committed" },                          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw02-01-after-h-commit" },                   expect = "OK", budget = 120 },
+
+  # ---- the committed Space Center future: one untagged row ----
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "f1fb89dc-a471-42cf-94da-de4bb1080512" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw2-ksc-committed" },                        expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw02-02-after-ksc-accept" },                 expect = "OK", budget = 120 },
+
+  # ---- the rewind to H's launch: Jeb re-reserved, his stand-in recreated ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rw2-rewound" },                              expect = "OK" },
+  # The rewind save carries the settings of H's recording start; both auto-records off so
+  # nothing after the rewind records (the SurfaceEVA row must be untagged).
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw02-03-after-rtl" },                        expect = "OK", budget = 120 },
+
+  # ---- row 13: the crewed relaunch seats the stand-in (before Jeb's hold ends) ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "r",             expect = "OK", budget = 180 },
+  { cmd = "MissionMark",    args = { label = "rw2-launched" },                             expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw02-04-after-crewed-launch" },              expect = "OK", budget = 120 },
+
+  # ---- row 14: an in-flight earning, then the stock revert ----
+  # No release: the stand-in stays on the hatch ladder; the EVA itself is the world-first.
+  { cmd = "EvaExit",                                                                       expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw2-eva" },                                  expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw02-05-after-eva" },                        expect = "OK", budget = 120 },
+  { cmd = "RevertToLaunch",                                       label = "rv",            expect = "OK", budget = 180 },
+  # inert-wait (STR-3): the post-load passes run on the first host ticks after onFlightReady.
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw2-reverted" },                             expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw02-06-after-revert" },                     expect = "OK", budget = 120 },
+
+  # ---- the stand-in's experience: recover the reverted Flea before H's rows ----
+  { cmd = "Recover",        args = { pid = "${rv.activePid}" },                            expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw2-standin-recovered" },                    expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw02-07-after-standin-recovery" },           expect = "OK", budget = 120 },
+
+  # ---- the crossing in flight, then the save and the ground truth ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
+  { cmd = "SaveGame",       args = { name = "rw02-08-before-crossing" },                  expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",       args = { ut = "186100" },                                      expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw2-crossed" },                              expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw02-09-after-crossing" },                   expect = "OK", budget = 120 },
+  # The DEFAULT slot (persistent): the one a harvest reads; the named slots above are side files.
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "contracts", "milestones", "kerbals", "recalc-engine", "ksp-state-patcher", "ground-truth-harness"]
+D9  = ["rewind-to-launch"]
+D12 = ["stand-ins"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 34 recordings plus H (RW-1 measured 35 with the same H); nothing after the
+# rewind records and no rewind or revert removes one.
+count = { min = 35, max = 35 }
+
+[expectations.logContracts]
+required = [
+  # ---- three Flea launches (H, the relaunch, the check), each rolled out once ----
+  "\\A(?:[\\s\\S]*?launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH){3}",
+  "\\A(?:[\\s\\S]*?Game state: FundsChanged -2932 \\(VesselRollout\\)){3}",
+  # H's pad recovery (RW-1 measured +2932) and the reverted Flea's, the same craft on the pad.
+  "Game state: FundsChanged \\+2932 \\(VesselRecovery\\)[\\s\\S]*?MISSIONMARK label=rw2-h-committed ut=",
+  "MISSIONMARK label=rw2-reverted ut=[\\s\\S]*?Game state: FundsChanged \\+2932 \\(VesselRecovery\\)[\\s\\S]*?MISSIONMARK label=rw2-standin-recovered ut=",
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=",
+
+  # ---- H holds Jeb: the stand-in generated at the commit ----
+  "Stand-in generated: '[^'\\r\\n]+' \\(Pilot\\) for slot 'Jebediah Kerman' depth 0[\\s\\S]*?MISSIONMARK label=rw2-h-committed ut=",
+  "Emit: ExperienceGained key='Jebediah Kerman' tag=[\\s\\S]*?MISSIONMARK label=rw2-h-committed ut=",
+
+  # ---- the committed accept (RW-1's literals) ----
+  "MISSIONMARK label=rw2-h-committed ut=[\\s\\S]*?kscaction action=accept-contract target=f1fb89dc-a471-42cf-94da-de4bb1080512 applied=true manifestKind=contract-accept observedAfter=state=Active funds=[0-9.]+ contract=f1fb89dc-a471-42cf-94da-de4bb1080512",
+  "Game state: FundsChanged \\+37500 \\(ContractAdvance\\)",
+  "AddEvent: ContractAccepted key='f1fb89dc-a471-42cf-94da-de4bb1080512' tag=''",
+  "KSC spending recorded: type=ContractAccept, UT=[0-9.]+, key=f1fb89dc-a471-42cf-94da-de4bb1080512[\\s\\S]*?MISSIONMARK label=rw2-ksc-committed ut=",
+
+  # ---- the rewind: a plain Rewind-to-Launch onto H's tree, Jeb held again ----
+  "MISSIONMARK label=rw2-ksc-committed ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT ",
+  "MISSIONMARK label=rw2-ksc-committed ut=[\\s\\S]*?Load classified: early=PlainRewind refined=PlainRewind ",
+  "invokerewindtolaunch invoking tree=[0-9a-f]{32} rec=[0-9a-f]{32} startUT=1858[0-9]{2}\\.[0-9] - plain Rewind-to-Launch \\(NOT a Re-Fly\\)",
+  "MISSIONMARK label=rw2-ksc-committed ut=[\\s\\S]*?\\[KerbalsModule\\] Reservation re-reserved: 'Jebediah Kerman' endUT=[0-9.]+ nowUT=1857[0-9]{2}\\.[0-9] [\\s\\S]*?MISSIONMARK label=rw2-rewound ut=",
+  # The stand-in the commit generated is the one recreated after the rewind.
+  "Stand-in generated: '([^'\\r\\n]+)' \\(Pilot\\) for slot 'Jebediah Kerman' depth 0[\\s\\S]*?MISSIONMARK label=rw2-ksc-committed ut=[\\s\\S]*?\\[KerbalsModule\\] Recreated stand-in '\\1' \\(Pilot\\) for slot 'Jebediah Kerman' depth 0[\\s\\S]*?MISSIONMARK label=rw2-rewound ut=",
+
+  # ---- row 13: the VAB manifest swaps Jeb for that stand-in; the launch carries one kerbal ----
+  "Stand-in generated: '([^'\\r\\n]+)' \\(Pilot\\) for slot 'Jebediah Kerman' depth 0[\\s\\S]*?MISSIONMARK label=rw2-rewound ut=[\\s\\S]*?\\[CrewAutoAssign\\] Swapped reserved 'Jebediah Kerman' -> stand-in '\\1' in part 'Mk1 Command Pod' seat 0[\\s\\S]*?MISSIONMARK label=rw2-launched ut=",
+  "MISSIONMARK label=rw2-rewound ut=[\\s\\S]*?\\[CrewAutoAssign\\] Crew manifest adjusted: 1 reserved crew replaced with stand-ins, 0 seats cleared[\\s\\S]*?MISSIONMARK label=rw2-launched ut=",
+  "MISSIONMARK label=rw2-rewound ut=[\\s\\S]*?launchfromeditor start ship=Jumping Flea parts=8 site=LaunchPad crew=1 scene=EDITOR[\\s\\S]*?MISSIONMARK label=rw2-launched ut=",
+  "MISSIONMARK label=rw2-rewound ut=[\\s\\S]*?Flight entry: remembered [0-9]+ ledger row\\(s\\) as the revert target's rows \\(reason=in-session:InSessionOther, freshLaunch=True\\)[\\s\\S]*?MISSIONMARK label=rw2-launched ut=",
+  # It is the stand-in who goes out of the hatch.
+  "Stand-in generated: '([^'\\r\\n]+)' \\(Pilot\\) for slot 'Jebediah Kerman' depth 0[\\s\\S]*?MISSIONMARK label=rw2-launched ut=[\\s\\S]*?evaexit start kerbal=\\1 fromPid=[0-9]+ release=false[\\s\\S]*?MISSIONMARK label=rw2-eva ut=",
+
+  # ---- row 14: the in-flight earning, an untagged row written at once ----
+  "MISSIONMARK label=rw2-launched ut=[\\s\\S]*?Game state: MilestoneAchieved 'Kerbin/SurfaceEVA' \\(awaiting reward enrichment\\)[\\s\\S]*?MISSIONMARK label=rw2-eva ut=",
+  "MISSIONMARK label=rw2-launched ut=[\\s\\S]*?KSC spending recorded: type=MilestoneAchievement, UT=[0-9.]+, key=Kerbin/SurfaceEVA[\\s\\S]*?MISSIONMARK label=rw2-eva ut=",
+  "MISSIONMARK label=rw2-launched ut=[\\s\\S]*?Milestone enriched: 'Kerbin/SurfaceEVA' funds=[0-9]+ rep=[0-9.]+ sci=[0-9.]+[\\s\\S]*?MISSIONMARK label=rw2-eva ut=",
+  # ---- the stock revert, unrecorded ----
+  "MISSIONMARK label=rw2-eva ut=[\\s\\S]*?reverttolaunch start pid=[0-9]+ name='[^'\\r\\n]+' situation=\\S+ recording=false hasActiveTree=false",
+  "MISSIONMARK label=rw2-eva ut=[\\s\\S]*?Prefix: no active re-fly session [^\\r\\n]*allowing stock RevertToLaunch",
+  "MISSIONMARK label=rw2-eva ut=[\\s\\S]*?GameEvents\\.OnRevertToLaunchFlightState fired; armed RevertKind\\.Launch for next OnLoad",
+  "MISSIONMARK label=rw2-eva ut=[\\s\\S]*?Load classified: early=\\w+ refined=StockRevert scene=FLIGHT",
+  # THE GATE: the reverted flight's untagged row goes, the committed accept stays.
+  "MISSIONMARK label=rw2-eva ut=[\\s\\S]*?\\[Ledger\\] PruneOrphanActionsAfterUT: removed [1-9][0-9]* untagged action\\(s\\) after UT 1857[0-9.]+, keptFromFlightEntry=[1-9][0-9]*, total=[0-9]+[\\s\\S]*?MISSIONMARK label=rw2-reverted ut=",
+  "MISSIONMARK label=rw2-eva ut=[\\s\\S]*?\\[Scenario\\] Revert \\(Launch\\): pruned [1-9][0-9]* untagged ledger action\\(s\\) after launchUT=1857[0-9.]+ \\(launch-pad/PRELAUNCH currency earned before auto-record\\)[\\s\\S]*?MISSIONMARK label=rw2-reverted ut=",
+  "MISSIONMARK label=rw2-eva ut=[\\s\\S]*?reverttolaunch complete pid=[0-9]+ name='Jumping Flea' situation=PRELAUNCH elapsed=",
+
+  # ---- row 13's experience half: the stand-in's recovery, Jeb untouched ----
+  "Stand-in generated: '([^'\\r\\n]+)' \\(Pilot\\) for slot 'Jebediah Kerman' depth 0[\\s\\S]*?MISSIONMARK label=rw2-reverted ut=[\\s\\S]*?Emit: ExperienceGained key='\\1' tag=[\\s\\S]*?MISSIONMARK label=rw2-standin-recovered ut=",
+  "MISSIONMARK label=rw2-reverted ut=[\\s\\S]*?Game state: ExperienceGained crew=1 emitted=1 noEntries=0 [\\s\\S]*?MISSIONMARK label=rw2-standin-recovered ut=",
+
+  # ---- the crossing: H's rows and the accept reached once, Jeb freed ----
+  "MISSIONMARK label=rw2-standin-recovered ut=[\\s\\S]*?\\[KerbalsModule\\] Reservation released: 'Jebediah Kerman' endUT=[0-9.]+ [\\s\\S]*?MISSIONMARK label=rw2-crossed ut=",
+  "MISSIONMARK label=rw2-standin-recovered ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[0-9]+ \\[[^\\]\\r\\n]*KerbalAssignment@[\\s\\S]*?MISSIONMARK label=rw2-crossed ut=",
+  "MISSIONMARK label=rw2-standin-recovered ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[0-9]+ \\[[^\\]\\r\\n]*KerbalExperience@[\\s\\S]*?MISSIONMARK label=rw2-crossed ut=",
+  "MISSIONMARK label=rw2-standin-recovered ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[0-9]+ \\[[^\\]\\r\\n]*ContractAccept@[\\s\\S]*?MISSIONMARK label=rw2-crossed ut=",
+
+  # ---- the step saves (named side slots for after-flight reading) and the default slot ----
+  "savegame name=rw02-01-after-h-commit folder=\\S+ saved=true",
+  "savegame name=rw02-02-after-ksc-accept folder=\\S+ saved=true",
+  "savegame name=rw02-03-after-rtl folder=\\S+ saved=true",
+  "savegame name=rw02-04-after-crewed-launch folder=\\S+ saved=true",
+  "savegame name=rw02-05-after-eva folder=\\S+ saved=true",
+  "savegame name=rw02-06-after-revert folder=\\S+ saved=true",
+  "savegame name=rw02-07-after-standin-recovery folder=\\S+ saved=true",
+  "savegame name=rw02-08-before-crossing folder=\\S+ saved=true",
+  "savegame name=rw02-09-after-crossing folder=\\S+ saved=true",
+  "MISSIONMARK label=rw2-crossed ut=[\\s\\S]*?savegame name=persistent folder=\\S+ saved=true",
+
+  # ---- the ground truth, in FLIGHT on the unrecorded check Flea ----
+  "ground-truth game mode=CAREER pools=funds,science,reputation",
+  "result: hardFailures=0 ",
+  # INTERIM: total=3 from the source (the LedgerGroundTruth category's FLIGHT cells); the
+  # split is owed off the first flight (RW-1 read passed=3 skipped=0 on this host).
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  "filed StockPoolAdjustment amount=\\S+ reason=leak ",
+  "\\[TakeBack\\] Took back ",
+  "\\[LedgerTrace\\] phase=Anomaly ",
+  "ABORTING rewind ledger patch",
+  "invokerewindtolaunch refused",
+  "reverttolaunch rejected",
+  "reverttolaunch error",
+  "savegame refused ",
+  "savegame failed ",
+  # ---- row 13: the reserved kerbal never flies, never boards, never earns after the rewind ----
+  "MISSIONMARK label=rw2-rewound ut=[\\s\\S]*evaexit start kerbal=Jebediah Kerman ",
+  # Windowed to the relaunch: the check launch may come after Jeb's hold ends (185807.6) and
+  # then legitimately seats him.
+  "MISSIONMARK label=rw2-rewound ut=(?:(?!MISSIONMARK label=rw2-standin-recovered )[\\s\\S])*Game state: CrewStatusChanged 'Jebediah Kerman' Available .{1,3} Assigned",
+  "MISSIONMARK label=rw2-rewound ut=[\\s\\S]*Emit: ExperienceGained key='Jebediah Kerman'",
+  "MISSIONMARK label=rw2-rewound ut=[\\s\\S]*Recovery kerbal XP recorded: [^\\r\\n]*kerbals='[^'\\r\\n]*Jebediah Kerman",
+  # The manifest swaps him; a cleared seat (no stand-in) or the in-flight backstop catching
+  # him on a launched craft means the VAB let him on.
+  "\\[CrewAutoAssign\\] Cleared reserved 'Jebediah Kerman'",
+  "\\[CrewReservation\\] Swapped 'Jebediah Kerman' ",
+  # ---- row 14: nothing records after the rewind, the revert is no quickload, it keeps a
+  # remembered target, and no patch lifts the reverted pool (a kept SurfaceEVA row would) ----
+  "MISSIONMARK label=rw2-rewound ut=[\\s\\S]*Recording started: vessel=",
+  "Load classified: early=\\w+ refined=QuickloadFlight ",
+  "no revert-target ledger rows remembered",
+  "MISSIONMARK label=rw2-eva ut=(?:(?!MISSIONMARK label=rw2-reverted )[\\s\\S])*\\[KspStatePatcher\\] PatchFunds: [0-9.]+ -> [0-9.]+ \\(delta=[1-9]",
+  # Stock pays the world-first once in this lane (the revert reloads the unreached node, and
+  # nothing EVAs again).
+  "Game state: MilestoneAchieved 'Kerbin/SurfaceEVA'[\\s\\S]*Game state: MilestoneAchieved 'Kerbin/SurfaceEVA'",
+  # ---- each committed row applies once: one accept, one crossing of H's experience ----
+  "kscaction action=accept-contract target=f1fb89dc-a471-42cf-94da-de4bb1080512 applied=true[\\s\\S]*kscaction action=accept-contract target=f1fb89dc-a471-42cf-94da-de4bb1080512 applied=true",
+  "AddEvent: ContractAccepted key='f1fb89dc-a471-42cf-94da-de4bb1080512'[\\s\\S]*AddEvent: ContractAccepted key='f1fb89dc-a471-42cf-94da-de4bb1080512'",
+  "KSC spending recorded: type=ContractAccept, UT=[0-9.]+, key=f1fb89dc-a471-42cf-94da-de4bb1080512[\\s\\S]*KSC spending recorded: type=ContractAccept, UT=[0-9.]+, key=f1fb89dc-a471-42cf-94da-de4bb1080512",
+  "Clock-crossing reached committed-future rows: [^\\r\\n]*KerbalExperience@[\\s\\S]*Clock-crossing reached committed-future rows: [^\\r\\n]*KerbalExperience@",
+  "Clock-crossing reached committed-future rows: [^\\r\\n]*ContractAccept@[\\s\\S]*Clock-crossing reached committed-future rows: [^\\r\\n]*ContractAccept@",
+  # Nothing completes or fails a contract in this walk.
+  "Game state: ContractCompleted ",
+  "Game state: ContractFailed ",
+]
+
+[runtime]
+budgetSeconds = 5600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

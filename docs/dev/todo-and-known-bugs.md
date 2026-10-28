@@ -2942,6 +2942,17 @@ host: the tech half of RW-4 and RW-11's tech buy (20.17 science, every affordabl
 RW-10 (no applicant in the roster and `hire-kerbal` resolves by name only; needs a seeded applicant
 or an applicant-first seam argument). Evidence: `logs/flights/rewind-campaign/rw-01-ksc-economy/`.
 
+Progress 2026-10-28 (branch `rw2-crewed-revert`): lane `RW-2-crewed-relaunch-revert` authored, never flown,
+plan rows 13 (crewed launch after a rewind) and 14 (revert inside a rewound timeline): RW-1's committed pad
+flight with Jebediah and its contract accept, a Rewind-to-Launch, a relaunch whose VAB manifest swaps Jeb for his
+stand-in, the stand-in's pad EVA (Kerbin SurfaceEVA, an untagged row), Revert to Launch pruning that row and
+keeping the committed accept, the stand-in recovered, a flight warp across the committed rows, LedgerGroundTruth.
+Corrections to the plan from the code: the stand-in's experience reaches the roster but not the ledger (an
+unrecorded recovery's XP row is refused, `no-recovery-recording`, by design), and `Revert (Launch): pruned N`
+needs an in-flight untagged earning (a pad flight's rollout shares the post-init frame and is kept), hence the EVA.
+Open question the RW-1 log raises: after the rewind Jeb's hold ends at H's recording end (185807.6, the KSC
+retirement bound), not at H's committed recovery (186000.2), so the rewound timeline frees him early.
+
 ---
 
 ## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
