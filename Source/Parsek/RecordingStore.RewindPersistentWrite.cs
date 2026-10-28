@@ -107,6 +107,13 @@ namespace Parsek
                         "- the Space Center will reload it, not the rewind save's world");
                     return false;
                 }
+                // The carried node's ledger held-through UT is the session's; the file holds the
+                // rewind save's world, so it carries the floor this rewind sets
+                // (LedgerHeldWindow.ResolveAtRewind), and a crash before the next save cold-loads
+                // the lead window's rows as reached.
+                LedgerHeldWindow.WriteValue(targetParsekNode, LedgerHeldWindow.ResolveAtRewind(
+                    RewindContext.RewindAdjustedUT, RewindContext.RewindSaveOwnClockUT,
+                    RewindContext.RewindSaveLedgerHeldThroughUT));
                 string result = GamePersistence.SaveGame(
                     game, "persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);
                 if (string.IsNullOrEmpty(result))

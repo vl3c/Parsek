@@ -125,7 +125,7 @@ TESTS: `ReFlyMergedDeathCoRowTests` (10 cells: RW-7 shape in session and after t
 that recovers the kerbal, the live co-row mirror, the attribution key theory x5, the tail-overlap
 retire set). Reverting the key reds 7 of the 10.
 
-## REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE: a Space Center action in the 15 s before a launch is ahead of the clock after a Rewind-to-Launch, while the rewind save already holds its effect [FILED 2026-10-28 from RW-9's flights; live-measured, NOT FIXED; product, medium-high (a second paid repair, and the repaired building knocked down again)]
+## ~~REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE: a Space Center action in the 15 s before a launch is ahead of the clock after a Rewind-to-Launch, while the rewind save already holds its effect~~ [FILED 2026-10-28 from RW-9's flights; live-measured. FIXED 2026-10-28 on branch `fix-rewind-lead-window`; xUnit only, not flown. product, medium-high (a second paid repair, and the repaired building knocked down again)]
 
 A Rewind-to-Launch loads the save taken at the launch and then winds the clock back 15 s
 (`Rewind-to-Launch initiated to UT 185800.285736677`, `UT adjusted: 185800.3 -> 185785.3 (lead
@@ -162,10 +162,90 @@ building demolition or repair, a contract accept / decline / cancel. Clicking an
 Launch inside 15 s of game time is ordinary play. Same window, same shape as
 ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS (route rows).
 
-Two obvious directions, not decided: treat ledger rows in (rewindUT, rewind-save UT] as already
+Two obvious directions were open: treat ledger rows in (rewindUT, rewind-save UT] as already
 held by the rewind save (in the past for blocks, crossings and patches), or rewind to a save taken
-before the lead window. NOT FIXED. Lane `RW-9-strategy-repair-rebuy` now acts at UT 185750, outside
-the window.
+before the lead window. Lane `RW-9-strategy-repair-rebuy` acts at UT 185750, outside the window.
+
+Fix: the first direction, keeping the 15 s lead. `LedgerHeldWindow` (GameActions) holds a ledger
+held-through UT, the ledger analog of the route state floor: the plain rewind sets it in
+`HandleRewindOnLoad` to the rewind save's own UT (before the windback, raised to the held-through UT
+that save carries, read in `ExecuteRewindSaveLoad`) when it lies ahead of the wound-back clock. While
+the clock is behind it, every "now" the ledger judges past and future against reads
+`LedgerHeldWindow.ResolveLedgerNowUT`: the walk cutoffs in `RecalculateAndPatchCore` (pools, KSP state
+patches, the committed-future snapshot the clock crossings read), `CommittedFutureIndexCache.CurrentUT`
+(every stock-screen block and mark, the KB-2 repair block included, and the patch planners),
+`ParsekScenario.GetCurrentTimelineUTForLedgerRecalc`, the live building patch, the strategy patch,
+the affordability clock, the KSC clock cursor's next-row lookup, the cold-load reconcile clock and
+the rewind's baseline prune. Rows after it stay committed future and cross once (the repair at
+185899.9). Persistence: the PARSEK node value `ledgerHeldThroughUT`, written only while alive; every
+load but a plain rewind installs the loaded save's copy while its clock is behind it (policy
+category `LedgerHeldWindow`), the Discard Re-fly splice keeps the rewind point's own, the rewind's
+persistent.sfs write carries the new one, and a trusted clock (OnSave, the clock cursor, a time jump)
+expires it once reached. The time-travel facts read the loaded WORLD UT, not the wound-back clock:
+the plain rewind's timeline break and live-only income drop run at `ResolvePlainRewindWorldUT` (the
+rewind save's own UT raised to its carried floor, else the loaded clock as before), and the in-session
+break / drop and the Re-Fly bundle drop at the loaded clock raised to the floor the load installed, so
+income stock paid in the window (a cheat, a Making History reward, a mod payment) is not dropped and
+the authoritative rewind patch does not write the pool below stock's; a credit made in the window is
+not read as forgotten by the identity-repeat rule either. No row is rewritten. Tests: `LedgerHeldWindowTests` (the second paid repair
+and the crossing re-fire reproduced without the floor and refused with it). Not shared by Re-Fly (an RP
+quicksave loads at its own clock) or `TimeJumpManager` (forward only: nothing ahead is held). The
+Timeline window still draws the window's rows ahead of its now line (display only). Owed: a flight of
+`RW-9R`'s reading variant inside the window. Follow-up REWIND-LEAD-WINDOW-NEW-ACTION-SORTS-BEFORE-HELD-ROW,
+fixed on the same branch (new Space Center rows inside the window are dated at the held-through UT).
+
+## ~~REWIND-LEAD-WINDOW-NEW-ACTION-SORTS-BEFORE-HELD-ROW: a Space Center action taken inside a Rewind-to-Launch lead window is dated before the held rows it follows~~ [FILED 2026-10-28 while fixing REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE; code-read. FIXED 2026-10-28 on branch `fix-rewind-lead-window` (coordinator ruling: date such rows at the held-through UT, "what you see is what happened"); xUnit only, not flown. product, medium]
+
+After the fix, rows in (wound-back clock, rewind save UT] count as reached, but a new action the
+player takes in that window is stamped with the raw clock, so it sorts BEFORE the held rows it
+logically follows. Example: the save holds a demolition at 185790.06 and no committed repair; the
+player repairs at 185786 (allowed, nothing covers it); the repair row sorts before the demolition, and
+the live building patch (`FacilityStatePatcher.ComputeBuildingDestroyedAtUt`, last row by UT at or
+before now) demolishes the repaired building again at the next recalc, the repair charged. The same
+shape for a cancel of a strategy whose held activation is dated later, a dismissal of a held hire, a
+decline of a held accept. Before the fix it happened when the clock reached the held row, so it is not
+new, only earlier. Directions: date a Space Center row captured while the clock is behind the
+held-through UT at that UT (the ledger's now), or refuse such an action on its stock control until
+the clock passes it. Not done: both change player-visible behaviour.
+
+Fix: the first direction. A Space Center row captured while the clock is behind the held-through
+UT is dated at it: `LedgerHeldWindow.StampKscOriginRow` (next to `ResolveLedgerNowUT`; pure rule
+`ResolveKscRowUT` = the ledger's now) runs on the three untagged ledger doors before the row reaches
+the ledger: the KSC door `TryAddKscSpendingAction` (every `OnKscSpending` caller and the repair batch:
+purchases, upgrades, repairs, demolitions, hires, dismissals, tech, strategies, contract accept /
+decline / cancel), the untagged strategy conversion legs (`OnStrategyCurrencyConversion`, so a
+discount leg still binds to its cause inside the 1 s window) and live-only income (`OnLiveOnlyIncome`).
+One Verbose line per raised row names both UTs (`captured at ut=X dated at the ledger held-through UT
+F`). Ordering: the row's capture sequence was issued at capture, above every held row's, so at the
+held UT it sorts after every held row of its earning / spending class; a dated EARNING sorts before a
+held spending at exactly that UT (earnings first), which can only make the held spending more
+affordable. The capture clock stays on the row as `GameAction.CapturedUT` (sparse key `capturedUT`;
+absent reads NaN), and every reader that pairs a row with a game-state event or a loaded clock reads
+`LedgerHeldWindow.CaptureMomentUT`: the KSC reconcile (`KscActionReconciler`, so two window charges
+stock coalesced into one event still reconcile), milestone enrichment and the record-threshold
+coalesce, the pending-recent KSC science helpers (which now take the raw clock, `GetRawClockUT`: the
+first commit's floored `GetNowUT` made them miss their own event inside the window; the live-pool
+reputation seed's capture UT reads the raw clock too, since recording rows keep raw UTs), the post-walk
+reconcile, the load migrations' event matches and the live-only income time-travel drop. Flight rows
+are NOT restamped: a row tagged to a recording belongs to its trajectory's UTs (playback, the
+recording's own event and threshold pairing, its commit and supersede all key on them), and the
+rollout row stays raw with the flight it is adopted into. Mirror: once the clock is past the floor
+the stamp is the raw clock (expired or not). Tests: `LedgerHeldWindowTests` (a repair of a held
+demolition made at 185786 sticks: no knock-down, charged once, nothing crosses at expiry; a window
+purchase sorts after every held row including one at the floor itself; two coalesced window
+purchases reconcile; after expiry a row is dated raw; the pending tech debit pairs; the live-only
+drop judges the capture clock).
+
+Finding (not changed): a flight launched INSIDE the window records its rows (and the rollout) at
+their raw trajectory UTs, so a row of that flight can sort before a held row dated later in the
+window (a launch-site contract completion before a held accept of the same contract, a milestone
+before a held strategy). Narrow (a launch within 15 s of the rewind), not widened here.
+
+Known limits, left as they are: (1) holding is by UT, not by row identity: a row merged later from
+another pass of the timeline (a Re-Fly merge, a committed tree) dated inside the window counts as
+reached up to 15 s before its own UT, and the time-travel break witness (`IdentityWitness`) still
+reads a dated row's UT. (2) The Timeline window draws the window's rows, held and newly dated, ahead
+of its now line until the clock passes the floor (display only).
 
 ## REWIND-PRUNE-AND-WALK-AT-UT-ZERO: a Rewind-to-Launch prunes baselines and walks the ledger at UT 0, not at the rewind save's own UT [FILED 2026-10-28 from the rewind campaign's log mining; code-read, NOT FIXED; product, low-medium]
 

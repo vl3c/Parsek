@@ -357,6 +357,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SeedReadInsideARewindLeadWindow_UsesTheRawClock_SoALaterAwardStillCounts()
+        {
+            // A Rewind-to-Launch to a save at 400 wound the clock back to 385; the seed is read
+            // at the raw clock 386 while the ledger's now is held at 400. The flight's award at
+            // 390 comes after the read and is not in the seeded pool.
+            LedgerHeldWindow.SetAtRewind(385.0, 400.0, double.NaN);
+            AddMilestone("RecordsSpeed", 350.0, RecA, 1f);
+            LedgerOrchestrator.NowUtProviderForTesting = () => 386.0;
+            LedgerOrchestrator.UncommittedRecordingIdsForTesting = () => new List<string> { RecA };
+            LedgerOrchestrator.CurrencyPoolProbeForTesting = () =>
+            {
+                var probe = LivePoolAfterTheFlightsAwards();
+                probe.ReputationValue = 1f;
+                return probe;
+            };
+            LedgerOrchestrator.RecalculateAndPatch();
+            LedgerOrchestrator.UncommittedRecordingIdsForTesting = () => new List<string>();
+            Assert.Equal(386.0, Seed().SeedCaptureUT);
+
+            AddMilestone("RecordsAltitude", 390.0, RecA, 1f);
+            Commit(RecA, 300.0, 395.0);
+
+            Assert.True(Ledger.Actions.Single(a => a.MilestoneId == "RecordsSpeed").InsideReputationSeed);
+            Assert.False(Ledger.Actions.Single(a => a.MilestoneId == "RecordsAltitude").InsideReputationSeed);
+        }
+
+        [Fact]
         public void OptimizerSplitSecondHalf_JoinsTheSeedsList_AndItsEarlierAwardIsNotCountedTwice()
         {
             // The merge dialog optimizes before it files: the split moves the flight's

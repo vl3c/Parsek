@@ -367,20 +367,18 @@ namespace Parsek.Tests
             // branch's refined kind) drop later income right after recording their break, at
             // the same UT.
             string scenario = System.Text.RegularExpressions.Regex.Replace(ReadSource("ParsekScenario.cs"), @"\s+", " ");
-            const string plainBreakUT =
-                "ResolvePlainRewindBreakUT(KerbalsModule.ReadLoadedSaveUT(), RewindContext.RewindSaveOwnClockUT)";
-            int plainNote = scenario.IndexOf("StockShadowTakeBack.NoteLoad( LoadKind.PlainRewind,",
+            int plainNote = scenario.IndexOf("StockShadowTakeBack.NoteLoad( LoadKind.PlainRewind, rewindWorldUT,",
                 StringComparison.Ordinal);
-            int plainDrop = scenario.IndexOf("LiveOnlyIncome.DropAfterTimeTravelLoad( LoadKind.PlainRewind, "
-                + plainBreakUT + ");", StringComparison.Ordinal);
+            int plainDrop = scenario.IndexOf("LiveOnlyIncome.DropAfterTimeTravelLoad(LoadKind.PlainRewind, rewindWorldUT);",
+                StringComparison.Ordinal);
             int rewindHandler = scenario.IndexOf("HandleRewindOnLoad(node, recordings);", StringComparison.Ordinal);
             Assert.True(plainNote >= 0, "the plain rewind's NoteLoad site not found");
             Assert.True(plainDrop > plainNote && plainDrop < rewindHandler,
                 "the plain rewind no longer drops later live-only income before HandleRewindOnLoad");
 
-            int noteLoad = scenario.IndexOf("refinedLoadKind, KerbalsModule.ReadLoadedSaveUT(), CaptureSequence.CurrentHighWater());",
+            int noteLoad = scenario.IndexOf("refinedLoadKind, loadedWorldUT, CaptureSequence.CurrentHighWater());",
                 StringComparison.Ordinal);
-            int drop = scenario.IndexOf("LiveOnlyIncome.DropAfterTimeTravelLoad(refinedLoadKind, KerbalsModule.ReadLoadedSaveUT());",
+            int drop = scenario.IndexOf("LiveOnlyIncome.DropAfterTimeTravelLoad(refinedLoadKind, loadedWorldUT);",
                 StringComparison.Ordinal);
             Assert.True(noteLoad >= 0, "the in-session NoteLoad site not found");
             Assert.True(drop > noteLoad, "the in-session time-travel load no longer drops later live-only income");

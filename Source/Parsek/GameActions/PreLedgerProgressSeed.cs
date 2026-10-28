@@ -375,7 +375,7 @@ namespace Parsek
                         return true;
                     continue;
                 }
-                if (Math.Abs(row.UT - evt.ut) <= 0.1)
+                if (Math.Abs(LedgerHeldWindow.CaptureMomentUT(row) - evt.ut) <= 0.1)
                     return true;
             }
             return false;

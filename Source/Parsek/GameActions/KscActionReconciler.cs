@@ -40,9 +40,11 @@ namespace Parsek
         /// Two back-to-back KSC actions of the same kind (e.g. two part purchases) share
         /// one coalesced event with the summed delta. This reconciler handles that by
         /// summing both sides across a UT window: expected from ledger actions with the
-        /// same expectation classification within <see cref="KscReconcileEpsilonSeconds"/>
-        /// of <paramref name="ut"/>, observed from events with the matching key in the
-        /// same window. The current action is already in <paramref name="ledgerActions"/>
+        /// same expectation classification captured within <see cref="KscReconcileEpsilonSeconds"/>
+        /// of <paramref name="ut"/> (<see cref="LedgerHeldWindow.CaptureMomentUT"/>, so a row
+        /// dated at the ledger held-through UT still pairs at its raw clock), observed from
+        /// events with the matching key in the same window. <paramref name="ut"/> is the raw
+        /// capture clock (the event's UT), never the row's dated UT. The current action is already in <paramref name="ledgerActions"/>
         /// (the caller adds it before calling).
         /// </para>
         /// <para>
@@ -209,7 +211,7 @@ namespace Parsek
             for (int i = 0; i < ledgerActions.Count; i++)
             {
                 var row = ledgerActions[i];
-                if (row == null || Math.Abs(row.UT - ut) > KscReconcileEpsilonSeconds)
+                if (row == null || Math.Abs(LedgerHeldWindow.CaptureMomentUT(row) - ut) > KscReconcileEpsilonSeconds)
                     continue;
                 if (!ConversionLegBinding.IsCausedLeg(row))
                     continue;
@@ -237,7 +239,9 @@ namespace Parsek
                 {
                     var other = ledgerActions[i];
                     if (other == null) continue;
-                    if (Math.Abs(other.UT - ut) > KscReconcileEpsilonSeconds) continue;
+                    // Capture moment, not UT: a row dated at the ledger held-through UT
+                    // (LedgerHeldWindow.StampKscOriginRow) pairs with events at its raw clock.
+                    if (Math.Abs(LedgerHeldWindow.CaptureMomentUT(other) - ut) > KscReconcileEpsilonSeconds) continue;
                     var otherExpectation = KscActionExpectationClassifier.ClassifyAction(other);
                     if (otherExpectation.Class != KscReconcileClass.Untransformed) continue;
                     AddMatchingLeg(matches, other, otherExpectation.FundsLeg, targetLeg);

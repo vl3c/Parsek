@@ -4,6 +4,13 @@ using System.Globalization;
 
 namespace Parsek
 {
+    /// <summary>
+    /// Post-walk reconcile of transformed rows against their observed game-state events.
+    /// Every row-to-event (and row-to-row) time pairing reads the row's capture moment
+    /// (<see cref="LedgerHeldWindow.CaptureMomentUT"/>): a Space Center row dated at the ledger
+    /// held-through UT pairs with events at the clock it was captured at. The walk cutoff
+    /// tests keep reading the row's UT.
+    /// </summary>
     internal static class PostWalkActionReconciler
     {
         // Preserve the original LedgerOrchestrator subsystem tag so log lines stay byte-stable.
@@ -602,7 +609,7 @@ namespace Parsek
             if (action == null)
                 return false;
 
-            if (action.UT <= livePruneThreshold)
+            if (LedgerHeldWindow.CaptureMomentUT(action) <= livePruneThreshold)
             {
                 LogPostWalkLiveCoverageSkip(
                     action,
@@ -761,7 +768,7 @@ namespace Parsek
                 if (e.ut <= livePruneThreshold) continue;
                 if (GameStateStore.IsEventVisibleToCurrentTimeline(e)) continue;
                 if (e.eventType != leg.EventType) continue;
-                if (Math.Abs(e.ut - action.UT) > PostWalkReconcileEpsilonSeconds) continue;
+                if (Math.Abs(e.ut - LedgerHeldWindow.CaptureMomentUT(action)) > PostWalkReconcileEpsilonSeconds) continue;
                 if (!PostWalkEventMatchesAction(e, action)) continue;
                 if (!string.Equals(e.key ?? "", expectedKey, StringComparison.Ordinal))
                     continue;
@@ -799,8 +806,8 @@ namespace Parsek
             if (action == null || !leg.Applies || events == null || events.Count == 0)
                 return false;
 
-            double windowStartUt = action.UT - PostWalkReconcileEpsilonSeconds;
-            double windowEndUt = action.UT + PostWalkReconcileEpsilonSeconds;
+            double windowStartUt = LedgerHeldWindow.CaptureMomentUT(action) - PostWalkReconcileEpsilonSeconds;
+            double windowEndUt = LedgerHeldWindow.CaptureMomentUT(action) + PostWalkReconcileEpsilonSeconds;
             double observed = 0.0;
             int observedCount = 0;
             for (int i = 0; i < events.Count; i++)
@@ -928,7 +935,7 @@ namespace Parsek
                 var e = events[i];
                 if (!GameStateStore.IsEventVisibleToCurrentTimeline(e)) continue;
                 if (e.eventType != anchorType) continue;
-                if (Math.Abs(e.ut - action.UT) > PostWalkReconcileEpsilonSeconds) continue;
+                if (Math.Abs(e.ut - LedgerHeldWindow.CaptureMomentUT(action)) > PostWalkReconcileEpsilonSeconds) continue;
                 if (!PostWalkEventMatchesAction(e, action)) continue;
                 if (!string.Equals(e.key ?? "", expectedKey, StringComparison.Ordinal))
                     continue;
@@ -970,7 +977,7 @@ namespace Parsek
                 var e = events[i];
                 if (!IsLivePostWalkObservedEvent(e, livePruneThreshold)) continue;
                 if (e.eventType != leg.EventType) continue;
-                if (Math.Abs(e.ut - action.UT) > PostWalkReconcileEpsilonSeconds) continue;
+                if (Math.Abs(e.ut - LedgerHeldWindow.CaptureMomentUT(action)) > PostWalkReconcileEpsilonSeconds) continue;
                 if (!PostWalkEventMatchesAction(e, action)) continue;
                 if (!string.Equals(e.key ?? "", expectedKey, StringComparison.Ordinal))
                     continue;
@@ -1010,7 +1017,7 @@ namespace Parsek
                     continue;
                 if (!PostWalkActionsShareScope(anchorAction, other))
                     continue;
-                if (Math.Abs(other.UT - anchorAction.UT) > PostWalkReconcileEpsilonSeconds)
+                if (Math.Abs(LedgerHeldWindow.CaptureMomentUT(other) - LedgerHeldWindow.CaptureMomentUT(anchorAction)) > PostWalkReconcileEpsilonSeconds)
                     continue;
                 if (utCutoff.HasValue &&
                     !RecalculationEngine.IsSeedType(other.Type) &&
@@ -1022,7 +1029,7 @@ namespace Parsek
                 var otherExp = ClassifyPostWalk(other);
                 if (!otherExp.Reconcile)
                     continue;
-                if (other.UT <= livePruneThreshold)
+                if (LedgerHeldWindow.CaptureMomentUT(other) <= livePruneThreshold)
                     continue;
 
                 GameStateEventType otherAnchorType;
@@ -1261,8 +1268,8 @@ namespace Parsek
             out string label)
         {
             double epsilon = PostWalkReconcileEpsilonSeconds;
-            startUt = action.UT - epsilon;
-            endUt = action.UT + epsilon;
+            startUt = LedgerHeldWindow.CaptureMomentUT(action) - epsilon;
+            endUt = LedgerHeldWindow.CaptureMomentUT(action) + epsilon;
             GetPostWalkObservedDisplayWindow(action, leg, out double displayStartUt, out double displayEndUt, out label);
 
             if (action.Type != GameActionType.ScienceEarning ||
@@ -1295,8 +1302,8 @@ namespace Parsek
             out string label)
         {
             double epsilon = PostWalkReconcileEpsilonSeconds;
-            startUt = action.UT - epsilon;
-            endUt = action.UT + epsilon;
+            startUt = LedgerHeldWindow.CaptureMomentUT(action) - epsilon;
+            endUt = LedgerHeldWindow.CaptureMomentUT(action) + epsilon;
             label = FormatPostWalkObservedWindowLabel(action, leg, startUt, endUt);
 
             if (action.Type != GameActionType.ScienceEarning ||
@@ -1429,7 +1436,7 @@ namespace Parsek
                     var other = actions[i];
                     if (other == null) continue;
                     if (!PostWalkActionsShareScope(anchorAction, other)) continue;
-                    if (Math.Abs(other.UT - anchorAction.UT) > PostWalkReconcileEpsilonSeconds)
+                    if (Math.Abs(LedgerHeldWindow.CaptureMomentUT(other) - LedgerHeldWindow.CaptureMomentUT(anchorAction)) > PostWalkReconcileEpsilonSeconds)
                         continue;
                     if (utCutoff.HasValue &&
                         !RecalculationEngine.IsSeedType(other.Type) &&
@@ -1744,7 +1751,7 @@ namespace Parsek
                     && row.ConversionSource == StrategyConversionSource.Converter;
                 bool isYield = row.Type == GameActionType.StrategyScienceCredit;
                 if (!isTake && !isYield) continue;
-                if (row.UT < windowStartUt || row.UT > windowEndUt) continue;
+                if (LedgerHeldWindow.CaptureMomentUT(row) < windowStartUt || LedgerHeldWindow.CaptureMomentUT(row) > windowEndUt) continue;
                 if (utCutoff.HasValue && row.UT > utCutoff.Value) continue;
 
                 double amount = isTake ? row.Cost : row.ScienceAwarded;
@@ -1758,7 +1765,7 @@ namespace Parsek
                     var e = events[j];
                     if (e.eventType != GameStateEventType.ScienceChanged) continue;
                     if (!(e.valueAfter > e.valueBefore)) continue;
-                    if (Math.Abs(e.ut - row.UT) > PostWalkReconcileEpsilonSeconds) continue;
+                    if (Math.Abs(e.ut - LedgerHeldWindow.CaptureMomentUT(row)) > PostWalkReconcileEpsilonSeconds) continue;
                     if (!IsEventInTimelineMode(e, livePruneThreshold, hiddenTimeline)) continue;
                     string eventTag = e.recordingId ?? "";
                     if (rowTag.Length > 0 && eventTag.Length > 0
