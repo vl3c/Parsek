@@ -364,6 +364,10 @@ required = [
   # INTERIM: total=3 from the source (the LedgerGroundTruth category's FLIGHT cells); the
   # split is owed off the first flight (RW-1 read passed=3 skipped=0 on this host).
   "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
+  # The revert-cutoff fix (REVERT-AFTER-REWIND-WALKS-PAST-THE-CLOCK, ParsekScenario.cs:839 and
+  # :7545): the StockRevert load inside the rewound timeline walks at the clock.
+  "MISSIONMARK label=rw2-eva ut=[\\s\\S]*?post-rewind current-UT cutoff decision useCurrentUtCutoff=True [^\\r\\n]*isRevert=True[\\s\\S]*?MISSIONMARK label=rw2-reverted ut=",
+  "MISSIONMARK label=rw2-eva ut=[\\s\\S]*?Revert budget walk: [^\\r\\n]*cutoffScene=True clockReady=True[\\s\\S]*?MISSIONMARK label=rw2-reverted ut=",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
