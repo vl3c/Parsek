@@ -18,7 +18,7 @@ id = "RW-9-strategy-repair-rebuy"
 # `cs-career-mun4` (rep 115) carries the same leg family through the repair path.
 #
 # WHY NO SECOND REPAIR. With the repair committed ahead of the clock, a repair of the same
-# facility after the rewind is refused (`blocked-committed`, the KB-2 backstop), so the
+# facility after the rewind is refused (the KB-2 backstop; the seam reads `repair-not-applied`), so the
 # todo's "re-buy" cannot reach stock on this path; the lane pins that refusal and then the
 # crossing, where the committed repair and its legs must apply once.
 #
@@ -145,16 +145,19 @@ required = [
 
   # ---- the strategy and the damage ----
   "kscaction action=activate-strategy target=AgressiveNegotiations applied=true manifestKind=strategy-activate [\\s\\S]*?MISSIONMARK label=rw9-an-active ut=",
-  "MISSIONMARK label=rw9-an-active ut=[\\s\\S]*?kscaction action=demolish-building target=ForeverAlone applied=true[\\s\\S]*?MISSIONMARK label=rw9-demolished ut=",
+  "MISSIONMARK label=rw9-an-active ut=[\\s\\S]*?kscaction action=demolish-building target=SpaceCenter/ResearchAndDevelopment/Facility/ForeverAlone applied=true[\\s\\S]*?MISSIONMARK label=rw9-demolished ut=",
 
   # ---- the discounted repair: applied, its legs naming the repair, recorded under
   # StructureRepair ----
   "MISSIONMARK label=rw9-before-repair ut=[\\s\\S]*?kscaction action=repair-facility target=SpaceCenter/ResearchAndDevelopment applied=true[\\s\\S]*?MISSIONMARK label=rw9-repaired ut=",
-  "MISSIONMARK label=rw9-before-repair ut=(?:(?!MISSIONMARK label=rw9-repaired )[\\s\\S])*?Strategy conversion legs name their cause FacilityRepair\\|",
-  "MISSIONMARK label=rw9-before-repair ut=(?:(?!MISSIONMARK label=rw9-repaired )[\\s\\S])*?Strategy conversion recorded: type=[A-Za-z]+, currency=[A-Za-z]+, delta=[^,\\r\\n]+, UT=1859[0-9]{2}\\.[0-9], reason=StructureRepair",
+  # The repair scope names the cause: both legs split onto the one building.
+  "MISSIONMARK label=rw9-before-repair ut=(?:(?!MISSIONMARK label=rw9-repaired )[\\s\\S])*?Facility repair conversion split: legs=2 buildings=1 totalCost=2000 rows=2 unsplitLegs=1 unsplitCause=SpaceCenter/ResearchAndDevelopment/Facility/ForeverAlone",
+  "MISSIONMARK label=rw9-before-repair ut=(?:(?!MISSIONMARK label=rw9-repaired )[\\s\\S])*?Strategy conversion recorded: type=FundsEarning, currency=Funds, delta=1\\.0000[0-9]*, UT=(?:18589|18590)[0-9]\\.[0-9], reason=StructureRepair",
+  "MISSIONMARK label=rw9-before-repair ut=(?:(?!MISSIONMARK label=rw9-repaired )[\\s\\S])*?Strategy conversion recorded: type=ReputationPenalty, currency=Reputation, delta=-1\\.25, UT=(?:18589|18590)[0-9]\\.[0-9], reason=StructureRepair",
 
-  # ---- after the rewind: a second repair is refused as committed ----
-  "MISSIONMARK label=rw9-rewound ut=(?:(?!MISSIONMARK label=rw9-refused )[\\s\\S])*?kscaction refused action=repair-facility reason=blocked-committed target=SpaceCenter/ResearchAndDevelopment",
+  # ---- after the rewind: a second repair is refused as committed (KB-2's backstop), nothing
+  # charged ----
+  "MISSIONMARK label=rw9-rewound ut=(?:(?!MISSIONMARK label=rw9-refused )[\\s\\S])*?Blocking facility repair: 'SpaceCenter/ResearchAndDevelopment' - 1 destroyed building\\(s\\) of 1 already repaired by a committed future row[\\s\\S]*?kscaction repair-facility not applied: target=SpaceCenter/ResearchAndDevelopment destroyedBefore=1 destroyedAfter=1 fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0[\\s\\S]*?kscaction refused action=repair-facility reason=repair-not-applied target=SpaceCenter/ResearchAndDevelopment",
 
   # ---- the crossing: the pools equal the pools after the original repair ----
   "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw9-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw9-crossed ut=",
