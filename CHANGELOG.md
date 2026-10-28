@@ -25,6 +25,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **The Space Center's refund for clearing away debris is now on the books.** When debris that
+  landed in the Space Center grounds is cleared away, stock refunds part of its cost; that money
+  now goes into Parsek's ledger like any other recovery instead of being kept as an unexplained
+  adjustment. (KSC-DEBRIS-CLEANUP-REFUND-UNLEDGERED)
 - **Space Center actions just before a launch survive a Rewind-to-Launch.** A strategy, purchase,
   demolition or repair made in the 15 s before a launch is in the world the rewind loads and now
   counts as done: paid once, not applied again by a warp, a repair already made stays refused. An

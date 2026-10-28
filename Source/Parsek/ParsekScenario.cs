@@ -8951,13 +8951,20 @@ namespace Parsek
             // recording end UT. Only patch immediately when no pending-tree recording
             // still owns this vessel; otherwise the commit-time path should emit the
             // recovery action exactly once.
+            // Inside stock's recovery dispatch for this very vessel (KSC-DEBRIS-CLEANUP-REFUND-
+            // UNLEDGERED), stock's VesselRecovery listener runs after this one and pays in the
+            // same call, so a debris recovery with no payout context yet is deferred, not skipped.
+            uint dispatchPid = RecoveryDispatchScope.IsOpen
+                && RecoveryDispatchScope.CurrentPersistentId == pv.persistentId
+                ? pv.persistentId : 0u;
             if (ShouldPatchRecoveryFundsOutsideFlight(HighLogic.LoadedScene, identity, pv.persistentId))
                 LedgerOrchestrator.OnVesselRecoveryFunds(
                     now,
                     identity,
                     quick,
                     pv.vesselType,
-                    payoutContext);
+                    payoutContext,
+                    dispatchPid);
 
             // KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL: the committed flight this
             // vessel continues may hold its crew open-ended (a Tracking Station recovery of an
