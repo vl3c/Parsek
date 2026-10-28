@@ -17486,7 +17486,7 @@ class PartActionSourceSyncTests(unittest.TestCase):
         consts = ("UndockToken", "DecoupleToken", "ControlFromToken", "DeployToken",
                   "RetractToken", "StartConverterToken", "StopConverterToken", "ExperimentToken",
                   "LabProcessToken", "LabTransmitToken", "InspectToken", "RadiatorOnToken",
-                  "RadiatorOffToken", "ActivateToken")
+                  "RadiatorOffToken", "ActivateToken", "ExplodeToken")
         self.assertEqual(len(consts), len(hlib.PARTACTION_BUTTON_VALUES))
         for token, const in zip(hlib.PARTACTION_BUTTON_VALUES, consts):
             self.assertIn('internal const string %s = "%s";' % (const, token), text)
@@ -17506,10 +17506,11 @@ class PartActionSourceSyncTests(unittest.TestCase):
         self.assertEqual(("true",), hlib.PARTACTION_ALL_VALUES)
         self.assertIn('internal const string AllTrueToken = "true";', text)
         self.assertIn("=> kind != PartActionKind.Unknown && kind != PartActionKind.Undock\n"
-                      "                && kind != PartActionKind.Decouple && kind != PartActionKind.ControlFrom;",
+                      "                && kind != PartActionKind.Decouple && kind != PartActionKind.ControlFrom\n"
+                      "                && kind != PartActionKind.Explode;",
                       text)
         self.assertEqual(tuple(b for b in hlib.PARTACTION_BUTTON_VALUES
-                               if b not in ("undock", "decouple", "controlfrom")),
+                               if b not in ("undock", "decouple", "controlfrom", "explode")),
                          hlib.PARTACTION_BUTTONS_ACCEPTING_ALL)
         self.assertEqual(list(hlib.PARTACTION_REASONS),
                          StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))

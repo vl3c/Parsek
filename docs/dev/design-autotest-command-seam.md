@@ -603,6 +603,14 @@ the updates below record how each verb arrived.
 > reading `engine:ignited=0|1` joins `state=`; new refusal `partaction-engine-not-found`.
 > Contract below (`#### PartAction`).
 
+> Update (PartAction explode, 2026-10-28): no new verb. `PartAction` gains `button=explode`
+> (REQUIRES `part=`, no `all=true`: `partaction-all-arg-unexpected`): stock's `Part.explode()` on the
+> one part carrying the name (explosion FX, then `Die()`, so `onPartDie` and, for a crewed part,
+> `onCrewKilled` fire as on an impact). Not a part-menu button: it lets a lane end a part
+> deterministically when a physics impact may miss it (RW-7's pod). Candidates are the named
+> parts (as for `inspect`); an unknown part refuses `partaction-part-not-found` and no active vessel
+> `partaction-no-active-vessel`, both before anything is destroyed; `event=explode`, `state=` empty.
+
 > Update (CrewTransfer, 2026-10-17): one ADDITIVE verb, taking the table to **53 implemented / 4 reserved**,
 > for the crew-across-vessels coverage (crew moved between two pods of a docked pair):
 > `CrewTransfer kerbal= part=` runs stock's own crew transfer inside the active vessel. Full contract
@@ -4614,7 +4622,7 @@ after the split). The PAW buttons are `KSPEvent`s; the verb invokes the module's
 way a player clicks them, and read the part's module state back.
 
 **Grammar.** `cmd=PartAction button=<undock|decouple|controlfrom|deploy|retract|startconverter|
-stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|activate>
+stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|activate|explode>
 [part=<part name>]
 [converter=<ConverterName>] [all=true] [pid=<persistentId>] [expectSnapshot=true|false
 rec=<recordingId> tolerance=<abs>]`, issued in FLIGHT. `button=` REQUIRED, closed,

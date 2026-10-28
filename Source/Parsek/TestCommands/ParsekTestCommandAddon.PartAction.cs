@@ -114,9 +114,14 @@ namespace Parsek.TestCommands
                 if (partName != null && !string.Equals(runtimeName, partName, StringComparison.Ordinal))
                     continue;
                 namedParts++;
-                if (kind == PartActionKind.Inspect)
+                if (TestCommandPartAction.IsWholePartKind(kind))
                 {
-                    found.Add(new PartActionCandidate { Part = p, EventName = string.Empty });
+                    found.Add(new PartActionCandidate
+                    {
+                        Part = p,
+                        EventName = kind == PartActionKind.Explode
+                            ? TestCommandPartAction.ExplodeEventName : string.Empty,
+                    });
                     continue;
                 }
                 for (int m = 0; m < p.Modules.Count; m++)
@@ -249,6 +254,9 @@ namespace Parsek.TestCommands
                         labRoutes.Add(labRoute);
                         labValues.Add(labValue);
                     }
+                    else if (kind == PartActionKind.Explode)
+                        // Stock's crash path on the part itself: FX, then Die().
+                        c.Part.explode();
                     else if (c.Event != null)
                         // The part-menu button's own handler, as the PAW invokes it.
                         c.Event.Invoke();
@@ -278,7 +286,12 @@ namespace Parsek.TestCommands
             string activeName = active != null ? active.vesselName : null;
 
             string state;
-            if (all)
+            if (kind == PartActionKind.Explode)
+            {
+                // The part is destroyed; there is no module state to read.
+                state = string.Empty;
+            }
+            else if (all)
             {
                 // One entry per acted-on part; candidates are collected in vessel part order.
                 var perPart = new List<KeyValuePair<uint, IList<PartActionModuleReading>>>();

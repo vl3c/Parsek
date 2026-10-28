@@ -44,6 +44,11 @@ namespace Parsek.TestCommands
         /// localization key reading "Activate Engine"; <c>ModuleEnginesFX</c> inherits it). It
         /// ignites the engine without staging, as the player's PAW click does.</summary>
         EngineActivate,
+        /// <summary>Destroys the named part the way a crash does: stock's
+        /// <c>Part.explode()</c> (explosion FX, then <c>Die()</c>, which fires
+        /// <c>onPartDie</c> / <c>onCrewKilled</c> for its crew). Not a part-menu button; it lets a
+        /// lane end a part deterministically when a physics impact may miss it.</summary>
+        Explode,
     }
 
     /// <summary>One module reading of the target part for the <c>state=</c> answer field: plain
@@ -132,7 +137,7 @@ namespace Parsek.TestCommands
     ///
     /// <para><b>Grammar.</b> <c>cmd=PartAction button=undock|decouple|controlfrom|deploy|retract|
     /// startconverter|stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|
-    /// activate [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [all=true] [pid=&lt;persistentId&gt;]
+    /// activate|explode [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [all=true] [pid=&lt;persistentId&gt;]
     /// [expectSnapshot=true|false rec=&lt;recordingId&gt; tolerance=&lt;abs&gt;]</c>. The three snapshot
     /// args are for <c>inspect</c> only (<c>snapshot-arg-unexpected</c> elsewhere, and for
     /// <c>rec=</c> / <c>tolerance=</c> without <c>expectSnapshot=true</c>).
@@ -181,7 +186,11 @@ namespace Parsek.TestCommands
     /// live (stock hides it on an ignited engine, and on a non-restartable one already shut
     /// down); named parts carrying no engine module refuse <c>engine-not-found</c>. Only the
     /// engine module's event is pressed: a radiator on the same part also carries an
-    /// <c>Activate</c>.</para>
+    /// <c>Activate</c>. <b>explode</b> is no part-menu button: its candidate is the one part
+    /// carrying the name, and it calls stock's <c>Part.explode()</c> on it (the crash path:
+    /// FX, then <c>Die()</c>, so <c>onPartDie</c> and, for a crewed part, <c>onCrewKilled</c>
+    /// fire as on an impact); <c>all=true</c> is <c>all-arg-unexpected</c> and <c>state=</c> is
+    /// empty (the part is gone).</para>
     ///
     /// <para><b>Answer.</b> OK payload <c>button= pid= part= partId= event= newPid= newName=
     /// vesselsBefore= vesselsAfter= activePid= activeName= converter= state= count=</c>: <c>newPid</c> /
@@ -231,6 +240,10 @@ namespace Parsek.TestCommands
         internal const string RadiatorOnToken = "radiatoron";
         internal const string RadiatorOffToken = "radiatoroff";
         internal const string ActivateToken = "activate";
+        internal const string ExplodeToken = "explode";
+
+        /// <summary>The <c>event=</c> of every explode: stock's <c>Part.explode()</c>.</summary>
+        internal const string ExplodeEventName = "explode";
 
         /// <summary>The closed <c>button=</c> vocabulary. hlib.PARTACTION_BUTTON_VALUES mirrors it
         /// (PartActionSourceSyncTests).</summary>
@@ -239,6 +252,7 @@ namespace Parsek.TestCommands
             UndockToken, DecoupleToken, ControlFromToken, DeployToken, RetractToken,
             StartConverterToken, StopConverterToken, ExperimentToken, LabProcessToken,
             LabTransmitToken, InspectToken, RadiatorOnToken, RadiatorOffToken, ActivateToken,
+            ExplodeToken,
         };
 
         /// <summary>The <c>event=</c> of every labprocess: the results dialog page's own lab
@@ -359,6 +373,7 @@ namespace Parsek.TestCommands
                 case RadiatorOnToken: kind = PartActionKind.RadiatorOn; return null;
                 case RadiatorOffToken: kind = PartActionKind.RadiatorOff; return null;
                 case ActivateToken: kind = PartActionKind.EngineActivate; return null;
+                case ExplodeToken: kind = PartActionKind.Explode; return null;
                 default: return ButtonArgInvalidReason;
             }
         }
@@ -382,6 +397,7 @@ namespace Parsek.TestCommands
                 case PartActionKind.RadiatorOn: return RadiatorOnToken;
                 case PartActionKind.RadiatorOff: return RadiatorOffToken;
                 case PartActionKind.EngineActivate: return ActivateToken;
+                case PartActionKind.Explode: return ExplodeToken;
                 default: return "unknown";
             }
         }
@@ -437,11 +453,18 @@ namespace Parsek.TestCommands
             return null;
         }
 
-        /// <summary>True for the buttons <c>all=true</c> applies to: every button but the three
-        /// whose single press reshapes or re-points the vessel (undock, decouple, controlfrom).</summary>
+        /// <summary>True for the buttons <c>all=true</c> applies to: every button but the four
+        /// whose single press reshapes or re-points the vessel (undock, decouple, controlfrom,
+        /// explode).</summary>
         internal static bool AcceptsAll(PartActionKind kind)
             => kind != PartActionKind.Unknown && kind != PartActionKind.Undock
-                && kind != PartActionKind.Decouple && kind != PartActionKind.ControlFrom;
+                && kind != PartActionKind.Decouple && kind != PartActionKind.ControlFrom
+                && kind != PartActionKind.Explode;
+
+        /// <summary>True for the buttons whose candidates are the named parts themselves rather
+        /// than a live module event on them: inspect (reads) and explode (destroys the part).</summary>
+        internal static bool IsWholePartKind(PartActionKind kind)
+            => kind == PartActionKind.Inspect || kind == PartActionKind.Explode;
 
         /// <summary>Parses the OPTIONAL closed <c>all=</c>: absent or empty is false; <c>true</c>
         /// (case-sensitive) is true on a button that accepts it; any other value is
@@ -503,7 +526,8 @@ namespace Parsek.TestCommands
                 // ModuleEngines: [KSPEvent(guiActive = true, guiName = "#autoLOC_6001382")]
                 // public virtual void Activate(), "Activate Engine" (KSP 1.12.5 decompiled).
                 case PartActionKind.EngineActivate: return new[] { "Activate" };
-                // labprocess presses the results dialog page's callback; inspect presses nothing.
+                // labprocess presses the results dialog page's callback; inspect presses nothing;
+                // explode calls Part.explode() on the part itself (no KSPEvent).
                 default: return new string[0];
             }
         }

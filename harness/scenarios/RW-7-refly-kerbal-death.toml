@@ -338,7 +338,12 @@ steps = [
   { cmd = "MissionMark",    args = { label = "rw7-refly1-started" },                       expect = "OK" },
   # "Activate Engine": the SRB burns without staging, the chute (stage 0) stays stowed.
   { cmd = "PartAction",     args = { button = "activate", part = "solidBooster.sm.v2" },   expect = "OK" },
-  # 1x through the ~109 s hop and the impact (CL-2's measured profile).
+  # 1x into the descent of the ~110 s hop (impact measured at ~185897), then the pod destroyed
+  # the crash's own way (`PartAction button=explode`: stock Part.explode, FX then Die, which
+  # fires onCrewKilled) ~27 s before the ground: a physics impact missed the pod 3 times in 7
+  # (`2026-10-28_1627` landed it intact). Then 1x on until the debris is down.
+  { cmd = "WarpToUT",       args = { ut = "185870", maxRate = "1" },                       expect = "OK", budget = 240 },
+  { cmd = "PartAction",     args = { button = "explode", part = "mk1pod.v2" },             expect = "OK" },
   { cmd = "WarpToUT",       args = { ut = "185930", maxRate = "1" },                       expect = "OK", budget = 240 },
   { cmd = "RecordingState",                                                                expect = "OK" },
   # FAIL FAST on a survived crash: the impact is physics (the stowed chute or the SRB can touch
@@ -380,6 +385,8 @@ steps = [
   { cmd = "PartAction",     args = { button = "inspect", part = "solidBooster.sm.v2" },    expect = "OK" },
   { cmd = "MissionMark",    args = { label = "rw7-refly2-started" },                       expect = "OK" },
   { cmd = "PartAction",     args = { button = "activate", part = "solidBooster.sm.v2" },   expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185870", maxRate = "1" },                       expect = "OK", budget = 240 },
+  { cmd = "PartAction",     args = { button = "explode", part = "mk1pod.v2" },             expect = "OK" },
   { cmd = "WarpToUT",       args = { ut = "185930", maxRate = "1" },                       expect = "OK", budget = 240 },
   { cmd = "RecordingState",                                                                expect = "OK" },
   # FAIL FAST on a survived crash: the impact is physics (the stowed chute or the SRB can touch
@@ -503,6 +510,8 @@ required = [
   "MISSIONMARK label=rw7-refly1-armed ut=[\\s\\S]*?partaction applied button=inspect pid=[0-9]+ part='solidBooster\\.sm\\.v2' [^\\r\\n]*state='engine:ignited=0'[\\s\\S]*?MISSIONMARK label=rw7-refly1-started ut=",
   "MISSIONMARK label=rw7-refly1-started ut=[\\s\\S]*?partaction applied button=activate pid=([0-9]+) part='solidBooster\\.sm\\.v2' partId=[0-9]+ event=Activate newPid=0 newName='' vessels=[0-9]+->[0-9]+ activePid=\\1 activeName='CS Flea Probe' converter='' state='engine:ignited=1' count=1 packed=[01] warpIndex=0 [\\s\\S]*?MISSIONMARK label=rw7-refly1-crashed ut=",
   "MISSIONMARK label=rw7-refly1-started ut=(?:(?!MISSIONMARK label=rw7-refly1-crashed )[\\s\\S])*?\\[Flight\\] Active vessel destroyed in tree mode",
+  # The pod destroyed in the descent by the explode button (stock Part.explode).
+  "MISSIONMARK label=rw7-refly1-started ut=(?:(?!MISSIONMARK label=rw7-refly1-crashed )[\\s\\S])*?partaction applied button=explode pid=[0-9]+ part='mk1pod\\.v2' partId=[0-9]+ event=explode ",
   "MISSIONMARK label=rw7-refly1-started ut=(?:(?!MISSIONMARK label=rw7-discarded1 )[\\s\\S])*?PopulateCrewEndStates: recording='CS Flea Probe' \\(id=rec_[0-9a-f]{32}\\) crew=1 aboard=0 dead=1 recovered=0 unknown=0",
   "MISSIONMARK label=rw7-refly1-started ut=(?:(?!MISSIONMARK label=rw7-discarded1 )[\\s\\S])*?Crew death respawn policy stamped: recording='rec_[0-9a-f]{32}' \\(CS Flea Probe\\) deadCrew=1 respawn=True timer=7200",
 
@@ -550,6 +559,8 @@ required = [
   "MISSIONMARK label=rw7-refly2-armed ut=[\\s\\S]*?partaction applied button=inspect pid=[0-9]+ part='solidBooster\\.sm\\.v2' [^\\r\\n]*state='engine:ignited=0'[\\s\\S]*?MISSIONMARK label=rw7-refly2-started ut=",
   "MISSIONMARK label=rw7-refly2-started ut=[\\s\\S]*?partaction applied button=activate pid=([0-9]+) part='solidBooster\\.sm\\.v2' partId=[0-9]+ event=Activate newPid=0 newName='' vessels=[0-9]+->[0-9]+ activePid=\\1 activeName='CS Flea Probe' converter='' state='engine:ignited=1' count=1 packed=[01] warpIndex=0 [\\s\\S]*?MISSIONMARK label=rw7-refly2-crashed ut=",
   "MISSIONMARK label=rw7-refly2-started ut=(?:(?!MISSIONMARK label=rw7-refly2-crashed )[\\s\\S])*?\\[Flight\\] Active vessel destroyed in tree mode",
+  # The pod destroyed in the descent by the explode button (stock Part.explode).
+  "MISSIONMARK label=rw7-refly2-started ut=(?:(?!MISSIONMARK label=rw7-refly2-crashed )[\\s\\S])*?partaction applied button=explode pid=[0-9]+ part='mk1pod\\.v2' partId=[0-9]+ event=explode ",
   "MISSIONMARK label=rw7-refly2-started ut=(?:(?!MISSIONMARK label=rw7-merged )[\\s\\S])*?Crew death respawn policy stamped: recording='rec_[0-9a-f]{32}' \\(CS Flea Probe\\) deadCrew=1 respawn=True timer=7200",
 
   # ---- THE MERGE: dominance (variant B), split, supersede, the re-fly's rep penalty tombstoned ----

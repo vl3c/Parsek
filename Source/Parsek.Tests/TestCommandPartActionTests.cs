@@ -76,6 +76,7 @@ namespace Parsek.Tests
         [InlineData("radiatoron", "RadiatorOn")]
         [InlineData("radiatoroff", "RadiatorOff")]
         [InlineData("activate", "EngineActivate")]
+        [InlineData("explode", "Explode")]
         public void ParseButton_AcceptsTheClosedVocabulary(string raw, string expected)
         {
             Assert.Null(TestCommandPartAction.ParseButton(raw, out PartActionKind kind));
@@ -109,7 +110,7 @@ namespace Parsek.Tests
         {
             Assert.Equal(new[] { "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
                 "stopconverter", "experiment", "labprocess", "labtransmit", "inspect", "radiatoron",
-                "radiatoroff", "activate" },
+                "radiatoroff", "activate", "explode" },
                 TestCommandPartAction.ButtonValues);
             foreach (string v in TestCommandPartAction.ButtonValues)
                 Assert.Null(TestCommandPartAction.ParseButton(v, out _));
@@ -199,6 +200,7 @@ namespace Parsek.Tests
         [InlineData("undock", "true", "partaction-all-arg-unexpected", false)]
         [InlineData("decouple", "true", "partaction-all-arg-unexpected", false)]
         [InlineData("controlfrom", "true", "partaction-all-arg-unexpected", false)]
+        [InlineData("explode", "true", "partaction-all-arg-unexpected", false)]
         [InlineData("undock", null, null, false)]
         [InlineData("deploy", "True", "partaction-all-arg-invalid", false)]
         [InlineData("deploy", "false", "partaction-all-arg-invalid", false)]
@@ -213,12 +215,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void AcceptsAll_EveryButtonButUndockDecoupleControlFrom()
+        public void AcceptsAll_EveryButtonButUndockDecoupleControlFromExplode()
         {
             foreach (string token in TestCommandPartAction.ButtonValues)
             {
                 Assert.Null(TestCommandPartAction.ParseButton(token, out PartActionKind kind));
-                Assert.Equal(token != "undock" && token != "decouple" && token != "controlfrom",
+                Assert.Equal(token != "undock" && token != "decouple" && token != "controlfrom"
+                    && token != "explode",
                     TestCommandPartAction.AcceptsAll(kind));
             }
             Assert.False(TestCommandPartAction.AcceptsAll(PartActionKind.Unknown));
@@ -327,6 +330,34 @@ namespace Parsek.Tests
             Assert.True(cmd.ParseOk);
             Assert.Equal("activate", cmd.Args["button"]);
             Assert.Equal("solidBooster.sm.v2", cmd.Args["part"]);
+        }
+
+        [Fact]
+        public void Explode_NeedsOnePart_PressesNoEvent_AndRefusesUnknownPartAndNoVessel()
+        {
+            Assert.Null(TestCommandPartAction.ParseButton("explode", out PartActionKind kind));
+            Assert.Equal(PartActionKind.Explode, kind);
+            Assert.True(TestCommandPartAction.RequiresPart(kind));
+            Assert.Equal("partaction-part-arg-missing", TestCommandPartAction.ParsePart(null, kind, out _));
+            Assert.False(TestCommandPartAction.AcceptsAll(kind));
+            Assert.True(TestCommandPartAction.IsWholePartKind(kind));
+            Assert.True(TestCommandPartAction.IsWholePartKind(PartActionKind.Inspect));
+            Assert.False(TestCommandPartAction.IsWholePartKind(PartActionKind.Decouple));
+            Assert.False(TestCommandPartAction.IsTypedModuleKind(kind));
+            Assert.Empty(TestCommandPartAction.EventNamesFor(kind));
+            Assert.Equal("explode", TestCommandPartAction.ExplodeEventName);
+            // An unknown part and no active vessel refuse before anything is destroyed.
+            Assert.Equal("partaction-part-not-found", TestCommandPartAction.DecideCandidates(
+                kind, "mk1pod.v2", 0, null, 0, 0, -1, 0, false));
+            Assert.Equal("partaction-no-active-vessel",
+                TestCommandPartAction.DecideVessel(false, false, false, false));
+            Assert.Equal("partaction-part-ambiguous", TestCommandPartAction.DecideCandidates(
+                kind, "mk1pod.v2", 2, null, 0, 0, -1, 2, false));
+            Assert.Null(TestCommandPartAction.DecideCandidates(
+                kind, "mk1pod.v2", 1, null, 0, 0, -1, 1, false));
+            ParsedCommand cmd = Cmd("button=explode part=mk1pod.v2");
+            Assert.True(cmd.ParseOk);
+            Assert.Equal("explode", cmd.Args["button"]);
         }
 
         [Fact]
