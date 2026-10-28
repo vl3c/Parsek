@@ -401,7 +401,7 @@ rewind, re-buy, warp past the first purchase's UT, then LedgerGroundTruth and no
 
 ---
 
-## ~~FREE-TECH-NODE-LOST-AFTER-REWIND: a tech node stock unlocks for free has no ledger row, so the first tech patch after a rewind re-locks it for good~~ [FILED AND FIXED 2026-10-28 from code reading, branch `fix-free-tech-row`; unit-tested only, NOT FLOWN, lane owed; product, high (a node and its parts lost for good, a reduction of the career total)]
+## ~~FREE-TECH-NODE-LOST-AFTER-REWIND: a tech node stock unlocks for free has no ledger row, so the first tech patch after a rewind re-locks it for good~~ [FILED AND FIXED 2026-10-28 from code reading, branch `fix-free-tech-row`; LIVE-PROVEN 2026-10-28 by lane RW-8 (`2026-10-28_1505`); product, high (a node and its parts lost for good, a reduction of the career total)]
 
 Stock `ResearchAndDevelopment.UnlockProtoTechNode(ProtoTechNode)` unlocks a node for free and
 fires no `GameEvents.OnTechnologyResearched` (KSP 1.12.5, decompiled). Its two callers are
@@ -457,6 +457,16 @@ the post-rewind patch).
 
 ---
 
+**Lane (2026-10-28, branch `rw8-free-tech`).** `RW-8-free-tech-gift-rewind` on `cs-career-mun4` gifts
+Aviation at the Space Center through the new seam sub-action `KscAction gift-tech` (stock's
+`UnlockProtoTechNode` + `RefreshTechTreeUI`, the anomaly gift's calls on a named node), rewinds to
+before the gift, and reads the node locked, unlocked again past the gift at no science, and kept
+across a cold reload. LIVE-PROVEN on `2026-10-28_1505` (PASS attempt 1; evidence
+`logs/flights/rewind-campaign/rw-08-free-tech-gift-rewind-run3/`): the rewind's walk re-locked the
+node (`PatchTechTree: ... madeUnavailableIds=[aviation]`), the first frame past the gift
+re-unlocked it (`PatchCommittedTechUnlocks: ... liveUT=185900.14 ... [aviation]`), no
+`ScienceChanged` line in the run, and `ledger_audit.py` PASS.
+
 ## ~~REVERT-AFTER-REWIND-WALKS-PAST-THE-CLOCK: a stock revert inside a rewound timeline patches the committed future's gains into the pools~~ [FILED AND FIXED 2026-10-28 from RW-2's first flight (`2026-10-28_0837`, PARSEK-FAIL attempt 1), branch `claude/project-thread-25edvc`; LIVE-PROVEN 2026-10-28 by RW-2 `2026-10-28_0902` PASS (funds held at 151682.18 through the revert, the +40432 applied at the crossing); product, high (future money spendable now)]
 
 After a Rewind-to-Launch, the stand-in's relaunch and a stock Revert-to-Launch loaded at
@@ -480,8 +490,15 @@ before. This also covers a revert to the editor, which the design doc listed as 
 walking without a cutoff. Cells: `RewindUtCutoffTests.InSessionRevertLoad_WithCommittedFutureRows_UsesCurrentUtCutoff`,
 `RevertBudgetWalk_*`, and the source gate `CareerSeedReadinessTests.BudgetDeduction_WalksThroughTheRevertCutoffHelper`
 (mutation-checked: a plain `RecalculateAndPatch()` in the coroutine reds it). Lane: RW-2-crewed-relaunch-revert forbids the positive `PatchFunds` between
-the EVA and the revert. Audit follow-up: `ledger_audit.py` should flag a patched walk with
-`cutoffUT=null` while committed rows lie ahead of a time-travel load's clock.
+the EVA and the revert. ~~Audit follow-up: `ledger_audit.py` should flag a patched walk with
+`cutoffUT=null` while committed rows lie ahead of a time-travel load's clock.~~ Done 2026-10-28
+(branch `ledger-audit-upgrades`): check `walk-past-clock` FAILs a `useCurrentUtCutoff=False ...
+hasFutureLedgerActions=True` (or `hasFutureActions=True`) walk at a ready clock that lifts a pool,
+and reports the full replays whose decision line cannot say. The revert follow-up walk
+(`ApplyBudgetDeduction`) prints no decision of its own and often runs before the load's
+in-session decision line, so it takes that line's rows-ahead reading inside one `Load classified`
+window; checked against the archive (the pre-fix RW-2 `2026-10-28_0837`, L13 `2026-10-25_0144` and
+LAB-10 `2026-10-17_2337` read REPORT before this binding).
 
 ---
 
