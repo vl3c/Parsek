@@ -44,8 +44,16 @@ id = "RW-10-lead-window-ksc-actions"
 #   Clock-crossing reached committed-future rows:   GameActions/LedgerOrchestrator.cs:2779
 #   PatchDestructionState: demolished '...'         GameActions/FacilityStatePatcher.cs:520
 #
-# STATUS: AUTHORED 2026-10-28 (branch `rw10-lead-window`), NEVER FLOWN. The recording count, the
-# batch split and the funds after the crossing are interim until measured.
+# STATUS: LIVE-PROVEN 2026-10-28, `2026-10-28_1750` PASS attempt 1 (DLL 28b5b9b4, main 54b50b3ff + e15825319). The strategy and the
+# demolition at UT 185789.9, V launched at ~185800.3 and recovered; the repair at 185899.9. The
+# rewind wound the clock to 185785.3 with the held-through UT at the save's 185800.3; the second
+# repair was refused (`... already repaired by a committed future row ... nowUT=185800`), the
+# accept captured at 185785.6 was dated at 185800.3, the floor expired at clock 185840.6, and the
+# crossings named only V's recovery rows and FundsEarning / ReputationPenalty / FacilityRepair at
+# 185899.9 (no StrategyActivate or FacilityDestruction, no annex demolish). LedgerGroundTruth
+# hardFailures=0 with no Facility facet once the comparator skips building ids (todo
+# GROUND-TRUTH-FACILITY-PHANTOM-ON-REPAIRED-BUILDING; run `2026-10-28_1744`, main's DLL 4f0ee0e9,
+# was PARSEK-FAIL on that forbidden facet alone, every required pin met). ledger_audit PASS.
 # =====================================================================================
 tier = "operator"
 description = "Rewind ledger campaign, Space Center actions in the 15 s Rewind-to-Launch lead window (#2324): on cs-career-mun4 Aggressive Negotiations is activated and the R&D annex demolished inside the 15 s before a committed pad Flea's launch, the annex is repaired at a discount later; after a Rewind-to-Launch the destruction reads as already held, so a second repair is refused, a contract accepted inside the window is dated at the held-through UT and paid once, and the warp past the rewind save's UT crosses no window row again and charges the committed repair once; LedgerGroundTruth closes the career."
@@ -134,8 +142,8 @@ D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The host's 34 recordings plus V; the check launch is unrecorded. INTERIM window.
-count = { min = 35, max = 36 }
+# The host's 34 recordings plus V; the check launch is unrecorded. Measured on `2026-10-28_1750`.
+count = 35
 
 [expectations.logContracts]
 required = [
@@ -168,7 +176,7 @@ required = [
   "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\S+ science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw10-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\S+ science=\\1 rep=\\2 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw10-crossed ut=",
 
   # ---- the ground truth ----
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
   "result: hardFailures=0 ",
 ]
 forbidden = [
