@@ -13,9 +13,8 @@ namespace Parsek
     /// The stock-screen click-blocks and overlays do NOT read the unreplayed slice:
     /// nothing advances LastReplayedEventIndex as the clock passes an event, so a
     /// slice-keyed block never lifted (F1). They read the UT-keyed
-    /// CommittedFutureIndex over the effective ledger instead; the one exception is
-    /// the committed-dismissal mark, which has no ledger row and reads committed
-    /// CrewRemoved events here through CommittedFutureIndexCache's narrow fallback.
+    /// CommittedFutureIndex over the effective ledger instead, the committed-dismissal
+    /// mark included (a KerbalDismissal ledger row, design section 9.12.1).
     /// </summary>
     internal static class MilestoneStore
     {

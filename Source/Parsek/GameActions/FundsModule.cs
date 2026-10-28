@@ -358,6 +358,12 @@ namespace Parsek
                 case GameActionType.KerbalHire:
                     ProcessKerbalHire(action);
                     break;
+                case GameActionType.KerbalDismissal:
+                    // Moves no funds; ends the hire's holding so a re-hire charges (design 9.12.1).
+                    if (purchaseOwnership.RecordRelease(action))
+                        ParsekLog.Verbose(Tag,
+                            $"KerbalDismissal: '{action.KerbalName}' hire holding ended at ut={action.UT.ToString("R", IC)}");
+                    break;
                 case GameActionType.StrategyActivate:
                     ProcessStrategySetupCost(action);
                     break;

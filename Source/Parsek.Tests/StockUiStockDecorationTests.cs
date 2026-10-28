@@ -379,7 +379,6 @@ namespace Parsek.Tests
         [Theory]
         [InlineData("KerbalLost", "Lost", "Kia")]
         [InlineData("KerbalRetiredStandIn", "Retired", "Available")]
-        [InlineData("KerbalRetire", "Dismissed on D7", "Available")]
         public void Decide_InformationalKinds_ChangeTheLabelOnly(string kindName, string title, string tab)
         {
             var kind = (StockUiDecorationKind)Enum.Parse(typeof(StockUiDecorationKind), kindName);
@@ -417,7 +416,24 @@ namespace Parsek.Tests
         {
             Assert.True(StockUiAstronautDecoration.AppendsTooltip(StockUiDecorationKind.KerbalHire));
             Assert.True(StockUiAstronautDecoration.AppendsTooltip(StockUiDecorationKind.KerbalOnFlight));
+            Assert.True(StockUiAstronautDecoration.AppendsTooltip(StockUiDecorationKind.KerbalDismissal));
             Assert.False(StockUiAstronautDecoration.AppendsTooltip(StockUiDecorationKind.None));
+        }
+
+        [Fact]
+        public void Decide_FutureDismissal_LocksTheDismissButtonWithTheDatedText()
+        {
+            // Design 9.12.1: a kerbal the timeline fires later keeps his row status and his
+            // Dismiss button is locked with the same text (the mark and the block pair).
+            var d = Deco(StockUiDecorationKind.KerbalDismissal, "Dismissed on D7", "Dismissed on D7, blocked", blocked: true);
+            var r = StockUiAstronautDecoration.Decide(d, "Available", "Available", rowActionable: true,
+                dismissalRefusal: "Dismissed on D7, blocked");
+
+            Assert.Equal("Dismissed on D7", r.Label);
+            Assert.True(r.DisableButton);
+            Assert.Equal("dismiss", r.BlockKind);
+            Assert.Equal("Dismissed later", r.DisabledTitle);
+            Assert.Equal("Dismissed on D7, blocked", r.DisabledCaption);
         }
 
         [Fact]

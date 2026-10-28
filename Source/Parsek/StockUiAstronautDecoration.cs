@@ -48,8 +48,9 @@ namespace Parsek
     /// the button in stock's locked-with-reason state and appends the explanation to the
     /// stock crew tooltip: hire for an applicant a committed future hires (the
     /// <c>KerbalHirePatch</c> predicate), dismiss for a kerbal Parsek manages (the
-    /// <c>KerbalDismissalPatch</c> predicate). Informational kinds (lost, retired
-    /// stand-in, future dismissal) change the label only; an active stand-in's label
+    /// <c>KerbalDismissalPatch</c> predicate, which also holds a kerbal the timeline
+    /// dismisses later, design 9.12.1). Informational kinds (lost, retired
+    /// stand-in) change the label only; an active stand-in's label
     /// (<c>Stand-in for &lt;owner&gt;</c>) sits on a row whose dismiss button the same
     /// dismissal predicate locks. The Harmony postfixes are
     /// scene-independent, so the complex opened from the VAB/SPH crew dialog is decorated
@@ -198,10 +199,12 @@ namespace Parsek
         }
 
         /// <summary>Whether the crew tooltip carries the explanation: only the kinds whose row
-        /// has a clickable block (a future hire, a kerbal a committed flight holds).</summary>
+        /// has a clickable block (a future hire, a kerbal a committed flight holds, a kerbal
+        /// the timeline dismisses later).</summary>
         internal static bool AppendsTooltip(StockUiDecorationKind kind)
         {
-            return kind == StockUiDecorationKind.KerbalHire || kind == StockUiDecorationKind.KerbalOnFlight;
+            return kind == StockUiDecorationKind.KerbalHire || kind == StockUiDecorationKind.KerbalOnFlight
+                || kind == StockUiDecorationKind.KerbalDismissal;
         }
 
         /// <summary>

@@ -710,6 +710,10 @@ namespace Parsek
             // four starter kerbals at new-career creation, triggering spurious
             // KerbalHire debits that wiped starting funds.
             GameEvents.OnCrewmemberHired.Add(OnCrewmemberHired);
+            // A dismissal (KerbalRoster.SackAvailable, the Astronaut Complex's dismiss
+            // button) fires OnCrewmemberSacked and makes the kerbal an applicant; it never
+            // reaches onKerbalRemoved (decompiled KSP 1.12.5, design section 9.12.1).
+            GameEvents.OnCrewmemberSacked.Add(OnCrewmemberSacked);
             GameEvents.onKerbalRemoved.Add(OnKerbalRemoved);
             GameEvents.onKerbalStatusChange.Add(OnKerbalStatusChange);
             GameEvents.onKerbalTypeChange.Add(OnKerbalTypeChange);
@@ -787,6 +791,7 @@ namespace Parsek
 
             // Crew
             GameEvents.OnCrewmemberHired.Remove(OnCrewmemberHired);
+            GameEvents.OnCrewmemberSacked.Remove(OnCrewmemberSacked);
             GameEvents.onKerbalRemoved.Remove(OnKerbalRemoved);
             GameEvents.onKerbalStatusChange.Remove(OnKerbalStatusChange);
             GameEvents.onKerbalTypeChange.Remove(OnKerbalTypeChange);

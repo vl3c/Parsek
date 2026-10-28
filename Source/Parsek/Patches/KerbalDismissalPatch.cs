@@ -63,8 +63,14 @@ namespace Parsek.Patches
             string refusal = DescribeDismissalRefusal(kerbals, kerbalName);
             if (refusal == null) return true;
 
-            ParsekLog.Info("KerbalDismissal",
-                $"Blocked dismissal of '{kerbalName}' via {path} - managed by Parsek or named by a committed flight");
+            double pendingUT = PendingDismissalUT(kerbalName);
+            if (!double.IsNaN(pendingUT))
+                ParsekLog.Info("KerbalDismissal",
+                    $"Blocked dismissal of '{kerbalName}' via {path} - already dismissed by timeline at " +
+                    $"UT={pendingUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
+            else
+                ParsekLog.Info("KerbalDismissal",
+                    $"Blocked dismissal of '{kerbalName}' via {path} - managed by Parsek or named by a committed flight");
             // The same Action Blocked dialog its four sibling blocks (hire, contract
             // accept, facility upgrade, tech research) raise, so a refused dismissal
             // stops being the one silent refusal. A kerbal a committed flight holds
@@ -83,13 +89,47 @@ namespace Parsek.Patches
         /// </summary>
         internal static string DescribeDismissalRefusal(KerbalsModule kerbals, string kerbalName)
         {
-            if (kerbals == null || string.IsNullOrEmpty(kerbalName)) return null;
+            if (string.IsNullOrEmpty(kerbalName)) return null;
+            // A firing already on the timeline answers first (design 9.12.1): he is fired
+            // then, once, and a second firing before then would book a second row.
+            var index = CommittedFutureIndexCache.Current;
+            if (index != null && index.AllEntries(CommittedFutureKind.KerbalDismissal, kerbalName).Count > 0)
+            {
+                string pending = DescribePendingDismissal(index, kerbalName,
+                    CommittedFutureIndexCache.CurrentUT(), ReservationExplanation.DefaultDateFormatter);
+                if (pending != null) return pending;
+            }
+            if (kerbals == null) return null;
             if (!kerbals.ShouldBlockDismissal(kerbalName)) return null;
             return DescribeHeldKerbal(kerbals, kerbalName)
                 ?? DescribeDismissalBlock(kerbals.GetReservationKind(kerbalName),
                     kerbals.IsNamedByCommittedFlight(kerbalName),
                     GatherDismissalFacts(kerbals, CommittedFutureIndexCache.Current, kerbalName),
                     ReservationExplanation.DefaultDateFormatter);
+        }
+
+        /// <summary>
+        /// Pure: the refusal text for a kerbal the committed timeline dismisses after
+        /// <paramref name="currentUT"/> (<c>Dismissed on DATE, ...</c>, the Astronaut
+        /// Complex row's own text), or null when no dismissal of him is ahead.
+        /// </summary>
+        internal static string DescribePendingDismissal(
+            CommittedFutureIndex index, string kerbalName, double currentUT, System.Func<double, string> formatDate)
+        {
+            if (!StockUiReservationPredicates.IsKerbalDismissalPending(index, kerbalName, currentUT)) return null;
+            return StockUiReservationPredicates.ExplainKerbalDismissal(index, kerbalName, currentUT, formatDate).Body;
+        }
+
+        /// <summary>The UT of the kerbal's next committed dismissal against the live index
+        /// and clock, or NaN when none is ahead.</summary>
+        private static double PendingDismissalUT(string kerbalName)
+        {
+            var index = CommittedFutureIndexCache.Current;
+            if (index == null || index.AllEntries(CommittedFutureKind.KerbalDismissal, kerbalName).Count == 0)
+                return double.NaN;
+            var entry = index.FirstFuture(CommittedFutureKind.KerbalDismissal, kerbalName,
+                CommittedFutureIndexCache.CurrentUT());
+            return entry != null ? entry.UT : double.NaN;
         }
 
         /// <summary>

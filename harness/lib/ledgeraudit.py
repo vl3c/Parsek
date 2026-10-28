@@ -318,7 +318,7 @@ GAME_ACTION_TYPES: Dict[int, str] = {
     31: "KerbalExperience", 32: "StrategyScienceDebit", 33: "StrategyScienceCredit",
     34: "KerbalRecovered", 35: "VesselRecovered", 36: "RouteHeld",
     37: "ResourceScanUnlocked", 38: "ScienceLabEarning", 39: "StockPoolAdjustment",
-    40: "ContractParameterComplete",
+    40: "ContractParameterComplete", 41: "KerbalDismissal",
 }
 SEED_ACTION_TYPES = frozenset((20, 21, 22))
 
