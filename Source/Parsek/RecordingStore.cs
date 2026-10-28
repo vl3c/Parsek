@@ -5772,6 +5772,12 @@ namespace Parsek
                         rewindSaveOwnUT, game.flightState.universalTime),
                     messageLabel);
 
+                // The ledger held-through UT the rewind save carries (a save written inside an
+                // earlier Rewind-to-Launch lead window): its world is as of that UT, so the new
+                // floor HandleRewindOnLoad sets rises to it (LedgerHeldWindow.ResolveAtRewind).
+                RewindContext.SetRewindSaveLedgerHeldThroughUT(
+                    LedgerHeldWindow.ReadSavedFromScenarios(game.scenarios));
+
                 // The Space Center start reloads persistent.sfs, not CurrentGame: put the rewind
                 // game there so the rewind lands in the rewind save's own world.
                 WriteRewindGameAsPersistent(game, messageLabel);

@@ -2458,6 +2458,7 @@ namespace Parsek
             // Station FF) moves the clock past committed-future rows the same way the clock
             // cursor does, so the reached rows get the same treatment; a backward jump
             // reaches none of them.
+            ExpireHeldThroughFloorAtTrustedClock(utCutoff, "time-jump");
             RunAsClockAdvance(() => RecalculateAndPatchForCurrentTimelineUT(utCutoff, "time-jump"));
         }
 
@@ -2633,7 +2634,22 @@ namespace Parsek
         /// </summary>
         internal static void RecalculateAndPatchForClockAdvance(double currentUT, string reason)
         {
+            ExpireHeldThroughFloorAtTrustedClock(currentUT, reason ?? "clock-advance");
             RunAsClockAdvance(() => RecalculateAndPatchForLiveTimelineEvent(currentUT, reason));
+        }
+
+        /// <summary>
+        /// Drops the ledger held-through UT once the clock that moves forward has reached it
+        /// (<see cref="LedgerHeldWindow.ExpireIfClockPassed"/>). Not inside OnLoad or while a
+        /// rewind's UT adjustment is pending: the Planetarium reads a stale clock there.
+        /// </summary>
+        private static void ExpireHeldThroughFloorAtTrustedClock(double clockUT, string site)
+        {
+            if (!LedgerHeldWindow.IsSet)
+                return;
+            if (ParsekScenario.IsOnLoadInProgress || RecordingStore.RewindUTAdjustmentPending)
+                return;
+            LedgerHeldWindow.ExpireIfClockPassed(clockUT, site);
         }
 
         private static void RunAsClockAdvance(Action recalc)
@@ -4104,6 +4120,15 @@ namespace Parsek
         {
             Initialize();
 
+            // The rewind lead window (todo REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE):
+            // rows the loaded world already holds count as reached until the clock passes the
+            // held-through UT, so a cutoff behind it rises to it. Every walk below (the pools,
+            // the KSP state patches, the committed-future snapshot the clock crossings read)
+            // then agrees with the loaded world. A full walk (null) is unaffected.
+            utCutoff = ApplyHeldThroughFloorToCutoff(utCutoff, "walk");
+            techPatchCutoff = ApplyHeldThroughFloorToCutoff(techPatchCutoff, "tech");
+            deadlineClockUT = ApplyHeldThroughFloorToCutoff(deadlineClockUT, "deadline");
+
             // A strategy patch still waiting for stock's strategy list belongs to an older
             // walk; this walk re-requests one if (and only if) it patches KSP state.
             StrategyStatePatcher.CancelPendingPatch("new-recalc");
@@ -4254,6 +4279,25 @@ namespace Parsek
                 $"RecalculateAndPatch complete: {actions.Count} actions walked");
 
             OnTimelineDataChanged?.Invoke();
+        }
+
+        /// <summary>
+        /// <see cref="LedgerHeldWindow.ResolveLedgerCutoffUT"/> for one of the walk's clocks,
+        /// logging a raise. Recalculations are event-driven (a spend, a commit, a crossed row,
+        /// a load), never per frame, so one Verbose line per raise is bounded.
+        /// </summary>
+        private static double? ApplyHeldThroughFloorToCutoff(double? cutoffUT, string which)
+        {
+            double? floored = LedgerHeldWindow.ResolveLedgerCutoffUT(cutoffUT);
+            if (cutoffUT.HasValue && floored.HasValue && floored.Value != cutoffUT.Value)
+            {
+                ParsekLog.Verbose(Tag,
+                    "RecalculateAndPatch: " + which + " cutoff " +
+                    cutoffUT.Value.ToString("R", CultureInfo.InvariantCulture) + " raised to the ledger held-through UT " +
+                    floored.Value.ToString("R", CultureInfo.InvariantCulture) +
+                    " (rows up to it are in the loaded world)");
+            }
+            return floored;
         }
 
         private static List<GameAction> BuildRecalculationActions()
@@ -5098,6 +5142,20 @@ namespace Parsek
             // this falls back to the original scene-driven behavior.
             bool currentUtReady = IsCurrentUtReadyForCutoff(maxUT);
             bool preserveFutureRows = useCurrentUtCutoffForFutureActions || !currentUtReady;
+            // Rows up to the save's held-through UT are in the loaded world (a save written in
+            // a Rewind-to-Launch lead window): never pruned as future. Only a ready clock is
+            // raised; a clock that is not ready keeps every row anyway.
+            if (currentUtReady)
+            {
+                double heldMaxUT = LedgerHeldWindow.ResolveLedgerNowUT(maxUT);
+                if (heldMaxUT != maxUT)
+                {
+                    ParsekLog.Info(Tag,
+                        "OnKspLoad: reconcile clock " + maxUT.ToString("R", CultureInfo.InvariantCulture) +
+                        " raised to the ledger held-through UT " + heldMaxUT.ToString("R", CultureInfo.InvariantCulture));
+                    maxUT = heldMaxUT;
+                }
+            }
 
             // O3: a recording the save names but that did not load keeps its rows. Before the
             // reconcile, which prunes rows tagged to a recording missing from the loaded set.
@@ -8979,8 +9037,8 @@ namespace Parsek
         {
             var provider = NowUtProviderForTesting;
             if (provider != null)
-                return provider();
-            return Planetarium.GetUniversalTime();
+                return LedgerHeldWindow.ResolveLedgerNowUT(provider());
+            return LedgerHeldWindow.ResolveLedgerNowUT(Planetarium.GetUniversalTime());
         }
 
         /// <summary>
@@ -9822,6 +9880,7 @@ namespace Parsek
             kerbalsModule = null;
             RecalculationEngine.ClearModules();
             Ledger.ResetForTesting();
+            LedgerHeldWindow.ResetForTesting();
             OnTimelineDataChanged = null;
             OnRecordingCommittedFaultInjector = null;
             OnRecordingCommittedPostSciencePersistFaultInjector = null;

@@ -17,6 +17,82 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE: a Space Center action in the 15 s before a launch is ahead of the clock after a Rewind-to-Launch, while the rewind save already holds its effect~~ [FILED 2026-10-28 from RW-9's flights; live-measured. FIXED 2026-10-28 on branch `fix-rewind-lead-window`; xUnit only, not flown. product, medium-high (a second paid repair, and the repaired building knocked down again)]
+
+A Rewind-to-Launch loads the save taken at the launch and then winds the clock back 15 s
+(`Rewind-to-Launch initiated to UT 185800.285736677`, `UT adjusted: 185800.3 -> 185785.3 (lead
+time 15s)`). A Space Center action taken in that window before the launch is in the rewind save's
+world, but its ledger row now lies AHEAD of the clock. Lane `RW-9` met it first (runs
+`2026-10-28_1522` / `_1524`, cs-career-mun4, main DLL 8723aa01): Aggressive Negotiations activated at
+UT 185790.07 and the R&D annex demolished at 185790.1 (`kscaction action=demolish-building
+target=SpaceCenter/ResearchAndDevelopment/Facility/ForeverAlone applied=true ... intact=false`),
+V rolled out at 185800.2, recorded, committed and recovered, the R&D facility repaired at 185899.9
+(`cost=2000 fundsDelta=-1999`). After the rewind the annex is down in the world, but the repair block
+(KB-2, `CommittedRepairCoveringDestruction`) needs the destruction behind the clock, so it reads
+`Allowing facility repair: 'SpaceCenter/ResearchAndDevelopment' - destroyedBuildings=1, no committed
+future repair covers the destruction (nowUT=185786)` and a second paid repair goes through
+(`kscaction action=repair-facility ... applied=true ... fundsDelta=-1999 funds=152659.16`, with a second
+conversion leg pair at UT=185785.6).
+
+Measured crossing outcome (temporary reading variant RW-9R, run `2026-10-28_1535` PASS, evidence
+`logs/flights/rewind-campaign/rw-09r-lead-window-reading/`): the warp re-crosses the window's rows
+(`Clock-crossing reached committed-future rows: crossed=2 [StrategyActivate@185790.02069345751,
+FacilityDestruction@185790.06069345749]`), and the destruction row knocks the just-repaired annex
+down again (`PatchDestructionState: demolished 'SpaceCenter/ResearchAndDevelopment/Facility/ForeverAlone'
+(ledger: destroyed at or before UT 185790.1)`); the committed repair then crosses at 185899.9 and
+repairs it, charged. Pools: 155591.16 funds / 97.96 rep after the one repair before the rewind,
+153592.16 / 96.69 after the crossing: one extra repair (-1999) and one extra discount leg (-1.27
+rep after the curve). The ledger agrees with stock (both repairs are real rows), so it is a SILENT
+double charge: no StockPoolAdjustment, no GUARDED line, `ledger_audit.py` PASS, LedgerGroundTruth
+hardFailures=0 with a report-only `facet=Facility kind=PhantomInRecon id=...ForeverAlone`. Between
+the rewind and the 185790 crossing the reputation pool also reads the strategy's 14.5 setup cost as
+not yet paid (115.00) while the strategy is active in the world.
+
+Exposure: every Space Center action in the 15 s before a launch, not only a repair: a strategy
+activation or cancel, a part or upgrade purchase, a hire or dismissal, a facility upgrade, a
+building demolition or repair, a contract accept / decline / cancel. Clicking an action and then
+Launch inside 15 s of game time is ordinary play. Same window, same shape as
+ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS (route rows).
+
+Two obvious directions were open: treat ledger rows in (rewindUT, rewind-save UT] as already
+held by the rewind save (in the past for blocks, crossings and patches), or rewind to a save taken
+before the lead window. Lane `RW-9-strategy-repair-rebuy` acts at UT 185750, outside the window.
+
+Fix: the first direction, keeping the 15 s lead. `LedgerHeldWindow` (GameActions) holds a ledger
+held-through UT, the ledger analog of the route state floor: the plain rewind sets it in
+`HandleRewindOnLoad` to the rewind save's own UT (before the windback, raised to the held-through UT
+that save carries, read in `ExecuteRewindSaveLoad`) when it lies ahead of the wound-back clock. While
+the clock is behind it, every "now" the ledger judges past and future against reads
+`LedgerHeldWindow.ResolveLedgerNowUT`: the walk cutoffs in `RecalculateAndPatchCore` (pools, KSP state
+patches, the committed-future snapshot the clock crossings read), `CommittedFutureIndexCache.CurrentUT`
+(every stock-screen block and mark, the KB-2 repair block included, and the patch planners),
+`ParsekScenario.GetCurrentTimelineUTForLedgerRecalc`, the live building patch, the strategy patch,
+the affordability clock, the KSC clock cursor's next-row lookup, the cold-load reconcile clock and
+the rewind's baseline prune. Rows after it stay committed future and cross once (the repair at
+185899.9). Persistence: the PARSEK node value `ledgerHeldThroughUT`, written only while alive; every
+load but a plain rewind installs the loaded save's copy while its clock is behind it (policy
+category `LedgerHeldWindow`), the Discard Re-fly splice keeps the rewind point's own, the rewind's
+persistent.sfs write carries the new one, and a trusted clock (OnSave, the clock cursor, a time jump)
+expires it once reached. No row is rewritten. Tests: `LedgerHeldWindowTests` (the second paid repair
+and the crossing re-fire reproduced without the floor and refused with it). Not shared by Re-Fly (an RP
+quicksave loads at its own clock) or `TimeJumpManager` (forward only: nothing ahead is held). The
+Timeline window still draws the window's rows ahead of its now line (display only). Owed: a flight of
+`RW-9R`'s reading variant inside the window. Follow-up: REWIND-LEAD-WINDOW-NEW-ACTION-SORTS-BEFORE-HELD-ROW.
+
+## REWIND-LEAD-WINDOW-NEW-ACTION-SORTS-BEFORE-HELD-ROW: a Space Center action taken inside a Rewind-to-Launch lead window is dated before the held rows it follows [FILED 2026-10-28 while fixing REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE; code-read, NOT FIXED; product, medium; needs an owner ruling]
+
+After the fix, rows in (wound-back clock, rewind save UT] count as reached, but a new action the
+player takes in that window is stamped with the raw clock, so it sorts BEFORE the held rows it
+logically follows. Example: the save holds a demolition at 185790.06 and no committed repair; the
+player repairs at 185786 (allowed, nothing covers it); the repair row sorts before the demolition, and
+the live building patch (`FacilityStatePatcher.ComputeBuildingDestroyedAtUt`, last row by UT at or
+before now) demolishes the repaired building again at the next recalc, the repair charged. The same
+shape for a cancel of a strategy whose held activation is dated later, a dismissal of a held hire, a
+decline of a held accept. Before the fix it happened when the clock reached the held row, so it is not
+new, only earlier. Directions: date a Space Center row captured while the clock is behind the
+held-through UT at that UT (the ledger's now), or refuse such an action on its stock control until
+the clock passes it. Not done: both change player-visible behaviour.
+
 ## REWIND-PRUNE-AND-WALK-AT-UT-ZERO: a Rewind-to-Launch prunes baselines and walks the ledger at UT 0, not at the rewind save's own UT [FILED 2026-10-28 from the rewind campaign's log mining; code-read, NOT FIXED; product, low-medium]
 
 The rewind branch of `ParsekScenario.OnLoad` (~5534) runs
