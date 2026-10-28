@@ -62,15 +62,18 @@ kind = "seam"
 # runtime 4800 adds the inert steps and FlushAndQuit.
 steps = [
   { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
-  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
-  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
-  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
   # Stock generates applicants ONLY when the Astronaut Complex opens (decompiled
   # `AstronautComplex` -> `CrewRoster.Update(UT)` -> `AddApplicant`); without it the pool stays
   # empty (run `2026-10-28_2020`: `no-applicant`). Opened here, before H's launch save, so the
-  # applicants are in the rewind save too.
+  # applicants are in the rewind save too, and before the settings steps, whose frames let the
+  # screen's input lock clear before the warp (`_2027` attempt 1: a warp right after the close
+  # answered `warp-locked`).
   { cmd = "StockScreen",    args = { screen = "astronaut", act = "open" },                 expect = "OK" },
   { cmd = "StockScreen",    args = { screen = "astronaut", act = "close" },                expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw12-pool-filled" },                         expect = "OK" },
   { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
   # ---- H: the Flea on the pad, recorded, committed, recovered at its marker ----
   { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
