@@ -193,7 +193,13 @@ id = "RW-4-claimed-vessel-disposal"
 #     RW-2 symptom (committed future credits paid at the clock); read the cutoff decision line.
 #   - recordings 37 or 38: a pad / Runway recording split (RW-1 measured one per pad flight).
 #
-# STATUS: AUTHORED 2026-10-28 (branch `rw4-claimed-vessel`), NEVER FLOWN. Every pinned literal
+# STATUS: LIVE-PROVEN 2026-10-28 on its first flight, `2026-10-28_0942` PASS attempt 1 (DLL b50fbc5d, main e1ea512 plus the revert-cutoff fix). V (pad) and W
+# (Runway) committed and recovered at the Space Center (+2932 each); the Rewind-to-Launch to W held
+# V for its committed future (`Rewind held vessel for its committed future: pid=2905720181 ...`,
+# survivors=4 held=1); both stock-path recovers of V were refused (vessel-not-found); the pool held
+# at 151682.18 (cutoff 185885.4) until the crossing, which applied each committed recovery once
+# (154614.18 -> 157546.18); 36 recordings; batch passed=3 skipped=0; LedgerGroundTruth
+# hardFailures=0; ledger_audit.py PASS; step saves rw04-01..06. Original note: every pinned literal
 # is derived from source (file:line above), RW-1's / RW-2's flown logs of the same craft on the
 # same host and EVA-11 / RR-1's live proofs of the hold refusal and the owner-strip keep.
 # Owed off the first flight:
@@ -320,7 +326,7 @@ allowedAnomalies = []
 [expectations.recordings]
 # The host's 34 recordings plus R1 and R2 (RW-1 measured 35 with one pad recording); the
 # check launch is unrecorded and the rewind removes none. INTERIM window until measured.
-count = { min = 36, max = 38 }
+count = { min = 36, max = 36 }
 
 [expectations.logContracts]
 required = [
@@ -336,7 +342,7 @@ required = [
 
   # ---- the committed future: W, then V, recovered at their Space Center markers ----
   "MISSIONMARK label=rw4-w-committed ut=[\\s\\S]*?kscrecover complete pid=(?!2905720181 )[0-9]+ vessel=Jumping Flea scene=SPACECENTER quick=false elapsed=[\\s\\S]*?MISSIONMARK label=rw4-w-recovered ut=",
-  "MISSIONMARK label=rw4-w-committed ut=[\\s\\S]*?Game state: FundsChanged \\+[0-9]+ \\(VesselRecovery\\)[\\s\\S]*?MISSIONMARK label=rw4-w-recovered ut=",
+  "MISSIONMARK label=rw4-w-committed ut=[\\s\\S]*?Game state: FundsChanged \\+2932 \\(VesselRecovery\\)[\\s\\S]*?MISSIONMARK label=rw4-w-recovered ut=",
   "MISSIONMARK label=rw4-w-recovered ut=[\\s\\S]*?kscrecover complete pid=2905720181 vessel=Jumping Flea scene=SPACECENTER quick=false elapsed=[\\s\\S]*?MISSIONMARK label=rw4-v-recovered ut=",
   # V's payout on the pad: RW-1 / RW-2 measured +2932 for the same unfired craft there.
   "MISSIONMARK label=rw4-w-recovered ut=[\\s\\S]*?Game state: FundsChanged \\+2932 \\(VesselRecovery\\)[\\s\\S]*?MISSIONMARK label=rw4-v-recovered ut=",
@@ -384,7 +390,7 @@ required = [
   "result: hardFailures=0 ",
   # INTERIM: total=3 from the source (the LedgerGroundTruth category's FLIGHT cells); the
   # split is owed off the first flight (RW-1 / RW-2 read passed=3 skipped=0 on this host).
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

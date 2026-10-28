@@ -2972,7 +2972,8 @@ not the take-back line. A deterministic in-game take-back needs a prevention gap
 flight under a live recorder), which no pad flight on this host reaches. Ledger-audit expectations:
 `harness/scenarios/ledger-audit/RW-3-save-reload-takeback.toml`.
 
-Progress 2026-10-28 (branch `rw4-claimed-vessel`): lane `RW-4-claimed-vessel-disposal` authored for plan
+Progress 2026-10-28 (branch `rw4-claimed-vessel`): lane `RW-4-claimed-vessel-disposal` LIVE-PROVEN on its first
+flight (`2026-10-28_0942`; evidence `logs/flights/rewind-campaign/rw-04-claimed-vessel-disposal/`), written for plan
 row 6 (claimed vessel disposal), never flown. A pad Flea V is left standing and a Runway Flea W
 recorded, both recovered at the Space Center; a Rewind-to-Launch to W's launch must hold V out of the
 world for its committed recovery (`evidence=recovery`), both stock recover presses of V must refuse
