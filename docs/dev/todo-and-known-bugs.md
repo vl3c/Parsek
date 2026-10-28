@@ -2958,6 +2958,20 @@ needs an in-flight untagged earning (a pad flight's rollout shares the post-init
 Open question the RW-1 log raises: after the rewind Jeb's hold ends at H's recording end (185807.6, the KSC
 retirement bound), not at H's committed recovery (186000.2), so the rewound timeline frees him early.
 
+Progress 2026-10-28 (branch `rw3-save-reload-takeback`): lane `RW-3-save-reload-takeback` LIVE-PROVEN on its
+first flight (`2026-10-28_0916`; evidence `logs/flights/rewind-campaign/rw-03-save-reload-takeback/`), plan row 15 (save and reload, then repeat): RW-1's committed pad flight, an unrecorded Flea's pad EVA
+as the committed Kerbin/SurfaceEVA world-first, a Rewind-to-Launch (one timeline break), `SaveGame` and
+`LoadGame playerLoad=true` (a Cold save-file load that must restore `era=177 breaks=1` from the save's LEDGER
+node and lift no pool while the committed rows are ahead, the shape of RW-2's cutoff=null finding), a Space
+Center warp across the rows, the world-first repeated from a relaunched Flea, LedgerGroundTruth. Correction to
+the plan from the code: prevention runs before the take-back (`PatchMilestones` at a full patch,
+`CommittedMilestoneReach` on a deferred patch or the flight clock), so a repeat after the committed row is not
+paid by stock and `Took back` is not expected; a repeat before the row is the earliest crossing and is never
+taken back. The lane gates "paid once" (a second stock payment must be taken back) and the reloaded break,
+not the take-back line. A deterministic in-game take-back needs a prevention gap (contract completion in
+flight under a live recorder), which no pad flight on this host reaches. Ledger-audit expectations:
+`harness/scenarios/ledger-audit/RW-3-save-reload-takeback.toml`.
+
 ---
 
 ## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
