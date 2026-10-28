@@ -247,6 +247,126 @@ def gt_result(hard=0, report_only=0, t=36000.0):
              "strict=False" % (hard, report_only), t)
 
 
+def _b(v):
+    return "True" if v else "False"
+
+
+def insession_decision(use=False, future=True, ready=True, loaded_ut=150000.0, revert=True,
+                       scn="FLIGHT", t=36000.0):
+    # ParsekScenario.RecalculateLedgerForInSessionLoad
+    return P("INFO", "Scenario",
+             "OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff=%s loadedUT=%r "
+             "planetariumUT=%r isRevert=%s loadedScene=%s loadedSceneSupportsCurrentUtCutoff=True "
+             "planetariumReady=%s hasPendingTree=False restoreMode=None hasLiveRecorder=False "
+             "hasActiveUncommittedTree=False hasFutureLedgerActions=%s"
+             % (_b(use), loaded_ut, loaded_ut, _b(revert), scn, _b(ready), _b(future)), t)
+
+
+def kspload_decision(use=False, ready=True, future=True, max_ut=150000.0, t=36000.0):
+    # LedgerOrchestrator.OnKspLoad
+    return P("INFO", "LedgerOrchestrator",
+             "OnKspLoad recalc decision: useCurrentUtCutoff=%s maxUT=%r featureSupportsCutoff=True "
+             "currentUtReady=%s hasFutureActions=%s" % (_b(use), max_ut, _b(ready), _b(future)), t)
+
+
+def commit_full(t=36000.0):
+    # LedgerOrchestrator.RecalculateAndPatchAfterCommit
+    return P("VERBOSE", "LedgerOrchestrator",
+             "Commit ledger walk: full replay (cutoffUT=null), live clock not trusted - "
+             "reason=tree-commit onLoadInProgress=True rewindUTAdjustmentPending=False", t)
+
+
+def current_full(ready=True, t=36000.0):
+    # LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions (an em dash
+    # before " reason=" in the C# literal)
+    return P("VERBOSE", "LedgerOrchestrator",
+             "Current-timeline recalc: full replay (cutoffUT=null) \u2014 reason=revert-budget "
+             "currentUT=150000 currentUtReady=%s" % _b(ready), t)
+
+
+def input_summary(cutoff="null", total=10, t=36000.0):
+    # LedgerOrchestrator.LogRecalculationInputSummary
+    return P("VERBOSE", "LedgerOrchestrator",
+             "RecalculateAndPatch: actionsTotal=%d, actionsAfterCutoff=%d, cutoffUT=%s"
+             % (total, total, cutoff), t)
+
+
+def budget_ready(t=36000.0):
+    # ParsekScenario.ApplyBudgetDeductionWhenReady
+    return P("VERBOSE", "Scenario", "ApplyBudgetDeduction: singletons ready after 0 frames "
+             "(expected=Funding,R&D,Reputation). Funding=True, R&D=True, Rep=True", t)
+
+
+def budget_done(t=36000.0):
+    return P("VERBOSE", "Scenario", "Budget deduction already applied for this revert load", t)
+
+
+def revert_budget(cut=True, ready=True, scn="FLIGHT", revert_ut=185785.98, t=36000.0):
+    # ParsekScenario.RecalculateAndPatchAfterRevert
+    return P("INFO", "Scenario", "Revert budget walk: scene=%s cutoffScene=%s clockReady=%s "
+             "revertUT=%r" % (scn, _b(cut), _b(ready), revert_ut), t)
+
+
+def patch_move(pool, before, after, t=36000.0):
+    # KspStatePatcher.PatchFunds / PatchScience / PatchReputation
+    if pool == "Reputation":
+        return P("INFO", "KspStatePatcher", "PatchReputation: %.2f -> %.2f (target=%.2f)"
+                 % (before, after, after), t)
+    return P("INFO", "KspStatePatcher", "Patch%s: %.1f -> %.1f (delta=%.1f, target=%.1f)"
+             % (pool, before, after, after - before, after), t)
+
+
+def guarded(direction, resource="Funds", running=153564.18, live=150632.18, would=150632.18,
+            clamped=110200.18, t=36000.0):
+    # KspStatePatcher.EmitDrawdownGuardClamp
+    tail = ("(no time-travel context) - spent value held; ledger may be missing a spending channel"
+            if direction == "UPLIFT" else
+            "(no time-travel context) - earned value preserved; ledger may be missing an earning "
+            "channel")
+    return P("WARN", "KspStatePatcher",
+             "Patch%s: GUARDED %s clamped resource=%s running=%r live=%r wouldBeTarget=%r "
+             "clampedTo=%r %s" % (resource, direction, resource, running, live, would, clamped, tail),
+             t)
+
+
+def filed(resource="Funds", amount=800.0, reason="leak", t=36000.0):
+    # KspStatePatcher.FileStockPoolAdjustment
+    return P("INFO", "StockPoolReference",
+             "Patch%s: filed StockPoolAdjustment amount=%r reason=%s ut=150000 id=act_leak"
+             % (resource, amount, reason), t)
+
+
+def ref_loaded(kind="DiscardReFly", t=36000.0):
+    # StockPoolReference.LoadFrom
+    return P("INFO", "StockPoolReference",
+             "Loaded (%s): pools=3 rows=4 badRows=0 funds=lastWritten=1 science=lastWritten=2 "
+             "reputation=lastWritten=3" % kind, t)
+
+
+def ms_funds_skipped(mid="FirstLaunch", amount=800.0, t=36000.0):
+    # FundsModule.ProcessMilestoneEarning
+    return P("VERBOSE", "Funds", "Milestone funds skipped (not effective): milestoneId=%s, "
+             "fundsAwarded=%r" % (mid, amount), t)
+
+
+def ctr_funds_skipped(amount=5000.0, t=36000.0):
+    # FundsModule.ProcessContractComplete
+    return P("VERBOSE", "Funds", "ContractComplete funds skipped (not effective): contractId=c1, "
+             "fundsReward=%r" % amount, t)
+
+
+def earn_skipped(amount=100.0, t=36000.0):
+    # FundsModule.ProcessFundsEarning
+    return P("VERBOSE", "Funds", "FundsEarning skipped (not effective): fundsAwarded=%r, "
+             "source=Other, recordingId=(none)" % amount, t)
+
+
+def sci_skipped(amount=2.0, t=36000.0):
+    # ScienceModule.ProcessMilestoneScienceReward
+    return P("VERBOSE", "ScienceModule", "MilestoneAchievement science skipped (not effective): "
+             "id=FirstLaunch, sciAwarded=%r" % amount, t)
+
+
 def run_audit(lines, exp=None, baseline=None, ledgers=None):
     return la.audit(lines, exp, baseline, ledgers)
 
@@ -523,11 +643,28 @@ class LiteralScanTests(unittest.TestCase):
         r = by_check(run_audit([not_affordable(), aborting()], exp), "hard-stop")
         self.assertEqual(la.FAIL, r["status"])
 
-    def test_refly_leftovers(self):
+    def test_refly_leftovers_are_report_only(self):
+        # One unbound line per InvokeRewind in a green Re-Fly lane (RW-5, RW-6).
         lines = [unbound(), retired()]
-        self.assertEqual(la.FAIL, by_check(run_audit(lines), "refly-leftover")["status"])
+        res = run_audit(lines)
+        r = by_check(res, "refly-leftover")
+        self.assertEqual(la.REPORT, r["status"])
+        self.assertIn("2 Re-Fly leftover line(s) (report-only", r["summary"])
+        self.assertEqual(0, la.exit_code(res))
+
+    def test_refly_leftover_expectation_still_reads_expected(self):
+        lines = [unbound(), retired()]
         exp = la.parse_expectations({"expected": ["refly-leftover"]})
-        self.assertEqual(la.EXPECTED, by_check(run_audit(lines, exp), "refly-leftover")["status"])
+        res = run_audit(lines, exp)
+        self.assertEqual(la.EXPECTED, by_check(res, "refly-leftover")["status"])
+        self.assertEqual([], res["unusedExpectations"])
+        # A literal covering only one line leaves the check REPORT, never FAIL.
+        exp = la.parse_expectations({"expectedLines": ["unbound-refly-provisional"]})
+        self.assertEqual(la.REPORT, by_check(run_audit(lines, exp), "refly-leftover")["status"])
+        # A lane that expected leftovers and showed none lists the expectation.
+        res = run_audit([P("INFO", "X", "y")], la.parse_expectations({"expected": ["refly-leftover"]}))
+        self.assertEqual(la.PASS, by_check(res, "refly-leftover")["status"])
+        self.assertEqual(["refly-leftover"], res["unusedExpectations"])
 
     def test_literal_in_other_subsystem_ignored_where_scoped(self):
         # "Took back" is scoped to the TakeBack tag.
@@ -757,6 +894,354 @@ class LedgerUt0Tests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# walk-past-clock
+# ---------------------------------------------------------------------------
+
+RW2_POOLS = (151682.2, 192114.2)
+
+
+class WalkPastClockTests(unittest.TestCase):
+    def _r(self, lines, exp=None):
+        return by_check(run_audit(lines, exp), "walk-past-clock")
+
+    def test_rw2_shape_fails(self):
+        # RW-2's first flight: StockRevert load walked cutoffUT=null with rows ahead.
+        lines = [insession_decision(revert=True), input_summary("null"), ms_reset(0),
+                 patched(), patch_move("Funds", *RW2_POOLS)]
+        res = run_audit(lines, la.parse_expectations({"expected": ["refly-leftover"],
+                                                      "expectedLines": ["useCurrentUtCutoff"]}))
+        r = by_check(res, "walk-past-clock")
+        self.assertEqual(la.FAIL, r["status"])
+        self.assertIn("isRevert=True", r["findings"][0]["note"])
+        self.assertIn("Funds 151682.20 -> 192114.20 (L5)", r["findings"][0]["note"])
+        self.assertFalse(r["findings"][0]["expectable"])
+        self.assertEqual(1, la.exit_code(res))
+
+    def test_rw2_real_order_fails(self):
+        # The live order: the revert walk runs synchronously inside OnLoad, BEFORE the
+        # in-session decision line that says rows lie ahead.
+        lines = [classified("InSessionOther", "StockRevert", "FLIGHT"), budget_ready(),
+                 input_summary("null"), patched(), patch_move("Funds", *RW2_POOLS),
+                 insession_decision(revert=True)]
+        r = self._r(lines)
+        self.assertEqual(la.FAIL, r["status"])
+        note = r["findings"][0]["note"]
+        self.assertIn("revert budget walk (ApplyBudgetDeduction)", note)
+        self.assertIn("the same load's decision (L6)", note)
+        self.assertEqual(2, r["findings"][0]["n"])
+
+    def test_a_revert_walk_after_the_decision_binds_too(self):
+        # Singletons not ready yet: the coroutine walks a few frames after OnLoad.
+        lines = [classified("InSessionOther", "StockRevert", "FLIGHT"),
+                 insession_decision(use=True), input_summary("150000"), patched(),
+                 patch_move("Funds", 5.0, 1.0), budget_ready(t=36001.0), patched(t=36001.0),
+                 patch_move("Funds", 1.0, 9.0, t=36001.0)]
+        self.assertEqual(la.FAIL, self._r(lines)["status"])
+
+    def test_the_fixed_revert_walk_cuts_off_and_passes(self):
+        lines = [classified("InSessionOther", "StockRevert", "FLIGHT"), budget_ready(),
+                 revert_budget(), input_summary("185785.98"), patched(),
+                 patch_move("Funds", 151682.2, 160000.0), insession_decision(use=True)]
+        r = self._r(lines)
+        self.assertEqual(la.PASS, r["status"])
+        units = la.split_patch_walks(la.parse_log(lines))
+        self.assertEqual(["revert-budget", "in-session-load"], [u["kind"] for u in units])
+
+    def test_a_fixed_revert_walk_with_no_ready_clock_still_binds(self):
+        lines = [classified("InSessionOther", "StockRevert", "FLIGHT"), budget_ready(),
+                 revert_budget(ready=False), patched(), patch_move("Funds", 1.0, 9.0),
+                 insession_decision()]
+        r = self._r(lines)
+        self.assertEqual(la.FAIL, r["status"])
+        self.assertIn("clockReady=False", r["findings"][0]["note"])
+
+    def test_what_does_not_bind(self):
+        rise = [budget_ready(), patched(), patch_move("Funds", 1.0, 9.0)]
+        cases = (
+            # no Load classified line: the load is unknown
+            rise + [insession_decision()],
+            # another load
+            [classified()] + rise + [classified(), insession_decision()],
+            # too far apart in wall time
+            [classified()] + rise + [insession_decision(t=36000.0 + la.LOAD_BIND_SECONDS + 1)],
+            # the decision says nothing lies ahead, or the clock was not ready
+            [classified()] + rise + [insession_decision(future=False)],
+            [classified()] + rise + [insession_decision(ready=False)],
+            # a plain walk after the decision is a later walk of the scene
+            [classified(), insession_decision(), deferred(), patched(),
+             patch_move("Funds", 1.0, 2.0)],
+        )
+        for lines in cases:
+            r = self._r(lines)
+            self.assertNotEqual(la.FAIL, r["status"], lines)
+            self.assertEqual([], r["findings"])
+
+    def test_an_already_applied_budget_walk_is_no_walk(self):
+        units = la.split_patch_walks(la.parse_log(
+            [classified(), budget_ready(), budget_done(), insession_decision(), deferred()]))
+        self.assertEqual(["in-session-load"], [u["kind"] for u in units])
+
+    def test_without_the_input_summary_still_binds(self):
+        # The cutoff-less input summary is VerboseOnChange and often absent.
+        lines = [insession_decision(scn="EDITOR"), patched(), patch_move("Science", 10.0, 30.0)]
+        self.assertEqual(la.FAIL, self._r(lines)["status"])
+
+    def test_deferred_or_falling_or_cutoff_walks_pass(self):
+        for lines in ([insession_decision(), deferred()],
+                      [insession_decision(), patched(), patch_move("Funds", 200.0, 100.0)],
+                      [insession_decision(use=True), input_summary("150000"), patched(),
+                       patch_move("Funds", 1.0, 2.0)],
+                      [insession_decision(future=False), patched(), patch_move("Funds", 1, 2)]):
+            self.assertEqual(la.PASS, self._r(lines)["status"], lines[0])
+
+    def test_a_walk_after_a_deferral_is_its_own_unit(self):
+        # The deferred walk patched nothing; the next patched walk has no decision line.
+        r = self._r([insession_decision(), deferred(), patched(), patch_move("Funds", 1.0, 2.0)])
+        self.assertEqual(la.REPORT, r["status"])
+        self.assertEqual([], r["findings"])
+
+    def test_a_rise_after_the_next_walk_starts_is_not_this_walks(self):
+        lines = [insession_decision(), patched(), patch_move("Funds", 2.0, 1.0), ms_reset(0),
+                 patch_move("Funds", 1.0, 2.0)]
+        self.assertEqual(la.PASS, self._r(lines)["status"])
+
+    def test_unready_clock_is_report_not_fail(self):
+        r = self._r([insession_decision(ready=False), patched(), patch_move("Funds", 1.0, 5.0)])
+        self.assertEqual(la.REPORT, r["status"])
+        self.assertIn("clock was not ready", "\n".join(r["details"]))
+        # BUG-F: a cold load before the clock is ready reads every row as ahead.
+        r = self._r([kspload_decision(ready=False), patched(), patch_move("Funds", 1.0, 5.0)])
+        self.assertEqual(la.REPORT, r["status"])
+        self.assertIn("unready clock", "\n".join(r["details"]))
+
+    def test_cold_load_with_rows_ahead_of_a_ready_clock_fails(self):
+        r = self._r([kspload_decision(), patched(), patch_move("Reputation", 1.0, 4.0)])
+        self.assertEqual(la.FAIL, r["status"])
+
+    def test_untrusted_commit_walk_is_report_with_the_reason(self):
+        r = self._r([commit_full(), patched(), patch_move("Funds", 1.0, 5.0)])
+        self.assertEqual(la.REPORT, r["status"])
+        self.assertIn("does not check for rows ahead", "\n".join(r["details"]))
+        # With no rise there is nothing to report.
+        self.assertEqual(la.PASS, self._r([commit_full(), patched(),
+                                           patch_move("Funds", 5.0, 1.0)])["status"])
+
+    def test_current_timeline_full_replay(self):
+        # currentUtReady=True means HasActionsAfterUT said nothing lies ahead.
+        self.assertEqual(la.PASS, self._r([current_full(True), patched(),
+                                           patch_move("Funds", 1.0, 5.0)])["status"])
+        self.assertEqual(la.REPORT, self._r([current_full(False), patched(),
+                                             patch_move("Funds", 1.0, 5.0)])["status"])
+
+    def test_refly_start_horizon_walk_is_by_design(self):
+        lines = [input_summary("1.7976931348623157E+308"), ms_reset(0), patched(),
+                 patch_move("Funds", 150632.2, 191064.2)]
+        r = self._r(lines)
+        self.assertEqual(la.REPORT, r["status"])
+        text = "\n".join(r["details"])
+        self.assertIn("Re-Fly start horizon walks (by design, RewindInvoker): 1", text)
+        self.assertIn("RecalculateAndPatch(double.MaxValue)", text)
+        # .NET Framework's shorter round-trip rendering reads the same.
+        self.assertEqual(la.REPORT, self._r([input_summary("1.79769313486232E+308"), patched(),
+                                             patch_move("Funds", 1.0, 2.0)])["status"])
+
+    def test_refly_start_after_a_deferred_decision_is_its_own_walk(self):
+        lines = [insession_decision(), deferred(), input_summary("1.7976931348623157E+308"),
+                 patched(), patch_move("Funds", 1.0, 9.0)]
+        self.assertEqual(la.REPORT, self._r(lines)["status"])
+
+    def test_plain_walk_with_no_decision_line(self):
+        r = self._r([patched(), patch_move("Funds", 1.0, 2.0)])
+        self.assertEqual(la.REPORT, r["status"])
+        self.assertIn("no decision or input line", "\n".join(r["details"]))
+
+    def test_skip_without_walk_lines(self):
+        self.assertEqual(la.SKIP, self._r([P("INFO", "X", "y")])["status"])
+
+
+# ---------------------------------------------------------------------------
+# guarded-clamp
+# ---------------------------------------------------------------------------
+
+REAL_GUARDED = ("[LOG 10:00:00.000] [Parsek][WARN][KspStatePatcher] PatchFunds: GUARDED UPLIFT "
+                "clamped resource=Funds running=153564.18 live=150632.18 wouldBeTarget=150632.18 "
+                "clampedTo=110200.18 (no time-travel context) - spent value held; ledger may be "
+                "missing a spending channel")
+
+
+class GuardedClampTests(unittest.TestCase):
+    def _r(self, lines, exp=None):
+        return by_check(run_audit(lines, exp), "guarded-clamp")
+
+    def test_the_real_line_parses_with_its_signed_leak(self):
+        g = la.parse_guarded(la.parse_log([REAL_GUARDED]))
+        self.assertEqual(1, len(g))
+        self.assertEqual(("Funds", "UPLIFT"), (g[0]["resource"], g[0]["dir"]))
+        self.assertAlmostEqual(-40432.0, g[0]["leak"], places=6)
+
+    def test_opposite_pair_in_one_burst_passes(self):
+        lines = [guarded("UPLIFT", would=1000.0, clamped=200.0, t=36000.0),
+                 guarded("DRAWDOWN", would=200.0, clamped=1000.0, t=36002.0)]
+        res = run_audit(lines)
+        r = by_check(res, "guarded-clamp")
+        self.assertEqual(la.PASS, r["status"])
+        self.assertEqual(1, r["pairs"])
+        self.assertIn("2 GUARDED line(s): 1 paired transient(s), 0 one-sided", r["summary"])
+        self.assertIn("UPLIFT -800.00 + L2 DRAWDOWN 800.00 = 0.00", "\n".join(r["details"]))
+        self.assertEqual(0, la.exit_code(res))
+
+    def test_the_filed_amount_is_the_leak(self):
+        # StockPoolReference era: the row is carried, so clampedTo == wouldBeTarget and
+        # the patch's filed amount is the leak (CS-3 2026-10-26_0146, 2.35 s apart).
+        lines = [filed(amount=-2.0, t=36000.0),
+                 guarded("UPLIFT", running=12.0, live=10.0, would=10.0, clamped=10.0, t=36000.0),
+                 filed(amount=2.0, t=36002.35),
+                 guarded("DRAWDOWN", running=10.0, live=12.0, would=12.0, clamped=12.0,
+                         t=36002.35)]
+        g = la.parse_guarded(la.parse_log(lines))
+        self.assertEqual([-2.0, 2.0], [x["leak"] for x in g])
+        self.assertEqual(["filed L1", "filed L3"], [x["leakFrom"] for x in g])
+        r = self._r(lines)
+        self.assertEqual(la.PASS, r["status"])
+        self.assertEqual(1, r["pairs"])
+
+    def test_leak_fallbacks(self):
+        # A filed line of another patch (older than a second) is not this clamp's.
+        g = la.parse_guarded(la.parse_log([
+            filed(amount=-7.0, t=36000.0),
+            guarded("UPLIFT", running=12.0, live=10.0, would=10.0, clamped=10.0, t=36005.0)]))
+        self.assertEqual((-2.0, "live-running"), (g[0]["leak"], g[0]["leakFrom"]))
+        # A filed line of another resource is not this clamp's either.
+        g = la.parse_guarded(la.parse_log([
+            filed("Science", amount=-7.0),
+            guarded("UPLIFT", would=1000.0, clamped=200.0)]))
+        self.assertEqual((-800.0, "clampedTo-wouldBeTarget"), (g[0]["leak"], g[0]["leakFrom"]))
+        # A filed amount of the wrong sign for the direction is not this clamp's.
+        g = la.parse_guarded(la.parse_log([
+            filed(amount=7.0),
+            guarded("UPLIFT", running=12.0, live=10.0, would=10.0, clamped=10.0)]))
+        self.assertEqual((-2.0, "live-running"), (g[0]["leak"], g[0]["leakFrom"]))
+        # A filed line is used once.
+        g = la.parse_guarded(la.parse_log([
+            filed(amount=-7.0),
+            guarded("UPLIFT", running=12.0, live=10.0, would=10.0, clamped=10.0),
+            guarded("UPLIFT", running=12.0, live=10.0, would=10.0, clamped=10.0)]))
+        self.assertEqual([-7.0, -2.0], [x["leak"] for x in g])
+
+    def test_one_sided_fails_unless_expected(self):
+        r = self._r([REAL_GUARDED])
+        self.assertEqual(la.FAIL, r["status"])
+        self.assertIn("UPLIFT leak=-40432.00", r["findings"][0]["note"])
+        self.assertEqual(la.EXPECTED, self._r(
+            [REAL_GUARDED], la.parse_expectations({"expected": ["guarded-one-sided"]}))["status"])
+        self.assertEqual(la.EXPECTED, self._r(
+            [REAL_GUARDED], la.parse_expectations({"expectedLines": ["GUARDED UPLIFT"]}))["status"])
+
+    def test_what_does_not_pair(self):
+        cases = (
+            # another resource
+            [guarded("UPLIFT", "Funds", would=10.0, clamped=0.0),
+             guarded("DRAWDOWN", "Science", would=0.0, clamped=10.0)],
+            # outside the burst
+            [guarded("UPLIFT", would=10.0, clamped=0.0, t=36000.0),
+             guarded("DRAWDOWN", would=0.0, clamped=10.0, t=36000.0 + la.GUARDED_BURST_SECONDS + 1)],
+            # same direction
+            [guarded("UPLIFT", would=10.0, clamped=0.0), guarded("UPLIFT", would=0.0, clamped=-10.0)],
+            # does not net out
+            [guarded("UPLIFT", would=100.0, clamped=0.0), guarded("DRAWDOWN", would=0.0, clamped=50.0)],
+        )
+        for lines in cases:
+            r = self._r(lines)
+            self.assertEqual(la.FAIL, r["status"], lines)
+            self.assertEqual(0, r["pairs"])
+
+    def test_pairing_is_one_to_one(self):
+        lines = [guarded("UPLIFT", would=10.0, clamped=0.0),
+                 guarded("DRAWDOWN", would=0.0, clamped=10.0),
+                 guarded("DRAWDOWN", would=0.0, clamped=10.0)]
+        r = self._r(lines)
+        self.assertEqual(1, r["pairs"])
+        self.assertEqual([3], [f["n"] for f in r["findings"]])
+
+    def test_unparsed_guarded_line_fails_and_cannot_be_expected(self):
+        exp = la.parse_expectations({"expected": ["guarded-one-sided"], "expectedLines": ["GUARDED"]})
+        r = self._r([P("WARN", "KspStatePatcher", "PatchFunds: GUARDED UPLIFT clamped garbled")], exp)
+        self.assertEqual(la.FAIL, r["status"])
+
+    def test_no_line_passes(self):
+        self.assertEqual(la.PASS, self._r([P("INFO", "X", "y")])["status"])
+
+
+# ---------------------------------------------------------------------------
+# leak-shape
+# ---------------------------------------------------------------------------
+
+class LeakShapeTests(unittest.TestCase):
+    def _r(self, lines):
+        return by_check(run_audit(lines), "leak-shape")
+
+    def test_leak_equal_to_one_zeroed_duplicate_fails(self):
+        r = self._r([ms_reset(0), ms_funds_skipped("FirstLaunch", 800.0), earn_skipped(100.0),
+                     patched(), filed("Funds", 800.0)])
+        self.assertEqual(la.FAIL, r["status"])
+        self.assertEqual("leak-equals-zeroed", r["findings"][0]["key"])
+        self.assertIn("the zeroed row at L2", r["findings"][0]["note"])
+
+    def test_leak_equal_to_the_sum_fails(self):
+        r = self._r([ms_reset(0), ms_funds_skipped("A", 800.0), ctr_funds_skipped(5000.0),
+                     patched(), filed("Funds", 5800.004)])
+        self.assertEqual(la.FAIL, r["status"])
+        self.assertIn("the sum 5800.00 of 2 zeroed row(s)", r["findings"][0]["note"])
+
+    def test_science_twin(self):
+        self.assertEqual(la.FAIL, self._r([ms_reset(0), sci_skipped(2.0), patched(),
+                                           filed("Science", 2.0)])["status"])
+        # A science leak never matches a funds row.
+        self.assertEqual(la.PASS, self._r([ms_reset(0), ms_funds_skipped("A", 2.0), patched(),
+                                           filed("Science", 2.0)])["status"])
+
+    def test_what_does_not_match(self):
+        for lines in (
+                [ms_reset(0), ms_funds_skipped("A", 800.0), patched(), filed("Funds", 800.5)],
+                [ms_reset(0), ms_funds_skipped("A", 800.0), patched(), filed("Funds", -800.0)],
+                [ms_reset(0), ms_funds_skipped("A", 800.0), patched(),
+                 filed("Funds", 800.0, reason="adopted-gap")],
+                # the zeroed row belongs to the previous walk
+                [ms_reset(0), ms_funds_skipped("A", 800.0), ms_reset(1), patched(),
+                 filed("Funds", 800.0)]):
+            self.assertEqual(la.PASS, self._r(lines)["status"], lines)
+
+    def test_rw5_leak_after_discard_refly_load_fails(self):
+        lines = [scene("FLIGHT", "SPACECENTER"), ref_loaded("DiscardReFly"),
+                 insession_decision(use=True, scn="SPACECENTER"), patched(),
+                 filed("Funds", -40432.0), guarded("UPLIFT")]
+        res = run_audit(lines)
+        r = by_check(res, "leak-shape")
+        self.assertEqual(la.FAIL, r["status"])
+        self.assertEqual("leak-after-discard-refly", r["findings"][0]["key"])
+        self.assertIn("patched walk 1 after the Loaded (DiscardReFly) of L2", r["findings"][0]["note"])
+        self.assertEqual(la.FAIL, by_check(res, "guarded-clamp")["status"])
+
+    def test_the_currency_repatch_is_inside_the_discard_window(self):
+        lines = [ref_loaded("DiscardReFly"), patched(), patched(), filed("Funds", -5.0)]
+        self.assertEqual(la.FAIL, self._r(lines)["status"])
+
+    def test_discard_window_ends(self):
+        for lines in ([ref_loaded("DiscardReFly"), patched(), patched(), patched(),
+                       filed("Funds", -5.0)],
+                      [ref_loaded("DiscardReFly"), scene("SPACECENTER", "FLIGHT"), patched(),
+                       filed("Funds", -5.0)],
+                      [ref_loaded("DiscardReFly"), ref_loaded("InSession"), patched(),
+                       filed("Funds", -5.0)],
+                      [ref_loaded("InSession"), patched(), filed("Funds", -5.0)]):
+            self.assertEqual(la.PASS, self._r(lines)["status"], lines)
+
+    def test_counts(self):
+        r = self._r([patched(), filed("Funds", 3.0), filed("Science", 1.0, reason="carried-removed")])
+        self.assertIn("2 StockPoolAdjustment filed, 1 reason=leak, 0 repeat", r["summary"])
+
+
+# ---------------------------------------------------------------------------
 # Whole audit, render, exit code
 # ---------------------------------------------------------------------------
 
@@ -780,6 +1265,29 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(len(la.CHECK_IDS), len(res["results"]))
         self.assertEqual(list(la.CHECK_IDS), [r["check"] for r in res["results"]])
 
+    def test_green_refly_lane_shapes_do_not_fail(self):
+        # RW-5 / RW-6 after their fixes: leftovers, a transient GUARDED pair, the Re-Fly
+        # start's horizon walk and a cutoff walk at the discard load.
+        lines = green_run() + [
+            unbound(36400), input_summary("1.7976931348623157E+308", t=36401), ms_reset(1, t=36401),
+            patched(36401), patch_move("Funds", 150632.2, 191064.2, 36401),
+            filed("Funds", -800.0, t=36500),
+            guarded("UPLIFT", would=1000.0, clamped=200.0, t=36500),
+            filed("Funds", 800.0, t=36501),
+            guarded("DRAWDOWN", would=200.0, clamped=1000.0, t=36501),
+            scene("FLIGHT", "SPACECENTER", 36600), ref_loaded("DiscardReFly", 36601),
+            insession_decision(use=True, scn="SPACECENTER", t=36601),
+            input_summary("150000", t=36601), patched(36601),
+            patch_move("Funds", 191064.2, 150632.2, 36601), retired(36602)]
+        res = run_audit(lines)
+        self.assertEqual(0, res["counts"][la.FAIL], [
+            (r["check"], r["summary"]) for r in res["results"] if r["status"] == la.FAIL])
+        self.assertEqual(la.REPORT, by_check(res, "refly-leftover")["status"])
+        self.assertEqual(la.REPORT, by_check(res, "walk-past-clock")["status"])
+        self.assertEqual(la.PASS, by_check(res, "guarded-clamp")["status"])
+        self.assertEqual(la.PASS, by_check(res, "leak-shape")["status"])
+        la.render(res).encode("ascii")
+
     def test_one_fail_flips_exit_code(self):
         res = run_audit(green_run() + [aborting()])
         self.assertEqual(la.FAIL, res["verdict"])
@@ -797,8 +1305,9 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(len(la.CHECK_IDS), len(set(la.CHECK_IDS)))
         for check, _, _ in la.SOURCE_ANCHORS:
             self.assertIn(check, la.CHECK_IDS)
-        for name in la.EXPECTABLE_NAMES:
-            self.assertTrue(name in la.CHECK_IDS or name == "not-affordable")
+        self.assertEqual(set(la.EXPECTABLE_NAMES), set(la.EXPECTABLE_CHECK))
+        for name, check in la.EXPECTABLE_CHECK.items():
+            self.assertIn(check, la.CHECK_IDS, name)
 
 
 # ---------------------------------------------------------------------------
@@ -876,6 +1385,59 @@ class ShellTests(unittest.TestCase):
         code, _, err = self._run([empty, "--no-write"])
         self.assertEqual(2, code)
         self.assertIn("no KSP.log", err)
+
+    def test_stdout_under_cp1252_does_not_crash(self):
+        # A KSP.log line can carry an arrow; a redirect under cp1252 used to raise.
+        self._write("KSP.log", "\n".join(green_run() + [
+            P("WARN", "Funds", "drift \u2192 kept \u2014 x")]) + "\n")
+        raw = io.BytesIO()
+        wrapper = io.TextIOWrapper(raw, encoding="cp1252", errors="strict", newline="\n")
+        with contextlib.redirect_stdout(wrapper), contextlib.redirect_stderr(io.StringIO()):
+            code = tool.run([self.tmp, "--no-write", "--baseline", self._write(
+                "base/KSP.log", "\n".join(green_run()) + "\n")])
+        wrapper.flush()
+        self.assertEqual(0, code)
+        text = raw.getvalue().decode("utf-8")
+        self.assertIn("verdict: PASS", text)
+        self.assertIn("WARN [Funds] drift \u2192 kept \u2014 x", text)
+
+    def test_write_text_safely_on_a_stream_that_cannot_reconfigure(self):
+        class StrictCp1252(object):
+            encoding = "cp1252"
+
+            def __init__(self):
+                self.parts = []
+
+            def write(self, text):
+                text.encode("cp1252")  # raises UnicodeEncodeError like a cp1252 console
+                self.parts.append(text)
+
+            def flush(self):
+                pass
+
+        s = StrictCp1252()
+        tool.write_text_safely("a \u2192 b\n", s)
+        self.assertEqual(["a ? b\n"], s.parts)
+        with self.assertRaises(UnicodeEncodeError):
+            StrictCp1252().write("\u2192")
+
+    def test_write_text_safely_falls_back_to_the_buffer(self):
+        class NoReconfigure(object):
+            encoding = "ascii"
+
+            def __init__(self):
+                self.buffer = io.BytesIO()
+
+            def write(self, text):
+                text.encode("ascii")
+                self.buffer.write(text.encode("ascii"))
+
+            def flush(self):
+                pass
+
+        s = NoReconfigure()
+        tool.write_text_safely("x\u2192y", s)
+        self.assertEqual(b"x?y", s.buffer.getvalue())
 
     def test_baseline(self):
         self._write("KSP.log", "\n".join(green_run() + [P("WARN", "Ledger", "new 1")]) + "\n")
@@ -1052,6 +1614,87 @@ class SourceSyncTests(unittest.TestCase):
                       "return d.Kind != DivergenceKind.UpliftClampedExpected;",
                       "d.Kind == DivergenceKind.Consistency", '"guidCorroborated=true"'):
             self.assertIn(token, body)
+
+    def test_walk_decision_field_order(self):
+        scen = _src(la.SRC_SCENARIO)
+        i = scen.index(la.LIT_INSESSION_DECISION)
+        seg = scen[i:i + 1200]
+        order = [seg.index(k) for k in ("useCurrentUtCutoff=", "loadedUT=", "isRevert=",
+                                        "loadedScene=", "planetariumReady=",
+                                        "hasFutureLedgerActions=")]
+        self.assertEqual(sorted(order), order)
+        self.assertIn('ParsekLog.Info("Scenario",\n                $"OnLoad: post-rewind current-UT '
+                      'cutoff decision', scen)
+        orch = _src(la.SRC_ORCHESTRATOR)
+        self.assertRegex(orch, r'(?s)"OnKspLoad recalc decision: useCurrentUtCutoff=" \+ useCurrentUtCutoff'
+                         r'\s*\+\s*" maxUT=".*?\+\s*" featureSupportsCutoff=".*?'
+                         r'\+\s*" currentUtReady=" \+ currentUtReady\s*\+\s*" hasFutureActions="')
+        self.assertRegex(orch, r'(?s)"Current-timeline recalc: full replay \(cutoffUT=null\) .*?'
+                         r'reason=" \+ safeReason \+\s*" currentUT=".*?\+\s*" currentUtReady=" '
+                         r'\+ currentUtReady\);')
+        self.assertIn('$"RecalculateAndPatch: actionsTotal={actions.Count}, " +\n'
+                      '                $"actionsAfterCutoff={actionsAfterCutoff}, cutoffUT={cutoffLabel}";',
+                      orch)
+        self.assertIn('? utCutoff.Value.ToString("R", CultureInfo.InvariantCulture)\n'
+                      '                : "null";', orch)
+
+    def test_the_only_horizon_walk_is_the_refly_start(self):
+        # walk-past-clock classifies any cutoff >= 1e308 as RewindInvoker's horizon walk.
+        hits = []
+        for dirpath, _, names in os.walk(os.path.join(REPO_ROOT, "Source", "Parsek")):
+            for name in names:
+                if name.endswith(".cs"):
+                    path = os.path.join(dirpath, name)
+                    rel = os.path.relpath(path, REPO_ROOT).replace(os.sep, "/")
+                    if re.search(r"RecalculateAndPatch\(\s*double\.MaxValue", _src(rel)):
+                        hits.append(rel)
+        self.assertEqual([la.SRC_REWIND_INVOKER], hits)
+
+    def test_patch_move_lines(self):
+        src = _src(la.SRC_PATCHER)
+        for lit in (la.LIT_PATCH_FUNDS, la.LIT_PATCH_SCIENCE, la.LIT_PATCH_REP):
+            self.assertIn("ParsekLog.Info(Tag,\n" + " " * 16 + '$"' + lit, src.replace(
+                "ParsekLog.Info(Tag,\n" + " " * 20, "ParsekLog.Info(Tag,\n" + " " * 16))
+
+    def test_guarded_shape_and_its_single_caller(self):
+        src = _src(la.SRC_PATCHER)
+        body = _method_body(src, "EmitDrawdownGuardClamp")
+        self.assertIn('$"Patch{resource}: {label} resource={resource} " +', body)
+        self.assertIn('$"running={runningBalance.ToString("R", IC)} live={currentLive.ToString("R", IC)} " +',
+                      body)
+        self.assertIn('? "GUARDED UPLIFT clamped"\n                : "GUARDED DRAWDOWN clamped";', body)
+        # The signed leak (clampedTo - wouldBeTarget) holds because EmitStockPoolLeak is
+        # the one caller and passes the target with and without the kept leak.
+        self.assertEqual(1, len(re.findall(r"\bEmitDrawdownGuardClamp\(\s*resource,", src)))
+        self.assertEqual(2, src.count("EmitDrawdownGuardClamp("))
+        leak = _method_body(src, "EmitStockPoolLeak")
+        self.assertIn("wouldBeTarget: targetWithoutLeak, clampedTo: writtenTarget,", leak)
+        self.assertIn("ClampDirection direction = m.Leak > 0.0 ? ClampDirection.Up : ClampDirection.Down;",
+                      leak)
+
+    def test_filed_adjustment_and_reference_load_shapes(self):
+        src = _src(la.SRC_PATCHER)
+        body = _method_body(src, "FileStockPoolAdjustment")
+        self.assertIn('string reason = m.GapAdopted ? "adopted-gap" : m.LeakKept ? "leak" : '
+                      '"carried-removed";', body)
+        self.assertIn('$"Patch{resource}: filed StockPoolAdjustment amount={m.Adjustment.ToString("R", IC)} " +\n'
+                      '                $"reason={reason} ut={nowUT.ToString("R", IC)} id={row.ActionId}"', body)
+        self.assertIn("ParsekLog.Info(StockPoolReference.Tag,", body)
+        self.assertIn("StockPoolReference.LoadFrom(node, earlyLoadKind.ToString());",
+                      _src(la.SRC_SCENARIO))
+
+    def test_zeroed_row_amount_fields(self):
+        funds = _src(la.SRC_FUNDS)
+        self.assertIn('$"Milestone funds skipped (not effective): " +\n'
+                      '                    $"milestoneId={action.MilestoneId ?? "(none)"}, " +\n'
+                      '                    $"fundsAwarded={action.MilestoneFundsAwarded.ToString("R", IC)}");',
+                      funds)
+        self.assertIn('$"fundsReward={action.TransformedFundsReward.ToString("R", IC)}");', funds)
+        self.assertIn('$"FundsEarning skipped (not effective): " +\n'
+                      '                    $"fundsAwarded={action.FundsAwarded.ToString("R", IC)}, " +', funds)
+        sci = _src(la.SRC_SCIENCE)
+        self.assertIn('$"scienceReward={action.ScienceReward.ToString("R", IC)}");', sci)
+        self.assertIn('$"sciAwarded={action.MilestoneScienceAwarded.ToString("R", IC)}");', sci)
 
     def test_game_action_types_and_seeds(self):
         src = _src("Source/Parsek/GameActions/GameAction.cs")

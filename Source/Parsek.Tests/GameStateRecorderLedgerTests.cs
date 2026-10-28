@@ -40,6 +40,10 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             GameStateStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
+            // The recovery-funds deferred queue runs only in a career with a funds pool
+            // (Funding.Instance is absent headless); the no-pool skip has its own cells.
+            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(
+                fundsTracked: true, scienceTracked: null, reputationTracked: null);
             RecordingStore.ResetForTesting();
             // PickRecoveryRecordingId now reads the live Re-Fly marker off the scenario,
             // so the instance is shared static state this class must own both ends of.
@@ -1157,8 +1161,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void OnVesselRecoveryFunds_SubThresholdPayoutContext_DoesNotEnqueueOrWarn()
+        public void OnVesselRecoveryFunds_SubThresholdPayoutContext_DefersLikeAnyPositivePayout()
         {
+            // SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY: the recorder keeps a positive
+            // FundsChanged(VesselRecovery) of any size, so a payout under its funds
+            // threshold waits for that event like any other instead of being skipped.
             var identity = RecoveredVesselIdentity.FromNames("#autoLOC_501224", "Jumping Flea");
             var payoutContext = MakeRecoveryPayoutContext(
                 288.7,
@@ -1173,16 +1180,18 @@ namespace Parsek.Tests
                 quick: true,
                 vesselType: VesselType.Ship,
                 payoutContext: payoutContext);
-            LedgerOrchestrator.FlushStalePendingRecoveryFunds("rewind end");
 
             Assert.Equal(before, Ledger.Actions.Count);
-            Assert.Equal(0, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            Assert.Equal(1, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            Assert.DoesNotContain(logLines, l => l.Contains("below recorder threshold"));
+
+            LedgerOrchestrator.FlushStalePendingRecoveryFunds("rewind end");
+
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("FlushStalePendingRecoveryFunds") &&
                 l.Contains("Jumping Flea") &&
-                l.Contains("below recorder threshold"));
-            Assert.DoesNotContain(logLines, l =>
-                l.Contains("FlushStalePendingRecoveryFunds"));
+                l.Contains("expectedFunds=99.0"));
         }
 
         [Fact]

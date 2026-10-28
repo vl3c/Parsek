@@ -17,6 +17,210 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REFLY-MERGED-DEATH-PERMANENT-VIA-SUPERSEDED-CO-ROW: a kerbal killed in a merged Re-Fly with stock crew respawn on is lost for good, because the replaced flight's Aboard row was never retired~~ [FILED AND FIXED 2026-10-28 from lane RW-7, run `2026-10-28_1318`, branch `fix-refly-death-co-row`; unit-tested only, NOT FLOWN, RW-7 re-flight owed; product, high (a kerbal lost for good, and a kerbal held forever after any crewed-slot Re-Fly)]
+
+EVIDENCE (RW-7, host career with `MissingCrewsRespawn=True`, `RespawnTimer=7200`). Flight G launched
+at UT 185785.91 and decoupled on the pad, authoring a rewind point at 185786.49. G's pod recording
+`13ccecab` flew on past the decouple (breakup-continuous) and ended Landed with Jebediah aboard. The
+pod slot was re-flown; attempt 2 crashed and was merged. The merge split `13ccecab` at the rewind
+point (`HEAD=[185785.91..185786.49] (kept), TIP=f3cba0b6 [185786.41..185797.01]`), wrote the supersede
+row `old=f3cba0b6 new=rec_b27a95e8`, and tombstoned `Kerbal=0` rows. Every later walk logged
+`Death hold: ... respawn scheduled deathUT=185896.8 respawnUT=193096.8` then `respawn suppressed:
+open-ended co-row (coRowStartUT=185786.4 ...); permanent loss`. The save's ledger holds
+`act_4c0ac12c KerbalAssignment Jebediah recordingId=f3cba0b6 endState=Aboard ut=185786.41`: an
+untombstoned open-ended row on the superseded TIP.
+
+ROOT CAUSE. `TombstoneAttributionHelper.ComputeAttributionUT` keyed every non-death `KerbalAssignment`
+by its boarding `UT`. The original Aboard row (boarded at launch, before the rewind) therefore stayed
+on HEAD at the split's step 2.9 retag (`RecordingTreeSplitter.ShouldRetagLedgerActionToTip`), outside
+the supersede closure, and the pre-rewind guard would have kept it anyway. In session HEAD's stale
+row (content is re-derived only on the next load) held Jeb open-ended from launch; after the next
+load `MigrateKerbalAssignments` re-derived HEAD as a Recovered handoff and gave the superseded TIP a
+FRESH-id Aboard row no tombstone covers. Either row is an open-ended co-row starting before the
+respawn, so `KerbalsModule.ResolveOpenEndedRespawnDeaths` made the death permanent. The walk reads
+ELS (tombstones are its only filter, by design), so the gap was in the retirement, not in the walk.
+The 0.08 s tail overlap (the TIP's samples start before the cutoff) would also have kept a TIP row
+dated at the TIP's start. Without a death the same gap held the kerbal forever (a re-fly that
+recovers him stayed reserved). Reproduced headlessly before the fix: in session `coRow=8` (HEAD),
+after a reload `coRow=34` (TIP fresh row), both `perm=True`.
+
+FIX. An `Aboard` / `Unknown` `KerbalAssignment` is keyed by its `EndUT`, like a death
+(`TombstoneAttributionHelper.IsOpenEndedCrewInterval`): the row records the crew's fate at the end of
+the flight, a loss row (design section 2.12) the replacement re-records from its own crew. The one
+key moves the row to the TIP with the terminal at the split (and to the second half of an optimizer
+split, with the end states), puts it in the merge's retire set, and the tombstone pass retires it;
+the next load's TIP derivation inherits the retired id (ruling a1), and HEAD re-derives its Recovered
+handoff. `Recovered` rows keep the boarding UT. New logs: `[Splitter] Step9: N pre-rewind-boarded
+open-ended crew row(s) retagged to TIP by endUT`, `[LedgerSwap] PreRewindTombstoneGuard: open-ended
+crew interval screened by endUT ... -> in scope` and its summary line.
+
+RULING TOUCHED. This amends one clause of the operator ruling of 2026-09-22
+(TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START: "every other interval action staying on
+UT"): Aboard / Unknown now share the death's EndUT key. The clause predates the 2026-10-19 loss-row
+list of design section 2.12, which names Aboard / Unknown as rows the merge retires; owner
+confirmation is owed before the PR. The ruling-preserving alternative (the walk skips open-ended
+crew rows of superseded recordings) fixes the post-load row only, not HEAD's in-session row.
+`TombstoneScreeningMirrorTests`, `RecordingTreeSplitterTests` and `SupersedeCommitTombstoneTests`
+cells that pinned the old clause now pin the new key (Recovered still stays on its UT).
+
+SAFETY. Earned value: the change only moves loss rows into the retire set; no gain, spend or
+Recovered row changes side, so Rule 1's seal and Invariant LS are unchanged. Losses-only: the re-fly's
+own death row is untouched and still reads Lost until the stock respawn. Paradox: a kerbal is still
+held by every effective committed flight that carries him (the mirror cell: a live flight aboard
+across the dead window keeps the death permanent), and the retired row belonged to a flight that no
+longer exists. NOT REPAIRED: a save merged on an older build keeps its untombstoned TIP row (no
+migration).
+
+TESTS: `ReFlyMergedDeathCoRowTests` (10 cells: RW-7 shape in session and after two reloads, a re-fly
+that recovers the kerbal, the live co-row mirror, the attribution key theory x5, the tail-overlap
+retire set). Reverting the key reds 7 of the 10.
+
+## REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE: a Space Center action in the 15 s before a launch is ahead of the clock after a Rewind-to-Launch, while the rewind save already holds its effect [FILED 2026-10-28 from RW-9's flights; live-measured, NOT FIXED; product, medium-high (a second paid repair, and the repaired building knocked down again)]
+
+A Rewind-to-Launch loads the save taken at the launch and then winds the clock back 15 s
+(`Rewind-to-Launch initiated to UT 185800.285736677`, `UT adjusted: 185800.3 -> 185785.3 (lead
+time 15s)`). A Space Center action taken in that window before the launch is in the rewind save's
+world, but its ledger row now lies AHEAD of the clock. Lane `RW-9` met it first (runs
+`2026-10-28_1522` / `_1524`, cs-career-mun4, main DLL 8723aa01): Aggressive Negotiations activated at
+UT 185790.07 and the R&D annex demolished at 185790.1 (`kscaction action=demolish-building
+target=SpaceCenter/ResearchAndDevelopment/Facility/ForeverAlone applied=true ... intact=false`),
+V rolled out at 185800.2, recorded, committed and recovered, the R&D facility repaired at 185899.9
+(`cost=2000 fundsDelta=-1999`). After the rewind the annex is down in the world, but the repair block
+(KB-2, `CommittedRepairCoveringDestruction`) needs the destruction behind the clock, so it reads
+`Allowing facility repair: 'SpaceCenter/ResearchAndDevelopment' - destroyedBuildings=1, no committed
+future repair covers the destruction (nowUT=185786)` and a second paid repair goes through
+(`kscaction action=repair-facility ... applied=true ... fundsDelta=-1999 funds=152659.16`, with a second
+conversion leg pair at UT=185785.6).
+
+Measured crossing outcome (temporary reading variant RW-9R, run `2026-10-28_1535` PASS, evidence
+`logs/flights/rewind-campaign/rw-09r-lead-window-reading/`): the warp re-crosses the window's rows
+(`Clock-crossing reached committed-future rows: crossed=2 [StrategyActivate@185790.02069345751,
+FacilityDestruction@185790.06069345749]`), and the destruction row knocks the just-repaired annex
+down again (`PatchDestructionState: demolished 'SpaceCenter/ResearchAndDevelopment/Facility/ForeverAlone'
+(ledger: destroyed at or before UT 185790.1)`); the committed repair then crosses at 185899.9 and
+repairs it, charged. Pools: 155591.16 funds / 97.96 rep after the one repair before the rewind,
+153592.16 / 96.69 after the crossing: one extra repair (-1999) and one extra discount leg (-1.27
+rep after the curve). The ledger agrees with stock (both repairs are real rows), so it is a SILENT
+double charge: no StockPoolAdjustment, no GUARDED line, `ledger_audit.py` PASS, LedgerGroundTruth
+hardFailures=0 with a report-only `facet=Facility kind=PhantomInRecon id=...ForeverAlone`. Between
+the rewind and the 185790 crossing the reputation pool also reads the strategy's 14.5 setup cost as
+not yet paid (115.00) while the strategy is active in the world.
+
+Exposure: every Space Center action in the 15 s before a launch, not only a repair: a strategy
+activation or cancel, a part or upgrade purchase, a hire or dismissal, a facility upgrade, a
+building demolition or repair, a contract accept / decline / cancel. Clicking an action and then
+Launch inside 15 s of game time is ordinary play. Same window, same shape as
+ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS (route rows).
+
+Two obvious directions, not decided: treat ledger rows in (rewindUT, rewind-save UT] as already
+held by the rewind save (in the past for blocks, crossings and patches), or rewind to a save taken
+before the lead window. NOT FIXED. Lane `RW-9-strategy-repair-rebuy` now acts at UT 185750, outside
+the window.
+
+## REWIND-PRUNE-AND-WALK-AT-UT-ZERO: a Rewind-to-Launch prunes baselines and walks the ledger at UT 0, not at the rewind save's own UT [FILED 2026-10-28 from the rewind campaign's log mining; code-read, NOT FIXED; product, low-medium]
+
+The rewind branch of `ParsekScenario.OnLoad` (~5534) runs
+`GameStateStore.PruneBaselinesAfterUT(RewindContext.RewindAdjustedUT)` and then
+`RecalculateAndPatch(RewindContext.RewindAdjustedUT, ...)`, while the route reconcile a few lines
+above uses `RewindSaveClockUT` / `RewindSaveOwnClockUT`. In 25 archived runs (75 lines: WR-1, SCI-1,
+KD-1, CX-2, HC-2) the prune and the walk logged cutoff 0 for a Rewind-to-Launch. The launch
+baseline is deleted, and rows from the first 1 to 12 s of the career count as after the cutoff
+(3 rows in WR-1). It compounded the free-tech bug (#2312). Fix: find where a launch rewind leaves
+`RewindAdjustedUT` at 0 (`RewindContext.cs` ~139 / ~189) and cut at the rewind save's own UT, the
+one the route reconcile uses. Test: a launch rewind's prune and walk use the save UT, and a row at
+UT 5 stays inside the cutoff.
+
+## COMMIT-DURING-LOAD-WALKS-WITH-NO-CUTOFF: a tree commit inside OnLoad replays the whole ledger [FILED 2026-10-28 from log mining; to check, NOT FIXED; product if reachable, medium]
+
+`LedgerOrchestrator` (~2529) logs `Commit ledger walk: full replay (cutoffUT=null), live clock not
+trusted` when a tree commits while the clock cannot be read. It is seen in several lanes, harmless
+where seen. But it is the same shape as RW-2's revert bug (fixed by #2309): a commit during a load
+into a rewound timeline could walk committed rows dated after the clock and pay the future early.
+Check which OnLoad paths can commit a tree before the clock is trusted, and whether the later
+cutoff walk always follows and takes the future back out. A lane may be needed.
+
+## REFLY-ATTEMPT-LIVE-POOL-SHOWS-COMMITTED-FUTURE: during a Re-Fly attempt the funds pool includes the committed future [FILED 2026-10-28 from the RW-5 fix's investigation; by-design walk, report only, NOT FIXED; low]
+
+The Re-Fly start walks the whole ledger (`RewindInvoker` ~1525, `RecalculateAndPatch(double.MaxValue)`),
+so RW-5 shows `PatchFunds: 150632.2 -> 191064.2`. Patches are deferred while the recorder runs, so
+for the whole attempt the stock pool, the funds display and the currency tooltip show earnings the
+timeline has not reached. A merge (`MergeJournalOrchestrator.RecalcAfterMarkerCleared`) and a
+discard (#2314) both take it back out. In flight there is almost no stock spending channel. Any path
+that reaches a spending screen during the attempt without one of those walks could spend it, the
+same shape #2309 fixed for reverts. Decide whether the Re-Fly start should patch at the current UT
+and keep the full walk for its bundle restore only.
+
+## STOCK-POOL-REFERENCE-CARRIED-ROWS-COUNTED-TWICE: a rewind point's reference loaded twice carries a removed row's step twice [FILED 2026-10-28 from the #2314 review; code-read, NOT FIXED; low]
+
+When the rewind point's `STOCK_POOL_REFERENCE` counted and stepped a row that has since been removed
+from the ledger, `StockPoolReference.Measure` carries the stepped part as an adjustment row. A Re-Fly
+start and then a Discard Re-fly load the same reference twice, so it is carried twice. The first copy
+is filed at the invoke walk's `nowUT = double.MaxValue`, so a later full-ledger walk counts both.
+Two plain rewinds to the same save already do this. Needs a dedupe of carried adjustments per source
+row, or a repair prune. Test: load one reference twice with a removed stepped row, and expect one
+carried adjustment.
+
+## KSC-RETIRED-FLIGHT-FREES-CREW-BEFORE-ITS-RECOVERY: after a rewind, a pad-retired flight frees its crew at the trimmed recording end, not at its recovery row [FILED 2026-10-28 from RW-2 and the gap sweep claim 6; code-read plus one live window, NOT FIXED; reservation, low-medium]
+
+RW-2: after a Rewind-to-Launch, Jeb's hold ended at the KSC-retired pad recording's trimmed EndUT
+(185807.6), not at its committed `KerbalRecovered` row (186000.2), so for about 190 s he is free
+while the committed timeline still has him aboard. Mechanism: once the real parked vessel is
+recovered, `VesselSpawner.IsKscRetiredFinalFlight` (~2761-2775, `MaterializedSourceVesselExists`)
+flips to true and the closure frees the crew at EndUT (`KerbalsModule` ~1237, ~1897-1934); the
+earliest closure wins (~1976-1998). The 2026-09-23 ruling is for a parked final flight that never
+becomes a real vessel; this one was real until a recorded recovery, so the recovery row should win.
+No money moves: the old recovery's funds and XP rows apply once, and `RecoveryClosesHold` keeps a
+closure inside its own tree. The same path frees a tourist at EndUT without removing him, against
+the 2026-10-25 ruling that tourists stay held (`CollectKscRetirementClosures` /
+`RoleHoldsKerbal`, ~1914). Test: a KSC-parked recording with crew Aboard, a recovery row at EndUT+190
+and the vessel-exists override false; the hold should end at the recovery row.
+
+## OPTIMIZER-MERGE-RETAGS-LEDGER-ROWS-ONLY: an optimizer merge leaves the absorbed recording's game-state events under a dead id [FILED 2026-10-28 from the gap sweep claim 5; code-read, NOT FIXED; low]
+
+When the optimizer merges chain siblings it retags the ledger rows to the merge target but not the
+absorbed recording's `GameStateEvent`s, which keep the removed id. No total effect was found, but
+consumers that key on recording id (some stock-screen reservation marks) drop those events. Test:
+merge two chain siblings, one holding a tagged event and a science row, and assert both are retagged.
+
+## SCIENCE-AFTER-TRIMMED-ENDUT-DATED-EARLY: science captured after a recording's trimmed end is dated at the end [FILED 2026-10-28 from the gap sweep (B6 / I-11); code-read, NOT FIXED; low-medium]
+
+`GameStateEventConverter` (~395-470) anchors science captured after the recording window at the
+window end, and the tail trim moves that end to the last interesting point plus a buffer. A
+transmission made while idle on the runway or in orbit is then dated earlier than it happened.
+After a rewind that earlier date can win the earliest-first subject cap (design 3.15 step 2) over a
+capture that really came first in the new timeline. Fix direction: date it at its capture UT.
+
+## EARNINGS-RECONCILIATION-BLIND-SPOTS: the commit's store-vs-ledger earnings check misreads two row kinds [FILED 2026-10-28 from log mining; diagnostic only, NOT FIXED; low]
+
+`Earnings reconciliation: store delta vs ledger delta` fired 48 times in 36 archived runs. Every
+pool ended right except two cases already fixed (CS-3's contract parameter reward; WF-1's re-earned
+world-first, #2281). The rest are comparison blind spots: a record bonus that falls inside the
+reputation seed reads 0, and strategy bonus rows are outside the commit's new rows. Close both so
+the line reds only on a real gap.
+
+## REFLY-RETIREMENT-LEFTOVERS: an unused classifier and a stale guard comment [FILED 2026-10-28 from the gap sweep claim 2; cleanup, NOT FIXED; trivial]
+
+`ResurrectionRetirementEligibility.Classify` has no production caller (only
+`InGameTests/ReFlyRecoveryBundleRuntimeTest.cs`); `ReFlyInvokeHold` replaced the invoke-time
+retirement it served. `RewindReadbackGuard.cs` (~90) still describes that retirement ("Step 3b
+RetireResurrectedVesselRecoveryRows"). Its science `Method` label (a full-value transmission read
+as recovered) therefore changes nothing. Delete `Classify` and its test, and fix the comment.
+
+## SUB-100-ROLLOUT-AND-BAILOUT-NOT-LEDGERED: a rollout or a Bail-Out Grant under 100 funds gets no row [FILED 2026-10-28 from the small-recovery fix; code-read, NOT FIXED; low]
+
+`GameStateRecorder`'s 100-funds threshold still drops a `VesselRollout` under 100 (a craft that
+cheap gets no `VesselBuild` row, since `OnVesselRolloutSpending` runs after the threshold) and a
+`StrategyOutput` Bail-Out Grant under 100 (no direct forward). Both survive only as measured-patch
+adjustments, so an authoritative patch (a Re-Fly, a rewind) erases them, the same shape as
+SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY. Widen the exemption the same way once that fix lands.
+
+## CS-FIXTURES-CARRY-BARE-ORBIT-MILESTONE: the CS career fixtures hold a pre-#2301 bare 'Orbit' row [FILED 2026-10-28 from log mining, confirmed by RW-3; fixture shape, NOT FIXED; low]
+
+Every CS save from CS-4 on reports milestone `Kerbin/Orbit` missing in the recalc, because the
+fixtures carry an old bare `Orbit` row from before #2301. It is fixture shape, not a live bug, but
+it adds noise to every rewind campaign lane on those hosts. Re-harvest the fixtures, or repair the
+row with the fixture builder.
+
 ## ~~REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE: a Discard Re-fly after a Rewind-to-Launch takes the committed future's earnings away for good~~ [FILED AND FIXED 2026-10-28 from RW-5's flight `2026-10-28_1056`, branch `fix-refly-discard-pool-reference`; LIVE-PROVEN by lane RW-5, run `2026-10-28_1200` (DLL built from 530e783); product, high (a reduction of the career total)]
 
 RW-5: a committed pad hop H (recovery +2932) and a Space Center contract accept F (+37500
@@ -106,6 +310,80 @@ Build order is in section 3.15. Each step ships unit tests and the matching harn
 
 ---
 
+## ~~SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY: a vessel recovery worth under 100 funds has no ledger row, so an authoritative patch erases it~~ [FILED AND FIXED 2026-10-28 from code reading, branch `fix-small-recovery-funds`; unit-tested only, NOT FLOWN, lane owed; product, medium (a gain lost for good, a reduction of the career total)]
+
+`GameStateRecorder.OnFundsChanged` dropped every funds change under `FundsThreshold = 100`, and
+`LedgerRecoveryFundsPairing.ShouldSkipRecoveryFundsBeforePairing` skipped a recovery whose known
+payout was under 100 ("below recorder threshold"). So a cheap recovery (debris, an EVA kerbal, a
+small probe) got no `FundsEarning(Recovery)` row. A measured patch kept the gap as an untagged
+`StockPoolAdjustment` (the total survived without identity), but an authoritative patch
+(`LedgerOrchestrator.IsAuthoritativeReduction`: rewind, Re-Fly marker, merge journal, tombstone
+path, Re-Fly discard) skips the measurement (`StockPoolReference.Measure` returns early) and writes
+the pool back to the ledger target. Every patch of a Re-Fly session is authoritative, so 60-funds
+debris recovered inside the attempt lost its 60 funds for good, breaking "never reduce the career
+total". Separately, Science and Sandbox careers have no Funding, yet `OnVesselRecoveryFunds` queued
+a pairing request whenever the payout was unknown, and `FlushStalePendingRecoveryFunds` then
+Warned "evicting ... unclaimed recovery request(s)" at the next scene switch (32 archived runs,
+all Science / Sandbox, harmless noise).
+
+**Fix.** Only stock's own payout is exempt from the threshold, and only it may be paired. KSP
+1.12.5 (decompiled) pays a recovery in one place, `Funding.onVesselRecoveryProcessing`, with one
+`AddFunds(value, VesselRecovery)`. A strategy's effect on another currency's query under the same
+reason fires its own `FundsChanged(VesselRecovery)` from `Funding.OnCurrenciesModified`: under
+Patents Licensing (AffectReasons ScienceTransmission, VesselRecovery, Progression) a recovered
+subject (R&D's `SubmitScienceData`, which runs before Funding's handler), a recovered lab
+(`RecoverScienceLabs`) or ground-station science yields funds that way, already booked as
+`FundsEarning(Strategy)` by `StrategyConversionCapture.EvaluateLegs`. The first version of this fix
+(exempting every positive `VesselRecovery` delta) recorded that yield too (LAB-12 measured +52.5),
+and the pairing (`TryFindRecoveryFundsEvent`, `OnRecoveryFundsEventRecorded`) and
+`RecoveryPayoutContextStore.TryFindForFundsEvent` took it as the payout: the yield paid twice and
+the payout got no row (review repro: 52.5 against 1500). A yield of 100 or more already did that
+before this entry. Now `Patches/RecoveryPayoutScopePatches.cs` scope both stock methods
+(`RecoveryPayoutScope`, payout wins when nested, since the payout's own query effect folds into one
+net event plus a zero-delta one). Only a query with no funds input opens the funds-effect scope
+(`OpensFundsEffectScope`), so a mod's own `AddFunds(x, VesselRecovery)` under a strategy stays a
+pairable payout (found by re-review). `GameStateRecorder.IsFundsDeltaBelowThreshold` exempts a positive
+`VesselRecovery` change only inside the payout scope; a change inside the funds-effect scope keeps
+the 100 floor and, when recorded, carries the `notPayout=strategyEffect` detail and claims no payout
+context; `LedgerRecoveryFundsPairing`'s finder (shared by the #444 direct pairing, the deferred
+queue and the commit-time `CreateVesselCostActions` pairing) and its dedup repair skip that detail.
+A change inside neither scope (a mod's own `AddFunds`, or patches that did not apply) is handled as
+before: the 100 floor, and it pairs. The yield cannot fire inside the payout scope: R&D's and the
+lab's handlers are separate `onVesselRecoveryProcessing` subscribers, not called from Funding's.
+The pairing's under-100 skip is gone (the zero skip stays). The other `FundsChanged` consumers were
+checked: the commit converter drops non-strategy `FundsChanged`, the KSC reconcile and the
+post-walk reconciler skip recovery earnings, the commit earnings window sums the event against the
+row it pairs (equal), coalescing already keeps a recovery event apart, and live-only income
+excludes the reason. The deferred queue now runs only when the career has a funds pool
+(`LedgerOrchestrator.GetResourceTrackingAvailability`); otherwise one Verbose skip line ("career
+has no funds pool"). Residue: a mod that pays a recovery outside stock's method keeps the 100 floor,
+and if the payout patch ever failed to apply a payout under 100 would again have no row (its
+deferred request would be evicted with the old Warn).
+
+Tests: `SmallRecoveryFundsTests` (the threshold truth table by source; the scope classification; the
+two patches' targets resolve on the stock assembly and open their scopes; a small `ContractReward`
+change and a small unscoped `VesselRecovery` change are still ignored by the real handler; a 60- and
+a 150-funds payout through the real handler and the real payout patch each give one row with the
+paired amount, dedup key and tag; a callback ahead of its 42-funds payout defers and pairs; the
+headline: a 60-funds debris recovery inside a Re-Fly session is tagged to the provisional and the
+next authoritative funds patch writes 1060, not 1000; the review's two cells, a Patents Licensing
+yield of 52.5 and of 150 before a 1500 payout, with the callback first and last, give one 1500 row;
+a recorded yield is no commit-time recovery event; no funds pool queues nothing and the flush stays
+quiet), `GameStateRecorderLedgerTests` (a 99-funds payout context now defers like any positive
+payout). Mutation-checked: classifying the effect scope as payout reds the four yield cells, the
+commit-time cell, the classification and the patch cell; exempting regardless of source reds the
+52.5 callback-last cell, the unscoped cell and the truth table; not stamping the yield reds the
+three 150 yield cells; dropping the finder's stamp check reds the commit-time cell, and with the
+deferred-queue check also dropped the 150 callback-first cell (the finder's check alone covers the
+queue); a payout scope that never opens reds the headline (1000 against 1060) and the small-payout
+cells; restoring the pairing's under-100 skip reds the headline and the two small-payout cells;
+dropping the no-pool gate reds the no-pool cell. Not flown yet; lane owed: a Re-Fly that recovers
+cheap debris (under 100 funds), merge, then LedgerGroundTruth and no GUARDED line; and a recovery of
+a science-carrying vessel under Patents Licensing (one `VesselRecovery funds patched` at the payout,
+the yield as its strategy leg only).
+
+---
+
 ## ~~STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED: a strategy discount on a part purchase, a repair or a contract penalty has no ledger leg, so a rewind and a repeat pays it twice~~ [FILED AND FIXED 2026-10-28 from code reading plus the stock `Strategies.cfg`, branch `fix-strategy-gross-legs`; unit-tested only, NOT FLOWN, lane owed; product, medium (a discount credited twice, breaking "nothing is paid twice")]
 
 Stock `AgressiveNegotiations` multiplies funds under `VesselRollout` / `RnDPartPurchase` (0.70 at
@@ -165,7 +443,17 @@ rewind, re-buy, warp past the first purchase's UT, then LedgerGroundTruth and no
 
 ---
 
-## ~~FREE-TECH-NODE-LOST-AFTER-REWIND: a tech node stock unlocks for free has no ledger row, so the first tech patch after a rewind re-locks it for good~~ [FILED AND FIXED 2026-10-28 from code reading, branch `fix-free-tech-row`; unit-tested only, NOT FLOWN, lane owed; product, high (a node and its parts lost for good, a reduction of the career total)]
+**Lane (2026-10-28, branch `rw9-strategy-rebuy`).** `RW-9-strategy-repair-rebuy` on `cs-career-mun4` takes
+the repair path (the entry-purchase hosts cannot afford Aggressive Negotiations' reputation cost, and the
+rep-rich hosts bypass entry purchases): Aggressive Negotiations, a discounted repair inside a committed
+timeline, a Rewind-to-Launch that must refuse a second repair as committed, and the crossing that must
+apply the repair and its legs once with no pool adjustment. LIVE-PROVEN on `2026-10-28_1538` (evidence
+`logs/flights/rewind-campaign/rw-09-strategy-repair-rebuy/`): legs split onto the annex at the repair,
+the second repair refused with nothing charged, the pools after the crossing equal to the pools after
+the original repair (155591.16 funds / 97.96 rep), no StockPoolAdjustment, no GUARDED, ledger_audit
+PASS. Its first flights found REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE.
+
+## ~~FREE-TECH-NODE-LOST-AFTER-REWIND: a tech node stock unlocks for free has no ledger row, so the first tech patch after a rewind re-locks it for good~~ [FILED AND FIXED 2026-10-28 from code reading, branch `fix-free-tech-row`; LIVE-PROVEN 2026-10-28 by lane RW-8 (`2026-10-28_1505`); product, high (a node and its parts lost for good, a reduction of the career total)]
 
 Stock `ResearchAndDevelopment.UnlockProtoTechNode(ProtoTechNode)` unlocks a node for free and
 fires no `GameEvents.OnTechnologyResearched` (KSP 1.12.5, decompiled). Its two callers are
@@ -221,6 +509,16 @@ the post-rewind patch).
 
 ---
 
+**Lane (2026-10-28, branch `rw8-free-tech`).** `RW-8-free-tech-gift-rewind` on `cs-career-mun4` gifts
+Aviation at the Space Center through the new seam sub-action `KscAction gift-tech` (stock's
+`UnlockProtoTechNode` + `RefreshTechTreeUI`, the anomaly gift's calls on a named node), rewinds to
+before the gift, and reads the node locked, unlocked again past the gift at no science, and kept
+across a cold reload. LIVE-PROVEN on `2026-10-28_1505` (PASS attempt 1; evidence
+`logs/flights/rewind-campaign/rw-08-free-tech-gift-rewind-run3/`): the rewind's walk re-locked the
+node (`PatchTechTree: ... madeUnavailableIds=[aviation]`), the first frame past the gift
+re-unlocked it (`PatchCommittedTechUnlocks: ... liveUT=185900.14 ... [aviation]`), no
+`ScienceChanged` line in the run, and `ledger_audit.py` PASS.
+
 ## ~~REVERT-AFTER-REWIND-WALKS-PAST-THE-CLOCK: a stock revert inside a rewound timeline patches the committed future's gains into the pools~~ [FILED AND FIXED 2026-10-28 from RW-2's first flight (`2026-10-28_0837`, PARSEK-FAIL attempt 1), branch `claude/project-thread-25edvc`; LIVE-PROVEN 2026-10-28 by RW-2 `2026-10-28_0902` PASS (funds held at 151682.18 through the revert, the +40432 applied at the crossing); product, high (future money spendable now)]
 
 After a Rewind-to-Launch, the stand-in's relaunch and a stock Revert-to-Launch loaded at
@@ -244,8 +542,15 @@ before. This also covers a revert to the editor, which the design doc listed as 
 walking without a cutoff. Cells: `RewindUtCutoffTests.InSessionRevertLoad_WithCommittedFutureRows_UsesCurrentUtCutoff`,
 `RevertBudgetWalk_*`, and the source gate `CareerSeedReadinessTests.BudgetDeduction_WalksThroughTheRevertCutoffHelper`
 (mutation-checked: a plain `RecalculateAndPatch()` in the coroutine reds it). Lane: RW-2-crewed-relaunch-revert forbids the positive `PatchFunds` between
-the EVA and the revert. Audit follow-up: `ledger_audit.py` should flag a patched walk with
-`cutoffUT=null` while committed rows lie ahead of a time-travel load's clock.
+the EVA and the revert. ~~Audit follow-up: `ledger_audit.py` should flag a patched walk with
+`cutoffUT=null` while committed rows lie ahead of a time-travel load's clock.~~ Done 2026-10-28
+(branch `ledger-audit-upgrades`): check `walk-past-clock` FAILs a `useCurrentUtCutoff=False ...
+hasFutureLedgerActions=True` (or `hasFutureActions=True`) walk at a ready clock that lifts a pool,
+and reports the full replays whose decision line cannot say. The revert follow-up walk
+(`ApplyBudgetDeduction`) prints no decision of its own and often runs before the load's
+in-session decision line, so it takes that line's rows-ahead reading inside one `Load classified`
+window; checked against the archive (the pre-fix RW-2 `2026-10-28_0837`, L13 `2026-10-25_0144` and
+LAB-10 `2026-10-17_2337` read REPORT before this binding).
 
 ---
 

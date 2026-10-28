@@ -504,6 +504,8 @@ namespace Parsek
             IsReplayingActions = false;
             BypassEntryPurchaseAfterResearchProviderForTesting = null;
             ScienceGainMultiplierProviderForTesting = null;
+            FundsChangedUtProviderForTesting = null;
+            RecoveryPayoutScope.ResetForTesting();
         }
 
         /// <summary>
@@ -923,17 +925,37 @@ namespace Parsek
             }
             if (double.IsNaN(oldFunds)) return;
             double delta = newFunds - oldFunds;
-            if (Math.Abs(delta) < FundsThreshold)
+            RecoveryPayoutScope.FundsEventSource source = RecoveryPayoutScope.Current;
+            if (IsFundsDeltaBelowThreshold(delta, reason, source))
             {
                 ParsekLog.VerboseRateLimited("GameStateRecorder", "funds-threshold",
-                    $"Ignored FundsChanged delta={delta:+0.0;-0.0} below threshold={FundsThreshold:F1}", 5.0);
+                    $"Ignored FundsChanged delta={delta:+0.0;-0.0} below threshold={FundsThreshold:F1} ({reason}, {source})", 5.0);
                 return;
             }
+            if (Math.Abs(delta) < FundsThreshold)
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"FundsChanged delta={delta.ToString("+0.###;-0.###", CultureInfo.InvariantCulture)} ({reason}) " +
+                    $"below threshold={FundsThreshold.ToString("F1", CultureInfo.InvariantCulture)} recorded anyway: " +
+                    "stock's recovery payout is paired exactly");
 
-            double ut = Planetarium.GetUniversalTime();
+            double ut = ReadFundsChangedUT();
             string detail = null;
             if (reason == TransactionReasons.VesselRecovery)
-                detail = BuildVesselRecoveryFundsDetail(ut, delta);
+            {
+                if (source == RecoveryPayoutScope.FundsEventSource.StrategyEffect)
+                {
+                    // A strategy's yield under the recovery reason (its leg is the row): stamped
+                    // so no recovery pairing takes it, and it claims no payout context.
+                    detail = RecoveryPayoutContextStore.NotPayoutFundsEventDetail;
+                    ParsekLog.Verbose("GameStateRecorder",
+                        $"FundsChanged {delta.ToString("+0.###;-0.###", CultureInfo.InvariantCulture)} (VesselRecovery) " +
+                        "is a strategy effect, not the recovery payout - stamped so no recovery pairing takes it");
+                }
+                else
+                {
+                    detail = BuildVesselRecoveryFundsDetail(ut, delta);
+                }
+            }
 
             var fundsEvt = new GameStateEvent
             {
@@ -985,6 +1007,41 @@ namespace Parsek
             if (reason == TransactionReasons.StrategyOutput &&
                 ShouldForwardDirectLedgerEvent(fundsEvt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(fundsEvt);
+        }
+
+        /// <summary>
+        /// Pure threshold decision for <see cref="OnFundsChanged"/>: true when the change is
+        /// dropped as noise. Stock's own recovery payout (a positive <c>VesselRecovery</c>
+        /// change inside <c>Funding.onVesselRecoveryProcessing</c>,
+        /// <see cref="RecoveryPayoutScope.FundsEventSource.Payout"/>) is never dropped, whatever
+        /// its size (SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY): it is the only source the recovery
+        /// pairing builds its <c>FundsEarning(Recovery)</c> row from, and a gain with no row
+        /// survives only as an untagged pool adjustment on a measured patch, while an
+        /// authoritative patch (a Re-Fly session, a rewind, a merge) writes the pool back to
+        /// the ledger target and erases it. Everything else keeps the
+        /// <see cref="FundsThreshold"/> floor, including a strategy yield under the same reason
+        /// (its own leg is its row) and an unscoped change.
+        /// </summary>
+        internal static bool IsFundsDeltaBelowThreshold(
+            double delta, TransactionReasons reason, RecoveryPayoutScope.FundsEventSource source)
+        {
+            if (reason == TransactionReasons.VesselRecovery
+                && source == RecoveryPayoutScope.FundsEventSource.Payout
+                && delta > 0.0)
+                return false;
+            return Math.Abs(delta) < FundsThreshold;
+        }
+
+        /// <summary>
+        /// Test-only UT source for <see cref="OnFundsChanged"/> (Planetarium is absent in the
+        /// xUnit host). Null in production. Cleared by <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static Func<double> FundsChangedUtProviderForTesting;
+
+        private static double ReadFundsChangedUT()
+        {
+            var provider = FundsChangedUtProviderForTesting;
+            return provider != null ? provider() : Planetarium.GetUniversalTime();
         }
 
         internal static string BuildVesselRecoveryFundsDetail(double ut)
