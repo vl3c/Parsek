@@ -1295,6 +1295,9 @@ namespace Parsek
             // right now, when a scope names one for this reason; otherwise no cause, and the
             // legs stay as captured.
             string conversionCause = ResolveConversionCause(snapshot);
+            // A facility repair pays for every destroyed building in one debit: each building's
+            // repair row is the cause of its share of the legs.
+            legs = StrategyConversionCapture.SplitRepairLegs(legs, snapshot, FacilityRepairCapture.ActiveCostShares);
             LedgerOrchestrator.OnStrategyCurrencyConversion(ut, legs, snapshot.Reason, conversionCause);
         }
 

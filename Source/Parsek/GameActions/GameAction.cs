@@ -336,9 +336,10 @@ namespace Parsek
         /// <c>CurrencyModifierQuery</c> in place.
         ///
         /// <para><b>ONLY EVER WRITTEN UNDER A NOMINAL-CHANNEL REASON</b>
-        /// (<c>ContractReward</c> / <c>ContractAdvance</c> / <c>Progression</c> - see
+        /// (<c>ContractReward</c> / <c>ContractAdvance</c> / <c>Progression</c> /
+        /// <c>RnDPartPurchase</c> / <c>StructureRepair</c> / <c>ContractPenalty</c> - see
         /// <c>StrategyConversionCapture.IsNominalChannelFundsReason</c>), where the
-        /// ordinary funds channel recorded the CONFIGURED GROSS amount and this row is
+        /// ordinary funds row recorded the CONFIGURED GROSS amount and this row is
         /// the missing second half. Under the event-derived reasons the channel already
         /// reports the value net and no leg is emitted at all.</para>
         ///

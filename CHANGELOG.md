@@ -25,6 +25,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A strategy discount on a part, a repair or a penalty is counted once.** With Aggressive
+  Negotiations or Leadership Initiative active, buying a part, repairing a building or failing a
+  contract was booked at full price and the discount filed later as a correction, so a rewind and
+  a second purchase paid the discount twice. It now follows its purchase, repair or penalty.
+  (STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED)
 - **A tech node an anomaly gives you stays yours after a rewind.** A node the game unlocks for
   free (a monolith's tech gift, or the debug menu) was never written down, so after a
   Rewind-to-Launch it was locked again for good, parts and all. It is now kept like a researched

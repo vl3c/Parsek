@@ -54,6 +54,65 @@ Build order is in section 3.15. Each step ships unit tests and the matching harn
 
 ---
 
+## ~~STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED: a strategy discount on a part purchase, a repair or a contract penalty has no ledger leg, so a rewind and a repeat pays it twice~~ [FILED AND FIXED 2026-10-28 from code reading plus the stock `Strategies.cfg`, branch `fix-strategy-gross-legs`; unit-tested only, NOT FLOWN, lane owed; product, medium (a discount credited twice, breaking "nothing is paid twice")]
+
+Stock `AgressiveNegotiations` multiplies funds under `VesselRollout` / `RnDPartPurchase` (0.70 at
+full commitment) and `StructureRepair` / `StructureConstruction` (0.99) and adds -1..-6
+reputation on all four; `LeadershipInitiative` multiplies funds, science and reputation under
+`ContractAdvance` / `ContractPenalty` / `ContractReward` (1.00..0.25). `Funding.AddFunds` applies
+the query input, then `OnCurrenciesModified` adds the effect delta under the same reason
+(decompiled). The query-family door filed a nonzero-input funds leg only under the
+nominal-channel reasons (`ContractReward`, `ContractAdvance`, `Progression`), on the premise that
+every other channel records the observed net. That holds for `VesselRollout`
+(`OnVesselRolloutSpending` gets `-delta`), `StructureConstruction`
+(`FacilityUpgradeCapture.ObserveFundsChange`) and `StrategyOutput`, but not for the part and part
+upgrade purchase rows (`entryCost`), the repair rows (`RepairCost` share) or the contract fail /
+cancel rows (the configured penalty), which are all gross. So the walk charged gross, stock net,
+and the next measured patch kept the gap as an untagged `StockPoolAdjustment`. After a
+Rewind-to-Launch and a re-buy of the same part the purchase state rule charges the re-buy and
+makes the committed purchase free, stock charges net again, a second adjustment is filed, and the
+first one still pays at its UT: the discount is credited twice (the rewind cell under the old
+gate ends at 9600 for a stock 9300). The reputation Add on a purchase or repair was a leg with no cause, so it paid twice
+the same way. The same shape held for a repair of an already repaired building and a Leadership
+Initiative penalty of an already failed contract.
+
+**Fix.** The binding direction (design 3.15 item 7), not net rows: a net row would need the
+modifier delta at the time the row is written, which for a part purchase is after Parsek's own
+`OnPartPurchased` (stock's listener runs later) and would make the purchase rows' price depend on
+the strategy, while a leg bound to its cause already gives a free duplicate, a Re-Fly supersede
+and a not-counted penalty the right outcome. `StrategyConversionCapture.IsNominalChannelFundsReason`
+now also admits `RnDPartPurchase`, `StructureRepair` and `ContractPenalty`; the event-derived
+three stay out (a leg there would count the discount twice). `ConversionCause.IsCauseType` names
+`FundsSpending` (a part purchase keyed `Part:<name>`, a part upgrade `PartUpgrade:<name>`; a
+strategy leg's own `FundsSpending` has no key) and `FacilityRepair` (the building id).
+`Patches/ConversionCauseScopePatches.cs` opens a scope around stock's `Funding.onPartPurchased` /
+`onUpgradePurchased` (reason `RnDPartPurchase`), so the funds and reputation legs name the
+purchase row; the contract fail / cancel scopes already existed. A facility repair is one debit for
+several building rows, so the door splits its FUNDS legs per building by cost share from the open
+repair scope (`StrategyConversionCapture.SplitRepairLegs`, `FacilityRepairCapture.ActiveCostShares`,
+the leg's own `StrategyConversionLeg.Cause`). The reputation leg is not split: stock applies the
+whole Add once through `addReputation_granular`, whose curve is not additive (stock's -6 vs a
+-3.6 / -2.4 split differs by 1.09 at reputation 600), so it stays one row naming the building with
+the largest share, ordinal id breaking a tie (found by review). The walk then frees a duplicate's legs with it
+(`PurchaseAlreadyOwned`, `FacilityAlreadyIntact`, a resolved contract's fail). The KSC reconcile of
+a discounted purchase or repair adds its caused legs to the expectation, so the net event no longer
+reads as a mismatch. `CrewRecruited` and `StrategySetup` rows are gross too but no stock strategy
+names them; they stay out until one does.
+
+Tests: `ConversionLegFollowsCauseTests` (a purchase under Aggressive Negotiations walks to stock's
+9300 with no adjustment and one reputation leg; purchase at UT 1000, rewind to 500, re-buy at 600,
+cross 1000: the discount and the reputation are paid once and no adjustment is filed; the same for
+a two-building repair repaired again and a Leadership Initiative penalty failed again; a rollout
+keeps no funds leg and one reputation leg; keys, scopes and the reconcile), `StrategyConversionCaptureTests`
+(the six admitted reasons, the three event-derived ones, the repair split), `StrategyConversionTimelineTests`
+(a leg's own cause wins). Mutation-checked: dropping `RnDPartPurchase` from the admission reds the
+headline (one adjustment) and the rewind cell (9600 against 9300); dropping `StructureRepair` and
+`ContractPenalty` reds the repair and penalty cells; dropping the two cause types reds the rewind,
+repair and reconcile cells. Not flown yet; lane owed: activate Aggressive Negotiations, buy a part,
+rewind, re-buy, warp past the first purchase's UT, then LedgerGroundTruth and no GUARDED line.
+
+---
+
 ## ~~FREE-TECH-NODE-LOST-AFTER-REWIND: a tech node stock unlocks for free has no ledger row, so the first tech patch after a rewind re-locks it for good~~ [FILED AND FIXED 2026-10-28 from code reading, branch `fix-free-tech-row`; unit-tested only, NOT FLOWN, lane owed; product, high (a node and its parts lost for good, a reduction of the career total)]
 
 Stock `ResearchAndDevelopment.UnlockProtoTechNode(ProtoTechNode)` unlocks a node for free and
