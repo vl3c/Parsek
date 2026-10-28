@@ -684,14 +684,15 @@ namespace Parsek.Tests.Logistics
                 "the route reconcile (retire, reconcile, loop-position restore) must run BEFORE the career-state cutoff walk");
             Assert.True(endIdx > routeIdx, "the carried rewind-save routes are cleared by EndRewind after use");
             // The exact arguments: the wound-back clock, the carried copy and the save's own UT.
-            // The route cutoff is derived from them inside the helper; the career walk stays on
-            // the clock.
+            // The route cutoff is derived from them inside the helper; the career walk is called
+            // at the clock and the ledger held-through UT raises it inside the walk (todo
+            // REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE), as it raises the baseline prune.
             string flat = System.Text.RegularExpressions.Regex.Replace(body, @"\s+", " ");
             Assert.Contains("Logistics.RouteLoadReconcile.ReconcileAtGoBackRewind( "
                 + "RewindContext.RewindAdjustedUT, RewindContext.RewindSaveRoutes, RewindContext.RewindSaveClockUT, "
                 + "RewindContext.RewindSaveOwnClockUT, RewindContext.RewindSaveEvents);",
                 flat);
-            Assert.Contains("GameStateStore.PruneBaselinesAfterUT(RewindContext.RewindAdjustedUT);", flat);
+            Assert.Contains("GameStateStore.PruneBaselinesAfterUT( LedgerHeldWindow.ResolveLedgerNowUT(RewindContext.RewindAdjustedUT));", flat);
             Assert.Contains("LedgerOrchestrator.RecalculateAndPatch( RewindContext.RewindAdjustedUT,", flat);
             // One owner: no second route retire or restore beside the helper.
             Assert.DoesNotContain("RetireFutureRouteActionsAtRewind(", body);

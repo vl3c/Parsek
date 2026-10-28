@@ -80,6 +80,15 @@ namespace Parsek
         internal static double RewindSaveOwnClockUT { get; private set; } = double.NaN;
 
         /// <summary>
+        /// The ledger held-through UT the rewind save itself carries
+        /// (<see cref="LedgerHeldWindow.ValueName"/>, a save written inside an earlier
+        /// Rewind-to-Launch lead window), read from the parsed save before the scene load. NaN
+        /// when it carries none or no save was parsed. <c>HandleRewindOnLoad</c> sets the new
+        /// floor from it (<see cref="LedgerHeldWindow.ResolveAtRewind"/>).
+        /// </summary>
+        internal static double RewindSaveLedgerHeldThroughUT { get; private set; } = double.NaN;
+
+        /// <summary>
         /// The route events the rewind save's own <c>ROUTE_EVENT_LOG</c> holds, read with
         /// <see cref="RewindSaveRoutes"/>. Null when not read.
         /// </summary>
@@ -115,6 +124,7 @@ namespace Parsek
             RewindSaveRoutes = null;
             RewindSaveClockUT = double.NaN;
             RewindSaveOwnClockUT = double.NaN;
+            RewindSaveLedgerHeldThroughUT = double.NaN;
             RewindSaveEvents = null;
             RewindReserved = reserved;
             RewindBaselineFunds = baselineFunds;
@@ -146,6 +156,7 @@ namespace Parsek
             RewindSaveRoutes = null;
             RewindSaveClockUT = double.NaN;
             RewindSaveOwnClockUT = double.NaN;
+            RewindSaveLedgerHeldThroughUT = double.NaN;
             RewindSaveEvents = null;
             RewindGameWrittenToPersistent = false;
 
@@ -245,6 +256,18 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Sets the ledger held-through UT the parsed rewind save carries (see
+        /// <see cref="RewindSaveLedgerHeldThroughUT"/>).
+        /// </summary>
+        internal static void SetRewindSaveLedgerHeldThroughUT(double heldThroughUT)
+        {
+            RewindSaveLedgerHeldThroughUT = heldThroughUT;
+            ParsekLog.Verbose("RewindContext",
+                "SetRewindSaveLedgerHeldThroughUT: " +
+                (double.IsNaN(heldThroughUT) ? "none" : heldThroughUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)));
+        }
+
+        /// <summary>
         /// Cold-load reset (GC1-SAVE-SCOPED-STATE-LEFTOVERS): a Cold load is never a rewind's own
         /// load (<c>LoadReconcilePolicy.ClassifyEarly</c> classifies a rewinding load PlainRewind
         /// unless <c>initialLoadDone</c> is false, which no rewind initiator produces), so rewind
@@ -280,6 +303,7 @@ namespace Parsek
             RewindSaveRoutes = null;
             RewindSaveClockUT = double.NaN;
             RewindSaveOwnClockUT = double.NaN;
+            RewindSaveLedgerHeldThroughUT = double.NaN;
             RewindSaveEvents = null;
             RewindGameWrittenToPersistent = false;
         }

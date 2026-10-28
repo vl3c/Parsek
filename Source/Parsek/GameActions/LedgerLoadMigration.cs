@@ -393,7 +393,7 @@ namespace Parsek
                 var evt = events[i];
                 if (evt.eventType != GameStateEventType.PartPurchased)
                     continue;
-                if (Math.Abs(evt.ut - action.UT) > LedgerOrchestrator.KscReconcileEpsilonSeconds)
+                if (Math.Abs(evt.ut - LedgerHeldWindow.CaptureMomentUT(action)) > LedgerOrchestrator.KscReconcileEpsilonSeconds)
                     continue;
 
                 if (!string.IsNullOrEmpty(partName))
@@ -534,7 +534,7 @@ namespace Parsek
             for (int i = 0; i < events.Count; i++)
             {
                 var e = events[i];
-                if (Math.Abs(e.ut - row.UT) > window)
+                if (Math.Abs(e.ut - LedgerHeldWindow.CaptureMomentUT(row)) > window)
                     continue;
                 if (!string.Equals(e.recordingId ?? "", rowTag, StringComparison.Ordinal))
                     continue;
@@ -567,7 +567,7 @@ namespace Parsek
                     if (other == null || ReferenceEquals(other, row)
                         || other.Type != GameActionType.FacilityUpgrade)
                         continue;
-                    if (Math.Abs(other.UT - row.UT) > window)
+                    if (Math.Abs(LedgerHeldWindow.CaptureMomentUT(other) - LedgerHeldWindow.CaptureMomentUT(row)) > window)
                         continue;
                     if (!string.Equals(other.RecordingId ?? "", rowTag, StringComparison.Ordinal))
                         continue;
@@ -1072,7 +1072,7 @@ namespace Parsek
         /// within 0.1 s and the type-specific key. Pure.</summary>
         private static bool RowMatchesEventEconomically(GameAction a, GameStateEvent evt)
         {
-            if (Math.Abs(a.UT - evt.ut) > 0.1) return false;
+            if (Math.Abs(LedgerHeldWindow.CaptureMomentUT(a) - evt.ut) > 0.1) return false;
 
             // Match on the type-specific key field.
             switch (a.Type)

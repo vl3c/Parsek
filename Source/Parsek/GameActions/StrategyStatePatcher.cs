@@ -599,7 +599,9 @@ namespace Parsek
             }
 
             bool resolveAtClock = !double.IsNaN(snapshot.ResolveClockUT);
-            double now = resolveAtClock ? snapshot.ResolveClockUT : Planetarium.GetUniversalTime();
+            double now = resolveAtClock
+                ? snapshot.ResolveClockUT
+                : LedgerHeldWindow.ResolveLedgerNowUT(Planetarium.GetUniversalTime());
             var index = CommittedFutureIndexCache.Current;
             var ordered = new List<StrategyTagInfo>(system.Strategies.Count);
             for (int i = 0; i < system.Strategies.Count; i++)

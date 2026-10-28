@@ -856,14 +856,18 @@ namespace Parsek
             ParsekLog.Verbose(Tag, "Invalidated committed-future index: reason=" + (reason ?? "(none)"));
         }
 
-        /// <summary>The UT every committed-future query compares against.</summary>
+        /// <summary>
+        /// The UT every committed-future query compares against: the clock, raised to the
+        /// ledger held-through UT while the clock is behind it (a Rewind-to-Launch lead window,
+        /// <see cref="LedgerHeldWindow"/>): rows the loaded world already holds are not future.
+        /// </summary>
         internal static double CurrentUT()
         {
             var provider = NowUtProviderForTesting;
-            if (provider != null) return provider();
+            if (provider != null) return LedgerHeldWindow.ResolveLedgerNowUT(provider());
             try
             {
-                return ReadPlanetariumUT();
+                return LedgerHeldWindow.ResolveLedgerNowUT(ReadPlanetariumUT());
             }
             catch (Exception ex)
             {

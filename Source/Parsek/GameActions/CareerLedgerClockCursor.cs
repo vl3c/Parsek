@@ -58,7 +58,9 @@ namespace Parsek
                 return false;
             }
 
-            double nextActionUT = GetNextActionUTAfter(lastCutoffUT);
+            // Rows up to the ledger held-through UT are in the loaded world (a Rewind-to-Launch
+            // lead window): reaching one is no crossing, so the next row that is one lies after it.
+            double nextActionUT = GetNextActionUTAfter(LedgerHeldWindow.ResolveLedgerNowUT(lastCutoffUT));
             if (!ParsekKSC.ShouldAdvanceCareerLedgerForKscUT(
                     currentUT, lastCutoffUT, nextActionUT, AdvanceEpsilonSeconds))
                 return false;

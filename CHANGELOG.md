@@ -25,6 +25,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Space Center actions just before a launch survive a Rewind-to-Launch.** A strategy, purchase,
+  demolition or repair made in the 15 s before a launch is in the world the rewind loads and now
+  counts as done: paid once, not applied again by a warp, a repair already made stays refused. An
+  action taken in those 15 s after the rewind counts after them, so repairing a building demolished
+  there keeps it standing. (REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE)
 - **A kerbal killed in a Re-Fly comes back with stock crew respawn on.** Re-flying a crewed
   stage that first ended with its kerbal aboard and losing him in the re-fly marked him lost for
   good, as if the replaced flight still held him. The replaced flight now lets him go: he respawns

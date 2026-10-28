@@ -285,7 +285,10 @@ namespace Parsek
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static double ReadLiveUniversalTime()
         {
-            try { return Planetarium.GetUniversalTime(); }
+            // The ledger's clock: a building row the loaded world already holds (a Rewind-to-Launch
+            // lead window, LedgerHeldWindow) is at or before now, so the patch neither undoes nor
+            // re-applies it.
+            try { return LedgerHeldWindow.ResolveLedgerNowUT(Planetarium.GetUniversalTime()); }
             catch (System.Exception) { return 0.0; }
         }
 
