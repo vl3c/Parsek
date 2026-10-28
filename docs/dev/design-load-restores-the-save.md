@@ -704,7 +704,8 @@ today. The auto-commit of the stashed flight runs as today.
     runs as a Re-Fly discard (authoritative), like the merge dialog's discard. The session's
     reference describes the pools its Re-Fly start wrote after walking the whole ledger, and
     measured against the rewind point's pools it read the committed future as a loss
-    (REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE). The harness `SaveGame(game, ...)` sites copy their stored nodes the same way.
+    (REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE). The harness `SaveGame(game, ...)` sites
+    copy their stored nodes the same way.
 13. **Two writers in one OnSave** (a recording rewritten twice in one session without a save in
     between): only the head that a save might reference needs retaining, but the design retains
     every replaced head; collection removes the unreferenced ones.

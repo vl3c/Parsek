@@ -26,8 +26,8 @@ _(unreleased - entries accumulate here per commit)_
 ### Fixed
 
 - **Discarding a Re-Fly after a rewind keeps the money still to come.** After a Rewind-to-Launch,
-  starting a Re-Fly and then choosing Discard Re-fly took away the funds (or science) your
-  committed future flights earn later, for good. Discard now returns the career to just before
+  starting a Re-Fly and then choosing Discard Re-fly took away the funds, science or reputation
+  your committed future flights earn later, for good. Discard now returns the career to just before
   the Re-Fly, and those earnings arrive when the timeline reaches them.
   (REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE)
 - **A strategy discount on a part, a repair or a penalty is counted once.** With Aggressive
