@@ -184,7 +184,10 @@ targetApoapsisMeters       = 80000
 targetPeriapsisMeters      = 80000
 apoErrorMeters             = 5000
 periErrorMeters            = 5000
-ascentTimeoutSeconds       = 480
+# 720, not CS-5/6's 480: run `2026-10-28_0144` (both attempts) timed out at exactly 480 s of
+# game time mid-circularization (MechJeb's own node executing, pe -34 km -> -13 km, nodeDv 94 -> 85)
+# on this heavier, cone-less stack; EC held at 150 throughout.
+ascentTimeoutSeconds       = 720
 circularizeTimeoutSeconds  = 300
 targetBodyName             = "Mun"
 homeBodyName               = "Kerbin"
