@@ -47,11 +47,15 @@ id = "RW-8-free-tech-gift-rewind"
 #   kscaction refused action=... reason=... target=  TestCommandKscAction.cs Refuse
 #   Game state: TechResearched '<id>' free unlock    GameStateRecorder.Handlers.cs:768
 #   Game state: ScienceChanged                       GameStateRecorder.cs:1122
-#   PatchTechTree: available=... madeAvailableIds=   KspStatePatcher.cs:906
+#   PatchTechTree: available=... madeUnavailableIds= KspStatePatcher.cs:906
+#   PatchCommittedTechUnlocks: madeAvailable=        KspStatePatcher.cs:1293 (the crossing)
 #   PatchTechTree: relock-refusal-summary            KspStatePatcher.cs:926
 #
-# STATUS: AUTHORED 2026-10-28 (branch `rw8-free-tech`), NEVER FLOWN. The recording count,
-# the batch split and the UT windows are interim until the first flight measures them.
+# STATUS: AUTHORED 2026-10-28 (branch `rw8-free-tech`). FIRST FLIGHT `2026-10-28_1457`
+# PARSEK-FAIL on four lane pins only: the gift ran at UT 185899.9 and the rewind landed at
+# 185785.8, outside the pinned digit windows, and the crossing's unlock is logged by
+# PatchCommittedTechUnlocks, not PatchTechTree. Every assertion held in that log; the pins
+# are fixed. The recording count and the batch split stay interim until a green flight.
 # =====================================================================================
 tier = "operator"
 description = "Rewind ledger campaign, free tech gift (#2312): on cs-career-mun4 a Jumping Flea V is recorded on the pad, committed and recovered; at UT 185900 the Space Center gifts the Aviation node for free through stock's UnlockProtoTechNode (the anomaly gift's call); a Rewind-to-Launch to V's launch locks the node again, the warp past the gift unlocks it again with no science spent, and a cold reload keeps it; LedgerGroundTruth closes the career."
@@ -165,17 +169,19 @@ required = [
 
   # ---- the gift: stock's free unlock, captured once as a cost-0 TechResearched row, no
   # science moved ----
-  "MISSIONMARK label=rw8-before-gift ut=1859[0-9]{2}\\.",
-  "MISSIONMARK label=rw8-before-gift ut=[\\s\\S]*?Game state: TechResearched 'aviation' free unlock \\(cost=0, nodeCost=45, ut=1859[0-9]{2}[\\s\\S]*?MISSIONMARK label=rw8-gifted ut=",
+  "MISSIONMARK label=rw8-before-gift ut=18589[0-9]\\.",
+  "MISSIONMARK label=rw8-before-gift ut=[\\s\\S]*?Game state: TechResearched 'aviation' free unlock \\(cost=0, nodeCost=45, ut=18589[0-9]\\.[0-9]+, parts=[1-9][0-9]*, tag='', reason=stock UnlockProtoTechNode\\)[\\s\\S]*?MISSIONMARK label=rw8-gifted ut=",
   "MISSIONMARK label=rw8-before-gift ut=[\\s\\S]*?kscaction action=gift-tech target=aviation applied=true manifestKind=tech-unlock observedAfter=science=20\\.166[0-9]*[\\s\\S]*?MISSIONMARK label=rw8-gifted ut=",
   "MISSIONMARK label=rw8-gifted ut=[\\s\\S]*?kscaction refused action=research-node reason=node-already-unlocked target=aviation",
 
   # ---- after the rewind: locked again ----
-  "MISSIONMARK label=rw8-rewound ut=1858[0-9]{2}\\.",
+  "MISSIONMARK label=rw8-rewound ut=18578[0-9]\\.",
+  # The rewind's own walk (cutoff at V's launch) re-locks the gifted node.
+  "MISSIONMARK label=rw8-gifted ut=(?:(?!MISSIONMARK label=rw8-rewound )[\\s\\S])*?PatchTechTree: available=[0-9]+, madeAvailable=0, madeUnavailable=1, [^\\r\\n]*madeUnavailableIds=\\[aviation\\]",
   "MISSIONMARK label=rw8-rewound ut=(?:(?!MISSIONMARK label=rw8-locked-probed )[\\s\\S])*?kscaction refused action=research-node reason=insufficient-science target=aviation",
 
-  # ---- the crossing: the tech patch makes aviation available again ----
-  "MISSIONMARK label=rw8-locked-probed ut=(?:(?!MISSIONMARK label=rw8-crossed )[\\s\\S])*?PatchTechTree: available=[0-9]+, madeAvailable=[1-9][0-9]*, [^\\r\\n]*madeAvailableIds=\\[[^\\]\\r\\n]*aviation",
+  # ---- the crossing: the committed unlock makes aviation available again at the gift's UT ----
+  "MISSIONMARK label=rw8-locked-probed ut=(?:(?!MISSIONMARK label=rw8-crossed )[\\s\\S])*?PatchCommittedTechUnlocks: madeAvailable=[1-9][0-9]*, [^\\r\\n]*liveUT=18589[0-9]\\.[0-9]+, madeAvailableIds=\\[[^\\]\\r\\n]*aviation",
   "MISSIONMARK label=rw8-crossed ut=(?:(?!MISSIONMARK label=rw8-unlocked-probed )[\\s\\S])*?kscaction refused action=research-node reason=node-already-unlocked target=aviation",
 
   # ---- the cold reload keeps it ----
