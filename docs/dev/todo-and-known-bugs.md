@@ -84,7 +84,9 @@ and the pairing (`TryFindRecoveryFundsEvent`, `OnRecoveryFundsEventRecorded`) an
 the payout got no row (review repro: 52.5 against 1500). A yield of 100 or more already did that
 before this entry. Now `Patches/RecoveryPayoutScopePatches.cs` scope both stock methods
 (`RecoveryPayoutScope`, payout wins when nested, since the payout's own query effect folds into one
-net event plus a zero-delta one). `GameStateRecorder.IsFundsDeltaBelowThreshold` exempts a positive
+net event plus a zero-delta one). Only a query with no funds input opens the funds-effect scope
+(`OpensFundsEffectScope`), so a mod's own `AddFunds(x, VesselRecovery)` under a strategy stays a
+pairable payout (found by re-review). `GameStateRecorder.IsFundsDeltaBelowThreshold` exempts a positive
 `VesselRecovery` change only inside the payout scope; a change inside the funds-effect scope keeps
 the 100 floor and, when recorded, carries the `notPayout=strategyEffect` detail and claims no payout
 context; `LedgerRecoveryFundsPairing`'s finder (shared by the #444 direct pairing, the deferred

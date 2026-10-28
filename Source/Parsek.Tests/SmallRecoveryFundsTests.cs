@@ -87,10 +87,12 @@ namespace Parsek.Tests
             MethodInfo finalizer = patchType.GetMethod("Finalizer", BindingFlags.Static | BindingFlags.NonPublic);
             Assert.NotNull(prefix);
             Assert.NotNull(finalizer);
-            var args = new object[] { false };
+            // The funds-effect Prefix also takes stock's query; null stands for a query with no
+            // funds input (a strategy yield), which opens the scope.
+            var args = prefix.GetParameters().Length == 2 ? new object[] { null, false } : new object[] { false };
             prefix.Invoke(null, args);
             try { body(); }
-            finally { finalizer.Invoke(null, new object[] { null, args[0] }); }
+            finally { finalizer.Invoke(null, new object[] { null, args[args.Length - 1] }); }
         }
 
         /// <summary>Stock's recovery payout: <c>Funding.onVesselRecoveryProcessing</c>'s AddFunds.</summary>
@@ -465,6 +467,18 @@ namespace Parsek.Tests
             LedgerOrchestrator.FlushStalePendingRecoveryFunds("scene switch");
             Assert.DoesNotContain(logLines, l => l.Contains("FlushStalePendingRecoveryFunds"));
             Assert.DoesNotContain(logLines, l => l.Contains("[WARN][LedgerOrchestrator]"));
+        }
+
+        [Theory]
+        [InlineData(0.0, true)]
+        [InlineData(-1500.0, false)]
+        [InlineData(1500.0, false)]
+        [InlineData(0.01, false)]
+        public void FundsEffectScope_OpensOnlyForAQueryWithNoFundsInput(double input, bool opens)
+        {
+            // A mod's own AddFunds(x, VesselRecovery) carries a funds input: its event is that
+            // mod's payout, so it must not be stamped as a strategy effect.
+            Assert.Equal(opens, RecoveryPayoutScope.OpensFundsEffectScope(input));
         }
     }
 }

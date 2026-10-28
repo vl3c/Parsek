@@ -32,15 +32,19 @@ namespace Parsek.Patches
     /// Opens <see cref="RecoveryPayoutScope"/>'s funds-effect scope around
     /// <c>Funding.OnCurrenciesModified</c> (private; KSP 1.12.5 decompiled: adds the query's
     /// funds effect delta and fires <c>OnFundsChanged</c> under the query's reason when it is
-    /// nonzero). Outside a payout scope that event is a strategy effect, never a payout.
+    /// nonzero). Outside a payout scope that event is a strategy effect, never a payout. Only a
+    /// query with no funds input opens it (<see cref="RecoveryPayoutScope.OpensFundsEffectScope"/>):
+    /// a funds-input query is an <c>AddFunds</c>, such as a mod paying its own recovery.
     /// </summary>
     [HarmonyPatch(typeof(Funding), "OnCurrenciesModified", typeof(CurrencyModifierQuery))]
     internal static class RecoveryFundsEffectScopePatch
     {
-        static void Prefix(out bool __state)
+        static void Prefix(CurrencyModifierQuery query, out bool __state)
         {
-            RecoveryPayoutScope.EnterFundsEffect();
-            __state = true;
+            __state = query == null
+                || RecoveryPayoutScope.OpensFundsEffectScope(query.GetInput(Currency.Funds));
+            if (__state)
+                RecoveryPayoutScope.EnterFundsEffect();
         }
 
         static Exception Finalizer(Exception __exception, bool __state)

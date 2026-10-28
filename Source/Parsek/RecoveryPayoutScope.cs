@@ -40,6 +40,17 @@ namespace Parsek
         internal static void EnterFundsEffect() { fundsEffectDepth++; }
         internal static void ExitFundsEffect() { if (fundsEffectDepth > 0) fundsEffectDepth--; }
 
+        /// <summary>
+        /// Pure: whether a currency query opens the funds-effect scope. Only a query with no
+        /// funds input of its own can turn another currency into funds; a query WITH a funds
+        /// input is an <c>AddFunds</c> (a mod paying its own recovery under
+        /// <c>VesselRecovery</c>), whose net event is that payout and must stay pairable.
+        /// </summary>
+        internal static bool OpensFundsEffectScope(double queryFundsInput)
+        {
+            return !(System.Math.Abs(queryFundsInput) > 0.0);
+        }
+
         /// <summary>Pure: the source of a funds change seen with these depths.</summary>
         internal static FundsEventSource Classify(int payoutDepthNow, int fundsEffectDepthNow)
         {
