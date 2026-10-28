@@ -2958,8 +2958,8 @@ needs an in-flight untagged earning (a pad flight's rollout shares the post-init
 Open question the RW-1 log raises: after the rewind Jeb's hold ends at H's recording end (185807.6, the KSC
 retirement bound), not at H's committed recovery (186000.2), so the rewound timeline frees him early.
 
-Progress 2026-10-28 (branch `rw3-save-reload-takeback`): lane `RW-3-save-reload-takeback` authored, never
-flown, plan row 15 (save and reload, then repeat): RW-1's committed pad flight, an unrecorded Flea's pad EVA
+Progress 2026-10-28 (branch `rw3-save-reload-takeback`): lane `RW-3-save-reload-takeback` LIVE-PROVEN on its
+first flight (`2026-10-28_0916`; evidence `logs/flights/rewind-campaign/rw-03-save-reload-takeback/`), plan row 15 (save and reload, then repeat): RW-1's committed pad flight, an unrecorded Flea's pad EVA
 as the committed Kerbin/SurfaceEVA world-first, a Rewind-to-Launch (one timeline break), `SaveGame` and
 `LoadGame playerLoad=true` (a Cold save-file load that must restore `era=177 breaks=1` from the save's LEDGER
 node and lift no pool while the committed rows are ahead, the shape of RW-2's cutoff=null finding), a Space

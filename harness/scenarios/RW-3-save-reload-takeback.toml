@@ -190,7 +190,13 @@ id = "RW-3-save-reload-takeback"
 #     tree, not H.
 #   - recordings 36: something recorded after H (an auto-record setting the reload reset).
 #
-# STATUS: AUTHORED 2026-10-28 (branch `rw3-save-reload-takeback`), NEVER FLOWN. Every pinned
+# STATUS: LIVE-PROVEN 2026-10-28 on its first flight, `2026-10-28_0916` PASS attempt 1 (DLL b50fbc5d, main e1ea512 plus the revert-cutoff fix). After the Rewind-to-Launch
+# the pool held at 154614.18 (cutoff 185785.2); the cold player load read `Loaded take-back facts
+# from 'GAME_STATE/LEDGER': era=177 breaks=1 badBreaks=0`; crossing the committed rows applied the
+# future SurfaceEVA once (157814.18 / rep 116, then 160746.18 with F's recovery); the repeated pad EVA
+# raised no second award (no second MilestoneAchieved, no take-back needed); 35 recordings; batch
+# passed=3 skipped=0; LedgerGroundTruth hardFailures=0; ledger_audit.py PASS with the lane's expect
+# file; 8 named step saves rw03-01..08. Original note: every pinned
 # literal is derived from source (file:line above), the fixture, and the flown RW-1 / RW-2
 # logs of the same H and the same EVA on this host, not from a flight of this lane.
 # Owed off the first flight:
@@ -380,7 +386,7 @@ required = [
   "result: hardFailures=0 ",
   # INTERIM: total=3 from the source (the LedgerGroundTruth category's FLIGHT cells); the
   # split is owed off the first flight (RW-1 read passed=3 skipped=0 on this host).
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
