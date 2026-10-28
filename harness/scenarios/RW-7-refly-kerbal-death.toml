@@ -491,7 +491,9 @@ required = [
   "Controllable split children: \\[[0-9]+,[0-9]+\\] \\(orig=[0-9]+, ",
   "RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 focusSlot=0 ut=1857[0-9]{2}\\.[0-9]{2}[\\s\\S]*?RewindPoint slot capture: rp=\\1 populated=2/2 disabled=0",
   "MISSIONMARK label=rw7-rewound ut=[\\s\\S]*?committree committed=true[\\s\\S]*?MISSIONMARK label=rw7-g-committed ut=",
-  "MISSIONMARK label=rw7-rewound ut=[\\s\\S]*?Current-UT ledger recalculation: reason=flight-tree-commit cutoffUT=1857[0-9]{2}[\\s\\S]*?MISSIONMARK label=rw7-g-committed ut=",
+  # G is committed inside the Rewind-to-Launch lead window, so its walk's cutoff is the rewind's
+  # held-through UT (#2324: rows up to the rewind save's UT count as reached), not the clock.
+  "Rewind: ledger held-through UT none -> ([0-9.]+) [\\s\\S]*?MISSIONMARK label=rw7-rewound ut=[\\s\\S]*?Current-UT ledger recalculation: reason=flight-tree-commit cutoffUT=\\1(?![0-9])[\\s\\S]*?MISSIONMARK label=rw7-g-committed ut=",
   "MISSIONMARK label=rw7-rewound ut=[\\s\\S]*?CommitTree: promoted normal staging rp=rp_[0-9a-f]{32} tree=\\S+ to persistent[\\s\\S]*?MISSIONMARK label=rw7-g-committed ut=",
   "Stashed slot=0 rec=\\S+ bp=\\S+ rp=rp_[0-9a-f]{32} tip=\\S+ tipMergeState=CommittedProvisional tipDemoted=True terminal=Landed reaperBlocked=True",
   "stashslot complete rp=rp_[0-9a-f]{32} slot=0 tip=\\S+ tipMergeState=Immutable->CommittedProvisional stashed=true unfinishedFlight=true unfinishedRow=\\S+",
