@@ -2863,6 +2863,40 @@ Mun/Spacewalk and Mun/Science paid, basicScience and electrics researched, Ledge
 hardFailures=0. Next: harvest its produced save as CS-7's host and give the CS-7 lander a Z-100
 and OX-STATs.
 
+Progress 2026-10-28 (CS-7, not landed on main): power is solved and the lander reaches the Mun,
+but the lane is parked for now after its attempt cap, every red a MISSION-FLAKE with no Parsek
+defect (analyzer red=0). Host `cs-career-mun4` (CS-6c's produced save); craft `CS Mun Solar
+Lander` (30 parts, 3 x OX-STAT + 1 x Z-100, Thumper nose cones dropped); the Kerbin-ascent coast
+turns the reaction wheels off (`ascentCoastWheelRelease`), and EC held at 150 throughout. Fixed
+on the way: the ascent timeout (480 -> 720 s for the heavier stack) and MechJeb autostage firing
+the pod separation after the boarding rebind (the autostage limit is re-applied). Still open: (1)
+the flag step. Decompiled `KerbalEVA.CanRecover`: a ragdolled kerbal at rest stands up only when
+he is NOT the active vessel or while a movement key is held, so a scripted Jeb lay in Ragdoll for
+the whole 180 s gate on 3 of 4 landings (the one green plant paid Mun/FlagPlant 12480/2/1). The
+new EVA-RECOVER step (switch to the lander, wait, switch back) makes him stand up (live: ragdoll
+ended 2.6 s after the switch), but `switch_to_nearest_named_vessel` then found no loaded vessel
+named 'Jebediah Kerman' 2 m away; next, log every candidate's name and distance, or switch back by
+pid. (2) One landing refused the EVA (`spawnEVA returned null`, hatch most likely obstructed by
+the rest attitude). The work sits on the operator PC's `cs6c-science` branch (5a00a9d7b),
+unpushed; runs `2026-10-28_0144` .. `_0432_a2`.
+
+---
+
+## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
+
+While Jeb stood (or lay ragdolled) on the Mun's surface as a BACKGROUND vessel during the CS-7
+EVA-RECOVER step, the Parsek log repeated `TryFinalizeRecording: recovered sub-surface live-orbit
+fallback` and `FinalizerCache Refresh failed ... reason=subsurface-destroyed-suppressed
+terminal=Landed` for his EVA recording. Nothing failed and the analyzer stayed green, but a landed
+kerbal is a surface vessel: his live orbit is sub-surface by definition, so the finalization cache
+should take the landed / surface path rather than the sub-surface-destroyed decline and its
+live-orbit recovery. Suspects: the situation read for a packed or ragdolled EVA kerbal on a
+low-gravity body, or a surface check that does not see a kerbal's altitude (a few cm above the
+terrain) as landed. Next: read the two lines' context in the collected `KSP.log` of those runs
+(operator PC `harness/results/`), find which predicate sends a Landed vessel into
+`IsSuppressedSubSurfaceDestroyedDecline` (`RecordingFinalizationCacheProducer.cs`), and add a
+unit cell for a landed EVA kerbal.
+
 ---
 
 ## ~~QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN: F9 back into a Discarded flight must record again~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-quickload-into-discarded`; the in-flight discards followed 2026-10-16, branch `claude/lanes-rc6-ql6-ir5-nh7w10` (live-proven by lane QL-6, `2026-10-16_0649` PASS attempt 1)]
