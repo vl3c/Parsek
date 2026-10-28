@@ -843,7 +843,10 @@ harness:
 - `upgrade-facility`: `unknown-facility` (no live `SpaceCenterBuilding` for the id),
   `facility-at-max` (already top level), `insufficient-funds`.
 - `hire-kerbal`: `unknown-kerbal` / `kerbal-not-applicant` (not in the applicant pool),
-  `insufficient-funds` (hire cost exceeds funds).
+  `insufficient-funds` (hire cost exceeds funds). `kerbal=applicant-first` (2026-10-28, lane
+  RW-12) hires the first applicant in stock's live pool, whose names stock generates at run time;
+  the hired name comes back in the OK payload as `target` (logged `kscaction hire-kerbal resolved
+  applicant-first -> '<name>'`), and an empty pool refuses `no-applicant` before any gate runs.
 - `dismiss-kerbal`: `unknown-kerbal` / `kerbal-not-dismissable` (assigned / tourist /
   protected), and `kerbal-parsek-managed` when `LedgerOrchestrator.Kerbals.IsManaged(name)`
   is true - the `KerbalDismissalPatch` `IsManaged` block would refuse the stock `Remove`

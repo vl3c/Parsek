@@ -1027,6 +1027,39 @@ namespace Parsek.TestCommands
         /// accepted guid comes back in the OK payload as <c>contract</c>).</summary>
         internal const string FirstOfferedContractArg = "offered-first";
 
+        /// <summary>The <c>kerbal=</c> value of <c>hire-kerbal</c> that names the first applicant in
+        /// stock's live pool instead of a name, for a host whose applicants stock generates at run
+        /// time with random names (the hired name comes back in the OK payload as <c>target</c>).</summary>
+        internal const string FirstApplicantArg = "applicant-first";
+
+        /// <summary>The refusal of <c>kerbal=applicant-first</c> when the applicant pool is empty.</summary>
+        internal const string NoApplicantReason = "no-applicant";
+
+        /// <summary>Pure: resolves a <c>hire-kerbal</c> <c>kerbal=</c> arg against the live applicant
+        /// names, in roster order. A plain name passes through unchanged (the ordinary gates then
+        /// judge it); <c>applicant-first</c> (case-insensitive) becomes the first non-empty name, or
+        /// refuses <see cref="NoApplicantReason"/> when there is none. Returns null on success.</summary>
+        internal static string ResolveHireTarget(string kerbalArg, IList<string> applicantNames, out string resolved)
+        {
+            resolved = kerbalArg;
+            if (string.IsNullOrEmpty(kerbalArg)
+                || !string.Equals(kerbalArg.Trim(), FirstApplicantArg, System.StringComparison.OrdinalIgnoreCase))
+                return null;
+            resolved = null;
+            if (applicantNames != null)
+            {
+                for (int i = 0; i < applicantNames.Count; i++)
+                {
+                    if (!string.IsNullOrEmpty(applicantNames[i]))
+                    {
+                        resolved = applicantNames[i];
+                        return null;
+                    }
+                }
+            }
+            return NoApplicantReason;
+        }
+
         /// <summary>Pure: whether the arg asks for the first Offered contract.</summary>
         internal static bool IsFirstOfferedContractArg(string arg)
         {
@@ -1120,8 +1153,22 @@ namespace Parsek.TestCommands
         private static KscActionExecOutcome ExecuteHireKerbal(string kerbal)
         {
             const string action = "hire-kerbal";
-            bool argPresent = !string.IsNullOrEmpty(kerbal);
             KerbalRoster roster = HighLogic.CurrentGame != null ? HighLogic.CurrentGame.CrewRoster : null;
+            if (roster != null)
+            {
+                string requested = kerbal;
+                var applicantNames = new List<string>();
+                foreach (ProtoCrewMember a in roster.Applicants)
+                    applicantNames.Add(a != null ? a.name : null);
+                string resolveReason = ResolveHireTarget(kerbal, applicantNames, out string resolvedName);
+                if (resolveReason != null)
+                    return Refuse(action, kerbal, resolveReason);
+                kerbal = resolvedName;
+                if (!string.Equals(requested, kerbal, System.StringComparison.Ordinal))
+                    ParsekLog.Info(Tag, "kscaction hire-kerbal resolved " + requested + " -> '" + kerbal
+                        + "' applicants=" + applicantNames.Count.ToString(CultureInfo.InvariantCulture));
+            }
+            bool argPresent = !string.IsNullOrEmpty(kerbal);
 
             ProtoCrewMember applicant = null;
             bool existsAnywhere = false;
