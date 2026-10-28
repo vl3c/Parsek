@@ -23,7 +23,7 @@ id = "RW-9-strategy-repair-rebuy"
 # crossing, where the committed repair and its legs must apply once.
 #
 # PLAN (cs-career-mun4 = CS-6c's produced save, UT ~185734, funds 157546.18, rep 115):
-#   boot       LoadGame persistent at the Space Center; warp to 185790.
+#   boot       LoadGame persistent at the Space Center; warp to 185750.
 #   strategy   activate-strategy AgressiveNegotiations (default factor 0.05).
 #   demolish   ForeverAlone (R&D, level 0): the building is down in V's rewind save.
 #   V          Jumping Flea on the pad, recorded 185800..185840, committed, recovered at its
@@ -39,8 +39,15 @@ id = "RW-9-strategy-repair-rebuy"
 # STEP SAVES (temporary analysis artifacts, copied with the run under logs/):
 #   rw09-01-after-v-commit, rw09-02-after-repair, rw09-03-after-rtl, rw09-04-after-crossing.
 #
-# STATUS: AUTHORED 2026-10-28 (branch `rw9-strategy-rebuy`), NEVER FLOWN; a reading run. The
-# leg literals, the recording count and the batch split are interim until it is measured.
+# STATUS: AUTHORED 2026-10-28 (branch `rw9-strategy-rebuy`). FIRST FLIGHT `2026-10-28_1522`
+# (and `_1524` a2) INVALID(driver-verdict-mismatch): with the strategy and the demolition at
+# UT 185790, inside the 15 s before V's launch (185800.3), the Rewind-to-Launch clock (185785.3,
+# `UT adjusted: 185800.3 -> 185785.3 (lead time 15s)`) sat BEFORE the demolition row while the
+# rewind save already held the building down, so the repair block read no destruction in the
+# past (`Allowing facility repair ... no committed future repair covers the destruction
+# (nowUT=185786)`) and a second paid repair went through. Filed as a product finding; the lane
+# now acts at 185750, outside the window. The leg literals, the recording count and the batch
+# split are interim until measured.
 # =====================================================================================
 tier = "operator"
 description = "Rewind ledger campaign, strategy discount on a repair (#2313): on cs-career-mun4 Aggressive Negotiations is activated and the R&D annex demolished, a Jumping Flea V is recorded, committed and recovered, the R&D facility is repaired at UT 185900 with the strategy's discount, a Rewind-to-Launch to V's launch refuses a second repair as committed, and the warp past the repair applies it and its conversion legs once: the pools after the crossing equal the pools after the original repair, with no pool adjustment and no guard clamp; LedgerGroundTruth closes the career."
@@ -67,8 +74,10 @@ steps = [
   { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
   { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
   { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
-  # Clear of the fixture's last rows (185732-185734) and their 60 s rollout window.
-  { cmd = "WarpToUT",       args = { ut = "185790", maxRate = "100" },                     expect = "OK", budget = 120 },
+  # Both Space Center actions sit OUTSIDE the 15 s window before V's launch: a Rewind-to-Launch
+  # winds the clock back to launch - 15 s, so an action inside that window would read as future
+  # while the rewind save already holds its effect (finding of the first flight, see STATUS).
+  { cmd = "WarpToUT",       args = { ut = "185750", maxRate = "100" },                     expect = "OK", budget = 120 },
   # ---- the strategy and the damage, both before V's launch (so in its rewind save) ----
   { cmd = "KscAction",      args = { action = "activate-strategy", strategy = "AgressiveNegotiations" }, expect = "OK", budget = 60 },
   { cmd = "MissionMark",    args = { label = "rw9-an-active" },                            expect = "OK" },
