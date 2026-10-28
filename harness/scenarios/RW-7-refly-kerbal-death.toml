@@ -243,9 +243,14 @@ id = "RW-7-refly-kerbal-death"
 # 39..48; (8) operator, ~25 min expected; (9) flight_efficiency.py after the first green flight.
 #
 # STATUS: AUTHORED 2026-10-28 (branch `rw7-death-push`, on the PartAction activate button of the
-# same branch), never flown. Every pinned literal is derived from source (file:line above), the
-# host, RW-6's flown log (2026-10-28_1214) and the crash shapes of CL-2 (2026-10-25_1043) and
-# RF-12W (2026-10-16_1135).
+# same branch). Flights: `2026-10-28_1318` PARSEK-FAIL found REFLY-MERGED-DEATH-PERMANENT-VIA-
+# SUPERSEDED-CO-ROW (fixed by #2323); on the fix `_1616` PARSEK-FAIL on two pins that encoded the
+# old Kerbal=0 shape (fixed), `_1627` PARSEK-FAIL because attempt 1's pod landed intact (a lane
+# flake: the crash is physics, not guaranteed), `_1637` PARSEK-FAIL on KSC-DEBRIS-CLEANUP-REFUND-
+# UNLEDGERED (the crash debris refunded on the Space Center entry, unbooked). In all three fix
+# runs the merge retired the replaced Aboard row (Kerbal=1) and the death respawned at its timer.
+# Every pinned literal is derived from source (file:line above), the host, RW-6's flown log
+# (2026-10-28_1214) and the crash shapes of CL-2 (2026-10-25_1043) and RF-12W (2026-10-16_1135).
 tier = "operator"
 description = "Rewind ledger campaign, a kerbal death in a Re-Fly, discarded then merged (plan row 5): on cs-career-mun4, RW-6's committed pad flight and contract accept, a Rewind-to-Launch and a CS Flea Probe flight decoupled on the pad (a rewind point) and committed; a first Re-Fly of the pod slot lights the SRB without staging (PartAction activate) and the unchuted pod crashes with its stand-in, then is discarded (no death row, no rep penalty, no tombstone, pools and rows back to their pre-invoke values); a second Re-Fly crashes the same way and merges (variant B: the re-fly's own KerbalDeath rep penalty tombstoned, the death kept under the merged flight with a stock respawn after 7200 s); a warp across the committed rows and past the respawn, then LedgerGroundTruth."
 instanceProfile = "stock-tree"

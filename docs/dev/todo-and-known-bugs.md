@@ -17,6 +17,31 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## KSC-DEBRIS-CLEANUP-REFUND-UNLEDGERED: stock's refund for debris cluttering the Space Center is never booked, so it lands as a leak row and a guard clamp [FILED 2026-10-28 from RW-7 run `2026-10-28_1637`; live-observed, NOT FIXED; product, medium (an unledgered funds change; LedgerGroundTruth hard-fails)]
+
+When the scene enters the Space Center, stock recovers landed debris near the KSC through
+`ProtoVessel.Clean` and pays a refund (`[WRN] Vessel CS Flea Probe Debris was recovered for a refund of
+163 Funds : it was debris cluttering up KSC.`). Parsek opens its recovery scope (`Recovery scope opened:
+route=proto-vessel-clean vessel='CS Flea Probe Debris' pid=2989750001`), but the recovery callback fires
+before stock's recovery processing, and the pairing rule skips a debris recovery that has no payout
+context (`OnVesselRecoveryFunds: vessel='CS Flea Probe Debris' (VesselType.Debris) at ut=185930.0 -
+skipping deferred recovery-funds pairing (debris recovery without recovery-processing payout context)`,
+`LedgerRecoveryFundsPairing.ShouldSkipDeferredRecoveryFunds`). The processing that follows reads
+`fundsEarned=(unknown)`, the scope closes `owner=unresolved ... taggedEvents=0`, and stock's
+`FundsChanged +163 (VesselRecovery)` stays unpaired. The next patch files it as a leak and clamps:
+`PatchFunds: filed StockPoolAdjustment amount=162.68000030517578 reason=leak ut=186000.15596869`,
+`PatchFunds: GUARDED DRAWDOWN clamped ... running=153564.18 live=150794.86 ... clampedTo=153726.86`.
+LedgerGroundTruth then hard-fails on funds (`funds save=188294.86 recon=188132.18 delta=162.68 ...
+adjustmentsLeftOut=162.68`), and `ledger_audit.py` FAILs ground-truth and guarded-clamp.
+
+Reached in RW-7 when the pod's crash in the merged Re-Fly left its decoupler debris landed near the
+pad (recording `78ba33fe`, terminal Landed, ghost-only after the merge) and the scene then returned to
+the Space Center. Any debris that lands inside the KSC grounds and is cleaned on the next Space
+Center entry takes the same path; the other RW-7 runs left no such debris. The player keeps stock's
+money (the adjustment row holds it), so the visible pool is right, but the refund belongs to no
+recording, cannot be taken back by a rewind before it, and reds the ground truth. #2317 (small
+recoveries) covers a debris payout inside `RecoveryPayoutScope`; this path pays outside it. NOT FIXED.
+
 ## ~~REFLY-MERGED-DEATH-PERMANENT-VIA-SUPERSEDED-CO-ROW: a kerbal killed in a merged Re-Fly with stock crew respawn on is lost for good, because the replaced flight's Aboard row was never retired~~ [FILED AND FIXED 2026-10-28 from lane RW-7, run `2026-10-28_1318`, branch `fix-refly-death-co-row`; unit-tested only, NOT FLOWN, RW-7 re-flight owed; product, high (a kerbal lost for good, and a kerbal held forever after any crewed-slot Re-Fly)]
 
 EVIDENCE (RW-7, host career with `MissingCrewsRespawn=True`, `RespawnTimer=7200`). Flight G launched
@@ -74,6 +99,17 @@ migration).
 TESTS: `ReFlyMergedDeathCoRowTests` (10 cells: RW-7 shape in session and after two reloads, a re-fly
 that recovers the kerbal, the live co-row mirror, the attribution key theory x5, the tail-overlap
 retire set). Reverting the key reds 7 of the 10.
+
+FLOWN ON THE FIX (2026-10-28, branch `rw7-death-push` merged with #2323, DLL 321353a0; evidence
+`logs/flights/rewind-campaign/rw-07-refly-kerbal-death-fix/`). In all three runs (`_1616`, `_1627`,
+`_1637`) the merge retired the replaced flight's Aboard row (`Step9: 1 pre-rewind-boarded open-ended
+crew row(s) retagged to TIP by endUT`, `PreRewindTombstoneGuard: 1 pre-rewind-boarded open-ended crew
+interval(s) kept in scope by endUT`, `Tombstoned 2 career actions (... Reputation=1, Kerbal=1 ...)`),
+no `respawn suppressed: open-ended co-row` line, permanent=0, and the death respawned at its timer
+(`Reservation released: 'Jebediah Kerman' endUT=193096.9 nowUT=193097.8 (respawn applied ...)`). The
+lane is not green yet: `_1616` PARSEK-FAIL on two pins that encoded the old Kerbal=0 shape (fixed);
+`_1627` PARSEK-FAIL because the first attempt's pod landed intact (a lane flake, ledger_audit PASS);
+`_1637` PARSEK-FAIL on KSC-DEBRIS-CLEANUP-REFUND-UNLEDGERED below (a different defect).
 
 ## REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE: a Space Center action in the 15 s before a launch is ahead of the clock after a Rewind-to-Launch, while the rewind save already holds its effect [FILED 2026-10-28 from RW-9's flights; live-measured, NOT FIXED; product, medium-high (a second paid repair, and the repaired building knocked down again)]
 
