@@ -1,0 +1,631 @@
+schema = 1
+id = "RW-6-refly-science-discard-merge"
+# =====================================================================================
+# RW-6: SCIENCE ACROSS A DISCARDED AND A MERGED RE-FLY OF ONE SLOT (the rewind ledger
+# campaign, plan row 7: "Re-Fly a stage that carries science. Discard one attempt, merge
+# another. The discarded science is gone without a trace, and the merged science is credited
+# once. The original slot must hold no counted gain, or Re-Fly is not offered.").
+#
+# THE RULINGS UNDER TEST: Re-Fly is losses-only and any gain seals (design
+# docs/parsek-rewind-to-separation-design.md section 2.12 Rule 1); science goes to the earliest
+# recovery, capped per subject (ScienceModule's cap walk); DISCARD RESTORES THE LEDGER TO JUST
+# BEFORE THE RE-FLY STARTED (2.12 Rule 3: "Invocation, the live session, Retry and every
+# Discard leave L exactly as it was before the invocation").
+#
+# THE PREDICATE THE ROW NAMES ("or Re-Fly is not offered"): SupersedeCommit.RetireSetHoldsSealingRow
+# (SupersedeCommit.RetireSet.cs:786), logged as `RetireSet gate (section 2.12 Rule 1): ... ->
+# nothing to give back | sealed by <row>` (:847, VerboseOnChange), read by Unfinished Flights,
+# the Stash resolver and RewindInvoker.CanInvoke precondition 7 (RewindInvoker.cs:141-147, the
+# refusal reason `recordingAction:<Type>:<ActionId>`, UnfinishedFlightClassifier.cs:14, which the
+# seam answers `invokerewind refused: refly-gate <reason>`, ParsekTestCommandAddon.cs:2816 /
+# TestCommandInvokeRewind.cs:69). Both halves are driven: G's slot holds no gain, so both
+# invokes pass it; after the merged attempt's science is recovered the same slot is refused.
+#
+# THE SHAPE: RW-5's prefix verbatim (H, the Jumping Flea recorded on the pad, committed,
+# recovered; F, the survey contract f1fb89dc accepted at the Space Center, +37500; a
+# Rewind-to-Launch to H; G, the CS Flea Probe recorded on the pad, its stand decoupled there
+# into a second controllable vessel so the split authors a rewind point, committed in flight
+# and its Landed pod slot stashed). H and F stay because the committed future they put ahead
+# of the rewound clock (H's rollout and recovery, F's accept) is what the invocation walk lifts
+# (+40432 in RW-5's flight) and what every discard and merge must hand back: without it the
+# RW-5 symptom below cannot show. G's pod carries the Mk1 pod's crew report
+# (ModuleScienceExperiment crewReport); the subject crewReport@KerbinSrfLandedLaunchPad is not
+# in the host's R&D list (only mysteryGoo@KerbinSrfLandedLaunchPad is, sci=3 of cap 3.9), so it
+# is a first reading. G takes no science (`exp:data=0` on G's pod after its commit).
+#   Attempt 1: InvokeRewind slot 0, `PartAction button=experiment part=mk1pod.v2` (the crew
+#     report, the stand-in aboard), a 1x wait, `exp:data=1`, then Discard Re-fly
+#     (ReFlyRevert discard target=launch, RW-5's measured route).
+#   Attempt 2: InvokeRewind slot 0 again from the Space Center; the pod comes back EMPTY
+#     (`exp:data=0`: the discarded report is gone with its attempt); the same crew report,
+#     `exp:data=1`, then AnswerMergeDialog merge (the HEAD / TIP split of G's launch recording,
+#     supersede rows, no tombstone, the slot auto-sealed Immutable on its Landed ending); then
+#     the pod is recovered from the Tracking Station (L13 / STR-2 / RF-L2's live-proven
+#     route), which is when stock pays the report and the ledger files it under the merged
+#     recording; then InvokeRewind slot 0 once more must be REFUSED by the value gate.
+#   Close: WarpToUT 186100 at the Space Center across the committed rows, an unrecorded check
+#   Flea, the default-slot save and LedgerGroundTruth (RW-1 / RW-5's close).
+#
+# THE GATES:
+#   - the discarded science never reaches the ledger: no `Science subject captured:
+#     crewReport@KerbinSrfLandedLaunchPad` before the merged recovery, and the second attempt's
+#     pod reads `exp:data=0`;
+#   - after the discard the walk's pools and the ledger row count equal those just before the
+#     first invoke (backreferences, RW-5's shape), and the live funds are not patched at all
+#     (the rewind point's quicksave already holds the pre-invoke pool); after the merge the walk
+#     again reads the pre-invoke pools until the recovery, and any live funds patch lands on the
+#     pre-invoke value 150632.2 (RW-5 measured: 157546.18 fixture - 2932 H's reserved rollout -
+#     3982 G's rollout);
+#   - the merged science is credited ONCE at full value and never over its cap: one capture, one
+#     KSC science row tagged to the merged attempt's recording, every walk's `Earning:` line
+#     with awarded = effective = creditedTotal = maxValue, no `Earning (cap hit):`, and the
+#     science pool after it equals the pre-invoke 20.17 plus that value;
+#   - the merge: dominance pass, variant A, the split, supersede rows, 0 tombstones,
+#     mergeState=Immutable by stableTerminalFocusSlot, End reason=merged once;
+#   - the sealed slot: `invokerewind refused: refly-gate recordingAction:` after the recovery.
+#
+# THE RW-5 SYMPTOM (RW-5's first flight 2026-10-28_1056, KSP.log line 27043-27049): after the
+# Discard load the patcher read the in-session lifted lastWritten (191064.2) as a leak, filed a
+# StockPoolAdjustment of -40432 and clamped funds `PatchFunds: 150632.2 -> 110200.2`, while the
+# walk's Structural line read the correct 150632.18. A fix is coming; this lane gates the
+# correct behaviour and reds until it lands: no `GUARDED ... clamped`, no `reason=leak`
+# adjustment, no live `PatchFunds: a -> b` after the Discard load, and none to a target other
+# than 150632.2 after the merge (the merge's own Space Center load must hand the same lift back).
+#
+# DEPARTURES FROM THE PLAN (each following the code):
+#   - "takes science ... and recovers or transmits it so the ledger would credit it" cannot be
+#     driven inside a Re-Fly session on this craft. Transmit: the pod's only antenna is
+#     INTERNAL (stock-tree GameData/Squad/Parts/Command/mk1pod_v2/mk1Pod_v2.cfg:184) and stock
+#     sends no science over an internal antenna (SCI-1's header, measured on the CS Flea).
+#     Recover: in a live session the scene-exit variant is ReFlyAttempt
+#     (SceneExitInterceptor.cs:172-173), the Recover verb's wedge guard refuses it
+#     (TestCommandExitToSpaceCenter.cs:108-109 -> `recover rejected reason=dialog-required`,
+#     TestCommands/ParsekTestCommandAddon.Recover.cs:139) because the Re-Fly merge modal it
+#     raises is not one Recover can answer. So attempt 1's report stays aboard as data and is
+#     discarded with the attempt (gated by the empty pod of attempt 2 and the absent capture),
+#     and attempt 2's report is credited by the post-merge Tracking Station recovery.
+#   - The "not offered" half is the post-recovery InvokeRewind REJECTED (RF-L1 / LAB-10's
+#     probe shape), not an Unfinished Flights listing: the merged slot is also sealed by its
+#     Landed ending, so the value gate is the only thing the probe can name.
+#   - The crew report's value: 1.5 from the cfgs (ScienceDefs crewReport baseValue 5 /
+#     scienceCap 5, the host's sbv 0.3 at LaunchPad, ScienceGainMultiplier 1 at persistent.sfs
+#     line 105), but L3 measured `crewReport@KerbinSrfLandedLaunchPad amount=3.0 ...
+#     maxValue=3` on stock-minimal (results-archive 2026-10-16_2221). Both are pinned as an
+#     alternation with their matching pool (21.67 or 23.17); owed off the first flight.
+#   - RW-5's `outcome=unbound-refly-provisional` forbid is NOT copied: RW-5's own first flight
+#     logged it once at the invoke's first save, before the recorder bound (KSP.log line
+#     25144), a transient; this lane forbids the merge-time refusal
+#     (`AppendRelations outcome=refused-unflown-provisional`) and requires the supersede rows.
+#
+# LITERALS (Source/Parsek/..., verified 2026-10-28 by grep in this worktree):
+#   launchfromeditor complete scene=FLIGHT    TestCommands/TestCommandEditorRoute.cs:517
+#   Game state: FundsChanged                  GameStateRecorder.cs:945 (arrow non-ASCII)
+#   MISSIONMARK label=                        TestCommands/TestCommandMissionMark.cs:22
+#   kscaction ... applied=true manifestKind=  TestCommands/TestCommandKscAction.cs:501
+#   KSC spending recorded: type=              GameActions/LedgerOrchestrator.cs:6095
+#   Rewind-to-Launch initiated to UT          RecordingStore.cs:5651
+#   invokerewindtolaunch invoking             TestCommands/ParsekTestCommandAddon.InvokeRewindToLaunch.cs:176
+#   Load classified:                          LoadReconcilePolicy.cs:381
+#   partaction applied button= / state=       TestCommands/TestCommandPartAction.cs:687 / :580
+#     (exp:data=<n>; the experiment press is BaseEvent DeployExperiment, :467)
+#   DECOUPLE emitted: ut=                     CrashCoalescer.cs:244
+#   ProcessBreakupEvent: controlled child created
+#                                             ParsekFlight.cs:9022
+#   Controllable split children:              SegmentBoundaryLogic.cs:518
+#   RewindPoint begin: / slot capture:        RewindPointAuthor.cs:174 / :305
+#   Single-controllable split: no RP          ParsekFlight.cs:6854 / :6947
+#   committree committed=                     TestCommands/ParsekTestCommandAddon.cs:2626
+#   Current-UT ledger recalculation: reason=  GameActions/LedgerOrchestrator.cs:2428
+#   CommitTree: promoted normal staging rp=   RecordingStore.cs:1326
+#   listhandles kind=                         TestCommands/ParsekTestCommandAddon.ListHandles.cs:92
+#   Stashed slot=                             UnfinishedFlightStashHandler.cs:107
+#   stashslot complete / rejected             TestCommands/ParsekTestCommandAddon.StashSlot.cs:186 / :57
+#   IsUnfinishedFlight=true                   EffectiveState.cs:1045
+#   RetireSet gate (section 2.12 Rule 1)      SupersedeCommit.RetireSet.cs:847
+#   Re-Fly ... StartInvoke / Invocation complete
+#                                             RewindInvoker.cs:960 / :1539
+#   invokerewind complete / refused: refly-gate
+#                                             TestCommands/ParsekTestCommandAddon.cs:2853 / :2816
+#   RecalculateAndPatch: actionsTotal=        GameActions/LedgerOrchestrator.cs:4302
+#   recordingstate ... awaitRecorderLive=     TestCommands/ParsekTestCommandAddon.cs:1931
+#   reflyrevert start / pressed / complete    TestCommands/TestCommandReFlyRevert.cs:507 / :518 / :530
+#   Revert dialog shown                       ReFlyRevertDialog.cs:123
+#   PurgeEventsForRecordings (                GameStateStore.cs:683
+#   PruneActiveReFlyAttemptOwnedTopology      MergeDialog.ReFlyDiscard.cs:224
+#   Origin RP promoted / already persistent   RevertInterceptor.cs:455 / :460
+#   DiscardReFly: rewind point game written   RevertInterceptor.cs:785 / :833
+#   End reason=discardReFly ... dispatched=   RevertInterceptor.cs:636-639
+#   In-session staged lists from memory:      ParsekScenario.InSessionHandoff.cs:154
+#   OnLoad: post-rewind current-UT cutoff decision
+#                                             ParsekScenario.cs:839
+#   [LoadSweep] Marker valid=                 LoadTimeSweep.cs:280
+#   [LedgerTrace] phase=Structural / Anomaly  LedgerTrace.cs:268 / :333
+#   PatchFunds: a -> b                        GameActions/KspStatePatcher.cs:2494
+#   answermergedialog choice= / complete      TestCommands/ParsekTestCommandAddon.cs:2980 / :3162
+#   Merge dominance check / Loss swap         ReFlyMergeDominance.cs:894 / :890
+#   Split origin <id> at UT=                  RecordingTreeSplitter.cs:1163
+#   Added N supersede relations               SupersedeCommit.cs:456
+#   Tombstoned N career actions               SupersedeCommit.cs:2534 / :2663
+#   provisional= mergeState= ... classifierReason=
+#                                             SupersedeCommit.cs:992-1001
+#   Auto-sealed re-fly slot=                  SupersedeCommit.cs:2275
+#   End reason=merged                         MergeJournalOrchestrator.cs:321 / :627
+#   tsrecover complete pid=                   TestCommands/TestCommandTrackingStationRecover.cs:329
+#   Science subject captured:                 GameStateRecorder.cs:1653
+#   KSC science recorded:                     GameActions/LedgerOrchestrator.cs:7229
+#   Earning: / Earning (cap hit):             GameActions/ScienceModule.cs:551 / :541
+#   VesselRecovery funds patched:             GameActions/LedgerRecoveryFundsPairing.cs:644
+#   Clock-crossing reached                    GameActions/LedgerOrchestrator.cs:2763
+#   savegame name=<n> folder= saved=          TestCommands/ParsekTestCommandAddon.cs:2098
+#   ground-truth game mode= / result: hardFailures=
+#                                             InGameTests/LedgerGroundTruthHarness.cs:125 / :246
+#   BATCH_COMPLETE v1                         InGameTests/InGameTestRunner.cs:1219
+#   forbidden: AppendRelations outcome=refused-unflown-provisional (SupersedeCommit.cs:274),
+#   ClearRecordingTagForRecordings: cleared= (GameActions/Ledger.cs:674), re-homed
+#   (GameActions/LedgerOrchestrator.cs:6877), outcome=retired-empty-provisional
+#   (ParsekFlight.TerminalOrbit.cs:227), Reaped rp= (RewindPointReaper.cs:174), Purged rp=
+#   (TreeDiscardPurge.cs:366), In-session load found no staged-list handoff
+#   (ParsekScenario.InSessionHandoff.cs:89), DiscardReFly load intent dropped as stale
+#   (DiscardReFlyLoadIntent.cs:73), Took back (GameActions/StockShadowTakeBack.cs:514),
+#   ABORTING rewind ledger patch (GameActions/KspStatePatcher.cs:89), GUARDED clamps
+#   (KspStatePatcher.cs:6287), filed StockPoolAdjustment (KspStatePatcher.cs:6117), Debt
+#   charge: (GameActions/FundsModule.cs:245), skipping duplicate rollout
+#   (GameActions/LedgerRolloutAdoption.cs:125 / :140), Recording started: vessel=
+#   (FlightRecorder.cs:6826), End reason=retry (RevertInterceptor.cs:294).
+#
+# PRE-REGISTERED READINGS (check these first if the first flight reds):
+#   - RW-5's own readings for the shared prefix (no RP, focus moved, stash refused, the
+#     check launch obstructed): this lane flies RW-5's first 60 steps.
+#   - `partaction rejected reason=partaction-event-unavailable` on the experiment press: the
+#     crew report's DeployExperiment is not live (no crew aboard: read `Cleared reserved` /
+#     `Swapped reserved` against G's launch).
+#   - attempt 1 or 2 inspect reads `exp:data=0` after the 1x wait: stock had not stored the
+#     report yet; raise the wait (keep it under 185797, the stand's recording end).
+#   - the attempt 2 pod inspect reads `exp:data=1` right after the invoke: the discarded report
+#     came back with the rewind point's world, a real "trace" (a product finding).
+#   - `reflyrevert rejected` with the experiment results dialog up: stock's ExperimentsResultDialog
+#     held the pause menu; the verb opens it through PauseMenu.Display.
+#   - `AppendRelations outcome=refused-unflown-provisional`: the pad attempt recorded no point
+#     (read the `recordingstate ... points=` before the merge).
+#   - `Merge dominance check ... result=refuse`: read pool / ut; the attempt filed nothing that
+#     lowers a balance, so a refuse is a product finding.
+#   - the post-merge funds forbid fires (`PatchFunds: <x> -> <y>` with y not 150632.2): the
+#     RW-5 leak mis-read on the merge road (same fix).
+#   - `KSC science recorded: ... recordingId=` not the merged attempt's rec: the recovery picker
+#     filed the science under HEAD, TIP or none; the sealed-slot probe then answers OK (it would
+#     start a third session). Read `PickRecoveryRecordingId` / `ResolveKscScienceRecordingId`.
+#   - the probe refused with a different reason (`unknown-rp`): the merge reaped the point
+#     (slot 1 was predicted open, RW-5 measured `stableLeafUnconcluded ... terminal=SubOrbital`).
+#   - recordings 38 or 40: the split did not run, or the optimizer split a recording; read
+#     `Split origin` and `listhandles kind=committed count=`.
+#
+# Owed off the first flight:
+#   - the crew report's value (1.5 cfg / 3 L3-measured; the alternation collapses to one) and
+#     the science pool after it (21.67 / 23.17);
+#   - the Tracking Station recovery's funds payout (regexed `[1-9][0-9]*`) and the end pools;
+#   - the auto-seal reason suffix, terminalKind, qualifies, the Loss swap variant (A predicted);
+#   - the sealed probe's named row (ScienceEarning, VesselRecovered or a recovery FundsEarning);
+#   - the recordings count (39 pinned: RW-5 measured 37 + the TIP of the split + the merged
+#     attempt; attempt 1's recording is pruned), the rewind point count after the merge (1
+#     predicted), the saveParse rewind block (report-only);
+#   - the batch split (`total=3` pinned from the source, `passed` / `skipped` regexed;
+#     IngameBatchWiringGroupTests.INTERIM_PIN_IDS until then); the tier call (operator:
+#     stock-tree is not in the nightly instance set).
+#
+# FAST-LANE CHECKLIST: (1) reuse: RW-5's prefix verbatim and its Esc discard, L13 / STR-2's
+# post-merge Tracking Station recovery, RF-L1 / LAB-10's REJECTED gate probe, RW-1's close.
+# Not merged INTO RW-5: RW-5 gates a world-first earned and discarded, this lane a capped
+# subject across a discard and a merge, and RW-5 has not flown green; folding the two is a
+# post-first-flight efficiency call. (2) explicit-UT warps only; (3)-(5) no dwell, burn or coast
+# beyond the 11 s pad recording and two ~3 s 1x waits for the report; (6) retry `once`;
+# (7) recordings window 39..39; (8) operator, ~18 min expected; (9) flight_efficiency.py after
+# the first green flight.
+#
+# STATUS: AUTHORED 2026-10-28 (branch `rw6-refly-science`, stacked on `rw5-refly-discard`),
+# NEVER FLOWN. Every pinned literal is derived from source (file:line above), the host and the
+# flown RW-1 / RW-3 / RW-5 (first flight, steps 1-60) logs.
+tier = "operator"
+description = "Rewind ledger campaign, science across a discarded and a merged Re-Fly of one slot (plan row 7): on cs-career-mun4, RW-5's committed pad flight and contract accept, a Rewind-to-Launch and a CS Flea Probe flight decoupled on the pad (a rewind point) and committed without science; a first Re-Fly of the pod slot takes the crew report and is discarded (the report never reaches the ledger, the next attempt's pod starts empty, the pools and rows return to their pre-invoke values); a second Re-Fly takes the same report and merges (split, supersede rows, no tombstone, auto-sealed), and the pod's Tracking Station recovery credits the subject once at full value under the merged flight, after which the value gate refuses that slot; then a warp across the committed rows and LedgerGroundTruth."
+instanceProfile = "stock-tree"
+tags = ["RW-6", "career", "ledger", "science", "crew-report", "rewind", "rewind-to-launch",
+        "refly", "discard-refly", "refly-merge", "refly-gate", "value-gate", "supersede",
+        "head-tip-split", "revert-dialog", "stash", "unfinished-flights", "controlled-child",
+        "editor", "tracking-station", "recover", "ground-truth", "ingame-batch",
+        "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 300 LoadGame + 7 x 120 warps + 3 x (120 GoToEditor + 180 LaunchFromEditor)
+# + 2 x 180 StartRecording + 2 x 120 CommitTree + 120 Recover + 60 KscAction + 300 rewind
+# + 2 x 300 InvokeRewind + 60 refused InvokeRewind + 300 ReFlyRevert + 240 AnswerMergeDialog
+# + 120 TS recover + 10 x 120 SaveGame + 540 RunTests = 6180; runtime 7400 adds the inert
+# steps and FlushAndQuit.
+steps = [
+  # scene = "spacecenter": the host's three vessels are Mun debris (RW-1's boot).
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  # Clear of the fixture's last rows (185732-185734) and their 60 s rollout window.
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+
+  # ---- flight H: recorded on the pad, committed, recovered (RW-1 / RW-5 verbatim) ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "h",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "186000" },                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "${h.pid}" },                                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw6-h-committed" },                          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw06-01-after-h-commit" },                   expect = "OK", budget = 120 },
+
+  # ---- F: the committed future, a contract accept at the Space Center ----
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "f1fb89dc-a471-42cf-94da-de4bb1080512" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw6-f-committed" },                          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw06-02-after-f-accept" },                   expect = "OK", budget = 120 },
+
+  # ---- the rewind to H's launch ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rw6-rewound" },                              expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw06-03-after-rtl" },                        expect = "OK", budget = 120 },
+
+  # ---- flight G: recorded on the pad, the stand decoupled (a rewind point), committed ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "CS Flea Probe" },          expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "g",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "PartAction",     args = { button = "decouple", part = "radialDecoupler" }, label = "dec", expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  # Held under 185800, where H's ghost starts on the same pad.
+  { cmd = "WarpToUT",       args = { ut = "185797", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c1",                   expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "handles",           expect = "OK" },
+  # Both slots end Landed / SubOrbital on a pad split; the stash keeps the pod's slot open.
+  { cmd = "StashSlot",      args = { rp = "${handles.rp0}", slot = "0" },                  expect = "OK" },
+  # G took no science: the slot holds no counted gain.
+  { cmd = "PartAction",     args = { button = "inspect", part = "mk1pod.v2" },             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw6-g-committed" },                          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw06-04-after-g-commit" },                   expect = "OK", budget = 120 },
+
+  # ---- attempt 1: the crew report taken, then Discard Re-fly ----
+  { cmd = "MissionMark",    args = { label = "rw6-refly1-armed" },                         expect = "OK" },
+  { cmd = "InvokeRewind",   args = { rp = "${handles.rp0}", slot = "0" },                  expect = "OK", budget = 300 },
+  # THE FLIGHT-READY WAIT (REFLY-LANES-JUMP-BEFORE-FLIGHT-READY, RF-3's order).
+  { cmd = "ListHandles",    args = { kind = "chains" },                                    expect = "OK" },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                        expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw6-refly1-started" },                       expect = "OK" },
+  { cmd = "PartAction",     args = { button = "experiment", part = "mk1pod.v2" },          expect = "OK" },
+  # 1x: stock stores the report and opens its results dialog (a 1x wait ignores its lock).
+  { cmd = "WarpToUT",       args = { ut = "185790", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "inspect", part = "mk1pod.v2" },             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw6-refly1-report" },                        expect = "OK" },
+  # Esc > Revert Flight > Revert to Launch > Discard Re-Fly (RW-5's measured route).
+  { cmd = "ReFlyRevert",    args = { choice = "discard", target = "launch" },              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rw6-discarded1" },                           expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "after1",            expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c2",                   expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw06-05-after-discard" },                    expect = "OK", budget = 120 },
+
+  # ---- attempt 2: the same report, merged (invoked from the Space Center) ----
+  { cmd = "MissionMark",    args = { label = "rw6-refly2-armed" },                         expect = "OK" },
+  { cmd = "InvokeRewind",   args = { rp = "${handles.rp0}", slot = "0" },                  expect = "OK", budget = 300 },
+  { cmd = "ListHandles",    args = { kind = "chains" },                                    expect = "OK" },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                        expect = "OK" },
+  # The pod's VESSEL pid for the recovery (the invoke payload's activePid is a root part's),
+  # and the proof that attempt 1's report did not come back with the rewind point.
+  { cmd = "PartAction",     args = { button = "inspect", part = "mk1pod.v2" }, label = "p2", expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw6-refly2-started" },                       expect = "OK" },
+  { cmd = "PartAction",     args = { button = "experiment", part = "mk1pod.v2" },          expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185791", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "inspect", part = "mk1pod.v2" },             expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw6-refly2-report" },                        expect = "OK" },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                                expect = "OK", budget = 240 },
+  { cmd = "MissionMark",    args = { label = "rw6-merged" },                               expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "after2",            expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c3",                   expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw06-06-after-merge" },                      expect = "OK", budget = 120 },
+
+  # ---- the merged science credited: the pod recovered from the Tracking Station ----
+  # The merge leaves FLIGHT (L13 / RF-C1 measured), so no ExitToSpaceCenter.
+  { cmd = "MissionMark",    args = { label = "rw6-recover-start" },                        expect = "OK" },
+  { cmd = "TrackingStationRecover", args = { pid = "${p2.pid}" },                          expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw6-recovered" },                            expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw06-07-after-recovery" },                   expect = "OK", budget = 120 },
+  # The slot now holds a counted gain: the value gate refuses it (precondition 7).
+  { cmd = "MissionMark",    args = { label = "rw6-sealed-probe" },                         expect = "OK" },
+  { cmd = "InvokeRewind",   args = { rp = "${handles.rp0}", slot = "0" },                  expect = "REJECTED", budget = 60 },
+
+  # ---- the crossing: every committed row reached at the Space Center ----
+  { cmd = "MissionMark",    args = { label = "rw6-before-crossing" },                      expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "186100", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw6-crossed" },                              expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw06-08-after-crossing" },                   expect = "OK", budget = 120 },
+
+  # ---- the check: an unrecorded launch, the save, the ground truth ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "186130" },                                      expect = "OK", budget = 120 },
+  { cmd = "SaveGame",       args = { name = "rw06-09-check-flight" },                     expect = "OK", budget = 120 },
+  # The DEFAULT slot (persistent): the one a harvest reads; the named slots above are side files.
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+# Every value is backed by a REQUIRED token below.
+#   science                     <- the recovery capture + `Earning:` of crewReport@KerbinSrfLandedLaunchPad
+#   controlled-decoupled-child  <- `ProcessBreakupEvent: controlled child created: pid=<stand>`
+#   rewind-to-separation        <- two StartInvoke + Invocation complete
+#   refly-gate                  <- `invokerewind refused: refly-gate recordingAction:`
+#   unfinished-flights-stash    <- `Stashed slot=0 ...` + `reflyrevert complete ... slotListed=true`
+#   revert-during-refly-dialog  <- `Revert dialog shown` + `reflyrevert pressed dialog button='Discard Re-Fly'`
+#   supersede-relation          <- `Added N supersede relations`
+#   head-tip-split              <- `Split origin <id> at UT=`
+#   scene-ts                    <- `tsrecover complete pid=<pod>`
+D5  = ["controlled-decoupled-child"]
+D8  = ["science", "funds", "contracts", "recalc-engine", "ksp-state-patcher", "ground-truth-harness"]
+D9  = ["rewind-to-launch", "rewind-to-separation", "refly-gate", "unfinished-flights-stash",
+       "revert-during-refly-dialog", "supersede-relation", "head-tip-split"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight", "scene-ts"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# RW-5's measured 37 (the host's 34, H, G's launch recording and its stand), plus the TIP the
+# merge's split cuts from G's launch recording and the merged attempt's recording. Attempt 1's
+# recording is pruned by its discard; the check Flea is unrecorded.
+count = { min = 39, max = 39 }
+
+[expectations.logContracts]
+required = [
+  # ---- three Flea-family launches: H and the check (the Jumping Flea), G (CS Flea Probe) ----
+  "\\A(?:[\\s\\S]*?launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH){2}",
+  "\\A(?:[\\s\\S]*?Game state: FundsChanged -2932 \\(VesselRollout\\)){2}",
+  "Game state: FundsChanged \\+2932 \\(VesselRecovery\\)[\\s\\S]*?MISSIONMARK label=rw6-h-committed ut=",
+
+  # ---- F: the accept, its own untagged row (RW-1 measured) ----
+  "MISSIONMARK label=rw6-h-committed ut=[\\s\\S]*?kscaction action=accept-contract target=f1fb89dc-a471-42cf-94da-de4bb1080512 applied=true manifestKind=contract-accept observedAfter=state=Active ",
+  "MISSIONMARK label=rw6-h-committed ut=[\\s\\S]*?Game state: FundsChanged \\+37500 \\(ContractAdvance\\)[\\s\\S]*?MISSIONMARK label=rw6-f-committed ut=",
+  "MISSIONMARK label=rw6-h-committed ut=[\\s\\S]*?KSC spending recorded: type=ContractAccept, UT=[0-9.]+, key=f1fb89dc-a471-42cf-94da-de4bb1080512[\\s\\S]*?MISSIONMARK label=rw6-f-committed ut=",
+
+  # ---- the rewind: a plain Rewind-to-Launch onto H's tree ----
+  "MISSIONMARK label=rw6-f-committed ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=rw6-rewound ut=",
+  "MISSIONMARK label=rw6-f-committed ut=[\\s\\S]*?Load classified: early=PlainRewind refined=PlainRewind [\\s\\S]*?MISSIONMARK label=rw6-rewound ut=",
+  "invokerewindtolaunch invoking tree=[0-9a-f]{32} rec=[0-9a-f]{32} startUT=1858[0-9]{2}\\.[0-9] - plain Rewind-to-Launch \\(NOT a Re-Fly\\)",
+
+  # ---- G: launched, decoupled on the pad into a second controllable vessel (RW-5 measured) ----
+  "MISSIONMARK label=rw6-rewound ut=[\\s\\S]*?launchfromeditor complete scene=FLIGHT vessel=CS Flea Probe pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  "MISSIONMARK label=rw6-rewound ut=[\\s\\S]*?Game state: FundsChanged -3982 \\(VesselRollout\\)[\\s\\S]*?MISSIONMARK label=rw6-g-committed ut=",
+  "launchfromeditor complete scene=FLIGHT vessel=CS Flea Probe pid=([0-9]+) [\\s\\S]*?partaction applied button=decouple pid=\\1 part='radialDecoupler' partId=[0-9]+ event=Decouple newPid=[1-9][0-9]* newName='[^'\\r\\n]*' vessels=[0-9]+->[0-9]+ activePid=\\1 ",
+  "partaction applied button=decouple pid=[0-9]+ part='radialDecoupler' [^\\r\\n]*newPid=([0-9]+) [\\s\\S]*?ProcessBreakupEvent: controlled child created: pid=\\1, name='[^'\\r\\n]*', recId=[0-9a-f]{32}, alive=True, bgRecorder=True",
+  "DECOUPLE emitted: ut=[0-9.]+ type=JointBreak splitCause=DECOUPLE decouplerPartId=[0-9]+ controlledChildren=1 debris=0 ",
+  "Controllable split children: \\[[0-9]+,[0-9]+\\] \\(orig=[0-9]+, ",
+  "RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 focusSlot=0 ut=1857[0-9]{2}\\.[0-9]{2}[\\s\\S]*?RewindPoint slot capture: rp=\\1 populated=2/2 disabled=0",
+  "MISSIONMARK label=rw6-rewound ut=[\\s\\S]*?committree committed=true[\\s\\S]*?MISSIONMARK label=rw6-g-committed ut=",
+  "MISSIONMARK label=rw6-rewound ut=[\\s\\S]*?Current-UT ledger recalculation: reason=flight-tree-commit cutoffUT=1857[0-9]{2}[\\s\\S]*?MISSIONMARK label=rw6-g-committed ut=",
+  "MISSIONMARK label=rw6-rewound ut=[\\s\\S]*?CommitTree: promoted normal staging rp=rp_[0-9a-f]{32} tree=\\S+ to persistent[\\s\\S]*?MISSIONMARK label=rw6-g-committed ut=",
+  "Stashed slot=0 rec=\\S+ bp=\\S+ rp=rp_[0-9a-f]{32} tip=\\S+ tipMergeState=CommittedProvisional tipDemoted=True terminal=Landed reaperBlocked=True",
+  "stashslot complete rp=rp_[0-9a-f]{32} slot=0 tip=\\S+ tipMergeState=Immutable->CommittedProvisional stashed=true unfinishedFlight=true unfinishedRow=\\S+",
+  "IsUnfinishedFlight=true rec=\\S+ reason=stashedStableLeaf slot=0 ",
+
+  # ---- THE ORIGINAL SLOT HOLDS NO COUNTED GAIN: the value gate opens it, G's pod is empty ----
+  "MISSIONMARK label=rw6-rewound ut=[\\s\\S]*?RetireSet gate \\(section 2\\.12 Rule 1\\): rp=rp_[0-9a-f]{32} slot=0 [^\\r\\n]*sealingRows=0 [^\\r\\n]*-> nothing to give back[\\s\\S]*?MISSIONMARK label=rw6-refly1-started ut=",
+  "stashslot complete rp=[\\s\\S]*?partaction applied button=inspect pid=[0-9]+ part='mk1pod\\.v2' [^\\r\\n]*state='exp:data=0'[\\s\\S]*?MISSIONMARK label=rw6-g-committed ut=",
+
+  # ---- attempt 1: invoked, the crew report taken (data aboard) ----
+  "MISSIONMARK label=rw6-refly1-armed ut=[\\s\\S]*?Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_[0-9a-f]{32} slot=0",
+  "MISSIONMARK label=rw6-refly1-armed ut=[\\s\\S]*?Load classified: early=ReFlyStart refined=ReFlyStart scene=FLIGHT [\\s\\S]*?MISSIONMARK label=rw6-refly1-started ut=",
+  # The invocation walk is the full ledger (cutoff double.MaxValue, by design).
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: (?:(?!Invocation complete: )[\\s\\S])*RecalculateAndPatch: actionsTotal=[0-9]+, actionsAfterCutoff=[0-9]+, cutoffUT=1\\.7976931348623157E\\+308",
+  "\\A(?:[\\s\\S]*?Invocation complete: sess=\\S+ rp=rp_[0-9a-f]{32} slot=0 activePid=[0-9]+){2}",
+  "\\A(?:[\\s\\S]*?recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true){2}",
+  "MISSIONMARK label=rw6-refly1-started ut=[\\s\\S]*?partaction applied button=experiment pid=[0-9]+ part='mk1pod\\.v2' partId=[0-9]+ event=DeployExperiment [\\s\\S]*?partaction applied button=inspect pid=[0-9]+ part='mk1pod\\.v2' [^\\r\\n]*state='exp:data=1'[\\s\\S]*?MISSIONMARK label=rw6-refly1-report ut=",
+
+  # ---- Discard Re-fly (RW-5 / RF-L4 / LAB-10b's tokens; slot= is the slot origin) ----
+  "MISSIONMARK label=rw6-refly1-report ut=[\\s\\S]*?reflyrevert start choice=discard target=launch sess=\\S+ rp=rp_[0-9a-f]{32} slot=[0-9a-f]{32} ",
+  "reflyrevert pressed revert-option button='[^'\\r\\n]*' target=launch launchOffered=true",
+  "Revert dialog shown sess=\\S+ target=Launch",
+  "reflyrevert pressed dialog button='Discard Re-Fly' choice=discard",
+  "PurgeEventsForRecordings \\(RevertInterceptor:DiscardReFly sess=\\S+\\): live=[0-9]+, ",
+  "PruneActiveReFlyAttemptOwnedTopology callSite=RevertInterceptor:DiscardReFly sess=\\S+ tree=\\S+ attemptIds=[1-9][0-9]* [^\\r\\n]*purgedEvents=[0-9]+ [^\\r\\n]*ledgerRowsRemoved=[0-9]+ ",
+  "Origin RP (?:promoted to persistent|already persistent) rp=rp_[0-9a-f]{32}",
+  "DiscardReFly: rewind point game written to persistent\\.sfs rp=rp_[0-9a-f]{32} sess=\\S+ ",
+  "End reason=discardReFly sess=\\S+ target=Launch facility=-- dispatched=true persistentWritten=true ",
+  "Load classified: early=DiscardReFly refined=DiscardReFly scene=SPACECENTER [^\\r\\n]*discardReFly=Launch handoff=present",
+  "In-session staged lists from memory: kind=DiscardReFly captured=\\S+; supersedes installed=0 loadedFromSave=[0-9]+ restored=0 staleDropped=0; retirements installed=0 [^;\\r\\n]*; tombstones installed=0 [^;\\r\\n]*; journal installed=none ",
+  "Load classified: early=DiscardReFly [\\s\\S]*?\\[LoadSweep\\] Marker valid=False; spare=0 discarded=0 selfSupersedes=0 orphanSupersedes=0 removedFullyOrphanSupersedes=0 removedOrphanRewindRetirements=0 orphanTombstones=0 strayFields=0 discardedRps=0 ",
+  "Load classified: early=DiscardReFly [\\s\\S]*?OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff=True loadedUT=1857[0-9]{2}(?:\\.[0-9]+)? [^\\r\\n]*loadedScene=SPACECENTER [^\\r\\n]*hasFutureLedgerActions=True",
+  "reflyrevert complete choice=discard target=launch scene=SPACECENTER sess=\\S+ rp=rp_[0-9a-f]{32} rpKept=true slot=[0-9a-f]{32} slotListed=true unfinishedFlights=[1-9][0-9]* marker=none",
+  "MISSIONMARK label=rw6-discarded1 ut=[\\s\\S]*?listhandles kind=rewindpoints count=1 truncated=false",
+
+  # ---- THE DISCARD GATE: the ledger exactly as just before the first Re-Fly started ----
+  # The pre-invoke pools (RW-5 measured on the same history): 157546.18 - 2932 - 3982.
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=150632\\.18 science=20\\.17 rep=115\\.00 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw6-refly1-armed ut=",
+  # Pools, facilities and active contracts after the discard read back by backreference.
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) facilities=\\[([^\\]\\r\\n]*)\\] targetTechNodes=[0-9]+ contracts=([0-9]+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw6-refly1-armed ut=[\\s\\S]*?Load classified: early=DiscardReFly refined=DiscardReFly [\\s\\S]*?\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 facilities=\\[\\4\\] targetTechNodes=[0-9]+ contracts=\\5 ",
+  # Rows: the same ledger row count before the invoke and after the discard.
+  "RecalculateAndPatch: actionsTotal=([0-9]+), (?:(?!RecalculateAndPatch: actionsTotal=)[\\s\\S])*?MISSIONMARK label=rw6-refly1-armed ut=[\\s\\S]*?Load classified: early=DiscardReFly refined=DiscardReFly (?:(?!RecalculateAndPatch: actionsTotal=)[\\s\\S])*RecalculateAndPatch: actionsTotal=\\1, ",
+  # Recordings: G's tree as committed, the attempt's recording gone (RW-5 read truncated=true).
+  "listhandles kind=committed count=([0-9]+) truncated=\\S+[\\s\\S]*?MISSIONMARK label=rw6-g-committed ut=[\\s\\S]*?MISSIONMARK label=rw6-discarded1 ut=[\\s\\S]*?listhandles kind=committed count=\\1 truncated=",
+
+  # ---- attempt 2: a NEW session on the same point and slot; the pod starts empty ----
+  "StartInvoke: sess=(\\S+) rp=(rp_[0-9a-f]{32}) slot=0[\\s\\S]*?MISSIONMARK label=rw6-refly2-armed ut=[\\s\\S]*?Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=(?!\\1 )\\S+ rp=\\2 slot=0",
+  "MISSIONMARK label=rw6-refly2-armed ut=[\\s\\S]*?Load classified: early=ReFlyStart refined=ReFlyStart scene=FLIGHT [\\s\\S]*?MISSIONMARK label=rw6-refly2-started ut=",
+  # THE DISCARDED SCIENCE LEFT NO TRACE: the second attempt's pod holds no report.
+  "MISSIONMARK label=rw6-refly2-armed ut=[\\s\\S]*?partaction applied button=inspect pid=[0-9]+ part='mk1pod\\.v2' [^\\r\\n]*state='exp:data=0'[\\s\\S]*?MISSIONMARK label=rw6-refly2-started ut=",
+  "MISSIONMARK label=rw6-refly2-started ut=[\\s\\S]*?partaction applied button=experiment pid=[0-9]+ part='mk1pod\\.v2' partId=[0-9]+ event=DeployExperiment [\\s\\S]*?partaction applied button=inspect pid=[0-9]+ part='mk1pod\\.v2' [^\\r\\n]*state='exp:data=1'[\\s\\S]*?MISSIONMARK label=rw6-refly2-report ut=",
+  # The attempt recorded a trajectory (a pointless provisional cannot supersede).
+  "MISSIONMARK label=rw6-refly2-started ut=[\\s\\S]*?recordingstate recording=true tree=\\S+ points=[1-9][0-9]* scene=FLIGHT[\\s\\S]*?MISSIONMARK label=rw6-refly2-report ut=",
+
+  # ---- THE MERGE: dominance, split, supersede, no tombstone, sealed Immutable ----
+  "MISSIONMARK label=rw6-refly2-report ut=[\\s\\S]*?Merge dominance check sess=\\S+ result=pass pool=\\S+ ut=\\S+ before=\\S+ after=\\S+ ",
+  "MISSIONMARK label=rw6-refly2-report ut=[\\s\\S]*?Loss swap sess=\\S+ variant=A repLossOld=\\S+ repLossNew=\\S+",
+  "MISSIONMARK label=rw6-refly2-report ut=[\\s\\S]*?Split origin [0-9a-f]{32} at UT=1857[0-9]{2}\\.[0-9]{2}: HEAD=\\[",
+  "MISSIONMARK label=rw6-refly2-report ut=[\\s\\S]*?Added [1-9][0-9]* supersede relations for subtree rooted at ",
+  "MISSIONMARK label=rw6-refly2-report ut=[\\s\\S]*?Tombstoned 0 career actions ",
+  "MISSIONMARK label=rw6-refly2-report ut=[\\s\\S]*?mergeState=Immutable terminalKind=\\S+ qualifies=\\S+ slot=0 rp=rp_[0-9a-f]{32} focusSlot=0 focusSlotOverride=0 classifierReason=stableTerminalFocusSlot autoSeal=True ",
+  "MISSIONMARK label=rw6-refly2-report ut=[\\s\\S]*?Auto-sealed re-fly slot=0 rec=\\S+ rp=rp_[0-9a-f]{32} mergeState=Immutable terminal=Landed reason=classifierClosed:\\S+",
+  "MISSIONMARK label=rw6-refly2-report ut=[\\s\\S]*?End reason=merged sess=\\S+ ",
+  "answermergedialog complete choice=merge result=committed",
+  # The walk hands the session's lift back: the last walk before the recovery reads the
+  # pre-invoke pools.
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw6-refly1-armed ut=[\\s\\S]*MISSIONMARK label=rw6-refly2-report ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw6-recover-start ut=",
+
+  # ---- THE MERGED SCIENCE, CREDITED ONCE: the pod recovered from the Tracking Station ----
+  "MISSIONMARK label=rw6-refly2-armed ut=[\\s\\S]*?partaction applied button=inspect pid=([0-9]+) part='mk1pod\\.v2' [\\s\\S]*?tsrecover complete pid=\\1 vessel=CS Flea Probe scene=SPACECENTER ",
+  # A first reading of a fresh subject: the stock total equals this amount.
+  "MISSIONMARK label=rw6-recover-start ut=[\\s\\S]*?Science subject captured: crewReport@KerbinSrfLandedLaunchPad amount=([0-9.]+) increment=[0-9.]+ total=\\1 gainMultiplier=1 reason='VesselRecovery' ut=1857[0-9]{2}\\.[0-9] tag='' deployed=False directLedger=True[\\s\\S]*?MISSIONMARK label=rw6-recovered ut=",
+  # Filed under the merged attempt's recording (design 2.12 Rule 3: under the vessel that caused it).
+  "Auto-sealed re-fly slot=0 rec=(\\S+) [\\s\\S]*?KSC science recorded: subject='crewReport@KerbinSrfLandedLaunchPad' science=[0-9.]+ method=\\S+ ut=1857[0-9]{2}\\.[0-9] recordingId=\\1 vessel='CS Flea Probe'",
+  "MISSIONMARK label=rw6-recover-start ut=[\\s\\S]*?VesselRecovery funds patched: vessel='CS Flea Probe' amount=[1-9][0-9]* ut=1857[0-9]{2}\\.[0-9] recordingId=\\S+ quick=\\S+[\\s\\S]*?MISSIONMARK label=rw6-recovered ut=",
+  # Credited in full, at its cap, and the pool is the pre-invoke 20.17 plus that value
+  # (1.5 from the cfgs, 3 as L3 measured; owed off the first flight).
+  "MISSIONMARK label=rw6-recover-start ut=[\\s\\S]*?Earning: subject=crewReport@KerbinSrfLandedLaunchPad, awarded=(?:1\\.5, effective=1\\.5, creditedTotal=1\\.5, maxValue=1\\.5, [^\\r\\n]*(?:(?!MISSIONMARK label=rw6-before-crossing )[\\s\\S])*?\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\S+ science=21\\.67 |3, effective=3, creditedTotal=3, maxValue=3, [^\\r\\n]*(?:(?!MISSIONMARK label=rw6-before-crossing )[\\s\\S])*?\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\S+ science=23\\.17 )",
+
+  # ---- THE SLOT NOW HOLDS A COUNTED GAIN: Re-Fly is not offered ----
+  "MISSIONMARK label=rw6-recovered ut=[\\s\\S]*?RetireSet gate \\(section 2\\.12 Rule 1\\): rp=rp_[0-9a-f]{32} slot=0 [^\\r\\n]*sealingRows=[1-9][0-9]* [^\\r\\n]*-> sealed by ",
+  "MISSIONMARK label=rw6-sealed-probe ut=[\\s\\S]*?invokerewind refused: refly-gate recordingAction:[A-Za-z]+:act_[0-9a-f]{32}[\\s\\S]*?MISSIONMARK label=rw6-before-crossing ut=",
+
+  # ---- the crossing: the rows reached at the Space Center, F's accept among them ----
+  "MISSIONMARK label=rw6-before-crossing ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=rw6-crossed ut=",
+  "MISSIONMARK label=rw6-before-crossing ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[0-9]+ \\[[^\\]]*ContractAccept@[\\s\\S]*?MISSIONMARK label=rw6-crossed ut=",
+
+  # ---- the step saves (named side slots for after-flight reading) and the default slot ----
+  "savegame name=rw06-01-after-h-commit folder=\\S+ saved=true",
+  "savegame name=rw06-02-after-f-accept folder=\\S+ saved=true",
+  "savegame name=rw06-03-after-rtl folder=\\S+ saved=true",
+  "savegame name=rw06-04-after-g-commit folder=\\S+ saved=true",
+  "savegame name=rw06-05-after-discard folder=\\S+ saved=true",
+  "savegame name=rw06-06-after-merge folder=\\S+ saved=true",
+  "savegame name=rw06-07-after-recovery folder=\\S+ saved=true",
+  "savegame name=rw06-08-after-crossing folder=\\S+ saved=true",
+  "savegame name=rw06-09-check-flight folder=\\S+ saved=true",
+  "MISSIONMARK label=rw6-crossed ut=[\\s\\S]*?savegame name=persistent folder=\\S+ saved=true",
+
+  # ---- the ground truth, in FLIGHT on the unrecorded check Flea ----
+  "ground-truth game mode=CAREER pools=funds,science,reputation",
+  "result: hardFailures=0 ",
+  # INTERIM: total=3 from the source (the LedgerGroundTruth category's FLIGHT cells); the
+  # split is owed off the first flight (RW-1 / RW-3 read passed=3 skipped=0 on this host).
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "\\[LedgerTrace\\] phase=Anomaly ",
+  "ABORTING rewind ledger patch",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  "filed StockPoolAdjustment amount=\\S+ reason=leak ",
+  "Debt charge:",
+  "\\[TakeBack\\] Took back ",
+  "invokerewindtolaunch refused",
+  "stashslot (?:refused|rejected)",
+  "stashslot readback-failed",
+  "partaction rejected",
+  "partaction error ",
+  "reflyrevert rejected",
+  "reflyrevert error",
+  "answermergedialog refused",
+  "answermergedialog failed",
+  "tsrecover rejected",
+  "warptout refused",
+  "kscaction refused",
+  "savegame refused ",
+  "savegame failed ",
+  # The only refused invoke is the sealed-slot probe, and it names the value gate.
+  "\\A(?:(?!MISSIONMARK label=rw6-sealed-probe )[\\s\\S])*?invokerewind refused",
+  "\\A(?:[\\s\\S]*?invokerewind refused){2}",
+  "invokerewind refused: (?!refly-gate recordingAction:)",
+  # One rewind to launch only, onto H.
+  "\\A(?:[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT ){2}",
+  # The decouple authors the point (two controllable outputs).
+  "Single-controllable split: no RP",
+  "OnVesselRolloutSpending: skipping duplicate rollout",
+  # ---- the RW-2 symptom: no pool lift while the committed rows are ahead, from the rewind
+  # to the first invoke (the invocation walk's lift inside a session is by design) ----
+  "MISSIONMARK label=rw6-rewound ut=(?:(?!MISSIONMARK label=rw6-refly1-armed )[\\s\\S])*\\[KspStatePatcher\\] PatchFunds: [0-9.]+ -> [0-9.]+ \\(delta=[1-9]",
+  # ---- the RW-5 symptom: the discard load needs no live funds patch at all (the rewind
+  # point's quicksave holds the pre-invoke pool), and the merge hands the lift back to the
+  # pre-invoke 150632.2, never below it ----
+  "Load classified: early=DiscardReFly (?:(?!MISSIONMARK label=rw6-refly2-armed )[\\s\\S])*\\[KspStatePatcher\\] PatchFunds: [0-9.]+ -> [0-9.]+ \\(delta=",
+  "answermergedialog choice=merge result=committed(?:(?!MISSIONMARK label=rw6-recover-start )[\\s\\S])*\\[KspStatePatcher\\] PatchFunds: [0-9.]+ -> (?!150632\\.2 )[0-9.]+ \\(delta=",
+  # Every structural walk from the discard to the second invoke reads the pre-invoke pools.
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw6-refly1-armed ut=[\\s\\S]*?Load classified: early=DiscardReFly refined=DiscardReFly (?:(?!MISSIONMARK label=rw6-refly2-armed )[\\s\\S])*?\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ (?!funds=\\1 science=\\2 rep=\\3 )",
+  # ---- THE DISCARDED SCIENCE: never captured, never filed, before the merged recovery ----
+  "\\A(?:(?!MISSIONMARK label=rw6-recover-start )[\\s\\S])*?Science subject captured: crewReport@KerbinSrfLandedLaunchPad ",
+  "\\A(?:(?!MISSIONMARK label=rw6-recover-start )[\\s\\S])*?KSC science recorded: subject='crewReport@KerbinSrfLandedLaunchPad'",
+  "\\A(?:(?!MISSIONMARK label=rw6-recover-start )[\\s\\S])*?Earning(?: \\(cap hit\\))?: subject=crewReport@KerbinSrfLandedLaunchPad,",
+  # ---- THE MERGED SCIENCE: captured and filed once, never capped, never partial, never
+  # credited past its own value ----
+  "\\A(?:[\\s\\S]*?Science subject captured: crewReport@KerbinSrfLandedLaunchPad ){2}",
+  "\\A(?:[\\s\\S]*?KSC science recorded: subject='crewReport@KerbinSrfLandedLaunchPad'){2}",
+  "Earning \\(cap hit\\): subject=crewReport@KerbinSrfLandedLaunchPad,",
+  "Earning: subject=crewReport@KerbinSrfLandedLaunchPad, awarded=([0-9.]+), effective=(?!\\1,)",
+  "Earning: subject=crewReport@KerbinSrfLandedLaunchPad, awarded=([0-9.]+), effective=\\S+, creditedTotal=(?!\\1,)",
+  "MISSIONMARK label=rw6-recovered ut=(?:(?!MISSIONMARK label=rw6-crossed )[\\s\\S])*?\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\S+ science=(?!21\\.67 |23\\.17 )",
+  # ---- the discard untags nothing and re-homes nothing ----
+  "ClearRecordingTagForRecordings: cleared=[1-9]",
+  "PreserveIrreversibleLiveGameplayOnDiscard \\([^)\\r\\n]*\\): re-homed",
+  # ---- the discard is not a merge; the merge runs once and retires nothing ----
+  "\\A(?:(?!MISSIONMARK label=rw6-refly2-armed )[\\s\\S])*?Split origin \\S+ at UT=",
+  "\\A(?:(?!MISSIONMARK label=rw6-refly2-armed )[\\s\\S])*?Added [1-9][0-9]* supersede relations",
+  "\\A(?:(?!MISSIONMARK label=rw6-refly2-armed )[\\s\\S])*?End reason=merged ",
+  "\\A(?:[\\s\\S]*?End reason=merged ){2}",
+  "Tombstoned [1-9][0-9]* career actions",
+  "Merge dominance check sess=\\S+ result=refuse",
+  "AppendRelations outcome=refused-unflown-provisional",
+  "End reason=concluded-no-supersede",
+  "End reason=retry ",
+  "End reason=discardReFlyAttemptFromMergeDialog",
+  # ---- no Re-Fly leftovers ----
+  "outcome=retired-empty-provisional",
+  "In-session load found no staged-list handoff",
+  "DiscardReFly load intent dropped as stale",
+  # G's point survives from its commit to the sealed-slot probe (slot 1 stays open).
+  "MISSIONMARK label=rw6-rewound ut=(?:(?!MISSIONMARK label=rw6-before-crossing )[\\s\\S])*Reaped rp=",
+  "MISSIONMARK label=rw6-rewound ut=(?:(?!MISSIONMARK label=rw6-before-crossing )[\\s\\S])*Purged rp=",
+  # ---- F's accept applies once at the crossing ----
+  "Clock-crossing reached committed-future rows: [^\\r\\n]*ContractAccept@[\\s\\S]*Clock-crossing reached committed-future rows: [^\\r\\n]*ContractAccept@",
+  "kscaction action=accept-contract target=f1fb89dc-a471-42cf-94da-de4bb1080512 applied=true[\\s\\S]*kscaction action=accept-contract target=f1fb89dc-a471-42cf-94da-de4bb1080512 applied=true",
+  # ---- nothing records after the merge ----
+  "MISSIONMARK label=rw6-merged ut=[\\s\\S]*Recording started: vessel=",
+  "Game state: ContractCompleted ",
+  "Game state: ContractFailed ",
+]
+
+# REPORT-ONLY until the reading run: the point survives (the stand's slot stays open), the
+# merge writes its supersede rows and no tombstone.
+[expectations.rewind]
+gating        = false
+rewindPoints  = { min = 1, max = 1 }
+supersedeRows = { min = 1 }
+tombstones    = { max = 0 }
+
+[runtime]
+budgetSeconds = 7400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

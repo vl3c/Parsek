@@ -3167,6 +3167,27 @@ Landed (closed), so the lane stashes the pod's slot before any load would reap t
 cutoff=MaxValue lift is by design, so the pools are gated before the invoke and after the discard, not inside
 the session.
 
+Progress 2026-10-28 (branch `rw6-refly-science`, stacked on `rw5-refly-discard`): lane
+`RW-6-refly-science-discard-merge` authored, never flown, plan row 7 (Re-Fly a stage that carries science,
+discard one attempt and merge another). RW-5's prefix (H, F, a Rewind-to-Launch, G decoupled on the pad and
+committed without science, its pod slot stashed), then two Re-Flys of the pod slot that take the Mk1 pod's crew
+report (`crewReport@KerbinSrfLandedLaunchPad`, a first reading on this host): the first is discarded through
+the Esc menu (the report never reaches the ledger, the second attempt's pod reads `exp:data=0`, the walk's pools
+and row count equal the pre-invoke ones, and no live funds patch follows the discard load); the second merges
+(the HEAD / TIP split, supersede rows, 0 tombstones, `mergeState=Immutable` by `stableTerminalFocusSlot`) and its
+pod is recovered from the Tracking Station, which credits the subject once at full value under the merged
+recording with the science pool equal to the pre-invoke 20.17 plus that value; then InvokeRewind on the same
+slot must be refused `refly-gate recordingAction:` (the "not offered" half, `SupersedeCommit.RetireSetHoldsSealingRow`).
+Corrections to the plan from the code: "recovers or transmits it" cannot be driven inside a session on this
+craft (the pod's only antenna is INTERNAL, and the Recover verb refuses a live session's scene exit as
+`dialog-required` because it raises the Re-Fly merge modal), so the discarded report stays aboard as data and
+the merged one is credited by the post-merge Tracking Station recovery. The lane reds on the RW-5 discard funds
+defect (`PatchFunds: 150632.2 -> 110200.2`) until its fix lands, and forbids the same mis-read on the merge's own
+Space Center load. Read off RW-5's first flight while authoring: RW-5 forbids `outcome=unbound-refly-provisional`,
+which its own flight logged once at the invoke's first save (KSP.log line 25144, before the recorder bound); its
+`stashslot refused` forbid never matches (the seam logs `stashslot rejected`); and its committed-count gate
+requires `truncated=false` where the flight read `count=37 truncated=true`.
+
 ---
 
 ## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
