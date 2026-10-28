@@ -15,7 +15,8 @@ id = "RW-7-refly-kerbal-death"
 # are kept and the re-fly's OWN ReputationPenalty loss rows are tombstoned by the merge
 # (SupersedeCommit.CommitTombstones, SupersedeCommit.cs:2580-2600, logged `Loss swap variant B
 # applied ... tombstonedAttemptRepLoss=N` :2652 and `Tombstoned N career actions (...
-# Reputation=N, Kerbal=0 ...)` :2663). The death row itself (KerbalAssignment Dead) is NOT a
+# Reputation=N, Kerbal=1 ...)` :2663; the one Kerbal row is the REPLACED flight's open-ended
+# Aboard row, retired since #2323). The death row itself (KerbalAssignment Dead) is NOT a
 # loss row of that rule and stays: the death follows the re-fly.
 #
 # THE KERBAL: the pod carries a GENERATED STAND-IN, not Jeb. H (the committed Jumping Flea)
@@ -80,7 +81,7 @@ id = "RW-7-refly-kerbal-death"
 #     `engine:ignited=0` again (the attempt left nothing in the world);
 #   - the merge: dominance pass, `Loss swap ... variant=B repLossOld=0`, the split, supersede
 #     rows, `Loss swap variant B applied ... keptReplacedRepLoss=0 tombstonedAttemptRepLoss=N`
-#     with `Tombstoned N career actions (... Reputation=N, Kerbal=0 ...)`, End reason=merged once;
+#     with `Tombstoned M career actions (... Reputation=N, Kerbal=1 ...)`, End reason=merged once;
 #   - the death follows the re-fly: the merged provisional is the recording whose crew died,
 #     `KerbalDeath rep penalty: ... -> ReputationPenalty(KerbalDeath) candidate`, the death
 #     hold on that recording is `respawn scheduled ... timer=7200`, `respawnPending>=1` until
@@ -407,7 +408,7 @@ steps = [
 [dimensionsCovered]
 # Every value is backed by a REQUIRED token below.
 #   reputation / tombstones (D8)  <- the pre-invoke rep 115.00 after the merge and `Tombstoned N
-#                                    ... Reputation=N, Kerbal=0`
+#                                    ... Reputation=N, Kerbal=1`
 #   kerbals (D8)                  <- `Death hold: ... respawn scheduled` + the respawn release
 #   controlled-decoupled-child    <- `ProcessBreakupEvent: controlled child created: pid=<stand>`
 #   rewind-to-separation          <- two StartInvoke + Invocation complete
@@ -538,7 +539,11 @@ required = [
   "MISSIONMARK label=rw7-refly2-crashed ut=[\\s\\S]*?KerbalDeath rep penalty: recording='rec_[0-9a-f]{32}' applied=[0-9][0-9.E+-]* ut=185[89][0-9]{2}\\.[0-9]+ dead=1 repSeedOrigin=\\S+ insideRepSeed=\\S+ -> ReputationPenalty\\(KerbalDeath\\) candidate \\(dedup decides\\)",
   "MISSIONMARK label=rw7-refly2-crashed ut=[\\s\\S]*?Split origin [0-9a-f]{32} at UT=1857[0-9]{2}\\.[0-9]{2}: HEAD=\\[",
   "MISSIONMARK label=rw7-refly2-crashed ut=[\\s\\S]*?Added [1-9][0-9]* supersede relations for subtree rooted at ",
-  "MISSIONMARK label=rw7-refly2-crashed ut=[\\s\\S]*?Loss swap variant B applied sess=\\S+ keptReplacedRepLoss=0 tombstonedAttemptRepLoss=([1-9][0-9]*) retiring=\\S+[\\s\\S]*?Tombstoned \\1 career actions \\(Contract=0, Milestone=0, Facility=0, Strategy=0, ScienceSpending=0, Science=0, Funds=0, Reputation=\\1, Kerbal=0, Other=0\\)",
+  "MISSIONMARK label=rw7-refly2-crashed ut=[\\s\\S]*?Loss swap variant B applied sess=\\S+ keptReplacedRepLoss=0 tombstonedAttemptRepLoss=([1-9][0-9]*) retiring=\\S+[\\s\\S]*?Tombstoned [0-9]+ career actions \\(Contract=0, Milestone=0, Facility=0, Strategy=0, ScienceSpending=0, Science=0, Funds=0, Reputation=\\1, Kerbal=1, Other=0\\)",
+  # The one Kerbal row the merge retires is the REPLACED flight's open-ended Aboard row
+  # (#2323): the split retags it to the TIP by its end time and the guard keeps it in scope.
+  "MISSIONMARK label=rw7-refly2-crashed ut=(?:(?!MISSIONMARK label=rw7-merged )[\\s\\S])*?Step9: 1 pre-rewind-boarded open-ended crew row\\(s\\) retagged to TIP by endUT ",
+  "MISSIONMARK label=rw7-refly2-crashed ut=(?:(?!MISSIONMARK label=rw7-merged )[\\s\\S])*?PreRewindTombstoneGuard: 0 pre-rewind-boarded death interval\\(s\\) kept in scope by endUT[\\s\\S]*?PreRewindTombstoneGuard: 1 pre-rewind-boarded open-ended crew interval\\(s\\) kept in scope by endUT",
   # THE DEATH FOLLOWS THE RE-FLY: the merged provisional is the recording whose crew died, and
   # the walk holds its kerbal Missing (respawn scheduled), not dead for good.
   "MISSIONMARK label=rw7-refly2-started ut=[\\s\\S]*?PopulateCrewEndStates: recording='CS Flea Probe' \\(id=(rec_[0-9a-f]{32})\\) crew=1 aboard=0 dead=1 recovered=0 unknown=0[\\s\\S]*?provisional=\\1 mergeState=\\S+ terminalKind=\\S+ qualifies=\\S+ slot=0 rp=rp_[0-9a-f]{32} focusSlot=0 focusSlotOverride=0 classifierReason=\\S+ autoSeal=\\S+ ",
@@ -625,7 +630,8 @@ forbidden = [
   "MISSIONMARK label=rw7-refly1-started ut=(?:(?!MISSIONMARK label=rw7-discarded1 )[\\s\\S])*?PopulateCrewEndStates: recording='CS Flea Probe' \\(id=(rec_[0-9a-f]{32})\\) crew=1 aboard=0 dead=1 [\\s\\S]*?MISSIONMARK label=rw7-discarded1 ut=[\\s\\S]*?(?:Death hold: '[^'\\r\\n]+' recording '\\1'|KerbalDeath rep penalty: recording='\\1')",
   "\\A(?:(?!MISSIONMARK label=rw7-refly2-armed )[\\s\\S])*?Tombstoned [1-9][0-9]* career actions",
   # ---- THE MERGED DEATH: kept (never tombstoned), never permanent, the swap is B ----
-  "Tombstoned [0-9]+ career actions \\([^)\\r\\n]*Kerbal=[1-9]",
+  # Only the replaced flight's Aboard row is a Kerbal tombstone; a second would be the death.
+  "Tombstoned [0-9]+ career actions \\([^)\\r\\n]*Kerbal=[2-9]",
   "Death hold: '[^'\\r\\n]+' recording '[^'\\r\\n]+' is permanent",
   "respawn suppressed: open-ended co-row",
   "MISSIONMARK label=rw7-refly2-crashed ut=[\\s\\S]*?Loss swap sess=\\S+ variant=A ",
