@@ -17460,7 +17460,7 @@ class PartActionSourceSyncTests(unittest.TestCase):
         consts = ("UndockToken", "DecoupleToken", "ControlFromToken", "DeployToken",
                   "RetractToken", "StartConverterToken", "StopConverterToken", "ExperimentToken",
                   "LabProcessToken", "LabTransmitToken", "InspectToken", "RadiatorOnToken",
-                  "RadiatorOffToken")
+                  "RadiatorOffToken", "ActivateToken")
         self.assertEqual(len(consts), len(hlib.PARTACTION_BUTTON_VALUES))
         for token, const in zip(hlib.PARTACTION_BUTTON_VALUES, consts):
             self.assertIn('internal const string %s = "%s";' % (const, token), text)
@@ -17505,7 +17505,11 @@ class PartActionSourceSyncTests(unittest.TestCase):
         # pass the module count to the radiator-not-found gate; every press reports the
         # packed / warp context.
         self.assertIn("if (!(module is ModuleActiveRadiator)) continue;", applier)
-        self.assertIn("radiatorKind ? radiatorModules : -1", applier)
+        # The engine button presses ModuleEngines' own "Activate Engine" (ModuleEnginesFX
+        # inherits it) and nothing else on the part, and counts the engine modules for its
+        # engine-not-found gate.
+        self.assertIn("if (!(module is ModuleEngines)) continue;", applier)
+        self.assertIn("radiatorKind ? radiatorModules : engineKind ? engineModules : -1", applier)
         self.assertIn("new PartActionWarpContext(v.packed,", applier)
         # labprocess: the experiment's own Review Data opens a missing page, the page's
         # labValue is written before the gates, and only then the page's lab callback runs.
@@ -17520,7 +17524,10 @@ class PartActionSourceSyncTests(unittest.TestCase):
         pure = self._source("TestCommands", "TestCommandPartAction.cs")
         self.assertIn('case PartActionKind.RadiatorOn: return new[] { "Activate" };', pure)
         self.assertIn('case PartActionKind.RadiatorOff: return new[] { "Shutdown" };', pure)
-        self.assertIn('if (IsRadiatorKind(kind) && radiatorModules == 0) return RadiatorNotFoundReason;',
+        self.assertIn('if (IsRadiatorKind(kind) && typedModules == 0) return RadiatorNotFoundReason;',
+                      pure)
+        self.assertIn('case PartActionKind.EngineActivate: return new[] { "Activate" };', pure)
+        self.assertIn('if (IsEngineKind(kind) && typedModules == 0) return EngineNotFoundReason;',
                       pure)
 
     def test_the_verb_is_registered_on_every_axis(self):
@@ -17544,6 +17551,7 @@ class PartActionSourceSyncTests(unittest.TestCase):
         for reason in ("partaction-vessel-not-found", "partaction-event-unavailable",
                        "partaction-no-active-vessel", "partaction-converter-not-found",
                        "partaction-experiment-no-data", "partaction-radiator-not-found",
+                       "partaction-engine-not-found",
                        "partaction-unknown-recording", "partaction-lab-not-active-vessel",
                        "partaction-lab-page-missing", "partaction-lab-value-zero",
                        "partaction-lab-unavailable"):
@@ -17602,7 +17610,8 @@ class PartActionSourceSyncTests(unittest.TestCase):
     def test_the_step_validator_isru_and_lab_buttons(self):
         v = hlib.validate_part_action_step
         for button in ("deploy", "retract", "startconverter", "stopconverter", "experiment",
-                       "labprocess", "labtransmit", "inspect", "radiatoron", "radiatoroff"):
+                       "labprocess", "labtransmit", "inspect", "radiatoron", "radiatoroff",
+                       "activate"):
             with self.subTest(button=button):
                 self.assertEqual([], v(0, {"button": button, "part": "MiniDrill"}))
                 self.assertIn("partaction-part-arg-missing", v(0, {"button": button})[0])
@@ -17612,7 +17621,7 @@ class PartActionSourceSyncTests(unittest.TestCase):
                                    "converter": "Surface Harvester", "pid": "7"}))
         self.assertEqual([], v(0, {"button": "startconverter", "part": "MiniISRU",
                                    "converter": ""}))
-        for button in ("deploy", "inspect", "labtransmit", "undock", "radiatoron"):
+        for button in ("deploy", "inspect", "labtransmit", "undock", "radiatoron", "activate"):
             with self.subTest(converter_on=button):
                 errs = v(0, {"button": button, "part": "MiniISRU", "converter": "Lf+Ox"})
                 self.assertEqual(1, len(errs), errs)
