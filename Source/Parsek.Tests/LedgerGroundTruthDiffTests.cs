@@ -399,6 +399,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Diff_DestructibleBuildingIdInRecon_IsNotAFacilityLevelPhantom()
+        {
+            // Guards: a demolished-then-repaired building's id (the FacilityDestruction /
+            // FacilityRepair key) compared as an upgradeable facility level. The save's
+            // ScenarioUpgradeableFacilities never carries it, so it read as PhantomInRecon on
+            // every career that repaired a building (RW-9, RW-10).
+            var save = HealthySave();
+            save.FacilityLevelFrac["SpaceCenter/ResearchAndDevelopment"] = 0.0;
+            var maxLevels = new Dictionary<string, int> { ["SpaceCenter/ResearchAndDevelopment"] = 2 };
+            var recon = HealthyRecon();
+            recon.FacilityLevel["SpaceCenter/ResearchAndDevelopment"] = 1;
+            recon.FacilityLevel["SpaceCenter/ResearchAndDevelopment/Facility/ForeverAlone"] = 1;
+
+            var report = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, maxLevels);
+
+            Assert.DoesNotContain(report.All, d => d.Facet == DivergenceFacet.Facility);
+
+            // An upgradeable facility the save lacks is still a phantom.
+            recon.FacilityLevel["SpaceCenter/Runway"] = 2;
+            var phantomReport = LedgerGroundTruthDiff.Compare(
+                save, recon, FacetTolerances.Default, maxLevels);
+            Assert.Contains(phantomReport.All, d =>
+                d.Facet == DivergenceFacet.Facility
+                && d.Kind == DivergenceKind.PhantomInRecon
+                && d.Identity == "SpaceCenter/Runway");
+            Assert.DoesNotContain(phantomReport.All, d =>
+                d.Identity == "SpaceCenter/ResearchAndDevelopment/Facility/ForeverAlone");
+        }
+
+        [Fact]
         public void Diff_RecoveryCreditWithPresentVessel_Consistency()
         {
             // Guards: a present-vessel recovery (guid-corroborated) not flagged HARD.
