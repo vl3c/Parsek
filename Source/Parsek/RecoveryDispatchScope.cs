@@ -176,6 +176,7 @@ namespace Parsek
 
             Frame frame = frames[frames.Count - 1];
             frames.RemoveAt(frames.Count - 1);
+            LedgerRecoveryFundsPairing.DropUnpairedDispatchDebrisRequests(frame.PersistentId);
             ParsekLog.Verbose(Tag, string.Format(CultureInfo.InvariantCulture,
                 "Recovery scope closed: route={0} {1} pid={2} owner={3} recordingId={4} " +
                 "taggedEvents={5} untaggedProgressEvents={6} depth={7}",
