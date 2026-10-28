@@ -1536,12 +1536,14 @@ Milestones are triggered automatically during flight by game events. The player 
 MilestoneAchievement (recording-associated action)
   ut:             double — when it was achieved during flight
   recordingId:    string — which recording triggered it
-  milestoneId:    string — e.g. "FirstOrbitKerbin" / "FirstMunLanding"
+  milestoneId:    string — e.g. "Kerbin/Orbit" / "Mun/Landing" / "FirstLaunch"
   fundsAwarded:   float — what KSP awarded (IMMUTABLE, career only, 0 in Science mode)
   repAwarded:     float — what KSP awarded (IMMUTABLE, career only, 0 in Science mode)
 ```
 
 `fundsAwarded` and `repAwarded` are immutable — written once at recording time based on KSP's milestone reward configuration. They are 0 in Science mode.
+
+`milestoneId` is the stock progress node id qualified by its body: every body-specific node (landing, orbit, suborbit, flight, EVA, station, ...) is `<Body>/<id>` (`GameStateRecorder.QualifyMilestoneId`), and only a top-level node with no body (`FirstLaunch`, `ReachSpace`, the records) keeps its bare id. Each body's milestone is therefore its own: a Kerbin orbit completes `Kerbin/Orbit` only, and orbiting the Mun later pays `Mun/Orbit`. (Stock declares the `body` field public on the orbit, suborbit and flight nodes and private on the others; reading only the private one filed those three bare, so the first Kerbin orbit closed every body's orbit and the game never paid them. Todo MILESTONE-ORBIT-BODY-UNQUALIFIED.)
 
 `effective` is derived — recalculated every time. True for the chronologically first recording that achieved this milestone, false for all later duplicates. A world-record row is decided per threshold instead: it counts while any of its thresholds is new, and earns only those (7.8).
 
