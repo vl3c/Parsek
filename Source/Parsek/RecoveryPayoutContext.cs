@@ -167,6 +167,20 @@ namespace Parsek
         private const string DetailVesselTypeKey = "vesselType";
         private const string DetailFundsEarnedKey = "fundsEarned";
         private const string DetailRecoveryFactorKey = "recoveryFactor";
+        private const string DetailNotPayoutKey = "notPayout";
+
+        /// <summary>
+        /// The detail of a <c>FundsChanged(VesselRecovery)</c> that is a strategy effect, not
+        /// stock's recovery payout (<see cref="RecoveryPayoutScope"/>). No recovery pairing,
+        /// dedup repair or commit-time recovery row takes an event carrying it.
+        /// </summary>
+        internal const string NotPayoutFundsEventDetail = DetailNotPayoutKey + "=strategyEffect";
+
+        /// <summary>True when the event detail marks a recovery-reason funds change that is not the payout.</summary>
+        internal static bool IsNotPayoutFundsEventDetail(string detail)
+        {
+            return !string.IsNullOrEmpty(ExtractDetailValue(detail, DetailNotPayoutKey));
+        }
 
         private static readonly List<RecoveryPayoutContext> contexts =
             new List<RecoveryPayoutContext>();
@@ -404,7 +418,7 @@ namespace Parsek
 
         internal static RecoveredVesselIdentity ExtractIdentityFromFundsEventDetail(string detail)
         {
-            if (string.IsNullOrEmpty(detail))
+            if (string.IsNullOrEmpty(detail) || IsNotPayoutFundsEventDetail(detail))
                 return default(RecoveredVesselIdentity);
 
             string normalizedName = ExtractDetailValue(detail, DetailVesselKey);

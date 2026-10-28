@@ -26,9 +26,9 @@ _(unreleased - entries accumulate here per commit)_
 ### Fixed
 
 - **Recovering cheap debris during a Re-Fly keeps its funds.** A recovery worth under 100 funds
-  (cheap debris, a kerbal on EVA, a small probe) was never written down, so inside a Re-Fly or
-  right after a rewind the money it paid vanished for good. Every recovery is now booked at its
-  exact payout. Science and Sandbox games also stop logging a harmless recovery warning.
+  (cheap debris, a kerbal on EVA, a small probe) was never written down, so in a Re-Fly or after
+  a rewind its money vanished. Every recovery is now booked at its exact payout, and with Patents
+  Licensing active the science-to-funds share is no longer mistaken for the recovery payout.
   (SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY)
 - **A strategy discount on a part, a repair or a penalty is counted once.** With Aggressive
   Negotiations or Leadership Initiative active, buying a part, repairing a building or failing a

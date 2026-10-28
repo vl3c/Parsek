@@ -80,6 +80,34 @@ namespace Parsek.Tests
             onFundsChanged.Invoke(recorder, new object[] { newFunds, reason });
         }
 
+        /// <summary>Runs <paramref name="body"/> between a patch class's real Prefix and Finalizer.</summary>
+        private static void InsidePatch(Type patchType, Action body)
+        {
+            MethodInfo prefix = patchType.GetMethod("Prefix", BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo finalizer = patchType.GetMethod("Finalizer", BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(prefix);
+            Assert.NotNull(finalizer);
+            var args = new object[] { false };
+            prefix.Invoke(null, args);
+            try { body(); }
+            finally { finalizer.Invoke(null, new object[] { null, args[0] }); }
+        }
+
+        /// <summary>Stock's recovery payout: <c>Funding.onVesselRecoveryProcessing</c>'s AddFunds.</summary>
+        private static void FirePayout(double oldFunds, double newFunds, double ut)
+        {
+            InsidePatch(typeof(Parsek.Patches.RecoveryPayoutScopePatch),
+                () => FireFundsChanged(oldFunds, newFunds, TransactionReasons.VesselRecovery, ut));
+        }
+
+        /// <summary>A strategy's funds yield on a science query under VesselRecovery
+        /// (Patents Licensing): <c>Funding.OnCurrenciesModified</c>, outside the payout.</summary>
+        private static void FireStrategyYield(double oldFunds, double newFunds, double ut)
+        {
+            InsidePatch(typeof(Parsek.Patches.RecoveryFundsEffectScopePatch),
+                () => FireFundsChanged(oldFunds, newFunds, TransactionReasons.VesselRecovery, ut));
+        }
+
         /// <summary>Stock's recovery processing (the payout context) for one vessel.</summary>
         private static RecoveryPayoutContext RememberPayout(
             string vesselName, VesselType type, double ut, double before, double earned)
@@ -106,7 +134,7 @@ namespace Parsek.Tests
             string vesselName, VesselType type, double ut, double before, double earned)
         {
             RecoveryPayoutContext context = RememberPayout(vesselName, type, ut, before, earned);
-            FireFundsChanged(before, before + earned, TransactionReasons.VesselRecovery, ut);
+            FirePayout(before, before + earned, ut);
             LedgerOrchestrator.OnVesselRecoveryFunds(
                 ut, RecoveredVesselIdentity.FromRawName(vesselName), quick: false, type, context);
         }
@@ -182,21 +210,67 @@ namespace Parsek.Tests
         // The threshold decision
         // ------------------------------------------------------------------
 
+        // Theory data passes the source as an int (the enum is internal to Parsek).
+        private const int Payout = (int)RecoveryPayoutScope.FundsEventSource.Payout;
+        private const int Effect = (int)RecoveryPayoutScope.FundsEventSource.StrategyEffect;
+        private const int Unscoped = (int)RecoveryPayoutScope.FundsEventSource.Unscoped;
+
         [Theory]
-        [InlineData(60.0, TransactionReasons.VesselRecovery, false)]
-        [InlineData(0.5, TransactionReasons.VesselRecovery, false)]
-        [InlineData(150.0, TransactionReasons.VesselRecovery, false)]
-        [InlineData(0.0, TransactionReasons.VesselRecovery, true)]
-        [InlineData(-60.0, TransactionReasons.VesselRecovery, true)]
-        [InlineData(60.0, TransactionReasons.ContractReward, true)]
-        [InlineData(-60.0, TransactionReasons.VesselRollout, true)]
-        [InlineData(60.0, TransactionReasons.StrategyOutput, true)]
-        [InlineData(150.0, TransactionReasons.ContractReward, false)]
-        [InlineData(-150.0, TransactionReasons.VesselRollout, false)]
-        public void IsFundsDeltaBelowThreshold_ExemptsOnlyAPositiveRecoveryPayout(
-            double delta, TransactionReasons reason, bool expectedBelow)
+        [InlineData(60.0, TransactionReasons.VesselRecovery, Payout, false)]
+        [InlineData(0.5, TransactionReasons.VesselRecovery, Payout, false)]
+        [InlineData(150.0, TransactionReasons.VesselRecovery, Payout, false)]
+        [InlineData(0.0, TransactionReasons.VesselRecovery, Payout, true)]
+        [InlineData(-60.0, TransactionReasons.VesselRecovery, Payout, true)]
+        [InlineData(52.5, TransactionReasons.VesselRecovery, Effect, true)]
+        [InlineData(150.0, TransactionReasons.VesselRecovery, Effect, false)]
+        [InlineData(60.0, TransactionReasons.VesselRecovery, Unscoped, true)]
+        [InlineData(150.0, TransactionReasons.VesselRecovery, Unscoped, false)]
+        [InlineData(60.0, TransactionReasons.ContractReward, Payout, true)]
+        [InlineData(-60.0, TransactionReasons.VesselRollout, Unscoped, true)]
+        [InlineData(60.0, TransactionReasons.StrategyOutput, Unscoped, true)]
+        [InlineData(150.0, TransactionReasons.ContractReward, Unscoped, false)]
+        [InlineData(-150.0, TransactionReasons.VesselRollout, Unscoped, false)]
+        public void IsFundsDeltaBelowThreshold_ExemptsOnlyStocksPositiveRecoveryPayout(
+            double delta, TransactionReasons reason, int source, bool expectedBelow)
         {
-            Assert.Equal(expectedBelow, GameStateRecorder.IsFundsDeltaBelowThreshold(delta, reason));
+            Assert.Equal(expectedBelow, GameStateRecorder.IsFundsDeltaBelowThreshold(
+                delta, reason, (RecoveryPayoutScope.FundsEventSource)source));
+        }
+
+        [Theory]
+        [InlineData(0, 0, Unscoped)]
+        [InlineData(1, 0, Payout)]
+        [InlineData(1, 1, Payout)]
+        [InlineData(0, 1, Effect)]
+        [InlineData(0, 2, Effect)]
+        public void Classify_PayoutWinsOverItsOwnEffect(
+            int payoutDepth, int effectDepth, int expected)
+        {
+            Assert.Equal((RecoveryPayoutScope.FundsEventSource)expected,
+                RecoveryPayoutScope.Classify(payoutDepth, effectDepth));
+        }
+
+        [Fact]
+        public void ScopePatches_TargetStocksPayoutAndFundsEffectMethods()
+        {
+            // The two private stock methods the scopes wrap (KSP 1.12.5 decompiled).
+            Assert.NotNull(HarmonyLib.AccessTools.Method(typeof(Funding), "onVesselRecoveryProcessing",
+                new[] { typeof(ProtoVessel), typeof(KSP.UI.Screens.MissionRecoveryDialog), typeof(float) }));
+            Assert.NotNull(HarmonyLib.AccessTools.Method(typeof(Funding), "OnCurrenciesModified",
+                new[] { typeof(CurrencyModifierQuery) }));
+            InsidePatch(typeof(Parsek.Patches.RecoveryPayoutScopePatch), () =>
+                Assert.Equal(Payout, (int)RecoveryPayoutScope.Current));
+            InsidePatch(typeof(Parsek.Patches.RecoveryFundsEffectScopePatch), () =>
+                Assert.Equal(Effect, (int)RecoveryPayoutScope.Current));
+            Assert.Equal(Unscoped, (int)RecoveryPayoutScope.Current);
+        }
+
+        [Fact]
+        public void SmallRecoveryReasonChange_OutsideThePayout_IsStillIgnored()
+        {
+            // Unscoped (a mod's own AddFunds, or the patches did not apply): the old floor.
+            FireFundsChanged(1000.0, 1060.0, TransactionReasons.VesselRecovery, 500.0);
+            Assert.Empty(RecoveryEvents());
         }
 
         [Fact]
@@ -254,7 +328,7 @@ namespace Parsek.Tests
                 700.0, RecoveredVesselIdentity.FromRawName("Tiny Probe"), quick: false, VesselType.Probe, context);
             Assert.Equal(1, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
 
-            FireFundsChanged(2000.0, 2042.0, TransactionReasons.VesselRecovery, 700.0);
+            FirePayout(2000.0, 2042.0, 700.0);
 
             GameAction row = Assert.Single(RecoveryRows());
             Assert.Equal(42f, row.FundsAwarded);
@@ -306,6 +380,66 @@ namespace Parsek.Tests
             GameAction row = Assert.Single(RecoveryRows());
             Assert.Equal(60f, row.FundsAwarded);
             Assert.Equal("rec-provisional", row.RecordingId);
+        }
+
+        // ------------------------------------------------------------------
+        // A strategy yield under VesselRecovery is never the payout
+        // ------------------------------------------------------------------
+
+        [Theory]
+        [InlineData(52.5)]
+        [InlineData(150.0)]
+        public void StrategyYield_CallbackFirst_DoesNotStealThePayoutPairing(double yield)
+        {
+            // Parsek's onVesselRecovered runs before stock's processing: a request with no
+            // context waits. Then stock: the payout context (amount unknown), R&D's recovered
+            // science under VesselRecovery yields funds through Patents Licensing
+            // (Funding.OnCurrenciesModified), then Funding pays the vessel 1500.
+            var id = RecoveredVesselIdentity.FromRawName("Sci Lander");
+            LedgerOrchestrator.OnVesselRecoveryFunds(900.0, id, quick: false, VesselType.Lander, null);
+            RecoveryPayoutContextStore.Remember(RecoveredPid, "Sci Lander", VesselType.Lander, 900.0, 1.0f,
+                hasFundsEarned: true, fundsEarned: 0.0, beforeMissionFunds: 0.0, totalFunds: 0.0);
+            FireStrategyYield(10000.0, 10000.0 + yield, 900.0);
+            FirePayout(10000.0 + yield, 11500.0 + yield, 900.0);
+
+            GameAction row = Assert.Single(RecoveryRows());
+            Assert.Equal(1500f, row.FundsAwarded);
+            Assert.Equal(0, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+        }
+
+        [Theory]
+        [InlineData(52.5)]
+        [InlineData(150.0)]
+        public void StrategyYield_CallbackLast_DoesNotStealThePayoutPairing(double yield)
+        {
+            // Stock's recovery runs first: both events land, then Parsek's onVesselRecovered.
+            var id = RecoveredVesselIdentity.FromRawName("Sci Lander");
+            RecoveryPayoutContextStore.Remember(RecoveredPid, "Sci Lander", VesselType.Lander, 900.0, 1.0f,
+                hasFundsEarned: true, fundsEarned: 0.0, beforeMissionFunds: 0.0, totalFunds: 0.0);
+            FireStrategyYield(10000.0, 10000.0 + yield, 900.0);
+            FirePayout(10000.0 + yield, 11500.0 + yield, 900.0);
+            Assert.True(RecoveryPayoutContextStore.TryFind(RecoveredPid, id, 900.0, out RecoveryPayoutContext ctx));
+            LedgerOrchestrator.OnVesselRecoveryFunds(900.0, id, quick: false, VesselType.Lander, ctx);
+
+            GameAction row = Assert.Single(RecoveryRows());
+            Assert.Equal(1500f, row.FundsAwarded);
+            // The payout event carries the vessel; a recorded yield carries the not-payout stamp.
+            GameStateEvent payout = RecoveryEvents().Single(e => e.valueAfter - e.valueBefore > 1000.0);
+            Assert.True(RecoveryPayoutContextStore.ExtractIdentityFromFundsEventDetail(payout.detail).Matches(id));
+            foreach (var e in RecoveryEvents().Where(e => e.valueAfter - e.valueBefore < 1000.0))
+                Assert.True(RecoveryPayoutContextStore.IsNotPayoutFundsEventDetail(e.detail));
+            Assert.Equal(yield >= GameStateRecorder.FundsThreshold ? 2 : 1, RecoveryEvents().Count);
+        }
+
+        [Fact]
+        public void StrategyYieldOfAHundredOrMore_IsNotACommitTimeRecoveryRow()
+        {
+            // The commit-time producer uses the same finder: a recorded yield next to the
+            // recording's end is not taken for a recovery.
+            FireStrategyYield(10000.0, 10150.0, 900.0);
+            Assert.Single(RecoveryEvents());
+            Assert.False(LedgerRecoveryFundsPairing.TryFindRecoveryFundsEvent(
+                GameStateStore.Events, 900.0, skipConsumed: false, out _, out _));
         }
 
         // ------------------------------------------------------------------
