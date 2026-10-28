@@ -181,7 +181,7 @@ required = [
   "MISSIONMARK label=rw8-rewound ut=(?:(?!MISSIONMARK label=rw8-locked-probed )[\\s\\S])*?kscaction refused action=research-node reason=insufficient-science target=aviation",
 
   # ---- the crossing: the committed unlock makes aviation available again at the gift's UT ----
-  "MISSIONMARK label=rw8-locked-probed ut=(?:(?!MISSIONMARK label=rw8-crossed )[\\s\\S])*?PatchCommittedTechUnlocks: madeAvailable=[1-9][0-9]*, [^\\r\\n]*liveUT=18589[0-9]\\.[0-9]+, madeAvailableIds=\\[[^\\]\\r\\n]*aviation",
+  "MISSIONMARK label=rw8-locked-probed ut=(?:(?!MISSIONMARK label=rw8-crossed )[\\s\\S])*?PatchCommittedTechUnlocks: madeAvailable=[1-9][0-9]*, [^\\r\\n]*liveUT=1859(?:89|00)[0-9]\\.[0-9]+, madeAvailableIds=\\[[^\\]\\r\\n]*aviation",
   "MISSIONMARK label=rw8-crossed ut=(?:(?!MISSIONMARK label=rw8-unlocked-probed )[\\s\\S])*?kscaction refused action=research-node reason=node-already-unlocked target=aviation",
 
   # ---- the cold reload keeps it ----
