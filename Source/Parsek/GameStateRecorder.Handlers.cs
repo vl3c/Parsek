@@ -1567,7 +1567,9 @@ namespace Parsek
                 {
                     var a = ledgerActions[i];
                     if (a.Type != GameActionType.MilestoneAchievement) continue;
-                    if (System.Math.Abs(a.UT - evt.ut) > 0.1) continue;
+                    // Capture moment: a row dated at the ledger held-through UT
+                    // (LedgerHeldWindow.StampKscOriginRow) still pairs at its event's clock.
+                    if (System.Math.Abs(LedgerHeldWindow.CaptureMomentUT(a) - evt.ut) > 0.1) continue;
                     if (a.MilestoneId != evt.key) continue;
 
                     a.MilestoneFundsAwarded = (float)funds;
@@ -1797,7 +1799,7 @@ namespace Parsek
                     if (a.Type != GameActionType.MilestoneAchievement) continue;
                     if (a.MilestoneId != milestoneId) continue;
                     if ((a.RecordingId ?? "") != recordingId) continue;
-                    if (Math.Abs(a.UT - seed.ut) > 0.1) continue;
+                    if (Math.Abs(LedgerHeldWindow.CaptureMomentUT(a) - seed.ut) > 0.1) continue;
                     a.MilestoneFundsAwarded += (float)funds;
                     a.MilestoneRepAwarded += rep;
                     a.MilestoneScienceAwarded += (float)sci;

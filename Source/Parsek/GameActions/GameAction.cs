@@ -542,6 +542,18 @@ namespace Parsek
         public long CaptureSequence;
 
         /// <summary>
+        /// The clock this row was captured at, set only when <see cref="LedgerHeldWindow.StampKscOriginRow"/>
+        /// dated the row later (a Space Center row made inside a Rewind-to-Launch lead window is
+        /// dated at the ledger held-through UT); NaN otherwise. A reader that pairs the row with
+        /// a game-state event or a loaded save's clock reads
+        /// <see cref="LedgerHeldWindow.CaptureMomentUT"/>, never this field directly.
+        /// </summary>
+        public double CapturedUT = double.NaN;
+
+        /// <summary>ConfigNode key for <see cref="CapturedUT"/>. Written only when set.</summary>
+        internal const string CapturedUTKey = "capturedUT";
+
+        /// <summary>
         /// A strategy conversion leg's cause (design 3.15 step 7): the row whose stock payment
         /// the strategy took its share of, captured inside stock's currency-modifier query
         /// while a known award was paying (<see cref="ConversionCauseScope"/>), as
@@ -1288,6 +1300,8 @@ namespace Parsek
                 node.AddValue("seq", Sequence.ToString(IC));
             if (CaptureSequence != 0)
                 node.AddValue(Parsek.CaptureSequence.Key, CaptureSequence.ToString(IC));
+            if (!double.IsNaN(CapturedUT) && !double.IsInfinity(CapturedUT))
+                node.AddValue(CapturedUTKey, CapturedUT.ToString("R", IC));
 
             // TYPE-AGNOSTIC ON PURPOSE. The flag applies to every reputation-affecting row
             // (ReputationSeedMembership.IsReputationAffectingRow), not to one source of one
@@ -1439,6 +1453,11 @@ namespace Parsek
             if (seqStr != null)
                 int.TryParse(seqStr, NumberStyles.Integer, IC, out a.Sequence);
             a.CaptureSequence = Parsek.CaptureSequence.Parse(node.GetValue(Parsek.CaptureSequence.Key));
+            string capturedUtStr = node.GetValue(CapturedUTKey);
+            double capturedUt;
+            if (capturedUtStr != null && double.TryParse(capturedUtStr, NS, IC, out capturedUt)
+                && !double.IsNaN(capturedUt) && !double.IsInfinity(capturedUt))
+                a.CapturedUT = capturedUt;
 
             // Rewind-to-Staging (design section 5.6 + 9). Legacy actions without
             // `actionId` get a deterministic hash-based id so tombstones remain

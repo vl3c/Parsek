@@ -869,7 +869,9 @@ namespace Parsek
         /// each pool starts afresh at its first patch). The live node's copy describes the pools
         /// the session last saved (a Re-Fly start writes them after its full-ledger walk lifted
         /// the committed future in), and measured against the rewind point's pools it reads that
-        /// future as a loss (REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE).
+        /// future as a loss (REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE). The ledger
+        /// held-through UT (<see cref="LedgerHeldWindow.ValueName"/>) stays the rewind point's own
+        /// for the same reason: it says which ledger rows the written file's world already holds.
         /// Returns null on success, else why it refused (and leaves the target untouched).
         /// </summary>
         internal static string SpliceLiveParsekScenarioNode(ConfigNode target, ConfigNode live)
@@ -882,11 +884,13 @@ namespace Parsek
                 return "persistent.sfs node is not ParsekScenario";
             ConfigNode rewindPointPoolReference = target.GetNode(StockPoolReference.NodeName)?.CreateCopy();
             bool liveHadPoolReference = live.HasNode(StockPoolReference.NodeName);
+            double rewindPointHeldThroughUT = LedgerHeldWindow.ReadSaved(target);
             target.ClearData();
             live.CopyTo(target);
             target.RemoveNodes(StockPoolReference.NodeName);
             if (rewindPointPoolReference != null)
                 target.AddNode(rewindPointPoolReference);
+            LedgerHeldWindow.WriteValue(target, rewindPointHeldThroughUT);
             ParsekLog.Info(RewindSaveTag,
                 "DiscardReFly: carried the session's Parsek node, keeping the rewind point's own " +
                 StockPoolReference.NodeName + " (rewindPoint=" + (rewindPointPoolReference != null ? "present" : "absent") +
