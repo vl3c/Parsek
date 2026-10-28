@@ -122,10 +122,14 @@ namespace Parsek
             LedgerOrchestrator.OnLiveOnlyIncome(ut, rows, reason.ToString());
         }
 
-        /// <summary>Pure: a row a time-travel load to <paramref name="loadedUT"/> drops.</summary>
+        /// <summary>
+        /// Pure: a row a time-travel load to <paramref name="loadedUT"/> drops: one captured
+        /// after the loaded clock (<see cref="LedgerHeldWindow.CaptureMomentUT"/>, so a row
+        /// dated at the ledger held-through UT is judged at the clock it was earned at).
+        /// </summary>
         internal static bool ShouldDrop(GameAction row, double loadedUT)
         {
-            return row != null && row.IsLiveOnlyIncome && row.UT > loadedUT;
+            return row != null && row.IsLiveOnlyIncome && LedgerHeldWindow.CaptureMomentUT(row) > loadedUT;
         }
 
         /// <summary>

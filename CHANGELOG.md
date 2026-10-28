@@ -26,10 +26,10 @@ _(unreleased - entries accumulate here per commit)_
 ### Fixed
 
 - **Space Center actions just before a launch survive a Rewind-to-Launch.** A strategy, purchase,
-  demolition or repair made in the 15 s before a launch is already in the world the rewind loads,
-  and now counts as done: the funds and reputation show it paid, warping past it does not apply it
-  again or knock a repaired building down, and a repair the timeline already made stays refused,
-  so it cannot be paid twice. (REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE)
+  demolition or repair made in the 15 s before a launch is in the world the rewind loads and now
+  counts as done: paid once, not applied again by a warp, a repair already made stays refused. An
+  action taken in those 15 s after the rewind counts after them, so repairing a building demolished
+  there keeps it standing. (REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE)
 - **Recovering cheap debris during a Re-Fly keeps its funds.** A recovery worth under 100 funds
   (cheap debris, a kerbal on EVA, a small probe) was never written down, so in a Re-Fly or after
   a rewind its money vanished. Every recovery is now booked at its exact payout, and with Patents

@@ -14,8 +14,10 @@ namespace Parsek
     /// the ledger: the walk cutoff, the committed-future index (stock-screen blocks and marks),
     /// the clock crossings, the KSP state patches and the pool reads all judge "now" as
     /// <see cref="ResolveLedgerNowUT"/>, never the raw clock. Rows after it stay committed
-    /// future. No row is rewritten: the floor changes which rows count as reached, never a
-    /// row's UT.
+    /// future. No existing row is rewritten: the floor changes which rows count as reached,
+    /// never a held row's UT. A NEW Space Center row captured while the clock is behind the
+    /// floor is dated at it (<see cref="StampKscOriginRow"/>), so it comes after the held rows
+    /// the player already sees; a row tagged to a recording keeps its trajectory UT.
     ///
     /// <para>Lifecycle, the ledger analog of the route state floor
     /// (<c>Logistics.RouteStore.StateFloorUT</c>): a plain rewind sets it from the rewind save
@@ -77,6 +79,60 @@ namespace Parsek
             if (!cutoffUT.HasValue)
                 return cutoffUT;
             return ResolveLedgerNowUT(cutoffUT.Value);
+        }
+
+        /// <summary>
+        /// Pure: the UT a Space Center row captured at <paramref name="capturedUT"/> is dated
+        /// at under <paramref name="heldThroughUT"/>: the ledger's now
+        /// (<see cref="ApplyHeldFloor"/>), so a row the player makes while the clock is behind
+        /// the floor comes after every held row the loaded world already shows. Once the clock
+        /// is past the floor (or none is set) it is the capture UT itself.
+        /// </summary>
+        internal static double ResolveKscRowUT(double capturedUT, double heldThroughUT)
+        {
+            return ApplyHeldFloor(capturedUT, heldThroughUT);
+        }
+
+        /// <summary>
+        /// Dates a Space Center row (an untagged row of the KSC, strategy-conversion or
+        /// live-only-income door) at <see cref="ResolveKscRowUT"/> under the floor in memory,
+        /// keeping its capture UT in <see cref="GameAction.CapturedUT"/> for the readers that
+        /// pair it with a game-state event or a stock clock (<see cref="CaptureMomentUT"/>).
+        /// A row tagged to a recording is never moved: it belongs to its trajectory's UTs.
+        /// Returns true when the row's UT was raised. Call before the row reaches the ledger:
+        /// its capture sequence (issued at capture, above every held row's) then orders it
+        /// after the held rows at that UT.
+        /// </summary>
+        internal static bool StampKscOriginRow(GameAction action, string door)
+        {
+            if (action == null || !string.IsNullOrEmpty(action.RecordingId))
+                return false;
+            double captured = action.UT;
+            double dated = ResolveKscRowUT(captured, HeldThroughUT);
+            if (!(dated > captured))
+                return false;
+            action.CapturedUT = captured;
+            action.UT = dated;
+            ParsekLog.Verbose(Tag,
+                (door ?? "ksc") + ": " + action.Type + " id=" + (action.ActionId ?? "(none)")
+                + " captured at ut=" + captured.ToString("R", IC)
+                + " dated at the ledger held-through UT " + dated.ToString("R", IC)
+                + " (after the held rows the loaded world shows)");
+            return true;
+        }
+
+        /// <summary>
+        /// Pure: the clock <paramref name="row"/> was captured at: its
+        /// <see cref="GameAction.CapturedUT"/> when <see cref="StampKscOriginRow"/> dated it
+        /// later, else its UT. Readers that pair a row with a game-state event, a stock clock
+        /// or a loaded save's clock read this; the walk order and "reached" read the UT.
+        /// </summary>
+        internal static double CaptureMomentUT(GameAction row)
+        {
+            if (row == null)
+                return double.NaN;
+            double captured = row.CapturedUT;
+            return double.IsNaN(captured) || double.IsInfinity(captured) ? row.UT : captured;
         }
 
         /// <summary>

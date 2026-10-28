@@ -6125,6 +6125,13 @@ namespace Parsek
             kscSequenceCounter++;
             action.Sequence = kscSequenceCounter;
 
+            // A Space Center row made while the clock is behind the ledger held-through UT
+            // (a Rewind-to-Launch lead window) is dated at it, after the held rows the loaded
+            // world already shows (todo REWIND-LEAD-WINDOW-NEW-ACTION-SORTS-BEFORE-HELD-ROW).
+            // A row tagged to a recording keeps its UT. The reconcile below pairs the row with
+            // its event by capture moment, so it still finds the event at the raw clock.
+            LedgerHeldWindow.StampKscOriginRow(action, "OnKscSpending");
+
             // THE DOOR STAMPS, IT DOES NOT SEED. Reviewed 2026-09-15 and corrected: an
             // earlier cut ensured the seed here, before the row reached the ledger. That
             // is unsafe for two of the four sources this door carries, because the live
@@ -6400,6 +6407,10 @@ namespace Parsek
 
                 kscSequenceCounter++;
                 action.Sequence = kscSequenceCounter;
+                // Dated like the KSC door's rows (an untagged leg inside a Rewind-to-Launch
+                // lead window moves to the held-through UT with the row that caused it, so
+                // the leg still binds to its cause).
+                LedgerHeldWindow.StampKscOriginRow(action, "OnStrategyCurrencyConversion");
                 // Same contract as the OnKscSpending door: stamp only, never seed. See
                 // StampLiveWriteRowAgainstSeed for the event-ordering reason.
                 StampLiveWriteRowAgainstSeed(action, "strategy conversion " + action.Type);
@@ -6470,6 +6481,7 @@ namespace Parsek
                     continue;
                 kscSequenceCounter++;
                 action.Sequence = kscSequenceCounter;
+                LedgerHeldWindow.StampKscOriginRow(action, "OnLiveOnlyIncome");
                 StampLiveWriteRowAgainstSeed(action, "live-only income " + action.Type);
                 Ledger.AddAction(action, LedgerRowWriter.StockApplied);
                 ParsekLog.Info(LiveOnlyIncome.Tag,
@@ -9029,16 +9041,27 @@ namespace Parsek
         internal static System.Func<double> NowUtProviderForTesting;
 
         /// <summary>
-        /// Returns the current universal time for affordability-helper UT cutoffs. Production
-        /// path reads <see cref="Planetarium.GetUniversalTime"/>; the test seam
-        /// <see cref="NowUtProviderForTesting"/> overrides when set.
+        /// Returns the current universal time for affordability-helper UT cutoffs: the
+        /// ledger's now (<see cref="LedgerHeldWindow.ResolveLedgerNowUT"/>) over
+        /// <see cref="GetRawClockUT"/>.
         /// </summary>
         private static double GetNowUT()
         {
+            return LedgerHeldWindow.ResolveLedgerNowUT(GetRawClockUT());
+        }
+
+        /// <summary>
+        /// The raw game clock, for readers that pair it with game-state events captured at it
+        /// (the pending-recent-action helpers), never the ledger's held now. Production path
+        /// reads <see cref="Planetarium.GetUniversalTime"/>; the test seam
+        /// <see cref="NowUtProviderForTesting"/> overrides when set.
+        /// </summary>
+        private static double GetRawClockUT()
+        {
             var provider = NowUtProviderForTesting;
             if (provider != null)
-                return LedgerHeldWindow.ResolveLedgerNowUT(provider());
-            return LedgerHeldWindow.ResolveLedgerNowUT(Planetarium.GetUniversalTime());
+                return provider();
+            return Planetarium.GetUniversalTime();
         }
 
         /// <summary>
@@ -9087,7 +9110,7 @@ namespace Parsek
                         continue;
                     if (!string.IsNullOrEmpty(action.RecordingId))
                         continue;
-                    if (Math.Abs(action.UT - nowUt) > KscReconcileEpsilonSeconds)
+                    if (Math.Abs(LedgerHeldWindow.CaptureMomentUT(action) - nowUt) > KscReconcileEpsilonSeconds)
                         continue;
 
                     committedDebit += action.Cost;
@@ -9108,7 +9131,7 @@ namespace Parsek
             return ComputePendingRecentKscTechResearchScienceDebit(
                 GameStateStore.Events,
                 Ledger.Actions,
-                GetNowUT());
+                GetRawClockUT());
         }
 
         /// <summary>
@@ -9611,7 +9634,7 @@ namespace Parsek
                     var action = ledgerActions[i];
                     if (action == null)
                         continue;
-                    if (Math.Abs(action.UT - nowUt) > KscReconcileEpsilonSeconds)
+                    if (Math.Abs(LedgerHeldWindow.CaptureMomentUT(action) - nowUt) > KscReconcileEpsilonSeconds)
                         continue;
 
                     // Pool units: the observed side is a post-ScienceGainMultiplier
@@ -9659,7 +9682,7 @@ namespace Parsek
             return ComputePendingRecentKscScienceCredit(
                 GameStateStore.Events,
                 Ledger.Actions,
-                GetNowUT());
+                GetRawClockUT());
         }
 
         /// <summary>

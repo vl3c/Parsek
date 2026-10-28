@@ -396,5 +396,246 @@ namespace Parsek.Tests
             // The window purchase is in the loaded world; the later one is still ahead.
             Assert.Equal(9400.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
         }
+
+        // ================================================================
+        // New Space Center rows inside the window are dated at the floor
+        // (REWIND-LEAD-WINDOW-NEW-ACTION-SORTS-BEFORE-HELD-ROW)
+        // ================================================================
+
+        /// <summary>Captures <paramref name="evt"/> the way the recorder does (stamping its
+        /// capture sequence) and hands it to the KSC door.</summary>
+        private static GameAction CaptureAtKsc(GameStateEvent evt)
+        {
+            GameStateStore.AddEvent(ref evt);
+            int before = Ledger.Actions.Count;
+            LedgerOrchestrator.OnKscSpending(evt);
+            Assert.Equal(before + 1, Ledger.Actions.Count);
+            return Ledger.Actions[Ledger.Actions.Count - 1];
+        }
+
+        private static void CaptureFundsChange(double ut, string reason, double before, double after)
+        {
+            var e = new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.FundsChanged,
+                key = reason,
+                valueBefore = before,
+                valueAfter = after
+            };
+            GameStateStore.AddEvent(ref e);
+        }
+
+        private static GameStateEvent RepairEvent(double ut) =>
+            new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.BuildingRepaired,
+                key = AnnexId,
+                detail = "cost=2000"
+            };
+
+        private static GameStateEvent PurchaseEvent(double ut, string part, float cost) =>
+            new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.PartPurchased,
+                key = part,
+                detail = "cost=" + cost.ToString("R", CultureInfo.InvariantCulture)
+            };
+
+        [Fact]
+        public void StampKscOriginRow_DatesAnUntaggedRowAtTheFloor_KeepsItsCaptureMoment_LeavesFlightRows()
+        {
+            LedgerHeldWindow.SetAtRewind(WoundBackUT, SaveUT, double.NaN);
+
+            Assert.Equal(SaveUT, LedgerHeldWindow.ResolveKscRowUT(185786.0, SaveUT));
+            Assert.Equal(185900.0, LedgerHeldWindow.ResolveKscRowUT(185900.0, SaveUT));
+            Assert.Equal(185786.0, LedgerHeldWindow.ResolveKscRowUT(185786.0, double.NaN));
+
+            var ksc = Repair(185786.0, 2000f);
+            Assert.True(LedgerHeldWindow.StampKscOriginRow(ksc, "test-door"));
+            Assert.Equal(SaveUT, ksc.UT);
+            Assert.Equal(185786.0, ksc.CapturedUT);
+            Assert.Equal(185786.0, LedgerHeldWindow.CaptureMomentUT(ksc));
+            Assert.Contains(logLines, l => l.Contains("[LedgerHeldWindow]") && l.Contains("test-door: FacilityRepair")
+                && l.Contains("captured at ut=185786")
+                && l.Contains("dated at the ledger held-through UT " + SaveUT.ToString("R", CultureInfo.InvariantCulture)));
+
+            // A row of a flight recording keeps its trajectory UT.
+            var flight = Repair(185786.0, 2000f);
+            flight.RecordingId = "rec-1";
+            Assert.False(LedgerHeldWindow.StampKscOriginRow(flight, "test-door"));
+            Assert.Equal(185786.0, flight.UT);
+            Assert.True(double.IsNaN(flight.CapturedUT));
+            Assert.Equal(185786.0, LedgerHeldWindow.CaptureMomentUT(flight));
+
+            // Mirror: a capture past the floor (expired or not yet) is dated at its own clock.
+            var later = Repair(185850.0, 2000f);
+            Assert.False(LedgerHeldWindow.StampKscOriginRow(later, "test-door"));
+            Assert.Equal(185850.0, later.UT);
+            Assert.True(double.IsNaN(later.CapturedUT));
+        }
+
+        [Fact]
+        public void CapturedUT_RoundTripsSparsely()
+        {
+            var plain = Spend(185790.0, 600f, "part");
+            var plainNode = new ConfigNode("ROOT");
+            plain.SerializeInto(plainNode);
+            Assert.Null(plainNode.GetNode("GAME_ACTION").GetValue(GameAction.CapturedUTKey));
+            Assert.True(double.IsNaN(GameAction.DeserializeFrom(plainNode.GetNode("GAME_ACTION")).CapturedUT));
+
+            var dated = Spend(SaveUT, 600f, "part");
+            dated.CapturedUT = 185790.12345678901;
+            var datedNode = new ConfigNode("ROOT");
+            dated.SerializeInto(datedNode);
+            var back = GameAction.DeserializeFrom(datedNode.GetNode("GAME_ACTION"));
+            Assert.Equal(SaveUT, back.UT);
+            Assert.Equal(185790.12345678901, back.CapturedUT);
+        }
+
+        [Fact]
+        public void WindowRepairOfAHeldDemolition_Sticks_NoKnockDown_ChargedOnce()
+        {
+            // The demolition is a held row: in the loaded world, ahead of the wound-back clock.
+            AddAll(FundsSeed(155591.16f), Demolish(DemolishUT));
+            LedgerHeldWindow.SetAtRewind(WoundBackUT, SaveUT, double.NaN);
+            LedgerOrchestrator.RecalculateAndPatch(WoundBackUT, suppressSuspiciousDrawdownWarnings: true);
+            logLines.Clear();
+
+            // The player repairs the annex at 185786, before the held demolition's UT.
+            CaptureFundsChange(185786.0, "StructureRepair", 155591.16, 153591.16);
+            GameAction repair = CaptureAtKsc(RepairEvent(185786.0));
+
+            Assert.Equal(GameActionType.FacilityRepair, repair.Type);
+            Assert.Equal(SaveUT, repair.UT);
+            Assert.Equal(185786.0, repair.CapturedUT);
+            Assert.Contains(logLines, l => l.Contains("[LedgerHeldWindow]") && l.Contains("OnKscSpending: FacilityRepair")
+                && l.Contains("captured at ut=185786"));
+            // The reconcile still pairs the row with stock's charge at the raw clock.
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation"));
+
+            // The live building patch reads the repair as the annex's last row: no knock-down.
+            double now = LedgerHeldWindow.ResolveLedgerNowUT(185786.0);
+            var destroyed = FacilityStatePatcher.ComputeBuildingDestroyedAtUt(
+                EffectiveState.ComputeELS(), now);
+            Assert.False(destroyed[AnnexId]);
+            // The defect it fixes: the same repair at its raw clock sorts before the demolition.
+            var rawRows = new List<GameAction> { Demolish(DemolishUT), Repair(185786.0, 2000f) };
+            Assert.True(FacilityStatePatcher.ComputeBuildingDestroyedAtUt(rawRows, now)[AnnexId]);
+
+            Assert.Equal(155591.16 - 2000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+
+            // The clock passes the floor: nothing crosses, the repair is charged once.
+            logLines.Clear();
+            LedgerOrchestrator.RecalculateAndPatchForClockAdvance(185900.0, "ksc-clock");
+            Assert.DoesNotContain(logLines, l => l.Contains("Clock-crossing reached"));
+            Assert.False(LedgerHeldWindow.IsSet);
+            Assert.Equal(155591.16 - 2000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.False(FacilityStatePatcher.ComputeBuildingDestroyedAtUt(
+                EffectiveState.ComputeELS(), 185900.0)[AnnexId]);
+        }
+
+        [Fact]
+        public void WindowPurchase_SortsAfterEveryHeldRow_IncludingOneAtTheFloorItself()
+        {
+            var heldAtSave = Spend(SaveUT, 300f, "held-at-save");
+            AddAll(FundsSeed(10000f), Strategy(StrategyUT, 14.5f), Demolish(DemolishUT),
+                Spend(185795.0, 200f, "held-part"), heldAtSave);
+            LedgerHeldWindow.SetAtRewind(WoundBackUT, SaveUT, double.NaN);
+            LedgerOrchestrator.RecalculateAndPatch(WoundBackUT, suppressSuspiciousDrawdownWarnings: true);
+            Assert.Equal(10000.0 - 200.0 - 300.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+
+            CaptureFundsChange(185791.0, "RnDPartPurchase", 9500.0, 8900.0);
+            GameAction purchase = CaptureAtKsc(PurchaseEvent(185791.0, "solidBooster.v2", 600f));
+
+            Assert.Equal(SaveUT, purchase.UT);
+            Assert.True(purchase.CaptureSequence > heldAtSave.CaptureSequence);
+            var sorted = RecalculationEngine.SortActions(Ledger.Actions.ToList());
+            Assert.Same(purchase, sorted[sorted.Count - 1]);
+            Assert.True(sorted.IndexOf(purchase) > sorted.IndexOf(heldAtSave));
+            // Reached, not committed future: charged now, once.
+            Assert.Equal(10000.0 - 200.0 - 300.0 - 600.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            LedgerOrchestrator.RecalculateAndPatchForClockAdvance(185900.0, "ksc-clock");
+            Assert.Equal(10000.0 - 200.0 - 300.0 - 600.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+        }
+
+        [Fact]
+        public void TwoWindowPurchasesInOneCoalescedCharge_StillReconcileAtTheirCaptureClock()
+        {
+            AddAll(FundsSeed(10000f));
+            LedgerHeldWindow.SetAtRewind(WoundBackUT, SaveUT, double.NaN);
+            LedgerOrchestrator.RecalculateAndPatch(WoundBackUT, suppressSuspiciousDrawdownWarnings: true);
+            logLines.Clear();
+
+            // Stock coalesces the two charges inside 0.1 s into one FundsChanged event.
+            CaptureFundsChange(185791.00, "RnDPartPurchase", 10000.0, 9400.0);
+            GameAction first = CaptureAtKsc(PurchaseEvent(185791.00, "partA", 600f));
+            CaptureFundsChange(185791.05, "RnDPartPurchase", 9400.0, 9000.0);
+            GameAction second = CaptureAtKsc(PurchaseEvent(185791.05, "partB", 400f));
+
+            Assert.Equal(SaveUT, first.UT);
+            Assert.Equal(SaveUT, second.UT);
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation"));
+            Assert.Equal(9000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+        }
+
+        [Fact]
+        public void AfterTheFloorExpires_ASpaceCenterRowIsDatedAtTheRawClock()
+        {
+            AddAll(FundsSeed(10000f));
+            LedgerHeldWindow.SetAtRewind(WoundBackUT, SaveUT, double.NaN);
+            LedgerOrchestrator.RecalculateAndPatchForClockAdvance(185810.0, "ksc-clock");
+            Assert.False(LedgerHeldWindow.IsSet);
+            logLines.Clear();
+
+            CaptureFundsChange(185812.5, "RnDPartPurchase", 10000.0, 9400.0);
+            GameAction purchase = CaptureAtKsc(PurchaseEvent(185812.5, "partA", 600f));
+
+            Assert.Equal(185812.5, purchase.UT);
+            Assert.True(double.IsNaN(purchase.CapturedUT));
+            Assert.DoesNotContain(logLines, l => l.Contains("dated at the ledger held-through UT"));
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation"));
+        }
+        [Fact]
+        public void PendingTechDebit_InTheWindow_PairsTheRawClockEvent_WithTheDatedRow()
+        {
+            LedgerHeldWindow.SetAtRewind(WoundBackUT, SaveUT, double.NaN);
+            LedgerOrchestrator.NowUtProviderForTesting = () => 185786.0;
+            var debit = new GameStateEvent
+            {
+                ut = 185786.0,
+                eventType = GameStateEventType.ScienceChanged,
+                key = LedgerOrchestrator.TechResearchScienceReasonKey,
+                valueBefore = 50.0,
+                valueAfter = 40.0
+            };
+            GameStateStore.AddEvent(ref debit);
+
+            // Stock charged, the row has not landed yet: the debit is pending at the raw clock.
+            Assert.Equal(10.0, LedgerOrchestrator.GetPendingRecentKscTechResearchScienceDebit(), 3);
+
+            // The row lands dated at the floor: it pairs with the event by capture moment.
+            var row = new GameAction { UT = 185786.0, Type = GameActionType.ScienceSpending, Cost = 10f, NodeId = "basicRocketry" };
+            Assert.True(LedgerHeldWindow.StampKscOriginRow(row, "test-door"));
+            Ledger.AddAction(row);
+            Assert.Equal(0.0, LedgerOrchestrator.GetPendingRecentKscTechResearchScienceDebit(), 3);
+        }
+
+        [Fact]
+        public void LiveOnlyIncomeDrop_JudgesADatedRowAtItsCaptureClock()
+        {
+            var row = new GameAction
+            {
+                UT = SaveUT,
+                CapturedUT = 185790.0,
+                Type = GameActionType.FundsEarning,
+                IncomeReason = "Other"
+            };
+            // A quicksave written after the income holds it; one written before does not.
+            Assert.False(LiveOnlyIncome.ShouldDrop(row, 185795.0));
+            Assert.True(LiveOnlyIncome.ShouldDrop(row, 185788.0));
+        }
     }
 }
