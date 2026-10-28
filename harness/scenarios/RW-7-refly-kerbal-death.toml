@@ -242,8 +242,14 @@ id = "RW-7-refly-kerbal-death"
 # ~143 s 1x hops (the crash needs the real flight); (6) retry `once`; (7) recordings window
 # 39..48; (8) operator, ~25 min expected; (9) flight_efficiency.py after the first green flight.
 #
-# STATUS: AUTHORED 2026-10-28 (branch `rw7-death-push`, on the PartAction activate button of the
-# same branch). Flights: `2026-10-28_1318` PARSEK-FAIL found REFLY-MERGED-DEATH-PERMANENT-VIA-
+# STATUS: LIVE-PROVEN 2026-10-28, `2026-10-28_1810` PASS attempt 1 (DLL edf3ebb2, branch 776b490cd: main with #2323 / #2324 / #2325 plus the explode button). Both
+# attempts' pods destroyed by `PartAction button=explode` at UT 185869.8 (the fail-fast probe then
+# refused part-not-found); the merged death held under the merged recording with its respawn at
+# 193069.8 (timer 7200), variant B `tombstonedAttemptRepLoss=1`, `Tombstoned 2 ... Reputation=1,
+# Kerbal=1`, Step9 retagged the replaced Aboard row; no pool adjustment, no guard clamp;
+# LedgerGroundTruth 3/3, hardFailures=0; ledger_audit PASS. `_1800` before it PARSEK-FAIL on one
+# pin only, G's commit walk cutoff, which #2324 now places at the rewind's held-through UT
+# (re-pinned to it). Earlier flights: `2026-10-28_1318` PARSEK-FAIL found REFLY-MERGED-DEATH-PERMANENT-VIA-
 # SUPERSEDED-CO-ROW (fixed by #2323); on the fix `_1616` PARSEK-FAIL on two pins that encoded the
 # old Kerbal=0 shape (fixed), `_1627` PARSEK-FAIL because attempt 1's pod landed intact (a lane
 # flake: the crash is physics, not guaranteed), `_1637` PARSEK-FAIL on KSC-DEBRIS-CLEANUP-REFUND-
@@ -456,8 +462,9 @@ allowedAnomalies = []
 # RW-6's measured 39 (the host's 34, H, G's launch recording and its stand, the TIP of the
 # merge's split, the merged attempt's recording) plus the debris recordings the merged crash's
 # breakup creates (alive=False children, committed with the attempt). Attempt 1's recording and
-# its debris are pruned by its discard; the check Flea is unrecorded.
-count = { min = 39, max = 48 }
+# its debris are pruned by its discard; the check Flea is unrecorded. Measured 40 on `2026-10-28_1810`
+# (the exploded pod's split leaves one debris recording).
+count = 40
 
 [expectations.logContracts]
 required = [
@@ -613,7 +620,7 @@ required = [
   "result: hardFailures=0 ",
   # INTERIM: total=3 from the source (the LedgerGroundTruth category's FLIGHT cells); the
   # split is owed off the first flight (RW-1 / RW-3 / RW-6 read passed=3 skipped=0 on this host).
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

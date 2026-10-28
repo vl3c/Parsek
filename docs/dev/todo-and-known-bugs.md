@@ -134,7 +134,9 @@ no `respawn suppressed: open-ended co-row` line, permanent=0, and the death resp
 (`Reservation released: 'Jebediah Kerman' endUT=193096.9 nowUT=193097.8 (respawn applied ...)`). The
 lane is not green yet: `_1616` PARSEK-FAIL on two pins that encoded the old Kerbal=0 shape (fixed);
 `_1627` PARSEK-FAIL because the first attempt's pod landed intact (a lane flake, ledger_audit PASS);
-`_1637` PARSEK-FAIL on KSC-DEBRIS-CLEANUP-REFUND-UNLEDGERED below (a different defect).
+`_1637` PARSEK-FAIL on KSC-DEBRIS-CLEANUP-REFUND-UNLEDGERED below (a different defect). GREEN on `_1810`
+(PASS attempt 1, with #2324 / #2325 merged and the pod destroyed by `PartAction button=explode`): the
+same retire, `Tombstoned 2 ... Reputation=1, Kerbal=1`, the death held with its respawn at 193069.8.
 
 ## ~~REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE: a Space Center action in the 15 s before a launch is ahead of the clock after a Rewind-to-Launch, while the rewind save already holds its effect~~ [FILED 2026-10-28 from RW-9's flights; live-measured. FIXED 2026-10-28 on branch `fix-rewind-lead-window`; xUnit only, not flown. product, medium-high (a second paid repair, and the repaired building knocked down again)]
 
