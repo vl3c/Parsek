@@ -2853,6 +2853,30 @@ then harvest CS-6b's save as CS-7's host and drop CS-7's two KscAction steps. Fi
 risks: the legs may stop short of the bell (they then stand as outriggers), the 50 EC, MechJeb's
 classic ascent on the Mun.
 
+Progress 2026-10-28 (branch `cs6c-science`): CS-7's flight ran out of electric charge (no
+battery or panel on the tech; the pod's 50 EC drains at ~0.42 EC/s under a MechJeb attitude
+hold), so CS-6c, a science run to the Mun, was authored, never flown, on `cs-career-mun3` (CS-6b's
+produced save; science 5.5). Basic Science (45, the Z-100) and Electrics (90, the OX-STAT) need
+135. The Mun's science multipliers, read off the KSC scene asset (`sharedassets9.assets`, the
+`CelestialBodyScienceParams` floats after the "Mun" body name): InSpaceLow 3, InSpaceHigh 2,
+spaceAltitudeThreshold 60 km. Each experiment part holds one reading and the Mk1 pod's container
+takes data only from a boarding kerbal (`evaOnlyStorage`, no Collect All), so the pod's one crew
+report module keeps one report; the plan with both crew reports keeps 129 + ~2.7 (recovery),
+short of 130 earned. The craft `CS Mun Science` (`build_cs_orbiter_craft.py --variant munsci`:
+CS Mun Flyby with the upper 4 x FL-T200 merged into 2 x FL-T400 and two Goo canisters and two
+2HOT thermometers on the pod; 30 parts) reads Goo + 2HOT + EVA report high (52) and crew report
++ Goo + 2HOT + EVA report low (93): 145 predicted, ~147.7 with the recovery. The new composed
+mission `b11_mun_science_return` (`mlib.msc_decide`): CS-6's machine through B11's park, the
+high readings in the park (gated on the observed periapsis and reading count), an EVA cycle
+(EvaExit without release, the kerbal's report, EvaBoard), two retrograde nodes of its own to a
+30 x 45 km orbit, the low readings and a second EVA cycle, then mor's departure and mfr's tail;
+mor_decide and mlr_decide pinned frame for frame by trace digests taken on the base commit. The
+lane `CS-6c-career-mun-science` recovers the pod, researches basicScience then electrics in the
+Space Center, and closes with LedgerGroundTruth. Owed: the first flight (risk: whether the
+pod-mounted Goo and thermometers, maxTemp 1200 K, survive the Mun-return reentry behind the
+heat shield; the mission's scienceKeptToSplashdown row reads it); then harvest its produced save
+as CS-7's host and give the CS-7 lander a Z-100 and OX-STATs.
+
 ---
 
 ## ~~QUICKLOAD-INTO-DISCARDED-FLIGHT-RECORDS-AGAIN: F9 back into a Discarded flight must record again~~ [FILED 2026-10-06 from the owner ruling, branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-quickload-into-discarded`; the in-flight discards followed 2026-10-16, branch `claude/lanes-rc6-ql6-ir5-nh7w10` (live-proven by lane QL-6, `2026-10-16_0649` PASS attempt 1)]

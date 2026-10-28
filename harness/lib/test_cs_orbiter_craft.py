@@ -1,6 +1,7 @@
 """Drift and shape gates for `CS Orbiter.craft` (CS-4's craft, in the `cs-career-mc1`
-fixture), `CS Mun Flyby.craft` (CS-5's, `--variant mun`, in `cs-career-ts1`) and
-`CS Mun Lander.craft` (CS-7's, `--variant lander`, in `cs-career-mun2`).
+fixture), `CS Mun Flyby.craft` (CS-5's, `--variant mun`, in `cs-career-ts1`),
+`CS Mun Lander.craft` (CS-7's, `--variant lander`, in `cs-career-mun2`) and
+`CS Mun Science.craft` (CS-6c's, `--variant munsci`, in `cs-career-mun3`).
 
 The craft is BUILT BY CONSTRUCTION by `harness/tools/build_cs_orbiter_craft.py` from
 part tails lifted byte-for-byte out of stock craft. A hand edit to the craft, a change to
@@ -366,6 +367,161 @@ class CsMunLanderCraftTests(unittest.TestCase):
                       and s["args"].get("action") == "research-node"]
         self.assertEqual(list(TECH_RESEARCHED_FOR_CS7), researched)
 
+
+
+MUNSCI_CRAFT = os.path.join(HARNESS_ROOT, "fixtures", "saves", "cs-career-mun3",
+                            "Ships", "VAB", "CS Mun Science.craft")
+CS6C_SPEC = os.path.join(HARNESS_ROOT, "scenarios", "CS-6c-career-mun-science.toml")
+
+
+class CsMunScienceCraftTests(unittest.TestCase):
+    """`CS Mun Science.craft` (CS-6c's craft, `--variant munsci`, in `cs-career-mun3`)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.b = _load_builder()
+        cls.fig = cls.b.munsci_figures()
+
+    def test_the_committed_craft_is_byte_identical_to_a_fresh_derivation(self):
+        self.assertEqual([], self.b.munsci_check())
+
+    def test_the_other_variants_are_unchanged(self):
+        # The variant adds tails, parts and two keyword arguments to mun_layout /
+        # mun_figures whose defaults derive CS Mun Flyby: all three crafts must still
+        # derive byte-for-byte.
+        self.assertEqual([], self.b.check())
+        self.assertEqual([], self.b.mun_check())
+        self.assertEqual([], self.b.lander_check())
+
+    def test_the_craft_fits_the_hosts_facilities(self):
+        # VAB level 0 (30 parts: exactly at the limit); Launch Pad level 1 (140 t, 36 m).
+        self.assertEqual(30, self.fig["parts"])
+        self.assertLessEqual(self.fig["mass"], 140.0)
+        self.assertLessEqual(self.fig["height"], 36.0)
+        self.assertEqual(self.fig["parts"], len(_parts(_read(MUNSCI_CRAFT))))
+
+    def test_it_is_cs_mun_flyby_with_the_upper_tanks_merged_and_the_science_added(self):
+        flyby = _parts(_read(MUN_CRAFT))
+        mine = _parts(_read(MUNSCI_CRAFT))
+        self.assertEqual(4, flyby.count("fuelTankSmall") - mine.count("fuelTankSmall"))
+        self.assertEqual(2, mine.count("fuelTank"))
+        added = sorted(set(mine) - set(flyby))
+        self.assertEqual(["GooExperiment", "fuelTank", "sensorThermometer"], added)
+        self.assertEqual(2, mine.count("GooExperiment"))
+        self.assertEqual(2, mine.count("sensorThermometer"))
+        # The same propellant in every stage as CS Mun Flyby's.
+        layout = self.b.munsci_layout()
+        flyby_layout = self.b.mun_layout()
+        for which in ("upper", "core", "boosters"):
+            mine_prop = sum(self.b._pprop(p) for p in layout if p.group == which)
+            theirs = sum(self.b._pprop(p) for p in flyby_layout if p.group == which)
+            self.assertAlmostEqual(theirs, mine_prop, places=6, msg=which)
+
+    def test_the_craft_keeps_the_mun_budget(self):
+        # CS-6's route (orbit, transfer, corrections, capture, departure, trim) plus
+        # the two lowering nodes (about 85 m/s) on the CS Mun Flyby basis.
+        self.assertGreaterEqual(self.fig["dv_total"], 4800.0)
+        self.assertGreaterEqual(self.fig["dv_upper"], 2450.0)
+        self.assertGreaterEqual(self.fig["liftoff_twr"], 1.25)
+        flyby = self.b.mun_figures()
+        # The science costs the upper stage under 80 m/s and adds 0.11 t to the pod.
+        self.assertLess(flyby["dv_upper"] - self.fig["dv_upper"], 80.0)
+        self.assertAlmostEqual(0.11, self.fig["reentry_mass"] - flyby["reentry_mass"],
+                               places=6)
+
+    def test_the_stage_order_is_cs_mun_flybys(self):
+        self.assertEqual(self.b.mun_stage_want(),
+                         self.b.stage_table(self.b.munsci_layout()))
+
+    def test_every_part_is_on_the_hosts_tech(self):
+        allowed = set()
+        for node in TECH_ON_TS1 + TECH_RESEARCHED_FOR_CS7:
+            allowed |= _unlocks(node)
+        parts = set(_parts(_read(MUNSCI_CRAFT)))
+        self.assertEqual([], sorted(parts - allowed))
+        self.assertIn("GooExperiment", _unlocks("start"))
+        self.assertIn("sensorThermometer", _unlocks("engineering101"))
+        self.assertIn("fuelTank", _unlocks("advRocketry"))
+
+    def test_the_science_rides_the_pod_unstaged_and_off_the_hatch(self):
+        parts = self.b.munsci_layout()
+        pod = parts[0]
+        science = [p for p in parts if p.name in ("GooExperiment", "sensorThermometer")]
+        self.assertEqual(4, len(science))
+        for p in science:
+            with self.subTest(part=p.key):
+                self.assertIs(pod, p.parent)
+                self.assertEqual(pod.uid, p.srfn)
+                self.assertEqual(1, p.attm)
+                self.assertEqual((-1, -1), (p.istg, p.sidx))
+                self.assertEqual("pod", p.group)
+                self.assertIn(p.uid, pod.links)
+        clear = self.b.munsci_hatch_clearances(parts)
+        self.assertEqual(4, len(clear))
+        self.assertTrue(all(d >= 59.0 for d in clear.values()), clear)
+
+    def test_the_pairs_are_the_donor_attach_turned_about_the_pod_axis(self):
+        parts = self.b.munsci_layout()
+        pod = parts[0]
+        for name, pos in (("GooExperiment", self.b.MUNSCI_GOO_POS),
+                          ("sensorThermometer", self.b.MUNSCI_THERMO_POS)):
+            pair = [p for p in parts if p.name == name]
+            local = [tuple(a - b for a, b in zip(p.pos, pod.pos)) for p in pair]
+            for got, want in zip(local[0], pos):
+                self.assertAlmostEqual(want, got, places=9)
+            for got, want in zip(local[1], (-pos[0], pos[1], -pos[2])):
+                self.assertAlmostEqual(want, got, places=9)
+            self.assertEqual([pair[1].uid], pair[0].syms)
+        # The rotation algebra: quat_y(180) * q is the donor turned half a turn about
+        # the pod axis; AeroEquus' own second Goo (placed by stock's symmetry) agrees.
+        q2 = self.b._quat_mul(self.b._quat_tuple_y(180.0), self.b.MUNSCI_GOO_ROT)
+        self.assertAlmostEqual(1.0, sum(c * c for c in q2), places=6)
+        donor2 = (-0.00661472697, -0.707075894, 0.00661472231, -0.707075834)
+        for got, want in zip(q2, donor2):
+            self.assertAlmostEqual(want, got, places=6)
+
+    def test_the_tails_are_the_donors_unedited(self):
+        self.assertIn("name = ModuleScienceExperiment", self.b.TAILS["GooExperiment"])
+        self.assertIn("name = ModuleScienceExperiment", self.b.TAILS["sensorThermometer"])
+        # The thermometer's sensor stays off: it draws no ElectricCharge.
+        self.assertIn("sensorActive = False", self.b.TAILS["sensorThermometer"])
+        for key in ("GooExperiment", "sensorThermometer"):
+            self.assertNotIn("actionGroup = Custom", self.b.TAILS[key])
+            self.assertIn("Deployed = False", self.b.TAILS[key])
+
+    def test_the_root_is_the_pod_and_the_ship_is_named_for_the_editor_step(self):
+        text = _read(MUNSCI_CRAFT)
+        self.assertEqual("mk1pod.v2", _parts(text)[0])
+        self.assertRegex(text, r"(?m)^ship = CS Mun Science$")
+        self.assertRegex(text, r"(?m)^version = 1\.12\.5$")
+
+    def test_every_child_is_linked_from_its_parent(self):
+        text = _read(MUNSCI_CRAFT)
+        for token in re.findall(r"(?m)^\tpart = (\S+)$", text)[1:]:
+            with self.subTest(part=token):
+                self.assertIn("\tlink = %s\n" % token, text)
+
+    def test_the_spec_flies_this_craft_and_stops_autostage_above_the_pod(self):
+        with open(CS6C_SPEC, "rb") as fh:
+            spec = tomllib.load(fh)
+        self.assertEqual("fixtures/saves/cs-career-mun3", spec["fixture"]["saveTemplate"])
+        steps = spec["driver"]["steps"]
+        editor = next(i for i, s in enumerate(steps) if s.get("cmd") == "GoToEditor")
+        self.assertEqual("CS Mun Science", steps[editor]["args"]["craft"])
+        self.assertFalse(any(s.get("cmd") == "KscAction" for s in steps[:editor]))
+        params = spec["driver"]["missionParams"]
+        self.assertEqual(self.b.MUN_STAGE_CORE_DROP, params["autostageLimit"])
+        self.assertEqual(1, params["returnStageCount"])
+        # The two runs name exactly the experiment parts the craft carries: each part
+        # holds one reading.
+        counts = {"GooExperiment": 0, "sensorThermometer": 0}
+        by_experiment = {"mysteryGoo": "GooExperiment",
+                         "temperatureScan": "sensorThermometer"}
+        for key in ("sciHighExperiments", "sciLowExperiments"):
+            for name in params[key]:
+                if name in by_experiment:
+                    counts[by_experiment[name]] += 1
+        self.assertEqual(self.b.MUNSCI_SCIENCE_PARTS, counts)
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,387 @@
+schema = 1
+id = "CS-6c-career-mun-science"
+# THE SCRIPTED CAMPAIGN, STAGE 6c (docs/dev/autotest-roadmap.md, "The scripted campaign
+# program"): a SCIENCE run to the Mun, then the research that gives CS-7 electric power.
+# CS-7's lander makes no power and nothing on the career's tech does: the pod's 50 EC
+# drains at about 0.42 EC/s while MechJeb holds attitude on the reaction wheel. Basic
+# Science (45: the Z-100 battery) and Electrics (90: the OX-STAT panel) cost 135 science
+# and the host holds 5.5. This lane earns it at the Mun on CS-6's route, recovers it,
+# researches both nodes in the Space Center and closes with the ledger ground truth.
+#
+# THE HOST. `cs-career-mun3`: CS-6b's produced save (run `2026-10-27_2316`, PASS attempt
+# 1, LedgerGroundTruth hardFailures=0), harvested with `harvest_bdock_station.py
+# --keep-parsek --allow-no-vessel --expect-mode CAREER`, no edit, plus the builder's
+# `CS Mun Science.craft` in its Ships/VAB. Career, Normal preset (ScienceGainMultiplier
+# 1), funds 141973.01, science 5.5, rep 111.0; the Astronaut Complex, Tracking Station,
+# Launch Pad and Mission Control at level 1, the VAB at level 0 (30 parts); start,
+# basicRocketry, engineering101, survivability, generalRocketry, stability and
+# advRocketry researched; four committed trees, twenty-one recordings; two vessels, both
+# `CS Mun Flyby Debris` on Kerbin suborbits. Complete on the Mun: Flyby, Escape,
+# ReturnFromFlyBy, Orbit, ReturnFromOrbit; NOT Spacewalk, NOT Science. recovery@MunOrbited
+# holds 16 of its 19.2 cap (scv 0.1667), so this recovery adds about 2.7 more.
+#
+# THE SCIENCE, from stock, not memory. ScienceDefs.cfg (GameData/Squad/Resources): crewReport
+# base 5 (biomeMask 7: global in space), evaReport base 8 (biomeMask 23: biome-specific in
+# InSpaceLow, global in InSpaceHigh), mysteryGoo base 10 (mask 3), temperatureScan base 8
+# (mask 7). The Mun's CelestialBodyScienceParams, read off the KSC scene asset
+# (sharedassets9.assets, the nine floats after the "Mun" body name, the same read that
+# gives Kerbin's 0.3 / 0.4 / 0.7 / 0.9 / 1 / 1.5 / 1): Landed 4, InSpaceLow 3, InSpaceHigh 2,
+# Recovery 2, spaceAltitudeThreshold 60000 m. A first reading recovered pays base x
+# multiplier:
+#   high space (B11's ~140 km park): mysteryGoo 20, temperatureScan 16, evaReport 16 = 52
+#   low space (a lowered 30 x 45 km orbit): crewReport 15, mysteryGoo 30,
+#     temperatureScan 24, evaReport 24 (biome-specific) = 93
+#   recovery@MunOrbited about 2.7; Mun/Spacewalk's science reward (a regex below).
+# 145 from the experiments, about 147.7 with the recovery: the pool ends near 153 before
+# the research and near 18 after it. WHY TWO THERMOMETERS: each experiment part holds one
+# reading and the Mk1 pod's container takes data only from a boarding kerbal (its
+# ModuleScienceContainer is evaOnlyStorage, and the pod has no Collect All), so the one
+# crew-report module keeps one report: the brief's plan (both crew reports) keeps 129 +
+# 2.7, short of 130 earned with nothing to spare. The second 2HOT (16 in high space) is
+# the cheapest deterministic addition: one 0.005 t part, no biome luck, no extra EVA.
+#
+# THE CRAFT, `CS Mun Science` (harness/tools/build_cs_orbiter_craft.py --variant munsci,
+# gate harness/lib/test_cs_orbiter_craft.py): CS Mun Flyby (CS-5 / CS-6's proven craft)
+# with the upper 4 x FL-T200 merged into 2 x FL-T400 (the same propellant and dry mass)
+# and two Goo canisters (AeroEquus' attach) and two 2HOT thermometers (Science Jr.'s
+# attach) on the Mk1 pod, at least 60 deg off its hatch: 30 parts, 36.615 t, 20.81 m,
+# cost 14877. Stages as CS Mun Flyby: 4 launch, 3 the Thumpers' drop, 2 the core drop and
+# the upper Swivel, 1 the pod's separation, 0 the chute. Upper stage 7.290 t -> 3.290 t,
+# 2497 m/s vacuum (CS Mun Flyby's 2556 less the science's 0.11 t). Reentry mass 1.250 t.
+# POWER: the Swivel's alternator (6 EC/s at full thrust) charges on every burn (the
+# injection, the corrections, the capture, both lowering nodes, the departure, the
+# trim); the experiments draw no charge (the thermometer's sensor stays off); nothing
+# holds attitude through the science or the EVAs (no SmartASS, no kRPC autopilot, no
+# SAS); the long coasts are on rails. The mission's electricChargeFloor watchdog names an
+# exhausted battery on the pod-only phases and in the departure and trim.
+#
+# THE ROUTE, mission `b11_mun_science_return` (mlib.msc_decide): CS-6's machine through
+# B11's capture and a 60 s park (B5 VERBATIM, the PARK-exit CommitTree dropped). In the
+# park (high space, gated on the OBSERVED periapsis >= 70 km): one Goo and one 2HOT on
+# the pod (gated on the OBSERVED reading count), the seam's EvaExit (no release: the
+# kerbal hangs on the hatch ladder; the Mun/Spacewalk milestone fires here), the
+# kerbal's EVA report, the seam's EvaBoard (stock stores the report in the pod's
+# container), the pod read back. Then two retrograde nodes of the machine's own (vis-viva
+# at the periapsis, MechJeb's NodeExecutor): the far side to 30 km, then the apoapsis to
+# 45 km. In the low orbit (gated on the OBSERVED apoapsis <= 55 km, periapsis >= 15 km):
+# the crew report, the other Goo and the other 2HOT, a second EVA cycle under its own
+# seam tags. Then CS-6's moon-return departure and CS-5's return tail VERBATIM. The
+# mission's scienceKeptToSplashdown row reads all five pod readings on the splashed pod.
+#
+# THE MONEY: the rollout (the builder's 14877; CS-5 measured 11612 for a builder 11577,
+# so about 14912), Mun/Spacewalk (score 0.6 against Mun/Orbit's measured 24960/4/2 at 0.8:
+# about 18720 funds, a regex), the recovery (distance-scaled, CS-6 +949), the research
+# (-45 and -90 science, no funds: BypassEntryPurchaseAfterResearch). The ground-truth
+# Flea's -2932 is refunded by its pad recovery.
+#
+# THE ASSERTIONS THAT MATTER: every subject the two runs and the two EVAs bring home,
+# body-qualified and in the situation the machine gated it into (the low EVA report's
+# biome is a regex), the recovery's science credit, Mun/Spacewalk body-qualified, both
+# research nodes booked as their own untagged ledger rows, and the ground truth closing
+# with all of it in the pools.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) no existing flight is a prefix of this one
+# (CS-6 departs from its park; this one reads science there and lowers first); (2) no
+# idle waits: the game-time waits are the mission's own gates and the executor's
+# autowarp to each node; (3) the park dwell is CS-6's 60 s; the readings wait only for
+# the observed count; (4) the coasts ride B5's rails policy, the lowering nodes the
+# executor's autowarp, the departure coast and the fall one native warp each; the burns,
+# the readings and the EVAs at 1x; (5) B5's coast leads are B5's flown values; (6) fail
+# fast: CS-6's give-ups, the high / low gates by name, each run's science-run-short,
+# eva-report-short, each EVA verb's refusal by name, the lowering's plan / missed /
+# executor / window give-ups, the electric-charge watchdog; `[retry] once` is kept on
+# purpose for a first flight through a new machine; (7) the recordings count is a window
+# until the first flight measures it; (8) predicted wall ~1800-3000 s, so operator
+# (stock-tree is not in the nightly instance set); (9) `flight_efficiency.py` after the
+# first green flight.
+#
+# STATUS: AUTHORED 2026-10-28, NEVER FLOWN. Owed off the first flight: the rollout debit,
+# Mun/Spacewalk's payout, the subjects' amounts (predicted above, regexed), the low EVA
+# report's biome, whether Mun/Science fires at the recovery (CS-6's recovery of
+# recovery@MunOrbited did not complete it; not pinned), the recovery credits, the
+# recordings count (window), the batch split (`total=3` pinned, the rest regexed), the
+# lowering dvs (the lowOrbitReached row), the lowest ElectricCharge reading (the
+# departedTargetOrbit row's ecMin), and whether the Goo and the thermometers survive the
+# reentry on the pod (the scienceKeptToSplashdown row).
+tier = "operator"
+description = "Scripted campaign stage 6c (Career): on CS-6b's produced save, launch the CS Mun Science from the VAB, fly CS-6's ascent, Mun transfer, capture and park, take Goo and thermometer readings and an EVA report in high Mun space, lower the orbit under the Mun's 60 km space threshold, take the crew report, Goo, thermometer and a second EVA report there, depart on MechJeb's moon-return planner, reenter and splash down, recover, auto-commit, research Basic Science and Electrics in the Space Center, then run the ledger ground truth against KSP's own career save."
+instanceProfile = "stock-tree"
+tags = ["campaign", "CS-6c", "career", "editor", "mechjeb", "mun", "cross-soi", "capture",
+        "science", "eva", "board", "research", "reentry", "recovery", "auto-commit",
+        "ledger", "ground-truth", "ingame-batch", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun3"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind    = "autopilot"
+mission = "b11_mun_science_return"
+
+# Budget arithmetic: runtime 8400 >= 300 LoadGame + 120 GoToEditor + 180 LaunchFromEditor
+# + 5400 mission + 120 Recover + 2 x 60 KSC research + 120 GoToEditor + 180
+# LaunchFromEditor + 540 RunTests + 120 Recover + 120 SaveGame + FlushAndQuit + margin.
+# Mission 5400 (WALL): CS-6 flew its route in 919 s; on top of that the two pod runs (a
+# few s each), two EVA cycles (the seam's EvaExit / EvaBoard, each polled up to 240 s,
+# typically tens of seconds), two lowering nodes (each up to an orbit of executor
+# autowarp plus MechJeb's pre-ignition hold) and the low orbit's departure. Phase
+# budgets in missionParams are GAME time.
+steps = [
+  # scene = "spacecenter": the host's two vessels are CS-6's suborbital debris.
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoMerge",          value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "CS Mun Science" },  expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "munsci",   expect = "OK", budget = 180 },
+  { phase = "mission",                                                                expect = "MISSION-OK", budget = 5400 },
+  # The return ends splashed with the pod active; the pod is the launch's root part, so
+  # it keeps the launch vessel's pid (CS-5's / CS-6's shape; the EVAs and boardings
+  # change neither). Recovering it credits the science, leaves FLIGHT and auto-commits.
+  { cmd = "Recover",          args = { pid = "${munsci.pid}" },                       expect = "OK", budget = 120 },
+  { cmd = "CommitTree",                                                               expect = "REJECTED" },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  # In the Space Center: basicScience (parent survivability, researched) then electrics
+  # (parent basicScience); R&D level 0 caps a node at 100, electrics is 90.
+  { cmd = "KscAction",        args = { action = "research-node", node = "basicScience" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",        args = { action = "research-node", node = "electrics" },    expect = "OK", budget = 60 },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "Jumping Flea" },    expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "probe",    expect = "OK", budget = 180 },
+  { cmd = "RunTests",         args = { category = "LedgerGroundTruth" },              expect = "OK", budget = 540 },
+  { cmd = "MissionMark",      args = { label = "cs6c-groundtruth-done" },             expect = "OK" },
+  # Leave no craft on the pad in the produced save (it is the next career stage's host).
+  { cmd = "Recover",          args = { pid = "${probe.pid}" },                        expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "SaveGame",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+# CS-6's flown values for the orbit leg, the career launch, the departure and the return
+# tail, CS-7's EVA and electric-charge keys, and this mission's science and lowering keys
+# (b11_mun_science_return.schema.toml). Thresholds and budgets only, never a golden
+# trajectory.
+[driver.missionParams]
+targetApoapsisMeters       = 80000
+targetPeriapsisMeters      = 80000
+apoErrorMeters             = 5000
+periErrorMeters            = 5000
+ascentTimeoutSeconds       = 480
+circularizeTimeoutSeconds  = 300
+targetBodyName             = "Mun"
+homeBodyName               = "Kerbin"
+transferMinApoapsisMeters  = 10000000
+# B11's flown request: the arrival lands at ~136-141 km (finding 16d), the park the high
+# readings are taken in.
+courseCorrectPeriapsisMeters = 250000
+maxCorrectionDvMps         = 300
+correctionTriggerAltsMeters = [0, 6000000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+transferBurnTimeoutSeconds = 4000
+coastTimeoutSeconds        = 400000
+flybyTimeoutSeconds        = 300000
+coastWarpFactor            = 6
+flybyWarpFactor            = 5
+flybyMaxWarpFactor         = 6
+nodeArrivalMarginSeconds   = 15
+planWarpFactor             = 2
+soiLeadSeconds             = 30
+flipPhysicsWarpFactor      = 1
+targetPeriapsisFloorMeters = 10000
+# --- the capture and the park (CS-6's values) ---
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+captureBurnTimeoutSeconds  = 60000
+parkMinPeriapsisMeters     = 15000
+parkMaxApoapsisMeters      = 2000000
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+parkDwellSeconds           = 60
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 480
+# B11's ORBIT-COMMIT budget; this mission never enters that phase (the composer drops
+# the commit on the PARK exit frame), the key is B5's own.
+commitTimeoutSeconds       = 300
+# --- career launch (CS-4's / CS-5's / CS-6's values) ---
+mjEngageConfirmFrames      = 20
+# MechJeb stops after the upper Swivel's stage; stage 1 is the pod's own separation.
+autostageLimit             = 2
+ascentType                 = 0
+# --- the readings: one module per name; the craft carries 2 Goo and 2 thermometers ---
+sciHighExperiments         = ["mysteryGoo", "temperatureScan"]
+sciLowExperiments          = ["crewReport", "mysteryGoo", "temperatureScan"]
+# The Mun's spaceAltitudeThreshold is 60000 m (sharedassets9.assets): the high gate
+# keeps the park's whole orbit above it, the low gate keeps the lowered one under it and
+# clear of the highest terrain (~7.1 km).
+sciHighMinPeriapsisMeters  = 70000
+sciLowMaxApoapsisMeters    = 55000
+sciLowMinPeriapsisMeters   = 15000
+sciRunTimeoutSeconds       = 120
+sciRunRetrySeconds         = 15
+# --- the lowering: 30 km then 45 km, about 45 + 41 m/s from a 140 km park ---
+sciLowPeriapsisMeters      = 30000
+sciLowApoapsisMeters       = 45000
+# A lowering from a ~230 km park is ~65 m/s per node; twice that is a wrong read.
+sciLowerMaxDvMps           = 120
+sciLowerPlanTimeoutSeconds = 120
+# Up to one park period (~4900 s at 140 km) of executor autowarp, MechJeb's pre-ignition
+# hold and the burn, with slack.
+sciLowerBurnTimeoutSeconds = 12000
+sciNodeLeadSeconds         = 120
+# --- the EVA cycles (CS-7's values) ---
+evaSettleSeconds           = 5
+evaSettleFrames            = 3
+evaPhaseTimeoutSeconds     = 900
+# --- the electric-charge watchdog ---
+electricChargeFloor        = 0.5
+electricChargeDebounceFrames = 20
+# --- the departure (CS-6's values) ---
+departPeriapsisMeters      = 30000
+# A moon return from a 30 x 45 km Mun orbit is ~270-300 m/s; twice that is a wrong plan.
+departMaxDvMps             = 600
+departPlanTimeoutSeconds   = 300
+departPlanRetrySeconds     = 10
+departBurnTimeoutSeconds   = 20000
+departCoastTimeoutSeconds  = 100000
+departSoiLeadSeconds       = 30
+# --- the return tail (CS-5's / CS-6's values) ---
+returnPeriapsisMeters      = 30000
+returnPeriapsisMinMeters   = 20000
+returnPeriapsisMaxMeters   = 40000
+returnHeadingDeg           = 90
+returnTrimThrottle         = 0.25
+returnTrimFineThrottle     = 0.03
+returnTrimFineBandMeters   = 300000
+returnTrimSettleSeconds    = 10
+returnMaxAttitudeErrorDeg  = 5
+returnTrimTimeoutSeconds   = 900
+returnStageCount           = 1
+returnStageSettleSeconds   = 2
+returnWarpAboveAltMeters   = 70000
+returnWarpHopSeconds       = 120
+returnChuteDeployAltMeters = 12000
+returnReentryTimeoutSeconds = 3600
+returnDescentTimeoutSeconds = 900
+returnLandedSituations     = ["LANDED", "SPLASHED"]
+returnFallLeadSeconds      = 600
+returnFallMinAltMeters     = 200000
+returnFallTimeoutSeconds   = 200000
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# A WINDOW until the first flight measures it: the host's twenty-one + CS-6's flight
+# shape (seven) + two EVA branches and their board merges. The ground-truth launch is
+# unrecorded.
+count = { min = 27, max = 40 }
+
+[expectations.logContracts]
+# Source of each literal (Source/Parsek/...):
+#   launchfromeditor complete          TestCommands/TestCommandEditorRoute.cs:517
+#   Game state: FundsChanged           GameStateRecorder.cs:945
+#   Game state: ScienceChanged         GameStateRecorder.cs:1062
+#   Science subject captured:          GameStateRecorder.cs:1653
+#   Milestone enriched:                GameStateRecorder.Handlers.cs:1516 (the id from
+#                                       QualifyMilestoneId, :1798)
+#   Mid-recording EVA detected         ParsekFlight.cs:9500
+#   Tree branch created: type=         ParsekFlight.cs:6500
+#   evaexit / evaboard complete        TestCommands/ParsekTestCommandAddon.Eva.cs:277 / 946
+#   detected boarding from EVA         ParsekFlight.cs:3868
+#   Tree board merge completed         ParsekFlight.cs:14092
+#   recover observed onVesselRecovered TestCommands/ParsekTestCommandAddon.Recover.cs:284
+#   CommitTreeSceneExit                ParsekFlight.cs:17182
+#   kscaction ... applied=true         TestCommands/TestCommandKscAction.cs:501 (LogApplied;
+#                                       observedAfter from :588; manifestKind tech-unlock)
+#   Game state: TechResearched         GameStateRecorder.Handlers.cs:692
+#   AddEvent:                          GameStateStore.cs:124
+#   KSC spending recorded:             GameActions/LedgerOrchestrator.cs:6095
+#   ground-truth game mode=            InGameTests/LedgerGroundTruthHarness.cs:125
+#   result: hardFailures=              InGameTests/LedgerGroundTruthHarness.cs:246
+#   BATCH_COMPLETE v1                  InGameTests/InGameTestRunner.cs:1219
+required = [
+  # The flight.
+  "launchfromeditor complete scene=FLIGHT vessel=CS Mun Science pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  # The craft's rollout, a regex until measured (the builder's cost is 14877); five
+  # digits, so the ground-truth Flea's -2932 cannot satisfy it.
+  "Game state: FundsChanged -1[0-9]{4} \\(VesselRollout\\)",
+  "Recording started",
+  # The two EVA cycles in Mun orbit: the seam's verbs (no release: the kerbal stays on
+  # the ladder) and Parsek's branch and merge, twice each.
+  "evaexit complete kerbal=[^ ]+ [^ ]+ evaPid=[0-9]+ released=false[\\s\\S]*?evaexit complete kerbal=[^ ]+ [^ ]+ evaPid=[0-9]+ released=false",
+  "Tree branch created: type=EVA[\\s\\S]*?Tree branch created: type=EVA",
+  "evaboard complete kerbal=[\\s\\S]*?evaboard complete kerbal=",
+  "Tree board merge completed[\\s\\S]*?Tree board merge completed",
+  "Mid-recording EVA detected",
+  "detected boarding from EVA",
+  # The first EVA in Mun orbit, body-qualified (Spacewalk's body field is private;
+  # FindProgressNodeBodyField reads both visibilities).
+  "Milestone enriched: 'Mun/Spacewalk' funds=[0-9]+ rep=[0-9.]+ sci=[0-9.]+",
+  # The recovery of the returned pod, and the scene-exit commit it causes.
+  "recover observed onVesselRecovered pid=[0-9]+ vessel=CS Mun Science quick=false",
+  # The pod recovery pays by distance from the KSC (CS-5 +814, CS-6 +949), so a regex;
+  # never the ground-truth Flea's +2932.
+  "Game state: FundsChanged \\+(?!2932 )[0-9]+ \\(VesselRecovery\\)",
+  # The science the recovery credits: one ScienceChanged per subject, and each subject
+  # in the situation the machine gated it into. Amounts are regexes until measured
+  # (predicted 20.0 / 16.0 / 16.0 high, 15.0 / 30.0 / 24.0 / 24.0 low).
+  "Game state: ScienceChanged \\+[0-9.]+ \\(VesselRecovery\\)",
+  "Science subject captured: mysteryGoo@MunInSpaceHigh amount=[0-9]+\\.[0-9] ",
+  "Science subject captured: temperatureScan@MunInSpaceHigh amount=[0-9]+\\.[0-9] ",
+  "Science subject captured: evaReport@MunInSpaceHigh amount=[0-9]+\\.[0-9] ",
+  "Science subject captured: crewReport@MunInSpaceLow amount=[0-9]+\\.[0-9] ",
+  "Science subject captured: mysteryGoo@MunInSpaceLow amount=[0-9]+\\.[0-9] ",
+  "Science subject captured: temperatureScan@MunInSpaceLow amount=[0-9]+\\.[0-9] ",
+  # evaReport is biome-specific in InSpaceLow (biomeMask 23): the biome under the
+  # lowered orbit at the EVA, a regex until measured.
+  "Science subject captured: evaReport@MunInSpaceLow[A-Z][A-Za-z]+ amount=[0-9]+\\.[0-9] ",
+  "CommitTreeSceneExit: finalizing tree at UT=[0-9.]+[\\s\\S]{0,8000}?Recording stopped\\. ",
+  # Basic Science (the Z-100): the seam's confirmation, stock's debit, the ledger rows.
+  "kscaction action=research-node target=basicScience applied=true manifestKind=tech-unlock observedAfter=science=[0-9.]+",
+  "Game state: ScienceChanged -45\\.0 \\(RnDTechResearch\\)",
+  "Game state: TechResearched 'basicScience' \\(cost=45\\)",
+  "AddEvent: TechResearched key='basicScience' tag=''",
+  "KSC spending recorded: type=ScienceSpending, UT=[0-9.]+, key=basicScience",
+  # Electrics (the OX-STAT).
+  "kscaction action=research-node target=electrics applied=true manifestKind=tech-unlock observedAfter=science=[0-9.]+",
+  "Game state: ScienceChanged -90\\.0 \\(RnDTechResearch\\)",
+  "Game state: TechResearched 'electrics' \\(cost=90\\)",
+  "AddEvent: TechResearched key='electrics' tag=''",
+  "KSC spending recorded: type=ScienceSpending, UT=[0-9.]+, key=electrics",
+  # The ground truth, in FLIGHT on the unrecorded Flea.
+  "launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  "Game state: FundsChanged -2932 \\(VesselRollout\\)",
+  "ground-truth game mode=CAREER pools=funds,science,reputation",
+  "result: hardFailures=0 ",
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+]
+forbidden = [
+  # Bare milestone ids: every Mun milestone must be body-qualified (PR #2301).
+  "Milestone enriched: '(Spacewalk|Science|Orbit|SurfaceEVA|Landing)' ",
+  # Milestones the host already completed pay nothing a second time.
+  "Milestone enriched: '(Mun/Flyby|Mun/Escape|Mun/ReturnFromFlyBy|Mun/Orbit|Mun/ReturnFromOrbit|Kerbin/Escape|Kerbin/Splashdown|Kerbin/Orbit|Kerbin/Science|Kerbin/ReturnFromOrbit)' ",
+  # A research the career could not pay for (the science run fell short).
+  "kscaction refused action=research-node ",
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  # KspStatePatcher.cs:6287-6288.
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  # A stock pool movement no row holds (KspStatePatcher.cs:6117).
+  "filed StockPoolAdjustment amount=\\S+ reason=leak ",
+  # The RT-10 PartTest stays Active (the craft carries no Hammer).
+  "AddEvent: ContractCompleted key='1a9762e8-8c97-495b-b451-ad62726c08cb'",
+  "Game state: ContractFailed ",
+  "completed by no flight, filed untagged",
+]
+
+[runtime]
+budgetSeconds = 8400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

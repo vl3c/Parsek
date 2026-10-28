@@ -33035,3 +33035,1025 @@ def evaluate_mlr_assertions(frames, params: MlrParams,
          "homeUt": home_ut}))
     rows.extend(return_tail_rows(frames, params, state))
     return rows
+
+
+# ---------------------------------------------------------------------------
+# MUN-SCIENCE-RETURN composed machine (mission b11_mun_science_return; the
+# scripted campaign's CS-6c, "a science run to the Mun"). Pure.
+#
+# WHY IT EXISTS. CS-7's lander has no power: nothing on the career's tech makes
+# electric charge. Basic Science (45, the Z-100) and Electrics (90, the OX-STAT)
+# need 135 science and the career holds 5.5, so this flight earns it at the Mun
+# on CS-6's route with the experiments the CS Mun Science craft carries.
+#
+# WHY A COMPOSED MACHINE. CS-6's mor composer runs B5 verbatim with captureEnabled
+# to its PARK exit, drops the mid-mission CommitTree there and departs. This one
+# puts the science between the park and the departure. b5_decide is delegated
+# VERBATIM, the departure is mor's own block functions (_mor_depart) and the
+# return tail mfr's (_mfr_trim / _mfr_fall / _mfr_home), shared rather than
+# copied: MscState and MscParams carry every field name those functions read
+# (test_b11_mun_science_return pins the superset), so mor_decide, mlr_decide and
+# mfr_decide are unchanged.
+#
+# THE SITUATIONS. The Mun's CelestialBodyScienceParams (serialized in the KSC
+# scene asset sharedassets9.assets after the "Mun" body name): InSpaceLow 3,
+# InSpaceHigh 2, spaceAltitudeThreshold 60000 m. B11's park sits at ~136-141 km,
+# above the threshold, so the PARK is the high-space reading. A low reading needs
+# the orbit under 60 km, so the machine lowers it with two retrograde nodes of
+# its own, and each reading is gated on the OBSERVED orbit: the periapsis over the
+# high gate, or the apoapsis under the low gate. Both are read above sea level,
+# the altitude stock classifies a situation by, so the whole orbit is in the
+# situation and no terrain height enters.
+#
+# THE STORAGE. Each experiment part holds one reading, and the Mk1 pod's container
+# takes data only from a boarding kerbal (evaOnlyStorage; KerbalEVA's boarding
+# stores every reading the kerbal carries through StoreData, repeats refused). So
+# the pod runs one Goo and one thermometer high, then the crew report, the other
+# Goo and the other thermometer low; the kerbal's EVA report is taken on each EVA
+# and carried aboard by the boarding. Every experiment part rides the pod home.
+#
+# THE PHASE PLAN (reported phase in brackets):
+#   ORBIT    b5_decide verbatim with captureEnabled through PARK, CS-6's launch
+#            edit; on the PARK exit frame the CommitTree is dropped (mor's edit)
+#            and the high run starts on the same frame.
+#   SCIENCE  [SCI-HIGH-RUN] gate: ORBITING the target, periapsis >= sciHighMin;
+#            sciHighExperiments on the pod until the pod reads that many readings
+#            (bounded re-run, then science-run-short); [SCI-HIGH-EVA-EXIT] the
+#            seam's EvaExit (no release: the kerbal hangs on the hatch ladder);
+#            [SCI-HIGH-EVA-REPORT] the kerbal's evaReport until the kerbal reads a
+#            reading; [SCI-HIGH-EVA-BOARD] the seam's EvaBoard; [SCI-HIGH-SETTLE]
+#            until the pod reads back active with its readings.
+#   LOWER    [LOWER-PLAN-PE] / [LOWER-BURN-PE] a retrograde node at the periapsis
+#            drops the far side to sciLowPeriapsisMeters; [LOWER-PLAN-AP] /
+#            [LOWER-BURN-AP] a second at the new periapsis drops the apoapsis to
+#            sciLowApoapsisMeters. MechJeb's NodeExecutor flies both; a leg already
+#            met on its plan frame is skipped.
+#   SCIENCE  [SCI-LOW-RUN] gate: apoapsis <= sciLowMaxApoapsis and periapsis >=
+#            sciLowMinPeriapsis; sciLowExperiments on the pod, then the same EVA
+#            cycle under its own seam tags ([SCI-LOW-EVA-EXIT] ... [SCI-LOW-SETTLE]).
+#   DEPART   mor's [DEPART-PLAN] / [DEPART-BURN] / [DEPART-COAST], entered with any
+#            stray node cleared first.
+#   TRIM / HOME / FALL   mfr's blocks, as on CS-5 / CS-6.
+# ELECTRIC CHARGE. The Swivel's alternator charges only under thrust, and nothing
+# holds attitude through the science (no SmartASS, no kRPC autopilot, no SAS). The
+# watchdog reads the pod's charge on the pod-only phases (never with the kerbal
+# active) and names an exhausted battery.
+# ---------------------------------------------------------------------------
+
+MSC_SCIENCE = "SCIENCE"
+MSC_LOWER = "LOWER"
+MSC_LOWER_PLAN_PE = "LOWER-PLAN-PE"
+MSC_LOWER_BURN_PE = "LOWER-BURN-PE"
+MSC_LOWER_PLAN_AP = "LOWER-PLAN-AP"
+MSC_LOWER_BURN_AP = "LOWER-BURN-AP"
+MSC_BLOCKS: Tuple[str, ...] = (MOR_ORBIT, MSC_SCIENCE, MSC_LOWER, MOR_DEPART, MFR_TRIM,
+                               MFR_HOME, MFR_FALL)
+MSC_TERMINAL_PHASE = MFR_TERMINAL_PHASE
+# The kerbal's own experiment, run on each EVA.
+MSC_EVA_EXPERIMENT = "evaReport"
+# Consecutive agreeing frames behind each reading gate (SBR_OBSERVE_DEBOUNCE_K's
+# reason: one poll of corroboration before a gate certifies).
+MSC_OBSERVE_DEBOUNCE = 2
+# Bounded emits of one science run (the runner's has-data skip makes a re-emit run
+# only what is still missing).
+MSC_RUN_MAX_ATTEMPTS = 3
+# The lowering legs: plan attempts, the re-plan cadence while no node stands, the
+# node-free frames that confirm a leg and that name a missed one, and the
+# periapsis tolerance the first leg accepts over its aim.
+MSC_LOWER_PLAN_MAX_ATTEMPTS = 3
+MSC_LOWER_PLAN_RETRY_SECONDS = 10.0
+MSC_LOWER_SETTLE_FRAMES = 3
+MSC_LOWER_MISS_FRAMES = 8
+MSC_LOWER_PE_TOLERANCE_METERS = 10000.0
+# Give-up names.
+MSC_HIGH_NOT_HIGH = "science-high-orbit-not-high"
+MSC_LOW_NOT_LOW = "science-low-orbit-not-low"
+MSC_RUN_SHORT = "science-run-short"
+MSC_EVA_REPORT_SHORT = "eva-report-short"
+MSC_EVA_EXIT_REFUSED = "eva-exit-refused"
+MSC_BOARD_REFUSED = "eva-board-refused"
+MSC_BOARD_NOT_ABOARD = "eva-board-not-aboard"
+MSC_LOWER_PLAN_REFUSED = "science-lower-plan-refused"
+MSC_LOWER_MISSED = "science-lower-missed"
+MSC_LOWER_EXEC_DOWN = "science-lower-executor-not-enabled"
+MSC_LOWER_WINDOW_MISSED = "science-lower-window-missed"
+MSC_EC_EXHAUSTED = "electric-charge-exhausted"
+# The lowering node's runner label (ACTION_ADD_MANEUVER_NODE's text).
+MSC_LOWER_NODE_LABEL = "SciLower"
+
+
+@dataclass(frozen=True)
+class MscLeg:
+    """One science leg: its phase names, its two seam tags and the prefix of its
+    state fields."""
+    name: str
+    run: str
+    eva_exit: str
+    eva_report: str
+    eva_board: str
+    settle: str
+    exit_tag: str
+    board_tag: str
+    prefix: str
+
+    @property
+    def phases(self) -> Tuple[str, ...]:
+        return (self.run, self.eva_exit, self.eva_report, self.eva_board, self.settle)
+
+
+MSC_LEG_HIGH = MscLeg("high", "SCI-HIGH-RUN", "SCI-HIGH-EVA-EXIT", "SCI-HIGH-EVA-REPORT",
+                      "SCI-HIGH-EVA-BOARD", "SCI-HIGH-SETTLE", "cs6cevaexithigh",
+                      "cs6cevaboardhigh", "high")
+MSC_LEG_LOW = MscLeg("low", "SCI-LOW-RUN", "SCI-LOW-EVA-EXIT", "SCI-LOW-EVA-REPORT",
+                     "SCI-LOW-EVA-BOARD", "SCI-LOW-SETTLE", "cs6cevaexitlow",
+                     "cs6cevaboardlow", "low")
+MSC_LEGS: Tuple[MscLeg, ...] = (MSC_LEG_HIGH, MSC_LEG_LOW)
+# The science and lowering phases on which the active vessel is the pod (the
+# watchdog's reading surface); the EVA and settle phases are not among them.
+MSC_POD_PHASES: Tuple[str, ...] = (MSC_LEG_HIGH.run, MSC_LEG_LOW.run, MSC_LOWER_PLAN_PE,
+                                   MSC_LOWER_BURN_PE, MSC_LOWER_PLAN_AP,
+                                   MSC_LOWER_BURN_AP)
+MSC_EC_BLOCKS: Tuple[str, ...] = (MOR_DEPART, MFR_TRIM)
+
+
+@dataclass(frozen=True)
+class MscParams:
+    """b11_mun_science_return tuning. ``orbit`` is B5's params (captureEnabled) over
+    the SAME dict; ``home`` and the trim / fall / launch fields are mfr's and the
+    depart_* fields mor's, under the same names, so their block functions read them
+    unchanged."""
+    orbit: B5Params
+    home: B4Params
+    ascent_type: Optional[int] = None
+    autostage_limit: Optional[int] = None
+    mj_engage_confirm_frames: int = 0
+    return_periapsis: float = 30000.0
+    return_periapsis_min: float = 15000.0
+    return_periapsis_max: float = 45000.0
+    trim_heading_deg: float = 90.0
+    trim_throttle: float = 0.25
+    trim_fine_throttle: float = 0.03
+    trim_fine_band: float = 300000.0
+    trim_settle_seconds: float = 10.0
+    trim_max_attitude_error_deg: float = 5.0
+    trim_ignite_frames: int = 20
+    trim_timeout: float = 900.0
+    fall_lead_seconds: float = 600.0
+    fall_min_altitude: float = 200000.0
+    fall_timeout: float = 200000.0
+    depart_periapsis: float = 30000.0
+    depart_max_dv: float = 600.0
+    depart_plan_timeout: float = 300.0
+    depart_plan_retry: float = 10.0
+    depart_burn_timeout: float = 20000.0
+    depart_coast_timeout: float = 100000.0
+    depart_soi_lead: float = 30.0
+    # The readings.
+    sci_high_experiments: Tuple[str, ...] = ("mysteryGoo", "temperatureScan")
+    sci_low_experiments: Tuple[str, ...] = ("crewReport", "mysteryGoo", "temperatureScan")
+    sci_high_min_periapsis: float = 70000.0
+    sci_low_max_apoapsis: float = 55000.0
+    sci_low_min_periapsis: float = 10000.0
+    sci_run_timeout: float = 120.0
+    sci_run_retry: float = 15.0
+    # The lowering.
+    sci_low_periapsis: float = 30000.0
+    sci_low_apoapsis: float = 45000.0
+    sci_lower_max_dv: float = 150.0
+    sci_lower_plan_timeout: float = 120.0
+    sci_lower_burn_timeout: float = 12000.0
+    sci_node_lead: float = 120.0
+    # The EVA cycles.
+    eva_kerbal: str = ""
+    eva_settle_seconds: float = 5.0
+    eva_settle_frames: int = 3
+    eva_timeout: float = 900.0
+    # The electric-charge watchdog (0 = off).
+    ec_floor: float = 0.0
+    ec_debounce: int = 20
+
+
+def _msc_names(value, default: Tuple[str, ...]) -> Tuple[str, ...]:
+    if value is None:
+        return default
+    if isinstance(value, str):
+        value = [value]
+    return tuple(str(v).strip() for v in value if str(v).strip())
+
+
+def msc_params_from_dict(params: Dict) -> MscParams:
+    """Build ``MscParams`` from a spec ``missionParams`` dict (shape and ranges are
+    enforced upstream by hlib against b11_mun_science_return.schema.toml). RAISES on
+    every mode and departure inconsistency mor refuses, on a target with no gravity
+    row (the lowering nodes are sized from it), and on science windows that cannot
+    hold: an empty reading list, the kerbal's own report listed as a pod reading, or
+    the low aims and gates out of order under the high gate."""
+    params = params or {}
+    orbit = b5_params_from_dict(params)
+    if not orbit.capture_enabled:
+        raise ValueError("captureEnabled is required: the science starts from the PARK "
+                         "exit of B5's capture tail")
+    for flag, name in ((orbit.landing_enabled, "landingEnabled"),
+                       (orbit.start_in_orbit, "startInOrbit"),
+                       (orbit.pad_align_ejection, "padAlignEjection"),
+                       (orbit.interplanetary_transfer, "interplanetaryTransfer"),
+                       (orbit.parent_relay_transfer, "parentRelayTransfer")):
+        if flag:
+            raise ValueError("%s is not a park the science can start from" % name)
+    if orbit.target_body == orbit.home_body:
+        raise ValueError("targetBodyName %r is the home body" % (orbit.target_body,))
+    if orbit.target_body not in STOCK_BODY_GRAVITY:
+        raise ValueError("targetBodyName %r has no STOCK_BODY_GRAVITY row; the lowering "
+                         "nodes are sized from it" % (orbit.target_body,))
+    tail = return_tail_param_kwargs(params)
+    p = MscParams(
+        orbit=orbit, **tail,
+        depart_periapsis=float(params.get("departPeriapsisMeters",
+                                          tail["return_periapsis"])),
+        depart_max_dv=float(params.get("departMaxDvMps", 600)),
+        depart_plan_timeout=float(params.get("departPlanTimeoutSeconds", 300)),
+        depart_plan_retry=float(params.get("departPlanRetrySeconds", 10)),
+        depart_burn_timeout=float(params.get("departBurnTimeoutSeconds", 20000)),
+        depart_coast_timeout=float(params.get("departCoastTimeoutSeconds", 100000)),
+        depart_soi_lead=float(params.get("departSoiLeadSeconds", 30)),
+        sci_high_experiments=_msc_names(params.get("sciHighExperiments"),
+                                        ("mysteryGoo", "temperatureScan")),
+        sci_low_experiments=_msc_names(params.get("sciLowExperiments"),
+                                       ("crewReport", "mysteryGoo", "temperatureScan")),
+        sci_high_min_periapsis=float(params.get("sciHighMinPeriapsisMeters", 70000)),
+        sci_low_max_apoapsis=float(params.get("sciLowMaxApoapsisMeters", 55000)),
+        sci_low_min_periapsis=float(params.get("sciLowMinPeriapsisMeters", 10000)),
+        sci_run_timeout=float(params.get("sciRunTimeoutSeconds", 120)),
+        sci_run_retry=float(params.get("sciRunRetrySeconds", 15)),
+        sci_low_periapsis=float(params.get("sciLowPeriapsisMeters", 30000)),
+        sci_low_apoapsis=float(params.get("sciLowApoapsisMeters", 45000)),
+        sci_lower_max_dv=float(params.get("sciLowerMaxDvMps", 150)),
+        sci_lower_plan_timeout=float(params.get("sciLowerPlanTimeoutSeconds", 120)),
+        sci_lower_burn_timeout=float(params.get("sciLowerBurnTimeoutSeconds", 12000)),
+        sci_node_lead=float(params.get("sciNodeLeadSeconds", 120)),
+        eva_kerbal=str(params.get("evaKerbalName", "") or ""),
+        eva_settle_seconds=float(params.get("evaSettleSeconds", 5)),
+        eva_settle_frames=int(params.get("evaSettleFrames", 3)),
+        eva_timeout=float(params.get("evaPhaseTimeoutSeconds", 900)),
+        ec_floor=float(params.get("electricChargeFloor", 0)),
+        ec_debounce=int(params.get("electricChargeDebounceFrames", 20)),
+    )
+    validate_return_tail_params(p)
+    if not (p.return_periapsis_min <= p.depart_periapsis <= p.return_periapsis_max):
+        raise ValueError("departPeriapsisMeters %.0f must sit inside the return window "
+                         "[%.0f, %.0f]: the departure aims where the trim cuts"
+                         % (p.depart_periapsis, p.return_periapsis_min,
+                            p.return_periapsis_max))
+    if p.depart_max_dv <= 0.0:
+        raise ValueError("departMaxDvMps must be positive")
+    if not p.sci_high_experiments or not p.sci_low_experiments:
+        raise ValueError("sciHighExperiments and sciLowExperiments must each name at "
+                         "least one experiment")
+    if MSC_EVA_EXPERIMENT in p.sci_high_experiments + p.sci_low_experiments:
+        raise ValueError("%s is the kerbal's own reading, taken on each EVA; it is not "
+                         "a pod experiment" % MSC_EVA_EXPERIMENT)
+    if not (p.sci_low_min_periapsis < p.sci_low_periapsis < p.sci_low_apoapsis
+            < p.sci_low_max_apoapsis < p.sci_high_min_periapsis):
+        raise ValueError("sciLowMinPeriapsisMeters < sciLowPeriapsisMeters < "
+                         "sciLowApoapsisMeters < sciLowMaxApoapsisMeters < "
+                         "sciHighMinPeriapsisMeters is required (%.0f, %.0f, %.0f, "
+                         "%.0f, %.0f)" % (p.sci_low_min_periapsis, p.sci_low_periapsis,
+                                          p.sci_low_apoapsis, p.sci_low_max_apoapsis,
+                                          p.sci_high_min_periapsis))
+    if p.sci_lower_max_dv <= 0.0 or p.sci_run_retry <= 0.0:
+        raise ValueError("sciLowerMaxDvMps and sciRunRetrySeconds must be positive")
+    if p.eva_settle_frames <= 0:
+        raise ValueError("evaSettleFrames must be positive")
+    if p.ec_floor > 0.0 and p.ec_debounce <= 0:
+        raise ValueError("electricChargeDebounceFrames must be positive when "
+                         "electricChargeFloor arms the watchdog")
+    return p
+
+
+@dataclass(frozen=True)
+class MscState:
+    """b11_mun_science_return machine state. ``flight`` is the delegated B5 machine
+    (named so ``frozen_detector_holder`` resolves it); ``home`` the delegated B4
+    machine once the return tail starts. Every MorState field is here under the same
+    name (mor's departure and mfr's tail run on this state), plus the science's own,
+    one set per leg under its prefix."""
+    params: MscParams
+    flight: B5State
+    home: Optional[B4State] = None
+    block: str = MOR_ORBIT
+    phase: str = B5_PRELAUNCH
+    phase_entry_ut: float = 0.0
+    phase_frames: int = 0
+    phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
+    # The launch engage gate.
+    stage_held: bool = False
+    engage_wait_frames: int = 0
+    setters_injected: Tuple[str, ...] = ()
+    # The science, shared by both legs.
+    science_entry_ut: Optional[float] = None
+    run_attempts: int = 0
+    last_run_ut: Optional[float] = None
+    gate_streak: int = 0
+    settle_streak: int = 0
+    eva_refusal: str = ""
+    # The high leg.
+    high_gate_pe: float = float("nan")
+    high_gate_ap: float = float("nan")
+    high_data: int = -1
+    high_collected_ut: Optional[float] = None
+    high_exit_result: str = ""
+    high_kerbal: str = ""
+    high_eva_pid: str = ""
+    high_report_data: int = -1
+    high_report_ut: Optional[float] = None
+    high_board_result: str = ""
+    high_boarded_pid: str = ""
+    high_aboard_ut: Optional[float] = None
+    # The low leg.
+    low_gate_pe: float = float("nan")
+    low_gate_ap: float = float("nan")
+    low_data: int = -1
+    low_collected_ut: Optional[float] = None
+    low_exit_result: str = ""
+    low_kerbal: str = ""
+    low_eva_pid: str = ""
+    low_report_data: int = -1
+    low_report_ut: Optional[float] = None
+    low_board_result: str = ""
+    low_boarded_pid: str = ""
+    low_aboard_ut: Optional[float] = None
+    # The lowering.
+    lower_plan_attempts: int = 0
+    lower_last_plan_ut: Optional[float] = None
+    lower_node_ut: float = float("nan")
+    lower_node_dv: float = float("nan")
+    lower_exec_down_frames: int = 0
+    lower_exec_reissues: int = 0
+    lower_free_frames: int = 0
+    lower_done_streak: int = 0
+    lower_pe_dv: float = float("nan")
+    lower_ap_dv: float = float("nan")
+    lower_skipped: Tuple[str, ...] = ()
+    # What the pod carried home: the last reading count read in the HOME block.
+    kept_data: int = -1
+    # The electric-charge watchdog.
+    ec_low_frames: int = 0
+    ec_min: float = float("nan")
+    # The departure (mor's fields).
+    park_exit_ut: Optional[float] = None
+    depart_plan_attempts: int = 0
+    depart_last_plan_ut: Optional[float] = None
+    depart_node_ut: float = float("nan")
+    depart_node_dv: float = float("nan")
+    depart_exec_down_frames: int = 0
+    depart_exec_reissues: int = 0
+    depart_underburn_frames: int = 0
+    depart_burn_end_ut: Optional[float] = None
+    depart_next_body: str = ""
+    depart_next_pe: float = float("nan")
+    depart_coast_target_ut: Optional[float] = None
+    depart_coast_issues: int = 0
+    depart_coast_stall_frames: int = 0
+    depart_coast_warp_done: bool = False
+    depart_home_ut: Optional[float] = None
+    # The trim (mfr's fields).
+    trim_direction: str = ""
+    trim_heading: float = float("nan")
+    trim_entry_periapsis: float = float("nan")
+    trim_burn_started: bool = False
+    trim_fine: bool = False
+    trim_burn_frames: int = 0
+    trim_peak_thrust: float = float("nan")
+    trim_cut_periapsis: float = float("nan")
+    trim_cut_ut: float = float("nan")
+    # The fall (mfr's fields).
+    fall_done: bool = False
+    fall_skip_reason: str = ""
+    fall_target_ut: Optional[float] = None
+    fall_issues: int = 0
+    fall_stall_frames: int = 0
+    warp_to_cmd: Optional[float] = None
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    done: bool = False
+
+
+def msc_initial_state(params: MscParams) -> MscState:
+    """Fresh machine inside B5's own PRELAUNCH."""
+    flight = b5_initial_state(params.orbit)
+    return MscState(params=params, flight=flight, phase=flight.phase,
+                    phases_reached=(flight.phase,))
+
+
+def msc_leg_experiments(params: MscParams, leg: MscLeg) -> Tuple[str, ...]:
+    """The pod experiments ``leg`` runs. Pure."""
+    return params.sci_high_experiments if leg is MSC_LEG_HIGH else params.sci_low_experiments
+
+
+def msc_expected_pod_data(params: MscParams, leg: MscLeg) -> int:
+    """How many pod experiments read a reading once ``leg``'s run is done: the high
+    run's, plus the low run's for the low leg. Pure."""
+    high = len(params.sci_high_experiments)
+    return high if leg is MSC_LEG_HIGH else high + len(params.sci_low_experiments)
+
+
+def msc_run_action(names: Tuple[str, ...]) -> Action:
+    """The one run action for a list of experiment names: the runner runs one
+    module per name that holds no reading yet, so a re-emit runs only what is
+    missing. Pure."""
+    return Action(ACTION_RUN_SCIENCE_EXPERIMENTS, text=",".join(names))
+
+
+def msc_eva_actions(verb: str, leg: MscLeg, params: MscParams) -> List[Action]:
+    """The one seam command an EVA phase sends, under the leg's own tag. EvaExit
+    carries no release (the kerbal hangs on the hatch ladder, in the boarding's
+    reach) and the named kerbal when the spec names one. Pure."""
+    if verb == "EvaExit":
+        args: Tuple[Tuple[str, str], ...] = ()
+        if params.eva_kerbal:
+            args = (("kerbal", params.eva_kerbal),)
+        return [Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="EvaExit", seam_args=args,
+                       seam_tag=leg.exit_tag)]
+    if verb == "EvaBoard":
+        return [Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="EvaBoard",
+                       seam_tag=leg.board_tag)]
+    raise ValueError("unknown EVA verb %r" % (verb,))
+
+
+def msc_pod_active(snapshot: TelemetrySnapshot, params: MscParams) -> bool:
+    """True when the active vessel reads as the craft (liquid fuel aboard; an EVA
+    kerbal carries none) ORBITING the target. Unreadable fuel never counts. Pure."""
+    return (_is_finite(snapshot.liquid_fuel) and snapshot.liquid_fuel > 0.0
+            and snapshot.body == params.orbit.target_body
+            and (snapshot.situation or "").upper() == "ORBITING")
+
+
+def msc_kerbal_active(snapshot: TelemetrySnapshot, params: MscParams) -> bool:
+    """True when the active vessel reads as the EVA kerbal: liquid fuel read as
+    exactly zero, in the target's SOI. Pure."""
+    return (_is_finite(snapshot.liquid_fuel) and snapshot.liquid_fuel == 0.0
+            and snapshot.body == params.orbit.target_body)
+
+
+def msc_high_gate(snapshot: TelemetrySnapshot, params: MscParams) -> bool:
+    """The high-space gate: ORBITING the target with the periapsis (above sea level)
+    at or over sciHighMinPeriapsis, so the whole orbit is over the threshold. Pure."""
+    return (snapshot.body == params.orbit.target_body
+            and (snapshot.situation or "").upper() == "ORBITING"
+            and _is_finite(snapshot.periapsis)
+            and snapshot.periapsis >= params.sci_high_min_periapsis)
+
+
+def msc_low_gate(snapshot: TelemetrySnapshot, params: MscParams) -> bool:
+    """The low-space gate: ORBITING the target, the apoapsis (above sea level) at or
+    under sciLowMaxApoapsis and the periapsis at or over sciLowMinPeriapsis, so the
+    whole orbit is under the threshold and over the terrain. Pure."""
+    return (snapshot.body == params.orbit.target_body
+            and (snapshot.situation or "").upper() == "ORBITING"
+            and _is_finite(snapshot.apoapsis) and _is_finite(snapshot.periapsis)
+            and 0.0 < snapshot.apoapsis <= params.sci_low_max_apoapsis
+            and snapshot.periapsis >= params.sci_low_min_periapsis)
+
+
+def msc_lower_leg_met(snapshot: TelemetrySnapshot, params: MscParams, leg: str) -> bool:
+    """True when a lowering leg's aim already holds: "PE" a periapsis inside
+    [sciLowMinPeriapsis, sciLowPeriapsis + MSC_LOWER_PE_TOLERANCE_METERS], "AP" the
+    low gate. Pure."""
+    if leg == "AP":
+        return msc_low_gate(snapshot, params)
+    return (_is_finite(snapshot.periapsis)
+            and params.sci_low_min_periapsis <= snapshot.periapsis
+            <= params.sci_low_periapsis + MSC_LOWER_PE_TOLERANCE_METERS)
+
+
+def msc_lower_node_plan(snapshot: TelemetrySnapshot, params: MscParams,
+                        leg: str) -> Tuple[float, float, str]:
+    """(dv, node_ut, "") for one lowering node, or (nan, nan, reason). Pure.
+
+    The node sits at the next PERIAPSIS (the one radius telemetry states exactly,
+    capture_node_plan's reason) and is a pure retrograde burn:
+
+        r_b  = R + periapsis_altitude          (the burn radius)
+        a0   = R + (apoapsis + periapsis) / 2  (the orbit now)
+        r_o  = R + aim                         (the far apsis wanted: sciLowPeriapsis
+                                                for "PE", sciLowApoapsis for "AP")
+        a1   = (r_b + r_o) / 2
+        dv   = sqrt(mu (2/r_b - 1/a1)) - sqrt(mu (2/r_b - 1/a0))   (NEGATIVE)
+
+    A periapsis nearer than sciNodeLead is taken one orbit later (the executor needs
+    the lead to turn). A non-negative dv (nothing to lower) and one over
+    sciLowerMaxDvMps are refused by name; an unreadable or unbound orbit is a reason
+    to wait ("unreadable ...")."""
+    nan = float("nan")
+    row = STOCK_BODY_GRAVITY.get(params.orbit.target_body)
+    if row is None:
+        return nan, nan, "no-gravity-row %s" % (params.orbit.target_body,)
+    mu, radius = row[0], row[1]
+    pe, ap, ttp, ut = (snapshot.periapsis, snapshot.apoapsis, snapshot.time_to_periapsis,
+                       snapshot.ut)
+    if not all(_is_finite(v) for v in (pe, ap, ttp, ut)) or ap <= 0.0 or ttp < 0.0:
+        return nan, nan, "unreadable (pe=%s ap=%s ttPe=%s)" % (
+            _obs_fmt(pe), _obs_fmt(ap), _obs_fmt(ttp))
+    aim = params.sci_low_periapsis if leg == "PE" else params.sci_low_apoapsis
+    r_b = radius + pe
+    a0 = radius + (ap + pe) / 2.0
+    a1 = (r_b + radius + aim) / 2.0
+    dv = math.sqrt(mu * (2.0 / r_b - 1.0 / a1)) - math.sqrt(mu * (2.0 / r_b - 1.0 / a0))
+    if dv >= 0.0:
+        return nan, nan, "not-a-lowering (dv=%+.1f m/s, pe=%.0f ap=%.0f aim=%.0f)" % (
+            dv, pe, ap, aim)
+    if -dv > params.sci_lower_max_dv:
+        return nan, nan, "over-cap (dv=%.1f m/s > %.1f)" % (-dv, params.sci_lower_max_dv)
+    node_ut = ut + ttp
+    if ttp < params.sci_node_lead:
+        node_ut += 2.0 * math.pi * math.sqrt(a0 ** 3 / mu)
+    return dv, node_ut, ""
+
+
+def _msc_set(state: MscState, leg: MscLeg, **fields) -> MscState:
+    return replace(state, **{"%s_%s" % (leg.prefix, k): v for k, v in fields.items()})
+
+
+def _msc_payload(snapshot: TelemetrySnapshot) -> str:
+    return ",".join("%s=%s" % kv for kv in (snapshot.seam_command_payload or ())) or "-"
+
+
+def _msc_enter_run(state: MscState, snapshot: TelemetrySnapshot,
+                   leg: MscLeg) -> Tuple[MscState, List[Action]]:
+    """Enter a leg's pod run on the gate it needs, or name the miss."""
+    p = state.params
+    gate = msc_high_gate if leg is MSC_LEG_HIGH else msc_low_gate
+    if not gate(snapshot, p):
+        if leg is MSC_LEG_HIGH:
+            return _mfr_flake(state, "%s: the park reads situation=%s pe=%s, under the "
+                                     "high gate %.0f" % (MSC_HIGH_NOT_HIGH,
+                                                         snapshot.situation or "?",
+                                                         _obs_fmt(snapshot.periapsis),
+                                                         p.sci_high_min_periapsis)), []
+        return _mfr_flake(state, "%s: the lowered orbit reads situation=%s ap=%s pe=%s "
+                                 "outside [%.0f, %.0f]"
+                          % (MSC_LOW_NOT_LOW, snapshot.situation or "?",
+                             _obs_fmt(snapshot.apoapsis), _obs_fmt(snapshot.periapsis),
+                             p.sci_low_min_periapsis, p.sci_low_max_apoapsis)), []
+    st = _msc_set(state, leg, gate_pe=float(snapshot.periapsis),
+                  gate_ap=float(snapshot.apoapsis))
+    st = _mfr_enter(st, MSC_SCIENCE, leg.run, snapshot.ut, run_attempts=1,
+                    last_run_ut=snapshot.ut, gate_streak=0, warp_to_cmd=None)
+    return st, [msc_run_action(msc_leg_experiments(p, leg))]
+
+
+def _msc_rerun(state: MscState, snapshot: TelemetrySnapshot, action: Action,
+               giveup: str, have: int, want: int, what: str
+               ) -> Tuple[MscState, List[Action]]:
+    """The not-yet-observed branch of a run phase: its budget, then a bounded
+    re-emit on the retry cadence."""
+    p = state.params
+    if (_is_finite(snapshot.ut)
+            and snapshot.ut - state.phase_entry_ut > p.sci_run_timeout):
+        return _mfr_flake(state, "%s: %s read %d of %d readings after %d run(s) in "
+                                 "%.0f game s" % (giveup, what, have, want,
+                                                  state.run_attempts,
+                                                  p.sci_run_timeout)), []
+    due = (state.last_run_ut is not None and _is_finite(snapshot.ut)
+           and snapshot.ut - state.last_run_ut >= p.sci_run_retry)
+    if due and state.run_attempts < MSC_RUN_MAX_ATTEMPTS:
+        return (replace(state, run_attempts=state.run_attempts + 1,
+                        last_run_ut=snapshot.ut), [action])
+    return state, []
+
+
+def _msc_run(state: MscState, snapshot: TelemetrySnapshot,
+             leg: MscLeg) -> Tuple[MscState, List[Action]]:
+    p = state.params
+    want = msc_expected_pod_data(p, leg)
+    have = snapshot.science_data_count if msc_pod_active(snapshot, p) else -1
+    if have >= want:
+        streak = state.gate_streak + 1
+        st = _msc_set(replace(state, gate_streak=streak), leg, data=have)
+        if streak < MSC_OBSERVE_DEBOUNCE:
+            return st, []
+        st = _msc_set(st, leg, collected_ut=snapshot.ut)
+        return (_mfr_enter(st, MSC_SCIENCE, leg.eva_exit, snapshot.ut, gate_streak=0),
+                msc_eva_actions("EvaExit", leg, p))
+    st = replace(state, gate_streak=0)
+    if have >= 0:
+        st = _msc_set(st, leg, data=have)
+    return _msc_rerun(st, snapshot, msc_run_action(msc_leg_experiments(p, leg)),
+                      MSC_RUN_SHORT, have, want, "the pod")
+
+
+def _msc_eva_answer(state: MscState, snapshot: TelemetrySnapshot, tag: str, verb: str,
+                    giveup: str) -> Tuple[str, Optional[MscState]]:
+    """("", None) while the phase's own command has not answered; ("OK", None) on
+    OK; (result, flaked state) on any other answer. Tag-gated, fail-closed."""
+    result = _seam_result(snapshot, tag)
+    if not result:
+        return "", None
+    if result == "OK":
+        return "OK", None
+    payload = _msc_payload(snapshot)
+    return result, _mfr_flake(replace(state, eva_refusal=payload),
+                              "%s: the seam's %s answered %s (%s)"
+                              % (giveup, verb, result, payload))
+
+
+def _msc_leave_settle(state: MscState, snapshot: TelemetrySnapshot,
+                      leg: MscLeg) -> Tuple[MscState, List[Action]]:
+    """The pod is back with its readings: lower the orbit after the high leg; after
+    the low one depart, any stray node cleared first (mor's plan phase would read
+    it as its departure)."""
+    st = _msc_set(state, leg, aboard_ut=snapshot.ut)
+    if leg is MSC_LEG_HIGH:
+        return _msc_enter_lower(st, snapshot, "PE")
+    entered = _mfr_enter(st, MOR_DEPART, MOR_DEPART_PLAN, snapshot.ut,
+                         park_exit_ut=snapshot.ut, depart_plan_attempts=1,
+                         depart_last_plan_ut=snapshot.ut)
+    return entered, [Action(ACTION_MJ_ABORT_AND_CLEAR_NODES),
+                     _mor_plan_action(state.params)]
+
+
+def _msc_eva(state: MscState, snapshot: TelemetrySnapshot,
+             leg: MscLeg) -> Tuple[MscState, List[Action]]:
+    p = state.params
+    if state.phase == leg.eva_exit:
+        result, flaked = _msc_eva_answer(state, snapshot, leg.exit_tag, "EvaExit",
+                                         MSC_EVA_EXIT_REFUSED)
+        if flaked is not None:
+            return _msc_set(flaked, leg, exit_result=result), []
+        if not result:
+            return state, []
+        st = _msc_set(state, leg, exit_result="OK",
+                      kerbal=_seam_payload(snapshot, leg.exit_tag, "kerbal"),
+                      eva_pid=_seam_payload(snapshot, leg.exit_tag, "evaPid"))
+        st = _mfr_enter(st, MSC_SCIENCE, leg.eva_report, snapshot.ut, run_attempts=1,
+                        last_run_ut=snapshot.ut, gate_streak=0)
+        return st, [msc_run_action((MSC_EVA_EXPERIMENT,))]
+    if state.phase == leg.eva_report:
+        have = snapshot.science_data_count if msc_kerbal_active(snapshot, p) else -1
+        if have >= 1:
+            streak = state.gate_streak + 1
+            st = _msc_set(replace(state, gate_streak=streak), leg, report_data=have)
+            if streak < MSC_OBSERVE_DEBOUNCE:
+                return st, []
+            st = _msc_set(st, leg, report_ut=snapshot.ut)
+            return (_mfr_enter(st, MSC_SCIENCE, leg.eva_board, snapshot.ut,
+                               gate_streak=0),
+                    msc_eva_actions("EvaBoard", leg, p))
+        st = replace(state, gate_streak=0)
+        return _msc_rerun(st, snapshot, msc_run_action((MSC_EVA_EXPERIMENT,)),
+                          MSC_EVA_REPORT_SHORT, have, 1, "the kerbal")
+    if state.phase == leg.eva_board:
+        result, flaked = _msc_eva_answer(state, snapshot, leg.board_tag, "EvaBoard",
+                                         MSC_BOARD_REFUSED)
+        if flaked is not None:
+            return _msc_set(flaked, leg, board_result=result), []
+        if not result:
+            return state, []
+        st = _msc_set(state, leg, board_result="OK",
+                      boarded_pid=_seam_payload(snapshot, leg.board_tag, "boardedPid"))
+        return _mfr_enter(st, MSC_SCIENCE, leg.settle, snapshot.ut, settle_streak=0), []
+    if state.phase == leg.settle:
+        want = msc_expected_pod_data(p, leg)
+        if not (msc_pod_active(snapshot, p) and snapshot.science_data_count >= want):
+            return replace(state, settle_streak=0), []
+        streak = min(state.settle_streak + 1, p.eva_settle_frames)
+        st = replace(state, settle_streak=streak)
+        settled = (_is_finite(snapshot.ut)
+                   and snapshot.ut - state.phase_entry_ut >= p.eva_settle_seconds)
+        if streak < p.eva_settle_frames or not settled:
+            return st, []
+        return _msc_leave_settle(st, snapshot, leg)
+    return _mfr_flake(state, "unknown science phase %r" % (state.phase,)), []
+
+
+def _msc_science(state: MscState, snapshot: TelemetrySnapshot
+                 ) -> Tuple[MscState, List[Action]]:
+    p = state.params
+    if snapshot.vessel_lost:
+        return _mfr_fail(state, "vessel-lost (unreadable after repeated telemetry "
+                                "failures) in phase %s" % state.phase), []
+    st = replace(state, phase_frames=state.phase_frames + 1)
+    if snapshot.body not in ("", p.orbit.target_body):
+        return _mfr_fail(st, "left the %s SOI during the science: body=%r"
+                             % (p.orbit.target_body, snapshot.body)), []
+    leg = next((l for l in MSC_LEGS if state.phase in l.phases), None)
+    if leg is None:
+        return _mfr_flake(st, "unknown science phase %r" % (state.phase,)), []
+    if (state.phase not in (leg.run, leg.eva_report) and _is_finite(snapshot.ut)
+            and snapshot.ut - state.phase_entry_ut > p.eva_timeout):
+        if state.phase == leg.settle:
+            return _mfr_flake(st, "%s: the pod never read back active with %d readings "
+                                  "in %.0f game s (body=%s situation=%s lf=%s data=%d)"
+                              % (MSC_BOARD_NOT_ABOARD, msc_expected_pod_data(p, leg),
+                                 p.eva_timeout, snapshot.body or "?",
+                                 snapshot.situation or "?",
+                                 _obs_fmt(snapshot.liquid_fuel),
+                                 snapshot.science_data_count)), []
+        return _mfr_flake(st, "phase %s timed out after %.0f game s"
+                              % (state.phase, p.eva_timeout)), []
+    if state.phase == leg.run:
+        return _msc_run(st, snapshot, leg)
+    return _msc_eva(st, snapshot, leg)
+
+
+def _msc_lower_leg(state: MscState) -> str:
+    return "PE" if state.phase in (MSC_LOWER_PLAN_PE, MSC_LOWER_BURN_PE) else "AP"
+
+
+def _msc_enter_lower(state: MscState, snapshot: TelemetrySnapshot,
+                     leg: str) -> Tuple[MscState, List[Action]]:
+    phase = MSC_LOWER_PLAN_PE if leg == "PE" else MSC_LOWER_PLAN_AP
+    st = _mfr_enter(state, MSC_LOWER, phase, snapshot.ut, lower_plan_attempts=0,
+                    lower_last_plan_ut=None, lower_node_ut=float("nan"),
+                    lower_node_dv=float("nan"), lower_exec_down_frames=0,
+                    lower_exec_reissues=0, lower_free_frames=0, lower_done_streak=0)
+    return _msc_lower_plan(st, snapshot)
+
+
+def _msc_lower_next(state: MscState, snapshot: TelemetrySnapshot
+                    ) -> Tuple[MscState, List[Action]]:
+    """A leg's aim holds: the second leg after the first, the low run after the
+    second."""
+    if _msc_lower_leg(state) == "PE":
+        return _msc_enter_lower(state, snapshot, "AP")
+    return _msc_enter_run(state, snapshot, MSC_LEG_LOW)
+
+
+def _msc_lower_plan(state: MscState, snapshot: TelemetrySnapshot
+                    ) -> Tuple[MscState, List[Action]]:
+    p = state.params
+    leg = _msc_lower_leg(state)
+    if snapshot.node_count >= 1 and state.lower_plan_attempts >= 1:
+        burn = MSC_LOWER_BURN_PE if leg == "PE" else MSC_LOWER_BURN_AP
+        st = _mfr_enter(state, MSC_LOWER, burn, snapshot.ut, lower_free_frames=0,
+                        lower_done_streak=0)
+        return st, [Action(ACTION_MJ_EXECUTE_NODES)]
+    if state.lower_plan_attempts == 0 and msc_lower_leg_met(snapshot, p, leg):
+        # Already there (a capture that came in low): this leg needs no burn.
+        st = replace(state, lower_skipped=state.lower_skipped + (leg,))
+        return _msc_lower_next(st, snapshot)
+    if (_is_finite(snapshot.ut)
+            and snapshot.ut - state.phase_entry_ut > p.sci_lower_plan_timeout):
+        return (_mfr_flake(state, "%s: no lowering node for leg %s after %d plan(s) in "
+                                  "%.0f game s" % (MSC_LOWER_PLAN_REFUSED, leg,
+                                                   state.lower_plan_attempts,
+                                                   p.sci_lower_plan_timeout)),
+                [Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)])
+    if snapshot.node_count >= 1:
+        # A node this leg did not add: clear it before planning.
+        return state, [Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)]
+    due = (state.lower_last_plan_ut is None
+           or (_is_finite(snapshot.ut)
+               and snapshot.ut - state.lower_last_plan_ut >= MSC_LOWER_PLAN_RETRY_SECONDS))
+    if not due:
+        return state, []
+    if state.lower_plan_attempts >= MSC_LOWER_PLAN_MAX_ATTEMPTS:
+        return _mfr_flake(state, "%s: the leg %s node was added %d times and never read "
+                                 "back" % (MSC_LOWER_PLAN_REFUSED, leg,
+                                           state.lower_plan_attempts)), []
+    dv, node_ut, why = msc_lower_node_plan(snapshot, p, leg)
+    if why:
+        if why.startswith("unreadable"):
+            return state, []
+        return _mfr_flake(state, "%s: leg %s %s" % (MSC_LOWER_PLAN_REFUSED, leg, why)), []
+    changes = {"lower_pe_dv": dv} if leg == "PE" else {"lower_ap_dv": dv}
+    st = replace(state, lower_plan_attempts=state.lower_plan_attempts + 1,
+                 lower_last_plan_ut=snapshot.ut, lower_node_ut=node_ut,
+                 lower_node_dv=dv, **changes)
+    return st, [Action(ACTION_ADD_MANEUVER_NODE, dv, node_ut=node_ut,
+                       text=MSC_LOWER_NODE_LABEL)]
+
+
+def _msc_lower_burn(state: MscState, snapshot: TelemetrySnapshot
+                    ) -> Tuple[MscState, List[Action]]:
+    p = state.params
+    leg = _msc_lower_leg(state)
+    stop = [Action(ACTION_MJ_ABORT_AND_CLEAR_NODES), Action(ACTION_CUT_THROTTLE, 0.0)]
+    if snapshot.node_count == 0:
+        free = state.lower_free_frames + 1
+        if msc_lower_leg_met(snapshot, p, leg):
+            streak = state.lower_done_streak + 1
+            st = replace(state, lower_free_frames=free, lower_done_streak=streak)
+            if streak < MSC_LOWER_SETTLE_FRAMES:
+                return st, []
+            return _msc_lower_next(st, snapshot)
+        st = replace(state, lower_free_frames=free, lower_done_streak=0)
+        if free >= MSC_LOWER_MISS_FRAMES:
+            return (_mfr_flake(st, "%s: the leg %s node is gone and the orbit reads "
+                                   "ap=%s pe=%s (aims pe %.0f, ap %.0f)"
+                               % (MSC_LOWER_MISSED, leg, _obs_fmt(snapshot.apoapsis),
+                                  _obs_fmt(snapshot.periapsis), p.sci_low_periapsis,
+                                  p.sci_low_apoapsis)),
+                    [Action(ACTION_CUT_THROTTLE, 0.0)])
+        return st, []
+    st = replace(state, lower_free_frames=0, lower_done_streak=0)
+    if (_is_finite(snapshot.ut)
+            and snapshot.ut - state.phase_entry_ut > p.sci_lower_burn_timeout):
+        return (_mfr_flake(st, "phase %s timed out after %.0f game s with the node "
+                               "still pending" % (state.phase, p.sci_lower_burn_timeout)),
+                stop)
+    if (_is_finite(snapshot.ut) and _is_finite(st.lower_node_ut)
+            and snapshot.ut > st.lower_node_ut + MOR_DEPART_WINDOW_GRACE_SECONDS):
+        return (_mfr_flake(st, "%s: ut=%.1f is more than %.0f s past the leg %s node "
+                               "(%.1f)" % (MSC_LOWER_WINDOW_MISSED, snapshot.ut,
+                                           MOR_DEPART_WINDOW_GRACE_SECONDS, leg,
+                                           st.lower_node_ut)), stop)
+    if snapshot.node_executor_enabled == 0:
+        down = st.lower_exec_down_frames + 1
+        if down < MOR_EXEC_DOWN_FRAMES:
+            return replace(st, lower_exec_down_frames=down), []
+        if st.lower_exec_reissues >= MOR_EXEC_REISSUE_LIMIT:
+            return (_mfr_flake(st, "%s: the NodeExecutor read disabled with the leg %s "
+                                   "node pending after %d re-issues"
+                               % (MSC_LOWER_EXEC_DOWN, leg, st.lower_exec_reissues)),
+                    stop)
+        return (replace(st, lower_exec_down_frames=0,
+                        lower_exec_reissues=st.lower_exec_reissues + 1),
+                [Action(ACTION_MJ_EXECUTE_NODES)])
+    return replace(st, lower_exec_down_frames=0), []
+
+
+def _msc_lower(state: MscState, snapshot: TelemetrySnapshot
+               ) -> Tuple[MscState, List[Action]]:
+    p = state.params
+    if snapshot.vessel_lost:
+        return _mfr_fail(state, "vessel-lost (unreadable after repeated telemetry "
+                                "failures) in phase %s" % state.phase), []
+    st = replace(state, phase_frames=state.phase_frames + 1)
+    if snapshot.body not in ("", p.orbit.target_body):
+        return _mfr_fail(st, "left the %s SOI while lowering: body=%r"
+                             % (p.orbit.target_body, snapshot.body)), []
+    if state.phase in (MSC_LOWER_PLAN_PE, MSC_LOWER_PLAN_AP):
+        return _msc_lower_plan(st, snapshot)
+    if state.phase in (MSC_LOWER_BURN_PE, MSC_LOWER_BURN_AP):
+        return _msc_lower_burn(st, snapshot)
+    return _mfr_flake(st, "unknown lowering phase %r" % (state.phase,)), []
+
+
+def _msc_orbit(state: MscState, snapshot: TelemetrySnapshot
+               ) -> Tuple[MscState, List[Action]]:
+    if state.stage_held:
+        return return_launch_gate_step(state, snapshot)
+    flight, actions = b5_decide(state.flight, snapshot)
+    actions, held, setters = mfr_inject_launch_actions(state.params, actions)
+    st = replace(state, flight=flight, warp_to_cmd=flight.warp_to_cmd,
+                 stage_held=held, setters_injected=setters or state.setters_injected)
+    if flight.phase == B5_ORBIT_COMMIT and not flight.done:
+        # THE PARK EXIT FRAME (mor's edit): the commit is dropped and the high run
+        # starts on the same frame. B5's physics-warp teardown rides.
+        kept = [a for a in actions if a.kind != ACTION_PARSEK_COMMIT_TREE]
+        st = replace(st, science_entry_ut=snapshot.ut)
+        entered, run = _msc_enter_run(st, snapshot, MSC_LEG_HIGH)
+        return entered, kept + run
+    st = _mfr_report(st, flight.phase, flight.phase_entry_ut)
+    if not flight.done:
+        return st, actions
+    if flight.loss_reason:
+        return _mfr_fail(st, "orbit leg: %s" % flight.loss_reason), actions
+    if flight.verdict is not None:
+        inner = flight.flake_phase or flight.phase
+        return (replace(st, done=True, verdict=flight.verdict, flake_phase=inner,
+                        flake_reason="orbit leg %s in phase %s: %s"
+                        % (flight.verdict, inner,
+                           flight.flake_reason or ("phase %s timed out" % inner))),
+                actions)
+    return _mfr_flake(st, "orbit leg reported done with a clean verdict before its "
+                          "PARK exit (phases=%s)" % (list(flight.phases_reached),)), actions
+
+
+def msc_observe(state: MscState, snapshot: TelemetrySnapshot) -> Tuple[MscState, bool]:
+    """The per-frame readings outside the phase logic, for one frame: the pod's
+    reading count in the HOME block (what it carries home), and the electric-charge
+    watchdog (the low streak and the observed minimum updated; True = tripped). The
+    watchdog reads only on the pod-only science and lowering phases and in
+    MSC_EC_BLOCKS; off when the floor is 0; an unreadable reading neither counts nor
+    resets. Pure."""
+    p = state.params
+    st = state
+    if state.block == MFR_HOME and snapshot.science_data_count >= 0:
+        st = replace(st, kept_data=snapshot.science_data_count)
+    watched = (state.block in MSC_EC_BLOCKS
+               or (state.block in (MSC_SCIENCE, MSC_LOWER)
+                   and state.phase in MSC_POD_PHASES))
+    ec = snapshot.electric_charge
+    if not watched or not _is_finite(ec):
+        return st, False
+    low_min = ec if not _is_finite(st.ec_min) else min(st.ec_min, ec)
+    if p.ec_floor <= 0.0:
+        return replace(st, ec_min=low_min), False
+    low = st.ec_low_frames + 1 if ec < p.ec_floor else 0
+    st = replace(st, ec_min=low_min, ec_low_frames=low)
+    return st, low >= p.ec_debounce
+
+
+def msc_decide(state: MscState,
+               snapshot: TelemetrySnapshot) -> Tuple[MscState, List[Action]]:
+    """Advance the b11_mun_science_return machine one frame; return (new_state,
+    actions). See the block note above MSC_SCIENCE. The DEPART block is mor's and
+    the TRIM / FALL / HOME blocks mfr's own functions. Once ``done`` the machine is
+    idempotent."""
+    if state.done:
+        return state, []
+    state, tripped = msc_observe(state, snapshot)
+    if tripped:
+        return (_mfr_flake(replace(state, warp_to_cmd=None),
+                           "%s: ElectricCharge %s under %.2f for %d frames in phase %s"
+                           % (MSC_EC_EXHAUSTED, _obs_fmt(snapshot.electric_charge),
+                              state.params.ec_floor, state.ec_low_frames,
+                              state.phase)),
+                [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_CANCEL_WARP)])
+    if state.block == MOR_ORBIT:
+        return _msc_orbit(state, snapshot)
+    if state.block == MSC_SCIENCE:
+        return _msc_science(state, snapshot)
+    if state.block == MSC_LOWER:
+        return _msc_lower(state, snapshot)
+    if state.block == MOR_DEPART:
+        return _mor_depart(state, snapshot)
+    if state.block == MFR_TRIM:
+        return _mfr_trim(state, snapshot)
+    if state.block == MFR_FALL:
+        return _mfr_fall(state, snapshot)
+    if state.block == MFR_HOME:
+        return _mfr_home(state, snapshot)
+    return _mfr_flake(state, "unknown block %r" % (state.block,)), []
+
+
+def evaluate_msc_assertions(frames, params: MscParams,
+                            state: Optional[MscState] = None) -> List[AssertionOutcome]:
+    """B11's rows through the park over the delegated B5 state (its treeCommitted
+    row dropped: the commit happens at the scene exit), the science rows in flight
+    order (highSpaceScienceCollected, highSpaceEvaReportBoarded, lowOrbitReached,
+    lowSpaceScienceCollected, lowSpaceEvaReportBoarded), mor's
+    ``departedTargetOrbit``, the shared return tail's three rows, then
+    ``scienceKeptToSplashdown``: the pod read every pod reading on its last HOME
+    frame, so no experiment part was lost on the way down."""
+    flight = getattr(state, "flight", None)
+    target = params.orbit.target_body
+    rows = [r for r in evaluate_b5_assertions(
+        frames, params.orbit,
+        phases_reached=tuple(getattr(flight, "phases_reached", ()) or ()),
+        min_target_altitude=getattr(flight, "min_target_altitude", None),
+        state=flight) if r.name != "treeCommitted"]
+    g = (lambda name, default=None: getattr(state, name, default))
+    want_high = msc_expected_pod_data(params, MSC_LEG_HIGH)
+    want_low = msc_expected_pod_data(params, MSC_LEG_LOW)
+
+    def eva_row(leg: MscLeg, name: str) -> AssertionOutcome:
+        f = (lambda key, default=None: g("%s_%s" % (leg.prefix, key), default))
+        return AssertionOutcome(
+            name,
+            (f("report_ut") is not None and f("board_result") == "OK"
+             and f("aboard_ut") is not None),
+            f("kerbal") or None,
+            {"exit": f("exit_result") or None, "evaPid": f("eva_pid") or None,
+             "reportData": f("report_data", -1), "board": f("board_result") or None,
+             "boardedPid": f("boarded_pid") or None, "aboardUt": f("aboard_ut"),
+             "refusal": g("eva_refusal") or None})
+
+    rows.append(AssertionOutcome(
+        "highSpaceScienceCollected",
+        g("high_collected_ut") is not None and g("high_data", -1) >= want_high,
+        g("high_data", -1),
+        {"want": want_high, "experiments": list(params.sci_high_experiments),
+         "gatePeriapsis": g("high_gate_pe", float("nan")),
+         "minPeriapsis": params.sci_high_min_periapsis, "body": target}))
+    rows.append(eva_row(MSC_LEG_HIGH, "highSpaceEvaReportBoarded"))
+    ap = g("low_gate_ap", float("nan"))
+    pe = g("low_gate_pe", float("nan"))
+    rows.append(AssertionOutcome(
+        "lowOrbitReached",
+        bool(_is_finite(ap) and _is_finite(pe) and 0.0 < ap <= params.sci_low_max_apoapsis
+             and pe >= params.sci_low_min_periapsis),
+        ap,
+        {"periapsis": pe, "maxApoapsis": params.sci_low_max_apoapsis,
+         "minPeriapsis": params.sci_low_min_periapsis,
+         "peDv": g("lower_pe_dv", float("nan")), "apDv": g("lower_ap_dv", float("nan")),
+         "skipped": list(g("lower_skipped", ()) or ())}))
+    rows.append(AssertionOutcome(
+        "lowSpaceScienceCollected",
+        g("low_collected_ut") is not None and g("low_data", -1) >= want_low,
+        g("low_data", -1),
+        {"want": want_low, "experiments": list(params.sci_low_experiments)}))
+    rows.append(eva_row(MSC_LEG_LOW, "lowSpaceEvaReportBoarded"))
+    phases = tuple(g("phases_reached", ()) or ())
+    home_ut = g("depart_home_ut")
+    rows.append(AssertionOutcome(
+        "departedTargetOrbit",
+        bool(MOR_DEPART_COAST in phases and home_ut is not None),
+        g("depart_next_pe", float("nan")),
+        {"target": target, "home": params.orbit.home_body,
+         "aimPeriapsis": params.depart_periapsis,
+         "nodeUt": g("depart_node_ut", float("nan")),
+         "nodeDv": g("depart_node_dv", float("nan")),
+         "planAttempts": g("depart_plan_attempts", 0),
+         "burnEndUt": g("depart_burn_end_ut"),
+         "nextBody": g("depart_next_body", "") or None,
+         "homeUt": home_ut, "ecMin": g("ec_min", float("nan"))}))
+    rows.extend(return_tail_rows(frames, params, state))
+    rows.append(AssertionOutcome(
+        "scienceKeptToSplashdown", g("kept_data", -1) >= want_low, g("kept_data", -1),
+        {"want": want_low}))
+    return rows
