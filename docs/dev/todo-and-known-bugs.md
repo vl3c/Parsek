@@ -399,6 +399,12 @@ the post-rewind patch).
 
 ---
 
+**Lane (2026-10-28, branch `rw8-free-tech`).** `RW-8-free-tech-gift-rewind` on `cs-career-mun4` gifts
+Aviation at the Space Center through the new seam sub-action `KscAction gift-tech` (stock's
+`UnlockProtoTechNode` + `RefreshTechTreeUI`, the anomaly gift's calls on a named node), rewinds to
+before the gift, and reads the node locked, unlocked again past the gift at no science, and kept
+across a cold reload. Authored, never flown.
+
 ## ~~REVERT-AFTER-REWIND-WALKS-PAST-THE-CLOCK: a stock revert inside a rewound timeline patches the committed future's gains into the pools~~ [FILED AND FIXED 2026-10-28 from RW-2's first flight (`2026-10-28_0837`, PARSEK-FAIL attempt 1), branch `claude/project-thread-25edvc`; LIVE-PROVEN 2026-10-28 by RW-2 `2026-10-28_0902` PASS (funds held at 151682.18 through the revert, the +40432 applied at the crossing); product, high (future money spendable now)]
 
 After a Rewind-to-Launch, the stand-in's relaunch and a stock Revert-to-Launch loaded at
