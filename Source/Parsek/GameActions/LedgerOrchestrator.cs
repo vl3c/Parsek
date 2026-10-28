@@ -6300,10 +6300,11 @@ namespace Parsek
         /// live.</para>
         ///
         /// <para>NEGATIVE funds legs land as a nominal <c>FundsSpending</c> row sourced
-        /// <see cref="FundsSpendingSource.StrategyConverter"/>, and they reach this
-        /// method only under a NOMINAL-channel reason (see
-        /// <c>StrategyConversionCapture.IsNominalChannelFundsReason</c>) - the three
-        /// reasons where Parsek's funds channel recorded a CONFIGURED GROSS amount and
+        /// <see cref="FundsSpendingSource.StrategyConverter"/>, and nonzero-input funds legs
+        /// of either sign reach this method only under a NOMINAL-channel reason (see
+        /// <c>StrategyConversionCapture.IsNominalChannelFundsReason</c>) - the reasons
+        /// where Parsek's funds row recorded a CONFIGURED GROSS amount (contract rewards,
+        /// advances and penalties, milestones, part and upgrade purchases, repairs) and
         /// this row is the missing diverted half. Funds carry no curve, so the row is
         /// exact in any walk order.</para>
         /// </summary>
@@ -6334,8 +6335,10 @@ namespace Parsek
                     skipped++;
                     continue;
                 }
-                // Design 3.15 step 7: the award this leg was converted from, when a scope named it.
-                action.ConversionCause = string.IsNullOrEmpty(conversionCause) ? null : conversionCause;
+                // Design 3.15 step 7: the award this leg was converted from, when a scope named it
+                // (a leg split between several cause rows names its own).
+                string legCause = !string.IsNullOrEmpty(leg.Cause) ? leg.Cause : conversionCause;
+                action.ConversionCause = string.IsNullOrEmpty(legCause) ? null : legCause;
 
                 kscSequenceCounter++;
                 action.Sequence = kscSequenceCounter;
@@ -6482,14 +6485,14 @@ namespace Parsek
                         // all only because StrategyConversionCapture.EvaluateLegs either
                         // saw a zero funds input (no transaction of its own) or matched
                         // StrategyConversionCapture.IsNominalChannelFundsReason - and on
-                        // those three reasons the ordinary funds channel recorded the
-                        // CONFIGURED GROSS amount (contract.FundsCompletion /
-                        // FundsAdvance, the AwardProgress arguments), never an observed
-                        // delta. So this row is the missing second half of the pool move
-                        // rather than a second count of the first half; under the
-                        // event-derived reasons (VesselRollout, RnDPartPurchase,
-                        // StructureRepair, StructureConstruction, StrategyOutput) no leg
-                        // is emitted and no row is written.
+                        // those reasons the ordinary funds row recorded the CONFIGURED
+                        // GROSS amount (contract.FundsCompletion / FundsAdvance / the
+                        // penalties, the AwardProgress arguments, a part's entryCost, a
+                        // building's RepairCost), never an observed delta. So this row is
+                        // the missing second half of the pool move rather than a second
+                        // count of the first half; under the event-derived reasons
+                        // (VesselRollout, StructureConstruction, StrategyOutput) no leg is
+                        // emitted and no row is written.
                         //
                         // NO CURVE ANYWHERE, which is what makes this simpler than its
                         // reputation sibling: Funding.AddFunds moves the pool by the raw

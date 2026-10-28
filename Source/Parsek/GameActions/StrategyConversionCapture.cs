@@ -20,6 +20,13 @@ namespace Parsek
     {
         public StrategyConversionCurrency Currency;
         public double Delta;
+
+        /// <summary>
+        /// The leg's own cause text (<see cref="ConversionCause.Format"/>), set when one query
+        /// pays for several cause rows and the door splits its legs between them (a facility
+        /// repair: one debit, one row per destroyed building). Null takes the query's cause.
+        /// </summary>
+        public string Cause;
     }
 
     /// <summary>
@@ -171,24 +178,28 @@ namespace Parsek
         /// <see cref="IsNominalChannelFundsReason"/> and the paragraph below.</para>
         ///
         /// <para><b>THE PREMISE IS REASON-QUALIFIED, SO THE GATE IS TOO.</b> "The
-        /// ordinary channel reports NET" is TRUE only where Parsek's funds channel is
+        /// ordinary channel reports NET" is TRUE only where Parsek's funds row is
         /// EVENT-DERIVED - i.e. derived from the observed pool movement:
-        /// <c>VesselRollout</c>, <c>RnDPartPurchase</c>, <c>StructureRepair</c>,
-        /// <c>StructureConstruction</c> and <c>StrategyOutput</c>. There the zero-input
-        /// rule stands unchanged and a row really would double-count. It is FALSE on the
-        /// NOMINAL-channel reasons <c>ContractReward</c>, <c>ContractAdvance</c> and
-        /// <c>Progression</c>, where the channel records a CONFIGURED GROSS amount
-        /// instead - <c>contract.FundsCompletion</c> and <c>contract.FundsAdvance</c>
-        /// (the first via <c>TransformedFundsReward</c>, which
+        /// <c>VesselRollout</c>, <c>StructureConstruction</c> and <c>StrategyOutput</c>.
+        /// There the zero-input rule stands unchanged and a row really would double-count.
+        /// It is FALSE on the NOMINAL-channel reasons, where the row records a CONFIGURED
+        /// GROSS amount instead: <c>ContractReward</c>, <c>ContractAdvance</c> and
+        /// <c>Progression</c> (<c>contract.FundsCompletion</c> and
+        /// <c>contract.FundsAdvance</c> - the first via <c>TransformedFundsReward</c>, which
         /// <c>RecalculationEngine</c> assigns straight from <c>FundsReward</c> because
-        /// <c>StrategiesModule.TransformContractReward</c> is a documented identity
-        /// no-op) and the <c>ProgressNode.AwardProgress</c> arguments that
-        /// <c>ProgressRewardPatch</c> captures. Nothing on those three reads an observed
-        /// delta, so the effect-delta half had no capture channel at all and the
-        /// reconstruction ran HIGH by every diverted fraction.
-        /// See <see cref="IsNominalChannelFundsReason"/> for the gate itself and
+        /// <c>StrategiesModule.TransformContractReward</c> is a documented identity no-op -
+        /// and the <c>ProgressNode.AwardProgress</c> arguments that
+        /// <c>ProgressRewardPatch</c> captures), and <c>RnDPartPurchase</c>,
+        /// <c>StructureRepair</c> and <c>ContractPenalty</c> (a part's or upgrade's
+        /// <c>entryCost</c>, a building's <c>RepairCost</c> share, a contract's configured
+        /// failure / cancellation penalty). Nothing on those reads an observed delta, so the
+        /// effect-delta half had no capture channel at all and the reconstruction missed
+        /// every diverted fraction (Aggressive Negotiations' purchase and repair discount,
+        /// Leadership Initiative's penalty multiplier).
+        /// See <see cref="IsNominalChannelFundsReason"/> for the gate itself,
         /// STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED in docs/dev/todo-and-known-bugs.md
-        /// for the measurement that closed it.</para>
+        /// for the measurement that closed the first three and
+        /// STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED for the other three.</para>
         ///
         /// <para><b>Reputation - capture any nonzero delta, input or not, exactly like
         /// science, and for a MECHANISM reason rather than by analogy.</b> Decompiled
@@ -259,10 +270,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The three transaction reasons on which Parsek's FUNDS channel records a
-        /// CONFIGURED GROSS nominal rather than an observed pool movement, and therefore
-        /// the only three on which a nonzero-input funds effect delta is safe - and
-        /// necessary - to capture.
+        /// The transaction reasons on which Parsek's FUNDS row records a CONFIGURED GROSS
+        /// nominal rather than an observed pool movement, and therefore the only ones on
+        /// which a nonzero-input funds effect delta is safe - and necessary - to capture.
         ///
         /// <list type="bullet">
         /// <item><c>ContractReward</c> - <c>ContractComplete.TransformedFundsReward</c>,
@@ -273,7 +283,28 @@ namespace Parsek
         /// <item><c>Progression</c> - <c>MilestoneAchievement.MilestoneFundsAwarded</c>,
         /// captured by <c>ProgressRewardPatch</c> from the <c>AwardProgress</c>
         /// ARGUMENTS, i.e. before <c>Funding.AddFunds</c> runs the query at all.</item>
+        /// <item><c>RnDPartPurchase</c> - the part purchase row (<c>OnPartPurchased</c>,
+        /// <c>ComputePartPurchaseChargedCost</c>) and the part upgrade row
+        /// (<c>CreatePartUpgradePurchasedEvent</c>) both carry the configured
+        /// <c>entryCost</c>; stock's <c>Funding.onPartPurchased</c> /
+        /// <c>onUpgradePurchased</c> charge it through the query afterwards.</item>
+        /// <item><c>StructureRepair</c> - each repair row carries its building's
+        /// <c>RepairCost</c> share (<c>FacilityRepairCapture.BuildRepairCostShares</c>),
+        /// computed the way stock's <c>GetRepairsCost</c> is, before the query.</item>
+        /// <item><c>ContractPenalty</c> - <c>ContractFail</c> / <c>ContractCancel</c> carry
+        /// <c>contract.FundsFailure</c> / the cancellation lerp, both configured.</item>
         /// </list>
+        ///
+        /// <para>Stock's <c>AgressiveNegotiations</c> multiplies funds under
+        /// <c>RnDPartPurchase</c> and <c>StructureRepair</c> (and <c>VesselRollout</c> /
+        /// <c>StructureConstruction</c>, whose rows are observed - see below), and
+        /// <c>LeadershipInitiative</c> multiplies funds under <c>ContractPenalty</c>, so
+        /// without a leg the walk charged gross where stock charged net and the next patch
+        /// filed the gap as a pool adjustment, which a rewind and a re-buy then paid twice
+        /// (STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED). Every gross row of these three is a
+        /// conversion cause (<see cref="ConversionCause.IsCauseType"/>), so its leg follows it:
+        /// a purchase the walk already owns, a repair of an intact building or a penalty of a
+        /// resolved contract converts nothing.</para>
         ///
         /// <para><b>THE MATCH IS EXACT AND THE DEFAULT IS SUPPRESSION.</b> The string
         /// comes from <c>CurrencyModifierQuery.reason.ToString()</c>, so a single stock
@@ -284,13 +315,16 @@ namespace Parsek
         /// records gross.</para>
         ///
         /// <para><b>WHY THE EVENT-DERIVED REASONS MUST STAY OUT.</b> Under
-        /// <c>VesselRollout</c>, <c>RnDPartPurchase</c>, <c>StructureRepair</c>,
-        /// <c>StructureConstruction</c> and <c>StrategyOutput</c> the channel records
-        /// the OBSERVED <c>FundsChanged</c> delta, which is already NET of the modifier.
-        /// A row there would be counted twice - once inside the observed amount and once
-        /// as this door's leg - and that is exactly what stock's
-        /// <c>AgressiveNegotiations</c> launch/purchase discount would produce. Pinned by
-        /// <c>StrategyConversionCaptureTests.NonZeroInputFunds_UnderAnEventDerivedReason_IsNotCaptured</c>.</para>
+        /// <c>VesselRollout</c> (<c>OnVesselRolloutSpending</c> is handed the observed
+        /// <c>FundsChanged</c> delta), <c>StructureConstruction</c>
+        /// (<c>FacilityUpgradeCapture.ObserveFundsChange</c>) and <c>StrategyOutput</c> the
+        /// row records the OBSERVED <c>FundsChanged</c> delta, which is already NET of the
+        /// modifier. A leg there would be counted twice - once inside the observed amount
+        /// and once as this door's leg - and that is exactly what stock's
+        /// <c>AgressiveNegotiations</c> launch discount would produce. Pinned by
+        /// <c>StrategyConversionCaptureTests.NonZeroInputFunds_UnderAnEventDerivedReason_IsNotCaptured</c>.
+        /// A new row under one of the gross reasons that records what stock charged would
+        /// have to move that reason out of this list.</para>
         /// </summary>
         internal static bool IsNominalChannelFundsReason(string reason)
         {
@@ -298,7 +332,75 @@ namespace Parsek
                 return false;
             return string.Equals(reason, "ContractReward", System.StringComparison.Ordinal)
                 || string.Equals(reason, "ContractAdvance", System.StringComparison.Ordinal)
-                || string.Equals(reason, "Progression", System.StringComparison.Ordinal);
+                || string.Equals(reason, "Progression", System.StringComparison.Ordinal)
+                || string.Equals(reason, "RnDPartPurchase", System.StringComparison.Ordinal)
+                || string.Equals(reason, "StructureRepair", System.StringComparison.Ordinal)
+                || string.Equals(reason, "ContractPenalty", System.StringComparison.Ordinal);
+        }
+
+        /// <summary>The stock reason of a facility repair's funds debit.</summary>
+        internal const string StructureRepairReason = "StructureRepair";
+
+        /// <summary>
+        /// Pure: splits the legs of one facility repair's query between the destroyed
+        /// buildings it pays for. Stock's <c>SpaceCenterBuilding.RepairFacility</c> runs ONE
+        /// <c>AddFunds</c> for the whole facility while Parsek files one repair row per
+        /// building (<see cref="FacilityRepairCapture"/>), so each building's leg is the
+        /// query's leg times its cost share and names that building's repair row as its
+        /// cause. A building repaired twice across a rewind is then free on its own, its leg
+        /// with it. Returns <paramref name="legs"/> unchanged when the reason is not a repair,
+        /// the query's input is not funds, or no building has a positive share (no scope, or a
+        /// repair that charges nothing). Buildings are taken in ordinal id order.
+        /// </summary>
+        internal static List<StrategyConversionLeg> SplitRepairLegs(
+            List<StrategyConversionLeg> legs,
+            StrategyConversionQuery q,
+            IReadOnlyDictionary<string, float> buildingShares)
+        {
+            if (legs == null || legs.Count == 0 || buildingShares == null || buildingShares.Count == 0)
+                return legs;
+            if (!string.Equals(q.Reason, StructureRepairReason, System.StringComparison.Ordinal))
+                return legs;
+            StockPool source;
+            if (!ConversionCauseScope.TryGetSourcePool(q, out source) || source != StockPool.Funds)
+                return legs;
+
+            var ids = new List<string>();
+            double total = 0.0;
+            foreach (var kv in buildingShares)
+            {
+                if (string.IsNullOrEmpty(kv.Key) || !(kv.Value > 0f))
+                    continue;
+                ids.Add(kv.Key);
+                total += kv.Value;
+            }
+            if (ids.Count == 0 || !(total > 0.0))
+                return legs;
+            ids.Sort(System.StringComparer.Ordinal);
+
+            var split = new List<StrategyConversionLeg>(legs.Count * ids.Count);
+            for (int i = 0; i < legs.Count; i++)
+            {
+                for (int j = 0; j < ids.Count; j++)
+                {
+                    split.Add(new StrategyConversionLeg
+                    {
+                        Currency = legs[i].Currency,
+                        Delta = legs[i].Delta * (buildingShares[ids[j]] / total),
+                        Cause = new ConversionCause
+                        {
+                            Type = GameActionType.FacilityRepair,
+                            SourcePool = StockPool.Funds,
+                            Key = ids[j]
+                        }.Format()
+                    });
+                }
+            }
+            ParsekLog.Verbose(Tag,
+                $"Facility repair conversion split: legs={legs.Count.ToString(IC)} " +
+                $"buildings={ids.Count.ToString(IC)} totalCost={total.ToString("R", IC)} " +
+                $"rows={split.Count.ToString(IC)}");
+            return split;
         }
 
         /// <summary>

@@ -104,18 +104,25 @@ namespace Parsek.Tests
         [InlineData("ContractReward")]
         [InlineData("ContractAdvance")]
         [InlineData("Progression")]
+        [InlineData("RnDPartPurchase")]
+        [InlineData("StructureRepair")]
+        [InlineData("ContractPenalty")]
         public void NonZeroInputFunds_UnderANominalChannelReason_IsCaptured(string reason)
         {
-            // THE THREE REASONS WHERE PARSEK'S FUNDS CHANNEL RECORDS A CONFIGURED GROSS
-            // NOMINAL rather than an observed pool movement:
+            // THE REASONS WHERE PARSEK'S FUNDS ROW RECORDS A CONFIGURED GROSS NOMINAL
+            // rather than an observed pool movement:
             //   ContractReward  -> ContractComplete.TransformedFundsReward (= FundsReward,
             //                      the contract's own FundsCompletion)
             //   ContractAdvance -> the FundsEarning built from contract.FundsAdvance
             //   Progression     -> MilestoneAchievement.MilestoneFundsAwarded, captured by
             //                      ProgressRewardPatch from the AwardProgress ARGUMENTS
-            // Under those, a converter's diversion (Appreciation Campaign funds ->
-            // reputation, Outsourced R&D funds -> science) has no other reporter, so it
-            // must be captured in BOTH directions.
+            //   RnDPartPurchase -> the part / upgrade purchase row's entryCost
+            //   StructureRepair -> each repair row's RepairCost share
+            //   ContractPenalty -> ContractFail / ContractCancel's configured penalty
+            // Under those, a strategy's diversion (Appreciation Campaign, Outsourced R&D,
+            // Aggressive Negotiations' purchase / repair discount, Leadership Initiative's
+            // penalty multiplier) has no other reporter, so it must be captured in BOTH
+            // directions.
             var debit = StrategyConversionCapture.EvaluateLegs(
                 Query(inF: 100000.0, dF: -5000.0, reason: reason));
             Assert.Equal(-5000.0,
@@ -127,22 +134,47 @@ namespace Parsek.Tests
                 credit.Single(l => l.Currency == StrategyConversionCurrency.Funds).Delta, 6);
         }
 
+        [Fact]
+        public void AggressiveNegotiationsPurchase_CapturesTheDiscountAndOneRepLeg()
+        {
+            // Stock AgressiveNegotiations at full commitment on a 1000-funds part: the query
+            // input is -1000, the Funds Multiply (max 0.70) adds +300 and the Reputation Add
+            // (max -6) adds -6. The purchase row records the gross 1000, so the +300 is the
+            // missing half; the reputation leg is captured once, as before.
+            var legs = StrategyConversionCapture.EvaluateLegs(
+                Query(inF: -1000.0, dF: 300.0, dR: -6.0, reason: "RnDPartPurchase"));
+            Assert.Equal(2, legs.Count);
+            Assert.Equal(300.0, legs.Single(l => l.Currency == StrategyConversionCurrency.Funds).Delta, 6);
+            Assert.Equal(-6.0, legs.Single(l => l.Currency == StrategyConversionCurrency.Reputation).Delta, 6);
+        }
+
+        [Fact]
+        public void AggressiveNegotiationsRollout_KeepsNoFundsLeg_AndOneRepLeg()
+        {
+            // The launch discount: the rollout row is the OBSERVED net (OnVesselRolloutSpending
+            // gets -delta), so a funds leg would count the discount twice. The reputation Add
+            // is still one leg.
+            var legs = StrategyConversionCapture.EvaluateLegs(
+                Query(inF: -20000.0, dF: 6000.0, dR: -6.0, reason: "VesselRollout"));
+            Assert.Single(legs);
+            Assert.Equal(StrategyConversionCurrency.Reputation, legs[0].Currency);
+            Assert.Equal(-6.0, legs[0].Delta, 6);
+        }
+
         [Theory]
         [InlineData("VesselRollout")]
-        [InlineData("RnDPartPurchase")]
-        [InlineData("StructureRepair")]
         [InlineData("StructureConstruction")]
         [InlineData("StrategyOutput")]
         public void NonZeroInputFunds_UnderAnEventDerivedReason_IsNotCaptured(string reason)
         {
             // THE OTHER HALF OF THE QUALIFICATION, AND THE ONE THAT MUST NOT MOVE. Under
-            // these five reasons Parsek's funds channel is EVENT-DERIVED: it records the
-            // OBSERVED FundsChanged delta, which is already net of the modifier. A row here
-            // would be counted twice - once inside the observed amount and once as this
-            // door's leg - which is exactly what stock's AgressiveNegotiations launch /
-            // purchase discount (a CurrencyOperation on Funds under VesselRollout +
-            // RnDPartPurchase) would produce. This is the suppression the in-game negative
-            // control used to carry before its own reason turned out to be a nominal one.
+            // these three reasons Parsek's funds row is EVENT-DERIVED: it records the
+            // OBSERVED FundsChanged delta, which is already net of the modifier
+            // (OnVesselRolloutSpending is handed -delta, FacilityUpgradeCapture observes the
+            // StructureConstruction debit, the exchanger output is read off its event). A row
+            // here would be counted twice - once inside the observed amount and once as this
+            // door's leg - which is exactly what stock's AgressiveNegotiations launch / facility
+            // discount would produce.
             Assert.Empty(StrategyConversionCapture.EvaluateLegs(
                 Query(inF: -50000.0, dF: 5000.0, reason: reason)));
             Assert.Empty(StrategyConversionCapture.EvaluateLegs(
@@ -152,7 +184,8 @@ namespace Parsek.Tests
         [Theory]
         [InlineData("VesselRecovery")]
         [InlineData("ScienceTransmission")]
-        [InlineData("ContractPenalty")]
+        [InlineData("CrewRecruited")]
+        [InlineData("StrategySetup")]
         [InlineData("None")]
         [InlineData("")]
         [InlineData(null)]
@@ -166,6 +199,8 @@ namespace Parsek.Tests
             // case-shifted or comma-combined spelling that could only come from a
             // TransactionReasons rendering this door has never seen - keeps the historical
             // behaviour rather than guessing that some unexamined channel records gross.
+            // CrewRecruited and StrategySetup carry gross rows too, but no stock strategy
+            // names either reason, so they stay out until one does.
             Assert.Empty(StrategyConversionCapture.EvaluateLegs(
                 Query(inF: 100000.0, dF: -5000.0, reason: reason)));
 
@@ -178,19 +213,68 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsNominalChannelFundsReason_MatchesExactlyTheThreeNames()
+        public void IsNominalChannelFundsReason_MatchesExactlyTheSixNames()
         {
             Assert.True(StrategyConversionCapture.IsNominalChannelFundsReason("ContractReward"));
             Assert.True(StrategyConversionCapture.IsNominalChannelFundsReason("ContractAdvance"));
             Assert.True(StrategyConversionCapture.IsNominalChannelFundsReason("Progression"));
+            Assert.True(StrategyConversionCapture.IsNominalChannelFundsReason("RnDPartPurchase"));
+            Assert.True(StrategyConversionCapture.IsNominalChannelFundsReason("StructureRepair"));
+            Assert.True(StrategyConversionCapture.IsNominalChannelFundsReason("ContractPenalty"));
 
             Assert.False(StrategyConversionCapture.IsNominalChannelFundsReason(null));
             Assert.False(StrategyConversionCapture.IsNominalChannelFundsReason(""));
             Assert.False(StrategyConversionCapture.IsNominalChannelFundsReason("VesselRollout"));
+            Assert.False(StrategyConversionCapture.IsNominalChannelFundsReason("StructureConstruction"));
             // Case-sensitive and whole-string: TransactionReasons.ToString() renders the
             // exact member name, so anything else is a spelling this door has not read.
             Assert.False(StrategyConversionCapture.IsNominalChannelFundsReason("progression"));
             Assert.False(StrategyConversionCapture.IsNominalChannelFundsReason("ContractRewardX"));
+        }
+
+        // ================================================================
+        // Facility repair: one debit, one leg per building row
+        // ================================================================
+
+        [Fact]
+        public void RepairLegs_SplitPerBuildingByCostShare_EachNamingItsRow()
+        {
+            // RepairFacility charges 500 for two destroyed buildings (300 + 200); Aggressive
+            // Negotiations' 0.99 Multiply adds +5, its rep Add -6.
+            var q = Query(inF: -500.0, dF: 5.0, dR: -6.0, reason: "StructureRepair");
+            var legs = StrategyConversionCapture.EvaluateLegs(q);
+            var shares = new Dictionary<string, float>(StringComparer.Ordinal)
+            {
+                { "SpaceCenter/LaunchPad/Facility/b", 200f },
+                { "SpaceCenter/LaunchPad/Facility/a", 300f },
+                { "SpaceCenter/LaunchPad/Facility/intact", 0f },
+            };
+            var split = StrategyConversionCapture.SplitRepairLegs(legs, q, shares);
+            Assert.Equal(4, split.Count);
+            var fundsA = split.Single(l => l.Currency == StrategyConversionCurrency.Funds
+                && l.Cause == "FacilityRepair|Funds|SpaceCenter/LaunchPad/Facility/a");
+            var fundsB = split.Single(l => l.Currency == StrategyConversionCurrency.Funds
+                && l.Cause == "FacilityRepair|Funds|SpaceCenter/LaunchPad/Facility/b");
+            Assert.Equal(3.0, fundsA.Delta, 6);
+            Assert.Equal(2.0, fundsB.Delta, 6);
+            Assert.Equal(-6.0, split.Where(l => l.Currency == StrategyConversionCurrency.Reputation).Sum(l => l.Delta), 6);
+            Assert.Contains(logLines, l => l.Contains("[StrategyConversion]")
+                && l.Contains("Facility repair conversion split") && l.Contains("buildings=2"));
+        }
+
+        [Fact]
+        public void RepairLegs_OutsideARepairOrWithNoShares_AreUnchanged()
+        {
+            var shares = new Dictionary<string, float> { { "b", 100f } };
+            var repair = Query(inF: -100.0, dF: 1.0, reason: "StructureRepair");
+            var legs = StrategyConversionCapture.EvaluateLegs(repair);
+            Assert.Same(legs, StrategyConversionCapture.SplitRepairLegs(legs, repair, null));
+            Assert.Same(legs, StrategyConversionCapture.SplitRepairLegs(legs, repair,
+                new Dictionary<string, float> { { "b", 0f } }));
+            var purchase = Query(inF: -100.0, dF: 30.0, reason: "RnDPartPurchase");
+            var purchaseLegs = StrategyConversionCapture.EvaluateLegs(purchase);
+            Assert.Same(purchaseLegs, StrategyConversionCapture.SplitRepairLegs(purchaseLegs, purchase, shares));
+            Assert.All(purchaseLegs, l => Assert.Null(l.Cause));
         }
 
         [Fact]

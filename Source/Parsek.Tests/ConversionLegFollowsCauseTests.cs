@@ -692,6 +692,335 @@ namespace Parsek.Tests
         }
 
         // ------------------------------------------------------------------
+        // A strategy discount on a gross purchase, repair or penalty row is a leg that
+        // follows the row (STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The rows the recorder door writes for one stock query, through the production
+        /// pieces in the door's order: the scoping rule, the cause the open scope names, the
+        /// repair split, and the leg writer's row shape.
+        /// </summary>
+        private List<GameAction> DoorRows(string idPrefix, StrategyConversionQuery q, double ut, long cseq,
+            IReadOnlyDictionary<string, float> repairShares = null)
+        {
+            var legs = StrategyConversionCapture.EvaluateLegs(q);
+            string cause = GameStateRecorder.ResolveConversionCause(q);
+            legs = StrategyConversionCapture.SplitRepairLegs(legs, q, repairShares);
+            var rows = new List<GameAction>();
+            for (int i = 0; i < legs.Count; i++)
+            {
+                GameAction row = LedgerOrchestrator.BuildStrategyConversionAction(ut, legs[i], q.Reason);
+                row.ConversionCause = !string.IsNullOrEmpty(legs[i].Cause) ? legs[i].Cause : cause;
+                row.ActionId = idPrefix + i.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                row.CaptureSequence = cseq;
+                rows.Add(row);
+            }
+            ledger.AddRange(rows);
+            return rows;
+        }
+
+        /// <summary>Stock AgressiveNegotiations at full commitment on a part of entryCost
+        /// <paramref name="entryCost"/>: Funds Multiply 0.70, Reputation Add -6.</summary>
+        private static StrategyConversionQuery AggressivePurchase(double entryCost) => new StrategyConversionQuery
+        {
+            InputFunds = -entryCost, DeltaFunds = entryCost * 0.3, DeltaReputation = -6.0, Reason = "RnDPartPurchase",
+        };
+
+        private static GameAction PartBuy(string id, string part, double ut, long cseq, float cost) => new GameAction
+        {
+            ActionId = id, UT = ut, CaptureSequence = cseq, Type = GameActionType.FundsSpending,
+            FundsSpendingSource = FundsSpendingSource.Other, DedupKey = part, FundsSpent = cost,
+        };
+
+        /// <summary>Runs <paramref name="body"/> inside the part purchase scope the Harmony
+        /// prefix opens around stock's <c>Funding.onPartPurchased</c>, closed by its finalizer.</summary>
+        private static void InsidePurchaseScope(string partName, Action body)
+        {
+            var part = (AvailablePart)System.Runtime.Serialization.FormatterServices.GetUninitializedObject(typeof(AvailablePart));
+            part.name = partName;
+            var prefix = typeof(PartPurchaseConversionCauseScopePatch).GetMethod("Prefix", BindingFlags.Static | BindingFlags.NonPublic);
+            var finalizer = typeof(PartPurchaseConversionCauseScopePatch).GetMethod("Finalizer", BindingFlags.Static | BindingFlags.NonPublic);
+            var args = new object[] { part, 0 };
+            prefix.Invoke(null, args);
+            try { body(); }
+            finally { finalizer.Invoke(null, new object[] { null, (int)args[1] }); }
+        }
+
+        private int AdjustmentRows => ledger.Count(x => x.Type == GameActionType.StockPoolAdjustment);
+
+        // catches: a purchase discount with no leg, so the walk charges the gross price, stock
+        // the net one, and the next patch files the gap as a pool adjustment.
+        [Fact]
+        public void PartPurchaseUnderAggressiveNegotiations_WalksToWhatStockCharged_WithNoAdjustment()
+        {
+            Seeds(10000, 0, 50);
+            PatchFunds(50, 10000, authoritative: true);
+            ledger.Add(PartBuy("buy", "mk1pod", 100, 10, 1000f));
+            InsidePurchaseScope("mk1pod", () => DoorRows("leg", AggressivePurchase(1000), 100, 11));
+
+            Assert.Equal(9300.0, PatchFunds(200, 9300), 6);
+            Assert.Equal(0, AdjustmentRows);
+            List<GameAction> legs = ledger.Where(ConversionLegBinding.IsCausedLeg).ToList();
+            Assert.Equal(2, legs.Count);
+            Assert.All(legs, l => Assert.Equal("FundsSpending|Funds|Part:mk1pod", l.ConversionCause));
+            Assert.Equal(300f, legs.Single(l => l.Type == GameActionType.FundsEarning).FundsAwarded);
+            // The reputation Add rides the same query once.
+            Assert.Equal(6f, legs.Single(l => l.Type == GameActionType.ReputationPenalty).NominalPenalty);
+            Assert.Equal(50.0 + ReputationModule.ApplyReputationCurve(-6f, 50f).actualDelta,
+                reputation.GetRunningRep(), 4);
+            Assert.Equal(0, ConversionCauseScope.Depth);
+        }
+
+        // catches: a rewind and a re-buy paying the purchase discount twice (the committed
+        // purchase is owned and free, but its discount, or the adjustment that stood in for
+        // it, still pays at its UT).
+        [Fact]
+        public void PartPurchase_RewindAndRebuy_PaysTheDiscountOnce()
+        {
+            Seeds(10000, 0, 50);
+            double w = PatchFunds(50, 10000, authoritative: true);
+            w = PatchFunds(500, w);
+            var rp = new ConfigNode("SCENARIO");
+            StockPoolReference.SaveTo(rp);
+            double atRewindPoint = w;
+
+            // The first timeline buys the part at UT 1000; stock charges 700.
+            ledger.Add(PartBuy("buyA", "mk1pod", 1000, 10, 1000f));
+            InsidePurchaseScope("mk1pod", () => DoorRows("legA", AggressivePurchase(1000), 1000, 11));
+            w = PatchFunds(1100, w - 700);
+            Assert.Equal(9300.0, w, 6);
+
+            // Rewind to the quicksave at UT 500, and buy the same part again at UT 600.
+            StockPoolReference.LoadFrom(rp, "PlainRewind");
+            w = PatchFunds(500, atRewindPoint, authoritative: true);
+            ledger.Add(PartBuy("buyB", "mk1pod", 600, 20, 1000f));
+            InsidePurchaseScope("mk1pod", () => DoorRows("legB", AggressivePurchase(1000), 600, 21));
+            w = PatchFunds(700, w - 700);
+            // The committed purchase's UT passes: stock does nothing there.
+            w = PatchFunds(1200, w);
+
+            Assert.Equal(9300.0, w, 6);
+            Assert.Equal(9300.0, funds.GetRunningBalance(), 6);
+            Assert.Equal(0, AdjustmentRows);
+            GameAction buyA = ledger.Single(x => x.ActionId == "buyA");
+            Assert.False(buyA.Effective);
+            Assert.Equal(GameActionNotCountedReason.PurchaseAlreadyOwned, buyA.NotCountedReason);
+            Assert.All(ledger.Where(x => x.ActionId.StartsWith("legA", StringComparison.Ordinal)), l =>
+            {
+                Assert.Equal(0f, l.ConversionShare);
+                Assert.Equal(GameActionNotCountedReason.ConversionCauseNotCounted, l.NotCountedReason);
+            });
+            Assert.All(ledger.Where(x => x.ActionId.StartsWith("legB", StringComparison.Ordinal)),
+                l => Assert.Equal(1f, l.ConversionShare));
+            // The reputation Add is charged once too.
+            Assert.Equal(50.0 + ReputationModule.ApplyReputationCurve(-6f, 50f).actualDelta,
+                reputation.GetRunningRep(), 4);
+        }
+
+        // catches: a repair of a building the walk already has intact keeping its discount
+        // (the repair is free, its 1% refund still paid), or one facility debit's discount
+        // landing on one building row.
+        [Fact]
+        public void FacilityRepair_RewindAndRepairAgain_PaysTheDiscountOnce()
+        {
+            const string a = "SpaceCenter/LaunchPad/Facility/a";
+            const string b = "SpaceCenter/LaunchPad/Facility/b";
+            var shares = new Dictionary<string, float>(StringComparer.Ordinal) { { a, 300f }, { b, 200f } };
+            // RepairFacility charges 500 once for both buildings; the 0.99 Multiply adds +5.
+            var q = new StrategyConversionQuery { InputFunds = -500.0, DeltaFunds = 5.0, DeltaReputation = -6.0, Reason = "StructureRepair" };
+            Func<string, string, double, long, float, GameAction> repair = (id, building, ut, cseq, cost) => new GameAction
+            {
+                ActionId = id, UT = ut, CaptureSequence = cseq, Type = GameActionType.FacilityRepair,
+                FacilityId = building, FacilityCost = cost,
+            };
+
+            Seeds(10000, 0, 50);
+            ledger.Add(new GameAction { ActionId = "dA", UT = 400, CaptureSequence = 1, Type = GameActionType.FacilityDestruction, FacilityId = a });
+            ledger.Add(new GameAction { ActionId = "dB", UT = 400, CaptureSequence = 2, Type = GameActionType.FacilityDestruction, FacilityId = b });
+            double w = PatchFunds(50, 10000, authoritative: true);
+            w = PatchFunds(500, w);
+            var rp = new ConfigNode("SCENARIO");
+            StockPoolReference.SaveTo(rp);
+            double atRewindPoint = w;
+
+            ledger.Add(repair("r1a", a, 1000, 10, 300f));
+            ledger.Add(repair("r1b", b, 1000, 11, 200f));
+            DoorRows("leg1", q, 1000, 12, shares);
+            w = PatchFunds(1100, w - 495);
+            Assert.Equal(9505.0, w, 6);
+
+            StockPoolReference.LoadFrom(rp, "PlainRewind");
+            w = PatchFunds(500, atRewindPoint, authoritative: true);
+            ledger.Add(repair("r2a", a, 600, 20, 300f));
+            ledger.Add(repair("r2b", b, 600, 21, 200f));
+            DoorRows("leg2", q, 600, 22, shares);
+            w = PatchFunds(700, w - 495);
+            w = PatchFunds(1200, w);
+
+            Assert.Equal(9505.0, w, 6);
+            Assert.Equal(0, AdjustmentRows);
+            Assert.Equal(GameActionNotCountedReason.FacilityAlreadyIntact, ledger.Single(x => x.ActionId == "r1a").NotCountedReason);
+            List<GameAction> legs1 = ledger.Where(x => x.ActionId.StartsWith("leg1", StringComparison.Ordinal)).ToList();
+            Assert.Equal(4, legs1.Count);
+            Assert.All(legs1, l => Assert.Equal(0f, l.ConversionShare));
+            List<GameAction> legs2 = ledger.Where(x => x.ActionId.StartsWith("leg2", StringComparison.Ordinal)).ToList();
+            Assert.All(legs2, l => Assert.Equal(1f, l.ConversionShare));
+            Assert.Equal(3f, legs2.Single(l => l.Type == GameActionType.FundsEarning && l.ConversionCause == "FacilityRepair|Funds|" + a).FundsAwarded, 4f);
+            Assert.Equal(2f, legs2.Single(l => l.Type == GameActionType.FundsEarning && l.ConversionCause == "FacilityRepair|Funds|" + b).FundsAwarded, 4f);
+        }
+
+        // catches: Leadership Initiative's penalty multiplier left out of the walk, or kept
+        // for a failure the walk does not count after a rewind.
+        [Fact]
+        public void ContractPenaltyUnderLeadershipInitiative_RewindAndFailAgain_PaysTheReductionOnce()
+        {
+            // A 1000-funds failure penalty multiplied by 0.75: stock charges 750.
+            var q = new StrategyConversionQuery { InputFunds = -1000.0, DeltaFunds = 250.0, Reason = "ContractPenalty" };
+            Func<string, double, long, GameAction> fail = (id, ut, cseq) => new GameAction
+            {
+                ActionId = id, UT = ut, CaptureSequence = cseq, Type = GameActionType.ContractFail,
+                ContractId = "k", FundsPenalty = 1000f,
+            };
+            Action<string, double, long> door = (prefix, ut, cseq) =>
+            {
+                int token = ConversionCauseScope.Open(GameActionType.ContractFail, "k", "ContractPenalty");
+                try { DoorRows(prefix, q, ut, cseq); }
+                finally { ConversionCauseScope.Close(token); }
+            };
+
+            Seeds(10000, 0, 50);
+            ledger.Add(Accept("k", 100, 1));
+            double w = PatchFunds(50, 10000, authoritative: true);
+            w = PatchFunds(500, w);
+            var rp = new ConfigNode("SCENARIO");
+            StockPoolReference.SaveTo(rp);
+            double atRewindPoint = w;
+
+            ledger.Add(fail("fA", 1000, 10));
+            door("legA", 1000, 11);
+            w = PatchFunds(1100, w - 750);
+            Assert.Equal(9250.0, w, 6);
+
+            StockPoolReference.LoadFrom(rp, "PlainRewind");
+            w = PatchFunds(500, atRewindPoint, authoritative: true);
+            ledger.Add(fail("fB", 600, 20));
+            door("legB", 600, 21);
+            w = PatchFunds(700, w - 750);
+            w = PatchFunds(1200, w);
+
+            Assert.Equal(9250.0, w, 6);
+            Assert.Equal(0, AdjustmentRows);
+            Assert.False(ledger.Single(x => x.ActionId == "fA").Effective);
+            Assert.Equal(0f, ledger.Single(x => x.ActionId == "legA0").ConversionShare);
+            Assert.Equal("ContractFail|Funds|k", ledger.Single(x => x.ActionId == "legB0").ConversionCause);
+        }
+
+        // catches: a funds leg filed on a rollout, whose row is already the observed net (the
+        // launch discount counted twice).
+        [Fact]
+        public void VesselRolloutUnderAggressiveNegotiations_GetsNoFundsLeg_AndOneRepLeg()
+        {
+            Seeds(20000, 0, 50);
+            PatchFunds(50, 20000, authoritative: true);
+            // OnVesselRolloutSpending is handed the observed delta: 20000 * 0.70.
+            ledger.Add(new GameAction
+            {
+                ActionId = "roll", UT = 100, CaptureSequence = 10, Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild, FundsSpent = 14000f,
+            });
+            List<GameAction> rows = DoorRows("leg", new StrategyConversionQuery
+            {
+                InputFunds = -20000.0, DeltaFunds = 6000.0, DeltaReputation = -6.0, Reason = "VesselRollout",
+            }, 100, 11);
+
+            Assert.Single(rows);
+            Assert.Equal(GameActionType.ReputationPenalty, rows[0].Type);
+            Assert.Equal(6000.0, PatchFunds(200, 6000), 6);
+            Assert.Equal(0, AdjustmentRows);
+            Assert.Equal(50.0 + ReputationModule.ApplyReputationCurve(-6f, 50f).actualDelta,
+                reputation.GetRunningRep(), 4);
+        }
+
+        [Fact]
+        public void PurchaseAndRepairRows_AreCauses_KeyedApart()
+        {
+            Assert.Equal("Part:mk1pod", ConversionCause.KeyOf(PartBuy("p", "mk1pod", 1, 1, 1)));
+            Assert.Equal("PartUpgrade:mk1pod", ConversionCause.KeyOf(new GameAction
+            {
+                Type = GameActionType.FundsSpending, FundsSpendingSource = FundsSpendingSource.PartUpgrade, DedupKey = "mk1pod",
+            }));
+            Assert.Equal("b", ConversionCause.KeyOf(new GameAction { Type = GameActionType.FacilityRepair, FacilityId = "b" }));
+            // A strategy leg's own FundsSpending and a rollout are never causes.
+            Assert.Null(ConversionCause.KeyOf(FundsDebitLeg("l", 1, 1, 1, null)));
+            Assert.Null(ConversionCause.KeyOf(new GameAction
+            { Type = GameActionType.FundsSpending, FundsSpendingSource = FundsSpendingSource.VesselBuild, DedupKey = "x" }));
+            Assert.Null(ConversionCause.KeyOf(PartBuy("p", "", 1, 1, 1)));
+            ConversionCause parsed;
+            Assert.True(ConversionCause.TryParse("FundsSpending|Funds|Part:mk1pod", out parsed));
+            Assert.True(ConversionCause.TryParse("FacilityRepair|Funds|SpaceCenter/LaunchPad/Facility/a", out parsed));
+
+            GameAction owned = PartBuy("p", "mk1pod", 1, 1, 1000);
+            Assert.Equal(1f, ConversionLegBinding.CauseShare(owned, StockPool.Funds));
+            owned.Effective = false;
+            Assert.Equal(0f, ConversionLegBinding.CauseShare(owned, StockPool.Funds));
+            Assert.Equal(1000.0, ConversionLegBinding.CapturedAmount(owned, StockPool.Funds), 6);
+        }
+
+        [Fact]
+        public void PurchaseScopePatches_ResolveTheirStockTargets_AndOpenAndClose()
+        {
+            Assert.NotNull(HarmonyLib.AccessTools.Method(typeof(Funding), "onPartPurchased", new[] { typeof(AvailablePart) }));
+            Assert.NotNull(HarmonyLib.AccessTools.Method(typeof(Funding), "onUpgradePurchased",
+                new[] { typeof(PartUpgradeHandler.Upgrade) }));
+            ConversionCause cause = default(ConversionCause);
+            bool resolved = false;
+            InsidePurchaseScope("mk1pod", () => resolved = ConversionCauseScope.TryResolve("RnDPartPurchase", StockPool.Funds, out cause));
+            Assert.True(resolved);
+            Assert.Equal("FundsSpending|Funds|Part:mk1pod", cause.Format());
+            Assert.Equal(0, ConversionCauseScope.Depth);
+
+            var upgrade = (PartUpgradeHandler.Upgrade)System.Runtime.Serialization.FormatterServices
+                .GetUninitializedObject(typeof(PartUpgradeHandler.Upgrade));
+            upgrade.name = "engineUpgrade1";
+            var prefix = typeof(PartUpgradeConversionCauseScopePatch).GetMethod("Prefix", BindingFlags.Static | BindingFlags.NonPublic);
+            var finalizer = typeof(PartUpgradeConversionCauseScopePatch).GetMethod("Finalizer", BindingFlags.Static | BindingFlags.NonPublic);
+            var args = new object[] { upgrade, 0 };
+            prefix.Invoke(null, args);
+            Assert.True(ConversionCauseScope.TryResolve("RnDPartPurchase", StockPool.Funds, out cause));
+            Assert.Equal("FundsSpending|Funds|PartUpgrade:engineUpgrade1", cause.Format());
+            // A rollout inside the scope is not this purchase's.
+            Assert.False(ConversionCauseScope.TryResolve("VesselRollout", StockPool.Funds, out cause));
+            finalizer.Invoke(null, new object[] { null, (int)args[1] });
+            Assert.Equal(0, ConversionCauseScope.Depth);
+        }
+
+        // catches: the KSC reconcile of a discounted purchase warning that the event shows
+        // the net price.
+        [Fact]
+        public void KscReconcile_ADiscountedPurchase_MatchesTheNetEvent()
+        {
+            GameAction buy = PartBuy("buy", "mk1pod", 100, 10, 1000f);
+            GameAction leg = FundsCreditLeg("leg", 100, 11, 300f, "FundsSpending|Funds|Part:mk1pod");
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 100, eventType = GameStateEventType.FundsChanged, key = "RnDPartPurchase",
+                    valueBefore = 10000, valueAfter = 9300,
+                },
+            };
+            Assert.Equal(300.0, KscActionReconciler.SumCausedStrategyFundsLegs(new List<GameAction> { buy, leg }, 100, "RnDPartPurchase"), 6);
+            Assert.Equal(0.0, KscActionReconciler.SumCausedStrategyFundsLegs(new List<GameAction> { buy, leg }, 100, "StructureRepair"), 6);
+            Assert.Equal(0.0, KscActionReconciler.SumCausedStrategyFundsLegs(new List<GameAction> { buy, leg }, 101, "RnDPartPurchase"), 6);
+
+            KscActionReconciler.ReconcileKscAction(events, new List<GameAction> { buy, leg }, buy, 100);
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation") && l.Contains("delta mismatch"));
+            KscActionReconciler.ReconcileKscAction(events, new List<GameAction> { buy }, buy, 100);
+            Assert.Contains(logLines, l => l.Contains("KSC reconciliation") && l.Contains("delta mismatch"));
+        }
+
+        // ------------------------------------------------------------------
         // Never-rewound careers walk exactly as before (randomized)
         // ------------------------------------------------------------------
 

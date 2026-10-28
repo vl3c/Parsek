@@ -16,7 +16,11 @@ namespace Parsek.Patches
     /// <c>Reputation.AddReputation</c> itself with the reason listed, and each of those runs
     /// one <c>CurrencyModifierQuery</c> that fires <c>OnCurrencyModified</c> inside the call.
     /// A contract's advance (<c>AwardAdvance</c>) has no scope: an accept row is always
-    /// counted, so its legs have nothing to follow.
+    /// counted, so its legs have nothing to follow. A part or part upgrade purchase is scoped
+    /// around stock's own charge (<c>Funding.onPartPurchased</c> / <c>onUpgradePurchased</c>,
+    /// reason <c>RnDPartPurchase</c>), so a strategy discount on it follows the purchase row;
+    /// a facility repair's legs are split per building by the recorder door from the repair
+    /// scope (<c>StrategyConversionCapture.SplitRepairLegs</c>), not from a scope here.
     /// </summary>
     internal static class ConversionCauseScopePatchSupport
     {
@@ -185,6 +189,48 @@ namespace Parsek.Patches
             catch (Exception) { body = null; }
             __state = ConversionCauseScopePatchSupport.Open("SurveyConversionCauseScopePatch.Prefix",
                 GameActionType.ScienceLabEarning, body, TransactionReasons.ScienceTransmission.ToString());
+        }
+
+        static Exception Finalizer(Exception __exception, int __state)
+        {
+            return ConversionCauseScopePatchSupport.Close(__exception, __state);
+        }
+    }
+
+    /// <summary>A part purchase's charge: <c>Funding.onPartPurchased</c> (private, stock's
+    /// own <c>OnPartPurchased</c> listener), reason <c>RnDPartPurchase</c>. Keyed like the
+    /// purchase row (<see cref="ConversionCause.PartPurchaseKey"/>). An identical part bought
+    /// free alongside returns before <c>AddFunds</c>, so its scope sees no query.</summary>
+    [HarmonyPatch(typeof(Funding), "onPartPurchased", typeof(AvailablePart))]
+    internal static class PartPurchaseConversionCauseScopePatch
+    {
+        static void Prefix(AvailablePart aP, out int __state)
+        {
+            string key = null;
+            try { key = aP != null ? ConversionCause.PartPurchaseKey(aP.name) : null; }
+            catch (Exception) { key = null; }
+            __state = ConversionCauseScopePatchSupport.Open("PartPurchaseConversionCauseScopePatch.Prefix",
+                GameActionType.FundsSpending, key, TransactionReasons.RnDPartPurchase.ToString());
+        }
+
+        static Exception Finalizer(Exception __exception, int __state)
+        {
+            return ConversionCauseScopePatchSupport.Close(__exception, __state);
+        }
+    }
+
+    /// <summary>A part upgrade's charge: <c>Funding.onUpgradePurchased</c>, reason
+    /// <c>RnDPartPurchase</c>, keyed <see cref="ConversionCause.PartUpgradeKey"/>.</summary>
+    [HarmonyPatch(typeof(Funding), "onUpgradePurchased", typeof(PartUpgradeHandler.Upgrade))]
+    internal static class PartUpgradeConversionCauseScopePatch
+    {
+        static void Prefix(PartUpgradeHandler.Upgrade upgrade, out int __state)
+        {
+            string key = null;
+            try { key = upgrade != null ? ConversionCause.PartUpgradeKey(upgrade.name) : null; }
+            catch (Exception) { key = null; }
+            __state = ConversionCauseScopePatchSupport.Open("PartUpgradeConversionCauseScopePatch.Prefix",
+                GameActionType.FundsSpending, key, TransactionReasons.RnDPartPurchase.ToString());
         }
 
         static Exception Finalizer(Exception __exception, int __state)
