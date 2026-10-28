@@ -389,7 +389,11 @@ rewind, re-buy, warp past the first purchase's UT, then LedgerGroundTruth and no
 the repair path (the entry-purchase hosts cannot afford Aggressive Negotiations' reputation cost, and the
 rep-rich hosts bypass entry purchases): Aggressive Negotiations, a discounted repair inside a committed
 timeline, a Rewind-to-Launch that must refuse a second repair as committed, and the crossing that must
-apply the repair and its legs once with no pool adjustment. Authored, never flown.
+apply the repair and its legs once with no pool adjustment. LIVE-PROVEN on `2026-10-28_1538` (evidence
+`logs/flights/rewind-campaign/rw-09-strategy-repair-rebuy/`): legs split onto the annex at the repair,
+the second repair refused with nothing charged, the pools after the crossing equal to the pools after
+the original repair (155591.16 funds / 97.96 rep), no StockPoolAdjustment, no GUARDED, ledger_audit
+PASS. Its first flights found REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE.
 
 ## ~~FREE-TECH-NODE-LOST-AFTER-REWIND: a tech node stock unlocks for free has no ledger row, so the first tech patch after a rewind re-locks it for good~~ [FILED AND FIXED 2026-10-28 from code reading, branch `fix-free-tech-row`; unit-tested only, NOT FLOWN, lane owed; product, high (a node and its parts lost for good, a reduction of the career total)]
 

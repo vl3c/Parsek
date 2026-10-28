@@ -39,15 +39,17 @@ id = "RW-9-strategy-repair-rebuy"
 # STEP SAVES (temporary analysis artifacts, copied with the run under logs/):
 #   rw09-01-after-v-commit, rw09-02-after-repair, rw09-03-after-rtl, rw09-04-after-crossing.
 #
-# STATUS: AUTHORED 2026-10-28 (branch `rw9-strategy-rebuy`). FIRST FLIGHT `2026-10-28_1522`
-# (and `_1524` a2) INVALID(driver-verdict-mismatch): with the strategy and the demolition at
-# UT 185790, inside the 15 s before V's launch (185800.3), the Rewind-to-Launch clock (185785.3,
-# `UT adjusted: 185800.3 -> 185785.3 (lead time 15s)`) sat BEFORE the demolition row while the
-# rewind save already held the building down, so the repair block read no destruction in the
-# past (`Allowing facility repair ... no committed future repair covers the destruction
-# (nowUT=185786)`) and a second paid repair went through. Filed as a product finding; the lane
-# now acts at 185750, outside the window. The leg literals, the recording count and the batch
-# split are interim until measured.
+# STATUS: LIVE-PROVEN 2026-10-28, `2026-10-28_1538` PASS attempt 1 (DLL 8723aa01, main 9619cd468). The repair at UT 185899.9 split its
+# Aggressive Negotiations legs onto the annex (funds +1.0000467, rep -1.25, reason=StructureRepair);
+# after the rewind (clock 185785.5) the second repair was refused by the backstop (`Blocking facility
+# repair ... already repaired by a committed future row`, fundsDelta=0); the crossing applied the
+# committed repair and its legs once: funds 155591.16 / rep 97.96 after the original repair and
+# after the crossing alike; no StockPoolAdjustment, no GUARDED; 35 recordings; batch passed=3
+# skipped=0; LedgerGroundTruth hardFailures=0; ledger_audit.py PASS. History: `_1522` / `_1524`
+# INVALID with the actions at 185790, inside the 15 s Rewind-to-Launch lead window (filed as
+# REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE, measured by the uncommitted reading variant
+# RW-9R `_1535`: a second paid repair and the annex knocked down again at the crossing); `_1527`
+# PARSEK-FAIL on three lane pins only (every assertion held).
 # =====================================================================================
 tier = "operator"
 description = "Rewind ledger campaign, strategy discount on a repair (#2313): on cs-career-mun4 Aggressive Negotiations is activated and the R&D annex demolished, a Jumping Flea V is recorded, committed and recovered, the R&D facility is repaired at UT 185900 with the strategy's discount, a Rewind-to-Launch to V's launch refuses a second repair as committed, and the warp past the repair applies it and its conversion legs once: the pools after the crossing equal the pools after the original repair, with no pool adjustment and no guard clamp; LedgerGroundTruth closes the career."
@@ -136,8 +138,8 @@ D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The host's 34 recordings plus V; the check launch is unrecorded. INTERIM window.
-count = { min = 35, max = 36 }
+# The host's 34 recordings plus V; the check launch is unrecorded. Measured 35 on `_1538`.
+count = { min = 35, max = 35 }
 
 [expectations.logContracts]
 required = [
@@ -163,7 +165,7 @@ required = [
   "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw9-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw9-crossed ut=",
 
   # ---- the ground truth ----
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
 ]
 forbidden = [
   # The discount is never kept as an untagged pool adjustment (the #2313 defect's shape).
