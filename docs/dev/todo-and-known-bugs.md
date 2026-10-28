@@ -2942,6 +2942,10 @@ once at the crossing; LedgerGroundTruth hardFailures=0 and `ledger_audit.py` PAS
 host: the tech half of RW-4 and RW-11's tech buy (20.17 science, every affordable node owned) and
 RW-10 (no applicant in the roster and `hire-kerbal` resolves by name only; needs a seeded applicant
 or an applicant-first seam argument). Evidence: `logs/flights/rewind-campaign/rw-01-ksc-economy/`.
+RW-2-crewed-relaunch-revert (plan rows 13, 14) found REVERT-AFTER-REWIND-WALKS-PAST-THE-CLOCK on its first
+flight (`2026-10-28_0837`) and is LIVE-PROVEN on the fix (`2026-10-28_0902`): the reserved kerbal is
+swapped for a stand-in, the revert prunes only its own untagged row and now walks at the clock.
+Evidence: `logs/flights/rewind-campaign/rw-02-crewed-relaunch-revert{,-run2}/`.
 
 Progress 2026-10-28 (branch `rw2-crewed-revert`): lane `RW-2-crewed-relaunch-revert` authored, never flown,
 plan rows 13 (crewed launch after a rewind) and 14 (revert inside a rewound timeline): RW-1's committed pad

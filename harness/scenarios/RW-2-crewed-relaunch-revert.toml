@@ -153,7 +153,11 @@ id = "RW-2-crewed-relaunch-revert"
 #   - `reverttolaunch rejected reason=reverttolaunch-unavailable`: stock did not offer it.
 #   - recordings 36: something recorded after the rewind (the EVA auto-record setting).
 #
-# STATUS: FIRST FLIGHT 2026-10-28 `2026-10-28_0837` PARSEK-FAIL attempt 1 (DLL 92b715f7) on ONE
+# STATUS: LIVE-PROVEN 2026-10-28 on the fix, `2026-10-28_0902` PASS attempt 1 (DLL b50fbc5d built from e63f0f4bf, the revert-cutoff fix): the StockRevert load walked at
+# the clock (useCurrentUtCutoff=True isRevert=True; Revert budget walk cutoffScene=True
+# clockReady=True), the pool held at 151682.18 through the revert, and the committed future's
+# +40432 arrived only at the crossing (clock 186097.6); every other pin held; ledger_audit.py PASS.
+# History: FIRST FLIGHT 2026-10-28 `2026-10-28_0837` PARSEK-FAIL attempt 1 (DLL 92b715f7) on ONE
 # forbid, a real defect: the StockRevert load inside the rewound timeline ran its recalc with
 # cutoffUT=null (`post-rewind current-UT cutoff decision useCurrentUtCutoff=False ... isRevert=True
 # ... hasFutureLedgerActions=True`), so `PatchFunds: 151682.2 -> 192114.2 (delta=40432.0)` paid the
