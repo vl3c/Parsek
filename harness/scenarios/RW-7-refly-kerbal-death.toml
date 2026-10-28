@@ -481,7 +481,7 @@ required = [
   "\\A(?:[\\s\\S]*?Invocation complete: sess=\\S+ rp=rp_[0-9a-f]{32} slot=0 activePid=[0-9]+){2}",
   "\\A(?:[\\s\\S]*?recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true){2}",
   "MISSIONMARK label=rw7-refly1-armed ut=[\\s\\S]*?partaction applied button=inspect pid=[0-9]+ part='solidBooster\\.sm\\.v2' [^\\r\\n]*state='engine:ignited=0'[\\s\\S]*?MISSIONMARK label=rw7-refly1-started ut=",
-  "MISSIONMARK label=rw7-refly1-started ut=[\\s\\S]*?partaction applied button=activate pid=([0-9]+) part='solidBooster\\.sm\\.v2' partId=[0-9]+ event=Activate newPid=0 newName='' vessels=[0-9]+->[0-9]+ activePid=\\1 activeName='CS Flea Probe' converter='' state='engine:ignited=1' count=1 packed=0 warpIndex=0 [\\s\\S]*?MISSIONMARK label=rw7-refly1-crashed ut=",
+  "MISSIONMARK label=rw7-refly1-started ut=[\\s\\S]*?partaction applied button=activate pid=([0-9]+) part='solidBooster\\.sm\\.v2' partId=[0-9]+ event=Activate newPid=0 newName='' vessels=[0-9]+->[0-9]+ activePid=\\1 activeName='CS Flea Probe' converter='' state='engine:ignited=1' count=1 packed=[01] warpIndex=0 [\\s\\S]*?MISSIONMARK label=rw7-refly1-crashed ut=",
   "MISSIONMARK label=rw7-refly1-started ut=(?:(?!MISSIONMARK label=rw7-refly1-crashed )[\\s\\S])*?\\[Flight\\] Active vessel destroyed in tree mode",
   "MISSIONMARK label=rw7-refly1-started ut=(?:(?!MISSIONMARK label=rw7-discarded1 )[\\s\\S])*?PopulateCrewEndStates: recording='CS Flea Probe' \\(id=rec_[0-9a-f]{32}\\) crew=1 aboard=0 dead=1 recovered=0 unknown=0",
   "MISSIONMARK label=rw7-refly1-started ut=(?:(?!MISSIONMARK label=rw7-discarded1 )[\\s\\S])*?Crew death respawn policy stamped: recording='rec_[0-9a-f]{32}' \\(CS Flea Probe\\) deadCrew=1 respawn=True timer=7200",
@@ -528,7 +528,7 @@ required = [
   "MISSIONMARK label=rw7-refly2-armed ut=[\\s\\S]*?Load classified: early=ReFlyStart refined=ReFlyStart scene=FLIGHT [\\s\\S]*?MISSIONMARK label=rw7-refly2-started ut=",
   # THE DISCARDED ATTEMPT LEFT NO TRACE IN THE WORLD: the SRB the first attempt burnt is unlit.
   "MISSIONMARK label=rw7-refly2-armed ut=[\\s\\S]*?partaction applied button=inspect pid=[0-9]+ part='solidBooster\\.sm\\.v2' [^\\r\\n]*state='engine:ignited=0'[\\s\\S]*?MISSIONMARK label=rw7-refly2-started ut=",
-  "MISSIONMARK label=rw7-refly2-started ut=[\\s\\S]*?partaction applied button=activate pid=([0-9]+) part='solidBooster\\.sm\\.v2' partId=[0-9]+ event=Activate newPid=0 newName='' vessels=[0-9]+->[0-9]+ activePid=\\1 activeName='CS Flea Probe' converter='' state='engine:ignited=1' count=1 packed=0 warpIndex=0 [\\s\\S]*?MISSIONMARK label=rw7-refly2-crashed ut=",
+  "MISSIONMARK label=rw7-refly2-started ut=[\\s\\S]*?partaction applied button=activate pid=([0-9]+) part='solidBooster\\.sm\\.v2' partId=[0-9]+ event=Activate newPid=0 newName='' vessels=[0-9]+->[0-9]+ activePid=\\1 activeName='CS Flea Probe' converter='' state='engine:ignited=1' count=1 packed=[01] warpIndex=0 [\\s\\S]*?MISSIONMARK label=rw7-refly2-crashed ut=",
   "MISSIONMARK label=rw7-refly2-started ut=(?:(?!MISSIONMARK label=rw7-refly2-crashed )[\\s\\S])*?\\[Flight\\] Active vessel destroyed in tree mode",
   "MISSIONMARK label=rw7-refly2-started ut=(?:(?!MISSIONMARK label=rw7-merged )[\\s\\S])*?Crew death respawn policy stamped: recording='rec_[0-9a-f]{32}' \\(CS Flea Probe\\) deadCrew=1 respawn=True timer=7200",
 
@@ -549,7 +549,7 @@ required = [
   "MISSIONMARK label=rw7-merged ut=1859[0-9]{2}\\.",
   # Variant B leaves the reputation the walk reads where it was before the Re-Fly: the last walk
   # before the crossing reads the pre-invoke pools.
-  "MISSIONMARK label=rw7-merged ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=150632\\.18 science=20\\.17 rep=115\\.00 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw7-before-crossing ut=",
+  "MISSIONMARK label=rw7-refly2-crashed ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=150632\\.18 science=20\\.17 rep=115\\.00 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw7-merged ut=",
   "MISSIONMARK label=rw7-merged ut=[\\s\\S]*?PostWalk summary: reservations=[0-9]+ permanent=0 temporary=[0-9]+ slots=[0-9]+ retired=[0-9]+ slotsCreated=[0-9]+ released=[0-9]+ respawnPending=[1-9][0-9]*[\\s\\S]*?MISSIONMARK label=rw7-before-respawn ut=",
 
   # ---- the crossing: the rows reached at the Space Center, F's accept among them ----
