@@ -343,7 +343,7 @@ rewind, re-buy, warp past the first purchase's UT, then LedgerGroundTruth and no
 
 ---
 
-## ~~FREE-TECH-NODE-LOST-AFTER-REWIND: a tech node stock unlocks for free has no ledger row, so the first tech patch after a rewind re-locks it for good~~ [FILED AND FIXED 2026-10-28 from code reading, branch `fix-free-tech-row`; unit-tested only, NOT FLOWN, lane owed; product, high (a node and its parts lost for good, a reduction of the career total)]
+## ~~FREE-TECH-NODE-LOST-AFTER-REWIND: a tech node stock unlocks for free has no ledger row, so the first tech patch after a rewind re-locks it for good~~ [FILED AND FIXED 2026-10-28 from code reading, branch `fix-free-tech-row`; LIVE-PROVEN 2026-10-28 by lane RW-8 (`2026-10-28_1505`); product, high (a node and its parts lost for good, a reduction of the career total)]
 
 Stock `ResearchAndDevelopment.UnlockProtoTechNode(ProtoTechNode)` unlocks a node for free and
 fires no `GameEvents.OnTechnologyResearched` (KSP 1.12.5, decompiled). Its two callers are
@@ -403,7 +403,11 @@ the post-rewind patch).
 Aviation at the Space Center through the new seam sub-action `KscAction gift-tech` (stock's
 `UnlockProtoTechNode` + `RefreshTechTreeUI`, the anomaly gift's calls on a named node), rewinds to
 before the gift, and reads the node locked, unlocked again past the gift at no science, and kept
-across a cold reload. Authored, never flown.
+across a cold reload. LIVE-PROVEN on `2026-10-28_1505` (PASS attempt 1; evidence
+`logs/flights/rewind-campaign/rw-08-free-tech-gift-rewind-run3/`): the rewind's walk re-locked the
+node (`PatchTechTree: ... madeUnavailableIds=[aviation]`), the first frame past the gift
+re-unlocked it (`PatchCommittedTechUnlocks: ... liveUT=185900.14 ... [aviation]`), no
+`ScienceChanged` line in the run, and `ledger_audit.py` PASS.
 
 ## ~~REVERT-AFTER-REWIND-WALKS-PAST-THE-CLOCK: a stock revert inside a rewound timeline patches the committed future's gains into the pools~~ [FILED AND FIXED 2026-10-28 from RW-2's first flight (`2026-10-28_0837`, PARSEK-FAIL attempt 1), branch `claude/project-thread-25edvc`; LIVE-PROVEN 2026-10-28 by RW-2 `2026-10-28_0902` PASS (funds held at 151682.18 through the revert, the +40432 applied at the crossing); product, high (future money spendable now)]
 

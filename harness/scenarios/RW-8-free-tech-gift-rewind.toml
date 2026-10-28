@@ -51,11 +51,16 @@ id = "RW-8-free-tech-gift-rewind"
 #   PatchCommittedTechUnlocks: madeAvailable=        KspStatePatcher.cs:1293 (the crossing)
 #   PatchTechTree: relock-refusal-summary            KspStatePatcher.cs:926
 #
-# STATUS: AUTHORED 2026-10-28 (branch `rw8-free-tech`). FIRST FLIGHT `2026-10-28_1457`
-# PARSEK-FAIL on four lane pins only: the gift ran at UT 185899.9 and the rewind landed at
-# 185785.8, outside the pinned digit windows, and the crossing's unlock is logged by
-# PatchCommittedTechUnlocks, not PatchTechTree. Every assertion held in that log; the pins
-# are fixed. The recording count and the batch split stay interim until a green flight.
+# STATUS: LIVE-PROVEN 2026-10-28, `2026-10-28_1505` PASS attempt 1 (DLL 05786c53 built from 9942f128f, main plus the KscAction gift-tech seam). The gift ran at UT 185899.94
+# (`free unlock (cost=0, nodeCost=45 ...)`, science 20.166671752929688 before and after);
+# the rewind to V's launch re-locked it (`PatchTechTree: ... madeUnavailable=1 ...
+# madeUnavailableIds=[aviation]`, probe insufficient-science); the warp unlocked it again on
+# the first frame past the gift (`PatchCommittedTechUnlocks: madeAvailable=1 ... liveUT=185900.14
+# ... [aviation]`, probe node-already-unlocked); the cold save-file reload kept it (probe
+# node-already-unlocked). No ScienceChanged line; every [LedgerTrace] Structural line reads
+# science=20.17. 35 recordings; batch passed=3 skipped=0; LedgerGroundTruth hardFailures=0;
+# ledger_audit.py PASS. History: `2026-10-28_1457` and `_1502` PARSEK-FAIL on lane pins only
+# (UT digit windows and the crossing line's name); every assertion held in both logs.
 # =====================================================================================
 tier = "operator"
 description = "Rewind ledger campaign, free tech gift (#2312): on cs-career-mun4 a Jumping Flea V is recorded on the pad, committed and recovered; at UT 185900 the Space Center gifts the Aviation node for free through stock's UnlockProtoTechNode (the anomaly gift's call); a Rewind-to-Launch to V's launch locks the node again, the warp past the gift unlocks it again with no science spent, and a cold reload keeps it; LedgerGroundTruth closes the career."
@@ -152,8 +157,8 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # The host's 34 recordings plus V; the check launch is unrecorded and the rewind removes
-# none. INTERIM window until measured.
-count = { min = 35, max = 36 }
+# none. Measured 35 on `2026-10-28_1505`.
+count = { min = 35, max = 35 }
 
 [expectations.logContracts]
 required = [
@@ -189,7 +194,7 @@ required = [
   "MISSIONMARK label=rw8-cold-reloaded ut=(?:(?!MISSIONMARK label=rw8-reload-probed )[\\s\\S])*?kscaction refused action=research-node reason=node-already-unlocked target=aviation",
 
   # ---- the ground truth ----
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
 ]
 forbidden = [
   # The gift is captured exactly once: the crossing and the reload replay it, never re-file it.
