@@ -862,12 +862,45 @@ namespace Parsek.Tests
             Assert.Equal(0, AdjustmentRows);
             Assert.Equal(GameActionNotCountedReason.FacilityAlreadyIntact, ledger.Single(x => x.ActionId == "r1a").NotCountedReason);
             List<GameAction> legs1 = ledger.Where(x => x.ActionId.StartsWith("leg1", StringComparison.Ordinal)).ToList();
-            Assert.Equal(4, legs1.Count);
+            Assert.Equal(3, legs1.Count);
             Assert.All(legs1, l => Assert.Equal(0f, l.ConversionShare));
             List<GameAction> legs2 = ledger.Where(x => x.ActionId.StartsWith("leg2", StringComparison.Ordinal)).ToList();
             Assert.All(legs2, l => Assert.Equal(1f, l.ConversionShare));
             Assert.Equal(3f, legs2.Single(l => l.Type == GameActionType.FundsEarning && l.ConversionCause == "FacilityRepair|Funds|" + a).FundsAwarded, 4f);
             Assert.Equal(2f, legs2.Single(l => l.Type == GameActionType.FundsEarning && l.ConversionCause == "FacilityRepair|Funds|" + b).FundsAwarded, 4f);
+        }
+
+        // catches: the repair's reputation Add split per building, so the walk curves two
+        // small penalties where stock curves one (the granular curve is not additive) and the
+        // next reputation patch files the gap as a pool adjustment.
+        [Fact]
+        public void FacilityRepairOfTwoBuildings_AtHighReputation_WalksToStocksReputation()
+        {
+            const string a = "SpaceCenter/LaunchPad/Facility/a";
+            const string b = "SpaceCenter/LaunchPad/Facility/b";
+            var shares = new Dictionary<string, float>(StringComparer.Ordinal) { { a, 300f }, { b, 200f } };
+            var q = new StrategyConversionQuery { InputFunds = -500.0, DeltaFunds = 5.0, DeltaReputation = -6.0, Reason = "StructureRepair" };
+
+            Seeds(10000, 0, 600);
+            ledger.Add(new GameAction { ActionId = "dA", UT = 400, CaptureSequence = 1, Type = GameActionType.FacilityDestruction, FacilityId = a });
+            ledger.Add(new GameAction { ActionId = "dB", UT = 400, CaptureSequence = 2, Type = GameActionType.FacilityDestruction, FacilityId = b });
+            double fw = PatchFunds(50, 10000, authoritative: true);
+            double rw = PatchReputation(50, 600, authoritative: true);
+            fw = PatchFunds(500, fw);
+            rw = PatchReputation(500, rw);
+
+            ledger.Add(new GameAction { ActionId = "rA", UT = 1000, CaptureSequence = 10, Type = GameActionType.FacilityRepair, FacilityId = a, FacilityCost = 300f });
+            ledger.Add(new GameAction { ActionId = "rB", UT = 1000, CaptureSequence = 11, Type = GameActionType.FacilityRepair, FacilityId = b, FacilityCost = 200f });
+            List<GameAction> legs = DoorRows("leg", q, 1000, 12, shares);
+            // Stock applies the whole -6 once, through one granular curve step.
+            double stockRep = rw + ReputationModule.ApplyReputationCurve(-6f, (float)rw).actualDelta;
+            Assert.Equal(9505.0, PatchFunds(1100, fw - 495), 6);
+            Assert.Equal(stockRep, PatchReputation(1100, stockRep), 3);
+            Assert.Equal(stockRep, reputation.GetRunningRep(), 3);
+            Assert.Equal(0, AdjustmentRows);
+            GameAction repLeg = legs.Single(l => l.Type == GameActionType.ReputationPenalty);
+            Assert.Equal(6f, repLeg.NominalPenalty);
+            Assert.Equal("FacilityRepair|Funds|" + a, repLeg.ConversionCause);
         }
 
         // catches: Leadership Initiative's penalty multiplier left out of the walk, or kept

@@ -250,16 +250,37 @@ namespace Parsek.Tests
                 { "SpaceCenter/LaunchPad/Facility/intact", 0f },
             };
             var split = StrategyConversionCapture.SplitRepairLegs(legs, q, shares);
-            Assert.Equal(4, split.Count);
+            Assert.Equal(3, split.Count);
             var fundsA = split.Single(l => l.Currency == StrategyConversionCurrency.Funds
                 && l.Cause == "FacilityRepair|Funds|SpaceCenter/LaunchPad/Facility/a");
             var fundsB = split.Single(l => l.Currency == StrategyConversionCurrency.Funds
                 && l.Cause == "FacilityRepair|Funds|SpaceCenter/LaunchPad/Facility/b");
             Assert.Equal(3.0, fundsA.Delta, 6);
             Assert.Equal(2.0, fundsB.Delta, 6);
-            Assert.Equal(-6.0, split.Where(l => l.Currency == StrategyConversionCurrency.Reputation).Sum(l => l.Delta), 6);
+            // The rep leg stays ONE row (the granular curve is not additive), naming the
+            // building with the largest share.
+            var rep = split.Single(l => l.Currency == StrategyConversionCurrency.Reputation);
+            Assert.Equal(-6.0, rep.Delta, 6);
+            Assert.Equal("FacilityRepair|Funds|SpaceCenter/LaunchPad/Facility/a", rep.Cause);
             Assert.Contains(logLines, l => l.Contains("[StrategyConversion]")
-                && l.Contains("Facility repair conversion split") && l.Contains("buildings=2"));
+                && l.Contains("Facility repair conversion split") && l.Contains("buildings=2")
+                && l.Contains("unsplitLegs=1"));
+        }
+
+        [Fact]
+        public void RepairLegs_EqualShares_UnsplitLegNamesTheOrdinalFirstBuilding()
+        {
+            var q = Query(inF: -400.0, dF: 4.0, dR: -6.0, reason: "StructureRepair");
+            var legs = StrategyConversionCapture.EvaluateLegs(q);
+            var shares = new Dictionary<string, float>(StringComparer.Ordinal)
+            {
+                { "z", 200f },
+                { "m", 200f },
+            };
+            var split = StrategyConversionCapture.SplitRepairLegs(legs, q, shares);
+            var rep = split.Single(l => l.Currency == StrategyConversionCurrency.Reputation);
+            Assert.Equal("FacilityRepair|Funds|m", rep.Cause);
+            Assert.Equal(2, split.Count(l => l.Currency == StrategyConversionCurrency.Funds));
         }
 
         [Fact]

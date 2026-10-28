@@ -88,9 +88,12 @@ strategy leg's own `FundsSpending` has no key) and `FacilityRepair` (the buildin
 `Patches/ConversionCauseScopePatches.cs` opens a scope around stock's `Funding.onPartPurchased` /
 `onUpgradePurchased` (reason `RnDPartPurchase`), so the funds and reputation legs name the
 purchase row; the contract fail / cancel scopes already existed. A facility repair is one debit for
-several building rows, so the door splits its legs per building by cost share from the open
+several building rows, so the door splits its FUNDS legs per building by cost share from the open
 repair scope (`StrategyConversionCapture.SplitRepairLegs`, `FacilityRepairCapture.ActiveCostShares`,
-the leg's own `StrategyConversionLeg.Cause`). The walk then frees a duplicate's legs with it
+the leg's own `StrategyConversionLeg.Cause`). The reputation leg is not split: stock applies the
+whole Add once through `addReputation_granular`, whose curve is not additive (stock's -6 vs a
+-3.6 / -2.4 split differs by 1.09 at reputation 600), so it stays one row naming the building with
+the largest share, ordinal id breaking a tie (found by review). The walk then frees a duplicate's legs with it
 (`PurchaseAlreadyOwned`, `FacilityAlreadyIntact`, a resolved contract's fail). The KSC reconcile of
 a discounted purchase or repair adds its caused legs to the expectation, so the net event no longer
 reads as a mismatch. `CrewRecruited` and `StrategySetup` rows are gross too but no stock strategy

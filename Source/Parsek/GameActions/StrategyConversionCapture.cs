@@ -346,9 +346,13 @@ namespace Parsek
         /// buildings it pays for. Stock's <c>SpaceCenterBuilding.RepairFacility</c> runs ONE
         /// <c>AddFunds</c> for the whole facility while Parsek files one repair row per
         /// building (<see cref="FacilityRepairCapture"/>), so each building's leg is the
-        /// query's leg times its cost share and names that building's repair row as its
+        /// query's FUNDS leg times its cost share and names that building's repair row as its
         /// cause. A building repaired twice across a rewind is then free on its own, its leg
-        /// with it. Returns <paramref name="legs"/> unchanged when the reason is not a repair,
+        /// with it. A reputation or science leg is NOT split: stock applies the whole delta
+        /// once (<c>Reputation.addReputation_granular</c>, whose curve is not additive), and
+        /// the walk curves each row on its own, so a split would drift from stock's pool. It
+        /// stays one row naming the building with the largest share (ordinal id breaks a
+        /// tie). Returns <paramref name="legs"/> unchanged when the reason is not a repair,
         /// the query's input is not funds, or no building has a positive share (no scope, or a
         /// repair that charges nothing). Buildings are taken in ordinal id order.
         /// </summary>
@@ -378,29 +382,54 @@ namespace Parsek
                 return legs;
             ids.Sort(System.StringComparer.Ordinal);
 
+            string largestId = ids[0];
+            for (int j = 1; j < ids.Count; j++)
+            {
+                if (buildingShares[ids[j]] > buildingShares[largestId])
+                    largestId = ids[j];
+            }
+
             var split = new List<StrategyConversionLeg>(legs.Count * ids.Count);
+            int unsplitLegs = 0;
             for (int i = 0; i < legs.Count; i++)
             {
+                if (legs[i].Currency != StrategyConversionCurrency.Funds)
+                {
+                    split.Add(new StrategyConversionLeg
+                    {
+                        Currency = legs[i].Currency,
+                        Delta = legs[i].Delta,
+                        Cause = RepairCause(largestId)
+                    });
+                    unsplitLegs++;
+                    continue;
+                }
                 for (int j = 0; j < ids.Count; j++)
                 {
                     split.Add(new StrategyConversionLeg
                     {
                         Currency = legs[i].Currency,
                         Delta = legs[i].Delta * (buildingShares[ids[j]] / total),
-                        Cause = new ConversionCause
-                        {
-                            Type = GameActionType.FacilityRepair,
-                            SourcePool = StockPool.Funds,
-                            Key = ids[j]
-                        }.Format()
+                        Cause = RepairCause(ids[j])
                     });
                 }
             }
             ParsekLog.Verbose(Tag,
                 $"Facility repair conversion split: legs={legs.Count.ToString(IC)} " +
                 $"buildings={ids.Count.ToString(IC)} totalCost={total.ToString("R", IC)} " +
-                $"rows={split.Count.ToString(IC)}");
+                $"rows={split.Count.ToString(IC)} unsplitLegs={unsplitLegs.ToString(IC)} " +
+                $"unsplitCause={largestId}");
             return split;
+        }
+
+        private static string RepairCause(string buildingId)
+        {
+            return new ConversionCause
+            {
+                Type = GameActionType.FacilityRepair,
+                SourcePool = StockPool.Funds,
+                Key = buildingId
+            }.Format();
         }
 
         /// <summary>
