@@ -95,7 +95,16 @@ id = "CS-6c-career-mun-science"
 # (stock-tree is not in the nightly instance set); (9) `flight_efficiency.py` after the
 # first green flight.
 #
-# STATUS: AUTHORED 2026-10-28, NEVER FLOWN. Owed off the first flight: the rollout debit,
+# STATUS: LIVE-PROVEN 2026-10-28 on its first flight, `2026-10-28_0028` PASS attempt 1 (2342 s, mission 2258 s, DLL 92b715f7). MISSION-OK through
+# the high run, the high EVA, two lowering nodes, the low run, the low EVA, the moon-return
+# departure and splashdown; scienceKeptToSplashdown 5 (every pod-mounted reading survived the
+# reentry). Measured and pinned: rollout -14912; recovered science mysteryGoo high 20, 2HOT high
+# 16, evaReport high 16, crewReport low 15, mysteryGoo low 30, 2HOT low 24, evaReport low
+# (Midlands) 24, recovery@MunOrbited 2.7; Mun/Spacewalk 15600/2/1 and Mun/Science 12480/2/1
+# (funds/rep/sci, body-qualified); basicScience (45) and electrics (90) researched; science
+# pool 20.17 after research; 34 recordings; batch passed=3 skipped=0; LedgerGroundTruth
+# hardFailures=0 reportOnly=2; zero ERROR / GUARDED / leak. Original note: owed off the first
+# flight: the rollout debit,
 # Mun/Spacewalk's payout, the subjects' amounts (predicted above, regexed), the low EVA
 # report's biome, whether Mun/Science fires at the recovery (CS-6's recovery of
 # recovery@MunOrbited did not complete it; not pinned), the recovery credits, the
@@ -108,7 +117,7 @@ description = "Scripted campaign stage 6c (Career): on CS-6b's produced save, la
 instanceProfile = "stock-tree"
 tags = ["campaign", "CS-6c", "career", "editor", "mechjeb", "mun", "cross-soi", "capture",
         "science", "eva", "board", "research", "reentry", "recovery", "auto-commit",
-        "ledger", "ground-truth", "ingame-batch", "pending-flight"]
+        "ledger", "ground-truth", "ingame-batch", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/cs-career-mun3"
@@ -277,7 +286,7 @@ allowedAnomalies = []
 # A WINDOW until the first flight measures it: the host's twenty-one + CS-6's flight
 # shape (seven) + two EVA branches and their board merges. The ground-truth launch is
 # unrecorded.
-count = { min = 27, max = 40 }
+count = { min = 33, max = 35 }
 
 [expectations.logContracts]
 # Source of each literal (Source/Parsek/...):
@@ -307,7 +316,7 @@ required = [
   "launchfromeditor complete scene=FLIGHT vessel=CS Mun Science pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
   # The craft's rollout, a regex until measured (the builder's cost is 14877); five
   # digits, so the ground-truth Flea's -2932 cannot satisfy it.
-  "Game state: FundsChanged -1[0-9]{4} \\(VesselRollout\\)",
+  "Game state: FundsChanged -14912 \\(VesselRollout\\)",
   "Recording started",
   # The two EVA cycles in Mun orbit: the seam's verbs (no release: the kerbal stays on
   # the ladder) and Parsek's branch and merge, twice each.
@@ -319,7 +328,9 @@ required = [
   "detected boarding from EVA",
   # The first EVA in Mun orbit, body-qualified (Spacewalk's body field is private;
   # FindProgressNodeBodyField reads both visibilities).
-  "Milestone enriched: 'Mun/Spacewalk' funds=[0-9]+ rep=[0-9.]+ sci=[0-9.]+",
+  "Milestone enriched: 'Mun/Spacewalk' funds=15600 rep=2\\.0 sci=1\\.0",
+  # Measured on the first flight: the recovery of Mun-space data completes Mun/Science.
+  "Milestone enriched: 'Mun/Science' funds=12480 rep=2\\.0 sci=1\\.0",
   # The recovery of the returned pod, and the scene-exit commit it causes.
   "recover observed onVesselRecovered pid=[0-9]+ vessel=CS Mun Science quick=false",
   # The pod recovery pays by distance from the KSC (CS-5 +814, CS-6 +949), so a regex;
@@ -329,15 +340,15 @@ required = [
   # in the situation the machine gated it into. Amounts are regexes until measured
   # (predicted 20.0 / 16.0 / 16.0 high, 15.0 / 30.0 / 24.0 / 24.0 low).
   "Game state: ScienceChanged \\+[0-9.]+ \\(VesselRecovery\\)",
-  "Science subject captured: mysteryGoo@MunInSpaceHigh amount=[0-9]+\\.[0-9] ",
-  "Science subject captured: temperatureScan@MunInSpaceHigh amount=[0-9]+\\.[0-9] ",
-  "Science subject captured: evaReport@MunInSpaceHigh amount=[0-9]+\\.[0-9] ",
-  "Science subject captured: crewReport@MunInSpaceLow amount=[0-9]+\\.[0-9] ",
-  "Science subject captured: mysteryGoo@MunInSpaceLow amount=[0-9]+\\.[0-9] ",
-  "Science subject captured: temperatureScan@MunInSpaceLow amount=[0-9]+\\.[0-9] ",
+  "Science subject captured: mysteryGoo@MunInSpaceHigh amount=20\\.0 ",
+  "Science subject captured: temperatureScan@MunInSpaceHigh amount=16\\.0 ",
+  "Science subject captured: evaReport@MunInSpaceHigh amount=16\\.0 ",
+  "Science subject captured: crewReport@MunInSpaceLow amount=15\\.0 ",
+  "Science subject captured: mysteryGoo@MunInSpaceLow amount=30\\.0 ",
+  "Science subject captured: temperatureScan@MunInSpaceLow amount=24\\.0 ",
   # evaReport is biome-specific in InSpaceLow (biomeMask 23): the biome under the
   # lowered orbit at the EVA, a regex until measured.
-  "Science subject captured: evaReport@MunInSpaceLow[A-Z][A-Za-z]+ amount=[0-9]+\\.[0-9] ",
+  "Science subject captured: evaReport@MunInSpaceLow[A-Z][A-Za-z]+ amount=24\\.0 ",
   "CommitTreeSceneExit: finalizing tree at UT=[0-9.]+[\\s\\S]{0,8000}?Recording stopped\\. ",
   # Basic Science (the Z-100): the seam's confirmation, stock's debit, the ledger rows.
   "kscaction action=research-node target=basicScience applied=true manifestKind=tech-unlock observedAfter=science=[0-9.]+",
@@ -356,7 +367,7 @@ required = [
   "Game state: FundsChanged -2932 \\(VesselRollout\\)",
   "ground-truth game mode=CAREER pools=funds,science,reputation",
   "result: hardFailures=0 ",
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
 ]
 forbidden = [
   # Bare milestone ids: every Mun milestone must be body-qualified (PR #2301).

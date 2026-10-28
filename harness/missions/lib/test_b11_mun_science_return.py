@@ -982,9 +982,8 @@ class SchemaAndSpecTests(unittest.TestCase):
                           required)
             self.assertTrue(any(r.startswith("kscaction action=research-node target=%s "
                                              "applied=true" % node) for r in required))
-        # The interim batch line, and the milestone rules.
-        self.assertIn("BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 "
-                      "skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT", required)
+        # The batch line (pinned whole after the first flight), and the milestone rules.
+        self.assertTrue(any(r.startswith("BATCH_COMPLETE v1 total=3 ") for r in required))
         self.assertTrue(any(r.startswith("Milestone enriched: 'Mun/Spacewalk' ")
                             for r in required))
         bare = re.compile(forbidden[0])
