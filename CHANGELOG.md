@@ -25,6 +25,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **The Space Center's refund for clearing away debris is now on the books.** When debris that
+  landed in the Space Center grounds is cleared away, stock refunds part of its cost; that money
+  now goes into Parsek's ledger like any other recovery instead of being kept as an unexplained
+  adjustment. (KSC-DEBRIS-CLEANUP-REFUND-UNLEDGERED)
 - **A kerbal killed in a Re-Fly comes back with stock crew respawn on.** Re-flying a crewed
   stage that first ended with its kerbal aboard and losing him in the re-fly marked him lost for
   good, as if the replaced flight still held him. The replaced flight now lets him go: he respawns

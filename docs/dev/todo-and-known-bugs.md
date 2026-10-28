@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## KSC-DEBRIS-CLEANUP-REFUND-UNLEDGERED: stock's refund for debris cluttering the Space Center is never booked, so it lands as a leak row and a guard clamp [FILED 2026-10-28 from RW-7 run `2026-10-28_1637`; live-observed, NOT FIXED; product, medium (an unledgered funds change; LedgerGroundTruth hard-fails)]
+## ~~KSC-DEBRIS-CLEANUP-REFUND-UNLEDGERED: stock's refund for debris cluttering the Space Center is never booked, so it lands as a leak row and a guard clamp~~ [FILED AND FIXED 2026-10-28 from RW-7 run `2026-10-28_1637`, branch `ksc-debris-refund`; unit-tested, RW-7 re-flight owed; product, medium (an unledgered funds change; LedgerGroundTruth hard-fails)]
 
 When the scene enters the Space Center, stock recovers landed debris near the KSC through
 `ProtoVessel.Clean` and pays a refund (`[WRN] Vessel CS Flea Probe Debris was recovered for a refund of
@@ -40,7 +40,32 @@ the Space Center. Any debris that lands inside the KSC grounds and is cleaned on
 Center entry takes the same path; the other RW-7 runs left no such debris. The player keeps stock's
 money (the adjustment row holds it), so the visible pool is right, but the refund belongs to no
 recording, cannot be taken back by a rewind before it, and reds the ground truth. #2317 (small
-recoveries) covers a debris payout inside `RecoveryPayoutScope`; this path pays outside it. NOT FIXED.
+recoveries) covers a debris payout inside `RecoveryPayoutScope`; this path pays outside it.
+
+ROOT CAUSE (KSP 1.12.5, decompiled). `FlightState` marks a landed, non-commandable, non-persistent
+vessel in the KSC grounds `SetAutoClean("it was debris cluttering up KSC")`; `ProtoVessel.Clean` then
+fires `GameEvents.onVesselRecovered(pv, quick: true)` on the home body. Parsek's handler on that event
+runs BEFORE stock's `VesselRecovery.OnVesselRecovered`, which is what fires
+`onVesselRecoveryProcessing` and so `Funding`'s `AddFunds(value, VesselRecovery)`. So at Parsek's
+callback no payout context exists yet, and `ShouldSkipDeferredRecoveryFunds` dropped every debris
+callback without one (#579: a debris callback that never pays must not queue a request).
+
+**Fix.** A debris callback with no payout context is skipped only OUTSIDE stock's recovery dispatch
+for that vessel. Inside it (an open `RecoveryDispatchScope` naming the vessel's pid, which the
+`ProtoVessel.Clean` / Tracking Station / marker / in-flight / `RecoverVesselFromFlight` patches open)
+stock pays later in the same call, so the request is deferred like any other recovery and paired
+with stock's `FundsChanged(VesselRecovery)` through the existing `OnRecoveryFundsEventRecorded`:
+one `FundsEarning(Recovery)` row at stock's amount, tagged by the same recording pick as any
+recovery. If the dispatch closes without a payout (debris worth nothing), the scope close drops the
+request quietly (`DropUnpairedDispatchDebrisRequests`), so #579's no-stale-request rule holds.
+Outside a dispatch the old skip stands. Logs: `debris recovery inside stock's recovery dispatch for
+this vessel: deferring`, `Recovery dispatch closed with no payout for deferred debris request ...
+dropped (stock paid nothing)`.
+
+Tests: `KscDebrisCleanupRefundTests` (the skip rule's truth table; the RW-7 order inside a
+`proto-vessel-clean` scope books one 162.68 row and a repeated payout event books nothing more; a
+dispatch that pays nothing drops the request with no stale-flush Warn; outside any dispatch the
+debris callback is still skipped; a close drops only its own vessel's debris request).
 
 ## ~~REFLY-MERGED-DEATH-PERMANENT-VIA-SUPERSEDED-CO-ROW: a kerbal killed in a merged Re-Fly with stock crew respawn on is lost for good, because the replaced flight's Aboard row was never retired~~ [FILED AND FIXED 2026-10-28 from lane RW-7, run `2026-10-28_1318`, branch `fix-refly-death-co-row`; unit-tested only, NOT FLOWN, RW-7 re-flight owed; product, high (a kerbal lost for good, and a kerbal held forever after any crewed-slot Re-Fly)]
 

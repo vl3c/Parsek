@@ -7934,7 +7934,8 @@ namespace Parsek
         /// <c>ProtoVessel.Clean</c>); a pass-through diagnostic for the log line.</param>
         /// <param name="vesselType">Recovered vessel type; debris without an immediate
         /// pair is not deferred because debris-only recoveries can lack a ledger-worthy
-        /// paired FundsChanged(VesselRecovery) event.</param>
+        /// paired FundsChanged(VesselRecovery) event, except inside stock's own recovery
+        /// dispatch for the vessel (the overload's <c>dispatchPersistentId</c>).</param>
         internal static void OnVesselRecoveryFunds(
             double ut,
             string vesselName,
@@ -7954,7 +7955,8 @@ namespace Parsek
             RecoveredVesselIdentity identity,
             bool quick,
             VesselType vesselType = VesselType.Unknown,
-            RecoveryPayoutContext payoutContext = null)
+            RecoveryPayoutContext payoutContext = null,
+            uint dispatchPersistentId = 0)
         {
             Initialize();
 
@@ -7966,7 +7968,8 @@ namespace Parsek
                 vesselType,
                 payoutContext,
                 fundsTracked,
-                TryAddVesselRecoveryFundsAction);
+                TryAddVesselRecoveryFundsAction,
+                dispatchPersistentId);
         }
 
         private static bool TryAddVesselRecoveryFundsAction(
