@@ -201,9 +201,24 @@ namespace Parsek
         /// </para>
         ///
         /// <para>
-        /// Every other action, interval-shaped or not (a non-death KerbalAssignment
-        /// included), stays on <see cref="GameAction.UT"/>. A death row with a NaN
-        /// EndUT has no known death instant and falls back to
+        /// REFLY-MERGED-DEATH-PERMANENT-VIA-SUPERSEDED-CO-ROW: a KerbalAssignment whose
+        /// outcome is <see cref="KerbalEndState.Aboard"/> or
+        /// <see cref="KerbalEndState.Unknown"/> is screened by its EndUT too
+        /// (<see cref="IsOpenEndedCrewInterval"/>). Its fate is the flight's END state
+        /// (the crew still aboard when the recording ends), the same end-of-recording
+        /// state the split moves to the second half with the terminal, and it is a loss
+        /// row (design section 2.12) that the replacement flight re-records from its own
+        /// crew. Keyed by its boarding UT, the row of a crew that boarded at launch on a
+        /// recording spanning the rewind stayed on HEAD, outside the closure, and the
+        /// merge could never retire it: the kerbal stayed held open-ended by a flight
+        /// that no longer exists (a respawn-on death in the re-fly read as a permanent
+        /// loss), and the next load re-derived a fresh, untombstoned row on the TIP.
+        /// </para>
+        ///
+        /// <para>
+        /// Every other action, interval-shaped or not (a Recovered KerbalAssignment
+        /// included), stays on <see cref="GameAction.UT"/>. A death or open-ended crew
+        /// row with a NaN EndUT has no known end and falls back to
         /// <see cref="GameAction.UT"/>. NaN comes back only when the chosen key is
         /// NaN; callers treat it as "not provably pre-rewind".
         /// </para>
@@ -229,14 +244,31 @@ namespace Parsek
         internal static double ComputeAttributionUT(GameAction action)
         {
             if (action == null) return double.NaN;
-            if (IsDeathEncodingInterval(action))
+            if (IsDeathEncodingInterval(action) || IsOpenEndedCrewInterval(action))
                 return (double)action.EndUT;
             return action.UT;
         }
 
         /// <summary>
         /// True iff <paramref name="action"/> is a KerbalAssignment whose end state is
-        /// Dead and whose EndUT is known: the one action class screened by its end
+        /// Aboard or Unknown (the crew is still on the vessel when the recording ends)
+        /// and whose EndUT is known: screened by its end like a death
+        /// (<see cref="ComputeAttributionUT(GameAction)"/>), because the fate the row
+        /// records is the end of the flight, not the boarding.
+        /// </summary>
+        internal static bool IsOpenEndedCrewInterval(GameAction action)
+        {
+            return action != null
+                && action.Type == GameActionType.KerbalAssignment
+                && (action.KerbalEndStateField == KerbalEndState.Aboard
+                    || action.KerbalEndStateField == KerbalEndState.Unknown)
+                && !float.IsNaN(action.EndUT);
+        }
+
+        /// <summary>
+        /// True iff <paramref name="action"/> is a KerbalAssignment whose end state is
+        /// Dead and whose EndUT is known: screened by its end, with the open-ended crew
+        /// rows of <see cref="IsOpenEndedCrewInterval"/>
         /// (see <see cref="ComputeAttributionUT"/>).
         /// </summary>
         internal static bool IsDeathEncodingInterval(GameAction action)

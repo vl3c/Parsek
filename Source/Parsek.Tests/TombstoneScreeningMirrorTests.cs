@@ -109,16 +109,28 @@ namespace Parsek.Tests
             Assert.False(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, cutoff, null));
         }
 
-        [Theory]
-        [InlineData(KerbalEndState.Aboard)]
-        [InlineData(KerbalEndState.Recovered)]
-        [InlineData(KerbalEndState.Unknown)]
-        public void NonDeathInterval_StaysOnItsStartUT(KerbalEndState endState)
+        [Fact]
+        public void RecoveredInterval_StaysOnItsStartUT()
         {
-            var a = Crew(29.94, 413.53f, endState);
+            var a = Crew(29.94, 413.53f, KerbalEndState.Recovered);
             Assert.Equal(29.94, TombstoneAttributionHelper.ComputeAttributionUT(a));
             Assert.False(RecordingTreeSplitter.ShouldRetagLedgerActionToTip(a, OriginId, RewindUT, null));
             Assert.True(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, RewindUT, null));
+        }
+
+        // REFLY-MERGED-DEATH-PERMANENT-VIA-SUPERSEDED-CO-ROW: an Aboard / Unknown row
+        // records the crew's fate at the end of the flight (a loss row, design 2.12), so
+        // it is keyed by its EndUT like a death, on both sides of the seam.
+        [Theory]
+        [InlineData(KerbalEndState.Aboard)]
+        [InlineData(KerbalEndState.Unknown)]
+        public void OpenEndedCrewInterval_BoardedBeforeEndedAfter_BelongsToTip(KerbalEndState endState)
+        {
+            var a = Crew(29.94, 413.53f, endState);
+            Assert.True(TombstoneAttributionHelper.IsOpenEndedCrewInterval(a));
+            Assert.Equal((double)413.53f, TombstoneAttributionHelper.ComputeAttributionUT(a));
+            Assert.True(RecordingTreeSplitter.ShouldRetagLedgerActionToTip(a, OriginId, RewindUT, null));
+            Assert.False(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, RewindUT, null));
         }
 
         [Fact]

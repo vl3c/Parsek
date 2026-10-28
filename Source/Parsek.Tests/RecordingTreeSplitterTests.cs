@@ -779,7 +779,9 @@ namespace Parsek.Tests
             // TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START, splitter side:
             // a KerbalAssignment that boarded before the rewind and encodes a death
             // after it moves to TIP by its EndUT (the mirror of the tombstone guard);
-            // the same interval with a non-death outcome stays on HEAD by its UT.
+            // an Aboard interval follows it by its EndUT too (the crew's end-of-flight fate,
+            // REFLY-MERGED-DEATH-PERMANENT-VIA-SUPERSEDED-CO-ROW); a Recovered interval
+            // stays on HEAD by its UT.
             var origin = BuildRecording("rec_origin", 8.0, 53.0, midUT: 34.0,
                 treeId: "tree_7d", terminal: TerminalState.Destroyed);
             InstallOriginInTree(origin, "tree_7d");
@@ -804,19 +806,33 @@ namespace Parsek.Tests
                 EndUT = 53.0f,
                 KerbalEndStateField = KerbalEndState.Aboard,
             };
+            var recovered = new GameAction
+            {
+                UT = 8.0,
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = origin.RecordingId,
+                KerbalName = "Val Kerman",
+                StartUT = 8.0f,
+                EndUT = 53.0f,
+                KerbalEndStateField = KerbalEndState.Recovered,
+            };
             Ledger.AddAction(death);
             Ledger.AddAction(aboard);
+            Ledger.AddAction(recovered);
 
             var marker = BuildMarker(origin, rewindUT: 34.0);
             var result = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null);
 
             Assert.False(result.Skipped);
             Assert.Equal(result.TipRecordingId, death.RecordingId);
-            Assert.Equal(origin.RecordingId, aboard.RecordingId);
-            Assert.Equal(1, result.ActionsRetagged);
+            Assert.Equal(result.TipRecordingId, aboard.RecordingId);
+            Assert.Equal(origin.RecordingId, recovered.RecordingId);
+            Assert.Equal(2, result.ActionsRetagged);
             Assert.Contains(logLines, l =>
-                l.Contains("Step9: ledger action retag") && l.Contains("actionsRetagged=1 ")
+                l.Contains("Step9: ledger action retag") && l.Contains("actionsRetagged=2 ")
                 && l.Contains("deathIntervalsRetaggedByEndUT=1 "));
+            Assert.Contains(logLines, l =>
+                l.Contains("Step9: 1 pre-rewind-boarded open-ended crew row(s) retagged to TIP by endUT"));
         }
 
         // =====================================================================

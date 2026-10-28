@@ -29,6 +29,7 @@ namespace Parsek
             internal readonly List<GameAction> Rows = new List<GameAction>();
             internal int PreRewindKept;
             internal int DeathIntervalsInScopeByEndUT;
+            internal int OpenCrewIntervalsInScopeByEndUT;
             internal int DeathPenaltiesScreenedByDeath;
             internal int AlreadyTombstoned;
             internal int SeedExcluded;
@@ -163,6 +164,26 @@ namespace Parsek
                             $"PreRewindTombstoneGuard: death interval screened by endUT " +
                             $"action={a.ActionId ?? "<no-id>"} kerbal={a.KerbalName ?? "<none>"} " +
                             $"rec={a.RecordingId} " +
+                            $"startUT={a.UT.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"endUT={((double)a.EndUT).ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"cutoffUT={rewindCutoffUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"-> in scope");
+                    }
+                }
+                if (!double.IsNaN(rewindCutoffUT)
+                    && TombstoneAttributionHelper.IsOpenEndedCrewInterval(a)
+                    && a.UT < rewindCutoffUT)
+                {
+                    // REFLY-MERGED-DEATH-PERMANENT-VIA-SUPERSEDED-CO-ROW: boarded before
+                    // the cutoff, still aboard at the flight's end after it; in scope by
+                    // EndUT like a death interval.
+                    scan.OpenCrewIntervalsInScopeByEndUT++;
+                    if (logDecisions && scan.OpenCrewIntervalsInScopeByEndUT <= PreRewindKeepLogCap)
+                    {
+                        ParsekLog.Verbose(LedgerSwapTag,
+                            $"PreRewindTombstoneGuard: open-ended crew interval screened by endUT " +
+                            $"action={a.ActionId ?? "<no-id>"} kerbal={a.KerbalName ?? "<none>"} " +
+                            $"endState={a.KerbalEndStateField} rec={a.RecordingId} " +
                             $"startUT={a.UT.ToString("R", CultureInfo.InvariantCulture)} " +
                             $"endUT={((double)a.EndUT).ToString("R", CultureInfo.InvariantCulture)} " +
                             $"cutoffUT={rewindCutoffUT.ToString("R", CultureInfo.InvariantCulture)} " +

@@ -1130,8 +1130,9 @@ namespace Parsek.Tests
             var tombstoned = new HashSet<string>(
                 scenario.LedgerTombstones.Select(t => t.ActionId));
             Assert.Contains(straddlingDeath.ActionId, tombstoned);
-            // A non-death interval stays on its start UT: kept by the guard.
-            Assert.DoesNotContain(straddlingAboard.ActionId, tombstoned);
+            // An Aboard interval is the crew's end-of-flight fate, a loss row screened by
+            // its EndUT too (REFLY-MERGED-DEATH-PERMANENT-VIA-SUPERSEDED-CO-ROW).
+            Assert.Contains(straddlingAboard.ActionId, tombstoned);
             // A death that happened before the rewind belongs to the kept flight.
             Assert.DoesNotContain(diedBeforeRewind.ActionId, tombstoned);
 
@@ -1143,7 +1144,9 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("PreRewindTombstoneGuard: 1 pre-rewind-boarded death interval(s) kept in scope by endUT"));
             Assert.Contains(logLines, l =>
-                l.Contains("PreRewindTombstoneGuard: kept 2 "));
+                l.Contains("PreRewindTombstoneGuard: 1 pre-rewind-boarded open-ended crew interval(s) kept in scope by endUT"));
+            Assert.Contains(logLines, l =>
+                l.Contains("PreRewindTombstoneGuard: kept 1 "));
         }
 
         [Fact]
