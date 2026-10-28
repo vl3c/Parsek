@@ -1,0 +1,10 @@
+# Ledger-audit expectations for lane RW-3-save-reload-takeback (plan row 15), read by
+#   python tools/ledger_audit.py <run folder> --expect scenarios/ledger-audit/RW-3-save-reload-takeback.toml
+# Format: harness/README.md "Ledger audit"; parser ledgeraudit.parse_expectations.
+#
+# The planned take-back: the repeat of Kerbin/SurfaceEVA after the crossing, if stock pays it
+# despite prevention, is taken back by the next update reading the timeline break the cold
+# reload restored. Only a take-back line naming that identity reads EXPECTED; any other
+# take-back (or a shortfall) stays a FAIL. With prevention working (what the code predicts)
+# no take-back fires and the audit lists this literal as never matched, which does not fail.
+expectedLines = ["stock paid again for milestone 'Kerbin/SurfaceEVA'"]
