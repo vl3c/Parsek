@@ -78,6 +78,7 @@ namespace Parsek.Tests
         [InlineData("activate", "EngineActivate")]
         [InlineData("explode", "Explode")]
         [InlineData("chute", "ChuteDeploy")]
+        [InlineData("runtest", "RunTest")]
         public void ParseButton_AcceptsTheClosedVocabulary(string raw, string expected)
         {
             Assert.Null(TestCommandPartAction.ParseButton(raw, out PartActionKind kind));
@@ -111,7 +112,7 @@ namespace Parsek.Tests
         {
             Assert.Equal(new[] { "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
                 "stopconverter", "experiment", "labprocess", "labtransmit", "inspect", "radiatoron",
-                "radiatoroff", "activate", "explode", "chute" },
+                "radiatoroff", "activate", "explode", "chute", "runtest" },
                 TestCommandPartAction.ButtonValues);
             foreach (string v in TestCommandPartAction.ButtonValues)
                 Assert.Null(TestCommandPartAction.ParseButton(v, out _));
@@ -359,6 +360,18 @@ namespace Parsek.Tests
             ParsedCommand cmd = Cmd("button=explode part=mk1pod.v2");
             Assert.True(cmd.ParseOk);
             Assert.Equal("explode", cmd.Args["button"]);
+        }
+
+        [Fact]
+        public void RunTest_PressesTheTestSubjectEvent_AndNeedsAPartName()
+        {
+            Assert.Null(TestCommandPartAction.ParseButton("runtest", out PartActionKind kind));
+            Assert.Equal(PartActionKind.RunTest, kind);
+            Assert.Equal("runtest", TestCommandPartAction.Token(kind));
+            Assert.Equal(new[] { "RunTestEvent" }, TestCommandPartAction.EventNamesFor(kind));
+            // A generic button, not a typed-module one: the event lookup finds it.
+            Assert.False(TestCommandPartAction.IsTypedModuleKind(kind));
+            Assert.False(TestCommandPartAction.IsWholePartKind(kind));
         }
 
         [Fact]

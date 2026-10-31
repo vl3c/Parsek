@@ -1,0 +1,188 @@
+schema = 1
+id = "RW-19-tight-funds-launch"
+# =====================================================================================
+# RW-19: A LAUNCH WHEN COMMITTED COSTS EXCEED TODAY'S FUNDS (the rewind ledger campaign, plan row 18,
+# "Tight funds").
+#
+# THE RULING UNDER TEST: committed costs are reserved, and a launch is refused only for its own
+# cost, when that cost is above the funds the committed timeline leaves spendable now (design 3.13
+# rule 3, `LaunchReservation`). No lane flies this half: L9 and L10 read the floor, the debt and the
+# clicks after a rewind and launch nothing, and `Purchase refused ... launch` appears in no spec.
+#
+# WHAT THIS LANE DOES NOT FLY, AND WHY. The plan row also expects `FundsSpending NOT affordable`, a
+# committed purchase charged anyway. No click can reach it: the click reservation refuses any
+# purchase or launch that would take the walk below what the committed costs need, a cancel is
+# refused the same way, and a loss stops at the floor as a debt. L9 is the live proof of that line
+# (`FundsSpending NOT affordable ... source=StrategyConverter`, a strategy's cut of a later earning,
+# which no click controls). This lane therefore pins its absence: a launch that fits leaves the
+# walk able to pay every committed cost.
+#
+# THE NUMBERS (cs-career-mun4; funds on the host 157546.18):
+#   today's funds                     157546.18
+#   committed earnings ahead           88404.76  accepts f1fb89dc 37500, 01b55b74 41904.76, 8ea47e1c 9000
+#   committed cost ahead             -225000     the VAB, more than today's funds
+#   pool the rewind shows              20950.94  the projected minimum
+#   open penalty reserved              -9000     1a9762e8, Active, fail 9000, a committed cost ahead
+#   spendable                          11950.94
+# The Jumping Flea rolls out for 2932, so it launches. The CS Mun Lander is worth 13757 or more, so
+# its Launch button greys and the click reservation refuses it. Neither is a matter of risk: the
+# lander is refused for its own cost, nothing else.
+#
+# PLAN (UTs are the plan):
+#   boot       LoadGame persistent at the Space Center; warp to 185800.
+#   H          a Jumping Flea on the pad, recorded to 185840, committed, recovered at its marker.
+#   rows       185900 accept f1fb89dc, 185920 accept 01b55b74, 185940 accept 8ea47e1c,
+#              185960 VAB upgrade (the earnings first, so the purchase was affordable when made).
+#   rewind     Rewind-to-Launch onto H: clock ~185785, the four rows committed future.
+#   refused    the CS Mun Lander opened in the VAB: its Launch button greys, cost above spendable.
+#   allowed    the Jumping Flea launched (the stand-in aboard), then recovered at its marker.
+#   crossing   warp to 186000: the rows apply once and the VAB upgrade is paid in full.
+#   check      an unrecorded Flea onto the pad, the default save, LedgerGroundTruth.
+#
+# STATUS: LIVE-PROVEN 2026-10-31, `2026-10-31_0248` PASS attempt 1 (DLL c39bde83, main e96d2c9bb). After the rewind the pool read 20950.95 with 225000 of VAB
+# cost ahead and 9000 of open penalty, 11950.95 spendable. The CS Mun Lander (13742) greyed: `Needs 13,742 funds,
+# 11,951 free.` The Flea (2932) launched and was recovered. The warp crossed the three accepts and the
+# FacilityUpgrade one row each; funds 20950.95, science 20.17 and rep 115 ended as before the rewind; no debt, no
+# `NOT affordable`, no pool adjustment; LedgerGroundTruth 3/3 hardFailures=0; ledger_audit PASS. One reading to
+# watch: the lander's first check in the editor read spendable 20950.95 and allowed it for 0.5 s before the
+# snapshot took the open penalty; the Launch button greyed at 04:49:49.076, before any click a player could make.
+# =====================================================================================
+tier = "operator"
+description = "Rewind ledger campaign, a launch when committed costs exceed today's funds (plan row 18): on cs-career-mun4 a committed pad Flea, three contract accepts and a VAB upgrade above the funds held, a Rewind-to-Launch before them; the Mun Lander's Launch button greys for its own cost, the cheaper Flea launches, the committed upgrade is paid in full when the clock reaches it, the pools end where the rewind began and LedgerGroundTruth closes the career."
+instanceProfile = "stock-tree"
+tags = ["RW-19", "career", "ledger", "rewind", "rewind-to-launch", "click-reservation", "launch",
+        "facility-upgrade", "contracts", "ksc-marker", "editor", "ground-truth", "ingame-batch",
+        "timeline-ops"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 300 LoadGame + 7 x 120 warps + 3 x (120 GoToEditor + 180 LaunchFromEditor)
+# + 180 StartRecording + 120 CommitTree + 2 x 120 ExitToSpaceCenter + 2 x 60 KscMarkerRecover
+# + 2 x 120 StockScreen editor + 4 x 60 KscAction + 300 rewind + 5 x 120 SaveGame + 540 RunTests
+# = 4020; runtime 4800 adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+  # ---- H: the Flea on the pad, recorded, committed, recovered at its marker ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "h",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "185840" },                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw19-h-committed" },                         expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw19-01-after-h-commit" },                   expect = "OK", budget = 120 },
+  { cmd = "ExitToSpaceCenter",                                                             expect = "OK", budget = 120 },
+  { cmd = "KscMarkerRecover", args = { pid = "${h.pid}" },                                 expect = "OK", budget = 60 },
+  # ---- the committed rows: the earnings first, then a cost above today's funds ----
+  { cmd = "WarpToUT",       args = { ut = "185900", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "f1fb89dc-a471-42cf-94da-de4bb1080512" }, expect = "OK", budget = 60 },
+  { cmd = "WarpToUT",       args = { ut = "185920", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "01b55b74-02b1-4397-b227-ac2a70c55db3" }, expect = "OK", budget = 60 },
+  { cmd = "WarpToUT",       args = { ut = "185940", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "8ea47e1c-ef7d-4a0a-9134-7bf70b442250" }, expect = "OK", budget = 60 },
+  { cmd = "WarpToUT",       args = { ut = "185960", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/VehicleAssemblyBuilding" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw19-rows-done" },                           expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw19-02-after-rows" },                       expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw19-before-rewind" },                       expect = "OK" },
+  # ---- the rewind onto H's launch ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rw19-rewound" },                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw19-03-after-rtl" },                        expect = "OK", budget = 120 },
+  # ---- the launch refused for its own cost: the mark, without pressing into stock's dialog ----
+  { cmd = "StockScreen",    args = { screen = "editor", act = "open", item = "CS Mun Lander" }, expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw19-lander-open" },                         expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "editor", act = "close" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw19-lander-closed" },                       expect = "OK" },
+  # ---- the launch that fits ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "g",             expect = "OK", budget = 180 },
+  { cmd = "MissionMark",    args = { label = "rw19-flea-launched" },                       expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                             expect = "OK", budget = 120 },
+  { cmd = "KscMarkerRecover", args = { pid = "${g.pid}" },                                 expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw19-before-crossing" },                     expect = "OK" },
+  # ---- the crossing ----
+  { cmd = "WarpToUT",       args = { ut = "186000", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw19-crossed" },                             expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw19-04-after-crossing" },                   expect = "OK", budget = 120 },
+  # ---- the check: an unrecorded launch onto the pad, the save, the ground truth ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "186030" },                                      expect = "OK", budget = 120 },
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "contracts", "facilities", "recalc-engine", "ksp-state-patcher", "ground-truth-harness"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 34 recordings plus H; the later launches are unrecorded. Measured on `2026-10-31_0248`.
+count = 35
+
+[expectations.logContracts]
+required = [
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=",
+  "kscaction action=upgrade-facility target=SpaceCenter/VehicleAssemblyBuilding applied=true",
+  "MISSIONMARK label=rw19-before-rewind ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=rw19-rewound ut=1857[0-9]{2}\\.",
+
+  # ---- the refusal: the lander's Launch button greys, for its own cost ----
+  "MISSIONMARK label=rw19-rewound ut=(?:(?!MISSIONMARK label=rw19-lander-open )[\\s\\S])*?Purchase refused, reserved for later costs: launch pool=Funds cost=1[0-9]{4}(?:\\.[0-9]+)? charged=\\S+ spendable=11950\\.[0-9]+ refused=true",
+  "MISSIONMARK label=rw19-rewound ut=(?:(?!MISSIONMARK label=rw19-lander-closed )[\\s\\S])*?\\[LaunchReserve\\] Editor Launch button disabled",
+
+  # ---- the launch that fits: the Flea's cost is inside the same spendable ----
+  "MISSIONMARK label=rw19-lander-closed ut=(?:(?!MISSIONMARK label=rw19-flea-launched )[\\s\\S])*?launchfromeditor complete scene=FLIGHT vessel=Jumping Flea",
+
+  # ---- the crossing: the upgrade is paid in full, and the pools end where the rewind began ----
+  "MISSIONMARK label=rw19-before-crossing ut=(?:(?!MISSIONMARK label=rw19-crossed )[\\s\\S])*?Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* \\[FacilityUpgrade@",
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw19-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw19-crossed ut=",
+
+  # ---- the ground truth ----
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "\\[LedgerTrace\\] phase=Anomaly ",
+  "ABORTING rewind ledger patch",
+  "GUARDED (?:UPLIFT|DRAWDOWN) clamped",
+  "filed StockPoolAdjustment amount=",
+  "invokerewindtolaunch refused",
+  "\\[TakeBack\\] Took back ",
+  "take-back shortfall",
+  "Game state: ContractCompleted ",
+  "Game state: ContractFailed ",
+  # ---- a launch that fits never leaves a committed cost unpaid, and never runs a debt ----
+  "FundsSpending NOT affordable",
+  "Debt charge:",
+  # ---- the Flea's own launch is not refused ----
+  "Purchase refused, reserved for later costs: launch pool=Funds cost=2[0-9]{3}(?:\\.[0-9]+)? ",
+]
+
+[runtime]
+budgetSeconds = 4800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

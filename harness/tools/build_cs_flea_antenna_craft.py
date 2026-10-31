@@ -55,8 +55,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, os.pardir, os.pardir))
 BASE = os.path.join(ROOT, "harness", "fixtures", "ships", "Jumping Flea.craft")
-OUT = os.path.join(ROOT, "harness", "fixtures", "saves", "cs-science-flea",
-                   "Ships", "VAB", "Flea Antenna.craft")
+OUT = os.path.join(ROOT, "harness", "fixtures", "ships", "Flea Antenna.craft")
 
 SHIP_NAME = "Flea Antenna"
 HOST = "solidBooster.sm.v2"
