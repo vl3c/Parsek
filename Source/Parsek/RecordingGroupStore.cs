@@ -40,6 +40,19 @@ namespace Parsek
         }
 
         /// <summary>
+        /// A cold load forgets the in-memory mirror: every recording carries its own
+        /// <c>autoAssignedStandaloneGroup</c> key, which the load restores, so the mirror
+        /// rebuilds from the loaded save and never re-adopts a recording of another save that
+        /// shares an id (a copied save folder).
+        /// </summary>
+        internal static int ResetForSaveLoad()
+        {
+            int n = autoAssignedStandaloneGroupsByRecordingId.Count;
+            autoAssignedStandaloneGroupsByRecordingId.Clear();
+            return n;
+        }
+
+        /// <summary>
         /// Snapshots the auto-assigned-standalone-group dict for non-destructive in-game
         /// test fixtures (see <see cref="RecordingStoreTestSnapshot"/>). Returns a copy
         /// that <see cref="RestoreAutoAssignedStandaloneGroupsForTesting"/> writes back.

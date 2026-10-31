@@ -550,6 +550,17 @@ namespace Parsek
         /// destinations log Warn and continue (the destination scene's own
         /// save cycle eventually persists).</para>
         /// </summary>
+        /// <summary>
+        /// True when a stock revert is in flight: its own GameBackup is already in
+        /// persistent.sfs for the destination scene to reload. Revert to Launch goes
+        /// FLIGHT to FLIGHT and never reaches the scene-exit writes; Revert to VAB / SPH does.
+        /// </summary>
+        internal static bool ShouldSkipPersistentWriteForPendingRevert(
+            RevertKind pendingKind, GameScenes destination)
+        {
+            return pendingKind != RevertKind.None && destination != GameScenes.MAINMENU;
+        }
+
         internal static bool SafeWritePersistent(GameScenes destination)
         {
             if (SafeWritePersistentForTesting != null)
@@ -561,6 +572,17 @@ namespace Parsek
                 // reload; saving the scene being left would put the old world back.
                 ParsekLog.Info("SceneExit",
                     $"SafeWritePersistent: skipped dest={destination} - a rewind wrote its game to persistent.sfs");
+                return true;
+            }
+
+            if (ShouldSkipPersistentWriteForPendingRevert(RevertDetector.PendingKind, destination))
+            {
+                // Stock FlightDriver.RevertToPrelaunch wrote PreLaunchState to persistent.sfs
+                // just before it called LoadScene(EDITOR), and EditorDriver.Start reloads that
+                // file; saving the flight game here would put the reverted flight back.
+                ParsekLog.Info("SceneExit",
+                    $"SafeWritePersistent: skipped dest={destination} - a stock revert " +
+                    $"({RevertDetector.PendingKind}) wrote its state to persistent.sfs");
                 return true;
             }
 

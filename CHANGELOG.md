@@ -25,6 +25,12 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Revert to VAB / SPH reverts again after a Switch-To.** Reverting to the editor after switching
+  to another vessel and changing nothing could bring the flight back instead, with the launched
+  vessel still flying and the rollout not refunded. (REVERT-EDITOR-SAVE-SWITCH-GAPS)
+- **A vessel spawned at the Space Center survives the next launch after a Revert to VAB / SPH.**
+  The next launch could recover a vessel Parsek had just spawned on its recorded spot.
+  (REVERT-EDITOR-SAVE-SWITCH-GAPS)
 - **A kerbal on the ground when a recording ends now ends Landed.** A kerbal standing, lying or
   hopping on the surface (on the Mun especially) could read as falling, so his recording could
   end Destroyed or Sub-orbital instead of putting him back where he stood.

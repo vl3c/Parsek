@@ -877,7 +877,7 @@ namespace Parsek
             }
         }
 
-        private static void ClearForFailedLoad()
+        internal static void ClearForFailedLoad()
         {
             actions.Clear();
             progressSeed = PreLedgerProgressSeed.NotCaptured;

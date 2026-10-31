@@ -309,7 +309,10 @@ namespace Parsek
         private readonly List<string> pruneScratch = new List<string>();
         private readonly Dictionary<string, GhostCommNetCandidate> candidateByKey =
             new Dictionary<string, GhostCommNetCandidate>(StringComparer.Ordinal);
-        private readonly List<KeyValuePair<uint, string>> relayingIdentities = new List<KeyValuePair<uint, string>>();
+        private readonly List<GhostCommNetRegistrationRow> rowScratch = new List<GhostCommNetRegistrationRow>();
+        // The candidate list of the Tick in progress, read by the registration resolve's
+        // capability probe and exclusion callback; null outside Tick.
+        private List<GhostCommNetCandidate> probeCandidates;
         private CommNetwork boundNetwork;
         private GhostCommNetAvailability? lastAvailability;
         private double rangeModifier = 1.0;
@@ -487,118 +490,34 @@ namespace Parsek
             candidateByKey.Clear();
             desiredScratch.Clear();
             seenScratch.Clear();
-            relayingIdentities.Clear();
-            int eligible = 0, typeIgnored = 0, incapable = 0, covered = 0;
-
+            probeCandidates = candidates;
             int count = candidates != null ? candidates.Count : 0;
-            // Pass 1: recordings in their window or held for a spawn / chain gap (chain
-            // vessels and continuation holds are checked against them in passes 2 and 3).
+            rowScratch.Clear();
             for (int i = 0; i < count; i++)
             {
                 GhostCommNetCandidate c = candidates[i];
-                if (string.IsNullOrEmpty(c.Key)
-                    || GhostCommNetMath.RegistrationPass(c.ChainSnapshot != null, c.Eligibility.Reason) != 1)
-                    continue;
-                seenScratch.Add(c.Key);
-                candidateByKey[c.Key] = c;
-                if (!c.Eligibility.Eligible)
+                bool isChain = c.ChainSnapshot != null;
+                if (!string.IsNullOrEmpty(c.Key))
                 {
-                    NoteExclusion(c.Key, c.VesselName, c.Eligibility.Reason);
-                    continue;
+                    seenScratch.Add(c.Key);
+                    candidateByKey[c.Key] = c;
                 }
-                eligible++;
-                Derived d = GetDerived(c.Key, c.Recording);
-                if (d == null || !GhostCommNetMath.VesselTypeGetsNode(d.Spec.VesselTypeName))
+                rowScratch.Add(new GhostCommNetRegistrationRow
                 {
-                    typeIgnored++;
-                    NoteExclusion(c.Key, c.VesselName, "stock-ignored-vessel-type:" + (d?.Spec.VesselTypeName ?? "?"));
-                    continue;
-                }
-                if (!d.Timeline.HasCapability)
-                {
-                    incapable++;
-                    NoteExclusion(c.Key, c.VesselName, "no-relay-or-control-capability");
-                    continue;
-                }
-                desiredScratch.Add(c.Key);
-                relayingIdentities.Add(new KeyValuePair<uint, string>(
-                    c.Recording != null ? c.Recording.VesselPersistentId : c.VesselPid,
-                    c.Recording != null ? c.Recording.RecordedVesselGuid : c.LaunchGuid));
+                    Key = c.Key,
+                    IsChain = isChain,
+                    Eligible = c.Eligibility.Eligible,
+                    Reason = c.Eligibility.Reason,
+                    // A recording's launch identity is its own; a chain vessel's is the live one.
+                    Pid = !isChain && c.Recording != null ? c.Recording.VesselPersistentId : c.VesselPid,
+                    Guid = !isChain && c.Recording != null ? c.Recording.RecordedVesselGuid : c.LaunchGuid,
+                });
             }
-
-            // Pass 2: chain-ghosted real vessels (FLIGHT only).
-            for (int i = 0; i < count; i++)
-            {
-                GhostCommNetCandidate c = candidates[i];
-                if (string.IsNullOrEmpty(c.Key) || c.ChainSnapshot == null)
-                    continue;
-                seenScratch.Add(c.Key);
-                candidateByKey[c.Key] = c;
-                if (!c.Eligibility.Eligible)
-                {
-                    NoteExclusion(c.Key, c.VesselName, c.Eligibility.Reason);
-                    continue;
-                }
-                if (GhostCommNetMath.ChainVesselCoveredByRecording(c.VesselPid, c.LaunchGuid, relayingIdentities))
-                {
-                    covered++;
-                    NoteExclusion(c.Key, c.VesselName, "covered-by-recording-node");
-                    continue;
-                }
-                eligible++;
-                Derived d = GetDerivedChain(c.Key, c.ChainSnapshot);
-                if (!GhostCommNetMath.VesselTypeGetsNode(d.Spec.VesselTypeName))
-                {
-                    typeIgnored++;
-                    NoteExclusion(c.Key, c.VesselName, "stock-ignored-vessel-type:" + (d.Spec.VesselTypeName ?? "?"));
-                    continue;
-                }
-                if (!d.Timeline.HasCapability)
-                {
-                    incapable++;
-                    NoteExclusion(c.Key, c.VesselName, "no-relay-or-control-capability");
-                    continue;
-                }
-                desiredScratch.Add(c.Key);
-                relayingIdentities.Add(new KeyValuePair<uint, string>(c.VesselPid, c.LaunchGuid));
-            }
-
-            // Pass 3: continuation gap holds (design 15.6 scenario 15). The vessel a recording
-            // ended as, on rails until a later continuation takes it over; it yields to any node
-            // already standing for the same launch, so the vessel never counts twice.
-            for (int i = 0; i < count; i++)
-            {
-                GhostCommNetCandidate c = candidates[i];
-                if (string.IsNullOrEmpty(c.Key)
-                    || GhostCommNetMath.RegistrationPass(c.ChainSnapshot != null, c.Eligibility.Reason) != 3)
-                    continue;
-                seenScratch.Add(c.Key);
-                candidateByKey[c.Key] = c;
-                uint pid = c.Recording != null ? c.Recording.VesselPersistentId : c.VesselPid;
-                string guid = c.Recording != null ? c.Recording.RecordedVesselGuid : c.LaunchGuid;
-                if (pid != 0 && GhostCommNetMath.ChainVesselCoveredByRecording(pid, guid, relayingIdentities))
-                {
-                    covered++;
-                    NoteExclusion(c.Key, c.VesselName, "covered-by-recording-node");
-                    continue;
-                }
-                eligible++;
-                Derived d = GetDerived(c.Key, c.Recording);
-                if (d == null || !GhostCommNetMath.VesselTypeGetsNode(d.Spec.VesselTypeName))
-                {
-                    typeIgnored++;
-                    NoteExclusion(c.Key, c.VesselName, "stock-ignored-vessel-type:" + (d?.Spec.VesselTypeName ?? "?"));
-                    continue;
-                }
-                if (!d.Timeline.HasCapability)
-                {
-                    incapable++;
-                    NoteExclusion(c.Key, c.VesselName, "no-relay-or-control-capability");
-                    continue;
-                }
-                desiredScratch.Add(c.Key);
-                relayingIdentities.Add(new KeyValuePair<uint, string>(pid, guid));
-            }
+            GhostCommNetRegistrationCounts counts = GhostCommNetMath.ResolveRegistrations(
+                rowScratch, ProbeCapability, desiredScratch, NoteExclusionForRow);
+            probeCandidates = null;
+            int eligible = counts.Eligible, typeIgnored = counts.TypeIgnored,
+                incapable = counts.Incapable, covered = counts.Covered;
 
             GhostCommNetMath.ComputeRegistrationDiff(desiredScratch, entries.Keys, toAdd, toRemove);
             for (int i = 0; i < toRemove.Count; i++)
@@ -678,6 +597,24 @@ namespace Parsek
                         toAdd.Count, toRemove.Count, rangeModifier),
                     5.0);
             }
+        }
+
+        private GhostCommNetCapability ProbeCapability(int rowIndex, out string vesselTypeName)
+        {
+            GhostCommNetCandidate c = probeCandidates[rowIndex];
+            Derived d = c.ChainSnapshot != null
+                ? GetDerivedChain(c.Key, c.ChainSnapshot)
+                : GetDerived(c.Key, c.Recording);
+            vesselTypeName = d != null ? d.Spec.VesselTypeName : null;
+            if (d == null || !GhostCommNetMath.VesselTypeGetsNode(d.Spec.VesselTypeName))
+                return GhostCommNetCapability.TypeIgnored;
+            return d.Timeline.HasCapability ? GhostCommNetCapability.Capable : GhostCommNetCapability.Incapable;
+        }
+
+        private void NoteExclusionForRow(int rowIndex, string reason)
+        {
+            GhostCommNetCandidate c = probeCandidates[rowIndex];
+            NoteExclusion(c.Key, c.VesselName, reason);
         }
 
         private void NoteExclusion(string key, string vesselName, string reason)
