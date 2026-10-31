@@ -1343,6 +1343,35 @@ class SpecValidationRejectTests(unittest.TestCase):
         self.assertTrue(any("args.detach" in e and "only the WarpToUT verb" in e
                             for e in v.errors), list(v.errors))
 
+    def test_recover_mergedialog_arg_is_a_closed_verb_scoped_value(self):
+        """`Recover mergeDialog="refly"` validates clean; any other spelling and the arg
+        on a verb that does not read it are pre-launch spec errors rather than a typed
+        REJECTED recover-mergedialog-arg-invalid after a whole boot."""
+        def ok(s):
+            s["driver"]["steps"].insert(
+                1, {"cmd": "Recover", "args": {"pid": "5", "mergeDialog": "refly"},
+                    "expect": "OK", "budget": 120})
+        v = self._reject(ok)
+        self.assertFalse(any("mergeDialog" in e for e in v.errors), list(v.errors))
+
+        for bad in ("ReFly", "merge", "true"):
+            def bad_value(s, bad=bad):
+                s["driver"]["steps"].insert(
+                    1, {"cmd": "Recover", "args": {"pid": "5", "mergeDialog": bad},
+                        "expect": "OK", "budget": 120})
+            with self.subTest(mergeDialog=bad):
+                v = self._reject(bad_value)
+                self.assertTrue(any("args.mergeDialog" in e for e in v.errors),
+                                list(v.errors))
+
+        def wrong_verb(s):
+            s["driver"]["steps"].insert(
+                1, {"cmd": "ExitToSpaceCenter", "args": {"mergeDialog": "refly"},
+                    "expect": "OK", "budget": 120})
+        v = self._reject(wrong_verb)
+        self.assertTrue(any("args.mergeDialog" in e and "only the Recover verb" in e
+                            for e in v.errors), list(v.errors))
+
     def test_warptout_step_budget_over_the_cap_is_a_spec_error(self):
         """It is a DEFERRED_SEAM_VERB, so the 540 s cap governs its declared budget.
         The cap exists because the harness step-wait must be able to out-wait the
@@ -4822,7 +4851,18 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # id; CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first flight.
     # RW-20-strategy-and-deadline-after-rewind LEFT on run 2026-10-31_0425_RW-20-strategy-and-deadline-after-rewind (passed=3 failed=0 skipped=0, pinned whole).
     # CS-7-career-mun-landing LEFT on run 2026-10-31_0654_CS-7-career-mun-landing_a2 (passed=3 failed=0 skipped=0, pinned whole).
-    INTERIM_PIN_IDS: set = set()
+    # RW-23-strategy-part-purchase-rebuy, RW-24-strategy-slot-needed-after-rewind and
+    # RW-25-refly-recover-pressed ENTERED on 2026-10-31 (the rewind ledger campaign: a
+    # strategy-discounted part purchase across a Rewind-to-Launch; a second strategy refused
+    # SlotNeeded after a Rewind-to-Launch; stock's Recover pressed inside a Re-Fly and merged,
+    # each then the LedgerGroundTruth category's three FLIGHT cells, `total=3` literal with the
+    # split regexed). Not H-series ids; CommittedBatchTallySourceSyncTests gates their
+    # `total=`. Each leaves on its first flight.
+    INTERIM_PIN_IDS: set = {
+        "RW-23-strategy-part-purchase-rebuy",
+        "RW-24-strategy-slot-needed-after-rewind",
+        "RW-25-refly-recover-pressed",
+    }
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -10644,6 +10684,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "RW-15-earlier-milestone.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea recorded on the pad earns Kerbin/SurfaceEVA, a Rewind-to-Launch onto it, a second recorded Flea earns the same world-first before the first row, and the walk pays it once at the earlier UT. LIVE-PROVEN 2026-10-31 (`2026-10-31_0213`); owed: the ordinary promotion call",
         "RW-14-dismissal-across-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's kerbal dismissal lane on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): a Jumping Flea recorded on the pad, committed and recovered, Bob Kerman dismissed at the Space Center, a Rewind-to-Launch to before the dismissal, the second dismissal and the VAB seat refused, and the crossing that turns him into an Applicant once. LIVE-PROVEN 2026-10-31 (`2026-10-31_0251`) on the KERBAL-DISMISSAL-ON-THE-TIMELINE build; owed: the ordinary promotion call",
         "RW-22-patents-licensing-recovery.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `lab-pad-career` (stock-minimal): the pad lab recovered with its 12.5 science under Patents Licensing: stock's payout booked once as the recovery and the converter's yield once as its strategy leg. LIVE-PROVEN 2026-10-31 (`2026-10-31_0405`); owed: the ordinary promotion call",
+        "RW-23-strategy-part-purchase-rebuy.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `career-pad-craft-purchase` (stock-minimal, new: L2's pad host with entry purchases on and reputation 120): Aggressive Negotiations active, the RT-10 Hammer bought at its discounted entry cost with both strategy legs naming the purchase, a Rewind-to-Launch, the second purchase refused, and the crossing applying the purchase and its legs once. NEVER FLOWN at authoring time (2026-10-31); owed: the first flight, then the ordinary promotion call",
+        "RW-24-strategy-slot-needed-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `career-pad-craft-purchase` (stock-minimal): Aggressive Negotiations activated at T1, a Rewind-to-Launch before it, and a second strategy refused SlotNeeded on the Administration button and through the seam, then the crossing activating the committed one once. NEVER FLOWN at authoring time (2026-10-31); owed: the first flight, then the ordinary promotion call",
+        "RW-25-refly-recover-pressed.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Re-Fly of a committed CS Flea Probe lands on KSC grass, stock's Recover is pressed into the Re-Fly merge modal (Recover mergeDialog=refly), the merge lands at the Space Center where stock recovers the pod and its payout is booked once, and after a Rewind-to-Launch the recovery crosses once. NEVER FLOWN at authoring time (2026-10-31); owed: the first flight, then the ordinary promotion call",
         "RW-20-strategy-and-deadline-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea on the pad, a strategy activated at the Space Center and a real contract deadline passed by warp, a Rewind-to-Launch before both, the same strategy refused, and the committed fail applied once when the deadline passes again. LIVE-PROVEN 2026-10-31 (`2026-10-31_0425_RW-20-strategy-and-deadline-after-rewind`); owed: the ordinary promotion call",
         "CS-6c-career-mun-science.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 6c on `cs-career-mun3` (CS-6b's produced save, stock-tree, not in the nightly instance set): the CS Mun Science launched from the VAB, CS-6's ascent, Mun transfer, capture and park, Goo / 2HOT / EVA-report readings in high Mun space, two lowering nodes under the Mun's 60 km threshold, crew report / Goo / 2HOT / EVA-report readings in low space, a MechJeb moon-return departure and CS-5's return tail in the composed mission `b11_mun_science_return`, the pod recovered and auto-committed, basicScience and electrics researched, closed by LedgerGroundTruth. LIVE-PROVEN 2026-10-28 (`2026-10-28_0028`, first flight); owed: the ordinary promotion call",
         "CS-7-career-mun-landing.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 7 on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): the CS Mun Solar Lander launched from the VAB, B5's ascent and Mun transfer, B11's capture and park, B13's landing, the seam's EvaExit / PlantFlag / EvaBoard from inside the flight, a Mun ascent, a MechJeb moon-return departure and CS-5's return tail in the composed mission `b13_mun_landing_return`, the pod recovered and auto-committed, closed by LedgerGroundTruth. AUTHORED 2026-10-28; first flight 2026-10-27_2326 INVALID (the pod's charge ran out on the ascent coast), re-cut with OX-STATs, a Z-100, four legs and the ascent-coast wheel release, LIVE-PROVEN 2026-10-31 (`2026-10-31_0654_CS-7-career-mun-landing_a2`, PASS on attempt 2); owed: the ordinary promotion call",
@@ -17145,6 +17188,17 @@ class RealSpawnRecoverSourceSyncTests(unittest.TestCase):
                 for reason in reasons:
                     self.assertIn(hlib._SEAM_REFUSAL_SUBKINDS.get(reason),
                                   ("driver-arg", "driver-gate"))
+
+    def test_the_recover_mergedialog_opt_in_mirrors_the_c_sharp(self):
+        text = self._source("TestCommandRecover.cs")
+        self.assertIn('internal const string MergeDialogKey = "%s";'
+                      % hlib.RECOVER_MERGE_DIALOG_KEY, text)
+        self.assertEqual(("refly",), hlib.RECOVER_MERGE_DIALOG_VALUES)
+        self.assertIn('internal const string MergeDialogReFlyValue = "%s";'
+                      % hlib.RECOVER_MERGE_DIALOG_VALUES[0], text)
+        self.assertEqual((hlib.RECOVER_VERB, hlib.RECOVER_MERGE_DIALOG_VALUES),
+                         hlib.VERB_SCOPED_CLOSED_ARGS[hlib.RECOVER_MERGE_DIALOG_KEY])
+        self.assertIn("recover-mergedialog-arg-invalid", hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
 
     def test_the_verbs_are_registered_on_every_axis(self):
         for verb in (hlib.REALSPAWN_VERB, hlib.RECOVER_VERB):

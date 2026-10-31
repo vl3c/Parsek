@@ -1321,6 +1321,8 @@ namespace Parsek.TestCommands
             // command either.
             RemoveRecoverListeners();
             recoverUnlockWait = false;
+            recoverAcceptReFlyDialog = false;
+            recoverIntoReFlyDialog = false;
             RemoveTsRecoverListeners();
             RemoveKscRecoverListeners();
             // A DriveVessel callback must never outlive its command either: a stale one

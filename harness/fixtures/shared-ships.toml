@@ -56,6 +56,9 @@
 # cheapest craft both can.
 "career-science-pad-hard" = ["Settings Probe"]
 "career-pad-craft-zero-funds" = ["Settings Probe"]
+# RW-23 / RW-24's host (harness/tools/build_career_pad_craft_purchase.py): career-pad-craft's
+# two ships, since it is that save with entry purchases on and a reputation seed.
+"career-pad-craft-purchase" = ["Jumping Flea", "Settings Probe"]
 # `fresh-science` gains the probe for SH-1, the one lane on it that launches (a pad flight to
 # rewind to; stock-minimal's ProbesBeforeCrew tree locks the Flea there). L1-research-node-
 # science, GUI-8 and CS-0 never open the editor; CS-0 keeps the staged Ships/ folder, and its

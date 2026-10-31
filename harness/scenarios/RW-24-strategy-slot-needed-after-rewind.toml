@@ -1,0 +1,188 @@
+schema = 1
+id = "RW-24-strategy-slot-needed-after-rewind"
+# =====================================================================================
+# RW-24: THE ADMINISTRATION ACCEPT REFUSED BECAUSE A COMMITTED ACTIVATION NEEDS THE SLOT
+# (the rewind ledger campaign; todo KB-STRATEGY-SLOT-NEEDED-NO-LIVE-LANE).
+#
+# THE RULE UNDER TEST: `StrategyReservationPredicates.EvaluateActivation` refuses an activation
+# two ways when the committed timeline activates a strategy later: the strategy itself
+# (`FutureActivation`, KB-4 and RW-20 press it) and any OTHER strategy whose activation now
+# would still hold the slot when the committed one needs it (`SlotNeeded`). This lane presses
+# the second through the Administration screen's own Accept and through the activation
+# primitive behind it.
+#
+# THE HOST. `career-pad-craft-purchase` (RW-23's host: L2's pad career with reputation 120 and
+# entry purchases on; the entry purchases do not matter here). The Administration is at its
+# first level, ONE strategy slot (KB-4: "at level 1 the active strategy fills the only one").
+# Reputation 120 affords Aggressive Negotiations, which `cs-career-mun4` activated at 115.
+#
+# THE PAIR. Aggressive Negotiations (groupTag Misc, D) is the committed activation;
+# Appreciation Campaign (Basic, A; funds-only setup, activatable at reputation 0) is pressed.
+# They share no tag, so neither stock's conflict rule nor Parsek's `ConflictsWithCommitted`
+# answers first (`StrategyReservationTests.StockList`). After the rewind no strategy is active,
+# so stock allows the press (0 of 1 slots used) and Parsek's reason is the one shown:
+# "Slot needed from <date> for '<Aggressive Negotiations>', blocked by timeline."
+#
+# PLAN (UTs are the plan):
+#   boot       LoadGame persistent onto the pad Flea (L8's boot), record 60..100, commit,
+#              Recover (L8's pad recovery).
+#   strategy   warp to 200 at the Space Center (T1): activate AgressiveNegotiations.
+#   rewind     InvokeRewindToLaunch tree=latest: clock ~45, no strategy active, the activation
+#              committed future.
+#   refused 1  activate-strategy AgressiveNegotiations -> REJECTED, `FutureActivation` (RW-20's
+#              line), kept as the control that the committed row is the one read.
+#   refused 2  the Administration open on AppreciationCampaignCfg, Accept pressed -> blocked
+#              with the SlotNeeded reason (the click backstop and its dialog), dismissed; then
+#              activate-strategy AppreciationCampaignCfg -> REJECTED with the same reason.
+#   crossing   warp to 260: the committed activation applies once; the pools equal the pools
+#              before the rewind.
+#   check      the Settings Probe onto the pad, the default save, LedgerGroundTruth.
+#
+# PINNED LITERALS (read 2026-10-31 on main b36af9b):
+#   activation refused strategy=<id> kind=SlotNeeded     Patches/StrategyReservationPatch.cs:88
+#   blocking activation click for strategy=              Patches/StrategyReservationPatch.cs:226
+#   Slot needed from <date> for '<title>'                ReservationExplanation.cs:430
+#   reason shown on the disabled button's stock tooltip  StockUiReasonTooltip.cs:94
+#   PatchStrategies: activated=                          GameActions/StrategyStatePatcher.cs:659
+#
+# PRE-REGISTERED READINGS (what to check first if the first flight reds):
+#   - `kind=ConflictsWithCommitted` instead of SlotNeeded: the stock tag table in
+#     `StrategyReservationTests.StockList` is wrong for this pair.
+#   - `activation left to stock strategy=AppreciationCampaignCfg`: stock refused first (its
+#     reason is in the press line); a second slot would mean the Administration level read is
+#     not the first level.
+#   - `activation refused strategy=AppreciationCampaignCfg - reserved for later costs`: the
+#     committed-row decision did not fire and the click reservation answered instead.
+#
+# STATUS: AUTHORED 2026-10-31 (branch `lanes-strategy-purchase-and-refly-recovery`), NEVER
+# FLOWN. The batch split and the recordings count are interim until measured.
+# =====================================================================================
+tier = "operator"
+description = "Rewind ledger campaign, the Administration's SlotNeeded refusal (todo KB-STRATEGY-SLOT-NEEDED-NO-LIVE-LANE): on career-pad-craft-purchase (one strategy slot, reputation 120) a pad Flea is recorded, committed and recovered, Aggressive Negotiations is activated at UT 200, a Rewind-to-Launch puts that activation in the committed future, and Appreciation Campaign is refused through the Administration Accept and the activation primitive because the committed activation needs the slot; the crossing applies the activation once, the pools end where the rewind began, and LedgerGroundTruth closes the career."
+instanceProfile = "stock-minimal"
+tags = ["RW-24", "career", "ledger", "rewind", "rewind-to-launch", "strategies",
+        "action-blocking", "stock-ui", "editor", "recovery", "ground-truth", "ingame-batch",
+        "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-pad-craft-purchase"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 300 LoadGame + 3 x 120 warps + 180 StartRecording + 120 warp + 120
+# CommitTree + 120 Recover + 5 x 60 KscAction + 300 rewind + 120 GoToEditor + 180
+# LaunchFromEditor + 120 check warp + 4 x 120 SaveGame + 540 RunTests = 3260; runtime 4000 adds
+# the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  # ---- V: the pad Flea, recorded 60..100, committed, recovered ----
+  { cmd = "WarpToUT",       args = { ut = "60" },                                          expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "100" },                                         expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "2905720181" },                                 expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw24-v-recovered" },                         expect = "OK" },
+  # ---- the committed activation at T1 = 200 ----
+  { cmd = "WarpToUT",       args = { ut = "200", maxRate = "100" },                        expect = "OK", budget = 120 },
+  { cmd = "KscAction",      args = { action = "activate-strategy", strategy = "AgressiveNegotiations" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw24-an-active" },                           expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw24-01-after-activation" },                 expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw24-before-rewind" },                       expect = "OK" },
+  # ---- the rewind to V's launch: the activation is committed future ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rw24-rewound" },                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw24-02-after-rtl" },                        expect = "OK", budget = 120 },
+  # ---- refused 1: the committed strategy itself (FutureActivation, the control) ----
+  { cmd = "KscAction",      args = { action = "activate-strategy", strategy = "AgressiveNegotiations" }, expect = "REJECTED", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw24-future-refused" },                      expect = "OK" },
+  # ---- refused 2: another strategy that would hold the one slot (SlotNeeded) ----
+  { cmd = "StockScreen",    args = { screen = "administration", act = "open" },            expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "administration", act = "select", item = "AppreciationCampaignCfg" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "rw24-admin-slot" },                       expect = "OK" },
+  { cmd = "KscAction",      args = { action = "press-strategy", strategy = "AppreciationCampaignCfg" }, expect = "REJECTED", budget = 60 },
+  { cmd = "UiAction",       args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "administration", act = "close" },           expect = "OK" },
+  # The activation primitive behind the button, refused by the CanBeActivated postfix.
+  { cmd = "KscAction",      args = { action = "activate-strategy", strategy = "AppreciationCampaignCfg" }, expect = "REJECTED", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw24-slot-refused" },                        expect = "OK" },
+  # ---- the crossing: the committed activation applies once ----
+  { cmd = "WarpToUT",       args = { ut = "260", maxRate = "100" },                        expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw24-crossed" },                             expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw24-03-after-crossing" },                   expect = "OK", budget = 120 },
+  # ---- the check: an unrecorded launch onto the (clear) pad, the save, the ground truth ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Settings Probe" },         expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "290" },                                         expect = "OK", budget = 120 },
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "reputation", "strategies", "recalc-engine", "ksp-state-patcher", "action-blocking", "ground-truth-harness"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# V only; the check launch is unrecorded. INTERIM.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=",
+  "MISSIONMARK label=rw24-v-recovered ut=[\\s\\S]*?kscaction action=activate-strategy target=AgressiveNegotiations applied=true manifestKind=strategy-activate [\\s\\S]*?MISSIONMARK label=rw24-an-active ut=",
+  "MISSIONMARK label=rw24-before-rewind ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=rw24-rewound ut=",
+
+  # ---- refused 1: the committed strategy itself ----
+  "MISSIONMARK label=rw24-rewound ut=(?:(?!MISSIONMARK label=rw24-future-refused )[\\s\\S])*?kscaction refused action=activate-strategy reason=strategy-cannot-activate Activated on [^\\r\\n]+, blocked by timeline until then\\. target=AgressiveNegotiations",
+
+  # ---- refused 2: SlotNeeded, read by the predicate, shown on the button, the click blocked ----
+  "MISSIONMARK label=rw24-future-refused ut=(?:(?!MISSIONMARK label=rw24-slot-refused )[\\s\\S])*?\\[StrategyReservation\\] activation refused strategy=AppreciationCampaignCfg kind=SlotNeeded committedKey=AgressiveNegotiations committedUT=(?:19[0-9]|20[0-9]) count=2 limit=1 nowUT=",
+  "MISSIONMARK label=rw24-future-refused ut=(?:(?!MISSIONMARK label=rw24-slot-refused )[\\s\\S])*?\\[Parsek\\]\\[VERBOSE\\]\\[StockUiOverlay\\] Administration accept: reason shown on the disabled button's stock tooltip: (Slot needed from [^\\r\\n]+)\\r?\\n",
+  "MISSIONMARK label=rw24-future-refused ut=(?:(?!MISSIONMARK label=rw24-slot-refused )[\\s\\S])*?\\[Parsek\\]\\[INFO\\]\\[StrategyReservation\\] blocking activation click for strategy=AppreciationCampaignCfg",
+  "MISSIONMARK label=rw24-future-refused ut=(?:(?!MISSIONMARK label=rw24-slot-refused )[\\s\\S])*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot activate \"[^\\r\\n]*?\" - Slot needed from [^\\r\\n]+ for '[^'\\r\\n]+', blocked by timeline\\.",
+  "MISSIONMARK label=rw24-future-refused ut=(?:(?!MISSIONMARK label=rw24-slot-refused )[\\s\\S])*?kscaction press-strategy not applied: target=AppreciationCampaignCfg activeBefore=False activeAfter=False fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0 repBefore=(\\S+) repAfter=\\3 repDelta=0",
+  "MISSIONMARK label=rw24-future-refused ut=(?:(?!MISSIONMARK label=rw24-slot-refused )[\\s\\S])*?kscaction refused action=press-strategy reason=button-no-effect target=AppreciationCampaignCfg",
+  "MISSIONMARK label=rw24-future-refused ut=(?:(?!MISSIONMARK label=rw24-slot-refused )[\\s\\S])*?kscaction refused action=activate-strategy reason=strategy-cannot-activate Slot needed from [^\\r\\n]+ for '[^'\\r\\n]+', blocked by timeline\\. target=AppreciationCampaignCfg",
+
+  # ---- the crossing: the committed activation applied once, the pools back where they were ----
+  "MISSIONMARK label=rw24-slot-refused ut=(?:(?!MISSIONMARK label=rw24-crossed )[\\s\\S])*?Clock-crossing reached committed-future rows: [^\\r\\n]*StrategyActivate@",
+  "MISSIONMARK label=rw24-slot-refused ut=(?:(?!MISSIONMARK label=rw24-crossed )[\\s\\S])*?PatchStrategies: activated=1 [^\\r\\n]*activatedIds=\\[AgressiveNegotiations\\]",
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw24-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw24-crossed ut=",
+
+  # ---- the ground truth (interim split until the first flight measures it) ----
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "filed StockPoolAdjustment amount=",
+  "GUARDED (?:UPLIFT|DRAWDOWN) clamped",
+  # Neither strategy is activated after the rewind by the player path.
+  "MISSIONMARK label=rw24-rewound ut=[\\s\\S]*kscaction action=(?:activate|press)-strategy target=[A-Za-z]+ applied=true",
+  # The pressed strategy is refused for the slot, never for a conflict or the reserve.
+  "activation refused strategy=AppreciationCampaignCfg kind=ConflictsWithCommitted",
+  "activation refused strategy=AppreciationCampaignCfg - reserved for later costs",
+]
+
+[runtime]
+budgetSeconds = 4000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

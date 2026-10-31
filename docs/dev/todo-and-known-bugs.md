@@ -867,7 +867,7 @@ cells; restoring the pairing's under-100 skip reds the headline and the two smal
 dropping the no-pool gate reds the no-pool cell. Not flown yet; lane owed: a Re-Fly that recovers
 cheap debris (under 100 funds), merge, then LedgerGroundTruth and no GUARDED line; and a recovery of
 a science-carrying vessel under Patents Licensing (one `VesselRecovery funds patched` at the payout,
-the yield as its strategy leg only).
+the yield as its strategy leg only). (Both since flown: RW-11 and RW-22, below.)
 
 ---
 
@@ -875,8 +875,22 @@ LIVE PROOF (RW-11 `2026-10-28_1919`, branch `rw11-cheap-debris`): a Re-Fly lands
 KSC grass and explodes its booster; when the merge lands at the Space Center, stock's clean-up recovers two
 25-funds fins inside the payout scope, each booked once (`VesselRecovery funds patched ... amount=25 ...
 recordingId=(none)`, untagged: one-part debris gets no recording), and after a Rewind-to-Launch both cross
-once with the pools back to their pre-rewind values. Not covered: Recover pressed inside a Re-Fly (the seam
-cannot drive it) and the Patents Licensing yield (needs 135+ science on that host).
+once with the pools back to their pre-rewind values. Not covered by RW-11: Recover pressed inside a Re-Fly
+(the seam could not drive it) and the Patents Licensing yield (needs 135+ science on that host).
+
+RESIDUE (2026-10-31, branch `lanes-strategy-purchase-and-refly-recovery`). The Patents Licensing yield on a
+science-carrying recovery is LIVE-PROVEN by RW-22 (`2026-10-31_0405`, `lab-pad-career`: one `VesselRecovery
+funds patched` at the payout, the yield as its strategy leg only). The pressed Recover inside a Re-Fly is now
+drivable: `Recover` gains the optional `mergeDialog=refly` (`TestCommandRecover.DecideWedge`: with a live
+Re-Fly marker and the active tree's `ReFlyAttempt` modal as the only wedge, the verb presses and answers OK
+`mergeDialog=open` once the modal is up; every other wedge still refuses `dialog-required`; refusal
+`recover-mergedialog-arg-invalid`; tests in `TestCommandRealSpawnRecoverTests`, hlib
+`VERB_SCOPED_CLOSED_ARGS`). Lane `RW-25-refly-recover-pressed` on `cs-career-mun4`, AUTHORED, NEVER FLOWN:
+RW-11's G and hop, the press on KSC grass, AnswerMergeDialog merge, stock's recovery of the pod at the Space
+Center booked once, a Rewind-to-Launch and the crossing with the pools back, LedgerGroundTruth. NOT
+COVERABLE: a pressed recovery under 100 funds. The stock button recovers only the active vessel, and no
+controllable vessel on these hosts is worth under 100 (the Mk1 pod alone is 600); under 100 inside a Re-Fly
+stays RW-11's clean-up path.
 
 ## ~~STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED: a strategy discount on a part purchase, a repair or a contract penalty has no ledger leg, so a rewind and a repeat pays it twice~~ [FILED AND FIXED 2026-10-28 from code reading plus the stock `Strategies.cfg`, branch `fix-strategy-gross-legs`; unit-tested only, NOT FLOWN, lane owed; product, medium (a discount credited twice, breaking "nothing is paid twice")]
 
@@ -946,6 +960,21 @@ apply the repair and its legs once with no pool adjustment. LIVE-PROVEN on `2026
 the second repair refused with nothing charged, the pools after the crossing equal to the pools after
 the original repair (155591.16 funds / 97.96 rep), no StockPoolAdjustment, no GUARDED, ledger_audit
 PASS. Its first flights found REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE.
+
+**Lane, part-purchase path (2026-10-31, branch `lanes-strategy-purchase-and-refly-recovery`).**
+`RW-23-strategy-part-purchase-rebuy`, AUTHORED, NEVER FLOWN. The host gap RW-9 named is closed by a
+new derived fixture, `career-pad-craft-purchase` (`harness/tools/build_career_pad_craft_purchase.py`:
+`career-pad-craft` with BypassEntryPurchaseAfterResearch False and reputation 120, above the 115 at
+which `cs-career-mun4` activated Aggressive Negotiations; drift-gated by
+`lib/test_career_pad_craft_purchase.py`). The lane activates Aggressive Negotiations, researches
+basicRocketry, commits and recovers a pad Flea, buys the RT-10 Hammer through the R&D screen at T1
+(the gross `PartPurchased` row, both legs `reason=RnDPartPurchase` under the `Part:solidBooster.v2`
+scope), rewinds to launch, and warps past T1. The todo's "re-buy" cannot reach stock: the committed
+purchase blocks it (`StockUiPartPurchase`, seam `blocked-committed`), so the lane pins that refusal
+and then the crossing (`PatchPurchasedParts ... added=1`, the pools back to the post-purchase ones),
+with no StockPoolAdjustment, no GUARDED, no KSC funds reconciliation in the purchase window, and
+LedgerGroundTruth `hardFailures=0`. ledger_audit is the post-flight read. Run: `python harness/run.py
+--id RW-23-strategy-part-purchase-rebuy`. The contract-penalty path has no lane.
 
 ## ~~FREE-TECH-NODE-LOST-AFTER-REWIND: a tech node stock unlocks for free has no ledger row, so the first tech patch after a rewind re-locks it for good~~ [FILED AND FIXED 2026-10-28 from code reading, branch `fix-free-tech-row`; LIVE-PROVEN 2026-10-28 by lane RW-8 (`2026-10-28_1505`); product, high (a node and its parts lost for good, a reduction of the career total)]
 
@@ -2662,6 +2691,20 @@ block-after-rewind` on a new host `stock-screen-census-strategy`. To rebuild it:
   why, the strategy inactive, the three pools unchanged, and 24 ledger rows with no new row.
 - The fixture adds a committed save under `harness/fixtures/saves/`, so
   `test_saveparse.test_fixture_set_is_exactly_the_committed_set` and the saves README need it too.
+
+**Lane (2026-10-31, branch `lanes-strategy-purchase-and-refly-recovery`).** `RW-24-strategy-slot-needed-
+after-rewind`, AUTHORED, NEVER FLOWN; this entry stays OPEN until it flies green. A cheaper shape than the
+draft above: no census host, the committed activation comes from a Rewind-to-Launch instead. On
+`career-pad-craft-purchase` (RW-23's host, reputation 120, Administration level 1 so one slot) a pad Flea is
+recorded, committed and recovered; at T1 Aggressive Negotiations is activated; a Rewind-to-Launch puts that
+activation in the committed future. Then: Aggressive Negotiations refused `FutureActivation`; the
+Administration screen on `AppreciationCampaignCfg` (its group tags do not conflict with Aggressive
+Negotiations', so stock stands aside) shows the disabled button with the `Slot needed from` reason on its
+stock tooltip, the `press-strategy` press is refused by the click backstop with nothing changed, and `KscAction
+activate-strategy` is refused with the same reason (`activation refused strategy=AppreciationCampaignCfg
+kind=SlotNeeded committedKey=AgressiveNegotiations ... count=2 limit=1`); the warp past T1 activates the
+committed strategy once (`PatchStrategies ... activatedIds=[AgressiveNegotiations]`) with the pools back;
+LedgerGroundTruth `hardFailures=0`. Run: `python harness/run.py --id RW-24-strategy-slot-needed-after-rewind`.
 
 ---
 

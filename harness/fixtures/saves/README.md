@@ -888,6 +888,20 @@ and drift-gated by `harness/tools/build_career_pad_craft_zero_funds.py` (`--chec
 `harness/lib/test_career_pad_craft_zero_funds.py`; no `AddOns` copy (seam-only lane). Host of
 `ZF-1-zero-funds-career`.
 
+## career-pad-craft-purchase (GAME Mode = CAREER, 1 VESSEL, derived from career-pad-craft)
+
+`career-pad-craft`'s `persistent.sfs` and `persistent.loadmeta` byte for byte, except three
+lines: `PARAMETERS DIFFICULTY BypassEntryPurchaseAfterResearch = True -> False`, `SCENARIO
+Reputation rep = 0 -> 120` and the loadmeta's cached `reputationPercent = 0 -> 12`. So a
+researched part costs its entry cost, and Aggressive Negotiations (which stock refuses below
+its required reputation; `cs-career-mun4` activated it at 115) can be activated. No committed
+career had both: the entry-purchase hosts hold reputation 0 or 2, and every reputation-rich
+host bypasses entry purchases. The multipliers stay x1 (unlike `career-pad-craft-hard`), so
+nothing sits between the strategy's reputation leg and the rule under test. Built and
+drift-gated by `harness/tools/build_career_pad_craft_purchase.py` (`--check`) and
+`harness/lib/test_career_pad_craft_purchase.py`; no `AddOns` copy (seam-only lanes). Host of
+`RW-23-strategy-part-purchase-rebuy` and `RW-24-strategy-slot-needed-after-rewind`.
+
 ## career-gs1-two-stage-pad (GAME Mode = CAREER, 1 VESSEL, derived from fresh-career + gs1-two-stage-pad)
 
 `career-pad-craft`'s recipe with a different donor: `harness/tools/build_career_gs1_two_stage_pad.py`

@@ -4217,9 +4217,10 @@ vessel's KSP-unique persistentId (for a chain tip the original pid, the
 `chain-tip-original-pid` contract), the handle a following `SimulateStockSwitchClick
 pid=${spawn.pid}` or `Recover pid=${spawn.pid}` consumes.
 
-**Recover grammar.** `cmd=Recover pid=<persistentId>`. The pid must be the ACTIVE vessel's:
-the stock button only recovers the active vessel, so a spec switches first
-(`SimulateStockSwitchClick pid=`) and names the vessel it means.
+**Recover grammar.** `cmd=Recover pid=<persistentId> [mergeDialog=refly]`. The pid must be
+the ACTIVE vessel's: the stock button only recovers the active vessel, so a spec switches first
+(`SimulateStockSwitchClick pid=`) and names the vessel it means. `mergeDialog` is optional and
+closed (one value, case-sensitive; hlib `VERB_SCOPED_CLOSED_ARGS`); see the wedge guard.
 
 **Recover production path** (decompiled, KSP 1.12.5 `Assembly-CSharp.dll`):
 `KSP.UI.Screens.AltimeterSliderButtons` wires
@@ -4253,10 +4254,22 @@ which raises a merge modal when a merge decision is outstanding. Before clicking
 evaluates `TestCommandExitToSpaceCenter.DecideExitGate` on the same live predicates
 `ExitToSpaceCenter` reads and refuses `REJECTED dialog-required variant=<v>` (reused
 verbatim, already `driver-gate`). The supported shape is `SetSetting autoMerge=true`
-earlier in the spec, as for `ExitToSpaceCenter`.
+earlier in the spec, as for `ExitToSpaceCenter`. The one exception is a press INSIDE a Re-Fly
+attempt, where autoMerge does not suppress the Re-Fly modal: with `mergeDialog=refly`
+(`TestCommandRecover.DecideWedge`) a wedge that is exactly the active tree's `ReFlyAttempt`
+dialog under a live Re-Fly marker is pressed into (`recover wedge accepted variant= gate=
+pid=`). The verb answers OK the frame `FindReFlyMergePopup` sees the modal (in the click
+frame or a later poll), with payload `pid= vessel= scene= recovered=false mergeDialog=open`
+and the line `recover pressed into re-fly merge dialog pid= vessel= ut=`; its listeners are
+detached there, so the recovery itself is read from the product's own lines. The spec's next
+step is `AnswerMergeDialog`, whose choice runs the dialog's post-choice (persist, then the
+bypassed `LoadScene(SPACECENTER)`), and stock's `VesselRetrieval` recovers the vessel 8 frames
+after the Space Center settles. Every other wedge (a regular merge modal, an armed switch
+session, a pending-tree modal, a Re-Fly variant with no marker) is still refused.
 
 **Recover refusals** (REJECTED, in this order): `recover-pid-arg-missing`,
-`recover-pid-arg-invalid` (arg: not a positive decimal uint), `recover-no-active-vessel`,
+`recover-pid-arg-invalid` (arg: not a positive decimal uint), `recover-mergedialog-arg-invalid`
+(any `mergeDialog=` value but `refly`), `recover-no-active-vessel`,
 `recover-not-active-vessel` (with `activePid=`), `recover-button-unavailable` (no live
 altimeter button), `recover-button-locked` (situation, home world, horizontal speed and
 pause in the log), `recover-not-clear-to-save` (with the stock status),

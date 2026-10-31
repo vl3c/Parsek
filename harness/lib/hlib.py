@@ -3779,10 +3779,17 @@ RECOVER_VERB = "Recover"
 RECOVER_PID_KEY = "pid"
 RECOVER_REASONS: Tuple[str, ...] = (
     "recover-pid-arg-missing", "recover-pid-arg-invalid",
-    "recover-no-active-vessel", "recover-not-active-vessel",
+    "recover-mergedialog-arg-invalid", "recover-no-active-vessel", "recover-not-active-vessel",
     "recover-button-unavailable", "recover-button-locked",
     "recover-not-clear-to-save", "recover-cannot-leave-to-space-center",
 )
+# `Recover mergeDialog=refly`: the optional opt-in that lets a press inside a live Re-Fly
+# session go into the Re-Fly merge modal (answered OK with mergeDialog=open, for the
+# spec's next AnswerMergeDialog step) instead of being refused dialog-required. Closed,
+# one value; a VERB_SCOPED_CLOSED_ARGS row (RealSpawnRecoverSourceSyncTests keeps the key
+# and value byte-equal to TestCommandRecover.MergeDialogKey / MergeDialogReFlyValue).
+RECOVER_MERGE_DIALOG_KEY = "mergeDialog"
+RECOVER_MERGE_DIALOG_VALUES: Tuple[str, ...] = ("refly",)
 
 
 # TrackingStationRecover: mirrored from TestCommands/TestCommandTrackingStationRecover.cs
@@ -5501,6 +5508,7 @@ VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     STOCKSCREEN_ACT_KEY: (STOCKSCREEN_VERB, STOCKSCREEN_ACT_VALUES),
     STOCKSCREEN_PANE_KEY: (STOCKSCREEN_VERB, STOCKSCREEN_PANE_VALUES),
     SAFEWRITECRASH_PHASE_KEY: (SAFEWRITECRASH_VERB, SAFEWRITECRASH_PHASE_VALUES),
+    RECOVER_MERGE_DIALOG_KEY: (RECOVER_VERB, RECOVER_MERGE_DIALOG_VALUES),
 }
 
 
@@ -12062,6 +12070,7 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "realspawn-row-warps-to-departure": "driver-gate",
     "recover-pid-arg-missing": "driver-arg",
     "recover-pid-arg-invalid": "driver-arg",
+    "recover-mergedialog-arg-invalid": "driver-arg",
     "recover-no-active-vessel": "driver-gate",
     "recover-not-active-vessel": "driver-gate",
     "recover-button-unavailable": "driver-gate",
@@ -12978,6 +12987,7 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "readvesselresources-target-arg-conflict", "readvesselresources-target-arg-missing",
     "readvesselresources-tolerance-arg-invalid", "readvesselresources-too-many-targets",
     "realspawn-rec-arg-missing",
+    "recover-mergedialog-arg-invalid",
     "recover-pid-arg-invalid", "recover-pid-arg-missing", "rect-arg-invalid",
     "rect-arg-missing", "reflyrevert-choice-arg-invalid",
     "reflyrevert-choice-arg-missing", "reflyrevert-target-arg-invalid",
