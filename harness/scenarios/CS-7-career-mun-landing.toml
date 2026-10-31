@@ -340,6 +340,7 @@ count = { min = 40, max = 55 }
 #   result: hardFailures=               InGameTests/LedgerGroundTruthHarness.cs:246
 #   BATCH_COMPLETE v1                   InGameTests/InGameTestRunner.cs:1219
 required = [
+  "kscaction action=upgrade-facility target=SpaceCenter/VehicleAssemblyBuilding applied=true",
   # The flight.
   "launchfromeditor complete scene=FLIGHT vessel=CS Mun Solar Lander pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
   # The craft's rollout, a regex until measured (the builder's cost is 13292, 13327

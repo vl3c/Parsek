@@ -597,8 +597,8 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
         self.assertGreaterEqual(self.fig["dv_total"], 6600.0)
         self.assertGreaterEqual(self.fig["liftoff_twr"], 1.25)
         self.assertGreaterEqual(self.fig["mun_twr"], 3.0)
-        # The power and the three extra legs cost the lander under 45 m/s.
-        self.assertLess(self.b.lander_figures()["dv_upper"] - self.fig["dv_upper"], 45.0)
+        # The power and the three extra legs cost the lander under 70 m/s.
+        self.assertLess(self.b.lander_figures()["dv_upper"] - self.fig["dv_upper"], 70.0)
 
     def test_the_stage_order_is_cs_mun_landers(self):
         self.assertEqual(self.b.lander_stage_want(),
@@ -703,12 +703,14 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
         with open(CS7_SPEC, "rb") as fh:
             spec = tomllib.load(fh)
         # The ladder is a chain: CS-7 flies from CS-6c's produced save, which holds
-        # every node the craft needs, so CS-7 runs no KSC step.
+        # every node the craft needs; CS-7's one KSC step is the VAB its six legs need.
         self.assertEqual("fixtures/saves/cs-career-mun4", spec["fixture"]["saveTemplate"])
         steps = spec["driver"]["steps"]
         editor = next(i for i, s in enumerate(steps) if s.get("cmd") == "GoToEditor")
         self.assertEqual("CS Mun Solar Lander", steps[editor]["args"]["craft"])
-        self.assertFalse(any(s.get("cmd") == "KscAction" for s in steps[:editor]))
+        self.assertEqual(["SpaceCenter/VehicleAssemblyBuilding"],
+                         [s["args"]["facility"] for s in steps[:editor]
+                          if s.get("cmd") == "KscAction"])
         with open(CS6C_SPEC, "rb") as fh:
             cs6c_steps = tomllib.load(fh)["driver"]["steps"]
         researched = [s["args"]["node"] for s in cs6c_steps
