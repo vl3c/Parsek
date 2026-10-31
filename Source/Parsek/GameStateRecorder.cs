@@ -991,7 +991,7 @@ namespace Parsek
                 ParsekLog.Verbose("GameStateRecorder",
                     $"FundsChanged delta={delta.ToString("+0.###;-0.###", CultureInfo.InvariantCulture)} ({reason}) " +
                     $"below threshold={FundsThreshold.ToString("F1", CultureInfo.InvariantCulture)} recorded anyway: " +
-                    "stock's recovery payout is paired exactly");
+                    DescribeFundsThresholdExemption(reason));
 
             double ut = ReadFundsChangedUT();
             string detail = null;
@@ -1073,9 +1073,14 @@ namespace Parsek
         /// pairing builds its <c>FundsEarning(Recovery)</c> row from, and a gain with no row
         /// survives only as an untagged pool adjustment on a measured patch, while an
         /// authoritative patch (a Re-Fly session, a rewind, a merge) writes the pool back to
-        /// the ledger target and erases it. Everything else keeps the
-        /// <see cref="FundsThreshold"/> floor, including a strategy yield under the same reason
-        /// (its own leg is its row) and an unscoped change.
+        /// the ledger target and erases it. The same holds for the two other reasons whose
+        /// change is the only capture of a ledger row (SUB-100-ROLLOUT-AND-BAILOUT-NOT-LEDGERED):
+        /// a <c>VesselRollout</c> charge (a negative change; <c>OnVesselRolloutSpending</c> files
+        /// its <c>FundsSpending(VesselBuild)</c> row from it, after this check) and a currency
+        /// exchanger's funds out under <c>StrategyOutput</c> (a positive change, the Bail-Out
+        /// Grant's direct forward and <c>ConvertStrategyExchangeFunds</c>). Everything else keeps
+        /// the <see cref="FundsThreshold"/> floor, including a strategy yield under the recovery
+        /// reason (its own leg is its row), an unscoped recovery change and a zero change.
         /// </summary>
         internal static bool IsFundsDeltaBelowThreshold(
             double delta, TransactionReasons reason, RecoveryPayoutScope.FundsEventSource source)
@@ -1084,7 +1089,25 @@ namespace Parsek
                 && source == RecoveryPayoutScope.FundsEventSource.Payout
                 && delta > 0.0)
                 return false;
+            if (reason == TransactionReasons.VesselRollout && delta < 0.0)
+                return false;
+            if (reason == TransactionReasons.StrategyOutput && delta > 0.0)
+                return false;
             return Math.Abs(delta) < FundsThreshold;
+        }
+
+        /// <summary>Log text: why a change under the funds threshold is recorded.</summary>
+        internal static string DescribeFundsThresholdExemption(TransactionReasons reason)
+        {
+            switch (reason)
+            {
+                case TransactionReasons.VesselRollout:
+                    return "a rollout charge is filed as its VesselBuild row";
+                case TransactionReasons.StrategyOutput:
+                    return "a currency exchange's funds out is filed as its strategy row";
+                default:
+                    return "stock's recovery payout is paired exactly";
+            }
         }
 
         /// <summary>
@@ -1278,7 +1301,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Reason-aware threshold. A ContractDecline change is exempt from the 1-point
+        /// Reason-aware threshold. A ContractDecline or StrategyInput change is exempt from the 1-point
         /// noise floor: stock only fires it for a real decline penalty, and the curve can
         /// shrink a Normal-preset RepLossDeclined of 1 below one point at a negative pool,
         /// which would otherwise drop the ledger row and leave the loss to be refunded by
@@ -1286,7 +1309,13 @@ namespace Parsek
         /// </summary>
         internal static bool IsReputationDeltaBelowThreshold(float delta, TransactionReasons reason)
         {
-            if (reason == TransactionReasons.ContractDecline)
+            // StrategyInput: a currency exchanger's reputation in (the Bail-Out Grant's other
+            // leg), directly forwarded like the decline. A grant small enough to pay under 100
+            // funds spends well under a point, and dropping that leg while its funds out is
+            // filed would leave the spent reputation to be refunded by the next recalc
+            // (SUB-100-ROLLOUT-AND-BAILOUT-NOT-LEDGERED).
+            if (reason == TransactionReasons.ContractDecline
+                || reason == TransactionReasons.StrategyInput)
                 return delta == 0f;
             return IsReputationDeltaBelowThreshold(delta);
         }

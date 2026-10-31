@@ -595,13 +595,28 @@ retirement it served. `RewindReadbackGuard.cs` (~90) still describes that retire
 RetireResurrectedVesselRecoveryRows"). Its science `Method` label (a full-value transmission read
 as recovered) therefore changes nothing. Delete `Classify` and its test, and fix the comment.
 
-## SUB-100-ROLLOUT-AND-BAILOUT-NOT-LEDGERED: a rollout or a Bail-Out Grant under 100 funds gets no row [FILED 2026-10-28 from the small-recovery fix; code-read, NOT FIXED; low]
+## ~~SUB-100-ROLLOUT-AND-BAILOUT-NOT-LEDGERED: a rollout or a Bail-Out Grant under 100 funds gets no row~~ [FILED 2026-10-28 from the small-recovery fix; FIXED 2026-10-31, branch `fix-low-ledger-bugs`; xUnit only; low]
 
 `GameStateRecorder`'s 100-funds threshold still drops a `VesselRollout` under 100 (a craft that
 cheap gets no `VesselBuild` row, since `OnVesselRolloutSpending` runs after the threshold) and a
 `StrategyOutput` Bail-Out Grant under 100 (no direct forward). Both survive only as measured-patch
 adjustments, so an authoritative patch (a Re-Fly, a rewind) erases them, the same shape as
 SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY. Widen the exemption the same way once that fix lands.
+
+**Fix.** Confirmed by code read: `GameStateRecorder.OnFundsChanged` returns at
+`IsFundsDeltaBelowThreshold` before both `OnVesselRolloutSpending` and the `StrategyOutput` direct
+forward. `IsFundsDeltaBelowThreshold` now also exempts a negative `VesselRollout` change (the
+VesselBuild row's only source) and a positive `StrategyOutput` change (a currency exchanger's funds
+out, the Bail-Out Grant; `ConvertStrategyExchangeFunds` reads the same event at a commit). Each keeps
+the floor in the other sign and at zero. The same shape on the Bail-Out's other leg: its reputation in
+(`ReputationChanged(StrategyInput)`, directly forwarded) had the 1-point floor, so a grant paying under
+100 funds (well under a point of reputation) would have filed its funds and refunded its reputation;
+`IsReputationDeltaBelowThreshold(delta, reason)` now exempts `StrategyInput` like `ContractDecline`
+(only an exact zero is ignored). Science needs nothing: its floor is 0.001 and no rollout or exchanger
+leg moves it below that. The "recorded anyway" Verbose line names the reason
+(`DescribeFundsThresholdExemption`). xUnit: `SmallRecoveryFundsTests.IsFundsDeltaBelowThreshold_ExemptsOnlyTheReasonsWhoseChangeIsTheRow`,
+`ReputationThreshold_ExemptsTheExchangersReputationIn`, `SmallRollout_IsRecorded_AndFilesItsVesselBuildRow`,
+`SmallBailOutGrant_IsRecorded_AndForwardedToTheLedger`.
 
 ## CS-FIXTURES-CARRY-BARE-ORBIT-MILESTONE: the CS career fixtures hold a pre-#2301 bare 'Orbit' row [FILED 2026-10-28 from log mining, confirmed by RW-3; fixture shape, NOT FIXED; low]
 
