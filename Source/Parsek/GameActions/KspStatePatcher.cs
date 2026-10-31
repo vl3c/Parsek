@@ -4291,19 +4291,43 @@ namespace Parsek
                 terminalOutcomeById,
                 tombstonedContractGuids);
 
+            // An Active contract the walk has already ended (the clock crossed its committed
+            // outcome row) leaves the active list below; it goes into stock's finished list in
+            // the outcome's state rather than vanishing from the Archive.
+            var terminalUtById = BuildTerminalContractUtMap(contracts);
+            var retiredMoves = PlanRetiredActiveContractMoves(
+                currentEntries, toRemoveCurrentKeys, terminalIdSet, terminalOutcomeById,
+                terminalUtById, finishedEntries, toRemoveFinishedKeys, parameterClockUT,
+                out int archiveAlreadyFinished, out int archiveNoFinishedState,
+                out int archiveOutcomeLater, out int archiveNoClock);
+            if (archiveNoClock > 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"PatchContracts: {archiveNoClock.ToString(IC)} ended contract(s) leave the active list " +
+                    $"without being filed into stock's finished list - no real clock " +
+                    $"(clockUT={parameterClockUT.ToString("R", IC)}) to prove the outcome already happened");
+            }
+
             int removedStale = 0;
             int removedFinishedTombstoned = 0;
             int unregisterFailures = 0;
+            var removedCurrentContracts = new List<Contract>();
             removedStale = RemoveContractsByKey(
                 currentContracts,
                 toRemoveCurrentKeys,
                 unregisterBeforeRemove: true,
-                ref unregisterFailures);
+                ref unregisterFailures,
+                removedCurrentContracts);
             removedFinishedTombstoned = RemoveContractsByKey(
                 finishedContracts,
                 toRemoveFinishedKeys,
                 unregisterBeforeRemove: false,
                 ref unregisterFailures);
+
+            int archived = 0;
+            int archiveFailed = 0;
+            ArchiveRetiredActiveContracts(removedCurrentContracts, retiredMoves, finishedContracts,
+                ref archived, ref archiveFailed);
 
             // An Offered copy of a contract whose lifecycle the walk already ended. A rewind to
             // before the accept puts the contract back on offer; when no recalculation ran
@@ -4510,6 +4534,12 @@ namespace Parsek
                 $"noType={noType.ToString(IC)}, " +
                 $"typeNotFound={typeNotFound.ToString(IC)}, " +
                 $"loadFailed={loadFailed.ToString(IC)}, " +
+                $"archivedToFinished={archived.ToString(IC)}, " +
+                $"archiveAlreadyFinished={archiveAlreadyFinished.ToString(IC)}, " +
+                $"archiveNoFinishedState={archiveNoFinishedState.ToString(IC)}, " +
+                $"archiveOutcomeLater={archiveOutcomeLater.ToString(IC)}, " +
+                $"archiveNoClock={archiveNoClock.ToString(IC)}, " +
+                $"archiveFailed={archiveFailed.ToString(IC)}, " +
                 $"ledgerActive={activeIds.Count.ToString(IC)}, " +
                 $"ledgerTerminal={terminalIds.Count.ToString(IC)}, " +
                 $"kspTotal={kspTotalAfter.ToString(IC)}, " +
@@ -5596,6 +5626,250 @@ namespace Parsek
             };
         }
 
+        /// <summary>One Active contract the patch moves into stock's finished list.</summary>
+        internal struct RetiredContractMove
+        {
+            public Guid Id;
+            public ContractTerminalOutcome Outcome;
+            public Contract.State FinishedState;
+            /// <summary>The walk's end UT for the outcome, NaN when unknown.</summary>
+            public double FinishedUT;
+        }
+
+        /// <summary>
+        /// Pure: the stock state a contract ended with <paramref name="outcome"/> holds in
+        /// stock's finished list. Stock's <c>ContractSystem.UpdateContracts</c> (decompiled
+        /// KSP 1.12.5) files only Completed, DeadlineExpired, Failed and Cancelled there; an
+        /// OfferExpired contract (requirements lost) is dropped, so it gets no state here.
+        /// </summary>
+        internal static bool TryMapOutcomeToFinishedState(
+            ContractTerminalOutcome outcome, out Contract.State state)
+        {
+            switch (outcome)
+            {
+                case ContractTerminalOutcome.Completed:
+                    state = Contract.State.Completed;
+                    return true;
+                case ContractTerminalOutcome.Failed:
+                    state = Contract.State.Failed;
+                    return true;
+                case ContractTerminalOutcome.DeadlineExpired:
+                    state = Contract.State.DeadlineExpired;
+                    return true;
+                case ContractTerminalOutcome.Cancelled:
+                    state = Contract.State.Cancelled;
+                    return true;
+                default:
+                    state = Contract.State.Active;
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Pure (todo CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE): which Active
+        /// contracts leaving stock's active list go into its finished list, and in what
+        /// state. A rewind to before a contract's committed outcome puts it back Active;
+        /// when the clock crosses the outcome row, the walk holds it terminal and the patch
+        /// takes it off the active list. Stock would have filed it as finished, so the patch
+        /// does too, in the walk's outcome state. Rules, per Active entry targeted by
+        /// <paramref name="toRemoveCurrentKeys"/>:
+        /// <list type="number">
+        ///   <item>Not terminal in the walk (dropped from the ledger, accepted later): no move.</item>
+        ///   <item>Terminal with an outcome stock does not archive (requirements lost): no move, counted in <paramref name="noFinishedState"/>.</item>
+        ///   <item>A finished entry with the same guid survives this patch: no move, counted in <paramref name="alreadyFinished"/> (never a second copy).</item>
+        ///   <item>No real <paramref name="clockUT"/> (NaN on the full-replay paths: an OnLoad walk with no cutoff, the deferred scene-load patch, the cold-load full-replay fallback, the commit walk during OnLoad): no move, counted in <paramref name="noClock"/>. Fail closed: such a walk can hold terminal a contract whose committed outcome is still in the future, and a filed copy would sit in the finished list while the next cutoff walk restores it Active.</item>
+        ///   <item>The outcome's end UT is after the real <paramref name="clockUT"/> (a walk past the clock, the Re-Fly invoke's whole-ledger walk): no move, counted in <paramref name="outcomeLater"/>; the Archive never shows an outcome before it happens.</item>
+        ///   <item>Otherwise: move, at the walk's outcome state and end UT.</item>
+        /// </list>
+        /// A move matches the walk, so the next patch keeps the finished entry in place
+        /// (a surviving terminal entry) and never restores it Active; a later tombstone of
+        /// the outcome row removes it the way it removes any stock-finished contract.
+        /// </summary>
+        internal static Dictionary<Guid, RetiredContractMove> PlanRetiredActiveContractMoves(
+            IReadOnlyList<ContractFilterEntry> currentEntries,
+            HashSet<ContractRemovalKey> toRemoveCurrentKeys,
+            HashSet<Guid> terminalIdSet,
+            IReadOnlyDictionary<Guid, ContractTerminalOutcome> terminalOutcomeById,
+            IReadOnlyDictionary<Guid, double> terminalUtById,
+            IReadOnlyList<ContractFilterEntry> finishedEntries,
+            HashSet<ContractRemovalKey> toRemoveFinishedKeys,
+            double clockUT,
+            out int alreadyFinished,
+            out int noFinishedState,
+            out int outcomeLater,
+            out int noClock)
+        {
+            var moves = new Dictionary<Guid, RetiredContractMove>();
+            alreadyFinished = 0;
+            noFinishedState = 0;
+            outcomeLater = 0;
+            noClock = 0;
+            bool clockReady = IsRealClock(clockUT);
+            if (currentEntries == null || toRemoveCurrentKeys == null || toRemoveCurrentKeys.Count == 0
+                || terminalIdSet == null || terminalOutcomeById == null)
+                return moves;
+
+            var finishedSurviving = new HashSet<Guid>();
+            if (finishedEntries != null)
+            {
+                for (int i = 0; i < finishedEntries.Count; i++)
+                {
+                    var f = finishedEntries[i];
+                    if (toRemoveFinishedKeys != null && toRemoveFinishedKeys.Contains(ToRemovalKey(f)))
+                        continue;
+                    finishedSurviving.Add(f.Id);
+                }
+            }
+
+            var judged = new HashSet<Guid>();
+            for (int i = 0; i < currentEntries.Count; i++)
+            {
+                var entry = currentEntries[i];
+                if (!entry.IsActive || !toRemoveCurrentKeys.Contains(ToRemovalKey(entry)))
+                    continue;
+                if (!judged.Add(entry.Id))
+                    continue;
+                ContractTerminalOutcome outcome;
+                if (!terminalIdSet.Contains(entry.Id)
+                    || !terminalOutcomeById.TryGetValue(entry.Id, out outcome))
+                    continue;
+                Contract.State finishedState;
+                if (!TryMapOutcomeToFinishedState(outcome, out finishedState))
+                {
+                    noFinishedState++;
+                    continue;
+                }
+                if (finishedSurviving.Contains(entry.Id))
+                {
+                    alreadyFinished++;
+                    continue;
+                }
+                if (!clockReady)
+                {
+                    noClock++;
+                    continue;
+                }
+                double ut;
+                if (terminalUtById == null || !terminalUtById.TryGetValue(entry.Id, out ut))
+                    ut = double.NaN;
+                if (!double.IsNaN(ut) && ut > clockUT + ContractAcceptClockToleranceSeconds)
+                {
+                    outcomeLater++;
+                    continue;
+                }
+                moves[entry.Id] = new RetiredContractMove
+                {
+                    Id = entry.Id,
+                    Outcome = outcome,
+                    FinishedState = finishedState,
+                    FinishedUT = ut
+                };
+            }
+
+            return moves;
+        }
+
+        private static FieldInfo contractStateField;
+        private static FieldInfo contractDateFinishedField;
+        private static bool contractStateReflectionWarnEmitted;
+
+        /// <summary>
+        /// Puts an Active stock contract (already unregistered) in the finished state stock
+        /// leaves it in, without stock's transition: <c>Contract.SetState</c> (decompiled KSP
+        /// 1.12.5) pays the completion or the failure penalty, posts the message and fires
+        /// <c>OnStateChange</c>, <c>onCompleted</c> / <c>onFailed</c> / <c>onCancelled</c> and
+        /// <c>onFinished</c>; the ledger already applied the outcome, so none of that runs.
+        /// The private <c>state</c> field has no setter and is written by reflection, as
+        /// <c>Contract.Load</c> writes it; the protected <c>dateFinished</c> takes the walk's
+        /// end UT when one is known (stock writes the deadline for an expiry, the clock
+        /// otherwise). False when the reflection is unavailable; the caller then leaves
+        /// the contract out of the finished list rather than file it Active there.
+        /// </summary>
+        internal static bool TryRetireContractSilently(Contract contract, Contract.State state, double finishedUT)
+        {
+            if (contract == null)
+                return false;
+            if (contractStateField == null)
+            {
+                contractStateField = typeof(Contract).GetField(
+                    "state", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (contractStateField == null || contractStateField.FieldType != typeof(Contract.State))
+                {
+                    contractStateField = null;
+                    EmitContractStateReflectionWarnOnce(
+                        "typeof(Contract).GetField(\"state\") is missing or not a Contract.State");
+                    return false;
+                }
+            }
+            if (contractDateFinishedField == null)
+            {
+                contractDateFinishedField = typeof(Contract).GetField(
+                    "dateFinished", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (contractDateFinishedField != null && contractDateFinishedField.FieldType != typeof(double))
+                    contractDateFinishedField = null;
+            }
+            try
+            {
+                contractStateField.SetValue(contract, state);
+                if (contractDateFinishedField != null && !double.IsNaN(finishedUT) && !double.IsInfinity(finishedUT))
+                    contractDateFinishedField.SetValue(contract, finishedUT);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                EmitContractStateReflectionWarnOnce(
+                    $"writing Contract.state threw {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static void EmitContractStateReflectionWarnOnce(string detail)
+        {
+            if (contractStateReflectionWarnEmitted)
+                return;
+            contractStateReflectionWarnEmitted = true;
+            ParsekLog.Warn(Tag,
+                "PatchContracts: could not file a contract the ledger ended into stock's finished list " +
+                $"(one-shot per session) - {detail}. It is missing from the Mission Control Archive.");
+        }
+
+        /// <summary>
+        /// Files each removed Active contract the plan names into stock's finished list,
+        /// silently (<see cref="TryRetireContractSilently"/>), one Info line per move.
+        /// </summary>
+        internal static void ArchiveRetiredActiveContracts(
+            List<Contract> removedCurrent,
+            Dictionary<Guid, RetiredContractMove> moves,
+            List<Contract> finishedContracts,
+            ref int archived,
+            ref int archiveFailed)
+        {
+            if (removedCurrent == null || moves == null || moves.Count == 0)
+                return;
+            var done = new HashSet<Guid>();
+            for (int i = 0; i < removedCurrent.Count; i++)
+            {
+                Contract c = removedCurrent[i];
+                RetiredContractMove move;
+                if (c == null || !moves.TryGetValue(c.ContractGuid, out move) || !done.Add(move.Id))
+                    continue;
+                if (finishedContracts == null || !TryRetireContractSilently(c, move.FinishedState, move.FinishedUT))
+                {
+                    archiveFailed++;
+                    ParsekLog.Warn(Tag,
+                        $"PatchContracts: could not file ended contract {move.Id} '{c.Title ?? ""}' " +
+                        $"into stock's finished list (outcome={move.Outcome}) - it is off the active list only");
+                    continue;
+                }
+                finishedContracts.Add(c);
+                archived++;
+                ParsekLog.Info(Tag,
+                    $"PatchContracts: filed ended contract {move.Id} '{c.Title ?? ""}' into stock's finished list " +
+                    $"as {move.FinishedState} (outcome={move.Outcome}, " +
+                    $"finishedUT={move.FinishedUT.ToString("R", IC)}) silently: no GameEvents, no reward or penalty");
+            }
+        }
+
         /// <summary>
         /// Pure helper: composes a bounded, comma-joined sample of changed-identity
         /// descriptions for a default-level (Info) apply line. Returns string.Empty for a
@@ -5730,11 +6004,29 @@ namespace Parsek
             return result;
         }
 
+        private static Dictionary<Guid, double> BuildTerminalContractUtMap(ContractsModule contracts)
+        {
+            var result = new Dictionary<Guid, double>();
+            var source = contracts != null ? contracts.GetTerminalContractUTs() : null;
+            if (source == null)
+                return result;
+
+            foreach (var kvp in source)
+            {
+                Guid contractGuid;
+                if (Guid.TryParse(kvp.Key, out contractGuid))
+                    result[contractGuid] = kvp.Value;
+            }
+
+            return result;
+        }
+
         private static int RemoveContractsByKey(
             List<Contract> contracts,
             HashSet<ContractRemovalKey> toRemove,
             bool unregisterBeforeRemove,
-            ref int unregisterFailures)
+            ref int unregisterFailures,
+            List<Contract> removedOut = null)
         {
             if (contracts == null || toRemove == null || toRemove.Count == 0)
                 return 0;
@@ -5767,6 +6059,8 @@ namespace Parsek
 
                 contracts.RemoveAt(i);
                 removed++;
+                if (removedOut != null)
+                    removedOut.Add(c);
             }
 
             return removed;
@@ -6591,6 +6885,7 @@ namespace Parsek
             protoTechNodesReflectionWarnEmitted = false;
             scienceSubjectsReflectionWarnEmitted = false;
             contractParameterStateReflectionWarnEmitted = false;
+            contractStateReflectionWarnEmitted = false;
             ContractReEvaluationDeferForTesting = null;
             ResetDrawdownGuardSessionLatches();
             FacilityStatePatcher.ResetForTesting();

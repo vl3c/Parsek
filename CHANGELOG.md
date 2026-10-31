@@ -25,6 +25,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A contract that ran out after a rewind stays in the Mission Control Archive.** When time
+  passed the moment a committed contract failed, completed or was cancelled, Parsek took it off
+  the active list but left it out of the Archive. It now lands in the Archive with that outcome,
+  paying nothing a second time. (CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE)
 - **A payment taken back after a rewind is taken back only once.** When stock paid a world-first
   again after a rewind, Parsek rightly took that money back, but then took it back again after
   every later scene change, so the career kept losing funds, science and reputation. It now

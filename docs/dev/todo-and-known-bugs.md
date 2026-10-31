@@ -17,6 +17,53 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE: a contract the clock carries past its committed outcome leaves stock's active list and goes nowhere, so it vanishes from the Mission Control Archive~~ [FILED 2026-10-31 from RW-20 run `2026-10-31_0256`; FIXED 2026-10-31, branch `contract-crossed-archive`; unit-tested, RW-20 re-pin owed; product, low (stock history only: funds, reputation, ledger and ground truth were right, nothing paid twice)]
+
+In RW-20 contract `1a9762e8` reached its real deadline and stock saved it `DeadlineExpired`. A
+Rewind-to-Launch to before that made it Active again (correct). When a Space Center warp then
+crossed the committed `ContractFail` row, `KspStatePatcher.PatchContracts` took the Active contract
+off stock's list (`removedStale=1`: not in the walk's active set) and put it nowhere, so the produced
+save held it in neither `ContractSystem.Instance.Contracts` nor `ContractsFinished` and it dropped
+out of the Archive. A crossed completion or cancellation took the same path (any Active contract the
+walk holds terminal lands in the stale-Active removal keys).
+
+**Fix.** `PatchContractsCore` plans, before the stale-Active removal, which removed Active contracts
+the walk holds terminal (`PlanRetiredActiveContractMoves`, pure) and files each one into
+`ContractsFinished` after removal (`ArchiveRetiredActiveContracts`). The state is the walk's
+outcome (`TryMapOutcomeToFinishedState`: Completed / Failed / DeadlineExpired / Cancelled;
+requirements lost maps to stock's OfferExpired, which stock's own `ContractSystem.UpdateContracts`
+drops, so it is not filed). No move when a finished copy with the same guid survives the patch (no
+duplicate). No real clock, no move: the full-replay paths (an OnLoad walk with no cutoff, the
+deferred scene-load patch, the cold-load full-replay fallback, the commit walk during OnLoad) carry
+a NaN clock and can hold terminal a contract whose committed outcome is still in the future; a
+filed copy would sit in the finished list while the next cutoff walk restores it Active, putting it
+in both lists. So without a real clock nothing is filed (counted `archiveNoClock`, one Info line),
+matching `DecideContractParameterPatch` (ClockNotReady) and `WithdrawOfferedContractTwins`. Nor
+is it filed when the outcome's end UT is after the patch's real clock (a walk past the clock,
+such as the Re-Fly invoke's whole-ledger walk: the contract is dropped as before rather than shown
+finished before its outcome happens). Residual: a contract either gate leaves unfiled is still
+taken off the active list, as before, and is not filed later when the clock reaches its outcome.
+The RW-20 crossing (a Space Center warp) is expected to patch at a real clock (the walk's cutoff
+or the live clock), so it files; a re-pin reading `archiveNoClock=1` instead names a no-clock path. The write is silent: stock's `Contract.SetState`
+(decompiled KSP 1.12.5) pays the
+completion or penalty and fires `OnStateChange` / `onCompleted` / `onFailed` / `onFinished`, so
+`TryRetireContractSilently` writes the private `state` field by reflection (as `Contract.Load`
+does) and `dateFinished` to the walk's end UT (`ContractsModule.GetTerminalContractUTs`: the
+outcome row's UT, or the deadline for a walk expiry), inside the patch's existing
+`SuppressionGuard.ResourcesAndReplay`. No new ledger row. One Info line per move (`filed ended
+contract <guid> ... as <state> (outcome=...)`), and `archivedToFinished` / `archiveAlreadyFinished`
+/ `archiveNoFinishedState` / `archiveOutcomeLater` / `archiveNoClock` / `archiveFailed` counters on the `PatchContracts: removedStale=` summary.
+The filed copy matches the walk, so the next patch keeps it as a surviving terminal entry and never
+restores it Active; a load rewind reloads stock's lists from the save (the contract comes back Active
+the way it does today), and a tombstoned outcome row removes the filed copy like any stock-finished
+copy, after which the restore re-adds it Active. Tests: `ContractCrossedOutcomeArchiveTests`.
+
+**Owed (in-game, not provable headlessly).** RW-20 re-pinned to assert that after the crossing the
+contract is in `ContractsFinished` as Failed (or DeadlineExpired, if the walk ends `1a9762e8` at
+its accept row's deadline rather than at the fail row; the Info line's `outcome=` names which) and
+not in `Contracts`, with no second penalty. The reflection write of
+`Contract.state` / `dateFinished` against the live stock assembly, and the Archive UI listing the
+filed contract, are only witnessed by that flight.
 ## ~~TAKE-BACK-REFIRES-AFTER-EVERY-LOAD: a duplicate stock payment taken back after a rewind is taken back again after every later scene change~~ [FILED AND FIXED 2026-10-31 from lane RW-20, run `2026-10-31_0307` (main's build); branch `takeback-refires`; unit-tested only, NOT FLOWN, RW-20 re-flight owed; product, high (a reduction of the career total, repeated on every load)]
 
 On a 100000x Space Center warp, stock paid the Sun/Flyby world-first one warp step after the
