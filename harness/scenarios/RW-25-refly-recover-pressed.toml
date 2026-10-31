@@ -49,11 +49,12 @@ id = "RW-25-refly-recover-pressed"
 #   Clock-crossing reached committed-future rows:       GameActions/LedgerOrchestrator.cs
 #   filed StockPoolAdjustment amount=                    GameActions/KspStatePatcher.cs:6427
 #
-# STATUS: AUTHORED 2026-10-31, NEVER FLOWN. Interim until measured: the recordings window, the
-# recovery's amount and UT, the batch split (pinned `passed=[1-9]`, INTERIM_PIN_IDS), whether
-# the recovery row is tagged to the attempt's recording (pinned loosely: `recordingId=`).
-# Open question the first flight answers: whether the modal spawns inside the click (the
-# immediate OK) or a frame later (the poll's OK); both paths answer the same line.
+# STATUS: AUTHORED 2026-10-31. LIVE-PROVEN ON ITS FIRST FLIGHT `2026-10-31_1811` PASS attempt 1
+# (348 s, DLL 0f3473d4), no product defect. Measured: 39 recordings, the payout +2791 at UT
+# 186000.3 tagged to the attempt's recording, 156355.22 funds before the rewind and after the
+# crossing, LedgerGroundTruth 3/3 with hardFailures=0 reportOnly=2. The modal came up 0.33 s
+# after the press (the Space Center load's interception, so the poll's OK); both paths answer
+# the same line. The recovery row's tag stays pinned loosely: `recordingId=`.
 # =====================================================================================
 tier = "operator"
 description = "Rewind ledger campaign, stock's Recover pressed inside a Re-Fly attempt (todo SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY residue): on cs-career-mun4 a CS Flea Probe decoupled on the pad is committed with its pod slot stashed, a Re-Fly of that slot hops and lands on KSC grass under its chute, Recover mergeDialog=refly presses the stock button into the Re-Fly merge modal, AnswerMergeDialog merges, stock recovers the pod at the Space Center and its payout is booked once; after a Rewind-to-Launch the warp crosses the recovery once and the pools come back; LedgerGroundTruth closes the career."
@@ -155,10 +156,8 @@ D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The host's 34, G's launch recording and its stand, the TIP the merge's split cuts and the
-# merged attempt's recording (RW-11 measured 39 with its fin debris; no booster is exploded
-# here). INTERIM window until measured.
-count = { min = 37, max = 39 }
+# Measured 39 (`2026-10-31_1811`): the host's 34 and this lane's five.
+count = { min = 39, max = 39 }
 
 [expectations.logContracts]
 required = [
@@ -185,8 +184,8 @@ required = [
   "MISSIONMARK label=rw25-rewound ut=(?:(?!MISSIONMARK label=rw25-crossed )[\\s\\S])*?Clock-crossing reached committed-future rows: [^\\r\\n]*FundsEarning@",
   "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw25-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw25-crossed ut=",
 
-  # ---- the ground truth (INTERIM split: never flown) ----
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  # ---- the ground truth ----
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
   "result: hardFailures=0 ",
 ]
 forbidden = [

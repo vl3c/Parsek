@@ -35,7 +35,7 @@ id = "RW-23-strategy-part-purchase-rebuy"
 #   research   basicRocketry (-5 science). Both before V's launch, so in its rewind save, and
 #              more than 15 s before it (the Rewind-to-Launch lead window, RW-9's finding).
 #   V          warp to 60 at the Space Center, save, load that save onto the pad Flea (RW-22's
-#              shape), record 60..100, commit, Recover (L8's pad recovery).
+#              shape), record 60..100, commit, exit to the Space Center, marker Recover (RW-18).
 #   purchase   warp to 200 (T1), R&D open on basicRocketry: buy the Hammer, discounted, its two
 #              legs naming the purchase.
 #   rewind     InvokeRewindToLaunch tree=latest: clock ~45, the Hammer unbought again, the
@@ -69,8 +69,15 @@ id = "RW-23-strategy-part-purchase-rebuy"
 #   - the pools after the crossing differ by the leg's size (about 18 funds or 1.25 rep): the
 #     leg paid twice or not at all at the crossing.
 #
-# STATUS: AUTHORED 2026-10-31 (branch `lanes-strategy-purchase-and-refly-recovery`), NEVER
-# FLOWN. The batch split, the leg sizes and the recordings count are interim until measured.
+# STATUS: AUTHORED 2026-10-31 (branch `lanes-strategy-purchase-and-refly-recovery`). FLOWN
+# 2026-10-31, RED BY FINDING, DLL 0f3473d4. First run (INVALID twice, `warp-locked
+# holders=MissionSummaryDialog` after the in-flight Recover): V now leaves through
+# ExitToSpaceCenter and KscMarkerRecover. Then `2026-10-31_1802` PARSEK-FAIL on the two
+# forbidden lines only, and every required line matched: gross 1200, legs +18 and -1.25, the
+# re-buy refused, the part marked once, the pools equal, LedgerGroundTruth 3/3. The red is
+# LEGACY-PART-PURCHASE-REPAIR-NETS-A-DISCOUNTED-PURCHASE: the batch's cold load rewrites the
+# 1200 row to 1182 under the +18 leg and files -18. The lane stays as it is and goes green
+# when that is fixed.
 # =====================================================================================
 tier = "operator"
 description = "Rewind ledger campaign, strategy discount on a part purchase (#2313): on career-pad-craft-purchase (entry purchases on, reputation 120) Aggressive Negotiations is activated and basicRocketry researched, a pad Flea V is recorded, committed and recovered, the RT-10 Hammer is bought at UT 200 with the strategy's discount, a Rewind-to-Launch to V's launch refuses a second purchase as committed, and the warp past the purchase applies it and its conversion legs once: the pools after the crossing equal the pools after the original purchase, with no pool adjustment and no guard clamp; LedgerGroundTruth closes the career."
@@ -88,8 +95,8 @@ craft = []
 kind = "seam"
 
 # Budget arithmetic: 2 x 300 LoadGame + 2 x 60 KscAction + 4 x 120 warps + 180 StartRecording
-# + 120 warp + 120 CommitTree + 120 Recover + 2 x 60 purchase-part + 300 rewind + 120 GoToEditor
-# + 180 LaunchFromEditor + 120 check warp + 6 x 120 SaveGame + 540 RunTests = 3960; runtime 4800
+# + 120 warp + 120 CommitTree + 120 exit + 60 marker Recover + 2 x 60 purchase-part + 300 rewind + 120 GoToEditor
+# + 180 LaunchFromEditor + 120 check warp + 6 x 120 SaveGame + 540 RunTests = 4020; runtime 4800
 # adds the inert steps and FlushAndQuit.
 steps = [
   { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
@@ -115,7 +122,11 @@ steps = [
   { cmd = "StopRecording",                                                                 expect = "OK" },
   { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
   { cmd = "StopRecording",                                                                 expect = "OK" },
-  { cmd = "Recover",        args = { pid = "2905720181" },                                 expect = "OK", budget = 120 },
+  # The Space Center exit and the marker Recover (RW-18's shape), not the in-flight press: the
+  # press's MissionSummaryDialog holds the TIMEWARP lock and refuses the warp to T1
+  # (`warp-locked holders=MissionSummaryDialog`, first flight 2026-10-31).
+  { cmd = "ExitToSpaceCenter",                                                            expect = "OK", budget = 120 },
+  { cmd = "KscMarkerRecover", args = { pid = "2905720181" },                              expect = "OK", budget = 60 },
   { cmd = "MissionMark",    args = { label = "rw23-v-recovered" },                         expect = "OK" },
   { cmd = "SaveGame",       args = { name = "rw23-01-after-v-commit" },                   expect = "OK", budget = 120 },
   # ---- the discounted purchase at T1 = 200 ----
@@ -165,7 +176,7 @@ D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# V only; the check launch is unrecorded (L11 measured one recording for this shape). INTERIM.
+# V only; the check launch is unrecorded (measured 1).
 count = { min = 1, max = 1 }
 
 [expectations.logContracts]
@@ -200,8 +211,8 @@ required = [
   "MISSIONMARK label=rw23-refused ut=(?:(?!MISSIONMARK label=rw23-crossed )[\\s\\S])*?PatchPurchasedParts: targets=[0-9]+, added=1, [^\\r\\n]*addedParts=\\[solidBooster\\.v2\\]",
   "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw23-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw23-crossed ut=",
 
-  # ---- the ground truth (interim split until the first flight measures it) ----
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  # ---- the ground truth ----
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
   "result: hardFailures=0 ",
 ]
 forbidden = [
