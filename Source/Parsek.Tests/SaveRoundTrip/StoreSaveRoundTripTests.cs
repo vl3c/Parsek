@@ -28,6 +28,7 @@ namespace Parsek.Tests.SaveRoundTrip
     [SaveRoundTripCovers(typeof(StockPoolReference))]
     [SaveRoundTripCovers(typeof(GameStateStore))]
     [SaveRoundTripCovers(typeof(MilestoneStore))]
+    [SaveRoundTripCovers(typeof(ParsekSettingsPersistence))]
     public class StoreSaveRoundTripTests : IDisposable
     {
         public StoreSaveRoundTripTests()
@@ -54,6 +55,20 @@ namespace Parsek.Tests.SaveRoundTrip
             StockPoolReference.ResetForTesting();
             GameStateStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
+            ParsekSettingsPersistence.ResetForTesting();
+            try { System.IO.File.Delete(SettingsPath); } catch { }
+        }
+
+        /// <summary>The install-wide settings file lives outside the save; the test points it at a temp file.</summary>
+        private static readonly string SettingsPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+            "parsek-settings-roundtrip-" + System.Diagnostics.Process.GetCurrentProcess().Id + ".cfg");
+
+        private static void SaveSettingsFile()
+        {
+            ParsekSettingsPersistence.SetFilePathOverrideForTesting(SettingsPath);
+            typeof(ParsekSettingsPersistence)
+                .GetMethod("Save", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
+                .Invoke(null, null);
         }
 
         /// <summary>One static store: its save, its reset, its load, and its field contract.</summary>
