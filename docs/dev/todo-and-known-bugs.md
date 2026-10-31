@@ -17,6 +17,78 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~TAKE-BACK-REFIRES-AFTER-EVERY-LOAD: a duplicate stock payment taken back after a rewind is taken back again after every later scene change~~ [FILED AND FIXED 2026-10-31 from lane RW-20, run `2026-10-31_0307` (main's build); branch `takeback-refires`; unit-tested only, NOT FLOWN, RW-20 re-flight owed; product, high (a reduction of the career total, repeated on every load)]
+
+On a 100000x Space Center warp, stock paid the Sun/Flyby world-first one warp step after the
+committed ledger row for it, before prevention could mark the node done. The take-back (design 3.15
+step 5) took the duplicate back once (38000 funds, 2 science, 4 rep), then again after every later
+scene change, 6 times in all. The pools fell from 186546 / 22.17 / 100.48 to a save of
+144138 / 20.17 / 95.2, with an in-memory dip to 106138. LedgerGroundTruth passed; the offline
+`ledger_audit` caught it.
+
+ROOT CAUSE (verified). The take-back's only memory of what it already took back was the counted
+entry of the repeat row: `StockPoolReference.Measure` fires a take-back only when the row is not
+counted (`double takeBack = !wasCounted && ...`, `StockPoolReference.cs:506` at e96d2c9; the
+authoritative twin at `:631`). The repeat's walk effect is 0 (the walk credits the identity once)
+and the reference steps only that walk effect, so its counted entry is `{Effect 0, Stepped 0}`, and
+`StockPoolReference.SaveTo` skips exactly such rows (`:716`). Every scene change saves the
+scenario and the next scene's OnLoad installs the saved reference (`ParsekScenario.cs:1500` and
+`:5947`; the policy cell is Save for every load kind), so after each one the repeat read as new
+and its take-back fired again. On a measured patch that adds the 38000 stock paid long ago to the
+expectation, the live pool reads 38000 short, and the shortfall is filed as a negative "leak"
+`StockPoolAdjustment` added to the write: the pool falls by the take-back again and every later
+walk carries the row. On an authoritative patch (a clock crossing that found the pool where the
+last patch left it) the write is the target anyway, so the repeat costs only a Warn; that is why
+6 re-fires moved the pools by less than 6 x 38000. The in-memory dip is the same mechanism (each
+scene change is an OnSave + OnLoad round trip of the same in-memory game, no disk save needed);
+a later load of an older save dropped some leak rows with the ledger rewind. No other reset was
+found: `ForgetCounted` touches only live-only income dropped on purpose, and `Clear` runs only on
+load and in tests.
+
+Why it was silent. A measured patch files any gap between the live pool and its expectation as a
+leak row and adds it to the write, so the walk's running value is the pool's own; a false
+take-back puts money into the expectation that is not in the pool, and the leak row makes the
+ledger agree with the lower pool by construction. LedgerGroundTruth compares the save with the
+walk minus its adjustment rows: the negative leak rows make that reconstruction read ABOVE the
+save, which `LedgerGroundTruthDiff.ClassifySeededPoolKind` (`LedgerGroundTruthDiff.cs:278`) reads
+as the drawdown guard's expected uplift surplus (`UpliftClampedExpected`, report-only) on every
+non-authoritative check. Making that hard would red every real unledgered loss a lane meets, so it
+was not changed here; the class is now caught at runtime instead (below), and `ledger_audit`
+already flags it offline.
+
+**Fix.** The reference keeps its own record of what it took back,
+`StockPoolReferenceState.TakenBack` (id -> amount), filled at `Commit` from the patch's take-backs,
+saved as additive `takenBack = <id> <amount>` values in each pool's node, read back by `LoadFrom`,
+and forgotten only when the row is gone from the ledger itself (`TakenBackRetired`). The save also
+keeps a taken-back row's counted entry although its effect and step are 0, so after a load the
+repeat is counted (and `StockShadowStart` does not count its payment as new either). A row the
+reference already took back but no longer counts (lost any other way: a row that leaves the
+effective ledger and comes back) is refused, in measured and authoritative patches alike, with one
+Warn: `[TakeBack] Refused a second take-back of <amount> <pool> for <identity> (row <id> ...;
+already took back <amount> ...)`. Cheap detector for the whole class: a measured patch whose kept
+leak is minus its own take-back Warns `[TakeBack] Patch<pool>: take-back found no stock payment`
+(`StockPoolReference.IsTakeBackFoundUnpaid`). Mirror: a repeat paid before a scene change and not
+yet counted is still taken back once after the load (`TakenBack` is set only by a take-back that
+fired); a load of a save from before the take-back carries neither fact, like the counted rows, so
+a payment stock makes again there is a new row and is taken back on its own. Logs:
+`Saved: ... takenBackRows=N`, `Loaded (...): ... takenBackRows=N`, `takeBackRefused=N` in the
+measurement summary.
+
+Tests: `StockShadowTakeBackTests` (`TakeBack_SurvivesEverySceneChange_FiresOnce_NoLeakRow`: the
+RW-20 shape through six save / load round trips, red before the fix at the counted-row check and,
+in the three-pool cell, at the write, 1000 for 39000; the three pools; a repeat paid before a scene
+change taken back once after it; a counted row lost another way refused with the Warn, measured and
+authoritative; the unpaid signature; a row gone from the ledger forgotten; a rewind to a save from
+before it), `StockPoolReferenceTests` (the zero taken-back row and its fact round trip, an
+unreadable `takenBack` value is a bad row).
+
+RW-20 re-flight must show: exactly one `[TakeBack] Took back 38000 Funds` (and one each for the 2
+science and 4 rep) for Sun/Flyby, zero `Refused a second take-back`, zero `take-back found no stock
+payment`, zero `filed StockPoolAdjustment ... reason=leak` after the take-back's patch,
+`STOCK_POOL_REFERENCE` in the save holding a `takenBack` line for the repeat row, the pools ending
+at the never-rewound values (186546 / 22.17 / 100.48 plus whatever the lane earns after), and
+`ledger_audit` green.
+
 ## ~~KSC-DEBRIS-CLEANUP-REFUND-UNLEDGERED: stock's refund for debris cluttering the Space Center is never booked, so it lands as a leak row and a guard clamp~~ [FILED AND FIXED 2026-10-28 from RW-7 run `2026-10-28_1637`, branch `ksc-debris-refund`; unit-tested, RW-7 re-flight owed; product, medium (an unledgered funds change; LedgerGroundTruth hard-fails)]
 
 When the scene enters the Space Center, stock recovers landed debris near the KSC through

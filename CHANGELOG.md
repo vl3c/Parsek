@@ -25,6 +25,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A payment taken back after a rewind is taken back only once.** When stock paid a world-first
+  again after a rewind, Parsek rightly took that money back, but then took it back again after
+  every later scene change, so the career kept losing funds, science and reputation. It now
+  remembers what it took back across saves and loads. (TAKE-BACK-REFIRES-AFTER-EVERY-LOAD)
 - **The Space Center's refund for clearing away debris is now on the books.** When debris that
   landed in the Space Center grounds is cleared away, stock refunds part of its cost; that money
   now goes into Parsek's ledger like any other recovery instead of being kept as an unexplained
