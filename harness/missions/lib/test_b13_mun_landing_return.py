@@ -1011,11 +1011,9 @@ class SchemaAndSpecTests(unittest.TestCase):
         self.assertEqual("${%s.pid}" % launch["label"], recover["args"]["pid"])
         self.assertEqual("CS Mun Solar Lander", steps[mission - 2]["args"]["craft"])
         # The ladder is a chain: CS-6b buys the walk on CS-6's save, CS-6c the power's
-        # research on CS-6b's; CS-7 flies from CS-6c's produced save and its one KSC
-        # step is the VAB the lander's six legs need.
-        self.assertEqual(["SpaceCenter/VehicleAssemblyBuilding"],
-                         [s["args"]["facility"] for s in steps[:mission]
-                          if s.get("cmd") == "KscAction"])
+        # research on CS-6b's; CS-7 flies from CS-6c's produced save and runs no KSC
+        # step of its own.
+        self.assertFalse(any(s.get("cmd") == "KscAction" for s in steps[:mission]))
         walk = [s["args"] for s in _spec(CS6B_SPEC)["driver"]["steps"]
                 if s.get("cmd") == "KscAction"]
         self.assertEqual([{"action": "upgrade-facility",

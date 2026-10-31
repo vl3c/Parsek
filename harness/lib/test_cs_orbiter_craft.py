@@ -10,6 +10,7 @@ the derivation, a part off the tech the lane researches, a stack over the level-
 or a staging order the mission does not expect reds here instead of in a flight.
 """
 import importlib.util
+import math
 import os
 import re
 import tomllib
@@ -556,9 +557,8 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
         self.assertEqual([], self.b.munsci_check())
 
     def test_the_craft_fits_the_hosts_facilities(self):
-        # VAB level 1, which CS-7 upgrades to (the six legs make 33 parts; level 0 allows
-        # 30); Launch Pad level 1 (140 t, 36 m).
-        self.assertEqual(33, self.fig["parts"])
+        # VAB level 0 (30 parts: exactly at the limit); Launch Pad level 1 (140 t, 36 m).
+        self.assertEqual(30, self.fig["parts"])
         self.assertLessEqual(self.fig["mass"], 140.0)
         self.assertLessEqual(self.fig["height"], 36.0)
         self.assertEqual(self.fig["parts"], len(_parts(_read(SOLAR_CRAFT))))
@@ -568,26 +568,29 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
         mine = _parts(_read(SOLAR_CRAFT))
         self.assertEqual(3, lander.count("noseCone"))
         self.assertEqual(0, mine.count("noseCone"))
-        self.assertEqual(3, mine.count("solarPanels5"))
+        self.assertEqual(2, mine.count("solarPanels5"))
         self.assertEqual(1, mine.count("batteryPack"))
         self.assertEqual(3, lander.count("miniLandingLeg"))
-        self.assertEqual(6, mine.count("miniLandingLeg"))
+        self.assertEqual(4, mine.count("miniLandingLeg"))
         rest = sorted(n for n in mine
                       if n not in ("solarPanels5", "batteryPack", "miniLandingLeg"))
         self.assertEqual(sorted(n for n in lander
                                 if n not in ("noseCone", "miniLandingLeg")), rest)
-        # The same propellant in every stage, the first three legs and the Terrier to
-        # the digit.
+        # The same propellant in every stage, the Terrier to the digit, and the legs at
+        # the same height and radius.
         layout = self.b.solar_layout()
         base = self.b.lander_layout()
         for which in ("upper", "core", "boosters"):
             mine_prop = sum(self.b._pprop(p) for p in layout if p.group == which)
             theirs = sum(self.b._pprop(p) for p in base if p.group == which)
             self.assertAlmostEqual(theirs, mine_prop, places=6, msg=which)
-        for name in ("miniLandingLeg", "liquidEngine3.v2", "mk1pod.v2"):
-            theirs = [p.pos for p in base if p.name == name]
-            self.assertEqual(theirs, [p.pos for p in layout if p.name == name][:len(theirs)],
-                             name)
+        for name in ("liquidEngine3.v2", "mk1pod.v2"):
+            self.assertEqual([p.pos for p in base if p.name == name],
+                             [p.pos for p in layout if p.name == name], name)
+        reach = {(round(p.pos[1], 9), round(math.hypot(p.pos[0], p.pos[2]), 9))
+                 for p in layout if p.name == "miniLandingLeg"}
+        self.assertEqual({(round(p.pos[1], 9), round(math.hypot(p.pos[0], p.pos[2]), 9))
+                          for p in base if p.name == "miniLandingLeg"}, reach)
         self.assertAlmostEqual(self.b.lander_figures()["leg_clearance"],
                                self.fig["leg_clearance"], places=12)
 
@@ -597,8 +600,8 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
         self.assertGreaterEqual(self.fig["dv_total"], 6600.0)
         self.assertGreaterEqual(self.fig["liftoff_twr"], 1.25)
         self.assertGreaterEqual(self.fig["mun_twr"], 3.0)
-        # The power and the three extra legs cost the lander under 70 m/s.
-        self.assertLess(self.b.lander_figures()["dv_upper"] - self.fig["dv_upper"], 70.0)
+        # The power and the fourth leg cost the lander under 50 m/s.
+        self.assertLess(self.b.lander_figures()["dv_upper"] - self.fig["dv_upper"], 50.0)
 
     def test_the_stage_order_is_cs_mun_landers(self):
         self.assertEqual(self.b.lander_stage_want(),
@@ -619,7 +622,7 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
         parts = self.b.solar_layout()
         upper = [p for p in parts if p.key.startswith("utank")]
         power = [p for p in parts if p.name in ("solarPanels5", "batteryPack")]
-        self.assertEqual(4, len(power))
+        self.assertEqual(3, len(power))
         for p in power:
             with self.subTest(part=p.key):
                 self.assertEqual("upper", p.group)
@@ -632,7 +635,7 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
         battery = [p for p in power if p.name == "batteryPack"][0]
         self.assertIs(upper[1], battery.parent)
         clear = self.b.solar_hatch_clearances(parts)
-        self.assertEqual(4, len(clear))
+        self.assertEqual(3, len(clear))
         self.assertTrue(all(d >= 59.0 for d in clear.values()), clear)
 
     def test_the_attach_is_kerbal_1s_and_the_yaw_family_matches_every_donor(self):
@@ -676,12 +679,13 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
         ec = self.fig["ec"]
         # The pod's 50 + the Z-100's 100.
         self.assertEqual(150.0, ec["capacity"])
-        self.assertEqual(3, ec["panels"])
-        self.assertAlmostEqual(1.05, ec["peak"], places=9)
-        # Broadside sun: 0.35 x (cos 30 = 0.866 .. 1.0), 3 / pi x 0.35 on average.
-        self.assertAlmostEqual(0.303, ec["broadside_min"], places=3)
+        self.assertEqual(2, ec["panels"])
+        self.assertAlmostEqual(0.70, ec["peak"], places=9)
+        # Broadside sun, two panels back to back: 0 edge-on, 0.35 face-on, 2 / pi x 0.35
+        # on average.
+        self.assertAlmostEqual(0.0, ec["broadside_min"], places=3)
         self.assertAlmostEqual(0.350, ec["broadside_max"], places=3)
-        self.assertAlmostEqual(0.334, ec["broadside_avg"], places=3)
+        self.assertAlmostEqual(0.223, ec["broadside_avg"], places=3)
         # The first flight's saturated coast draw empties the battery in about 6 min.
         self.assertAlmostEqual(357.0, ec["saturated_hold_s"], delta=1.0)
 
@@ -703,14 +707,12 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
         with open(CS7_SPEC, "rb") as fh:
             spec = tomllib.load(fh)
         # The ladder is a chain: CS-7 flies from CS-6c's produced save, which holds
-        # every node the craft needs; CS-7's one KSC step is the VAB its six legs need.
+        # every node the craft needs, so CS-7 runs no KSC step.
         self.assertEqual("fixtures/saves/cs-career-mun4", spec["fixture"]["saveTemplate"])
         steps = spec["driver"]["steps"]
         editor = next(i for i, s in enumerate(steps) if s.get("cmd") == "GoToEditor")
         self.assertEqual("CS Mun Solar Lander", steps[editor]["args"]["craft"])
-        self.assertEqual(["SpaceCenter/VehicleAssemblyBuilding"],
-                         [s["args"]["facility"] for s in steps[:editor]
-                          if s.get("cmd") == "KscAction"])
+        self.assertFalse(any(s.get("cmd") == "KscAction" for s in steps[:editor]))
         with open(CS6C_SPEC, "rb") as fh:
             cs6c_steps = tomllib.load(fh)["driver"]["steps"]
         researched = [s["args"]["node"] for s in cs6c_steps

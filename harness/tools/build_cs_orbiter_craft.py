@@ -1713,17 +1713,16 @@ SOLAR_SHIP_NAME = "CS Mun Solar Lander"
 SOLAR_OUT = os.path.join(ROOT, "harness", "fixtures", "saves", "cs-career-mun4",
                          "Ships", "VAB", "CS Mun Solar Lander.craft")
 SOLAR_UID_BASE = 4291000001
-# SIX LEGS. Three LT-05s stand on a triangle whose nearest edge is half the feet's radius
+# FOUR LEGS. Three LT-05s stand on a triangle whose nearest edge is half the feet's radius
 # from the axis (about 0.36 m under a centre of mass about 1.7 m up), so the three-legged
 # lander tips at about 12 deg, and the Mun's equatorial band reads 7 to 14 deg at the
 # flown site (kRPC surface_height over 10 m, run 2026-10-31). Runs 2026-10-28_0432 attempt
 # 2 and _0649 attempt 2 fell over on touchdown, and _0626 while Jeb was out and SAS off.
-# Six legs make a hexagon, whose nearest edge is 0.87 of the feet's radius (about 0.62 m,
-# about 20 deg). The legs need three more parts than the level-0 VAB allows, so CS-7
-# upgrades the VAB first; every core part is an FL-T400 and fuelSystems is not researched.
-SOLAR_LEG_AZIMUTHS = LANDER_LEG_AZIMUTHS + (0.0, 120.0, 240.0)
-SOLAR_LIMIT_PARTS = 255          # VAB level 1
-SOLAR_PANEL_AZIMUTHS = (90.0, 210.0, 330.0)
+# A square's nearest edge is 0.71 of the feet's radius (about 0.51 m, about 17 deg). The
+# level-0 VAB holds 30 parts and the upgrade costs more than the career has, so the fourth
+# leg takes a panel's place: the flown minimum was 141.8 of 150 EC with three panels.
+SOLAR_LEG_AZIMUTHS = (45.0, 135.0, 225.0, 315.0)
+SOLAR_PANEL_AZIMUTHS = (0.0, 180.0)
 SOLAR_BATTERY_AZIMUTH = 90.0
 # Kerbal 1 solarPanels5_4293048744 (its +Z panel): attPos0 (1.3e-15 noise dropped) on
 # its FL-T400, i.e. the radius and the height above the tank centre.
@@ -1737,7 +1736,7 @@ SOLAR_PANEL_CHARGE_RATE = 0.35
 # CS-7 flight 2026-10-27_2326: the pod wheel's draw on the long-stack ascent coast.
 SOLAR_MEASURED_HOLD_DRAW = 0.42
 SOLAR_MIN_CAPACITY = 150.0
-SOLAR_PARTS = {"solarPanels5": 3, "batteryPack": 1}
+SOLAR_PARTS = {"solarPanels5": 2, "batteryPack": 1}
 
 PART_CFG.update({
     "solarPanels5": {"mass": 0.005, "cost": 75},     # Electrical/radialFlatSolarPanel
@@ -1778,7 +1777,7 @@ def _radial_part(key, name, uid_n, parent, azimuth, radius, dy, psi):
 
 def solar_layout():
     """Every part of CS Mun Solar Lander, root first: CS Mun Lander's layout without
-    the Thumper cones and with six legs, then the three OX-STATs on the top FL-T400 and
+    the Thumper cones and with four legs, then the two OX-STATs on the top FL-T400 and
     the Z-100 on the second."""
     parts = lander_layout(uid_base=SOLAR_UID_BASE, cones=False,
                           leg_azimuths=SOLAR_LEG_AZIMUTHS)
@@ -1868,8 +1867,8 @@ def solar_problems():
     out = []
     parts = solar_layout()
     f = solar_figures()
-    if f["parts"] > SOLAR_LIMIT_PARTS:
-        out.append("%d parts > the level-1 VAB limit %d" % (f["parts"], SOLAR_LIMIT_PARTS))
+    if f["parts"] > MUN_LIMIT_PARTS:
+        out.append("%d parts > the level-0 VAB limit %d" % (f["parts"], MUN_LIMIT_PARTS))
     if f["mass"] > MUN_LIMIT_MASS_T:
         out.append("%.3f t > the level-1 pad limit %.0f t" % (f["mass"], MUN_LIMIT_MASS_T))
     if f["height"] > MUN_LIMIT_HEIGHT_M:
@@ -1902,16 +1901,13 @@ def solar_problems():
         if d < MUNSCI_HATCH_CLEARANCE_DEG:
             out.append("%s sits %.0f deg off the hatch (< %.0f)"
                        % (key, d, MUNSCI_HATCH_CLEARANCE_DEG))
-    # CS Mun Lander's three legs and its Terrier, to the last digit, plus three more
-    # legs on the same tank.
+    # CS Mun Lander's Terrier, to the last digit, and its legs' height on the same tank.
     if len([p for p in parts if p.name == "miniLandingLeg"]) != len(SOLAR_LEG_AZIMUTHS):
         out.append("the lander needs %d legs" % len(SOLAR_LEG_AZIMUTHS))
-    want = {p.key: p.pos for p in lander_layout()
-            if p.name in ("miniLandingLeg", "liquidEngine3.v2")}
-    have = {p.key: p.pos for p in parts
-            if p.key in want}
+    want = {p.key: p.pos for p in lander_layout() if p.name == "liquidEngine3.v2"}
+    have = {p.key: p.pos for p in parts if p.name == "liquidEngine3.v2"}
     if want != have:
-        out.append("the legs or the Terrier moved: %r != %r" % (have, want))
+        out.append("the Terrier moved: %r != %r" % (have, want))
     if abs(f["leg_clearance"] - lander_leg_clearance()) > 1e-9:
         out.append("leg clearance %.3f != CS Mun Lander's %.3f"
                    % (f["leg_clearance"], lander_leg_clearance()))
