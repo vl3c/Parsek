@@ -85,6 +85,39 @@ NOT an operating knob: it cannot suppress, rewrite or fake a verdict, and a
 dry-run smoke classifies honestly as NO-SELECTION (exit 1) because zero results
 were produced.
 
+THE FULL RUN. ``--tier full`` flies EVERY lane: every tier in
+``FULL_RUN_TIER_ORDER`` (daily, nightly, weekly, perpr, operator, longhaul;
+only ``pending-fixture``, whose fixture does not exist yet, is left out), on every
+instance profile. It is not a run.py tier: the runner PLANS the run itself and
+hands run.py the ordered id list through ``--ids-file``, so the run is still ONE
+run.py invocation (one lock, one Parsek.Tests build, one coverage refresh).
+
+  ORDER       tier by tier in ``FULL_RUN_TIER_ORDER`` (cheap broad signal first,
+              the five-hour longhaul set last); inside a tier the reference
+              profile (stock-minimal) first, then ``FULL_RUN_PROFILE_ORDER``;
+              inside that, spec file order.
+  SKIPPED     a lane on an operator-local fixture that is not staged here (it
+              would only refuse pre-boot INVALID(staging)); the plan names each
+              with its staging command.
+  PLAN        ``results/tier-runs/full_<stamp>.plan.json`` (the ordered ids, the
+              skipped lanes, the start time, the git HEAD) and
+              ``full_<stamp>.ids`` (what run.py reads).
+  PREFLIGHT   ``run.py --ids-file ... --admit-only`` admits every profile the plan
+              touches (and the mission venv) BEFORE anything flies; an unfit one
+              stops the run NEEDS-PROVISION naming the command for each.
+  --provision the explicit opt-in to POLICY 2's exception: provision every plan
+              profile from THIS worktree's build (reference first) and bootstrap
+              the mission venv, then admit. The requester asked for it by name, so
+              nobody has walked away from a choice they did not make.
+  --resume    continue the latest (or a named) plan: every plan lane with a
+              terminal summary line since the plan started is skipped (an attempt-1
+              INVALID alone is re-flown). Repeatable; the window stays the plan's.
+  --stop      ask the running selection (any tier) to stop at the next lane
+              boundary: the lane in flight finishes, unstarted lanes are dropped
+              with no result row. The invocation then reads STOPPED (exit 3) unless
+              something already went red.
+  --plan-only print the plan and the admission preflight; fly nothing, no lock.
+
 Stdlib only, mirroring the rest of harness/. Pure decisions live at module level
 (``classify_outcome``, ``tally_verdicts``, ``format_history_line``,
 ``select_stale_tier_run_logs``, ``evaluate_lock_preflight``) and are unit-tested
@@ -94,6 +127,7 @@ in ``harness/lib/test_tier_runner.py``; everything below ``main`` is I/O.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shlex
 import subprocess
@@ -120,8 +154,15 @@ for _p in (HERE, LIB_DIR, PROVISION_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import hlib  # noqa: E402  (tier / profile vocabulary, stop-request + ids-file contract)
 import machinelock  # noqa: E402  (lock file I/O; the decision is provlib's)
 import provlib  # noqa: E402
+
+SCENARIOS_DIR = os.path.join(HARNESS_ROOT, "scenarios")
+DURATION_PATH = os.path.join(HARNESS_ROOT, "coverage", "duration.json")
+PROVISION_PY = os.path.join(PROVISION_DIR, "provision.py")
+BOOTSTRAP_VENV_PY = os.path.join(HARNESS_ROOT, "missions", "bootstrap_venv.py")
+STOP_REQUEST_PATH = os.path.join(RESULTS_DIR, hlib.STOP_REQUEST_FILENAME)
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +176,25 @@ import provlib  # noqa: E402
 # of `operator` so each is its own deliberate request).
 TIER_CHOICES: Tuple[str, ...] = ("daily", "nightly", "operator", "longhaul")
 
+# `full` is NOT a harness tier: it is this runner's planned run over every tier
+# (module docstring, "THE FULL RUN"). Offered beside the tiers on --tier.
+FULL_RUN = "full"
+RUN_CHOICES: Tuple[str, ...] = TIER_CHOICES + (FULL_RUN,)
+
+# The order a full run flies the tiers in: the cheap everyday set first so a broken
+# build shows within the first half hour, the long interplanetary set last. Every
+# hlib.TIERS member is either here or in FULL_RUN_EXCLUDED_TIERS (pinned by a test),
+# so a new tier cannot silently fall out of "every lane".
+FULL_RUN_TIER_ORDER: Tuple[str, ...] = ("daily", "nightly", "weekly", "perpr",
+                                        "operator", "longhaul")
+# `pending-fixture` marks a lane whose fixture does not exist yet: it cannot fly.
+FULL_RUN_EXCLUDED_TIERS: Tuple[str, ...] = ("pending-fixture",)
+# Profile order inside a tier, and the provisioning order: the reference instance
+# first, because the others admit against ITS Parsek.dll.
+FULL_RUN_PROFILE_ORDER: Tuple[str, ...] = ("stock-minimal", "stock-tree", "modded-compat")
+
+PLAN_SCHEMA = "parsek-full-run-plan/1"
+
 OUTCOME_GREEN = "GREEN"
 OUTCOME_RED = "RED"
 OUTCOME_NEEDS_PROVISION = "NEEDS-PROVISION"
@@ -142,6 +202,7 @@ OUTCOME_NO_SELECTION = "NO-SELECTION"
 OUTCOME_LOCKED = "LOCKED"
 OUTCOME_SKIPPED = "SKIPPED"
 OUTCOME_ERROR = "ERROR"
+OUTCOME_STOPPED = "STOPPED"
 
 EXIT_GREEN = 0
 EXIT_RED = 1
@@ -159,6 +220,7 @@ OUTCOME_EXIT_CODES: Dict[str, int] = {
     OUTCOME_NEEDS_PROVISION: EXIT_NEEDS_PROVISION,
     OUTCOME_LOCKED: EXIT_SKIPPED,
     OUTCOME_SKIPPED: EXIT_SKIPPED,
+    OUTCOME_STOPPED: EXIT_SKIPPED,
     OUTCOME_ERROR: EXIT_ERROR,
 }
 
@@ -276,7 +338,8 @@ def is_evidence_line(line: str) -> bool:
     streaming tee to keep memory bounded without weakening classification."""
     text = line or ""
     return is_admission_drift_line(text) or \
-        any(m in text for m in INSTANCE_LOCKED_MARKERS)
+        any(m in text for m in INSTANCE_LOCKED_MARKERS) or \
+        hlib.STOP_HONOURED_MARKER in text
 
 
 def _contains_any(lines: Sequence[str], markers: Sequence[str]) -> bool:
@@ -366,7 +429,7 @@ def parse_tier_run_log_stamp(filename: str) -> Optional[datetime]:
         return None
     stem = name[: -len(".log")]
     parts = stem.split("_")
-    if len(parts) < 3 or parts[0] not in TIER_CHOICES:
+    if len(parts) < 3 or parts[0] not in RUN_CHOICES:
         return None
     try:
         stamp = datetime.strptime("_".join(parts[-2:]), LOG_STAMP_FORMAT)
@@ -415,6 +478,228 @@ def evaluate_lock_preflight(existing_lock: Optional[Dict], pid: int, now: float,
     decision = provlib.acquire_lock(existing_lock, pid, now, is_alive_fn,
                                     lease_seconds=lease_seconds)
     return bool(decision.acquired), decision.reason
+
+
+def apply_stop_request(outcome: TierRunOutcome,
+                       captured_lines: Sequence[str]) -> TierRunOutcome:
+    """A selection stopped by ``--stop`` did not fly everything it was asked to,
+    so it must not read GREEN (or NO-SELECTION, when the stop landed before the
+    first lane). Anything that already needs a human (RED, NEEDS-PROVISION,
+    LOCKED, ERROR) keeps its label and gains the note."""
+    if not any(hlib.STOP_HONOURED_MARKER in (l or "") for l in captured_lines):
+        return outcome
+    note = "stopped by request at a lane boundary"
+    if outcome.outcome in (OUTCOME_GREEN, OUTCOME_NO_SELECTION):
+        return TierRunOutcome(OUTCOME_STOPPED, "%s (%s)" % (note, outcome.detail))
+    return TierRunOutcome(outcome.outcome, "%s [%s]" % (outcome.detail, note))
+
+
+@dataclass(frozen=True)
+class FullRunLane:
+    scenario_id: str
+    tier: str
+    profile: str
+    p50_seconds: Optional[float]
+
+
+@dataclass(frozen=True)
+class FullRunPlan:
+    lanes: Tuple[FullRunLane, ...]
+    skipped: Tuple[Tuple[str, str], ...]   # (scenario id, reason)
+
+    @property
+    def ids(self) -> List[str]:
+        return [lane.scenario_id for lane in self.lanes]
+
+
+def _profile_rank(profile: Optional[str]) -> Tuple[int, str]:
+    name = str(profile or "")
+    if name in FULL_RUN_PROFILE_ORDER:
+        return FULL_RUN_PROFILE_ORDER.index(name), name
+    return len(FULL_RUN_PROFILE_ORDER), name
+
+
+def plan_full_run(specs: Sequence[Dict], durations: Dict[str, Dict],
+                  local_fixture_staged: Callable[[str], bool]) -> FullRunPlan:
+    """Order every flyable lane for a full run (module docstring, "ORDER").
+
+    ``specs`` in spec file order; ``durations`` is duration.json's ``scenarios``
+    map (only ``p50`` is read, for the estimate); ``local_fixture_staged`` answers
+    for a ``fixtures/local-saves/...`` template whether it exists here. A spec
+    with an excluded or unknown tier, or on an unstaged local fixture, lands in
+    ``skipped`` with its reason instead of silently vanishing."""
+    buckets: Dict[str, List[Tuple[Tuple[int, str], int, FullRunLane]]] = {
+        t: [] for t in FULL_RUN_TIER_ORDER}
+    skipped: List[Tuple[str, str]] = []
+    for index, spec in enumerate(specs):
+        sid = str(spec.get("id"))
+        tier = spec.get("tier")
+        if tier in FULL_RUN_EXCLUDED_TIERS:
+            skipped.append((sid, "tier %s (its fixture is not built yet)" % tier))
+            continue
+        if tier not in buckets:
+            skipped.append((sid, "unknown tier %r" % (tier,)))
+            continue
+        template = (spec.get("fixture", {}) or {}).get("saveTemplate")
+        if hlib.is_local_fixture_template(template) and not local_fixture_staged(template):
+            skipped.append((sid, "operator-local fixture not staged: %s"
+                            % (hlib.local_fixture_hint(template) or template)))
+            continue
+        entry = durations.get(sid) or {}
+        p50 = entry.get("p50")
+        p50 = float(p50) if isinstance(p50, (int, float)) and not isinstance(p50, bool) else None
+        profile = str(spec.get("instanceProfile"))
+        buckets[tier].append((_profile_rank(profile), index,
+                              FullRunLane(sid, str(tier), profile, p50)))
+    lanes: List[FullRunLane] = []
+    for tier in FULL_RUN_TIER_ORDER:
+        lanes.extend(lane for _, _, lane in sorted(buckets[tier], key=lambda b: (b[0], b[1])))
+    return FullRunPlan(tuple(lanes), tuple(skipped))
+
+
+def plan_profiles(lanes: Sequence[FullRunLane]) -> List[str]:
+    """The distinct profiles a plan flies, in provisioning order (reference
+    first)."""
+    return sorted({lane.profile for lane in lanes}, key=_profile_rank)
+
+
+def format_plan_summary(lanes: Sequence[FullRunLane],
+                        skipped: Sequence[Tuple[str, str]] = ()) -> List[str]:
+    """Human lines for a plan: one per (tier, profile) segment in flight order
+    with its lane count and measured p50 estimate, a total, and every skipped
+    lane with its reason. Lanes with no measured wall are COUNTED, never guessed."""
+    segments: List[Tuple[str, str]] = []
+    stats: Dict[Tuple[str, str], List[float]] = {}
+    unmeasured: Dict[Tuple[str, str], int] = {}
+    for lane in lanes:
+        key = (lane.tier, lane.profile)
+        if key not in stats:
+            segments.append(key)
+            stats[key] = []
+            unmeasured[key] = 0
+        if lane.p50_seconds is None:
+            unmeasured[key] += 1
+        else:
+            stats[key].append(lane.p50_seconds)
+    out: List[str] = []
+    for key in segments:
+        n = len(stats[key]) + unmeasured[key]
+        out.append("segment tier=%s profile=%s lanes=%d p50=%.1fh unmeasured=%d"
+                   % (key[0], key[1], n, sum(stats[key]) / 3600.0, unmeasured[key]))
+    total_p50 = sum(sum(v) for v in stats.values())
+    total_unmeasured = sum(unmeasured.values())
+    out.append("total lanes=%d p50=%.1fh (measured lanes only) unmeasured=%d skipped=%d"
+               % (len(lanes), total_p50 / 3600.0, total_unmeasured, len(skipped)))
+    for sid, reason in skipped:
+        out.append("skipped %s: %s" % (sid, reason))
+    return out
+
+
+def _summary_fields(line: str) -> Optional[Tuple[str, str, str, int]]:
+    """``(ended_iso, verdict, scenario_id, attempt)`` of a summary.txt line, or
+    None when the line is not one."""
+    parts = (line or "").split()
+    if len(parts) < 4 or parts[1] not in KNOWN_VERDICTS or not parts[3].startswith("attempt="):
+        return None
+    try:
+        attempt = int(parts[3][len("attempt="):])
+    except ValueError:
+        return None
+    return parts[0], parts[1], parts[2], attempt
+
+
+def full_run_latest_verdicts(summary_lines: Sequence[str], since_iso: str) -> Dict[str, Tuple[str, int]]:
+    """Each scenario's LAST summary line at or after ``since_iso`` (the plan's
+    start): ``{id: (verdict, attempt)}``. The stamps are the fixed-width
+    ``%Y-%m-%dT%H:%M:%SZ`` form, so a string compare is a time compare."""
+    latest: Dict[str, Tuple[str, int]] = {}
+    for line in summary_lines:
+        fields = _summary_fields(line)
+        if fields is None or fields[0] < since_iso:
+            continue
+        latest[fields[2]] = (fields[1], fields[3])
+    return latest
+
+
+def full_run_done(verdict: str, attempt: int) -> bool:
+    """Whether a lane's latest line in the window settles it for a resume. Only
+    an INVALID can be retried (hlib.decide_retry), so an attempt-1 INVALID may be
+    a retry the interrupted run never flew, or a refusal (an unprovisioned
+    profile) the resume is meant to cure: either way it is flown again."""
+    return not (verdict == "INVALID" and attempt < 2)
+
+
+def full_run_remaining(plan_ids: Sequence[str], summary_lines: Sequence[str],
+                       since_iso: str) -> List[str]:
+    """The plan's ids a resume still has to fly, in plan order."""
+    latest = full_run_latest_verdicts(summary_lines, since_iso)
+    return [sid for sid in plan_ids
+            if sid not in latest or not full_run_done(*latest[sid])]
+
+
+def full_run_tally(plan_ids: Sequence[str], summary_lines: Sequence[str],
+                   since_iso: str) -> str:
+    """The whole planned run's standing, across every invocation (first + each
+    resume): the latest verdict per plan lane, plus ``pending`` for lanes with
+    no settled line yet."""
+    latest = full_run_latest_verdicts(summary_lines, since_iso)
+    counts: Dict[str, int] = {}
+    pending = 0
+    for sid in plan_ids:
+        entry = latest.get(sid)
+        if entry is None or not full_run_done(*entry):
+            pending += 1
+            continue
+        counts[entry[0]] = counts.get(entry[0], 0) + 1
+    text = format_tally(counts)
+    return "%s pending=%d of %d" % (text, pending, len(plan_ids))
+
+
+def classify_admit_preflight(exit_code: int,
+                             captured_lines: Sequence[str]) -> Optional[TierRunOutcome]:
+    """None when ``run.py --admit-only`` admitted every profile and the venv;
+    else NEEDS-PROVISION naming the exact command for each unfit piece (each
+    drifted profile's provision line, the venv bootstrap), so the recovery is
+    the right one per failure."""
+    if exit_code == 0:
+        return None
+    drifted: List[str] = []
+    venv = "n/a"
+    for line in captured_lines:
+        text = line or ""
+        if "admit instance=" in text and "result=DRIFT" in text:
+            profile = text.split("admit instance=", 1)[1].split()[0]
+            if profile not in drifted:
+                drifted.append(profile)
+        if "venv-admit" in text and "result=" in text:
+            venv = text.rsplit("result=", 1)[1].split()[0]
+    hints = ["%s: %s" % (p, hlib.provision_command_hint(p))
+             for p in sorted(drifted, key=_profile_rank)]
+    if venv in ("MISSING", "DRIFT"):
+        hints.append("mission venv %s: cd harness && python missions/bootstrap_venv.py" % venv)
+    if not hints:
+        hints.append("run.py --admit-only exited %d without naming an unfit profile; "
+                     "read the log" % exit_code)
+    return TierRunOutcome(
+        OUTCOME_NEEDS_PROVISION,
+        "full-run preflight: the stack is not fit (re-invoke with --provision to "
+        "fix it from this worktree's build): " + "; ".join(hints))
+
+
+def select_latest_plan(filenames: Sequence[str]) -> Optional[str]:
+    """The newest ``full_<stamp>.plan.json`` among ``filenames``, by its stamp."""
+    best: Optional[Tuple[datetime, str]] = None
+    for name in filenames:
+        if not (name.startswith(FULL_RUN + "_") and name.endswith(".plan.json")):
+            continue
+        stamp = name[len(FULL_RUN) + 1: -len(".plan.json")]
+        try:
+            when = datetime.strptime(stamp, LOG_STAMP_FORMAT)
+        except ValueError:
+            continue
+        if best is None or when > best[0]:
+            best = (when, name)
+    return best[1] if best else None
 
 
 # ---------------------------------------------------------------------------
@@ -659,18 +944,30 @@ def rotate_tier_run_logs(log: TeeLog, keep_days: int = TIER_RUN_LOG_KEEP_DAYS) -
     return removed
 
 
-def build_run_argv(tier: str) -> List[str]:
-    """The run.py command line. ``PARSEK_TIER_RUNPY_ARGS`` (test seam, see the
-    module docstring) appends extra args; it can add flags but never removes
-    ``--tier``."""
-    argv = [sys.executable, RUN_PY, "--tier", tier]
+def build_run_argv(tier: str, ids_file: Optional[str] = None) -> List[str]:
+    """The run.py command line: ``--tier <tier>``, or ``--ids-file <path>`` for a
+    planned full run. ``PARSEK_TIER_RUNPY_ARGS`` (test seam, see the module
+    docstring) appends extra args; it can add flags but never removes the
+    selection."""
+    if ids_file:
+        argv = [sys.executable, RUN_PY, "--ids-file", ids_file]
+    else:
+        argv = [sys.executable, RUN_PY, "--tier", tier]
     extra = os.environ.get("PARSEK_TIER_RUNPY_ARGS", "").strip()
     if extra:
         argv.extend(shlex.split(extra))
     return argv
 
 
-def spawn_run(argv: Sequence[str], log: TeeLog) -> Tuple[int, List[str]]:
+def build_admit_only_argv(ids_file: str) -> List[str]:
+    """The read-only admission preflight over a planned run's selection. No
+    PARSEK_TIER_RUNPY_ARGS here: the seam's ``--dry-run`` would replace the
+    admit with a plan print."""
+    return [sys.executable, RUN_PY, "--ids-file", ids_file, "--admit-only"]
+
+
+def spawn_run(argv: Sequence[str], log: TeeLog,
+              keep: Callable[[str], bool] = is_evidence_line) -> Tuple[int, List[str]]:
     """Run run.py, teeing its merged stdout/stderr into the runner log line by
     line, and return ``(exit_code, evidence_lines)``.
 
@@ -687,7 +984,7 @@ def spawn_run(argv: Sequence[str], log: TeeLog) -> Tuple[int, List[str]]:
         for raw in proc.stdout:
             line = raw.rstrip("\r\n")
             log.raw(line)
-            if len(evidence) < EVIDENCE_LINE_CAP and is_evidence_line(line):
+            if len(evidence) < EVIDENCE_LINE_CAP and keep(line):
                 evidence.append(line)
         proc.stdout.close()
     return proc.wait(), evidence
@@ -706,50 +1003,282 @@ def _finish(log: TeeLog, tier: str, outcome: TierRunOutcome, log_name: str) -> i
     return exit_code
 
 
+def preflight_machine(log: TeeLog) -> Optional[TierRunOutcome]:
+    """The advisory lock + live-KSP preflight (run.py's own acquire stays
+    authoritative). None to proceed, else the SKIPPED outcome to finish with."""
+    lock_path = machinelock.lock_path_for(UMBRELLA_ROOT)
+    existing = machinelock.read_lock(lock_path)
+    proceed, reason = evaluate_lock_preflight(existing, os.getpid(), time.time(),
+                                              pid_alive)
+    if not proceed:
+        holder = machinelock.describe_holder(existing)
+        log.warn("Preflight", "SKIP: machine lock held (%s) -- not queueing behind "
+                              "the holder (%s, lock=%s)" % (holder, reason, lock_path))
+        return TierRunOutcome(OUTCOME_SKIPPED, "machine lock held (%s)" % holder)
+    log.info("Preflight", "machine lock free (decision=%s, lock=%s)" % (reason, lock_path))
+
+    busy = ksp_pid()
+    if busy is not None:
+        log.warn("Preflight", "SKIP: KSP_x64.exe already running (pid=%s; interactive "
+                              "session or zombie) -- not queueing" % busy)
+        return TierRunOutcome(OUTCOME_SKIPPED, "KSP_x64.exe alive (pid=%s)" % busy)
+    log.info("Preflight", "no live KSP_x64.exe; proceeding")
+    return None
+
+
+def invoke_and_classify(log: TeeLog, argv: Sequence[str]) -> Tuple[TierRunOutcome, List[str]]:
+    """Spawn run.py, classify the invocation (stop requests included). Returns
+    the outcome and the new summary lines."""
+    before = len(read_summary_lines())
+    log.info("Invoke", "spawning %s (cwd=%s, summary lines before=%d)"
+             % (" ".join(argv), HARNESS_ROOT, before))
+    started = time.time()
+    exit_code, evidence = spawn_run(argv, log)
+    elapsed = int(round(time.time() - started))
+    new_lines = read_summary_lines()[before:]
+    log.info("Invoke", "run.py exited %d after %ds; %d new summary line(s)"
+             % (exit_code, elapsed, len(new_lines)))
+    outcome = apply_stop_request(classify_outcome(exit_code, new_lines, evidence), evidence)
+    level = log.info if outcome.outcome == OUTCOME_GREEN else log.warn
+    level("Classify", "%s: %s" % (outcome.outcome, outcome.detail))
+    return outcome, new_lines
+
+
 def run(tier: str, log: TeeLog, log_name: str) -> int:
     log.info("Start", "tier-run tier=%s harness=%s umbrella=%s python=%s"
              % (tier, HARNESS_ROOT, UMBRELLA_ROOT, sys.executable))
     assert_system_awake(log)
     try:
-        # ---- PREFLIGHT (advisory; run.py's own acquire is authoritative) ----
-        lock_path = machinelock.lock_path_for(UMBRELLA_ROOT)
-        existing = machinelock.read_lock(lock_path)
-        proceed, reason = evaluate_lock_preflight(existing, os.getpid(), time.time(),
-                                                  pid_alive)
-        if not proceed:
-            holder = machinelock.describe_holder(existing)
-            log.warn("Preflight", "SKIP: machine lock held (%s) -- not queueing behind "
-                                  "the holder (%s, lock=%s)" % (holder, reason, lock_path))
-            return _finish(log, tier, TierRunOutcome(
-                OUTCOME_SKIPPED, "machine lock held (%s)" % holder), log_name)
-        log.info("Preflight", "machine lock free (decision=%s, lock=%s)" % (reason, lock_path))
-
-        busy = ksp_pid()
-        if busy is not None:
-            log.warn("Preflight", "SKIP: KSP_x64.exe already running (pid=%s; interactive "
-                                  "session or zombie) -- not queueing" % busy)
-            return _finish(log, tier, TierRunOutcome(
-                OUTCOME_SKIPPED, "KSP_x64.exe alive (pid=%s)" % busy), log_name)
-        log.info("Preflight", "no live KSP_x64.exe; proceeding")
-
-        # ---- INVOKE ---------------------------------------------------------
-        before = len(read_summary_lines())
-        argv = build_run_argv(tier)
-        log.info("Invoke", "spawning %s (cwd=%s, summary lines before=%d)"
-                 % (" ".join(argv), HARNESS_ROOT, before))
-        started = time.time()
-        exit_code, evidence = spawn_run(argv, log)
-        elapsed = int(round(time.time() - started))
-        new_lines = read_summary_lines()[before:]
-        log.info("Invoke", "run.py exited %d after %ds; %d new summary line(s)"
-                 % (exit_code, elapsed, len(new_lines)))
-
-        outcome = classify_outcome(exit_code, new_lines, evidence)
-        level = log.info if outcome.outcome == OUTCOME_GREEN else log.warn
-        level("Classify", "%s: %s" % (outcome.outcome, outcome.detail))
+        skip = preflight_machine(log)
+        if skip is not None:
+            return _finish(log, tier, skip, log_name)
+        outcome, _ = invoke_and_classify(log, build_run_argv(tier))
         return _finish(log, tier, outcome, log_name)
     finally:
         release_system_awake(log)
+
+
+# ---------------------------------------------------------------------------
+# Full run I/O
+# ---------------------------------------------------------------------------
+
+
+def load_specs() -> List[Dict]:
+    """Every scenario spec, in file order (the same walk as run.load_all_specs,
+    kept here so the runner does not import run.py)."""
+    import tomllib
+    specs: List[Dict] = []
+    for name in sorted(os.listdir(SCENARIOS_DIR)):
+        if not name.endswith(".toml"):
+            continue
+        with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+            spec = tomllib.load(fh)
+        spec["_path"] = os.path.join(SCENARIOS_DIR, name)
+        specs.append(spec)
+    return specs
+
+
+def load_durations() -> Dict[str, Dict]:
+    try:
+        with open(DURATION_PATH, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    scenarios = data.get("scenarios") if isinstance(data, dict) else None
+    return scenarios if isinstance(scenarios, dict) else {}
+
+
+def local_fixture_staged(template: str) -> bool:
+    return os.path.isdir(os.path.join(HARNESS_ROOT, template.replace("/", os.sep)))
+
+
+def git_head() -> str:
+    try:
+        out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=WORKTREE_ROOT,
+                             capture_output=True, text=True)
+        return (out.stdout or "").strip() or "unknown"
+    except OSError:
+        return "unknown"
+
+
+def write_text(path: str, text: str) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+    os.replace(tmp, path)
+
+
+def write_ids_file(path: str, ids: Sequence[str], header: str) -> None:
+    write_text(path, "# %s\n%s\n" % (header, "\n".join(ids)))
+
+
+def new_full_plan(log: TeeLog, stamp: str, started_iso: str,
+                  preview: bool = False) -> Tuple[Dict, str]:
+    """Plan a fresh full run and write its plan file. Returns the plan dict and
+    the plan file name. A ``preview`` (``--plan-only``) is written under a name
+    ``--resume`` never picks, so a look at the plan cannot hijack the resume of
+    the real run."""
+    specs = load_specs()
+    plan = plan_full_run(specs, load_durations(), local_fixture_staged)
+    for line in format_plan_summary(plan.lanes, plan.skipped):
+        log.info("Plan", line)
+    record = {
+        "schema": PLAN_SCHEMA,
+        "createdUtc": started_iso,
+        "gitHead": git_head(),
+        "specCount": len(specs),
+        "ids": plan.ids,
+        "lanes": [{"id": l.scenario_id, "tier": l.tier, "profile": l.profile,
+                   "p50": l.p50_seconds} for l in plan.lanes],
+        "skipped": [{"id": sid, "reason": reason} for sid, reason in plan.skipped],
+    }
+    name = "%s_%s.%s" % (FULL_RUN, stamp, "preview.json" if preview else "plan.json")
+    write_text(os.path.join(TIER_RUNS_DIR, name), json.dumps(record, indent=2) + "\n")
+    log.info("Plan", "plan written %s (gitHead=%s)" % (name, record["gitHead"]))
+    return record, name
+
+
+def load_full_plan(resume: str) -> Tuple[Optional[Dict], str]:
+    """``(plan, name)`` for ``--resume`` (``latest`` = the newest plan file)."""
+    if resume == "latest":
+        try:
+            name = select_latest_plan(os.listdir(TIER_RUNS_DIR))
+        except OSError:
+            name = None
+        if name is None:
+            return None, "no %s_*.plan.json under %s" % (FULL_RUN, TIER_RUNS_DIR)
+        path = os.path.join(TIER_RUNS_DIR, name)
+    else:
+        path = resume if os.path.isabs(resume) else os.path.join(TIER_RUNS_DIR, resume)
+        name = os.path.basename(path)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            plan = json.load(fh)
+    except (OSError, ValueError) as exc:
+        return None, "cannot read plan %s: %s" % (path, exc)
+    if not isinstance(plan, dict) or plan.get("schema") != PLAN_SCHEMA:
+        return None, "plan %s is not a %s file" % (path, PLAN_SCHEMA)
+    return plan, name
+
+
+def provision_stack(log: TeeLog, profiles: Sequence[str], needs_venv: bool) -> Optional[TierRunOutcome]:
+    """``--provision``: provision each profile (reference first) from THIS
+    worktree's build, then bootstrap the mission venv when the plan holds an
+    autopilot lane. None on success, else NEEDS-PROVISION naming the step."""
+    steps: List[Tuple[str, List[str]]] = [
+        ("provision %s" % p, [sys.executable, PROVISION_PY, "--profile", p]) for p in profiles]
+    if needs_venv:
+        steps.append(("bootstrap mission venv", [sys.executable, BOOTSTRAP_VENV_PY]))
+    for label, argv in steps:
+        log.info("Provision", "%s: %s" % (label, " ".join(argv)))
+        code, _ = spawn_run(argv, log)
+        if code != 0:
+            log.error("Provision", "%s exited %d" % (label, code))
+            return TierRunOutcome(OUTCOME_NEEDS_PROVISION,
+                                  "--provision: %s exited %d; nothing flew (read the log)"
+                                  % (label, code))
+        log.info("Provision", "%s: done" % label)
+    return None
+
+
+def run_full(log: TeeLog, log_name: str, stamp: str, resume: Optional[str],
+             provision: bool, plan_only: bool) -> int:
+    log.info("Start", "full-run harness=%s umbrella=%s python=%s resume=%s provision=%s "
+                      "planOnly=%s" % (HARNESS_ROOT, UMBRELLA_ROOT, sys.executable,
+                                       resume or "-", provision, plan_only))
+    started_iso = utcnow_iso()
+    assert_system_awake(log)
+    try:
+        if not plan_only:
+            skip = preflight_machine(log)
+            if skip is not None:
+                return _finish(log, FULL_RUN, skip, log_name)
+
+        if resume:
+            plan, plan_name = load_full_plan(resume)
+            if plan is None:
+                return _finish(log, FULL_RUN, TierRunOutcome(
+                    OUTCOME_ERROR, "--resume: %s" % plan_name), log_name)
+            since = str(plan.get("createdUtc"))
+            ids = full_run_remaining(list(plan.get("ids") or []), read_summary_lines(), since)
+            log.info("Plan", "resuming %s (started %s, gitHead=%s): %d of %d lane(s) left"
+                     % (plan_name, since, plan.get("gitHead"), len(ids),
+                        len(plan.get("ids") or [])))
+            if plan.get("gitHead") != git_head():
+                log.warn("Plan", "this worktree is at %s, the plan was made at %s; the "
+                                 "resumed lanes fly whatever the instances carry now"
+                         % (git_head(), plan.get("gitHead")))
+        else:
+            plan, plan_name = new_full_plan(log, stamp, started_iso, preview=plan_only)
+            since = started_iso
+            ids = list(plan["ids"])
+        plan_ids = list(plan.get("ids") or [])
+        lanes = plan.get("lanes") or []
+        remaining = set(ids)
+        profiles = sorted({str(l.get("profile")) for l in lanes if l.get("id") in remaining},
+                          key=_profile_rank)
+
+        if not ids:
+            tally = full_run_tally(plan_ids, read_summary_lines(), since)
+            if plan_only:
+                log.info("Done", "plan-only: plan %s has no lane left (%s)" % (plan_name, tally))
+                return EXIT_GREEN
+            return _finish(log, FULL_RUN, TierRunOutcome(
+                OUTCOME_SKIPPED, "plan %s has no lane left to fly (%s)" % (plan_name, tally)),
+                log_name)
+
+        ids_path = os.path.join(TIER_RUNS_DIR, "%s_%s.%s" % (
+            FULL_RUN, stamp, "preview.ids" if plan_only else "ids"))
+        write_ids_file(ids_path, ids, "full run plan %s, %d lane(s)" % (plan_name, len(ids)))
+
+        if provision and not plan_only:
+            needs_venv = _plan_needs_venv(ids)
+            failed = provision_stack(log, profiles, needs_venv)
+            if failed is not None:
+                return _finish(log, FULL_RUN, failed, log_name)
+
+        code, evidence = spawn_run(build_admit_only_argv(ids_path), log,
+                                   keep=lambda l: "admit" in l)
+        unfit = classify_admit_preflight(code, evidence)
+        if plan_only:
+            log.info("Done", "plan-only: %d lane(s) planned in %s, admission %s; nothing flew"
+                     % (len(ids), plan_name, "OK" if unfit is None else "UNFIT: " + unfit.detail))
+            return EXIT_GREEN if unfit is None else EXIT_NEEDS_PROVISION
+        if unfit is not None:
+            log.warn("Preflight", unfit.detail)
+            return _finish(log, FULL_RUN, unfit, log_name)
+
+        outcome, _ = invoke_and_classify(log, build_run_argv(FULL_RUN, ids_file=ids_path))
+        tally = full_run_tally(plan_ids, read_summary_lines(), since)
+        log.info("Plan", "full run %s standing: %s" % (plan_name, tally))
+        outcome = TierRunOutcome(outcome.outcome, "%s; plan=%s whole-run=[%s]"
+                                 % (outcome.detail, plan_name, tally))
+        return _finish(log, FULL_RUN, outcome, log_name)
+    finally:
+        release_system_awake(log)
+
+
+def _plan_needs_venv(ids: Sequence[str]) -> bool:
+    wanted = set(ids)
+    return any(spec.get("id") in wanted
+               and (spec.get("driver", {}) or {}).get("kind") == "autopilot"
+               for spec in load_specs())
+
+
+def request_stop() -> int:
+    """``--stop``: drop the stop-request file the running selection polls at each
+    lane boundary. Takes no lock and starts nothing."""
+    try:
+        write_text(STOP_REQUEST_PATH, "requested %s by pid %d\n" % (utcnow_iso(), os.getpid()))
+    except OSError as exc:
+        console_write_default("[TierRun][Error][Stop] could not write %s: %s"
+                              % (STOP_REQUEST_PATH, exc))
+        return EXIT_ERROR
+    console_write_default("[TierRun][Info][Stop] stop requested (%s): the running selection "
+                          "finishes its current lane and stops; a planned full run continues "
+                          "with --tier full --resume" % STOP_REQUEST_PATH)
+    return EXIT_GREEN
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -762,12 +1291,37 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 "  1  RED              a finding, a KILLED, an XPASS, or nothing flew\n"
                 "  2  NEEDS-PROVISION  the instance is not fit; provisioning is a HUMAN call\n"
                 "  3  SKIPPED          machine lock held / a KSP is running; nothing attempted\n"
+                "     STOPPED          (also 3) a --stop request ended the selection early\n"
                 "  4  ERROR            the runner itself broke\n"))
-    parser.add_argument("--tier", required=True, choices=list(TIER_CHOICES),
+    parser.add_argument("--tier", choices=list(RUN_CHOICES),
                         help="which tier to fly (exact tier match; "
                              "run.py's own --tier accepts any string and silently "
-                             "selects zero on a typo, which is why this is a choices set)")
+                             "selects zero on a typo, which is why this is a choices set), "
+                             "or `full` for every lane of every tier")
+    parser.add_argument("--resume", nargs="?", const="latest", metavar="PLAN",
+                        help="--tier full only: continue the newest full_*.plan.json (or "
+                             "the named one), flying only its lanes with no settled result")
+    parser.add_argument("--provision", action="store_true",
+                        help="--tier full only: provision every profile the plan flies "
+                             "from THIS worktree's build and bootstrap the mission venv "
+                             "before flying (an explicit opt-in to POLICY 2's exception)")
+    parser.add_argument("--plan-only", action="store_true",
+                        help="--tier full only: write and print the plan and run the "
+                             "admission preflight; fly nothing, take no lock")
+    parser.add_argument("--stop", action="store_true",
+                        help="ask the running selection to stop at its next lane boundary")
     args = parser.parse_args(argv)
+
+    if args.stop:
+        if args.tier or args.resume or args.provision or args.plan_only:
+            parser.error("--stop takes no other option")
+        return request_stop()
+    if not args.tier:
+        parser.error("--tier is required (or --stop)")
+    if args.tier != FULL_RUN and (args.resume or args.provision or args.plan_only):
+        parser.error("--resume / --provision / --plan-only apply to --tier full only")
+    if args.plan_only and args.provision:
+        parser.error("--plan-only flies nothing and provisions nothing")
 
     stamp = utcnow().strftime(LOG_STAMP_FORMAT)
     log_name = "%s_%s.log" % (args.tier, stamp)
@@ -775,6 +1329,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     log: Optional[TeeLog] = None
     try:
         log = TeeLog(log_path)
+        if args.tier == FULL_RUN:
+            return run_full(log, log_name, stamp, args.resume, args.provision,
+                            args.plan_only)
         return run(args.tier, log, log_name)
     except Exception:  # noqa: BLE001 - an internal fault must still leave a history line
         # ORDER IS LOAD-BEARING: the history line is appended FIRST, before any

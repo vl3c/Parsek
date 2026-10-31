@@ -33,6 +33,7 @@ import ast
 import copy
 import hashlib
 import inspect
+import io
 import json
 import os
 import re
@@ -7594,6 +7595,56 @@ class PipelinedEdgeSmokeTests(unittest.TestCase):
             log = fh.read()
         return code, results, rt, log
 
+    def _stopping_runtime(self, at_launch=1):
+        stop = os.path.join(run.RESULTS_DIR, hlib.STOP_REQUEST_FILENAME)
+
+        class _Stopping(_SelectionRuntime):
+            def launch(rt, exe, args, env, cwd):
+                if len(rt.launch_order) + 1 == at_launch:
+                    with open(stop, "w", encoding="utf-8") as fh:
+                        fh.write("requested\n")
+                return _SelectionRuntime.launch(rt, exe, args, env, cwd)
+        return _Stopping, stop
+
+    def _assert_stopped_after_a(self, serial):
+        cls, stop = self._stopping_runtime()
+        code, results, rt, log = self._select(["PE-A", "PE-B", "PE-C"], {}, serial=serial,
+                                              runtime_cls=cls)
+        self.assertEqual(0, code)
+        self.assertEqual(["PE-A#1"], rt.launch_order)
+        self.assertEqual(["PASS"], [r["verdict"] for r in results["PE-A"]])
+        # Unstarted lanes get NO row: a resume must find them unflown.
+        self.assertNotIn("PE-B", results)
+        self.assertNotIn("PE-C", results)
+        self.assertIn(hlib.STOP_HONOURED_MARKER, log)
+        self.assertIn("dropped=2", log)
+        self.assertFalse(os.path.exists(stop), "an honoured request must be consumed")
+
+    def test_a_stop_request_ends_the_pipelined_selection_at_the_next_lane(self):
+        self._assert_stopped_after_a(serial=False)
+
+    def test_a_stop_request_ends_the_serial_selection_at_the_next_lane(self):
+        self._assert_stopped_after_a(serial=True)
+
+    def test_a_stop_request_still_flies_the_retry_a_flown_lane_owes(self):
+        cls, _ = self._stopping_runtime()
+        code, results, rt, log = self._select(["PE-A", "PE-B"], {("PE-A", 1): "bootcrash"},
+                                              runtime_cls=cls)
+        self.assertEqual(["PE-A#1", "PE-A#2"], rt.launch_order)
+        self.assertNotIn("PE-B", results)
+        self.assertIn("dropped=1", log)
+
+    def test_a_stale_stop_request_is_dropped_at_selection_start(self):
+        os.makedirs(run.RESULTS_DIR, exist_ok=True)
+        stop = os.path.join(run.RESULTS_DIR, hlib.STOP_REQUEST_FILENAME)
+        with open(stop, "w", encoding="utf-8") as fh:
+            fh.write("left over\n")
+        code, results, rt, log = self._select(["PE-A", "PE-B"], {})
+        self.assertEqual(0, code)
+        self.assertEqual(["PE-A#1", "PE-B#1"], rt.launch_order)
+        self.assertIn("removed a stale stop request", log)
+        self.assertNotIn(hlib.STOP_HONOURED_MARKER, log)
+
     def test_a_failed_copy_verifies_in_place_with_the_same_verdict(self):
         code, results, rt, log = self._select(["PE-A", "PE-B"], {}, copy_fails=("PE-A",))
         self.assertEqual(0, code)
@@ -8321,3 +8372,83 @@ class PipelinedVerifyCopySetTests(unittest.TestCase):
             with self.subTest(inject=inject.strip()):
                 problems, _ = _collect_logs_problems(text.replace(anchor, anchor + inject))
                 self.assertTrue(any(needle in p for p in problems), problems)
+
+
+class AdmitOnlyAndIdsFileTests(unittest.TestCase):
+    """`run.py --admit-only` (the full run's preflight) and `--ids-file` (its
+    selection)."""
+
+    def setUp(self):
+        self.box = tempfile.mkdtemp(prefix="parsek-admit-only-")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.box, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "ao_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.box, ignore_errors=True)
+
+    def _log(self):
+        with open(self.logger.log_path, encoding="utf-8") as fh:
+            return fh.read()
+
+    def _specs(self, *profiles):
+        return [{"id": "AO-%d" % i, "instanceProfile": p, "driver": {"kind": "seam"}}
+                for i, p in enumerate(profiles)]
+
+    def test_a_fit_instance_admits_every_profile_once(self):
+        instance = os.path.join(self.box, "instance")
+        _write_manifest(instance, "stock-minimal")
+        args = mock.Mock(instance_dir=instance)
+        code = run.admit_only(self._specs("stock-minimal", "stock-minimal"), self.box, args,
+                              FakeRuntime("pass"), self.logger)
+        log = self._log()
+        self.assertEqual(0, code, log)
+        self.assertEqual(1, log.count("admit instance=stock-minimal"))
+        self.assertIn("admit-only summary profiles=stock-minimal drifted=- venv=n/a result=OK", log)
+
+    def test_an_unprovisioned_instance_is_named_and_fails(self):
+        empty = os.path.join(self.box, "empty")
+        os.makedirs(empty)
+        args = mock.Mock(instance_dir=empty)
+        code = run.admit_only(self._specs("stock-minimal", "stock-tree"), self.box, args,
+                              FakeRuntime("pass"), self.logger)
+        log = self._log()
+        self.assertEqual(1, code)
+        self.assertIn("admit instance=stock-tree manifest=missing result=DRIFT", log)
+        self.assertIn("drifted=stock-minimal,stock-tree", log)
+        self.assertIn("result=UNFIT", log)
+        # A preflight writes no result row and launches nothing.
+        self.assertFalse(any(n.endswith(".json") for n in os.listdir(run.RESULTS_DIR)))
+
+    def test_an_autopilot_lane_also_admits_the_venv(self):
+        instance = os.path.join(self.box, "instance")
+        _write_manifest(instance, "stock-minimal")
+        specs = [{"id": "AO-ap", "instanceProfile": "stock-minimal",
+                  "driver": {"kind": "autopilot"}}]
+        code = run.admit_only(specs, self.box, mock.Mock(instance_dir=instance),
+                              FakeRuntime("pass", venv_ok=False), self.logger)
+        self.assertEqual(1, code)
+        self.assertIn("mission venv-admit", self._log())
+
+    def test_main_selects_an_ids_file_in_file_order_and_names_unknown_ids(self):
+        specs = run.load_all_specs()
+        first, second = specs[-1]["id"], specs[0]["id"]
+        ids = os.path.join(self.box, "plan.ids")
+        with open(ids, "w", encoding="utf-8") as fh:
+            fh.write("# a plan\n%s\n\nNO-SUCH-LANE\n%s\n%s\n" % (first, second, first))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = run.main(["--ids-file", ids, "--dry-run"])
+        text = out.getvalue()
+        self.assertEqual(0, code, text)
+        self.assertIn("-> 2 scenarios: [%r, %r]" % (first, second), text)
+        self.assertIn("'NO-SUCH-LANE'", text)
+        self.assertLess(text.index("[SELECT ] %s " % first), text.index("[SELECT ] %s " % second))
+
+    def test_main_refuses_an_unreadable_ids_file(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = run.main(["--ids-file", os.path.join(self.box, "missing.ids"), "--dry-run"])
+        self.assertEqual(2, code)

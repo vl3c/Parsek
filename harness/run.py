@@ -875,6 +875,37 @@ def _reference_dll_drift(profile: Optional[str], instance_dir: str, umbrella_roo
     return diff
 
 
+def admit_instance_dir(profile: Optional[str], instance_dir: str, umbrella_root: str,
+                       logger: HarnessLogger):
+    """The ADMIT step for one instance: read its manifest, rebuild the expected
+    projection, add the reference-DLL check, decide, and log the admit lines.
+    Returns ``(admission, admit_diff, reference_diff)``. Shared by every attempt
+    and by ``--admit-only`` so a preflight and a lane admit by the same rule."""
+    manifest, incomplete = read_manifest(instance_dir)
+    expected = build_expected_from_manifest(manifest, instance_dir, logger) if manifest else {}
+    reference_diff = (_reference_dll_drift(profile, instance_dir, umbrella_root, logger)
+                      if manifest else None)
+    admission = hlib.admit_instance(expected, manifest, incomplete, reference_diff)
+    admit_diff = [
+        {"field": d.field, "expected": d.expected, "actual": d.actual, "kind": d.kind}
+        for d in admission.diff
+    ]
+    logger.info("Admit", "admit instance=%s manifest=%s result=%s"
+                % (profile, "present" if manifest else "missing",
+                   "OK" if admission.admitted else "DRIFT"))
+    if not admission.admitted:
+        for d in admit_diff:
+            logger.warn("Admit", "admit drift field=%s expected=%s actual=%s"
+                        % (d["field"], d["expected"], d["actual"]))
+        if reference_diff is not None:
+            logger.warn("Admit", "admit refused: instance=%s deploys another Parsek.dll than "
+                                 "%s (the instance every routine provision updates); "
+                                 "provision it (a HUMAN call): %s"
+                        % (profile, hlib.REFERENCE_DLL_PROFILE,
+                           hlib.provision_command_hint(profile)))
+    return admission, admit_diff, reference_diff
+
+
 # ---------------------------------------------------------------------------
 # Machine run lock (design Run lock / edge 7, EC-10).
 #
@@ -4174,22 +4205,9 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
                                 admission=admission, logger=lg, run_id=run_id)
 
     # ---- ADMIT -----------------------------------------------------------
-    manifest, incomplete = read_manifest(instance_dir)
-    expected = build_expected_from_manifest(manifest, instance_dir, logger) if manifest else {}
-    reference_diff = (_reference_dll_drift(profile, instance_dir, umbrella_root, logger)
-                      if manifest else None)
-    admission = hlib.admit_instance(expected, manifest, incomplete, reference_diff)
-    admit_diff = [
-        {"field": d.field, "expected": d.expected, "actual": d.actual, "kind": d.kind}
-        for d in admission.diff
-    ]
-    logger.info("Admit", "admit instance=%s manifest=%s result=%s"
-                % (profile, "present" if manifest else "missing",
-                   "OK" if admission.admitted else "DRIFT"))
+    admission, admit_diff, reference_diff = admit_instance_dir(profile, instance_dir,
+                                                               umbrella_root, logger)
     if not admission.admitted:
-        for d in admit_diff:
-            logger.warn("Admit", "admit drift field=%s expected=%s actual=%s"
-                        % (d["field"], d["expected"], d["actual"]))
         reason = "admission %s" % admission.subkind
         note = ""
         if reference_diff is not None:
@@ -4197,10 +4215,6 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
             note = ("this instance's Parsek.dll is not the build %s carries; "
                     "provision it: %s" % (hlib.REFERENCE_DLL_PROFILE, hint))
             reason += "; " + note
-            logger.warn("Admit", "admit refused: instance=%s deploys another Parsek.dll than "
-                                 "%s (the instance every routine provision updates); "
-                                 "provision it (a HUMAN call): %s"
-                        % (profile, hlib.REFERENCE_DLL_PROFILE, hint))
         return _refuse(hlib.Verdict(hlib.VERDICT_INVALID, admission.subkind, False, reason,
                                     note=note),
                        {"admitted": False, "subkind": admission.subkind, "diff": admit_diff})
@@ -5522,6 +5536,8 @@ def build_select_expr(args) -> Optional[str]:
         return "--tag %s" % args.tag
     if args.cadence:
         return "--cadence %s" % args.cadence
+    if getattr(args, "ids_file", None):
+        return "--ids-file %s" % args.ids_file
     return None
 
 
@@ -5688,12 +5704,20 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
                                     "perpr|daily|nightly|weekly|pending-fixture|operator|longhaul)")
     sel.add_argument("--tag", help="run every spec carrying this tag")
     sel.add_argument("--cadence", help="run the tier set a cadence maps to (per-pr|daily|nightly|weekly)")
+    sel.add_argument("--ids-file", help="run the scenario ids listed in this file (one per line, "
+                                        "# comments allowed) in FILE order; the selection "
+                                        "tools/tier_runner.py --tier full plans")
     parser.add_argument("--dry-run", action="store_true",
                         help="print the action plan and validate every selected "
                              "spec; launch nothing. Exits 1 if any spec is invalid.")
     parser.add_argument("--umbrella-root", help="override the umbrella root (default: parent of the worktree)")
     parser.add_argument("--instance-dir", help="override the resolved instance dir (single-profile runs / tests)")
     parser.add_argument("--no-coverage", action="store_true", help="skip the coverage/flake refresh")
+    parser.add_argument("--admit-only", action="store_true",
+                        help="run the ADMIT step once per instance profile the selection "
+                             "touches (plus the mission venv when it holds an autopilot "
+                             "lane); launch nothing, take no lock. Exits 0 when every one "
+                             "admits, else 1")
     parser.add_argument("--serial-verify", action="store_true",
                         help="verify each lane before the next one stages (the pre-2026-10-14 "
                              "path); same as %s=1" % hlib.SERIAL_VERIFY_ENV)
@@ -5708,9 +5732,22 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
 
     expr = build_select_expr(args)
     if expr is None:
-        logger.error("Select", "no selection given (use --id / --tier / --tag / --cadence)")
+        logger.error("Select", "no selection given (use --id / --tier / --tag / --cadence / --ids-file)")
         return 2
-    selected = hlib.select_scenarios(specs, expr)
+    if getattr(args, "ids_file", None):
+        try:
+            with open(args.ids_file, "r", encoding="utf-8") as fh:
+                ids_text = fh.read()
+        except OSError as exc:
+            logger.error("Select", "cannot read --ids-file %s: %s" % (args.ids_file, exc))
+            return 2
+        selected, unknown_ids = hlib.select_scenarios_by_ids(
+            specs, hlib.parse_ids_file_text(ids_text))
+        if unknown_ids:
+            logger.warn("Select", "--ids-file names %d id(s) no loaded spec carries (skipped, "
+                                  "no result row): %s" % (len(unknown_ids), unknown_ids))
+    else:
+        selected = hlib.select_scenarios(specs, expr)
     logger.info("Select", "select expr='%s' -> %d scenarios: %s"
                 % (expr, len(selected), [s.get("id") for s in selected]))
 
@@ -5750,6 +5787,11 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
             return 1
         return 0
 
+    if getattr(args, "admit_only", False):
+        exit_code = admit_only(selected, umbrella_root, args, runtime, logger)
+        logger.close()
+        return exit_code
+
     # ---- MACHINE LOCK (whole invocation) ---------------------------------
     # Acquired ONCE here, around the entire selection, and released in the
     # finally below. A nightly therefore holds the machine for its full duration
@@ -5778,9 +5820,81 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
     return exit_code
 
 
+ADMIT_ONLY_SUMMARY_PREFIX = "admit-only summary"
+
+
+def admit_only(selected, umbrella_root, args, runtime, logger) -> int:
+    """``--admit-only``: the ADMIT step for every instance profile the selection
+    touches, in first-use order, plus the mission venv admit when the selection
+    holds an autopilot lane. Reads files only: no lock, no build, no launch, no
+    result row. It is a PREFLIGHT, not an authority: every lane still admits for
+    itself at launch. Prints one ``admit instance=`` line per profile (the same
+    line a lane writes) and one summary line; exits 0 when all admit, else 1."""
+    profiles: List[str] = []
+    for spec in selected:
+        profile = spec.get("instanceProfile")
+        if profile not in profiles:
+            profiles.append(profile)
+    drifted: List[str] = []
+    for profile in profiles:
+        instance_dir = resolve_instance_dir(profile, umbrella_root, args.instance_dir)
+        if instance_dir is None:
+            logger.error("Admit", "admit instance=%s manifest=missing result=DRIFT "
+                                  "(cannot resolve the instance dir)" % profile)
+            drifted.append(str(profile))
+            continue
+        admission, _diff, _ref = admit_instance_dir(profile, instance_dir, umbrella_root,
+                                                    logger)
+        if not admission.admitted:
+            drifted.append(str(profile))
+    venv = "n/a"
+    if any((s.get("driver", {}) or {}).get("kind") == "autopilot" for s in selected):
+        stamp = runtime.read_venv_stamp(VENV_STAMP_PATH)
+        requirements = _parse_requirements(runtime.read_requirements_text(REQUIREMENTS_PATH))
+        venv_ok, _subkind = hlib.venv_admission(stamp, requirements)
+        venv = "OK" if venv_ok else ("MISSING" if not stamp else "DRIFT")
+        logger.info("Mission", "mission venv-admit stamp=%s result=%s" % (VENV_STAMP_PATH, venv))
+    ok = not drifted and venv in ("OK", "n/a")
+    line = "%s profiles=%s drifted=%s venv=%s result=%s" % (
+        ADMIT_ONLY_SUMMARY_PREFIX, ",".join(str(p) for p in profiles) or "-",
+        ",".join(drifted) or "-", venv, "OK" if ok else "UNFIT")
+    (logger.info if ok else logger.warn)("Admit", line)
+    return 0 if ok else 1
+
+
+def stop_request_path() -> str:
+    return os.path.join(RESULTS_DIR, hlib.STOP_REQUEST_FILENAME)
+
+
+def clear_stale_stop_request(logger) -> None:
+    """A stop request left over from a run that already ended must not stop this
+    one: drop it at selection start, with one line saying so."""
+    path = stop_request_path()
+    if os.path.exists(path):
+        try:
+            os.remove(path)
+            logger.info("Select", "removed a stale stop request left by an earlier run: %s" % path)
+        except OSError as exc:
+            logger.warn("Select", "could not remove a stale stop request %s: %s" % (path, exc))
+
+
+def consume_stop_request(logger) -> bool:
+    """True (and the request file removed) when a stop has been requested."""
+    path = stop_request_path()
+    if not os.path.exists(path):
+        return False
+    try:
+        os.remove(path)
+    except OSError as exc:
+        logger.warn("Select", "stop request %s could not be removed (%s); honouring it anyway"
+                    % (path, exc))
+    return True
+
+
 def _run_selection(selected, specs, registry, umbrella_root, args, runtime, logger,
                    lock_path, expr) -> int:
     """The selection loop, running under an already-held machine lock."""
+    clear_stale_stop_request(logger)
     # Build Parsek.Tests ONCE, before the first lane, so every verifier subprocess
     # (seed analyzer, analyzer, log validation) runs -NoBuild behind it. A failed
     # build refuses the WHOLE selection pre-boot with one INVALID(tooling-build) row
@@ -5806,6 +5920,10 @@ def _run_selection(selected, specs, registry, umbrella_root, args, runtime, logg
     ran_any = False
     ran_count = 0
     for index, spec in enumerate(selected):
+        if consume_stop_request(logger):
+            logger.warn("Select", hlib.format_stop_honoured_line(ran_count,
+                                                                 len(selected) - index))
+            break
         # Refresh our lease at each scenario boundary so a long but LIVE
         # selection can never expire out from under itself.
         #
@@ -6229,6 +6347,15 @@ def _run_selection_pipelined(selected, registry, bug_ids, umbrella_root, args, r
                                         _pipeline_finalize(item, umbrella_root, logger))
                 queue.clear()
                 return max(exit_code, 1), ran_any
+            if queue[0][0] == "new" and consume_stop_request(logger):
+                # Unstarted lanes are dropped; a queued attempt-2 retry of a lane
+                # that already flew stays, so that scenario still gets its terminal.
+                dropped = sum(1 for k, _ in queue if k == "new")
+                kept = deque((k, it) for k, it in queue if k != "new")
+                queue.clear()
+                queue.extend(kept)
+                logger.warn("Select", hlib.format_stop_honoured_line(ran_count, dropped))
+                continue
             kind, item = queue.popleft()
             if kind == "new":
                 spec = item
