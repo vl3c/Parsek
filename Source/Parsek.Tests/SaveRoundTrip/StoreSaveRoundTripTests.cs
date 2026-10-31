@@ -162,7 +162,80 @@ namespace Parsek.Tests.SaveRoundTrip
                 Load = n => StockPoolReference.LoadFrom(n, "round-trip test"),
                 Spec = () => new FieldSpec(typeof(StockPoolReference)),
             },
+            new StoreCase
+            {
+                // OnSave's layout: the events node (events, contract snapshots, science subjects)
+                // and a BASELINES node of one PARSEK_BASELINE per baseline, both read back by
+                // the cold load from GAME_STATE.
+                Name = "GameStateStore", Store = typeof(GameStateStore),
+                Save = n =>
+                {
+                    n.AddNode(GameStateStore.BuildEventsNode(null).Root);
+                    var baselinesNode = n.AddNode(ParsekScenario.BaselinesNodeName);
+                    foreach (GameStateBaseline b in GameStateStore.Baselines)
+                        baselinesNode.AddNode(GameStateStore.BuildBaselineNode(b));
+                },
+                Reset = GameStateStore.ResetForTesting,
+                Load = n =>
+                {
+                    Assert.True(GameStateStore.LoadEventsFromSaveNode(n.GetNode(GameStateStore.EventsNodeName)));
+                    Assert.True(GameStateStore.LoadBaselinesFromSaveNode(n.GetNode(ParsekScenario.BaselinesNodeName)));
+                },
+                Spec = () => new FieldSpec(typeof(GameStateStore))
+                    .Derived("once-per-folder load guard; the load itself sets it", "initialLoadDone", "lastSaveFolder")
+                    .Derived("test-only logging switch", "SuppressLogging")
+                    .Compare("baselines", CompareBaselines),
+                NestedSpecs = ScenarioRecordSaveRoundTripTests.Specs,
+            },
+            new StoreCase
+            {
+                // OnSave writes the milestones node plus one MILESTONE_STATE per milestone on the
+                // scenario node; the load reads the node and then RestoreMutableState, so a lost
+                // replay index in either half reds.
+                Name = "MilestoneStore", Store = typeof(MilestoneStore),
+                Save = n =>
+                {
+                    n.AddNode(MilestoneStore.BuildMilestonesNode());
+                    MilestoneStore.SaveMutableState(n);
+                },
+                Reset = MilestoneStore.ResetForTesting,
+                Load = n =>
+                {
+                    Assert.True(MilestoneStore.LoadMilestonesFromSaveNode(n.GetNode(MilestoneStore.MilestonesNodeName)));
+                    MilestoneStore.RestoreMutableState(n);
+                },
+                Spec = () => new FieldSpec(typeof(MilestoneStore))
+                    .Derived("once-per-folder load guard; the load itself sets it", "initialLoadDone", "lastSaveFolder"),
+                NestedSpecs = ScenarioRecordSaveRoundTripTests.Specs,
+            },
+            new StoreCase
+            {
+                // The install-wide settings file: saved to a temp file, forgotten, re-read.
+                Name = "ParsekSettingsPersistence", Store = typeof(ParsekSettingsPersistence),
+                Save = n => SaveSettingsFile(),
+                Reset = ParsekSettingsPersistence.ForgetLoadedStateForTesting,
+                Load = n => ParsekSettingsPersistence.LoadIfNeeded(),
+                Spec = () => new FieldSpec(typeof(ParsekSettingsPersistence))
+                    .Derived("test-only redirect of the file location", "filePathOverrideForTesting")
+                    .Derived("load latch; the load itself sets it", "loaded")
+                    .Fill("storedSamplingDensity", () => (int?)2)
+                    .Fill("storedGhostAudioVolume", () => (float?)0.75f),
+            },
         };
+
+        /// <summary>The load sorts baselines by UT; compare by saved form in that order.</summary>
+        private static string CompareBaselines(object written, object read)
+        {
+            Func<object, List<string>> forms = list => ((IEnumerable<GameStateBaseline>)list)
+                .OrderBy(b => b.ut)
+                .Select(b => GameStateStore.BuildBaselineNode(b).ToString())
+                .ToList();
+            List<string> a = forms(written), b2 = forms(read);
+            if (a.Count != b2.Count) return "wrote " + a.Count + " baselines, read " + b2.Count;
+            for (int i = 0; i < a.Count; i++)
+                if (a[i] != b2[i]) return "baseline " + i + " saved form differs after load";
+            return null;
+        }
 
         /// <summary>A held vessel's snapshot is saved as a VESSEL child and read back by that name.</summary>
         private static ConfigNode VesselNode()
@@ -197,6 +270,30 @@ namespace Parsek.Tests.SaveRoundTrip
                     Guid = new Guid(0x300 + (int)i, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10).ToString("N"),
                 };
             return d;
+        }
+
+        /// <summary>Covered types this class reaches through a store's fields rather than as a store of their own.</summary>
+        private static readonly Dictionary<Type, Type> ReachedThrough = new Dictionary<Type, Type>
+        {
+            [typeof(Mission)] = typeof(MissionStore),
+            [typeof(ReFlyInvokeHold)] = typeof(RewindVesselHold), // Hold.Entry, via SaveEntry / LoadEntry
+        };
+
+        [Fact]
+        public void EveryCoveredType_IsExercisedByAStoreCase()
+        {
+            // The coverage gate only sees the attribute; this keeps each attribute honest.
+            var stores = new HashSet<Type>(Stores.Select(s => s.Store));
+            var unexercised = typeof(StoreSaveRoundTripTests)
+                .GetCustomAttributes(typeof(SaveRoundTripCoversAttribute), false)
+                .Cast<SaveRoundTripCoversAttribute>()
+                .Select(a => a.Type)
+                .Where(t => !stores.Contains(t)
+                    && !(ReachedThrough.TryGetValue(t, out Type via) && stores.Contains(via)))
+                .Select(t => t.Name)
+                .ToList();
+            Assert.True(unexercised.Count == 0,
+                "[SaveRoundTripCovers] names type(s) no StoreCase exercises: " + string.Join(", ", unexercised));
         }
 
         public static IEnumerable<object[]> AllStores() => Stores.Select(s => new object[] { s });

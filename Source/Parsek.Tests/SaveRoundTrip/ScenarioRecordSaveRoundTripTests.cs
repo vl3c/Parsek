@@ -133,6 +133,21 @@ namespace Parsek.Tests.SaveRoundTrip
             return n;
         }
 
+        [Fact]
+        public void EveryCoveredType_HasACase()
+        {
+            // The coverage gate only sees the attribute; this keeps each attribute honest.
+            var cased = new HashSet<Type>(Cases.Select(c => c.Type));
+            var missing = typeof(ScenarioRecordSaveRoundTripTests)
+                .GetCustomAttributes(typeof(SaveRoundTripCoversAttribute), false)
+                .Cast<SaveRoundTripCoversAttribute>()
+                .Select(a => a.Type)
+                .Where(t => !cased.Contains(t))
+                .Select(t => t.Name)
+                .ToList();
+            Assert.True(missing.Count == 0, "[SaveRoundTripCovers] names type(s) with no Case: " + string.Join(", ", missing));
+        }
+
         public static IEnumerable<object[]> AllCases() => Cases.Select(c => new object[] { c });
 
         [Theory]

@@ -28,9 +28,19 @@ reason. Covered: every GameAction row type (per-type persisted payload table), t
 kerbal slots, Recording metadata and the recording tree, the trajectory and snapshot sidecars,
 supply routes / route events / retired cargo / the route store, the rewind and Re-Fly records,
 game-state events, baselines and milestones, and the mission, vessel-name, group, crew, hold,
-held-window, take-back, pool-reference and settings stores. `SaveRoundTripCoverageGateTests` reds
-when a Parsek type gains a Save*/Load*/Serialize*/Deserialize* method over a ConfigNode (or a
-binary sidecar reader / writer) with no `[SaveRoundTripCovers]` test and no Exempt row.
+held-window, take-back, pool-reference and settings stores (the game-state store carries events,
+snapshots, science subjects and baselines; the milestone store both its node and the
+MILESTONE_STATE replay indexes). `SaveRoundTripCoverageGateTests` reds when a Parsek type gains a
+Save*/Load*/Serialize*/Deserialize* method over a ConfigNode (or a binary sidecar reader / writer)
+with no `[SaveRoundTripCovers]` test and no Exempt row; the store and record test classes each
+assert that every type their attributes name has a case, so an attribute alone cannot pass the
+gate. Mutation-checked: dropping one key in any covered codec reds a round-trip case.
+
+Known limits, not covered by this gate: discovery goes by method name, so a codec spelled
+Build*/Parse*/Write*/Read* is not found (the pending-science node, `GameStateRecorder.
+BuildPendingScienceNode` / `ParsePendingScienceNode`, is covered only by the older
+`GameStateSaveNodeTests`); and a field filled with one enum value (`Recording.MergeState`) is
+round-tripped for that value only.
 
 Found and fixed: RECORDING-VESSEL-SITUATION-NOT-SAVED and RESCUE-PLACED-MARKER-SESSION-ONLY
 (below). Classified by design and left as is: the legacy `GameStateEvent.epoch` /
@@ -46,11 +56,26 @@ multi-walk regression in `RescueCompletionGuardTests` is the bug it prevents: wi
 the walk regenerates the rescued kerbal's stand-in), and a save and load is one more walk
 trigger. Found while classifying the field for SAVE-ROUND-TRIP-GATE.
 
+Before the fix the marker was also dropped by every in-session load, so it lasted only until the
+next scene change.
+
 **Fix.** `SaveCrewReplacements` writes a `RESCUE_PLACED_KERBALS` node (name + vessel pid) and
 `LoadCrewReplacements` replaces memory's set with the save's (a stale pid never matches a live
-vessel, so nothing is pruned). Rewind (`RestoreReplacements`) still clears the set. Tests:
-`RescueCompletionGuardTests.RescuePlacedMarker_SurvivesSaveAndLoad`, `StoreSaveRoundTripTests`.
-Not flown: the rescue-then-reload sequence has no harness lane.
+vessel, so nothing is pruned). A plain rewind keeps memory's set as before; a Re-Fly start
+(`RestoreReplacements`) still clears it. `ScenarioWriter.AddRescuePlacedKerbal` authors the node.
+Tests: `RescueCompletionGuardTests.RescuePlacedMarker_SurvivesSaveAndLoad` /
+`_LoadsFromAScenarioWriterSave`, `StoreSaveRoundTripTests`. Not flown: the rescue-then-reload
+sequence has no harness lane. Follow-up: RESCUE-PLACED-MARKER-NEVER-RETIRES.
+
+## RESCUE-PLACED-MARKER-NEVER-RETIRES: a saved rescue marker stays in the save for good [OPEN 2026-10-31; low]
+
+Since RESCUE-PLACED-MARKER-SESSION-ONLY the #615 marker lives for the life of the save instead of
+until the next scene change. Two consequences: stale entries (vessel long gone) pile up in the
+save, harmless because a stale pid never matches a live vessel; and the marker's documented
+limit (a later, unrelated fresh reservation for a kerbal still aboard the same rescue vessel pid
+gets no stand-in, see the comment on `CrewReservationManager.rescuePlacedKerbals`) can now last
+past a scene change. Candidate fix: retire a kerbal's marker when a new reservation for that
+kerbal is created, and prune entries whose pid matches no vessel on save.
 
 ## ~~RECORDING-VESSEL-SITUATION-NOT-SAVED: a recording's stop-time situation text is lost on every save and load~~ [FILED AND FIXED 2026-10-31 by the field-level save round-trip suite (SAVE-ROUND-TRIP-GATE); xUnit only; product, low (Timeline wording only)]
 

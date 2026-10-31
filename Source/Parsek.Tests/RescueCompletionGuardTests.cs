@@ -1147,6 +1147,18 @@ namespace Parsek.Tests
             Assert.Equal((ulong)RescuedVesselPid, pid);
         }
 
+        [Fact]
+        public void RescuePlacedMarker_LoadsFromAScenarioWriterSave()
+        {
+            ConfigNode scenario = new Parsek.Tests.Generators.ScenarioWriter()
+                .AddRescuePlacedKerbal("Jebediah Kerman", RescuedVesselPid)
+                .BuildScenarioNode();
+
+            CrewReservationManager.LoadCrewReplacements(scenario);
+            Assert.True(CrewReservationManager.TryGetRescuePlacedVessel("Jebediah Kerman", out ulong pid));
+            Assert.Equal((ulong)RescuedVesselPid, pid);
+        }
+
         // ---------- Multi-walk regression coverage (P1 review third pass) --
 
         /// <summary>
