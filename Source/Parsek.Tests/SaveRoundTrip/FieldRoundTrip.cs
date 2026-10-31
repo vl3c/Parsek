@@ -94,9 +94,10 @@ namespace Parsek.Tests.SaveRoundTrip
 
         private void RequireField(string name)
         {
-            if (FieldRoundTrip.GetFields(Type).All(f => FieldRoundTrip.LogicalName(f) != name))
+            if (FieldRoundTrip.GetFields(Type).Concat(StaticRoundTrip.GetStaticFields(Type))
+                    .All(f => FieldRoundTrip.LogicalName(f) != name))
                 throw new InvalidOperationException(
-                    "FieldSpec for " + Type.Name + " names '" + name + "', which is not an instance field "
+                    "FieldSpec for " + Type.Name + " names '" + name + "', which is not a field "
                     + "(remove or rename the entry)");
         }
 
@@ -230,6 +231,9 @@ namespace Parsek.Tests.SaveRoundTrip
             spec?.AfterFill?.Invoke(o);
             return o;
         }
+
+        /// <summary>A distinct non-default value for one field of type <paramref name="t"/>.</summary>
+        internal object MakeFieldValue(Type t, object avoid, string path) => MakeValue(t, avoid, path, 1);
 
         private object MakeValue(Type t, object avoid, string path, int depth)
         {
@@ -520,5 +524,146 @@ namespace Parsek.Tests.SaveRoundTrip
     {
         internal readonly Type Type;
         internal SaveRoundTripCoversAttribute(Type type) { Type = type; }
+    }
+}
+
+namespace Parsek.Tests.SaveRoundTrip
+{
+    /// <summary>
+    /// The static-store form of the round-trip: a store (MissionStore, VesselNameStore, ...)
+    /// keeps its persisted state in static fields, so the gate fills every static field of the
+    /// store, saves, resets the store, loads, and diffs each static field against what was
+    /// written. A static field added to a store without a save arm reds the test until it is
+    /// persisted or classified in the store's <see cref="FieldSpec"/> (NotPersisted fields are
+    /// filled and asserted not to survive; Derived fields are left untouched and not asserted).
+    /// </summary>
+    internal static class StaticRoundTrip
+    {
+        internal static IEnumerable<FieldInfo> GetStaticFields(Type t)
+        {
+            foreach (FieldInfo f in t.GetFields(BindingFlags.Static | BindingFlags.Public
+                | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+            {
+                if (f.IsLiteral) continue;
+                if (typeof(Delegate).IsAssignableFrom(f.FieldType)) continue;
+                if (f.FieldType == typeof(CultureInfo) || f.FieldType == typeof(NumberStyles)) continue;
+                if (f.Name.Contains("<>")) continue; // compiler lambda caches
+                if (f.IsInitOnly && FieldRoundTrip.IsLeaf(f.FieldType)) continue; // static readonly constants
+                yield return f;
+            }
+        }
+
+        /// <summary>Fills every static field the spec does not mark Derived; collections in place.</summary>
+        internal static void Fill(Type store, FieldRoundTrip rt, FieldSpec spec)
+        {
+            foreach (FieldInfo f in GetStaticFields(store))
+            {
+                string name = FieldRoundTrip.LogicalName(f);
+                FieldRule rule = spec?.RuleFor(name) ?? FieldRule.Persisted;
+                if (rule == FieldRule.Derived) continue;
+                object value;
+                if (spec != null && spec.TryGetFill(name, out Func<object> fill))
+                    value = fill();
+                else
+                    value = rt.MakeFieldValue(f.FieldType, f.GetValue(null), store.Name + "." + name);
+                object current = f.GetValue(null);
+                if (f.IsInitOnly && current != null)
+                    CopyInto(current, value);
+                else
+                    f.SetValue(null, value);
+            }
+        }
+
+        private static void CopyInto(object target, object source)
+        {
+            if (target is IDictionary td && source is IDictionary sd)
+            {
+                td.Clear();
+                foreach (DictionaryEntry e in sd) td[e.Key] = e.Value;
+                return;
+            }
+            if (target is IList tl && source is IEnumerable sl)
+            {
+                tl.Clear();
+                foreach (object o in sl) tl.Add(o);
+                return;
+            }
+            Type tt = target.GetType();
+            if (tt.IsGenericType && tt.GetGenericTypeDefinition() == typeof(HashSet<>))
+            {
+                tt.GetMethod("Clear").Invoke(target, null);
+                MethodInfo add = tt.GetMethod("Add");
+                foreach (object o in (IEnumerable)source) add.Invoke(target, new[] { o });
+                return;
+            }
+            if (!tt.IsValueType && tt == source.GetType())
+            {
+                // A readonly static holding one state object: copy the filled object's fields into it.
+                foreach (FieldInfo f in FieldRoundTrip.GetFields(tt))
+                    f.SetValue(target, f.GetValue(source));
+                return;
+            }
+            throw new InvalidOperationException("Cannot refill readonly static of type " + tt.Name
+                + "; give the store's FieldSpec a Fill or classify the field");
+        }
+
+        /// <summary>A shallow copy of every static field, so a reset that clears collections in place cannot blank it.</summary>
+        internal static Dictionary<string, object> Capture(Type store)
+        {
+            var snap = new Dictionary<string, object>(StringComparer.Ordinal);
+            foreach (FieldInfo f in GetStaticFields(store))
+                snap[FieldRoundTrip.LogicalName(f)] = ShallowCopy(f.GetValue(null));
+            return snap;
+        }
+
+        private static object ShallowCopy(object v)
+        {
+            if (v == null || FieldRoundTrip.IsLeaf(v.GetType())) return v;
+            Type t = v.GetType();
+            if (v is IDictionary d)
+            {
+                var copy = (IDictionary)Activator.CreateInstance(typeof(Dictionary<,>).MakeGenericType(
+                    t.IsGenericType ? t.GetGenericArguments() : new[] { typeof(object), typeof(object) }));
+                foreach (DictionaryEntry e in d) copy[e.Key] = e.Value;
+                return copy;
+            }
+            if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(HashSet<>))
+                return Activator.CreateInstance(t, v);
+            if (v is IList l)
+            {
+                var copy = new List<object>();
+                foreach (object o in l) copy.Add(o);
+                return copy;
+            }
+            return v;
+        }
+
+        /// <summary>Diffs the store's statics now against a <see cref="Capture"/> taken before the save.</summary>
+        internal static List<string> Diff(Type store, Dictionary<string, object> written, FieldRoundTrip rt, FieldSpec spec)
+        {
+            var problems = new List<string>();
+            Dictionary<string, object> read = Capture(store);
+            foreach (var kv in written)
+            {
+                string path = store.Name + "." + kv.Key;
+                FieldRule rule = spec?.RuleFor(kv.Key) ?? FieldRule.Persisted;
+                object a = kv.Value, b = read[kv.Key];
+                if (a is List<object> la && b is List<object> lb0)
+                {
+                    a = la; b = lb0;
+                }
+                if (rule == FieldRule.Derived) continue;
+                List<string> diff = rt.Diff(a, b, path);
+                if (rule == FieldRule.NotPersisted)
+                {
+                    if (diff.Count == 0 && a != null && !(a is ICollection c && c.Count == 0))
+                        problems.Add(path + ": listed NotPersisted (" + spec.ReasonFor(kv.Key)
+                            + ") but it survived the round-trip; drop it from the spec");
+                    continue;
+                }
+                problems.AddRange(diff);
+            }
+            return problems;
+        }
     }
 }
