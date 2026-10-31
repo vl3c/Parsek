@@ -34,7 +34,7 @@ namespace Parsek
         /// detail-panel reason is the annotation.</summary>
         ContractSlot,
         KerbalHire,
-        KerbalRetire,
+        KerbalDismissal,
         KerbalOnFlight,
         KerbalLost,
         KerbalRetiredStandIn,
@@ -379,6 +379,39 @@ namespace Parsek
         internal static bool IsKerbalHireBlocked(CommittedFutureIndex index, string kerbalName, double currentUT)
         {
             return index != null && index.HasFuture(CommittedFutureKind.KerbalHire, kerbalName, currentUT);
+        }
+
+        /// <summary>
+        /// True when the committed timeline dismisses <paramref name="kerbalName"/> after
+        /// <paramref name="currentUT"/> (design section 9.12.1): his Dismiss button and his
+        /// crew assignment are held until then.
+        /// </summary>
+        internal static bool IsKerbalDismissalPending(CommittedFutureIndex index, string kerbalName, double currentUT)
+        {
+            return index != null && !string.IsNullOrEmpty(kerbalName)
+                && index.HasFuture(CommittedFutureKind.KerbalDismissal, kerbalName, currentUT);
+        }
+
+        /// <summary>The explanation of a pending dismissal (<c>Dismissed on DATE</c>), the
+        /// text the Astronaut Complex row, the crew dialog row and both refusals show.</summary>
+        internal static ReservationText ExplainKerbalDismissal(
+            CommittedFutureIndex index, string kerbalName, double currentUT, Func<double, string> formatDate)
+        {
+            return ReservationExplanation.KerbalDismissal(
+                index?.FirstFuture(CommittedFutureKind.KerbalDismissal, kerbalName, currentUT), formatDate);
+        }
+
+        /// <summary>
+        /// <see cref="IsKerbalDismissalPending"/> against the live index and clock. Reads the
+        /// clock only when the index holds a dismissal of the kerbal at all, so the crew
+        /// dialog's per-row predicate costs a dictionary lookup for everyone else.
+        /// </summary>
+        internal static bool IsKerbalDismissalPendingNow(string kerbalName)
+        {
+            if (string.IsNullOrEmpty(kerbalName)) return false;
+            var index = CommittedFutureIndexCache.Current;
+            if (index == null || index.AllEntries(CommittedFutureKind.KerbalDismissal, kerbalName).Count == 0) return false;
+            return IsKerbalDismissalPending(index, kerbalName, CommittedFutureIndexCache.CurrentUT());
         }
 
         /// <summary>
@@ -727,11 +760,18 @@ namespace Parsek
                     continue;
                 }
 
-                var retire = index?.FirstFuture(CommittedFutureKind.KerbalRetire, name, currentUT);
-                if (retire != null)
+                // A firing on the timeline (design 9.12.1): marked on the row's status and
+                // the Dismiss button held until its UT (KerbalDismissalPatch reads the same
+                // entry, so the mark and the block pair). An applicant row is not one he can
+                // be fired from (a rewind to before his hire), so it carries no such mark.
+                var dismissal = tab == AstronautApplicantsTab
+                    ? null
+                    : index?.FirstFuture(CommittedFutureKind.KerbalDismissal, name, currentUT);
+                if (dismissal != null)
                 {
-                    Mark(ref d, StockUiDecorationKind.KerbalRetire,
-                        ReservationExplanation.KerbalRetire(retire, formatDate), retire.UT);
+                    Mark(ref d, StockUiDecorationKind.KerbalDismissal,
+                        ReservationExplanation.KerbalDismissal(dismissal, formatDate), dismissal.UT);
+                    d.Blocked = true;
                     result.Add(d);
                     continue;
                 }

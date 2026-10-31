@@ -329,6 +329,8 @@ namespace Parsek
                 case GameActionType.KerbalRescue:
                 case GameActionType.KerbalStandIn:
                 case GameActionType.KerbalRecovered:
+                // A dismissal moves no pool (stock's SackAvailable charges nothing).
+                case GameActionType.KerbalDismissal:
                 case GameActionType.VesselRecovered:
                 case GameActionType.ResourceScanUnlocked:
                 case GameActionType.FacilityDestruction:

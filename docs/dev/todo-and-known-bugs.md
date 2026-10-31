@@ -17,6 +17,47 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~KERBAL-DISMISSAL-ON-THE-TIMELINE: a kerbal fired at the Space Center was hired back by a Rewind-to-Launch, with nothing to stop him flying or being fired a second time~~ [RULED 2026-10-28 by the owner (option A: a dismissal stays on the timeline like a hire); BUILT 2026-10-28 on branch `kerbal-dismissal-timeline`, unit-tested only, NOT FLOWN, lane RW-14 owed; product, medium (a committed roster change undone by a rewind)]
+
+A Space Center dismissal had no ledger row. Stock's dismiss button (`AstronautComplex.Xbutton_AvailableCrew`
+-> `KerbalRoster.SackAvailable`, decompiled KSP 1.12.5) turns the kerbal into an applicant and then
+fires `OnCrewmemberSacked`; Parsek never listened to that event. The `CrewRemoved` event it did record comes
+from `KerbalRoster.Remove` (stock's applicant expiry, the Lost list's dead removal), and the converter
+dropped it, so nothing replayed. Fire Bob at 10:00, Rewind-to-Launch to 9:50: the rewind save has Bob
+as crew, he could be seated on the next flight, fired again at 9:55, and nothing removed him at 10:00.
+The one mark (`CommittedFutureKind.KerbalRetire`, a milestone fallback over `CrewRemoved`) read the
+wrong event and blocked nothing.
+
+**Fix (design section 9.12.1).** `OnCrewmemberSacked` records a `CrewDismissed` event and writes a
+`KerbalDismissal` row through the Space Center door (`OnKscSpending`: untagged, sequenced, dated
+through `StampKscOriginRow`); Parsek's own roster writes and action replay are not captured. After
+every patch pass (after the committed hires) a kerbal whose latest committed roster row at or before
+the walk clock (raised to the held-through UT) is a dismissal is made an applicant (a hire, rescue or
+stand-in row of the same name ends it: stock reuses names) the way
+`SackAvailable` does, minus its event, under `SuppressionGuard.Crew` (`KerbalsModule.
+ApplyReachedCommittedDismissals`, pure core `LedgerOrchestrator.ResolveCommittedDismissalsToMake`);
+already an applicant or gone is left alone (he leaves once), not Available is a Warn and a retry.
+`CommittedFutureKind.KerbalRetire` and its milestone fallback are replaced by a ledger-backed
+`KerbalDismissal` kind; a future entry refuses every crew seat (`ShouldFilterFromCrewDialog`, so the
+VAB/SPH dialog greys him and the auto-assign clears him) and a second dismissal
+(`KerbalDismissalPatch.DescribeDismissalRefusal` answers first). The Astronaut Complex row reads
+`Dismissed on <date>` with the dismiss button greyed (`Dismissed later` / `Dismissed on <date>, blocked
+by timeline until then.`), the crew dialog row likewise. A dismissal ends the walk's ownership of a
+hire (`PurchaseOwnershipBook.RecordRelease`), so a later re-hire is charged. Never tombstoned by a
+Re-Fly (no recording owns it). Logs: `Game state: CrewDismissed`, `Committed dismissal applied:`,
+`ApplyReachedCommittedDismissals:`, `Blocked dismissal of '<name>' via <path> - already dismissed by
+timeline`.
+
+Tests: `KerbalDismissalTimelineTests` (capture conversion and serialization, the reached-dismissal
+resolver's truth table, the apply core, the index kind and the blocks, the mark, the ownership
+release, the Timeline row).
+
+Lane owed (RW-14): fire a kerbal at T1 through `KscAction action=sack-kerbal kerbal=<name>` (stock's
+own `SackAvailable`), Rewind-to-Launch before T1, check he is back on the roster, refused by
+`KscAction action=assign-crew` and by a second `sack-kerbal` (`reason=blocked-committed`), then warp
+past T1 and check one `Committed dismissal applied:` line and his type Applicant, with no second
+`KerbalDismissal` row and no funds or reputation move.
+
 ## ~~KSC-DEBRIS-CLEANUP-REFUND-UNLEDGERED: stock's refund for debris cluttering the Space Center is never booked, so it lands as a leak row and a guard clamp~~ [FILED AND FIXED 2026-10-28 from RW-7 run `2026-10-28_1637`, branch `ksc-debris-refund`; unit-tested, RW-7 re-flight owed; product, medium (an unledgered funds change; LedgerGroundTruth hard-fails)]
 
 When the scene enters the Space Center, stock recovers landed debris near the KSC through
@@ -3676,6 +3717,10 @@ Progress 2026-10-28 (branch `rw13-tech`): lane `RW-13-tech-research-across-rewin
 timeline, re-locked by a Rewind-to-Launch, a second research refused `insufficient-science` (the committed
 row reserves its 45 in the live pool; the committed-row click-block behind it is not reached), and the
 crossing unlocking it with the science spent once. No defect.
+
+Progress 2026-10-31 (branch `rw14-dismiss`): lane `RW-14-dismissal-across-rewind` LIVE-PROVEN (`2026-10-31_0251`) on feature 9231e59
+(KERBAL-DISMISSAL-ON-THE-TIMELINE, owner option A): after a rewind the dismissed kerbal is Crew but held, a second
+dismissal and a seat are refused, and the clock turns him into an Applicant once with nothing booked twice. No defect.
 
 ## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
 

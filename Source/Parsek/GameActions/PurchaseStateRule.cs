@@ -29,8 +29,10 @@ namespace Parsek
     /// them, so the later-captured purchase bought the item earlier on timeline and this one
     /// is its repeat. A holder captured before the row means stock itself sold the item
     /// again later in real time, which happens only when the walk cannot see the step that
-    /// gave it up (a dismissal has no ledger row; an older save's Rebuild has none either),
-    /// so the row charges. In a career that never rewinds every holder was captured before
+    /// gave it up (an older save's Rebuild has no ledger row), so the row charges. A
+    /// <see cref="GameActionType.KerbalDismissal"/> row is that step for a hire, and the
+    /// walk sees it: it ends the holding (<see cref="PurchaseOwnershipBook.RecordRelease"/>,
+    /// design section 9.12.1), so the next hire of that kerbal in walk order charges. In a career that never rewinds every holder was captured before
     /// every later purchase, so nothing is ever owned and the walk charges as before. A row
     /// or holder without a capture number (an older save) is never judged: it charges, as
     /// recorded.</para>
@@ -122,6 +124,11 @@ namespace Parsek
             {
                 PurchaseKind kind;
                 string key;
+                if (IsRelease(actions[i]))
+                {
+                    purchases.Add(actions[i]);
+                    continue;
+                }
                 if (!TryGetItem(actions[i], out kind, out key))
                     continue;
                 purchases.Add(actions[i]);
@@ -136,12 +143,21 @@ namespace Parsek
             foreach (var row in purchases.OrderBy(a => a, WalkOrder.Instance))
             {
                 string holder;
-                if (book.IsAlreadyOwned(row, out holder))
+                if (IsRelease(row))
+                    book.RecordRelease(row);
+                else if (book.IsAlreadyOwned(row, out holder))
                     owned.Add(row);
                 else
                     book.RecordCharged(row);
             }
             return owned;
+        }
+
+        /// <summary>A row that ends the holding of an item: a dismissal ends the hire's.</summary>
+        internal static bool IsRelease(GameAction action)
+        {
+            return action != null && action.Type == GameActionType.KerbalDismissal
+                && !string.IsNullOrEmpty(action.KerbalName);
         }
 
         /// <summary>One line naming a purchase's item, e.g. <c>tech 'basicRocketry'</c>.</summary>
@@ -280,6 +296,18 @@ namespace Parsek
                 }
             }
             return best != int.MaxValue;
+        }
+
+        /// <summary>
+        /// Records a row that ends a holding (<see cref="PurchaseStateRule.IsRelease"/>): a
+        /// <see cref="GameActionType.KerbalDismissal"/> ends the kerbal's hire, so his next
+        /// hire in walk order is charged. Returns true when a holding ended.
+        /// </summary>
+        internal bool RecordRelease(GameAction action)
+        {
+            if (!PurchaseStateRule.IsRelease(action))
+                return false;
+            return held.Remove(SlotOf(PurchaseKind.Hire, action.KerbalName));
         }
 
         /// <summary>Records a row the walk charged: its item is held from here on. A facility
