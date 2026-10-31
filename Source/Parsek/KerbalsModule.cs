@@ -3769,7 +3769,7 @@ namespace Parsek
         /// time put each kerbal back on the crew list, and nothing else dismisses him when the
         /// clock reaches his row. Turns an Available Crew kerbal into an Applicant the way
         /// stock <c>KerbalRoster.SackAvailable</c> does minus its <c>OnCrewmemberSacked</c>
-        /// (decompiled: fire, then <c>type = Applicant</c>): the ledger row is the record, and
+        /// (decompiled: <c>type = Applicant</c>, then fire): the ledger row is the record, and
         /// a second event would book a second row. A kerbal already not Crew is left alone
         /// (idempotent: every later pass names him again). A Crew kerbal who is not Available
         /// (on a flight, or lost) is left alone with a Warn and tried again next pass. Returns

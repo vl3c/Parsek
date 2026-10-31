@@ -4598,10 +4598,12 @@ namespace Parsek
 
         /// <summary>
         /// Pure: the kerbals the dismissal pass puts back among the applicants at
-        /// <paramref name="nowUT"/>. Per kerbal, his latest committed roster row (a
-        /// <see cref="GameActionType.KerbalHire"/> or <see cref="GameActionType.KerbalDismissal"/>
-        /// at or before now, walk order) decides: a dismissal names him, a hire does not (he
-        /// was hired again after it). A row tagged to a recording outside the committed set
+        /// <paramref name="nowUT"/>. Per kerbal name, the latest committed roster row at or
+        /// before now (walk order) decides: a <see cref="GameActionType.KerbalDismissal"/>
+        /// names him; a row that puts a kerbal of that name on the roster
+        /// (<see cref="KerbalsModule.TryGetRosterCreatedKerbalName"/>: a hire, a rescue, a
+        /// stand-in) does not. Stock reuses names: a dismissed applicant can expire and the
+        /// name go to a later rescued kerbal or stand-in, who must not be demoted. A row tagged to a recording outside the committed set
         /// (<paramref name="isCommittedRecording"/>; null treats every tagged row as not
         /// committed) is not counted. Ordered by kerbal name, without repeats.
         /// </summary>
@@ -4615,7 +4617,9 @@ namespace Parsek
                 {
                     GameAction a = actions[i];
                     if (a == null || string.IsNullOrEmpty(a.KerbalName)) continue;
-                    if (a.Type != GameActionType.KerbalHire && a.Type != GameActionType.KerbalDismissal)
+                    string joined;
+                    if (a.Type != GameActionType.KerbalDismissal
+                        && !KerbalsModule.TryGetRosterCreatedKerbalName(a, out joined))
                         continue;
                     if (a.UT > nowUT) continue;
                     if (!string.IsNullOrEmpty(a.RecordingId)
@@ -6401,9 +6405,13 @@ namespace Parsek
         /// FundsChanged(CrewRecruited) exists yet, so an inline recalc either clamps the
         /// drawdown or, with committed-future rows authorising it, patches the charge in
         /// and stock then charges it a second time (HIRE-RECALC-BEFORE-STOCK-DEBIT). Also the
-        /// KerbalDismissal row: <c>KerbalRoster.SackAvailable</c> raises
-        /// <c>OnCrewmemberSacked</c> BEFORE it makes the kerbal an applicant, so an inline
-        /// recalc would find him still crew and make him an applicant itself, ahead of stock.
+        /// KerbalDismissal row, for a different reason: decompiled
+        /// <c>KerbalRoster.SackAvailable</c> makes the kerbal an applicant FIRST and then
+        /// raises <c>OnCrewmemberSacked</c>, so the roster is already right when the handler
+        /// runs and an inline pass would only find him an applicant. The deferral keeps the
+        /// reconcile and the recalc (its roster pass and the stock-screen refresh it raises)
+        /// out of stock's <c>SackAvailable</c> call and its listener dispatch, after which the
+        /// Astronaut Complex rebuilds its lists, the same frame shape as the hire.
         /// </summary>
         internal static bool ShouldDeferKscReconcileOneFrame(GameActionType type, bool hasFrameHost)
         {

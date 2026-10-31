@@ -125,7 +125,8 @@ namespace Parsek.Tests
         [Fact]
         public void DismissalRow_DefersItsKscRecalcOneFrame_LikeAHire()
         {
-            // Stock fires OnCrewmemberSacked before it turns the kerbal into an applicant.
+            // Stock makes him an applicant, then fires OnCrewmemberSacked; the defer keeps the
+            // recalc out of stock's call, as for the hire.
             Assert.True(LedgerOrchestrator.ShouldDeferKscReconcileOneFrame(GameActionType.KerbalDismissal, true));
             Assert.False(LedgerOrchestrator.ShouldDeferKscReconcileOneFrame(GameActionType.KerbalDismissal, false));
         }
@@ -172,6 +173,26 @@ namespace Parsek.Tests
             // Jeb at 600: named too, ordered by name.
             Assert.Equal(new[] { "Bob Kerman", "Jeb Kerman" },
                 LedgerOrchestrator.ResolveCommittedDismissalsToMake(actions, _ => true, 600).ToArray());
+        }
+
+        [Theory]
+        [InlineData(GameActionType.KerbalRescue)]
+        [InlineData(GameActionType.KerbalStandIn)]
+        [InlineData(GameActionType.KerbalHire)]
+        public void Resolve_ALaterRosterJoinOfTheSameName_IsNotDemoted(GameActionType joinType)
+        {
+            // Stock reuses names: Bob's applicant entry expires after his dismissal and the
+            // name goes to a later rescued kerbal or stand-in, who must stay on the roster.
+            var actions = new List<GameAction>
+            {
+                Dismiss(10, "Bob Kerman", 1),
+                new GameAction { UT = 20, Type = joinType, KerbalName = "Bob Kerman", CaptureSequence = 2 }
+            };
+
+            Assert.Empty(LedgerOrchestrator.ResolveCommittedDismissalsToMake(actions, _ => true, 50));
+            // Between the two rows the dismissal still decides.
+            Assert.Equal(new[] { "Bob Kerman" },
+                LedgerOrchestrator.ResolveCommittedDismissalsToMake(actions, _ => true, 15).ToArray());
         }
 
         [Fact]

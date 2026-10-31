@@ -711,7 +711,7 @@ namespace Parsek
             // KerbalHire debits that wiped starting funds.
             GameEvents.OnCrewmemberHired.Add(OnCrewmemberHired);
             // A dismissal (KerbalRoster.SackAvailable, the Astronaut Complex's dismiss
-            // button) fires OnCrewmemberSacked and makes the kerbal an applicant; it never
+            // button) makes the kerbal an applicant and then fires OnCrewmemberSacked; it never
             // reaches onKerbalRemoved (decompiled KSP 1.12.5, design section 9.12.1).
             GameEvents.OnCrewmemberSacked.Add(OnCrewmemberSacked);
             GameEvents.onKerbalRemoved.Add(OnKerbalRemoved);

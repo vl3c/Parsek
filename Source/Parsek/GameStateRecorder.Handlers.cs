@@ -964,7 +964,10 @@ namespace Parsek
 
         /// <summary>
         /// Fires from <c>KerbalRoster.SackAvailable</c> (the Astronaut Complex's dismiss
-        /// button) BEFORE stock turns the kerbal into an applicant. Records a CrewDismissed
+        /// button) AFTER stock turned the kerbal into an applicant (decompiled: the
+        /// <c>type</c> set, then the event), so <paramref name="crew"/> is already an
+        /// Applicant here; his trait and name are unchanged (the <c>type</c> setter touches
+        /// neither) and the capture reads only those. Records a CrewDismissed
         /// event and writes its KerbalDismissal row through the Space Center door, so the
         /// dismissal stays on the timeline (design section 9.12.1). Parsek's own roster
         /// writes never reach here (they set the type directly under crew suppression), and

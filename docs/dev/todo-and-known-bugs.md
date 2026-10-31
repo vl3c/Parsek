@@ -20,8 +20,8 @@ When referencing prior item numbers from source comments or plans, consult the r
 ## ~~KERBAL-DISMISSAL-ON-THE-TIMELINE: a kerbal fired at the Space Center was hired back by a Rewind-to-Launch, with nothing to stop him flying or being fired a second time~~ [RULED 2026-10-28 by the owner (option A: a dismissal stays on the timeline like a hire); BUILT 2026-10-28 on branch `kerbal-dismissal-timeline`, unit-tested only, NOT FLOWN, lane RW-14 owed; product, medium (a committed roster change undone by a rewind)]
 
 A Space Center dismissal had no ledger row. Stock's dismiss button (`AstronautComplex.Xbutton_AvailableCrew`
--> `KerbalRoster.SackAvailable`, decompiled KSP 1.12.5) fires `OnCrewmemberSacked` and turns the kerbal
-into an applicant; Parsek never listened to that event. The `CrewRemoved` event it did record comes
+-> `KerbalRoster.SackAvailable`, decompiled KSP 1.12.5) turns the kerbal into an applicant and then
+fires `OnCrewmemberSacked`; Parsek never listened to that event. The `CrewRemoved` event it did record comes
 from `KerbalRoster.Remove` (stock's applicant expiry, the Lost list's dead removal), and the converter
 dropped it, so nothing replayed. Fire Bob at 10:00, Rewind-to-Launch to 9:50: the rewind save has Bob
 as crew, he could be seated on the next flight, fired again at 9:55, and nothing removed him at 10:00.
@@ -31,8 +31,9 @@ wrong event and blocked nothing.
 **Fix (design section 9.12.1).** `OnCrewmemberSacked` records a `CrewDismissed` event and writes a
 `KerbalDismissal` row through the Space Center door (`OnKscSpending`: untagged, sequenced, dated
 through `StampKscOriginRow`); Parsek's own roster writes and action replay are not captured. After
-every patch pass (after the committed hires) a kerbal whose latest committed hire / dismissal row at
-or before the walk clock (raised to the held-through UT) is a dismissal is made an applicant the way
+every patch pass (after the committed hires) a kerbal whose latest committed roster row at or before
+the walk clock (raised to the held-through UT) is a dismissal is made an applicant (a hire, rescue or
+stand-in row of the same name ends it: stock reuses names) the way
 `SackAvailable` does, minus its event, under `SuppressionGuard.Crew` (`KerbalsModule.
 ApplyReachedCommittedDismissals`, pure core `LedgerOrchestrator.ResolveCommittedDismissalsToMake`);
 already an applicant or gone is left alone (he leaves once), not Available is a Warn and a retry.
