@@ -554,12 +554,22 @@ the 2026-10-25 ruling that tourists stay held (`CollectKscRetirementClosures` /
 `RoleHoldsKerbal`, ~1914). Test: a KSC-parked recording with crew Aboard, a recovery row at EndUT+190
 and the vessel-exists override false; the hold should end at the recovery row.
 
-## OPTIMIZER-MERGE-RETAGS-LEDGER-ROWS-ONLY: an optimizer merge leaves the absorbed recording's game-state events under a dead id [FILED 2026-10-28 from the gap sweep claim 5; code-read, NOT FIXED; low]
+## ~~OPTIMIZER-MERGE-RETAGS-LEDGER-ROWS-ONLY: an optimizer merge leaves the absorbed recording's game-state events under a dead id~~ [FILED 2026-10-28 from the gap sweep claim 5; FIXED 2026-10-31, branch `fix-low-ledger-bugs`; xUnit only; low]
 
 When the optimizer merges chain siblings it retags the ledger rows to the merge target but not the
 absorbed recording's `GameStateEvent`s, which keep the removed id. No total effect was found, but
 consumers that key on recording id (some stock-screen reservation marks) drop those events. Test:
 merge two chain siblings, one holding a tagged event and a science row, and assert both are retagged.
+
+**Fix.** Confirmed by code read: `RecordingStore.RetagLedgerActionsAfterOptimizationMerge` called
+only `Ledger.RetagActionsForRecordingRewrite`, while the split's mirror moves all three carriers.
+The merge now also moves the captured events (`GameStateStore.RetagEventsForRecording`) and the
+pending science subjects plus their cached milestone copies (new
+`GameStateRecorder.RetagPendingScienceForRecording`, the uncut twin of
+`RetagPendingScienceForSplitSecondHalf`), with one Info line. That matters most at a fresh commit,
+where the optimizer pass runs before `NotifyLedgerTreeCommitted` converts the events and reads the
+tag as ownership. xUnit: `OptimizerSplitCommitAttributionTests.OptimizerMerge_RetagsTheAbsorbedEventsPendingScienceAndLedgerRows`,
+`RetagPendingScienceForRecording_GuardsDegenerateInputs`.
 
 ## SCIENCE-AFTER-TRIMMED-ENDUT-DATED-EARLY: science captured after a recording's trimmed end is dated at the end [FILED 2026-10-28 from the gap sweep (B6 / I-11); code-read, NOT FIXED; low-medium]
 

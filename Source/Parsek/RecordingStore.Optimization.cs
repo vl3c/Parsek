@@ -496,9 +496,12 @@ namespace Parsek
         /// load's <see cref="Ledger.Reconcile"/> prunes it, ActionId and all. This used
         /// to run only for an absorbed tree ROOT; any later segment can carry rows too
         /// (its own earnings, or the rows <see cref="RetagLedgerActionsAfterOptimizationSplit"/>
-        /// moved onto it), which is the mirror of the split retag.
+        /// moved onto it), which is the mirror of the split retag. The captured events
+        /// (<see cref="GameStateStore.RetagEventsForRecording"/>) and the pending science
+        /// subjects (<see cref="GameStateRecorder.RetagPendingScienceForRecording"/>) move
+        /// with them (OPTIMIZER-MERGE-RETAGS-LEDGER-ROWS-ONLY).
         /// </summary>
-        private static void RetagLedgerActionsAfterOptimizationMerge(Recording target, Recording absorbed)
+        internal static void RetagLedgerActionsAfterOptimizationMerge(Recording target, Recording absorbed)
         {
             if (target == null || absorbed == null) return;
             int remapped = Ledger.RetagActionsForRecordingRewrite(
@@ -508,6 +511,21 @@ namespace Parsek
                     $"Optimization merge: retagged {remapped} ledger action(s) from " +
                     $"absorbed '{absorbed.RecordingId}' to target '{target.RecordingId}'" +
                     (!string.IsNullOrEmpty(target.TreeId) ? $" (tree id='{target.TreeId}')" : ""));
+
+            // The captured events and pending science subjects carry the same id (the split's
+            // three carriers): at a fresh commit this pass runs before the converter, which reads
+            // the tag as ownership, and id-keyed readers drop an event left on a removed id.
+            if (string.IsNullOrEmpty(absorbed.RecordingId) || string.IsNullOrEmpty(target.RecordingId))
+                return;
+            int eventsRetagged = GameStateStore.RetagEventsForRecording(
+                absorbed.RecordingId, target.RecordingId);
+            int scienceRetagged = GameStateRecorder.RetagPendingScienceForRecording(
+                absorbed.RecordingId, target.RecordingId);
+            if (eventsRetagged > 0 || scienceRetagged > 0)
+                ParsekLog.Info("RecordingStore",
+                    $"Optimization merge: retagged {eventsRetagged.ToString(CultureInfo.InvariantCulture)} event(s) " +
+                    $"and {scienceRetagged.ToString(CultureInfo.InvariantCulture)} pending science subject(s) " +
+                    $"from absorbed '{absorbed.RecordingId}' to target '{target.RecordingId}'");
         }
 
         /// <summary>

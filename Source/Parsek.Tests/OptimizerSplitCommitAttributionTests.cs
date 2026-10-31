@@ -361,5 +361,83 @@ namespace Parsek.Tests
             Assert.Equal(1, GameStateRecorder.RetagPendingScienceForSplitSecondHalf("rec_a", "rec_b", 30.0));
             Assert.Equal("rec_b", PendingTagOf("s1"));
         }
+
+        // ------------------------------------------------------------------
+        // OPTIMIZER-MERGE-RETAGS-LEDGER-ROWS-ONLY: the merge moves all three carriers
+        // MUTATION NOTE: dropping the event / pending-science retag in
+        // RecordingStore.RetagLedgerActionsAfterOptimizationMerge leaves the milestone and
+        // the pending subject on 'seg-b', a recording the merge removed.
+        // ------------------------------------------------------------------
+
+        private static Recording MergeableSegment(string id, string treeId, int index, double start, double end)
+        {
+            var rec = new Recording
+            {
+                RecordingId = id, VesselName = "Chain", TreeId = treeId, ChainId = "chain-m",
+                ChainIndex = index, ChainBranch = 0, SegmentPhase = "exo", SegmentBodyName = "Mun",
+                PlaybackEnabled = true, LoopIntervalSeconds = LoopTiming.UntouchedLoopIntervalSentinel,
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = start, altitude = 50000, bodyName = "Mun" });
+            rec.Points.Add(new TrajectoryPoint { ut = end, altitude = 50000, bodyName = "Mun" });
+            return rec;
+        }
+
+        [Fact]
+        public void OptimizerMerge_RetagsTheAbsorbedEventsPendingScienceAndLedgerRows()
+        {
+            const string treeId = "tree-merge-retag";
+            var tree = new RecordingTree { Id = treeId, TreeName = "Merge" };
+            Recording a = MergeableSegment("seg-a", treeId, 0, 17000, 17030);
+            Recording b = MergeableSegment("seg-b", treeId, 1, 17030, 17060);
+            tree.AddOrReplaceRecording(a);
+            tree.AddOrReplaceRecording(b);
+            tree.RootRecordingId = a.RecordingId;
+            RecordingStore.AddRecordingWithTreeForTesting(a);
+            RecordingStore.AddRecordingWithTreeForTesting(b);
+            RecordingStore.AddCommittedTreeForTesting(tree);
+
+            AddMilestone("MunOrbit", 17045, "seg-b");
+            AddMilestone("MunFlyby", 17010, "seg-a");
+            AddMilestone("OtherFlight", 17045, "rec_other");
+            AddPendingScience("crewReport@MunInSpaceHigh", 17050, "seg-b");
+            AddPendingScience("other@Kerbin", 17050, "rec_other");
+            var science = new GameAction
+            {
+                ActionId = "sci-b", UT = 17050, Type = GameActionType.ScienceEarning,
+                RecordingId = "seg-b", SubjectId = "mysteryGoo@MunInSpaceHigh", ScienceAwarded = 4f,
+            };
+            Ledger.AddAction(science);
+
+            logLines.Clear();
+            RecordingStore.RunOptimizationPass();
+
+            Assert.False(tree.Recordings.ContainsKey("seg-b"));
+            Assert.DoesNotContain(RecordingStore.CommittedRecordings, r => r.RecordingId == "seg-b");
+            Assert.Equal("seg-a", TagOf("MunOrbit"));
+            Assert.Equal("seg-a", TagOf("MunFlyby"));
+            Assert.Equal("rec_other", TagOf("OtherFlight"));
+            Assert.Equal("seg-a", PendingTagOf("crewReport@MunInSpaceHigh"));
+            Assert.Equal("rec_other", PendingTagOf("other@Kerbin"));
+            Assert.Equal("seg-a", science.RecordingId);
+            Assert.DoesNotContain(GameStateStore.Events, e => e.recordingId == "seg-b");
+
+            Assert.Contains(logLines, l => l.Contains("[RecordingStore]")
+                && l.Contains("Optimization merge: retagged 1 event(s) and 1 pending science subject(s)")
+                && l.Contains("'seg-b'") && l.Contains("'seg-a'"));
+            Assert.Contains(logLines, l => l.Contains("[GameStateRecorder]")
+                && l.Contains("RetagPendingScienceForRecording") && l.Contains("retagged=1"));
+        }
+
+        [Fact]
+        public void RetagPendingScienceForRecording_GuardsDegenerateInputs()
+        {
+            AddPendingScience("s1", 25.0, "rec_a");
+            Assert.Equal(0, GameStateRecorder.RetagPendingScienceForRecording(null, "rec_b"));
+            Assert.Equal(0, GameStateRecorder.RetagPendingScienceForRecording("rec_a", ""));
+            Assert.Equal(0, GameStateRecorder.RetagPendingScienceForRecording("rec_a", "rec_a"));
+            Assert.Equal("rec_a", PendingTagOf("s1"));
+            Assert.Equal(1, GameStateRecorder.RetagPendingScienceForRecording("rec_a", "rec_b"));
+            Assert.Equal("rec_b", PendingTagOf("s1"));
+        }
     }
 }

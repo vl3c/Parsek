@@ -103,6 +103,56 @@ namespace Parsek
             return retagged;
         }
 
+        /// <summary>
+        /// Optimizer-merge companion of <see cref="GameStateStore.RetagEventsForRecording"/>
+        /// (OPTIMIZER-MERGE-RETAGS-LEDGER-ROWS-ONLY): every pending science subject tagged
+        /// <paramref name="oldRecordingId"/> moves to <paramref name="newRecordingId"/>, and so
+        /// do the cached copies in <see cref="PendingMilestoneEventById"/> (found by an identity
+        /// that includes the tag). The mirror of <see cref="RetagPendingScienceForSplitSecondHalf"/>
+        /// with no cut: the absorbed recording leaves the committed list whole. Returns the
+        /// number of science subjects retagged.
+        /// </summary>
+        internal static int RetagPendingScienceForRecording(string oldRecordingId, string newRecordingId)
+        {
+            if (string.IsNullOrEmpty(oldRecordingId) || string.IsNullOrEmpty(newRecordingId))
+                return 0;
+            if (string.Equals(oldRecordingId, newRecordingId, StringComparison.Ordinal))
+                return 0;
+
+            int retagged = 0;
+            for (int i = 0; i < PendingScienceSubjects.Count; i++)
+            {
+                var s = PendingScienceSubjects[i];
+                if (!string.Equals(s.recordingId ?? "", oldRecordingId, StringComparison.Ordinal))
+                    continue;
+                s.recordingId = newRecordingId;
+                PendingScienceSubjects[i] = s;
+                retagged++;
+            }
+
+            int milestoneCopies = 0;
+            if (PendingMilestoneEventById.Count > 0)
+            {
+                var keys = new List<string>(PendingMilestoneEventById.Keys);
+                for (int i = 0; i < keys.Count; i++)
+                {
+                    var evt = PendingMilestoneEventById[keys[i]];
+                    if (!string.Equals(evt.recordingId ?? "", oldRecordingId, StringComparison.Ordinal))
+                        continue;
+                    evt.recordingId = newRecordingId;
+                    PendingMilestoneEventById[keys[i]] = evt;
+                    milestoneCopies++;
+                }
+            }
+
+            ParsekLog.Verbose("GameStateRecorder",
+                $"RetagPendingScienceForRecording: '{oldRecordingId}' -> '{newRecordingId}' " +
+                $"retagged={retagged.ToString(CultureInfo.InvariantCulture)} " +
+                $"pendingMilestoneCopies={milestoneCopies.ToString(CultureInfo.InvariantCulture)} " +
+                $"total={PendingScienceSubjects.Count.ToString(CultureInfo.InvariantCulture)}");
+            return retagged;
+        }
+
         internal struct RecentScienceChangeCapture
         {
             public double Ut;
