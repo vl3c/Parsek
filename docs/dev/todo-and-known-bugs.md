@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE: a contract the clock carries past its committed outcome leaves stock's active list and goes nowhere, so it vanishes from the Mission Control Archive~~ [FILED 2026-10-31 from RW-20 run `2026-10-31_0256`; FIXED 2026-10-31, branch `contract-crossed-archive`; unit-tested, RW-20 re-pin owed; product, low (stock history only: funds, reputation, ledger and ground truth were right, nothing paid twice)]
+## ~~CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE: a contract the clock carries past its committed outcome leaves stock's active list and goes nowhere, so it vanishes from the Mission Control Archive~~ [FILED 2026-10-31 from RW-20 run `2026-10-31_0256`; FIXED 2026-10-31, branch `contract-crossed-archive`; LIVE-PROVEN by RW-20 `2026-10-31_0425`; product, low (stock history only: funds, reputation, ledger and ground truth were right, nothing paid twice)]
 
 In RW-20 contract `1a9762e8` reached its real deadline and stock saved it `DeadlineExpired`. A
 Rewind-to-Launch to before that made it Active again (correct). When a Space Center warp then
@@ -63,7 +63,7 @@ copy, after which the restore re-adds it Active. Tests: `ContractCrossedOutcomeA
 produced saves hold it in `CONTRACT_FINISHED` with `state = DeadlineExpired`, not in `CONTRACT`, with
 one penalty. That witnesses the reflection write against the live stock assembly. The Archive UI
 listing the filed contract was not looked at: the lane reads the save, not the screen.
-## ~~TAKE-BACK-REFIRES-AFTER-EVERY-LOAD: a duplicate stock payment taken back after a rewind is taken back again after every later scene change~~ [FILED AND FIXED 2026-10-31 from lane RW-20, run `2026-10-31_0307` (main's build); branch `takeback-refires`; unit-tested only, NOT FLOWN, RW-20 re-flight owed; product, high (a reduction of the career total, repeated on every load)]
+## ~~TAKE-BACK-REFIRES-AFTER-EVERY-LOAD: a duplicate stock payment taken back after a rewind is taken back again after every later scene change~~ [FILED AND FIXED 2026-10-31 from lane RW-20, run `2026-10-31_0307` (main's build); branch `takeback-refires`; LIVE-PROVEN by RW-20 `2026-10-31_0425`; product, high (a reduction of the career total, repeated on every load)]
 
 On a 100000x Space Center warp, stock paid the Sun/Flyby world-first one warp step after the
 committed ledger row for it, before prevention could mark the node done. The take-back (design 3.15
