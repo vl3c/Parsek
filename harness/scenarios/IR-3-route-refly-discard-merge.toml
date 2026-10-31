@@ -5,7 +5,7 @@ tier = "nightly"
 # IR-3 + IR-4 (roadmap "The logistics integration program", Phase B; test-gap audit
 # 2026-10-31 item 5): a supply route under a Re-Fly of ANOTHER tree, the Re-Fly first
 # discarded and then merged, with the destination tank read at every step. AUTHORED
-# 2026-10-31, NOT FLOWN.
+# 2026-10-31; first flight INVALID on a spec fault (below), fixed, NOT YET GREEN.
 #
 # THE STORY. The player activates the rover route, flies a short pad mission whose
 # decouple leaves two controllable vessels (a rewind point), commits it, and warps until
@@ -41,12 +41,23 @@ tier = "nightly"
 # derivation). Both slots end Landed, so the pod slot is stashed to keep the point open
 # (RW-5 / RW-6's shape).
 #
-# THE CLOCK. The route is activated IN THE VAB, where the clock stands still, so its loop
-# anchor A is the launch UT (IR-2's reason). The span ends at the dock (cadence 45.04 s),
-# so crossings fall at A + 45.04 k: the first at ~A + 45 (A ~ 980-990, so ~1025-1035), the
-# second at ~A + 90 (~1070-1080). G's flight (launch, decouple, 1x to UT 1000) and the
-# rewind point (~A + 3) sit before the first crossing; every in-session warp targets 1050
-# (past the first, short of the second); the closing warp targets 1100 (past the second).
+# THE ENDPOINT. The live state clears both containers (six slots) and keeps LiquidFuel at
+# the fixture's 297.6. MEASURED manifest per cycle (IR-6, 2026-10-31_1847_a2): 97.6
+# LiquidFuel plus THREE items (evaChute, evaScienceKit, DeployedCentralStation), so the
+# slots hold two cycles and the tank one: the second crossing blocks `reason=LiquidFuel`.
+#
+# THE CLOCK. The route is activated IN THE VAB, where the clock stands still (IR-2's
+# reason). MEASURED on IR-6 (2026-10-31_1847_a2): the mission PhaseLock re-anchors an
+# activation at A = 981.2 to 983.5 with cadence 50 (`PhaseLock APPLIED ... cadence
+# 45.04->50`), and the dock crossings fall at anchor + 45.04 + 50 k: cycle-0 at 1029.38,
+# cycle-1 at 1079.44. G's flight (launch, decouple, 1x to UT 1000) and the rewind point
+# (~UT 985) sit before cycle-0; every in-session warp targets 1050 (about 20 s past
+# cycle-0, 29 s short of cycle-1); the closing warp targets 1100 (past cycle-1).
+#
+# FLIGHT 1 (2026-10-31_1849 / _1850_a2, both INVALID driver-gate): the spec sent GoToEditor
+# from FLIGHT (`goeditor rejected reason=goeditor-wrong-scene scene=FLIGHT`); the editor is
+# entered from the Space Center, so an ExitToSpaceCenter now precedes it (IR-2's order).
+# Nothing past that step ran.
 #
 # SCENE ROUTES. The Discard Re-fly lands at the Space Center at the rewind point's UT
 # (RW-5 measured). InvokeRewind is FLIGHT-only, so the lane re-enters FLIGHT RW-6's way:
@@ -69,7 +80,7 @@ tier = "nightly"
 #     closing warp: a double fire (product defect).
 #   - status=SourceChanged after the merge: the merge touched the route's source tree.
 # =====================================================================================
-description = "IR-3 (with IR-4), AUTHORED 2026-10-31, NOT FLOWN: on rover-route-recorded the rover route is activated in the VAB, a CS Flea Probe pad flight is decoupled into two controllable vessels (a rewind point), committed and its pod slot stashed, and a warp lets the route deliver once (endpoint 297.6 -> 395.2). A Re-Fly of the pod slot must take the route and the tank back to the rewind point (no cycle, cursor -1, no route event, 297.6), and a warp inside the session delivers exactly once. Discard Re-fly takes both back again; a Space Center warp delivers once on the unloaded path. A second Re-Fly takes that delivery back, delivers once in session and is merged: the route keeps completed=1 delivered=1, stays Active (not SourceChanged), and the next crossing blocks DestinationFull against the full tank. Logistics has no money, so no delivery seals the Re-Fly."
+description = "IR-3 (with IR-4): on rover-route-recorded (endpoint inventory cleared) the rover route is activated in the VAB, a CS Flea Probe pad flight is decoupled into two controllable vessels (a rewind point), committed and its pod slot stashed, and a warp lets the route deliver once (endpoint 297.6 -> 395.2). A Re-Fly of the pod slot must take the route and the tank back to the rewind point (no cycle, cursor -1, no route event, 297.6), and a warp inside the session delivers exactly once. Discard Re-fly takes both back again; a Space Center warp delivers once on the unloaded path. A second Re-Fly takes that delivery back, delivers once in session and is merged: the route keeps completed=1 delivered=1, stays Active (not SourceChanged), and the next crossing blocks DestinationFull against the full tank. Logistics has no money, so no delivery seals the Re-Fly."
 instanceProfile = "stock-minimal"
 tags = ["IR-3", "IR-4", "logistics", "route", "refly", "timeline-ops", "recorded-fixture"]
 
@@ -77,6 +88,11 @@ tags = ["IR-3", "IR-4", "logistics", "route", "refly", "timeline-ops", "recorded
 saveTemplate       = "fixtures/saves/rover-route-recorded"
 injectedRecordings = "none"
 craft              = []
+
+[[fixture.liveState]]
+pid       = 2123618197
+resources = { LiquidFuel = 297.6 }
+inventory = "clear"
 
 [driver]
 kind = "seam"
@@ -92,6 +108,7 @@ steps = [
   { cmd = "RouteCommand", args = { action = "create", tree = "73e50f1e3aa24c299919016cd9e92269", name = "IR3 Rover Supply" }, expect = "OK", budget = 120 },
 
   # ---- the route activated in the VAB (frozen clock), then G launched ----
+  { cmd = "ExitToSpaceCenter",                                                  expect = "OK", budget = 120 },
   { cmd = "GoToEditor",   args = { facility = "VAB", craft = "CS Flea Probe" },  expect = "OK", budget = 120 },
   { cmd = "RouteCommand", args = { action = "activate", route = "IR3 Rover Supply" }, expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor",                                     label = "g",    expect = "OK", budget = 180 },
