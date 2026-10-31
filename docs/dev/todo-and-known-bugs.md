@@ -17,6 +17,43 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REVERT-EDITOR-SAVE-SWITCH-GAPS: Revert to VAB / SPH could be undone by a scene-exit save or leave a stale cleanup armed, and three statics survived a save switch~~ [FILED AND FIXED 2026-10-31 from the test-gap audit (`test-gap-audit-2026-10-31.md` B4 / B5 / B6 / C9), branch `claude/project-thread-ib5y5e`; unit-tested, lanes owed; product, medium (R1, R2), low (S1-S3)]
+
+Code read plus a decompile of `FlightDriver.RevertToPrelaunch` (KSP 1.12.5): stock writes
+`PreLaunchState` to persistent.sfs, fires `OnRevertToPrelaunchFlightState`, then
+`EditorDriver.StartEditor` -> `LoadScene(EDITOR)`, and `EditorDriver.Start` reloads that file.
+
+- ~~**R1.** `SceneExitInterceptor.SafeWritePersistent` saved `HighLogic.CurrentGame` (still the
+  flight game) over that file when the LoadScene prefix took a scene-exit write on the way to
+  EDITOR: the no-op switch-segment and no-session committed-resume fast paths (3.5 / 3.6), and the
+  merge dialog's post-choice when autoMerge is off. The editor then loaded the flight state (the
+  launch vessel still flying, the rollout not refunded).~~ Fix: `ShouldSkipPersistentWriteForPendingRevert`
+  skips the write while `RevertDetector.PendingKind` is set (not for MAINMENU, which never follows
+  a revert). Revert to Launch goes FLIGHT to FLIGHT and never reaches it.
+- ~~**R2.** The revert branch of `ParsekScenario.OnLoad` armed the OnFlightReady orphaned-vessel
+  recovery (`PendingCleanupPids` / `PendingRevertPreExistingPids`) for an editor revert too, where
+  nothing consumes it; the next launch then ran it with the stale prelaunch whitelist and recovered
+  a vessel Parsek had Real Spawned at the Space Center in between.~~ Fix:
+  `ReleaseRevertCleanupOutsideFlight` releases it when the revert does not land in FLIGHT (the
+  protoVessel strip already covered every vessel), the same release the rewind path does.
+- ~~**S1.** `FacilityStatePatcher`'s patch history and pending default targets survived a
+  main-menu return to a save of the same folder name (its folder latch cannot see it), so a
+  facility the old session patched could be forced to its default level.~~ Fix:
+  `FacilityStatePatcher.ResetForSaveLoad` from `KspStatePatcher.ResetForSaveLoad` (every cold load).
+- ~~**S2.** `RecordingGroupStore`'s auto-group mirror was never cleared outside tests, so a save
+  sharing recording ids (a copied folder) could re-adopt a recording into the other save's
+  group.~~ Fix: cleared in `RecordingStore.ResetSaveScopedStateForLoad`; each recording carries
+  its own `autoAssignedStandaloneGroup` key.
+- ~~**S3.** `LedgerOrchestrator.OnLoad` kept the previous save's rows when the ledger path could
+  not be resolved.~~ Fix: `Ledger.ClearForFailedLoad` there too.
+- Both statics classes joined the `SaveScopedSessionResetTests` inventory gate (mutation-checked:
+  dropping either reset reds it). CommNet ghosts across a rewind: no defect found (every scene
+  load rebuilds the manager and eligibility is re-derived each tick); the registration passes
+  moved into the pure `GhostCommNetMath.ResolveRegistrations` with cells
+  (GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST first bullet).
+- Owed: lanes for Revert to VAB / SPH (needs `RevertToLaunch target=editor`), a save switch
+  through the main menu, and a CommNet relay across a Rewind-to-Launch.
+
 ## ~~CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE: a contract the clock carries past its committed outcome leaves stock's active list and goes nowhere, so it vanishes from the Mission Control Archive~~ [FILED 2026-10-31 from RW-20 run `2026-10-31_0256`; FIXED 2026-10-31, branch `contract-crossed-archive`; LIVE-PROVEN by RW-20 `2026-10-31_0425`; product, low (stock history only: funds, reputation, ledger and ground truth were right, nothing paid twice)]
 
 In RW-20 contract `1a9762e8` reached its real deadline and stock saved it `DeadlineExpired`. A
@@ -8778,12 +8815,13 @@ drives the DESIGNED flag through a real career.
 
 ## GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST: the continuation-hold pass has no manager-level dedupe test, and FLIGHT scans for it every frame [FILED 2026-09-26 by the commnet-followups review. OPEN, low; test and performance hygiene, no live defect]
 
-- The pass-3 identity dedupe in `GhostCommNetManager.Tick` (`ChainVesselCoveredByRecording` before a
+- ~~The pass-3 identity dedupe in `GhostCommNetManager.Tick` (`ChainVesselCoveredByRecording` before a
   continuation-hold entry) can be removed with no test going red; only the pure pieces are pinned. The
   duplicate it guards (a chain-intermediate recording's hold beside the pre-claim snapshot node of the
-  same vessel) needs a recording in replay scope while its vessel is real, which should be unreachable.
-  Fix: move the pass ordering and dedupe into a pure function and pin it, or give the manager a
-  headless seam for the CommNet types.
+  same vessel) needs a recording in replay scope while its vessel is real, which should be unreachable.~~
+  DONE 2026-10-31 (branch `claude/project-thread-ib5y5e`): the three passes are the pure
+  `GhostCommNetMath.ResolveRegistrations` (capability probe and exclusions by row index), pinned by
+  the `ResolveRegistrations_*` cells in `GhostCommNetTests`.
 - FLIGHT evaluates `ApplyContinuationHold` every frame for every in-scope unspawned recording with
   `TerminalSpawnSupersededByRecordingId` set, scanning the committed list even far from EndUT (O(K*n)
   per frame). Fine at today's scales. Fix: gate it to near or past EndUT as the Tracking Station does.

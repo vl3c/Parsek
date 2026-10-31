@@ -60,6 +60,34 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RevertToEditor_ReleasesCleanupSoTheNextLaunchDoesNotRecoverLaterSpawns()
+        {
+            // Revert to VAB / SPH lands in EDITOR; nothing consumes the OnFlightReady belt
+            // there, so an armed set would fire on the NEXT launch with this revert's stale
+            // whitelist and recover a vessel Parsek spawned at the Space Center in between.
+            RecordingStore.PendingCleanupPids = new HashSet<uint> { 42u };
+            RecordingStore.PendingCleanupNames = new HashSet<string> { "Rocket" };
+            RecordingStore.PendingRevertPreExistingPids = new HashSet<uint> { 7u };
+
+            Assert.True(ParsekScenario.ReleaseRevertCleanupOutsideFlight(GameScenes.EDITOR));
+
+            Assert.False(RecordingStore.ShouldRunPendingCleanupOnFlightReady());
+            Assert.Null(RecordingStore.PendingRevertPreExistingPids);
+        }
+
+        [Fact]
+        public void RevertToLaunch_KeepsCleanupArmedForOnFlightReady()
+        {
+            RecordingStore.PendingCleanupPids = new HashSet<uint> { 42u };
+            RecordingStore.PendingRevertPreExistingPids = new HashSet<uint> { 7u };
+
+            Assert.False(ParsekScenario.ReleaseRevertCleanupOutsideFlight(GameScenes.FLIGHT));
+
+            Assert.True(RecordingStore.ShouldRunPendingCleanupOnFlightReady());
+            Assert.Equal(new HashSet<uint> { 7u }, RecordingStore.PendingRevertPreExistingPids);
+        }
+
+        [Fact]
         public void RewindThenRevert_CleanupDataSurvives()
         {
             // Full sequence simulation: rewind sets data, then revert path fires.

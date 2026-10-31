@@ -258,6 +258,39 @@ namespace Parsek
         public string DarkReason;
     }
 
+    /// <summary>What the snapshot derivation says about one candidate's vessel.</summary>
+    internal enum GhostCommNetCapability
+    {
+        Capable = 0,
+        /// <summary>A vessel type stock CommNet gives no node (debris, flags, EVA...).</summary>
+        TypeIgnored = 1,
+        /// <summary>No antenna that can relay and no control point.</summary>
+        Incapable = 2,
+    }
+
+    internal delegate GhostCommNetCapability GhostCommNetCapabilityProbe(int rowIndex, out string vesselTypeName);
+
+    /// <summary>One candidate as the registration resolve sees it: its key, pass inputs and
+    /// launch identity (baked pid + launch guid).</summary>
+    internal struct GhostCommNetRegistrationRow
+    {
+        public string Key;
+        /// <summary>A chain-ghosted real vessel's despawn snapshot (pass 2).</summary>
+        public bool IsChain;
+        public bool Eligible;
+        public string Reason;
+        public uint Pid;
+        public string Guid;
+    }
+
+    internal struct GhostCommNetRegistrationCounts
+    {
+        public int Eligible;
+        public int TypeIgnored;
+        public int Incapable;
+        public int Covered;
+    }
+
     internal static class GhostCommNetMath
     {
         internal const string Tag = "GhostCommNet";
@@ -1132,6 +1165,76 @@ namespace Parsek
                 return true;
             }
             return false;
+        }
+
+        internal const string ReasonCoveredByRecordingNode = "covered-by-recording-node";
+        internal const string ReasonNoCapability = "no-relay-or-control-capability";
+        internal const string ReasonIgnoredVesselTypePrefix = "stock-ignored-vessel-type:";
+
+        /// <summary>
+        /// The three-pass registration resolve of one manager tick (design 15.6): which
+        /// candidates get a ghost CommNet node and why every other one does not. Pass 1 takes
+        /// recordings in their window or held for a spawn / chain gap; pass 2 a chain-ghosted
+        /// real vessel's despawn-snapshot node unless a recording of the same launch already
+        /// relays; pass 3 a continuation gap hold, which yields the same way (a pid-0 hold has
+        /// no launch identity to compare and is never deduped). The order of
+        /// <paramref name="rows"/> inside a pass decides only which of two same-launch pass-3
+        /// holds wins, never whether a pass-1 node stands. Pure: the capability probe is the
+        /// caller's snapshot derivation, and exclusions are handed back by row index.
+        /// </summary>
+        internal static GhostCommNetRegistrationCounts ResolveRegistrations(
+            IList<GhostCommNetRegistrationRow> rows,
+            GhostCommNetCapabilityProbe capabilityOf,
+            ICollection<string> desiredOut,
+            Action<int, string> noteExclusion,
+            List<KeyValuePair<uint, string>> relayingScratch = null)
+        {
+            var counts = new GhostCommNetRegistrationCounts();
+            // The per-frame caller passes its own scratch list so a tick allocates nothing.
+            List<KeyValuePair<uint, string>> relaying = relayingScratch ?? new List<KeyValuePair<uint, string>>();
+            relaying.Clear();
+            int n = rows != null ? rows.Count : 0;
+            for (int pass = 1; pass <= 3; pass++)
+            {
+                for (int i = 0; i < n; i++)
+                {
+                    GhostCommNetRegistrationRow r = rows[i];
+                    if (string.IsNullOrEmpty(r.Key) || RegistrationPass(r.IsChain, r.Reason) != pass)
+                        continue;
+                    if (!r.Eligible)
+                    {
+                        noteExclusion?.Invoke(i, r.Reason);
+                        continue;
+                    }
+                    bool dedupe = pass == 2 || (pass == 3 && r.Pid != 0);
+                    if (dedupe && ChainVesselCoveredByRecording(r.Pid, r.Guid, relaying))
+                    {
+                        counts.Covered++;
+                        noteExclusion?.Invoke(i, ReasonCoveredByRecordingNode);
+                        continue;
+                    }
+                    counts.Eligible++;
+                    string typeName = null;
+                    GhostCommNetCapability cap = capabilityOf != null
+                        ? capabilityOf(i, out typeName)
+                        : GhostCommNetCapability.TypeIgnored;
+                    if (cap == GhostCommNetCapability.TypeIgnored)
+                    {
+                        counts.TypeIgnored++;
+                        noteExclusion?.Invoke(i, ReasonIgnoredVesselTypePrefix + (typeName ?? "?"));
+                        continue;
+                    }
+                    if (cap == GhostCommNetCapability.Incapable)
+                    {
+                        counts.Incapable++;
+                        noteExclusion?.Invoke(i, ReasonNoCapability);
+                        continue;
+                    }
+                    desiredOut?.Add(r.Key);
+                    relaying.Add(new KeyValuePair<uint, string>(r.Pid, r.Guid));
+                }
+            }
+            return counts;
         }
 
         internal static string NodeNameForRecording(string recordingId)

@@ -25,6 +25,12 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Revert to VAB / SPH reverts again after a Switch-To.** Reverting to the editor after switching
+  to another vessel and changing nothing could bring the flight back instead, with the launched
+  vessel still flying and the rollout not refunded. (REVERT-EDITOR-SAVE-SWITCH-GAPS)
+- **A vessel spawned at the Space Center survives the next launch after a Revert to VAB / SPH.**
+  The next launch could recover a vessel Parsek had just spawned on its recorded spot.
+  (REVERT-EDITOR-SAVE-SWITCH-GAPS)
 - **A part bought under a strategy discount is no longer discounted twice after a load.** Loading
   a save rewrote the purchase to its discounted price while the discount stayed booked on its own,
   leaving a stray correction row in the books. (LEGACY-PART-PURCHASE-REPAIR-NETS-A-DISCOUNTED-PURCHASE)
