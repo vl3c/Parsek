@@ -25,6 +25,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A kerbal on the ground when a recording ends now ends Landed.** A kerbal standing, lying or
+  hopping on the surface (on the Mun especially) could read as falling, so his recording could
+  end Destroyed or Sub-orbital instead of putting him back where he stood.
+  (LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER)
 - **After a rewind, the crew of a flight that ended on the pad or runway stays held until you
   recovered it.** Such a kerbal or tourist was freed a few minutes early, at the flight's
   trimmed end, while the timeline still had him aboard.
