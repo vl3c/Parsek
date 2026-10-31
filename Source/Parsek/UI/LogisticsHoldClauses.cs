@@ -19,9 +19,11 @@ namespace Parsek
     ///
     /// NOT here, deliberately: the argument VALUES a clause substitutes when
     /// the token cannot name a thing ("a pickup source", "pickup source",
-    /// "another route", "&lt;none&gt;"). Those are fallback nouns dropped into a
+    /// "&lt;none&gt;"). Those are fallback nouns dropped into a
     /// hole, not sentences the vocabulary needs to claim; the sentence around
-    /// them is what a catalogue state has to be able to produce.
+    /// them is what a catalogue state has to be able to produce. An unnamed
+    /// reserving route is NOT such a hole: it has its own unquoted clauses,
+    /// because a quoted fallback read as a route named "another route".
     ///
     /// Extracted with NO behavior change (the clause text, argument order,
     /// spacing, punctuation and number formatting are byte-identical to what
@@ -96,10 +98,11 @@ namespace Parsek
         internal const string BlockedUnknownKind =
             "route is blocked ({0}: {1})";
 
-        /// <summary>OriginLacksCargo, "pickup-source-unresolved:*": the source vessel is gone.</summary>
+        /// <summary>OriginLacksCargo, "pickup-source-unresolved:*": the source vessel is gone.
+        /// The raw token stays in the log (the route's "hold recorded" line), not on screen.</summary>
         internal const string PickupSourceNotFound =
             "a pickup source vessel could not be found - it may have moved,"
-            + " been recovered, or been destroyed ({0})";
+            + " been recovered, or been destroyed";
 
         /// <summary>OriginLacksCargo, "inventory-state:" with no part name.</summary>
         internal const string OriginStoredPartStateChanged =
@@ -119,10 +122,11 @@ namespace Parsek
         internal const string OriginMissingNamedStoredPart =
             "origin is missing stored part '{0}' - delivers when the origin holds it";
 
-        /// <summary>OriginLacksCargo, "origin-unresolved:*": keeps the raw token as a log-grep handle.</summary>
-        internal const string OriginVesselNotFoundWithToken =
+        /// <summary>OriginLacksCargo, "origin-unresolved:*". The raw token stays in the log
+        /// (the route's "hold recorded" line), not on screen.</summary>
+        internal const string OriginVesselGone =
             "origin vessel could not be found - it may have moved,"
-            + " been recovered, or been destroyed ({0})";
+            + " been recovered, or been destroyed";
 
         /// <summary>OriginLacksCargo, resource short by a measured amount.</summary>
         internal const string OriginShortOfResource =
@@ -169,6 +173,14 @@ namespace Parsek
         /// <summary>Escrow hold naming the source, the reserved resource and the reserving route.</summary>
         internal const string NamedSourceResourceReserved =
             "{0} has {1} reserved by route '{2}' - delivers when the reservation clears";
+
+        /// <summary>Escrow hold naming the source but no resource, the reserving route unnamed.</summary>
+        internal const string NamedSourceCargoReservedByAnotherRoute =
+            "{0} has cargo reserved by another route - delivers when the reservation clears";
+
+        /// <summary>Escrow hold naming the source and the resource, the reserving route unnamed.</summary>
+        internal const string NamedSourceResourceReservedByAnotherRoute =
+            "{0} has {1} reserved by another route - delivers when the reservation clears";
 
         // ==================================================================
         // COMPACT FORM - the Status cell (CompactHold). Same kind+token table
@@ -229,6 +241,9 @@ namespace Parsek
 
         /// <summary>Compact escrow hold naming the resource and the reserving route.</summary>
         internal const string CompactResourceReservedByNamedRoute = "{0} reserved by '{1}'";
+
+        /// <summary>Compact escrow hold naming the resource, the reserving route unnamed.</summary>
+        internal const string CompactResourceReservedByAnotherRoute = "{0} reserved by another route";
 
         /// <summary>Compact "source:*" whose shape did not parse.</summary>
         internal const string CompactPickupSourceShortOfCargo = "pickup source short of cargo";
@@ -341,7 +356,7 @@ namespace Parsek
                 Hold("OriginNamedStoredPartStateChanged", OriginNamedStoredPartStateChanged),
                 Hold("OriginMissingStoredPart", OriginMissingStoredPart),
                 Hold("OriginMissingNamedStoredPart", OriginMissingNamedStoredPart),
-                Hold("OriginVesselNotFoundWithToken", OriginVesselNotFoundWithToken),
+                Hold("OriginVesselGone", OriginVesselGone),
                 Hold("OriginShortOfResource", OriginShortOfResource),
                 Hold("OriginOutOfResource", OriginOutOfResource),
                 Hold("PickupSourceMissingCargo", PickupSourceMissingCargo),
@@ -353,6 +368,8 @@ namespace Parsek
                 Hold("ReservedPickupSourceCargo", ReservedPickupSourceCargo),
                 Hold("NamedSourceCargoReserved", NamedSourceCargoReserved),
                 Hold("NamedSourceResourceReserved", NamedSourceResourceReserved),
+                Hold("NamedSourceCargoReservedByAnotherRoute", NamedSourceCargoReservedByAnotherRoute),
+                Hold("NamedSourceResourceReservedByAnotherRoute", NamedSourceResourceReservedByAnotherRoute),
 
                 Hold("CompactFundsShortGeneric", CompactFundsShortGeneric),
                 Hold("CompactNoFreeInventorySlot", CompactNoFreeInventorySlot),
@@ -371,6 +388,7 @@ namespace Parsek
                 Hold("CompactCargoReservedByAnotherRoute", CompactCargoReservedByAnotherRoute),
                 Hold("CompactCargoReservedByNamedRoute", CompactCargoReservedByNamedRoute),
                 Hold("CompactResourceReservedByNamedRoute", CompactResourceReservedByNamedRoute),
+                Hold("CompactResourceReservedByAnotherRoute", CompactResourceReservedByAnotherRoute),
                 Hold("CompactPickupSourceShortOfCargo", CompactPickupSourceShortOfCargo),
                 Hold("CompactNamedSourceMissingStoredPart", CompactNamedSourceMissingStoredPart),
                 Hold("CompactNamedSourceMissingNamedPart", CompactNamedSourceMissingNamedPart),

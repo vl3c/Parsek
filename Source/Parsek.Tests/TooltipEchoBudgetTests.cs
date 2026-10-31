@@ -408,7 +408,7 @@ namespace Parsek.Tests
 
             // Status-cell hold hover: the dated detail line, fed REAL DescribeHold
             // productions - a hand-typed clause can drift from what the builder actually
-            // emits (it once omitted the raw token DescribeHold appends in parentheses).
+            // emits (it once omitted a raw token DescribeHold used to append in parentheses).
             // The unresolved-pickup-source family is the longest FIXED wording and must
             // fit the one-line budget outright, with the longest KSP compact date
             // ("Y999, D426, 23:59") in front of it.

@@ -73,9 +73,10 @@ namespace Parsek
         internal static string BuildDeleteDormantConfirmBody(string displayName)
         {
             string name = string.IsNullOrEmpty(displayName) ? "<unnamed>" : displayName;
-            return $"Delete dormant route '{name}'?\n\n" +
+            // A PopupDialog body: the stock TMP font has no route-name arrow glyph.
+            return StockFontText.ForStockUi($"Delete dormant route '{name}'?\n\n" +
                 "It will never re-materialize when timeline reaches its creation point. " +
-                "This cannot be undone.";
+                "This cannot be undone.");
         }
     }
 }

@@ -1344,7 +1344,7 @@ begin / end would desync the Layout / Repaint control count. Both windows are fi
 | difference | global (Ctrl+Shift+T) | Settings-launched |
 |---|---|---|
 | search / filter bar | absent | present: `Search:` (48 px), a text field and a 24 px `x` clear button; an empty filter result reads `No categories or tests match "<query>".` |
-| footer labels | two: `Results file auto-updates after each run. Multi-scene runs accumulate.` and `Ctrl+Shift+T to toggle from any scene` | one: `Ctrl+Shift+T opens a separate runner window, in any scene` |
+| footer labels | two: `Results file auto-updates after each run. Multi-scene runs accumulate.` and `Ctrl+Shift+T to toggle from any scene` | two: the same `Results file auto-updates ...` line, then `Ctrl+Shift+T opens a separate runner window, in any scene` |
 | window host | raw `GUILayout.Window` at a FIXED screen position (20, 60) | `ClickThruBlocker`, anchored beside the main window |
 | input lock | CAMERACONTROLS + six editor types + `KSC_ALL`, taken while the mouse is inside | CAMERACONTROLS only |
 | open-flag accessor | `IsOpenForTesting` + `WindowRectForTesting`, reached through this MonoBehaviour's OWN singleton `Instance` rather than through `ParsekUI` | `IsOpen` + `WindowRectForTesting` |

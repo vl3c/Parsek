@@ -25,6 +25,11 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Supply route texts read cleanly.** A route name's arrow no longer shows as a box in the
+  delete and create confirm dialogs or in screen messages, a hold whose reserving route has no name
+  says "another route" without quoting it as a name, and two holds no longer end with an internal
+  code. The Settings test runner now says its results file updates after each run.
+  (GUI-STATE-COVERAGE-RESIDUE-2026-09-21)
 - **A contract that ran out after a rewind stays in the Mission Control Archive.** When time
   passed the moment a committed contract failed, completed or was cancelled, Parsek took it off
   the active list but left it out of the Archive. It now lands in the Archive with that outcome,
