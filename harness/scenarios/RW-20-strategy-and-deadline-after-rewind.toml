@@ -1,0 +1,177 @@
+schema = 1
+id = "RW-20-strategy-and-deadline-after-rewind"
+# =====================================================================================
+# RW-20: A COMMITTED STRATEGY AND A CONTRACT DEADLINE AFTER A REWIND (the rewind ledger campaign,
+# plan row 19).
+#
+# THE RULINGS UNDER TEST: a committed outcome does not move earlier (design 3.13 rule 1); a
+# strategy the timeline activates later is refused now; a deadline passing is the clock's own event
+# and the timeline already holds its fail (design 3.14, section 8.6). So after a rewind stock's own
+# expiry of that contract is refused (`ContractEarlyFailPatch`, `refusing fail of`), and the
+# committed fail row applies once.
+#
+# WHAT IS NEW HERE. KB-4 reads the strategy refusal on a census host and L12 reads the fail refusal
+# against a filed row in an in-game cell. No lane lets a real deadline pass, rewinds across it and
+# lets it pass again.
+#
+# THE CONTRACT. 1a9762e8 on cs-career-mun4 (PartTest, Active, advance 9000, FundsFailure 9000) is
+# the one Active contract and its deadline is the absolute UT 9201949.02. The Space Center warps at
+# stock's top rate, so each pass of 9 million seconds takes a minute or two.
+#
+# PLAN (UTs are the plan):
+#   boot       LoadGame persistent at the Space Center; warp to 185800.
+#   H          a Jumping Flea on the pad, recorded to 185840, committed, recovered at its marker.
+#   strategy   185900: activate AgressiveNegotiations, the committed row a refusal will read.
+#   deadline   warp to 9202100: stock expires 1a9762e8 and charges its penalty, a row filed under
+#              no flight, with the strategy's conversions.
+#   rewind     Rewind-to-Launch onto H: clock ~185785, the strategy and the fail committed future.
+#   refused    the same strategy activated again: refused, blocked by timeline until its UT.
+#   crossing   warp to 9202100: the clock cursor applies the committed fail once.
+#   check      an unrecorded Flea onto the pad, the default save, LedgerGroundTruth.
+#
+# THE POOLS. Nothing new is earned after the rewind, so every pool ends where the rewind began.
+#
+# WHAT THE FIRST FLIGHT CORRECTED. The plan expected stock's expiry to be refused (`refusing fail of`).
+# On a Space Center warp the clock cursor reaches the row first and takes the contract off stock's
+# list, so stock never expires it and the refusal has nothing to refuse (`_0256`: 0 lines, one
+# `Game state: ContractFailed` in the whole run). The refusal stays L12's, for the path where stock
+# gets there first. This lane gates what a player sees: no second fail, no second penalty.
+#
+# KNOWN GAP, filed as CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE, not gated here: after the
+# crossing the contract is in neither stock list, where before the rewind it was DeadlineExpired.
+#
+# THE WARP'S OWN WORLD-FIRST. An unowned Mun debris piece reaches the Sun on rails near UT 432000
+# and stock pays Kerbin's career `Sun/Flyby` (+38000, +2 science, +4 rep) on the way to the deadline.
+# The row is the lane's own, unplanned, and which side of it the second warp lands on is a matter of
+# warp steps: before it, stock's repeat is the earlier credit (`_0256`); after it, stock's repeat is
+# a duplicate and is taken back once (`_0307`). The second order found the defect below.
+#
+# STATUS: AUTHORED 2026-10-31 (branch `rw20-strategy-deadline`), RED ON A REAL DEFECT, not green:
+# `2026-10-31_0307` PARSEK-FAIL, todo TAKE-BACK-REFIRES-AFTER-EVERY-LOAD. Every pin but the forbidden
+# take-back, adjustment and clamp lines held. `_0256` PARSEK-FAIL on a pin the plan got wrong, fixed.
+# Re-fly when the todo is fixed; the recordings count and the batch split are interim until then.
+# =====================================================================================
+tier = "operator"
+description = "Rewind ledger campaign, a committed strategy and a contract deadline after a rewind (plan row 19): on cs-career-mun4 a committed pad Flea, a strategy activated at the Space Center and a real contract deadline passed by warp, then a Rewind-to-Launch before both: activating the same strategy is refused, the committed fail applies once when the clock passes the deadline again, the pools end where the rewind began and LedgerGroundTruth closes the career."
+instanceProfile = "stock-tree"
+tags = ["RW-20", "career", "ledger", "rewind", "rewind-to-launch", "strategies", "contracts",
+        "deadline", "ksc-marker", "editor", "ground-truth", "ingame-batch", "timeline-ops"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 300 LoadGame + 3 x 120 warps + 2 x 300 long warps + 2 x (120 GoToEditor + 180
+# LaunchFromEditor) + 180 StartRecording + 120 CommitTree + 120 ExitToSpaceCenter + 60
+# KscMarkerRecover + 2 x 60 KscAction + 300 rewind + 4 x 120 SaveGame + 540 RunTests = 3730; runtime
+# 4500 adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+  # ---- H: the Flea on the pad, recorded, committed, recovered at its marker ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "h",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "185840" },                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw20-h-committed" },                         expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw20-01-after-h-commit" },                   expect = "OK", budget = 120 },
+  { cmd = "ExitToSpaceCenter",                                                             expect = "OK", budget = 120 },
+  { cmd = "KscMarkerRecover", args = { pid = "${h.pid}" },                                 expect = "OK", budget = 60 },
+  # ---- the committed strategy, then the real deadline ----
+  { cmd = "WarpToUT",       args = { ut = "185900", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "KscAction",      args = { action = "activate-strategy", strategy = "AgressiveNegotiations" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw20-strategy" },                            expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "9202100" },                                     expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rw20-deadline-passed" },                     expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw20-02-after-deadline" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw20-before-rewind" },                       expect = "OK" },
+  # ---- the rewind onto H's launch ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rw20-rewound" },                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw20-03-after-rtl" },                        expect = "OK", budget = 120 },
+  # ---- the same strategy again: the timeline activates it later ----
+  { cmd = "KscAction",      args = { action = "activate-strategy", strategy = "AgressiveNegotiations" }, expect = "REJECTED", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw20-strategy-refused" },                    expect = "OK" },
+  # ---- the deadline again: stock's expiry refused, the committed fail once ----
+  { cmd = "WarpToUT",       args = { ut = "9202100" },                                     expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rw20-crossed" },                             expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw20-04-after-crossing" },                   expect = "OK", budget = 120 },
+  # ---- the check: an unrecorded launch onto the pad, the save, the ground truth ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "9202130" },                                     expect = "OK", budget = 120 },
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "reputation", "contracts", "strategies", "recalc-engine", "ksp-state-patcher", "ground-truth-harness"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 34 recordings plus H; the check launch is unrecorded. INTERIM window.
+count = { min = 35, max = 36 }
+
+[expectations.logContracts]
+required = [
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=",
+  "kscaction action=activate-strategy target=AgressiveNegotiations applied=true",
+
+  # ---- the real deadline: stock fails the contract once, before the rewind ----
+  "MISSIONMARK label=rw20-strategy ut=(?:(?!MISSIONMARK label=rw20-deadline-passed )[\\s\\S])*?Game state: ContractFailed ",
+  "MISSIONMARK label=rw20-before-rewind ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=rw20-rewound ut=1857[0-9]{2}\\.",
+
+  # ---- the strategy the timeline activates later is refused ----
+  "MISSIONMARK label=rw20-rewound ut=(?:(?!MISSIONMARK label=rw20-strategy-refused )[\\s\\S])*?kscaction refused action=activate-strategy reason=strategy-cannot-activate Activated on [^\\r\\n]+, blocked by timeline until then\\. target=AgressiveNegotiations",
+
+  # ---- the clock reaches the committed fail: the row applies once, before stock's expiry ----
+  "MISSIONMARK label=rw20-strategy-refused ut=(?:(?!MISSIONMARK label=rw20-crossed )[\\s\\S])*?Clock-crossing reached committed-future rows: crossed=1 \\[ContractFail@9201949\\.",
+  "MISSIONMARK label=rw20-strategy-refused ut=(?:(?!MISSIONMARK label=rw20-crossed )[\\s\\S])*?Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* ",
+
+  # ---- paid once: the pools end where the rewind began ----
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw20-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw20-crossed ut=",
+
+  # ---- the ground truth ----
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "\\[LedgerTrace\\] phase=Anomaly ",
+  "ABORTING rewind ledger patch",
+  "GUARDED (?:UPLIFT|DRAWDOWN) clamped",
+  "filed StockPoolAdjustment amount=",
+  "invokerewindtolaunch refused",
+  "\\[TakeBack\\] Took back ",
+  "take-back shortfall",
+  "Game state: ContractCompleted ",
+  # ---- no second stock fail after the rewind, and no second activation ----
+  "MISSIONMARK label=rw20-rewound ut=[\\s\\S]*Game state: ContractFailed ",
+  "MISSIONMARK label=rw20-rewound ut=[\\s\\S]*kscaction action=activate-strategy target=AgressiveNegotiations applied=true",
+]
+
+[runtime]
+budgetSeconds = 4500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

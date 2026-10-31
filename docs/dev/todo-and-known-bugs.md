@@ -3550,6 +3550,53 @@ retry after 5 s too), most likely a hatch blocked by the rest attitude.
 
 ---
 
+## TAKE-BACK-REFIRES-AFTER-EVERY-LOAD: a duplicate stock payment taken back once is taken back again on every later load [OPEN; product, HIGH: the career silently loses the reward each time]
+
+Found by RW-20 (`2026-10-31_0307`, main e96d2c9bb, DLL c39bde83, archived under
+`logs/flights/rewind-campaign/rw-20-strategy-and-deadline-after-rewind/`). After a Rewind-to-Launch a warp at 100000x
+carried stock past the committed `Sun/Flyby` row (UT 432178.8) inside one warp step, so stock paid it again at
+432227.6 before `CommittedMilestoneReach` could mark the node. That is the case the take-back exists for, and the
+first take-back was right: `Took back 38000 Funds stock paid again for milestone 'Sun/Flyby'`, funds 186546.18.
+
+Then every later load took it back again. In-session load into the VAB: `PatchFunds: pool=Funds mode=measured
+lastWritten=186546.18 expected=224546.18 live=186546.18 stepped=1(0) leak=-38000 adjustment=-38000 takenBack=1(38000)`,
+`filed StockPoolAdjustment amount=-38000 reason=leak`, `GUARDED UPLIFT clamped ... clampedTo=148546.18`. The run logged
+18 take-back lines, 6 for funds, and 15 GUARDED lines. The final save reads funds 144138.16, science 20.17, rep 95.2 where
+the career held 186546.18, 22.17, 100.48; in-memory funds fell as low as 106138.16. LedgerGroundTruth still read
+`hardFailures=0`, because each adjustment row makes the ledger agree with the shrunken pool. `ledger_audit.py` caught it
+(FAIL take-back, FAIL guarded-clamp).
+
+Cause: `StockPoolReference.SaveTo` skips a counted row whose Effect and Stepped are both 0, to keep the node small
+(`Saved ... funds rows=124`, `Loaded ... funds rows=70`). A zeroed duplicate is exactly such a row. After the load it is
+not counted, so `Measure` reads `wasCounted=false` and `takeBack = row.TakeBack` again, stepping `expected` by the duplicate
+stock paid once. `CollectAuthoritativeTakeBacks` keys on the same `Counted` test.
+
+Fix direction: a row that carries a take-back must survive the save (skip the zero-row drop when the row was taken back,
+for example a third token or a separate id list). Unit cell: count a take-back row, SaveTo, LoadFrom, Measure again: no
+second take-back, no leak. Then re-fly RW-20. RW-3 flew the same take-back across a cold reload but its row never fired:
+prevention stopped stock first, so the repeat path was never reached there.
+
+---
+
+## CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE: a committed contract outcome reached by the clock leaves the contract in neither stock list [OPEN; product, low: the ledger and every pool are right, stock's own contract record is not]
+
+Found by RW-20 (`2026-10-31_0256`, main e96d2c9bb, DLL c39bde83). Before the rewind stock's own expiry leaves contract
+1a9762e8 in the save as `state = DeadlineExpired` (step save `rw20-02-after-deadline`). After a Rewind-to-Launch it is
+`Active` again (`rw20-03-after-rtl`), and when the clock reaches the committed `ContractFail` row `PatchContracts`
+removes it (`removedStale=1`, `ledgerActive=0`) and adds nothing: `rw20-04-after-crossing` and the final save hold the
+contract in no list, so stock's Mission Control Archive no longer shows it. Funds, reputation, the ledger and
+LedgerGroundTruth are all correct, and nothing pays twice.
+
+Cause: `KspStatePatcher.PatchContracts` removes an Active contract the walk has ended
+(`PartitionContractsForPatch` / `RemoveContractsByKey`) but only rebuilds the ACTIVE set; a terminal outcome is not
+re-registered in `ContractsFinished`. A completion crossed the same way looks like the same path (read, not flown).
+
+Fix direction: when the walk ends a contract stock still holds Active, move it to `ContractsFinished` in the outcome's
+state with stock's silent setters, firing no fail or complete event and paying nothing. Owner decision welcome on
+whether a missing archive row is worth the risk.
+
+---
+
 ## REWIND-LEDGER-CAMPAIGN: rewind-and-replay lanes on the campaign careers to hunt ledger bugs [FILED 2026-10-28 at the owner's request. OPEN]
 
 The owner asked for missions flown after rewinding into the past, with a save point after each and
@@ -3676,6 +3723,10 @@ Progress 2026-10-28 (branch `rw13-tech`): lane `RW-13-tech-research-across-rewin
 timeline, re-locked by a Rewind-to-Launch, a second research refused `insufficient-science` (the committed
 row reserves its 45 in the live pool; the committed-row click-block behind it is not reached), and the
 crossing unlocking it with the science spent once. No defect.
+
+Progress 2026-10-31 (branch `rw20-strategy-deadline`): lane `RW-20-strategy-and-deadline-after-rewind` AUTHORED on `cs-career-mun4`,
+flown twice, RED on a real defect: `2026-10-31_0307` found TAKE-BACK-REFIRES-AFTER-EVERY-LOAD and `_0256` found
+CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE. Its strategy refusal and committed fail held. Re-fly once fixed.
 
 ## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
 
