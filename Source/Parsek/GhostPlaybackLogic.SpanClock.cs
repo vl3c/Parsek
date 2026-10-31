@@ -2195,7 +2195,7 @@ namespace Parsek
                 if (standalone != null && i >= 0 && i < standalone.Count
                     && TryResolveStandaloneLoopSampleUT(
                         standalone[i], i, standalone, ResolveGlobalAutoLoopIntervalSeconds(), liveUT,
-                        out double standaloneUT, out renderHidden))
+                        out double standaloneUT, out renderHidden, units.OwnerByIndex))
                     return standaloneUT;
                 renderHidden = false;
                 return liveUT;

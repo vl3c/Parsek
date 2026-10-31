@@ -6671,8 +6671,9 @@ namespace Parsek
                     continue;
 
                 // Phase F: substitute the shared Mission span-clock loopUT for the live UT when this
-                // committed index is a loop-unit member. Inert (effUT == currentUT, renderHidden
-                // false) for every non-member and when loopUnits is Empty.
+                // committed index is a loop-unit member, and a Recordings-tab loop's own loop-clock UT
+                // when it is not. Inert (effUT == currentUT, renderHidden false) for every other
+                // recording and when loopUnits is Empty.
                 double effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
                     i, rec.StartUT, rec.EndUT, currentUT, loopUnits, out bool renderHidden);
                 if (renderHidden)
@@ -9583,8 +9584,9 @@ namespace Parsek
             // are preserved; only an otherwise-renderable historical recording is overridden. The
             // pure-predicate "direct" wrapper passes batch == null and is left unchanged. Loop members
             // (loopMemberInWindow) and the active re-fly session are exempt, and rec.LoopPlayback covers
-            // a per-recording loop sampling at live UT; for every other recording reaching here in a
-            // create path currentUT is the live UT (effUT == currentUT), so the latch sees live time.
+            // a per-recording loop (whose sample UT is its own loop clock's, not the live UT); for every
+            // other recording reaching here in a create path currentUT is the live UT (effUT ==
+            // currentUT), so the latch sees live time.
             if (source != TrackingStationGhostSource.None
                 && batch != null
                 && !loopMemberInWindow
@@ -9785,8 +9787,9 @@ namespace Parsek
                 var rec = committed[i];
 
                 // Phase F: substitute the shared Mission span-clock loopUT for the live UT when this
-                // committed index is a loop-unit member. Inert (effUT == currentUT, renderHidden false)
-                // for every non-member and when loopUnits is Empty. A member outside its loop window this
+                // committed index is a loop-unit member, and a Recordings-tab loop's own loop-clock UT
+                // when it is not. Inert (effUT == currentUT, renderHidden false) for every other
+                // recording and when loopUnits is Empty. A member outside its loop window this
                 // cycle is skipped (no ghost created); the first lifecycle tick after TS entry creates /
                 // removes it as its window dictates.
                 double effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(

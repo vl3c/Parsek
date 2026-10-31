@@ -18,8 +18,10 @@ namespace Parsek
         /// <c>ParsekKSC.TryGetLoopSchedule</c> exactly, with the auto-launch queue resolved over
         /// <paramref name="trajectories"/> (the committed list, index-aligned with
         /// <paramref name="recIdx"/>) through the pure <see cref="TryResolveAutoLoopLaunchSchedule"/>,
-        /// so the slot and cadence are the ones the engine plays. Returns false when the trajectory
-        /// does not loop. Pure.
+        /// so the slot and cadence are the ones the engine plays. <paramref name="unitMemberIndices"/>
+        /// (the live loop-unit set's <c>OwnerByIndex</c>) is left out of that queue, as the engine's
+        /// and the Space Center's queue builds leave it out. Returns false when the trajectory does
+        /// not loop. Pure.
         /// </summary>
         internal static bool TryResolveStandaloneLoopSchedule(
             IPlaybackTrajectory traj,
@@ -29,7 +31,8 @@ namespace Parsek
             out double playbackStartUT,
             out double scheduleStartUT,
             out double duration,
-            out double intervalSeconds)
+            out double intervalSeconds,
+            IReadOnlyDictionary<int, int> unitMemberIndices = null)
         {
             playbackStartUT = 0.0;
             scheduleStartUT = 0.0;
@@ -52,7 +55,8 @@ namespace Parsek
                 && trajectories != null
                 && ShouldUseGlobalAutoLaunchQueue(traj)
                 && TryResolveAutoLoopLaunchSchedule(
-                    trajectories, recIdx, baseIntervalSeconds, out AutoLoopLaunchSchedule autoSchedule))
+                    trajectories, recIdx, baseIntervalSeconds, out AutoLoopLaunchSchedule autoSchedule,
+                    unitMemberIndices))
             {
                 scheduleStartUT = autoSchedule.LaunchStartUT;
                 intervalSeconds = autoSchedule.LaunchCadenceSeconds;
@@ -79,14 +83,16 @@ namespace Parsek
             double globalIntervalSeconds,
             double liveUT,
             out double sampleUT,
-            out bool renderHidden)
+            out bool renderHidden,
+            IReadOnlyDictionary<int, int> unitMemberIndices = null)
         {
             sampleUT = liveUT;
             renderHidden = false;
             if (!TryResolveStandaloneLoopSchedule(
                     traj, recIdx, trajectories, globalIntervalSeconds,
                     out double playbackStartUT, out double scheduleStartUT,
-                    out double duration, out double intervalSeconds))
+                    out double duration, out double intervalSeconds,
+                    unitMemberIndices))
                 return false;
             if (IsOverlapLoop(intervalSeconds, duration))
                 return false;

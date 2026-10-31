@@ -34,12 +34,18 @@ and the TS startup set (`BuildStartupTrackingStationLoopUnits`) carries it too. 
 index the seam now calls `GhostPlaybackLogic.TryResolveStandaloneLoopSampleUT`
 (`GhostPlaybackLogic.StandaloneLoopClock.cs`): the schedule is the engine's
 (`TryResolveStandaloneLoopSchedule`: effective loop range, `ResolveLoopInterval`, the auto-launch
-queue slot) and the sample UT is `playbackStart + phase` of `TryComputeLoopPlaybackPhase`, hidden
+queue slot, built without the live loop-unit members exactly as the engine and KSC queue builds
+leave them out; `TryResolveAutoLoopLaunchSchedule` takes them as `excludedIndices`) and the sample
+UT is `playbackStart + phase` of `TryComputeLoopPlaybackPhase`, hidden
 before the schedule start and in the pause between cycles, where the engine shows no mesh. Overlap
 loops stay with the per-instance sweep; a unit member keeps the mission clock. Not mirrored: the
 flight-only watch-mode loop phase reset (`loopPhaseOffsets`), so while the player watches a reset
-loop the map icon runs on the unreset schedule. Tests: `StandaloneLoopMapSampleTests` (including a
-sweep against the engine's own `TryComputeLoopPlaybackUT`).
+loop the map icon runs on the unreset schedule. Still open, older than this fix: the OVERLAP map
+path (`GhostMapPresence.OverlapSchedule.cs`, `TryResolveOverlapScheduleAnchor`) builds the Auto
+queue without that exclusion, so an overlapping Auto loop beside a unit member that also carries
+its own Auto loop gets a different slot on the map than in flight (rare: a unit member with its own
+Auto toggle). Tests: `StandaloneLoopMapSampleTests` (including a sweep against the engine's own
+`TryComputeLoopPlaybackUT` and the unit-member queue exclusion).
 
 ## ~~ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER: on a re-aim route whose last leg lands or docks, cargo is delivered on the raw loop clock while the ghost's descent is re-timed~~ [FILED 2026-10-31 from the test gap audit (A2, code read); FIXED 2026-10-31, branch `claude/project-thread-c5l296`; xUnit only, not flown; product, medium (cargo arrives days away from the rendered touchdown)]
 

@@ -149,6 +149,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AutoQueue_LeavesOutLoopUnitMembers_LikeTheEngine()
+        {
+            // A unit member that also carries its own Auto loop is scheduled by its unit, and the
+            // flight engine and KSC leave it out of the global Auto queue. The map must too, or every
+            // other Auto loop gets a different slot and cadence from the mesh it mirrors.
+            var member = new MockTrajectory { RecordingId = "m" }.WithTimeRange(1000, 1020).WithLoop(0, LoopTimeUnit.Auto);
+            var solo = new MockTrajectory { RecordingId = "s" }.WithTimeRange(1100, 1125).WithLoop(0, LoopTimeUnit.Auto);
+            var committed = new List<IPlaybackTrajectory> { member, solo };
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 },
+                spanStartUT: 1000.0, spanEndUT: 1020.0, cadenceSeconds: 60.0, phaseAnchorUT: 1000.0);
+            var units = new GhostPlaybackLogic.LoopUnitSet(
+                new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } },
+                new Dictionary<int, int> { { 0, 0 } }).WithStandaloneLoopSource(committed);
+
+            // The engine's queue for this set holds the solo alone: the same schedule as a list
+            // without the member.
+            var soloOnly = new List<IPlaybackTrajectory> { solo };
+            double gap = GhostPlaybackLogic.ResolveGlobalAutoLoopIntervalSeconds();
+            int differsFromUnexcluded = 0;
+            for (double ut = 1100.0; ut <= 1500.0; ut += 1.0)
+            {
+                double eff = Sample(units, 1, solo, ut, out bool hidden);
+                Assert.True(GhostPlaybackLogic.TryResolveStandaloneLoopSampleUT(
+                    solo, 0, soloOnly, gap, ut, out double expected, out bool expectedHidden));
+                Assert.Equal(expectedHidden, hidden);
+                if (!hidden)
+                    Assert.Equal(expected, eff, 9);
+
+                GhostPlaybackLogic.TryResolveStandaloneLoopSampleUT(
+                    solo, 1, committed, gap, ut, out double unexcluded, out bool unexcludedHidden);
+                if (unexcludedHidden != hidden || (!hidden && System.Math.Abs(unexcluded - eff) > 1e-9))
+                    differsFromUnexcluded++;
+            }
+            Assert.True(differsFromUnexcluded > 0,
+                "the fixture must put the member in the unexcluded queue, or this test proves nothing");
+        }
+
+        [Fact]
         public void LiveAt_KeepsTheSource_AndTheViewIsMemoized()
         {
             var committed = new List<IPlaybackTrajectory> { Looped() };
