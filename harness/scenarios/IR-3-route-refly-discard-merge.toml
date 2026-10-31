@@ -1,0 +1,275 @@
+schema = 1
+id = "IR-3-route-refly-discard-merge"
+tier = "nightly"
+# =====================================================================================
+# IR-3 + IR-4 (roadmap "The logistics integration program", Phase B; test-gap audit
+# 2026-10-31 item 5): a supply route under a Re-Fly of ANOTHER tree, the Re-Fly first
+# discarded and then merged, with the destination tank read at every step. AUTHORED
+# 2026-10-31, NOT FLOWN.
+#
+# THE STORY. The player activates the rover route, flies a short pad mission whose
+# decouple leaves two controllable vessels (a rewind point), commits it, and warps until
+# the route delivers. Then they Re-Fly the mission's pod slot: the clock goes back to the
+# decouple, before the delivery. The route must come back as the rewind point's quicksave
+# had it (no cycle, cursor -1, no route event for the abandoned delivery) and the tank
+# must read its pre-delivery fill again. The route keeps running inside the Re-Fly and
+# delivers exactly once. Discard Re-fly takes the world back to the rewind point once more
+# (route and tank with it); a Space Center warp delivers again exactly once. A second
+# Re-Fly takes that delivery back too, delivers once inside the session, and is merged:
+# the route keeps its one delivery, stays Active (the merged tree is not its source), and
+# the next crossing finds the tank full and blocks.
+#
+# THE RULES UNDER TEST:
+#   * logistics has no money (owner ruling 2026-10-21): route cycles never touch the
+#     ledger, so a delivery inside a Re-Fly is not a gain and seals nothing;
+#   * a Re-Fly start (LoadKind ReFlyStart) and a Discard Re-fly (LoadKind DiscardReFly)
+#     retire the route events after the loaded UT and give each kept route its loop
+#     position back from the loaded save's own route copy (LoadReconcilePolicy Routes x
+#     ReFlyStart / DiscardReFly; RouteRewindLoopPositionTests in xUnit), while the world
+#     (the endpoint's tank) comes back from that save: cargo and route agree;
+#   * the route's tree is not the Re-Fly's, so the merge supersedes nothing the route
+#     reads (status stays Active, never SourceChanged).
+# The xUnit half is RouteTimelineFuzzerTests (seeded warp, Re-Fly start and discard
+# sequences against an independent model).
+#
+# THE HOST AND THE NUMBERS are IR-1's (`rover-route-recorded`, save clock UT 979.48): the
+# route's one stop is `rover fuel 0` (pid 2123618197) at LiquidFuel 297.6 / 400, one
+# delivery of 97.6 -> 395.2, a second needs 97.6 against 4.8 of headroom and blocks
+# DestinationFull. The mission is the RW lanes' `CS Flea Probe` (shared library; the Flea
+# plus a TT-38K probe stand): `PartAction decouple` on the pad leaves the pod and the stand
+# both controllable, so the split authors a rewind point (RW-5's header has the
+# derivation). Both slots end Landed, so the pod slot is stashed to keep the point open
+# (RW-5 / RW-6's shape).
+#
+# THE CLOCK. The route is activated IN THE VAB, where the clock stands still, so its loop
+# anchor A is the launch UT (IR-2's reason). The span ends at the dock (cadence 45.04 s),
+# so crossings fall at A + 45.04 k: the first at ~A + 45 (A ~ 980-990, so ~1025-1035), the
+# second at ~A + 90 (~1070-1080). G's flight (launch, decouple, 1x to UT 1000) and the
+# rewind point (~A + 3) sit before the first crossing; every in-session warp targets 1050
+# (past the first, short of the second); the closing warp targets 1100 (past the second).
+#
+# SCENE ROUTES. The Discard Re-fly lands at the Space Center at the rewind point's UT
+# (RW-5 measured). InvokeRewind is FLIGHT-only, so the lane re-enters FLIGHT RW-6's way:
+# a step save written at the Space Center loaded with no scene arg (an InSessionOther load
+# at the same instant, which touches no route state), here with focusPid = rover B
+# (313889796, the fixture's own focus) so the flight does not resume G's pod.
+#
+# PRE-REGISTERED READINGS (check these first if the first flight reds):
+#   - `Single-controllable split: no RP` at the decouple: the stand did not count as
+#     controllable on this host (stock-minimal sandbox) - a craft reading.
+#   - `invokerewind refused`: read the msg (RW-5's list). `in your future`: the clock did
+#     not pass the rewind point.
+#   - the first warp to 1000 refused `backward-warp`: the launch landed after UT 1000
+#     (A later than predicted); move the targets up by the measured A.
+#   - the post-invoke read-back still shows completed=1 / delivered=1: the Re-Fly start did
+#     not retire the abandoned delivery or restore the loop position (product defect).
+#   - the post-invoke tank reads 395.2: the rewind point's world did not carry the
+#     endpoint's pre-delivery tank (product defect, or the delivery landed before the RP).
+#   - a second delivery in one session, or `BLOCKED kind=DestinationFull` before the
+#     closing warp: a double fire (product defect).
+#   - status=SourceChanged after the merge: the merge touched the route's source tree.
+# =====================================================================================
+description = "IR-3 (with IR-4), AUTHORED 2026-10-31, NOT FLOWN: on rover-route-recorded the rover route is activated in the VAB, a CS Flea Probe pad flight is decoupled into two controllable vessels (a rewind point), committed and its pod slot stashed, and a warp lets the route deliver once (endpoint 297.6 -> 395.2). A Re-Fly of the pod slot must take the route and the tank back to the rewind point (no cycle, cursor -1, no route event, 297.6), and a warp inside the session delivers exactly once. Discard Re-fly takes both back again; a Space Center warp delivers once on the unloaded path. A second Re-Fly takes that delivery back, delivers once in session and is merged: the route keeps completed=1 delivered=1, stays Active (not SourceChanged), and the next crossing blocks DestinationFull against the full tank. Logistics has no money, so no delivery seals the Re-Fly."
+instanceProfile = "stock-minimal"
+tags = ["IR-3", "IR-4", "logistics", "route", "refly", "timeline-ops", "recorded-fixture"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # The kill triple, as on every rover-route-recorded lane (RVR-3's header).
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "DiscardTree",                                                        expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "73e50f1e3aa24c299919016cd9e92269" },   expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "73e50f1e3aa24c299919016cd9e92269", name = "IR3 Rover Supply" }, expect = "OK", budget = 120 },
+
+  # ---- the route activated in the VAB (frozen clock), then G launched ----
+  { cmd = "GoToEditor",   args = { facility = "VAB", craft = "CS Flea Probe" },  expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "activate", route = "IR3 Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "g",    expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                     expect = "OK", budget = 180 },
+  { cmd = "PartAction",   args = { button = "decouple", part = "radialDecoupler" }, label = "dec", expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1000", maxRate = "1" },                expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "CommitTree",                                                         expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "rewindpoints" }, label = "handles",  expect = "OK" },
+  { cmd = "StashSlot",    args = { rp = "${handles.rp0}", slot = "0" },         expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "ir3-g-committed" },                 expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:297.6", tolerance = "0.01" }, expect = "OK" },
+
+  # ---- the future to undo: one delivery after the rewind point ----
+  { cmd = "WarpToUT",     args = { ut = "1050", maxRate = "10" },               expect = "OK", budget = 180 },
+  { cmd = "MissionMark",  args = { label = "ir3-delivered" },                   expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:395.2", tolerance = "0.01" }, expect = "OK" },
+
+  # ---- Re-Fly 1: the route and the tank back to the rewind point, one delivery inside ----
+  { cmd = "MissionMark",  args = { label = "ir3-refly1-armed" },                expect = "OK" },
+  { cmd = "InvokeRewind", args = { rp = "${handles.rp0}", slot = "0" },         expect = "OK", budget = 300 },
+  # THE FLIGHT-READY WAIT (REFLY-LANES-JUMP-BEFORE-FLIGHT-READY, RF-3's order).
+  { cmd = "ListHandles",  args = { kind = "chains" },                           expect = "OK" },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },             expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "ir3-refly1-started" },              expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:297.6", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1050", maxRate = "10" },               expect = "OK", budget = 180 },
+  { cmd = "MissionMark",  args = { label = "ir3-refly1-delivered" },            expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:395.2", tolerance = "0.01" }, expect = "OK" },
+
+  # ---- Discard Re-fly (IR-4): back to the rewind point again, then a Space Center warp ----
+  { cmd = "ReFlyRevert",  args = { choice = "discard", target = "launch" },     expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "ir3-discarded" },                   expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:297.6", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1050", maxRate = "50" },               expect = "OK", budget = 180 },
+  { cmd = "MissionMark",  args = { label = "ir3-ksc-delivered" },               expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:395.2", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "SaveGame",     args = { name = "ir3-after-ksc-delivery" },           expect = "OK", budget = 120 },
+
+  # ---- back into FLIGHT (RW-6's re-entry), on rover B ----
+  { cmd = "MissionMark",  args = { label = "ir3-reenter" },                     expect = "OK" },
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "ir3-after-ksc-delivery", focusPid = "313889796" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "rewindpoints" }, label = "handles2", expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "ir3-reentered" },                   expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+
+  # ---- Re-Fly 2: the Space Center delivery taken back, one delivery inside, merged ----
+  { cmd = "MissionMark",  args = { label = "ir3-refly2-armed" },                expect = "OK" },
+  { cmd = "InvokeRewind", args = { rp = "${handles2.rp0}", slot = "0" },        expect = "OK", budget = 300 },
+  { cmd = "ListHandles",  args = { kind = "chains" },                           expect = "OK" },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },             expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "ir3-refly2-started" },              expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:297.6", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1050", maxRate = "10" },               expect = "OK", budget = 180 },
+  { cmd = "MissionMark",  args = { label = "ir3-refly2-delivered" },            expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:395.2", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                     expect = "OK", budget = 240 },
+  { cmd = "MissionMark",  args = { label = "ir3-merged" },                      expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:395.2", tolerance = "0.01" }, expect = "OK" },
+
+  # ---- the next crossing: the tank is full, the cycle blocks ----
+  { cmd = "WarpToUT",     args = { ut = "1100", maxRate = "50" },               expect = "OK", budget = 180 },
+  { cmd = "MissionMark",  args = { label = "ir3-crossed" },                     expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:395.2", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "FlushAndQuit",                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's five plus G's flight (the pod's launch recording and the stand's child, VN-8
+# measured two legs for a pad decouple), plus the merged Re-Fly attempt; a window until
+# the first flight measures it.
+count = { min = 7, max = 9 }
+
+[expectations.logContracts]
+required = [
+  "routecommand complete action=create tree=73e50f1e3aa24c299919016cd9e92269 route=.* name='IR3 Rover Supply' status=Paused",
+  "TryActivate: route=\\S+ now Active ",
+  "launchfromeditor complete scene=FLIGHT vessel=CS Flea Probe pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  "RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 focusSlot=0 ut=[0-9.]+[\\s\\S]*?RewindPoint slot capture: rp=\\1 populated=2/2 disabled=0",
+  "committree committed=true",
+  "stashslot complete rp=rp_[0-9a-f]{32} slot=0 tip=\\S+ tipMergeState=Immutable->CommittedProvisional stashed=true unfinishedFlight=true",
+  # BEFORE the delivery: activated, nothing run.
+  "(?s)MISSIONMARK label=ir3-g-committed (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR3 Rover Supply' status=Active completed=0 skipped=0 cursor=-1 [^\\r\\n]* stopPids=2123618197 [^\\r\\n]* dispatched=0 debited=0 pickedUp=0 delivered=0 ",
+  "(?s)MISSIONMARK label=ir3-g-committed (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=297\\.6000 actual=297\\.6[0-9]{3} [^\\r\\n]*match=true",
+  # THE FUTURE TO UNDO: one delivery.
+  "(?s)MISSIONMARK label=ir3-delivered (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR3 Rover Supply' status=Active completed=1 skipped=0 cursor=[0-9]+ [^\\r\\n]* dispatched=1 debited=[01] pickedUp=0 delivered=1 ",
+  "(?s)MISSIONMARK label=ir3-delivered (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=395\\.2000 actual=395\\.[0-9]{4} [^\\r\\n]*match=true",
+  # RE-FLY 1 START: a Re-Fly start, and the route and the tank back at the rewind point.
+  "(?s)MISSIONMARK label=ir3-refly1-armed .*?Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_[0-9a-f]{32} slot=0",
+  "(?s)MISSIONMARK label=ir3-refly1-armed (?:(?!MISSIONMARK label=ir3-refly1-started ).)*Load classified: early=ReFlyStart refined=ReFlyStart scene=FLIGHT ",
+  "(?s)MISSIONMARK label=ir3-refly1-started (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR3 Rover Supply' status=Active completed=0 skipped=0 cursor=-1 [^\\r\\n]* dispatched=0 debited=0 pickedUp=0 delivered=0 ",
+  "(?s)MISSIONMARK label=ir3-refly1-started (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=297\\.6000 actual=297\\.6[0-9]{3} [^\\r\\n]*match=true",
+  # RE-FLY 1 SESSION: exactly one delivery.
+  "(?s)MISSIONMARK label=ir3-refly1-started (?:(?!MISSIONMARK label=ir3-refly1-delivered ).)*Delivery write: route=\\S+ dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.(?:6|599999)[0-9]* written=97\\.(?:6|599999)[0-9]* tankBefore=297\\.(?:6|599999)[0-9]* tankAfter=395\\.(?:2|199999)[0-9]* capacity=400 path=(?:loaded|unloaded)",
+  "(?s)MISSIONMARK label=ir3-refly1-delivered (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR3 Rover Supply' status=Active completed=1 skipped=0 cursor=[0-9]+ [^\\r\\n]* dispatched=1 debited=[01] pickedUp=0 delivered=1 ",
+  "(?s)MISSIONMARK label=ir3-refly1-delivered (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=395\\.2000 actual=395\\.[0-9]{4} [^\\r\\n]*match=true",
+  # THE DISCARD: a DiscardReFly load at the Space Center; route and tank back again.
+  "reflyrevert pressed dialog button='Discard Re-Fly' choice=discard",
+  "Load classified: early=DiscardReFly refined=DiscardReFly scene=SPACECENTER ",
+  "(?s)MISSIONMARK label=ir3-discarded (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR3 Rover Supply' status=Active completed=0 skipped=0 cursor=-1 [^\\r\\n]* dispatched=0 debited=0 pickedUp=0 delivered=0 ",
+  "(?s)MISSIONMARK label=ir3-discarded (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=297\\.6000 actual=297\\.6[0-9]{3} [^\\r\\n]*match=true",
+  # THE SPACE CENTER WARP: one delivery on the unloaded path.
+  "(?s)MISSIONMARK label=ir3-discarded (?:(?!MISSIONMARK label=ir3-ksc-delivered ).)*Delivery write: route=\\S+ dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.(?:6|599999)[0-9]* written=97\\.(?:6|599999)[0-9]* tankBefore=297\\.(?:6|599999)[0-9]* tankAfter=395\\.(?:2|199999)[0-9]* capacity=400 path=unloaded",
+  "(?s)MISSIONMARK label=ir3-ksc-delivered (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR3 Rover Supply' status=Active completed=1 skipped=0 cursor=[0-9]+ [^\\r\\n]* dispatched=1 debited=[01] pickedUp=0 delivered=1 ",
+  "(?s)MISSIONMARK label=ir3-ksc-delivered (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=395\\.2000 actual=395\\.[0-9]{4} [^\\r\\n]*match=true",
+  # THE RE-ENTRY: an in-session load at the same instant keeps the route as it was.
+  "(?s)MISSIONMARK label=ir3-reenter (?:(?!MISSIONMARK label=ir3-reentered ).)*loadgame complete scene=FLIGHT save=\\S+ game-loaded=true expected=Flight",
+  "(?s)MISSIONMARK label=ir3-reentered (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR3 Rover Supply' status=Active completed=1 skipped=0 cursor=[0-9]+ [^\\r\\n]* dispatched=1 debited=[01] pickedUp=0 delivered=1 ",
+  # RE-FLY 2 START: the Space Center delivery taken back.
+  "(?s)MISSIONMARK label=ir3-refly2-armed (?:(?!MISSIONMARK label=ir3-refly2-started ).)*Load classified: early=ReFlyStart refined=ReFlyStart scene=FLIGHT ",
+  "(?s)MISSIONMARK label=ir3-refly2-started (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR3 Rover Supply' status=Active completed=0 skipped=0 cursor=-1 [^\\r\\n]* dispatched=0 debited=0 pickedUp=0 delivered=0 ",
+  "(?s)MISSIONMARK label=ir3-refly2-started (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=297\\.6000 actual=297\\.6[0-9]{3} [^\\r\\n]*match=true",
+  # RE-FLY 2 SESSION AND MERGE.
+  "(?s)MISSIONMARK label=ir3-refly2-started (?:(?!MISSIONMARK label=ir3-refly2-delivered ).)*Delivery write: route=\\S+ dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.(?:6|599999)[0-9]* written=97\\.(?:6|599999)[0-9]* tankBefore=297\\.(?:6|599999)[0-9]* tankAfter=395\\.(?:2|199999)[0-9]* capacity=400 path=(?:loaded|unloaded)",
+  "answermergedialog complete choice=merge result=committed",
+  "(?s)MISSIONMARK label=ir3-merged (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR3 Rover Supply' status=Active completed=1 skipped=0 cursor=[0-9]+ [^\\r\\n]* dispatched=1 debited=[01] pickedUp=0 delivered=1 ",
+  "(?s)MISSIONMARK label=ir3-merged (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=395\\.2000 actual=395\\.[0-9]{4} [^\\r\\n]*match=true",
+  # THE NEXT CROSSING: blocked against the full tank, nothing written.
+  "(?s)MISSIONMARK label=ir3-merged (?:(?!MISSIONMARK label=ir3-crossed ).)*LoopRoute: route \\S+ cycle=cycle-1 BLOCKED kind=DestinationFull reason=LiquidFuel ",
+  "(?s)MISSIONMARK label=ir3-crossed (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR3 Rover Supply' status=Active completed=1 skipped=1 cursor=[0-9]+ [^\\r\\n]* dispatched=1 debited=[01] pickedUp=0 delivered=1 ",
+  "(?s)MISSIONMARK label=ir3-crossed (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=395\\.2000 actual=395\\.[0-9]{4} [^\\r\\n]*match=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "listhandles rejected",
+  "readvesselresources rejected",
+  "readvesselresources expect [^\\r\\n]*match=false",
+  "invokerewind refused",
+  "stashslot (?:refused|rejected)",
+  "reflyrevert rejected",
+  "reflyrevert error",
+  "Single-controllable split: no RP",
+  # The route's source never changes: the Re-Fly is another tree's.
+  "status=SourceChanged",
+  "status=MissingSourceRecording",
+  # No window delivers twice, and nothing blocks before the closing crossing.
+  "(?s)MISSIONMARK label=ir3-g-committed (?:(?!MISSIONMARK label=ir3-delivered ).)*Delivery write: route=(?:(?!MISSIONMARK label=ir3-delivered ).)*Delivery write: route=",
+  "(?s)MISSIONMARK label=ir3-refly1-started (?:(?!MISSIONMARK label=ir3-refly1-delivered ).)*Delivery write: route=(?:(?!MISSIONMARK label=ir3-refly1-delivered ).)*Delivery write: route=",
+  "(?s)MISSIONMARK label=ir3-discarded (?:(?!MISSIONMARK label=ir3-ksc-delivered ).)*Delivery write: route=(?:(?!MISSIONMARK label=ir3-ksc-delivered ).)*Delivery write: route=",
+  "(?s)MISSIONMARK label=ir3-refly2-started (?:(?!MISSIONMARK label=ir3-refly2-delivered ).)*Delivery write: route=(?:(?!MISSIONMARK label=ir3-refly2-delivered ).)*Delivery write: route=",
+  "(?s)MISSIONMARK label=ir3-refly2-delivered (?:(?!MISSIONMARK label=ir3-crossed ).)*Delivery write: route=",
+  "(?s)\\A(?:(?!MISSIONMARK label=ir3-merged ).)*BLOCKED kind=",
+]
+
+[runtime]
+# 3 LoadGames (300), 2 InvokeRewind (300), 1 ReFlyRevert (300), 6 WarpToUT (180),
+# GoToEditor + LaunchFromEditor (300), StartRecording 180, CommitTree 120, AnswerMergeDialog
+# 240, SaveGame 120, SealSlot + 2 RouteCommand (360): 4140; the inert steps and the quit
+# on top.
+budgetSeconds = 5000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

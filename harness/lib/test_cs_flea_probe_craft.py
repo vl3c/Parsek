@@ -1,5 +1,5 @@
-"""Drift and shape gates for `CS Flea Probe.craft` (RW-5's craft, in the `cs-career-mun4`
-fixture).
+"""Drift and shape gates for `CS Flea Probe.craft` (RW-5 and IR-3's craft, in the shared
+library `fixtures/ships/`, overlaid into `cs-career-mun4` and `rover-route-recorded`).
 
 The craft is DERIVED from the shared `Jumping Flea.craft` by
 `harness/tools/build_cs_flea_probe_craft.py`: the stock Flea (fresh persistentIds) plus a
@@ -23,7 +23,7 @@ ORBITER_BUILDER = os.path.join(TOOLS, "build_cs_orbiter_craft.py")
 BASE = os.path.join(HARNESS_ROOT, "fixtures", "ships", "Jumping Flea.craft")
 HOST_DIR = os.path.join(HARNESS_ROOT, "fixtures", "saves", "cs-career-mun4")
 VAB = os.path.join(HOST_DIR, "Ships", "VAB")
-CRAFT = os.path.join(VAB, "CS Flea Probe.craft")
+CRAFT = os.path.join(HARNESS_ROOT, "fixtures", "ships", "CS Flea Probe.craft")
 HOST_SFS = os.path.join(HOST_DIR, "persistent.sfs")
 SPEC = os.path.join(HARNESS_ROOT, "scenarios", "RW-5-rewind-refly-discard.toml")
 

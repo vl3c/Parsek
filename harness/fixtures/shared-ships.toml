@@ -139,10 +139,15 @@
 "cs-career-mun1" = ["Jumping Flea"]
 "cs-career-mun2" = ["Jumping Flea"]
 "cs-career-mun3" = ["Jumping Flea"]
-"cs-career-mun4" = ["Flea Antenna", "Jumping Flea"]
+"cs-career-mun4" = ["CS Flea Probe", "Flea Antenna", "Jumping Flea"]
 # RW-22's ground-truth launch; the host carries no VAB craft of its own.
 "lab-pad-career" = ["Jumping Flea"]
 "cs-science-flea" = ["Flea Antenna"]
 "cs-science-new" = ["Jumping Flea"]
 "stock-screen-census" = ["Jumping Flea"]
 "stock-screen-census-repair" = ["Jumping Flea"]
+# IR-3 flies the RW lanes' two-command pad craft on the rover route save: its decouple
+# leaves two controllable vessels, so it authors the rewind point the lane re-flies
+# while the route runs. Promoted from `cs-career-mun4`'s own Ships/VAB on that second
+# consumer (built by `tools/build_cs_flea_probe_craft.py`).
+"rover-route-recorded" = ["CS Flea Probe"]
