@@ -58,12 +58,11 @@ restores it Active; a load rewind reloads stock's lists from the save (the contr
 the way it does today), and a tombstoned outcome row removes the filed copy like any stock-finished
 copy, after which the restore re-adds it Active. Tests: `ContractCrossedOutcomeArchiveTests`.
 
-**Owed (in-game, not provable headlessly).** RW-20 re-pinned to assert that after the crossing the
-contract is in `ContractsFinished` as Failed (or DeadlineExpired, if the walk ends `1a9762e8` at
-its accept row's deadline rather than at the fail row; the Info line's `outcome=` names which) and
-not in `Contracts`, with no second penalty. The reflection write of
-`Contract.state` / `dateFinished` against the live stock assembly, and the Archive UI listing the
-filed contract, are only witnessed by that flight.
+**Live proof.** RW-20 `2026-10-31_0425` (DLL ccdaad30): the crossing patched at a real clock
+(`archiveNoClock=0`, `archivedToFinished=1`) and filed `1a9762e8` as `outcome=DeadlineExpired`; the
+produced saves hold it in `CONTRACT_FINISHED` with `state = DeadlineExpired`, not in `CONTRACT`, with
+one penalty. That witnesses the reflection write against the live stock assembly. The Archive UI
+listing the filed contract was not looked at: the lane reads the save, not the screen.
 ## ~~TAKE-BACK-REFIRES-AFTER-EVERY-LOAD: a duplicate stock payment taken back after a rewind is taken back again after every later scene change~~ [FILED AND FIXED 2026-10-31 from lane RW-20, run `2026-10-31_0307` (main's build); branch `takeback-refires`; unit-tested only, NOT FLOWN, RW-20 re-flight owed; product, high (a reduction of the career total, repeated on every load)]
 
 On a 100000x Space Center warp, stock paid the Sun/Flyby world-first one warp step after the
@@ -3892,7 +3891,7 @@ dismissal and a seat are refused, and the clock turns him into an Applicant once
 
 Progress 2026-10-31 (branch `rw22-patents-recovery`): lane `RW-22-patents-licensing-recovery` LIVE-PROVEN (`2026-10-31_0405`): a science-carrying lab recovered under Patents Licensing books one payout row and its yields as strategy legs only, with no reconcile error. Flown on PR #2334's head 4c52034. No defect left.
 
-Progress 2026-10-31 (branch `rw20-strategy-deadline`): lane `RW-20-strategy-and-deadline-after-rewind` AUTHORED on `cs-career-mun4`: a committed pad Flea, a strategy activated and a real contract deadline passed, a Rewind-to-Launch before both, the strategy refused and the committed fail applied once. Never flown.
+Progress 2026-10-31 (branch `rw20-strategy-deadline`): lane `RW-20-strategy-and-deadline-after-rewind` LIVE-PROVEN (`2026-10-31_0425_RW-20-strategy-and-deadline-after-rewind`): LIVE-PROVEN `2026-10-31_0425` on DLL ccdaad30 (head d70bbab of PR #2334): the strategy refused, the fail applied once and filed in stock's finished list, the duplicate `Sun/Flyby` taken back once per pool across every later load, pools back where the rewind began.
 
 ## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
 

@@ -41,11 +41,10 @@ id = "RW-20-strategy-and-deadline-after-rewind"
 # and stock pays Kerbin's career `Sun/Flyby` (+38000, +2 science, +4 rep) on the way to the deadline.
 # The row is the lane's own, unplanned, and which side of it the second warp lands on is a matter of
 # warp steps: before it, stock's repeat is the earlier credit (`_0256`); after it, stock's repeat is
-# a duplicate and is taken back once (`_0307`). The second order found the defect below.
+# a duplicate and is taken back once (`_0307`, `_0425`). The lane allows both orders: at most one
+# take-back per pool, and a repeat of it on a later load is forbidden.
 #
-# STATUS: AUTHORED 2026-10-31 (branch `rw20-strategy-deadline`). Flown red twice before the fixes:
-# `2026-10-31_0256` found CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE and `2026-10-31_0307` found
-# TAKE-BACK-REFIRES-AFTER-EVERY-LOAD, both fixed on PR #2334.
+# STATUS: LIVE-PROVEN 2026-10-31, `2026-10-31_0425_RW-20-strategy-and-deadline-after-rewind` PASS attempt 1 (DLL ccdaad30, head d70bbab of PR #2334). The strategy refused after the rewind (`blocked by timeline until then`); the crossed contract applied once at the second pass (`crossed=1 [ContractFail@9201949.87]`, penalty once) and filed as `DeadlineExpired` in `CONTRACT_FINISHED`, `archiveNoClock=0`. Stock's repeat of `Sun/Flyby` landed after the committed row (433509.8 against 432995.9) and was taken back once per pool, never again across the later loads; zero `Refused a second take-back`, zero `take-back found no stock payment`, no pool adjustment, no guard clamp. Pools at the crossing 186546.18 / 22.17 / 100.48, the same as before the rewind. Stock's new `Sun/Orbit` (+36480, +2, +4) paid at 9202100.6 is booked as its own row. LedgerGroundTruth 3/3 hardFailures=0; ledger_audit PASS with the take-back expected. Earlier flights: `_0256` found CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE and `_0307` found TAKE-BACK-REFIRES-AFTER-EVERY-LOAD, both fixed on PR #2334.
 # =====================================================================================
 tier = "operator"
 description = "Rewind ledger campaign, a committed strategy and a contract deadline after a rewind (plan row 19): on cs-career-mun4 a committed pad Flea, a strategy activated at the Space Center and a real contract deadline passed by warp, then a Rewind-to-Launch before both: activating the same strategy is refused, the committed fail applies once when the clock passes the deadline again, the pools end where the rewind began and LedgerGroundTruth closes the career."
@@ -121,8 +120,8 @@ D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The host's 34 recordings plus H; the check launch is unrecorded. INTERIM window.
-count = { min = 35, max = 36 }
+# The host's 34 recordings plus H; the check launch is unrecorded. Measured on `2026-10-31_0425_RW-20-strategy-and-deadline-after-rewind`.
+count = 35
 
 [expectations.logContracts]
 required = [
@@ -138,13 +137,15 @@ required = [
 
   # ---- the clock reaches the committed fail: the row applies once, before stock's expiry ----
   "MISSIONMARK label=rw20-strategy-refused ut=(?:(?!MISSIONMARK label=rw20-crossed )[\\s\\S])*?Clock-crossing reached committed-future rows: crossed=1 \\[ContractFail@9201949\\.",
+  # ---- the crossed contract lands in stock's finished list, not left on the active one ----
+  "PatchContracts: filed ended contract 1a9762e8-[0-9a-f-]+ [^\\r\\n]* into stock's finished list as (?:Failed|DeadlineExpired) ",
   "MISSIONMARK label=rw20-strategy-refused ut=(?:(?!MISSIONMARK label=rw20-crossed )[\\s\\S])*?Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* ",
 
   # ---- paid once: the pools end where the rewind began ----
   "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw20-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw20-crossed ut=",
 
   # ---- the ground truth ----
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
   "result: hardFailures=0 ",
 ]
 forbidden = [
@@ -159,6 +160,7 @@ forbidden = [
   "Took back \\S+ Funds [\\s\\S]*Took back \\S+ Funds ",
   "Took back \\S+ Science [\\s\\S]*Took back \\S+ Science ",
   "Took back \\S+ Reputation [\\s\\S]*Took back \\S+ Reputation ",
+  "archiveNoClock=[1-9]",
   "Refused a second take-back",
   "take-back found no stock payment",
   "take-back shortfall",
