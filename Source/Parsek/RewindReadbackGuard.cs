@@ -86,12 +86,11 @@ namespace Parsek
     /// <c>docs/dev/ledger-state-reconstruction-audit.md</c> §8 rec #1). An abort would not
     /// be fail-closed: the guard is cleared in <c>RewindInvoker</c>'s <c>finally</c> while
     /// the ReFly marker keeps <c>authoritativeReduction=true</c>, so the next unguarded
-    /// recalc writes the identical target. It would also break a DESIGNED rewind: Step 3b
-    /// <c>RetireResurrectedVesselRecoveryRows</c> tombstones the recovery rows of vessels
-    /// the rewind resurrects, so after any post-RP spend the correct target sits BELOW both
-    /// witnesses. And it would skip
+    /// recalc writes the identical target. And it would skip
     /// Science/TechTree/Funds/Reputation/Facilities/Milestones/Contracts wholesale after the
-    /// crew roster was already applied. The abort code path survives only as the test seam
+    /// crew roster was already applied. (A vessel the rewind brings back that a committed
+    /// recording recovers after the rewind point no longer lowers the target: it is held
+    /// back at invoke by <c>ReFlyInvokeHold</c> and its recovery rows stay.) The abort code path survives only as the test seam
     /// <see cref="ForceAbortForTesting"/>, which keeps the early-return branch pinned.
     /// </para>
     ///

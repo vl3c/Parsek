@@ -286,6 +286,52 @@ namespace Parsek.Tests
             Assert.Equal(11960.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
         }
 
+        // COMMIT-DURING-LOAD-WALKS-WITH-NO-CUTOFF: an OnLoad commit (the in-session scene-exit
+        // fallback) walks in full, and the same OnLoad's in-session ledger recalculation, which
+        // runs after it, takes the committed future back out before any frame passes.
+        [Fact]
+        public void CommitDuringInSessionOnLoad_TheLoadsOwnCutoffWalkTakesTheFutureBackOut()
+        {
+            GameAction future = SeedCareer(500.0);
+            var tree = InstallCommittedFlight();
+            ParsekScenario.CurrentTimelineUTProviderForTesting = () => 200.0;
+            ParsekScenario.SetOnLoadInProgressForTesting(true);
+
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
+            Assert.Equal(11960.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+
+            bool cutoffUsed = ParsekScenario.RecalculateLedgerForInSessionLoad(
+                isRevert: false, loadedScene: GameScenes.SPACECENTER, planetariumReady: true, loadedUT: 200.0);
+
+            Assert.True(cutoffUsed);
+            Assert.Equal(10960.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Contains(future, Ledger.Actions);
+            Assert.Contains(logLines, l => l.Contains("[Scenario]")
+                && l.Contains("useCurrentUtCutoff=True")
+                && l.Contains("hasPendingTree=False")
+                && l.Contains("hasFutureLedgerActions=True"));
+        }
+
+        // The cold-load outside-flight commit: the deferred seed walk (started by the same
+        // OnLoad, its body after a yield) cuts at the clock and takes the future back out.
+        [Fact]
+        public void CommitDuringColdOnLoad_TheDeferredSeedWalkTakesTheFutureBackOut()
+        {
+            SeedCareer(500.0);
+            var tree = InstallCommittedFlight();
+            ParsekScenario.CurrentTimelineUTProviderForTesting = () => 200.0;
+            ParsekScenario.SetOnLoadInProgressForTesting(true);
+
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
+            Assert.Equal(11960.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+
+            ParsekScenario.SetOnLoadInProgressForTesting(false);
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(200.0, "deferred-seed");
+
+            Assert.Equal(10960.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.True(HasCurrentUtLine("deferred-seed", "200"));
+        }
+
         [Theory]
         [InlineData(false, false, true)]
         [InlineData(true, false, false)]

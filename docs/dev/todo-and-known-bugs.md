@@ -424,7 +424,7 @@ The ground-truth comparator compared every key of the facilities module as an up
 
 Fix: `LedgerGroundTruthDiff.CompareFacilities` skips building ids the same way (`buildingsSkipped=` on its summary line). Test: `LedgerGroundTruthDiffTests.Diff_DestructibleBuildingIdInRecon_IsNotAFacilityLevelPhantom`. Destroyed-state ground truth (the save's `ScenarioDestructibles` against the module's `Destroyed`) is still not compared.
 
-## REWIND-PRUNE-AND-WALK-AT-UT-ZERO: a Rewind-to-Launch prunes baselines and walks the ledger at UT 0, not at the rewind save's own UT [FILED 2026-10-28 from the rewind campaign's log mining; code-read, NOT FIXED; product, low-medium]
+## ~~REWIND-PRUNE-AND-WALK-AT-UT-ZERO: a Rewind-to-Launch prunes baselines and walks the ledger at UT 0, not at the rewind save's own UT~~ [FILED 2026-10-28 from the rewind campaign's log mining; FIXED 2026-10-31, branch `fix-load-commit-and-rewind-cutoff`; product, low-medium]
 
 The rewind branch of `ParsekScenario.OnLoad` (~5534) runs
 `GameStateStore.PruneBaselinesAfterUT(RewindContext.RewindAdjustedUT)` and then
@@ -437,7 +437,24 @@ baseline is deleted, and rows from the first 1 to 12 s of the career count as af
 one the route reconcile uses. Test: a launch rewind's prune and walk use the save UT, and a row at
 UT 5 stays inside the cutoff.
 
-## COMMIT-DURING-LOAD-WALKS-WITH-NO-CUTOFF: a tree commit inside OnLoad replays the whole ledger [FILED 2026-10-28 from log mining; to check, NOT FIXED; product if reachable, medium]
+Fix. Root cause: `PreProcessRewindSave` winds the clock to `Math.Max(0, saveUT - 15)`, so a launch in
+the first 15 s of a career sets `RewindAdjustedUT` to exactly 0 (the field is right: it is the clock the
+Planetarium is set to). `HandleRewindOnLoad` does set the ledger held-through UT to the save's own UT
+(`LedgerHeldWindow.SetAtRewind`), but the prune went through `ResolveLedgerNowUT` and the walks through
+`RecalculateAndPatchCore`'s `ResolveLedgerCutoffUT`, and `ApplyHeldFloor` leaves a reading of 0 alone (it
+reads 0 as a cold-load clock that is not ready). A later launch (clock > 0) was already raised. The
+field keeps its meaning; the three rewind call sites (the OnLoad prune and walk, the deferred
+`ApplyRewindResourceAdjustment` walk) now resolve one career cutoff with the new pure
+`LedgerHeldWindow.ResolveRewindCutoffUT`, which raises a known wound-back clock of 0 too and is the
+live floor's answer for every clock above 0. The Planetarium is still set to the wound-back clock, the
+vessel holds still read it, and Warp-to-game-start (no floor) stays at 0. Tests:
+`LedgerHeldWindowTests.ResolveRewindCutoffUT_RaisesAZeroClock_UnlikeTheLiveFloor`,
+`EarlyLaunchRewind_WalkAtTheSaveUT_KeepsARowAtUT5Reached_TheLaterRowStaysFuture`,
+`EarlyLaunchRewind_PruneAtTheSaveUT_KeepsTheLaunchBaseline_DropsTheLaterOne`,
+`RewindResourceAdjustment_WalksAtTheResolvedCutoff_SetsThePlanetariumAtTheClock`, and the updated
+wiring pin `RouteRewindLoopPositionTests.HandleRewindOnLoad_RunsTheGoBackRouteReconcileBeforeTheCareerRestore`.
+
+## ~~COMMIT-DURING-LOAD-WALKS-WITH-NO-CUTOFF: a tree commit inside OnLoad replays the whole ledger~~ [FILED 2026-10-28 from log mining; CHECKED 2026-10-31, branch `fix-load-commit-and-rewind-cutoff`: reachable but never left paid, no product change, ordering pinned; product if reachable, medium]
 
 `LedgerOrchestrator` (~2529) logs `Commit ledger walk: full replay (cutoffUT=null), live clock not
 trusted` when a tree commits while the clock cannot be read. It is seen in several lanes, harmless
@@ -445,6 +462,44 @@ where seen. But it is the same shape as RW-2's revert bug (fixed by #2309): a co
 into a rewound timeline could walk committed rows dated after the clock and pay the future early.
 Check which OnLoad paths can commit a tree before the clock is trusted, and whether the later
 cutoff walk always follows and takes the future back out. A lane may be needed.
+
+Checked. The line comes from `LedgerOrchestrator.RecalculateAndPatchAfterCommit`, whose only callers
+are `NotifyLedgerTreeCommitted` and `OnRecordingCommitted`; it walks in full when
+`ParsekScenario.IsOnLoadInProgress` or `RecordingStore.RewindUTAdjustmentPending` is set. The whole
+caller set: `MergeDialog.MergeCommit` (callers: the merge dialog buttons, `RunPreTransitionAction`,
+`ParsekFlight.CommitFreshRolloutRefusedPendingTree` from the OnFlightReady restore coroutines, and
+`ParsekScenario.AutoCommitPendingTreeOutsideFlight`), `AutoCommitPendingTreeOutsideFlight`'s ghost-only
+branch, `ParsekScenario.SafetyNetAutoCommitPending` (OnSave), `ParsekFlight.CommitTreeFlight` (map
+Switch-To, test seam) and `ParsekFlight.FallbackCommitSplitRecorder` (flight events). Only
+`AutoCommitPendingTreeOutsideFlight` is reached from OnLoad, at two sites, and each is followed by a
+cutoff walk before a spending screen can act:
+- In-session scene-exit fallback (`pending-outside-flight`, non-revert, outside FLIGHT, autoMerge on):
+  the same OnLoad's `ledger-recalculate` phase runs next, synchronously, through
+  `RecalculateLedgerForInSessionLoad` at the loaded save's clock. With the tree committed its gates
+  hold outside FLIGHT (no pending tree, no restore mode, no live recorder), so it cuts whenever rows lie
+  ahead, and the patch is bidirectional (the stock pool reference does not read the full walk's write
+  as a leak). A commit that throws leaves the tree pending, and then every walk's KSP patch is
+  deferred (`GetKspPatchDeferralReason`), so nothing reaches KSP.
+- Cold outside-flight commit: `OnKspLoad` has already walked at the cold clock; the commit's full walk
+  is taken back by `DeferredSeedAndRecalculate`, started earlier in the same OnLoad, whose walk runs
+  after its first `yield` (so after OnLoad, normally one frame later, while the scene is still
+  loading) and cuts at the ready clock in the Space Center, Tracking Station and editor. At MAINMENU
+  (game unloading) there are no pools.
+- `RewindUTAdjustmentPending` (one frame, between `HandleRewindOnLoad` and the coroutine's first
+  resume): any commit there is followed by `ApplyRewindResourceAdjustment`'s cutoff walk.
+Unlike RW-2's revert (#2309), where the revert's own walks were the last ones and the future stayed
+paid until the next scene change, every path here ends on a cutoff walk. Tests:
+`TreeCommitCurrentClockWalkTests.CommitDuringInSessionOnLoad_TheLoadsOwnCutoffWalkTakesTheFutureBackOut`,
+`CommitDuringColdOnLoad_TheDeferredSeedWalkTakesTheFutureBackOut`, and the wiring gate
+`LoadReconcileWiringGateTests.OnLoadTreeCommitsAreFollowedByACutoffWalk` (OnLoad commits only through
+the two `AutoCommitPendingTreeOutsideFlight` sites, the in-session one before
+`RecalculateLedgerForInSessionLoad`, and the deferred seed walks only after its first yield; a new
+OnLoad commit site reds it). Not pinned: the deferred seed's bounded waits (singletons, values, clock)
+can stretch past one frame on a slow load, and a commit from a flight event fired inside a FLIGHT
+OnLoad is not modelled (none is known). A live lane would add confidence for the cold path: kill KSP
+mid-flight after a Rewind-to-Launch (persistent.sfs holds the ACTIVE_TREE), relaunch and load the
+save, then assert the `Commit ledger walk: full replay` line is followed by a `deferred-seed`
+current-UT walk and that the Space Center funds equal the cutoff value.
 
 ## REFLY-ATTEMPT-LIVE-POOL-SHOWS-COMMITTED-FUTURE: during a Re-Fly attempt the funds pool includes the committed future [FILED 2026-10-28 from the RW-5 fix's investigation; by-design walk, report only, NOT FIXED; low]
 
@@ -457,7 +512,7 @@ that reaches a spending screen during the attempt without one of those walks cou
 same shape #2309 fixed for reverts. Decide whether the Re-Fly start should patch at the current UT
 and keep the full walk for its bundle restore only.
 
-## STOCK-POOL-REFERENCE-CARRIED-ROWS-COUNTED-TWICE: a rewind point's reference loaded twice carries a removed row's step twice [FILED 2026-10-28 from the #2314 review; code-read, NOT FIXED; low]
+## ~~STOCK-POOL-REFERENCE-CARRIED-ROWS-COUNTED-TWICE: a rewind point's reference loaded twice carries a removed row's step twice~~ [FILED 2026-10-28 from the #2314 review; FIXED 2026-10-31, branch `fix-low-ledger-bugs`; xUnit only; low]
 
 When the rewind point's `STOCK_POOL_REFERENCE` counted and stepped a row that has since been removed
 from the ledger, `StockPoolReference.Measure` carries the stepped part as an adjustment row. A Re-Fly
@@ -467,7 +522,24 @@ Two plain rewinds to the same save already do this. Needs a dedupe of carried ad
 row, or a repair prune. Test: load one reference twice with a removed stepped row, and expect one
 carried adjustment.
 
-## KSC-RETIRED-FLIGHT-FREES-CREW-BEFORE-ITS-RECOVERY: after a rewind, a pad-retired flight frees its crew at the trimmed recording end, not at its recovery row [FILED 2026-10-28 from RW-2 and the gap sweep claim 6; code-read plus one live window, NOT FIXED; reservation, low-medium]
+**Fix.** Confirmed by code read: `StockPoolReference.Measure`'s authoritative branch filed every
+removed stepped row's part again on each load, with nothing on the row saying what it carried. A
+carry row now names its sources (`GameAction.AdjustmentCarriedFrom`, sparse `carriedFrom` key on
+the `StockPoolAdjustment` row, read back into `StockPoolRow.CarriedFrom`), and the new pure
+`StockPoolReference.ResolveRemovedCarries` decides per removed row: an existing carry row the walk
+dispatched already holds it (`CarryAlreadyHeld`, not carried again); a carry row past the walk's
+now (the invoke walk's `double.MaxValue`) is replaced: the row is carried at this patch's now and
+the older row is retired (`CarriesRetired`, removed by `KspStatePatcher.ApplyCarryDedupe`, dropped
+from `Commit`), only when every source it names is carried again and the reference does not count
+it; otherwise it is kept with a Warn (`CarriesOverlapKept`), so nothing carried is ever dropped. Only
+an id match skips a carry, so a distinct removed row is always carried. Not covered: a row removed
+during a MEASURED patch is kept by that patch's unattributed leak row, which names no source.
+xUnit: `StockPoolReferenceTests.CarriedTwice_SameReferenceLoadedTwice_CarriesTheRemovedRowOnce`,
+`CarriedTwice_ReFlyStartThenDiscard_ReplacesTheFullWalkCarry`,
+`CarriedTwice_ADistinctRemovedRow_IsStillCarried`, `CarriedTwice_AnOlderCarryNamingAnotherSource_IsKept`,
+`CarriedFrom_RoundTripsThroughTheLedgerRow`.
+
+## ~~KSC-RETIRED-FLIGHT-FREES-CREW-BEFORE-ITS-RECOVERY: after a rewind, a pad-retired flight frees its crew at the trimmed recording end, not at its recovery row~~ [FILED 2026-10-28 from RW-2 and the gap sweep claim 6; code-read plus one live window; FIXED 2026-10-31, branch `fix-crew-hold-and-science-dating`; reservation, low-medium]
 
 RW-2: after a Rewind-to-Launch, Jeb's hold ended at the KSC-retired pad recording's trimmed EndUT
 (185807.6), not at its committed `KerbalRecovered` row (186000.2), so for about 190 s he is free
@@ -482,14 +554,41 @@ the 2026-10-25 ruling that tourists stay held (`CollectKscRetirementClosures` /
 `RoleHoldsKerbal`, ~1914). Test: a KSC-parked recording with crew Aboard, a recovery row at EndUT+190
 and the vessel-exists override false; the hold should end at the recovery row.
 
-## OPTIMIZER-MERGE-RETAGS-LEDGER-ROWS-ONLY: an optimizer merge leaves the absorbed recording's game-state events under a dead id [FILED 2026-10-28 from the gap sweep claim 5; code-read, NOT FIXED; low]
+Fix. `KerbalsModule.CollectKscRetirementClosures` no longer adds the synthetic EndUT closure for
+a kerbal whose committed timeline records his recovery from that flight: a `KerbalRecovered` row
+that `RecoveryClosesHold` puts in the retired recording's scope (its own row, or one of another
+recording of its tree, found by the pure `TryFindRecordedRecoveryInScope`), so the recorded
+recovery bounds the hold. A parked flight that never became real has no such row and still frees
+its crew at EndUT (2026-09-23 ruling). A tourist is treated exactly like crew: held until his
+recorded recovery (the RW-2 case, which the 2026-10-25 keep-her-Assigned ruling needs), else closed
+at EndUT as before, so no tourist hold is left without an end. The walk's closure now carries
+`IsKscRetirement`, so the `Reservation bounded by ...` line names the closure that won; the
+PrePass summary adds `recordedRecoveryWins=`. Ledger and money unchanged. Tests
+(`KscPadRetirementTests`): `Crew_PadFlightRecoveredAfterItsTrimmedEnd_HoldEndsAtTheRecoveryRow`,
+`Crew_TouristAboardARecoveredPadFlight_IsHeldUntilTheRecoveryRow`,
+`Crew_TouristAboardANeverMaterializedPadFlight_IsClosedAtEndUT`,
+`Crew_NeverMaterializedPadFlight_WithAnotherMissionsRecovery_StillFreedAtEndUT`,
+`CollectClosures_RecordedRecoveryInScope_WinsOverTheEndUTClosure`.
+Live proof: none (RW-2 would show `recordedRecoveryWins=1` and the hold ending at the row).
+
+## ~~OPTIMIZER-MERGE-RETAGS-LEDGER-ROWS-ONLY: an optimizer merge leaves the absorbed recording's game-state events under a dead id~~ [FILED 2026-10-28 from the gap sweep claim 5; FIXED 2026-10-31, branch `fix-low-ledger-bugs`; xUnit only; low]
 
 When the optimizer merges chain siblings it retags the ledger rows to the merge target but not the
 absorbed recording's `GameStateEvent`s, which keep the removed id. No total effect was found, but
 consumers that key on recording id (some stock-screen reservation marks) drop those events. Test:
 merge two chain siblings, one holding a tagged event and a science row, and assert both are retagged.
 
-## SCIENCE-AFTER-TRIMMED-ENDUT-DATED-EARLY: science captured after a recording's trimmed end is dated at the end [FILED 2026-10-28 from the gap sweep (B6 / I-11); code-read, NOT FIXED; low-medium]
+**Fix.** Confirmed by code read: `RecordingStore.RetagLedgerActionsAfterOptimizationMerge` called
+only `Ledger.RetagActionsForRecordingRewrite`, while the split's mirror moves all three carriers.
+The merge now also moves the captured events (`GameStateStore.RetagEventsForRecording`) and the
+pending science subjects plus their cached milestone copies (new
+`GameStateRecorder.RetagPendingScienceForRecording`, the uncut twin of
+`RetagPendingScienceForSplitSecondHalf`), with one Info line. That matters most at a fresh commit,
+where the optimizer pass runs before `NotifyLedgerTreeCommitted` converts the events and reads the
+tag as ownership. xUnit: `OptimizerSplitCommitAttributionTests.OptimizerMerge_RetagsTheAbsorbedEventsPendingScienceAndLedgerRows`,
+`RetagPendingScienceForRecording_GuardsDegenerateInputs`.
+
+## ~~SCIENCE-AFTER-TRIMMED-ENDUT-DATED-EARLY: science captured after a recording's trimmed end is dated at the end~~ [FILED 2026-10-28 from the gap sweep (B6 / I-11); code-read; FIXED 2026-10-31, branch `fix-crew-hold-and-science-dating`; low-medium]
 
 `GameStateEventConverter` (~395-470) anchors science captured after the recording window at the
 window end, and the tail trim moves that end to the last interesting point plus a buffer. A
@@ -497,7 +596,23 @@ transmission made while idle on the runway or in orbit is then dated earlier tha
 After a rewind that earlier date can win the earliest-first subject cap (design 3.15 step 2) over a
 capture that really came first in the new timeline. Fix direction: date it at its capture UT.
 
-## EARNINGS-RECONCILIATION-BLIND-SPOTS: the commit's store-vs-ledger earnings check misreads two row kinds [FILED 2026-10-28 from log mining; diagnostic only, NOT FIXED; low]
+Fix. `GameStateEventConverter.ConvertScienceSubjects` dates a tagged capture after the window at
+its capture UT (`ResolveScienceRowUt(captureUt, endUT)`, `IsScienceCaptureAfterWindow`), with
+`StartUT` / `EndUT` collapsed onto the capture so the post-walk reconciler reads that moment, not
+a span over the warp. Why the anchor was safe to drop: ownership is the capture tag (BUG-A), not
+the date; every consumer of the row's time reads it as an event time (the split / Re-Fly retag
+and tombstone screens by attribution UT, which stays on the same side of any cut inside the
+window; the committed-future index; the walk), and the earnings reconcile already counts
+tagged events past the window; non-science tagged events past the window were already dated at
+their own UT. No earned value moves except to the true first capture. Log: `afterWindowDated=`
+on the converter summary plus one Verbose per such row. Tests: `GameStateEventConverterTests`
+`ConvertScienceSubjects_TaggedCaptureAfterRecordingEnd_IsKeptDatedAtItsCaptureUt`,
+`ConvertScienceSubjects_IdleTransmissionAfterTrimmedEnd_WinsTheSubjectCapOnlyWhenFirst` (both
+orders through the walk), `ResolveScienceRowUt_Cases`, `IsScienceCaptureAfterWindow_Cases`;
+re-pinned the two `PendingScienceSubjectsClearTests` BugACredit cells. Older rows are not
+migrated.
+
+## ~~EARNINGS-RECONCILIATION-BLIND-SPOTS: the commit's store-vs-ledger earnings check misreads two row kinds~~ [FILED 2026-10-28 from log mining; diagnostic only. FIXED 2026-10-31, branch `fix-eva-subsurface-and-cleanups`; low]
 
 `Earnings reconciliation: store delta vs ledger delta` fired 48 times in 36 archived runs. Every
 pool ended right except two cases already fixed (CS-3's contract parameter reward; WF-1's re-earned
@@ -505,7 +620,27 @@ world-first, #2281). The rest are comparison blind spots: a record bonus that fa
 reputation seed reads 0, and strategy bonus rows are outside the commit's new rows. Close both so
 the line reds only on a real gap.
 
-## REFLY-RETIREMENT-LEFTOVERS: an unused classifier and a stale guard comment [FILED 2026-10-28 from the gap sweep claim 2; cleanup, NOT FIXED; trivial]
+Fix. Both on the emitted side of `LedgerOrchestrator.ReconcileEarningsWindow`; no ledger value
+moves. (1) A reputation row inside the seed (`ReputationSeedMembership.ShouldSkipAsInsideSeed`)
+has its `EffectiveRep` zeroed by the walk while its event is still on the store side, so its
+rep leg is now `EstimateInsideSeedRowRep`: the row's own nominal (`ResolveInsideSeedRepNominal`,
+mirroring each `ReputationModule` arm and its `Effective` gates; the three pre-curved penalty
+sources pass through) through `ReputationModule.ApplyReputationCurve` at stock's pool at the
+row's UT, read off the store's in-scope `ReputationChanged` events (`ResolveStoreRepPoolAtUT`).
+(2) `AppendInWindowStrategyConversionRows` folds the ledger's strategy conversion rows
+(`IsStrategyConversionRow`) into the walk under the store side's own scope and window rule (the
+commit's tag, a tagged row counted past the window end; every row in the window when unscoped),
+skipping any row the commit's new rows already carry. One Verbose summary line counts both.
+Tests (`EarningsReconciliationTests`): `Reconcile_RecordBonusInsideReputationSeed_NoRepWarn`,
+`Reconcile_InsideSeedRowWithARealGap_StillWarns`,
+`EstimateInsideSeedRowRep_CurvesAtTheStorePoolAndPassesPreCurvedThrough`,
+`ResolveStoreRepPoolAtUT_ReadsOnlyInScopeInWindowEvents`,
+`Reconcile_StrategyConversionRowInLedgerInsideWindow_NoFundsWarn`,
+`Reconcile_StrategyConversionRowOfAnotherRecording_IsNotFolded`,
+`AppendInWindowStrategyConversionRows_ScopeWindowAndNoDoubleCount`. The archived-run count (48
+lines in 36 runs) needs a re-mine on a build carrying this to confirm what is left is real.
+
+## ~~REFLY-RETIREMENT-LEFTOVERS: an unused classifier and a stale guard comment~~ [FILED 2026-10-28 from the gap sweep claim 2; cleanup. FIXED 2026-10-31, branch `fix-eva-subsurface-and-cleanups`; trivial]
 
 `ResurrectionRetirementEligibility.Classify` has no production caller (only
 `InGameTests/ReFlyRecoveryBundleRuntimeTest.cs`); `ReFlyInvokeHold` replaced the invoke-time
@@ -513,7 +648,21 @@ retirement it served. `RewindReadbackGuard.cs` (~90) still describes that retire
 RetireResurrectedVesselRecoveryRows"). Its science `Method` label (a full-value transmission read
 as recovered) therefore changes nothing. Delete `Classify` and its test, and fix the comment.
 
-## SUB-100-ROLLOUT-AND-BAILOUT-NOT-LEDGERED: a rollout or a Bail-Out Grant under 100 funds gets no row [FILED 2026-10-28 from the small-recovery fix; code-read, NOT FIXED; low]
+Fix. Grep confirmed no production caller of `Classify` (only the in-game
+`ReFlyRecoveryBundleRuntimeTest`, `ResurrectionRetirementEligibilityTests` and one
+`DisassembledTerminalStateTests` cell). Deleted both `Classify` overloads, `ResurrectedRecovery`
+and the two evidence constants; `ResurrectionRetirementEligibility` keeps the two predicates with
+production callers (`VesselOutlivedTerminal`: `ReFlyInvokeHold`, `RecoveredRecordingEvidence`;
+`IsPositivelySameLaunch`). The in-game test keeps its merge-path proof and loses only its
+classifier section (no `[InGameTest]` removed, so no batch tally moves);
+`ResurrectionRetirementEligibilityTests` keeps the identity and terminal truth-table cells; the
+Disassembled cell now asserts `VesselOutlivedTerminal` directly. `RewindReadbackGuard.cs` no
+longer cites Step 3b, and four test comments that credited the classifier with the
+same-recording bundle now name the merge's supersede tombstones. Left as history: the RB-1 /
+RB-2 spec headers and `RewindReadbackFixture` / `RewindReadbackGuardTests` narratives still
+describe the Step 3b flag those lanes were built on.
+
+## ~~SUB-100-ROLLOUT-AND-BAILOUT-NOT-LEDGERED: a rollout or a Bail-Out Grant under 100 funds gets no row~~ [FILED 2026-10-28 from the small-recovery fix; FIXED 2026-10-31, branch `fix-low-ledger-bugs`; xUnit only; low]
 
 `GameStateRecorder`'s 100-funds threshold still drops a `VesselRollout` under 100 (a craft that
 cheap gets no `VesselBuild` row, since `OnVesselRolloutSpending` runs after the threshold) and a
@@ -521,12 +670,43 @@ cheap gets no `VesselBuild` row, since `OnVesselRolloutSpending` runs after the 
 adjustments, so an authoritative patch (a Re-Fly, a rewind) erases them, the same shape as
 SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY. Widen the exemption the same way once that fix lands.
 
-## CS-FIXTURES-CARRY-BARE-ORBIT-MILESTONE: the CS career fixtures hold a pre-#2301 bare 'Orbit' row [FILED 2026-10-28 from log mining, confirmed by RW-3; fixture shape, NOT FIXED; low]
+**Fix.** Confirmed by code read: `GameStateRecorder.OnFundsChanged` returns at
+`IsFundsDeltaBelowThreshold` before both `OnVesselRolloutSpending` and the `StrategyOutput` direct
+forward. `IsFundsDeltaBelowThreshold` now also exempts a negative `VesselRollout` change (the
+VesselBuild row's only source) and a positive `StrategyOutput` change (a currency exchanger's funds
+out, the Bail-Out Grant; `ConvertStrategyExchangeFunds` reads the same event at a commit). Each keeps
+the floor in the other sign and at zero. The same shape on the Bail-Out's other leg: its reputation in
+(`ReputationChanged(StrategyInput)`, directly forwarded) had the 1-point floor, so a grant paying under
+100 funds (well under a point of reputation) would have filed its funds and refunded its reputation;
+`IsReputationDeltaBelowThreshold(delta, reason)` now exempts `StrategyInput` like `ContractDecline`
+(only an exact zero is ignored). Science needs nothing: its floor is 0.001 and no rollout or exchanger
+leg moves it below that. The "recorded anyway" Verbose line names the reason
+(`DescribeFundsThresholdExemption`). xUnit: `SmallRecoveryFundsTests.IsFundsDeltaBelowThreshold_ExemptsOnlyTheReasonsWhoseChangeIsTheRow`,
+`ReputationThreshold_ExemptsTheExchangersReputationIn`, `SmallRollout_IsRecorded_AndFilesItsVesselBuildRow`,
+`SmallBailOutGrant_IsRecorded_AndForwardedToTheLedger`.
+
+## ~~CS-FIXTURES-CARRY-BARE-ORBIT-MILESTONE: the CS career fixtures hold a pre-#2301 bare 'Orbit' row~~ [FILED 2026-10-28 from log mining, confirmed by RW-3; FIXED 2026-10-31, branch `fix-eva-subsurface-and-cleanups`; fixture shape; low]
 
 Every CS save from CS-4 on reports milestone `Kerbin/Orbit` missing in the recalc, because the
 fixtures carry an old bare `Orbit` row from before #2301. It is fixture shape, not a live bug, but
 it adds noise to every rewind campaign lane on those hosts. Re-harvest the fixtures, or repair the
 row with the fixture builder.
+
+**Fix.** Repaired in place; no builder exists for these saves (the `build_cs_*` tools build
+craft only) and a re-harvest would mean re-flying CS-4 through CS-6c. CS-4's first orbit was
+captured before #2301 (`QualifyMilestoneId` reading the body), so its row carries `Orbit`; the
+stock `ProgressTracking` node in the same save is `Kerbin > Orbit` with `completedManned` at the
+row's own UT 611.79373901347844, so the body is not in doubt. In each of `cs-career-orbit`, `-ts1`,
+`-mun1`, `-mun2`, `-mun3` and `-mun4` four lines change and nothing else: the ledger GAME_ACTION
+(type 4, `act_9e88714c208b44af84ed02607c3b2bb6`) `milestoneId` and the MilestoneAchieved
+GAME_STATE_EVENT (type 18) `key`, each in `ledger.pgld` / `milestones.pgsm` and in persistent.sfs,
+now `Kerbin/Orbit` (24 lines, byte-exact, CRLF kept). No fixture already held a `Kerbin/Orbit`
+row, so no duplicate. Nothing pins these bytes: `test_saveparse`'s pinned payloads are structural
+(trees, recordings, terminals), no spec gates a `reportOnly` count (the `reportOnly=2` notes in
+CS-4b / CS-5 / CS-6 are run readings), and the CS-6 / 6c / 7 `Milestone enriched:` forbids only get
+stricter. The six provenance comments in `harness/lib/test_saveparse.py` name the edit. All three
+harness suites green. The next flight on these hosts should read `reportOnly` one lower (the
+Kerbin/Orbit MissingInRecon facet gone); that is unproven until a lane flies.
 
 ## ~~REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE: a Discard Re-fly after a Rewind-to-Launch takes the committed future's earnings away for good~~ [FILED AND FIXED 2026-10-28 from RW-5's flight `2026-10-28_1056`, branch `fix-refly-discard-pool-reference`; LIVE-PROVEN by lane RW-5, run `2026-10-28_1200` (DLL built from 530e783); product, high (a reduction of the career total)]
 
@@ -580,7 +760,7 @@ does too, but during the attempt the funds display shows it.
 
 ---
 
-## LEDGER-EVENT-IDENTITY: the replay, not stock, decides every repeated ledger event [FILED 2026-10-26 from the event-keyed ledger research (two independent code reviews plus a hand-simulated career with repeated rewinds); RULED 2026-10-26; build order step 1 BUILT 2026-10-26 on branch `ledger-identity-step1`, step 2 BUILT 2026-10-26 on branch `ledger-identity-step2`, step 3 BUILT 2026-10-26 on branch `ledger-identity-step3`, step 4 BUILT 2026-10-26 on branch `ledger-identity-step4`, step 5 BUILT 2026-10-26 on branch `ledger-identity-step5`, step 6 BUILT 2026-10-26 on branch `ledger-identity-step6`, step 7a (conversion legs, live-only income) and step 7b (contract twins for goal-level stock ids, survey once per body, continuous producers once per slice) BUILT 2026-10-26 on branch `ledger-identity-step7`, step 8 BUILT 2026-10-27 on branch `ledger-identity-step8`, NOT FLOWN, steps 1 to 8 built; product, high (the duplicate-payment class)]
+## ~~LEDGER-EVENT-IDENTITY: the replay, not stock, decides every repeated ledger event~~ [FILED 2026-10-26 from the event-keyed ledger research (two independent code reviews plus a hand-simulated career with repeated rewinds); RULED 2026-10-26; build order step 1 BUILT 2026-10-26 on branch `ledger-identity-step1`, step 2 BUILT 2026-10-26 on branch `ledger-identity-step2`, step 3 BUILT 2026-10-26 on branch `ledger-identity-step3`, step 4 BUILT 2026-10-26 on branch `ledger-identity-step4`, step 5 BUILT 2026-10-26 on branch `ledger-identity-step5`, step 6 BUILT 2026-10-26 on branch `ledger-identity-step6`, step 7a (conversion legs, live-only income) and step 7b (contract twins for goal-level stock ids, survey once per body, continuous producers once per slice) BUILT 2026-10-26 on branch `ledger-identity-step7`, step 8 BUILT 2026-10-27 on branch `ledger-identity-step8`, steps 1 to 8 built; product, high (the duplicate-payment class); MERGED 2026-10-26..27 (#2289-#2295, then #2297 and #2301); FLOWN 2026-10-28..31 under the whole rewind campaign RW-1..RW-22 (REWIND-LEDGER-CAMPAIGN) and CS-4..CS-7, every lane green on the merged steps; CLOSED 2026-10-31]
 
 Design authority: `docs/parsek-game-actions-and-resources-recorder-design.md` section 3.15.
 
@@ -1759,7 +1939,7 @@ invoke walk (`RewindInvoker` Step 5, `double.MaxValue`) and the tombstone walk a
 
 ---
 
-## CONTRACT-RESTORED-AT-SCENE-LOAD-PAYS-TWICE: a contract completed after a scene change pays its reward two or three times [FILED 2026-10-26 off CS-3's reading run, branch `cs3-career-contracts`. FIXED in the same branch and LIVE-PROVEN on CS-3's re-flight `2026-10-25_2353`]
+## ~~CONTRACT-RESTORED-AT-SCENE-LOAD-PAYS-TWICE: a contract completed after a scene change pays its reward two or three times~~ [FILED 2026-10-26 off CS-3's reading run, branch `cs3-career-contracts`. FIXED in the same branch and LIVE-PROVEN on CS-3's re-flight `2026-10-25_2353`]
 
 Found by `CS-3-career-first-contracts` (run `2026-10-25_2257`, PARSEK-FAIL), the first lane to
 complete a contract by flying it. Accept FIRSTLAUNCH and SCIENCE at the Space Center, go to the
@@ -1952,7 +2132,7 @@ children is not re-evaluated. xUnit:
 FIRSTLAUNCH). Live proof owed: CS-3's re-flight (`hardFailures=0`, a `ContractParameterCompleted`
 line before each `'Achieve goal' complete!`).
 
-## CONTRACT-EVENT-OF-A-BACKGROUND-VESSEL-TAGGED-TO-THE-ACTIVE-RECORDING [FILED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`. OPEN; low]
+## CONTRACT-EVENT-OF-A-BACKGROUND-VESSEL-TAGGED-TO-THE-ACTIVE-RECORDING [FILED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`. OPEN, BLOCKED 2026-10-31 (branch `fix-low-ledger-bugs`): the stock event names no vessel; low]
 
 A contract completed or failed by a background vessel (a booster under canopy while the upper stage
 is active) is converted with the active recording's id, so a Re-Fly of that booster cannot retire
@@ -1960,6 +2140,23 @@ it and a Re-Fly of the active stage would. Rule 1 seals both slots anyway (a con
 row), so nothing is wrongly retired today; it matters once a contract row can be re-flown. Fix
 direction: resolve the cause vessel through the event's vessel pid, as the strategy conversion door
 does (`GameStateRecorder.ResolveStrategyConversionRecordingTag`).
+
+**Not fixed: there is no cause vessel to resolve (2026-10-31).** Reflection over the reference
+`Assembly-CSharp.dll` (KSP 1.12.5): `GameEvents.Contract.onCompleted` and `onFailed` are
+`EventData<Contracts.Contract>`, and neither `Contracts.Contract` nor `Contracts.ContractParameter`
+declares any `Vessel`-typed field or property. Parsek's handlers (`GameStateRecorder.OnContractCompleted`
+/ `OnContractFailed`, `GameStateRecorder.Handlers.cs`) and the parameter reward capture
+(`ContractParameterRewardPaid`: guid, parameter id, title, rewards) receive only that. The strategy
+door's "pid" is not an event pid either: `ResolveStrategyConversionRecordingTag` reads the open
+`RecoveryDispatchScope.CurrentPersistentId`, the same scope `Emit` already offers a contract event
+(Re-Fly cause tag, and the recovery owner when no live tag exists; the owner only takes progress
+events). A completion caused by a background vessel outside a recovery therefore has no vessel
+Parsek can see, and guessing one (the nearest, the last loaded) would mis-file a contract the
+active stage completed. A fix needs a per-parameter-type probe of the vessel a parameter checked
+(stock parameters mostly read `FlightGlobals.ActiveVessel`, so the case is mainly mod parameters),
+or a Harmony scope around a vessel-bound parameter's completion; neither is warranted while Rule 1
+seals both slots. If one is built, a vessel match must go through `VesselLaunchIdentity`
+(persistentId is craft-baked).
 
 ---
 
@@ -3393,7 +3590,7 @@ the new verbs / oracles / fixtures, then the QL / MINE / RC / GP lanes and the F
 
 ---
 
-## GAMEPLAY-CASES-UNCOVERED-2026-10-06: gameplay cases no test covers and no doc lists [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. OPEN, to trace]
+## ~~GAMEPLAY-CASES-UNCOVERED-2026-10-06: gameplay cases no test covers and no doc lists~~ [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`; DONE 2026-10-31: re-checked, all sixteen cases GC-1..GC-16 are traced and every defect they found has its own struck entry]
 
 Candidates from a check of 22 player situations against every spec, test and doc
 (`docs/dev/research/coverage-extension-plan-2026-10-06.md` section 3.5, ranked there). None was
@@ -3549,7 +3746,7 @@ worked in its rank order.
 
 ---
 
-## SCRIPTED-CAMPAIGN-TO-THE-MUN: a scripted Science-mode then Career-mode campaign from a genuine new save to a Mun landing and return [FILED 2026-10-06 at the owner's request, branch `ccr-77f23eb2-dbqh6i`. OPEN; long-run test target]
+## ~~SCRIPTED-CAMPAIGN-TO-THE-MUN: a scripted Science-mode then Career-mode campaign from a genuine new save to a Mun landing and return~~ [FILED 2026-10-06 at the owner's request, branch `ccr-77f23eb2-dbqh6i`; long-run test target; DONE 2026-10-31: the ladder CS-0..CS-7 is LIVE-PROVEN, ending with CS-7 `2026-10-31_0654` (Mun landing, flag and return, #2336)]
 
 The owner's target for a long gameplay run that touches every system the way a player does:
 start a true new game (Normal difficulty) and script the campaign stage by stage up to landing
@@ -3853,7 +4050,7 @@ line and no `Science reconcile dump (post-walk)`, zero `[Parsek][ERROR]`, and th
 
 ---
 
-## REWIND-LEDGER-CAMPAIGN: rewind-and-replay lanes on the campaign careers to hunt ledger bugs [FILED 2026-10-28 at the owner's request. OPEN]
+## ~~REWIND-LEDGER-CAMPAIGN: rewind-and-replay lanes on the campaign careers to hunt ledger bugs~~ [FILED 2026-10-28 at the owner's request; DONE 2026-10-31: RW-1..RW-22 all LIVE-PROVEN and merged (last #2334); the bugs it found are filed as their own entries]
 
 The owner asked for missions flown after rewinding into the past, with a save point after each and
 every log kept, to investigate ledger correctness beyond unit tests and single lanes. Plan (reviewed
@@ -3994,7 +4191,7 @@ Progress 2026-10-31 (branch `rw22-patents-recovery`): lane `RW-22-patents-licens
 
 Progress 2026-10-31 (branch `rw20-strategy-deadline`): lane `RW-20-strategy-and-deadline-after-rewind` LIVE-PROVEN (`2026-10-31_0425_RW-20-strategy-and-deadline-after-rewind`): LIVE-PROVEN `2026-10-31_0425` on DLL ccdaad30 (head d70bbab of PR #2334): the strategy refused, the fail applied once and filed in stock's finished list, the duplicate `Sun/Flyby` taken back once per pool across every later load, pools back where the rewind began.
 
-## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
+## ~~LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback~~ [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. FIXED 2026-10-31, branch `fix-eva-subsurface-and-cleanups`; code-traced, the CS-7 logs were not available]
 
 While Jeb stood (or lay ragdolled) on the Mun's surface as a BACKGROUND vessel during the CS-7
 EVA-RECOVER step, the Parsek log repeated `TryFinalizeRecording: recovered sub-surface live-orbit
@@ -4008,6 +4205,42 @@ terrain) as landed. Next: read the two lines' context in the collected `KSP.log`
 (operator PC `harness/results/`), find which predicate sends a Landed vessel into
 `IsSuppressedSubSurfaceDestroyedDecline` (`RecordingFinalizationCacheProducer.cs`), and add a
 unit cell for a landed EVA kerbal.
+
+**Trace (verdict: a real defect, rare).** Stock sets `Vessel.Landed` every physics frame from
+part ground contact alone (decompiled `Vessel.checkLanded`: any part `GroundContact`, no
+hysteresis); a ragdolled kerbal's bone colliders do not reach the part and a walking kerbal on the
+Mun leaves the ground between steps, so the kerbal reads SUB_ORBITAL (FLYING with an atmosphere)
+while on the ground (the same jitter `EnvironmentDetector.Classify` already absorbs for segments,
+#246). The producer's surface branch (`TryBuildSurfaceTerminalCache`) admitted only
+LANDED / SPLASHED / PRELAUNCH, so those frames fell to `BallisticExtrapolator.ShouldExtrapolate`
+(true for SUB_ORBITAL) and the default finalizer. A background EVA has no patched-conic solver
+(`NullSolver`), so the live-orbit fallback classifies it `NoSolverStart` Destroyed; the
+recorded-point suppression then either declined (a still kerbal: `velocity-zero`, giving
+`subsurface-destroyed-suppressed`, and `Refresh failed; preserving previous cache ...
+terminal=Landed` names the PREVIOUS refresh's Landed cache) or reseeded an orbit from the recorded
+point (a tumbling kerbal: `recovered sub-surface live-orbit fallback`), whose fall from rest hits
+the terrain at once and was ACCEPTED as a Fresh Destroyed cache. So the cache flipped between
+Landed and Destroyed, and the scene-exit twin (`TryFinalizeRecording`, same situation gate) could
+stamp Destroyed, or leave the live fallback `DetermineTerminalState` to stamp SubOrbital (which a
+Destroyed cache can then "repair" to Destroyed), on a kerbal who was standing on the Mun when the
+recording ended: no end-of-flight spawn of him. CS-7 never showed it because Jeb was recovered.
+
+Fix. One pure rule, `RecordingTree.ResolveEvaSurfaceJitterSituation` (EVA, FLYING / SUB_ORBITAL,
+valid `heightFromTerrain` <= `EvaSurfaceJitterMaxHeightMeters` = 5 m, the
+`EnvironmentDetector` EVA band; stock's -1 for a packed vessel fails closed), read through
+`ResolveTerminalSituation` (logs `EVA surface jitter: reading pid=... as LANDED`) by every
+live-vessel terminal read: the producer's surface branch (new `IsEva` on the vessel view), the
+scene-exit `TryFinalizeRecording` situation gate, `DetermineTerminalState(int, Vessel)` and
+`CaptureTerminalPosition` / `CaptureTerminalOrbit`. A non-EVA vessel and an EVA more than 5 m up
+keep the existing path. Tests (`RecordingFinalizationCacheProducerTests`):
+`TryBuildFromLiveVessel_LandedEvaReportingSubOrbital_TakesSurfaceCacheNotFinalizer`,
+`TryBuildFromLiveVessel_EvaWellAboveTerrain_StillReachesFinalizer`,
+`TryBuildFromLiveVessel_NonEvaNearTerrainSubSurface_KeepsDestroyedDecline`,
+`ResolveEvaSurfaceJitterSituation_Table`,
+`DetermineTerminalState_LiveEvaOnTheGroundReportingSubOrbital_ReadsLanded`. Not covered: a
+swimming kerbal that drops out of SPLASHED (its `heightFromTerrain` measures the sea floor) and a
+PACKED kerbal frozen at a non-surface situation. A live lane leaving a kerbal on the Mun at
+scene exit would prove it end to end.
 
 ---
 

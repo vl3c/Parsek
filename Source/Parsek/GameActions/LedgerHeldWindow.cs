@@ -82,6 +82,31 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: the cutoff a Rewind-to-Launch's own career walks and baseline prune use
+        /// (todo REWIND-PRUNE-AND-WALK-AT-UT-ZERO): the wound-back clock
+        /// <paramref name="rewindAdjustedUT"/> raised to <paramref name="heldThroughUT"/>. Unlike
+        /// <see cref="ApplyHeldFloor"/> a clock of 0 IS raised: here it is the rewind's own known
+        /// wound-back clock (a launch less than the lead time after career start clamps to 0),
+        /// never a live clock that is not ready, so the rows up to the rewind save's own UT stay
+        /// inside the cutoff exactly as they do for a later launch. NaN, infinite and negative
+        /// readings stay as they are.
+        /// </summary>
+        internal static double ResolveRewindCutoffUT(double rewindAdjustedUT, double heldThroughUT)
+        {
+            if (double.IsNaN(rewindAdjustedUT) || double.IsInfinity(rewindAdjustedUT) || rewindAdjustedUT < 0.0)
+                return rewindAdjustedUT;
+            if (!IsUsableHeldUT(heldThroughUT))
+                return rewindAdjustedUT;
+            return heldThroughUT > rewindAdjustedUT ? heldThroughUT : rewindAdjustedUT;
+        }
+
+        /// <summary><see cref="ResolveRewindCutoffUT(double, double)"/> under the floor in memory.</summary>
+        internal static double ResolveRewindCutoffUT(double rewindAdjustedUT)
+        {
+            return ResolveRewindCutoffUT(rewindAdjustedUT, HeldThroughUT);
+        }
+
+        /// <summary>
         /// Pure: the UT a Space Center row captured at <paramref name="capturedUT"/> is dated
         /// at under <paramref name="heldThroughUT"/>: the ledger's now
         /// (<see cref="ApplyHeldFloor"/>), so a row the player makes while the clock is behind

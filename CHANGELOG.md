@@ -25,6 +25,30 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A kerbal on the ground when a recording ends now ends Landed.** A kerbal standing, lying or
+  hopping on the surface (on the Mun especially) could read as falling, so his recording could
+  end Destroyed or Sub-orbital instead of putting him back where he stood.
+  (LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER)
+- **After a rewind, the crew of a flight that ended on the pad or runway stays held until you
+  recovered it.** Such a kerbal or tourist was freed a few minutes early, at the flight's
+  trimmed end, while the timeline still had him aboard.
+  (KSC-RETIRED-FLIGHT-FREES-CREW-BEFORE-ITS-RECOVERY)
+- **Science sent after a flight's recording has gone idle is dated when you sent it,** so after
+  a rewind an earlier new capture of the same experiment gets the full value.
+  (SCIENCE-AFTER-TRIMMED-ENDUT-DATED-EARLY)
+- **Money from a removed ledger row is no longer counted twice when a rewind point loads twice.**
+  Loading the same rewind point a second time (a Re-Fly and then Discard Re-fly, or two rewinds
+  to one save) carried that money again. It is now carried once.
+  (STOCK-POOL-REFERENCE-CARRIED-ROWS-COUNTED-TWICE)
+- **A merged flight keeps the earlier segment's milestones and science as its own.** When two
+  segments of one flight were merged, their captured events stayed under the removed segment.
+  (OPTIMIZER-MERGE-RETAGS-LEDGER-ROWS-ONLY)
+- **A rollout or a Bail-Out Grant worth under 100 funds is now on the books,** so a rewind or a
+  Re-Fly no longer erases it. (SUB-100-ROLLOUT-AND-BAILOUT-NOT-LEDGERED)
+- **A rewind to a launch made in a career's first seconds keeps those seconds in the past.**
+  Rewinding to a launch made less than 15 seconds after the career began treated everything the
+  career had done before it as future, and deleted the career's starting record. It now cuts at
+  the launch's own time, like any other rewind. (REWIND-PRUNE-AND-WALK-AT-UT-ZERO)
 - **Supply route texts read cleanly.** A route name's arrow no longer shows as a box in the
   delete and create confirm dialogs or in screen messages, a hold whose reserving route has no name
   says "another route" without quoting it as a name, and two holds no longer end with an internal

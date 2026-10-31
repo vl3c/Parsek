@@ -956,6 +956,85 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Highest terrain clearance at which an EVA kerbal reporting FLYING / SUB_ORBITAL
+        /// is still read as standing on the ground for terminal purposes. Same height as
+        /// <see cref="EnvironmentDetector.AtmosphericEvaNearSurfaceMeters"/>.
+        /// </summary>
+        internal const double EvaSurfaceJitterMaxHeightMeters = 5.0;
+
+        /// <summary>
+        /// Stock sets <c>Vessel.Landed</c> each physics frame from part ground contact
+        /// alone (decompiled <c>Vessel.checkLanded</c>: no hysteresis), so an EVA kerbal
+        /// that hops while walking on a low-gravity body or lies ragdolled (the ragdoll
+        /// bones' collisions do not reach the part) reports FLYING (atmosphere) or
+        /// SUB_ORBITAL (airless) while it is on the ground. A vessel's live orbit on the
+        /// surface is sub-surface by definition, so a terminal read off that situation
+        /// takes the ballistic path and lands on Destroyed or SubOrbital. Returns LANDED
+        /// for that case: an EVA vessel, FLYING / SUB_ORBITAL, with a valid terrain
+        /// height (stock writes -1 when it has none, e.g. packed) at most
+        /// <see cref="EvaSurfaceJitterMaxHeightMeters"/>. Every other input is returned
+        /// unchanged. Situation values are <c>Vessel.Situations</c> ints.
+        /// </summary>
+        internal static int ResolveEvaSurfaceJitterSituation(
+            bool isEva,
+            int situation,
+            double heightFromTerrain)
+        {
+            if (!isEva)
+                return situation;
+            if (situation != 8 && situation != 16) // FLYING, SUB_ORBITAL
+                return situation;
+            if (!EnvironmentDetector.IsHeightFromTerrainValid(heightFromTerrain)
+                || heightFromTerrain > EvaSurfaceJitterMaxHeightMeters)
+                return situation;
+            return 1; // LANDED
+        }
+
+        /// <summary>
+        /// The situation a terminal read should use for a live vessel: the raw
+        /// <c>vessel.situation</c>, except an EVA kerbal on the ground that stock reports
+        /// as FLYING / SUB_ORBITAL (<see cref="ResolveEvaSurfaceJitterSituation"/>), which
+        /// reads LANDED. Logs the override (rate-limited per vessel and context).
+        /// </summary>
+        internal static Vessel.Situations ResolveTerminalSituation(Vessel vessel, string context)
+        {
+            if (ReferenceEquals(vessel, null))
+                return Vessel.Situations.SUB_ORBITAL;
+            return ResolveTerminalSituation(
+                vessel.situation,
+                vessel.isEVA,
+                vessel.heightFromTerrain,
+                vessel.persistentId,
+                context);
+        }
+
+        internal static Vessel.Situations ResolveTerminalSituation(
+            Vessel.Situations situation,
+            bool isEva,
+            double heightFromTerrain,
+            uint vesselPid,
+            string context)
+        {
+            int resolved = ResolveEvaSurfaceJitterSituation(isEva, (int)situation, heightFromTerrain);
+            if (resolved == (int)situation)
+                return situation;
+
+            ParsekLog.VerboseRateLimited("RecordingTree",
+                "eva-surface-jitter." + (context ?? "(none)") + "." + vesselPid.ToString(CultureInfo.InvariantCulture),
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "EVA surface jitter: reading pid={0} as LANDED for the terminal " +
+                    "(context={1} situation={2} heightFromTerrain={3:F2} maxHeight={4:F1})",
+                    vesselPid,
+                    context ?? "(none)",
+                    situation,
+                    heightFromTerrain,
+                    EvaSurfaceJitterMaxHeightMeters),
+                minIntervalSeconds: 30.0);
+            return (Vessel.Situations)resolved;
+        }
+
+        /// <summary>
         /// Assigns terminal state based on vessel situation.
         /// Pure static method for testability.
         /// </summary>
@@ -1020,6 +1099,20 @@ namespace Parsek
         /// </summary>
         internal static TerminalState DetermineTerminalState(int situation, Vessel vessel)
         {
+            if (!ReferenceEquals(vessel, null))
+            {
+                int resolvedSituation = (int)ResolveTerminalSituation(
+                    (Vessel.Situations)situation,
+                    vessel.isEVA,
+                    vessel.heightFromTerrain,
+                    vessel.persistentId,
+                    "DetermineTerminalState");
+                // An EVA kerbal on the ground: its live orbit is sub-surface by
+                // definition, so no orbit evidence applies.
+                if (resolvedSituation != situation)
+                    return DetermineTerminalState(resolvedSituation);
+            }
+
             TerminalState baseState = DetermineTerminalState(situation);
             if (vessel?.orbit == null || vessel.orbit.referenceBody == null)
                 return baseState;

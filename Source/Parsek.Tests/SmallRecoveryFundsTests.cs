@@ -228,15 +228,66 @@ namespace Parsek.Tests
         [InlineData(60.0, TransactionReasons.VesselRecovery, Unscoped, true)]
         [InlineData(150.0, TransactionReasons.VesselRecovery, Unscoped, false)]
         [InlineData(60.0, TransactionReasons.ContractReward, Payout, true)]
-        [InlineData(-60.0, TransactionReasons.VesselRollout, Unscoped, true)]
-        [InlineData(60.0, TransactionReasons.StrategyOutput, Unscoped, true)]
         [InlineData(150.0, TransactionReasons.ContractReward, Unscoped, false)]
+        // SUB-100-ROLLOUT-AND-BAILOUT-NOT-LEDGERED: a rollout charge and an exchanger's funds
+        // out are each the only capture of their row, so they skip the floor in their own sign.
+        [InlineData(-60.0, TransactionReasons.VesselRollout, Unscoped, false)]
+        [InlineData(-0.5, TransactionReasons.VesselRollout, Unscoped, false)]
         [InlineData(-150.0, TransactionReasons.VesselRollout, Unscoped, false)]
-        public void IsFundsDeltaBelowThreshold_ExemptsOnlyStocksPositiveRecoveryPayout(
+        [InlineData(60.0, TransactionReasons.VesselRollout, Unscoped, true)]
+        [InlineData(0.0, TransactionReasons.VesselRollout, Unscoped, true)]
+        [InlineData(60.0, TransactionReasons.StrategyOutput, Unscoped, false)]
+        [InlineData(150.0, TransactionReasons.StrategyOutput, Unscoped, false)]
+        [InlineData(-60.0, TransactionReasons.StrategyOutput, Unscoped, true)]
+        [InlineData(0.0, TransactionReasons.StrategyOutput, Unscoped, true)]
+        [InlineData(-60.0, TransactionReasons.StrategyInput, Unscoped, true)]
+        public void IsFundsDeltaBelowThreshold_ExemptsOnlyTheReasonsWhoseChangeIsTheRow(
             double delta, TransactionReasons reason, int source, bool expectedBelow)
         {
             Assert.Equal(expectedBelow, GameStateRecorder.IsFundsDeltaBelowThreshold(
                 delta, reason, (RecoveryPayoutScope.FundsEventSource)source));
+        }
+
+        [Theory]
+        [InlineData(-0.4f, false)]  // a Bail-Out Grant small enough to pay under 100 funds
+        [InlineData(-3f, false)]
+        [InlineData(0f, true)]
+        public void ReputationThreshold_ExemptsTheExchangersReputationIn(float delta, bool expectedBelow)
+        {
+            Assert.Equal(expectedBelow,
+                GameStateRecorder.IsReputationDeltaBelowThreshold(delta, TransactionReasons.StrategyInput));
+            // The other reasons keep the 1-point floor (StrategyOutput included).
+            Assert.True(GameStateRecorder.IsReputationDeltaBelowThreshold(-0.4f, TransactionReasons.StrategyOutput));
+            Assert.True(GameStateRecorder.IsReputationDeltaBelowThreshold(0.4f, TransactionReasons.VesselRollout));
+        }
+
+        [Fact]
+        public void SmallRollout_IsRecorded_AndFilesItsVesselBuildRow()
+        {
+            FireFundsChanged(1000.0, 940.0, TransactionReasons.VesselRollout, 500.0);
+
+            GameStateEvent evt = Assert.Single(GameStateStore.Events,
+                e => e.eventType == GameStateEventType.FundsChanged && e.key == "VesselRollout");
+            Assert.Equal(-60.0, evt.valueAfter - evt.valueBefore, 6);
+            GameAction row = Assert.Single(Ledger.Actions, a =>
+                a.Type == GameActionType.FundsSpending && a.FundsSpendingSource == FundsSpendingSource.VesselBuild);
+            Assert.Equal(60f, row.FundsSpent);
+            Assert.Contains(logLines, l => l.Contains("[GameStateRecorder]") && l.Contains("recorded anyway")
+                && l.Contains("VesselBuild row"));
+        }
+
+        [Fact]
+        public void SmallBailOutGrant_IsRecorded_AndForwardedToTheLedger()
+        {
+            FireFundsChanged(1000.0, 1060.0, TransactionReasons.StrategyOutput, 500.0);
+
+            GameStateEvent evt = Assert.Single(GameStateStore.Events,
+                e => e.eventType == GameStateEventType.FundsChanged && e.key == "StrategyOutput");
+            Assert.Equal(60.0, evt.valueAfter - evt.valueBefore, 6);
+            GameAction row = Assert.Single(Ledger.Actions, a => a.Type == GameActionType.FundsEarning);
+            Assert.Equal(60f, row.FundsAwarded);
+            Assert.Contains(logLines, l => l.Contains("[GameStateRecorder]") && l.Contains("recorded anyway")
+                && l.Contains("currency exchange"));
         }
 
         [Theory]

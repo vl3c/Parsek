@@ -360,7 +360,7 @@ namespace Parsek.Tests
         // recording's window; the routing must warn and fall back to capture-UT
         // window attribution instead of trusting the tag blindly. Post-window
         // captures with NO covering window keep the tag (the BUG-A on-rails
-        // anchor in ConvertScienceSubjects owns that case).
+        // rule in ConvertScienceSubjects owns that case).
 
         [Fact]
         public void NotifyLedgerTreeCommitted_TaggedSubjectOutsideWindow_ReRoutesByCaptureUt_NoCredit()
@@ -408,8 +408,8 @@ namespace Parsek.Tests
         {
             // BUG-A regression guard: a tagged capture BEYOND every window (the
             // recorder stayed live through on-rails warp, trajectory bounds ended
-            // earlier) keeps its tag attribution and still credits, anchored at
-            // the recording's end bound.
+            // earlier) keeps its tag attribution and still credits, dated at its
+            // capture UT (SCIENCE-AFTER-TRIMMED-ENDUT-DATED-EARLY).
             SeedSubject(
                 "temperatureScan@MunInSpaceLow",
                 4.0f,
@@ -434,8 +434,8 @@ namespace Parsek.Tests
             var action = Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.ScienceEarning));
             Assert.Equal("rec-onrails", action.RecordingId);
             Assert.Equal("temperatureScan@MunInSpaceLow", action.SubjectId);
-            // BUG-A anchor: resolved start clamps to the recording's end bound.
-            Assert.Equal(200.0f, action.StartUT);
+            Assert.Equal(500.0, action.UT);
+            Assert.Equal(500.0f, action.StartUT);
 
             // C-2: the legitimate BUG-A keep-tag path fires on every normal
             // warp-mission commit, so it must log VERBOSE, not WARN.
@@ -459,8 +459,7 @@ namespace Parsek.Tests
             // bounds ended — lands inside segment B's ADJUSTED window. The
             // routing must NOT re-route to the chain sibling (that would drop
             // the science via the downstream cross-recording check); it keeps
-            // the tag and the science credits to segment A, anchored at A's end
-            // bound.
+            // the tag and the science credits to segment A, dated at its capture UT.
             SeedSubject(
                 "gravityScan@MunInSpaceHigh",
                 6.0f,
@@ -490,11 +489,12 @@ namespace Parsek.Tests
 
             // captureUT 220 lies in the gap [200, 250], which the gap-adjusted
             // seg-B window [200, 300] covers. The chain carve-out keeps the tag:
-            // exactly one ScienceEarning, on seg-A, anchored at seg-A's end.
+            // exactly one ScienceEarning, on seg-A, dated at its capture UT.
             var action = Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.ScienceEarning));
             Assert.Equal("seg-A", action.RecordingId);
             Assert.Equal("gravityScan@MunInSpaceHigh", action.SubjectId);
-            Assert.Equal(200.0f, action.StartUT);
+            Assert.Equal(220.0, action.UT);
+            Assert.Equal(220.0f, action.StartUT);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[VERBOSE]") &&

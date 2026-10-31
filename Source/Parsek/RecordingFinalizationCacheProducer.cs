@@ -32,6 +32,7 @@ namespace Parsek
         double Longitude { get; }
         double Altitude { get; }
         double HeightFromTerrain { get; }
+        bool IsEva { get; }
         Quaternion SurfaceRelativeRotation { get; }
         Vessel RawVessel { get; }
         bool TryGetOrbit(out RecordingFinalizationOrbitView orbit);
@@ -916,13 +917,23 @@ namespace Parsek
             IRecordingFinalizationVesselView vessel,
             double refreshUT)
         {
-            if (!IsSurfaceTerminalSituation(vessel.Situation))
+            // An EVA kerbal on the ground can report FLYING / SUB_ORBITAL (stock ground
+            // contact has no hysteresis); its live orbit is then sub-surface and the
+            // default finalizer would decline it as a destroyed-vessel start or reseed it
+            // into a terrain impact. Read it as LANDED here instead.
+            Vessel.Situations situation = RecordingTree.ResolveTerminalSituation(
+                vessel.Situation,
+                vessel.IsEva,
+                vessel.HeightFromTerrain,
+                cache.VesselPersistentId,
+                "FinalizerCache");
+            if (!IsSurfaceTerminalSituation(situation))
             {
                 return false;
             }
 
             cache.Status = FinalizationCacheStatus.Fresh;
-            cache.TerminalState = vessel.Situation == Vessel.Situations.SPLASHED
+            cache.TerminalState = situation == Vessel.Situations.SPLASHED
                 ? TerminalState.Splashed
                 : TerminalState.Landed;
             cache.TerminalUT = refreshUT;
@@ -935,7 +946,7 @@ namespace Parsek
                 altitude = vessel.Altitude,
                 rotation = vessel.SurfaceRelativeRotation,
                 rotationRecorded = true,
-                situation = vessel.Situation == Vessel.Situations.SPLASHED
+                situation = situation == Vessel.Situations.SPLASHED
                     ? SurfaceSituation.Splashed
                     : SurfaceSituation.Landed
             };
@@ -1374,6 +1385,7 @@ namespace Parsek
             public double Longitude => vessel.longitude;
             public double Altitude => vessel.altitude;
             public double HeightFromTerrain => vessel.heightFromTerrain;
+            public bool IsEva => vessel.isEVA;
             public Quaternion SurfaceRelativeRotation => vessel.srfRelRotation;
             public Vessel RawVessel => vessel;
 

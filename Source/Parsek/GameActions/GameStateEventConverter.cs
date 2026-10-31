@@ -403,8 +403,12 @@ namespace Parsek
         /// transmission against every other row by when stock paid it, not by when its
         /// recording ended. <c>StartUT</c> keeps the capture moment and <c>EndUT</c> the
         /// recording end: the observed science window the reconcilers read. A subject with
-        /// no known capture UT (0) stays dated at the recording end, and one captured after
-        /// the recording's window is anchored at the end bound (BUG-A below).
+        /// no known capture UT (0) stays dated at the recording end. A tagged subject captured
+        /// after the recording's window (BUG-A below: on-rails warp, or a tail trim that moved
+        /// the end earlier than an idle transmission) is dated at its capture UT too, with
+        /// <c>StartUT</c> and <c>EndUT</c> collapsed onto the capture: dated at the end it
+        /// would sort before captures that really came first and could take the earliest-first
+        /// subject cap from them after a rewind. Its owner is its tag, not its date.
         /// </summary>
         /// <param name="subjects">Science subjects to convert.</param>
         /// <param name="recordingId">Recording that produced these subjects.</param>
@@ -433,6 +437,7 @@ namespace Parsek
             int captureIdentified = 0;
             int captureDated = 0;
             int endAnchored = 0;
+            int afterWindowDated = 0;
 
             for (int i = 0; i < subjects.Count; i++)
             {
@@ -474,11 +479,23 @@ namespace Parsek
                 else
                     taggedMatches++;
 
-                double rowUt = ResolveScienceRowUt(subj.captureUT, resolvedStartUt, endUT);
-                if (!(subj.captureUT > 0.0) || subj.captureUT > endUT)
+                double rowUt = ResolveScienceRowUt(subj.captureUT, endUT);
+                bool afterWindow = IsScienceCaptureAfterWindow(subj.captureUT, endUT);
+                double windowStartUt = afterWindow ? subj.captureUT : resolvedStartUt;
+                double windowEndUt = afterWindow ? subj.captureUT : endUT;
+                if (!(subj.captureUT > 0.0))
                     endAnchored++;
                 else
                     captureDated++;
+                if (afterWindow)
+                {
+                    afterWindowDated++;
+                    ParsekLog.Verbose(Tag,
+                        $"ConvertScienceSubjects: subject '{subj.subjectId}' captured after the " +
+                        $"recording window (captureUT={subj.captureUT.ToString("R", IC)} > " +
+                        $"endUT={endUT.ToString("R", IC)}) - dated at its capture UT, " +
+                        $"owner by tag recordingId={recordingId ?? "(none)"}");
+                }
 
                 var action = new GameAction
                 {
@@ -491,8 +508,8 @@ namespace Parsek
                     SubjectMaxValue = subj.subjectMaxValue,
                     ScienceGainMultiplier =
                         GameAction.NormalizeScienceGainMultiplier(subj.scienceGainMultiplier),
-                    StartUT = (float)resolvedStartUt,
-                    EndUT = (float)endUT,
+                    StartUT = (float)windowStartUt,
+                    EndUT = (float)windowEndUt,
                     Sequence = sequence++
                 };
                 // The row IS the capture: every conversion of one capture yields the same
@@ -512,23 +529,33 @@ namespace Parsek
                 $"recordingId={recordingId ?? "(none)"}, tagged={taggedMatches}, " +
                 $"untaggedInWindow={untaggedInWindow}, skippedCrossRecording={skippedCrossRecording}, " +
                 $"skippedOutsideWindow={skippedOutsideWindow}, captureIdentified={captureIdentified}, " +
-                $"captureDated={captureDated}, endAnchored={endAnchored}");
+                $"captureDated={captureDated}, endAnchored={endAnchored}, " +
+                $"afterWindowDated={afterWindowDated}");
 
             return result;
         }
 
         /// <summary>
-        /// Pure: the UT a converted science row is dated at. The resolved capture moment when
-        /// the subject carries a capture UT (positive); the recording end when it does not,
-        /// since a subject with no capture UT gives no basis to date it earlier than the end
-        /// of the flight that holds it. The resolved moment is already clamped into the
-        /// recording window (a capture after the window resolves to the end bound).
+        /// Pure: the UT a converted science row is dated at. Its capture UT when the subject
+        /// carries one (positive, finite), inside the recording window or after it; the
+        /// recording end when it does not, since a subject with no capture UT gives no basis
+        /// to date it earlier than the end of the flight that holds it. A capture before the
+        /// recording start never reaches here (#528 rejects it).
         /// </summary>
-        internal static double ResolveScienceRowUt(double captureUt, double resolvedStartUt, double endUT)
+        internal static double ResolveScienceRowUt(double captureUt, double endUT)
         {
             if (!(captureUt > 0.0) || double.IsInfinity(captureUt))
                 return endUT;
-            return resolvedStartUt;
+            return captureUt;
+        }
+
+        /// <summary>
+        /// Pure: true when a usable capture UT lies after the recording's end bound (only a
+        /// tagged subject converts in that case, BUG-A).
+        /// </summary>
+        internal static bool IsScienceCaptureAfterWindow(double captureUt, double endUT)
+        {
+            return captureUt > 0.0 && !double.IsInfinity(captureUt) && captureUt > endUT;
         }
 
         private static bool TryResolveScienceSubjectStartUt(
@@ -597,9 +624,9 @@ namespace Parsek
             // record no per-frame trajectory, so the recording's trajectory bounds can
             // end long before its last live capture (e.g. a Mun mission whose launch is
             // recorded, then time-warps to the Mun where the science/recovery fires).
-            // The capture tag is authoritative ownership: keep the subject and anchor it
-            // at the recording's known end bound rather than dropping legitimately
-            // earned science on the floor.
+            // The capture tag is authoritative ownership: keep the subject rather than
+            // dropping legitimately earned science on the floor. The caller dates the row
+            // at its capture UT; the resolved start is the end bound here.
             if (captureUt > endUT)
             {
                 resolvedStartUt = endUT;

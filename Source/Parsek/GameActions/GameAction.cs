@@ -719,6 +719,18 @@ namespace Parsek
         /// the pool by (reputation post-curve).</summary>
         public double AdjustmentAmount;
 
+        /// <summary>
+        /// <see cref="GameActionType.StockPoolAdjustment"/> filed by an authoritative patch for
+        /// counted rows gone from the ledger (<see cref="StockPoolMeasurement.CarriedRemoved"/>):
+        /// the ids of the rows whose stepped part it carries. A later load of an older
+        /// reference that still counts one of them reads this to carry it once only. Null on
+        /// every other row. Sparse on disk: one <see cref="AdjustmentCarriedFromKey"/> value per id.
+        /// </summary>
+        public List<string> AdjustmentCarriedFrom;
+
+        /// <summary>Sparse StockPoolAdjustment key for <see cref="AdjustmentCarriedFrom"/>.</summary>
+        internal const string AdjustmentCarriedFromKey = "carriedFrom";
+
         /// <summary>Transmission efficiency for the experiment (0.0 to 1.0).</summary>
         public float TransmitScalar;
 
@@ -2189,6 +2201,13 @@ namespace Parsek
         {
             n.AddValue("adjustPool", ((int)AdjustmentPool).ToString(IC));
             n.AddValue("adjustAmount", AdjustmentAmount.ToString("R", IC));
+            if (AdjustmentCarriedFrom == null)
+                return;
+            for (int i = 0; i < AdjustmentCarriedFrom.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(AdjustmentCarriedFrom[i]))
+                    n.AddValue(AdjustmentCarriedFromKey, AdjustmentCarriedFrom[i]);
+            }
         }
 
         private static void DeserializeStockPoolAdjustment(ConfigNode n, GameAction a)
@@ -2199,6 +2218,9 @@ namespace Parsek
             if (amount != null && double.TryParse(amount, NS, IC, out parsed)
                 && !double.IsNaN(parsed) && !double.IsInfinity(parsed))
                 a.AdjustmentAmount = parsed;
+            string[] carriedFrom = n.GetValues(AdjustmentCarriedFromKey);
+            if (carriedFrom != null && carriedFrom.Length > 0)
+                a.AdjustmentCarriedFrom = new List<string>(carriedFrom);
         }
 
         private void SerializeFacilityUpgrade(ConfigNode n)

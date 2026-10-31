@@ -5573,17 +5573,28 @@ namespace Parsek
             Logistics.RouteEventLog.LogWalkSummary();
 
             // Restore career state to the rewind target. The cutoff walk keeps
-            // funds/science/tech at the adjusted UT; LedgerOrchestrator then
+            // funds/science/tech at the rewind's career cutoff; LedgerOrchestrator then
             // reprojects crew reservations from the full committed timeline so
             // future recorded crew remain unavailable for new missions.
             // RewindContext.RewindAdjustedUT is still populated at this point;
             // EndRewind() below clears it. The deferred coroutine captures the
             // same value into a local BEFORE its yield so its second call is
             // independent of RewindContext state.
-            GameStateStore.PruneBaselinesAfterUT(
-                LedgerHeldWindow.ResolveLedgerNowUT(RewindContext.RewindAdjustedUT));
+            //
+            // The career cutoff is the wound-back clock raised to the ledger held-through UT
+            // set above (the rewind save's own UT), resolved explicitly here: a launch within
+            // the lead time of career start winds the clock to exactly 0, which the live-clock
+            // floor treats as a clock that is not ready and does not raise
+            // (todo REWIND-PRUNE-AND-WALK-AT-UT-ZERO).
+            double rewindCareerCutoffUT = LedgerHeldWindow.ResolveRewindCutoffUT(RewindContext.RewindAdjustedUT);
+            ParsekLog.Info("Rewind",
+                "OnLoad: career cutoff UT " + rewindCareerCutoffUT.ToString("R", CultureInfo.InvariantCulture) +
+                " (woundBackClock=" + RewindContext.RewindAdjustedUT.ToString("R", CultureInfo.InvariantCulture) +
+                " rewindSaveUT=" + RewindContext.RewindSaveOwnClockUT.ToString("R", CultureInfo.InvariantCulture) +
+                ") for the baseline prune and the career walk");
+            GameStateStore.PruneBaselinesAfterUT(rewindCareerCutoffUT);
             LedgerOrchestrator.RecalculateAndPatch(
-                RewindContext.RewindAdjustedUT,
+                rewindCareerCutoffUT,
                 suppressSuspiciousDrawdownWarnings: true);
 
             // Clear rewind flags — rewind loads into SpaceCenter, not Flight
@@ -7711,8 +7722,11 @@ namespace Parsek
             // are false here). NOT cleared by EndRewind (which ran before this resumed).
             try
             {
+                // The same career cutoff as HandleRewindOnLoad's walk (the wound-back clock
+                // raised to the ledger held-through UT, 0 included); the Planetarium stays at
+                // adjustedUT.
                 LedgerOrchestrator.RecalculateAndPatch(
-                    adjustedUT,
+                    LedgerHeldWindow.ResolveRewindCutoffUT(adjustedUT),
                     suppressSuspiciousDrawdownWarnings: true);
             }
             finally

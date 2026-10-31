@@ -219,8 +219,11 @@ namespace Parsek
                 }
 
                 double cutoffAltitude = GetBallisticCutoffAltitude(referenceBody);
+                // An EVA kerbal on the ground that stock reports FLYING / SUB_ORBITAL
+                // (RecordingTree.ResolveEvaSurfaceJitterSituation) reads LANDED, so its
+                // sub-surface live orbit never reaches the ballistic path.
                 if (!BallisticExtrapolator.ShouldExtrapolate(
-                        vessel.situation,
+                        RecordingTree.ResolveTerminalSituation(vessel, "TryFinalizeRecording"),
                         vessel.orbit.eccentricity,
                         vessel.orbit.PeA,
                         cutoffAltitude))

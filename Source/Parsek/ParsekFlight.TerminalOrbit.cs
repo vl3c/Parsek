@@ -492,7 +492,7 @@ namespace Parsek
         {
             if (vessel == null || vessel.orbit == null) return;
 
-            var sit = vessel.situation;
+            var sit = RecordingTree.ResolveTerminalSituation(vessel, "CaptureTerminalOrbit");
             if (sit == Vessel.Situations.ORBITING || sit == Vessel.Situations.SUB_ORBITAL
                 || sit == Vessel.Situations.FLYING || sit == Vessel.Situations.ESCAPING)
             {
@@ -840,7 +840,7 @@ namespace Parsek
         {
             if (vessel == null) return;
 
-            var sit = vessel.situation;
+            var sit = RecordingTree.ResolveTerminalSituation(vessel, "CaptureTerminalPosition");
             if (sit == Vessel.Situations.LANDED || sit == Vessel.Situations.SPLASHED
                 || sit == Vessel.Situations.PRELAUNCH)
             {

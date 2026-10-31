@@ -24,9 +24,10 @@ namespace Parsek.Tests
     /// The fix is the correlation:
     /// <c>LedgerOrchestrator.TryRecordRecoveryKerbalExperience</c> resolves an owner
     /// through <c>PickRecoveryRecordingId</c> - the SAME function the recovery funds and
-    /// science legs use, which is load-bearing because
-    /// <c>ResurrectionRetirementEligibility</c> retires those rows as one same-recording
-    /// bundle - and REFUSES the write when no owner resolves.
+    /// science legs use, which is load-bearing because a Re-Fly merge's supersede
+    /// tombstones retire those rows as one same-recording bundle
+    /// (<c>TombstoneEligibility.IsSupersedeTombstoneEligible</c>) - and REFUSES the write
+    /// when no owner resolves.
     /// </para>
     /// </summary>
     [Collection("Sequential")]
@@ -151,7 +152,7 @@ namespace Parsek.Tests
         {
             // The bundle argument, asserted rather than described: whatever
             // PickRecoveryRecordingId hands the funds leg is what the XP row must carry,
-            // or ResurrectionRetirementEligibility retires half a recovery.
+            // or a Re-Fly merge's supersede tombstones retire half a recovery.
             //
             // BOTH RECORDINGS CARRY THE SAME LAUNCH GUID, and that is now load-bearing
             // rather than decoration. This fixture is one launch recorded as two chained

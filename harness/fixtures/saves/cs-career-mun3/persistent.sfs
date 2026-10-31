@@ -4407,7 +4407,7 @@ GAME
 					recordingId = e312c6a92d184ddc8eeab566190f94d7
 					seq = 6
 					cseq = 152
-					milestoneId = Orbit
+					milestoneId = Kerbin/Orbit
 					milestoneFundsAwarded = 24000
 					milestoneRepAwarded = 5
 					milestoneSciAwarded = 2
@@ -6170,7 +6170,7 @@ GAME
 					{
 						ut = 611.79373901347844
 						type = 18
-						key = Orbit
+						key = Kerbin/Orbit
 						detail = funds=24000;rep=5;sci=2
 						recordingId = 692da78791dd4026a5bb8b49931987b1
 						cseq = 152

@@ -692,8 +692,11 @@ namespace Parsek.Tests.Logistics
                 + "RewindContext.RewindAdjustedUT, RewindContext.RewindSaveRoutes, RewindContext.RewindSaveClockUT, "
                 + "RewindContext.RewindSaveOwnClockUT, RewindContext.RewindSaveEvents);",
                 flat);
-            Assert.Contains("GameStateStore.PruneBaselinesAfterUT( LedgerHeldWindow.ResolveLedgerNowUT(RewindContext.RewindAdjustedUT));", flat);
-            Assert.Contains("LedgerOrchestrator.RecalculateAndPatch( RewindContext.RewindAdjustedUT,", flat);
+            // The prune and the walk share one career cutoff, the wound-back clock raised to the
+            // held-through UT even when the clock is exactly 0 (todo REWIND-PRUNE-AND-WALK-AT-UT-ZERO).
+            Assert.Contains("double rewindCareerCutoffUT = LedgerHeldWindow.ResolveRewindCutoffUT(RewindContext.RewindAdjustedUT);", flat);
+            Assert.Contains("GameStateStore.PruneBaselinesAfterUT(rewindCareerCutoffUT);", flat);
+            Assert.Contains("LedgerOrchestrator.RecalculateAndPatch( rewindCareerCutoffUT,", flat);
             // One owner: no second route retire or restore beside the helper.
             Assert.DoesNotContain("RetireFutureRouteActionsAtRewind(", body);
             Assert.DoesNotContain("RestoreLoopPositionAtRewindExit(", body);

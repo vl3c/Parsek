@@ -31,6 +31,11 @@ namespace Parsek
         /// 0 for every other row. Read only the first time the reference steps the row.
         /// </summary>
         internal double TakeBack;
+        /// <summary>
+        /// An adjustment row filed for removed rows (<see cref="GameAction.AdjustmentCarriedFrom"/>):
+        /// the ids whose stepped part it carries. Null for every other row.
+        /// </summary>
+        internal string[] CarriedFrom;
     }
 
     /// <summary>
@@ -122,6 +127,28 @@ namespace Parsek
         /// part stays in the pool (stock applied it), filed as one adjustment row.
         /// </summary>
         internal double CarriedRemoved;
+        /// <summary>The removed rows this patch's <see cref="CarriedRemoved"/> carries (the
+        /// adjustment row records them as <see cref="GameAction.AdjustmentCarriedFrom"/>).</summary>
+        internal readonly List<string> CarriedSources = new List<string>();
+        /// <summary>
+        /// Removed stepped rows NOT carried again: an adjustment row the walk dispatched already
+        /// carries each (an older reference loaded a second time, a Re-Fly start then a Discard
+        /// Re-fly or two rewinds to one save), so the target holds it. Id and stepped amount.
+        /// </summary>
+        internal readonly List<KeyValuePair<string, double>> CarryAlreadyHeld = new List<KeyValuePair<string, double>>();
+        /// <summary>
+        /// Older carry rows this patch's carry replaces: the walk did not dispatch them (filed
+        /// past its now, e.g. at a full walk's <c>double.MaxValue</c>), every source they name is
+        /// carried again here, and the reference does not count them. The patcher removes them
+        /// from the ledger, so each removed row is carried by one row only.
+        /// </summary>
+        internal readonly List<string> CarriesRetired = new List<string>();
+        /// <summary>
+        /// Older undispatched carry rows naming a row carried here that could not be retired (they
+        /// also name a source this patch does not carry, or the reference counts them). Kept, so no
+        /// carried value is dropped; the patcher Warns.
+        /// </summary>
+        internal readonly List<string> CarriesOverlapKept = new List<string>();
         /// <summary>
         /// Counted rows that left the effective ledger while staying in the ledger itself
         /// (tombstoned, superseded, session-suppressed): dropped from the reference with no
@@ -310,6 +337,10 @@ namespace Parsek
                 StockApplied = !action.ParsekAuthored,
                 Effect = effect,
                 TakeBack = takeBack,
+                CarriedFrom = action.Type == GameActionType.StockPoolAdjustment
+                    && action.AdjustmentCarriedFrom != null && action.AdjustmentCarriedFrom.Count > 0
+                    ? action.AdjustmentCarriedFrom.ToArray()
+                    : null,
             };
             return true;
         }
@@ -334,8 +365,10 @@ namespace Parsek
         /// <summary>
         /// The <see cref="GameActionType.StockPoolAdjustment"/> row for <paramref name="amount"/>
         /// of <paramref name="pool"/> at <paramref name="ut"/>: untagged, with a fresh id.
+        /// <paramref name="carriedFrom"/> names the removed rows a carry holds (null or empty: none).
         /// </summary>
-        internal static GameAction BuildAdjustmentRow(StockPool pool, double amount, double ut)
+        internal static GameAction BuildAdjustmentRow(
+            StockPool pool, double amount, double ut, IList<string> carriedFrom = null)
         {
             return new GameAction
             {
@@ -343,6 +376,9 @@ namespace Parsek
                 UT = ut,
                 AdjustmentPool = pool,
                 AdjustmentAmount = amount,
+                AdjustmentCarriedFrom = carriedFrom != null && carriedFrom.Count > 0
+                    ? new List<string>(carriedFrom)
+                    : null,
             };
         }
 
@@ -465,6 +501,7 @@ namespace Parsek
             // part stock applied for them reads as unexplained (it stays in the pool).
             double expected = state.LastWritten;
             double removedStepped = 0.0;
+            var removedSteppedRows = new List<KeyValuePair<string, double>>();
             var removedIds = new List<string>();
             foreach (var kv in state.Counted)
             {
@@ -485,6 +522,7 @@ namespace Parsek
                     continue;
                 expected -= counted.Stepped;
                 removedStepped += counted.Stepped;
+                removedSteppedRows.Add(new KeyValuePair<string, double>(removedIds[i], counted.Stepped));
                 m.ReversedRows++;
                 m.ReversedTotal -= counted.Stepped;
             }
@@ -496,10 +534,17 @@ namespace Parsek
                 // taken back by that write; it is listed for the log.
                 CollectAuthoritativeTakeBacks(state, rows, nowUT, epsilon, m);
                 m.Expected = expected;
-                if (Math.Abs(removedStepped) > epsilon)
+                double carry = ResolveRemovedCarries(state, rows, removedSteppedRows, m);
+                if (Math.Abs(carry) > epsilon)
                 {
-                    m.CarriedRemoved = removedStepped;
-                    m.Adjustment = removedStepped;
+                    m.CarriedRemoved = carry;
+                    m.Adjustment = carry;
+                }
+                else
+                {
+                    m.CarriedSources.Clear();
+                    m.CarriesRetired.Clear();
+                    m.CarriesOverlapKept.Clear();
                 }
                 return m;
             }
@@ -590,6 +635,93 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The part of an authoritative patch's removed stepped rows it carries, once per removed
+        /// row across loads (STOCK-POOL-REFERENCE-CARRIED-ROWS-COUNTED-TWICE). A reference saved
+        /// before a row left the ledger counts it with its stepped part every time it is loaded
+        /// (a Re-Fly start then a Discard Re-fly, two rewinds to one save), and each load used to
+        /// file one more carry for it. A removed row an existing carry row names is:
+        /// <list type="bullet">
+        /// <item>not carried again when the walk dispatched that row (the target already holds
+        /// it; listed in <see cref="StockPoolMeasurement.CarryAlreadyHeld"/>);</item>
+        /// <item>carried here when every row naming it is past the walk's now, and those rows are
+        /// retired (<see cref="StockPoolMeasurement.CarriesRetired"/>) when every source they name
+        /// is carried here and the reference does not count them; otherwise they are kept
+        /// (<see cref="StockPoolMeasurement.CarriesOverlapKept"/>), so nothing carried is lost.</item>
+        /// </list>
+        /// A removed row no carry row names is carried as before. Only an id match skips a carry,
+        /// so a distinct removed row is never folded into another's.
+        /// </summary>
+        internal static double ResolveRemovedCarries(
+            StockPoolReferenceState state, IList<StockPoolRow> rows,
+            IList<KeyValuePair<string, double>> removedSteppedRows, StockPoolMeasurement m)
+        {
+            if (removedSteppedRows == null || removedSteppedRows.Count == 0)
+                return 0.0;
+            var carriers = new Dictionary<string, List<StockPoolRow>>(StringComparer.Ordinal);
+            if (rows != null)
+            {
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    StockPoolRow row = rows[i];
+                    if (row.CarriedFrom == null || string.IsNullOrEmpty(row.ActionId) || !seen.Add(row.ActionId))
+                        continue;
+                    for (int j = 0; j < row.CarriedFrom.Length; j++)
+                    {
+                        string source = row.CarriedFrom[j];
+                        if (string.IsNullOrEmpty(source)) continue;
+                        List<StockPoolRow> list;
+                        if (!carriers.TryGetValue(source, out list))
+                            carriers[source] = list = new List<StockPoolRow>();
+                        list.Add(row);
+                    }
+                }
+            }
+
+            double carry = 0.0;
+            var carriedNow = new HashSet<string>(StringComparer.Ordinal);
+            var olderCarriers = new List<StockPoolRow>();
+            var olderCarrierIds = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < removedSteppedRows.Count; i++)
+            {
+                string id = removedSteppedRows[i].Key;
+                List<StockPoolRow> holders;
+                if (carriers.TryGetValue(id, out holders))
+                {
+                    bool dispatched = false;
+                    for (int j = 0; j < holders.Count; j++)
+                        if (!double.IsNaN(holders[j].Effect))
+                            dispatched = true;
+                    if (dispatched)
+                    {
+                        m.CarryAlreadyHeld.Add(removedSteppedRows[i]);
+                        continue;
+                    }
+                    for (int j = 0; j < holders.Count; j++)
+                        if (olderCarrierIds.Add(holders[j].ActionId))
+                            olderCarriers.Add(holders[j]);
+                }
+                carry += removedSteppedRows[i].Value;
+                carriedNow.Add(id);
+                m.CarriedSources.Add(id);
+            }
+
+            for (int i = 0; i < olderCarriers.Count; i++)
+            {
+                StockPoolRow older = olderCarriers[i];
+                bool allCarriedHere = true;
+                for (int j = 0; j < older.CarriedFrom.Length; j++)
+                    if (!string.IsNullOrEmpty(older.CarriedFrom[j]) && !carriedNow.Contains(older.CarriedFrom[j]))
+                        allCarriedHere = false;
+                if (allCarriedHere && !state.Counted.ContainsKey(older.ActionId))
+                    m.CarriesRetired.Add(older.ActionId);
+                else
+                    m.CarriesOverlapKept.Add(older.ActionId);
+            }
+            return carry;
+        }
+
+        /// <summary>
         /// True when a measured patch took a duplicate payment back and found the pool short
         /// by that same amount: the payment it took back was never in the live pool, so the
         /// kept leak files the take-back a second time as an adjustment row and the ledger
@@ -630,7 +762,8 @@ namespace Parsek
                 for (int i = 0; i < rows.Count; i++)
                 {
                     StockPoolRow row = rows[i];
-                    if (string.IsNullOrEmpty(row.ActionId) || next.ContainsKey(row.ActionId))
+                    if (string.IsNullOrEmpty(row.ActionId) || next.ContainsKey(row.ActionId)
+                        || m.CarriesRetired.Contains(row.ActionId))
                         continue;
                     double stepped;
                     if (!m.NewStepped.TryGetValue(row.ActionId, out stepped))
@@ -929,6 +1062,8 @@ namespace Parsek
                 + " adjustment=" + m.Adjustment.ToString("R", IC)
                 + (m.GapAdopted ? " adoptedGap=" + m.AdoptedGap.ToString("R", IC) : "")
                 + (m.CarriedRemoved != 0.0 ? " carriedRemoved=" + m.CarriedRemoved.ToString("R", IC) : "")
+                + (m.CarryAlreadyHeld.Count > 0 ? " carryAlreadyHeld=" + m.CarryAlreadyHeld.Count.ToString(IC) : "")
+                + (m.CarriesRetired.Count > 0 ? " carriesRetired=" + m.CarriesRetired.Count.ToString(IC) : "")
                 + (m.DroppedOutsideEls > 0 ? " droppedOutsideEls=" + m.DroppedOutsideEls.ToString(IC) : "")
                 + (m.ClampForgiven != 0.0 ? " clampForgiven=" + m.ClampForgiven.ToString("R", IC) : "")
                 + (m.TakenBack.Count > 0

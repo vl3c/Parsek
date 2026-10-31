@@ -1151,16 +1151,164 @@ namespace Parsek.Tests
             var retired = new Dictionary<string, double> { { "rec-retired", 123.5 } };
             var into = new Dictionary<string, List<KerbalsModule.RecoveryClosure>>();
 
-            int added = KerbalsModule.CollectKscRetirementClosures(actions, retired, into);
+            int wins;
+            int added = KerbalsModule.CollectKscRetirementClosures(
+                actions, retired, into, null, out wins);
 
             // A tourist is held like crew (GC-12), so his aboard row is freed too.
             Assert.Equal(3, added);
             Assert.Equal(3, into.Count);
             Assert.Single(into["Tourist Kerman"]);
+            Assert.Equal(0, wins);
             Assert.Single(into["Aboard Kerman"]);
             Assert.Equal("rec-retired", into["Aboard Kerman"][0].OwnerRecordingId);
             Assert.Equal(123.5, into["Aboard Kerman"][0].RecoveryUT);
+            Assert.True(into["Aboard Kerman"][0].IsKscRetirement);
             Assert.True(into.ContainsKey("Unknown Kerman"));
+        }
+
+        private static GameAction Recovered(string recordingId, string kerbal, double ut, int sequence)
+        {
+            return new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.KerbalRecovered,
+                RecordingId = recordingId,
+                KerbalName = kerbal,
+                KerbalRole = "Pilot",
+                Sequence = sequence,
+            };
+        }
+
+        [Fact]
+        public void CollectClosures_RecordedRecoveryInScope_WinsOverTheEndUTClosure()
+        {
+            // KSC-RETIRED-FLIGHT-FREES-CREW-BEFORE-ITS-RECOVERY: the vessel was real until
+            // the player recovered it after the trimmed EndUT. A recovery owned by the
+            // retired recording, or by another recording of its tree, bounds the hold; one
+            // from another tree, or one before the EndUT, does not.
+            var actions = new List<GameAction>
+            {
+                Assignment("rec-retired", "Own Kerman", 0, 10, KerbalEndState.Aboard, 1),
+                Assignment("rec-retired", "Tree Kerman", 0, 10, KerbalEndState.Aboard, 2),
+                Assignment("rec-retired", "Foreign Kerman", 0, 10, KerbalEndState.Aboard, 3),
+                Assignment("rec-retired", "Early Kerman", 0, 10, KerbalEndState.Aboard, 4),
+                Recovered("rec-retired", "Own Kerman", 313.5, 5),
+                Recovered("rec-sibling", "Tree Kerman", 300.0, 6),
+                Recovered("rec-foreign", "Foreign Kerman", 300.0, 7),
+                Recovered("rec-retired", "Early Kerman", 50.0, 8),
+            };
+            var retired = new Dictionary<string, double> { { "rec-retired", 123.5 } };
+            var trees = new Dictionary<string, string>
+            {
+                { "rec-retired", "tree-a" },
+                { "rec-sibling", "tree-a" },
+                { "rec-foreign", "tree-b" },
+            };
+            var into = new Dictionary<string, List<KerbalsModule.RecoveryClosure>>();
+
+            int wins;
+            int added = KerbalsModule.CollectKscRetirementClosures(
+                actions, retired, into, trees, out wins);
+
+            Assert.Equal(2, wins);
+            Assert.Equal(2, added);
+            Assert.False(into.ContainsKey("Own Kerman"));
+            Assert.False(into.ContainsKey("Tree Kerman"));
+            Assert.Equal(123.5, into["Foreign Kerman"][0].RecoveryUT);
+            Assert.Equal(123.5, into["Early Kerman"][0].RecoveryUT);
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("KSC retirement: 'Own Kerman' of recording 'rec-retired' keeps his recorded recovery"));
+        }
+
+        [Fact]
+        public void Crew_PadFlightRecoveredAfterItsTrimmedEnd_HoldEndsAtTheRecoveryRow()
+        {
+            // RW-2 shape: the pad recording's tail was trimmed to EndUT 200, the player
+            // recovered the real vessel at 390 (KerbalRecovered row), and after a rewind
+            // the vessel no longer exists, so the flight reads as KSC-retired.
+            var rec = MakeOnPad("rec-crew-pad-recovered", Jeb);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            Ledger.AddAction(Assignment(rec.RecordingId, Jeb, 100.0, 200.0, KerbalEndState.Aboard, 1));
+            Ledger.AddAction(Recovered(rec.RecordingId, Jeb, 390.0, 2));
+            Assert.True(VesselSpawner.IsKscRetiredFinalFlight(rec));
+
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(250.0, "ksc-retire-test");
+            Assert.Equal(390.0, Kerbals.Reservations[Jeb].ReservedUntilUT);
+            Assert.True(Kerbals.IsReservedNow(Jeb));
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("Reservation bounded by recovery: 'Jebediah Kerman' recording 'rec-crew-pad-recovered'"));
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("recordedRecoveryWins=1"));
+
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(400.0, "ksc-retire-test");
+            Assert.False(Kerbals.IsReservedNow(Jeb));
+        }
+
+        [Fact]
+        public void Crew_NeverMaterializedPadFlight_WithAnotherMissionsRecovery_StillFreedAtEndUT()
+        {
+            // The 2026-09-23 ruling stands for a parked flight that never became a real
+            // vessel: a recovery of the same kerbal from ANOTHER mission is out of scope.
+            var pad = MakeOnPad("rec-pad-never-real", Jeb);
+            RecordingStore.AddRecordingWithTreeForTesting(pad);
+            var other = MakeParked("rec-other-mission", MidRunwayLat, MidRunwayLon,
+                startUT: 20.0, endUT: 60.0, crew: new[] { Jeb });
+            RecordingStore.AddRecordingWithTreeForTesting(other);
+            Ledger.AddAction(Assignment(pad.RecordingId, Jeb, 100.0, 200.0, KerbalEndState.Aboard, 1));
+            Ledger.AddAction(Recovered(other.RecordingId, Jeb, 390.0, 2));
+
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(250.0, "ksc-retire-test");
+            Assert.Equal(200.0, Kerbals.Reservations[Jeb].ReservedUntilUT);
+            Assert.False(Kerbals.IsReservedNow(Jeb));
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("Reservation bounded by KSC retirement: 'Jebediah Kerman' recording 'rec-pad-never-real'"));
+        }
+
+        [Fact]
+        public void Crew_TouristAboardARecoveredPadFlight_IsHeldUntilTheRecoveryRow()
+        {
+            // RW-2 shape with a tourist: the vessel was real until its recorded recovery,
+            // so the tourist stays held (Assigned) until that row, like his crewmate
+            // (owner ruling 2026-10-25), not freed at the trimmed EndUT.
+            const string tourist = "Tourist Kerman";
+            var rec = MakeOnPad("rec-tourist-pad-recovered", Jeb, tourist);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            Ledger.AddAction(Assignment(rec.RecordingId, Jeb, 100.0, 200.0, KerbalEndState.Aboard, 1));
+            Ledger.AddAction(Assignment(rec.RecordingId, tourist, 100.0, 200.0, KerbalEndState.Aboard, 2,
+                role: KerbalsModule.TouristRole));
+            Ledger.AddAction(Recovered(rec.RecordingId, Jeb, 390.0, 3));
+            Ledger.AddAction(Recovered(rec.RecordingId, tourist, 390.0, 4));
+
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(250.0, "ksc-retire-test");
+            Assert.Equal(390.0, Kerbals.Reservations[tourist].ReservedUntilUT);
+            Assert.True(Kerbals.IsReservedNow(tourist));
+            Assert.Equal(390.0, Kerbals.Reservations[Jeb].ReservedUntilUT);
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("recordedRecoveryWins=2"));
+
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(400.0, "ksc-retire-test");
+            Assert.False(Kerbals.IsReservedNow(tourist));
+        }
+
+        [Fact]
+        public void Crew_TouristAboardANeverMaterializedPadFlight_IsClosedAtEndUT()
+        {
+            // No recorded recovery: the 2026-09-23 retirement closes the tourist's hold at
+            // EndUT exactly as it does his crewmate's, so no tourist hold is left unbounded.
+            const string tourist = "Tourist Kerman";
+            var rec = MakeOnPad("rec-tourist-pad", Jeb, tourist);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            Ledger.AddAction(Assignment(rec.RecordingId, Jeb, 100.0, 200.0, KerbalEndState.Aboard, 1));
+            Ledger.AddAction(Assignment(rec.RecordingId, tourist, 100.0, 200.0, KerbalEndState.Aboard, 2,
+                role: KerbalsModule.TouristRole));
+
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(250.0, "ksc-retire-test");
+            Assert.Equal(200.0, Kerbals.Reservations[Jeb].ReservedUntilUT);
+            Assert.Equal(200.0, Kerbals.Reservations[tourist].ReservedUntilUT);
+            Assert.False(Kerbals.IsReservedNow(tourist));
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("Reservation bounded by KSC retirement: 'Tourist Kerman' recording 'rec-tourist-pad'"));
         }
     }
 }

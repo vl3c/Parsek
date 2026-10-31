@@ -6296,6 +6296,7 @@ namespace Parsek
                 authoritative, epsilon, freshBaselineTarget, idsInLedger, clampAtZero);
             if (m.Adjustment != 0.0)
                 m.AdjustmentRow = FileStockPoolAdjustment(pool, resource, m, nowUT);
+            ApplyCarryDedupe(resource, m);
             EmitTakeBacks(pool, m, actions);
 
             string summary = StockPoolReference.FormatMeasurement(m);
@@ -6416,8 +6417,9 @@ namespace Parsek
         private static GameAction FileStockPoolAdjustment(
             StockPool pool, string resource, StockPoolMeasurement m, double nowUT)
         {
-            GameAction row = StockPoolReference.BuildAdjustmentRow(pool, m.Adjustment, nowUT);
             string reason = m.GapAdopted ? "adopted-gap" : m.LeakKept ? "leak" : "carried-removed";
+            GameAction row = StockPoolReference.BuildAdjustmentRow(pool, m.Adjustment, nowUT,
+                m.CarriedRemoved != 0.0 ? m.CarriedSources : null);
             var sink = StockPoolAdjustmentSinkForTesting;
             if (sink != null)
                 sink(row);
@@ -6426,8 +6428,50 @@ namespace Parsek
             ParsekLog.Info(StockPoolReference.Tag,
                 $"Patch{resource}: filed StockPoolAdjustment amount={m.Adjustment.ToString("R", IC)} " +
                 $"reason={reason} ut={nowUT.ToString("R", IC)} id={row.ActionId}" +
+                (row.AdjustmentCarriedFrom != null
+                    ? " carriedFrom=[" + string.Join(",", row.AdjustmentCarriedFrom.ToArray()) + "]"
+                    : "") +
                 (sink != null ? " (test sink)" : ""));
             return row;
+        }
+
+        /// <summary>
+        /// The ledger side of <see cref="StockPoolReference.ResolveRemovedCarries"/>: removes the
+        /// older carry rows this patch's carry replaces (under the test sink nothing leaves the
+        /// live ledger), and logs the removed rows not carried again and the older carry rows
+        /// kept because they also name something this patch does not carry.
+        /// </summary>
+        private static void ApplyCarryDedupe(string resource, StockPoolMeasurement m)
+        {
+            if (m == null)
+                return;
+            for (int i = 0; i < m.CarryAlreadyHeld.Count; i++)
+                ParsekLog.Info(StockPoolReference.Tag,
+                    $"Patch{resource}: removed row {m.CarryAlreadyHeld[i].Key} not carried again: an adjustment row " +
+                    $"the walk dispatched already carries its stepped part ({m.CarryAlreadyHeld[i].Value.ToString("R", IC)})");
+            for (int i = 0; i < m.CarriesOverlapKept.Count; i++)
+                ParsekLog.Warn(StockPoolReference.Tag,
+                    $"Patch{resource}: older carry row {m.CarriesOverlapKept[i]} names a row carried again and was kept " +
+                    "(it also names a row this patch does not carry, or the reference counts it): a full walk may " +
+                    "count that row's carry twice");
+            if (m.CarriesRetired.Count == 0)
+                return;
+            var retire = new HashSet<string>(m.CarriesRetired, StringComparer.Ordinal);
+            if (StockPoolAdjustmentSinkForTesting != null)
+            {
+                ParsekLog.Info(StockPoolReference.Tag,
+                    $"Patch{resource}: would retire {retire.Count.ToString(IC)} older carry row(s) " +
+                    $"[{string.Join(",", m.CarriesRetired.ToArray())}] (test sink: ledger left as it is)");
+                return;
+            }
+            List<GameAction> removed = Ledger.RemoveWhere(
+                a => a != null && a.Type == GameActionType.StockPoolAdjustment
+                    && !string.IsNullOrEmpty(a.ActionId) && retire.Contains(a.ActionId),
+                "stock-pool-carry-dedupe");
+            ParsekLog.Info(StockPoolReference.Tag,
+                $"Patch{resource}: retired {removed.Count.ToString(IC)} older carry row(s) " +
+                $"[{string.Join(",", m.CarriesRetired.ToArray())}] replaced by this patch's carry " +
+                $"{(m.AdjustmentRow != null ? m.AdjustmentRow.ActionId : "(none)")}: each removed row is carried once");
         }
 
         /// <summary>

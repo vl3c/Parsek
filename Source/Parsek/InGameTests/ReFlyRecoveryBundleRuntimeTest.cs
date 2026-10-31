@@ -62,10 +62,8 @@ namespace Parsek.InGameTests
     /// copy of a real row: it carries <see cref="ScienceMethod.Transmitted"/>, a shape
     /// the C2CareerPostFix ledger does not carry at all (that career's only science
     /// rows are Recovered). It is authored precisely because the real ledger has no
-    /// Transmitted row to copy, and the Method difference is load-bearing - it is what
-    /// the resurrection-classifier assertion below keys on (the
-    /// "must NOT retire the Transmitted-method science row" check). For the MERGE path
-    /// the Method is irrelevant and the UT partition is the whole discriminator:
+    /// Transmitted row to copy. For the MERGE path the Method is irrelevant and the UT
+    /// partition is the whole discriminator:
     /// <see cref="TombstoneEligibility.IsSupersedeTombstoneEligible"/> and
     /// <c>SupersedeCommit</c> key on action TYPE plus RecordingId membership, never on
     /// Method, so post-split only the UT decides which side of HEAD / TIP this row
@@ -157,10 +155,7 @@ namespace Parsek.InGameTests
                 TerminalStateValue = TerminalState.Recovered,
                 LaunchSiteName = "LaunchPad",
                 StartBodyName = "Kerbin",
-                // Launch identity, both halves. ResurrectionRetirementEligibility
-                // requires a POSITIVE guid match on both sides and matches nothing
-                // when either is unknown, so a pid-only fixture would make the
-                // resurrection-path measurement below vacuously empty.
+                // Launch identity, both halves, as a real launch carries it.
                 VesselPersistentId = launchPid,
                 RecordedVesselGuid = launchGuid,
                 // No ParentBranchPointId: this origin is the launch root (same
@@ -247,8 +242,7 @@ namespace Parsek.InGameTests
                 ScienceAwarded = ControlSubjectAward,
                 SubjectMaxValue = ControlSubjectMax,
                 // Transmitted, i.e. science the player banked mid-flight and still
-                // owns. ResurrectionRetirementEligibility keys the science leg on
-                // Method precisely so this row is NOT clawed back.
+                // owns.
                 Method = ScienceMethod.Transmitted,
                 StartUT = (float)ControlSciUT,
                 EndUT = (float)ControlSciUT,
@@ -285,7 +279,7 @@ namespace Parsek.InGameTests
                 KerbalRole = "Pilot",
                 // Aboard, NOT Recovered - the shape the real post-recovery ledger
                 // carries on the recovery segment (C2CareerPostFix seq 1,
-                // endState = 0). See the resurrection-path measurement below.
+                // endState = 0).
                 KerbalEndStateField = KerbalEndState.Aboard,
                 StartUT = (float)CrewRowUT,
                 EndUT = (float)OriginEndUT,
@@ -401,58 +395,14 @@ namespace Parsek.InGameTests
                     "the merge has to stop, and if it never appends here the post-merge " +
                     "assertion proves nothing");
 
-                // == 2. THE RESURRECTION-PATH CLASSIFIER, on the same bundle ===
-                // Pure, so it runs in-process with a synthetic surviving identity.
-                var survivors = new List<(uint pid, string guid)> { (launchPid, launchGuid) };
-                var classified = ResurrectionRetirementEligibility.Classify(
-                    survivors,
-                    RecordingStore.CommittedRecordings,
-                    Ledger.Actions,
-                    RewindUT);
-                InGameAssert.AreEqual(1, classified.Count,
-                    $"Classify must find exactly one resurrected recovery; got {classified.Count}");
-                var retiredByResurrection = classified[0].RetiredActionIds;
-                InGameAssert.IsTrue(retiredByResurrection.Contains(fundsActionId),
-                    "Resurrection must retire the FundsEarning(Recovery) anchor");
-                InGameAssert.IsTrue(retiredByResurrection.Contains(scienceActionId),
-                    "Resurrection must retire the Recovered-method science row");
-                InGameAssert.IsTrue(retiredByResurrection.Contains(xpActionId),
-                    "Resurrection must retire the KerbalExperience row - leaving it would let " +
-                    "the monotone roster re-assert put the recovery flight's XP back");
-                InGameAssert.IsFalse(retiredByResurrection.Contains(controlActionId),
-                    "Resurrection must NOT retire the Transmitted-method science row - science " +
-                    "the player banked mid-flight and still owns");
-                // MEASURED, and pinned so a change announces itself: the classifier's
-                // crew leg matches KerbalEndState.Recovered, and the production shape
-                // this fixture copies (C2CareerPostFix seq 1) carries Aboard on the
-                // recovery segment, so the crew row is NOT in the resurrection bundle.
-                // It does not need to be: the crew are alive in both worlds, and the
-                // MERGE path retires it anyway via IsSupersedeTombstoneEligible
-                // (asserted below). Recorded here so the asymmetry is a measurement
-                // rather than a surprise.
-                InGameAssert.IsFalse(retiredByResurrection.Contains(crewActionId),
-                    "MEASURED: the production-shaped KerbalAssignment row carries " +
-                    "endState=Aboard on the recovery segment, and Classify's crew leg keys " +
-                    "on endState=Recovered, so it is not in the resurrection bundle. The " +
-                    "merge path retires it regardless.");
-                // The set is CLOSED, not just a superset: Classify's scan is scoped to
-                // this recording by the positive pid+guid match, so nothing else can
-                // enter and an extra row means the classifier widened.
-                InGameAssert.AreEqual(3, retiredByResurrection.Count,
-                    "Resurrection must retire EXACTLY the funds anchor + recovered science " +
-                    $"+ XP row; got {retiredByResurrection.Count} " +
-                    $"[{string.Join(",", retiredByResurrection.ToArray())}]");
-
                 ParsekLog.Info(Tag,
                     Marker + ": installed origin=" + originId + " fork=" + forkId +
                     " sess=" + sessId + " rp=" + rpId + " bp=" + bpId +
                     " rewindUT=" + RewindUT.ToString("F2", CultureInfo.InvariantCulture) +
                     " bundleRows=" + bundleIds.Count.ToString(CultureInfo.InvariantCulture) +
-                    " resurrectionRetired=" +
-                    retiredByResurrection.Count.ToString(CultureInfo.InvariantCulture) +
                     " - invoking RunMerge");
 
-                // == 3. THE MERGE ==============================================
+                // == 2. THE MERGE ==============================================
                 bool ok = MergeJournalOrchestrator.RunMerge(marker, fork);
                 InGameAssert.IsTrue(ok, "MergeJournalOrchestrator.RunMerge returned false");
 
@@ -476,7 +426,7 @@ namespace Parsek.InGameTests
                     "split the bundle would have been retired by whole-recording supersede, " +
                     "which is a different code path than the one this cell claims to measure");
 
-                // == 4. EVERY BUNDLE ROW TOMBSTONED, CONTROL UNTOUCHED ========
+                // == 3. EVERY BUNDLE ROW TOMBSTONED, CONTROL UNTOUCHED ========
                 for (int i = 0; i < bundleIds.Count; i++)
                 {
                     InGameAssert.IsTrue(HasTombstone(scenario, bundleIds[i]),
@@ -523,7 +473,7 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(originId, controlRow.RecordingId,
                     "The pre-rewind control row must stay attributed to HEAD");
 
-                // == 5. ELS AND ERS ============================================
+                // == 4. ELS AND ERS ============================================
                 var elsAfter = EffectiveState.ComputeELS();
                 for (int i = 0; i < bundleIds.Count; i++)
                 {
@@ -547,7 +497,7 @@ namespace Parsek.InGameTests
                 InGameAssert.IsFalse(ersHasTip, "ERS must NOT include TIP (superseded by the fork)");
                 InGameAssert.IsTrue(ersHasFork, "ERS must include the fork");
 
-                // == 6. THE POOL RECALC REFLECTS THE RETIREMENT ===============
+                // == 5. THE POOL RECALC REFLECTS THE RETIREMENT ===============
                 // Measured through the SHIPPING modules over the post-merge ELS,
                 // scoped to this fixture's recordings, so the numbers are exact and
                 // independent of whatever the live career happens to hold.
@@ -562,7 +512,7 @@ namespace Parsek.InGameTests
                     $"(was {scienceBefore.ToString("F2", CultureInfo.InvariantCulture)}): the " +
                     "recovery science is retired, the transmitted science is not");
 
-                // == 7. THE ROSTER / CAREER-LOG INTERPLAY =====================
+                // == 6. THE ROSTER / CAREER-LOG INTERPLAY =====================
                 // (a) Against a roster that does NOT carry the entries, the re-assert
                 //     appends nothing now: the XP row left the ELS with the tombstone.
                 var reassertPostMerge = MeasureCareerReassert(
@@ -609,7 +559,7 @@ namespace Parsek.InGameTests
                     "and the roster keeps the three entries. Removal of a superseded " +
                     "flight's XP is the rewind quicksave load's job, not this facet's.");
 
-                // == 8. DURABLE BARRIERS ======================================
+                // == 7. DURABLE BARRIERS ======================================
                 int beginIdx = durableCheckpoints.IndexOf("begin");
                 int splitIdx = durableCheckpoints.IndexOf("split");
                 int durable1Idx = durableCheckpoints.IndexOf("durable1");

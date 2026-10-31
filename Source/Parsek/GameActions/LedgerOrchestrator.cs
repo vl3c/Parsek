@@ -714,21 +714,17 @@ namespace Parsek
         /// every contract. The Effective-gated cases (ContractComplete, MilestoneAchievement,
         /// ScienceEarning, FundsEarning) mirror the module-side skip on duplicates.
         /// </para>
-        /// <para><b>SECOND KNOWN FALSE-POSITIVE, the query-family one.</b> The strategy door
-        /// writes its rows straight through <c>Ledger.AddAction</c> from
+        /// <para><b>Two row kinds the commit's new rows do not carry as-is.</b> The
+        /// strategy door writes its rows straight through <c>Ledger.AddAction</c> from
         /// <see cref="OnStrategyCurrencyConversion"/>, so they are never in
-        /// <c>newActions</c>. When a MODIFIED transaction falls inside a commit window - a
-        /// contract reward diverted by Appreciation Campaign, a milestone scaled by
-        /// Leadership Initiative - the store side sums the observed NET
-        /// <c>FundsChanged</c>/<c>ReputationChanged</c> event while the emitted side carries
-        /// the CONFIGURED GROSS row, and this walk WARNs "missing earning channel?" by
-        /// exactly the diverted magnitude. The ledger is CORRECT in that state (the
-        /// diverted half is a separate row this walk cannot see); the WARN is the
-        /// comparison's blind spot, and it predates the capture - before it, the row was
-        /// missing outright and the same WARN fired for the same amount. Closing it means
-        /// folding untagged in-window <c>StrategyConverter</c>-sourced rows into the
-        /// emitted tally, which is the same "account for pre-existing in-window actions"
-        /// problem the recovery false-positive above is parked on.</para>
+        /// <c>newActions</c>, while the award they divert from (a contract reward diverted
+        /// by Appreciation Campaign, a milestone scaled by Leadership Initiative) is
+        /// captured as the NET pool move; the in-scope, in-window ones are folded in
+        /// (<see cref="AppendInWindowStrategyConversionRows"/>). And a reputation row
+        /// inside the reputation seed has its <c>EffectiveRep</c> zeroed by the walk (the
+        /// seed already holds it) while its event is still on the store side, so its
+        /// emitted leg is the amount stock moved the pool by
+        /// (<see cref="EstimateInsideSeedRowRep"/>). Neither changes a ledger value.</para>
         /// </summary>
         internal static void ReconcileEarningsWindow(
             IReadOnlyList<GameStateEvent> events,
@@ -762,9 +758,11 @@ namespace Parsek
                 ledgerActions);
             LogEarningsWindowScopeSkipped(storeDeltas, startUT, endUT, recordingId);
 
-            var emittedDeltas = ComputeEarningsWindowEmittedDeltas(newActions, events);
+            var emittedDeltas = ComputeEarningsWindowEmittedDeltas(
+                newActions, events, ledgerActions, startUT, endUT, recordingId);
             LogEarningsWindowKerbalDeathPairing(
                 storeDeltas, emittedDeltas, startUT, endUT, recordingId);
+            LogEarningsWindowBlindSpotFolds(emittedDeltas, startUT, endUT, recordingId);
 
             if (scienceTracked)
             {
@@ -821,6 +819,8 @@ namespace Parsek
             public int FacilityUpgradeCount;
             public int FacilityRepairCount;
             public int KerbalDeathPairedSkipped;
+            public int InsideSeedRepRowsCounted;
+            public int StrategyConversionRowsFolded;
         }
 
         private static EarningsWindowStoreDeltas ComputeEarningsWindowStoreDeltas(
@@ -1023,7 +1023,11 @@ namespace Parsek
 
         private static EarningsWindowEmittedDeltas ComputeEarningsWindowEmittedDeltas(
             List<GameAction> newActions,
-            IReadOnlyList<GameStateEvent> events)
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> ledgerActions,
+            double startUT,
+            double endUT,
+            string recordingId)
         {
             var deltas = new EarningsWindowEmittedDeltas
             {
@@ -1031,12 +1035,32 @@ namespace Parsek
             };
 
             // newActions already contains vesselCostActions + scienceActions (merged by
-            // OnRecordingCommitted before this runs), so a single walk suffices.
+            // OnRecordingCommitted before this runs). The strategy conversion door files
+            // its rows straight into the ledger, never into newActions, so the in-window
+            // ones that share the store side's scope are folded in after them: the store
+            // event they divert from is NET of them.
+            var walk = new List<GameAction>();
             if (newActions != null)
+                walk.AddRange(newActions);
+            int folded = AppendInWindowStrategyConversionRows(
+                walk, newActions, ledgerActions, startUT, endUT, recordingId);
+            deltas.StrategyConversionRowsFolded = folded;
+
+            if (walk.Count > 0)
             {
-                for (int i = 0; i < newActions.Count; i++)
+                for (int i = 0; i < walk.Count; i++)
                 {
-                    var a = newActions[i];
+                    var a = walk[i];
+                    if (a == null) continue;
+                    // A reputation row inside the reputation seed is already in the seed
+                    // value, so the walk zeroes its EffectiveRep; the store still sees
+                    // its event. Count the amount stock moved the pool by instead.
+                    bool insideSeedRep = ReputationSeedMembership.ShouldSkipAsInsideSeed(
+                        a.Type, a.InsideReputationSeed);
+                    float repLeg = insideSeedRep
+                        ? EstimateInsideSeedRowRep(a, events, startUT, endUT, recordingId)
+                        : a.EffectiveRep;
+                    if (insideSeedRep) deltas.InsideSeedRepRowsCounted++;
                     switch (a.Type)
                     {
                         case GameActionType.FundsEarning:
@@ -1052,7 +1076,7 @@ namespace Parsek
                         case GameActionType.ReputationEarning:
                             // #440B: EffectiveRep is curve-applied by ReputationModule
                             // (ApplyReputationCurve). Mirrors ReconcilePostWalk.
-                            deltas.EmittedRepDelta += a.EffectiveRep;
+                            deltas.EmittedRepDelta += repLeg;
                             break;
                         case GameActionType.ReputationPenalty:
                             // The kerbal-death leg is excluded on BOTH sides (see
@@ -1070,7 +1094,7 @@ namespace Parsek
                             }
                             // #440B: EffectiveRep is signed negative for penalties
                             // (ReputationModule.ProcessContractPenaltyRep). No unary minus.
-                            deltas.EmittedRepDelta += a.EffectiveRep;
+                            deltas.EmittedRepDelta += repLeg;
                             break;
                         case GameActionType.ContractComplete:
                         // A parameter's own reward is the other half of the ContractReward
@@ -1080,7 +1104,7 @@ namespace Parsek
                             // Effective to skip duplicate completions (module skips credit).
                             if (!a.Effective) break;
                             deltas.EmittedFundsDelta += a.TransformedFundsReward;
-                            deltas.EmittedRepDelta += a.EffectiveRep;
+                            deltas.EmittedRepDelta += repLeg;
                             deltas.EmittedSciDelta += a.TransformedScienceReward;
                             break;
                         case GameActionType.ContractFail:
@@ -1091,7 +1115,7 @@ namespace Parsek
                             // contract charges nothing (ContractsModule).
                             if (!a.Effective) break;
                             deltas.EmittedFundsDelta -= a.FundsPenalty;
-                            deltas.EmittedRepDelta += a.EffectiveRep;
+                            deltas.EmittedRepDelta += repLeg;
                             break;
                         case GameActionType.ContractAccept:
                             // #438 gap #1: without this case the advance payment's
@@ -1124,7 +1148,7 @@ namespace Parsek
                             // thresholds' share, like a zeroed duplicate emits nothing.
                             if (!a.Effective) break;
                             deltas.EmittedFundsDelta += a.CreditedMilestoneFunds;
-                            deltas.EmittedRepDelta += a.EffectiveRep;
+                            deltas.EmittedRepDelta += repLeg;
                             deltas.EmittedSciDelta += a.CreditedMilestoneScience;
                             break;
                         case GameActionType.ScienceEarning:
@@ -1168,6 +1192,210 @@ namespace Parsek
             }
 
             return deltas;
+        }
+
+        /// <summary>
+        /// Appends to <paramref name="walk"/> every strategy conversion row
+        /// (<see cref="IsStrategyConversionRow"/>) in <paramref name="ledgerActions"/> that
+        /// the store side of <see cref="ReconcileEarningsWindow"/> sees the event of, and
+        /// that <paramref name="newActions"/> does not already carry. The conversion door
+        /// (<see cref="OnStrategyCurrencyConversion"/>) writes these rows straight into the
+        /// ledger, tagged like the award they divert from, so they are never in a commit's
+        /// new rows, while the award's captured event is the NET pool move. The scope and
+        /// window rule is the store side's own (<c>ComputeEarningsWindowStoreDeltas</c>):
+        /// with a recording id, only rows carrying that tag, and a tagged row counts past
+        /// <paramref name="endUT"/>; with none, every row in the window. Returns how many
+        /// rows it appended. Pure over its inputs.
+        /// </summary>
+        internal static int AppendInWindowStrategyConversionRows(
+            List<GameAction> walk,
+            IReadOnlyList<GameAction> newActions,
+            IReadOnlyList<GameAction> ledgerActions,
+            double startUT,
+            double endUT,
+            string recordingId)
+        {
+            if (walk == null || ledgerActions == null)
+                return 0;
+
+            int folded = 0;
+            for (int i = 0; i < ledgerActions.Count; i++)
+            {
+                var a = ledgerActions[i];
+                if (a == null || !IsStrategyConversionRow(a)) continue;
+                if (IsSameRowIn(newActions, a)) continue;
+
+                bool scoped = string.IsNullOrEmpty(recordingId)
+                    || string.Equals(a.RecordingId ?? "", recordingId, StringComparison.Ordinal);
+                if (!scoped) continue;
+                bool ownedByTag = !string.IsNullOrEmpty(recordingId);
+                if (a.UT < startUT || (a.UT > endUT && !ownedByTag)) continue;
+
+                walk.Add(a);
+                folded++;
+            }
+            return folded;
+        }
+
+        private static bool IsSameRowIn(IReadOnlyList<GameAction> actions, GameAction row)
+        {
+            if (actions == null) return false;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (ReferenceEquals(a, row)) return true;
+                if (a != null && !string.IsNullOrEmpty(row.ActionId)
+                    && string.Equals(a.ActionId, row.ActionId, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The reputation amount a row inside the reputation seed moved stock's pool by,
+        /// for the emitted side of <see cref="ReconcileEarningsWindow"/>. The walk zeroes
+        /// such a row's <c>EffectiveRep</c> (the seed value already holds it) while the
+        /// store side still sums the row's captured event, so reading <c>EffectiveRep</c>
+        /// made every such row (a world-record bonus filed in the first commit of a save
+        /// Parsek met mid-career) read 0. The row's nominal leg
+        /// (<see cref="ResolveInsideSeedRepNominal"/>) is put through
+        /// <see cref="ReputationModule.ApplyReputationCurve"/> at the store's own pool
+        /// level at the row's UT (<see cref="ResolveStoreRepPoolAtUT"/>), which is how
+        /// stock moved the pool. A pre-curved source is returned as is.
+        /// </summary>
+        internal static float EstimateInsideSeedRowRep(
+            GameAction a,
+            IReadOnlyList<GameStateEvent> events,
+            double startUT,
+            double endUT,
+            string recordingId)
+        {
+            float nominal = ResolveInsideSeedRepNominal(a, out bool preCurved);
+            if (nominal == 0f)
+                return 0f;
+            if (preCurved)
+                return nominal;
+            double pool = ResolveStoreRepPoolAtUT(events, a.UT, startUT, endUT, recordingId);
+            return ReputationModule.ApplyReputationCurve(nominal, (float)pool).actualDelta;
+        }
+
+        /// <summary>
+        /// The signed reputation leg <c>ReputationModule</c> would put through the curve
+        /// for <paramref name="a"/> if it were outside the seed, mirroring each per-type
+        /// arm there (including its <c>Effective</c> gates and the three pre-curved
+        /// penalty sources, reported through <paramref name="preCurved"/>). Zero for a
+        /// row type that moves no reputation. Pure.
+        /// </summary>
+        internal static float ResolveInsideSeedRepNominal(GameAction a, out bool preCurved)
+        {
+            preCurved = false;
+            if (a == null)
+                return 0f;
+            switch (a.Type)
+            {
+                case GameActionType.ReputationEarning:
+                    return a.NominalRep * a.ConversionShare;
+                case GameActionType.ReputationPenalty:
+                    if (a.RepPenaltySource == ReputationPenaltySource.Strategy
+                        || a.RepPenaltySource == ReputationPenaltySource.KerbalDeath
+                        || a.RepPenaltySource == ReputationPenaltySource.ContractDecline)
+                    {
+                        preCurved = true;
+                        return -a.NominalPenalty;
+                    }
+                    return -a.NominalPenalty * a.ConversionShare;
+                case GameActionType.MilestoneAchievement:
+                    return a.Effective ? a.CreditedMilestoneRep : 0f;
+                case GameActionType.ContractComplete:
+                case GameActionType.ContractParameterComplete:
+                    return a.Effective ? a.TransformedRepReward : 0f;
+                case GameActionType.ContractFail:
+                case GameActionType.ContractCancel:
+                    return a.Effective ? -a.RepPenalty : 0f;
+                case GameActionType.StrategyActivate:
+                    return -a.SetupReputationCost;
+                default:
+                    return 0f;
+            }
+        }
+
+        /// <summary>
+        /// Stock's reputation pool just before a change at <paramref name="ut"/>, read off
+        /// the store side's in-window, in-scope <c>ReputationChanged</c> events: the
+        /// <c>valueBefore</c> of the earliest event at that UT, else the
+        /// <c>valueAfter</c> of the latest event before it, else the <c>valueBefore</c> of
+        /// the window's first event, else 0 (the curve's multiplier there is 1). Pure.
+        /// </summary>
+        internal static double ResolveStoreRepPoolAtUT(
+            IReadOnlyList<GameStateEvent> events,
+            double ut,
+            double startUT,
+            double endUT,
+            string recordingId)
+        {
+            const double sameUtEpsilon = 1e-6;
+            bool haveAt = false, haveBefore = false, haveFirst = false;
+            double atUt = double.MaxValue, atValue = 0.0;
+            double beforeUt = double.MinValue, beforeValue = 0.0;
+            double firstUt = double.MaxValue, firstValue = 0.0;
+            if (events != null)
+            {
+                for (int i = 0; i < events.Count; i++)
+                {
+                    var e = events[i];
+                    if (e.eventType != GameStateEventType.ReputationChanged) continue;
+                    bool scoped = EventMatchesRecordingScope(e, recordingId);
+                    if (!scoped) continue;
+                    bool ownedByTag = !string.IsNullOrEmpty(recordingId);
+                    if (e.ut < startUT || (e.ut > endUT && !ownedByTag)) continue;
+
+                    if (e.ut < firstUt)
+                    {
+                        firstUt = e.ut;
+                        firstValue = e.valueBefore;
+                        haveFirst = true;
+                    }
+                    if (Math.Abs(e.ut - ut) <= sameUtEpsilon)
+                    {
+                        if (!haveAt || e.ut < atUt)
+                        {
+                            atUt = e.ut;
+                            atValue = e.valueBefore;
+                            haveAt = true;
+                        }
+                    }
+                    else if (e.ut < ut && e.ut >= beforeUt)
+                    {
+                        beforeUt = e.ut;
+                        beforeValue = e.valueAfter;
+                        haveBefore = true;
+                    }
+                }
+            }
+            if (haveAt) return atValue;
+            if (haveBefore) return beforeValue;
+            if (haveFirst) return firstValue;
+            return 0.0;
+        }
+
+        private static void LogEarningsWindowBlindSpotFolds(
+            EarningsWindowEmittedDeltas emittedDeltas,
+            double startUT,
+            double endUT,
+            string recordingId)
+        {
+            if (emittedDeltas.InsideSeedRepRowsCounted == 0
+                && emittedDeltas.StrategyConversionRowsFolded == 0)
+            {
+                return;
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"ReconcileEarningsWindow: counted {emittedDeltas.InsideSeedRepRowsCounted.ToString(CultureInfo.InvariantCulture)} " +
+                $"inside-seed reputation row(s) at stock's curve and folded " +
+                $"{emittedDeltas.StrategyConversionRowsFolded.ToString(CultureInfo.InvariantCulture)} " +
+                $"ledger strategy conversion row(s) into the emitted side " +
+                $"(scope='{recordingId ?? "(none)"}', window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}])");
         }
 
         private static void LogEarningsWindowActionSummary(
@@ -10468,7 +10696,7 @@ namespace Parsek
                     // NO window covers it, keep the tag: post-window tagged
                     // captures are legitimate for on-rails flights whose
                     // trajectory bounds end before the last live capture (the
-                    // BUG-A anchor in ConvertScienceSubjects owns that case).
+                    // BUG-A rule in ConvertScienceSubjects owns that case).
                     string fallback = PickScienceWindowRecordingId(captureUT, windows, activeRecordingId);
                     string captureUtText = captureUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
                     string windowText =
