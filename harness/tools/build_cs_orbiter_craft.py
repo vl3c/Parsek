@@ -1717,7 +1717,9 @@ SOLAR_UID_BASE = 4291000001
 # from the axis (about 0.36 m under a centre of mass about 1.7 m up), so the three-legged
 # lander tips at about 12 deg, and the Mun's equatorial band reads 7 to 14 deg at the
 # flown site (kRPC surface_height over 10 m, run 2026-10-31). Runs 2026-10-28_0432 attempt
-# 2 and _0649 attempt 2 fell over on touchdown, and _0626 while Jeb was out and SAS off.
+# 2 and _0649 attempt 2 fell over on touchdown (the pod from about 4 m to about 1.2 m up),
+# and _0626 was moving at 0.32 m/s at the ascent's engage and lost a tank 0.5 s after
+# ignition.
 # A square's nearest edge is 0.71 of the feet's radius (about 0.51 m, about 17 deg). The
 # level-0 VAB holds 30 parts and the upgrade costs more than the career has, so the fourth
 # leg takes a panel's place: the flown minimum was 141.8 of 150 EC with three panels.

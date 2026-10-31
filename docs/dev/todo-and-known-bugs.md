@@ -3714,6 +3714,25 @@ digests from the base commit, mlr's action stream with the flag off likewise. Th
 forbids a second Mun/Spacewalk and Mun/Science (CS-6c's). Owed: the first flight in this
 shape (risks: the open Thumper tops' drag, the powered Mun phases' draw, the landing site's
 sun, the legs against the bell).
+
+Progress 2026-10-31 (branch `cs7-mun-landing`): CS-7 LIVE-PROVEN, `2026-10-31_0654_CS-7-career-mun-landing_a2` PASS on attempt 2
+(DLL 43f6f82e, main 6ce354c): landed, EVA, flag, boarded, lifted off, home, recovered, 52
+recordings, LedgerGroundTruth 3/3 hardFailures=0, ledger_audit PASS, lowest EC 138.7 of 150.
+The two issues parked on 2026-10-28 had a different cause than they looked. Nothing staged
+on the Mun, and the refused EvaExit was not a matter of attitude alone: the lander fell over.
+The pod reads about 4 m up on touchdown and about 1.2 m after a fall, so a hatch against the
+ground answers `eva-refused` (`2026-10-28_0432_a2`, `_0649_a2`); `_0626` was moving at 0.32 m/s
+at the engage and lost a tank 0.5 s after ignition (`fuelTank Exploded!!`, a joint break at
+breakForce 0.0 that read like a decouple). A pod reading about 1 m up straight after EvaBoard
+is normal (the green flight reads 1.013 and lifted off): only the reading before the EVA says
+the lander fell. Three LT-05s stand on a triangle that tips at about 12 deg and the site reads
+7 to 14 deg (kRPC `surface_height`, scans in `logs/flights/cs-campaign/mun-*-scan.json`), so
+the lander got a fourth leg (about 17 deg) in place of its third panel: a six-legged cut needs
+the VAB upgrade, which stock refuses on 157546 funds (`upgrade-not-applied`). Open, not a
+Parsek defect: the same flight's attempt 1 `2026-10-31_0635` still fell over at lat 0.70, so
+that site fell 3 times out of 3 and the others stood through the EVA exit, and the lane keeps `[retry] once`. Landing longitude
+repeats at about -166.9 and the park dwell moves it, but a longer dwell needs a closed loop
+(the parking period varies) and the flatter ground at lon 57 and 160 is dark at that UT.
 Progress 2026-10-28 (branch `cs6b-push`): CS-6b green on its first flight. The CS-7 gates
 (decompiled `GameVariables`, dumps in `logs/decompile/cs7/`): a level-0 Astronaut Complex lets
 nobody out off Kerbin (`UnlockedEVA` is `lvl > 0.2`; `EVAIsPossible` otherwise allows only

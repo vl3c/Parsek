@@ -1054,8 +1054,7 @@ class SchemaAndSpecTests(unittest.TestCase):
         rollout = re.compile(next(r for r in required if "VesselRollout" in r
                                   and "2932" not in r))
         self.assertFalse(rollout.search("Game state: FundsChanged -2932 (VesselRollout)"))
-        self.assertTrue(rollout.search("Game state: FundsChanged -13742 (VesselRollout)"))
-        self.assertTrue(rollout.search("Game state: FundsChanged -13327 (VesselRollout)"))
+        self.assertTrue(rollout.search("Game state: FundsChanged -13452 (VesselRollout)"))
         # The seam's own completion lines, as the C# writes them.
         exit_re = re.compile(next(r for r in required if r.startswith("evaexit complete")))
         self.assertTrue(exit_re.search("evaexit complete kerbal=Jebediah Kerman "

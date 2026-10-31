@@ -30,12 +30,12 @@ id = "CS-7-career-mun-landing"
 # CS-6b's walk replayed), `cs-career-mun3` (CS-6b's save, the first flight below).
 #
 # THE CRAFT, `CS Mun Solar Lander` (harness/tools/build_cs_orbiter_craft.py --variant
-# solar, gate harness/lib/test_cs_orbiter_craft.py): 30 parts, 47.685 t, 22.17 m, cost
-# 13292. CS Mun Lander (the first cut, `--variant lander`) with the three Thumper nose
-# cones off and three OX-STAT panels (the lander's top FL-T400, azimuths 90 / 210 / 330,
-# each 60 deg or more off the hatch) and a Z-100 (the second FL-T400) on the lander
+# solar, gate harness/lib/test_cs_orbiter_craft.py): 30 parts, 47.695 t, 22.17 m, cost
+# 13417. CS Mun Lander (the first cut, `--variant lander`) with the three Thumper nose
+# cones off, four legs for its three, and two OX-STAT panels (the lander's top FL-T400,
+# azimuths 0 / 180, 90 deg off the hatch) and a Z-100 (the second FL-T400) on the lander
 # stage. Mk1 pod, Mk16, heat shield on a TD-12, then the lander: 2 x FL-T400 + 1 x
-# FL-T200 on a Terrier, three LT-05 legs (the same place, the same 0.88 m bell
+# FL-T200 on a Terrier, four LT-05 legs (the same height, the same 0.88 m bell
 # clearance); below it a TD-12, 7 x FL-T400 on a Swivel core and three cone-less
 # Thumpers at 60% on TT-38Ks. Stages: 4 launch, 3 the Thumpers' drop, 2 the core drop
 # and the Terrier, 1 the pod's separation (the return's one owed stage), 0 the chute.
@@ -46,8 +46,8 @@ id = "CS-7-career-mun-landing"
 # capture 280, the descent 700, the ascent 650, the departure 220 (CS-6 measured 216.9),
 # the trim 100.
 # ELECTRIC CHARGE (the builder's header carries the whole budget): 150 EC aboard (the
-# pod's 50 + the Z-100's 100) until the pod's separation; the three OX-STATs make
-# 0.303-0.350 EC/s with the sun broadside to the stack (0.334 average over the roll),
+# pod's 50 + the Z-100's 100) until the pod's separation; the two OX-STATs make
+# 0-0.350 EC/s with the sun broadside to the stack (0.223 average over the roll),
 # less off broadside, nothing in shadow; KSP charges them through rails warp too. The
 # draw that emptied the first flight (below) is the Kerbin ascent coast on the long
 # stack, 0.42-0.47 EC/s; the lander-only holds after the core drop drew 0.002-0.045
@@ -73,7 +73,7 @@ id = "CS-7-career-mun-landing"
 # (autostage stays limited to stage 2), then mor's departure (aimed at 30 km) and mfr's
 # return tail VERBATIM.
 #
-# THE MONEY, read from the host: the rollout about 13330 (the builder's cost 13292; the
+# THE MONEY, read from the host: the rollout 13452 measured (the builder's cost 13417; the
 # first cut measured 13742 for a builder cost of 13707 and CS-5 11612 for 11577, so
 # 13327 is predicted), leaving about 144200. Stock pays four new Mun milestones:
 # Mun/Landing at the touchdown, Mun/SurfaceEVA at the EVA (decompiled SurfaceEVA: an EVA
@@ -100,26 +100,24 @@ id = "CS-7-career-mun-landing"
 # flown values; (6) fail fast: the launch engage gate, B11's capture give-ups, B13's
 # four named landing give-ups, each EVA verb's refusal by name, the ascent's engage /
 # liftoff / not-in-orbit give-ups, the electric-charge watchdog, the departure's and the
-# tail's own; `[retry] once` is kept on purpose for a first flight through a new
-# machine; (7) the recordings count is a window until the first flight measures it; (8)
-# predicted wall ~2000-3000 s, so operator (stock-tree is not in the nightly instance
-# set); (9) `flight_efficiency.py` after the first green flight.
+# tail's own; `[retry] once` is kept on purpose: the lander can still fall on the
+# rough ground, which is a mission flake, not a Parsek one; (7) the recordings count is a
+# window round the measured 52; (8) measured wall 1851 s, so operator (stock-tree is
+# not in the nightly instance set); (9) `flight_efficiency.py` read after the green
+# flight: 213 s recoverable in the DESCENT coast, not taken here.
 #
-# STATUS: AUTHORED 2026-10-28; RE-CUT 2026-10-28 for power, NEVER FLOWN IN THIS SHAPE.
-# FIRST FLIGHT `2026-10-27_2326` / `_2331_a2` INVALID (autopilot-flake) on both attempts
-# (on `cs-career-mun3`, the first cut `CS Mun Lander`, wall 330 s each): the mission
-# ended MISSION-FLAKE `electric-charge-exhausted` in MJ-ASCENT: the core Swivel cut off
-# at the 80 km target apoapsis (~53 km up), MechJeb's coast hold drained the pod's 50
-# EC at 0.42-0.47 EC/s and the charge ran out at ~73 km; nothing on that lander made
-# power. The rollout
-# measured 13742 there. Hence the host (CS-6c's save, with the Z-100 and the OX-STAT),
-# the craft and the wheel release above. Owed off the next flight: the rollout debit
-# (13327 predicted), the four milestone payouts, the recovery credit, the recordings
-# count (window), the batch split (`total=3` pinned, the rest regexed; every CS stage
-# measured `passed=3 failed=0 skipped=0` for this category in this scene), the
-# lander's touchdown on the LT-05s (or on its bell), the lowest ElectricCharge reading
-# (the ascendedToTargetOrbit row's ecMin) and the coast's release and restore UTs (the
-# same row), the ascent's orbit and the departure plan's dv.
+# STATUS: LIVE-PROVEN 2026-10-31, `2026-10-31_0654_a2` PASS on attempt 2 (DLL 43f6f82e, main
+# 6ce354c plus this lane; mission 1763 s, wall 1851 s). Landed at lat 0.789 lon -166.948 on
+# the four legs (touchdown 0.06 m/s down, 0.17 m/s across), EVA, flag, boarding, liftoff
+# 220102.8, 21.6 km Mun orbit, departure 268 m/s, entry periapsis 29979 m, splashdown,
+# recovery, 52 recordings, LedgerGroundTruth 3/3 hardFailures=0, ledger_audit PASS, lowest
+# EC 138.7 of 150 on the two panels, rollout 13452. Attempt 1 `2026-10-31_0635` was
+# INVALID (autopilot-flake): the lander fell over 30 s after touchdown at lat 0.70
+# (the pod from 4.1 m to 1.2 m up) and EvaExit answered `eva-refused`, a mission flake and
+# not a Parsek one. Every fall so far is that site (`_0432_a2`, `_0649_a2`, `_0635`), so
+# the lane stays on `[retry] once`. Earlier cuts: `2026-10-27_2326` ran out of charge on
+# the ascent coast (hence the host, the power and the wheel release), and the three-legged
+# solar cut fell over or lost a tank at liftoff (`2026-10-28_0432_a2`, `_0626`, `_0649_a2`).
 tier = "operator"
 description = "Scripted campaign stage 7 (Career): on CS-6c's produced save (Astronaut Complex level 1; Advanced Rocketry, Basic Science and Electrics researched), launch the CS Mun Solar Lander (three OX-STAT panels and a Z-100 on the lander stage) from the VAB, fly B5's ascent (the reaction wheels released on the in-atmosphere coast) and Mun transfer, B11's capture and park and B13's landing, step out onto the Mun, plant a flag and board through the seam from inside the flight, fly a Mun ascent to orbit, depart on MechJeb's moon-return planner, trim the Kerbin return periapsis, reenter on the heat shield and splash down, recover, auto-commit, then run the ledger ground truth against KSP's own career save."
 instanceProfile = "stock-tree"
@@ -266,7 +264,7 @@ munAscentEngageConfirmFrames = 20
 munAscentLiftoffWindowSeconds = 60
 munAscentTimeoutSeconds    = 900
 munCircularizeTimeoutSeconds = 900
-# --- the electric-charge watchdog (150 EC aboard, three OX-STATs) ---
+# --- the electric-charge watchdog (150 EC aboard, two OX-STATs) ---
 electricChargeFloor        = 0.5
 electricChargeDebounceFrames = 20
 # --- the Kerbin ascent coast: every reaction wheel off from the first coasting frame
@@ -313,11 +311,11 @@ returnFallTimeoutSeconds   = 200000
 allowedAnomalies = []
 
 [expectations.recordings]
-# A WINDOW until the first flight measures it: the host's thirty-four + the lander's
+# Measured 52 on `2026-10-31_0654_a2`, windowed for the debris: the host's thirty-four + the lander's
 # chain (CS-6's orbit flight added seven) + its landing and liftoff splits, the EVA
 # branch and the board merge, the dropped boosters, core and lander stage past
 # ShouldRecordDebris. The ground-truth launch is unrecorded.
-count = { min = 40, max = 55 }
+count = { min = 49, max = 55 }
 
 [expectations.logContracts]
 # Source of each literal (Source/Parsek/...):
@@ -340,9 +338,9 @@ count = { min = 40, max = 55 }
 required = [
   # The flight.
   "launchfromeditor complete scene=FLIGHT vessel=CS Mun Solar Lander pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
-  # The craft's rollout, a regex until measured (the builder's cost is 13292, 13327
-  # predicted); five digits, so the ground-truth Flea's -2932 cannot satisfy it.
-  "Game state: FundsChanged -1[0-9]{4} \\(VesselRollout\\)",
+  # The craft's rollout, measured; five digits, so the ground-truth Flea's -2932 cannot
+  # satisfy it.
+  "Game state: FundsChanged -13452 \\(VesselRollout\\)",
   "Recording started",
   # The Mun landing, captured in flight.
   "Milestone enriched: 'Mun/Landing' funds=[0-9]+ rep=[0-9.]+ sci=[0-9.]+",
@@ -369,7 +367,7 @@ required = [
   "Game state: FundsChanged -2932 \\(VesselRollout\\)",
   "ground-truth game mode=CAREER pools=funds,science,reputation",
   "result: hardFailures=0 ",
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
 ]
 forbidden = [
   # Bare milestone ids: every Mun milestone must be body-qualified (PR #2301).
