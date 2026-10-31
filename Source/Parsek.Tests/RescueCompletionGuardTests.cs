@@ -1128,6 +1128,25 @@ namespace Parsek.Tests
             Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
         }
 
+        /// <summary>
+        /// A save and load keeps the marker: the save carries RESCUE_PLACED_KERBALS and the
+        /// load installs it, so the first walk after the load still skips the stand-in.
+        /// </summary>
+        [Fact]
+        public void RescuePlacedMarker_SurvivesSaveAndLoad()
+        {
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
+            var node = new ConfigNode("PARSEK");
+            CrewReservationManager.SaveCrewReplacements(node);
+
+            CrewReservationManager.ResetReplacementsForTesting();
+            Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+
+            CrewReservationManager.LoadCrewReplacements(node);
+            Assert.True(CrewReservationManager.TryGetRescuePlacedVessel("Jebediah Kerman", out ulong pid));
+            Assert.Equal((ulong)RescuedVesselPid, pid);
+        }
+
         // ---------- Multi-walk regression coverage (P1 review third pass) --
 
         /// <summary>
