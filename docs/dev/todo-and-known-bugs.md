@@ -580,7 +580,7 @@ does too, but during the attempt the funds display shows it.
 
 ---
 
-## LEDGER-EVENT-IDENTITY: the replay, not stock, decides every repeated ledger event [FILED 2026-10-26 from the event-keyed ledger research (two independent code reviews plus a hand-simulated career with repeated rewinds); RULED 2026-10-26; build order step 1 BUILT 2026-10-26 on branch `ledger-identity-step1`, step 2 BUILT 2026-10-26 on branch `ledger-identity-step2`, step 3 BUILT 2026-10-26 on branch `ledger-identity-step3`, step 4 BUILT 2026-10-26 on branch `ledger-identity-step4`, step 5 BUILT 2026-10-26 on branch `ledger-identity-step5`, step 6 BUILT 2026-10-26 on branch `ledger-identity-step6`, step 7a (conversion legs, live-only income) and step 7b (contract twins for goal-level stock ids, survey once per body, continuous producers once per slice) BUILT 2026-10-26 on branch `ledger-identity-step7`, step 8 BUILT 2026-10-27 on branch `ledger-identity-step8`, NOT FLOWN, steps 1 to 8 built; product, high (the duplicate-payment class)]
+## ~~LEDGER-EVENT-IDENTITY: the replay, not stock, decides every repeated ledger event~~ [FILED 2026-10-26 from the event-keyed ledger research (two independent code reviews plus a hand-simulated career with repeated rewinds); RULED 2026-10-26; build order step 1 BUILT 2026-10-26 on branch `ledger-identity-step1`, step 2 BUILT 2026-10-26 on branch `ledger-identity-step2`, step 3 BUILT 2026-10-26 on branch `ledger-identity-step3`, step 4 BUILT 2026-10-26 on branch `ledger-identity-step4`, step 5 BUILT 2026-10-26 on branch `ledger-identity-step5`, step 6 BUILT 2026-10-26 on branch `ledger-identity-step6`, step 7a (conversion legs, live-only income) and step 7b (contract twins for goal-level stock ids, survey once per body, continuous producers once per slice) BUILT 2026-10-26 on branch `ledger-identity-step7`, step 8 BUILT 2026-10-27 on branch `ledger-identity-step8`, steps 1 to 8 built; product, high (the duplicate-payment class); MERGED 2026-10-26..27 (#2289-#2295, then #2297 and #2301); FLOWN 2026-10-28..31 under the whole rewind campaign RW-1..RW-22 (REWIND-LEDGER-CAMPAIGN) and CS-4..CS-7, every lane green on the merged steps; CLOSED 2026-10-31]
 
 Design authority: `docs/parsek-game-actions-and-resources-recorder-design.md` section 3.15.
 
@@ -1759,7 +1759,7 @@ invoke walk (`RewindInvoker` Step 5, `double.MaxValue`) and the tombstone walk a
 
 ---
 
-## CONTRACT-RESTORED-AT-SCENE-LOAD-PAYS-TWICE: a contract completed after a scene change pays its reward two or three times [FILED 2026-10-26 off CS-3's reading run, branch `cs3-career-contracts`. FIXED in the same branch and LIVE-PROVEN on CS-3's re-flight `2026-10-25_2353`]
+## ~~CONTRACT-RESTORED-AT-SCENE-LOAD-PAYS-TWICE: a contract completed after a scene change pays its reward two or three times~~ [FILED 2026-10-26 off CS-3's reading run, branch `cs3-career-contracts`. FIXED in the same branch and LIVE-PROVEN on CS-3's re-flight `2026-10-25_2353`]
 
 Found by `CS-3-career-first-contracts` (run `2026-10-25_2257`, PARSEK-FAIL), the first lane to
 complete a contract by flying it. Accept FIRSTLAUNCH and SCIENCE at the Space Center, go to the
@@ -3383,7 +3383,7 @@ the new verbs / oracles / fixtures, then the QL / MINE / RC / GP lanes and the F
 
 ---
 
-## GAMEPLAY-CASES-UNCOVERED-2026-10-06: gameplay cases no test covers and no doc lists [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. OPEN, to trace]
+## ~~GAMEPLAY-CASES-UNCOVERED-2026-10-06: gameplay cases no test covers and no doc lists~~ [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`; DONE 2026-10-31: re-checked, all sixteen cases GC-1..GC-16 are traced and every defect they found has its own struck entry]
 
 Candidates from a check of 22 player situations against every spec, test and doc
 (`docs/dev/research/coverage-extension-plan-2026-10-06.md` section 3.5, ranked there). None was
@@ -3539,7 +3539,7 @@ worked in its rank order.
 
 ---
 
-## SCRIPTED-CAMPAIGN-TO-THE-MUN: a scripted Science-mode then Career-mode campaign from a genuine new save to a Mun landing and return [FILED 2026-10-06 at the owner's request, branch `ccr-77f23eb2-dbqh6i`. OPEN; long-run test target]
+## ~~SCRIPTED-CAMPAIGN-TO-THE-MUN: a scripted Science-mode then Career-mode campaign from a genuine new save to a Mun landing and return~~ [FILED 2026-10-06 at the owner's request, branch `ccr-77f23eb2-dbqh6i`; long-run test target; DONE 2026-10-31: the ladder CS-0..CS-7 is LIVE-PROVEN, ending with CS-7 `2026-10-31_0654` (Mun landing, flag and return, #2336)]
 
 The owner's target for a long gameplay run that touches every system the way a player does:
 start a true new game (Normal difficulty) and script the campaign stage by stage up to landing
@@ -3843,7 +3843,7 @@ line and no `Science reconcile dump (post-walk)`, zero `[Parsek][ERROR]`, and th
 
 ---
 
-## REWIND-LEDGER-CAMPAIGN: rewind-and-replay lanes on the campaign careers to hunt ledger bugs [FILED 2026-10-28 at the owner's request. OPEN]
+## ~~REWIND-LEDGER-CAMPAIGN: rewind-and-replay lanes on the campaign careers to hunt ledger bugs~~ [FILED 2026-10-28 at the owner's request; DONE 2026-10-31: RW-1..RW-22 all LIVE-PROVEN and merged (last #2334); the bugs it found are filed as their own entries]
 
 The owner asked for missions flown after rewinding into the past, with a save point after each and
 every log kept, to investigate ledger correctness beyond unit tests and single lanes. Plan (reviewed
