@@ -1,0 +1,210 @@
+schema = 1
+id = "REV-1-revert-to-vab-in-rewound-timeline"
+# =====================================================================================
+# REV-1: A RECORDED FLIGHT REVERTED TO THE VAB, WITH AN EARLIER COMMITTED GHOST PLAYING
+# (test-gap audit 2026-10-31, B5 and top-12 row 12; todo REVERT-EDITOR-SAVE-SWITCH-GAPS).
+#
+# WHY. No lane ever reached stock's Revert to VAB / SPH: the five RevertToLaunch lanes all
+# land in FLIGHT, and ReFlyRevert target=prelaunch answers option-unavailable inside a
+# resumed Re-Fly flight. The editor revert takes a path of its own (decompiled
+# FlightDriver.RevertToPrelaunch, KSP 1.12.5): stock writes PreLaunchState to
+# persistent.sfs, fires OnRevertToPrelaunchFlightState, then LoadScene(EDITOR), and
+# EditorDriver.Start reloads that file. Parsek's scene-exit prefix runs on the way
+# (FLIGHT -> EDITOR), the live tree goes through CommitTreeSceneExit instead of the Limbo
+# stash Revert to Launch uses, the ledger prune is INCLUSIVE at the captured launch UT (the
+# rollout is refunded) and nothing runs OnFlightReady. Two defects the audit found on that
+# path are fixed in PR #2344 (R1: a scene-exit write over stock's revert state; R2: the
+# OnFlightReady orphan recovery left armed for the next launch); this lane is their live
+# proof on the main path, plus the editor revert inside a rewound timeline with a ghost
+# playing, which no lane combines.
+#
+# THE HOST. `cs-career-mun4` (RW-1 / RW-2's host): Career, the Jumping Flea in Ships/VAB,
+# 34 committed recordings. RW-2's flight H verbatim, then its Rewind-to-Launch, so H's
+# ghost replays on the pad (from ~185800) while the relaunch R sits there.
+#
+# THE TIMELINE:
+#   185800   WarpToUT at the Space Center (RW-1's reason).
+#   H        VAB launch, StartRecording, warp in flight to 186000, stop, CommitTree,
+#            Recover (RW-2 verbatim).
+#   rewind   InvokeRewindToLaunch tree=latest -> Space Center at ~185785 (H's start - 15 s).
+#   R        The Flea from the VAB again, recorded (a LIVE tree is the case R1 / the
+#            scene-exit finalize run on), warp in flight to 185830: H's ghost is playing.
+#   revert   RevertToLaunch target=prelaunch: Esc > Revert Flight > Revert to VAB.
+#            Expected: the editor comes up with the Flea, R's tree is dropped (35
+#            recordings stay), R's rollout row is pruned and refunded, the revert walk runs
+#            at the clock (EDITOR is a cutoff scene), no scene-exit write lands on
+#            persistent.sfs, and the OnFlightReady recovery is released.
+#   check    LaunchFromEditor straight from that editor (the pad is clear; the next launch
+#            must not run a stale orphan recovery), SaveGame, LedgerGroundTruth in FLIGHT.
+#
+# LITERALS (Source/Parsek/..., verified 2026-10-31):
+#   reverttolaunch start target=prelaunch / complete target=prelaunch
+#                                            TestCommands/TestCommandRevertToLaunch.cs
+#   Prefix: no active re-fly session        RevertInterceptor.cs:171 (dash non-ASCII)
+#   armed RevertKind.Prelaunch               RevertDetector.cs:52
+#   Load classified:                         LoadReconcilePolicy.cs:385
+#   Unstashed pending tree '<n>' on revert   RecordingStore.cs:3844
+#   Revert cleanup released: scene=          ParsekScenario.cs (ReleaseRevertCleanupOutsideFlight)
+#   Revert budget walk: scene=               ParsekScenario.cs:7682
+#   SafeWritePersistent: persistent.sfs written / skipped   SceneExitInterceptor.cs
+#   CleanupOrphanedSpawnedVessels: recovering ParsekFlight.cs:18584
+#   and RW-2's set (its header).
+#
+# PRE-REGISTERED READINGS (check these first if the first flight reds):
+#   - `reverttolaunch rejected reason=reverttolaunch-prelaunch-unavailable`: stock did not
+#     offer Revert to VAB; read the rejection's canLeaveToEditor / canRevertToPrelaunch /
+#     shipConfig / shipType fields (a LaunchFromEditor flight should have all four).
+#   - no `Unstashed pending tree 'Jumping Flea' on revert`: the scene-exit finalize kept R
+#     elsewhere; read the `[SceneExit]` lines and the `Revert:` disposition line.
+#   - recordings 36: R's recording survived the revert (it must not; the flight never
+#     happened).
+#   - `SafeWritePersistent: persistent.sfs written dest=EDITOR`: R1 is back; the editor
+#     would then hold the flight state.
+#   - `Revert \(Prelaunch\): pruned` absent: R's rollout row was tagged to R's recording
+#     (rollout adoption) and filtered by the unstash instead; read the ground truth's funds
+#     facet, which is the gate.
+#   - `revert-timeout` with `revertConsumed=false`: the editor's OnLoad never consumed the
+#     revert kind.
+#
+# STATUS: AUTHORED 2026-10-31, NEVER FLOWN. Every literal is from source, not from a flight.
+# Owed off the first flight: the batch split (INTERIM total=3), N in `pruned N`, the tier
+# call (operator: stock-tree is not in the nightly instance set).
+#
+# FAST-LANE CHECKLIST: (1) reuse: RW-2's H and rewind verbatim; (2) explicit-UT warps only;
+# (3)-(5) no dwell, burn or coast; (6) retry `once`; (7) recordings window 35..35;
+# (8) operator, ~4 min expected; (9) flight_efficiency.py after the first green flight.
+tier = "operator"
+description = "Revert to VAB / SPH, live: on cs-career-mun4 a recorded pad Flea is committed and rewound to; the relaunch is recorded while the committed ghost plays, then Esc > Revert to VAB lands in the editor with the relaunch dropped and its rollout refunded, no scene-exit save over stock's revert state and no orphan recovery left armed; a launch from that editor then passes LedgerGroundTruth."
+instanceProfile = "stock-tree"
+tags = ["REV-1", "career", "ledger", "rewind", "rewind-to-launch", "stock-revert",
+        "revert-to-editor", "editor", "ghost-playback", "ground-truth", "ingame-batch",
+        "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 300 LoadGame + 2 x 120 warp + 2 x (120 GoToEditor + 180 LaunchFromEditor)
+# + 2 x 180 StartRecording + 120 warp + 120 CommitTree + 120 Recover + 300 rewind
+# + 180 RevertToLaunch + 180 LaunchFromEditor + 120 SaveGame + 540 RunTests = 3180;
+# runtime 4200 adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+
+  # ---- flight H: recorded, committed, recovered (RW-2 verbatim) ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "h",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "186000" },                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "${h.pid}" },                                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rev1-h-committed" },                         expect = "OK" },
+
+  # ---- the rewind to H's launch: H's ghost replays from ~185800 ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rev1-rewound" },                             expect = "OK" },
+
+  # ---- flight R: recorded while H's ghost plays ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "r",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "185830" },                                      expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rev1-flying" },                              expect = "OK" },
+
+  # ---- Esc > Revert Flight > Revert to VAB ----
+  { cmd = "RevertToLaunch", args = { target = "prelaunch" },      label = "rv",            expect = "OK", budget = 180 },
+  { cmd = "MissionMark",    args = { label = "rev1-reverted" },                            expect = "OK" },
+
+  # ---- launch straight from the editor the revert landed in, then the ground truth ----
+  { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
+  { cmd = "MissionMark",    args = { label = "rev1-relaunched" },                          expect = "OK" },
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "recalc-engine", "ksp-state-patcher", "ground-truth-harness"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 34 recordings plus H; R is reverted away and the check flight is unrecorded.
+count = { min = 35, max = 35 }
+
+[expectations.logContracts]
+required = [
+  # ---- three Flea launches (H, R, the check), each rolled out once ----
+  "\\A(?:[\\s\\S]*?launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH){3}",
+  "\\A(?:[\\s\\S]*?Game state: FundsChanged -2932 \\(VesselRollout\\)){3}",
+
+  # ---- the rewind ----
+  "MISSIONMARK label=rev1-h-committed ut=[\\s\\S]*?Load classified: early=PlainRewind refined=PlainRewind ",
+
+  # ---- R recorded while H's ghost plays ----
+  "MISSIONMARK label=rev1-rewound ut=[\\s\\S]*?Recording started: vessel=[\\s\\S]*?MISSIONMARK label=rev1-flying ut=",
+
+  # ---- the editor revert ----
+  "MISSIONMARK label=rev1-flying ut=[\\s\\S]*?reverttolaunch start target=prelaunch pid=[0-9]+ name='Jumping Flea' situation=\\S+ recording=true hasActiveTree=true facility=VAB",
+  "MISSIONMARK label=rev1-flying ut=[\\s\\S]*?Prefix: no active re-fly session [^\\r\\n]*allowing stock RevertToPrelaunch",
+  "MISSIONMARK label=rev1-flying ut=[\\s\\S]*?GameEvents\\.OnRevertToPrelaunchFlightState fired; armed RevertKind\\.Prelaunch for next OnLoad",
+  "MISSIONMARK label=rev1-flying ut=[\\s\\S]*?Load classified: early=\\w+ refined=StockRevert scene=EDITOR",
+  "MISSIONMARK label=rev1-flying ut=[\\s\\S]*?Unstashed pending tree 'Jumping Flea' on revert[\\s\\S]*?MISSIONMARK label=rev1-reverted ut=",
+  # R2: the OnFlightReady recovery is released in the editor, not left for the next launch.
+  "MISSIONMARK label=rev1-flying ut=[\\s\\S]*?Revert cleanup released: scene=EDITOR [\\s\\S]*?MISSIONMARK label=rev1-reverted ut=",
+  "MISSIONMARK label=rev1-flying ut=[\\s\\S]*?Revert budget walk: scene=EDITOR cutoffScene=True clockReady=True[\\s\\S]*?MISSIONMARK label=rev1-reverted ut=",
+  "MISSIONMARK label=rev1-flying ut=[\\s\\S]*?reverttolaunch complete target=prelaunch facility=VAB ship='Jumping Flea' elapsed=",
+
+  # ---- the check launch and the ground truth, in FLIGHT ----
+  "MISSIONMARK label=rev1-reverted ut=[\\s\\S]*?launchfromeditor complete scene=FLIGHT vessel=Jumping Flea [\\s\\S]*?MISSIONMARK label=rev1-relaunched ut=",
+  "MISSIONMARK label=rev1-relaunched ut=[\\s\\S]*?savegame name=persistent folder=\\S+ saved=true",
+  "ground-truth game mode=CAREER pools=funds,science,reputation",
+  "result: hardFailures=0 ",
+  # INTERIM: total=3 from the source (the LedgerGroundTruth category's FLIGHT cells), the split
+  # regexed until the first flight (IngameBatchWiringGroupTests.INTERIM_PIN_IDS).
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  "filed StockPoolAdjustment amount=\\S+ reason=leak ",
+  "\\[TakeBack\\] Took back ",
+  "\\[LedgerTrace\\] phase=Anomaly ",
+  "ABORTING rewind ledger patch",
+  "invokerewindtolaunch refused",
+  "reverttolaunch rejected",
+  "reverttolaunch error",
+  "savegame refused ",
+  "savegame failed ",
+  # R1: no scene-exit write lands over stock's PreLaunchState on the way to the editor.
+  "SafeWritePersistent: persistent\\.sfs written dest=EDITOR",
+  # R2: the check launch runs no orphan recovery armed by the editor revert.
+  "MISSIONMARK label=rev1-reverted ut=[\\s\\S]*CleanupOrphanedSpawnedVessels: recovering ",
+  # The revert is no quickload, and the editor revert opens no merge dialog.
+  "Load classified: early=\\w+ refined=QuickloadFlight ",
+  "MISSIONMARK label=rev1-flying ut=(?:(?!MISSIONMARK label=rev1-reverted )[\\s\\S])*Deferred merge dialog fired",
+]
+
+[runtime]
+budgetSeconds = 4200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

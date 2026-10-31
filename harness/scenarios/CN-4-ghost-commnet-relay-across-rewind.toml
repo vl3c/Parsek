@@ -1,0 +1,161 @@
+schema = 1
+id = "CN-4-ghost-commnet-relay-across-rewind"
+# =====================================================================================
+# CN-4: THE GHOST CommNet RELAY ACROSS A REWIND-TO-LAUNCH (test-gap audit 2026-10-31, B6
+# and top-12 row 12; todo REVERT-EDITOR-SAVE-SWITCH-GAPS, GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST).
+#
+# WHY. CN-1 / CN-1T / CN-2 / CN-3 prove the ghost relay after a fixture load only; no lane
+# ever read the relay network again after a rewind. The code read (PR #2344) found no defect:
+# every scene builds a fresh GhostCommNetManager (ParsekFlight.OnDestroy shuts the old one
+# down, removing every node), and eligibility is re-derived on every tick from the committed
+# list and the clock. This lane is the live proof: the audit's proposal, CN-1 plus a
+# Rewind-to-Launch, then the relay rulings read again in the rewound flight.
+#
+# THE HOST. CN-1's: gloops-airshow plus the `ghost-commnet-relay` preset (relays A and B in
+# window [save + 1 s, save + 100001 s], C looped with its real run over before the save).
+# The host's pad pod gives the Rewind-to-Launch its target (VN-3 / WF-1's shape).
+#
+# THE TIMELINE:
+#   ~21      LoadGame boots FLIGHT on the pad pod; A and B latch into replay scope on the
+#            first frames (CN-1's header, THE WINDOW).
+#   1000     WarpToUT (rails, no recording live), then a near-instant pad recording
+#            committed in flight (VN-3's order: Start, Stop, CommitTree, Stop). Its start
+#            captures the rewind save.
+#   rewind   InvokeRewindToLaunch tree=latest -> Space Center at ~985 (start - 15 s). The
+#            FLIGHT scene's manager shuts down with every node removed
+#            (`reason=ParsekFlight destroyed`).
+#   relaunch The host's pod from the SPH onto the RUNWAY (WF-1's reason: the committed pad
+#            pod is held off the pad and respawns there at ~1000). The editor does not run
+#            the clock, so the flight starts near 985-990.
+#   batch    GhostCommNet in the rewound FLIGHT: CN-1's four executing cells, the same
+#            rulings (A control source, B relays hidden, C unregistered as
+#            historical-never-replayed).
+#
+# THE POD'S OWN GHOST. The committed pad recording is a crewed Mk1 pod, so its ghost is a
+# CommNet-capable node inside its own window [~1000, ~1000.x]. The batch runs synchronously
+# in a few frames right after the launch, about 10 s before that window, and the window is
+# sub-second, so `checked=2` holds; a reading that shows `checked=3` means the batch ran
+# inside the pod's window (read its `Registered ghost node: key=` line for the UT).
+#
+# LITERALS (Source/Parsek/..., verified 2026-10-31):
+#   Registered ghost node / Removed ghost node   GhostCommNet.cs (LogRegistered, 1297)
+#   Ghost CommNet manager shut down for scene    GhostCommNetManager.cs:1102
+#   ParsekFlight destroyed                       ParsekFlight.cs:2346
+#   GhostCommNet ... (FLIGHT) summaries          InGameTests/GhostCommNetInGameTests.cs
+#   invokerewindtolaunch target resolved / Rewind-to-Launch initiated to UT   VN-3's set
+#
+# PRE-REGISTERED READINGS:
+#   - relayA / relayB `unregistered` after the rewind with `reason=historical-never-replayed`:
+#     the rewind dropped the replay-scope latch (PlaybackScopeTracker keeps it in-session; a
+#     main-menu return is the only reset). That would be a product defect: file it.
+#   - `Removed ghost node: key=cn-relay-[ab] ... reason=` anything but `ParsekFlight
+#     destroyed` before the rewind mark: a mid-flight removal.
+#   - `launchfromeditor-site-obstructed`: the runway is blocked; read `first=`.
+#
+# STATUS: AUTHORED 2026-10-31, NEVER FLOWN. The batch split is INTERIM (total=9 from the
+# source, the split regexed; IngameBatchWiringGroupTests.INTERIM_PIN_IDS).
+#
+# FAST-LANE CHECKLIST: (1) reuse: CN-1's host, preset and category, VN-3's commit order,
+# WF-1's runway relaunch; (2) explicit-UT warps only; (3)-(5) no dwell, burn or coast;
+# (6) retry `once`; (7) recordings window 4..7 (VN-3's committed-restore clone);
+# (8) operator until measured (CN-1 is nightly); (9) flight_efficiency.py after the first
+# green flight.
+tier = "operator"
+description = "The ghost CommNet relay across a Rewind-to-Launch: on gloops-airshow plus the ghost-commnet-relay preset, a pad recording is committed at UT 1000 and rewound to; in the rewound flight (a relaunch from the SPH) the in-game GhostCommNet category must find relays A and B registered again with the same rulings as CN-1 (A a multi-hop control source, B relaying while hidden, C unregistered), every old node removed with the old flight scene."
+instanceProfile = "stock-minimal"
+tags = ["CN-4", "ghost-commnet", "commnet-relay", "injected-recordings", "rewind",
+        "rewind-to-launch", "ingame-batch", "D6", "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "ghost-commnet-relay"
+craft = []
+
+[driver]
+kind = "seam"
+# Budget arithmetic: 300 LoadGame + 180 warp + 180 StartRecording + 120 CommitTree + 300
+# rewind + 120 GoToEditor + 180 LaunchFromEditor + 540 RunTests = 1920; runtime 2400 adds the
+# inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+
+  # ---- the pad recording the rewind targets ----
+  { cmd = "WarpToUT",       args = { ut = "1000", maxRate = "50" },                        expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "cn4-committed" },                            expect = "OK" },
+
+  # ---- the rewind ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "cn4-rewound" },                              expect = "OK" },
+
+  # ---- the rewound flight: the pod from the SPH onto the runway, then the batch ----
+  { cmd = "GoToEditor",     args = { facility = "SPH", craft = "Auto-Saved Ship" },        expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                              expect = "OK", budget = 180 },
+  { cmd = "MissionMark",    args = { label = "cn4-relaunched" },                           expect = "OK" },
+  { cmd = "RunTests",       args = { category = "GhostCommNet" },                          expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D6  = ["commnet-relay"]   # asserted again after the rewind: A and B registered, the route and its cut
+D9  = ["rewind-to-launch"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The preset's three, the pad pod's, and VN-3's committed-restore clone(s).
+count = { min = 4, max = 7 }
+
+[expectations.logContracts]
+required = [
+  # ---- before the rewind: CN-1's registration ----
+  "\\[GhostCommNet\\] Registered ghost node: key=cn-relay-a node=ParsekGhost:cn-relay-a vessel=\"CN Relay A\" scene=FLIGHT reason=in-window [\\s\\S]*?MISSIONMARK label=cn4-committed ut=",
+
+  # ---- the commit and the rewind ----
+  "Captured rewind save at UT",
+  "committree committed=true",
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest",
+  "Rewind-to-Launch initiated to UT",
+  # The old flight's manager takes its nodes down with the scene.
+  "MISSIONMARK label=cn4-committed ut=[\\s\\S]*?Removed ghost node: key=cn-relay-a vessel=\"CN Relay A\" scene=FLIGHT reason=ParsekFlight destroyed [\\s\\S]*?MISSIONMARK label=cn4-rewound ut=",
+  "MISSIONMARK label=cn4-committed ut=[\\s\\S]*?Removed ghost node: key=cn-relay-b vessel=\"CN Relay B\" scene=FLIGHT reason=ParsekFlight destroyed [\\s\\S]*?MISSIONMARK label=cn4-rewound ut=",
+
+  # ---- the rewound flight: A and B registered again, CN-1's exact shapes ----
+  "MISSIONMARK label=cn4-rewound ut=[\\s\\S]*?\\[GhostCommNet\\] Registered ghost node: key=cn-relay-a node=ParsekGhost:cn-relay-a vessel=\"CN Relay A\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,[0-9.]+\\] hold=False dark=False relay=2000000000 transmit=5000 relayCombined=False transmitCombined=False control=True multiHop=True antennas=3",
+  "MISSIONMARK label=cn4-rewound ut=[\\s\\S]*?\\[GhostCommNet\\] Registered ghost node: key=cn-relay-b node=ParsekGhost:cn-relay-b vessel=\"CN Relay B\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,[0-9.]+\\] hold=False dark=False relay=2000000000 transmit=5000 relayCombined=False transmitCombined=False control=False multiHop=True antennas=2",
+  "MISSIONMARK label=cn4-relaunched ut=[\\s\\S]*?\\[TestRunner\\] GhostCommNet routing probe \\(FLIGHT\\): home=\"[^\"]+\" homePower=40000 hops=2 viaGhost=True negativeControl=cut",
+  "MISSIONMARK label=cn4-relaunched ut=[\\s\\S]*?\\[TestRunner\\] GhostCommNet registered nodes \\(FLIGHT\\): checked=2 dark=0",
+  "MISSIONMARK label=cn4-relaunched ut=[\\s\\S]*?\\[TestRunner\\] GhostCommNet registered relay route \\(FLIGHT\\): probed=2 viaGhost=2 negativeControlCut=2 controlSourceAtGhost=1 noRelay=0 homes=9 keys=cn-relay-a,cn-relay-b\\s",
+  "MISSIONMARK label=cn4-relaunched ut=[\\s\\S]*?\\[TestRunner\\] GhostCommNet preset rulings \\(FLIGHT\\): relayA=registered control=True multiHop=True relay=2000000000 relayB=registered playbackEnabled=False control=False relay=2000000000 relayC=unregistered loop=True reason=historical-never-replayed",
+  # INTERIM: total=9 from the source (CN-1's category), the split regexed until the first
+  # flight (IngameBatchWiringGroupTests.INTERIM_PIN_IDS).
+  "BATCH_COMPLETE v1 total=9 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GhostCommNet scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "Ghost node pre-update threw",
+  "DriveGhostCommNet threw",
+  "Registered ghost node: key=cn-relay-c ",
+  "Ghost node dark this rebuild: key=cn-relay-[ab] vessel=\"[^\"]*\" reason=(position-unresolved|exception)",
+  "No ghost node for key=cn-relay-[ab] vessel=\"[^\"]*\": (?!before-window)",
+  "Removed ghost node: key=cn-relay-[ab] .* reason=(?!ParsekFlight destroyed)",
+  "invokerewindtolaunch refused",
+  "launchfromeditor refused ",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

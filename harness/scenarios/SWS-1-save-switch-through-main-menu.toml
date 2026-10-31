@@ -1,0 +1,162 @@
+schema = 1
+id = "SWS-1-save-switch-through-main-menu"
+# =====================================================================================
+# SWS-1: A SAVE SWITCH THROUGH THE MAIN MENU AND BACK (test-gap audit 2026-10-31, B4 and
+# top-12 row 12; todo REVERT-EDITOR-SAVE-SWITCH-GAPS S1-S3, GC-1).
+#
+# WHY. No lane ever left one save folder for another: every LoadGame reloads the run save,
+# and QL-9's two saves sit in one folder. A player's save switch is Space Center -> Esc ->
+# Quit to Main Menu -> another save; Parsek's state for the first save must not leak into
+# the second (the main-menu transition plus DetectSaveFolderChange's cold reset), and the
+# first must come back whole. PR #2344 found three statics that survived the switch (S1
+# FacilityStatePatcher's patch history, S2 RecordingGroupStore's auto-group mirror, S3 the
+# previous ledger kept on an unresolved ledger path); this lane is the live main path.
+#
+# THE DRIVER. `NewGame ... as=<runSave>-b` (added 2026-10-31): the Space Center's own quit to
+# the main menu (persist, LoadScene(MAINMENU)), then stock's New Game under ANOTHER name, so
+# the run save is persisted and left as it is. The verb overwrites `<runSave>-b` the way
+# stock's New Game overwrite does (the validator holds `as=` to `<runSaveName>-<suffix>`),
+# and run.py reaps that save's pre-Parsek backup sibling with the run save's own. The way
+# back is `LoadGame save=${runSave}` from the second save's Space Center: a save-file load
+# of another folder, so the same cold path.
+#
+# THE HOST. `cs-career-mun4` (RW-1's): Career, 34 committed recordings, the Jumping Flea in
+# Ships/VAB. The second save is a fresh SANDBOX (the audit's shape: a career, then a
+# sandbox, then the career again).
+#
+# THE STEPS:
+#   A        LoadGame at the Space Center; ListHandles committed reads 34.
+#   A -> B   NewGame SANDBOX Normal as=cs-career-mun4-b: the main menu, then a new sandbox
+#            at its Space Center. Expected: `Save folder changed to 'cs-career-mun4-b'`,
+#            the save-scoped reset, ListHandles committed reads 0, no ledger rows.
+#   B        SaveGame (B's own persistent.sfs, with an empty Parsek footprint).
+#   B -> A   LoadGame save=${runSave}: `Save folder changed to 'cs-career-mun4'`, a Cold
+#            load, ListHandles committed reads 34 again.
+#   check    The Flea from the VAB, unrecorded, then LedgerGroundTruth in FLIGHT (the
+#            category is FLIGHT-only), so A's pools and rows are exactly the save's.
+#
+# LITERALS (Source/Parsek/..., verified 2026-10-31):
+#   newgame start ... as=                    TestCommands/TestCommandNewGame.cs FormatStartLine
+#   newgame quit to main menu / created      TestCommands/ParsekTestCommandAddon.NewGame.cs
+#   Save folder changed to '<f>' - resetting session state   ParsekScenario.cs:5964 (the
+#                                            dash is non-ASCII, matched by `.{1,3}`)
+#   Save-scoped session state reset: reason= ParsekScenario.SessionReset.cs:106
+#   Load classified:                         LoadReconcilePolicy.cs:385
+#   listhandles kind=committed count=        TestCommands/TestCommandListHandles.cs
+#
+# PRE-REGISTERED READINGS:
+#   - B's `listhandles kind=committed count=` above 0: A's recordings leaked into B (a cold
+#     reset missed a store). A product defect: file it.
+#   - A's second count below 34, or `result: hardFailures=[1-9]`: the switch lost or changed
+#     A's state. A product defect.
+#   - `newgame rejected reason=newgame-as-arg-invalid`: the spec's `as=`; read the value.
+#
+# STATUS: AUTHORED 2026-10-31, NEVER FLOWN. The batch split is INTERIM (total=3 from the
+# source, the split regexed; IngameBatchWiringGroupTests.INTERIM_PIN_IDS).
+#
+# FAST-LANE CHECKLIST: (1) reuse: RW-1's host, REV-1's check launch; (2) no warps;
+# (3)-(5) no dwell, burn or coast; (6) retry `once`; (7) recordings window 34..34;
+# (8) operator (stock-tree is not in the nightly instance set); (9) flight_efficiency.py
+# after the first green flight.
+tier = "operator"
+description = "A save switch through the main menu and back: cs-career-mun4 (career, 34 committed recordings) quits to the main menu into a new sandbox in another save folder (NewGame as=), which must hold no recordings, then loads the career back from that sandbox's Space Center; the career's 34 recordings come back and a launch from the VAB passes LedgerGroundTruth."
+instanceProfile = "stock-tree"
+tags = ["SWS-1", "career", "sandbox", "ledger", "save-switch", "main-menu", "new-game",
+        "ground-truth", "ingame-batch", "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Budget arithmetic: 300 LoadGame + 300 NewGame + 120 SaveGame + 300 LoadGame + 120
+# GoToEditor + 180 LaunchFromEditor + 540 RunTests = 1860; runtime 2400 adds the inert steps
+# and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" },                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "sws1-a-loaded" },                            expect = "OK" },
+
+  # ---- A -> B: the Space Center's quit to the main menu, a new sandbox in another folder ----
+  { cmd = "NewGame",        args = { mode = "SANDBOX", preset = "Normal", save = "${runSave}", as = "cs-career-mun4-b" }, expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "sws1-b-started" },                           expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" },                                 expect = "OK" },
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "sws1-b-saved" },                             expect = "OK" },
+
+  # ---- B -> A ----
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "sws1-a-back" },                              expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" },                                 expect = "OK" },
+
+  # ---- the check: an unrecorded launch, then the ground truth in FLIGHT ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                              expect = "OK", budget = 180 },
+  { cmd = "MissionMark",    args = { label = "sws1-launched" },                            expect = "OK" },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["career", "scene-flight"]   # the fixture's mode; the second save is a sandbox, not claimed
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# A's 34; the check launch is unrecorded.
+count = { min = 34, max = 34 }
+
+[expectations.logContracts]
+required = [
+  # ---- A ----
+  "listhandles kind=committed count=34 [\\s\\S]*?MISSIONMARK label=sws1-a-loaded ut=",
+
+  # ---- A -> B ----
+  "MISSIONMARK label=sws1-a-loaded ut=[\\s\\S]*?newgame start mode=SANDBOX preset=Normal save=cs-career-mun4 as=cs-career-mun4-b scene=SPACECENTER",
+  "MISSIONMARK label=sws1-a-loaded ut=[\\s\\S]*?newgame quit to main menu: persisted=true save=cs-career-mun4 ",
+  "MISSIONMARK label=sws1-a-loaded ut=[\\s\\S]*?newgame created title='[^']*' saveFolder=cs-career-mun4-b ",
+  "MISSIONMARK label=sws1-a-loaded ut=[\\s\\S]*?Save folder changed to 'cs-career-mun4-b' .{1,3} resetting session state[\\s\\S]*?MISSIONMARK label=sws1-b-started ut=",
+  "MISSIONMARK label=sws1-a-loaded ut=[\\s\\S]*?Save-scoped session state reset: reason=[\\s\\S]*?MISSIONMARK label=sws1-b-started ut=",
+  # B holds none of A's recordings.
+  "MISSIONMARK label=sws1-b-started ut=[\\s\\S]*?listhandles kind=committed count=0 [\\s\\S]*?MISSIONMARK label=sws1-b-saved ut=",
+  "MISSIONMARK label=sws1-b-started ut=[\\s\\S]*?savegame name=persistent folder=cs-career-mun4-b saved=true",
+
+  # ---- B -> A: the same cold path, A whole again ----
+  "MISSIONMARK label=sws1-b-saved ut=[\\s\\S]*?Save folder changed to 'cs-career-mun4' .{1,3} resetting session state[\\s\\S]*?MISSIONMARK label=sws1-a-back ut=",
+  "MISSIONMARK label=sws1-b-saved ut=[\\s\\S]*?Load classified: early=Cold [\\s\\S]*?MISSIONMARK label=sws1-a-back ut=",
+  "MISSIONMARK label=sws1-a-back ut=[\\s\\S]*?listhandles kind=committed count=34 ",
+
+  # ---- the ground truth ----
+  "MISSIONMARK label=sws1-launched ut=[\\s\\S]*?ground-truth game mode=CAREER pools=funds,science,reputation",
+  "result: hardFailures=0 ",
+  # INTERIM: total=3 from the source (the LedgerGroundTruth category's FLIGHT cells), the split
+  # regexed until the first flight (IngameBatchWiringGroupTests.INTERIM_PIN_IDS).
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  "\\[LedgerTrace\\] phase=Anomaly ",
+  "newgame rejected ",
+  "loadgame rejected ",
+  "savegame refused ",
+  "savegame failed ",
+  # B must not inherit A's committed recordings.
+  "MISSIONMARK label=sws1-b-started ut=(?:(?!MISSIONMARK label=sws1-b-saved )[\\s\\S])*listhandles kind=committed count=[1-9]",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
