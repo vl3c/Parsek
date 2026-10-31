@@ -90,14 +90,15 @@ namespace Parsek.Tests.Logistics
         // or a rename that makes DeclaredConstants find nothing, would pass
         // every cell above). The floors are the counts measured at extraction:
         // 29 long-form hold clauses + 29 compact + 8 frames (the two Route
-        // History held rows included), and 12 reject clauses (11
+        // History held rows included), plus the later additions (71 holds on
+        // 2026-10-31, after the unnamed-reserving-route clauses), and 12 reject clauses (11
         // RouteAnalysisStatus arms + the not-fully-sealed gate).
         [Fact]
         public void TheWalkIsNotVacuous()
         {
-            Assert.Equal(68, LogisticsHoldClauses.All.Count);
+            Assert.Equal(71, LogisticsHoldClauses.All.Count);
             Assert.Equal(12, LogisticsRejectClauses.All.Count);
-            Assert.Equal(68, DeclaredConstants(typeof(LogisticsHoldClauses)).Count);
+            Assert.Equal(71, DeclaredConstants(typeof(LogisticsHoldClauses)).Count);
             Assert.Equal(12, DeclaredConstants(typeof(LogisticsRejectClauses)).Count);
         }
 

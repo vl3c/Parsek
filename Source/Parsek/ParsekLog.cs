@@ -627,7 +627,7 @@ namespace Parsek
             try
             {
                 return ScreenMessages.PostScreenMessage(
-                    $"[Parsek] {message}",
+                    "[Parsek] " + StockFontText.ForStockUi(message),
                     duration,
                     ScreenMessageStyle.UPPER_CENTER) != null;
             }

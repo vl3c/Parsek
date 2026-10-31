@@ -3384,7 +3384,8 @@ namespace Parsek
             string name = route != null && !string.IsNullOrEmpty(route.Name)
                 ? route.Name
                 : ShortId(route?.Id);
-            return $"Delete route '{name}'?\n\nThis cannot be undone.";
+            // A PopupDialog body: the stock TMP font has no route-name arrow glyph.
+            return StockFontText.ForStockUi($"Delete route '{name}'?\n\nThis cannot be undone.");
         }
 
         /// <summary>
@@ -3425,8 +3426,8 @@ namespace Parsek
             // tree); passing cand.Tree makes the Transit line resolve the real
             // [root..dock] span so the dialog matches the route that gets built.
             candidateDisplayCache.TryGetValue(cand.Tree.Id ?? "<no-tree>", out CandidateDisplay display);
-            string body = RouteCreationFormatters.BuildSummaryBlock(cand.Analysis, cand.Tree,
-                StructureListWindowUI.ResolvePartTitle, display?.DestinationName);
+            string body = StockFontText.ForStockUi(RouteCreationFormatters.BuildSummaryBlock(cand.Analysis, cand.Tree,
+                StructureListWindowUI.ResolvePartTitle, display?.DestinationName));
 
             ParsekLog.Info("UI",
                 $"Logistics: Create Route confirm dialog spawned tree={ShortId(cand.Tree.Id)} mode={mode}");

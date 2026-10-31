@@ -2665,7 +2665,17 @@ block-after-rewind` on a new host `stock-screen-census-strategy`. To rebuild it:
 
 ---
 
-## GUI-MIRROR-PAGE-AUDIT: go through every page of the GUI mirror, delete the redundant or obsolete ones, and refresh the structure and in-game images of the rest [FILED 2026-10-10 at the owner's request after the 0.10.5 release. OPEN, tooling. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+## ~~GUI-MIRROR-PAGE-AUDIT: go through every page of the GUI mirror, delete the redundant or obsolete ones, and refresh the structure and in-game images of the rest~~ [CLOSED 2026-10-31 (owner: the GUI is judged in game; the mirror needs no finishing work). FILED 2026-10-10 at the owner's request after the 0.10.5 release. OPEN, tooling. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+
+**CLOSED 2026-10-31 (owner, thread "Work through GUI census leftovers": the GUI is judged in game;
+the mirror was an iteration aid, "update anything that needs finishing with it and leave it at
+that").** Nothing needs finishing. The generator reads every window, tab and state vocabulary from
+the census logs, so a page built from a fresh census drops the deleted Career and Gloops windows on
+its own; the census lanes no longer open either window (no `window=career` / `window=gloops` step
+in `harness/scenarios/`); and `LAYOUT_EPOCHS` only judges captures older than an epoch, which no
+longer exist (the 2026-10-04 shots directories were deleted). If a GUI iteration round ever wants
+the page again, fly the GUI census lanes and run `gui_mirror.py` (`design-gui-mirror.md` section 9);
+no code change is owed first.
 
 The mirror (`harness/tools/gui_mirror.py`, design `docs/dev/design-gui-mirror.md`) is one generated page of
 every Parsek window and its captured states. The copy in use (`gui-mirror.html`, served on port 8765 from a
@@ -6600,7 +6610,17 @@ completion after the stale cleanup destroyed the slot (the completed-state bookk
 slot whose ghost was never live), and a headless engine test that crosses EndUT once in warp and
 asserts one delivery.
 
-## STOCK-UI-CENSUS-GUI-28-FINDINGS: what the first photographs of the stock-screen annotations show [FILED 2026-09-25 off `GUI-28-census-stock-screens` reading run `2026-09-25_2055` (branch `stock-screen-census`). OPEN; for the overlay program (`STOCK-UI-RESERVATION-OVERLAYS-2026-09-25`). PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+## ~~STOCK-UI-CENSUS-GUI-28-FINDINGS: what the first photographs of the stock-screen annotations show~~ [CLOSED 2026-10-31 (thread "Work through GUI census leftovers"): every finding is resolved on main b36af9b. FILED 2026-09-25 off `GUI-28-census-stock-screens` reading run `2026-09-25_2055` (branch `stock-screen-census`). OPEN; for the overlay program (`STOCK-UI-RESERVATION-OVERLAYS-2026-09-25`). PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+
+**CLOSED 2026-10-31, re-checked on main `b36af9b`.** 1 is stock's own look (answered by the
+2026-10-04 consistency pass below, and the R&D Research button now greys for a timeline
+shortage). 2: a future hire's applicant row now carries the mark as its label
+(`StockUiAstronautDecoration.Decide`). 3: an active stand-in decides `kind=KerbalStandIn` with its
+own text. 4: the reason tooltips wrap (`StockUiFacilityDecoration.WrapTooltipText`). 5: the row
+labels shrank to `- Accepted on Y1, D03`. 6: the shared-title wording (`accepts the contract
+'...'`) is gone from the source. 7: settled by the stock-first follow-up below. 8 lives in its
+own entry, `C2-DERIVED-FIXTURES-HOLD-JEB-OPEN-ENDED`. 9: a stand-in now shares its owner's seat
+in the active-crew count (`StandInSeatCount`). Nothing here is owed.
 
 The first real-game look at the annotations: 25 PNGs on the committed `stock-screen-census`
 fixture, each capture logged with its decision records (`[StockUiOverlay] record label=...`)
@@ -7450,7 +7470,21 @@ and, for the links before it, the non-leaf rule. Either delete the arm or route 
 terminated case somewhere it can run; until then no lane can witness the line, and
 `chain-terminated-destruction-recovery` is not owed it.
 
-## GUI-MOCK-P1-RESIDUE-2026-09-22: three product findings and three deferrals from the GUI state gallery's first phase [FILED 2026-09-22 with the P1 + P1b build, EXTENDED the same day after the clean review. SIX items. Items 1 to 3 are PRODUCT findings, each verified at its source site and pinned by a cell; items 4 to 6 are deferrals with a named owning phase. OPEN. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+## ~~GUI-MOCK-P1-RESIDUE-2026-09-22: three product findings and three deferrals from the GUI state gallery's first phase~~ [CLOSED 2026-10-31 (owner 2026-10-31: the GUI mirror is the review tool, no more census tooling before the public release). FILED 2026-09-22 with the P1 + P1b build, EXTENDED the same day after the clean review. SIX items. Items 1 to 3 are PRODUCT findings, each verified at its source site and pinned by a cell; items 4 to 6 are deferrals with a named owning phase. OPEN. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+
+**CLOSED 2026-10-31 (owner, thread "Work through GUI census leftovers": "we have already built
+the mirror web app tool for the GUI").** Items 1 to 3 are closed (see the re-check note below);
+items 4 to 6 are gallery phase work, closed with `GUI-STATE-GALLERY-2026-09-21` (not pursued).
+
+**RE-CHECKED 2026-10-31 on main `b36af9b` (thread "Work through GUI census leftovers"): both
+open product items CLOSED BY DESIGN; only the gallery deferrals 4 to 6 remain, and they follow
+`GUI-STATE-GALLERY-2026-09-21`.** Item 1: the inline stand-in form uses the same fit-or-hover
+rule as every other arm of `FormatStatus` and can fire when the owner name is unknown (`?`), so
+it is not dead; the hover carries the vessel for real names, which is the intended fallback, and
+`TheInlineStandInVesselFormIsUnreachableForRealNames` keeps the fact visible. Item 2: the word is
+NOT unreachable - `MissionCompositionBuilder.BranchEventName` also labels a leg's origin in the
+Missions composition (`MissionComposition.cs`), which draws `Switch`; the Log skipping an
+observation boundary is its stated rule. No product change owed.
 
 **Where this came from.** Building the catalogue of synthetic GUI states
 (`docs/dev/design-gui-state-gallery.md`, P1) meant constructing each state's INPUTS and
@@ -7528,7 +7562,17 @@ at one.
 
 ---
 
-## GUI-CENSUS-WAVE6-RESIDUE-2026-09-22: seven states the new seam ops still cannot photograph unaided, and one product finding [FILED 2026-09-22 with the GUI-census seam-op wave (GUI-24..GUI-27). EIGHT items. 1 to 4 are FIXTURE gaps (4 measured by GUI-24's first flight); 5 and 6 are INSTRUMENT gaps measured by GUI-25's and GUI-26's first flights; 7 is an OP-SCOPE correction to the wave's own lane plan; 8 IS a product finding, verified at its source site and deliberately not fixed in that PR. OPEN; each names what it needs. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+## ~~GUI-CENSUS-WAVE6-RESIDUE-2026-09-22: seven states the new seam ops still cannot photograph unaided, and one product finding~~ [CLOSED 2026-10-31 (owner 2026-10-31: the GUI mirror is the review tool, no more census tooling before the public release). FILED 2026-09-22 with the GUI-census seam-op wave (GUI-24..GUI-27). EIGHT items. 1 to 4 are FIXTURE gaps (4 measured by GUI-24's first flight); 5 and 6 are INSTRUMENT gaps measured by GUI-25's and GUI-26's first flights; 7 is an OP-SCOPE correction to the wave's own lane plan; 8 IS a product finding, verified at its source site and deliberately not fixed in that PR. OPEN; each names what it needs. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+
+**CLOSED 2026-10-31 as known census limits (owner: the GUI mirror is the review tool, no more
+census tooling before the public release).** Item 8 is fixed; items 1 to 6 stay recorded below for
+any later lane author.
+
+**RE-CHECKED 2026-10-31 on main `b36af9b`: item 8 (the one product finding) FIXED** on branch
+`claude/project-thread-u4r6uw` - the three Logistics `PopupDialog` bodies and every screen message
+go through `StockFontText.ForStockUi`, which writes the route-name arrow as `->` on stock uGUI
+surfaces only (IMGUI keeps the arrow). Items 1 to 6 are census fixture / instrument gaps, no
+product defect; 4 and 7 were already closed.
 
 **Read 5 and 6 before authoring any census lane.** Both are cases where every log contract
 PASSED over a picture that showed the wrong thing, which is the failure mode a census is
@@ -7669,7 +7713,25 @@ obvious fix: either ASCII-ise the arrow in the composed name (which changes the 
 surfaces too, where it currently looks right), or substitute at the two dialog-body sites
 only. Not fixed here - this PR adds no C#.
 
-## GUI-STATE-COVERAGE-RESIDUE-2026-09-21: two dead draw branches, eleven window states the census still cannot reach, and five product findings the flights turned up [FILED 2026-09-21 with the GUI-census state-coverage wave (GUI-13..GUI-23), extended 2026-09-22 after the flights and the PR review. EIGHTEEN items. 1 and 2 are DEAD CODE verified from source; 3 to 13 are INSTRUMENT or FIXTURE gaps, not product defects; 14 to 18 ARE product findings, each verified at its source site and deliberately not fixed in that PR. OPEN; each names what it needs. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+## ~~GUI-STATE-COVERAGE-RESIDUE-2026-09-21: two dead draw branches, eleven window states the census still cannot reach, and five product findings the flights turned up~~ [CLOSED 2026-10-31 (owner 2026-10-31: the GUI mirror is the review tool, no more census tooling before the public release). FILED 2026-09-21 with the GUI-census state-coverage wave (GUI-13..GUI-23), extended 2026-09-22 after the flights and the PR review. EIGHTEEN items. 1 and 2 are DEAD CODE verified from source; 3 to 13 are INSTRUMENT or FIXTURE gaps, not product defects; 14 to 18 ARE product findings, each verified at its source site and deliberately not fixed in that PR. OPEN; each names what it needs. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+
+**CLOSED 2026-10-31 as known census limits (owner: the GUI mirror is the review tool, no more
+census tooling before the public release).** Every product item is closed (see the re-check note);
+the fixture / instrument gaps stay recorded below for any later lane author.
+
+**RE-CHECKED 2026-10-31 on main `b36af9b`: every product finding is closed; what stays open is
+the census fixture / instrument gaps (3, 8, 9, 11, 12, 13).** Fixed on branch
+`claude/project-thread-u4r6uw`: 19 (an escrow hold whose reserving route has no name now reads
+`... reserved by another route`, unquoted, through three new clauses) and 20 (the two hold
+clauses no longer print `(origin-unresolved:...)` / `(pickup-source-unresolved:...)`; the token
+stays in the `Route ... hold recorded ... detail=` log line). Moot: 2, 7 and 15 (the in-Parsek
+Gloops recorder was deleted 2026-10-05), 14 and 16 (the Logistics window rework removed the
+`Status: Paused - Paused ...` line and replaced `Delivers per cycle` with the pickup-aware
+`Delivers each run` / `Picks up each run` sentence), 5 and 6 (done / Career window removed), 17
+and 18 (resolved / by design). By design: 1 (the empty-table row is kept deliberately and the
+code says so at the draw site), 4 (a Paused route is not auto-dispatching, so a live "tanks full"
+line would describe a wait that is not running; its hold clause already names the full
+destination), 10 (the grey row is documented in `design-gui-inventory.md`).
 
 **Where this came from.** A read-only audit enumerated every visibly distinct draw branch
 of the 14 IMGUI windows from the source and checked each against the `.gui.json` control-
@@ -7953,7 +8015,11 @@ op that wave shipped, so read that entry before acting on one of those. And
 This entry is the residue of the states a flight CAN reach, plus what the eleven-lane
 wave (GUI-13..GUI-23) measured while reaching them.
 
-## GUI-SEAM-WAVE6-RESIDUE-2026-09-21: six of the nine in-place text editors and every hover string are still unreachable by the census [FILED 2026-09-21 with the wave-6 seam additions. OPEN; each needs a mechanism the wave deliberately did not build. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+## ~~GUI-SEAM-WAVE6-RESIDUE-2026-09-21: six of the nine in-place text editors and every hover string are still unreachable by the census~~ [CLOSED 2026-10-31 (owner 2026-10-31: the GUI mirror is the review tool, no more census tooling before the public release). FILED 2026-09-21 with the wave-6 seam additions. OPEN; each needs a mechanism the wave deliberately did not build. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+
+**CLOSED 2026-10-31 as known census limits (owner: the GUI mirror is the review tool, no more
+census tooling before the public release).** No product defect here; the unreachable editors and
+hover strings stay recorded below for any later lane author.
 
 **What landed.** `UiAction op=state` / `op=sort` / `op=select` / `op=edit`, three new
 `op=raise` rows, `op=run await=false`, `RouteCommand action=link|unlink|set-cadence`, and
@@ -8007,7 +8073,13 @@ divergence layout, which needs a career whose timeline ends later than now, so a
 photographing them needs a rewound career first.
 
 ---
-## GUI-STATE-GALLERY-2026-09-21: ~312 of ~480 enumerated GUI states are unphotographed, most of them unreachable by flying, so the mirror shows a product that never fails [FILED 2026-09-21 off the state-coverage audit. DESIGN LANDED (`docs/dev/design-gui-state-gallery.md`), P1, P1b and the mirror half of P2 built. OPEN; all seven owner questions answered YES 2026-09-21 (design section 16), remainder is P2's `GalleryRun` verb and lanes, then P3-P7. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+## ~~GUI-STATE-GALLERY-2026-09-21: ~312 of ~480 enumerated GUI states are unphotographed, most of them unreachable by flying, so the mirror shows a product that never fails~~ [CLOSED 2026-10-31, NOT PURSUED (owner: the GUI is judged in game; the mirror was an iteration aid and is left as it is). FILED 2026-09-21 off the state-coverage audit. DESIGN LANDED (`docs/dev/design-gui-state-gallery.md`), P1, P1b and the mirror half of P2 built. OPEN; all seven owner questions answered YES 2026-09-21 (design section 16), remainder is P2's `GalleryRun` verb and lanes, then P3-P7. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+
+**CLOSED 2026-10-31, NOT PURSUED (owner, thread "Work through GUI census leftovers": "as long as
+the gui looks and works in game, the mirror was just a programmatic translation layer to increase
+iteration speed ... leave it at that").** The remaining phases (P2's `GalleryRun` verb and lanes,
+P3-P7) are not built. What landed stays as it is: the `op=mock` seam, the compiled catalogue under
+`UI/Gallery/`, the mirror's mock badge and notes schema, and their tests.
 
 **PART LANDED 2026-09-22 (the MIRROR half of phase P2, owner rulings 1, 5 and
 7).** Three things the loop needed, all in `harness/tools/gui_mirror.py`, all
@@ -8777,7 +8849,14 @@ its refusal reasons at about 1 Hz and already owns a disabled-hover echo; the sh
 carry the reason into that echo for the button the player just pressed, not to add 46
 messages. That is one design decision about one window, so it is filed as one item.
 
-## GUI-INVENTORY-STOCKUIOVERLAY-BADGES-ARE-INVISIBLE-TO-BOTH-CENSUS-INSTRUMENTS [FILED 2026-09-11 by the GUI fix batch; a TOOLING entry. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+## ~~GUI-INVENTORY-STOCKUIOVERLAY-BADGES-ARE-INVISIBLE-TO-BOTH-CENSUS-INSTRUMENTS~~ [CLOSED 2026-10-31: the badges no longer exist. FILED 2026-09-11 by the GUI fix batch; a TOOLING entry. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+
+**CLOSED 2026-10-31, stale.** `OverlayBadge` and its tints were deleted under the owner's
+stock-control annotation ruling (D1, 2026-09-25): no Parsek-drawn badge exists on a stock screen
+(zero `OverlayBadge` hits in `Source/Parsek`). The marks are now stock's own disabled states,
+labels and tooltips, and every one is logged as a decision record (`[StockUiOverlay] record` /
+`control` lines) that `GUI-28` and `GUI-30` read beside their photographs. The evidence below is
+the pre-ruling layer.
 
 **Evidence.** `StockUiOverlayController.cs:49` hooks `RDController.OnRDTreeSpawn`,
 `GameEvents.onGUIAstronautComplexSpawn` and `GameEvents.onGUIMissionControlSpawn`
@@ -8922,7 +9001,13 @@ Filed 2026-09-23 by the D3 `relative-loop` lane (register item C5, branch `d3-re
 
 **Fix direction (not taken).** Seed `loadedAnchorVessels` from the already-loaded vessels (at least `FlightGlobals.ActiveVessel`) when `ParsekFlight` starts or on `onFlightReady`, skipping ghost map vessels the same way `OnVesselLoaded` does. Needs a unit cell on the seeding decision and an RL-1 variant anchored to the active vessel as the live witness.
 
-## U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER: the GUI census's only viable host carries 25 pre-existing analyzer FAILs; the lanes now declare the analyzer row REPORT-ONLY, and what those 25 findings ARE is still open [PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+## ~~U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER: the GUI census's only viable host carries 25 pre-existing analyzer FAILs; the lanes now declare the analyzer row REPORT-ONLY, and what those 25 findings ARE is still open~~ [CLOSED 2026-10-31: the lanes are report-only and the findings sit on an old save. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+
+**CLOSED 2026-10-31.** The census lanes already declare the analyzer row report-only and have
+flown green on it. The open question was whether 25 overlaps on months-old recordings in the
+operator's own `c1` career are a recorder defect from an earlier era; with no public release yet,
+old saves carry no compatibility weight (owner, 2026-10-21), and every fresh-save lane gates the
+analyzer, which is where a current recorder overlap would show. Not worth an investigation.
 
 MEASURED 2026-09-10 while authoring the GUI census (branch `gui-census`), not predicted.
 The offline analyzer over the operator's `c1` career - the lane's host, staged as
@@ -9005,7 +9090,11 @@ they are an artifact of a since-changed writer, the report-only row is the right
 answer for a census host. Either way that reading is an investigation, not a re-run, and
 the census lanes are no longer blocked on it.
 
-## GUI-CENSUS-FOURTEEN-DIALOGS-NEED-LIVE-STATE-TO-RAISE: the 14 modals `op=raise` deliberately does not reach, each named with what it would need [Filed 2026-09-15 as the successor to the entry above, which is closed. Not a defect and not a backlog item to clear blindly: a dialog raised over synthetic state photographs a screen the game cannot be in. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+## ~~GUI-CENSUS-FOURTEEN-DIALOGS-NEED-LIVE-STATE-TO-RAISE: the 14 modals `op=raise` deliberately does not reach, each named with what it would need~~ [CLOSED 2026-10-31 as a reference note: not work. Filed 2026-09-15 as the successor to the entry above, which is closed. Not a defect and not a backlog item to clear blindly: a dialog raised over synthetic state photographs a screen the game cannot be in. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+
+**CLOSED 2026-10-31 as a reference note.** The entry itself says it is not a backlog item:
+it records why each modal has no raise row. Its knowledge lives in `design-gui-inventory.md`
+("what stays unreachable"); a lane that ever needs one of these dialogs starts there.
 
 The raise table admits a dialog only when its spawn is reachable by a pure in-process call
 with data the host already carries. What the other fourteen need, read off their spawn sites
@@ -9093,7 +9182,12 @@ and section 6.2 originally named `ShowWipeRecordingsConfirmation` alongside them
 that one entry point would raise a modal with no scene transition and no lock interaction
 at all, which makes it the obvious first dialog to photograph.
 
-## GUI-CENSUS-ONLY-THE-GLOBAL-RUNNER-TELLS-THE-PLAYER-RESULTS-ARE-AUTO-EXPORTED: the two identically titled Test Runner windows carry different footer text, and the one a player reaches from Settings is the one missing the hint [Filed 2026-09-15 off the GUI-12 dumps. Not a defect and not a fix to apply blindly: it is a WORDING gap on an existing surface. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+## ~~GUI-CENSUS-ONLY-THE-GLOBAL-RUNNER-TELLS-THE-PLAYER-RESULTS-ARE-AUTO-EXPORTED: the two identically titled Test Runner windows carry different footer text, and the one a player reaches from Settings is the one missing the hint~~ [FIXED 2026-10-31, branch `claude/project-thread-u4r6uw`. Filed 2026-09-15 off the GUI-12 dumps. Not a defect and not a fix to apply blindly: it is a WORDING gap on an existing surface. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+
+**FIXED 2026-10-31** (branch `claude/project-thread-u4r6uw`): the Settings-launched runner's
+footer now carries the same `Results file auto-updates after each run. Multi-scene runs
+accumulate.` line above its Ctrl+Shift+T line (`UI/TestRunnerUI.cs`); `design-gui-inventory.md`
+section 3.11 updated. Not flown: a one-label IMGUI change, census photographs on the next GUI-12.
 
 MEASURED off `2026-09-15_2057_GUI-12-census-testrunners` (the two `-collapsed-advanced`
 dumps, read as text rather than as pixels). The GLOBAL Ctrl+Shift+T window draws TWO
@@ -9120,7 +9214,11 @@ has a search / filter bar and the global one does not, which is exactly 3 GUI-tr
 between the two windows at every state (4217 vs 4214 idle, 473 vs 470 collapsed, 479 vs 476
 with one category expanded). `design-gui-inventory.md` section 3.11 owns that table.
 
-## GUI-MIRROR-THREE-STATES-LEAVE-A-FOLD-CLICK-AMBIGUOUS: in the GUI mirror a fold control can only be resolved where the census photographed exactly two states of that tab, so the Logistics folds flash instead of toggling [PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+## ~~GUI-MIRROR-THREE-STATES-LEAVE-A-FOLD-CLICK-AMBIGUOUS: in the GUI mirror a fold control can only be resolved where the census photographed exactly two states of that tab, so the Logistics folds flash instead of toggling~~ [CLOSED 2026-10-31: the honest refusal stays. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+
+**CLOSED 2026-10-31.** The page already refuses an ambiguous fold honestly, and the entry's own
+trigger ("decide when someone actually wants to drive a fold in the mirror") has not come up.
+Reopen if a mirror reader needs it.
 
 FILED 2026-09-15 with the mirror (`harness/tools/gui_mirror.py`,
 `docs/dev/design-gui-mirror.md` section 2). A fold control carries a glyph, not a
@@ -9146,7 +9244,10 @@ its tab chips fall back to the seam token (`rewindff` rather than `Rewind / FF`)
 Clicking them works - the text match finds them - only the chip label is the
 automation name. Fixable by deriving the name from whichever control token-matched.
 
-## GUI-CENSUS-PICKER-POPUPS-ARE-PHOTOGRAPHABLE-BUT-NOT-FINDABLE: a row-armed picker's contents never enter a GUI-tree dump, so `op=find` cannot reach a control inside one [Filed 2026-09-11 off the review of the six census ops. Not a defect: a structural property of uGUI, recorded so a lane author does not spend a boot discovering it. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+## ~~GUI-CENSUS-PICKER-POPUPS-ARE-PHOTOGRAPHABLE-BUT-NOT-FINDABLE: a row-armed picker's contents never enter a GUI-tree dump, so `op=find` cannot reach a control inside one~~ [CLOSED 2026-10-31 as a reference note: not work. Filed 2026-09-11 off the review of the six census ops. Not a defect: a structural property of uGUI, recorded so a lane author does not spend a boot discovering it. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+
+**CLOSED 2026-10-31 as a reference note.** Not a defect, and its own fix line says a uGUI
+reader is not worth building on today's evidence. Kept below for lane authors.
 
 `op=picker` opens a `PopupDialog`-hosted popup (Set Parent Group, Manage Groups, the
 Logistics round-trip link picker). `GuiTreeRecorder` patches `GUI.DoWindow` and the other
@@ -9166,7 +9267,11 @@ reader is a second capture pipeline - walk the popup's `RectTransform` tree and 
 same node shape the IMGUI recorder does - for three popups whose contents a PNG already
 carries. Not worth it on today's evidence.
 
-## GUI-CENSUS-EXPAND-ANSWERS-OK-OVER-A-SURFACE-THE-MODE-IS-NOT-DRAWING: `op=expand` in Basic toggles Recordings-tab state the window is not showing, so a capture paired with it shows nothing moved [Filed 2026-09-11 off the same review. By design; the LANE owns the fix. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+## ~~GUI-CENSUS-EXPAND-ANSWERS-OK-OVER-A-SURFACE-THE-MODE-IS-NOT-DRAWING: `op=expand` in Basic toggles Recordings-tab state the window is not showing, so a capture paired with it shows nothing moved~~ [CLOSED 2026-10-31: by design, recorded in the seam design doc. Filed 2026-09-11 off the same review. By design; the LANE owns the fix. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+
+**CLOSED 2026-10-31, by design.** The lane owns the fix and the rule is already recorded
+beside `SettleChecksHostShowUi` and in `design-autotest-command-seam.md` -> "REVIEW FOLLOW-UPS
+(2026-09-11)". Nothing is owed.
 
 The settle's host-visibility gate is per OP (`TestCommandUiAction.SettleChecksHostShowUi`:
 `open` and `rect` alone, because those two read back a FIELD that a hidden host would let
@@ -9184,7 +9289,12 @@ today) and would refuse the legitimate case of arranging state now and photograp
 after a later mode switch. Recorded beside `SettleChecksHostShowUi` and in
 `design-autotest-command-seam.md` -> "REVIEW FOLLOW-UPS (2026-09-11)"; no behaviour change.
 
-## GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT: `op=pointer` puts the OS cursor on the resolved control and Unity reads it back there, but IMGUI's hover never fires, so all four census hover captures photograph an un-hovered window [Filed 2026-09-11 off the wave-2 reading runs. The op does what it says; what it cannot do is make IMGUI believe it. STILL OPEN 2026-09-15, and now with a CAUSE and both pre-registered candidates RETIRED - see the update at the head of this entry. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+## ~~GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT: `op=pointer` puts the OS cursor on the resolved control and Unity reads it back there, but IMGUI's hover never fires, so all four census hover captures photograph an un-hovered window~~ [CLOSED 2026-10-31 (owner 2026-10-31: the GUI mirror is the review tool, no more census tooling before the public release). Filed 2026-09-11 off the wave-2 reading runs. The op does what it says; what it cannot do is make IMGUI believe it. STILL OPEN 2026-09-15, and now with a CAUSE and both pre-registered candidates RETIRED - see the update at the head of this entry. PRIORITY 2026-10-25 (owner): GUI census leftovers come after the open bug fixes, before the full test rerun]
+
+**CLOSED 2026-10-31 as a known census limit (owner: the GUI mirror is the review tool, no more
+census tooling before the public release).** Both candidate fixes were flown and refuted; hover
+text stays covered by its unit cells (`TooltipEchoBudgetTests` and the presentation tests), not by
+photographs.
 
 **UPDATE 2026-09-15: BOTH CANDIDATE FIXES WERE BUILT, FLOWN AND REFUTED, and the flight
 measured the cause instead.** Run `2026-09-15_1539` (GUI-7, PASS attempt 1, 63 s, deployed
@@ -16629,7 +16739,10 @@ is a gate worth discussing. Extraction/diff tooling landed with R14
 (`hlib.parse_fx_fingerprint_lines` / `diff_fx_fingerprints` /
 `format_fx_fingerprint_diff` + `harness/tools/fx_fingerprint_diff.py`).
 
-### T42b. GUI mirror: what the fidelity instrument measured and did NOT fix
+### ~~T42b. GUI mirror: what the fidelity instrument measured and did NOT fix~~
+
+**CLOSED 2026-10-31 (owner: the mirror is left as it is).** The five differences below are accepted
+page-vs-game limits, none a product defect.
 
 `harness/tools/gui_mirror_fidelity.py` (design: `docs/dev/design-gui-mirror.md` section 11)
 photographs the generated mirror page in a headless browser and compares it against the

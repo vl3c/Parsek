@@ -182,7 +182,7 @@ namespace Parsek.Tests.Logistics
             // -- OriginLacksCargo: origin side --
             c.Add(C("OriginPickupSourceUnresolved",
                 "a pickup source vessel could not be found - it may have moved,"
-                    + " been recovered, or been destroyed (pickup-source-unresolved:42)",
+                    + " been recovered, or been destroyed",
                 LogisticsHoldPresentation.DescribeHold(
                     OriginLacksCargo, "pickup-source-unresolved:42", 0.0)));
             c.Add(C("OriginStoredPartStateChangedGeneric",
@@ -208,7 +208,7 @@ namespace Parsek.Tests.Logistics
                     OriginLacksCargo, "inventory:radialDrill", 0.0)));
             c.Add(C("OriginUnresolved",
                 "origin vessel could not be found - it may have moved,"
-                    + " been recovered, or been destroyed (origin-unresolved:7)",
+                    + " been recovered, or been destroyed",
                 LogisticsHoldPresentation.DescribeHold(
                     OriginLacksCargo, "origin-unresolved:7", 0.0)));
             c.Add(C("OriginShortOfResource",
@@ -272,10 +272,15 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.DescribeHold(
                     OriginLacksCargo, "source-reserved:42:Depot B:LiquidFuel:Return Leg", 0.0)));
             c.Add(C("ReservedPickupSourceResourceUnnamedRoute",
-                "Depot B has LiquidFuel reserved by route 'another route'"
+                "Depot B has LiquidFuel reserved by another route"
                     + " - delivers when the reservation clears",
                 LogisticsHoldPresentation.DescribeHold(
                     OriginLacksCargo, "source-reserved:42:Depot B:LiquidFuel:", 0.0)));
+            c.Add(C("ReservedPickupSourceCargoUnnamedRoute",
+                "Depot B has cargo reserved by another route"
+                    + " - delivers when the reservation clears",
+                LogisticsHoldPresentation.DescribeHold(
+                    OriginLacksCargo, "source-reserved:42:Depot B::", 0.0)));
         }
 
         // ------------------------------------------------------------------
@@ -331,6 +336,12 @@ namespace Parsek.Tests.Logistics
             c.Add(C("CompactReservedResourceNamedRoute", "LiquidFuel reserved by 'Return Leg'",
                 LogisticsHoldPresentation.CompactHold(
                     OriginLacksCargo, "source-reserved:42:Depot B:LiquidFuel:Return Leg", 0.0)));
+            c.Add(C("CompactReservedResourceUnnamedRoute", "LiquidFuel reserved by another route",
+                LogisticsHoldPresentation.CompactHold(
+                    OriginLacksCargo, "source-reserved:42:Depot B:LiquidFuel:", 0.0)));
+            c.Add(C("CompactReservedCargoUnnamedRoute", "cargo reserved by another route",
+                LogisticsHoldPresentation.CompactHold(
+                    OriginLacksCargo, "source-reserved:42:Depot B::", 0.0)));
 
             c.Add(C("CompactPickupSourceUnparsed", "pickup source short of cargo",
                 LogisticsHoldPresentation.CompactHold(OriginLacksCargo, "source:42", 0.0)));

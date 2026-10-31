@@ -552,6 +552,10 @@ namespace Parsek
             // ("ParsekTestRunnerGlobal") carries the same title, so pressing it while this
             // one is open puts a SECOND identically-titled runner on screen. The old label
             // claimed the shortcut as this window's own (finding P16).
+            // Both runners auto-export (InGameTestRunner.ExportResultsFile runs on every
+            // batch completion), so this window says where the results go, as the global one does.
+            GUILayout.Label("Results file auto-updates after each run. Multi-scene runs accumulate.",
+                GUI.skin.label);
             GUILayout.Label("Ctrl+Shift+T opens a separate runner window, in any scene",
                 GUI.skin.label);
 
