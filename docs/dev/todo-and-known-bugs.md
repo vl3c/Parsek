@@ -3677,6 +3677,8 @@ timeline, re-locked by a Rewind-to-Launch, a second research refused `insufficie
 row reserves its 45 in the live pool; the committed-row click-block behind it is not reached), and the
 crossing unlocking it with the science spent once. No defect.
 
+Progress 2026-10-31 (branch `rw17-two-part-contract`): lane `RW-17-contract-completed-earlier` LIVE-PROVEN (`2026-10-31_0227`): a multi-parameter contract completed earlier after a rewind pays once at the earlier UT, the later completion zeroed, nothing taken back. Seam added: PartAction button=runtest. Plan row 16's paid part is not flown: no cheap host contract has one (the only offer needs orbit, rendezvous and a crew transfer); it stays held by the unit tests. No defect.
+
 ## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
 
 While Jeb stood (or lay ragdolled) on the Mun's surface as a BACKGROUND vessel during the CS-7

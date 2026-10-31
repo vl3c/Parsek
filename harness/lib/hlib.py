@@ -765,7 +765,7 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # (design-vessel-and-mission-names.md 15.3).
     #   PartAction button=undock|decouple|controlfrom|deploy|retract|startconverter|
     #     stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|
-    #     activate [part=<part name>]
+    #     activate|explode|chute|runtest [part=<part name>]
     #     [converter=<ConverterName>] [all=true] [pid=<pid>]
     #     [expectSnapshot=true|false rec=<recordingId> tolerance=<abs>] (inspect only), FLIGHT,
     #     SINGLE-PHASE, default 60 s: one
@@ -3959,7 +3959,7 @@ PARTACTION_BUTTONS_ACCEPTING_SNAPSHOT: Tuple[str, ...] = ("inspect",)
 PARTACTION_BUTTON_VALUES: Tuple[str, ...] = (
     "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
     "stopconverter", "experiment", "labprocess", "labtransmit", "inspect", "radiatoron",
-    "radiatoroff", "activate", "explode", "chute",
+    "radiatoroff", "activate", "explode", "chute", "runtest",
 )
 PARTACTION_BUTTONS_REQUIRING_PART: Tuple[str, ...] = tuple(
     b for b in PARTACTION_BUTTON_VALUES if b != "undock")
