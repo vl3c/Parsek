@@ -512,7 +512,7 @@ that reaches a spending screen during the attempt without one of those walks cou
 same shape #2309 fixed for reverts. Decide whether the Re-Fly start should patch at the current UT
 and keep the full walk for its bundle restore only.
 
-## STOCK-POOL-REFERENCE-CARRIED-ROWS-COUNTED-TWICE: a rewind point's reference loaded twice carries a removed row's step twice [FILED 2026-10-28 from the #2314 review; code-read, NOT FIXED; low]
+## ~~STOCK-POOL-REFERENCE-CARRIED-ROWS-COUNTED-TWICE: a rewind point's reference loaded twice carries a removed row's step twice~~ [FILED 2026-10-28 from the #2314 review; FIXED 2026-10-31, branch `fix-low-ledger-bugs`; xUnit only; low]
 
 When the rewind point's `STOCK_POOL_REFERENCE` counted and stepped a row that has since been removed
 from the ledger, `StockPoolReference.Measure` carries the stepped part as an adjustment row. A Re-Fly
@@ -521,6 +521,23 @@ is filed at the invoke walk's `nowUT = double.MaxValue`, so a later full-ledger 
 Two plain rewinds to the same save already do this. Needs a dedupe of carried adjustments per source
 row, or a repair prune. Test: load one reference twice with a removed stepped row, and expect one
 carried adjustment.
+
+**Fix.** Confirmed by code read: `StockPoolReference.Measure`'s authoritative branch filed every
+removed stepped row's part again on each load, with nothing on the row saying what it carried. A
+carry row now names its sources (`GameAction.AdjustmentCarriedFrom`, sparse `carriedFrom` key on
+the `StockPoolAdjustment` row, read back into `StockPoolRow.CarriedFrom`), and the new pure
+`StockPoolReference.ResolveRemovedCarries` decides per removed row: an existing carry row the walk
+dispatched already holds it (`CarryAlreadyHeld`, not carried again); a carry row past the walk's
+now (the invoke walk's `double.MaxValue`) is replaced: the row is carried at this patch's now and
+the older row is retired (`CarriesRetired`, removed by `KspStatePatcher.ApplyCarryDedupe`, dropped
+from `Commit`), only when every source it names is carried again and the reference does not count
+it; otherwise it is kept with a Warn (`CarriesOverlapKept`), so nothing carried is ever dropped. Only
+an id match skips a carry, so a distinct removed row is always carried. Not covered: a row removed
+during a MEASURED patch is kept by that patch's unattributed leak row, which names no source.
+xUnit: `StockPoolReferenceTests.CarriedTwice_SameReferenceLoadedTwice_CarriesTheRemovedRowOnce`,
+`CarriedTwice_ReFlyStartThenDiscard_ReplacesTheFullWalkCarry`,
+`CarriedTwice_ADistinctRemovedRow_IsStillCarried`, `CarriedTwice_AnOlderCarryNamingAnotherSource_IsKept`,
+`CarriedFrom_RoundTripsThroughTheLedgerRow`.
 
 ## KSC-RETIRED-FLIGHT-FREES-CREW-BEFORE-ITS-RECOVERY: after a rewind, a pad-retired flight frees its crew at the trimmed recording end, not at its recovery row [FILED 2026-10-28 from RW-2 and the gap sweep claim 6; code-read plus one live window, NOT FIXED; reservation, low-medium]
 

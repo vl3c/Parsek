@@ -84,9 +84,13 @@ namespace Parsek.Tests
         {
             if (m.Adjustment == 0.0)
                 return;
-            GameAction row = StockPoolReference.BuildAdjustmentRow(pool, m.Adjustment, now);
+            GameAction row = StockPoolReference.BuildAdjustmentRow(pool, m.Adjustment, now,
+                m.CarriedRemoved != 0.0 ? m.CarriedSources : null);
             ledger.Add(row);
             m.AdjustmentRow = row;
+            // The patcher's ApplyCarryDedupe: older carry rows this carry replaces leave the ledger.
+            ledger.RemoveAll(a => a != null && a.Type == GameActionType.StockPoolAdjustment
+                && m.CarriesRetired.Contains(a.ActionId));
         }
 
         /// <summary>One funds patch: walk at now, measure, file, write, commit.</summary>
@@ -555,6 +559,151 @@ namespace Parsek.Tests
             // The next patch with nothing changed writes the same pool.
             Assert.Equal(900.0, PatchFunds(14, 900), 6);
             Assert.False(lastMeasurement.LeakKept);
+        }
+
+        // ------------------------------------------------------------------
+        // STOCK-POOL-REFERENCE-CARRIED-ROWS-COUNTED-TWICE: one reference loaded twice carries a
+        // removed stepped row once
+        // ------------------------------------------------------------------
+
+        private static int CarryRows(IEnumerable<GameAction> rows, string source) => rows.Count(a =>
+            a != null && a.Type == GameActionType.StockPoolAdjustment && a.AdjustmentCarriedFrom != null
+            && a.AdjustmentCarriedFrom.Contains(source));
+
+        /// <summary>A reference that counted and stepped earning <paramref name="id"/> (+200), saved,
+        /// and the row then removed from the ledger itself.</summary>
+        private ConfigNode SaveReferenceThenRemove(string id)
+        {
+            BaselineFunds(1000);
+            var x = Earn(id, 5, 200f);
+            ledger.Add(x);
+            Assert.Equal(1200.0, PatchFunds(10, 1200), 6);
+            Assert.Equal(200.0, StockPoolReference.Funds.Counted[id].Stepped, 6);
+            var rp = new ConfigNode("SCENARIO");
+            StockPoolReference.SaveTo(rp);
+            ledger.Remove(x);
+            return rp;
+        }
+
+        [Fact]
+        public void CarriedTwice_SameReferenceLoadedTwice_CarriesTheRemovedRowOnce()
+        {
+            ConfigNode rp = SaveReferenceThenRemove("x");
+
+            StockPoolReference.LoadFrom(rp, "PlainRewind");
+            Assert.Equal(1200.0, PatchFunds(10, 1200, authoritative: true), 6);
+            Assert.Equal(200.0, lastMeasurement.CarriedRemoved, 6);
+            Assert.Equal(1, CarryRows(ledger, "x"));
+
+            // A second rewind to the same save: the reference counts x again, the carry row from
+            // the first load is in the walk, so nothing is carried twice.
+            StockPoolReference.LoadFrom(rp, "PlainRewind");
+            Assert.Equal(1200.0, PatchFunds(10, 1200, authoritative: true), 6);
+            Assert.Equal(0.0, lastMeasurement.Adjustment, 6);
+            Assert.Single(lastMeasurement.CarryAlreadyHeld);
+            Assert.Equal(1, CarryRows(ledger, "x"));
+            Assert.Equal(200.0, Adjusted(StockPool.Funds), 6);
+
+            // A full-ledger walk counts it once.
+            Assert.Equal(1200.0, PatchFunds(double.MaxValue, 1200), 6);
+            Assert.False(lastMeasurement.LeakKept);
+        }
+
+        [Fact]
+        public void CarriedTwice_ReFlyStartThenDiscard_ReplacesTheFullWalkCarry()
+        {
+            ConfigNode rp = SaveReferenceThenRemove("x");
+
+            // Re-Fly start: the invoke walk's now is double.MaxValue, so its carry is filed there.
+            StockPoolReference.LoadFrom(rp, "ReFlyStart");
+            Assert.Equal(1200.0, PatchFunds(double.MaxValue, 1200, authoritative: true), 6);
+            GameAction first = ledger.Single(a => a.Type == GameActionType.StockPoolAdjustment);
+            Assert.Equal(double.MaxValue, first.UT);
+
+            // Discard Re-fly loads the same reference; a cutoff walk does not dispatch the
+            // first carry, so it carries x here and retires the first copy.
+            StockPoolReference.LoadFrom(rp, "DiscardReFly");
+            Assert.Equal(1200.0, PatchFunds(10, 1200, authoritative: true), 6);
+            Assert.Equal(200.0, lastMeasurement.CarriedRemoved, 6);
+            Assert.Equal(new[] { first.ActionId }, lastMeasurement.CarriesRetired.ToArray());
+            Assert.DoesNotContain(first, ledger);
+            Assert.Equal(1, CarryRows(ledger, "x"));
+            Assert.Equal(200.0, Adjusted(StockPool.Funds), 6);
+            Assert.False(StockPoolReference.Funds.Counted.ContainsKey(first.ActionId));
+
+            // The later full walk counts the carry once (it counted both before the fix).
+            Assert.Equal(1200.0, PatchFunds(double.MaxValue, 1200), 6);
+            Assert.False(lastMeasurement.LeakKept);
+            Assert.Equal(1200.0, PatchFunds(20, 1200), 6);
+            Assert.False(lastMeasurement.LeakKept);
+        }
+
+        [Fact]
+        public void CarriedTwice_ADistinctRemovedRow_IsStillCarried()
+        {
+            BaselineFunds(1000);
+            var x = Earn("x", 5, 200f);
+            var y = Earn("y", 6, 50f);
+            ledger.Add(x);
+            ledger.Add(y);
+            Assert.Equal(1250.0, PatchFunds(10, 1250), 6);
+            var rp = new ConfigNode("SCENARIO");
+            StockPoolReference.SaveTo(rp);
+
+            // x leaves the ledger and is carried by the first load.
+            ledger.Remove(x);
+            StockPoolReference.LoadFrom(rp, "PlainRewind");
+            Assert.Equal(1250.0, PatchFunds(10, 1250, authoritative: true), 6);
+            Assert.Equal(200.0, lastMeasurement.CarriedRemoved, 6);
+
+            // y leaves too; the second load carries y only, never x again, never dropping y.
+            ledger.Remove(y);
+            StockPoolReference.LoadFrom(rp, "PlainRewind");
+            Assert.Equal(1250.0, PatchFunds(10, 1250, authoritative: true), 6);
+            Assert.Equal(50.0, lastMeasurement.CarriedRemoved, 6);
+            Assert.Equal(new[] { "y" }, lastMeasurement.CarriedSources.ToArray());
+            Assert.Equal(1, CarryRows(ledger, "x"));
+            Assert.Equal(1, CarryRows(ledger, "y"));
+            Assert.Equal(250.0, Adjusted(StockPool.Funds), 6);
+        }
+
+        [Fact]
+        public void CarriedTwice_AnOlderCarryNamingAnotherSource_IsKept()
+        {
+            // A future-dated carry row naming x and z; the reference loaded counts x only.
+            var older = StockPoolReference.BuildAdjustmentRow(
+                StockPool.Funds, 300, double.MaxValue, new[] { "x", "z" });
+            older.ActionId = "older";
+            var rows = new List<StockPoolRow>
+            {
+                new StockPoolRow { ActionId = "older", UT = double.MaxValue, Effect = double.NaN,
+                    CarriedFrom = new[] { "x", "z" } },
+            };
+            var state = new StockPoolReferenceState(StockPool.Funds) { Initialized = true, LastWritten = 1200 };
+            state.Counted["x"] = new CountedRow { Effect = 200, Stepped = 200 };
+            StockPoolMeasurement m = StockPoolReference.Measure(
+                state, rows, 10, 1200, 0.0, true, 0.01, double.NaN, new HashSet<string> { "older" });
+            Assert.Equal(200.0, m.Adjustment, 6);
+            Assert.Empty(m.CarriesRetired);
+            Assert.Equal(new[] { "older" }, m.CarriesOverlapKept.ToArray());
+        }
+
+        [Fact]
+        public void CarriedFrom_RoundTripsThroughTheLedgerRow()
+        {
+            GameAction row = StockPoolReference.BuildAdjustmentRow(StockPool.Funds, 200, 10, new[] { "x", "y" });
+            var parent = new ConfigNode("LEDGER");
+            row.SerializeInto(parent);
+            ConfigNode node = parent.GetNode("GAME_ACTION");
+            Assert.Equal(new[] { "x", "y" }, node.GetValues(GameAction.AdjustmentCarriedFromKey));
+            GameAction back = GameAction.DeserializeFrom(node);
+            Assert.Equal(new[] { "x", "y" }, back.AdjustmentCarriedFrom.ToArray());
+            GameAction plain = StockPoolReference.BuildAdjustmentRow(StockPool.Funds, 5, 10);
+            var plainParent = new ConfigNode("LEDGER");
+            plain.SerializeInto(plainParent);
+            ConfigNode plainNode = plainParent.GetNode("GAME_ACTION");
+            Assert.Empty(plainNode.GetValues(GameAction.AdjustmentCarriedFromKey));
+            Assert.Null(GameAction.DeserializeFrom(plainNode).AdjustmentCarriedFrom);
         }
 
         // ------------------------------------------------------------------
