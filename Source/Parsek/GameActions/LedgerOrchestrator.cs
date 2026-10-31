@@ -1790,6 +1790,9 @@ namespace Parsek
                 case GameActionType.ContractParameterComplete:
                     return (a.ContractId ?? "") + "|" + (a.ContractParameterId ?? "");
                 case GameActionType.KerbalHire: return a.KerbalName ?? "";
+                // A dismissal: the kerbal name, like the hire (the UT and the capture number
+                // tell two dismissals of one kerbal apart).
+                case GameActionType.KerbalDismissal: return a.KerbalName ?? "";
                 // KerbalExperience: the kerbal name, mirroring KerbalHire. Falling through
                 // to the default "" would make one recovery's crew collapse into a single
                 // row - every crew member's XP row shares the recovery's UT exactly (one
@@ -4494,6 +4497,12 @@ namespace Parsek
                     HighLogic.CurrentGame?.CrewRoster, hiresToMake);
             }
 
+            // A dismissal the clock reached (design section 9.12.1): a load back in time put
+            // the kerbal back on the crew list; make him an applicant again, once. After the
+            // hires, so a hire and a later dismissal both reached in one pass end with him
+            // dismissed.
+            ApplyReachedCommittedDismissals(actions, kerbalsModule);
+
             // LedgerTrace Tier-A: emit ONE structural snapshot per recalc, here (after
             // PatchAll), never inside a Patch* (that would emit 7x). Built from data
             // already in hand: module getters for the three pools, the facilities
@@ -4509,6 +4518,121 @@ namespace Parsek
                 LedgerTrace.EmitStructural(BuildLedgerStructuralSnapshot(
                     targetTechIds, utCutoff, authoritativeReduction));
             }
+        }
+
+        /// <summary>Why <see cref="PlanReachedCommittedDismissals"/> planned nothing.</summary>
+        internal const string DismissalSkipRewindPending = "rewind-ut-adjustment-pending";
+        internal const string DismissalSkipClockNotReady = "clock-not-ready";
+
+        /// <summary>
+        /// The live half of the dismissal pass: plans against the kerbal walk's clock (raised to
+        /// the held-through UT) and puts each named kerbal back among the applicants.
+        /// </summary>
+        private static void ApplyReachedCommittedDismissals(
+            IReadOnlyList<GameAction> actions, KerbalsModule kerbals)
+        {
+            if (!HasDismissalRow(actions))
+                return;
+            double clockUT = kerbals != null ? kerbals.WalkClockUT : double.NaN;
+            string skipReason;
+            List<string> names = PlanReachedCommittedDismissals(
+                actions, IsCommittedRowRecording, clockUT, LedgerHeldWindow.HeldThroughUT,
+                RecordingStore.RewindUTAdjustmentPending, out skipReason);
+            if (names == null)
+            {
+                ParsekLog.VerboseOnChange(Tag, "dismissal-pass-skip", skipReason,
+                    "Committed dismissals not applied this pass: reason=" + skipReason +
+                    " walkClockUT=" + clockUT.ToString("R", CultureInfo.InvariantCulture));
+                return;
+            }
+            if (names.Count > 0)
+                KerbalsModule.ApplyReachedCommittedDismissals(HighLogic.CurrentGame?.CrewRoster, names);
+        }
+
+        private static bool HasDismissalRow(IReadOnlyList<GameAction> actions)
+        {
+            if (actions == null) return false;
+            for (int i = 0; i < actions.Count; i++)
+                if (actions[i] != null && actions[i].Type == GameActionType.KerbalDismissal)
+                    return true;
+            return false;
+        }
+
+        /// <summary>A row counts as committed when it has no recording (a Space Center row) or
+        /// its recording is in the effective recording set.</summary>
+        private static bool IsCommittedRowRecording(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return true;
+            var ers = EffectiveState.ComputeERS();
+            if (ers == null) return false;
+            for (int i = 0; i < ers.Count; i++)
+                if (ers[i] != null && string.Equals(ers[i].RecordingId, recordingId, StringComparison.Ordinal))
+                    return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Pure: the dismissal pass's plan, or null when it must not run (a rewind's UT
+        /// adjustment is pending, or the clock is not a usable UT; <paramref name="skipReason"/>
+        /// says which). The ledger's now is <paramref name="clockUT"/> raised to
+        /// <paramref name="heldThroughUT"/> (<see cref="LedgerHeldWindow.ApplyHeldFloor"/>).
+        /// </summary>
+        internal static List<string> PlanReachedCommittedDismissals(
+            IReadOnlyList<GameAction> actions, Func<string, bool> isCommittedRecording,
+            double clockUT, double heldThroughUT, bool rewindUtAdjustmentPending, out string skipReason)
+        {
+            if (rewindUtAdjustmentPending)
+            {
+                skipReason = DismissalSkipRewindPending;
+                return null;
+            }
+            if (double.IsNaN(clockUT) || double.IsInfinity(clockUT) || !IsCurrentUtReadyForCutoff(clockUT))
+            {
+                skipReason = DismissalSkipClockNotReady;
+                return null;
+            }
+            skipReason = null;
+            return ResolveCommittedDismissalsToMake(
+                actions, isCommittedRecording, LedgerHeldWindow.ApplyHeldFloor(clockUT, heldThroughUT));
+        }
+
+        /// <summary>
+        /// Pure: the kerbals the dismissal pass puts back among the applicants at
+        /// <paramref name="nowUT"/>. Per kerbal, his latest committed roster row (a
+        /// <see cref="GameActionType.KerbalHire"/> or <see cref="GameActionType.KerbalDismissal"/>
+        /// at or before now, walk order) decides: a dismissal names him, a hire does not (he
+        /// was hired again after it). A row tagged to a recording outside the committed set
+        /// (<paramref name="isCommittedRecording"/>; null treats every tagged row as not
+        /// committed) is not counted. Ordered by kerbal name, without repeats.
+        /// </summary>
+        internal static List<string> ResolveCommittedDismissalsToMake(
+            IReadOnlyList<GameAction> actions, Func<string, bool> isCommittedRecording, double nowUT)
+        {
+            var latest = new Dictionary<string, GameAction>(StringComparer.Ordinal);
+            if (actions != null)
+            {
+                for (int i = 0; i < actions.Count; i++)
+                {
+                    GameAction a = actions[i];
+                    if (a == null || string.IsNullOrEmpty(a.KerbalName)) continue;
+                    if (a.Type != GameActionType.KerbalHire && a.Type != GameActionType.KerbalDismissal)
+                        continue;
+                    if (a.UT > nowUT) continue;
+                    if (!string.IsNullOrEmpty(a.RecordingId)
+                        && (isCommittedRecording == null || !isCommittedRecording(a.RecordingId)))
+                        continue;
+                    GameAction held;
+                    if (!latest.TryGetValue(a.KerbalName, out held)
+                        || RecalculationEngine.CompareWalkOrder(a, held) > 0)
+                        latest[a.KerbalName] = a;
+                }
+            }
+            var names = new List<string>();
+            foreach (var kv in latest)
+                if (kv.Value.Type == GameActionType.KerbalDismissal)
+                    names.Add(kv.Key);
+            names.Sort(StringComparer.Ordinal);
+            return names;
         }
 
         /// <summary>
@@ -6276,11 +6400,15 @@ namespace Parsek
         /// Parsek's. Inside the handler the live pool has not been charged and no
         /// FundsChanged(CrewRecruited) exists yet, so an inline recalc either clamps the
         /// drawdown or, with committed-future rows authorising it, patches the charge in
-        /// and stock then charges it a second time (HIRE-RECALC-BEFORE-STOCK-DEBIT).
+        /// and stock then charges it a second time (HIRE-RECALC-BEFORE-STOCK-DEBIT). Also the
+        /// KerbalDismissal row: <c>KerbalRoster.SackAvailable</c> raises
+        /// <c>OnCrewmemberSacked</c> BEFORE it makes the kerbal an applicant, so an inline
+        /// recalc would find him still crew and make him an applicant itself, ahead of stock.
         /// </summary>
         internal static bool ShouldDeferKscReconcileOneFrame(GameActionType type, bool hasFrameHost)
         {
-            return type == GameActionType.KerbalHire && hasFrameHost;
+            return (type == GameActionType.KerbalHire || type == GameActionType.KerbalDismissal)
+                && hasFrameHost;
         }
 
         /// <summary>

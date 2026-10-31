@@ -10,7 +10,7 @@ namespace Parsek.Tests
     {
         // Keep this count in sync with CreateAction's switch below so a new
         // GameActionType cannot land without an explicit fuzzer payload.
-        private const int ExpectedGameActionTypeCount = 41;
+        private const int ExpectedGameActionTypeCount = 42;
         private readonly bool priorSuppressLogging;
 
         public RecalculationFuzzerTests()
@@ -343,6 +343,7 @@ namespace Parsek.Tests
                 case GameActionType.KerbalHire:
                 case GameActionType.KerbalRescue:
                 case GameActionType.KerbalStandIn:
+                case GameActionType.KerbalDismissal:
                     action.KerbalName = "Kerbal " + iteration;
                     action.KerbalRole = "Engineer";
                     break;

@@ -310,6 +310,7 @@ namespace Parsek.Tests
                 "KerbalExperience", "StrategyScienceDebit", "StrategyScienceCredit",
                 "KerbalRecovered", "VesselRecovered", "RouteHeld", "ResourceScanUnlocked",
                 "ScienceLabEarning", "StockPoolAdjustment", "ContractParameterComplete",
+                "KerbalDismissal",
             };
             foreach (string s in sealingTypes) t[s] = false;
             t["KerbalAssignment/Aboard"] = true;

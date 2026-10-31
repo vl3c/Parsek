@@ -460,6 +460,8 @@ namespace Parsek
                 case GameActionType.ContractCancel:       return TimelineEntryType.ContractCancel;
                 case GameActionType.KerbalAssignment:     return TimelineEntryType.KerbalAssignment;
                 case GameActionType.KerbalHire:           return TimelineEntryType.KerbalHire;
+                // A dismissal is the hire's opposite roster step: the same bucket.
+                case GameActionType.KerbalDismissal:      return TimelineEntryType.KerbalHire;
                 case GameActionType.KerbalRescue:         return TimelineEntryType.KerbalRescue;
                 case GameActionType.KerbalStandIn:        return TimelineEntryType.KerbalStandIn;
                 // A crew member's recovery is a kerbal event on an existing flight; it
