@@ -128,9 +128,7 @@ namespace Parsek.Tests.SaveRoundTrip
                 Save = CrewReservationManager.SaveCrewReplacements,
                 Reset = CrewReservationManager.ResetReplacementsForTesting,
                 Load = CrewReservationManager.LoadCrewReplacements,
-                Spec = () => new FieldSpec(typeof(CrewReservationManager))
-                    .NotPersisted("#615 rescue-placed marker is session scoped; a load clears it (todo RESCUE-PLACED-MARKER-SESSION-ONLY)",
-                        "rescuePlacedKerbals"),
+                Spec = () => new FieldSpec(typeof(CrewReservationManager)),
             },
             new StoreCase
             {
