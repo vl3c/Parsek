@@ -25,6 +25,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A contract that ran out after a rewind stays in the Mission Control Archive.** When time
+  passed the moment a committed contract failed, completed or was cancelled, Parsek took it off
+  the active list but left it out of the Archive. It now lands in the Archive with that outcome,
+  paying nothing a second time. (CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE)
 - **The Space Center's refund for clearing away debris is now on the books.** When debris that
   landed in the Space Center grounds is cleared away, stock refunds part of its cost; that money
   now goes into Parsek's ledger like any other recovery instead of being kept as an unexplained

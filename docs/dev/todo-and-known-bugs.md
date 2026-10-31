@@ -17,6 +17,45 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE: a contract the clock carries past its committed outcome leaves stock's active list and goes nowhere, so it vanishes from the Mission Control Archive~~ [FILED 2026-10-31 from RW-20 run `2026-10-31_0256`; FIXED 2026-10-31, branch `contract-crossed-archive`; unit-tested, RW-20 re-pin owed; product, low (stock history only: funds, reputation, ledger and ground truth were right, nothing paid twice)]
+
+In RW-20 contract `1a9762e8` reached its real deadline and stock saved it `DeadlineExpired`. A
+Rewind-to-Launch to before that made it Active again (correct). When a Space Center warp then
+crossed the committed `ContractFail` row, `KspStatePatcher.PatchContracts` took the Active contract
+off stock's list (`removedStale=1`: not in the walk's active set) and put it nowhere, so the produced
+save held it in neither `ContractSystem.Instance.Contracts` nor `ContractsFinished` and it dropped
+out of the Archive. A crossed completion or cancellation took the same path (any Active contract the
+walk holds terminal lands in the stale-Active removal keys).
+
+**Fix.** `PatchContractsCore` plans, before the stale-Active removal, which removed Active contracts
+the walk holds terminal (`PlanRetiredActiveContractMoves`, pure) and files each one into
+`ContractsFinished` after removal (`ArchiveRetiredActiveContracts`). The state is the walk's
+outcome (`TryMapOutcomeToFinishedState`: Completed / Failed / DeadlineExpired / Cancelled;
+requirements lost maps to stock's OfferExpired, which stock's own `ContractSystem.UpdateContracts`
+drops, so it is not filed). No move when a finished copy with the same guid survives the patch (no
+duplicate), nor when the outcome's end UT is after the patch's real clock (a walk past the clock,
+such as the Re-Fly invoke's whole-ledger walk: the contract is dropped as before rather than shown
+finished before its outcome happens; residual: such a contract is not filed later either, when
+the clock does reach its outcome, since it is no longer on the active list). The write is silent: stock's `Contract.SetState` (decompiled KSP 1.12.5) pays the
+completion or penalty and fires `OnStateChange` / `onCompleted` / `onFailed` / `onFinished`, so
+`TryRetireContractSilently` writes the private `state` field by reflection (as `Contract.Load`
+does) and `dateFinished` to the walk's end UT (`ContractsModule.GetTerminalContractUTs`: the
+outcome row's UT, or the deadline for a walk expiry), inside the patch's existing
+`SuppressionGuard.ResourcesAndReplay`. No new ledger row. One Info line per move (`filed ended
+contract <guid> ... as <state> (outcome=...)`), and `archivedToFinished` / `archiveAlreadyFinished`
+/ `archiveNoFinishedState` / `archiveOutcomeLater` / `archiveFailed` counters on the `PatchContracts: removedStale=` summary.
+The filed copy matches the walk, so the next patch keeps it as a surviving terminal entry and never
+restores it Active; a load rewind reloads stock's lists from the save (the contract comes back Active
+the way it does today), and a tombstoned outcome row removes the filed copy like any stock-finished
+copy, after which the restore re-adds it Active. Tests: `ContractCrossedOutcomeArchiveTests`.
+
+**Owed (in-game, not provable headlessly).** RW-20 re-pinned to assert that after the crossing the
+contract is in `ContractsFinished` as Failed (or DeadlineExpired, if the walk ends `1a9762e8` at
+its accept row's deadline rather than at the fail row; the Info line's `outcome=` names which) and
+not in `Contracts`, with no second penalty. The reflection write of
+`Contract.state` / `dateFinished` against the live stock assembly, and the Archive UI listing the
+filed contract, are only witnessed by that flight.
+
 ## ~~KSC-DEBRIS-CLEANUP-REFUND-UNLEDGERED: stock's refund for debris cluttering the Space Center is never booked, so it lands as a leak row and a guard clamp~~ [FILED AND FIXED 2026-10-28 from RW-7 run `2026-10-28_1637`, branch `ksc-debris-refund`; unit-tested, RW-7 re-flight owed; product, medium (an unledgered funds change; LedgerGroundTruth hard-fails)]
 
 When the scene enters the Space Center, stock recovers landed debris near the KSC through

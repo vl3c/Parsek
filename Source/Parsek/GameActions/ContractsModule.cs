@@ -109,6 +109,14 @@ namespace Parsek
             = new Dictionary<string, ContractTerminalOutcome>();
 
         /// <summary>
+        /// The UT at which each terminal contract ended in this walk: the outcome row's UT,
+        /// or the deadline for a contract the walk expired. The KSP patcher stamps it as
+        /// the finished date of a contract it moves into stock's finished list.
+        /// </summary>
+        private readonly Dictionary<string, double> terminalContractUTs
+            = new Dictionary<string, double>();
+
+        /// <summary>
         /// Contract IDs whose accepted deadline expired during the current walk.
         /// Late completions for these contracts are ineffective and do not earn rewards.
         /// </summary>
@@ -266,6 +274,7 @@ namespace Parsek
             terminalContracts.Clear();
             terminalContractActions.Clear();
             terminalContractOutcomes.Clear();
+            terminalContractUTs.Clear();
             deadlineExpiredContracts.Clear();
             explicitlyResolvedContracts.Clear();
             prepassExplicitResolutionUT.Clear();
@@ -515,6 +524,7 @@ namespace Parsek
             terminalContracts.Remove(id);
             terminalContractActions.Remove(id);
             terminalContractOutcomes.Remove(id);
+            terminalContractUTs.Remove(id);
             deadlineExpiredContracts.Remove(id);
             explicitlyResolvedContracts.Remove(id);
 
@@ -593,6 +603,7 @@ namespace Parsek
                 terminalContracts.Add(id);
                 terminalContractActions[id] = GameActionType.ContractComplete;
                 terminalContractOutcomes[id] = ContractTerminalOutcome.Completed;
+                terminalContractUTs[id] = action.UT;
                 outcomeWitness[id] = IdentityWitness.Of(action, "completion of contract '" + id + "'");
 
                 ParsekLog.Info(Tag,
@@ -753,6 +764,9 @@ namespace Parsek
                 for (int i = 0; i < expired.Count; i++)
                 {
                     string id = expired[i];
+                    GameAction expiredAccept;
+                    if (activeContracts.TryGetValue(id, out expiredAccept) && expiredAccept != null)
+                        terminalContractUTs[id] = expiredAccept.DeadlineUT;
                     activeContracts.Remove(id);
                     terminalContracts.Add(id);
                     terminalContractActions[id] = GameActionType.ContractFail;
@@ -784,6 +798,8 @@ namespace Parsek
             terminalContractOutcomes[id] = deadlineExpiredContracts.Contains(id)
                 ? ContractTerminalOutcome.DeadlineExpired
                 : ContractTerminalOutcome.Failed;
+            if (!deadlineExpiredContracts.Contains(id) || !terminalContractUTs.ContainsKey(id))
+                terminalContractUTs[id] = action.UT;
             explicitlyResolvedContracts.Add(id);
             // The fail row is the outcome's witness when stock really recorded it. A fail the
             // walk synthesized at its own deadline, or one an older build captured, is not: a
@@ -937,6 +953,7 @@ namespace Parsek
             terminalContractOutcomes[id] = action.ContractRequirementsLost
                 ? ContractTerminalOutcome.RequirementsLost
                 : ContractTerminalOutcome.Cancelled;
+            terminalContractUTs[id] = action.UT;
             explicitlyResolvedContracts.Add(id);
             outcomeWitness[id] = IdentityWitness.Of(action, "cancel of contract '" + id + "'");
 
@@ -1041,6 +1058,15 @@ namespace Parsek
         internal IReadOnlyDictionary<string, ContractTerminalOutcome> GetTerminalContractOutcomes()
         {
             return terminalContractOutcomes;
+        }
+
+        /// <summary>
+        /// Returns the UT each terminal contract ended at in the current walk (see
+        /// <see cref="terminalContractUTs"/>); a contract missing here has no known end UT.
+        /// </summary>
+        internal IReadOnlyDictionary<string, double> GetTerminalContractUTs()
+        {
+            return terminalContractUTs;
         }
 
         /// <summary>
