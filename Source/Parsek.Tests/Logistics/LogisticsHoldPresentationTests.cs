@@ -95,17 +95,17 @@ namespace Parsek.Tests.Logistics
                     OriginLacksCargo, "inventory-state:", 0.0));
         }
 
-        // catches: the origin-unresolved marker losing its raw token tail (the
-        // log-grep handle must survive into the UI text).
+        // catches: the origin-unresolved marker leaking its raw internal token into
+        // player text (the token stays in the log's "hold recorded" line).
         [Fact]
         public void DescribeHold_OriginUnresolved()
         {
             string text = LogisticsHoldPresentation.DescribeHold(
                 OriginLacksCargo, "origin-unresolved:no-live-vessels", 0.0);
-            Assert.StartsWith(
+            Assert.Equal(
                 "origin vessel could not be found - it may have moved, been recovered, or been destroyed",
                 text);
-            Assert.Contains("origin-unresolved:no-live-vessels", text);
+            Assert.DoesNotContain("origin-unresolved", text);
         }
 
         // M4b Phase B1 (plan D10 / OQ5): the per-PICKUP-SOURCE all-or-nothing gate
@@ -261,9 +261,9 @@ namespace Parsek.Tests.Logistics
                 "a pickup source has Ore reserved by route 'Fuel Run' - delivers when the reservation clears",
                 LogisticsHoldPresentation.DescribeHold(
                     OriginLacksCargo, "source-reserved:12::Ore:Fuel Run", 0.0));
-            // Empty route-name slot: generic route noun.
+            // Empty route-name slot: an unquoted "another route", never a quoted fake name.
             Assert.Equal(
-                "Depot A has Ore reserved by route 'another route' - delivers when the reservation clears",
+                "Depot A has Ore reserved by another route - delivers when the reservation clears",
                 LogisticsHoldPresentation.DescribeHold(
                     OriginLacksCargo, "source-reserved:12:Depot A:Ore:", 0.0));
             // Empty resource slot: reserved-cargo phrasing, both names kept.
@@ -273,16 +273,16 @@ namespace Parsek.Tests.Logistics
                     OriginLacksCargo, "source-reserved:12:Depot A::Fuel Run", 0.0));
         }
 
-        // catches: an unresolved pickup source losing its raw reason tail.
+        // catches: an unresolved pickup source leaking its raw reason token.
         [Fact]
         public void DescribeHold_PickupSourceUnresolved()
         {
             string text = LogisticsHoldPresentation.DescribeHold(
                 OriginLacksCargo, "pickup-source-unresolved:pid-miss", 0.0);
-            Assert.StartsWith(
+            Assert.Equal(
                 "a pickup source vessel could not be found - it may have moved, been recovered, or been destroyed",
                 text);
-            Assert.Contains("pickup-source-unresolved:pid-miss", text);
+            Assert.DoesNotContain("pickup-source-unresolved", text);
         }
 
         // catches: a source token with an empty name (sanitized "<unnamed>")

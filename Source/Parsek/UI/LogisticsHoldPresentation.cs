@@ -189,7 +189,7 @@ namespace Parsek
             if (token != null
                 && token.StartsWith("pickup-source-unresolved:", System.StringComparison.Ordinal))
             {
-                return Fmt(LogisticsHoldClauses.PickupSourceNotFound, token);
+                return LogisticsHoldClauses.PickupSourceNotFound;
             }
             // M6 escrow-hold legibility: an ESCROW-caused pickup-source short -
             // the source physically holds the cargo but a competing route's
@@ -235,9 +235,8 @@ namespace Parsek
             if (token != null
                 && token.StartsWith("origin-unresolved:", System.StringComparison.Ordinal))
             {
-                // Keep the raw token in the tail so the log-grep handle survives
-                // into the UI text.
-                return Fmt(LogisticsHoldClauses.OriginVesselNotFoundWithToken, token);
+                // The raw token is a log handle (Route.RecordHold logs it), not player text.
+                return LogisticsHoldClauses.OriginVesselGone;
             }
             if (string.IsNullOrEmpty(token))
                 return Fallback(RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo, detail);
@@ -301,7 +300,15 @@ namespace Parsek
                 return LogisticsHoldClauses.ReservedPickupSourceCargo;
             string name = string.IsNullOrEmpty(parts[1]) ? "a pickup source" : parts[1];
             string resource = parts[2];
-            string routeName = string.IsNullOrEmpty(parts[3]) ? "another route" : parts[3];
+            // An unresolved reserving route gets its own unquoted clause: quoting a
+            // fallback noun would read as a route actually named "another route".
+            string routeName = parts[3];
+            if (string.IsNullOrEmpty(routeName))
+            {
+                return string.IsNullOrEmpty(resource)
+                    ? Fmt(LogisticsHoldClauses.NamedSourceCargoReservedByAnotherRoute, name)
+                    : Fmt(LogisticsHoldClauses.NamedSourceResourceReservedByAnotherRoute, name, resource);
+            }
             if (string.IsNullOrEmpty(resource))
             {
                 return Fmt(LogisticsHoldClauses.NamedSourceCargoReserved, name, routeName);
@@ -437,7 +444,13 @@ namespace Parsek
                 if (parts.Length < 4)
                     return LogisticsHoldClauses.CompactCargoReservedByAnotherRoute;
                 string resource = parts[2];
-                string routeName = string.IsNullOrEmpty(parts[3]) ? "another route" : parts[3];
+                string routeName = parts[3];
+                if (string.IsNullOrEmpty(routeName))
+                {
+                    return string.IsNullOrEmpty(resource)
+                        ? LogisticsHoldClauses.CompactCargoReservedByAnotherRoute
+                        : Fmt(LogisticsHoldClauses.CompactResourceReservedByAnotherRoute, resource);
+                }
                 return string.IsNullOrEmpty(resource)
                     ? Fmt(LogisticsHoldClauses.CompactCargoReservedByNamedRoute, routeName)
                     : Fmt(LogisticsHoldClauses.CompactResourceReservedByNamedRoute, resource, routeName);

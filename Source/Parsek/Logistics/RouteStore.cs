@@ -786,7 +786,7 @@ namespace Parsek.Logistics
             try
             {
                 ScreenMessages.PostScreenMessage(
-                    $"[Parsek] Supply route '{route.Name ?? "<unnamed>"}' available again " +
+                    $"[Parsek] Supply route '{StockFontText.ForStockUi(route.Name) ?? "<unnamed>"}' available again " +
                     "(timeline reached its creation point)", 6f);
             }
             catch (System.Exception ex)

@@ -28,6 +28,34 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
+        public void DefaultRouteNameArrow_IsAsciiInTheStockDialogBody()
+        {
+            // The PopupDialog body renders through the stock TMP font, which has no
+            // U+2192 glyph (todo GUI-CENSUS-WAVE6-RESIDUE item 8): the arrow becomes "->".
+            Route route = new RouteFixtureBuilder()
+                .WithId("arrow-test")
+                .WithName("Route: KSC \u2192 Mun")
+                .Build();
+
+            string body = LogisticsWindowUI.BuildDeleteConfirmBody(route);
+
+            Assert.Equal("Delete route 'Route: KSC -> Mun'?\n\nThis cannot be undone.", body);
+            Assert.Equal(
+                "Delete dormant route 'Route: KSC -> Mun'?",
+                LogisticsDormantPresentation.BuildDeleteDormantConfirmBody("Route: KSC \u2192 Mun")
+                    .Split('\n')[0]);
+        }
+
+        [Fact]
+        public void StockFontText_ReplacesOnlyTheArrow_AndKeepsNull()
+        {
+            Assert.Null(StockFontText.ForStockUi(null));
+            Assert.Equal("", StockFontText.ForStockUi(""));
+            Assert.Equal("Mun Fuel Run", StockFontText.ForStockUi("Mun Fuel Run"));
+            Assert.Equal("A -> B -> C", StockFontText.ForStockUi("A \u2192 B \u2192 C"));
+        }
+
+        [Fact]
         public void EmptyName_FallsBackToShortId_NotLiteralNull()
         {
             // A route with no display name must still show an identifier (its short
