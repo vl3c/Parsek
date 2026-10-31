@@ -25,6 +25,14 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A looped flight now replays on the map and in the Tracking Station too.** A flight looped from
+  the Recordings tab replayed in flight and at the Space Center, but after its first run the map
+  and Tracking Station showed no icon, or only its final orbit. The icon, orbit line and marker now
+  follow the replayed ghost. (RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP)
+- **Route cargo now arrives when the ghost lands or docks.** On a looped route to another planet
+  whose last leg lands or docks, cargo was delivered on the plain loop clock while the ghost waited
+  in orbit for the right spot, so it could arrive days after the ghost touched down.
+  (ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER)
 - **Revert to VAB / SPH reverts again after a Switch-To.** Reverting to the editor after switching
   to another vessel and changing nothing could bring the flight back instead, with the launched
   vessel still flying and the rollout not refunded. (REVERT-EDITOR-SAVE-SWITCH-GAPS)

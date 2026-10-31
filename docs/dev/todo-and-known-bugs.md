@@ -17,6 +17,67 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP: a flight looped from the Recordings tab replays in flight and at the Space Center but not on the map or in the Tracking Station~~ [FILED 2026-10-31 from the test gap audit (`roadmap/test-gap-audit-2026-10-31.md` A1, code read); FIXED 2026-10-31, branch `claude/project-thread-c5l296`; xUnit only, lane owed; product, medium (a looped flight's map icon is missing or sits on its final orbit)]
+
+Every map consumer (flight map ProtoVessels, the Tracking Station create / refresh / startup
+passes, the map and TS markers, the polyline head, the MapRender chain sampler) resolves its sample
+UT through `GhostPlaybackLogic.ResolveTrackingStationSampleUT`, which returned the live UT for any
+index that is not a Missions-loop unit member. Only an OVERLAPPING per-recording loop had its own
+map path (the per-instance sweep). So a non-overlapping Recordings-tab loop past its first run
+sampled the live UT, past the recording's end: no icon, or the terminal orbit, while the flight
+engine and KSC replayed the mesh on `TryComputeLoopPlaybackUT`.
+
+**Fix.** `LoopUnitSet` carries an optional standalone-loop source (the committed list,
+`WithStandaloneLoopSource`, memoized, kept by `LiveAt`); `MissionLoopUnitBuilder.ResolveLiveUnits`
+attaches it for the Flight and TrackingStation hosts (KSC has no map and keeps its own loop path)
+and the TS startup set (`BuildStartupTrackingStationLoopUnits`) carries it too. For a non-member
+index the seam now calls `GhostPlaybackLogic.TryResolveStandaloneLoopSampleUT`
+(`GhostPlaybackLogic.StandaloneLoopClock.cs`): the schedule is the engine's
+(`TryResolveStandaloneLoopSchedule`: effective loop range, `ResolveLoopInterval`, the auto-launch
+queue slot, built without the live loop-unit members exactly as the engine and KSC queue builds
+leave them out; `TryResolveAutoLoopLaunchSchedule` takes them as `excludedIndices`) and the sample
+UT is `playbackStart + phase` of `TryComputeLoopPlaybackPhase`, hidden
+before the schedule start and in the pause between cycles, where the engine shows no mesh. Overlap
+loops stay with the per-instance sweep; a unit member keeps the mission clock. Not mirrored: the
+flight-only watch-mode loop phase reset (`loopPhaseOffsets`), so while the player watches a reset
+loop the map icon runs on the unreset schedule. Still open, older than this fix: the OVERLAP map
+path (`GhostMapPresence.OverlapSchedule.cs`, `TryResolveOverlapScheduleAnchor`) builds the Auto
+queue without that exclusion, so an overlapping Auto loop beside a unit member that also carries
+its own Auto loop gets a different slot on the map than in flight (rare: a unit member with its own
+Auto toggle). Tests: `StandaloneLoopMapSampleTests` (including a sweep against the engine's own
+`TryComputeLoopPlaybackUT` and the unit-member queue exclusion).
+
+## ~~ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER: on a re-aim route whose last leg lands or docks, cargo is delivered on the raw loop clock while the ghost's descent is re-timed~~ [FILED 2026-10-31 from the test gap audit (A2, code read); FIXED 2026-10-31, branch `claude/project-thread-c5l296`; xUnit only, not flown; product, medium (cargo arrives days away from the rendered touchdown)]
+
+The renderer detaches a descent-trigger unit's post-parking clip (deorbit, reentry, landing, or the
+rendezvous approach) from the span clock and replays it from the first rotation-aligned moment
+after the icon reaches the deorbit point (`DescentTrigger`). The delivery side compared the raw
+span-clock `loopUT` against `RecordedDockUT` (`RouteLoopClock.TryGetRouteLoopState`), so the dock
+crossing fired when the raw clock passed the dock, not when the ghost docked. With a capture
+shift longer than a destination day (any interplanetary arrival) the raw clock is LATE by
+`|captureShift| - (|captureShift| mod Trot)`, i.e. whole destination days.
+
+**Fix.** `TryGetRouteLoopState` maps a descent-trigger unit's loop UT through
+`RouteLoopClock.ResolveDescentDeliveryLoopUT`: the raw clock until the descent phase engages, then
+the renderer's own head `recordedDeorbitUT + (now - triggerUT)` (same `ComputeDescentTiming` and
+site-align offset), floored at `min(raw, conicEnd)` so it never steps back, capped at
+`SpanEndUT`; the inter-cycle tail flag follows the capped head. Every delivery reader (single-stop,
+multi-stop, the window-basis transition, the cadence rebase) takes its loop UT from that call. The
+uniform countdown (`TryComputeSecondsToNextDockCrossing`) now refuses a descent unit, as it already
+refuses loiter cuts and schedules. Tests: `RouteDescentDeliveryClockTests`.
+
+## OVERLAP-MAP-GHOSTS-CHURN-AT-HIGH-WARP: overlap map icons are destroyed and recreated every frame when the cadence is shorter than one frame's game time [FILED 2026-10-31 from the test gap audit (A3), code read; OPEN; product, low (icon strobing and vessel-list churn only at very high warp)]
+
+`GhostMapPresence.EnsureOverlapInstances` (run every frame from `RunOverlapPerInstanceSweep`) has
+no warp gate. When one frame's game time exceeds the launch cadence, the active cycle window moves
+past every live instance each frame, so up to `MaxSpawnsPerFrame` map ProtoVessels are created and
+the same number destroyed per frame, and the Tracking Station list refreshes after each mutation.
+The flight engine culls overlap clones above 50x (`WarpThresholds.GhostHide`). Bounded by the
+per-frame spawn cap and the 20-copy cap, cosmetic, and only reached when a frame spans more than one
+cadence (a 120 s / 20-copy loop needs well above 1000x). Candidate fix: above the hide threshold keep
+only the newest cycle's instance and re-seed it across cycles instead of recreating it. Not taken
+in the A1 / A2 fix because no lane flies an overlap loop at that warp to prove the change.
+
 ## ~~REVERT-EDITOR-SAVE-SWITCH-GAPS: Revert to VAB / SPH could be undone by a scene-exit save or leave a stale cleanup armed, and three statics survived a save switch~~ [FILED AND FIXED 2026-10-31 from the test-gap audit (`test-gap-audit-2026-10-31.md` B4 / B5 / B6 / C9), branch `claude/project-thread-ib5y5e`; unit-tested, lanes authored, not flown; product, medium (R1, R2), low (S1-S3)]
 
 Code read plus a decompile of `FlightDriver.RevertToPrelaunch` (KSP 1.12.5): stock writes

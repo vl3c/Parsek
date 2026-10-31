@@ -169,6 +169,8 @@ RP_SIDECAR_BY_PRESET = {
     "ghost-commnet-lab": None,
     # OC-1's per-recording overlap-cap loop: one committed tree, no RP.
     "overlap-cap": None,
+    # SLM-1's standalone non-overlap orbital loop: one committed tree, no RP.
+    "standalone-loop-map": None,
     # RB-1 / RB-2's resurrection RP: the two-slot tree under rp_rb_root, whose
     # quicksave re-admits the host's own Jumping Flea.
     "rewind-readback": "rp_rb_root",
