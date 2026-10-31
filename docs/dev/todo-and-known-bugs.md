@@ -17,6 +17,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~RECORDING-VESSEL-SITUATION-NOT-SAVED: a recording's stop-time situation text is lost on every save and load~~ [FILED AND FIXED 2026-10-31 by the field-level save round-trip suite, branch `rt-recmeta`; xUnit only; product, low (Timeline wording only)]
+
+`Recording.VesselSituation` ("Landed Mun", "EVA Kerbin") is set at stop time by
+`VesselSpawner.SnapshotVessel` and carried onto the recording by
+`ParsekFlight.ApplyCapturedSplitStateToStandaloneRecording` and `ApplyPersistenceArtifactsFrom`,
+and `TimelineBuilder.TryAddVesselSpawnEntry` reads it for the spawn row text. The RECORDING node
+never wrote it, so after any save and load the row fell back to the terminal-state wording
+(`TimelineEntryDisplay.GetVesselSpawnText`). Found by `RecordingSaveRoundTripTests`
+(`Recording.VesselSituation: wrote "...", read null`).
+
+**Fix.** `RecordingTreeRecordCodec` writes a sparse `vesselSituation` key next to `vesselDestroyed`
+and reads it back (absent reads null, the old fallback). Additive key, no schema generation bump.
+Tests: `Parsek.Tests.SaveRoundTrip.RecordingSaveRoundTripTests`, `RecordingTreeSaveRoundTripTests`.
+
 ## ~~CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE: a contract the clock carries past its committed outcome leaves stock's active list and goes nowhere, so it vanishes from the Mission Control Archive~~ [FILED 2026-10-31 from RW-20 run `2026-10-31_0256`; FIXED 2026-10-31, branch `contract-crossed-archive`; LIVE-PROVEN by RW-20 `2026-10-31_0425`; product, low (stock history only: funds, reputation, ledger and ground truth were right, nothing paid twice)]
 
 In RW-20 contract `1a9762e8` reached its real deadline and stock saved it `DeadlineExpired`. A

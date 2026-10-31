@@ -25,6 +25,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A recording's end situation is kept across a reload.** The Timeline's spawn line for a
+  recording (for example "Landed Mun") lost that wording after a save and load and fell back to
+  the terminal state alone; the situation is now saved with the recording.
+  (RECORDING-VESSEL-SITUATION-NOT-SAVED)
 - **A kerbal on the ground when a recording ends now ends Landed.** A kerbal standing, lying or
   hopping on the surface (on the Mun especially) could read as falling, so his recording could
   end Destroyed or Sub-orbital instead of putting him back where he stood.
