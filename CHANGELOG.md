@@ -25,6 +25,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A payment taken back after a rewind is taken back only once.** When stock paid a world-first
+  again after a rewind, Parsek rightly took that money back, but then took it back again after
+  every later scene change, so the career kept losing funds, science and reputation. It now
+  remembers what it took back across saves and loads. (TAKE-BACK-REFIRES-AFTER-EVERY-LOAD)
 - **A kerbal you fire stays fired after a rewind.** Rewinding to before a dismissal brings the
   kerbal back on the roster marked "Dismissed on <date>": he cannot be seated in a crew or fired
   again until then, and he leaves the roster on that date, once, with no funds moving.

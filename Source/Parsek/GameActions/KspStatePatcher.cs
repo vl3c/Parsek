@@ -6005,6 +6005,11 @@ namespace Parsek
             EmitTakeBacks(pool, m, actions);
 
             string summary = StockPoolReference.FormatMeasurement(m);
+            if (StockPoolReference.IsTakeBackFoundUnpaid(m, epsilon))
+                ParsekLog.Warn(StockShadowTakeBack.Tag,
+                    $"Patch{resource}: take-back found no stock payment: took back " +
+                    $"{m.TakenBackTotal.ToString("R", IC)} and the live pool is short by the same amount " +
+                    $"(leak={m.Leak.ToString("R", IC)}), so the leak row files it a second time: {summary}");
             if (m.FreshBaseline)
             {
                 string adoption = m.GapAdopted
@@ -6034,11 +6039,12 @@ namespace Parsek
         /// <summary>
         /// One Warn per row whose duplicate stock payment this patch takes back (design 3.15
         /// step 5), naming the identity and the row that already credited it. Nothing is filed:
-        /// the write, the walk's target, is the take-back.
+        /// the write, the walk's target, is the take-back. Also one Warn per take-back the
+        /// reference refused because it already took that row back once.
         /// </summary>
         internal static void EmitTakeBacks(StockPool pool, StockPoolMeasurement m, IReadOnlyList<GameAction> actions)
         {
-            if (m == null || m.TakenBack.Count == 0)
+            if (m == null || (m.TakenBack.Count == 0 && m.TakeBackRepeatsRefused.Count == 0))
                 return;
             var byId = new Dictionary<string, GameAction>(StringComparer.Ordinal);
             if (actions != null)
@@ -6052,6 +6058,16 @@ namespace Parsek
                 ParsekLog.Warn(StockShadowTakeBack.Tag,
                     StockShadowTakeBack.FormatTakeBack(pool, m.TakenBack[i].Value, row,
                         m.TakenBackByAuthoritativeWrite));
+            }
+            StockPoolReferenceState state = StockPoolReference.For(pool);
+            for (int i = 0; i < m.TakeBackRepeatsRefused.Count; i++)
+            {
+                GameAction row;
+                byId.TryGetValue(m.TakeBackRepeatsRefused[i].Key, out row);
+                double already;
+                state.TakenBack.TryGetValue(m.TakeBackRepeatsRefused[i].Key, out already);
+                ParsekLog.Warn(StockShadowTakeBack.Tag,
+                    StockShadowTakeBack.FormatTakeBackRefused(pool, m.TakeBackRepeatsRefused[i].Value, already, row));
             }
         }
 

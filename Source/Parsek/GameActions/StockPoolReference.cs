@@ -65,6 +65,15 @@ namespace Parsek
         internal double LastPatchUT = double.NaN;
         internal readonly Dictionary<string, CountedRow> Counted =
             new Dictionary<string, CountedRow>(StringComparer.Ordinal);
+        /// <summary>
+        /// Rows whose duplicate stock payment the reference already took back (design 3.15
+        /// step 5): id and amount. Kept apart from <see cref="Counted"/>, which a patch rebuilds
+        /// from the rows it sees, and saved with the reference, so a take-back fires once per
+        /// row across saves, loads, scene changes and a row that leaves the effective ledger
+        /// and comes back. A row is forgotten here only when it is gone from the ledger itself.
+        /// </summary>
+        internal readonly Dictionary<string, double> TakenBack =
+            new Dictionary<string, double>(StringComparer.Ordinal);
 
         internal StockPoolReferenceState(StockPool pool)
         {
@@ -78,6 +87,7 @@ namespace Parsek
             PendingAdjust = 0.0;
             LastPatchUT = double.NaN;
             Counted.Clear();
+            TakenBack.Clear();
         }
     }
 
@@ -148,6 +158,14 @@ namespace Parsek
         internal readonly List<KeyValuePair<string, double>> TakenBack = new List<KeyValuePair<string, double>>();
         internal double TakenBackTotal;
         internal bool TakenBackByAuthoritativeWrite;
+        /// <summary>
+        /// Rows with a take-back part that the reference did not count but had already taken
+        /// back (<see cref="StockPoolReferenceState.TakenBack"/>): id and amount. Refused, never
+        /// taken back twice; the patcher logs one Warn each, since a lost counted row is a defect.
+        /// </summary>
+        internal readonly List<KeyValuePair<string, double>> TakeBackRepeatsRefused = new List<KeyValuePair<string, double>>();
+        /// <summary>Taken-back rows gone from the ledger itself: forgotten at commit.</summary>
+        internal readonly List<string> TakenBackRetired = new List<string>();
     }
 
     /// <summary>
@@ -188,6 +206,7 @@ namespace Parsek
         internal const string PendingAdjustKey = "pendingAdjust";
         internal const string LastPatchUTKey = "lastPatchUT";
         internal const string RowKey = "row";
+        internal const string TakenBackKey = "takenBack";
 
         private const double AmountTolerance = 1e-9;
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
@@ -415,6 +434,13 @@ namespace Parsek
                 }
             }
 
+            if (idsInLedger != null)
+            {
+                foreach (string id in state.TakenBack.Keys)
+                    if (!present.Contains(id) && !idsInLedger.Contains(id))
+                        m.TakenBackRetired.Add(id);
+            }
+
             if (!state.Initialized)
             {
                 // No saved reference: the live pool is the starting point and every row is
@@ -504,6 +530,13 @@ namespace Parsek
                     // the walk's target, takes the duplicate part back. Only the walk effect
                     // stays stepped, since only that stays in the pool.
                     double takeBack = !wasCounted && Math.Abs(row.TakeBack) > epsilon ? row.TakeBack : 0.0;
+                    if (takeBack != 0.0 && state.TakenBack.ContainsKey(row.ActionId))
+                    {
+                        // Already taken back once: the counted row was lost, not the payment
+                        // repeated. Stepping it again would take the money a second time.
+                        m.TakeBackRepeatsRefused.Add(new KeyValuePair<string, double>(row.ActionId, takeBack));
+                        takeBack = 0.0;
+                    }
                     if (takeBack != 0.0)
                     {
                         m.TakenBack.Add(new KeyValuePair<string, double>(row.ActionId, takeBack));
@@ -557,13 +590,32 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when a measured patch took a duplicate payment back and found the pool short
+        /// by that same amount: the payment it took back was never in the live pool, so the
+        /// kept leak files the take-back a second time as an adjustment row and the ledger
+        /// then agrees with the lower pool (TAKE-BACK-REFIRES-AFTER-EVERY-LOAD, RW-20). The
+        /// patcher Warns on it; nothing else changes.
+        /// </summary>
+        internal static bool IsTakeBackFoundUnpaid(StockPoolMeasurement m, double epsilon)
+        {
+            if (m == null || m.Authoritative || m.FreshBaseline || !m.LeakKept || m.TakenBack.Count == 0)
+                return false;
+            if (!(m.TakenBackTotal > epsilon) || !(m.Leak < -epsilon))
+                return false;
+            double tolerance = Math.Max(epsilon, Math.Abs(m.TakenBackTotal) * 1e-6);
+            return Math.Abs(m.Leak + m.TakenBackTotal) <= tolerance;
+        }
+
+        /// <summary>
         /// Records a finished patch: <paramref name="poolAfter"/> (the pool read back after
         /// the write, or the live pool of a no-op) becomes the last written value and every
         /// row is counted at its walk effect. A row keeps what the reference stepped for it
         /// (plus this patch's steps); a row new to the reference that was not stepped counts
         /// with nothing stepped. The patch's adjustment row (when it filed one) is counted at
         /// its amount, stepped in full, so the next walk's dispatch of it steps nothing. Rows
-        /// that left the ledger are dropped.
+        /// that left the ledger are dropped. The patch's take-backs join
+        /// <see cref="StockPoolReferenceState.TakenBack"/>, which keeps every earlier one whose
+        /// row is still in the ledger.
         /// </summary>
         internal static void Commit(
             StockPoolReferenceState state, IList<StockPoolRow> rows, StockPoolMeasurement m,
@@ -605,6 +657,14 @@ namespace Parsek
             state.Counted.Clear();
             foreach (var kv in next)
                 state.Counted[kv.Key] = kv.Value;
+            for (int i = 0; i < m.TakenBackRetired.Count; i++)
+                state.TakenBack.Remove(m.TakenBackRetired[i]);
+            for (int i = 0; i < m.TakenBack.Count; i++)
+            {
+                double prior;
+                state.TakenBack.TryGetValue(m.TakenBack[i].Key, out prior);
+                state.TakenBack[m.TakenBack[i].Key] = prior + m.TakenBack[i].Value;
+            }
             state.LastWritten = poolAfter;
             state.PendingAdjust = state.Pool == StockPool.Science ? pendingAdjustNow : 0.0;
             state.LastPatchUT = m.NowUT;
@@ -630,6 +690,11 @@ namespace Parsek
                 if (!row.StockApplied || row.UT > nowUT || double.IsNaN(row.Effect)
                     || state.Counted.ContainsKey(row.ActionId) || !(Math.Abs(row.TakeBack) > epsilon))
                     continue;
+                if (state.TakenBack.ContainsKey(row.ActionId))
+                {
+                    m.TakeBackRepeatsRefused.Add(new KeyValuePair<string, double>(row.ActionId, row.TakeBack));
+                    continue;
+                }
                 m.TakenBack.Add(new KeyValuePair<string, double>(row.ActionId, row.TakeBack));
                 m.TakenBackTotal += row.TakeBack;
                 m.TakenBackByAuthoritativeWrite = true;
@@ -686,8 +751,11 @@ namespace Parsek
         /// Writes the three references under <see cref="NodeName"/> (replacing any older
         /// copy). A pool that was never patched writes no child, so its load starts afresh.
         /// A counted row whose effect and step are both 0 is not written (a missing row reads
-        /// as new, which steps it by its effect, 0); a row seen but not walked is written with
-        /// its NaN effect, so it still crosses the clock unstepped after a load.
+        /// as new, which steps it by its effect, 0) unless the reference took a duplicate payment
+        /// back for it: a repeat's walk effect is 0, and dropping its row made the next load
+        /// read the repeat as new and take the payment back again. A row seen but not walked is
+        /// written with its NaN effect, so it still crosses the clock unstepped after a load.
+        /// Each taken-back row is also written as <see cref="TakenBackKey"/> (id and amount).
         /// </summary>
         internal static void SaveTo(ConfigNode parent)
         {
@@ -697,6 +765,7 @@ namespace Parsek
             var root = new ConfigNode(NodeName);
             int pools = 0;
             int savedRows = 0;
+            int savedTakenBack = 0;
             foreach (var state in new[] { Funds, Science, Reputation })
             {
                 if (!state.Initialized)
@@ -713,17 +782,26 @@ namespace Parsek
                 {
                     CountedRow c = state.Counted[ids[i]];
                     if (!double.IsNaN(c.Effect) && Math.Abs(c.Effect) <= AmountTolerance
-                        && Math.Abs(c.Stepped) <= AmountTolerance)
+                        && Math.Abs(c.Stepped) <= AmountTolerance && !state.TakenBack.ContainsKey(ids[i]))
                         continue;
                     child.AddValue(RowKey,
                         ids[i] + " " + c.Effect.ToString("R", IC) + " " + c.Stepped.ToString("R", IC));
                     savedRows++;
+                }
+                var takenIds = new List<string>(state.TakenBack.Keys);
+                takenIds.Sort(StringComparer.Ordinal);
+                for (int i = 0; i < takenIds.Count; i++)
+                {
+                    child.AddValue(TakenBackKey,
+                        takenIds[i] + " " + state.TakenBack[takenIds[i]].ToString("R", IC));
+                    savedTakenBack++;
                 }
                 pools++;
             }
             parent.AddNode(root);
             ParsekLog.Verbose(Tag,
                 $"Saved: pools={pools.ToString(IC)} rows={savedRows.ToString(IC)} " +
+                $"takenBackRows={savedTakenBack.ToString(IC)} " +
                 $"funds={Describe(Funds)} science={Describe(Science)} reputation={Describe(Reputation)}");
         }
 
@@ -738,6 +816,7 @@ namespace Parsek
             int pools = 0;
             int rowsRead = 0;
             int rowsBad = 0;
+            int takenBackRead = 0;
             foreach (var state in new[] { Funds, Science, Reputation })
             {
                 state.Clear();
@@ -772,13 +851,26 @@ namespace Parsek
                     state.Counted[parts[0]] = new CountedRow { Effect = effect, Stepped = stepped };
                     rowsRead++;
                 }
+                string[] taken = child.GetValues(TakenBackKey);
+                for (int i = 0; i < taken.Length; i++)
+                {
+                    string[] parts = (taken[i] ?? "").Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                    double amount;
+                    if (parts.Length != 2 || !TryParse(parts[1], out amount))
+                    {
+                        rowsBad++;
+                        continue;
+                    }
+                    state.TakenBack[parts[0]] = amount;
+                    takenBackRead++;
+                }
                 state.Initialized = true;
                 pools++;
             }
 
             string line =
                 $"Loaded ({loadKindLabel ?? "unknown"}): pools={pools.ToString(IC)} rows={rowsRead.ToString(IC)} " +
-                $"badRows={rowsBad.ToString(IC)} funds={Describe(Funds)} science={Describe(Science)} " +
+                $"badRows={rowsBad.ToString(IC)} takenBackRows={takenBackRead.ToString(IC)} funds={Describe(Funds)} science={Describe(Science)} " +
                 $"reputation={Describe(Reputation)}" +
                 (root == null ? " (no saved reference: each pool starts from its live value at its first patch)" : "");
             if (rowsBad > 0)
@@ -841,6 +933,9 @@ namespace Parsek
                 + (m.ClampForgiven != 0.0 ? " clampForgiven=" + m.ClampForgiven.ToString("R", IC) : "")
                 + (m.TakenBack.Count > 0
                     ? " takenBack=" + m.TakenBack.Count.ToString(IC) + "(" + m.TakenBackTotal.ToString("R", IC) + ")"
+                    : "")
+                + (m.TakeBackRepeatsRefused.Count > 0
+                    ? " takeBackRefused=" + m.TakeBackRepeatsRefused.Count.ToString(IC)
                     : "")
                 + (m.RowsWithoutId > 0 ? " rowsWithoutId=" + m.RowsWithoutId.ToString(IC) : "");
         }
