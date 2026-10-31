@@ -1343,6 +1343,35 @@ class SpecValidationRejectTests(unittest.TestCase):
         self.assertTrue(any("args.detach" in e and "only the WarpToUT verb" in e
                             for e in v.errors), list(v.errors))
 
+    def test_recover_mergedialog_arg_is_a_closed_verb_scoped_value(self):
+        """`Recover mergeDialog="refly"` validates clean; any other spelling and the arg
+        on a verb that does not read it are pre-launch spec errors rather than a typed
+        REJECTED recover-mergedialog-arg-invalid after a whole boot."""
+        def ok(s):
+            s["driver"]["steps"].insert(
+                1, {"cmd": "Recover", "args": {"pid": "5", "mergeDialog": "refly"},
+                    "expect": "OK", "budget": 120})
+        v = self._reject(ok)
+        self.assertFalse(any("mergeDialog" in e for e in v.errors), list(v.errors))
+
+        for bad in ("ReFly", "merge", "true"):
+            def bad_value(s, bad=bad):
+                s["driver"]["steps"].insert(
+                    1, {"cmd": "Recover", "args": {"pid": "5", "mergeDialog": bad},
+                        "expect": "OK", "budget": 120})
+            with self.subTest(mergeDialog=bad):
+                v = self._reject(bad_value)
+                self.assertTrue(any("args.mergeDialog" in e for e in v.errors),
+                                list(v.errors))
+
+        def wrong_verb(s):
+            s["driver"]["steps"].insert(
+                1, {"cmd": "ExitToSpaceCenter", "args": {"mergeDialog": "refly"},
+                    "expect": "OK", "budget": 120})
+        v = self._reject(wrong_verb)
+        self.assertTrue(any("args.mergeDialog" in e and "only the Recover verb" in e
+                            for e in v.errors), list(v.errors))
+
     def test_warptout_step_budget_over_the_cap_is_a_spec_error(self):
         """It is a DEFERRED_SEAM_VERB, so the 540 s cap governs its declared budget.
         The cap exists because the harness step-wait must be able to out-wait the
@@ -17145,6 +17174,17 @@ class RealSpawnRecoverSourceSyncTests(unittest.TestCase):
                 for reason in reasons:
                     self.assertIn(hlib._SEAM_REFUSAL_SUBKINDS.get(reason),
                                   ("driver-arg", "driver-gate"))
+
+    def test_the_recover_mergedialog_opt_in_mirrors_the_c_sharp(self):
+        text = self._source("TestCommandRecover.cs")
+        self.assertIn('internal const string MergeDialogKey = "%s";'
+                      % hlib.RECOVER_MERGE_DIALOG_KEY, text)
+        self.assertEqual(("refly",), hlib.RECOVER_MERGE_DIALOG_VALUES)
+        self.assertIn('internal const string MergeDialogReFlyValue = "%s";'
+                      % hlib.RECOVER_MERGE_DIALOG_VALUES[0], text)
+        self.assertEqual((hlib.RECOVER_VERB, hlib.RECOVER_MERGE_DIALOG_VALUES),
+                         hlib.VERB_SCOPED_CLOSED_ARGS[hlib.RECOVER_MERGE_DIALOG_KEY])
+        self.assertIn("recover-mergedialog-arg-invalid", hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
 
     def test_the_verbs_are_registered_on_every_axis(self):
         for verb in (hlib.REALSPAWN_VERB, hlib.RECOVER_VERB):

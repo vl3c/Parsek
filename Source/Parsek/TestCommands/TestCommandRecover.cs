@@ -11,6 +11,20 @@ namespace Parsek.TestCommands
         Refuse,
     }
 
+    /// <summary>What the wedge guard concludes for one press.</summary>
+    internal enum RecoverWedgeDecision
+    {
+        /// <summary>No modal would spawn: press and wait for the Space Center.</summary>
+        Press,
+
+        /// <summary>The Re-Fly merge modal would spawn and the spec accepted it: press and
+        /// hand the modal to <c>AnswerMergeDialog</c>.</summary>
+        PressIntoReFlyDialog,
+
+        /// <summary>A modal no step of this spec will answer: refuse, nothing clicked.</summary>
+        Refuse,
+    }
+
     /// <summary>What one completion poll of a pressed Recover concludes.</summary>
     internal enum RecoverCompletionDecision
     {
@@ -46,14 +60,25 @@ namespace Parsek.TestCommands
     /// that re-reads no save). A button that is locked or not clear to save is waited on for
     /// up to <see cref="UnlockWaitSeconds"/> before the press (a craft still sliding after
     /// touchdown), and refused with that reason if it never unlocks.</para>
+    ///
+    /// <para>Optional <c>mergeDialog=refly</c>: a press inside a live Re-Fly session raises
+    /// the Re-Fly merge modal (the recovery's Space Center load is intercepted), which the
+    /// wedge guard refuses by default. With this arg the verb presses anyway when that modal
+    /// is the ONLY wedge and a Re-Fly marker is live (the one modal <c>AnswerMergeDialog</c>
+    /// can find), and answers OK once the modal is up, with <c>mergeDialog=open</c>; the
+    /// spec's next step answers it and stock's recovery then runs at the Space Center. Every
+    /// other wedge is still refused.</para>
     /// </summary>
     internal static class TestCommandRecover
     {
         internal const string Verb = "Recover";
         internal const string PidKey = "pid";
+        internal const string MergeDialogKey = "mergeDialog";
+        internal const string MergeDialogReFlyValue = "refly";
 
         internal const string PidArgMissingReason = "recover-pid-arg-missing";
         internal const string PidArgInvalidReason = "recover-pid-arg-invalid";
+        internal const string MergeDialogArgInvalidReason = "recover-mergedialog-arg-invalid";
         internal const string NoActiveVesselReason = "recover-no-active-vessel";
         internal const string NotActiveVesselReason = "recover-not-active-vessel";
         internal const string ButtonUnavailableReason = "recover-button-unavailable";
@@ -74,6 +99,7 @@ namespace Parsek.TestCommands
         {
             "recover-pid-arg-missing",
             "recover-pid-arg-invalid",
+            "recover-mergedialog-arg-invalid",
             "recover-no-active-vessel",
             "recover-not-active-vessel",
             "recover-button-unavailable",
@@ -106,6 +132,71 @@ namespace Parsek.TestCommands
                 return PidArgInvalidReason;
             pid = parsed;
             return null;
+        }
+
+        /// <summary>Parses the optional <c>mergeDialog=</c> arg: absent means the default
+        /// (refuse every wedge); <c>refly</c> accepts the Re-Fly merge modal. Returns null on
+        /// success or the refusal reason.</summary>
+        internal static string ParseMergeDialog(string raw, out bool acceptReFlyDialog)
+        {
+            acceptReFlyDialog = false;
+            if (raw == null)
+                return null;
+            if (raw == MergeDialogReFlyValue)
+            {
+                acceptReFlyDialog = true;
+                return null;
+            }
+            return MergeDialogArgInvalidReason;
+        }
+
+        /// <summary>
+        /// The wedge guard's verdict for one press. A press with no wedge is
+        /// <see cref="RecoverWedgeDecision.Press"/>. With <paramref name="acceptReFlyDialog"/>,
+        /// a wedge that is exactly the active tree's Re-Fly merge modal under a live Re-Fly
+        /// marker is <see cref="RecoverWedgeDecision.PressIntoReFlyDialog"/>: the marker is
+        /// what lets <c>AnswerMergeDialog</c> find that popup. Anything else is a refusal.
+        /// </summary>
+        internal static RecoverWedgeDecision DecideWedge(
+            ExitGateDecision exitGate,
+            SceneExitInterceptor.DialogVariant activeTreeVariant,
+            bool reFlyMarkerLive,
+            bool acceptReFlyDialog)
+        {
+            if (exitGate == ExitGateDecision.Proceed)
+                return RecoverWedgeDecision.Press;
+            if (acceptReFlyDialog
+                && reFlyMarkerLive
+                && exitGate == ExitGateDecision.RefusedActiveTreeDialog
+                && activeTreeVariant == SceneExitInterceptor.DialogVariant.ReFlyAttempt)
+                return RecoverWedgeDecision.PressIntoReFlyDialog;
+            return RecoverWedgeDecision.Refuse;
+        }
+
+        /// <summary>The OK payload of a press that raised the Re-Fly merge modal:
+        /// <c>pid= vessel= scene= recovered=false mergeDialog=open</c>. The recovery itself
+        /// runs after the modal is answered.</summary>
+        internal static List<KeyValuePair<string, string>> BuildDialogHandoffPayload(
+            uint pid, string vesselName, string sceneName)
+        {
+            return new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("pid", pid.ToString(CultureInfo.InvariantCulture)),
+                new KeyValuePair<string, string>("vessel", vesselName ?? string.Empty),
+                new KeyValuePair<string, string>("scene", sceneName ?? string.Empty),
+                new KeyValuePair<string, string>("recovered", "false"),
+                new KeyValuePair<string, string>(MergeDialogKey, "open"),
+            };
+        }
+
+        /// <summary>The grep-stable line for a press that raised the Re-Fly merge modal.</summary>
+        internal static string FormatDialogHandoffLine(uint pid, string vesselName, double ut)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            return "recover pressed into re-fly merge dialog pid=" + pid.ToString(ic)
+                + " vessel=" + (vesselName ?? string.Empty)
+                + " ut=" + ut.ToString("F1", ic)
+                + " - AnswerMergeDialog concludes it, stock recovers at the Space Center";
         }
 
         /// <summary>

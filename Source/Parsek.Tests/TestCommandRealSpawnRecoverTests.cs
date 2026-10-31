@@ -302,6 +302,7 @@ namespace Parsek.Tests
                 TestCommandRecover.ButtonUnavailableReason, TestCommandRecover.ButtonLockedReason,
                 TestCommandRecover.NotClearToSaveReason, TestCommandRecover.CannotLeaveReason,
                 TestCommandRecover.PidArgMissingReason, TestCommandRecover.PidArgInvalidReason,
+                TestCommandRecover.MergeDialogArgInvalidReason,
             };
             Assert.Equal(gateReasons.OrderBy(r => r), TestCommandRecover.Reasons.OrderBy(r => r));
         }
@@ -370,6 +371,75 @@ namespace Parsek.Tests
                 TestCommandRecover.Reasons);
             Assert.StartsWith("dialog-required variant=",
                 TestCommandExitToSpaceCenter.RefusalMsg("MergeDialog"));
+        }
+
+        [Theory]
+        [InlineData(null, false)]
+        [InlineData("refly", true)]
+        public void Recover_ParseMergeDialog_Accepts(string raw, bool expected)
+        {
+            Assert.Null(TestCommandRecover.ParseMergeDialog(raw, out bool accept));
+            Assert.Equal(expected, accept);
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("ReFly")]
+        [InlineData("REFLY")]
+        [InlineData("merge")]
+        [InlineData("true")]
+        public void Recover_ParseMergeDialog_RefusesAnythingElse(string raw)
+        {
+            Assert.Equal(TestCommandRecover.MergeDialogArgInvalidReason,
+                TestCommandRecover.ParseMergeDialog(raw, out bool accept));
+            Assert.False(accept);
+            Assert.Contains(TestCommandRecover.MergeDialogArgInvalidReason, TestCommandRecover.Reasons);
+        }
+
+        [Theory]
+        // No wedge: press, opt-in or not.
+        [InlineData("Proceed", "None", false, false, "Press")]
+        [InlineData("Proceed", "None", true, true, "Press")]
+        // The Re-Fly modal under a live marker: refused by default, pressed into with the opt-in.
+        [InlineData("RefusedActiveTreeDialog", "ReFlyAttempt", true, false, "Refuse")]
+        [InlineData("RefusedActiveTreeDialog", "ReFlyAttempt", true, true, "PressIntoReFlyDialog")]
+        // No live marker: AnswerMergeDialog could not find the popup, so still refused.
+        [InlineData("RefusedActiveTreeDialog", "ReFlyAttempt", false, true, "Refuse")]
+        // A regular merge modal, the session wedge and the pending-tree wedge stay refused.
+        [InlineData("RefusedActiveTreeDialog", "RegularMerge", true, true, "Refuse")]
+        [InlineData("RefusedSwitchSegmentSession", "ReFlyAttempt", true, true, "Refuse")]
+        [InlineData("RefusedPendingTreeDialog", "ReFlyAttempt", true, true, "Refuse")]
+        public void Recover_DecideWedge(string gate, string variant, bool markerLive, bool accept,
+            string expected)
+        {
+            RecoverWedgeDecision decision = TestCommandRecover.DecideWedge(
+                (ExitGateDecision)System.Enum.Parse(typeof(ExitGateDecision), gate),
+                (SceneExitInterceptor.DialogVariant)System.Enum.Parse(
+                    typeof(SceneExitInterceptor.DialogVariant), variant),
+                markerLive, accept);
+            Assert.Equal(expected, decision.ToString());
+        }
+
+        [Fact]
+        public void Recover_DialogHandoffPayloadAndLine_AreInvariant()
+        {
+            CultureInfo saved = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                var p = TestCommandRecover.BuildDialogHandoffPayload(77u, "Pod", "FLIGHT");
+                Assert.Equal(new[] { "pid", "vessel", "scene", "recovered", "mergeDialog" },
+                    p.Select(kv => kv.Key).ToArray());
+                Assert.Equal("false", Value(p, "recovered"));
+                Assert.Equal("open", Value(p, "mergeDialog"));
+                Assert.Equal("recover pressed into re-fly merge dialog pid=77 vessel=Pod ut=1234.5 "
+                    + "- AnswerMergeDialog concludes it, stock recovers at the Space Center",
+                    TestCommandRecover.FormatDialogHandoffLine(77u, "Pod", 1234.5));
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = saved;
+            }
         }
     }
 }

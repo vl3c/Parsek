@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 using KSP.UI.Screens;
 using UnityEngine;
@@ -33,7 +34,11 @@ namespace Parsek.TestCommands
     /// <para><b>THE WEDGE GUARD.</b> Stock's recovery drives <c>HighLogic.LoadScene(SPACECENTER)</c>,
     /// which Parsek's scene-exit prefix turns into a merge modal when a merge decision is
     /// outstanding. The verb evaluates ExitToSpaceCenter's gate on the same live predicates
-    /// and refuses with its <c>dialog-required variant=</c> before clicking.</para>
+    /// and refuses with its <c>dialog-required variant=</c> before clicking. With
+    /// <c>mergeDialog=refly</c> the one exception is the Re-Fly merge modal under a live
+    /// Re-Fly marker: the verb presses, and answers OK the frame that modal is up, so the
+    /// spec's <c>AnswerMergeDialog</c> step can conclude it (stock's recovery then runs at
+    /// the Space Center the dialog's post-choice loads).</para>
     /// </summary>
     public partial class ParsekTestCommandAddon
     {
@@ -45,6 +50,9 @@ namespace Parsek.TestCommands
         private bool recoverListenersAdded;
         private bool recoverUnlockWait;
         private int recoverUnlockWaitStartFrame;
+        // The spec's mergeDialog=refly opt-in, and whether this press went into that modal.
+        private bool recoverAcceptReFlyDialog;
+        private bool recoverIntoReFlyDialog;
 
         private void RecoverImpl(ParsedCommand cmd)
         {
@@ -55,6 +63,15 @@ namespace Parsek.TestCommands
                 RejectRecover(argReason, $"pid={pidArg ?? string.Empty}");
                 return;
             }
+            string mergeDialogArg = ArgOrNull(cmd, TestCommandRecover.MergeDialogKey);
+            string mergeDialogReason = TestCommandRecover.ParseMergeDialog(mergeDialogArg, out bool acceptReFlyDialog);
+            if (mergeDialogReason != null)
+            {
+                RejectRecover(mergeDialogReason, $"mergeDialog={mergeDialogArg ?? string.Empty}");
+                return;
+            }
+            recoverAcceptReFlyDialog = acceptReFlyDialog;
+            recoverIntoReFlyDialog = false;
 
             string gate = SampleRecoverGate(pid, out Vessel active, out Button button, out string detail);
             RecoverUnlockWaitOutcome outcome = TestCommandRecover.DecideUnlockWait(
@@ -77,10 +94,11 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            if (TryPressRecover(pid, active, button, out string verdict, out string msg))
+            if (TryPressRecover(pid, active, button, out string verdict,
+                    out List<KeyValuePair<string, string>> payload, out string msg))
                 SetExecResult(PendingVerdict, null, null);
             else
-                SetExecResult(verdict, null, msg);
+                SetExecResult(verdict, payload, msg);
         }
 
         /// <summary>Samples the pre-press gate on the live active vessel and Recover button;
@@ -114,12 +132,15 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// The wedge guard, then the click. Returns true when the click fired stock's recovery
-        /// request (the verb then waits for the Space Center); otherwise false with the terminal
-        /// verdict and msg.
+        /// request (the verb then waits for the Space Center, or for the Re-Fly merge modal
+        /// under <c>mergeDialog=refly</c>); otherwise false with the terminal verdict, payload
+        /// and msg (an OK hand-off when the accepted modal came up inside the click).
         /// </summary>
-        private bool TryPressRecover(uint pid, Vessel active, Button button, out string verdict, out string msg)
+        private bool TryPressRecover(uint pid, Vessel active, Button button, out string verdict,
+            out List<KeyValuePair<string, string>> payload, out string msg)
         {
             verdict = null;
+            payload = null;
             msg = null;
             // The wedge guard, on the same live predicates ExitToSpaceCenter reads.
             ParsekFlight flight = ParsekFlight.Instance;
@@ -132,17 +153,25 @@ namespace Parsek.TestCommands
                 SceneExitInterceptor.ShouldShowPendingTreeDialogBeforeSceneChangeLive(GameScenes.SPACECENTER);
             ExitGateDecision exitGate = TestCommandExitToSpaceCenter.DecideExitGate(
                 hasActiveTree, sessionArmed, activeTreeVariant, pendingTreeVariant);
-            if (exitGate != ExitGateDecision.Proceed)
+            bool markerLive = scenario != null && scenario.ActiveReFlySessionMarker != null;
+            RecoverWedgeDecision wedge = TestCommandRecover.DecideWedge(
+                exitGate, activeTreeVariant, markerLive, recoverAcceptReFlyDialog);
+            if (wedge == RecoverWedgeDecision.Refuse)
             {
                 string variant = TestCommandExitToSpaceCenter.VariantToken(
                     exitGate, activeTreeVariant, pendingTreeVariant);
                 ParsekLog.Warn(Tag, $"recover rejected reason={TestCommandExitToSpaceCenter.DialogRequiredReason} "
                     + $"variant={variant} gate={exitGate} pid={pid.ToString(CultureInfo.InvariantCulture)} "
-                    + "- the recovery's Space Center load would raise a merge modal no seam verb can answer");
+                    + $"markerLive={Bool(markerLive)} acceptReFlyDialog={Bool(recoverAcceptReFlyDialog)} "
+                    + "- the recovery's Space Center load would raise a merge modal this step does not hand off");
                 verdict = "REJECTED";
                 msg = TestCommandExitToSpaceCenter.RefusalMsg(variant);
                 return false;
             }
+            recoverIntoReFlyDialog = wedge == RecoverWedgeDecision.PressIntoReFlyDialog;
+            if (recoverIntoReFlyDialog)
+                ParsekLog.Info(Tag, $"recover wedge accepted variant={activeTreeVariant} gate={exitGate} "
+                    + $"pid={pid.ToString(CultureInfo.InvariantCulture)} - pressing into the re-fly merge dialog (mergeDialog=refly)");
 
             recoverPid = pid;
             recoverVesselGuid = active.id;
@@ -166,6 +195,30 @@ namespace Parsek.TestCommands
                 msg = TestCommandRecover.RequestNotFiredReason;
                 return false;
             }
+            if (TryHandOffReFlyMergeDialog(out payload))
+            {
+                verdict = "OK";
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Under an accepted Re-Fly wedge, true once the Re-Fly merge modal is up: logs the
+        /// hand-off, detaches the listeners (the recovery completes after the modal is answered,
+        /// under the next step) and returns the OK payload. False otherwise.
+        /// </summary>
+        private bool TryHandOffReFlyMergeDialog(out List<KeyValuePair<string, string>> payload)
+        {
+            payload = null;
+            if (!recoverIntoReFlyDialog || recoverRecoveredObserved || FindReFlyMergePopup() == null)
+                return false;
+            recoverIntoReFlyDialog = false;
+            RemoveRecoverListeners();
+            ParsekLog.Info(Tag, TestCommandRecover.FormatDialogHandoffLine(
+                recoverPid, recoverVesselName, Planetarium.GetUniversalTime()));
+            payload = TestCommandRecover.BuildDialogHandoffPayload(
+                recoverPid, recoverVesselName, HighLogic.LoadedScene.ToString());
             return true;
         }
 
@@ -189,10 +242,11 @@ namespace Parsek.TestCommands
             if (outcome == RecoverUnlockWaitOutcome.Proceed)
             {
                 ParsekLog.Info(Tag, TestCommandRecover.FormatUnlockWaitClearedLine(pid, waited, frames));
-                if (TryPressRecover(pid, active, button, out string verdict, out string msg))
+                if (TryPressRecover(pid, active, button, out string verdict,
+                        out List<KeyValuePair<string, string>> payload, out string msg))
                     return;
                 ClearTwoPhase();
-                EmitExecutedTerminal(id, seq, verb, verdict, null, msg, dequeueHead: true);
+                EmitExecutedTerminal(id, seq, verb, verdict, payload, msg, dequeueHead: true);
                 return;
             }
 
@@ -207,6 +261,14 @@ namespace Parsek.TestCommands
             if (recoverUnlockWait)
             {
                 TryCompleteRecoverUnlockWait(now);
+                return;
+            }
+            // An accepted Re-Fly modal that spawned after the click frame.
+            if (TryHandOffReFlyMergeDialog(out List<KeyValuePair<string, string>> handoff))
+            {
+                string hid = completionId; long hseq = completionSeq; string hverb = completionVerb;
+                ClearTwoPhase();
+                EmitExecutedTerminal(hid, hseq, hverb, "OK", handoff, null, dequeueHead: true);
                 return;
             }
             double elapsed = now - completionStartedAt;
