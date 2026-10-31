@@ -1,0 +1,90 @@
+schema = 1
+id = "SLM-1-standalone-loop-map-position"
+# =====================================================================================
+# A RECORDINGS-TAB LOOP ON THE FLIGHT MAP AND IN THE TRACKING STATION, BY POSITION
+# (todo RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP).
+#
+# Every map consumer (flight-map ProtoVessels, the Tracking Station create / refresh /
+# startup passes, map markers, the trajectory line) samples a recording through
+# GhostPlaybackLogic.ResolveTrackingStationSampleUT. It used to return the LIVE UT for every
+# recording outside a Mission loop unit, so a loop set on the Recordings tab replayed its
+# mesh in flight while its map ghost stayed at the recording's end or vanished. No lane
+# looked at a looping ghost's map POSITION: the render lanes pin counts and log lines.
+#
+# THE HOST. The `standalone-loop-map` preset
+# (Source/Parsek.Tests/Generators/StandaloneLoopMapFixture.cs) injects ONE committed
+# single-recording tree into `pad-runway-pair` (save UT 25.26): a ghost-only craft on an
+# equatorial circular Kerbin orbit at 100 km (sma 700 km, period about 1958 s), one point
+# plus one orbit segment over [55.26, 1555.26], terminal Orbiting, its OWN loop toggle at a
+# 4000 s period (unit Sec), so runs start at 55.26 + 4000 k and pause for 2500 s after
+# each 1500 s run. No vessel snapshot: a loop replays a ghost and nothing spawns.
+#
+# THE CHECK. The in-game StandaloneLoopMap cell (InGameTests/StandaloneLoopMapInGameTests.cs)
+# derives the expected sample UT from the recording's own fields (StartUT + (liveUT -
+# StartUT) mod period), not from the seam, and compares the map ghost's body-relative
+# position against an orbit built from the RECORDED segment at that UT (limit 0.5 deg,
+# about 6 km; the wrong clock is about 15 deg away, or no ghost at all). In the pause
+# between runs (loop phase >= the 1500 s duration) it requires that no map ghost exists.
+# SLM-1 (flight map, replaying), SLM-2 (flight, paused) and SLM-1T (Tracking Station,
+# replaying) are one cell read at three stops; each spec drives one batch.
+#
+# THE FLIGHT. Warp to UT 4355 (run 2, 300 s in), enter map view, run the cell: the ghost
+# exists on the recorded orbit, shift 4000 s.
+#
+# NEVER FLOWN at authoring time (2026-10-31): the batch pin is interim (`total=1` literal,
+# the split regexed) until the first flight.
+# -------------------------------------------------------------------------------------
+tier = "operator"
+description = "A Recordings-tab loop (its own Loop toggle, period 4000 s, longer than its 1500 s orbital run) on pad-runway-pair, read in FLIGHT map view 300 s into its second run: its map ghost sits on the recorded orbit at the loop clock UT, 4000 s behind the live clock (StandaloneLoopMap category)."
+instanceProfile = "stock-minimal"
+tags = ["SLM-1", "loop-playback", "standalone-loop", "ghost-map-presence", "map-view", "position",
+        "synthetic", "ingame-batch", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/pad-runway-pair"
+injectedRecordings = "standalone-loop-map"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",      args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree",   expect = "OK" },
+  { cmd = "SetSetting",    args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",    args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "WarpToUT",      args = { ut = "4355" }, expect = "OK", budget = 300 },
+  { cmd = "EnterMapView",  expect = "OK", budget = 120 },
+  { cmd = "RunTests",      args = { category = "StandaloneLoopMap" }, expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",  expect = "OK" },
+]
+
+[dimensionsCovered]
+D6  = ["loop-period-modes", "ghost-map-presence"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-map"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=StandaloneLoopMap scene=FLIGHT",
+  "\\[TestRunner\\] StandaloneLoopMap \\(FLIGHT\\) PASS: phase=replay cycle=1 .* shift=4000\\.0 mapGhost=yes ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "SanitizeNonLoopableLoopPlayback: cleared",
+]
+
+[runtime]
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
