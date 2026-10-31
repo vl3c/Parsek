@@ -556,8 +556,9 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
         self.assertEqual([], self.b.munsci_check())
 
     def test_the_craft_fits_the_hosts_facilities(self):
-        # VAB level 0 (30 parts: exactly at the limit); Launch Pad level 1 (140 t, 36 m).
-        self.assertEqual(30, self.fig["parts"])
+        # VAB level 1, which CS-7 upgrades to (the six legs make 33 parts; level 0 allows
+        # 30); Launch Pad level 1 (140 t, 36 m).
+        self.assertEqual(33, self.fig["parts"])
         self.assertLessEqual(self.fig["mass"], 140.0)
         self.assertLessEqual(self.fig["height"], 36.0)
         self.assertEqual(self.fig["parts"], len(_parts(_read(SOLAR_CRAFT))))
@@ -569,9 +570,14 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
         self.assertEqual(0, mine.count("noseCone"))
         self.assertEqual(3, mine.count("solarPanels5"))
         self.assertEqual(1, mine.count("batteryPack"))
-        rest = sorted(n for n in mine if n not in ("solarPanels5", "batteryPack"))
-        self.assertEqual(sorted(n for n in lander if n != "noseCone"), rest)
-        # The same propellant in every stage, the legs and the Terrier to the digit.
+        self.assertEqual(3, lander.count("miniLandingLeg"))
+        self.assertEqual(6, mine.count("miniLandingLeg"))
+        rest = sorted(n for n in mine
+                      if n not in ("solarPanels5", "batteryPack", "miniLandingLeg"))
+        self.assertEqual(sorted(n for n in lander
+                                if n not in ("noseCone", "miniLandingLeg")), rest)
+        # The same propellant in every stage, the first three legs and the Terrier to
+        # the digit.
         layout = self.b.solar_layout()
         base = self.b.lander_layout()
         for which in ("upper", "core", "boosters"):
@@ -579,8 +585,9 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
             theirs = sum(self.b._pprop(p) for p in base if p.group == which)
             self.assertAlmostEqual(theirs, mine_prop, places=6, msg=which)
         for name in ("miniLandingLeg", "liquidEngine3.v2", "mk1pod.v2"):
-            self.assertEqual([p.pos for p in base if p.name == name],
-                             [p.pos for p in layout if p.name == name], name)
+            theirs = [p.pos for p in base if p.name == name]
+            self.assertEqual(theirs, [p.pos for p in layout if p.name == name][:len(theirs)],
+                             name)
         self.assertAlmostEqual(self.b.lander_figures()["leg_clearance"],
                                self.fig["leg_clearance"], places=12)
 
@@ -590,8 +597,8 @@ class CsMunSolarLanderCraftTests(unittest.TestCase):
         self.assertGreaterEqual(self.fig["dv_total"], 6600.0)
         self.assertGreaterEqual(self.fig["liftoff_twr"], 1.25)
         self.assertGreaterEqual(self.fig["mun_twr"], 3.0)
-        # The power costs the lander under 30 m/s (0.02 t on a 7.35 t stage).
-        self.assertLess(self.b.lander_figures()["dv_upper"] - self.fig["dv_upper"], 30.0)
+        # The power and the three extra legs cost the lander under 45 m/s.
+        self.assertLess(self.b.lander_figures()["dv_upper"] - self.fig["dv_upper"], 45.0)
 
     def test_the_stage_order_is_cs_mun_landers(self):
         self.assertEqual(self.b.lander_stage_want(),

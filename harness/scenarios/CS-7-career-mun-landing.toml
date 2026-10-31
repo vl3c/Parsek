@@ -153,6 +153,8 @@ steps = [
   { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
   { cmd = "SetSetting",       args = { name = "autoMerge",          value = "true" }, expect = "OK" },
   { cmd = "SetSetting",       args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  # The six-legged lander is 33 parts; the level-0 VAB allows 30.
+  { cmd = "KscAction",        args = { action = "upgrade-facility", facility = "SpaceCenter/VehicleAssemblyBuilding" }, expect = "OK", budget = 60 },
   { cmd = "GoToEditor",       args = { facility = "VAB", craft = "CS Mun Solar Lander" }, expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor",                                     label = "munlander", expect = "OK", budget = 180 },
   { phase = "mission",                                                                expect = "MISSION-OK", budget = 6000 },

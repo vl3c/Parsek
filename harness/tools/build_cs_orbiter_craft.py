@@ -1082,10 +1082,10 @@ TAILS.update(LANDER_TAILS)
 
 def lander_layout(upper400=LANDER_UPPER_T400, upper200=LANDER_UPPER_T200,
                   core=LANDER_CORE_TANKS, dec_from_bottom=LANDER_DECOUPLER_TANK_FROM_BOTTOM,
-                  uid_base=4280000001, cones=True):
+                  uid_base=4280000001, cones=True, leg_azimuths=LANDER_LEG_AZIMUTHS):
     """Every part of CS Mun Lander, root first, with positions, links and attN.
-    ``uid_base`` and ``cones`` (False: the Thumpers fly without nose cones) are the
-    solar variant's; their defaults derive CS Mun Lander."""
+    ``uid_base``, ``cones`` (False: the Thumpers fly without nose cones) and
+    ``leg_azimuths`` are the solar variant's; their defaults derive CS Mun Lander."""
     uid = iter(range(uid_base, uid_base + 99))
     off = NODE_OFFSET
 
@@ -1126,7 +1126,7 @@ def lander_layout(upper400=LANDER_UPPER_T400, upper200=LANDER_UPPER_T200,
                     istg=LANDER_STAGE_CORE_DROP, dstg=4, sidx=1, group="upper")
     surface_y = leg_tank.y + off[leg_tank.name]["bottom"] + LANDER_LEG_ABOVE_BOTTOM
     legs = []
-    for i, az in enumerate(LANDER_LEG_AZIMUTHS):
+    for i, az in enumerate(leg_azimuths):
         a = math.radians(az)
         psi = 180.0 - az
         node_w = _yaw_vec(psi, LANDER_LEG_NODE)
@@ -1713,6 +1713,16 @@ SOLAR_SHIP_NAME = "CS Mun Solar Lander"
 SOLAR_OUT = os.path.join(ROOT, "harness", "fixtures", "saves", "cs-career-mun4",
                          "Ships", "VAB", "CS Mun Solar Lander.craft")
 SOLAR_UID_BASE = 4291000001
+# SIX LEGS. Three LT-05s stand on a triangle whose nearest edge is half the feet's radius
+# from the axis (about 0.36 m under a centre of mass about 1.7 m up), so the three-legged
+# lander tips at about 12 deg, and the Mun's equatorial band reads 7 to 14 deg at the
+# flown site (kRPC surface_height over 10 m, run 2026-10-31). Runs 2026-10-28_0432 attempt
+# 2 and _0649 attempt 2 fell over on touchdown, and _0626 while Jeb was out and SAS off.
+# Six legs make a hexagon, whose nearest edge is 0.87 of the feet's radius (about 0.62 m,
+# about 20 deg). The legs need three more parts than the level-0 VAB allows, so CS-7
+# upgrades the VAB first; every core part is an FL-T400 and fuelSystems is not researched.
+SOLAR_LEG_AZIMUTHS = LANDER_LEG_AZIMUTHS + (0.0, 120.0, 240.0)
+SOLAR_LIMIT_PARTS = 255          # VAB level 1
 SOLAR_PANEL_AZIMUTHS = (90.0, 210.0, 330.0)
 SOLAR_BATTERY_AZIMUTH = 90.0
 # Kerbal 1 solarPanels5_4293048744 (its +Z panel): attPos0 (1.3e-15 noise dropped) on
@@ -1768,9 +1778,10 @@ def _radial_part(key, name, uid_n, parent, azimuth, radius, dy, psi):
 
 def solar_layout():
     """Every part of CS Mun Solar Lander, root first: CS Mun Lander's layout without
-    the Thumper cones, then the three OX-STATs on the top FL-T400 and the Z-100 on the
-    second."""
-    parts = lander_layout(uid_base=SOLAR_UID_BASE, cones=False)
+    the Thumper cones and with six legs, then the three OX-STATs on the top FL-T400 and
+    the Z-100 on the second."""
+    parts = lander_layout(uid_base=SOLAR_UID_BASE, cones=False,
+                          leg_azimuths=SOLAR_LEG_AZIMUTHS)
     upper = [p for p in parts if p.group == "upper" and p.key.startswith("utank")]
     top, second = upper[0], upper[1]
     uid = iter(range(SOLAR_UID_BASE + 900, SOLAR_UID_BASE + 999))
@@ -1857,8 +1868,8 @@ def solar_problems():
     out = []
     parts = solar_layout()
     f = solar_figures()
-    if f["parts"] > MUN_LIMIT_PARTS:
-        out.append("%d parts > the level-0 VAB limit %d" % (f["parts"], MUN_LIMIT_PARTS))
+    if f["parts"] > SOLAR_LIMIT_PARTS:
+        out.append("%d parts > the level-1 VAB limit %d" % (f["parts"], SOLAR_LIMIT_PARTS))
     if f["mass"] > MUN_LIMIT_MASS_T:
         out.append("%.3f t > the level-1 pad limit %.0f t" % (f["mass"], MUN_LIMIT_MASS_T))
     if f["height"] > MUN_LIMIT_HEIGHT_M:
@@ -1891,11 +1902,14 @@ def solar_problems():
         if d < MUNSCI_HATCH_CLEARANCE_DEG:
             out.append("%s sits %.0f deg off the hatch (< %.0f)"
                        % (key, d, MUNSCI_HATCH_CLEARANCE_DEG))
-    # The legs and the Terrier are CS Mun Lander's, to the last digit.
+    # CS Mun Lander's three legs and its Terrier, to the last digit, plus three more
+    # legs on the same tank.
+    if len([p for p in parts if p.name == "miniLandingLeg"]) != len(SOLAR_LEG_AZIMUTHS):
+        out.append("the lander needs %d legs" % len(SOLAR_LEG_AZIMUTHS))
     want = {p.key: p.pos for p in lander_layout()
             if p.name in ("miniLandingLeg", "liquidEngine3.v2")}
     have = {p.key: p.pos for p in parts
-            if p.name in ("miniLandingLeg", "liquidEngine3.v2")}
+            if p.key in want}
     if want != have:
         out.append("the legs or the Terrier moved: %r != %r" % (have, want))
     if abs(f["leg_clearance"] - lander_leg_clearance()) > 1e-9:
