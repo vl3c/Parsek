@@ -9704,8 +9704,10 @@ namespace Parsek
             // create.
             IReadOnlyList<Mission> baseMissions = MissionStore.Missions;
             int baseMissionCount = baseMissions != null ? baseMissions.Count : 0;
+            // Recordings-tab loops replay on their own loop clock from the first TS tick too (the
+            // per-frame set carries the same source via MissionLoopUnitBuilder.ResolveLiveUnits).
             if (baseMissionCount == 0 && routeMissions.Count == 0)
-                return GhostPlaybackLogic.LoopUnitSet.Empty;
+                return GhostPlaybackLogic.LoopUnitSet.Empty.WithStandaloneLoopSource(committed);
 
             // Union the route missions onto a fresh list alongside MissionStore.Missions, exactly like the
             // three per-frame host push seams, so the route members fold into the existing signature +
@@ -9738,7 +9740,7 @@ namespace Parsek
                 autoLoopIntervalSeconds,
                 bodyInfo,
                 tbrMode,
-                forceFaithful);
+                forceFaithful).WithStandaloneLoopSource(committed);
         }
 
         internal static int CreateGhostVesselsFromCommittedRecordings()

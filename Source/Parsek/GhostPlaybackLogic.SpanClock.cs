@@ -597,13 +597,54 @@ namespace Parsek
 
             private readonly Dictionary<int, LoopUnit> unitsByOwner;
             private readonly Dictionary<int, int> ownerByIndex;
+            private readonly IReadOnlyList<IPlaybackTrajectory> standaloneLoopSource;
 
             internal LoopUnitSet(
                 Dictionary<int, LoopUnit> unitsByOwner,
                 Dictionary<int, int> ownerByIndex)
+                : this(unitsByOwner, ownerByIndex, null)
+            {
+            }
+
+            private LoopUnitSet(
+                Dictionary<int, LoopUnit> unitsByOwner,
+                Dictionary<int, int> ownerByIndex,
+                IReadOnlyList<IPlaybackTrajectory> standaloneLoopSource)
             {
                 this.unitsByOwner = unitsByOwner ?? new Dictionary<int, LoopUnit>();
                 this.ownerByIndex = ownerByIndex ?? new Dictionary<int, int>();
+                this.standaloneLoopSource = standaloneLoopSource;
+            }
+
+            /// <summary>
+            /// The committed list (index-aligned with the member indices) whose STANDALONE per-recording
+            /// loops (the Recordings-tab Loop toggle) <see cref="ResolveTrackingStationSampleUT"/> maps
+            /// onto their own loop clock for a non-member index, or null when the set does not resolve
+            /// them (every set the builder makes; a scene opts in with <see cref="WithStandaloneLoopSource"/>).
+            /// Only the map / Tracking Station sample seam reads it: the flight engine and KSC drive the
+            /// per-recording loop themselves and query this set for unit membership only.
+            /// </summary>
+            internal IReadOnlyList<IPlaybackTrajectory> StandaloneLoopSource => standaloneLoopSource;
+
+            // WithStandaloneLoopSource memo: the derived set for the last source, so a scene that
+            // republishes every frame allocates only when the source list instance changes.
+            private IReadOnlyList<IPlaybackTrajectory> standaloneViewSource;
+            private LoopUnitSet standaloneView;
+
+            /// <summary>
+            /// This set (same units, same members) whose sample seam also resolves the standalone
+            /// per-recording loops of <paramref name="committed"/>. Returns this instance when it already
+            /// carries that source, and a memoized derived set otherwise. Null clears the source. Pure.
+            /// </summary>
+            internal LoopUnitSet WithStandaloneLoopSource(IReadOnlyList<IPlaybackTrajectory> committed)
+            {
+                if (ReferenceEquals(committed, standaloneLoopSource))
+                    return this;
+                if (standaloneView != null && ReferenceEquals(committed, standaloneViewSource))
+                    return standaloneView;
+                standaloneViewSource = committed;
+                standaloneView = new LoopUnitSet(unitsByOwner, ownerByIndex, committed);
+                return standaloneView;
             }
 
             /// <summary>Owner index -> unit descriptor.</summary>
@@ -696,7 +737,7 @@ namespace Parsek
                 }
 
                 liveViewPendingOwners = pendingOwners;
-                liveView = new LoopUnitSet(liveUnits, liveOwnerByIndex);
+                liveView = new LoopUnitSet(liveUnits, liveOwnerByIndex, standaloneLoopSource);
                 return liveView;
             }
 
@@ -2124,7 +2165,11 @@ namespace Parsek
         ///
         /// - <paramref name="units"/> null or committed index <paramref name="i"/> is NOT a unit
         ///   member -> return <paramref name="liveUT"/>, <paramref name="renderHidden"/>=false
-        ///   (unchanged behavior; this is the common case until a Mission loops).
+        ///   (unchanged behavior; this is the common case until a Mission loops), EXCEPT a
+        ///   non-overlapping Recordings-tab loop when the set carries a
+        ///   <see cref="LoopUnitSet.StandaloneLoopSource"/>: that returns its own loop-clock UT, and
+        ///   renderHidden=true before its schedule start and in the pause between cycles (where the
+        ///   flight engine hides the mesh). See <see cref="TryResolveStandaloneLoopSampleUT"/>.
         /// - i IS a member -> resolve the owning unit's shared clock via
         ///   <see cref="DecideUnitMemberRender"/>: <c>Render</c> returns the span-clock loopUT with
         ///   renderHidden=false; ANY other decision (SpanClockUnresolved / HiddenInterCycleTail /
@@ -2139,8 +2184,22 @@ namespace Parsek
             LoopUnitSet units, out bool renderHidden)
         {
             renderHidden = false;
-            if (units == null || !units.TryGetUnitForMember(i, out LoopUnit unit))
+            if (units == null)
                 return liveUT;
+            if (!units.TryGetUnitForMember(i, out LoopUnit unit))
+            {
+                // A Recordings-tab loop is not a unit member: replay it on its own loop clock, the one
+                // the flight engine and KSC play its mesh on, so the map icon, orbit line, marker and
+                // polyline head follow the replayed ghost instead of the live UT past its end.
+                IReadOnlyList<IPlaybackTrajectory> standalone = units.StandaloneLoopSource;
+                if (standalone != null && i >= 0 && i < standalone.Count
+                    && TryResolveStandaloneLoopSampleUT(
+                        standalone[i], i, standalone, ResolveGlobalAutoLoopIntervalSeconds(), liveUT,
+                        out double standaloneUT, out renderHidden))
+                    return standaloneUT;
+                renderHidden = false;
+                return liveUT;
+            }
 
             // Interval-level start/end trim: clamp to this member's trimmed render window (falls
             // back to the passed recording bounds when untrimmed), so the tracking-station icon
