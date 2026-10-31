@@ -67,6 +67,9 @@ namespace Parsek
                 // above already answers), listed so a stray tagged copy stays a
                 // pool-baseline row like the seeds: no flight owns it.
                 case GameActionType.StockPoolAdjustment:
+                // A Space Center firing (design 9.12.1) is the player's own act, never a
+                // flight's: a Re-Fly never takes it back, so a stray tagged copy stays.
+                case GameActionType.KerbalDismissal:
                     return false;
 
                 case GameActionType.ScienceEarning:

@@ -314,7 +314,7 @@ namespace Parsek.Tests
             Assert.Equal(1234.5, CommittedFutureIndexCache.CurrentUT());
         }
 
-        // ---------------- kerbal-retire milestone fallback ----------------
+        // ---------------- kerbal dismissal (design 9.12.1) ----------------
 
         private static void AddMilestone(GameStateEvent ev, bool committed = true, string recordingId = null)
         {
@@ -331,34 +331,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RetireFallback_ReadsCommittedCrewRemovedEvents_FutureByUT()
+        public void Dismissal_IsALedgerBackedKind_FutureByUT()
         {
-            AddMilestone(new GameStateEvent { ut = 300, eventType = GameStateEventType.CrewRemoved, key = "Retiree Kerman" });
-            AddMilestone(new GameStateEvent { ut = 300, eventType = GameStateEventType.CrewRemoved, key = "Draft Kerman" }, committed: false);
-            AddMilestone(new GameStateEvent { ut = 300, eventType = GameStateEventType.CrewRemoved, key = "Hidden Kerman", recordingId = "rec_hidden" });
+            Ledger.AddAction(new GameAction { UT = 300, Type = GameActionType.KerbalDismissal, KerbalName = "Fired Kerman" });
 
             var index = CommittedFutureIndexCache.Current;
 
-            var entry = index.FirstFuture(CommittedFutureKind.KerbalRetire, "Retiree Kerman", 100);
+            var entry = index.FirstFuture(CommittedFutureKind.KerbalDismissal, "Fired Kerman", 100);
             Assert.NotNull(entry);
-            Assert.True(entry.FromMilestoneFallback);
-            Assert.False(index.HasFuture(CommittedFutureKind.KerbalRetire, "Retiree Kerman", 300));
-            Assert.False(index.HasFuture(CommittedFutureKind.KerbalRetire, "Draft Kerman", 100));
-            Assert.False(index.HasFuture(CommittedFutureKind.KerbalRetire, "Hidden Kerman", 100));
+            Assert.Equal(300.0, entry.UT);
+            Assert.Null(entry.RecordingId);
+            Assert.False(index.HasFuture(CommittedFutureKind.KerbalDismissal, "Fired Kerman", 300));
+            Assert.False(index.HasFuture(CommittedFutureKind.KerbalDismissal, "Other Kerman", 100));
         }
 
         [Fact]
-        public void RetireFallback_ANewMilestoneRebuildsTheIndex()
+        public void CommittedCrewRemovedMilestone_NoLongerMarksADismissal()
         {
-            Assert.False(CommittedFutureIndexCache.Current.HasFuture(CommittedFutureKind.KerbalRetire, "Late Kerman", 0));
-            AddMilestone(new GameStateEvent { ut = 300, eventType = GameStateEventType.CrewRemoved, key = "Late Kerman" });
-            Assert.True(CommittedFutureIndexCache.Current.HasFuture(CommittedFutureKind.KerbalRetire, "Late Kerman", 0));
+            // The milestone fallback is gone: a CrewRemoved (applicant expiry, a lost kerbal)
+            // is not a firing, and a firing has its own ledger row.
+            AddMilestone(new GameStateEvent { ut = 300, eventType = GameStateEventType.CrewRemoved, key = "Retiree Kerman" });
+            Assert.False(CommittedFutureIndexCache.Current.HasFuture(CommittedFutureKind.KerbalDismissal, "Retiree Kerman", 100));
         }
 
         [Fact]
         public void CrewRemoved_HasNoLedgerRepresentation()
         {
-            // Why the retire kind needs the fallback: the converter drops the event.
+            // Stock's KerbalRoster.Remove is not a firing: the converter drops the event.
             var action = GameStateEventConverter.ConvertEvent(
                 new GameStateEvent { ut = 10, eventType = GameStateEventType.CrewRemoved, key = "X" }, null);
             Assert.Null(action);

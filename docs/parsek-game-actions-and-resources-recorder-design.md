@@ -2132,6 +2132,15 @@ KerbalHire (spending action — career only)
   cost:           float — funds spent
   role:           PILOT | ENGINEER | SCIENTIST
 
+KerbalDismissal (roster action, Space Center only; owner ruling 2026-10-28, section 9.12.1)
+  ut:             double - the dismissal instant (held-through UT inside a lead window)
+  sequence:       int - order within that UT
+  kerbalName:     string
+  role:           PILOT | ENGINEER | SCIENTIST
+  effect:         the kerbal leaves the roster (becomes an applicant) once the clock
+                  reaches ut; before it he is refused every crew seat and a second
+                  dismissal; moves no pool
+
 KerbalRescue (recording-associated action)
   recordingId:    string — the recording that rescued this kerbal
   kerbalName:     string — the rescued kerbal's name
@@ -2339,6 +2348,33 @@ Rationale by category:
 - **Reserved kerbals**: their reservation is a system invariant. Dismissing them would break recording reference integrity.
 - **Active stand-ins**: they exist to maintain roster stability. Dismissing one would leave a slot empty, defeating the purpose of the replacement system.
 - **Retired kerbals**: they exist in the roster for recording reference integrity. Ghosts are raw GameObjects rendered from sidecar data and don't need live roster entries for playback, but the roster entry preserves the kerbal's identity in KSP's crew system. Blocking dismissal is the safe default for v1.
+
+The same block also refuses dismissing any kerbal a committed flight names, a returned owner included: firing him would leave committed flights naming a kerbal the roster no longer has.
+
+#### 9.12.1 A dismissal stays on the timeline (owner ruling 2026-10-28, option A; todo KERBAL-DISMISSAL-ON-THE-TIMELINE)
+
+A Space Center dismissal is a timeline event, exactly like a hire. Example: fire Bob at 10:00, then Rewind-to-Launch to 9:50. After the rewind Bob is back on the roster (the rewind save has him), but he is marked "dismissed at 10:00": he cannot be put in a crew and cannot be fired again before 10:00. When the clock reaches 10:00 (warp or play past it) he leaves the roster once. A plain Rewind-to-Launch only moves the clock and never undoes the committed firing.
+
+**What stock does (KSP 1.12.5, decompiled).** The Astronaut Complex's dismiss button (`AstronautComplex.Xbutton_AvailableCrew`) calls `KerbalRoster.SackAvailable`, which requires an Available `Crew` kerbal, sets `type = Applicant` and then fires `GameEvents.OnCrewmemberSacked(pcm, activeCrewCount)` (IL order: the `type` setter, then `Fire`), so a listener already sees an applicant; the setter changes neither name nor trait, which is all the capture reads. The kerbal stays in the roster as an applicant; nothing listens to the event for money, so a dismissal moves no funds, science or reputation. `KerbalRoster.Remove` (`onKerbalRemoved`, Parsek's `CrewRemoved` event) is a different thing: stock's applicant expiry (`KerbalRoster.Update` removes an applicant whose `UTaR` passed, which includes a sacked kerbal whose old applicant deadline is gone) and the Lost list's dead removal. `CrewRemoved` is therefore NOT the dismissal and still produces no row.
+
+**The row.** `KerbalDismissal` (an additive `GameActionType`, no schema bump): `ut`, `kerbalName`, `kerbalRole`. Captured from `OnCrewmemberSacked` as a `CrewDismissed` game-state event and written through the Space Center door (`LedgerOrchestrator.OnKscSpending`), so it is untagged, sequenced, and dated through `LedgerHeldWindow.StampKscOriginRow` like every Space Center row (inside a Rewind-to-Launch lead window it is dated at the held-through UT). It moves no pool (identity registry: `NoEconomicEffect`, key "kerbal name + UT"); a kerbal may be dismissed, hired again and dismissed again, each its own row. Not captured: Parsek's own roster writes (`SuppressCrewEvents`) and anything during action replay (`IsReplayingActions`).
+
+**When he leaves.** After every patch pass (after the committed hires the pass makes), each kerbal name whose latest committed roster row (walk order) at or before the ledger's now is a `KerbalDismissal` (a row that puts a kerbal of that name on the roster, `KerbalHire`, `KerbalRescue` or `KerbalStandIn`, ends it: stock reuses an expired applicant's name for a later rescued kerbal or stand-in, who is not demoted) is put back among the applicants the way `SackAvailable` does, minus its event: `type = Applicant` under `SuppressionGuard.Crew`, so no new row is recorded and the dismissal block does not see it. "Now" is the kerbal walk's own clock (`KerbalsModule.WalkClockUT`: the loaded save's UT inside OnLoad, else the walk cutoff, else the pending rewind target, else the live clock) raised to the held-through UT. The pass is idempotent by state: a kerbal already an applicant, or gone from the roster, is left alone, so he leaves once however many passes run. A kerbal who is not Available at that moment (aboard a vessel) is left on the roster with a Warn and retried on the next pass. Skipped while a rewind's UT adjustment is pending and while the clock is not ready (UT 0). The clock cursor in the Space Center and the Tracking Station reaches the row like any other row, so a warp past T removes him at T; a flight scene removes him at the next pass (the next scene load).
+
+**What is blocked before T.** One predicate, a committed future `KerbalDismissal` entry in `CommittedFutureIndex` (kind `KerbalDismissal`, key kerbal name, future = `row.UT > now`; it replaces the old informational `KerbalRetire` kind and its milestone fallback, which read `CrewRemoved` and so never saw a dismissal):
+- crew assignment: `KerbalsModule.ShouldFilterFromCrewDialog` answers true, so the VAB/SPH crew dialog greys his row and every seat path refuses him, and the editor auto-assign clears his seat;
+- a second dismissal: `KerbalDismissalPatch.DescribeDismissalRefusal` answers first with the dismissal text, so the Astronaut Complex's dismiss button is greyed and `Xbutton_AvailableCrew` / `SackAvailable` / `Remove` refuse with the Action Blocked dialog. An applicant is not fired (a rewind to before his hire leaves him one, and stock's applicant expiry reaches `Remove`), so neither the refusal nor the mark applies to him.
+
+**The mark** (stock-control annotation rule, D1). On the Astronaut Complex Available row: the row's own stock label reads `Dismissed on <date>`, the dismiss button is in stock's disabled-with-reason state (title `Dismissed later`, caption `Dismissed on <date>, blocked by timeline until then.`), and the same sentence is appended to the stock crew tooltip. In the VAB/SPH crew dialog the greyed row's trait line reads `Dismissed on <date>` and its locked tooltip carries the sentence. Mark and block read the one index predicate, so a mark never sits on a live control and a block never comes without its mark. The Timeline hover of the future row reads `Holds Dismiss and crew assignment for this kerbal until <date>.`
+
+**Re-Fly.** A Re-Fly retires only rows tagged to the superseded flights; a Space Center dismissal belongs to no recording (and `TombstoneEligibility` lists the type as never eligible), so it is never tombstoned and a Re-Fly started before T leaves it committed (the RP quicksave has him on the roster; he leaves at T as above).
+
+**A kerbal a committed flight names** (reserved, retired, a stand-in, or a returned owner) cannot be dismissed at all (9.12, unchanged), so a dismissal row only ever names a kerbal no committed flight holds.
+
+**Chosen readings** (not answered by the ruling, picked to match how hires behave):
+- "Leaves the roster" is stock's own result of a dismissal: he becomes an applicant (stock may later expire him from the applicant list as it does after any dismissal).
+- A dismissal row ends the walk's ownership of a hire (`PurchaseOwnershipBook`), so hiring him again after T is charged, the way a Rebuild ends a facility level.
+- Before T the pending dismissal also blocks the editor's automatic crew; the in-flight crew moves (EVA, transfer) are untouched, since only a kerbal a committed flight holds is refused there and a pending-dismissal kerbal cannot be aboard (he was Available when fired and is refused every seat until T).
 
 ### 9.13 Astronaut Complex capacity
 

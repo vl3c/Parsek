@@ -243,7 +243,8 @@ namespace Parsek
         /// <summary>
         /// Converts a single GameStateEvent to a GameAction.
         /// Returns null for event types that have no GameAction equivalent
-        /// (CrewStatusChanged, CrewRemoved, ContractOffered, ContractDeclined), and for a
+        /// (CrewStatusChanged, CrewRemoved, ContractOffered, ContractDeclined; a dismissal is
+        /// CrewDismissed, not CrewRemoved), and for a
         /// FacilityDowngraded event no stock DowngradeFacility call produced (one with no
         /// <c>cost=</c> detail). FundsChanged / ReputationChanged / ScienceChanged
         /// return null for every reason EXCEPT their one strategy currency-exchange
@@ -291,6 +292,9 @@ namespace Parsek
 
                 case GameStateEventType.CrewHired:
                     return ConvertCrewHired(evt, recordingId);
+
+                case GameStateEventType.CrewDismissed:
+                    return ConvertCrewDismissed(evt, recordingId);
 
                 case GameStateEventType.ContractAccepted:
                     return ConvertContractAccepted(evt, recordingId);
@@ -376,6 +380,10 @@ namespace Parsek
                 // commit time and WARNs if these dropped deltas disagree with the effective
                 // emitted actions — so regressions in any channel surface loudly without
                 // needing to re-emit here.
+                //
+                // CrewRemoved is stock's KerbalRoster.Remove (applicant expiry, the Lost
+                // list's dead removal), NOT a dismissal: a dismissal is CrewDismissed
+                // (OnCrewmemberSacked), converted above.
                 case GameStateEventType.CrewStatusChanged:
                 case GameStateEventType.CrewRemoved:
                 case GameStateEventType.ContractOffered:
@@ -848,6 +856,27 @@ namespace Parsek
                 KerbalName = evt.key,
                 KerbalRole = trait,
                 HireCost = hireCost
+            };
+        }
+
+        /// <summary>
+        /// CrewDismissed -> KerbalDismissal (name=key, trait from detail; design section 9.12.1).
+        /// A nameless event has no kerbal to dismiss and converts to nothing.
+        /// </summary>
+        private static GameAction ConvertCrewDismissed(GameStateEvent evt, string recordingId)
+        {
+            if (string.IsNullOrEmpty(evt.key))
+            {
+                ParsekLog.Warn(Tag, "ConvertCrewDismissed: event names no kerbal - no row");
+                return null;
+            }
+            return new GameAction
+            {
+                UT = evt.ut,
+                Type = GameActionType.KerbalDismissal,
+                RecordingId = recordingId,
+                KerbalName = evt.key,
+                KerbalRole = ExtractDetail(evt.detail, "trait")
             };
         }
 

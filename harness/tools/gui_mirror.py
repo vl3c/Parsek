@@ -2624,14 +2624,14 @@ STOCK_LOG_TAG = "StockUiOverlay"
 # (CLAUDE.md, owner ruling D1; docs/dev/research/stock-ui-reservation-overlays-
 # 2026-09-25.md): a mark on a CLICKABLE action ships with a click-block that reads
 # the same predicate. INFORMATIONAL kinds are marks no stock button acts on (a
-# future dismissal, a lost kerbal, a retired stand-in), so a mark without a block
+# lost kerbal, a retired stand-in), so a mark without a block
 # is their design. BLOCK-ONLY kinds are the reverse: the contract-slot refusal
 # applies to every Offered row at once, so it has no per-row mark and its reason
 # in the detail panel is the annotation (plan section 7, C2). The click
 # reservation's Mission Control refusal (ContractReserve, committed-value rule 3)
 # is the same shape: a refused Accept / Decline / Cancel with its reason in the
 # detail panel and no row mark; on a purchase control it is marked AND blocked.
-STOCK_INFORMATIONAL_KINDS = ("KerbalRetire", "KerbalLost", "KerbalRetiredStandIn")
+STOCK_INFORMATIONAL_KINDS = ("KerbalLost", "KerbalRetiredStandIn")
 STOCK_BLOCK_ONLY_KINDS = ("ContractSlot", "ContractReserve")
 
 # One decoration line. `record` and `control` are the per-capture shapes the

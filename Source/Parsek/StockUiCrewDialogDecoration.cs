@@ -40,8 +40,8 @@ namespace Parsek
         private const string BlockTag = "CrewDialog";
 
         /// <summary>The title used when a refused kerbal has no reservation kind to name
-        /// (unreachable while the predicate is reserved-or-retired, kept so a refusal never
-        /// reads blank).</summary>
+        /// (unreachable while the predicate is reserved, retired or dismissed later, kept so
+        /// a refusal never reads blank).</summary>
         internal const string FallbackTitle = "Reserved";
 
         private sealed class RowState
@@ -74,7 +74,9 @@ namespace Parsek
         /// The decision for one kerbal the dialog lists. <paramref name="refused"/> is
         /// <see cref="KerbalsModule.ShouldFilterFromCrewDialog"/>; the kind picks the text:
         /// a kerbal a committed flight holds reads the Astronaut Complex's on-flight / lost
-        /// explanation, a retired stand-in reads <see cref="ReservationExplanation.KerbalRetiredStandIn"/>.
+        /// explanation, a retired stand-in reads <see cref="ReservationExplanation.KerbalRetiredStandIn"/>,
+        /// and a kerbal the timeline dismisses after <paramref name="currentUT"/> (design
+        /// 9.12.1) reads the Astronaut Complex's <c>Dismissed on DATE</c> text.
         /// A refused kerbal is always Blocked, whatever the kind, so nothing the old filter
         /// hid becomes assignable.
         /// </summary>
@@ -84,7 +86,8 @@ namespace Parsek
             KerbalReservationKind kind,
             CommittedFutureIndex index,
             AstronautComplexContext context,
-            Func<double, string> formatDate)
+            Func<double, string> formatDate,
+            double currentUT = double.NaN)
         {
             var d = new StockUiDecoration
             {
@@ -113,6 +116,13 @@ namespace Parsek
                 text = ReservationExplanation.KerbalRetiredStandIn(
                     context.SlotOwner != null ? context.SlotOwner(kerbalName) : null);
                 d.Kind = StockUiDecorationKind.KerbalRetiredStandIn;
+            }
+            else if (!double.IsNaN(currentUT)
+                && StockUiReservationPredicates.IsKerbalDismissalPending(index, kerbalName, currentUT))
+            {
+                text = StockUiReservationPredicates.ExplainKerbalDismissal(index, kerbalName, currentUT, formatDate);
+                d.Kind = StockUiDecorationKind.KerbalDismissal;
+                d.UT = index.FirstFuture(CommittedFutureKind.KerbalDismissal, kerbalName, currentUT).UT;
             }
             else
             {
@@ -180,7 +190,8 @@ namespace Parsek
                 kind,
                 refused ? CommittedFutureIndexCache.Current : null,
                 refused ? StockUiOverlayController.BuildLiveAstronautContext(null) : null,
-                formatDate);
+                formatDate,
+                refused ? CommittedFutureIndexCache.CurrentUT() : double.NaN);
         }
 
         /// <summary>The refusal predicate alone: the one the old hiding filter used.</summary>
