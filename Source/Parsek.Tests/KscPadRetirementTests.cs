@@ -1151,16 +1151,14 @@ namespace Parsek.Tests
             var retired = new Dictionary<string, double> { { "rec-retired", 123.5 } };
             var into = new Dictionary<string, List<KerbalsModule.RecoveryClosure>>();
 
-            int wins, tourists;
+            int wins;
             int added = KerbalsModule.CollectKscRetirementClosures(
-                actions, retired, into, null, out wins, out tourists);
+                actions, retired, into, null, out wins);
 
-            // A tourist stays held (owner ruling 2026-10-25): nothing recovers him on a
-            // retirement, so his aboard row gets no closure.
-            Assert.Equal(2, added);
-            Assert.Equal(2, into.Count);
-            Assert.False(into.ContainsKey("Tourist Kerman"));
-            Assert.Equal(1, tourists);
+            // A tourist is held like crew (GC-12), so his aboard row is freed too.
+            Assert.Equal(3, added);
+            Assert.Equal(3, into.Count);
+            Assert.Single(into["Tourist Kerman"]);
             Assert.Equal(0, wins);
             Assert.Single(into["Aboard Kerman"]);
             Assert.Equal("rec-retired", into["Aboard Kerman"][0].OwnerRecordingId);
@@ -1209,12 +1207,11 @@ namespace Parsek.Tests
             };
             var into = new Dictionary<string, List<KerbalsModule.RecoveryClosure>>();
 
-            int wins, tourists;
+            int wins;
             int added = KerbalsModule.CollectKscRetirementClosures(
-                actions, retired, into, trees, out wins, out tourists);
+                actions, retired, into, trees, out wins);
 
             Assert.Equal(2, wins);
-            Assert.Equal(0, tourists);
             Assert.Equal(2, added);
             Assert.False(into.ContainsKey("Own Kerman"));
             Assert.False(into.ContainsKey("Tree Kerman"));
@@ -1269,9 +1266,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Crew_TouristAboardAPadRetiredFlight_StaysHeld()
+        public void Crew_TouristAboardARecoveredPadFlight_IsHeldUntilTheRecoveryRow()
         {
-            // Owner ruling 2026-10-25: a held tourist stays held / Assigned after a rewind.
+            // RW-2 shape with a tourist: the vessel was real until its recorded recovery,
+            // so the tourist stays held (Assigned) until that row, like his crewmate
+            // (owner ruling 2026-10-25), not freed at the trimmed EndUT.
+            const string tourist = "Tourist Kerman";
+            var rec = MakeOnPad("rec-tourist-pad-recovered", Jeb, tourist);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            Ledger.AddAction(Assignment(rec.RecordingId, Jeb, 100.0, 200.0, KerbalEndState.Aboard, 1));
+            Ledger.AddAction(Assignment(rec.RecordingId, tourist, 100.0, 200.0, KerbalEndState.Aboard, 2,
+                role: KerbalsModule.TouristRole));
+            Ledger.AddAction(Recovered(rec.RecordingId, Jeb, 390.0, 3));
+            Ledger.AddAction(Recovered(rec.RecordingId, tourist, 390.0, 4));
+
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(250.0, "ksc-retire-test");
+            Assert.Equal(390.0, Kerbals.Reservations[tourist].ReservedUntilUT);
+            Assert.True(Kerbals.IsReservedNow(tourist));
+            Assert.Equal(390.0, Kerbals.Reservations[Jeb].ReservedUntilUT);
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("recordedRecoveryWins=2"));
+
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(400.0, "ksc-retire-test");
+            Assert.False(Kerbals.IsReservedNow(tourist));
+        }
+
+        [Fact]
+        public void Crew_TouristAboardANeverMaterializedPadFlight_IsClosedAtEndUT()
+        {
+            // No recorded recovery: the 2026-09-23 retirement closes the tourist's hold at
+            // EndUT exactly as it does his crewmate's, so no tourist hold is left unbounded.
             const string tourist = "Tourist Kerman";
             var rec = MakeOnPad("rec-tourist-pad", Jeb, tourist);
             RecordingStore.AddRecordingWithTreeForTesting(rec);
@@ -1281,11 +1305,10 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(250.0, "ksc-retire-test");
             Assert.Equal(200.0, Kerbals.Reservations[Jeb].ReservedUntilUT);
-            Assert.False(Kerbals.IsReservedNow(Jeb));
-            Assert.True(double.IsPositiveInfinity(Kerbals.Reservations[tourist].ReservedUntilUT));
-            Assert.True(Kerbals.IsReservedNow(tourist));
+            Assert.Equal(200.0, Kerbals.Reservations[tourist].ReservedUntilUT);
+            Assert.False(Kerbals.IsReservedNow(tourist));
             Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
-                && l.Contains("KSC retirement: tourist 'Tourist Kerman' of recording 'rec-tourist-pad' stays held"));
+                && l.Contains("Reservation bounded by KSC retirement: 'Tourist Kerman' recording 'rec-tourist-pad'"));
         }
     }
 }

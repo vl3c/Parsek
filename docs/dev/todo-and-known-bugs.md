@@ -559,15 +559,16 @@ a kerbal whose committed timeline records his recovery from that flight: a `Kerb
 that `RecoveryClosesHold` puts in the retired recording's scope (its own row, or one of another
 recording of its tree, found by the pure `TryFindRecordedRecoveryInScope`), so the recorded
 recovery bounds the hold. A parked flight that never became real has no such row and still frees
-its crew at EndUT (2026-09-23 ruling). A tourist row gets no synthetic closure either and stays
-held (2026-10-25 ruling). The walk's closure now carries `IsKscRetirement`, so the
-`Reservation bounded by ...` line names the closure that won; the PrePass summary adds
-`recordedRecoveryWins=` and `touristsKeptHeld=`. Ledger and money unchanged. Tests
+its crew at EndUT (2026-09-23 ruling). A tourist is treated exactly like crew: held until his
+recorded recovery (the RW-2 case, which the 2026-10-25 keep-her-Assigned ruling needs), else closed
+at EndUT as before, so no tourist hold is left without an end. The walk's closure now carries
+`IsKscRetirement`, so the `Reservation bounded by ...` line names the closure that won; the
+PrePass summary adds `recordedRecoveryWins=`. Ledger and money unchanged. Tests
 (`KscPadRetirementTests`): `Crew_PadFlightRecoveredAfterItsTrimmedEnd_HoldEndsAtTheRecoveryRow`,
-`Crew_TouristAboardAPadRetiredFlight_StaysHeld`,
+`Crew_TouristAboardARecoveredPadFlight_IsHeldUntilTheRecoveryRow`,
+`Crew_TouristAboardANeverMaterializedPadFlight_IsClosedAtEndUT`,
 `Crew_NeverMaterializedPadFlight_WithAnotherMissionsRecovery_StillFreedAtEndUT`,
-`CollectClosures_RecordedRecoveryInScope_WinsOverTheEndUTClosure`, and the re-pinned
-`CollectClosures_OnlyAboardAndUnknownRowsOfRetiredRecordings` (the tourist is no longer freed).
+`CollectClosures_RecordedRecoveryInScope_WinsOverTheEndUTClosure`.
 Live proof: none (RW-2 would show `recordedRecoveryWins=1` and the hold ending at the row).
 
 ## ~~OPTIMIZER-MERGE-RETAGS-LEDGER-ROWS-ONLY: an optimizer merge leaves the absorbed recording's game-state events under a dead id~~ [FILED 2026-10-28 from the gap sweep claim 5; FIXED 2026-10-31, branch `fix-low-ledger-bugs`; xUnit only; low]

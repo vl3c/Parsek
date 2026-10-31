@@ -1258,16 +1258,14 @@ namespace Parsek
                 foreach (var kvp in recordingMeta)
                     treeIdByRecordingId[kvp.Key] = kvp.Value.TreeId;
                 int recoveryRowWins;
-                int touristsKeptHeld;
                 int retiredClosures = CollectKscRetirementClosures(
                     actions, kscRetiredEndUTs, recoveryClosures, treeIdByRecordingId,
-                    out recoveryRowWins, out touristsKeptHeld);
+                    out recoveryRowWins);
                 ParsekLog.Verbose(Tag,
                     $"PrePass: {kscRetiredEndUTs.Count.ToString(CultureInfo.InvariantCulture)} KSC-retired " +
                     $"recording(s) free {retiredClosures.ToString(CultureInfo.InvariantCulture)} aboard crew " +
                     "hold(s) at their EndUT (no ledger row); " +
-                    $"recordedRecoveryWins={recoveryRowWins.ToString(CultureInfo.InvariantCulture)} " +
-                    $"touristsKeptHeld={touristsKeptHeld.ToString(CultureInfo.InvariantCulture)}");
+                    $"recordedRecoveryWins={recoveryRowWins.ToString(CultureInfo.InvariantCulture)}");
             }
 
             int claimCount = CollectDockClaims(RecordingStore.CommittedTrees, actions);
@@ -1897,15 +1895,16 @@ namespace Parsek
         /// (<see cref="RoleHoldsKerbal(string)"/>) are untouched, no ledger row is written,
         /// and one closure is added per (kerbal, recording).
         ///
-        /// <para>Two rows get no synthetic closure. A kerbal whose committed timeline already
-        /// records his recovery from this flight (a <see cref="GameActionType.KerbalRecovered"/>
-        /// row that <see cref="RecoveryClosesHold"/> puts in the retired recording's scope:
-        /// the vessel WAS real until the player recovered it, later than the trimmed EndUT)
-        /// is bounded by that recorded recovery, not by the EndUT; the ruling covers a parked
-        /// flight that never becomes a real vessel (<paramref name="recordedRecoveryWins"/>).
-        /// A tourist stays held (owner ruling 2026-10-25: a held tourist stays Assigned
-        /// after a rewind): nothing recovers him on a retirement, so his hold stays open
-        /// (<paramref name="touristsKeptHeld"/>). <paramref name="treeIdByRecordingId"/>
+        /// <para>A kerbal whose committed timeline already records his recovery from this
+        /// flight (a <see cref="GameActionType.KerbalRecovered"/> row that
+        /// <see cref="RecoveryClosesHold"/> puts in the retired recording's scope: the vessel
+        /// WAS real until the player recovered it, later than the trimmed EndUT) gets no
+        /// synthetic closure and is bounded by that recorded recovery; the ruling covers a
+        /// parked flight that never becomes a real vessel
+        /// (<paramref name="recordedRecoveryWins"/>). A tourist is treated exactly like crew:
+        /// held until his recorded recovery when there is one (a held tourist stays Assigned
+        /// after a rewind, owner ruling 2026-10-25), else closed at EndUT, so no tourist hold
+        /// is left without an end. <paramref name="treeIdByRecordingId"/>
         /// (committed recording id -> tree id) scopes a recovery row owned by another
         /// recording of the same tree; null scopes only the retired recording's own rows.
         /// Returns the closures added. Pure.</para>
@@ -1915,11 +1914,9 @@ namespace Parsek
             IReadOnlyDictionary<string, double> retiredEndUTByRecordingId,
             Dictionary<string, List<RecoveryClosure>> into,
             IReadOnlyDictionary<string, string> treeIdByRecordingId,
-            out int recordedRecoveryWins,
-            out int touristsKeptHeld)
+            out int recordedRecoveryWins)
         {
             recordedRecoveryWins = 0;
-            touristsKeptHeld = 0;
             if (actions == null || retiredEndUTByRecordingId == null || into == null)
                 return 0;
             if (retiredEndUTByRecordingId.Count == 0)
@@ -1946,15 +1943,6 @@ namespace Parsek
                 if (!retiredEndUTByRecordingId.TryGetValue(a.RecordingId, out endUT)) continue;
                 if (double.IsNaN(endUT) || double.IsInfinity(endUT)) continue;
                 if (!seen.Add(a.KerbalName + "|" + a.RecordingId)) continue;
-
-                if (IsTouristRole(a.KerbalRole))
-                {
-                    touristsKeptHeld++;
-                    ParsekLog.Verbose(Tag,
-                        $"KSC retirement: tourist '{a.KerbalName}' of recording '{a.RecordingId}' " +
-                        "stays held (no closure at EndUT; a held tourist stays Assigned)");
-                    continue;
-                }
 
                 double recoveryUT;
                 string recoveryOwner;
@@ -1987,15 +1975,15 @@ namespace Parsek
             return added;
         }
 
-        /// <summary><see cref="CollectKscRetirementClosures(IReadOnlyList{GameAction}, IReadOnlyDictionary{string, double}, Dictionary{string, List{RecoveryClosure}}, IReadOnlyDictionary{string, string}, out int, out int)"/> without tree scoping or counters.</summary>
+        /// <summary><see cref="CollectKscRetirementClosures(IReadOnlyList{GameAction}, IReadOnlyDictionary{string, double}, Dictionary{string, List{RecoveryClosure}}, IReadOnlyDictionary{string, string}, out int)"/> without tree scoping or the counter.</summary>
         internal static int CollectKscRetirementClosures(
             IReadOnlyList<GameAction> actions,
             IReadOnlyDictionary<string, double> retiredEndUTByRecordingId,
             Dictionary<string, List<RecoveryClosure>> into)
         {
-            int ignoredWins, ignoredTourists;
+            int ignoredWins;
             return CollectKscRetirementClosures(actions, retiredEndUTByRecordingId, into, null,
-                out ignoredWins, out ignoredTourists);
+                out ignoredWins);
         }
 
         /// <summary>
