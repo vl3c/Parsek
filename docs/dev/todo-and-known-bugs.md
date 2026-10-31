@@ -685,12 +685,28 @@ leg moves it below that. The "recorded anyway" Verbose line names the reason
 `ReputationThreshold_ExemptsTheExchangersReputationIn`, `SmallRollout_IsRecorded_AndFilesItsVesselBuildRow`,
 `SmallBailOutGrant_IsRecorded_AndForwardedToTheLedger`.
 
-## CS-FIXTURES-CARRY-BARE-ORBIT-MILESTONE: the CS career fixtures hold a pre-#2301 bare 'Orbit' row [FILED 2026-10-28 from log mining, confirmed by RW-3; fixture shape, NOT FIXED; low]
+## ~~CS-FIXTURES-CARRY-BARE-ORBIT-MILESTONE: the CS career fixtures hold a pre-#2301 bare 'Orbit' row~~ [FILED 2026-10-28 from log mining, confirmed by RW-3; FIXED 2026-10-31, branch `fix-eva-subsurface-and-cleanups`; fixture shape; low]
 
 Every CS save from CS-4 on reports milestone `Kerbin/Orbit` missing in the recalc, because the
 fixtures carry an old bare `Orbit` row from before #2301. It is fixture shape, not a live bug, but
 it adds noise to every rewind campaign lane on those hosts. Re-harvest the fixtures, or repair the
 row with the fixture builder.
+
+**Fix.** Repaired in place; no builder exists for these saves (the `build_cs_*` tools build
+craft only) and a re-harvest would mean re-flying CS-4 through CS-6c. CS-4's first orbit was
+captured before #2301 (`QualifyMilestoneId` reading the body), so its row carries `Orbit`; the
+stock `ProgressTracking` node in the same save is `Kerbin > Orbit` with `completedManned` at the
+row's own UT 611.79373901347844, so the body is not in doubt. In each of `cs-career-orbit`, `-ts1`,
+`-mun1`, `-mun2`, `-mun3` and `-mun4` four lines change and nothing else: the ledger GAME_ACTION
+(type 4, `act_9e88714c208b44af84ed02607c3b2bb6`) `milestoneId` and the MilestoneAchieved
+GAME_STATE_EVENT (type 18) `key`, each in `ledger.pgld` / `milestones.pgsm` and in persistent.sfs,
+now `Kerbin/Orbit` (24 lines, byte-exact, CRLF kept). No fixture already held a `Kerbin/Orbit`
+row, so no duplicate. Nothing pins these bytes: `test_saveparse`'s pinned payloads are structural
+(trees, recordings, terminals), no spec gates a `reportOnly` count (the `reportOnly=2` notes in
+CS-4b / CS-5 / CS-6 are run readings), and the CS-6 / 6c / 7 `Milestone enriched:` forbids only get
+stricter. The six provenance comments in `harness/lib/test_saveparse.py` name the edit. All three
+harness suites green. The next flight on these hosts should read `reportOnly` one lower (the
+Kerbin/Orbit MissingInRecon facet gone); that is unproven until a lane flies.
 
 ## ~~REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE: a Discard Re-fly after a Rewind-to-Launch takes the committed future's earnings away for good~~ [FILED AND FIXED 2026-10-28 from RW-5's flight `2026-10-28_1056`, branch `fix-refly-discard-pool-reference`; LIVE-PROVEN by lane RW-5, run `2026-10-28_1200` (DLL built from 530e783); product, high (a reduction of the career total)]
 

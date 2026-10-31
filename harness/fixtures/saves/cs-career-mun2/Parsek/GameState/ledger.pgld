@@ -796,7 +796,7 @@ GAME_ACTION
 	recordingId = e312c6a92d184ddc8eeab566190f94d7
 	seq = 6
 	cseq = 152
-	milestoneId = Orbit
+	milestoneId = Kerbin/Orbit
 	milestoneFundsAwarded = 24000
 	milestoneRepAwarded = 5
 	milestoneSciAwarded = 2

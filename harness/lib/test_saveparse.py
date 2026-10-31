@@ -3729,11 +3729,17 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "recordingIds": ["71288de785d2472ea60da273f42ce1c6"],
             "schemaGeneration": 4,
         },
+        # FIXTURE EDIT 2026-10-31 (cs-career-orbit through cs-career-mun4, all six): CS-4's
+        # pre-#2301 bare `Orbit` milestone (its ledger GAME_ACTION `milestoneId` and its
+        # MilestoneAchieved GAME_STATE_EVENT `key`, each in the Parsek sidecar and in
+        # persistent.sfs) re-keyed to `Kerbin/Orbit`, the id the capture writes since #2301;
+        # no other byte changed (todo CS-FIXTURES-CARRY-BARE-ORBIT-MILESTONE).
         # PROVENANCE: cs-career-orbit <- CS-4-career-orbit-return, run 2026-10-26_0521
         # (PASS attempt 1, LedgerGroundTruth hardFailures=0), harvested from that run's
         # `_save` snapshot with --keep-parsek --allow-no-vessel --expect-mode CAREER, no
-        # edit (the harvest cleared one dangling rewindSave reference). The career after its
-        # first orbit: funds 276994.30, science 47.5, rep 84.0, Mission Control at level 1,
+        # edit beyond the re-key above (the harvest cleared one dangling rewindSave
+        # reference). The career after its first orbit: funds 276994.30, science 47.5,
+        # rep 84.0, Mission Control at level 1,
         # start / basicRocketry / engineering101 / survivability researched, the RT-10
         # PartTest still Active, no vessel. Two committed trees: CS-3's Flea hop (one
         # recording, Recovered) and CS-4's CS Orbiter tree (six recordings: the root ascent
@@ -3759,7 +3765,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # PROVENANCE: cs-career-ts1 <- CS-4b-career-tracking-station, run 2026-10-27_1957
         # (PASS attempt 1, LedgerGroundTruth hardFailures=0), harvested from that run's
         # `_save` snapshot (logs/flights/cs-campaign/cs4b-run2-save) with --keep-parsek
-        # --allow-no-vessel --expect-mode CAREER, no edit. CS-4's career after the KSC
+        # --allow-no-vessel --expect-mode CAREER, one edit (above). CS-4's career after the KSC
         # half: funds 76994.30, science 9.5, rep 84.0; the Tracking Station, the Launch
         # Pad and Mission Control at level 1 (lvl 0.5), every other facility at level 0;
         # start / basicRocketry / engineering101 / survivability / generalRocketry /
@@ -3786,7 +3792,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # PROVENANCE: cs-career-mun1 <- CS-5-career-mun-flyby, run 2026-10-27_2101
         # (PASS attempt 1, LedgerGroundTruth hardFailures=0), harvested from that run's
         # `_save` snapshot (logs/flights/cs-campaign/2026-10-27_2101_CS-5-career-mun-flyby_save)
-        # with --keep-parsek --allow-no-vessel --expect-mode CAREER, no edit. CS-5's career
+        # with --keep-parsek --allow-no-vessel --expect-mode CAREER, one edit (above). CS-5's career
         # after the Mun flyby and return: funds 177715.98, science 30.5, rep 103.0; the
         # Tracking Station, the Launch Pad and Mission Control at level 1 (lvl 0.5), every
         # other facility at level 0; the same six research nodes; the RT-10 PartTest the
@@ -3820,7 +3826,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # PROVENANCE: cs-career-mun2 <- CS-6-career-mun-orbit, run 2026-10-27_2202
         # (PASS attempt 1, LedgerGroundTruth hardFailures=0), harvested from that run's
         # `_save` snapshot (logs/flights/cs-campaign/2026-10-27_2202_CS-6-career-mun-orbit_save)
-        # with --keep-parsek --allow-no-vessel --expect-mode CAREER, no edit. CS-6's career
+        # with --keep-parsek --allow-no-vessel --expect-mode CAREER, one edit (above). CS-6's career
         # after the Mun orbit and return: funds 216973.01, science 50.5, rep 111.0; the
         # Tracking Station, the Launch Pad and Mission Control at level 1 (lvl 0.5), every
         # other facility (the Astronaut Complex included) at level 0; the same six research
@@ -3860,7 +3866,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         },
         # PROVENANCE: cs-career-mun3 <- CS-6b-career-astronaut-complex, run 2026-10-27_2316
         # (PASS attempt 1, LedgerGroundTruth hardFailures=0), harvested from that run's `_save`
-        # snapshot with --keep-parsek --allow-no-vessel --expect-mode CAREER, no edit. CS-6b
+        # snapshot with --keep-parsek --allow-no-vessel --expect-mode CAREER, one edit (above). CS-6b
         # recorded nothing, so the payload is cs-career-mun2's; the career gained the
         # Astronaut Complex at level 1 (75000, measured) and advRocketry (45 science): funds
         # 141973.01, science 5.5, rep 111.0. Its Ships/VAB also carries `CS Mun Science.craft`
@@ -3897,7 +3903,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         },
         # PROVENANCE: cs-career-mun4 <- CS-6c-career-mun-science, run 2026-10-28_0028
         # (PASS attempt 1, LedgerGroundTruth hardFailures=0), harvested from that run's `_save`
-        # snapshot with --keep-parsek --allow-no-vessel --expect-mode CAREER, no edit. The
+        # snapshot with --keep-parsek --allow-no-vessel --expect-mode CAREER, one edit (above). The
         # payload is cs-career-mun3's 21 recordings plus CS-6c's science flight (13: the CS
         # Mun Science chain, its debris and the two EVA / Board branches); the career gained
         # basicScience and electrics (the Z-100 and the OX-STAT): funds 157546.18 (CS-6c's
