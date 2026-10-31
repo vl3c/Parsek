@@ -852,6 +852,10 @@ ACTION_MJ_SET_TARGET_APOAPSIS = "mj_set_target_apoapsis"   # value = metres
 ACTION_MJ_ENABLE_AUTOSTAGE = "mj_enable_autostage"         # value = None
 ACTION_MJ_ENGAGE_ASCENT = "mj_engage_ascent"               # value = None
 ACTION_MJ_EXECUTE_CIRCULARIZATION = "mj_execute_circularization"  # value = None
+# Re-read MechJeb's AscentAutopilot handle off the ACTIVE vessel (the runner caches
+# the launch vessel's at connect). CS-7 sends it before its Mun ascent, after an EVA
+# and a boarding switched the active vessel away and back.
+ACTION_MJ_REBIND_ASCENT = "mj_rebind_ascent"               # value = None
 # Three MechJeb AscentAutopilot settings, emitted only when a spec sets the matching
 # B4 param (every committed B4-family lane leaves them unset, so its PRELAUNCH
 # actions are unchanged). KRPC.MechJeb surfaces (GameData/kRPC/KRPC.MechJeb.json):
@@ -1267,6 +1271,11 @@ ACTION_CUT_CHUTES = "cut_chutes"                           # value = None
 # on the kRPC 0.5.4 Engine class (verified in the installed client source); the
 # module ACTIVATING is what the recorder reads, so no propellant need flow.
 ACTION_SET_ENGINES_ACTIVE = "set_engines_active"            # value = 1.0 on / 0.0 off
+# Every ReactionWheel on the ACTIVE vessel -> `.active = (value != 0)` (kRPC 0.5.4
+# `ReactionWheel.active`, a settable property in the installed client's
+# services/spacecenter.py). An inactive wheel takes no torque command and draws no
+# ElectricCharge; the runner reads each wheel back and logs the count.
+ACTION_SET_REACTION_WHEELS = "set_reaction_wheels"          # value = 1.0 on / 0.0 off
 # B-DOCK-2 (mission bdock_second_dock) vessel-handle actions. The runner keeps two
 # extra kRPC vessel handles beside the captured station:
 #   CAPTURE_HOME_VESSEL  stores the CURRENT active vessel as "home" (the docked
@@ -1304,6 +1313,13 @@ ACTION_TARGET_NEAREST_NAMED_VESSEL = "target_nearest_named_vessel"  # text = ves
 # so the lane knows only the name of the half it must NOT fly. The pick is
 # `pick_nearest_other`.
 ACTION_SWITCH_TO_NEAREST_OTHER_VESSEL = "switch_to_nearest_other_vessel"  # text = name to skip
+# mlr's ragdoll recovery switch-back: `sc.active_vessel = <the EVA kerbal>`. kRPC 0.5.4
+# exposes no vessel persistentId (KRPC.SpaceCenter.json lists only Vessel_get_Name),
+# so the pick cannot be by the pid EvaExit answered: it is the nearest vessel named
+# `text`, else a vessel named `text` whose position could not be read, else the
+# nearest EVA-type vessel. The runner logs EVERY candidate (name, type, distance,
+# any read error), so a miss names itself. The pick is `pick_switch_back_kerbal`.
+ACTION_SWITCH_TO_EVA_KERBAL = "switch_to_eva_kerbal"          # text = kerbal name
 # d5_redock's separated start: `v.parts.controlling = <a docking port's part>` on the
 # ACTIVE vessel (the Ready port first, `pick_ready_port_index`). MechJeb's docking
 # autopilot aligns the vessel's control reference with the target port, so a craft
@@ -4171,11 +4187,13 @@ SEAM_COMMAND_POLL_SECONDS_BY_VERB: Dict[str, float] = {
     "GoToEditor": 240.0,
     "LaunchFromEditor": 360.0,
     "StartRecording": 360.0,
-    # CS-6c's EVA cycles (b11_mun_science_return). The same arithmetic: hlib's C#
-    # dispatch budgets are EvaExit 120 s and EvaBoard 120 s, so the 120 s default
-    # would poll with zero margin and read a slow exit or boarding as a wedged seam.
-    # Each row is twice its budget; the bound, not the expectation.
+    # CS-7's surface visit (b13_mun_landing_return). The same arithmetic: hlib's C#
+    # dispatch budgets are EvaExit 120 s, PlantFlag 180 s and EvaBoard 120 s, so the
+    # 120 s default would poll with zero margin or BELOW the budget and read a slow
+    # plant (the landing settle, the stock flag animation and its dialog) as a wedged
+    # seam. Each row is twice its budget; the bound, not the expectation.
     "EvaExit": 240.0,
+    "PlantFlag": 360.0,
     "EvaBoard": 240.0,
 }
 
@@ -25990,6 +26008,57 @@ def pick_nearest_named(candidates: Sequence[Tuple[str, float, bool]],
     return best
 
 
+SWITCH_BACK_BY_NAME = "name"
+SWITCH_BACK_BY_NAME_UNPLACED = "name-unplaced"
+SWITCH_BACK_BY_EVA_TYPE = "eva-type"
+SWITCH_BACK_NONE = "none"
+
+
+def pick_switch_back_kerbal(candidates: Sequence[Tuple[str, bool, float, bool]],
+                            name: str) -> Tuple[Optional[int], str]:
+    """The pick ACTION_SWITCH_TO_EVA_KERBAL switches to, over candidates
+    ``(vessel_name, is_eva, distance_m, is_active)``, never the active vessel:
+    the nearest FINITE-distance vessel named ``name``; else the first vessel named
+    ``name`` whose distance is unreadable (a failed position read is not proof the
+    kerbal is gone); else the nearest finite-distance EVA vessel. Returns
+    ``(index, how)`` with ``how`` one of the SWITCH_BACK_* tokens. Pure."""
+    best, best_d = None, float("inf")
+    unplaced = None
+    eva, eva_d = None, float("inf")
+    for i, (n, is_eva, d, is_active) in enumerate(candidates or ()):
+        if is_active:
+            continue
+        named = bool(name) and str(n) == str(name)
+        if named and _is_finite(d):
+            if float(d) < best_d:
+                best, best_d = i, float(d)
+        elif named and unplaced is None:
+            unplaced = i
+        if is_eva and _is_finite(d) and float(d) < eva_d:
+            eva, eva_d = i, float(d)
+    if best is not None:
+        return best, SWITCH_BACK_BY_NAME
+    if unplaced is not None:
+        return unplaced, SWITCH_BACK_BY_NAME_UNPLACED
+    if eva is not None:
+        return eva, SWITCH_BACK_BY_EVA_TYPE
+    return None, SWITCH_BACK_NONE
+
+
+def format_switch_candidates(candidates: Sequence[Tuple[str, str, float, bool, str]]) -> str:
+    """One log field per scanned vessel ``(name, type, distance_m, is_active,
+    error)``: ``'name'/type@12.3m[*active][!error]``, ';'-joined. Pure."""
+    out = []
+    for n, t, d, is_active, err in candidates or ():
+        cell = "%r/%s@%s" % (n, t or "?", ("%.1fm" % d) if _is_finite(d) else "nan")
+        if is_active:
+            cell += "*active"
+        if err:
+            cell += "!" + err
+        out.append(cell)
+    return ";".join(out) or "none"
+
+
 def pick_nearest_other(candidates: Sequence[Tuple[str, float, bool]],
                        skip_name: str) -> Optional[int]:
     """Index of the candidate ``(vessel_name, distance_m, is_active)`` that
@@ -32373,11 +32442,939 @@ def evaluate_mor_assertions(frames, params: MorParams,
 
 
 # ---------------------------------------------------------------------------
+# MUN-LANDING-RETURN composed machine (mission b13_mun_landing_return; the
+# scripted campaign's CS-7, "Mun landing, EVA, plant a flag, board, ascend,
+# return, recover"). Pure.
+#
+# WHY A COMPOSED MACHINE. B13 (b5_decide with captureEnabled + landingEnabled)
+# captures, parks, lands on the Mun and then COMMITS the tree on the surface
+# through the mid-mission seam; nothing leaves the Mun. CS-7 needs the surface
+# visit and the way home: the EVA, the flag and the boarding, a Mun ascent, then
+# CS-6's departure and CS-5's return tail. hlib.validate_spec allows ONE mission
+# step per autopilot spec, so the whole flight runs inside one machine, and the
+# three EVA verbs (kRPC has no EVA API) are sent from inside it on the generalized
+# mid-mission seam (ACTION_PARSEK_SEAM_COMMAND, the R1 / record_climb_rewind
+# precedent). b5_decide and b4_decide are delegated VERBATIM; the departure is
+# mor's own block functions (_mor_depart) and the return tail mfr's (_mfr_trim /
+# _mfr_fall / _mfr_home), shared rather than copied: MlrState and MlrParams carry
+# every field name those functions read (test_b13_mun_landing_return pins the
+# superset), so mor_decide and mfr_decide are unchanged.
+#
+# THE PHASE PLAN (reported phase in brackets):
+#   LAND    b5_decide verbatim with captureEnabled + landingEnabled [B5's own
+#           phase names, B13's tail: PLAN-CAPTURE, CAPTURE-BURN, PARK, DESCENT,
+#           LANDED-SETTLE], with mfr's career launch edit (the setters before the
+#           engage, the stage held until the AscentAutopilot READS enabled) and
+#           ONE edit on the landed-dwell exit frame: B5 enters SURFACE-COMMIT and
+#           emits the mid-mission CommitTree there; the composer DROPS that
+#           action (CS-7 commits at the scene exit, after the recovery) and stops
+#           feeding B5. B5's own rows through landedStable hold on that frame
+#           (SURFACE-COMMIT is in its phase list).
+#   EVA     [EVA-EXIT] the seam's EvaExit (release=true: off the hatch onto the
+#           Mun), [EVA-RECOVER] (opt-in, evaRagdollRecoverSeconds; see THE RAGDOLL
+#           RECOVERY below), [EVA-FLAG] PlantFlag, [EVA-BOARD] EvaBoard, each gated
+#           on ITS OWN tag's answer and given up by name on any answer but OK; then
+#           [EVA-SETTLE] until the lander (liquid fuel aboard, landed on the
+#           target body) reads back as the active vessel for evaSettleFrames
+#           frames and evaSettleSeconds.
+#   ASCENT  [MUN-ASCENT] MechJeb's AscentAutopilot re-bound to the landed
+#           vessel and engaged to munAscentAltitudeMeters (autostage keeps the
+#           launch's limit, so the pod's separation is never fired), supervised
+#           on the OBSERVED enabled channel (bounded re-engage, then a named
+#           give-up), a liftoff window and the "in orbit" read when MechJeb
+#           releases; [MUN-CIRCULARIZE] only when it releases with a node left.
+#           Done when ORBITING the target with periapsis >= munAscentMinPeriapsis.
+#   DEPART  mor's [DEPART-PLAN] / [DEPART-BURN] / [DEPART-COAST], entered with
+#           any left-over node cleared first.
+#   TRIM / HOME / FALL   mfr's blocks, entered at the home SOI as on CS-5 / CS-6.
+# ELECTRIC CHARGE. The lander's Terrier makes no power, so from the core drop on
+# the craft lives on its batteries (and, on CS-7's re-cut, three OX-STAT panels).
+# Outside the EVA block (where the active vessel is the kerbal) a reading under
+# electricChargeFloor for electricChargeDebounceFrames frames ends the flight by name
+# before any phase idles to its budget with an attitude it cannot hold.
+# THE RAGDOLL RECOVERY (evaRagdollRecoverSeconds, off by default). Released off the
+# ladder, the kerbal drops to the surface and often lands in Ragdoll. Stock
+# KerbalEVA (decompiled, CanRecover) stands a ragdolled kerbal up once its rigidbody
+# is under recoverThreshold (0.6 m/s), BUT for the ACTIVE vessel only while a
+# movement key is held (tgtRpos != 0, set only from the EVA_forward / back / left /
+# right GameSettings keys); a kerbal that is NOT the active vessel recovers on its
+# own. A scripted flight presses no key, so an active kerbal lies at rest in Ragdoll
+# forever: CS-7 runs 2026-10-28_0201, _0303 and _0325_a2 each ended the PlantFlag
+# gate at 180 s with blocked=fsm=Ragdoll and the kerbal at rest (hspd 0.000).
+# With the knob set, [EVA-RECOVER] switches the active vessel to the nearest other
+# vessel (the lander; a plain kRPC switch skipping the kerbal's name), holds until
+# the lander reads back (mlr_aboard_lander) for evaRagdollRecoverSeconds GAME s since
+# the phase's entry, switches back to the kerbal (the kRPC handle captured before
+# the switch away, then ACTION_SWITCH_TO_EVA_KERBAL's logged scan as a fallback;
+# re-sent every evaRecoverReissueSeconds, at most MLR_RECOVER_BACK_ISSUES times), and sends PlantFlag only once the active
+# vessel reads as the kerbal (its NAME, read_vessel_name, or no liquid fuel while
+# landed on the target) for evaRecoverConfirmFrames frames. CS-7 run 2026-10-28_0357
+# proved the recovery (EvaRagdollEnded 2.6 s after the switch away) and lost the
+# switch back to a name scan that found no 'Jebediah Kerman' among four vessels; run
+# _0514's candidate log showed why: kRPC's vessel list omits EVA kerbals. A PlantFlag that still answers ERROR
+# flag-gate-timeout runs the recovery ONCE more and re-sends under its own tag
+# (cs7plantflag2); any other answer, or a second timeout, gives up by name as before.
+# THE EVA EXIT RETRY (evaExitRetrySeconds, off by default): an EvaExit refused with
+# eva-refused (stock spawnEVA returned null, run 2026-10-28_0432_a2) is re-sent ONCE,
+# under its own tag (cs7evaexit2), after that many GAME s of settle.
+# THE ASCENT-COAST WHEEL RELEASE (ascentCoastWheelRelease, off by default). CS-7's
+# first flight (2026-10-27_2326) emptied the pod's 50 EC on ONE coast: MechJeb's hold
+# on the long stack (the full lander on the empty core) after the core cut off at the
+# target apoapsis, still inside the atmosphere where no rails warp is legal, at a
+# measured 0.42-0.47 EC/s. With the flag on, the composer switches every reaction
+# wheel OFF on the first frame of that coast (B5 still in MJ-ASCENT, the apoapsis at
+# or past the target, the altitude between ascentCoastWheelFloorMeters and
+# ascentCoastWheelCeilingMeters, no node yet) and back ON on the first frame any of
+# these holds: the altitude reaches the ceiling (the atmosphere's top, where MechJeb
+# plans its circularization), a node exists, the apoapsis falls under the target
+# window (MechJeb will burn), or B5 leaves MJ-ASCENT. One release per flight, latched;
+# b5_decide is untouched and every action B5 emits is kept. WHY IT IS SAFE: the
+# coasting stack carries its mass forward (the full lander) and its empty tanks aft,
+# so the thin air at 40-70 km turns it prograde, the attitude MechJeb holds there;
+# MechJeb's node executor will not warp or burn until it is aligned, and the wheels
+# are back with a full battery before it plans the node. The surface stay keeps
+# B5's SAS hold (its tip guard on the landed dwell), and every other coast is either
+# on rails (no draw) or a burn.
+# ---------------------------------------------------------------------------
+
+MLR_LAND = "MUN-LANDING"
+MLR_EVA = "EVA"
+MLR_EVA_EXIT = "EVA-EXIT"
+MLR_EVA_RECOVER = "EVA-RECOVER"
+MLR_EVA_FLAG = "EVA-FLAG"
+MLR_EVA_BOARD = "EVA-BOARD"
+MLR_EVA_SETTLE = "EVA-SETTLE"
+MLR_ASCENT = "MUN-ASCENT"
+MLR_ASCENT_CIRCULARIZE = "MUN-CIRCULARIZE"
+MLR_BLOCKS: Tuple[str, ...] = (MLR_LAND, MLR_EVA, MLR_ASCENT, MOR_DEPART, MFR_TRIM,
+                               MFR_HOME, MFR_FALL)
+MLR_TERMINAL_PHASE = MFR_TERMINAL_PHASE
+# The seam tags (each command's wire id is "<reservedId>.<tag>").
+MLR_TAG_EVA_EXIT = "cs7evaexit"
+MLR_TAG_FLAG = "cs7plantflag"
+MLR_TAG_FLAG_RETRY = "cs7plantflag2"
+MLR_TAG_EVA_EXIT_RETRY = "cs7evaexit2"
+MLR_EVA_EXIT_REFUSED_MSG = "eva-refused"
+MLR_RECOVER_BACK_ISSUES = 3
+# The ragdoll recovery: its two steps, the PlantFlag answer that earns one re-run.
+MLR_RECOVER_AWAY = "away"
+MLR_RECOVER_BACK = "back"
+MLR_FLAG_GATE_TIMEOUT = "flag-gate-timeout"
+MLR_FLAG_RETRY_LIMIT = 1
+MLR_TAG_BOARD = "cs7evaboard"
+# The ascent engage gate: re-issues after a disabled read streak, then the give-up.
+MLR_ASCENT_REISSUE_LIMIT = 2
+# Frames MechJeb may read released (not in orbit, no node) before the give-up, so a
+# one-frame situation lag after its own circularization never reads as a failure.
+MLR_ASCENT_RELEASE_FRAMES = 5
+MLR_EVA_EXIT_REFUSED = "eva-exit-refused"
+MLR_FLAG_REFUSED = "flag-plant-refused"
+MLR_BOARD_REFUSED = "eva-board-refused"
+MLR_BOARD_NOT_ABOARD = "eva-board-not-aboard"
+MLR_ASCENT_NOT_ENABLED = "mun-ascent-not-enabled"
+MLR_ASCENT_NEVER_LIFTED = "mun-ascent-never-lifted"
+MLR_ASCENT_NOT_IN_ORBIT = "mun-ascent-not-in-orbit"
+MLR_EC_EXHAUSTED = "electric-charge-exhausted"
+# The blocks the electric-charge watchdog reads (the EVA block's active vessel is
+# the kerbal, and B4's home block flies on the chute).
+MLR_EC_BLOCKS: Tuple[str, ...] = (MLR_LAND, MLR_ASCENT, MOR_DEPART, MFR_TRIM)
+
+
+@dataclass(frozen=True)
+class MlrParams:
+    """b13_mun_landing_return tuning. ``orbit`` is B5's params (captureEnabled +
+    landingEnabled) over the SAME dict; ``home`` and the trim / fall / launch fields
+    are mfr's and the depart_* fields mor's, under the same names, so their block
+    functions read them unchanged."""
+    orbit: B5Params
+    home: B4Params
+    ascent_type: Optional[int] = None
+    autostage_limit: Optional[int] = None
+    mj_engage_confirm_frames: int = 0
+    return_periapsis: float = 30000.0
+    return_periapsis_min: float = 15000.0
+    return_periapsis_max: float = 45000.0
+    trim_heading_deg: float = 90.0
+    trim_throttle: float = 0.25
+    trim_fine_throttle: float = 0.03
+    trim_fine_band: float = 300000.0
+    trim_settle_seconds: float = 10.0
+    trim_max_attitude_error_deg: float = 5.0
+    trim_ignite_frames: int = 20
+    trim_timeout: float = 900.0
+    fall_lead_seconds: float = 600.0
+    fall_min_altitude: float = 200000.0
+    fall_timeout: float = 200000.0
+    depart_periapsis: float = 30000.0
+    depart_max_dv: float = 600.0
+    depart_plan_timeout: float = 300.0
+    depart_plan_retry: float = 10.0
+    depart_burn_timeout: float = 20000.0
+    depart_coast_timeout: float = 100000.0
+    depart_soi_lead: float = 30.0
+    # The surface visit.
+    eva_kerbal: str = ""
+    eva_settle_seconds: float = 5.0
+    eva_settle_frames: int = 3
+    eva_timeout: float = 900.0
+    # None = no ragdoll recovery (EVA-EXIT goes straight to EVA-FLAG).
+    eva_recover_seconds: Optional[float] = None
+    eva_recover_frames: int = 3
+    eva_recover_reissue: float = 15.0
+    # None = an eva-refused EvaExit gives up at once.
+    eva_exit_retry_seconds: Optional[float] = None
+    # The Mun ascent.
+    ascent_altitude: float = 20000.0
+    ascent_min_periapsis: float = 10000.0
+    ascent_engage_frames: int = 20
+    ascent_liftoff_window: float = 60.0
+    ascent_timeout: float = 900.0
+    ascent_circularize_timeout: float = 900.0
+    # The electric-charge watchdog (0 = off).
+    ec_floor: float = 0.0
+    ec_debounce: int = 20
+    # The ascent-coast wheel release (see the block note; off by default).
+    wheel_release: bool = False
+    wheel_release_floor: float = 40000.0
+    wheel_release_ceiling: float = 70000.0
+
+
+def mlr_params_from_dict(params: Dict) -> MlrParams:
+    """Build ``MlrParams`` from a spec ``missionParams`` dict (shape and ranges are
+    enforced upstream by hlib against b13_mun_landing_return.schema.toml). RAISES on
+    a B5 mode that does not end landed on the target, on a target that is the home
+    body, on every return-tail and departure inconsistency mor refuses, and on an
+    ascent that could not clear its own orbit floor."""
+    params = params or {}
+    orbit = b5_params_from_dict(params)
+    if not (orbit.capture_enabled and orbit.landing_enabled):
+        raise ValueError("captureEnabled and landingEnabled are required: the surface "
+                         "visit starts from the landed dwell of B5's landing tail")
+    for flag, name in ((orbit.start_in_orbit, "startInOrbit"),
+                       (orbit.pad_align_ejection, "padAlignEjection"),
+                       (orbit.interplanetary_transfer, "interplanetaryTransfer"),
+                       (orbit.parent_relay_transfer, "parentRelayTransfer")):
+        if flag:
+            raise ValueError("%s is not a Mun landing the return can lift off from"
+                             % name)
+    if orbit.target_body == orbit.home_body:
+        raise ValueError("targetBodyName %r is the home body" % (orbit.target_body,))
+    tail = return_tail_param_kwargs(params)
+    p = MlrParams(
+        orbit=orbit, **tail,
+        depart_periapsis=float(params.get("departPeriapsisMeters",
+                                          tail["return_periapsis"])),
+        depart_max_dv=float(params.get("departMaxDvMps", 600)),
+        depart_plan_timeout=float(params.get("departPlanTimeoutSeconds", 300)),
+        depart_plan_retry=float(params.get("departPlanRetrySeconds", 10)),
+        depart_burn_timeout=float(params.get("departBurnTimeoutSeconds", 20000)),
+        depart_coast_timeout=float(params.get("departCoastTimeoutSeconds", 100000)),
+        depart_soi_lead=float(params.get("departSoiLeadSeconds", 30)),
+        eva_kerbal=str(params.get("evaKerbalName", "") or ""),
+        eva_settle_seconds=float(params.get("evaSettleSeconds", 5)),
+        eva_settle_frames=int(params.get("evaSettleFrames", 3)),
+        eva_timeout=float(params.get("evaPhaseTimeoutSeconds", 900)),
+        eva_recover_seconds=(None if params.get("evaRagdollRecoverSeconds") is None
+                             else float(params["evaRagdollRecoverSeconds"])),
+        eva_recover_frames=int(params.get("evaRecoverConfirmFrames", 3)),
+        eva_recover_reissue=float(params.get("evaRecoverReissueSeconds", 15)),
+        eva_exit_retry_seconds=(None if params.get("evaExitRetrySeconds") is None
+                                else float(params["evaExitRetrySeconds"])),
+        ascent_altitude=float(params.get("munAscentAltitudeMeters", 20000)),
+        ascent_min_periapsis=float(params.get("munAscentMinPeriapsisMeters", 10000)),
+        ascent_engage_frames=int(params.get("munAscentEngageConfirmFrames", 20)),
+        ascent_liftoff_window=float(params.get("munAscentLiftoffWindowSeconds", 60)),
+        ascent_timeout=float(params.get("munAscentTimeoutSeconds", 900)),
+        ascent_circularize_timeout=float(params.get("munCircularizeTimeoutSeconds", 900)),
+        ec_floor=float(params.get("electricChargeFloor", 0)),
+        ec_debounce=int(params.get("electricChargeDebounceFrames", 20)),
+        wheel_release=bool(params.get("ascentCoastWheelRelease", False)),
+        wheel_release_floor=float(params.get("ascentCoastWheelFloorMeters", 40000)),
+        wheel_release_ceiling=float(params.get("ascentCoastWheelCeilingMeters", 70000)),
+    )
+    validate_return_tail_params(p)
+    if p.wheel_release and not (0.0 < p.wheel_release_floor < p.wheel_release_ceiling
+                                < p.orbit.target_apoapsis):
+        raise ValueError("0 < ascentCoastWheelFloorMeters < ascentCoastWheelCeilingMeters "
+                         "< targetApoapsisMeters is required for the ascent-coast wheel "
+                         "release (%.0f, %.0f, %.0f): the wheels must be back below the "
+                         "apoapsis MechJeb circularizes at"
+                         % (p.wheel_release_floor, p.wheel_release_ceiling,
+                            p.orbit.target_apoapsis))
+    if not (p.return_periapsis_min <= p.depart_periapsis <= p.return_periapsis_max):
+        raise ValueError("departPeriapsisMeters %.0f must sit inside the return window "
+                         "[%.0f, %.0f]: the departure aims where the trim cuts"
+                         % (p.depart_periapsis, p.return_periapsis_min,
+                            p.return_periapsis_max))
+    if p.depart_max_dv <= 0.0:
+        raise ValueError("departMaxDvMps must be positive")
+    if not (0.0 < p.ascent_min_periapsis < p.ascent_altitude):
+        raise ValueError("0 < munAscentMinPeriapsisMeters < munAscentAltitudeMeters is "
+                         "required (%.0f, %.0f)" % (p.ascent_min_periapsis,
+                                                    p.ascent_altitude))
+    if p.ascent_engage_frames <= 0 or p.eva_settle_frames <= 0:
+        raise ValueError("munAscentEngageConfirmFrames and evaSettleFrames must be "
+                         "positive")
+    if p.ec_floor > 0.0 and p.ec_debounce <= 0:
+        raise ValueError("electricChargeDebounceFrames must be positive when "
+                         "electricChargeFloor arms the watchdog")
+    return p
+
+
+@dataclass(frozen=True)
+class MlrState:
+    """b13_mun_landing_return machine state. ``flight`` is the delegated B5 machine
+    (named so ``frozen_detector_holder`` resolves it); ``home`` the delegated B4
+    machine once the return tail starts. Every MorState field is here under the same
+    name (mor's departure and mfr's tail run on this state), plus the surface visit's
+    and the ascent's own."""
+    params: MlrParams
+    flight: B5State
+    home: Optional[B4State] = None
+    block: str = MLR_LAND
+    phase: str = B5_PRELAUNCH
+    phase_entry_ut: float = 0.0
+    phase_frames: int = 0
+    phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
+    # The launch engage gate.
+    stage_held: bool = False
+    engage_wait_frames: int = 0
+    setters_injected: Tuple[str, ...] = ()
+    # The surface visit.
+    surface_ut: Optional[float] = None
+    eva_exit_result: str = ""
+    eva_kerbal_name: str = ""
+    eva_pid: str = ""
+    eva_released: str = ""
+    flag_result: str = ""
+    flag_site: str = ""
+    flag_body: str = ""
+    board_result: str = ""
+    boarded_pid: str = ""
+    eva_refusal: str = ""
+    eva_settle_streak: int = 0
+    eva_aboard_ut: Optional[float] = None
+    eva_recover_step: str = ""
+    eva_recover_streak: int = 0
+    eva_recover_runs: int = 0
+    eva_recover_back_ut: Optional[float] = None
+    eva_recover_back_issues: int = 0
+    flag_tries: int = 0
+    eva_exit_tries: int = 0
+    eva_exit_retry_ut: Optional[float] = None
+    # The ascent.
+    ascent_engaged: bool = False
+    ascent_engaged_ut: Optional[float] = None
+    ascent_engage_wait: int = 0
+    ascent_reissues: int = 0
+    ascent_lifted: bool = False
+    ascent_liftoff_ut: Optional[float] = None
+    ascent_release_frames: int = 0
+    ascent_circularize_issued: bool = False
+    ascent_orbit_ut: Optional[float] = None
+    ascent_periapsis: float = float("nan")
+    ascent_apoapsis: float = float("nan")
+    # The electric-charge watchdog.
+    ec_low_frames: int = 0
+    ec_min: float = float("nan")
+    # The ascent-coast wheel release (one per flight).
+    wheels_released: bool = False
+    wheels_release_ut: Optional[float] = None
+    wheels_restore_ut: Optional[float] = None
+    wheels_restore_reason: str = ""
+    # The departure (mor's fields).
+    park_exit_ut: Optional[float] = None
+    depart_plan_attempts: int = 0
+    depart_last_plan_ut: Optional[float] = None
+    depart_node_ut: float = float("nan")
+    depart_node_dv: float = float("nan")
+    depart_exec_down_frames: int = 0
+    depart_exec_reissues: int = 0
+    depart_underburn_frames: int = 0
+    depart_burn_end_ut: Optional[float] = None
+    depart_next_body: str = ""
+    depart_next_pe: float = float("nan")
+    depart_coast_target_ut: Optional[float] = None
+    depart_coast_issues: int = 0
+    depart_coast_stall_frames: int = 0
+    depart_coast_warp_done: bool = False
+    depart_home_ut: Optional[float] = None
+    # The trim (mfr's fields).
+    trim_direction: str = ""
+    trim_heading: float = float("nan")
+    trim_entry_periapsis: float = float("nan")
+    trim_burn_started: bool = False
+    trim_fine: bool = False
+    trim_burn_frames: int = 0
+    trim_peak_thrust: float = float("nan")
+    trim_cut_periapsis: float = float("nan")
+    trim_cut_ut: float = float("nan")
+    # The fall (mfr's fields).
+    fall_done: bool = False
+    fall_skip_reason: str = ""
+    fall_target_ut: Optional[float] = None
+    fall_issues: int = 0
+    fall_stall_frames: int = 0
+    warp_to_cmd: Optional[float] = None
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    done: bool = False
+
+
+def mlr_initial_state(params: MlrParams) -> MlrState:
+    """Fresh machine inside B5's own PRELAUNCH."""
+    flight = b5_initial_state(params.orbit)
+    return MlrState(params=params, flight=flight, phase=flight.phase,
+                    phases_reached=(flight.phase,))
+
+
+def mlr_eva_actions(verb: str, params: MlrParams,
+                    flag_tag: str = MLR_TAG_FLAG,
+                    exit_tag: str = MLR_TAG_EVA_EXIT) -> List[Action]:
+    """The one seam command a surface phase sends. EvaExit carries release=true
+    (off the hatch onto the ground) and the named kerbal when the spec names one;
+    PlantFlag and EvaBoard act on the active EVA kerbal. Pure."""
+    if verb == "EvaExit":
+        args: Tuple[Tuple[str, str], ...] = (("release", "true"),)
+        if params.eva_kerbal:
+            args = args + (("kerbal", params.eva_kerbal),)
+        return [Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="EvaExit", seam_args=args,
+                       seam_tag=exit_tag)]
+    if verb == "PlantFlag":
+        return [Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="PlantFlag",
+                       seam_tag=flag_tag)]
+    if verb == "EvaBoard":
+        return [Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="EvaBoard",
+                       seam_tag=MLR_TAG_BOARD)]
+    raise ValueError("unknown surface verb %r" % (verb,))
+
+
+def mlr_eva_kerbal_name(state: MlrState) -> str:
+    """The EVA kerbal's vessel name: the spec's evaKerbalName, else EvaExit's own
+    ``kerbal`` payload (percent-decoded; the seam encodes the space). Pure."""
+    if state.params.eva_kerbal:
+        return state.params.eva_kerbal
+    from urllib.parse import unquote
+    return unquote(state.eva_kerbal_name or "")
+
+
+def mlr_recover_actions(step: str, kerbal: str) -> List[Action]:
+    """The ragdoll recovery's switch. AWAY: capture the kerbal's own kRPC handle
+    while he is the active vessel, then switch to the nearest other vessel (skipping
+    his name). BACK: switch to that captured handle, then the logged
+    switch_to_eva_kerbal scan as the fallback. The capture is the switch-back's
+    real path: kRPC 0.5.4's SpaceCenter.Vessels leaves EVA kerbals out (CS-7 run
+    2026-10-28_0514 scanned three debris and the lander while KSP still
+    background-recorded Jeb), so no name or type scan can find him. Pure."""
+    if step == MLR_RECOVER_AWAY:
+        return [Action(ACTION_CAPTURE_HOME_VESSEL),
+                Action(ACTION_SWITCH_TO_NEAREST_OTHER_VESSEL, text=kerbal)]
+    if step == MLR_RECOVER_BACK:
+        return [Action(ACTION_SWITCH_TO_HOME_VESSEL),
+                Action(ACTION_SWITCH_TO_EVA_KERBAL, text=kerbal)]
+    raise ValueError("unknown recover step %r" % (step,))
+
+
+def mlr_ascent_actions(params: MlrParams) -> List[Action]:
+    """The Mun ascent's engage: MechJeb's AscentAutopilot handle re-bound to the
+    landed vessel (the runner cached the launch's), the target orbit, the engage.
+    The autostage limit is set AGAIN after the rebind: boarding re-creates the
+    vessel, the re-bound handle reads limit 0, and MechJeb's autostage then fires the
+    pod separation on the Mun (CS-7 run 2026-10-28_0223 attempt 2: a TD-12 decouple
+    0.7 s after the engage left the pod on the surface). Pure."""
+    actions = [Action(ACTION_MJ_REBIND_ASCENT)]
+    if params.autostage_limit is not None:
+        actions.append(Action(ACTION_MJ_SET_AUTOSTAGE_LIMIT, float(params.autostage_limit)))
+    actions.extend([Action(ACTION_MJ_SET_TARGET_APOAPSIS, float(params.ascent_altitude)),
+                    Action(ACTION_MJ_ENGAGE_ASCENT)])
+    return actions
+
+
+def mlr_active_is_eva_kerbal(snapshot: TelemetrySnapshot, params: MlrParams,
+                             kerbal: str) -> bool:
+    """True when the active vessel reads as the EVA kerbal: its name is the
+    kerbal's, or (a name that is not the lander's craft is not required) it carries
+    no liquid fuel (a READ zero; NaN never counts) while landed on the target body.
+    Pure."""
+    if kerbal and (snapshot.vessel_name or "") == kerbal:
+        return True
+    return (_is_finite(snapshot.liquid_fuel) and snapshot.liquid_fuel <= 0.0
+            and snapshot.body == params.orbit.target_body
+            and (snapshot.situation or "").upper() in params.orbit.landed_situations)
+
+
+def mlr_aboard_lander(snapshot: TelemetrySnapshot, params: MlrParams) -> bool:
+    """True when the active vessel reads as the landed lander again after the
+    boarding: liquid fuel aboard (an EVA kerbal carries none), landed on the target
+    body. Unreadable fuel never counts. Pure."""
+    return (_is_finite(snapshot.liquid_fuel) and snapshot.liquid_fuel > 0.0
+            and snapshot.body == params.orbit.target_body
+            and (snapshot.situation or "").upper() in params.orbit.landed_situations)
+
+
+def mlr_in_target_orbit(snapshot: TelemetrySnapshot, params: MlrParams) -> bool:
+    """True when the ascent has left a closed orbit about the target above the
+    floor: ORBITING the target body, periapsis readable and >= the floor. Pure."""
+    return (snapshot.body == params.orbit.target_body
+            and (snapshot.situation or "").upper() == "ORBITING"
+            and _is_finite(snapshot.periapsis)
+            and snapshot.periapsis >= params.ascent_min_periapsis)
+
+
+def _mlr_payload_text(snapshot: TelemetrySnapshot) -> str:
+    return ",".join("%s=%s" % kv for kv in (snapshot.seam_command_payload or ())) or "-"
+
+
+# The ascent-coast wheel release's verdicts (mlr_wheel_release_verdict).
+MLR_WHEELS_RELEASE = "release"
+MLR_WHEELS_RESTORE_PHASE = "phase"
+MLR_WHEELS_RESTORE_NODE = "node"
+MLR_WHEELS_RESTORE_CEILING = "ceiling"
+MLR_WHEELS_RESTORE_APOAPSIS = "apoapsis-low"
+
+
+def mlr_wheel_release_verdict(params: MlrParams, phase: str, released: bool,
+                              used: bool, snapshot: TelemetrySnapshot) -> str:
+    """One frame of the ascent-coast wheel release (see the block note above
+    MLR_LAND): MLR_WHEELS_RELEASE, a MLR_WHEELS_RESTORE_* reason, or "" (no change).
+    ``phase`` is B5's phase AFTER this frame's b5_decide; ``used`` latches the one
+    release. Off when the flag is off. An unreadable altitude or apoapsis never
+    releases and never restores on its own. Pure."""
+    if not params.wheel_release:
+        return ""
+    alt, apo = snapshot.altitude, snapshot.apoapsis
+    target = params.orbit.target_apoapsis
+    if released:
+        if phase != B5_MJ_ASCENT:
+            return MLR_WHEELS_RESTORE_PHASE
+        if snapshot.node_count >= 1:
+            return MLR_WHEELS_RESTORE_NODE
+        if _is_finite(alt) and alt >= params.wheel_release_ceiling:
+            return MLR_WHEELS_RESTORE_CEILING
+        if _is_finite(apo) and apo < target - params.orbit.apo_error:
+            return MLR_WHEELS_RESTORE_APOAPSIS
+        return ""
+    if used or phase != B5_MJ_ASCENT or snapshot.node_count >= 1:
+        return ""
+    if not (_is_finite(alt) and _is_finite(apo)):
+        return ""
+    if (apo >= target and params.wheel_release_floor <= alt
+            < params.wheel_release_ceiling):
+        return MLR_WHEELS_RELEASE
+    return ""
+
+
+def mlr_wheel_release_step(state: MlrState, snapshot: TelemetrySnapshot
+                           ) -> Tuple[MlrState, List[Action]]:
+    """Apply mlr_wheel_release_verdict to the state after this frame's b5_decide:
+    (state, [the one SET_REACTION_WHEELS action] or []). Pure."""
+    verdict = mlr_wheel_release_verdict(
+        state.params, state.flight.phase, state.wheels_released,
+        state.wheels_release_ut is not None, snapshot)
+    if not verdict:
+        return state, []
+    if verdict == MLR_WHEELS_RELEASE:
+        return (replace(state, wheels_released=True, wheels_release_ut=snapshot.ut),
+                [Action(ACTION_SET_REACTION_WHEELS, 0.0,
+                        text="ascent coast: wheels released alt=%s ap=%s"
+                        % (_obs_fmt(snapshot.altitude), _obs_fmt(snapshot.apoapsis)))])
+    return (replace(state, wheels_released=False, wheels_restore_ut=snapshot.ut,
+                    wheels_restore_reason=verdict),
+            [Action(ACTION_SET_REACTION_WHEELS, 1.0,
+                    text="ascent coast: wheels back (%s) alt=%s ap=%s nodes=%d"
+                    % (verdict, _obs_fmt(snapshot.altitude), _obs_fmt(snapshot.apoapsis),
+                       snapshot.node_count))])
+
+
+def _mlr_land(state: MlrState, snapshot: TelemetrySnapshot) -> Tuple[MlrState, List[Action]]:
+    if state.stage_held:
+        return return_launch_gate_step(state, snapshot)
+    flight, actions = b5_decide(state.flight, snapshot)
+    actions, held, setters = mfr_inject_launch_actions(state.params, actions)
+    st = replace(state, flight=flight, warp_to_cmd=flight.warp_to_cmd,
+                 stage_held=held, setters_injected=setters or state.setters_injected)
+    st, wheels = mlr_wheel_release_step(st, snapshot)
+    actions = actions + wheels
+    if flight.phase == B5_SURFACE_COMMIT and not flight.done:
+        # THE LANDED-DWELL EXIT FRAME. B5's settled dwell held; it asks for the
+        # mid-mission commit. The commit is dropped (the recovery commits at the
+        # scene exit) and the kerbal steps out on the same frame.
+        kept = [a for a in actions if a.kind != ACTION_PARSEK_COMMIT_TREE]
+        entered = _mfr_enter(st, MLR_EVA, MLR_EVA_EXIT, snapshot.ut, warp_to_cmd=None,
+                             surface_ut=snapshot.ut)
+        return entered, kept + mlr_eva_actions("EvaExit", state.params)
+    st = _mfr_report(st, flight.phase, flight.phase_entry_ut)
+    if not flight.done:
+        return st, actions
+    if flight.loss_reason:
+        return _mfr_fail(st, "landing leg: %s" % flight.loss_reason), actions
+    if flight.verdict is not None:
+        inner = flight.flake_phase or flight.phase
+        return (replace(st, done=True, verdict=flight.verdict, flake_phase=inner,
+                        flake_reason="landing leg %s in phase %s: %s"
+                        % (flight.verdict, inner,
+                           flight.flake_reason or ("phase %s timed out" % inner))),
+                actions)
+    return _mfr_flake(st, "landing leg reported done with a clean verdict before its "
+                          "landed-dwell exit (phases=%s)"
+                          % (list(flight.phases_reached),)), actions
+
+
+def _mlr_eva_answer(state: MlrState, snapshot: TelemetrySnapshot, tag: str,
+                    verb: str, giveup: str) -> Tuple[str, Optional[MlrState]]:
+    """("", None) while the phase's own command has not answered; ("OK", None) on
+    OK; (result, flaked state) on any other answer. Tag-gated, fail-closed."""
+    result = _seam_result(snapshot, tag)
+    if not result:
+        return "", None
+    if result == "OK":
+        return "OK", None
+    payload = _mlr_payload_text(snapshot)
+    return result, _mfr_flake(replace(state, eva_refusal=payload),
+                              "%s: the seam's %s answered %s (%s)"
+                              % (giveup, verb, result, payload))
+
+
+def _mlr_enter_recover(state: MlrState, snapshot: TelemetrySnapshot
+                       ) -> Tuple[MlrState, List[Action]]:
+    """Into EVA-RECOVER's AWAY step: switch to the lander so the kerbal, no longer
+    the active vessel, stands up on its own."""
+    out = _mfr_enter(state, MLR_EVA, MLR_EVA_RECOVER, snapshot.ut,
+                     eva_recover_step=MLR_RECOVER_AWAY, eva_recover_streak=0,
+                     eva_recover_runs=state.eva_recover_runs + 1)
+    return out, mlr_recover_actions(MLR_RECOVER_AWAY, mlr_eva_kerbal_name(state))
+
+
+def _mlr_eva(state: MlrState, snapshot: TelemetrySnapshot) -> Tuple[MlrState, List[Action]]:
+    p = state.params
+    if snapshot.vessel_lost:
+        return _mfr_fail(state, "vessel-lost (unreadable after repeated telemetry "
+                                "failures) in phase %s" % state.phase), []
+    st = replace(state, phase_frames=state.phase_frames + 1)
+    if (_is_finite(snapshot.ut)
+            and snapshot.ut - state.phase_entry_ut > p.eva_timeout):
+        if state.phase == MLR_EVA_SETTLE:
+            return _mfr_flake(st, "%s: the boarded lander never read back as the active "
+                                  "vessel in %.0f game s (body=%s situation=%s lf=%s)"
+                              % (MLR_BOARD_NOT_ABOARD, p.eva_timeout,
+                                 snapshot.body or "?", snapshot.situation or "?",
+                                 _obs_fmt(snapshot.liquid_fuel))), []
+        if state.phase == MLR_EVA_RECOVER:
+            return _mfr_flake(st, "phase %s timed out after %.0f game s in step %s "
+                                  "(active vessel=%r lf=%s)"
+                              % (state.phase, p.eva_timeout, state.eva_recover_step,
+                                 snapshot.vessel_name, _obs_fmt(snapshot.liquid_fuel))), []
+        return _mfr_flake(st, "phase %s timed out after %.0f game s"
+                              % (state.phase, p.eva_timeout)), []
+    if state.phase == MLR_EVA_EXIT:
+        if st.eva_exit_retry_ut is not None:
+            if not (_is_finite(snapshot.ut) and snapshot.ut >= st.eva_exit_retry_ut):
+                return st, []
+            return (replace(st, eva_exit_retry_ut=None),
+                    mlr_eva_actions("EvaExit", p, exit_tag=MLR_TAG_EVA_EXIT_RETRY))
+        tag = MLR_TAG_EVA_EXIT if st.eva_exit_tries == 0 else MLR_TAG_EVA_EXIT_RETRY
+        if (p.eva_exit_retry_seconds is not None and st.eva_exit_tries < 1
+                and _is_finite(snapshot.ut)
+                and _seam_result(snapshot, tag) == "ERROR"
+                and _seam_payload(snapshot, tag, "msg") == MLR_EVA_EXIT_REFUSED_MSG):
+            return replace(st, eva_exit_tries=1,
+                           eva_exit_retry_ut=snapshot.ut + p.eva_exit_retry_seconds), []
+        result, flaked = _mlr_eva_answer(st, snapshot, tag, "EvaExit",
+                                         MLR_EVA_EXIT_REFUSED)
+        if flaked is not None:
+            return replace(flaked, eva_exit_result=result), []
+        if not result:
+            return st, []
+        out = replace(st, eva_exit_result="OK",
+                      eva_kerbal_name=_seam_payload(snapshot, tag, "kerbal"),
+                      eva_pid=_seam_payload(snapshot, tag, "evaPid"),
+                      eva_released=_seam_payload(snapshot, tag, "released"))
+        if p.eva_recover_seconds is not None and mlr_eva_kerbal_name(out):
+            return _mlr_enter_recover(out, snapshot)
+        return (_mfr_enter(out, MLR_EVA, MLR_EVA_FLAG, snapshot.ut),
+                mlr_eva_actions("PlantFlag", p))
+    if state.phase == MLR_EVA_RECOVER:
+        kerbal = mlr_eva_kerbal_name(st)
+        if st.eva_recover_step == MLR_RECOVER_AWAY:
+            if not mlr_aboard_lander(snapshot, p):
+                return st, []
+            if not (_is_finite(snapshot.ut)
+                    and snapshot.ut - state.phase_entry_ut >= p.eva_recover_seconds):
+                return st, []
+            return (replace(st, eva_recover_step=MLR_RECOVER_BACK, eva_recover_streak=0,
+                            eva_recover_back_ut=snapshot.ut, eva_recover_back_issues=1),
+                    mlr_recover_actions(MLR_RECOVER_BACK, kerbal))
+        if not mlr_active_is_eva_kerbal(snapshot, p, kerbal):
+            st = replace(st, eva_recover_streak=0)
+            if (st.eva_recover_back_issues < MLR_RECOVER_BACK_ISSUES
+                    and _is_finite(snapshot.ut) and st.eva_recover_back_ut is not None
+                    and snapshot.ut - st.eva_recover_back_ut >= p.eva_recover_reissue):
+                return (replace(st, eva_recover_back_ut=snapshot.ut,
+                                eva_recover_back_issues=st.eva_recover_back_issues + 1),
+                        mlr_recover_actions(MLR_RECOVER_BACK, kerbal))
+            return st, []
+        streak = st.eva_recover_streak + 1
+        if streak < p.eva_recover_frames:
+            return replace(st, eva_recover_streak=streak), []
+        tag = MLR_TAG_FLAG if st.flag_tries == 0 else MLR_TAG_FLAG_RETRY
+        out = replace(st, eva_recover_streak=streak, eva_recover_step="")
+        return (_mfr_enter(out, MLR_EVA, MLR_EVA_FLAG, snapshot.ut),
+                mlr_eva_actions("PlantFlag", p, flag_tag=tag))
+    if state.phase == MLR_EVA_FLAG:
+        tag = MLR_TAG_FLAG if st.flag_tries == 0 else MLR_TAG_FLAG_RETRY
+        if (p.eva_recover_seconds is not None and st.flag_tries < MLR_FLAG_RETRY_LIMIT
+                and _seam_result(snapshot, tag) == "ERROR"
+                and _seam_payload(snapshot, tag, "msg") == MLR_FLAG_GATE_TIMEOUT
+                and mlr_eva_kerbal_name(st)):
+            return _mlr_enter_recover(replace(st, flag_tries=st.flag_tries + 1), snapshot)
+        result, flaked = _mlr_eva_answer(st, snapshot, tag, "PlantFlag",
+                                         MLR_FLAG_REFUSED)
+        if flaked is not None:
+            return replace(flaked, flag_result=result), []
+        if not result:
+            return st, []
+        out = replace(st, flag_result="OK",
+                      flag_site=_seam_payload(snapshot, tag, "flagSite"),
+                      flag_body=_seam_payload(snapshot, tag, "body"))
+        return (_mfr_enter(out, MLR_EVA, MLR_EVA_BOARD, snapshot.ut),
+                mlr_eva_actions("EvaBoard", p))
+    if state.phase == MLR_EVA_BOARD:
+        result, flaked = _mlr_eva_answer(st, snapshot, MLR_TAG_BOARD, "EvaBoard",
+                                         MLR_BOARD_REFUSED)
+        if flaked is not None:
+            return replace(flaked, board_result=result), []
+        if not result:
+            return st, []
+        out = replace(st, board_result="OK",
+                      boarded_pid=_seam_payload(snapshot, MLR_TAG_BOARD, "boardedPid"))
+        return _mfr_enter(out, MLR_EVA, MLR_EVA_SETTLE, snapshot.ut,
+                          eva_settle_streak=0), []
+    if state.phase == MLR_EVA_SETTLE:
+        if not mlr_aboard_lander(snapshot, p):
+            return replace(st, eva_settle_streak=0), []
+        streak = min(st.eva_settle_streak + 1, p.eva_settle_frames)
+        st = replace(st, eva_settle_streak=streak)
+        settled = (_is_finite(snapshot.ut)
+                   and snapshot.ut - state.phase_entry_ut >= p.eva_settle_seconds)
+        if streak < p.eva_settle_frames or not settled:
+            return st, []
+        aboard = replace(st, eva_aboard_ut=snapshot.ut, ascent_engaged=False,
+                         ascent_engage_wait=0, ascent_reissues=0)
+        return (_mfr_enter(aboard, MLR_ASCENT, MLR_ASCENT, snapshot.ut),
+                mlr_ascent_actions(p))
+    return _mfr_flake(st, "unknown surface phase %r" % (state.phase,)), []
+
+
+def _mlr_enter_depart(state: MlrState, snapshot: TelemetrySnapshot
+                      ) -> Tuple[MlrState, List[Action]]:
+    """In orbit: record the orbit, clear any node MechJeb's ascent left (mor's plan
+    phase would read a stale node as its departure), then plan the departure."""
+    st = replace(state, ascent_orbit_ut=snapshot.ut,
+                 ascent_periapsis=float(snapshot.periapsis),
+                 ascent_apoapsis=float(snapshot.apoapsis))
+    entered = _mfr_enter(st, MOR_DEPART, MOR_DEPART_PLAN, snapshot.ut,
+                         park_exit_ut=snapshot.ut, depart_plan_attempts=1,
+                         depart_last_plan_ut=snapshot.ut)
+    return entered, [Action(ACTION_MJ_ABORT_AND_CLEAR_NODES),
+                     _mor_plan_action(state.params)]
+
+
+def _mlr_ascent(state: MlrState, snapshot: TelemetrySnapshot
+                ) -> Tuple[MlrState, List[Action]]:
+    p = state.params
+    stop = [Action(ACTION_CUT_THROTTLE, 0.0)]
+    if snapshot.vessel_lost:
+        return _mfr_fail(state, "vessel-lost (unreadable after repeated telemetry "
+                                "failures) in phase %s" % state.phase), []
+    st = replace(state, phase_frames=state.phase_frames + 1)
+    if snapshot.body not in ("", p.orbit.target_body):
+        return _mfr_fail(st, "left the %s SOI during the ascent: body=%r"
+                             % (p.orbit.target_body, snapshot.body)), stop
+    budget = (p.ascent_timeout if state.phase == MLR_ASCENT
+              else p.ascent_circularize_timeout)
+    if _is_finite(snapshot.ut) and snapshot.ut - state.phase_entry_ut > budget:
+        return (_mfr_flake(st, "phase %s timed out after %.0f game s (situation=%s "
+                               "ap=%s pe=%s)" % (state.phase, budget,
+                                                 snapshot.situation or "?",
+                                                 _obs_fmt(snapshot.apoapsis),
+                                                 _obs_fmt(snapshot.periapsis))), stop)
+    if state.phase == MLR_ASCENT_CIRCULARIZE:
+        if mlr_in_target_orbit(snapshot, p) and snapshot.node_count == 0:
+            return _mlr_enter_depart(st, snapshot)
+        return st, []
+    if not st.ascent_engaged:
+        if snapshot.mj_autopilot_enabled:
+            return replace(st, ascent_engaged=True, ascent_engaged_ut=snapshot.ut,
+                           ascent_engage_wait=0), []
+        waited = st.ascent_engage_wait + 1
+        if waited < p.ascent_engage_frames:
+            return replace(st, ascent_engage_wait=waited), []
+        if st.ascent_reissues >= MLR_ASCENT_REISSUE_LIMIT:
+            return (_mfr_flake(replace(st, ascent_engage_wait=waited),
+                               "%s: the AscentAutopilot read enabled=False on %d frames "
+                               "after %d re-engage(s); the lander never left the %s"
+                               % (MLR_ASCENT_NOT_ENABLED, waited, st.ascent_reissues,
+                                  p.orbit.target_body)), stop)
+        return (replace(st, ascent_engage_wait=0,
+                        ascent_reissues=st.ascent_reissues + 1),
+                mlr_ascent_actions(p))
+    situation = (snapshot.situation or "").upper()
+    if not st.ascent_lifted:
+        if situation and situation not in p.orbit.landed_situations:
+            st = replace(st, ascent_lifted=True, ascent_liftoff_ut=snapshot.ut)
+        elif (_is_finite(snapshot.ut) and st.ascent_engaged_ut is not None
+              and snapshot.ut - st.ascent_engaged_ut > p.ascent_liftoff_window):
+            return (_mfr_flake(st, "%s: still %s %.0f game s after the engage"
+                                   % (MLR_ASCENT_NEVER_LIFTED, situation or "?",
+                                      snapshot.ut - st.ascent_engaged_ut)), stop)
+    if snapshot.mj_autopilot_enabled:
+        return replace(st, ascent_release_frames=0), []
+    if not st.ascent_lifted:
+        # Released before liftoff: back through the engage gate (bounded).
+        return replace(st, ascent_engaged=False, ascent_engage_wait=0), []
+    if mlr_in_target_orbit(snapshot, p):
+        return _mlr_enter_depart(st, snapshot)
+    if snapshot.node_count >= 1 and not st.ascent_circularize_issued:
+        circ = _mfr_enter(replace(st, ascent_circularize_issued=True), MLR_ASCENT,
+                          MLR_ASCENT_CIRCULARIZE, snapshot.ut)
+        return circ, [Action(ACTION_MJ_EXECUTE_CIRCULARIZATION)]
+    released = st.ascent_release_frames + 1
+    if released < MLR_ASCENT_RELEASE_FRAMES:
+        return replace(st, ascent_release_frames=released), []
+    return (_mfr_flake(replace(st, ascent_release_frames=released),
+                       "%s: MechJeb released the ascent with situation=%s ap=%s pe=%s "
+                       "(floor %.0f) and no node" % (MLR_ASCENT_NOT_IN_ORBIT,
+                                                     situation or "?",
+                                                     _obs_fmt(snapshot.apoapsis),
+                                                     _obs_fmt(snapshot.periapsis),
+                                                     p.ascent_min_periapsis)), stop)
+
+
+def mlr_ec_step(state: MlrState, snapshot: TelemetrySnapshot
+                ) -> Tuple[MlrState, bool]:
+    """The electric-charge watchdog for one frame: (state with the low streak and
+    the observed minimum updated, tripped). Reads only in MLR_EC_BLOCKS; off when
+    the floor is 0; an unreadable reading neither counts nor resets. Pure."""
+    p = state.params
+    if state.block not in MLR_EC_BLOCKS:
+        return state, False
+    ec = snapshot.electric_charge
+    if not _is_finite(ec):
+        return state, False
+    low_min = ec if not _is_finite(state.ec_min) else min(state.ec_min, ec)
+    if p.ec_floor <= 0.0:
+        return replace(state, ec_min=low_min), False
+    low = state.ec_low_frames + 1 if ec < p.ec_floor else 0
+    st = replace(state, ec_min=low_min, ec_low_frames=low)
+    return st, low >= p.ec_debounce
+
+
+def mlr_decide(state: MlrState,
+               snapshot: TelemetrySnapshot) -> Tuple[MlrState, List[Action]]:
+    """Advance the b13_mun_landing_return machine one frame; return (new_state,
+    actions). See the block note above MLR_LAND. The DEPART block is mor's and the
+    TRIM / FALL / HOME blocks mfr's own functions. Once ``done`` the machine is
+    idempotent."""
+    if state.done:
+        return state, []
+    state, tripped = mlr_ec_step(state, snapshot)
+    if tripped:
+        return (_mfr_flake(replace(state, warp_to_cmd=None),
+                           "%s: ElectricCharge %s under %.2f for %d frames in phase %s "
+                           "(the lander makes no power; attitude cannot be held)"
+                           % (MLR_EC_EXHAUSTED, _obs_fmt(snapshot.electric_charge),
+                              state.params.ec_floor, state.ec_low_frames,
+                              state.phase)),
+                [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_CANCEL_WARP)])
+    if state.block == MLR_LAND:
+        return _mlr_land(state, snapshot)
+    if state.block == MLR_EVA:
+        return _mlr_eva(state, snapshot)
+    if state.block == MLR_ASCENT:
+        return _mlr_ascent(state, snapshot)
+    if state.block == MOR_DEPART:
+        return _mor_depart(state, snapshot)
+    if state.block == MFR_TRIM:
+        return _mfr_trim(state, snapshot)
+    if state.block == MFR_FALL:
+        return _mfr_fall(state, snapshot)
+    if state.block == MFR_HOME:
+        return _mfr_home(state, snapshot)
+    return _mfr_flake(state, "unknown block %r" % (state.block,)), []
+
+
+def evaluate_mlr_assertions(frames, params: MlrParams,
+                            state: Optional[MlrState] = None) -> List[AssertionOutcome]:
+    """B13's rows through the landed dwell over the delegated B5 state
+    (reachedOrbit, reachedTargetSoi, flybyPeriapsisFloor, capturedInTargetOrbit,
+    parkedStable, landedOnTargetBody, landedStable; its treeCommitted row is
+    dropped, the commit happens at the scene exit), the surface visit's three
+    seam rows (evaExited, flagPlanted, kerbalBoarded), ``ascendedToTargetOrbit``,
+    mor's ``departedTargetOrbit``, then the shared return tail's three rows."""
+    flight = getattr(state, "flight", None)
+    target = params.orbit.target_body
+    rows = [r for r in evaluate_b5_assertions(
+        frames, params.orbit,
+        phases_reached=tuple(getattr(flight, "phases_reached", ()) or ()),
+        min_target_altitude=getattr(flight, "min_target_altitude", None),
+        state=flight) if r.name != "treeCommitted"]
+    g = (lambda name, default=None: getattr(state, name, default))
+    rows.append(AssertionOutcome(
+        "evaExited", g("eva_exit_result") == "OK", g("eva_kerbal_name") or None,
+        {"surfaceUt": g("surface_ut"), "evaPid": g("eva_pid") or None,
+         "released": g("eva_released") or None,
+         "result": g("eva_exit_result") or None}))
+    rows.append(AssertionOutcome(
+        "flagPlanted", g("flag_result") == "OK" and g("flag_body") == target,
+        g("flag_site") or None,
+        {"body": g("flag_body") or None, "required": target,
+         "result": g("flag_result") or None}))
+    rows.append(AssertionOutcome(
+        "kerbalBoarded", g("board_result") == "OK" and g("eva_aboard_ut") is not None,
+        g("boarded_pid") or None,
+        {"aboardUt": g("eva_aboard_ut"), "result": g("board_result") or None,
+         "refusal": g("eva_refusal") or None}))
+    phases = tuple(g("phases_reached", ()) or ())
+    pe = g("ascent_periapsis", float("nan"))
+    rows.append(AssertionOutcome(
+        "ascendedToTargetOrbit",
+        bool(MOR_DEPART_PLAN in phases and _is_finite(pe)
+             and pe >= params.ascent_min_periapsis),
+        pe,
+        {"body": target, "minPeriapsis": params.ascent_min_periapsis,
+         "apoapsis": g("ascent_apoapsis", float("nan")),
+         "liftoffUt": g("ascent_liftoff_ut"), "orbitUt": g("ascent_orbit_ut"),
+         "reissues": g("ascent_reissues", 0),
+         "circularizeIssued": bool(g("ascent_circularize_issued", False)),
+         "ecMin": g("ec_min", float("nan")),
+         "kerbinCoastWheelsReleasedUt": g("wheels_release_ut"),
+         "kerbinCoastWheelsRestoredUt": g("wheels_restore_ut"),
+         "kerbinCoastWheelsRestoreReason": g("wheels_restore_reason", "") or None}))
+    home_ut = g("depart_home_ut")
+    rows.append(AssertionOutcome(
+        "departedTargetOrbit",
+        bool(MOR_DEPART_COAST in phases and home_ut is not None),
+        g("depart_next_pe", float("nan")),
+        {"target": target, "home": params.orbit.home_body,
+         "aimPeriapsis": params.depart_periapsis,
+         "nodeUt": g("depart_node_ut", float("nan")),
+         "nodeDv": g("depart_node_dv", float("nan")),
+         "planAttempts": g("depart_plan_attempts", 0),
+         "burnEndUt": g("depart_burn_end_ut"),
+         "nextBody": g("depart_next_body", "") or None,
+         "homeUt": home_ut}))
+    rows.extend(return_tail_rows(frames, params, state))
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # MUN-SCIENCE-RETURN composed machine (mission b11_mun_science_return; the
 # scripted campaign's CS-6c, "a science run to the Mun"). Pure.
 #
-# WHY IT EXISTS. CS-7's planned Mun lander needs power, and nothing on the
-# career's tech makes electric charge. Basic Science (45, the Z-100) and Electrics (90, the OX-STAT)
+# WHY IT EXISTS. CS-7's lander has no power: nothing on the career's tech makes
+# electric charge. Basic Science (45, the Z-100) and Electrics (90, the OX-STAT)
 # need 135 science and the career holds 5.5, so this flight earns it at the Mun
 # on CS-6's route with the experiments the CS Mun Science craft carries.
 #
@@ -32387,8 +33384,8 @@ def evaluate_mor_assertions(frames, params: MorParams,
 # VERBATIM, the departure is mor's own block functions (_mor_depart) and the
 # return tail mfr's (_mfr_trim / _mfr_fall / _mfr_home), shared rather than
 # copied: MscState and MscParams carry every field name those functions read
-# (test_b11_mun_science_return pins the superset), so mor_decide and mfr_decide
-# are unchanged.
+# (test_b11_mun_science_return pins the superset), so mor_decide, mlr_decide and
+# mfr_decide are unchanged.
 #
 # THE SITUATIONS. The Mun's CelestialBodyScienceParams (serialized in the KSC
 # scene asset sharedassets9.assets after the "Mun" body name): InSpaceLow 3,

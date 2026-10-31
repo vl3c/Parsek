@@ -1416,6 +1416,31 @@ class KrpcMissionControl(MissionControl):
                     continue
             _stdout_sink(mlib.format_mission_log_line(
                 "Info", "Sweep", "set active=%s on %d engine(s)" % (want, set_count)))
+        elif kind == mlib.ACTION_SET_REACTION_WHEELS:
+            # Per-wheel, guarded per part like ACTION_SET_ENGINES_ACTIVE, then read
+            # back: the log names how many wheels the vessel holds, how many took the
+            # command and how many read the wanted state, so a coast that still drains
+            # is diagnosable from the mission stdout alone.
+            want = bool(action.value)
+            wheels = list(v.parts.reaction_wheels)
+            set_count = 0
+            read_ok = 0
+            for w in wheels:
+                try:
+                    w.active = want
+                    set_count += 1
+                except Exception:
+                    continue
+            for w in wheels:
+                try:
+                    if bool(w.active) == want:
+                        read_ok += 1
+                except Exception:
+                    continue
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Wheels", "set active=%s on %d of %d reaction wheel(s), %d read "
+                "back (%s)" % (want, set_count, len(wheels), read_ok,
+                               action.text or "-")))
         elif kind == mlib.ACTION_ARM_CHUTES:
             arm_count = 0
             for p in v.parts.parachutes:
@@ -1482,6 +1507,24 @@ class KrpcMissionControl(MissionControl):
                     % self._mj_config_refusal))
                 return
             self._ascent.enabled = True
+        elif kind == mlib.ACTION_MJ_REBIND_ASCENT:
+            # Re-read the AscentAutopilot handle off the ACTIVE vessel: _ascent was
+            # cached at connect, and CS-7's Mun ascent comes after an EVA and a
+            # boarding switched the active vessel away and back. A failed read keeps
+            # the old handle and says so; the machine's engage gate reads the result.
+            if self._mechjeb is None:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "MjConfig", "ascent rebind requested without MechJeb"))
+                return
+            try:
+                self._ascent = self._mechjeb.ascent_autopilot
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Info", "MjConfig", "AscentAutopilot handle re-bound to the active "
+                    "vessel"))
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "MjConfig", "AscentAutopilot rebind failed (%s: %s); keeping "
+                    "the launch handle" % (type(exc).__name__, str(exc)[:120])))
         elif kind == mlib.ACTION_MJ_EXECUTE_CIRCULARIZATION:
             # Execute the circularization node IF the autopilot left one.
             # MechJeb's AscentAutopilot usually performs the circularization
@@ -2174,6 +2217,8 @@ class KrpcMissionControl(MissionControl):
             self._target_nearest_named_vessel(sc, v, str(action.text or ""))
         elif kind == mlib.ACTION_SWITCH_TO_NEAREST_OTHER_VESSEL:
             self._switch_to_nearest_other_vessel(sc, v, str(action.text or ""))
+        elif kind == mlib.ACTION_SWITCH_TO_EVA_KERBAL:
+            self._switch_to_eva_kerbal(sc, v, str(action.text or ""))
         elif kind == mlib.ACTION_CONTROL_FROM_DOCKING_PORT:
             self._control_from_docking_port(v)
         elif kind == mlib.ACTION_BG_SUBJECT_SET_ENGINES_ACTIVE:
@@ -3013,18 +3058,23 @@ class KrpcMissionControl(MissionControl):
             frame = active.reference_frame
         except Exception:  # noqa: BLE001
             frame = None
+        described = []
         for other in vessels:
+            is_active, other_name, dist, err = False, "?", float("nan"), ""
             try:
                 is_active = other == active
                 other_name = str(other.name)
-                dist = float("nan")
                 if frame is not None and other_name == name and not is_active:
                     x, y, z = other.position(frame)
                     dist = (x * x + y * y + z * z) ** 0.5
-            except Exception:  # noqa: BLE001
-                continue
+            except Exception as exc:  # noqa: BLE001
+                err = "%s: %s" % (type(exc).__name__, str(exc)[:80])
             candidates.append((other_name, dist, is_active))
             handles.append(other)
+            described.append((other_name, "", dist, is_active, err))
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info", "Switch", "switch_to_nearest_named_vessel %r candidates: %s"
+            % (name, mlib.format_switch_candidates(described))))
         idx = mlib.pick_nearest_named(candidates, name)
         if idx is None:
             _stdout_sink(mlib.format_mission_log_line(
@@ -3040,6 +3090,68 @@ class KrpcMissionControl(MissionControl):
         except Exception as exc:  # noqa: BLE001
             _stdout_sink(mlib.format_mission_log_line(
                 "Warn", "Switch", "switch_to_nearest_named_vessel failed: %s: %s"
+                % (type(exc).__name__, str(exc)[:160])))
+
+    def _switch_to_eva_kerbal(self, sc, active, name: str) -> None:
+        """mlr's ragdoll recovery switch-back: `sc.active_vessel = ` the EVA kerbal,
+        picked by `mlib.pick_switch_back_kerbal` (by name, else the nearest EVA-type
+        vessel; kRPC exposes no persistentId). Every scanned vessel is logged with
+        its name, type, distance and any read error, and a read error never drops a
+        candidate. Best-effort: a failed switch leaves the active vessel unchanged,
+        which the machine's read-back gate then re-sends and finally names."""
+        try:
+            vessels = list(sc.vessels)
+        except Exception as exc:  # noqa: BLE001
+            vessels = []
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Switch", "vessel list read failed: %s: %s"
+                % (type(exc).__name__, str(exc)[:160])))
+        try:
+            frame = active.reference_frame
+        except Exception:  # noqa: BLE001
+            frame = None
+        candidates, described, handles = [], [], []
+        for other in vessels:
+            is_active, other_name, vtype, dist, errs = False, "?", "", float("nan"), []
+            try:
+                is_active = other == active
+            except Exception as exc:  # noqa: BLE001
+                errs.append("active %s" % type(exc).__name__)
+            try:
+                other_name = str(other.name)
+            except Exception as exc:  # noqa: BLE001
+                errs.append("name %s" % type(exc).__name__)
+            try:
+                vtype = str(other.type).split(".")[-1].lower()
+            except Exception as exc:  # noqa: BLE001
+                errs.append("type %s" % type(exc).__name__)
+            if frame is not None and not is_active:
+                try:
+                    x, y, z = other.position(frame)
+                    dist = (x * x + y * y + z * z) ** 0.5
+                except Exception as exc:  # noqa: BLE001
+                    errs.append("position %s: %s" % (type(exc).__name__, str(exc)[:60]))
+            candidates.append((other_name, vtype == "eva", dist, is_active))
+            described.append((other_name, vtype, dist, is_active, ",".join(errs)))
+            handles.append(other)
+        idx, how = mlib.pick_switch_back_kerbal(candidates, name)
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info", "Switch", "switch_to_eva_kerbal %r pick=%s candidates: %s"
+            % (name, how, mlib.format_switch_candidates(described))))
+        if idx is None:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Switch", "switch_to_eva_kerbal: no vessel named %r and no EVA "
+                "vessel beside the active one (%d vessel(s) scanned)"
+                % (name, len(candidates))))
+            return
+        try:
+            sc.active_vessel = handles[idx]
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Switch", "switched active vessel to %r by %s at %s m"
+                % (candidates[idx][0], how, "%.1f" % candidates[idx][2])))
+        except Exception as exc:  # noqa: BLE001
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Switch", "switch_to_eva_kerbal failed: %s: %s"
                 % (type(exc).__name__, str(exc)[:160])))
 
     def _switch_to_nearest_other_vessel(self, sc, active, skip_name: str) -> None:

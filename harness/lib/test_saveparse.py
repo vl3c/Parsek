@@ -3826,8 +3826,8 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # other facility (the Astronaut Complex included) at level 0; the same six research
         # nodes; Mun/Orbit and Mun/ReturnFromOrbit complete, Mun/Landing not. Two vessels,
         # both `CS Mun Flyby Debris` on Kerbin suborbits. cs-career-mun1's fourteen
-        # recordings plus CS-6's seven. Its Ships/VAB adds `CS Mun Lander.craft` (CS-7's craft;
-        # its builder variant and drift gate land with CS-7). CS-6b's host.
+        # recordings plus CS-6's seven. Its Ships/VAB adds `CS Mun Lander.craft` (built by
+        # harness/tools/build_cs_orbiter_craft.py --variant lander). CS-6b's and CS-7's host.
         "cs-career-mun2": {
             "trees": 4, "committedTrees": 4, "recordings": 21,
             "supersedes": 0, "tombstones": 0, "rewind_points": 0,

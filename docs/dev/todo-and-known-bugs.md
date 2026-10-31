@@ -3642,6 +3642,97 @@ MechJeb moon-return departure (216.9 m/s, periapsis 30 km read back), splashdown
 Mun/Orbit and Mun/ReturnFromOrbit paid 24960 each, body-qualified, no bare Orbit line;
 LedgerGroundTruth hardFailures=0. Next: CS-7 (Mun landing, EVA, flag, return).
 
+Progress 2026-10-28 (branch `cs7-mun-landing`): CS-7 feasibility, then CS-6b and CS-7 authored,
+never flown, on the new fixture `cs-career-mun2` (CS-6's produced save `2026-10-27_2202`). The
+gates (decompiled `GameVariables`, dumps in `logs/decompile/cs7/`): a level-0 Astronaut Complex
+lets nobody out off Kerbin (`UnlockedEVA` is `lvl > 0.2`; `EVAIsPossible` otherwise allows only
+landed or splashed on the home body) and plants no flag (`UnlockedEVAFlags` `lvl >= 0.4`); level
+1 costs 75000 (KSC scene asset; the same read gives the measured 50000 pad and 75000 Mission
+Control), affordable from 216973. The only leg on reach is the LT-05 (survivability; the LT-1 is
+on `landing`, 155 science of path); its ~0.8 m stroke cannot clear a Swivel's 1.62 m bell, so
+the walk also researches advRocketry (45 of 50.5 science) for the Terrier (0.82 m) and the
+FL-T400. The craft `CS Mun Lander` (`build_cs_orbiter_craft.py --variant lander`, 29 parts,
+47.8 t): lower stages 3190 m/s (LKO needs ~3130 on that basis), the Terrier lander 3858 m/s
+against ~3110 needed from LKO. Nothing on the tech makes power and the Terrier has no
+alternator, so after the core drop the craft lives on the pod's 50 EC (CS-6's telemetry: <= ~2
+EC per MechJeb hold); the mission names an exhausted battery (`electric-charge-exhausted`).
+The new composed mission `b13_mun_landing_return` (`mlib.mlr_decide`): B5 verbatim through
+B13's landing, the surface CommitTree dropped, the seam's EvaExit / PlantFlag / EvaBoard sent
+from inside the flight on the generalized seam command (new poll rows 240 / 360 / 240 s),
+MechJeb's AscentAutopilot re-bound to the boarded lander (new runner action
+`mj_rebind_ascent`) and flown to a 20 km Mun orbit, then mor's departure and mfr's return
+tail run on the new state. Lanes `CS-6b-career-astronaut-complex` (the KSC half, CS-4b shape)
+and `CS-7-career-mun-landing` (replays CS-6b's walk on the same host). Owed: both first flights;
+then harvest CS-6b's save as CS-7's host and drop CS-7's two KscAction steps. First-flight
+risks: the legs may stop short of the bell (they then stand as outriggers), the 50 EC, MechJeb's
+classic ascent on the Mun.
+
+Progress 2026-10-28 (branch `cs6c-science`): CS-7's flight ran out of electric charge (no
+battery or panel on the tech; the pod's 50 EC drains at ~0.42 EC/s under a MechJeb attitude
+hold), so CS-6c, a science run to the Mun, was authored, never flown, on `cs-career-mun3` (CS-6b's
+produced save; science 5.5). Basic Science (45, the Z-100) and Electrics (90, the OX-STAT) need
+135. The Mun's science multipliers, read off the KSC scene asset (`sharedassets9.assets`, the
+`CelestialBodyScienceParams` floats after the "Mun" body name): InSpaceLow 3, InSpaceHigh 2,
+spaceAltitudeThreshold 60 km. Each experiment part holds one reading and the Mk1 pod's container
+takes data only from a boarding kerbal (`evaOnlyStorage`, no Collect All), so the pod's one crew
+report module keeps one report; the plan with both crew reports keeps 129 + ~2.7 (recovery),
+short of 130 earned. The craft `CS Mun Science` (`build_cs_orbiter_craft.py --variant munsci`:
+CS Mun Flyby with the upper 4 x FL-T200 merged into 2 x FL-T400 and two Goo canisters and two
+2HOT thermometers on the pod; 30 parts) reads Goo + 2HOT + EVA report high (52) and crew report
++ Goo + 2HOT + EVA report low (93): 145 predicted, ~147.7 with the recovery. The new composed
+mission `b11_mun_science_return` (`mlib.msc_decide`): CS-6's machine through B11's park, the
+high readings in the park (gated on the observed periapsis and reading count), an EVA cycle
+(EvaExit without release, the kerbal's report, EvaBoard), two retrograde nodes of its own to a
+30 x 45 km orbit, the low readings and a second EVA cycle, then mor's departure and mfr's tail;
+mor_decide and mlr_decide pinned frame for frame by trace digests taken on the base commit. The
+lane `CS-6c-career-mun-science` recovers the pod, researches basicScience then electrics in the
+Space Center, and closes with LedgerGroundTruth. Owed: the first flight (risk: whether the
+pod-mounted Goo and thermometers, maxTemp 1200 K, survive the Mun-return reentry behind the
+heat shield; the mission's scienceKeptToSplashdown row reads it); then harvest its produced save
+as CS-7's host and give the CS-7 lander a Z-100 and OX-STATs.
+
+Progress 2026-10-28 (branch `cs6c-science`): CS-6c flew green (`2026-10-28_0028`), and CS-7 is
+re-cut for power, never flown in that shape. CS-7's first flight (`2026-10-27_2326` /
+`_2331_a2`, INVALID autopilot-flake on both attempts) ended MISSION-FLAKE
+`electric-charge-exhausted` in MJ-ASCENT: after the core Swivel cut off at the 80 km target
+apoapsis (~53 km up), MechJeb's coast hold on the long stack saturated the Mk1 pod's wheel and
+drained its 50 EC at 0.42-0.47 EC/s; CS-6c's flown upper stage (the same pod, the same mass)
+drew 0.002-0.045 EC/s on its coasts, so the drain is the long stack's, not the lander's. New
+host `cs-career-mun4` (CS-6c's produced save: funds 157546.18, science 20.17, basicScience and
+electrics researched). New craft `CS Mun Solar Lander` (`build_cs_orbiter_craft.py --variant
+solar`): CS Mun Lander with the three Thumper cones off (3 parts; ~30-60 m/s of drag the
+Terrier pays out of a 750 m/s margin), three OX-STAT panels on the lander's top FL-T400 at 90 /
+210 / 330 deg and a Z-100 on the second (tails and attach from Kerbal 1, `--verify-donors`
+clean); 30 parts, lander 3838 m/s, 150 EC, 0.303-0.350 EC/s with the sun broadside; legs,
+Terrier and bell clearance unchanged; every other variant byte-identical. The mission
+`b13_mun_landing_return` gains `ascentCoastWheelRelease` (mlib.mlr_decide only): every
+reaction wheel off (kRPC `ReactionWheel.active`, runner action `set_reaction_wheels`, read
+back and logged) on the first Kerbin-coast frame with the apoapsis at the target between 40
+and 70 km, back on at 70 km, a node, the apoapsis under its window or B5 leaving MJ-ASCENT,
+once per flight; the surface stay keeps B5's SAS tip guard. B5, mor and msc pinned by trace
+digests from the base commit, mlr's action stream with the flag off likewise. The lane also
+forbids a second Mun/Spacewalk and Mun/Science (CS-6c's). Owed: the first flight in this
+shape (risks: the open Thumper tops' drag, the powered Mun phases' draw, the landing site's
+sun, the legs against the bell).
+
+Progress 2026-10-31 (branch `cs7-mun-landing`): CS-7 LIVE-PROVEN, `2026-10-31_0654_CS-7-career-mun-landing_a2` PASS on attempt 2
+(DLL 43f6f82e, main 6ce354c): landed, EVA, flag, boarded, lifted off, home, recovered, 52
+recordings, LedgerGroundTruth 3/3 hardFailures=0, ledger_audit PASS, lowest EC 138.7 of 150.
+The two issues parked on 2026-10-28 had a different cause than they looked. Nothing staged
+on the Mun, and the refused EvaExit was not a matter of attitude alone: the lander fell over.
+The pod reads about 4 m up on touchdown and about 1.2 m after a fall, so a hatch against the
+ground answers `eva-refused` (`2026-10-28_0432_a2`, `_0649_a2`); `_0626` was moving at 0.32 m/s
+at the engage and lost a tank 0.5 s after ignition (`fuelTank Exploded!!`, a joint break at
+breakForce 0.0 that read like a decouple). A pod reading about 1 m up straight after EvaBoard
+is normal (the green flight reads 1.013 and lifted off): only the reading before the EVA says
+the lander fell. Three LT-05s stand on a triangle that tips at about 12 deg and the site reads
+7 to 14 deg (kRPC `surface_height`, scans in `logs/flights/cs-campaign/mun-*-scan.json`), so
+the lander got a fourth leg (about 17 deg) in place of its third panel: a six-legged cut needs
+the VAB upgrade, which stock refuses on 157546 funds (`upgrade-not-applied`). Open, not a
+Parsek defect: the same flight's attempt 1 `2026-10-31_0635` still fell over at lat 0.70, so
+that site fell 3 times out of 3 and the others stood through the EVA exit, and the lane keeps `[retry] once`. Landing longitude
+repeats at about -166.9 and the park dwell moves it, but a longer dwell needs a closed loop
+(the parking period varies) and the flatter ground at lon 57 and 160 is dark at that UT.
 Progress 2026-10-28 (branch `cs6b-push`): CS-6b green on its first flight. The CS-7 gates
 (decompiled `GameVariables`, dumps in `logs/decompile/cs7/`): a level-0 Astronaut Complex lets
 nobody out off Kerbin (`UnlockedEVA` is `lvl > 0.2`; `EVAIsPossible` otherwise allows only
