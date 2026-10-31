@@ -799,14 +799,29 @@ namespace Parsek
                 new List<GameStateEvent>(sourceEvents);
 
             int repaired = 0;
+            int currentRecorderRowsKept = 0;
             for (int i = 0; i < sourceEvents.Count; i++)
             {
+                if (sourceEvents[i].eventType == GameStateEventType.PartPurchased &&
+                    IsCurrentRecorderPartPurchaseDetail(sourceEvents[i].detail))
+                {
+                    currentRecorderRowsKept++;
+                    continue;
+                }
+
                 GameStateEvent rewritten;
                 if (!TryRewriteLegacyPartPurchaseEvent(sourceEvents[i], readOnlySource, out rewritten))
                     continue;
 
                 sourceEvents[i] = rewritten;
                 repaired++;
+            }
+
+            if (currentRecorderRowsKept > 0)
+            {
+                ParsekLog.Verbose("GameStateStore",
+                    $"RepairLegacyPartPurchaseEvents: kept {currentRecorderRowsKept} current-recorder " +
+                    $"PartPurchased row(s) as recorded (entryCost= present, cost= is gross), repaired={repaired}");
             }
 
             return repaired;
@@ -825,6 +840,15 @@ namespace Parsek
             if (!TryGetStoredPartPurchaseCost(evt.detail, out storedCost))
                 return false;
 
+            // The current recorder writes `entryCost=` beside `cost=`, and its `cost=` is the
+            // gross price by contract: a strategy discount on the purchase is its own
+            // conversion leg bound to this row, so the paired FundsChanged net differs from
+            // `cost=` on purpose. Only a pre-#451 row (`cost=` alone) may be re-read from the
+            // funds event; rewriting a current row to the net would count the discount twice
+            // (todo LEGACY-PART-PURCHASE-REPAIR-NETS-A-DISCOUNTED-PURCHASE).
+            if (IsCurrentRecorderPartPurchaseDetail(evt.detail))
+                return false;
+
             float canonicalCost;
             if (!TryResolveLegacyPartPurchaseCharge(evt, sourceEvents, out canonicalCost))
                 return false;
@@ -839,6 +863,16 @@ namespace Parsek
             rewritten.detail = "cost=" + canonicalCost.ToString("R", CultureInfo.InvariantCulture);
             rewritten.valueBefore = evt.valueAfter + canonicalCost;
             return true;
+        }
+
+        /// <summary>
+        /// Pure: true when a PartPurchased detail carries the <c>entryCost=</c> token, which
+        /// only the current recorder writes; such a row's <c>cost=</c> is authoritative and is
+        /// never re-read from a funds event at load.
+        /// </summary>
+        internal static bool IsCurrentRecorderPartPurchaseDetail(string detail)
+        {
+            return !string.IsNullOrEmpty(GameStateEventDisplay.ExtractDetailField(detail, "entryCost"));
         }
 
         internal static bool TryGetStoredPartPurchaseCost(string detail, out float partPurchaseCost)

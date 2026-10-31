@@ -25,6 +25,9 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A part bought under a strategy discount is no longer discounted twice after a load.** Loading
+  a save rewrote the purchase to its discounted price while the discount stayed booked on its own,
+  leaving a stray correction row in the books. (LEGACY-PART-PURCHASE-REPAIR-NETS-A-DISCOUNTED-PURCHASE)
 - **A kerbal on the ground when a recording ends now ends Landed.** A kerbal standing, lying or
   hopping on the surface (on the Mun especially) could read as falling, so his recording could
   end Destroyed or Sub-orbital instead of putting him back where he stood.
