@@ -1186,10 +1186,13 @@ namespace Parsek
             IList<GhostCommNetRegistrationRow> rows,
             GhostCommNetCapabilityProbe capabilityOf,
             ICollection<string> desiredOut,
-            Action<int, string> noteExclusion)
+            Action<int, string> noteExclusion,
+            List<KeyValuePair<uint, string>> relayingScratch = null)
         {
             var counts = new GhostCommNetRegistrationCounts();
-            var relaying = new List<KeyValuePair<uint, string>>();
+            // The per-frame caller passes its own scratch list so a tick allocates nothing.
+            List<KeyValuePair<uint, string>> relaying = relayingScratch ?? new List<KeyValuePair<uint, string>>();
+            relaying.Clear();
             int n = rows != null ? rows.Count : 0;
             for (int pass = 1; pass <= 3; pass++)
             {

@@ -534,6 +534,17 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when a stock revert is in flight: its own GameBackup is already in
+        /// persistent.sfs for the destination scene to reload. Revert to Launch goes
+        /// FLIGHT to FLIGHT and never reaches the scene-exit writes; Revert to VAB / SPH does.
+        /// </summary>
+        internal static bool ShouldSkipPersistentWriteForPendingRevert(
+            RevertKind pendingKind, GameScenes destination)
+        {
+            return pendingKind != RevertKind.None && destination != GameScenes.MAINMENU;
+        }
+
+        /// <summary>
         /// Pre-LoadScene save: persist Parsek's mutations. For paths where
         /// stock <c>saveAndExit</c> already saved (PauseMenu paths), our
         /// re-save runs after our mutations on top of stock's earlier save.
@@ -550,17 +561,6 @@ namespace Parsek
         /// destinations log Warn and continue (the destination scene's own
         /// save cycle eventually persists).</para>
         /// </summary>
-        /// <summary>
-        /// True when a stock revert is in flight: its own GameBackup is already in
-        /// persistent.sfs for the destination scene to reload. Revert to Launch goes
-        /// FLIGHT to FLIGHT and never reaches the scene-exit writes; Revert to VAB / SPH does.
-        /// </summary>
-        internal static bool ShouldSkipPersistentWriteForPendingRevert(
-            RevertKind pendingKind, GameScenes destination)
-        {
-            return pendingKind != RevertKind.None && destination != GameScenes.MAINMENU;
-        }
-
         internal static bool SafeWritePersistent(GameScenes destination)
         {
             if (SafeWritePersistentForTesting != null)

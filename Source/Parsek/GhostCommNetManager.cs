@@ -313,6 +313,10 @@ namespace Parsek
         // The candidate list of the Tick in progress, read by the registration resolve's
         // capability probe and exclusion callback; null outside Tick.
         private List<GhostCommNetCandidate> probeCandidates;
+        // Bound once so the per-frame Tick allocates no delegate or identity list.
+        private GhostCommNetCapabilityProbe probeCapabilityDelegate;
+        private Action<int, string> noteExclusionForRowDelegate;
+        private readonly List<KeyValuePair<uint, string>> relayingIdentities = new List<KeyValuePair<uint, string>>();
         private CommNetwork boundNetwork;
         private GhostCommNetAvailability? lastAvailability;
         private double rangeModifier = 1.0;
@@ -513,8 +517,14 @@ namespace Parsek
                     Guid = !isChain && c.Recording != null ? c.Recording.RecordedVesselGuid : c.LaunchGuid,
                 });
             }
+            if (probeCapabilityDelegate == null)
+            {
+                probeCapabilityDelegate = ProbeCapability;
+                noteExclusionForRowDelegate = NoteExclusionForRow;
+            }
             GhostCommNetRegistrationCounts counts = GhostCommNetMath.ResolveRegistrations(
-                rowScratch, ProbeCapability, desiredScratch, NoteExclusionForRow);
+                rowScratch, probeCapabilityDelegate, desiredScratch, noteExclusionForRowDelegate,
+                relayingIdentities);
             probeCandidates = null;
             int eligible = counts.Eligible, typeIgnored = counts.TypeIgnored,
                 incapable = counts.Incapable, covered = counts.Covered;

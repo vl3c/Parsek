@@ -1277,6 +1277,22 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveRegistrations_ReusedScratchStartsEmpty()
+        {
+            // The manager passes one identity list every frame; a stale identity from the last
+            // tick must not cover this tick's hold.
+            var scratch = new List<KeyValuePair<uint, string>> { new KeyValuePair<uint, string>(42, GuidA) };
+            var rows = new List<GhostCommNetRegistrationRow>
+            {
+                Row("hold", GhostCommNetMath.ReasonContinuationGapHold, 42, GuidA),
+            };
+            var desired = new HashSet<string>(StringComparer.Ordinal);
+            GhostCommNetMath.ResolveRegistrations(rows, AllCapable(), desired, null, scratch);
+            Assert.Equal(new[] { "hold" }, desired);
+            Assert.Single(scratch);
+        }
+
+        [Fact]
         public void ResolveRegistrations_RewindBeforeRelayLaunchRegistersNothing()
         {
             // Design 15.6 scenario 1 after a Rewind-to-Launch: the relay's window has not
