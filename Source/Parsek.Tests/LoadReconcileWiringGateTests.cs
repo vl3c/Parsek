@@ -380,6 +380,44 @@ namespace Parsek.Tests
             Assert.Equal(1, Occurrences(sweepBody, "Ledger.RemoveActionsForRecordings("));
         }
 
+        // COMMIT-DURING-LOAD-WALKS-WITH-NO-CUTOFF: a tree committed inside OnLoad walks with no
+        // cutoff (the live clock is the pre-load one), so each OnLoad commit site must be followed
+        // by a cutoff walk before any frame a spending screen can use. OnLoad itself commits only
+        // through AutoCommitPendingTreeOutsideFlight, twice: the in-session scene-exit fallback,
+        // before the in-session ledger recalculation, and the cold outside-flight commit, whose
+        // follow-up walk is the deferred seed (its walk runs after a yield, so after OnLoad).
+        // A new commit site in OnLoad reds this and needs the same proof.
+        [Fact]
+        public void OnLoadTreeCommitsAreFollowedByACutoffWalk()
+        {
+            string body = PreparedMethodBody(ScenarioPath, "public override void OnLoad(ConfigNode node)");
+            Assert.Equal(0, Occurrences(body, "NotifyLedgerTreeCommitted("));
+            Assert.Equal(0, Occurrences(body, "OnRecordingCommitted("));
+            Assert.Equal(0, Occurrences(body, "MergeCommit("));
+            Assert.Equal(0, Occurrences(body, "SafetyNetAutoCommitPending("));
+            Assert.Equal(2, Occurrences(body, "AutoCommitPendingTreeOutsideFlight("));
+
+            int inSessionCommit = IndexOrFail(body, "AutoCommitPendingTreeOutsideFlight(");
+            int inSessionRecalc = IndexOrFail(body, "RecalculateLedgerForInSessionLoad(");
+            Assert.True(inSessionCommit < inSessionRecalc,
+                "load-reconcile gate: the in-session scene-exit commit runs before the in-session ledger recalculation");
+
+            int lastInSessionRecalc = body.LastIndexOf("RecalculateLedgerForInSessionLoad(", StringComparison.Ordinal);
+            int coldCommit = body.IndexOf("AutoCommitPendingTreeOutsideFlight(", inSessionCommit + 1, StringComparison.Ordinal);
+            int deferredSeed = IndexOrFail(body, "StartCoroutine(DeferredSeedAndRecalculate());");
+            Assert.Equal(1, Occurrences(body, "StartCoroutine(DeferredSeedAndRecalculate());"));
+            Assert.True(coldCommit > lastInSessionRecalc && deferredSeed > lastInSessionRecalc,
+                "load-reconcile gate: the cold outside-flight commit and the deferred seed are both on the cold branch");
+
+            string seed = PreparedMethodBody(ScenarioPath, "private IEnumerator DeferredSeedAndRecalculate()");
+            int firstYield = IndexOrFail(seed, "yield return null;");
+            int cutoffWalk = IndexOrFail(seed, "RecalculateAndPatchForCurrentTimelineIfFutureActions(");
+            int plainWalk = IndexOrFail(seed, "LedgerOrchestrator.RecalculateAndPatch(reFlyDiscard: reFlyDiscard)");
+            Assert.True(firstYield < cutoffWalk && firstYield < plainWalk,
+                "load-reconcile gate: the deferred seed walks only after its first yield, so after the OnLoad commit");
+            Assert.Contains("IsCurrentUtCutoffSupportedScene(HighLogic.LoadedScene)", Collapse(seed.Substring(firstYield, cutoffWalk - firstYield)));
+        }
+
         // catches REFLY-COLD-LOAD-ZOMBIE-KEEPS-ATTEMPT-POOLS: the cold load's first walk after the
         // sweep is the deferred seed, so it must walk as a Re-Fly discard when the sweep dropped
         // an attempt, or the drawdown guard keeps what the attempt earned into the saved pools.

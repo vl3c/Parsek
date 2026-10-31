@@ -454,7 +454,7 @@ vessel holds still read it, and Warp-to-game-start (no floor) stays at 0. Tests:
 `RewindResourceAdjustment_WalksAtTheResolvedCutoff_SetsThePlanetariumAtTheClock`, and the updated
 wiring pin `RouteRewindLoopPositionTests.HandleRewindOnLoad_RunsTheGoBackRouteReconcileBeforeTheCareerRestore`.
 
-## COMMIT-DURING-LOAD-WALKS-WITH-NO-CUTOFF: a tree commit inside OnLoad replays the whole ledger [FILED 2026-10-28 from log mining; to check, NOT FIXED; product if reachable, medium]
+## ~~COMMIT-DURING-LOAD-WALKS-WITH-NO-CUTOFF: a tree commit inside OnLoad replays the whole ledger~~ [FILED 2026-10-28 from log mining; CHECKED 2026-10-31, branch `fix-load-commit-and-rewind-cutoff`: reachable but never left paid, no product change, ordering pinned; product if reachable, medium]
 
 `LedgerOrchestrator` (~2529) logs `Commit ledger walk: full replay (cutoffUT=null), live clock not
 trusted` when a tree commits while the clock cannot be read. It is seen in several lanes, harmless
@@ -462,6 +462,44 @@ where seen. But it is the same shape as RW-2's revert bug (fixed by #2309): a co
 into a rewound timeline could walk committed rows dated after the clock and pay the future early.
 Check which OnLoad paths can commit a tree before the clock is trusted, and whether the later
 cutoff walk always follows and takes the future back out. A lane may be needed.
+
+Checked. The line comes from `LedgerOrchestrator.RecalculateAndPatchAfterCommit`, whose only callers
+are `NotifyLedgerTreeCommitted` and `OnRecordingCommitted`; it walks in full when
+`ParsekScenario.IsOnLoadInProgress` or `RecordingStore.RewindUTAdjustmentPending` is set. The whole
+caller set: `MergeDialog.MergeCommit` (callers: the merge dialog buttons, `RunPreTransitionAction`,
+`ParsekFlight.CommitFreshRolloutRefusedPendingTree` from the OnFlightReady restore coroutines, and
+`ParsekScenario.AutoCommitPendingTreeOutsideFlight`), `AutoCommitPendingTreeOutsideFlight`'s ghost-only
+branch, `ParsekScenario.SafetyNetAutoCommitPending` (OnSave), `ParsekFlight.CommitTreeFlight` (map
+Switch-To, test seam) and `ParsekFlight.FallbackCommitSplitRecorder` (flight events). Only
+`AutoCommitPendingTreeOutsideFlight` is reached from OnLoad, at two sites, and each is followed by a
+cutoff walk before a spending screen can act:
+- In-session scene-exit fallback (`pending-outside-flight`, non-revert, outside FLIGHT, autoMerge on):
+  the same OnLoad's `ledger-recalculate` phase runs next, synchronously, through
+  `RecalculateLedgerForInSessionLoad` at the loaded save's clock. With the tree committed its gates
+  hold outside FLIGHT (no pending tree, no restore mode, no live recorder), so it cuts whenever rows lie
+  ahead, and the patch is bidirectional (the stock pool reference does not read the full walk's write
+  as a leak). A commit that throws leaves the tree pending, and then every walk's KSP patch is
+  deferred (`GetKspPatchDeferralReason`), so nothing reaches KSP.
+- Cold outside-flight commit: `OnKspLoad` has already walked at the cold clock; the commit's full walk
+  is taken back by `DeferredSeedAndRecalculate`, started earlier in the same OnLoad, whose walk runs
+  after its first `yield` (so after OnLoad, normally one frame later, while the scene is still
+  loading) and cuts at the ready clock in the Space Center, Tracking Station and editor. At MAINMENU
+  (game unloading) there are no pools.
+- `RewindUTAdjustmentPending` (one frame, between `HandleRewindOnLoad` and the coroutine's first
+  resume): any commit there is followed by `ApplyRewindResourceAdjustment`'s cutoff walk.
+Unlike RW-2's revert (#2309), where the revert's own walks were the last ones and the future stayed
+paid until the next scene change, every path here ends on a cutoff walk. Tests:
+`TreeCommitCurrentClockWalkTests.CommitDuringInSessionOnLoad_TheLoadsOwnCutoffWalkTakesTheFutureBackOut`,
+`CommitDuringColdOnLoad_TheDeferredSeedWalkTakesTheFutureBackOut`, and the wiring gate
+`LoadReconcileWiringGateTests.OnLoadTreeCommitsAreFollowedByACutoffWalk` (OnLoad commits only through
+the two `AutoCommitPendingTreeOutsideFlight` sites, the in-session one before
+`RecalculateLedgerForInSessionLoad`, and the deferred seed walks only after its first yield; a new
+OnLoad commit site reds it). Not pinned: the deferred seed's bounded waits (singletons, values, clock)
+can stretch past one frame on a slow load, and a commit from a flight event fired inside a FLIGHT
+OnLoad is not modelled (none is known). A live lane would add confidence for the cold path: kill KSP
+mid-flight after a Rewind-to-Launch (persistent.sfs holds the ACTIVE_TREE), relaunch and load the
+save, then assert the `Commit ledger walk: full replay` line is followed by a `deferred-seed`
+current-UT walk and that the Space Center funds equal the cutoff value.
 
 ## REFLY-ATTEMPT-LIVE-POOL-SHOWS-COMMITTED-FUTURE: during a Re-Fly attempt the funds pool includes the committed future [FILED 2026-10-28 from the RW-5 fix's investigation; by-design walk, report only, NOT FIXED; low]
 
