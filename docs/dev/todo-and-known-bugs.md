@@ -539,7 +539,7 @@ xUnit: `StockPoolReferenceTests.CarriedTwice_SameReferenceLoadedTwice_CarriesThe
 `CarriedTwice_ADistinctRemovedRow_IsStillCarried`, `CarriedTwice_AnOlderCarryNamingAnotherSource_IsKept`,
 `CarriedFrom_RoundTripsThroughTheLedgerRow`.
 
-## KSC-RETIRED-FLIGHT-FREES-CREW-BEFORE-ITS-RECOVERY: after a rewind, a pad-retired flight frees its crew at the trimmed recording end, not at its recovery row [FILED 2026-10-28 from RW-2 and the gap sweep claim 6; code-read plus one live window, NOT FIXED; reservation, low-medium]
+## ~~KSC-RETIRED-FLIGHT-FREES-CREW-BEFORE-ITS-RECOVERY: after a rewind, a pad-retired flight frees its crew at the trimmed recording end, not at its recovery row~~ [FILED 2026-10-28 from RW-2 and the gap sweep claim 6; code-read plus one live window; FIXED 2026-10-31, branch `fix-crew-hold-and-science-dating`; reservation, low-medium]
 
 RW-2: after a Rewind-to-Launch, Jeb's hold ended at the KSC-retired pad recording's trimmed EndUT
 (185807.6), not at its committed `KerbalRecovered` row (186000.2), so for about 190 s he is free
@@ -553,6 +553,22 @@ closure inside its own tree. The same path frees a tourist at EndUT without remo
 the 2026-10-25 ruling that tourists stay held (`CollectKscRetirementClosures` /
 `RoleHoldsKerbal`, ~1914). Test: a KSC-parked recording with crew Aboard, a recovery row at EndUT+190
 and the vessel-exists override false; the hold should end at the recovery row.
+
+Fix. `KerbalsModule.CollectKscRetirementClosures` no longer adds the synthetic EndUT closure for
+a kerbal whose committed timeline records his recovery from that flight: a `KerbalRecovered` row
+that `RecoveryClosesHold` puts in the retired recording's scope (its own row, or one of another
+recording of its tree, found by the pure `TryFindRecordedRecoveryInScope`), so the recorded
+recovery bounds the hold. A parked flight that never became real has no such row and still frees
+its crew at EndUT (2026-09-23 ruling). A tourist row gets no synthetic closure either and stays
+held (2026-10-25 ruling). The walk's closure now carries `IsKscRetirement`, so the
+`Reservation bounded by ...` line names the closure that won; the PrePass summary adds
+`recordedRecoveryWins=` and `touristsKeptHeld=`. Ledger and money unchanged. Tests
+(`KscPadRetirementTests`): `Crew_PadFlightRecoveredAfterItsTrimmedEnd_HoldEndsAtTheRecoveryRow`,
+`Crew_TouristAboardAPadRetiredFlight_StaysHeld`,
+`Crew_NeverMaterializedPadFlight_WithAnotherMissionsRecovery_StillFreedAtEndUT`,
+`CollectClosures_RecordedRecoveryInScope_WinsOverTheEndUTClosure`, and the re-pinned
+`CollectClosures_OnlyAboardAndUnknownRowsOfRetiredRecordings` (the tourist is no longer freed).
+Live proof: none (RW-2 would show `recordedRecoveryWins=1` and the hold ending at the row).
 
 ## ~~OPTIMIZER-MERGE-RETAGS-LEDGER-ROWS-ONLY: an optimizer merge leaves the absorbed recording's game-state events under a dead id~~ [FILED 2026-10-28 from the gap sweep claim 5; FIXED 2026-10-31, branch `fix-low-ledger-bugs`; xUnit only; low]
 

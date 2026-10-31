@@ -158,19 +158,17 @@ namespace Parsek
             = new Dictionary<string, List<RecoveryClosure>>(StringComparer.Ordinal);
 
         /// <summary>
-        /// Recording ids whose flight ended parked in the KSC exclusion zone and so retires
-        /// (operator ruling 2026-09-23; <see cref="VesselSpawner.IsKscRetiredFinalFlight"/>).
-        /// Their aboard crew are freed at the recording's EndUT through a synthetic
-        /// in-memory closure in <see cref="recoveryClosures"/>, as if recovered, without a
-        /// ledger row. Built in <see cref="PrePass"/>, cleared in <see cref="Reset"/>.
+        /// One closure of an open-ended hold: a <see cref="GameActionType.KerbalRecovered"/>
+        /// row, or (<see cref="IsKscRetirement"/>) the synthetic in-memory closure a flight
+        /// retired in the KSC exclusion zone adds at its EndUT (operator ruling 2026-09-23;
+        /// <see cref="VesselSpawner.IsKscRetiredFinalFlight"/>), as if recovered, without a
+        /// ledger row.
         /// </summary>
-        private readonly HashSet<string> kscRetiredRecordingIds =
-            new HashSet<string>(StringComparer.Ordinal);
-
         internal struct RecoveryClosure
         {
             public string OwnerRecordingId;
             public double RecoveryUT;
+            public bool IsKscRetirement;
         }
 
         /// <summary>
@@ -1149,7 +1147,6 @@ namespace Parsek
             loopingChainIds.Clear();
             careerEntriesByKerbal.Clear();
             recoveryClosures.Clear();
-            kscRetiredRecordingIds.Clear();
             splitHandoffs.Clear();
             splitBranchPointsByParent.Clear();
             splitChainStartByRecording.Clear();
@@ -1233,10 +1230,7 @@ namespace Parsek
                 // first run is the real flight (design 12.7), so it retires like any other;
                 // a crewless one has nobody to free.
                 if (rawCrew.Count > 0 && VesselSpawner.IsKscRetiredFinalFlight(rec))
-                {
                     kscRetiredEndUTs[rec.RecordingId] = rec.EndUT;
-                    kscRetiredRecordingIds.Add(rec.RecordingId);
-                }
             }
 
             ParsekLog.Verbose(Tag,
@@ -1260,12 +1254,20 @@ namespace Parsek
 
             if (kscRetiredEndUTs.Count > 0)
             {
+                var treeIdByRecordingId = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (var kvp in recordingMeta)
+                    treeIdByRecordingId[kvp.Key] = kvp.Value.TreeId;
+                int recoveryRowWins;
+                int touristsKeptHeld;
                 int retiredClosures = CollectKscRetirementClosures(
-                    actions, kscRetiredEndUTs, recoveryClosures);
+                    actions, kscRetiredEndUTs, recoveryClosures, treeIdByRecordingId,
+                    out recoveryRowWins, out touristsKeptHeld);
                 ParsekLog.Verbose(Tag,
                     $"PrePass: {kscRetiredEndUTs.Count.ToString(CultureInfo.InvariantCulture)} KSC-retired " +
                     $"recording(s) free {retiredClosures.ToString(CultureInfo.InvariantCulture)} aboard crew " +
-                    "hold(s) at their EndUT (no ledger row)");
+                    "hold(s) at their EndUT (no ledger row); " +
+                    $"recordedRecoveryWins={recoveryRowWins.ToString(CultureInfo.InvariantCulture)} " +
+                    $"touristsKeptHeld={touristsKeptHeld.ToString(CultureInfo.InvariantCulture)}");
             }
 
             int claimCount = CollectDockClaims(RecordingStore.CommittedTrees, actions);
@@ -1790,12 +1792,13 @@ namespace Parsek
                 && (endState == KerbalEndState.Aboard || endState == KerbalEndState.Unknown))
             {
                 string closingOwner;
-                double closedAtUT = ResolveRecoveryClosureUT(name, recordingId, meta, out closingOwner);
+                bool closedByKscRetirement;
+                double closedAtUT = ResolveRecoveryClosureUT(
+                    name, recordingId, meta, out closingOwner, out closedByKscRetirement);
                 if (!double.IsPositiveInfinity(closedAtUT))
                 {
                     endUT = closedAtUT;
-                    string closedBy = closingOwner != null && kscRetiredRecordingIds.Contains(closingOwner)
-                        ? "KSC retirement" : "recovery";
+                    string closedBy = closedByKscRetirement ? "KSC retirement" : "recovery";
                     ParsekLog.Verbose(Tag,
                         $"Reservation bounded by {closedBy}: '{name}' recording '{recordingId}' " +
                         $"({endState}) endUT={closedAtUT.ToString("F1", CultureInfo.InvariantCulture)} " +
@@ -1891,18 +1894,41 @@ namespace Parsek
         /// earlier segments of the same flight (same tree, ended by then) at EndUT, exactly
         /// as a <see cref="GameActionType.KerbalRecovered"/> row would, while a later flight
         /// keeps its own hold. Dead / Recovered rows and rows that hold nobody
-        /// (<see cref="RoleHoldsKerbal(string)"/>) are untouched, no ledger row is written, and one closure is added per (kerbal, recording). Returns the
-        /// closures added. Pure.
+        /// (<see cref="RoleHoldsKerbal(string)"/>) are untouched, no ledger row is written,
+        /// and one closure is added per (kerbal, recording).
+        ///
+        /// <para>Two rows get no synthetic closure. A kerbal whose committed timeline already
+        /// records his recovery from this flight (a <see cref="GameActionType.KerbalRecovered"/>
+        /// row that <see cref="RecoveryClosesHold"/> puts in the retired recording's scope:
+        /// the vessel WAS real until the player recovered it, later than the trimmed EndUT)
+        /// is bounded by that recorded recovery, not by the EndUT; the ruling covers a parked
+        /// flight that never becomes a real vessel (<paramref name="recordedRecoveryWins"/>).
+        /// A tourist stays held (owner ruling 2026-10-25: a held tourist stays Assigned
+        /// after a rewind): nothing recovers him on a retirement, so his hold stays open
+        /// (<paramref name="touristsKeptHeld"/>). <paramref name="treeIdByRecordingId"/>
+        /// (committed recording id -> tree id) scopes a recovery row owned by another
+        /// recording of the same tree; null scopes only the retired recording's own rows.
+        /// Returns the closures added. Pure.</para>
         /// </summary>
         internal static int CollectKscRetirementClosures(
             IReadOnlyList<GameAction> actions,
             IReadOnlyDictionary<string, double> retiredEndUTByRecordingId,
-            Dictionary<string, List<RecoveryClosure>> into)
+            Dictionary<string, List<RecoveryClosure>> into,
+            IReadOnlyDictionary<string, string> treeIdByRecordingId,
+            out int recordedRecoveryWins,
+            out int touristsKeptHeld)
         {
+            recordedRecoveryWins = 0;
+            touristsKeptHeld = 0;
             if (actions == null || retiredEndUTByRecordingId == null || into == null)
                 return 0;
             if (retiredEndUTByRecordingId.Count == 0)
                 return 0;
+
+            // The recorded recoveries, read from the actions (not from `into`, which may
+            // already hold synthetic closures).
+            var recorded = new Dictionary<string, List<RecoveryClosure>>(StringComparer.Ordinal);
+            CollectRecoveryClosures(actions, recorded);
 
             int added = 0;
             var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -1921,16 +1947,104 @@ namespace Parsek
                 if (double.IsNaN(endUT) || double.IsInfinity(endUT)) continue;
                 if (!seen.Add(a.KerbalName + "|" + a.RecordingId)) continue;
 
+                if (IsTouristRole(a.KerbalRole))
+                {
+                    touristsKeptHeld++;
+                    ParsekLog.Verbose(Tag,
+                        $"KSC retirement: tourist '{a.KerbalName}' of recording '{a.RecordingId}' " +
+                        "stays held (no closure at EndUT; a held tourist stays Assigned)");
+                    continue;
+                }
+
+                double recoveryUT;
+                string recoveryOwner;
+                if (TryFindRecordedRecoveryInScope(recorded, a.KerbalName, a.RecordingId, endUT,
+                        treeIdByRecordingId, out recoveryOwner, out recoveryUT))
+                {
+                    recordedRecoveryWins++;
+                    ParsekLog.Verbose(Tag,
+                        $"KSC retirement: '{a.KerbalName}' of recording '{a.RecordingId}' keeps his " +
+                        $"recorded recovery (owner='{recoveryOwner}' " +
+                        $"recoveryUT={recoveryUT.ToString("F1", CultureInfo.InvariantCulture)}) instead of " +
+                        $"a closure at EndUT={endUT.ToString("F1", CultureInfo.InvariantCulture)}");
+                    continue;
+                }
+
                 List<RecoveryClosure> list;
                 if (!into.TryGetValue(a.KerbalName, out list))
                 {
                     list = new List<RecoveryClosure>();
                     into[a.KerbalName] = list;
                 }
-                list.Add(new RecoveryClosure { OwnerRecordingId = a.RecordingId, RecoveryUT = endUT });
+                list.Add(new RecoveryClosure
+                {
+                    OwnerRecordingId = a.RecordingId,
+                    RecoveryUT = endUT,
+                    IsKscRetirement = true,
+                });
                 added++;
             }
             return added;
+        }
+
+        /// <summary><see cref="CollectKscRetirementClosures(IReadOnlyList{GameAction}, IReadOnlyDictionary{string, double}, Dictionary{string, List{RecoveryClosure}}, IReadOnlyDictionary{string, string}, out int, out int)"/> without tree scoping or counters.</summary>
+        internal static int CollectKscRetirementClosures(
+            IReadOnlyList<GameAction> actions,
+            IReadOnlyDictionary<string, double> retiredEndUTByRecordingId,
+            Dictionary<string, List<RecoveryClosure>> into)
+        {
+            int ignoredWins, ignoredTourists;
+            return CollectKscRetirementClosures(actions, retiredEndUTByRecordingId, into, null,
+                out ignoredWins, out ignoredTourists);
+        }
+
+        /// <summary>
+        /// True when <paramref name="recorded"/> (kerbal -> recorded
+        /// <see cref="GameActionType.KerbalRecovered"/> closures) holds a recovery of
+        /// <paramref name="kerbalName"/> that <see cref="RecoveryClosesHold"/> puts in the
+        /// scope of the hold from <paramref name="holdRecordingId"/> ending at
+        /// <paramref name="holdEndUT"/>; reports the earliest such recovery. A recovery owned
+        /// by a recording <paramref name="treeIdByRecordingId"/> does not know (not
+        /// committed) counts only when it is the hold's own recording. Pure.
+        /// </summary>
+        internal static bool TryFindRecordedRecoveryInScope(
+            IReadOnlyDictionary<string, List<RecoveryClosure>> recorded,
+            string kerbalName,
+            string holdRecordingId,
+            double holdEndUT,
+            IReadOnlyDictionary<string, string> treeIdByRecordingId,
+            out string ownerRecordingId,
+            out double recoveryUT)
+        {
+            ownerRecordingId = null;
+            recoveryUT = double.PositiveInfinity;
+            if (recorded == null || string.IsNullOrEmpty(kerbalName)) return false;
+            List<RecoveryClosure> closures;
+            if (!recorded.TryGetValue(kerbalName, out closures) || closures == null) return false;
+
+            string holdTreeId = null;
+            if (treeIdByRecordingId != null)
+                treeIdByRecordingId.TryGetValue(holdRecordingId ?? "", out holdTreeId);
+            for (int i = 0; i < closures.Count; i++)
+            {
+                var c = closures[i];
+                if (c.IsKscRetirement) continue;
+                string ownerTreeId = null;
+                bool ownerKnown = treeIdByRecordingId != null
+                    && treeIdByRecordingId.TryGetValue(c.OwnerRecordingId ?? "", out ownerTreeId);
+                if (!ownerKnown
+                    && !string.Equals(c.OwnerRecordingId, holdRecordingId, StringComparison.Ordinal))
+                    continue;
+                if (!RecoveryClosesHold(holdRecordingId, holdTreeId, holdEndUT,
+                        c.OwnerRecordingId, ownerTreeId, c.RecoveryUT))
+                    continue;
+                if (c.RecoveryUT < recoveryUT)
+                {
+                    recoveryUT = c.RecoveryUT;
+                    ownerRecordingId = c.OwnerRecordingId;
+                }
+            }
+            return ownerRecordingId != null;
         }
 
         /// <summary>
@@ -1976,9 +2090,11 @@ namespace Parsek
         /// is no longer committed closes nothing.
         /// </summary>
         private double ResolveRecoveryClosureUT(
-            string kerbalName, string recordingId, RecordingMeta holdMeta, out string closingOwner)
+            string kerbalName, string recordingId, RecordingMeta holdMeta, out string closingOwner,
+            out bool closedByKscRetirement)
         {
             closingOwner = null;
+            closedByKscRetirement = false;
             List<RecoveryClosure> closures;
             if (!recoveryClosures.TryGetValue(kerbalName, out closures))
                 return double.PositiveInfinity;
@@ -1997,6 +2113,7 @@ namespace Parsek
                 {
                     best = c.RecoveryUT;
                     closingOwner = c.OwnerRecordingId;
+                    closedByKscRetirement = c.IsKscRetirement;
                 }
             }
             return best;
