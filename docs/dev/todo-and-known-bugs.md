@@ -892,6 +892,28 @@ COVERABLE: a pressed recovery under 100 funds. The stock button recovers only th
 controllable vessel on these hosts is worth under 100 (the Mk1 pod alone is 600); under 100 inside a Re-Fly
 stays RW-11's clean-up path.
 
+## ~~LEGACY-PART-PURCHASE-REPAIR-NETS-A-DISCOUNTED-PURCHASE: a cold load rewrites a discounted part purchase to its net price while its strategy leg stays, so the discount counts twice~~ [FILED AND FIXED 2026-10-31 from RW-23's first flight (`2026-10-31_1802`, PARSEK-FAIL on two forbidden lines), branch `fix-legacy-purchase-repair`; unit-tested; product, low (ledger row only, the live pool stayed right)]
+
+RW-23 bought the RT-10 under Aggressive Negotiations: the gross 1200 `PartPurchased` row
+(`cost=1200;entryCost=1200`), its +18 funds leg and -1.25 reputation leg (both `RnDPartPurchase`,
+scoped `Part:solidBooster.v2`), and stock's net `FundsChanged(RnDPartPurchase)` of -1182. Every
+required line of the lane passed. The first cold load in the batch then logged `OnLoad: repaired
+legacy R&D part-purchase rows (events=1, actions=1)`: `GameStateStore.TryRewriteLegacyPartPurchaseEvent`
+re-read the cost from the paired funds event (1182) and `LedgerLoadMigration.RepairLegacyPartPurchaseActionsOnLoad`
+wrote it into the row, while the +18 leg (STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED, #2313) stayed.
+The walk then expected 18 more than stock held and filed `StockPoolAdjustment amount=-18
+reason=leak` plus a `GUARDED UPLIFT clamped`. The repair predates the leg binding: it was written
+for pre-#451 rows whose `cost=` was wrong, when the funds event was the only truth.
+
+Fix. A row carrying `entryCost=` (written only by the current recorder, whose `cost=` is the
+gross price by contract) is never re-read from a funds event: `GameStateStore.IsCurrentRecorderPartPurchaseDetail`
+gates `TryRewriteLegacyPartPurchaseEvent`, and through it the action repair; the event pass logs one
+Verbose summary of the rows it kept. A `cost=`-only row is repaired as before. Tests
+(`LegacyPartPurchaseLoadCompatibilityTests`): `LoadRepair_CurrentRecorderRowUnderAStrategyDiscount_KeepsTheGrossCost`
+(the RW-23 shape: 0 events and 0 actions repaired, the row stays 1200),
+`IsCurrentRecorderPartPurchaseDetail_Cases`; mutation-checked (dropping both gates reds the headline).
+Live proof owed: RW-23's re-flight with no `repaired legacy R&D part-purchase` line.
+
 ## ~~STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED: a strategy discount on a part purchase, a repair or a contract penalty has no ledger leg, so a rewind and a repeat pays it twice~~ [FILED AND FIXED 2026-10-28 from code reading plus the stock `Strategies.cfg`, branch `fix-strategy-gross-legs`; unit-tested only, NOT FLOWN, lane owed; product, medium (a discount credited twice, breaking "nothing is paid twice")]
 
 Stock `AgressiveNegotiations` multiplies funds under `VesselRollout` / `RnDPartPurchase` (0.70 at
