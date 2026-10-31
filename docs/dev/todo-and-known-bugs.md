@@ -4655,6 +4655,23 @@ F9-backward, revert-prune and discard, and add `RouteTimelineConservationFuzzerT
 FZ-1 lane: a seeded generator of declarative step lists over the operation alphabet, invariants
 after each step, oracles at the end, seed and step index printed for exact replay.
 
+Item 2, ledger half: DONE 2026-10-31 (branch `claude/project-thread-3mnti5`, test-gap audit
+2026-10-31 C2). `ReFlyValueFuzzerTests` builds seeded random careers one operation at a time
+(forward and rewound flights, contracts with and without deadlines, purchases at a rewound clock,
+repairs, strategies, records, Re-Fly with gate, live session, Discard or Merge through
+`ReFlyMergeDominance.Evaluate` and the real `CommitTombstones`, chained re-flies) and checks the
+rewind design section 2.12 rules after every step: an open slot holds no counted non-loss row
+and retiring it lowers nothing; a passed merge lowers no balance at any UT, keeps every
+affordable purchase affordable, retires only losses or not-counted rows and keeps every credit
+(milestone, contract, record threshold, science subject) at the same or an earlier UT; Discard
+restores the ledger exactly; the earliest milestone / contract outcome wins; a forward flight
+takes no credit back. It also checks that the live cached gate and the merge's retire set agree
+with the pure parts, and that the isolated walk ends where the live recalculation does. A
+5,000-career sweep (6,661 merges, 2,527 discards, 161 refusals) found no violation; planted bugs
+(a milestone that does not seal, a dominance check that always passes, Variant B written as A,
+a milestone credited to its latest row) each red it. Still open: the effective-state alphabet,
+route conservation, and the FZ-1 lane.
+
 ---
 
 ## ~~CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO: after a rewind before a committed dock, a route-fed station respawns holding cargo the rewind un-paid~~ [FILED 2026-10-06 from the coverage-extension research, verified; branch `ccr-77f23eb2-dbqh6i`. FIXED 2026-10-07, branch `fix-chain-tip-unpaid-route-cargo` (owner ruling 2026-10-07: subtract from the snapshot); lane RC-2 not flown]
