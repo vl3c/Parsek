@@ -388,6 +388,15 @@ namespace Parsek
                 PruneUnusedHierarchyEntriesFromCommittedRecordings("save");
             }
 
+            WriteInto(node);
+        }
+
+        /// <summary>
+        /// Writes the hierarchy and hidden-group state as it stands, with no prune. The
+        /// write half of <see cref="SaveInto"/>, and the surface the save round-trip test reads.
+        /// </summary>
+        internal static void WriteInto(ConfigNode node)
+        {
             if (groupParents.Count > 0)
             {
                 ConfigNode hierarchyNode = node.AddNode("GROUP_HIERARCHY");

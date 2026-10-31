@@ -96,12 +96,11 @@ namespace Parsek
         internal static void LoadCrewReplacements(ConfigNode node)
         {
             crewReplacements.Clear();
-            // #615 P1 review: rescue-placed markers are session-scoped — the
-            // rescue path runs in-flight, the marker drives the next walk's
-            // ApplyToRoster decision, and the marker has no persisted home.
-            // A cold load starts a new session, so any leftover entries from
-            // a prior in-memory state are stale.
+            // #615: the rescue-placed markers are the save's own (RESCUE_PLACED_KERBALS);
+            // entries left in memory from before the load are stale and dropped first.
+            // A stale pid in the save never matches a live vessel, so it needs no pruning.
             rescuePlacedKerbals.Clear();
+            LoadRescuePlacedMarkers(node);
 
             ConfigNode replacementsNode = node.GetNode("CREW_REPLACEMENTS");
             if (replacementsNode == null)
@@ -124,8 +123,51 @@ namespace Parsek
             CrewLog($"Loaded {crewReplacements.Count} crew replacement(s)");
         }
 
+        internal const string RescuePlacedNodeName = "RESCUE_PLACED_KERBALS";
+
+        /// <summary>
+        /// Reads the #615 rescue-placed markers a save carries. Without them the first
+        /// ApplyToRoster walk after a load would take the recreate path and regenerate the
+        /// stand-in of a kerbal the rescue already placed (the bug the marker exists for).
+        /// </summary>
+        private static void LoadRescuePlacedMarkers(ConfigNode node)
+        {
+            ConfigNode markersNode = node?.GetNode(RescuePlacedNodeName);
+            if (markersNode == null)
+                return;
+            int loaded = 0, skipped = 0;
+            foreach (ConfigNode entry in markersNode.GetNodes("ENTRY"))
+            {
+                string name = entry.GetValue("name");
+                if (!string.IsNullOrEmpty(name)
+                    && ulong.TryParse(entry.GetValue("vesselPid"), System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out ulong pid))
+                {
+                    rescuePlacedKerbals[name] = pid;
+                    loaded++;
+                }
+                else
+                {
+                    skipped++;
+                }
+            }
+            CrewLog($"Loaded {loaded} rescue-placed marker(s), skipped {skipped} malformed");
+        }
+
         internal static void SaveCrewReplacements(ConfigNode node)
         {
+            if (rescuePlacedKerbals.Count > 0)
+            {
+                ConfigNode markersNode = node.AddNode(RescuePlacedNodeName);
+                foreach (var kvp in rescuePlacedKerbals)
+                {
+                    ConfigNode entry = markersNode.AddNode("ENTRY");
+                    entry.AddValue("name", kvp.Key);
+                    entry.AddValue("vesselPid", kvp.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                }
+                CrewLog($"Saved {rescuePlacedKerbals.Count} rescue-placed marker(s)");
+            }
+
             if (crewReplacements.Count > 0)
             {
                 ConfigNode replacementsNode = node.AddNode("CREW_REPLACEMENTS");

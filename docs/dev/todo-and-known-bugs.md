@@ -17,6 +17,80 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~SAVE-ROUND-TRIP-GATE: no test checks that every saved field survives a save and load~~ [DONE 2026-10-31; xUnit only; test gap C3 of roadmap/test-gap-audit-2026-10-31.md]
+
+`Source/Parsek.Tests/SaveRoundTrip/` now round-trips every persisted surface field by field under a
+comma-decimal culture: `FieldRoundTrip` fills every instance field of a type (and, for a static
+store, every static field) with a distinct non-default value, saves, loads and diffs, reporting
+each field path that changed. A field may only differ when the type's `FieldSpec` classifies it
+`NotPersisted` (asserted NOT to survive, so a stale entry reds too) or `Derived`, each with a
+reason. Covered: every GameAction row type (per-type persisted payload table), the ledger node,
+kerbal slots, Recording metadata and the recording tree, the trajectory and snapshot sidecars,
+supply routes / route events / retired cargo / the route store, the rewind and Re-Fly records,
+game-state events, baselines and milestones, and the mission, vessel-name, group, crew, hold,
+held-window, take-back, pool-reference and settings stores (the game-state store carries events,
+snapshots, science subjects and baselines; the milestone store both its node and the
+MILESTONE_STATE replay indexes). `SaveRoundTripCoverageGateTests` reds when a Parsek type gains a
+Save*/Load*/Serialize*/Deserialize* method over a ConfigNode (or a binary sidecar reader / writer)
+with no `[SaveRoundTripCovers]` test and no Exempt row; the store and record test classes each
+assert that every type their attributes name has a case, so an attribute alone cannot pass the
+gate. Mutation-checked: dropping one key in any covered codec reds a round-trip case.
+
+Known limits, not covered by this gate: discovery goes by method name, so a codec spelled
+Build*/Parse*/Write*/Read* is not found (the pending-science node, `GameStateRecorder.
+BuildPendingScienceNode` / `ParsePendingScienceNode`, is covered only by the older
+`GameStateSaveNodeTests`); and a field filled with one enum value (`Recording.MergeState`) is
+round-tripped for that value only.
+
+Found and fixed: RECORDING-VESSEL-SITUATION-NOT-SAVED and RESCUE-PLACED-MARKER-SESSION-ONLY
+(below). Classified by design and left as is: the legacy `GameStateEvent.epoch` /
+`Milestone.Epoch` stamps (read from old saves, never assigned or written), the vessel-name
+revert-undo epoch, and the runtime caches each spec names.
+
+## ~~RESCUE-PLACED-MARKER-SESSION-ONLY: the #615 rescue-completion marker did not survive a save and load~~ [FIXED 2026-10-31; xUnit only; low]
+
+`CrewReservationManager.rescuePlacedKerbals` (kerbal -> pid of the Parsek-spawned vessel the rescue
+path placed him on) was cleared by `LoadCrewReplacements` and never saved. The
+`KerbalsModule.ApplyToRoster` guard must fire on every walk for the lifetime of the rescue (the
+multi-walk regression in `RescueCompletionGuardTests` is the bug it prevents: without the marker
+the walk regenerates the rescued kerbal's stand-in), and a save and load is one more walk
+trigger. Found while classifying the field for SAVE-ROUND-TRIP-GATE.
+
+Before the fix the marker was also dropped by every in-session load, so it lasted only until the
+next scene change.
+
+**Fix.** `SaveCrewReplacements` writes a `RESCUE_PLACED_KERBALS` node (name + vessel pid) and
+`LoadCrewReplacements` replaces memory's set with the save's (a stale pid never matches a live
+vessel, so nothing is pruned). A plain rewind keeps memory's set as before; a Re-Fly start
+(`RestoreReplacements`) still clears it. `ScenarioWriter.AddRescuePlacedKerbal` authors the node.
+Tests: `RescueCompletionGuardTests.RescuePlacedMarker_SurvivesSaveAndLoad` /
+`_LoadsFromAScenarioWriterSave`, `StoreSaveRoundTripTests`. Not flown: the rescue-then-reload
+sequence has no harness lane. Follow-up: RESCUE-PLACED-MARKER-NEVER-RETIRES.
+
+## RESCUE-PLACED-MARKER-NEVER-RETIRES: a saved rescue marker stays in the save for good [OPEN 2026-10-31; low]
+
+Since RESCUE-PLACED-MARKER-SESSION-ONLY the #615 marker lives for the life of the save instead of
+until the next scene change. Two consequences: stale entries (vessel long gone) pile up in the
+save, harmless because a stale pid never matches a live vessel; and the marker's documented
+limit (a later, unrelated fresh reservation for a kerbal still aboard the same rescue vessel pid
+gets no stand-in, see the comment on `CrewReservationManager.rescuePlacedKerbals`) can now last
+past a scene change. Candidate fix: retire a kerbal's marker when a new reservation for that
+kerbal is created, and prune entries whose pid matches no vessel on save.
+
+## ~~RECORDING-VESSEL-SITUATION-NOT-SAVED: a recording's stop-time situation text is lost on every save and load~~ [FILED AND FIXED 2026-10-31 by the field-level save round-trip suite (SAVE-ROUND-TRIP-GATE); xUnit only; product, low (Timeline wording only)]
+
+`Recording.VesselSituation` ("Landed Mun", "EVA Kerbin") is set at stop time by
+`VesselSpawner.SnapshotVessel` and carried onto the recording by
+`ParsekFlight.ApplyCapturedSplitStateToStandaloneRecording` and `ApplyPersistenceArtifactsFrom`,
+and `TimelineBuilder.TryAddVesselSpawnEntry` reads it for the spawn row text. The RECORDING node
+never wrote it, so after any save and load the row fell back to the terminal-state wording
+(`TimelineEntryDisplay.GetVesselSpawnText`). Found by `RecordingSaveRoundTripTests`
+(`Recording.VesselSituation: wrote "...", read null`).
+
+**Fix.** `RecordingTreeRecordCodec` writes a sparse `vesselSituation` key next to `vesselDestroyed`
+and reads it back (absent reads null, the old fallback). Additive key, no schema generation bump.
+Tests: `Parsek.Tests.SaveRoundTrip.RecordingSaveRoundTripTests`, `RecordingTreeSaveRoundTripTests`.
+
 ## ~~RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP: a flight looped from the Recordings tab replays in flight and at the Space Center but not on the map or in the Tracking Station~~ [FILED 2026-10-31 from the test gap audit (`roadmap/test-gap-audit-2026-10-31.md` A1, code read); FIXED 2026-10-31, branch `claude/project-thread-c5l296`; xUnit only, lane owed; product, medium (a looped flight's map icon is missing or sits on its final orbit)]
 
 Every map consumer (flight map ProtoVessels, the Tracking Station create / refresh / startup

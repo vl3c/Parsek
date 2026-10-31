@@ -4109,10 +4109,11 @@ namespace Parsek
                             // entry survives in slot.Chain, so the guard must
                             // fire on EVERY subsequent ApplyToRoster pass for
                             // the lifetime of the rescue. The marker is
-                            // cleared ONLY by the bulk lifecycle paths
-                            // (LoadCrewReplacements, RestoreReplacements,
-                            // ClearReplacements, ResetReplacementsForTesting)
-                            // at session / rewind / wipe-all boundaries.
+                            // saved with the crew replacements, replaced by
+                            // the save's own set on load (LoadCrewReplacements),
+                            // and cleared by RestoreReplacements /
+                            // ClearReplacements / ResetReplacementsForTesting
+                            // at rewind / wipe-all boundaries.
                             //
                             // P1 review (fourth pass): the marker is now
                             // pid-scoped, so a stale-true name marker that
