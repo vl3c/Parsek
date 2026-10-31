@@ -3718,8 +3718,9 @@ timeline, re-locked by a Rewind-to-Launch, a second research refused `insufficie
 row reserves its 45 in the live pool; the committed-row click-block behind it is not reached), and the
 crossing unlocking it with the science spent once. No defect.
 
-Progress 2026-10-31 (branch `rw14-dismiss`): lane `RW-14-dismissal-across-rewind` AUTHORED on `cs-career-mun4`,
-pinned to the owner's option A (KERBAL-DISMISSAL-ON-THE-TIMELINE). Never flown; it flies on that feature's build.
+Progress 2026-10-31 (branch `rw14-dismiss`): lane `RW-14-dismissal-across-rewind` LIVE-PROVEN (`2026-10-31_0251`) on feature 9231e59
+(KERBAL-DISMISSAL-ON-THE-TIMELINE, owner option A): after a rewind the dismissed kerbal is Crew but held, a second
+dismissal and a seat are refused, and the clock turns him into an Applicant once with nothing booked twice. No defect.
 
 ## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
 
