@@ -91,6 +91,43 @@ never wrote it, so after any save and load the row fell back to the terminal-sta
 and reads it back (absent reads null, the old fallback). Additive key, no schema generation bump.
 Tests: `Parsek.Tests.SaveRoundTrip.RecordingSaveRoundTripTests`, `RecordingTreeSaveRoundTripTests`.
 
+## ~~REVERT-EDITOR-SAVE-SWITCH-GAPS: Revert to VAB / SPH could be undone by a scene-exit save or leave a stale cleanup armed, and three statics survived a save switch~~ [FILED AND FIXED 2026-10-31 from the test-gap audit (`test-gap-audit-2026-10-31.md` B4 / B5 / B6 / C9), branch `claude/project-thread-ib5y5e`; unit-tested, lanes owed; product, medium (R1, R2), low (S1-S3)]
+
+Code read plus a decompile of `FlightDriver.RevertToPrelaunch` (KSP 1.12.5): stock writes
+`PreLaunchState` to persistent.sfs, fires `OnRevertToPrelaunchFlightState`, then
+`EditorDriver.StartEditor` -> `LoadScene(EDITOR)`, and `EditorDriver.Start` reloads that file.
+
+- ~~**R1.** `SceneExitInterceptor.SafeWritePersistent` saved `HighLogic.CurrentGame` (still the
+  flight game) over that file when the LoadScene prefix took a scene-exit write on the way to
+  EDITOR: the no-op switch-segment and no-session committed-resume fast paths (3.5 / 3.6), and the
+  merge dialog's post-choice when autoMerge is off. The editor then loaded the flight state (the
+  launch vessel still flying, the rollout not refunded).~~ Fix: `ShouldSkipPersistentWriteForPendingRevert`
+  skips the write while `RevertDetector.PendingKind` is set (not for MAINMENU, which never follows
+  a revert). Revert to Launch goes FLIGHT to FLIGHT and never reaches it.
+- ~~**R2.** The revert branch of `ParsekScenario.OnLoad` armed the OnFlightReady orphaned-vessel
+  recovery (`PendingCleanupPids` / `PendingRevertPreExistingPids`) for an editor revert too, where
+  nothing consumes it; the next launch then ran it with the stale prelaunch whitelist and recovered
+  a vessel Parsek had Real Spawned at the Space Center in between.~~ Fix:
+  `ReleaseRevertCleanupOutsideFlight` releases it when the revert does not land in FLIGHT (the
+  protoVessel strip already covered every vessel), the same release the rewind path does.
+- ~~**S1.** `FacilityStatePatcher`'s patch history and pending default targets survived a
+  main-menu return to a save of the same folder name (its folder latch cannot see it), so a
+  facility the old session patched could be forced to its default level.~~ Fix:
+  `FacilityStatePatcher.ResetForSaveLoad` from `KspStatePatcher.ResetForSaveLoad` (every cold load).
+- ~~**S2.** `RecordingGroupStore`'s auto-group mirror was never cleared outside tests, so a save
+  sharing recording ids (a copied folder) could re-adopt a recording into the other save's
+  group.~~ Fix: cleared in `RecordingStore.ResetSaveScopedStateForLoad`; each recording carries
+  its own `autoAssignedStandaloneGroup` key.
+- ~~**S3.** `LedgerOrchestrator.OnLoad` kept the previous save's rows when the ledger path could
+  not be resolved.~~ Fix: `Ledger.ClearForFailedLoad` there too.
+- Both statics classes joined the `SaveScopedSessionResetTests` inventory gate (mutation-checked:
+  dropping either reset reds it). CommNet ghosts across a rewind: no defect found (every scene
+  load rebuilds the manager and eligibility is re-derived each tick); the registration passes
+  moved into the pure `GhostCommNetMath.ResolveRegistrations` with cells
+  (GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST first bullet).
+- Owed: lanes for Revert to VAB / SPH (needs `RevertToLaunch target=editor`), a save switch
+  through the main menu, and a CommNet relay across a Rewind-to-Launch.
+
 ## ~~CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE: a contract the clock carries past its committed outcome leaves stock's active list and goes nowhere, so it vanishes from the Mission Control Archive~~ [FILED 2026-10-31 from RW-20 run `2026-10-31_0256`; FIXED 2026-10-31, branch `contract-crossed-archive`; LIVE-PROVEN by RW-20 `2026-10-31_0425`; product, low (stock history only: funds, reputation, ledger and ground truth were right, nothing paid twice)]
 
 In RW-20 contract `1a9762e8` reached its real deadline and stock saved it `DeadlineExpired`. A
@@ -959,14 +996,43 @@ drivable: `Recover` gains the optional `mergeDialog=refly` (`TestCommandRecover.
 Re-Fly marker and the active tree's `ReFlyAttempt` modal as the only wedge, the verb presses and answers OK
 `mergeDialog=open` once the modal is up; every other wedge still refuses `dialog-required`; refusal
 `recover-mergedialog-arg-invalid`; tests in `TestCommandRealSpawnRecoverTests`, hlib
-`VERB_SCOPED_CLOSED_ARGS`). Lane `RW-25-refly-recover-pressed` on `cs-career-mun4`, AUTHORED, NEVER FLOWN:
+`VERB_SCOPED_CLOSED_ARGS`). Lane `RW-25-refly-recover-pressed` on `cs-career-mun4`, LIVE-PROVEN on its first
+flight `2026-10-31_1811` PASS attempt 1 (348 s, DLL 0f3473d4): `recover wedge accepted
+variant=ReFlyAttempt`, the modal up 0.33 s after the press, `VesselRecovery funds patched:
+vessel='CS Flea Probe' amount=2791 ut=186000.3` tagged to the attempt, 156355.22 funds before the
+rewind and after the crossing, LedgerGroundTruth `hardFailures=0 reportOnly=2`, one payout row:
 RW-11's G and hop, the press on KSC grass, AnswerMergeDialog merge, stock's recovery of the pod at the Space
 Center booked once, a Rewind-to-Launch and the crossing with the pools back, LedgerGroundTruth. NOT
 COVERABLE: a pressed recovery under 100 funds. The stock button recovers only the active vessel, and no
 controllable vessel on these hosts is worth under 100 (the Mk1 pod alone is 600); under 100 inside a Re-Fly
 stays RW-11's clean-up path.
 
-## ~~STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED: a strategy discount on a part purchase, a repair or a contract penalty has no ledger leg, so a rewind and a repeat pays it twice~~ [FILED AND FIXED 2026-10-28 from code reading plus the stock `Strategies.cfg`, branch `fix-strategy-gross-legs`; unit-tested only, NOT FLOWN, lane owed; product, medium (a discount credited twice, breaking "nothing is paid twice")]
+## ~~LEGACY-PART-PURCHASE-REPAIR-NETS-A-DISCOUNTED-PURCHASE: a cold load rewrites a discounted part purchase to its net price while its strategy leg stays, so the discount counts twice~~ [FILED AND FIXED 2026-10-31 from RW-23's first flight (`2026-10-31_1802`, PARSEK-FAIL on two forbidden lines), branch `fix-legacy-purchase-repair`; unit-tested; product, low (ledger row only, the live pool stayed right)]
+
+RW-23 bought the RT-10 under Aggressive Negotiations: the gross 1200 `PartPurchased` row
+(`cost=1200;entryCost=1200`), its +18 funds leg and -1.25 reputation leg (both `RnDPartPurchase`,
+scoped `Part:solidBooster.v2`), and stock's net `FundsChanged(RnDPartPurchase)` of -1182. Every
+required line of the lane passed. The first cold load in the batch then logged `OnLoad: repaired
+legacy R&D part-purchase rows (events=1, actions=1)`: `GameStateStore.TryRewriteLegacyPartPurchaseEvent`
+re-read the cost from the paired funds event (1182) and `LedgerLoadMigration.RepairLegacyPartPurchaseActionsOnLoad`
+wrote it into the row, while the +18 leg (STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED, #2313) stayed.
+The walk then expected 18 more than stock held and filed `StockPoolAdjustment amount=-18
+reason=leak` plus a `GUARDED UPLIFT clamped`. The repair predates the leg binding: it was written
+for pre-#451 rows whose `cost=` was wrong, when the funds event was the only truth.
+
+Fix. A row carrying `entryCost=` (written only by the current recorder, whose `cost=` is the
+gross price by contract) is never re-read from a funds event: `GameStateStore.IsCurrentRecorderPartPurchaseDetail`
+gates `TryRewriteLegacyPartPurchaseEvent`, and through it the action repair; the event pass logs one
+Verbose summary of the rows it kept. A `cost=`-only row is repaired as before. Tests
+(`LegacyPartPurchaseLoadCompatibilityTests`): `LoadRepair_CurrentRecorderRowUnderAStrategyDiscount_KeepsTheGrossCost`
+(the RW-23 shape: 0 events and 0 actions repaired, the row stays 1200),
+`IsCurrentRecorderPartPurchaseDetail_Cases`; mutation-checked (dropping both gates reds the headline).
+LIVE-PROVEN by RW-23's re-flight `2026-10-31_1836` (PASS attempt 1, DLL e9e5b38e, main a56d8284e): no
+`repaired legacy R&D part-purchase` line, `RepairLegacyPartPurchaseEvents: kept 1 current-recorder
+PartPurchased row(s) as recorded ... repaired=0` on every cold load of the batch, no adjustment, no
+guard clamp, LedgerGroundTruth `hardFailures=0 reportOnly=0`.
+
+## ~~STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED: a strategy discount on a part purchase, a repair or a contract penalty has no ledger leg, so a rewind and a repeat pays it twice~~ [FILED AND FIXED 2026-10-28 from code reading plus the stock `Strategies.cfg`, branch `fix-strategy-gross-legs`; repair LIVE-PROVEN by RW-9, purchase LIVE-PROVEN by RW-23 (`2026-10-31_1836`); product, medium (a discount credited twice, breaking "nothing is paid twice")]
 
 Stock `AgressiveNegotiations` multiplies funds under `VesselRollout` / `RnDPartPurchase` (0.70 at
 full commitment) and `StructureRepair` / `StructureConstruction` (0.99) and adds -1..-6
@@ -1036,7 +1102,13 @@ the original repair (155591.16 funds / 97.96 rep), no StockPoolAdjustment, no GU
 PASS. Its first flights found REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE.
 
 **Lane, part-purchase path (2026-10-31, branch `lanes-strategy-purchase-and-refly-recovery`).**
-`RW-23-strategy-part-purchase-rebuy`, AUTHORED, NEVER FLOWN. The host gap RW-9 named is closed by a
+`RW-23-strategy-part-purchase-rebuy`, LIVE-PROVEN `2026-10-31_1836` PASS attempt 1 (138 s, DLL e9e5b38e): the
+purchase (gross 1200, legs +18 and -1.25, no reconcile), the refused re-buy, the crossing (`added=1`,
+pools 503000 / 95 / 104.22 before the rewind and after it) and LedgerGroundTruth 3/3 `hardFailures=0
+reportOnly=0`. `2026-10-31_1802` was PARSEK-FAIL on the two forbidden lines only, the cold load in its
+check, filed and fixed as LEGACY-PART-PURCHASE-REPAIR-NETS-A-DISCOUNTED-PURCHASE. The first run was INVALID twice on
+`warp-locked holders=MissionSummaryDialog`, so V leaves through ExitToSpaceCenter and KscMarkerRecover
+(RW-18's shape). The host gap RW-9 named is closed by a
 new derived fixture, `career-pad-craft-purchase` (`harness/tools/build_career_pad_craft_purchase.py`:
 `career-pad-craft` with BypassEntryPurchaseAfterResearch False and reputation 120, above the 115 at
 which `cs-career-mun4` activated Aggressive Negotiations; drift-gated by
@@ -2737,7 +2809,7 @@ Not covered: a `stock-minimal` that is itself stale. Cells: `ReferenceDllAdmissi
 flies, the reference is never compared with itself; mutation-checked by dropping the diff from the
 admit call).
 
-## KB-STRATEGY-SLOT-NEEDED-NO-LIVE-LANE: the Administration Accept refusal for a strategy that would take the slot a committed activation needs has never been pressed in game [FILED 2026-10-10 from the branch cleanup. OPEN, harness, low]
+## ~~KB-STRATEGY-SLOT-NEEDED-NO-LIVE-LANE: the Administration Accept refusal for a strategy that would take the slot a committed activation needs has never been pressed in game~~ [FILED 2026-10-10 from the branch cleanup. CLOSED 2026-10-31: LIVE-PROVEN by RW-24 (`2026-10-31_1808`); harness, low]
 
 `StrategyReservationPredicates.EvaluateActivation` refuses an activation two ways when the
 committed timeline activates a strategy later: the strategy itself (`FutureActivation`) and any
@@ -2767,7 +2839,12 @@ block-after-rewind` on a new host `stock-screen-census-strategy`. To rebuild it:
   `test_saveparse.test_fixture_set_is_exactly_the_committed_set` and the saves README need it too.
 
 **Lane (2026-10-31, branch `lanes-strategy-purchase-and-refly-recovery`).** `RW-24-strategy-slot-needed-
-after-rewind`, AUTHORED, NEVER FLOWN; this entry stays OPEN until it flies green. A cheaper shape than the
+after-rewind`, LIVE-PROVEN `2026-10-31_1808` PASS attempt 1 (129 s, DLL 0f3473d4), no product defect: the
+refusal read `kind=SlotNeeded committedKey=AgressiveNegotiations committedUT=200 count=2 limit=1`, the
+button tooltip and the blocked dialog read "Slot needed from Y1, D01, 00:03 for 'Aggressive
+Negotiations', blocked by timeline.", the pools came back at 504182 / 105.49. `2026-10-31_1806` was red
+on one anchor (the refusal line is rate-limited per strategy and prints ahead of the refused-1 mark),
+spec fixed. A cheaper shape than the
 draft above: no census host, the committed activation comes from a Rewind-to-Launch instead. On
 `career-pad-craft-purchase` (RW-23's host, reputation 120, Administration level 1 so one slot) a pad Flea is
 recorded, committed and recovered; at T1 Aggressive Negotiations is activated; a Rewind-to-Launch puts that
@@ -4651,6 +4728,23 @@ categories, today's decision per cell with the filed defects as known gaps) gate
 F9-backward, revert-prune and discard, and add `RouteTimelineConservationFuzzerTests`; (3) the
 FZ-1 lane: a seeded generator of declarative step lists over the operation alphabet, invariants
 after each step, oracles at the end, seed and step index printed for exact replay.
+
+Item 2, ledger half: DONE 2026-10-31 (branch `claude/project-thread-3mnti5`, test-gap audit
+2026-10-31 C2). `ReFlyValueFuzzerTests` builds seeded random careers one operation at a time
+(forward and rewound flights, contracts with and without deadlines, purchases at a rewound clock,
+repairs, strategies, records, Re-Fly with gate, live session, Discard or Merge through
+`ReFlyMergeDominance.Evaluate` and the real `CommitTombstones`, chained re-flies) and checks the
+rewind design section 2.12 rules after every step: an open slot holds no counted non-loss row
+and retiring it lowers nothing; a passed merge lowers no balance at any UT, keeps every
+affordable purchase affordable, retires only losses or not-counted rows and keeps every credit
+(milestone, contract, record threshold, science subject) at the same or an earlier UT; Discard
+restores the ledger exactly; the earliest milestone / contract outcome wins; a forward flight
+takes no credit back. It also checks that the live cached gate and the merge's retire set agree
+with the pure parts, and that the isolated walk ends where the live recalculation does. A
+5,000-career sweep (6,661 merges, 2,527 discards, 161 refusals) found no violation; planted bugs
+(a milestone that does not seal, a dominance check that always passes, Variant B written as A,
+a milestone credited to its latest row) each red it. Still open: the effective-state alphabet,
+route conservation, and the FZ-1 lane.
 
 ---
 
@@ -8812,12 +8906,13 @@ drives the DESIGNED flag through a real career.
 
 ## GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST: the continuation-hold pass has no manager-level dedupe test, and FLIGHT scans for it every frame [FILED 2026-09-26 by the commnet-followups review. OPEN, low; test and performance hygiene, no live defect]
 
-- The pass-3 identity dedupe in `GhostCommNetManager.Tick` (`ChainVesselCoveredByRecording` before a
+- ~~The pass-3 identity dedupe in `GhostCommNetManager.Tick` (`ChainVesselCoveredByRecording` before a
   continuation-hold entry) can be removed with no test going red; only the pure pieces are pinned. The
   duplicate it guards (a chain-intermediate recording's hold beside the pre-claim snapshot node of the
-  same vessel) needs a recording in replay scope while its vessel is real, which should be unreachable.
-  Fix: move the pass ordering and dedupe into a pure function and pin it, or give the manager a
-  headless seam for the CommNet types.
+  same vessel) needs a recording in replay scope while its vessel is real, which should be unreachable.~~
+  DONE 2026-10-31 (branch `claude/project-thread-ib5y5e`): the three passes are the pure
+  `GhostCommNetMath.ResolveRegistrations` (capability probe and exclusions by row index), pinned by
+  the `ResolveRegistrations_*` cells in `GhostCommNetTests`.
 - FLIGHT evaluates `ApplyContinuationHold` every frame for every in-scope unspawned recording with
   `TerminalSpawnSupersededByRecordingId` set, scanning the committed list even far from EndUT (O(K*n)
   per frame). Fine at today's scales. Fix: gate it to near or past EndUT as the Tracking Station does.
