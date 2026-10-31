@@ -3550,6 +3550,25 @@ retry after 5 s too), most likely a hatch blocked by the rest attitude.
 
 ---
 
+## RECOVERY-RECONCILE-ERROR-ON-TWO-SCIENCE-CREDITS: a recovery paying two science credits logs a reconcile ERROR though the pools are right [OPEN; product, low: a false alarm, no value moves]
+
+Found by RW-22 (`2026-10-31_0321`, main e96d2c9bb, DLL c39bde83). Recovering the pad lab under Patents Licensing pays two
+science credits in one window: stock's own `recovery@KerbinOrbited` (10) and the lab's stored science (12.5). The rule
+the lane tests holds: one `VesselRecovery funds patched ... amount=204881`, the yields booked as strategy legs only,
+pools right, LedgerGroundTruth `hardFailures=0`, `ledger_audit.py` PASS. But the post-walk reconcile logs two
+`[Parsek][ERROR]` dumps:
+
+- `ScienceEarning id=recovery@KerbinOrbited expected=10.0 but no matching ScienceChanged event keyed 'ScienceTransmission'`:
+  the subject is captured with `reason=''`, so `GameStateEventConverter.ResolveScienceMethod` falls to `Transmitted`
+  (`KSC science recorded ... method=Transmitted`) for science that a recovery paid.
+- `ScienceLabEarning id=(none) expected=12.5, observed=22.5 ... keyed 'VesselRecovery'`: the reconcile reads the one
+  `ScienceChanged(VesselRecovery)` event, which carries both credits (21.375 net, grossed to 22.5), against the lab row alone.
+
+Fix direction: stamp the method from the active recovery scope, and let the post-walk window sum every science row keyed
+to that event before comparing. Then re-fly RW-22.
+
+---
+
 ## REWIND-LEDGER-CAMPAIGN: rewind-and-replay lanes on the campaign careers to hunt ledger bugs [FILED 2026-10-28 at the owner's request. OPEN]
 
 The owner asked for missions flown after rewinding into the past, with a save point after each and
@@ -3676,6 +3695,10 @@ Progress 2026-10-28 (branch `rw13-tech`): lane `RW-13-tech-research-across-rewin
 timeline, re-locked by a Rewind-to-Launch, a second research refused `insufficient-science` (the committed
 row reserves its 45 in the live pool; the committed-row click-block behind it is not reached), and the
 crossing unlocking it with the science spent once. No defect.
+
+Progress 2026-10-31 (branch `rw22-patents-recovery`): lane `RW-22-patents-licensing-recovery` AUTHORED on `lab-pad-career`,
+the recovery RW-11 left open: one payout row, the yields as strategy legs only, held. Red only on the reconcile ERROR
+filed as RECOVERY-RECONCILE-ERROR-ON-TWO-SCIENCE-CREDITS. Re-fly once fixed.
 
 ## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
 
