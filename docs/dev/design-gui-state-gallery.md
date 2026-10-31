@@ -1,5 +1,8 @@
 # Parsek GUI State Gallery - Design Document
 
+**Status (owner, 2026-10-31): not pursued past P1, P1b and the mirror half of P2.** The GUI is
+judged in game and the mirror was an iteration aid; what landed stays (todo GUI-STATE-GALLERY-2026-09-21).
+
 *Design specification for photographing every enumerated GUI state by driving the real IMGUI draw code over MOCKED data, in one boot, so a GUI change can be iterated against before/after renders in the browser.*
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how the GUI census gets from ~166 photographed states to ~450, and the owner-facing iteration loop built on top of that.*

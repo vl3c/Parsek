@@ -1,5 +1,9 @@
 # The GUI mirror (`harness/tools/gui_mirror.py`)
 
+**Status (owner, 2026-10-31): complete, no further work planned.** The mirror was an iteration aid;
+the GUI is judged in game. The page is rebuilt from a fresh census whenever one is wanted
+(section 9), with no code change. The state gallery's later phases (section 14) were not pursued.
+
 One self-contained HTML page that behaves like Parsek's GUI, built entirely out of
 the census captures. It exists so a layout question ("is that column under its
 heading?", "what does the Roster tab look like with three stand-ins?", "what did
