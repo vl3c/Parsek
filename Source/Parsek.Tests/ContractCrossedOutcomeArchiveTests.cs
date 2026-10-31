@@ -61,6 +61,9 @@ namespace Parsek.Tests
             HashSet<Guid> tombstoned = null) =>
             KspStatePatcher.BuildCurrentContractRemovalKeys(current, active, terminal, outcomes, tombstoned);
 
+        /// <summary>A real clock after every end UT the cells below use.</summary>
+        private const double Clock = 2000.0;
+
         private static Dictionary<Guid, KspStatePatcher.RetiredContractMove> Plan(
             List<KspStatePatcher.ContractFilterEntry> current,
             List<KspStatePatcher.ContractFilterEntry> finished,
@@ -68,7 +71,20 @@ namespace Parsek.Tests
             Dictionary<Guid, ContractTerminalOutcome> outcomes,
             Dictionary<Guid, double> uts,
             out int alreadyFinished, out int noFinishedState,
-            HashSet<Guid> tombstoned = null, double clockUT = double.NaN)
+            HashSet<Guid> tombstoned = null, double clockUT = Clock)
+        {
+            return Plan(current, finished, active, outcomes, uts, out alreadyFinished,
+                out noFinishedState, out _, tombstoned, clockUT);
+        }
+
+        private static Dictionary<Guid, KspStatePatcher.RetiredContractMove> Plan(
+            List<KspStatePatcher.ContractFilterEntry> current,
+            List<KspStatePatcher.ContractFilterEntry> finished,
+            HashSet<Guid> active,
+            Dictionary<Guid, ContractTerminalOutcome> outcomes,
+            Dictionary<Guid, double> uts,
+            out int alreadyFinished, out int noFinishedState, out int noClock,
+            HashSet<Guid> tombstoned, double clockUT)
         {
             var terminal = new HashSet<Guid>(outcomes.Keys);
             var currentKeys = CurrentKeys(current, active, terminal, outcomes, tombstoned);
@@ -76,7 +92,7 @@ namespace Parsek.Tests
                 finished, terminal, outcomes, tombstoned);
             return KspStatePatcher.PlanRetiredActiveContractMoves(current, currentKeys, terminal,
                 outcomes, uts, finished, finishedKeys, clockUT, out alreadyFinished, out noFinishedState,
-                out _);
+                out _, out noClock);
         }
 
         [Theory]
@@ -200,11 +216,72 @@ namespace Parsek.Tests
             var moves = KspStatePatcher.PlanRetiredActiveContractMoves(current, currentKeys, terminal,
                 outcomes, uts, new List<KspStatePatcher.ContractFilterEntry>(),
                 new HashSet<KspStatePatcher.ContractRemovalKey>(), 1000.0,
-                out _, out _, out int outcomeLater);
+                out _, out _, out int outcomeLater, out int noClock);
 
             Assert.Single(moves);
             Assert.True(moves.ContainsKey(now));
             Assert.Equal(1, outcomeLater);
+            Assert.Equal(0, noClock);
+        }
+
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(0.0)]
+        [InlineData(double.PositiveInfinity)]
+        public void NoRealClock_NothingMoves_FailClosed(double clockUT)
+        {
+            // The full-replay paths (OnLoad with no cutoff, the deferred scene-load patch,
+            // the cold-load fallback) carry no real clock: the walk may hold terminal a
+            // contract whose committed outcome is still in the future.
+            var g = Guid.NewGuid();
+            var current = new List<KspStatePatcher.ContractFilterEntry> { Entry(g, Contract.State.Active) };
+            var moves = Plan(current, new List<KspStatePatcher.ContractFilterEntry>(),
+                new HashSet<Guid>(),
+                new Dictionary<Guid, ContractTerminalOutcome> { { g, ContractTerminalOutcome.Completed } },
+                new Dictionary<Guid, double> { { g, 100.0 } },
+                out int already, out int noState, out int noClock, null, clockUT);
+
+            Assert.Empty(moves);
+            Assert.Equal(1, noClock);
+            Assert.Equal(0, already);
+            Assert.Equal(0, noState);
+        }
+
+        [Fact]
+        public void FullReplayThenCutoffWalk_ContractIsNeverInBothLists()
+        {
+            // Patch 1: a full replay (no real clock) holds the contract Completed at a
+            // committed outcome after the save's clock. Nothing is filed.
+            var g = Guid.NewGuid();
+            var current = new List<KspStatePatcher.ContractFilterEntry> { Entry(g, Contract.State.Active) };
+            var finished = new List<KspStatePatcher.ContractFilterEntry>();
+            var fullReplayOutcomes = new Dictionary<Guid, ContractTerminalOutcome>
+            {
+                { g, ContractTerminalOutcome.Completed }
+            };
+            var moves = Plan(current, finished, new HashSet<Guid>(), fullReplayOutcomes,
+                new Dictionary<Guid, double> { { g, 5000.0 } },
+                out _, out _, out int noClock, null, double.NaN);
+            Assert.Empty(moves);
+            Assert.Equal(1, noClock);
+            foreach (var m in moves.Values)
+                finished.Add(Entry(m.Id, m.FinishedState));
+
+            // Patch 2: the cutoff walk at the save's clock (1000) holds it Active; the
+            // restore puts it back on the active list.
+            var restored = new List<KspStatePatcher.ContractFilterEntry> { Entry(g, Contract.State.Active) };
+            var noOutcomes = new Dictionary<Guid, ContractTerminalOutcome>();
+            KspStatePatcher.PartitionContractsForPatch(restored, finished, new HashSet<Guid> { g },
+                new HashSet<Guid>(), noOutcomes, null, out var toRemoveCurrent, out var toRemoveFinished,
+                out var survivingActive, out _);
+            var moves2 = Plan(restored, finished, new HashSet<Guid> { g }, noOutcomes, null,
+                out _, out _, out _, null, 1000.0);
+
+            Assert.Contains(g, survivingActive);
+            Assert.Empty(toRemoveCurrent);
+            Assert.Empty(toRemoveFinished);
+            Assert.Empty(moves2);
+            Assert.DoesNotContain(finished, f => f.Id == g);
         }
 
         [Fact]

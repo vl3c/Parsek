@@ -4299,7 +4299,14 @@ namespace Parsek
                 currentEntries, toRemoveCurrentKeys, terminalIdSet, terminalOutcomeById,
                 terminalUtById, finishedEntries, toRemoveFinishedKeys, parameterClockUT,
                 out int archiveAlreadyFinished, out int archiveNoFinishedState,
-                out int archiveOutcomeLater);
+                out int archiveOutcomeLater, out int archiveNoClock);
+            if (archiveNoClock > 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"PatchContracts: {archiveNoClock.ToString(IC)} ended contract(s) leave the active list " +
+                    $"without being filed into stock's finished list - no real clock " +
+                    $"(clockUT={parameterClockUT.ToString("R", IC)}) to prove the outcome already happened");
+            }
 
             int removedStale = 0;
             int removedFinishedTombstoned = 0;
@@ -4531,6 +4538,7 @@ namespace Parsek
                 $"archiveAlreadyFinished={archiveAlreadyFinished.ToString(IC)}, " +
                 $"archiveNoFinishedState={archiveNoFinishedState.ToString(IC)}, " +
                 $"archiveOutcomeLater={archiveOutcomeLater.ToString(IC)}, " +
+                $"archiveNoClock={archiveNoClock.ToString(IC)}, " +
                 $"archiveFailed={archiveFailed.ToString(IC)}, " +
                 $"ledgerActive={activeIds.Count.ToString(IC)}, " +
                 $"ledgerTerminal={terminalIds.Count.ToString(IC)}, " +
@@ -5669,7 +5677,8 @@ namespace Parsek
         ///   <item>Not terminal in the walk (dropped from the ledger, accepted later): no move.</item>
         ///   <item>Terminal with an outcome stock does not archive (requirements lost): no move, counted in <paramref name="noFinishedState"/>.</item>
         ///   <item>A finished entry with the same guid survives this patch: no move, counted in <paramref name="alreadyFinished"/> (never a second copy).</item>
-        ///   <item>The outcome's end UT is after a real <paramref name="clockUT"/> (a walk past the clock, the Re-Fly invoke's whole-ledger walk): no move, counted in <paramref name="outcomeLater"/>; the Archive never shows an outcome before it happens.</item>
+        ///   <item>No real <paramref name="clockUT"/> (NaN on the full-replay paths: an OnLoad walk with no cutoff, the deferred scene-load patch, the cold-load full-replay fallback, the commit walk during OnLoad): no move, counted in <paramref name="noClock"/>. Fail closed: such a walk can hold terminal a contract whose committed outcome is still in the future, and a filed copy would sit in the finished list while the next cutoff walk restores it Active.</item>
+        ///   <item>The outcome's end UT is after the real <paramref name="clockUT"/> (a walk past the clock, the Re-Fly invoke's whole-ledger walk): no move, counted in <paramref name="outcomeLater"/>; the Archive never shows an outcome before it happens.</item>
         ///   <item>Otherwise: move, at the walk's outcome state and end UT.</item>
         /// </list>
         /// A move matches the walk, so the next patch keeps the finished entry in place
@@ -5687,12 +5696,14 @@ namespace Parsek
             double clockUT,
             out int alreadyFinished,
             out int noFinishedState,
-            out int outcomeLater)
+            out int outcomeLater,
+            out int noClock)
         {
             var moves = new Dictionary<Guid, RetiredContractMove>();
             alreadyFinished = 0;
             noFinishedState = 0;
             outcomeLater = 0;
+            noClock = 0;
             bool clockReady = IsRealClock(clockUT);
             if (currentEntries == null || toRemoveCurrentKeys == null || toRemoveCurrentKeys.Count == 0
                 || terminalIdSet == null || terminalOutcomeById == null)
@@ -5733,10 +5744,15 @@ namespace Parsek
                     alreadyFinished++;
                     continue;
                 }
+                if (!clockReady)
+                {
+                    noClock++;
+                    continue;
+                }
                 double ut;
                 if (terminalUtById == null || !terminalUtById.TryGetValue(entry.Id, out ut))
                     ut = double.NaN;
-                if (clockReady && !double.IsNaN(ut) && ut > clockUT + ContractAcceptClockToleranceSeconds)
+                if (!double.IsNaN(ut) && ut > clockUT + ContractAcceptClockToleranceSeconds)
                 {
                     outcomeLater++;
                     continue;
