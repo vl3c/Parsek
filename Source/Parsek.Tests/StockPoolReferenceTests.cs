@@ -1190,6 +1190,51 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SaveLoad_ATakenBackZeroRow_IsWritten_AndItsTakenBackFactRoundTrips()
+        {
+            // TAKE-BACK-REFIRES-AFTER-EVERY-LOAD: a repeat whose duplicate payment was taken back
+            // walks to 0 and steps 0; it must still be saved, or the next load reads it as new.
+            var fundsState = StockPoolReference.Funds;
+            fundsState.Initialized = true;
+            fundsState.LastWritten = 39000;
+            fundsState.Counted["act_repeat"] = new CountedRow { Effect = 0, Stepped = 0 };
+            fundsState.Counted["act_zero"] = new CountedRow { Effect = 0, Stepped = 0 };
+            fundsState.TakenBack["act_repeat"] = 38000;
+
+            var node = new ConfigNode("SCENARIO");
+            StockPoolReference.SaveTo(node);
+            ConfigNode savedFunds = node.GetNode(StockPoolReference.NodeName).GetNode(StockPoolReference.FundsNodeName);
+            Assert.Single(savedFunds.GetValues(StockPoolReference.RowKey));
+            Assert.Equal("act_repeat 38000", savedFunds.GetValue(StockPoolReference.TakenBackKey));
+            Assert.Contains(logLines, l => l.Contains("[StockPoolReference]") && l.Contains("rows=1 takenBackRows=1"));
+
+            StockPoolReference.ResetForTesting();
+            Assert.Empty(StockPoolReference.Funds.TakenBack);
+            StockPoolReference.LoadFrom(node, "InSessionOther");
+            fundsState = StockPoolReference.Funds;
+            Assert.True(fundsState.Counted.ContainsKey("act_repeat"));
+            Assert.False(fundsState.Counted.ContainsKey("act_zero"));
+            Assert.Equal(38000.0, fundsState.TakenBack["act_repeat"]);
+            Assert.Contains(logLines, l => l.Contains("[StockPoolReference]")
+                && l.Contains("Loaded (InSessionOther): pools=1 rows=1 badRows=0 takenBackRows=1"));
+        }
+
+        [Fact]
+        public void Load_AnUnreadableTakenBackValue_IsABadRow_AndWarns()
+        {
+            var node = new ConfigNode("SCENARIO");
+            var root = node.AddNode(StockPoolReference.NodeName);
+            var f = root.AddNode(StockPoolReference.FundsNodeName);
+            f.AddValue(StockPoolReference.LastWrittenKey, "100");
+            f.AddValue(StockPoolReference.TakenBackKey, "act_x notanumber");
+            f.AddValue(StockPoolReference.TakenBackKey, "act_y 5");
+            StockPoolReference.LoadFrom(node, "Cold");
+            Assert.Single(StockPoolReference.Funds.TakenBack);
+            Assert.Contains(logLines, l => l.Contains("[WARN]") && l.Contains("[StockPoolReference]")
+                && l.Contains("badRows=1 takenBackRows=1"));
+        }
+
+        [Fact]
         public void Load_WithoutSavedValues_StartsEveryPoolAfresh()
         {
             StockPoolReference.Funds.Initialized = true;

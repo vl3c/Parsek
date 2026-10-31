@@ -524,5 +524,23 @@ namespace Parsek
               .Append(")");
             return sb.ToString();
         }
+
+        /// <summary>
+        /// The Warn for a take-back the pool reference refused because it had already taken
+        /// that row's duplicate payment back once (<see cref="StockPoolReferenceState.TakenBack"/>):
+        /// the reference lost its counted row, the payment did not repeat. Nothing moves.
+        /// </summary>
+        internal static string FormatTakeBackRefused(StockPool pool, double amount, double alreadyTakenBack, GameAction row)
+        {
+            var sb = new StringBuilder();
+            sb.Append("Refused a second take-back of ").Append(amount.ToString("R", IC)).Append(' ').Append(pool)
+              .Append(" for ").Append(DescribeIdentity(row))
+              .Append(" (row ").Append(row?.ActionId ?? "(none)")
+              .Append(" ut=").Append(row != null ? row.UT.ToString("R", IC) : "?")
+              .Append(" cseq=").Append(row != null ? row.CaptureSequence.ToString(IC) : "?")
+              .Append("; already took back ").Append(alreadyTakenBack.ToString("R", IC))
+              .Append(" for it; the pool reference had lost the row's counted entry, the pool is left as it is)");
+            return sb.ToString();
+        }
     }
 }
