@@ -25,6 +25,13 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **After a rewind, the crew of a flight that ended on the pad or runway stays held until you
+  recovered it.** Such a kerbal or tourist was freed a few minutes early, at the flight's
+  trimmed end, while the timeline still had him aboard.
+  (KSC-RETIRED-FLIGHT-FREES-CREW-BEFORE-ITS-RECOVERY)
+- **Science sent after a flight's recording has gone idle is dated when you sent it,** so after
+  a rewind an earlier new capture of the same experiment gets the full value.
+  (SCIENCE-AFTER-TRIMMED-ENDUT-DATED-EARLY)
 - **Money from a removed ledger row is no longer counted twice when a rewind point loads twice.**
   Loading the same rewind point a second time (a Re-Fly and then Discard Re-fly, or two rewinds
   to one save) carried that money again. It is now carried once.
