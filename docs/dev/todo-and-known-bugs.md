@@ -3692,9 +3692,10 @@ science excluded, a matched capture keeps its own reason, another vessel's scien
 `Recovered`, keys `VesselRecovery`, and the existing window sums 10 + 12.5 against the grossed 22.5. Credited amount,
 subject cap, multiplier and pool do not read the method (`TheScopeStamp_MovesNoLedgerValue`). Side effect, the same as a
 strategy-free recovery: the `VesselRecovery` reason sends the KSC row through the recovery picker, so it is tagged to the
-recovered vessel's committed recording when one exists, and a resurrection retires it with the rest of that recovery
-(the documented pro-player under-retire residual on `ResurrectionRetirementEligibility` now applies only to a recovery
-no scope covers, e.g. `ShipConstruction.CheckLaunchSiteClear`). A genuine shortfall still logs the WARN and the ERROR dump
+recovered vessel's committed recording when one exists, like the strategy-free recovery's row, so it can now seal a
+Re-Fly slot (a gain). `ResurrectionRetirementEligibility.Classify` has no production caller (REFLY-RETIREMENT-LEFTOVERS),
+so nothing retires the row in production; its documented under-retire residual now covers only a recovery no scope
+covers, e.g. `ShipConstruction.CheckLaunchSiteClear`. A genuine shortfall still logs the WARN and the ERROR dump
 (`Rw22Shape_GenuineShortfall_StillLogsTheError`). Tests: `RecoveryScopeScienceMethodTests`.
 
 Re-fly RW-22 (`RW-22-patents-licensing-recovery`, on a DLL carrying `taken from the open recovery scope`): the recovery
