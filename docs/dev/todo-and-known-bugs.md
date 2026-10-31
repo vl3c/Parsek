@@ -587,13 +587,29 @@ where the optimizer pass runs before `NotifyLedgerTreeCommitted` converts the ev
 tag as ownership. xUnit: `OptimizerSplitCommitAttributionTests.OptimizerMerge_RetagsTheAbsorbedEventsPendingScienceAndLedgerRows`,
 `RetagPendingScienceForRecording_GuardsDegenerateInputs`.
 
-## SCIENCE-AFTER-TRIMMED-ENDUT-DATED-EARLY: science captured after a recording's trimmed end is dated at the end [FILED 2026-10-28 from the gap sweep (B6 / I-11); code-read, NOT FIXED; low-medium]
+## ~~SCIENCE-AFTER-TRIMMED-ENDUT-DATED-EARLY: science captured after a recording's trimmed end is dated at the end~~ [FILED 2026-10-28 from the gap sweep (B6 / I-11); code-read; FIXED 2026-10-31, branch `fix-crew-hold-and-science-dating`; low-medium]
 
 `GameStateEventConverter` (~395-470) anchors science captured after the recording window at the
 window end, and the tail trim moves that end to the last interesting point plus a buffer. A
 transmission made while idle on the runway or in orbit is then dated earlier than it happened.
 After a rewind that earlier date can win the earliest-first subject cap (design 3.15 step 2) over a
 capture that really came first in the new timeline. Fix direction: date it at its capture UT.
+
+Fix. `GameStateEventConverter.ConvertScienceSubjects` dates a tagged capture after the window at
+its capture UT (`ResolveScienceRowUt(captureUt, endUT)`, `IsScienceCaptureAfterWindow`), with
+`StartUT` / `EndUT` collapsed onto the capture so the post-walk reconciler reads that moment, not
+a span over the warp. Why the anchor was safe to drop: ownership is the capture tag (BUG-A), not
+the date; every consumer of the row's time reads it as an event time (the split / Re-Fly retag
+and tombstone screens by attribution UT, which stays on the same side of any cut inside the
+window; the committed-future index; the walk), and the earnings reconcile already counts
+tagged events past the window; non-science tagged events past the window were already dated at
+their own UT. No earned value moves except to the true first capture. Log: `afterWindowDated=`
+on the converter summary plus one Verbose per such row. Tests: `GameStateEventConverterTests`
+`ConvertScienceSubjects_TaggedCaptureAfterRecordingEnd_IsKeptDatedAtItsCaptureUt`,
+`ConvertScienceSubjects_IdleTransmissionAfterTrimmedEnd_WinsTheSubjectCapOnlyWhenFirst` (both
+orders through the walk), `ResolveScienceRowUt_Cases`, `IsScienceCaptureAfterWindow_Cases`;
+re-pinned the two `PendingScienceSubjectsClearTests` BugACredit cells. Older rows are not
+migrated.
 
 ## EARNINGS-RECONCILIATION-BLIND-SPOTS: the commit's store-vs-ledger earnings check misreads two row kinds [FILED 2026-10-28 from log mining; diagnostic only, NOT FIXED; low]
 

@@ -10468,7 +10468,7 @@ namespace Parsek
                     // NO window covers it, keep the tag: post-window tagged
                     // captures are legitimate for on-rails flights whose
                     // trajectory bounds end before the last live capture (the
-                    // BUG-A anchor in ConvertScienceSubjects owns that case).
+                    // BUG-A rule in ConvertScienceSubjects owns that case).
                     string fallback = PickScienceWindowRecordingId(captureUT, windows, activeRecordingId);
                     string captureUtText = captureUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
                     string windowText =

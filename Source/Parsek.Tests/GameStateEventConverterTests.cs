@@ -835,14 +835,26 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(250.0, 250.0, 400.0, 250.0)]
-        [InlineData(500.0, 400.0, 400.0, 400.0)]   // captured after the window: resolved to the end bound
-        [InlineData(0.0, 100.0, 400.0, 400.0)]
-        [InlineData(double.NaN, 100.0, 400.0, 400.0)]
-        [InlineData(double.PositiveInfinity, 400.0, 400.0, 400.0)]
-        public void ResolveScienceRowUt_Cases(double captureUt, double resolvedStartUt, double endUt, double expected)
+        [InlineData(250.0, 400.0, 250.0)]
+        [InlineData(500.0, 400.0, 500.0)]   // captured after the window: still its capture UT
+        [InlineData(0.0, 400.0, 400.0)]
+        [InlineData(double.NaN, 400.0, 400.0)]
+        [InlineData(double.PositiveInfinity, 400.0, 400.0)]
+        public void ResolveScienceRowUt_Cases(double captureUt, double endUt, double expected)
         {
-            Assert.Equal(expected, GameStateEventConverter.ResolveScienceRowUt(captureUt, resolvedStartUt, endUt));
+            Assert.Equal(expected, GameStateEventConverter.ResolveScienceRowUt(captureUt, endUt));
+        }
+
+        [Theory]
+        [InlineData(500.0, 400.0, true)]
+        [InlineData(400.0, 400.0, false)]
+        [InlineData(250.0, 400.0, false)]
+        [InlineData(0.0, 400.0, false)]
+        [InlineData(double.NaN, 400.0, false)]
+        [InlineData(double.PositiveInfinity, 400.0, false)]
+        public void IsScienceCaptureAfterWindow_Cases(double captureUt, double endUt, bool expected)
+        {
+            Assert.Equal(expected, GameStateEventConverter.IsScienceCaptureAfterWindow(captureUt, endUt));
         }
 
         [Fact]
@@ -866,14 +878,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ConvertScienceSubjects_TaggedCaptureAfterRecordingEnd_IsKeptAnchoredAtEnd()
+        public void ConvertScienceSubjects_TaggedCaptureAfterRecordingEnd_IsKeptDatedAtItsCaptureUt()
         {
             // BUG-A regression: a recording's launch is captured, then the flight
             // time-warps to the Mun where the science is collected/recovered well past
             // the recording's (launch-only) trajectory window. The capture stayed tagged
-            // to the live recording, so it must still become a ScienceEarning, anchored
-            // at the recording's end bound, instead of being dropped (which made the
-            // scene-change recalc wipe the player's Mun science).
+            // to the live recording, so it must still become a ScienceEarning of that
+            // recording instead of being dropped (which made the scene-change recalc wipe
+            // the player's Mun science). SCIENCE-AFTER-TRIMMED-ENDUT-DATED-EARLY: it is
+            // dated when stock paid it, not at the window end.
             var subjects = new List<PendingScienceSubject>
             {
                 new PendingScienceSubject
@@ -892,10 +905,91 @@ namespace Parsek.Tests
             Assert.Equal("temperatureScan@MunSrfLandedMidlands", action.SubjectId);
             Assert.Equal(ScienceMethod.Recovered, action.Method);
             Assert.Equal(16.0f, action.ScienceAwarded);
-            // captureUT is outside the window, so the action is anchored at endUT.
-            Assert.Equal(203840.7, action.UT);
-            Assert.Equal(203840.7f, action.StartUT);
-            Assert.Equal(203840.7f, action.EndUT);
+            Assert.Equal("rec", action.RecordingId);
+            Assert.Equal(241374.4, action.UT);
+            // The window fields collapse onto the capture, so the reconcilers read the
+            // moment stock paid it rather than a span over the whole warp.
+            Assert.Equal((float)241374.4, action.StartUT);
+            Assert.Equal((float)241374.4, action.EndUT);
+            Assert.Contains(logLines, l => l.Contains("ConvertScienceSubjects: converted=1")
+                && l.Contains("captureDated=1, endAnchored=0, afterWindowDated=1"));
+            Assert.Contains(logLines, l => l.Contains("[GameStateEventConverter]")
+                && l.Contains("captured after the recording window")
+                && l.Contains("dated at its capture UT"));
+        }
+
+        [Fact]
+        public void ConvertScienceSubjects_IdleTransmissionAfterTrimmedEnd_WinsTheSubjectCapOnlyWhenFirst()
+        {
+            // SCIENCE-AFTER-TRIMMED-ENDUT-DATED-EARLY: recording A (committed) was
+            // tail-trimmed to end at 200 while its vessel idled on the runway; the player
+            // transmitted goo at 350, tagged A. After a rewind to 100, recording B
+            // transmits the same goo at 300. B came first in the new timeline, so the
+            // earliest-first subject cap gives B the full value and A the remainder.
+            // Dated at A's end (200), A walked first and took B's credit.
+            const string subject = "mysteryGoo@KerbinSrfLandedRunway";
+            var a = Assert.Single(GameStateEventConverter.ConvertScienceSubjects(
+                new List<PendingScienceSubject>
+                {
+                    new PendingScienceSubject
+                    {
+                        subjectId = subject, science = 10f, subjectMaxValue = 15f,
+                        captureUT = 350.0, reasonKey = "ScienceTransmission", recordingId = "A"
+                    }
+                }, "A", 100.0, 200.0));
+            var b = Assert.Single(GameStateEventConverter.ConvertScienceSubjects(
+                new List<PendingScienceSubject>
+                {
+                    new PendingScienceSubject
+                    {
+                        subjectId = subject, science = 10f, subjectMaxValue = 15f,
+                        captureUT = 300.0, reasonKey = "ScienceTransmission", recordingId = "B"
+                    }
+                }, "B", 250.0, 320.0));
+            Assert.Equal(350.0, a.UT);
+            Assert.Equal("A", a.RecordingId);
+
+            var science = new ScienceModule();
+            RecalculationEngine.ClearModules();
+            try
+            {
+                RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
+                RecalculationEngine.Recalculate(new List<GameAction> { a, b });
+            }
+            finally
+            {
+                RecalculationEngine.ClearModules();
+            }
+
+            Assert.Equal(10f, b.EffectiveScience);
+            Assert.Equal(5f, a.EffectiveScience);
+            Assert.Equal(15.0, science.GetSubjectCredited(subject));
+
+            // Mirror direction: when A's late transmission really came first (B at 400),
+            // A keeps the full value, so no earned value moves away from the true first.
+            var b2 = Assert.Single(GameStateEventConverter.ConvertScienceSubjects(
+                new List<PendingScienceSubject>
+                {
+                    new PendingScienceSubject
+                    {
+                        subjectId = subject, science = 10f, subjectMaxValue = 15f,
+                        captureUT = 400.0, reasonKey = "ScienceTransmission", recordingId = "B"
+                    }
+                }, "B", 380.0, 420.0));
+            var science2 = new ScienceModule();
+            RecalculationEngine.ClearModules();
+            try
+            {
+                RecalculationEngine.RegisterModule(science2, RecalculationEngine.ModuleTier.FirstTier);
+                RecalculationEngine.Recalculate(new List<GameAction> { b2, a });
+            }
+            finally
+            {
+                RecalculationEngine.ClearModules();
+            }
+
+            Assert.Equal(10f, a.EffectiveScience);
+            Assert.Equal(5f, b2.EffectiveScience);
         }
 
         [Fact]
