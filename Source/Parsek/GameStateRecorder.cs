@@ -1161,7 +1161,10 @@ namespace Parsek
             // attribution (it stays credited, untagged). Recorded as a residual on the
             // STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md.
             // The far more common ZERO-delta echo no longer does this - see
-            // STRATEGY-ECHO-CAPTURE-WIPE and the reordered block above.
+            // STRATEGY-ECHO-CAPTURE-WIPE and the reordered block above. Inside an open
+            // recovery scope for the source vessel, CaptureScienceSubject takes the reason
+            // from the scope instead (ResolveRecoveryScopeScienceReasonKey), so the residual
+            // is left only for a recovery no scope covers.
             if (reason == TransactionReasons.StrategyInput &&
                 ShouldForwardDirectLedgerEvent(sciEvt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(sciEvt);
@@ -1439,6 +1442,28 @@ namespace Parsek
             return default(RecentScienceChangeCapture);
         }
 
+        /// <summary>
+        /// The reason key a science subject callback takes from an open
+        /// <see cref="RecoveryDispatchScope"/> when it matched no ScienceChanged capture, or
+        /// null to leave it empty (RECOVERY-RECONCILE-ERROR-ON-TWO-SCIENCE-CREDITS). Stock
+        /// submits a recovered vessel's science, its reverse-engineered <c>recovery@</c>
+        /// subjects included, inside that vessel's <c>onVesselRecovered</c> dispatch with the
+        /// vessel as the source, so a callback naming the scope's own vessel is a recovery
+        /// submission. A callback with no source vessel, or naming another vessel, decides
+        /// nothing. The key only says HOW stock paid: the credited amount and the subject cap
+        /// do not read it. Pure.
+        /// </summary>
+        internal static string ResolveRecoveryScopeScienceReasonKey(
+            bool scopeOpen,
+            uint scopePersistentId,
+            uint sourceVesselPersistentId)
+        {
+            if (!scopeOpen) return null;
+            if (scopePersistentId == 0u || sourceVesselPersistentId == 0u) return null;
+            if (scopePersistentId != sourceVesselPersistentId) return null;
+            return LedgerOrchestrator.VesselRecoveryReasonKey;
+        }
+
         internal static bool ShouldUseRecentScienceChangeCapture(
             RecentScienceChangeCapture capture,
             float amount,
@@ -1645,6 +1670,38 @@ namespace Parsek
                     ParsekLog.Verbose("GameStateRecorder",
                         $"OnScienceReceived: deployed-experiment subject '{subjectId}' had no ScienceChanged " +
                         $"capture left to match; reason taken from the open ground-station submission ('{reasonKey}')");
+                }
+            }
+
+            // RECOVERY-RECONCILE-ERROR-ON-TWO-SCIENCE-CREDITS: a query-family strategy
+            // (Patents Licensing) takes its share inside stock's AddScience, so the
+            // ScienceChanged(VesselRecovery) capture carries the NET credit while this
+            // callback reports the GROSS amount, and the amount match above fails. Inside
+            // the recovery dispatch of THIS vessel every OnScienceReceived is a recovery
+            // submission, so the reason is the recovery's, exactly as it is when the match
+            // succeeds. Without it the row read as a transmission.
+            if (!matchedScienceChange && !deployedScience && string.IsNullOrEmpty(reasonKey))
+            {
+                string scopedReason = ResolveRecoveryScopeScienceReasonKey(
+                    RecoveryDispatchScope.IsOpen,
+                    RecoveryDispatchScope.CurrentPersistentId,
+                    vesselPersistentId);
+                if (scopedReason != null)
+                {
+                    reasonKey = scopedReason;
+                    ParsekLog.Verbose("GameStateRecorder",
+                        $"OnScienceReceived: subject '{subjectId}' amount={amount.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"matched no ScienceChanged capture (latest key='{latestScienceChangeCapture.ReasonKey ?? ""}' " +
+                        $"delta={latestScienceChangeCapture.Delta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"valid={latestScienceChangeCapture.Valid}); reason '{reasonKey}' taken from the open " +
+                        $"recovery scope pid={vesselPersistentId.ToString(CultureInfo.InvariantCulture)}");
+                }
+                else if (RecoveryDispatchScope.IsOpen)
+                {
+                    ParsekLog.Verbose("GameStateRecorder",
+                        $"OnScienceReceived: subject '{subjectId}' matched no ScienceChanged capture inside a " +
+                        $"recovery scope of another vessel (scopePid={RecoveryDispatchScope.CurrentPersistentId.ToString(CultureInfo.InvariantCulture)} " +
+                        $"sourcePid={vesselPersistentId.ToString(CultureInfo.InvariantCulture)}) - reason left empty");
                 }
             }
 

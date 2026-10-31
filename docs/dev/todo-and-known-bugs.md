@@ -3662,6 +3662,49 @@ retry after 5 s too), most likely a hatch blocked by the rest attitude.
 
 ---
 
+## ~~RECOVERY-RECONCILE-ERROR-ON-TWO-SCIENCE-CREDITS: a recovery paying two science credits logs a reconcile ERROR though the pools are right~~ [FIXED 2026-10-31 on `recovery-reconcile-two-credits`, headless; product, low: a false alarm, no value moves. Re-fly RW-22 to close it live]
+
+Found by RW-22 (`2026-10-31_0321`, main e96d2c9bb, DLL c39bde83). Recovering the pad lab under Patents Licensing pays two
+science credits in one window: stock's own `recovery@KerbinOrbited` (10) and the lab's stored science (12.5). The rule
+the lane tests holds: one `VesselRecovery funds patched ... amount=204881`, the yields booked as strategy legs only,
+pools right, LedgerGroundTruth `hardFailures=0`, `ledger_audit.py` PASS. But the post-walk reconcile logs two
+`[Parsek][ERROR]` dumps:
+
+- `ScienceEarning id=recovery@KerbinOrbited expected=10.0 but no matching ScienceChanged event keyed 'ScienceTransmission'`:
+  the subject is captured with `reason=''`, so `GameStateEventConverter.ResolveScienceMethod` falls to `Transmitted`
+  (`KSC science recorded ... method=Transmitted`) for science that a recovery paid.
+- `ScienceLabEarning id=(none) expected=12.5, observed=22.5 ... keyed 'VesselRecovery'`: the reconcile reads the one
+  `ScienceChanged(VesselRecovery)` event, which carries both credits (21.375 net, grossed to 22.5), against the lab row alone.
+
+Root cause (decompiled KSP 1.12.5): `ResearchAndDevelopment.AddScience` adds the credit, runs the currency query (the
+CurrencyConverter takes 5 percent in place), and `OnCurrenciesModified` fires `ScienceChanged` under the query's reason
+with the take already applied, before `OnScienceRecieved` fires with the GROSS amount. So the recorder's
+`ScienceChanged(VesselRecovery)` capture held 9.5 against a callback of 10, the 0.05 amount match failed, and the subject
+was filed with no reason, as a transmission. The second ERROR follows from the first: the post-walk window already sums
+every science row keyed to one event (the lab row joins the subject comparison, LAB-RECOVERY-RECONCILE-COALESCED-FALSE-MISMATCH,
+and the converter takes fold in, POSTWALK-SCIENCE-RECONCILE-IGNORES-CONVERTER-TAKE; pinned by
+`CoalescedRecoveryAndLabCredit_UnderAConverter_OneTakeFoldsOnce_Matches`), but a `Transmitted` subject keys
+`ScienceTransmission` and leaves the lab row alone on the `VesselRecovery` event.
+
+Fix: `GameStateRecorder.CaptureScienceSubject` takes the reason from the open `RecoveryDispatchScope` when the capture
+did not match and the callback's source vessel is the scope's own (`ResolveRecoveryScopeScienceReasonKey`; deployed
+science excluded, a matched capture keeps its own reason, another vessel's science is left as before). The row is then
+`Recovered`, keys `VesselRecovery`, and the existing window sums 10 + 12.5 against the grossed 22.5. Credited amount,
+subject cap, multiplier and pool do not read the method (`TheScopeStamp_MovesNoLedgerValue`). Side effect, the same as a
+strategy-free recovery: the `VesselRecovery` reason sends the KSC row through the recovery picker, so it is tagged to the
+recovered vessel's committed recording when one exists, and a resurrection retires it with the rest of that recovery
+(the documented pro-player under-retire residual on `ResurrectionRetirementEligibility` now applies only to a recovery
+no scope covers, e.g. `ShipConstruction.CheckLaunchSiteClear`). A genuine shortfall still logs the WARN and the ERROR dump
+(`Rw22Shape_GenuineShortfall_StillLogsTheError`). Tests: `RecoveryScopeScienceMethodTests`.
+
+Re-fly RW-22 (`RW-22-patents-licensing-recovery`, on a DLL carrying `taken from the open recovery scope`): the recovery
+window must show `Science subject captured: recovery@KerbinOrbited ... reason='VesselRecovery'` and
+`KSC science recorded: subject='recovery@KerbinOrbited' ... method=Recovered`, no `Earnings reconciliation (post-walk, sci)`
+line and no `Science reconcile dump (post-walk)`, zero `[Parsek][ERROR]`, and the rule's own lines unchanged (one
+`VesselRecovery funds patched`, the two strategy `FundsEarning` legs, `hardFailures=0`). Then flip the lane's STATUS.
+
+---
+
 ## REWIND-LEDGER-CAMPAIGN: rewind-and-replay lanes on the campaign careers to hunt ledger bugs [FILED 2026-10-28 at the owner's request. OPEN]
 
 The owner asked for missions flown after rewinding into the past, with a save point after each and
