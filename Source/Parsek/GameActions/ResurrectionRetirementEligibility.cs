@@ -205,7 +205,10 @@ namespace Parsek
         /// recorder's <c>ScienceChanged</c> capture does not match the
         /// <c>OnScienceReceived</c> callback, and such a row reads
         /// <see cref="ScienceMethod.Transmitted"/> and stays banked. Leaving science the
-        /// player might own is the safe direction; taking it away is not.
+        /// player might own is the safe direction; taking it away is not. A callback inside
+        /// an open <see cref="RecoveryDispatchScope"/> naming its own vessel takes the
+        /// recovery's reason from the scope (a strategy's take makes the capture net, so the
+        /// amount match fails there), which leaves the residual to recoveries no scope covers.
         /// </para>
         ///
         /// <para>
