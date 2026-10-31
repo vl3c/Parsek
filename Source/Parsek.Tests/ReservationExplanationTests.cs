@@ -44,7 +44,7 @@ namespace Parsek.Tests
             var hire = ReservationExplanation.KerbalHire(Entry(CommittedFutureKind.KerbalHire, 11400), Fmt);
             Assert.Equal("Hired on D114", hire.Title);
             Assert.Equal("Hired on D114, blocked by timeline until then.", hire.Body);
-            var retire = ReservationExplanation.KerbalRetire(Entry(CommittedFutureKind.KerbalRetire, 11400), Fmt);
+            var retire = ReservationExplanation.KerbalDismissal(Entry(CommittedFutureKind.KerbalDismissal, 11400), Fmt);
             Assert.Equal("Dismissed on D114", retire.Title);
             Assert.Equal("Dismissed on D114, blocked by timeline until then.", retire.Body);
         }
@@ -237,7 +237,7 @@ namespace Parsek.Tests
                 ReservationExplanation.StrategyConflict(Entry(CommittedFutureKind.StrategyActivate, 11400), null, "S", Fmt),
                 ReservationExplanation.StrategyDeactivation(Entry(CommittedFutureKind.StrategyDeactivate, 11400), Fmt),
                 ReservationExplanation.KerbalHire(Entry(CommittedFutureKind.KerbalHire, 11400), Fmt),
-                ReservationExplanation.KerbalRetire(Entry(CommittedFutureKind.KerbalRetire, 11400), Fmt),
+                ReservationExplanation.KerbalDismissal(Entry(CommittedFutureKind.KerbalDismissal, 11400), Fmt),
                 ReservationExplanation.KerbalOnFlight(new KerbalHold { ReleaseUT = 500, EndState = KerbalEndState.Recovered }, Fmt),
                 ReservationExplanation.KerbalOnFlight(new KerbalHold { KerbalName = "L", SlotOwner = "J", FlightName = "F",
                     ReleaseUT = double.PositiveInfinity }, Fmt),

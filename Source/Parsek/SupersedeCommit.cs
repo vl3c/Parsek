@@ -2784,6 +2784,7 @@ namespace Parsek
                     break;
                 case GameActionType.KerbalAssignment:
                 case GameActionType.KerbalHire:
+                case GameActionType.KerbalDismissal:
                 case GameActionType.KerbalRescue:
                 case GameActionType.KerbalStandIn:
                 case GameActionType.KerbalRecovered:

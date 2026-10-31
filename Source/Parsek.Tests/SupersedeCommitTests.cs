@@ -219,6 +219,11 @@ namespace Parsek.Tests
             // measured stock pool leak, filed untagged like a seed. Never tombstone-eligible
             // (so never in a retire set) and never a world mutation.
             yield return new object[] { GameActionType.StockPoolAdjustment, false, false };
+            // KerbalDismissal (design 9.12.1): a Space Center firing, filed untagged and
+            // never tombstone-eligible, so never in a retire set (no value-gate seal). A
+            // flight-tagged copy (no capture writes one) is a roster change no retry
+            // undoes, so the strict gate keeps its default block.
+            yield return new object[] { GameActionType.KerbalDismissal, false, true };
         }
 
         [Fact]

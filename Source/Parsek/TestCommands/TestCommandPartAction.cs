@@ -54,6 +54,9 @@ namespace Parsek.TestCommands
         /// the chute without staging, as the player's PAW click does; stock opens it once its own
         /// pressure and altitude conditions hold.</summary>
         ChuteDeploy,
+        /// <summary>A test subject's "Run Test" (<c>ModuleTestSubject.RunTestEvent</c>), the
+        /// button a part-test contract offers while its part is under test.</summary>
+        RunTest,
     }
 
     /// <summary>One module reading of the target part for the <c>state=</c> answer field: plain
@@ -142,7 +145,7 @@ namespace Parsek.TestCommands
     ///
     /// <para><b>Grammar.</b> <c>cmd=PartAction button=undock|decouple|controlfrom|deploy|retract|
     /// startconverter|stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|
-    /// activate|explode|chute [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [all=true] [pid=&lt;persistentId&gt;]
+    /// activate|explode|chute|runtest [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [all=true] [pid=&lt;persistentId&gt;]
     /// [expectSnapshot=true|false rec=&lt;recordingId&gt; tolerance=&lt;abs&gt;]</c>. The three snapshot
     /// args are for <c>inspect</c> only (<c>snapshot-arg-unexpected</c> elsewhere, and for
     /// <c>rec=</c> / <c>tolerance=</c> without <c>expectSnapshot=true</c>).
@@ -247,6 +250,7 @@ namespace Parsek.TestCommands
         internal const string ActivateToken = "activate";
         internal const string ExplodeToken = "explode";
         internal const string ChuteToken = "chute";
+        internal const string RunTestToken = "runtest";
 
         /// <summary>The <c>event=</c> of every explode: stock's <c>Part.explode()</c>.</summary>
         internal const string ExplodeEventName = "explode";
@@ -258,7 +262,7 @@ namespace Parsek.TestCommands
             UndockToken, DecoupleToken, ControlFromToken, DeployToken, RetractToken,
             StartConverterToken, StopConverterToken, ExperimentToken, LabProcessToken,
             LabTransmitToken, InspectToken, RadiatorOnToken, RadiatorOffToken, ActivateToken,
-            ExplodeToken, ChuteToken,
+            ExplodeToken, ChuteToken, RunTestToken,
         };
 
         /// <summary>The <c>event=</c> of every labprocess: the results dialog page's own lab
@@ -383,6 +387,7 @@ namespace Parsek.TestCommands
                 case ActivateToken: kind = PartActionKind.EngineActivate; return null;
                 case ExplodeToken: kind = PartActionKind.Explode; return null;
                 case ChuteToken: kind = PartActionKind.ChuteDeploy; return null;
+                case RunTestToken: kind = PartActionKind.RunTest; return null;
                 default: return ButtonArgInvalidReason;
             }
         }
@@ -408,6 +413,7 @@ namespace Parsek.TestCommands
                 case PartActionKind.EngineActivate: return ActivateToken;
                 case PartActionKind.Explode: return ExplodeToken;
                 case PartActionKind.ChuteDeploy: return ChuteToken;
+                case PartActionKind.RunTest: return RunTestToken;
                 default: return "unknown";
             }
         }
@@ -545,6 +551,9 @@ namespace Parsek.TestCommands
                 // ModuleParachute: [KSPEvent(guiActive = true, guiName = "#autoLOC_6001348")]
                 // public void Deploy(), "Deploy Chute" (KSP 1.12.5 decompiled).
                 case PartActionKind.ChuteDeploy: return new[] { "Deploy" };
+                // ModuleTestSubject: [KSPEvent] public void RunTestEvent(), "Run Test", live
+                // only while an accepted part-test contract has this part under test.
+                case PartActionKind.RunTest: return new[] { "RunTestEvent" };
                 // labprocess presses the results dialog page's callback; inspect presses nothing;
                 // explode calls Part.explode() on the part itself (no KSPEvent).
                 default: return new string[0];

@@ -17,6 +17,118 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~TAKE-BACK-REFIRES-AFTER-EVERY-LOAD: a duplicate stock payment taken back after a rewind is taken back again after every later scene change~~ [FILED AND FIXED 2026-10-31 from lane RW-20, run `2026-10-31_0307` (main's build); branch `takeback-refires`; unit-tested only, NOT FLOWN, RW-20 re-flight owed; product, high (a reduction of the career total, repeated on every load)]
+
+On a 100000x Space Center warp, stock paid the Sun/Flyby world-first one warp step after the
+committed ledger row for it, before prevention could mark the node done. The take-back (design 3.15
+step 5) took the duplicate back once (38000 funds, 2 science, 4 rep), then again after every later
+scene change, 6 times in all. The pools fell from 186546 / 22.17 / 100.48 to a save of
+144138 / 20.17 / 95.2, with an in-memory dip to 106138. LedgerGroundTruth passed; the offline
+`ledger_audit` caught it.
+
+ROOT CAUSE (verified). The take-back's only memory of what it already took back was the counted
+entry of the repeat row: `StockPoolReference.Measure` fires a take-back only when the row is not
+counted (`double takeBack = !wasCounted && ...`, `StockPoolReference.cs:506` at e96d2c9; the
+authoritative twin at `:631`). The repeat's walk effect is 0 (the walk credits the identity once)
+and the reference steps only that walk effect, so its counted entry is `{Effect 0, Stepped 0}`, and
+`StockPoolReference.SaveTo` skips exactly such rows (`:716`). Every scene change saves the
+scenario and the next scene's OnLoad installs the saved reference (`ParsekScenario.cs:1500` and
+`:5947`; the policy cell is Save for every load kind), so after each one the repeat read as new
+and its take-back fired again. On a measured patch that adds the 38000 stock paid long ago to the
+expectation, the live pool reads 38000 short, and the shortfall is filed as a negative "leak"
+`StockPoolAdjustment` added to the write: the pool falls by the take-back again and every later
+walk carries the row. On an authoritative patch (a clock crossing that found the pool where the
+last patch left it) the write is the target anyway, so the repeat costs only a Warn; that is why
+6 re-fires moved the pools by less than 6 x 38000. The in-memory dip is the same mechanism (each
+scene change is an OnSave + OnLoad round trip of the same in-memory game, no disk save needed);
+a later load of an older save dropped some leak rows with the ledger rewind. No other reset was
+found: `ForgetCounted` touches only live-only income dropped on purpose, and `Clear` runs only on
+load and in tests.
+
+Why it was silent. A measured patch files any gap between the live pool and its expectation as a
+leak row and adds it to the write, so the walk's running value is the pool's own; a false
+take-back puts money into the expectation that is not in the pool, and the leak row makes the
+ledger agree with the lower pool by construction. LedgerGroundTruth compares the save with the
+walk minus its adjustment rows: the negative leak rows make that reconstruction read ABOVE the
+save, which `LedgerGroundTruthDiff.ClassifySeededPoolKind` (`LedgerGroundTruthDiff.cs:278`) reads
+as the drawdown guard's expected uplift surplus (`UpliftClampedExpected`, report-only) on every
+non-authoritative check. Making that hard would red every real unledgered loss a lane meets, so it
+was not changed here; the class is now caught at runtime instead (below), and `ledger_audit`
+already flags it offline.
+
+**Fix.** The reference keeps its own record of what it took back,
+`StockPoolReferenceState.TakenBack` (id -> amount), filled at `Commit` from the patch's take-backs,
+saved as additive `takenBack = <id> <amount>` values in each pool's node, read back by `LoadFrom`,
+and forgotten only when the row is gone from the ledger itself (`TakenBackRetired`). The save also
+keeps a taken-back row's counted entry although its effect and step are 0, so after a load the
+repeat is counted (and `StockShadowStart` does not count its payment as new either). A row the
+reference already took back but no longer counts (lost any other way: a row that leaves the
+effective ledger and comes back) is refused, in measured and authoritative patches alike, with one
+Warn: `[TakeBack] Refused a second take-back of <amount> <pool> for <identity> (row <id> ...;
+already took back <amount> ...)`. Cheap detector for the whole class: a measured patch whose kept
+leak is minus its own take-back Warns `[TakeBack] Patch<pool>: take-back found no stock payment`
+(`StockPoolReference.IsTakeBackFoundUnpaid`). Mirror: a repeat paid before a scene change and not
+yet counted is still taken back once after the load (`TakenBack` is set only by a take-back that
+fired); a load of a save from before the take-back carries neither fact, like the counted rows, so
+a payment stock makes again there is a new row and is taken back on its own. Logs:
+`Saved: ... takenBackRows=N`, `Loaded (...): ... takenBackRows=N`, `takeBackRefused=N` in the
+measurement summary.
+
+Tests: `StockShadowTakeBackTests` (`TakeBack_SurvivesEverySceneChange_FiresOnce_NoLeakRow`: the
+RW-20 shape through six save / load round trips, red before the fix at the counted-row check and,
+in the three-pool cell, at the write, 1000 for 39000; the three pools; a repeat paid before a scene
+change taken back once after it; a counted row lost another way refused with the Warn, measured and
+authoritative; the unpaid signature; a row gone from the ledger forgotten; a rewind to a save from
+before it), `StockPoolReferenceTests` (the zero taken-back row and its fact round trip, an
+unreadable `takenBack` value is a bad row).
+
+RW-20 re-flight must show: exactly one `[TakeBack] Took back 38000 Funds` (and one each for the 2
+science and 4 rep) for Sun/Flyby, zero `Refused a second take-back`, zero `take-back found no stock
+payment`, zero `filed StockPoolAdjustment ... reason=leak` after the take-back's patch,
+`STOCK_POOL_REFERENCE` in the save holding a `takenBack` line for the repeat row, the pools ending
+at the never-rewound values (186546 / 22.17 / 100.48 plus whatever the lane earns after), and
+`ledger_audit` green.
+## ~~KERBAL-DISMISSAL-ON-THE-TIMELINE: a kerbal fired at the Space Center was hired back by a Rewind-to-Launch, with nothing to stop him flying or being fired a second time~~ [RULED 2026-10-28 by the owner (option A: a dismissal stays on the timeline like a hire); BUILT 2026-10-28 on branch `kerbal-dismissal-timeline`, unit-tested only, NOT FLOWN, lane RW-14 owed; product, medium (a committed roster change undone by a rewind)]
+
+A Space Center dismissal had no ledger row. Stock's dismiss button (`AstronautComplex.Xbutton_AvailableCrew`
+-> `KerbalRoster.SackAvailable`, decompiled KSP 1.12.5) turns the kerbal into an applicant and then
+fires `OnCrewmemberSacked`; Parsek never listened to that event. The `CrewRemoved` event it did record comes
+from `KerbalRoster.Remove` (stock's applicant expiry, the Lost list's dead removal), and the converter
+dropped it, so nothing replayed. Fire Bob at 10:00, Rewind-to-Launch to 9:50: the rewind save has Bob
+as crew, he could be seated on the next flight, fired again at 9:55, and nothing removed him at 10:00.
+The one mark (`CommittedFutureKind.KerbalRetire`, a milestone fallback over `CrewRemoved`) read the
+wrong event and blocked nothing.
+
+**Fix (design section 9.12.1).** `OnCrewmemberSacked` records a `CrewDismissed` event and writes a
+`KerbalDismissal` row through the Space Center door (`OnKscSpending`: untagged, sequenced, dated
+through `StampKscOriginRow`); Parsek's own roster writes and action replay are not captured. After
+every patch pass (after the committed hires) a kerbal whose latest committed roster row at or before
+the walk clock (raised to the held-through UT) is a dismissal is made an applicant (a hire, rescue or
+stand-in row of the same name ends it: stock reuses names) the way
+`SackAvailable` does, minus its event, under `SuppressionGuard.Crew` (`KerbalsModule.
+ApplyReachedCommittedDismissals`, pure core `LedgerOrchestrator.ResolveCommittedDismissalsToMake`);
+already an applicant or gone is left alone (he leaves once), not Available is a Warn and a retry.
+`CommittedFutureKind.KerbalRetire` and its milestone fallback are replaced by a ledger-backed
+`KerbalDismissal` kind; a future entry refuses every crew seat (`ShouldFilterFromCrewDialog`, so the
+VAB/SPH dialog greys him and the auto-assign clears him) and a second dismissal
+(`KerbalDismissalPatch.DescribeDismissalRefusal` answers first). The Astronaut Complex row reads
+`Dismissed on <date>` with the dismiss button greyed (`Dismissed later` / `Dismissed on <date>, blocked
+by timeline until then.`), the crew dialog row likewise. A dismissal ends the walk's ownership of a
+hire (`PurchaseOwnershipBook.RecordRelease`), so a later re-hire is charged. Never tombstoned by a
+Re-Fly (no recording owns it). Logs: `Game state: CrewDismissed`, `Committed dismissal applied:`,
+`ApplyReachedCommittedDismissals:`, `Blocked dismissal of '<name>' via <path> - already dismissed by
+timeline`.
+
+Tests: `KerbalDismissalTimelineTests` (capture conversion and serialization, the reached-dismissal
+resolver's truth table, the apply core, the index kind and the blocks, the mark, the ownership
+release, the Timeline row).
+
+Lane owed (RW-14): fire a kerbal at T1 through `KscAction action=sack-kerbal kerbal=<name>` (stock's
+own `SackAvailable`), Rewind-to-Launch before T1, check he is back on the roster, refused by
+`KscAction action=assign-crew` and by a second `sack-kerbal` (`reason=blocked-committed`), then warp
+past T1 and check one `Committed dismissal applied:` line and his type Applicant, with no second
+`KerbalDismissal` row and no funds or reputation move.
+
 ## ~~KSC-DEBRIS-CLEANUP-REFUND-UNLEDGERED: stock's refund for debris cluttering the Space Center is never booked, so it lands as a leak row and a guard clamp~~ [FILED AND FIXED 2026-10-28 from RW-7 run `2026-10-28_1637`, branch `ksc-debris-refund`; unit-tested, RW-7 re-flight owed; product, medium (an unledgered funds change; LedgerGroundTruth hard-fails)]
 
 When the scene enters the Space Center, stock recovers landed debris near the KSC through
@@ -3550,7 +3662,7 @@ retry after 5 s too), most likely a hatch blocked by the rest attitude.
 
 ---
 
-## RECOVERY-RECONCILE-ERROR-ON-TWO-SCIENCE-CREDITS: a recovery paying two science credits logs a reconcile ERROR though the pools are right [OPEN; product, low: a false alarm, no value moves]
+## ~~RECOVERY-RECONCILE-ERROR-ON-TWO-SCIENCE-CREDITS: a recovery paying two science credits logs a reconcile ERROR though the pools are right~~ [FIXED 2026-10-31 on `recovery-reconcile-two-credits`, headless; product, low: a false alarm, no value moves. Re-fly RW-22 to close it live]
 
 Found by RW-22 (`2026-10-31_0321`, main e96d2c9bb, DLL c39bde83). Recovering the pad lab under Patents Licensing pays two
 science credits in one window: stock's own `recovery@KerbinOrbited` (10) and the lab's stored science (12.5). The rule
@@ -3564,8 +3676,33 @@ pools right, LedgerGroundTruth `hardFailures=0`, `ledger_audit.py` PASS. But the
 - `ScienceLabEarning id=(none) expected=12.5, observed=22.5 ... keyed 'VesselRecovery'`: the reconcile reads the one
   `ScienceChanged(VesselRecovery)` event, which carries both credits (21.375 net, grossed to 22.5), against the lab row alone.
 
-Fix direction: stamp the method from the active recovery scope, and let the post-walk window sum every science row keyed
-to that event before comparing. Then re-fly RW-22.
+Root cause (decompiled KSP 1.12.5): `ResearchAndDevelopment.AddScience` adds the credit, runs the currency query (the
+CurrencyConverter takes 5 percent in place), and `OnCurrenciesModified` fires `ScienceChanged` under the query's reason
+with the take already applied, before `OnScienceRecieved` fires with the GROSS amount. So the recorder's
+`ScienceChanged(VesselRecovery)` capture held 9.5 against a callback of 10, the 0.05 amount match failed, and the subject
+was filed with no reason, as a transmission. The second ERROR follows from the first: the post-walk window already sums
+every science row keyed to one event (the lab row joins the subject comparison, LAB-RECOVERY-RECONCILE-COALESCED-FALSE-MISMATCH,
+and the converter takes fold in, POSTWALK-SCIENCE-RECONCILE-IGNORES-CONVERTER-TAKE; pinned by
+`CoalescedRecoveryAndLabCredit_UnderAConverter_OneTakeFoldsOnce_Matches`), but a `Transmitted` subject keys
+`ScienceTransmission` and leaves the lab row alone on the `VesselRecovery` event.
+
+Fix: `GameStateRecorder.CaptureScienceSubject` takes the reason from the open `RecoveryDispatchScope` when the capture
+did not match and the callback's source vessel is the scope's own (`ResolveRecoveryScopeScienceReasonKey`; deployed
+science excluded, a matched capture keeps its own reason, another vessel's science is left as before). The row is then
+`Recovered`, keys `VesselRecovery`, and the existing window sums 10 + 12.5 against the grossed 22.5. Credited amount,
+subject cap, multiplier and pool do not read the method (`TheScopeStamp_MovesNoLedgerValue`). Side effect, the same as a
+strategy-free recovery: the `VesselRecovery` reason sends the KSC row through the recovery picker, so it is tagged to the
+recovered vessel's committed recording when one exists, like the strategy-free recovery's row, so it can now seal a
+Re-Fly slot (a gain). `ResurrectionRetirementEligibility.Classify` has no production caller (REFLY-RETIREMENT-LEFTOVERS),
+so nothing retires the row in production; its documented under-retire residual now covers only a recovery no scope
+covers, e.g. `ShipConstruction.CheckLaunchSiteClear`. A genuine shortfall still logs the WARN and the ERROR dump
+(`Rw22Shape_GenuineShortfall_StillLogsTheError`). Tests: `RecoveryScopeScienceMethodTests`.
+
+Re-fly RW-22 (`RW-22-patents-licensing-recovery`, on a DLL carrying `taken from the open recovery scope`): the recovery
+window must show `Science subject captured: recovery@KerbinOrbited ... reason='VesselRecovery'` and
+`KSC science recorded: subject='recovery@KerbinOrbited' ... method=Recovered`, no `Earnings reconciliation (post-walk, sci)`
+line and no `Science reconcile dump (post-walk)`, zero `[Parsek][ERROR]`, and the rule's own lines unchanged (one
+`VesselRecovery funds patched`, the two strategy `FundsEarning` legs, `hardFailures=0`). Then flip the lane's STATUS.
 
 ---
 
@@ -3696,9 +3833,17 @@ timeline, re-locked by a Rewind-to-Launch, a second research refused `insufficie
 row reserves its 45 in the live pool; the committed-row click-block behind it is not reached), and the
 crossing unlocking it with the science spent once. No defect.
 
-Progress 2026-10-31 (branch `rw22-patents-recovery`): lane `RW-22-patents-licensing-recovery` AUTHORED on `lab-pad-career`,
-the recovery RW-11 left open: one payout row, the yields as strategy legs only, held. Red only on the reconcile ERROR
-filed as RECOVERY-RECONCILE-ERROR-ON-TWO-SCIENCE-CREDITS. Re-fly once fixed.
+Progress 2026-10-31 (branch `rw21-earlier-science`): lane `RW-21-earlier-science` LIVE-PROVEN (`2026-10-31_0318`): a subject recovered earlier after a rewind in a career: the earlier recovery takes the full value, the committed one the remainder, and the pools end where the rewind began. No defect.
+Progress 2026-10-31 (branch `rw19-tight-funds`): lane `RW-19-tight-funds-launch` LIVE-PROVEN (`2026-10-31_0248`): a launch with committed costs above today's funds is refused only for its own cost: the 13742 lander greyed at 11951 free, the 2932 Flea flew, the upgrade paid in full. `NOT affordable` stays L9's: no click can reach it. Low note: on editor entry the first check read the pool without the open penalty for 0.5 s (allowed, then refused) before the button greyed; no click can land in that window in practice. No defect.
+Progress 2026-10-31 (branch `rw18-ksc-warp`): lane `RW-18-ksc-warp-across-committed-future` LIVE-PROVEN (`2026-10-31_0232`): a warp at the Space Center stopped inside a stretch of committed rows: each row applies once and each stop equals the pool the career held at that row. No defect.
+Progress 2026-10-31 (branch `rw17-two-part-contract`): lane `RW-17-contract-completed-earlier` LIVE-PROVEN (`2026-10-31_0227`): a multi-parameter contract completed earlier after a rewind pays once at the earlier UT, the later completion zeroed, nothing taken back. Seam added: PartAction button=runtest. Plan row 16's paid part is not flown: no cheap host contract has one (the only offer needs orbit, rendezvous and a crew transfer); it stays held by the unit tests. No defect.
+Progress 2026-10-31 (branch `rw16-transmit-then-recover`): lane `RW-16-transmit-then-recover-earlier` LIVE-PROVEN (`2026-10-31_0217`): a transmitted subject recovered earlier after a rewind: the recovery takes the full value, the transmission only the remainder (0), the science pool unchanged. No defect.
+Progress 2026-10-31 (branch `rw15-earlier-milestone`): lane `RW-15-earlier-milestone` LIVE-PROVEN (`2026-10-31_0213`): a world-first earned earlier after a rewind is paid once at the earlier UT, the later committed row zeroed, nothing taken back. No defect.
+Progress 2026-10-31 (branch `rw14-dismiss`): lane `RW-14-dismissal-across-rewind` LIVE-PROVEN (`2026-10-31_0251`) on feature 9231e59
+(KERBAL-DISMISSAL-ON-THE-TIMELINE, owner option A): after a rewind the dismissed kerbal is Crew but held, a second
+dismissal and a seat are refused, and the clock turns him into an Applicant once with nothing booked twice. No defect.
+
+Progress 2026-10-31 (branch `rw22-patents-recovery`): lane `RW-22-patents-licensing-recovery` AUTHORED on `lab-pad-career`: a science-carrying lab recovered under Patents Licensing: stock's payout booked once as the recovery, the converter's yield once as its strategy leg. Never flown.
 
 ## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
 

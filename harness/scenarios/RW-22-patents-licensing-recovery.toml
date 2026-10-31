@@ -27,11 +27,8 @@ id = "RW-22-patents-licensing-recovery"
 #   recover    Recover the lab: the payout, the lab's science, the strategy's cut.
 #   check      an unrecorded Flea onto the pad (the shared overlay), the save, LedgerGroundTruth.
 #
-# STATUS: AUTHORED 2026-10-31 (branch `rw22-patents-recovery`), RED ON A FILED DEFECT, not green:
-# `2026-10-31_0321` PARSEK-FAIL on the forbidden `[Parsek][ERROR]` line alone, todo
-# RECOVERY-RECONCILE-ERROR-ON-TWO-SCIENCE-CREDITS. The rule under test held: one
-# `VesselRecovery funds patched ... amount=204881`, the two yields (42.03, 52.54) booked as strategy
-# `FundsEarning` legs only. Re-fly once fixed; the batch split is 2 passed, 1 skipped there.
+# STATUS: AUTHORED 2026-10-31 (branch `rw22-patents-recovery`). Its first flight `2026-10-31_0321` found
+# RECOVERY-RECONCILE-ERROR-ON-TWO-SCIENCE-CREDITS (fixed on PR #2334); the rule under test held there.
 # =====================================================================================
 tier = "operator"
 description = "Rewind ledger campaign, a science-carrying vessel recovered under Patents Licensing: on lab-pad-career the strategy is activated at the Space Center and the pad lab is recovered with its 12.5 science: stock's payout is booked once as the recovery, the converter's yield once as its strategy leg, nothing twice, and LedgerGroundTruth closes the career."
@@ -96,6 +93,10 @@ required = [
   "MISSIONMARK label=rw22-before-recover ut=(?:(?!MISSIONMARK label=rw22-recovered )[\\s\\S])*?\\[CurrencyConverter for Patents Licensing\\]: 0\\.625 Science taken",
   "MISSIONMARK label=rw22-before-recover ut=(?:(?!MISSIONMARK label=rw22-recovered )[\\s\\S])*?Game state: strategy currency conversion - reason=VesselRecovery ",
 
+  # ---- the recovery paid both science credits: the row keeps the recovery as its reason and method ----
+  "MISSIONMARK label=rw22-before-recover ut=(?:(?!MISSIONMARK label=rw22-recovered )[\\s\\S])*?Science subject captured: recovery@KerbinOrbited [^\\r\\n]*reason='VesselRecovery'",
+  "MISSIONMARK label=rw22-before-recover ut=(?:(?!MISSIONMARK label=rw22-recovered )[\\s\\S])*?KSC science recorded: subject='recovery@KerbinOrbited' [^\\r\\n]*method=Recovered",
+
   # ---- the yield is the strategy's leg, the payout is the recovery's row ----
   "MISSIONMARK label=rw22-before-recover ut=(?:(?!MISSIONMARK label=rw22-recovered )[\\s\\S])*?Strategy conversion recorded: type=FundsEarning, ",
   "MISSIONMARK label=rw22-before-recover ut=(?:(?!MISSIONMARK label=rw22-recovered )[\\s\\S])*?VesselRecovery funds patched: vessel='[^'\\r\\n]+' amount=[0-9]+ ",
@@ -110,6 +111,7 @@ forbidden = [
   "\\[LedgerTrace\\] phase=Anomaly ",
   "GUARDED (?:UPLIFT|DRAWDOWN) clamped",
   "filed StockPoolAdjustment amount=",
+  "Science reconcile dump \\(post-walk\\)",
   # ---- one payout row: the yield never pairs as a second recovery ----
   "VesselRecovery funds patched: [\\s\\S]*VesselRecovery funds patched: ",
   "VesselRecovery funds patched: vessel='[^'\\r\\n]+' amount=5[0-9] ",

@@ -586,6 +586,183 @@ namespace Parsek.Tests
             Assert.Equal(0, AdjustmentRows);
         }
 
+        /// <summary>A scene change: the scenario saves the reference and the next scene's OnLoad reads it back.</summary>
+        private static void SceneChange(string kind = "InSessionOther")
+        {
+            var node = new ConfigNode("SCENARIO");
+            StockPoolReference.SaveTo(node);
+            StockPoolReference.ResetForTesting();
+            StockPoolReference.LoadFrom(node, kind);
+        }
+
+        [Fact]
+        public void TakeBack_SurvivesEverySceneChange_FiresOnce_NoLeakRow()
+        {
+            // RW-20 (TAKE-BACK-REFIRES-AFTER-EVERY-LOAD): the repeat's walk effect is 0, so its
+            // counted row is {0, 0}. The save used to drop such a row; after the load the repeat
+            // read as new and was taken back again, the missing payment filed as a leak.
+            WorldFirstRewind(38000, 0, 0);
+            GameAction repeat = ledger[ledger.Count - 1];
+            ledger.RemoveAt(ledger.Count - 1);
+            Assert.Equal(1000.0, PatchFunds(50, 1000, authoritative: true), 6);
+            ledger.Add(repeat);
+            Assert.Equal(39000.0, PatchFunds(130, 1000 + 38000), 6);
+            Assert.Single(lastMeasurement.TakenBack);
+
+            double pool = 39000.0;
+            for (int i = 0; i < 6; i++)
+            {
+                SceneChange();
+                Assert.True(StockPoolReference.Funds.Counted.ContainsKey("b"));
+                pool = PatchFunds(140 + i, pool);
+                Assert.Equal(39000.0, pool, 6);
+                Assert.Empty(lastMeasurement.TakenBack);
+                Assert.False(lastMeasurement.LeakKept);
+            }
+            Assert.Equal(0, AdjustmentRows);
+            Assert.Single(TakeBackWarns);
+            Assert.Contains(logLines, l => l.Contains("[StockPoolReference]") && l.Contains("takenBackRows=1"));
+        }
+
+        [Fact]
+        public void TakeBack_SurvivesSceneChanges_InEveryPool()
+        {
+            WorldFirstRewind(38000, 4, 2);
+            GameAction repeat = ledger[ledger.Count - 1];
+            ledger.RemoveAt(ledger.Count - 1);
+            PatchFunds(50, 1000, authoritative: true);
+            PatchScience(50, 0, authoritative: true);
+            PatchReputation(50, 0, authoritative: true);
+            ledger.Add(repeat);
+            float repPaid = ReputationModule.ApplyReputationCurve(4f, 0f).actualDelta;
+            double f = PatchFunds(130, 39000);
+            double s = PatchScience(130, 2);
+            double r = PatchReputation(130, repPaid);
+            Assert.Equal(3, TakeBackWarns.Count());
+
+            for (int i = 0; i < 3; i++)
+            {
+                SceneChange();
+                Assert.Equal(f, PatchFunds(140 + i, f), 6);
+                Assert.Empty(lastMeasurement.TakenBack);
+                Assert.Equal(s, PatchScience(140 + i, s), 6);
+                Assert.Empty(lastMeasurement.TakenBack);
+                Assert.Equal(r, PatchReputation(140 + i, r), 4);
+                Assert.Empty(lastMeasurement.TakenBack);
+            }
+            Assert.Equal(0, AdjustmentRows);
+            Assert.Equal(3, TakeBackWarns.Count());
+        }
+
+        [Fact]
+        public void TakeBack_ARepeatPaidBeforeASceneChange_IsStillTakenBackOnceAfterIt()
+        {
+            // Mirror: stock paid the repeat, the scene changed before any patch counted it. The
+            // first take-back must still fire after the load, and only once.
+            WorldFirstRewind(38000, 0, 0);
+            GameAction repeat = ledger[ledger.Count - 1];
+            ledger.RemoveAt(ledger.Count - 1);
+            PatchFunds(50, 1000, authoritative: true);
+            ledger.Add(repeat);
+            SceneChange();
+            Assert.Equal(39000.0, PatchFunds(130, 39000), 6);
+            Assert.Single(lastMeasurement.TakenBack);
+            SceneChange();
+            Assert.Equal(39000.0, PatchFunds(140, 39000), 6);
+            Assert.Empty(lastMeasurement.TakenBack);
+            Assert.Equal(0, AdjustmentRows);
+            Assert.Single(TakeBackWarns);
+        }
+
+        [Fact]
+        public void TakeBack_ACountedRowLostAnotherWay_IsRefusedNotTakenBackTwice_AndWarns()
+        {
+            // The hard check: the reference keeps its own record of what it took back, apart from
+            // the counted rows, so a counted row lost any other way (a row that left the
+            // effective ledger and came back, a re-init) cannot take the same payment twice.
+            WorldFirstRewind(38000, 0, 0);
+            GameAction repeat = ledger[ledger.Count - 1];
+            ledger.RemoveAt(ledger.Count - 1);
+            PatchFunds(50, 1000, authoritative: true);
+            ledger.Add(repeat);
+            PatchFunds(130, 39000);
+            Assert.Equal(38000.0, StockPoolReference.Funds.TakenBack["b"], 6);
+
+            StockPoolReference.Funds.Counted.Remove("b");
+            Assert.Equal(39000.0, PatchFunds(140, 39000), 6);
+            Assert.Empty(lastMeasurement.TakenBack);
+            Assert.Single(lastMeasurement.TakeBackRepeatsRefused);
+            Assert.False(lastMeasurement.LeakKept);
+            Assert.Equal(0, AdjustmentRows);
+            Assert.Contains(logLines, l => l.Contains("[WARN]") && l.Contains("[" + StockShadowTakeBack.Tag + "]")
+                && l.Contains("Refused a second take-back of 38000 Funds") && l.Contains("row b"));
+
+            // An authoritative patch refuses it the same way.
+            StockPoolReference.Funds.Counted.Remove("b");
+            Assert.Equal(39000.0, PatchFunds(150, 39000, authoritative: true), 6);
+            Assert.Empty(lastMeasurement.TakenBack);
+            Assert.Single(lastMeasurement.TakeBackRepeatsRefused);
+            Assert.Single(TakeBackWarns);
+        }
+
+        [Fact]
+        public void TakeBackFoundUnpaid_IsTheSignatureOfALostMemory_NotOfAFirstTakeBack()
+        {
+            WorldFirstRewind(38000, 0, 0);
+            GameAction repeat = ledger[ledger.Count - 1];
+            ledger.RemoveAt(ledger.Count - 1);
+            PatchFunds(50, 1000, authoritative: true);
+            ledger.Add(repeat);
+            PatchFunds(130, 39000);
+            Assert.False(StockPoolReference.IsTakeBackFoundUnpaid(lastMeasurement, 0.01));
+
+            // The pre-fix state after a load: neither the counted row nor the taken-back fact.
+            StockPoolReference.Funds.Counted.Remove("b");
+            StockPoolReference.Funds.TakenBack.Remove("b");
+            double write = PatchFunds(140, 39000);
+            Assert.True(lastMeasurement.LeakKept);
+            Assert.Equal(-38000.0, lastMeasurement.Leak, 6);
+            Assert.True(StockPoolReference.IsTakeBackFoundUnpaid(lastMeasurement, 0.01));
+            Assert.Equal(1000.0, write, 6); // the RW-20 loss this signature names
+        }
+
+        [Fact]
+        public void TakeBack_ARowGoneFromTheLedger_IsForgottenAtTheNextCommit()
+        {
+            WorldFirstRewind(38000, 0, 0);
+            GameAction repeat = ledger[ledger.Count - 1];
+            ledger.RemoveAt(ledger.Count - 1);
+            PatchFunds(50, 1000, authoritative: true);
+            ledger.Add(repeat);
+            PatchFunds(130, 39000);
+            Assert.Single(StockPoolReference.Funds.TakenBack);
+
+            ledger.Remove(repeat);
+            PatchFunds(140, 39000);
+            Assert.Empty(StockPoolReference.Funds.TakenBack);
+            Assert.Equal(0, AdjustmentRows); // its stepped part was 0: nothing to carry
+        }
+
+        [Fact]
+        public void TakeBack_ARewindToASaveFromBeforeIt_ForgetsIt_WithTheCountedRows()
+        {
+            // The memory is the save's: a load of a save from before the take-back carries
+            // neither the counted row nor the taken-back fact.
+            WorldFirstRewind(38000, 0, 0);
+            GameAction repeat = ledger[ledger.Count - 1];
+            ledger.RemoveAt(ledger.Count - 1);
+            PatchFunds(50, 1000, authoritative: true);
+            var before = new ConfigNode("SCENARIO");
+            StockPoolReference.SaveTo(before);
+            ledger.Add(repeat);
+            PatchFunds(130, 39000);
+            Assert.Single(StockPoolReference.Funds.TakenBack);
+
+            StockPoolReference.LoadFrom(before, "PlainRewind");
+            Assert.Empty(StockPoolReference.Funds.TakenBack);
+            Assert.False(StockPoolReference.Funds.Counted.ContainsKey("b"));
+        }
+
         [Fact]
         public void Rewind_WorldFirstPaidAgain_WithoutTakeBack_WouldBePaidTwice()
         {

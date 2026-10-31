@@ -136,9 +136,10 @@
 "cs-career-mun1" = ["Jumping Flea"]
 "cs-career-mun2" = ["Jumping Flea"]
 "cs-career-mun3" = ["Jumping Flea"]
-"cs-career-mun4" = ["Jumping Flea"]
+"cs-career-mun4" = ["Flea Antenna", "Jumping Flea"]
 # RW-22's ground-truth launch; the host carries no VAB craft of its own.
 "lab-pad-career" = ["Jumping Flea"]
+"cs-science-flea" = ["Flea Antenna"]
 "cs-science-new" = ["Jumping Flea"]
 "stock-screen-census" = ["Jumping Flea"]
 "stock-screen-census-repair" = ["Jumping Flea"]

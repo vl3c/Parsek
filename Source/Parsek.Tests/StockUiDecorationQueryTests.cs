@@ -193,17 +193,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ForAstronautComplex_FutureDismissal_FromTheMilestoneFallback()
+        public void ForAstronautComplex_FutureDismissal_MarksAndBlocksTheDismissButton()
         {
             var index = CommittedFutureIndex.Build(null, null, null, new[]
             {
-                new CommittedFutureEntry(CommittedFutureKind.KerbalRetire, "Retiree Kerman", 300, null, null, fromMilestoneFallback: true)
+                new CommittedFutureEntry(CommittedFutureKind.KerbalDismissal, "Retiree Kerman", 300, null, null)
             });
             var d = StockUiDecorationQuery.ForAstronautComplex(index, 100,
                 new[] { new StockUiItem("Retiree Kerman", "Available") },
                 Context(refusal: _ => "refused"), Fmt).Single();
 
-            Assert.Equal(StockUiDecorationKind.KerbalRetire, d.Kind);
+            Assert.Equal(StockUiDecorationKind.KerbalDismissal, d.Kind);
             Assert.True(d.Marked);
             Assert.True(d.Blocked);
             Assert.Equal(300.0, d.UT);

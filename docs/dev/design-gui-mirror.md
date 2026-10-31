@@ -1249,7 +1249,7 @@ is `paired`, neither is `stock`, a mark alone is `marked, not blocked` and a blo
 alone is `blocked, not marked` - both PROBLEMS, which lead the table in red, are
 counted on the panel and badge the capture's rail row and its screen's rail row.
 Two exemptions, typed as `StockUiDecorationKind` member names and held to the C#
-enum by a source-sync cell: the INFORMATIONAL kinds (`KerbalRetire`, `KerbalLost`,
+enum by a source-sync cell: the INFORMATIONAL kinds (`KerbalLost`,
 `KerbalRetiredStandIn` - marks no stock button acts on) may be marked without a
 block, and the BLOCK-ONLY kinds (`ContractSlot` - the slot refusal has no per-row
 mark by design - and `ContractReserve`, the Mission Control click reservation, whose

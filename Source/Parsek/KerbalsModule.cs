@@ -3177,6 +3177,8 @@ namespace Parsek
         /// This is narrower than IsManaged, which also returns true for active stand-ins.
         /// The crew dialog's refusal predicate: StockUiCrewDialogDecoration greys these rows
         /// and every seat-placing path refuses them; CrewAutoAssignPatch clears their seats.
+        /// A kerbal the committed timeline dismisses later is refused too (design 9.12.1:
+        /// he is fired then, so he flies nothing before it).
         ///
         /// <para>Phase 7 of Rewind-to-Staging (design §3.3.1 kerbal dual-residence
         /// carve-out): when a re-fly session is active and the kerbal is
@@ -3188,7 +3190,8 @@ namespace Parsek
         {
             if (string.IsNullOrEmpty(kerbalName)) return false;
             bool filtered = IsReservedNow(kerbalName)
-                || retiredKerbals.Contains(kerbalName);
+                || retiredKerbals.Contains(kerbalName)
+                || StockUiReservationPredicates.IsKerbalDismissalPendingNow(kerbalName);
             if (!filtered) return false;
 
             // §3.3.1 carve-out: a live re-fly crewmember is exempt from
@@ -3756,6 +3759,125 @@ namespace Parsek
                         if (pcm == null) return false;
                         pcm.type = ProtoCrewMember.KerbalType.Crew;
                         return pcm.type == ProtoCrewMember.KerbalType.Crew;
+                    });
+            }
+        }
+
+        /// <summary>
+        /// Makes the dismissals the clock reached (design section 9.12.1,
+        /// <see cref="LedgerOrchestrator.ResolveCommittedDismissalsToMake"/>): a load back in
+        /// time put each kerbal back on the crew list, and nothing else dismisses him when the
+        /// clock reaches his row. Turns an Available Crew kerbal into an Applicant the way
+        /// stock <c>KerbalRoster.SackAvailable</c> does minus its <c>OnCrewmemberSacked</c>
+        /// (decompiled: <c>type = Applicant</c>, then fire): the ledger row is the record, and
+        /// a second event would book a second row. A kerbal already not Crew is left alone
+        /// (idempotent: every later pass names him again). A Crew kerbal who is not Available
+        /// (on a flight, or lost) is left alone with a Warn and tried again next pass. Returns
+        /// the number dismissed.
+        /// </summary>
+        internal static int ApplyReachedCommittedDismissals(
+            IList<string> kerbalNames,
+            Func<string, ProtoCrewMember.KerbalType?> readType,
+            Func<string, ProtoCrewMember.RosterStatus?> readStatus,
+            Func<string, bool> demote)
+        {
+            if (kerbalNames == null || kerbalNames.Count == 0 || readType == null
+                || readStatus == null || demote == null)
+                return 0;
+            int dismissed = 0, notCrew = 0, missing = 0, notAvailable = 0, failed = 0;
+            for (int i = 0; i < kerbalNames.Count; i++)
+            {
+                string name = kerbalNames[i];
+                if (string.IsNullOrEmpty(name)) continue;
+                ProtoCrewMember.KerbalType? type = readType(name);
+                // Every past dismissal is named on every pass, so the settled answers are
+                // rate-limited per kerbal.
+                if (!type.HasValue)
+                {
+                    missing++;
+                    ParsekLog.VerboseRateLimited(Tag, "dismissal-missing|" + name,
+                        $"Committed dismissal reached but '{name}' is not on the roster; nothing to dismiss");
+                    continue;
+                }
+                if (type.Value != ProtoCrewMember.KerbalType.Crew)
+                {
+                    notCrew++;
+                    ParsekLog.VerboseRateLimited(Tag, "dismissal-not-crew|" + name,
+                        $"Committed dismissal reached: '{name}' already type={type.Value}; nothing to do");
+                    continue;
+                }
+                ProtoCrewMember.RosterStatus? status = readStatus(name);
+                if (status != ProtoCrewMember.RosterStatus.Available)
+                {
+                    notAvailable++;
+                    ParsekLog.WarnRateLimited(Tag, "dismissal-not-available|" + name + "|" + status,
+                        $"Committed dismissal reached but '{name}' is {(status.HasValue ? status.Value.ToString() : "(unknown)")}, " +
+                        "not Available; left on the crew list, retried next pass");
+                    continue;
+                }
+                if (demote(name))
+                {
+                    dismissed++;
+                    ParsekLog.Info(Tag,
+                        $"Committed dismissal applied: '{name}' Crew -> Applicant as the clock reached its row " +
+                        "(no stock sack event: the ledger row is the record)");
+                }
+                else
+                {
+                    failed++;
+                    ParsekLog.Warn(Tag, $"Committed dismissal reached but dismissing '{name}' failed");
+                }
+            }
+            string summary =
+                $"ApplyReachedCommittedDismissals: rows={kerbalNames.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"dismissed={dismissed.ToString(CultureInfo.InvariantCulture)} " +
+                $"notCrew={notCrew.ToString(CultureInfo.InvariantCulture)} " +
+                $"notAvailable={notAvailable.ToString(CultureInfo.InvariantCulture)} " +
+                $"missing={missing.ToString(CultureInfo.InvariantCulture)} " +
+                $"failed={failed.ToString(CultureInfo.InvariantCulture)}";
+            // A pass that changed nothing (every named kerbal already dismissed) is the
+            // standing state of every later recalc: Verbose, rate-limited.
+            if (dismissed > 0 || notAvailable > 0 || failed > 0)
+                ParsekLog.Info(Tag, summary);
+            else
+                ParsekLog.VerboseRateLimited(Tag, "dismissal-pass-settled", summary);
+            return dismissed;
+        }
+
+        /// <summary>Live wrapper over the pure dismissal core, on the game's roster, with
+        /// the crew events suppressed (the type change fires <c>onKerbalTypeChange</c>).</summary>
+        internal static int ApplyReachedCommittedDismissals(KerbalRoster roster, IList<string> kerbalNames)
+        {
+            if (roster == null)
+            {
+                ParsekLog.Verbose(Tag, "ApplyReachedCommittedDismissals: no roster - skipping");
+                return 0;
+            }
+            Func<string, ProtoCrewMember> find = name =>
+            {
+                try { return roster[name]; }
+                catch { return null; }
+            };
+            using (SuppressionGuard.Crew())
+            {
+                return ApplyReachedCommittedDismissals(
+                    kerbalNames,
+                    name =>
+                    {
+                        ProtoCrewMember pcm = find(name);
+                        return pcm != null ? pcm.type : (ProtoCrewMember.KerbalType?)null;
+                    },
+                    name =>
+                    {
+                        ProtoCrewMember pcm = find(name);
+                        return pcm != null ? pcm.rosterStatus : (ProtoCrewMember.RosterStatus?)null;
+                    },
+                    name =>
+                    {
+                        ProtoCrewMember pcm = find(name);
+                        if (pcm == null) return false;
+                        pcm.type = ProtoCrewMember.KerbalType.Applicant;
+                        return pcm.type == ProtoCrewMember.KerbalType.Applicant;
                     });
             }
         }
