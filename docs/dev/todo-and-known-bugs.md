@@ -3677,6 +3677,8 @@ timeline, re-locked by a Rewind-to-Launch, a second research refused `insufficie
 row reserves its 45 in the live pool; the committed-row click-block behind it is not reached), and the
 crossing unlocking it with the science spent once. No defect.
 
+Progress 2026-10-31 (branch `rw16-transmit-then-recover`): lane `RW-16-transmit-then-recover-earlier` LIVE-PROVEN (`2026-10-31_0217`): a transmitted subject recovered earlier after a rewind: the recovery takes the full value, the transmission only the remainder (0), the science pool unchanged. No defect.
+
 ## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
 
 While Jeb stood (or lay ragdolled) on the Mun's surface as a BACKGROUND vessel during the CS-7
