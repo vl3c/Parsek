@@ -4574,7 +4574,12 @@ must reconcile, so a new path or state category cannot be added without a decisi
 categories, today's decision per cell with the filed defects as known gaps) gated by
 `LoadReconcilePolicyTests` and `LoadReconcileWiringGateTests`; (2) extend
 `LedgerStateFuzzerTests` / `EffectiveStateGraphFuzzerTests` with commit, supersede, cutoff,
-F9-backward, revert-prune and discard, and add `RouteTimelineConservationFuzzerTests`; (3) the
+F9-backward, revert-prune and discard, and add `RouteTimelineConservationFuzzerTests` (the route
+half DONE 2026-10-31 as `RouteTimelineFuzzerTests`, branch `claude/project-thread-q5tjfx`: seeded
+warp steps, saves, Re-Fly starts and Discard Re-fly loads against an independent loop-clock model;
+counters, cursor and tank match the model, cargo equals the start fill plus one manifest per
+delivered row, no cycle id twice; reds all 12 seeds when the rewind loop-position restore is
+removed; the ledger half stays open); (3) the
 FZ-1 lane: a seeded generator of declarative step lists over the operation alphabet, invariants
 after each step, oracles at the end, seed and step index printed for exact replay.
 

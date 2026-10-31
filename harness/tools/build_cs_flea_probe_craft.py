@@ -90,8 +90,9 @@ ASSUMPTIONS A LIVE RUN CAN FALSIFY, in the order they would bite: the stand's bo
 at rollout), the 0.630227923 / 0.786410213 radial offsets on the RT-5 (cosmetic clipping),
 and the stand clearing the fins after the decouple (it stands 60 degrees from each).
 
-Single consumer (RW-5, on `cs-career-mun4`), so per `fixtures/shared-ships.toml` it lives
-in that fixture, not in the shared library.
+Two consumers (the RW lanes on `cs-career-mun4`, IR-3 on `rover-route-recorded`), so per
+`fixtures/shared-ships.toml` it lives in the shared library `fixtures/ships/` and is overlaid
+into both saves at staging.
 
 Usage:
     python harness/tools/build_cs_flea_probe_craft.py --check
@@ -112,8 +113,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, os.pardir, os.pardir))
 BASE = os.path.join(ROOT, "harness", "fixtures", "ships", "Jumping Flea.craft")
-OUT = os.path.join(ROOT, "harness", "fixtures", "saves", "cs-career-mun4",
-                   "Ships", "VAB", "CS Flea Probe.craft")
+OUT = os.path.join(ROOT, "harness", "fixtures", "ships", "CS Flea Probe.craft")
 DEFAULT_DONOR_SHIPS = os.path.join(os.path.dirname(ROOT), "automation", "stock-tree",
                                    "Ships")
 

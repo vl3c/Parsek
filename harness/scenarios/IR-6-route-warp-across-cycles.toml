@@ -1,0 +1,186 @@
+schema = 1
+id = "IR-6-route-warp-across-cycles"
+tier = "nightly"
+# =====================================================================================
+# IR-6 (roadmap "The logistics integration program", Phase B; test-gap audit 2026-10-31
+# item 5): a supply route under REAL time warp across several cycles, ticking in FLIGHT,
+# at the Space Center and in the Tracking Station, with the destination tank read at
+# every step. AUTHORED 2026-10-31, NOT FLOWN.
+#
+# THE STORY. The player creates and activates the rover route, warps in flight past one
+# delivery, goes to the Space Center and warps past two more, then opens the Tracking
+# Station and warps hours ahead at full speed. Every lane before this one moved the clock
+# with TimeJump (an instant shift) or a 1x WarpToUT; none drove the stock rails ladder
+# across several cycles, and none watched the route tick outside FLIGHT.
+#
+# THE RULE UNDER TEST is logistics design 10.7 AS BUILT: the route ticks once per second
+# of game time (RouteTickClock, RouteOrchestrator.TickIntervalSec = 1) and each tick fires
+# at most once, for the newest owed dock cycle. So:
+#   * a warp whose frames advance less than one loop period (45.04 s here) delivers EVERY
+#     cycle it crosses, one by one (phases A and B: no `warp jump=` line);
+#   * a warp whose frames advance more than a period collapses the cycles a frame spans
+#     into one fire (phase C: a `warp jump=` line, every fire there BLOCKED);
+#   * cargo is conserved: the tank ends at its start fill plus one manifest per delivery,
+#     and a full tank blocks the cycle whole (the all-or-nothing capacity gate).
+# The xUnit half of the same rule is RouteTimelineFuzzerTests (seeded warp + Re-Fly
+# sequences against an independent model of the loop clock).
+#
+# THE HOST is IR-1's (`rover-route-recorded`, save clock UT 979.48): tree 73e50f1e... is
+# the transport rover's sealed committed tree, the route's one stop is `rover fuel 0`
+# (pid 2123618197, PRELAUNCH on the runway). Each cycle delivers 97.6 LiquidFuel plus two
+# inventory items (evaChute, evaScienceKit; RVR-2's measured manifest).
+#
+# THE LIVE STATE sets the endpoint so exactly THREE deliveries fit:
+#   * LiquidFuel 102.4 / 400: headroom 297.6 = three 97.6 deliveries, then 4.8 left;
+#   * inventory cleared: six free slots = three cycles of two items.
+# Both limits land on cycle 4, and the capacity probe checks resources before inventory
+# (RVR-2's FirstShortToken reading), so cycle 4 blocks `reason=LiquidFuel`. If the third
+# cycle blocks on a stored part instead, a container's volume limit binds first: that is
+# a fixture reading, not a product defect (pre-registered below).
+#
+# THE CLOCK. Activation in FLIGHT restarts the loop at the activation UT A (RVR-2 and IR-1
+# measured A a few frames after the 979.48 boot). The route's span ends at its dock
+# (spanStart 468.5, dock 513.54, cadence = span = 45.04 s), so cycle k's dock is passed
+# when cycle k+1 begins: crossings at A + 45.04 k for k >= 1. With A in [979.5, 985]:
+#   crossing 1 in [1024.5, 1030], 2 in [1069.6, 1075], 3 in [1114.6, 1120], 4 in [1159.7, 1165].
+#   Phase A  FLIGHT       WarpToUT 1048 maxRate 10   -> crossing 1        (one delivery)
+#   Phase B  Space Center WarpToUT 1140 maxRate 50   -> crossings 2 and 3 (two deliveries,
+#            one per second of game time, so no frame spans a period)
+#   Phase C  Tracking St. WarpToUT 20000 maxRate 100000 -> ~420 periods; crossing 4 and
+#            every later fire BLOCKED; frames of 200+ s collapse several periods each.
+# Tank: 102.4 -> 200.0 (A) -> 297.6 -> 395.2 (B) -> 395.2 (C).
+#
+# SCENE ROUTES. ExitToSpaceCenter (the stock exit). The Tracking Station is reached the
+# way V18T does it: SaveGame persistent at the Space Center, then LoadGame
+# scene=trackstation of that file. That load is InSessionOther at the same instant
+# (LoadReconcilePolicy Routes x InSessionOther: "a forward or same-instant scene change
+# finds none and touches nothing"), so the route state in memory carries over.
+#
+# PRE-REGISTERED READINGS (check these first if the first flight reds):
+#   - the phase A delivery missing: A > ~1003 (activation later than predicted) pushed
+#     crossing 1 past 1048; read `TryActivate: route=... now Active` UT and move the targets.
+#   - `warp jump=` inside phase A or B: the warp ladder ran faster than maxRate, or the
+#     route ticked less often than once per second of game time (a product finding).
+#   - a third delivery BLOCKED `reason=stored-part:...`: a container's volume limit binds
+#     before its slots (fixture reading; drop the third cycle or move items).
+#   - a fourth delivery: the capacity gate let a cycle overflow (product defect).
+#   - `readvesselresources ... match=false` at the Space Center or Tracking Station: the
+#     unloaded delivery write and the proto read disagree (product defect).
+#   - no `warp jump=` in phase C: the ladder never reached a rate whose frame spans a
+#     period before the target; tighten the target or raise the rate (driver reading).
+# =====================================================================================
+description = "IR-6, AUTHORED 2026-10-31, NOT FLOWN: on rover-route-recorded with the endpoint set so three deliveries fit (LiquidFuel 102.4 / 400, inventory cleared), create and activate the rover route and drive REAL warp across several cycles in three scenes: FLIGHT at 10x past one crossing (one delivery, tank 200.0), the Space Center at 50x past two crossings (two separate deliveries on the unloaded path, tank 395.2, no collapse), the Tracking Station at 100000x across hundreds of periods (every fire BLOCKED DestinationFull LiquidFuel, frames collapse several periods into one fire). The route read-back must show completed=3 dispatched=3 delivered=3 and blocked cycles counted, and the tank must read 395.2 exactly: cargo conserved, no cycle lost under moderate warp, no cycle doubled, the collapse rule of logistics design 10.7."
+instanceProfile = "stock-minimal"
+tags = ["IR-6", "logistics", "route", "warp", "timeline-ops", "recorded-fixture"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[[fixture.liveState]]
+pid       = 2123618197
+resources = { LiquidFuel = 102.4 }
+inventory = "clear"
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # The kill triple, as on every rover-route-recorded lane (RVR-3's header).
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "DiscardTree",                                                        expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "73e50f1e3aa24c299919016cd9e92269" },   expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "73e50f1e3aa24c299919016cd9e92269", name = "IR6 Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "activate", route = "IR6 Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "MissionMark",  args = { label = "ir6-activated" },                   expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:102.4", tolerance = "0.01" }, expect = "OK" },
+  # PHASE A, FLIGHT: one crossing at a warp whose frames are a fraction of a period.
+  { cmd = "WarpToUT",     args = { ut = "1048", maxRate = "10" },               expect = "OK", budget = 180 },
+  { cmd = "MissionMark",  args = { label = "ir6-flight-warped" },               expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:200", tolerance = "0.01" }, expect = "OK" },
+  # PHASE B, SPACE CENTER: two crossings, each its own tick.
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "DiscardTree",                                                        expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                  expect = "OK", budget = 120 },
+  { cmd = "MissionMark",  args = { label = "ir6-ksc" },                         expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1140", maxRate = "50" },               expect = "OK", budget = 180 },
+  { cmd = "MissionMark",  args = { label = "ir6-ksc-warped" },                  expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:395.2", tolerance = "0.01" }, expect = "OK" },
+  # PHASE C, TRACKING STATION: hundreds of periods at full speed against a full tank.
+  { cmd = "SaveGame",     args = { name = "persistent" },                       expect = "OK", budget = 120 },
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "ir6-ts" },                          expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "20000", maxRate = "100000" },          expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "ir6-ts-warped" },                   expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:395.2", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "FlushAndQuit",                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# No step creates or removes a recording: the host's five committed recordings.
+count = { min = 5, max = 5 }
+
+[expectations.logContracts]
+required = [
+  "routecommand complete action=create tree=73e50f1e3aa24c299919016cd9e92269 route=.* name='IR6 Rover Supply' status=Paused",
+  "TryActivate: route=\\S+ now Active ",
+  # BEFORE: activated, nothing run, the endpoint at the live-state fill.
+  "(?s)MISSIONMARK label=ir6-activated (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR6 Rover Supply' status=Active completed=0 skipped=0 cursor=-1 [^\\r\\n]* stopPids=2123618197 [^\\r\\n]* dispatched=0 debited=0 pickedUp=0 delivered=0 ",
+  "(?s)MISSIONMARK label=ir6-activated (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=102\\.4000 actual=102\\.[34][0-9]{3} [^\\r\\n]*match=true",
+  # PHASE A: exactly one delivery in flight (the forbid below holds the count), 102.4 -> 200.
+  "(?s)MISSIONMARK label=ir6-activated (?:(?!MISSIONMARK label=ir6-flight-warped ).)*Delivery write: route=\\S+ dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.(?:6|599999)[0-9]* written=97\\.(?:6|599999)[0-9]* tankBefore=102\\.(?:4|399999)[0-9]* tankAfter=(?:200|199\\.999)[0-9.]* capacity=400 path=(?:loaded|unloaded)",
+  "(?s)MISSIONMARK label=ir6-flight-warped (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR6 Rover Supply' status=Active completed=1 skipped=0 cursor=[0-9]+ [^\\r\\n]* dispatched=1 debited=[01] pickedUp=0 delivered=1 ",
+  "(?s)MISSIONMARK label=ir6-flight-warped (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=200\\.0000 actual=(?:200\\.0|199\\.9)[0-9]{3} [^\\r\\n]*match=true",
+  # PHASE B: two deliveries at the Space Center, on the unloaded path, each its own fire.
+  "(?s)MISSIONMARK label=ir6-ksc (?:(?!MISSIONMARK label=ir6-ksc-warped ).)*Delivery write: route=\\S+ dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.(?:6|599999)[0-9]* written=97\\.(?:6|599999)[0-9]* tankBefore=(?:200|199\\.999)[0-9.]* tankAfter=297\\.(?:6|599999)[0-9]* capacity=400 path=unloaded",
+  "(?s)MISSIONMARK label=ir6-ksc (?:(?!MISSIONMARK label=ir6-ksc-warped ).)*Delivery write: route=\\S+ dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.(?:6|599999)[0-9]* written=97\\.(?:6|599999)[0-9]* tankBefore=297\\.(?:6|599999)[0-9]* tankAfter=395\\.(?:2|199999)[0-9]* capacity=400 path=unloaded",
+  "(?s)MISSIONMARK label=ir6-ksc-warped (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR6 Rover Supply' status=Active completed=3 skipped=0 cursor=[0-9]+ [^\\r\\n]* dispatched=3 debited=[0-3] pickedUp=0 delivered=3 ",
+  "(?s)MISSIONMARK label=ir6-ksc-warped (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=395\\.2000 actual=395\\.[0-9]{4} [^\\r\\n]*match=true",
+  # PHASE C: the same route after the Tracking Station load, then every fire blocked.
+  "(?s)MISSIONMARK label=ir6-ts (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR6 Rover Supply' status=Active completed=3 skipped=0 cursor=[0-9]+ [^\\r\\n]* dispatched=3 debited=[0-3] pickedUp=0 delivered=3 ",
+  "(?s)MISSIONMARK label=ir6-ts (?:(?!MISSIONMARK label=ir6-ts-warped ).)*LoopRoute: route \\S+ cycle=cycle-3 BLOCKED kind=DestinationFull reason=LiquidFuel ",
+  "(?s)MISSIONMARK label=ir6-ts (?:(?!MISSIONMARK label=ir6-ts-warped ).)*LoopRoute: route \\S+ warp jump=(?:[2-9]|[1-9][0-9]+) ",
+  "(?s)MISSIONMARK label=ir6-ts-warped (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR6 Rover Supply' status=Active completed=3 skipped=[1-9][0-9]* cursor=[0-9]+ [^\\r\\n]* dispatched=3 debited=[0-3] pickedUp=0 delivered=3 ",
+  "(?s)MISSIONMARK label=ir6-ts-warped (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=395\\.2000 actual=395\\.[0-9]{4} [^\\r\\n]*match=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "listhandles rejected",
+  "readvesselresources rejected",
+  "readvesselresources expect [^\\r\\n]*match=false",
+  # No collapse at moderate warp: phases A and B deliver each cycle on its own tick.
+  "(?s)MISSIONMARK label=ir6-activated (?:(?!MISSIONMARK label=ir6-ksc-warped ).)*LoopRoute: route \\S+ warp jump=",
+  # Phase A delivers once, phase B twice, phase C never.
+  "(?s)MISSIONMARK label=ir6-activated (?:(?!MISSIONMARK label=ir6-flight-warped ).)*Delivery write: route=(?:(?!MISSIONMARK label=ir6-flight-warped ).)*Delivery write: route=",
+  "(?s)MISSIONMARK label=ir6-ksc (?:(?!MISSIONMARK label=ir6-ksc-warped ).)*Delivery write: route=(?:(?!MISSIONMARK label=ir6-ksc-warped ).)*Delivery write: route=(?:(?!MISSIONMARK label=ir6-ksc-warped ).)*Delivery write: route=",
+  "(?s)MISSIONMARK label=ir6-ts (?:(?!MISSIONMARK label=ir6-ts-warped ).)*Delivery write: route=",
+  # A cycle blocked before the tank was full.
+  "(?s)MISSIONMARK label=ir6-activated (?:(?!MISSIONMARK label=ir6-ksc-warped ).)*BLOCKED kind=",
+]
+
+[runtime]
+# One LoadGame boot, one re-entry LoadGame, three WarpToUT and a scene exit, plus the
+# short steps.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
