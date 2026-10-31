@@ -121,6 +121,13 @@ its own Auto loop gets a different slot on the map than in flight (rare: a unit 
 Auto toggle). Tests: `StandaloneLoopMapSampleTests` (including a sweep against the engine's own
 `TryComputeLoopPlaybackUT` and the unit-member queue exclusion).
 
+Lanes SLM-1 / SLM-2 / SLM-1T: the first flights (`2026-10-31_2335`, `_2337`, `_2339`, main 58a4136)
+were all PARSEK-FAIL on a FIXTURE defect, not this fix: the `standalone-loop-map` preset had one
+trajectory point, and `GhostPlaybackEngine.ShouldLoopPlayback` loops nothing below two, so neither
+the mesh nor the seam looped it and every read was the live UT. The preset now carries an end point
+on the orbit (`StandaloneLoopMapFixtureTests.TheEngineLoopsIt_TwoPointsOnTheOrbit`, red with the
+point removed), and the in-game cell asserts the engine loops the recording before it checks the map.
+
 ## ~~ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER: on a re-aim route whose last leg lands or docks, cargo is delivered on the raw loop clock while the ghost's descent is re-timed~~ [FILED 2026-10-31 from the test gap audit (A2, code read); FIXED 2026-10-31, branch `claude/project-thread-c5l296`; xUnit only, not flown; product, medium (cargo arrives days away from the rendered touchdown)]
 
 The renderer detaches a descent-trigger unit's post-parking clip (deorbit, reentry, landing, or the

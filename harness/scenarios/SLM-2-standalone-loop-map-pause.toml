@@ -14,8 +14,8 @@ id = "SLM-2-standalone-loop-map-pause"
 # THE HOST. The `standalone-loop-map` preset
 # (Source/Parsek.Tests/Generators/StandaloneLoopMapFixture.cs) injects ONE committed
 # single-recording tree into `pad-runway-pair` (save UT 25.26): a ghost-only craft on an
-# equatorial circular Kerbin orbit at 100 km (sma 700 km, period about 1958 s), one point
-# plus one orbit segment over [55.26, 1555.26], terminal Orbiting, its OWN loop toggle at a
+# equatorial circular Kerbin orbit at 100 km (sma 700 km, period about 1958 s), two points
+# (start and end) plus one orbit segment over [55.26, 1555.26], terminal Orbiting, its OWN loop toggle at a
 # 4000 s period (unit Sec), so runs start at 55.26 + 4000 k and pause for 2500 s after
 # each 1500 s run. No vessel snapshot: a loop replays a ghost and nothing spawns.
 #
@@ -33,6 +33,9 @@ id = "SLM-2-standalone-loop-map-pause"
 #
 # NEVER FLOWN at authoring time (2026-10-31): the batch pin is interim (`total=1` literal,
 # the split regexed) until the first flight.
+# FIRST FLIGHTS RED (2026-10-31_2335 / _2337 / _2339): the preset then had ONE point, and
+# the engine loops nothing below two (ShouldLoopPlayback), so the seam read the live UT.
+# Fixture defect, fixed; the cell now asserts the engine loops the recording first.
 # -------------------------------------------------------------------------------------
 tier = "operator"
 description = "A Recordings-tab loop (its own Loop toggle, period 4000 s, longer than its 1500 s orbital run) on pad-runway-pair, read in FLIGHT map view in the pause after its second run: no map ghost is shown (StandaloneLoopMap category)."

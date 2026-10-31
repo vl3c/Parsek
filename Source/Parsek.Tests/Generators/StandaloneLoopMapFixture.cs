@@ -16,11 +16,14 @@ namespace Parsek.Tests.Generators
     /// RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP). The orbit here is short enough that a wrong
     /// sample UT moves the map ghost by hundreds of kilometres.</para>
     ///
-    /// <para><b>Shape.</b> One trajectory point at <see cref="StartUTFor"/> plus one orbit
-    /// segment for <see cref="DurationSeconds"/>: an equatorial circular Kerbin orbit at
+    /// <para><b>Shape.</b> Two trajectory points, at <see cref="StartUTFor"/> and at the end,
+    /// plus one orbit segment for <see cref="DurationSeconds"/>: an equatorial circular Kerbin orbit at
     /// <see cref="SemiMajorAxisMeters"/> (period about 1958 s), in the pad vessel's orbit shape
     /// (LAN of the KSC meridian at the start, argPe 270, mean anomaly 0), so the point and the
-    /// orbit agree: the craft starts over the KSC at 100 km. A pure orbital coast is not
+    /// orbit agree: the craft starts over the KSC at 100 km, and the end point sits where the
+    /// orbit has carried it. The end point is load-bearing: the engine loops nothing with fewer
+    /// than two points (<c>GhostPlaybackEngine.ShouldLoopPlayback</c>), and neither does the map
+    /// seam, which mirrors it (the first SLM flights read the live UT for that reason). A pure orbital coast is not
     /// loopable, so a launch identity keeps the loop flag through
     /// <c>SanitizeNonLoopableLoopPlayback</c>. A crewless ProbeShip ghost-visual snapshot and
     /// no vessel snapshot: a loop replays a ghost, nothing spawns. Terminal Orbiting, which is
@@ -53,6 +56,21 @@ namespace Parsek.Tests.Generators
             return saveUT + StartAfterSaveSeconds;
         }
 
+        /// <summary>Orbital period of the circular orbit, seconds.</summary>
+        internal static double OrbitPeriodSeconds()
+        {
+            return 2.0 * Math.PI * Math.Sqrt(
+                Math.Pow(SemiMajorAxisMeters, 3) / SyntheticRecordingTests.KerbinGravParameter);
+        }
+
+        /// <summary>Surface longitude of the craft at the end of its run (mean anomaly 0 at t0).</summary>
+        internal static double EndSurfaceLongitudeDeg(double lan, double endUT)
+        {
+            double nuDeg = 360.0 * DurationSeconds / OrbitPeriodSeconds();
+            return SyntheticRecordingTests.GhostCommNetSurfaceLonOfElementAngle(
+                lan + ArgumentOfPeriapsisDegrees + nuDeg, endUT);
+        }
+
         internal static RecordingBuilder BuildRecording(double saveUT)
         {
             double t0 = StartUTFor(saveUT);
@@ -68,6 +86,7 @@ namespace Parsek.Tests.Generators
                 .WithLaunchIdentity("LaunchPad")
                 .WithLoopPlayback(true, LoopPeriodSeconds);
             b.AddPoint(t0, 0.0, SyntheticRecordingTests.GhostCommNetKscLon, alt);
+            b.AddPoint(end, 0.0, EndSurfaceLongitudeDeg(lan, end), alt);
             b.AddOrbitSegment(t0, end,
                 inc: 0.0, ecc: 0.0, sma: SemiMajorAxisMeters, lan: lan,
                 argPe: ArgumentOfPeriapsisDegrees, mna: 0.0, epoch: t0);
