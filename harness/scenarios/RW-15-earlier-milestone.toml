@@ -1,0 +1,191 @@
+schema = 1
+id = "RW-15-earlier-milestone"
+# =====================================================================================
+# RW-15: A WORLD-FIRST EARNED EARLIER AFTER A REWIND (the rewind ledger campaign, plan row 2,
+# "Earlier milestone": F earns a milestone the career lacks; after a Rewind-to-Launch a cheaper
+# flight earns it earlier).
+#
+# THE RULING UNDER TEST: world-firsts pay once and the earliest crossing wins. WF-1 and RW-3 fly
+# the other order, a repeat AFTER the committed row, where prevention stops stock. This lane is
+# the one order no lane flies: the replay is BEFORE the committed row.
+#
+# WHAT THE CODE DOES (read 2026-10-31, main e96d2c9bb, MilestonesModule.cs:126-162,
+# CommittedMilestoneReach.cs, RW-3's header): the clock is before F's row, so no prevention marks
+# the stock node and stock pays G's EVA live. G's row walks first, so it is the credit; F's row
+# is zeroed (`Duplicate milestone`) with G's row as its witness. G's row was captured after the
+# rewind's break, so `ShouldTakeBackWholeRow` takes nothing back: stock's payment to G is the one
+# payment.
+#
+# HOW THE LANE MAKES ITS PAST. No hop H: `InvokeRewindToLaunch tree=latest` rewinds to the latest
+# committed tree's launch, so F is its own rewind target. F is the Jumping Flea recorded on the
+# pad from launch, its EVA 100 s after that launch; G launches inside those 100 s. Both trees are
+# committed, so both rows are the ordinary recorded kind (tagged, written at the commit), the
+# path RW-3's untagged rows do not take.
+#
+# THE MILESTONE: Kerbin/SurfaceEVA. cs-career-mun4's Kerbin subtree has no SurfaceEVA node, and
+# RW-2 / RW-3 measured stock's payment on this host (`Milestone enriched: 'Kerbin/SurfaceEVA'
+# funds=3200 rep=1.0 sci=0.0`).
+#
+# PLAN (UTs are the plan):
+#   boot       LoadGame persistent at the Space Center; warp to 185800.
+#   F          Flea (Jeb), recorded from ~185800; warp in flight to 185905; EVA onto the ladder
+#              (the world-first, row at ~185905), board, commit, recover.
+#   rewind     Rewind-to-Launch onto F: clock ~185785. Jeb is re-reserved, his stand-in recreated.
+#   G          Flea again, recorded (stock seats Jeb, CrewAutoAssign swaps in the stand-in); the
+#              stand-in's EVA at ~185790 earns it from stock at once; board, commit, recover.
+#   crossing   warp at the Space Center to 186000: the walk credits G's row and zeroes F's.
+#   check      an unrecorded Flea onto the pad, the default save, LedgerGroundTruth.
+#
+# THE POOLS. G's row gives what F's did, and a pad recovery refunds G's launch in full, so every
+# pool ends where it was before the rewind; a second payment would show as 3200 funds and one
+# reputation too many.
+#
+# STATUS: LIVE-PROVEN 2026-10-31, `2026-10-31_0213` PASS attempt 1 (DLL c39bde83, main e96d2c9bb). F's pad EVA earned Kerbin/SurfaceEVA at
+# 185905.0 (+3200, +1 rep); the rewind landed at 185785.3; G's stand-in earned it again at 185786.3, stock
+# paying it live. The walk credited G's row and zeroed F's (`Duplicate milestone ... zeroed at UT=185905.0`),
+# no take-back, no pool adjustment; funds 160746.18, science 20.17 and rep 116 all ended as before the rewind;
+# LedgerGroundTruth 3/3 hardFailures=0; ledger_audit PASS. Before it: `_0209` / `_0211` INVALID at the crossing
+# warp, held by stock's recovery summary after a flight Recover, so G now recovers at its Space Center marker.
+# =====================================================================================
+tier = "operator"
+description = "Rewind ledger campaign, a world-first earned earlier after a rewind (plan row 2): on cs-career-mun4 a committed Flea earns Kerbin/SurfaceEVA from the pad, a Rewind-to-Launch onto it, and a second committed Flea earns the same world-first before that row: stock pays it once, the walk credits the earlier row and zeroes the later one, nothing is taken back, the pools end where the rewind began and LedgerGroundTruth closes the career."
+instanceProfile = "stock-tree"
+tags = ["RW-15", "career", "ledger", "rewind", "rewind-to-launch", "milestones", "world-first",
+        "eva", "editor", "ground-truth", "ingame-batch", "timeline-ops"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 300 LoadGame + 4 x 120 warps + 3 x (120 GoToEditor + 180 LaunchFromEditor)
+# + 2 x 180 StartRecording + 2 x (120 EvaExit + 120 EvaBoard + 120 CommitTree + 120 Recover)
+# + 300 rewind + 5 x 120 SaveGame + 540 RunTests = 3960; runtime 4800 adds the inert steps and
+# FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+  # ---- F: recorded from the pad, the world-first 100 s after launch ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "f",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "185905" },                                      expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw15-f-before-eva" },                        expect = "OK" },
+  { cmd = "EvaExit",                                                                       expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw15-f-eva" },                               expect = "OK" },
+  { cmd = "EvaBoard",                                                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "${f.pid}" },                                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw15-f-committed" },                         expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw15-01-after-f-commit" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw15-before-rewind" },                       expect = "OK" },
+  # ---- the rewind onto F's launch ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rw15-rewound" },                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw15-02-after-rtl" },                        expect = "OK", budget = 120 },
+  # ---- G: the same world-first, before F's row ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "g",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "MissionMark",    args = { label = "rw15-g-before-eva" },                        expect = "OK" },
+  { cmd = "EvaExit",                                                                       expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw15-g-eva" },                               expect = "OK" },
+  { cmd = "EvaBoard",                                                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw15-g-committed" },                         expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw15-03-after-g-commit" },                   expect = "OK", budget = 120 },
+  # From the Space Center marker: stock's recovery summary after a flight Recover holds warp.
+  { cmd = "ExitToSpaceCenter",                                                             expect = "OK", budget = 120 },
+  { cmd = "KscMarkerRecover", args = { pid = "${g.pid}" },                                 expect = "OK", budget = 60 },
+  # ---- the crossing of F's rows ----
+  { cmd = "MissionMark",    args = { label = "rw15-before-crossing" },                     expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "186000", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw15-crossed" },                             expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw15-04-after-crossing" },                   expect = "OK", budget = 120 },
+  # ---- the check: an unrecorded launch onto the pad, the save, the ground truth ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "186030" },                                      expect = "OK", budget = 120 },
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "reputation", "milestones", "recalc-engine", "ksp-state-patcher", "ground-truth-harness"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 34 recordings plus F and G; EVA-1 measured 4 per pad EVA flight (pod, continuation,
+# kerbal, board merge). Measured on `2026-10-31_0213`.
+count = 42
+
+[expectations.logContracts]
+required = [
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=",
+
+  # ---- F earns it from stock, 100 s after its launch ----
+  "MISSIONMARK label=rw15-f-before-eva ut=(?:(?!MISSIONMARK label=rw15-f-eva )[\\s\\S])*?Game state: MilestoneAchieved 'Kerbin/SurfaceEVA'",
+  "MISSIONMARK label=rw15-f-before-eva ut=[\\s\\S]*?Milestone enriched: 'Kerbin/SurfaceEVA' funds=3200 rep=1\\.0 sci=0\\.0[\\s\\S]*?MISSIONMARK label=rw15-f-committed ut=",
+
+  # ---- the rewind lands before F's row ----
+  "MISSIONMARK label=rw15-before-rewind ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=rw15-rewound ut=1857[0-9]{2}\\.",
+
+  # ---- G's earlier EVA: no prevention yet, stock pays ----
+  "MISSIONMARK label=rw15-g-before-eva ut=18(?:57[89][0-9]|58[0-4][0-9])\\.(?:(?!MISSIONMARK label=rw15-g-eva )[\\s\\S])*?Game state: MilestoneAchieved 'Kerbin/SurfaceEVA'",
+  "MISSIONMARK label=rw15-g-before-eva ut=[\\s\\S]*?Milestone enriched: 'Kerbin/SurfaceEVA' funds=3200 rep=1\\.0 sci=0\\.0[\\s\\S]*?MISSIONMARK label=rw15-g-committed ut=",
+
+  # ---- the walk: the earlier row is the credit, the later one is zeroed ----
+  "MISSIONMARK label=rw15-g-committed ut=[\\s\\S]*\\[Milestones\\] Credited milestone 'Kerbin/SurfaceEVA' at UT=18(?:57[89][0-9]|58[0-4][0-9])\\.[0-9] \\(recording=[0-9a-f]{32}, funds=3200, rep=1, sci=0\\.0\\)",
+  "MISSIONMARK label=rw15-g-committed ut=[\\s\\S]*\\[Milestones\\] Duplicate milestone 'Kerbin/SurfaceEVA' zeroed at UT=1859[0-9]{2}\\.[0-9] \\(recording=[0-9a-f]{32}\\)",
+
+  # ---- paid once: the pools end where the rewind began ----
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw15-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw15-crossed ut=",
+
+  # ---- the ground truth ----
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "\\[LedgerTrace\\] phase=Anomaly ",
+  "ABORTING rewind ledger patch",
+  "GUARDED (?:UPLIFT|DRAWDOWN) clamped",
+  "filed StockPoolAdjustment amount=",
+  "invokerewindtolaunch refused",
+  # ---- the earlier row keeps the credit in every walk after G's commit ----
+  "MISSIONMARK label=rw15-g-committed ut=[\\s\\S]*Credited milestone 'Kerbin/SurfaceEVA' at UT=1859[0-9]{2}",
+  # ---- stock's payment to G is the one payment: nothing to take back, no third earning ----
+  "\\[TakeBack\\] Took back ",
+  "take-back shortfall",
+  "MISSIONMARK label=rw15-g-committed ut=[\\s\\S]*Game state: MilestoneAchieved 'Kerbin/SurfaceEVA'",
+  "Game state: ContractCompleted ",
+  "Game state: ContractFailed ",
+]
+
+[runtime]
+budgetSeconds = 4800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
