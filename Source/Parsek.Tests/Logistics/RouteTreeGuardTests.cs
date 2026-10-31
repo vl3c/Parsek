@@ -502,5 +502,127 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(0, cleared);
             Assert.Empty(toasts);
         }
+            // -----------------------------------------------------------------
+        // A looping mission whose partner journey reaches into a route's tree
+        // -----------------------------------------------------------------
+
+        // Mission "mb" on partner tree "tb" includes the dock link into controller tree "ta".
+        private static Mission LoadPartnerMission(bool includeLink, bool loop)
+        {
+            var node = new ConfigNode("PARSEK");
+            var mB = new Mission("mb", "tb", "B mission");
+            if (includeLink)
+                mB.IncludedForeignDockLinkIds.Add(CrossTreeDockFixture.DockBpId);
+            mB.Save(node.AddNode("MISSION"));
+            MissionStore.Load(node);
+            Mission b = System.Linq.Enumerable.FirstOrDefault(MissionStore.Missions, x => x.Id == "mb");
+            Assert.NotNull(b);
+            if (loop)
+                MissionStore.SetLoopEnabled(b, true, 100.0);
+            return b;
+        }
+
+        private static List<RecordingTree> SeedPartnerTrees()
+        {
+            var tb = CrossTreeDockFixture.PartnerTree();
+            var ta = CrossTreeDockFixture.ControllerTree();
+            RecordingStore.AddCommittedTreeForTesting(tb);
+            RecordingStore.AddCommittedTreeForTesting(ta);
+            return new List<RecordingTree> { tb, ta };
+        }
+
+        [Fact]
+        public void MissionSpansTree_OwnTree_True_ForeignTreeOnlyThroughAnIncludedLink()
+        {
+            var trees = SeedPartnerTrees();
+            Mission linked = LoadPartnerMission(includeLink: true, loop: false);
+
+            Assert.True(RouteTreeGuard.MissionSpansTree(linked, "tb", trees));
+            Assert.True(RouteTreeGuard.MissionSpansTree(linked, "ta", trees));
+            Assert.False(RouteTreeGuard.MissionSpansTree(linked, "tree-other", trees));
+            Assert.False(RouteTreeGuard.MissionSpansTree(null, "ta", trees));
+            Assert.False(RouteTreeGuard.MissionSpansTree(linked, null, trees));
+
+            linked.IncludedForeignDockLinkIds.Clear();
+            Assert.True(RouteTreeGuard.MissionSpansTree(linked, "tb", trees));
+            Assert.False(RouteTreeGuard.MissionSpansTree(linked, "ta", trees));
+        }
+
+        [Fact]
+        public void ForceClear_ClearsALoopingMission_WhosePartnerJourneyReachesTheRouteTree()
+        {
+            SeedPartnerTrees();
+            Mission b = LoadPartnerMission(includeLink: true, loop: true);
+            Assert.True(b.LoopPlayback);
+
+            int cleared = RouteTreeGuard.ForceClearManualLoopForRouteTree("ta", currentUT: 200.0);
+
+            Assert.False(b.LoopPlayback);
+            Assert.True(cleared >= 1);
+            Assert.Contains(logLines, l =>
+                l.Contains(GuardTag) && l.Contains("tree=ta")
+                && l.Contains("cleared 1 mission loop(s)"));
+        }
+
+        [Fact]
+        public void ForceClear_KeepsALoopingMission_WithoutThePartnerJourney()
+        {
+            SeedPartnerTrees();
+            Mission b = LoadPartnerMission(includeLink: false, loop: true);
+
+            RouteTreeGuard.ForceClearManualLoopForRouteTree("ta", currentUT: 200.0);
+
+            Assert.True(b.LoopPlayback);
+        }
+
+        [Fact]
+        public void RouteBindingForMission_FindsTheRouteOnThePartnerJourneysTree()
+        {
+            var trees = SeedPartnerTrees();
+            RouteStore.AddRoute(RouteOnTree("route-T", "ta"));
+            Mission b = LoadPartnerMission(includeLink: true, loop: false);
+
+            Assert.True(RouteTreeGuard.RouteBindingForMission(b, trees, out Route route));
+            Assert.Equal("route-T", route.Id);
+
+            b.IncludedForeignDockLinkIds.Clear();
+            Assert.False(RouteTreeGuard.RouteBindingForMission(b, trees, out Route none));
+            Assert.Null(none);
+            Assert.False(RouteTreeGuard.RouteBindingForMission(null, trees, out _));
+        }
+
+        [Fact]
+        public void RouteBindingForMission_OwnTreeRouteWins()
+        {
+            var trees = SeedPartnerTrees();
+            RouteStore.AddRoute(RouteOnTree("route-own", "tb"));
+            RouteStore.AddRoute(RouteOnTree("route-T", "ta"));
+            Mission b = LoadPartnerMission(includeLink: true, loop: false);
+
+            Assert.True(RouteTreeGuard.RouteBindingForMission(b, trees, out Route route));
+            Assert.Equal("route-own", route.Id);
+        }
+
+        [Fact]
+        public void MissionsWindow_ReadsTheMissionLevelBinding_AndClearsTheLoopOnAPartnerInclude()
+        {
+            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
+                RepoRoot(), "Source", "Parsek", "UI", "MissionsWindowUI.cs"));
+            int count = 0, at = 0;
+            while ((at = src.IndexOf("RouteTreeGuard.RouteBindingForMission(", at, System.StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                at++;
+            }
+            Assert.Equal(2, count);
+            Assert.Contains("mission.LoopPlayback && !YieldLoopToPartnerRoute(mission, link)", src);
+            Assert.Contains("RouteTreeGuard.IsTreeBoundToActiveRoute(link.ForeignTreeId)", src);
+        }
+
+        private static string RepoRoot()
+        {
+            string dir = System.AppDomain.CurrentDomain.BaseDirectory;
+            return System.IO.Path.GetFullPath(System.IO.Path.Combine(dir, "..", "..", "..", "..", ".."));
+        }
     }
 }

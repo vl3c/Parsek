@@ -3877,7 +3877,7 @@ GameEvent itself.
 **Grammar.** `cmd=EvaGroundScience action=<place|pickup|take> part=<name> [faceAway=true]`, or
 `cmd=EvaGroundScience action=step anchor=<vessel pid> distance=<metres> [bearing=<degrees>]` (no `part`).
 `cmd=EvaGroundScience action=attach part=<name> target=<part name> node=<attach node id> [heldNode=<attach node id>]`, or
-`cmd=EvaGroundScience action=detach target=<part name>` (no `part`).
+`cmd=EvaGroundScience action=detach target=<part name> [then=<stow|drop>]` (no `part`).
 `part` is the cfg part name (underscores become the runtime dots).
 
 **Place** (decompiled KSP 1.12.5). The inventory PAW slot icon calls
@@ -4045,7 +4045,15 @@ that part, `GetMouseButtonUp(0)` true, and `IsCursorOverAnyPAWOrCargoPane`, the 
 and `IsPointerOverGameObject()` false (`detach press armed n= frame= target= partPid= distance=`);
 stock's `DetachPart` holds the part and fires the detached event (`detach detached part= partPid=
 vesselPid= vesselParts= presses=`), and a slot click on the kerbal's empty slot stows it
-(`detach stowed part= slot= inventory=`). Both close the panel only with nothing held (stock
+(`detach stowed part= slot= inventory=`). With `then=drop` (lane EVA-16; any other value refuses
+`detach-then-unknown`; a drop needs no free slot) the held part is posed 2 m from the kerbal on the
+side away from the vessel it came off and the panel is closed in the same call, which is stock's
+own road for a held part (`ClosePanel` -> `ForceDrop` -> `DropAttachablePart`, decompiled KSP
+1.12.5): the part becomes its own `DroppedPart` vessel (`detach drop posed part= heldPid= offset=
+mode=`, `detach drop requested panelOpen= held=`, then `detach dropped part= droppedVesselPid= type=
+distance= panelOpen=` once nothing is held and one new single-part vessel of that part is loaded,
+`drop-failed` otherwise; pure `TryParseDetachFollowUp` / `IsDropSettled`); the complete line ends
+`then=drop droppedVesselPid=` and the payload adds `droppedVesselPid`. Both close the panel only with nothing held (stock
 re-attaches or drops a held part on close; `panel left open held=` otherwise), settle 30 frames and
 log `evagroundscience <attach|detach> complete part= partPid= vesselPid= vesselParts= presses= slot=
 weldCapped= inventory=`; payload `action part partPid vesselPid slot presses distance vesselParts`.

@@ -121,6 +121,21 @@ namespace Parsek.TestCommands
     /// Every other guard - the weight check, <c>CanPartBeEdited</c>, the range tests, the
     /// collider veto - stays stock's, and stock fires the GameEvents.</para>
     /// </summary>
+    /// <summary>What the detach does with the part it now holds.</summary>
+    internal enum DetachFollowUp
+    {
+        Stow,
+        Drop
+    }
+
+    /// <summary>A loaded vessel that appeared after the drop was requested.</summary>
+    internal struct DroppedVesselCandidate
+    {
+        internal uint VesselPid;
+        internal int PartCount;
+        internal string FirstPartName;
+    }
+
     internal static class TestCommandEvaConstruction
     {
         /// <summary>Attach: the part name to attach to; detach: the part name to take off.</summary>
@@ -131,6 +146,16 @@ namespace Parsek.TestCommands
 
         /// <summary>Attach only, optional: the held part's node to put on the target node.</summary>
         internal const string HeldNodeArg = "heldNode";
+
+        /// <summary>Detach only, optional: what happens to the held part, <c>stow</c> (the
+        /// default: a click on the kerbal's empty slot) or <c>drop</c> (the held part is posed
+        /// <see cref="DropOffsetMeters"/> beside the kerbal and the panel is closed, which runs
+        /// stock's own <c>ForceDrop</c> -> <c>DropAttachablePart</c>: the part becomes its own
+        /// <c>DroppedPart</c> vessel).</summary>
+        internal const string ThenArg = "then";
+
+        /// <summary>Horizontal distance from the kerbal at which a dropped part is set down.</summary>
+        internal const double DropOffsetMeters = 2.0;
 
         /// <summary>Consecutive Ready checks before the press is armed (the held part's trigger
         /// colliders are filled by physics, so the pose must hold a few frames before stock's
@@ -294,6 +319,48 @@ namespace Parsek.TestCommands
             if (string.IsNullOrEmpty(target)) { error = "attach-target-missing"; return false; }
             if (string.IsNullOrEmpty(node)) { error = "attach-node-missing"; return false; }
             return true;
+        }
+
+        /// <summary>
+        /// Parses the detach <see cref="ThenArg"/>: absent or empty is <see cref="DetachFollowUp.Stow"/>
+        /// (the EVA-11 grammar is unchanged); <c>stow</c> / <c>drop</c> (case-insensitive) name the
+        /// follow-up; anything else refuses <c>detach-then-unknown</c>.
+        /// </summary>
+        internal static bool TryParseDetachFollowUp(string raw, out DetachFollowUp followUp, out string error)
+        {
+            error = null;
+            followUp = DetachFollowUp.Stow;
+            if (string.IsNullOrEmpty(raw)) return true;
+            if (string.Equals(raw, "stow", StringComparison.OrdinalIgnoreCase)) return true;
+            if (string.Equals(raw, "drop", StringComparison.OrdinalIgnoreCase))
+            {
+                followUp = DetachFollowUp.Drop;
+                return true;
+            }
+            error = "detach-then-unknown";
+            return false;
+        }
+
+        /// <summary>
+        /// Did the drop happen? Stock's <c>DropAttachablePart</c> clears the held part and adds one
+        /// single-part vessel named after the held part. True when nothing is held any more and a
+        /// new loaded vessel (not one seen before the drop) carries exactly one part of that name.
+        /// </summary>
+        internal static bool IsDropSettled(bool stillHolding, IList<DroppedVesselCandidate> newVessels,
+            string partName, out uint droppedVesselPid)
+        {
+            droppedVesselPid = 0u;
+            if (stillHolding || newVessels == null || string.IsNullOrEmpty(partName)) return false;
+            for (int i = 0; i < newVessels.Count; i++)
+            {
+                DroppedVesselCandidate c = newVessels[i];
+                if (c.PartCount == 1 && string.Equals(c.FirstPartName, partName, StringComparison.Ordinal))
+                {
+                    droppedVesselPid = c.VesselPid;
+                    return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>Validates the detach args: the target part name is required.</summary>

@@ -1,0 +1,169 @@
+schema = 1
+id = "EVA-16-construction-drop-foreign-part"
+# NIGHTLY (seam lane on a derived fixture). NEVER FLOWN: authored 2026-10-31 (branch
+# `claude/project-thread-ucsdk0`) as the live proof of the detach-then-drop half of todo
+# EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED. Its first flight is a reading run: the
+# WarpToUT target and the recording count are guesses to tighten off the measured flight.
+#
+# WHAT IT PROVES. A recorded EVA engineer who detaches a part from a vessel that is NOT in his
+# tree and sets it down on the ground leaves two things behind: the rover without the part
+# (the rover joins his tree as an InventoryTransfer member carrying the PartRemoved, EVA-11's
+# fix) and the dropped part, which stock builds as its OWN new `DroppedPart` vessel
+# (`EVAConstructionModeEditor.DropAttachablePart` -> `Game.AddVessel`, then
+# `onEditorPartEvent(PartDropped, heldPart)`, decompiled KSP 1.12.5). Before the fix nothing
+# recorded that vessel: after a rewind the rover came back without the panel and the panel was
+# nowhere. Now the drop is a GroundPartPlaced member of the kerbal, exactly like an inventory
+# ground placement (`Ground part placement detected: ... source=construction-drop`), so after
+# commit, Rewind-to-Launch and a flight reload the rover's chain tip spawns with 16 - 1 = 15
+# parts AND the panel spawns at its own recording's end.
+#
+# HOST: `eva-construct-pad`, EVA-11's derived fixture (harness/tools/build_eva_construct_pad.py):
+# Bill Kerman (Engineer) aboard the pad Kerbal X, a crewless 16-part `rover fuel 0`
+# (pid 1871615455, six OX-STAT panels) LANDED ~153 m from the pad, zero recordings.
+#
+# THE SEAM. EvaGroundScience `detach target=solarPanels5 then=drop` (design-autotest-command-
+# seam.md, EvaGroundScience): EVA-11's detach (stock's own DetachInput on one armed frame),
+# then instead of the slot click the held panel is posed 2 m from Bill on the side away from
+# the rover and the construction panel is closed, which is stock's own road for a held part:
+# `ClosePanel` -> `ForceDrop` -> `DropAttachablePart` (`detach drop posed` / `detach drop
+# requested` / `detach dropped ... droppedVesselPid=`).
+#
+# ACT 3 IS A FLIGHT RELOAD (EVA-11's reason): the rewind lands at the Space Center, so a Space
+# Center SaveGame + LoadGame lands in FLIGHT on the pad Kerbal X, where the walker, the ghoster
+# and the tip spawn run. 1x FLIGHT time then crosses every member's EndUT.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"): (1) EVA-11 is the nearest
+# host flight but attaches first and stows its detaches, so it is not a prefix; (2) the one time
+# wait is an explicit-UT WarpToUT at maxRate=1; (3) no dwells beyond the verbs' settle frames;
+# (4) / (5) no coast; (6) every construction verb fails fast on its own refusal, retry `once`;
+# (7) the recording count is pinned 3..3 (Bill, the rover member, the dropped panel); (8) tier
+# nightly until the reading run measures its p50; (9) flight_efficiency.py after the first green
+# flight.
+tier = "nightly"
+description = "A part detached from a foreign vessel and dropped on the ground is recorded and comes back after a rewind: on eva-construct-pad Bill Kerman (Engineer) steps to a crewless rover 153 m from the pad, a recording on him detaches one OX-STAT panel through stock's own construction input and drops it beside him, the rover joins his tree with the PartRemoved and the dropped DroppedPart vessel becomes his GroundPartPlaced member, and after commit, Rewind-to-Launch and a flight reload the rover's chain tip spawns with 15 parts and the panel spawns at its own end."
+instanceProfile = "stock-minimal"
+tags = ["eva", "construction", "foreign-vessel", "ground-part", "ghost-chain", "rewind-to-launch", "EVA-16"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva-construct-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  # ACT 0: boot hygiene, EVA-11's.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva16-boot" },                    expect = "OK" },
+  # ACT 1: Bill out (unrecorded) and 4 m from the rover's root.
+  { cmd = "EvaExit",    args = { kerbal = "Bill Kerman", release = "true" },  expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "step", anchor = "1871615455", distance = "4" }, expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # ACT 2: one panel off the foreign rover, dropped on the ground.
+  { cmd = "EvaGroundScience", args = { action = "detach", target = "solarPanels5", then = "drop" }, expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva16-commit-count-${c0.count}" }, expect = "OK" },
+  # ACT 3: Rewind-to-Launch (15 s before the recording started), then a flight reload.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "eva16-rewound" },                   expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "eva16-rewound" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva16-reloaded-a-${c1.rec0}-${c1.rec0spawned}-b-${c1.rec1}-${c1.rec1spawned}-c-${c1.rec2}-${c1.rec2spawned}-end" }, expect = "OK" },
+  # 1x FLIGHT time past every member's EndUT (a guess off EVA-11's 34.96 for three changes).
+  { cmd = "WarpToUT",   args = { ut = "45", maxRate = "1" },                 expect = "OK", budget = 200 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva16-spawned-a-${c2.rec0}-${c2.rec0spawned}-${c2.rec0spawnedPid}-b-${c2.rec1}-${c2.rec1spawned}-${c2.rec1spawnedPid}-c-${c2.rec2}-${c2.rec2spawned}-${c2.rec2spawnedPid}-end" }, expect = "OK" },
+  { cmd = "SaveGame",                                                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+D18 = ["background-event-claims"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 3, max = 3 }
+
+[expectations.logContracts]
+required = [
+  # ACT 1
+  "evaexit complete kerbal=Bill Kerman ",
+  "evagroundscience step complete kerbal=Bill Kerman anchor=rover fuel 0 ",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  # ACT 2, the detach: the rover joins Bill's tree with the PartRemoved of the panel.
+  "evagroundscience detach start kerbal=Bill Kerman target=solarPanels5 partPid=[0-9]+ vessel='rover fuel 0' vesselPid=1871615455 vesselParts=16 [^\\r\\n]* then=drop",
+  "evagroundscience detach start kerbal=Bill Kerman target=solarPanels5 partPid=([0-9]+) [\\s\\S]*Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=[0-9a-f]+ parentRec=[0-9a-f]+ bp=[0-9a-f]+ ut=[0-9.]+ event=PartRemoved details='construction part=solarPanels5 action=detach pid=\\1' snapshot=True",
+  "evagroundscience detach detached part=solarPanels5 partPid=[0-9]+ vesselPid=1871615455 vesselParts=15 ",
+  # ACT 2, the drop: stock's own drop builds a DroppedPart vessel, and it becomes Bill's
+  # GroundPartPlaced member, tied to Bill's recording and to the dropped vessel's pid.
+  "evagroundscience detach drop posed part=solarPanels5 heldPid=[0-9]+ offset=[0-9.]+ mode=Place",
+  "evagroundscience detach dropped part=solarPanels5 droppedVesselPid=[0-9]+ type=DroppedPart ",
+  "startrecording recordingId=([0-9a-f]+) already=false[\\s\\S]*Ground part placement detected: part='solarPanels5' vesselPid=([0-9]+) kerbalRec=\\1 ut=[0-9.]+ source=construction-drop;[\\s\\S]*evagroundscience detach dropped part=solarPanels5 droppedVesselPid=\\2 ",
+  "Ground part placement detected: part='solarPanels5' vesselPid=([0-9]+) [\\s\\S]*Ground part placed: tree member created part='solarPanels5' vesselPid=\\1 partPid=[0-9]+ rec=[0-9a-f]+ parentRec=[0-9a-f]+ bp=[0-9a-f]+ ut=[0-9.]+ snapshot=True",
+  "Part event captured: InventoryPartPlaced 'solarPanels5' pid=[0-9]+ via onEditorPartEvent\\(PartDropped\\) rec=[0-9a-f]+",
+  "evagroundscience detach complete part=solarPanels5 partPid=[0-9]+ vesselPid=1871615455 vesselParts=15 [^\\r\\n]* then=drop droppedVesselPid=[0-9]+",
+  # Commit: three recordings, and the walker's chain on the rover member.
+  "MISSIONMARK label=eva16-commit-count-3 ",
+  "committree committed=true",
+  "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*Chain built: vessel=1871615455 links=1 tip=\\1 ",
+  # ACT 3: the rewind holds the rover back; the tip spawns it in its post-detach shape.
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind held vessel for its committed future: pid=1871615455 name='rover fuel 0' ",
+  "invokerewindtolaunch complete [\\s\\S]*\\[Ghoster\\] Chain tip spawn: pid=1871615455 vessel=rover fuel 0 preserveIdentity=true [^\\r\\n]*parts=15",
+  "invokerewindtolaunch complete [\\s\\S]*Chain tip spawn complete: #[0-9]+ \"rover fuel 0\" pid=1871615455",
+  # The dropped panel's member spawns at its end (its own row reads spawned=true).
+  "Ground part placed: tree member created part='solarPanels5' vesselPid=[0-9]+ partPid=[0-9]+ rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva16-reloaded-[^\\r\\n]*-\\1-false-",
+  "Ground part placed: tree member created part='solarPanels5' vesselPid=[0-9]+ partPid=[0-9]+ rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva16-spawned-[^\\r\\n]*-\\1-true-[1-9][0-9]*-",
+  "Foreign inventory transfer: vessel joined the tree vesselPid=1871615455 name='rover fuel 0' rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva16-spawned-[^\\r\\n]*-\\1-true-1871615455-",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "evagroundscience failed",
+  "evagroundscience refused",
+  "evagroundscience construction injection refused",
+  "evagroundscience (attach|detach) panel left open",
+  "Foreign construction change not recorded",
+  "Ground part placement not recorded",
+  "Ground part placement dropped",
+  "Foreign inventory transfer: no background recorder",
+  "lost its member recording",
+  "Background vessel split detected: parentPid=1871615455 ",
+  "invokerewindtolaunch refused",
+  "\\[Ghoster\\] Vessel ghosted: pid=1871615455 ",
+  "Stripping orphaned spawned vessel 'rover fuel 0'",
+  "Chain tip spawn blocked by collision: #[0-9]+ \"rover fuel 0\"",
+  "Chain tip spawn failed: #[0-9]+ \"rover fuel 0\"",
+  "SpawnAtChainTip: spawn path returned pid=0",
+  "Spawn RETIRED",
+  "Spawn ABANDONED",
+  "Spawn FAILED",
+  "Chain tip spawn: pid=1871615455 [\\s\\S]*Chain tip spawn: pid=1871615455 ",
+]
+
+[runtime]
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

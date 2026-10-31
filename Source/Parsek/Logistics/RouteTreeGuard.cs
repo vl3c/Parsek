@@ -100,6 +100,50 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// TRUE when <paramref name="m"/>'s loop unit spans <paramref name="treeId"/>: its own
+        /// tree, or the foreign tree of an included partner journey (a dock / board link,
+        /// <see cref="MissionStore.ComputeSpannedTreeIds"/>). The loop-unit builder merges
+        /// those foreign recordings into the mission's unit, so a mission spanning a
+        /// route-bound tree claims recordings the route also replays (todo
+        /// ROUTE-LOOP-AND-PARTNER-JOURNEY-CLAIM-THE-SAME-RECORDINGS).
+        /// </summary>
+        internal static bool MissionSpansTree(Mission m, string treeId, IReadOnlyList<RecordingTree> trees)
+        {
+            if (m == null || string.IsNullOrEmpty(treeId))
+                return false;
+            if (string.Equals(m.TreeId, treeId, StringComparison.Ordinal))
+                return true;
+            if (m.IncludedForeignDockLinkIds == null || m.IncludedForeignDockLinkIds.Count == 0)
+                return false;
+            return MissionStore.ComputeSpannedTreeIds(m, trees).Contains(treeId);
+        }
+
+        /// <summary>
+        /// The mission-level binding the Missions window reads: the route binding the
+        /// mission's own tree, else the route binding the foreign tree of one of its included
+        /// partner journeys. FALSE (route null) when no spanned tree is bound.
+        /// </summary>
+        internal static bool RouteBindingForMission(Mission m, IReadOnlyList<RecordingTree> trees, out Route route)
+        {
+            route = null;
+            if (m == null)
+                return false;
+            if (RouteBindingFor(m.TreeId, out route))
+                return true;
+            if (m.IncludedForeignDockLinkIds == null || m.IncludedForeignDockLinkIds.Count == 0)
+                return false;
+            foreach (string spanned in MissionStore.ComputeSpannedTreeIds(m, trees))
+            {
+                if (string.Equals(spanned, m.TreeId, StringComparison.Ordinal))
+                    continue;
+                if (RouteBindingFor(spanned, out route))
+                    return true;
+            }
+            route = null;
+            return false;
+        }
+
+        /// <summary>
         /// All distinct tree ids currently bound by a committed route in a
         /// <see cref="RouteStatusPolicy.BindsTree"/> status. Used by the
         /// load-time reconcile pass and tests. Order is route-list /
@@ -184,7 +228,10 @@ namespace Parsek.Logistics
                     Mission m = missions[i];
                     if (m == null || !m.LoopPlayback)
                         continue;
-                    if (!string.Equals(m.TreeId, treeId, StringComparison.Ordinal))
+                    // A mission spans its own tree plus the foreign tree of every included
+                    // partner journey; a loop on any spanned tree plays the route's
+                    // recordings on a second clock, so it is cleared too.
+                    if (!MissionSpansTree(m, treeId, RecordingStore.CommittedTrees))
                         continue;
                     (toClear ?? (toClear = new List<Mission>())).Add(m);
                 }

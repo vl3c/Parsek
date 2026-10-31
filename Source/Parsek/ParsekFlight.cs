@@ -1387,6 +1387,7 @@ namespace Parsek
             GameEvents.onGroundSciencePartRemoved.Add(OnGroundSciencePartRemoved);
             GameEvents.onNewVesselCreated.Add(OnNewVesselCreatedForGroundPart);
             GameEvents.onDeployGroundPart.Add(OnDeployGroundPart);
+            GameEvents.onEditorPartEvent.Add(OnEditorPartEventForConstructionDrop);
             GameEvents.onModuleInventorySlotChanged.Add(OnModuleInventorySlotChanged);
             GameEvents.OnEVAConstructionModePartAttached.Add(OnEvaConstructionPartAttached);
             GameEvents.OnEVAConstructionModePartDetached.Add(OnEvaConstructionPartDetached);
@@ -2443,6 +2444,7 @@ namespace Parsek
             GameEvents.onGroundSciencePartRemoved.Remove(OnGroundSciencePartRemoved);
             GameEvents.onNewVesselCreated.Remove(OnNewVesselCreatedForGroundPart);
             GameEvents.onDeployGroundPart.Remove(OnDeployGroundPart);
+            GameEvents.onEditorPartEvent.Remove(OnEditorPartEventForConstructionDrop);
             GameEvents.onModuleInventorySlotChanged.Remove(OnModuleInventorySlotChanged);
             GameEvents.OnEVAConstructionModePartAttached.Remove(OnEvaConstructionPartAttached);
             GameEvents.OnEVAConstructionModePartDetached.Remove(OnEvaConstructionPartDetached);

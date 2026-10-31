@@ -2563,7 +2563,7 @@ namespace Parsek
                         // SECOND path that can take another mission's loop, so it gets the same
                         // T1.6 snapshot + on-screen announcement as the Loop toggle - a loop
                         // moving silently here is the exact symptom T1.6 removed.
-                        if (toggled && mission.LoopPlayback)
+                        if (toggled && mission.LoopPlayback && !YieldLoopToPartnerRoute(mission, link))
                         {
                             List<Mission> wereLooping = SnapshotOtherLoopingMissions(mission);
                             MissionStore.ClearLoopsConflictingWith(mission,
@@ -3114,7 +3114,8 @@ namespace Parsek
             MissionPeriodicityDisplay periodicity, MissionPresentation.MissionSummaryFacts summary)
         {
             bool loopAuthoring = ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode);
-            bool missionRouteBound = RouteTreeGuard.RouteBindingFor(mission.TreeId, out Route bindingRoute);
+            bool missionRouteBound = RouteTreeGuard.RouteBindingForMission(
+                mission, RecordingStore.CommittedTrees, out Route bindingRoute);
 
             GUILayout.BeginHorizontal(GUILayout.ExpandWidth(true));
             DrawMissionSummaryCell(mission, periodicity, summary, loopAuthoring);
@@ -3249,6 +3250,24 @@ namespace Parsek
         // mission). The loop row draws the route label instead of calling this, but the
         // GUI.enabled wrap and the belt-and-suspenders commit guard (CommitMissionLoopToggle)
         // stay, so no layout refactor can let a turn-ON reach MissionStore.SetLoopEnabled.
+        /// <summary>
+        /// Including a partner journey whose foreign tree is a supply route widens the mission
+        /// onto recordings the route owns (design 0.6), so the mission's own loop goes, the way
+        /// a Create Route takes over a looping mission. TRUE when it turned the loop off.
+        /// </summary>
+        private static bool YieldLoopToPartnerRoute(Mission mission, ForeignDockLink link)
+        {
+            if (!RouteTreeGuard.IsTreeBoundToActiveRoute(link.ForeignTreeId))
+                return false;
+            MissionStore.SetLoopEnabled(mission, false, Planetarium.GetUniversalTime());
+            ParsekLog.ScreenMessage(
+                LogisticsCreatePresentation.FormatMissionNowRepeatsOnRouteToast(mission.Name), 5f);
+            ParsekLog.Info("Mission",
+                $"Mission '{mission.Name}' loop turned off: included partner journey link={link.LinkId} " +
+                $"spans route-bound tree={link.ForeignTreeId} (toast posted)");
+            return true;
+        }
+
         private void DrawMissionLoopToggle(Mission mission, bool missionRouteBound, Route bindingRoute)
         {
             bool prevGuiEnabled = GUI.enabled;
@@ -3734,7 +3753,8 @@ namespace Parsek
             bool inFlight = parentUI.InFlightMode;
             bool warpScene = inFlight || HighLogic.LoadedScene == GameScenes.SPACECENTER;
             bool looping = mission != null && mission.LoopPlayback;
-            bool routeBound = mission != null && RouteTreeGuard.RouteBindingFor(mission.TreeId, out _);
+            bool routeBound = mission != null
+                && RouteTreeGuard.RouteBindingForMission(mission, RecordingStore.CommittedTrees, out _);
 
             double now = periodicity.Solved ? periodicity.NowUT : Planetarium.GetUniversalTime();
             bool actionable = warpScene && ShouldEnableWarpToWindow(

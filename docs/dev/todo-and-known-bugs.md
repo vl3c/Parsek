@@ -4930,7 +4930,29 @@ The live proof, lane RC-5, is not flown.
 
 ---
 
-## EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; LIVE-PROVEN by EVA-11 `2026-10-15_2343`. FOREIGN EVA KERBAL HALF FIXED 2026-10-23, branch `claude/project-thread-y4esmb`; xUnit; LIVE-PROVEN by EVA-12 `2026-10-23_2257`. KSC-retirement side note FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit. Still open: a part detached and dropped on the ground]
+## ~~EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED: a part attached to or detached from a foreign vessel in EVA construction, or moved with a foreign EVA kerbal's inventory, is not recorded~~ [FILED 2026-10-15 from the EVA-INVENTORY-MOVE-TO-FOREIGN-VESSEL-UNCLAIMED fix, by code reading. CONSTRUCTION HALF FIXED 2026-10-15, branch `claude/ruled-correctness-fixes-yjvz1e`; LIVE-PROVEN by EVA-11 `2026-10-15_2343`. FOREIGN EVA KERBAL HALF FIXED 2026-10-23, branch `claude/project-thread-y4esmb`; xUnit; LIVE-PROVEN by EVA-12 `2026-10-23_2257`. KSC-retirement side note FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit. Detach-then-drop half FIXED 2026-10-31, branch `claude/project-thread-ucsdk0`, xUnit; lane EVA-16 not flown]
+
+**Detach-then-drop half FIXED 2026-10-31** (branch `claude/project-thread-ucsdk0`). Decompiled KSP
+1.12.5: a held construction part is set down only by `EVAConstructionModeEditor.DropAttachablePart`
+(the drop click, and `ForceDrop` when the panel closes or construction mode ends with a part held),
+which builds a single-part `DroppedPart` ProtoVessel, loads it through `Game.AddVessel` (firing
+`onNewVesselCreated`) and then fires `onEditorPartEvent(PartDropped, heldPart)` in the same call; no
+other path fires `PartDropped`. The gap was wider than the foreign case: a part dropped from the
+kerbal's own inventory, or detached from his own lander and dropped, was not recorded either. Fix:
+`ParsekFlight.OnEditorPartEventForConstructionDrop` routes `PartDropped` into the inventory ground
+placement's own path (`RecordGroundPartPlacement`, `GroundPartPlacementSource.ConstructionDrop`): the
+same gate, the same `GroundPartPlaced` member one frame later, the same `InventoryPartPlaced` event,
+the source named on the lines (`source=construction-drop`, `via onEditorPartEvent(PartDropped)`). A
+dropped member picked back up in construction mode ends `Disassembled` through the existing pocket
+seam. Cells in `GroundPartPlacementTests` (`IsConstructionDropSignal_*`, `EvaluatePlacement_Construction*`,
+`AttachMember_ConstructionDrop_*`, the detected / skip formats, the subscription wiring). Seam
+`EvaGroundScience action=detach ... then=drop` (`TestCommandEvaConstructionTests`) and lane
+`EVA-16-construction-drop-foreign-part` on `eva-construct-pad` (one panel off the rover, dropped,
+commit, Rewind-to-Launch, flight reload: the rover tip spawns with 15 parts and the panel spawns at
+its own end); live proof owed to its first flight. Not covered, by code read: a loose `DroppedPart`
+vessel of ANOTHER flight picked up in construction mode dies unrecorded (the pocket seam reads only
+this tree's members), so after a rewind the old loose part is back beside whatever the pick-up made
+of it; filed below as CONSTRUCTION-PICKUP-OF-FOREIGN-LOOSE-PART-UNCLAIMED.
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): the unfixed half (a part detached
 from a foreign vessel and then dropped) is still real, low: only attach and detach are handled
@@ -5053,9 +5075,38 @@ its start-situation arm: only the spawn form counts, so a recording that ends as
 exempted), re-checked after a dropped snapshot is re-hydrated from its sidecar. EVA-12 parks its
 kerbals 153 m from the pad, so no committed lane exercises the circle with such a kerbal.
 
+
 ---
 
-## TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness. Fresh-branch promotion residue FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit. Decoupled-converter missed trim FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit. Background-leg item CLOSED 2026-10-07, branch `release-rulings`, by the converter-event witness. Supply-route item CLOSED 2026-10-07, branch `chain-tip-cargo-all-spawns`, by END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO (owner ruling: trimming stays)]
+## CONSTRUCTION-PICKUP-OF-FOREIGN-LOOSE-PART-UNCLAIMED: a loose part of another flight picked up in EVA construction dies unrecorded [FILED 2026-10-31 from the EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED drop fix, branch `claude/project-thread-ucsdk0`, by code read; not reproduced. OPEN, product, low]
+
+`EVAConstructionModeEditor.PickupPart` (decompiled KSP 1.12.5) takes a part of a `DroppedPart` /
+`Debris` vessel into the kerbal's hand and calls `vessel.Die()` on its vessel. When that vessel is a
+member of the recording tree the pocket seam stamps it `Disassembled` (`TryStampDisassembledTerminal`,
+which reads only `activeTree.BackgroundMap`). When it is not (a loose part an EARLIER flight dropped
+or left, or one that was never recorded), nothing records the death, while the kerbal's side of the
+pick-up is recorded (the part he then stores, attaches or drops). After a Rewind-to-Launch to before
+the pick-up the rewind save still holds the old loose part, and the replay brings the part back a
+second time (in his inventory, on the vessel he attached it to, or as the new dropped member):
+duplicated. Fix sketch: at the pocket seam, when the dying vessel is a real, non-ghost vessel outside
+the tree, adopt it as an `InventoryTransfer` member of the kerbal (as `ForeignInventoryTransfer` does)
+with its snapshot and stamp it `Disassembled` at once, so the chain walker claims and ghosts the old
+loose part until the pick-up. Needs a lane reading first (the EVA-16 host with a committed earlier
+drop to pick up).
+---
+
+## ~~TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES: a tail-trimmed recording still hides resource changes it has no record of~~ [FILED 2026-10-06 from the TAIL-TRIM-KEEPS-COMMIT-SNAPSHOT fix, branch `release-cheap-fixes`, by code read. OPEN, product; needs a new witness. Fresh-branch promotion residue FIXED 2026-10-24, branch `claude/project-thread-u9w386`, xUnit. Decoupled-converter missed trim FIXED 2026-10-25, branch `claude/project-thread-re9fpq`, xUnit. On-rails-only converter residue CLOSED 2026-10-31, branch `claude/project-thread-ucsdk0`, by decompile: no defect. Background-leg item CLOSED 2026-10-07, branch `release-rulings`, by the converter-event witness. Supply-route item CLOSED 2026-10-07, branch `chain-tip-cargo-all-spawns`, by END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO (owner ruling: trimming stays)]
+
+**CLOSED 2026-10-31** (branch `claude/project-thread-ucsdk0`): the last open residue, a background
+vessel recorded only on rails with a converter running (no converter event, so its tail can trim),
+delivers nothing early. Decompiled KSP 1.12.5 `BaseConverter`: an unloaded vessel runs no converter;
+on load the converter catches up `now - lastUpdateTime` in slices from the `lastUpdateTime` its
+module snapshot persists (`OnSave` writes it, `OnLoad` reads it; `ConverterJumpPolicy` relies on the
+same fact). A vessel unloaded through the whole recording keeps its last loaded frame's resources and
+`lastUpdateTime` in the end snapshot, so a spawn at the trimmed end holds no production of the tail;
+that production arrives through the catch-up when the spawned vessel loads, the same total as
+without the trim. Every other item above is fixed, accepted or closed, so the entry closes. Stated
+in flight recorder design 'A converter on a background vessel recorded only on rails'.
 
 Re-checked 2026-10-24 on main b26cdc0 (release-readiness pass): still real, low. The witnesses are
 still a harvest window and a running converter (`RecordingOptimizer.TailTrim.cs`). The in-vessel
@@ -5317,7 +5368,7 @@ the inter-body fixture, for IC-1 / IC-3.
 
 ---
 
-## ROUTE-INTERACTION-SEAMS-TO-VERIFY: route interaction risks the code read raised but did not adjudicate [FILED 2026-10-06 from the integration-coverage research, branch `ccr-77f23eb2-dbqh6i`. OPEN, to verify]
+## ~~ROUTE-INTERACTION-SEAMS-TO-VERIFY: route interaction risks the code read raised but did not adjudicate~~ [FILED 2026-10-06 from the integration-coverage research, branch `ccr-77f23eb2-dbqh6i`. CLOSED 2026-10-31, branch `claude/project-thread-ucsdk0`: every item traced]
 
 Each item needs a trace (or a lane) before it is a defect or a non-issue; see
 `docs/dev/research/integration-coverage-gaps-2026-10-06.md` section 3.8.
@@ -5327,8 +5378,13 @@ Each item needs a trace (or a lane) before it is a defect or a non-issue; see
   cargo and the re-fired cycles are blocked while it is hidden: cargo created from nothing.
   FIXED 2026-10-07 (branch `fix-chain-tip-unpaid-route-cargo`): the tip's spawn copy drops the
   cargo of the crossings the rewind retired.
-- [ ] (Traced 2026-10-06, not adversarially verified: crossings while an endpoint is absent are BLOCKED with no catch-up - lost service, not lost cargo; see CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO.) Spawns are deferred until warp ends while routes keep ticking: a cycle crossing a
-  station's spawn UT during warp is held and its cargo lost.
+- [x] ~~Spawns are deferred until warp ends while routes keep ticking: a cycle crossing a
+  station's spawn UT during warp is held and its cargo lost.~~ No defect (re-traced 2026-10-31,
+  branch `claude/project-thread-ucsdk0`): an endpoint whose claim is still out
+  (`RouteEndpointChainHold.cs:80`, `SpawnPending || currentUT < SpawnUT`) makes the crossing
+  BLOCKED in `RouteOrchestrator` before any source debit, so nothing is taken from the origin and
+  nothing is lost; the crossing is lost service only, with no catch-up (the accepted ruling, see
+  CHAIN-TIP-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO).
 - [x] VERIFIED 2026-10-25 (branch `claude/project-thread-re9fpq`), filed as ROUTE-MULTISTOP-LATER-WINDOW-OVERFLOW
   (ACCEPTED as designed, owner ruling 2026-10-25). Multi-stop routes reserve no destination capacity between
   dispatch and a later window: the all-stops capacity gate runs at dispatch only (OQ4) and a
@@ -5344,10 +5400,27 @@ Each item needs a trace (or a lane) before it is a defect or a non-issue; see
   dock, the one-half end snapshot, a later rescue); live witness lane
   `CX-3-crew-swapped-into-station-at-dock`, LIVE-PROVEN 2026-10-24 (`2026-10-24_2319` PASS attempt 1:
   Jebediah read Aboard on the Station half, no death or permanent hold).
-- [ ] The Rewind Point quicksave is written one frame after the split: a route crossing at
-  exactly a staging event against the strict-after-cutoff retire.
-- [ ] A route loop unit and a foreign Mission partner journey can claim the same recordings;
-  only a Warn is logged.
+- [x] ~~The Rewind Point quicksave is written one frame after the split: a route crossing at
+  exactly a staging event against the strict-after-cutoff retire.~~ No defect (traced
+  2026-10-31, branch `claude/project-thread-ucsdk0`): the retire cutoff is not the RP's UT but
+  the live UT right after the quicksave loads (`RewindInvoker.cs:1151`, `rp.UT` only as a
+  fallback), and the retire is strict (`RouteEventRetire.ShouldRetireAtRewind`, `e.UT > cutoffUT`).
+  A crossing in the one frame between the split and the deferred save ran in `Update` before the
+  save coroutine resumed, so the save holds its cargo and its event, and the event sits at or
+  before the cutoff: kept, never re-fired.
+- [x] ~~A route loop unit and a foreign Mission partner journey can claim the same recordings;
+  only a Warn is logged.~~ FIXED 2026-10-31 (branch `claude/project-thread-ucsdk0`). Real, display
+  only: a mission on a partner tree that included a partner journey into a route-bound tree
+  looped those recordings itself, so the docked stretch played twice on two clocks
+  (`MissionLoopUnitBuilder` kept the first claimant and warned). A route now owns every mission
+  that spans its tree, not only the mission on the tree itself (`RouteTreeGuard.MissionSpansTree`):
+  Create Route and the load reconcile clear such a mission's loop (`ForceClearManualLoopForRouteTree`),
+  the Missions window reads the binding at mission level (`RouteBindingForMission`, both the loop
+  cell and the warp-to-window gate) so the loop toggle is greyed with the existing "looped by
+  route" label, and including a partner journey into a route-bound tree on a looping mission turns
+  that mission's loop off with the existing "now repeats only on this route's schedule" toast.
+  Cells in `RouteTreeGuardTests` (span predicate, force-clear through the link, no clear without
+  it, mission-level binding, own-tree route wins, the two UI call sites).
 - [x] ~~A ghost CommNet relay serving a station drops out during Re-Fly suppression or when its
   spawn is abandoned (`GhostCommNet.cs` around 741-770).~~ By design (GC-14 trace 2026-10-24): the
   re-flown vessel carries its own node, and an abandoned spawn means the vessel never exists.
