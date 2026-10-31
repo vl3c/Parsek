@@ -916,9 +916,12 @@ Verbose summary of the rows it kept. A `cost=`-only row is repaired as before. T
 (`LegacyPartPurchaseLoadCompatibilityTests`): `LoadRepair_CurrentRecorderRowUnderAStrategyDiscount_KeepsTheGrossCost`
 (the RW-23 shape: 0 events and 0 actions repaired, the row stays 1200),
 `IsCurrentRecorderPartPurchaseDetail_Cases`; mutation-checked (dropping both gates reds the headline).
-Live proof owed: RW-23's re-flight with no `repaired legacy R&D part-purchase` line.
+LIVE-PROVEN by RW-23's re-flight `2026-10-31_1836` (PASS attempt 1, DLL e9e5b38e, main a56d8284e): no
+`repaired legacy R&D part-purchase` line, `RepairLegacyPartPurchaseEvents: kept 1 current-recorder
+PartPurchased row(s) as recorded ... repaired=0` on every cold load of the batch, no adjustment, no
+guard clamp, LedgerGroundTruth `hardFailures=0 reportOnly=0`.
 
-## ~~STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED: a strategy discount on a part purchase, a repair or a contract penalty has no ledger leg, so a rewind and a repeat pays it twice~~ [FILED AND FIXED 2026-10-28 from code reading plus the stock `Strategies.cfg`, branch `fix-strategy-gross-legs`; repair LIVE-PROVEN by RW-9, purchase flown by RW-23 and red only on LEGACY-PART-PURCHASE-REPAIR-NETS-A-DISCOUNTED-PURCHASE; product, medium (a discount credited twice, breaking "nothing is paid twice")]
+## ~~STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED: a strategy discount on a part purchase, a repair or a contract penalty has no ledger leg, so a rewind and a repeat pays it twice~~ [FILED AND FIXED 2026-10-28 from code reading plus the stock `Strategies.cfg`, branch `fix-strategy-gross-legs`; repair LIVE-PROVEN by RW-9, purchase LIVE-PROVEN by RW-23 (`2026-10-31_1836`); product, medium (a discount credited twice, breaking "nothing is paid twice")]
 
 Stock `AgressiveNegotiations` multiplies funds under `VesselRollout` / `RnDPartPurchase` (0.70 at
 full commitment) and `StructureRepair` / `StructureConstruction` (0.99) and adds -1..-6
@@ -988,11 +991,11 @@ the original repair (155591.16 funds / 97.96 rep), no StockPoolAdjustment, no GU
 PASS. Its first flights found REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE.
 
 **Lane, part-purchase path (2026-10-31, branch `lanes-strategy-purchase-and-refly-recovery`).**
-`RW-23-strategy-part-purchase-rebuy`, FLOWN 2026-10-31, RED BY FINDING: `2026-10-31_1802` PARSEK-FAIL on
-the two forbidden lines only, the cold load in its check filed as
-LEGACY-PART-PURCHASE-REPAIR-NETS-A-DISCOUNTED-PURCHASE; every required line matched, so this fix
-holds through the purchase (gross 1200, legs +18 and -1.25, no reconcile), the refused re-buy, the
-crossing (`added=1`, the pools equal) and LedgerGroundTruth 3/3. The first run was INVALID twice on
+`RW-23-strategy-part-purchase-rebuy`, LIVE-PROVEN `2026-10-31_1836` PASS attempt 1 (138 s, DLL e9e5b38e): the
+purchase (gross 1200, legs +18 and -1.25, no reconcile), the refused re-buy, the crossing (`added=1`,
+pools 503000 / 95 / 104.22 before the rewind and after it) and LedgerGroundTruth 3/3 `hardFailures=0
+reportOnly=0`. `2026-10-31_1802` was PARSEK-FAIL on the two forbidden lines only, the cold load in its
+check, filed and fixed as LEGACY-PART-PURCHASE-REPAIR-NETS-A-DISCOUNTED-PURCHASE. The first run was INVALID twice on
 `warp-locked holders=MissionSummaryDialog`, so V leaves through ExitToSpaceCenter and KscMarkerRecover
 (RW-18's shape). The host gap RW-9 named is closed by a
 new derived fixture, `career-pad-craft-purchase` (`harness/tools/build_career_pad_craft_purchase.py`:

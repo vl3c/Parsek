@@ -69,15 +69,16 @@ id = "RW-23-strategy-part-purchase-rebuy"
 #   - the pools after the crossing differ by the leg's size (about 18 funds or 1.25 rep): the
 #     leg paid twice or not at all at the crossing.
 #
-# STATUS: AUTHORED 2026-10-31 (branch `lanes-strategy-purchase-and-refly-recovery`). FLOWN
-# 2026-10-31, RED BY FINDING, DLL 0f3473d4. First run (INVALID twice, `warp-locked
+# STATUS: AUTHORED 2026-10-31 (branch `lanes-strategy-purchase-and-refly-recovery`). LIVE-PROVEN
+# 2026-10-31 `2026-10-31_1836` PASS attempt 1 (138 s, DLL e9e5b38e, main a56d8284e), on the fix
+# of LEGACY-PART-PURCHASE-REPAIR-NETS-A-DISCOUNTED-PURCHASE.
+# Earlier flights on DLL 0f3473d4: the first run (INVALID twice, `warp-locked
 # holders=MissionSummaryDialog` after the in-flight Recover): V now leaves through
 # ExitToSpaceCenter and KscMarkerRecover. Then `2026-10-31_1802` PARSEK-FAIL on the two
 # forbidden lines only, and every required line matched: gross 1200, legs +18 and -1.25, the
 # re-buy refused, the part marked once, the pools equal, LedgerGroundTruth 3/3. The red is
-# LEGACY-PART-PURCHASE-REPAIR-NETS-A-DISCOUNTED-PURCHASE: the batch's cold load rewrites the
-# 1200 row to 1182 under the +18 leg and files -18. The lane stays as it is and goes green
-# when that is fixed.
+# LEGACY-PART-PURCHASE-REPAIR-NETS-A-DISCOUNTED-PURCHASE: the batch's cold load rewrote the
+# 1200 row to 1182 under the +18 leg and filed -18. The spec did not change for the fix.
 # =====================================================================================
 tier = "operator"
 description = "Rewind ledger campaign, strategy discount on a part purchase (#2313): on career-pad-craft-purchase (entry purchases on, reputation 120) Aggressive Negotiations is activated and basicRocketry researched, a pad Flea V is recorded, committed and recovered, the RT-10 Hammer is bought at UT 200 with the strategy's discount, a Rewind-to-Launch to V's launch refuses a second purchase as committed, and the warp past the purchase applies it and its conversion legs once: the pools after the crossing equal the pools after the original purchase, with no pool adjustment and no guard clamp; LedgerGroundTruth closes the career."
