@@ -248,7 +248,20 @@ namespace Parsek
         /// Explicitly numbered and append-only; an older build reads it as an unknown type
         /// (Warn) and loses the credit there.
         /// </summary>
-        ContractParameterComplete = 40
+        ContractParameterComplete = 40,
+
+        /// <summary>
+        /// The player dismissed a crew member at the Astronaut Complex (stock
+        /// <c>KerbalRoster.SackAvailable</c>: the kerbal becomes an applicant; owner ruling
+        /// 2026-10-28, design section 9.12.1, todo KERBAL-DISMISSAL-ON-THE-TIMELINE). Carries
+        /// <see cref="GameAction.KerbalName"/> and <see cref="GameAction.KerbalRole"/>. A Space
+        /// Center row (untagged). Moves no pool: once the clock reaches it the kerbal is put
+        /// back among the applicants once (<c>KerbalsModule.ApplyReachedCommittedDismissals</c>),
+        /// and before it he is refused every crew seat and a second dismissal. Never retired by
+        /// a Re-Fly (no recording owns it). Explicitly numbered and append-only; an older build
+        /// reads it as an unknown type (Warn) and loses only the roster change there.
+        /// </summary>
+        KerbalDismissal = 41
     }
 
     /// <summary>
@@ -1371,6 +1384,9 @@ namespace Parsek
                 case GameActionType.KerbalHire:
                     SerializeKerbalHire(node);
                     break;
+                case GameActionType.KerbalDismissal:
+                    SerializeKerbalDismissal(node);
+                    break;
                 case GameActionType.KerbalRescue:
                     SerializeKerbalRescue(node);
                     break;
@@ -1534,6 +1550,9 @@ namespace Parsek
                     break;
                 case GameActionType.KerbalHire:
                     DeserializeKerbalHire(node, a);
+                    break;
+                case GameActionType.KerbalDismissal:
+                    DeserializeKerbalDismissal(node, a);
                     break;
                 case GameActionType.KerbalRescue:
                     DeserializeKerbalRescue(node, a);
@@ -2047,6 +2066,18 @@ namespace Parsek
             a.KerbalName = n.GetValue("kerbalName");
             a.KerbalRole = n.GetValue("kerbalRole");
             TryParseFloat(n, "hireCost", out a.HireCost);
+        }
+
+        private void SerializeKerbalDismissal(ConfigNode n)
+        {
+            if (KerbalName != null) n.AddValue("kerbalName", KerbalName);
+            if (KerbalRole != null) n.AddValue("kerbalRole", KerbalRole);
+        }
+
+        private static void DeserializeKerbalDismissal(ConfigNode n, GameAction a)
+        {
+            a.KerbalName = n.GetValue("kerbalName");
+            a.KerbalRole = n.GetValue("kerbalRole");
         }
 
         private void SerializeKerbalRescue(ConfigNode n)

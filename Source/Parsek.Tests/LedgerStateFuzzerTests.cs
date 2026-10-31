@@ -1037,6 +1037,8 @@ namespace Parsek.Tests
                     break;
                 case GameActionType.KerbalRescue:
                 case GameActionType.KerbalStandIn:
+                // KerbalDismissal: the fired kerbal (name and role) is the row's payload.
+                case GameActionType.KerbalDismissal:
                 // KerbalRecovered: the recovered kerbal (owner name) is the row's payload;
                 // its RecordingId comes from the skeleton.
                 case GameActionType.KerbalRecovered:

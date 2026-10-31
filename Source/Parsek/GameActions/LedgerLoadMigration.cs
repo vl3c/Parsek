@@ -281,6 +281,8 @@ namespace Parsek
                 case GameActionType.KerbalAssignment:
                 case GameActionType.KerbalRescue:
                 case GameActionType.KerbalStandIn:
+                // KerbalDismissal is a roster change; no pool moves.
+                case GameActionType.KerbalDismissal:
                 // KerbalRecovered bounds a crew reservation; no pool moves.
                 case GameActionType.KerbalRecovered:
                 // VesselRecovered is spawn evidence only; no pool moves.

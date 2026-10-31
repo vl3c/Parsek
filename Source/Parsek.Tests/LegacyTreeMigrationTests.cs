@@ -67,6 +67,7 @@ namespace Parsek.Tests
         [InlineData(GameActionType.StrategyActivate,     true)]
         [InlineData(GameActionType.KerbalAssignment,     false)]
         [InlineData(GameActionType.KerbalRescue,         false)]
+        [InlineData(GameActionType.KerbalDismissal,      false)]
         [InlineData(GameActionType.KerbalStandIn,        false)]
         [InlineData(GameActionType.FacilityDestruction,  false)]
         [InlineData(GameActionType.StrategyDeactivate,   false)]

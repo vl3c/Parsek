@@ -37,19 +37,15 @@ id = "RW-20-strategy-and-deadline-after-rewind"
 # `Game state: ContractFailed` in the whole run). The refusal stays L12's, for the path where stock
 # gets there first. This lane gates what a player sees: no second fail, no second penalty.
 #
-# KNOWN GAP, filed as CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE, not gated here: after the
-# crossing the contract is in neither stock list, where before the rewind it was DeadlineExpired.
-#
 # THE WARP'S OWN WORLD-FIRST. An unowned Mun debris piece reaches the Sun on rails near UT 432000
 # and stock pays Kerbin's career `Sun/Flyby` (+38000, +2 science, +4 rep) on the way to the deadline.
 # The row is the lane's own, unplanned, and which side of it the second warp lands on is a matter of
 # warp steps: before it, stock's repeat is the earlier credit (`_0256`); after it, stock's repeat is
 # a duplicate and is taken back once (`_0307`). The second order found the defect below.
 #
-# STATUS: AUTHORED 2026-10-31 (branch `rw20-strategy-deadline`), RED ON A REAL DEFECT, not green:
-# `2026-10-31_0307` PARSEK-FAIL, todo TAKE-BACK-REFIRES-AFTER-EVERY-LOAD. Every pin but the forbidden
-# take-back, adjustment and clamp lines held. `_0256` PARSEK-FAIL on a pin the plan got wrong, fixed.
-# Re-fly when the todo is fixed; the recordings count and the batch split are interim until then.
+# STATUS: AUTHORED 2026-10-31 (branch `rw20-strategy-deadline`). Flown red twice before the fixes:
+# `2026-10-31_0256` found CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE and `2026-10-31_0307` found
+# TAKE-BACK-REFIRES-AFTER-EVERY-LOAD, both fixed on PR #2334.
 # =====================================================================================
 tier = "operator"
 description = "Rewind ledger campaign, a committed strategy and a contract deadline after a rewind (plan row 19): on cs-career-mun4 a committed pad Flea, a strategy activated at the Space Center and a real contract deadline passed by warp, then a Rewind-to-Launch before both: activating the same strategy is refused, the committed fail applies once when the clock passes the deadline again, the pools end where the rewind began and LedgerGroundTruth closes the career."
@@ -159,7 +155,12 @@ forbidden = [
   "GUARDED (?:UPLIFT|DRAWDOWN) clamped",
   "filed StockPoolAdjustment amount=",
   "invokerewindtolaunch refused",
-  "\\[TakeBack\\] Took back ",
+  # ---- a repeat of the warp's own world-first may be taken back, once per pool, never again ----
+  "Took back \\S+ Funds [\\s\\S]*Took back \\S+ Funds ",
+  "Took back \\S+ Science [\\s\\S]*Took back \\S+ Science ",
+  "Took back \\S+ Reputation [\\s\\S]*Took back \\S+ Reputation ",
+  "Refused a second take-back",
+  "take-back found no stock payment",
   "take-back shortfall",
   "Game state: ContractCompleted ",
   # ---- no second stock fail after the rewind, and no second activation ----

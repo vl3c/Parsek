@@ -610,6 +610,12 @@ the updates below record how each verb arrived.
 > (RW-11). Candidates come from `ModuleParachute` modules only; a named part carrying none refuses
 > `partaction-parachute-not-found`. Contract below (`#### PartAction`).
 
+> Update (PartAction runtest, 2026-10-31): no new verb. `PartAction` gains `button=runtest`
+> (REQUIRES `part=`): a test subject's "Run Test", the `RunTestEvent` `KSPEvent` of
+> `ModuleTestSubject`, live only while an accepted part-test contract has the part under test.
+> It completes such a contract on the pad without lighting the engine (RW-17). A generic
+> button: the ordinary event lookup finds it, and no live button refuses `event-unavailable`.
+
 > Update (PartAction explode, 2026-10-28): no new verb. `PartAction` gains `button=explode`
 > (REQUIRES `part=`, no `all=true`: `partaction-all-arg-unexpected`): stock's `Part.explode()` on the
 > one part carrying the name (explosion FX, then `Die()`, so `onPartDie` and, for a crewed part,

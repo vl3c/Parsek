@@ -195,6 +195,9 @@ namespace Parsek
                 case CommittedFutureKind.KerbalHire:
                     return StockUiReservationPredicates.IsKerbalHireBlocked(index, key, currentUT)
                         ? "Hire in the Astronaut Complex" : null;
+                case CommittedFutureKind.KerbalDismissal:
+                    return StockUiReservationPredicates.IsKerbalDismissalPending(index, key, currentUT)
+                        ? "Dismiss and crew assignment for this kerbal" : null;
                 case CommittedFutureKind.StrategyActivate:
                 {
                     // Stock offers Activate on an inactive strategy and Deactivate on an
@@ -476,11 +479,12 @@ namespace Parsek
         }
 
         /// <summary>
-        /// A dismissal timeline makes later (<c>CrewRemoved</c>). Worded "Dismissed", not
-        /// "Retired": the Kerbals window's <c>Retired</c> is a stand-in whose seat went back
-        /// to its owner, a different state.
+        /// A dismissal timeline makes later (a <c>KerbalDismissal</c> row, design section
+        /// 9.12.1): <c>Dismissed on DATE</c>. Worded "Dismissed", not "Retired": the Kerbals
+        /// window's <c>Retired</c> is a stand-in whose seat went back to its owner, a
+        /// different state.
         /// </summary>
-        internal static ReservationText KerbalRetire(CommittedFutureEntry entry, Func<double, string> formatDate)
+        internal static ReservationText KerbalDismissal(CommittedFutureEntry entry, Func<double, string> formatDate)
         {
             return Dated("Dismissed", entry != null ? entry.UT : 0.0, formatDate);
         }
