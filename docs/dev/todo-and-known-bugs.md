@@ -612,13 +612,33 @@ orders through the walk), `ResolveScienceRowUt_Cases`, `IsScienceCaptureAfterWin
 re-pinned the two `PendingScienceSubjectsClearTests` BugACredit cells. Older rows are not
 migrated.
 
-## EARNINGS-RECONCILIATION-BLIND-SPOTS: the commit's store-vs-ledger earnings check misreads two row kinds [FILED 2026-10-28 from log mining; diagnostic only, NOT FIXED; low]
+## ~~EARNINGS-RECONCILIATION-BLIND-SPOTS: the commit's store-vs-ledger earnings check misreads two row kinds~~ [FILED 2026-10-28 from log mining; diagnostic only. FIXED 2026-10-31, branch `fix-eva-subsurface-and-cleanups`; low]
 
 `Earnings reconciliation: store delta vs ledger delta` fired 48 times in 36 archived runs. Every
 pool ended right except two cases already fixed (CS-3's contract parameter reward; WF-1's re-earned
 world-first, #2281). The rest are comparison blind spots: a record bonus that falls inside the
 reputation seed reads 0, and strategy bonus rows are outside the commit's new rows. Close both so
 the line reds only on a real gap.
+
+Fix. Both on the emitted side of `LedgerOrchestrator.ReconcileEarningsWindow`; no ledger value
+moves. (1) A reputation row inside the seed (`ReputationSeedMembership.ShouldSkipAsInsideSeed`)
+has its `EffectiveRep` zeroed by the walk while its event is still on the store side, so its
+rep leg is now `EstimateInsideSeedRowRep`: the row's own nominal (`ResolveInsideSeedRepNominal`,
+mirroring each `ReputationModule` arm and its `Effective` gates; the three pre-curved penalty
+sources pass through) through `ReputationModule.ApplyReputationCurve` at stock's pool at the
+row's UT, read off the store's in-scope `ReputationChanged` events (`ResolveStoreRepPoolAtUT`).
+(2) `AppendInWindowStrategyConversionRows` folds the ledger's strategy conversion rows
+(`IsStrategyConversionRow`) into the walk under the store side's own scope and window rule (the
+commit's tag, a tagged row counted past the window end; every row in the window when unscoped),
+skipping any row the commit's new rows already carry. One Verbose summary line counts both.
+Tests (`EarningsReconciliationTests`): `Reconcile_RecordBonusInsideReputationSeed_NoRepWarn`,
+`Reconcile_InsideSeedRowWithARealGap_StillWarns`,
+`EstimateInsideSeedRowRep_CurvesAtTheStorePoolAndPassesPreCurvedThrough`,
+`ResolveStoreRepPoolAtUT_ReadsOnlyInScopeInWindowEvents`,
+`Reconcile_StrategyConversionRowInLedgerInsideWindow_NoFundsWarn`,
+`Reconcile_StrategyConversionRowOfAnotherRecording_IsNotFolded`,
+`AppendInWindowStrategyConversionRows_ScopeWindowAndNoDoubleCount`. The archived-run count (48
+lines in 36 runs) needs a re-mine on a build carrying this to confirm what is left is real.
 
 ## REFLY-RETIREMENT-LEFTOVERS: an unused classifier and a stale guard comment [FILED 2026-10-28 from the gap sweep claim 2; cleanup, NOT FIXED; trivial]
 

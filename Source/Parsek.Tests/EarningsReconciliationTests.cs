@@ -4381,5 +4381,265 @@ namespace Parsek.Tests
                           "and 1 KerbalDeath penalty row(s)"));
         }
 
+        // ---- EARNINGS-RECONCILIATION-BLIND-SPOTS ----
+
+        private static GameStateEvent MakeRepEvent(double ut, double before, double after, string recordingId)
+        {
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.ReputationChanged,
+                key = "Progression",
+                valueBefore = before,
+                valueAfter = after,
+                recordingId = recordingId
+            };
+        }
+
+        private static GameAction MakeInsideSeedRecordMilestone(double ut, float rep, string recordingId)
+        {
+            // The walk zeroes an inside-seed row's EffectiveRep (ReputationModule).
+            return new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "RecordsAltitude",
+                RecordingId = recordingId,
+                MilestoneRepAwarded = rep,
+                InsideReputationSeed = true,
+                EffectiveRep = 0f
+            };
+        }
+
+        [Fact]
+        public void Reconcile_RecordBonusInsideReputationSeed_NoRepWarn()
+        {
+            // First commit on a save Parsek met mid-career: the seed was read off the live
+            // pool, which already holds the record bonus, so the row is inside the seed.
+            float pool = 120f;
+            float moved = ReputationModule.ApplyReputationCurve(4f, pool).actualDelta;
+            var events = new List<GameStateEvent> { MakeRepEvent(150, pool, pool + moved, "rec-seed") };
+            var newActions = new List<GameAction> { MakeInsideSeedRecordMilestone(150, 4f, "rec-seed") };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 100, endUT: 200, recordingId: "rec-seed");
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (rep)"));
+        }
+
+        [Fact]
+        public void Reconcile_InsideSeedRowWithARealGap_StillWarns()
+        {
+            // The store moved 12 rep, the inside-seed row accounts for 4 of it.
+            var events = new List<GameStateEvent> { MakeRepEvent(150, 50, 62, "rec-seed-gap") };
+            var newActions = new List<GameAction> { MakeInsideSeedRecordMilestone(150, 4f, "rec-seed-gap") };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 100, endUT: 200, recordingId: "rec-seed-gap");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("Earnings reconciliation (rep)")
+                && l.Contains("store delta=12.0"));
+        }
+
+        [Fact]
+        public void EstimateInsideSeedRowRep_CurvesAtTheStorePoolAndPassesPreCurvedThrough()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeRepEvent(140, 300, 310, "r"),
+                MakeRepEvent(150, 400, 403, "r"),
+            };
+            var milestone = MakeInsideSeedRecordMilestone(150, 4f, "r");
+            Assert.Equal(
+                ReputationModule.ApplyReputationCurve(4f, 400f).actualDelta,
+                LedgerOrchestrator.EstimateInsideSeedRowRep(milestone, events, 100, 200, "r"));
+
+            var between = MakeInsideSeedRecordMilestone(145, 4f, "r");
+            Assert.Equal(
+                ReputationModule.ApplyReputationCurve(4f, 310f).actualDelta,
+                LedgerOrchestrator.EstimateInsideSeedRowRep(between, events, 100, 200, "r"));
+
+            var death = new GameAction
+            {
+                UT = 150,
+                Type = GameActionType.ReputationPenalty,
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath,
+                NominalPenalty = 9.99f,
+                InsideReputationSeed = true
+            };
+            Assert.Equal(-9.99f, LedgerOrchestrator.EstimateInsideSeedRowRep(death, events, 100, 200, "r"));
+
+            var duplicate = MakeInsideSeedRecordMilestone(150, 4f, "r");
+            duplicate.Effective = false;
+            Assert.Equal(0f, LedgerOrchestrator.EstimateInsideSeedRowRep(duplicate, events, 100, 200, "r"));
+        }
+
+        [Fact]
+        public void ResolveStoreRepPoolAtUT_ReadsOnlyInScopeInWindowEvents()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeRepEvent(120, 10, 20, "other"),
+                MakeRepEvent(130, 30, 40, "mine"),
+                MakeRepEvent(90, 1, 2, "mine"),
+            };
+            Assert.Equal(40.0, LedgerOrchestrator.ResolveStoreRepPoolAtUT(events, 150, 100, 200, "mine"));
+            Assert.Equal(30.0, LedgerOrchestrator.ResolveStoreRepPoolAtUT(events, 110, 100, 200, "mine"));
+            Assert.Equal(0.0, LedgerOrchestrator.ResolveStoreRepPoolAtUT(null, 110, 100, 200, "mine"));
+        }
+
+        [Fact]
+        public void Reconcile_StrategyConversionRowInLedgerInsideWindow_NoFundsWarn()
+        {
+            // Leadership Initiative scales a milestone's funds: the store sees the NET
+            // +15000, the commit's milestone row carries the configured 10000, and the
+            // conversion door filed the 5000 uplift straight into the ledger.
+            Ledger.ResetForTesting();
+            try
+            {
+                Ledger.AddAction(new GameAction
+                {
+                    UT = 150,
+                    Type = GameActionType.FundsEarning,
+                    FundsSource = FundsEarningSource.Strategy,
+                    FundsAwarded = 5000f,
+                    RecordingId = "rec-li"
+                });
+                var events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 150, eventType = GameStateEventType.FundsChanged,
+                        key = "Progression", valueBefore = 1000, valueAfter = 16000,
+                        recordingId = "rec-li"
+                    }
+                };
+                var newActions = new List<GameAction>
+                {
+                    new GameAction
+                    {
+                        UT = 150, Type = GameActionType.MilestoneAchievement,
+                        MilestoneId = "FirstLaunch", RecordingId = "rec-li",
+                        MilestoneFundsAwarded = 10000f
+                    }
+                };
+
+                LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                    startUT: 100, endUT: 200, recordingId: "rec-li");
+
+                Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (funds)"));
+            }
+            finally
+            {
+                Ledger.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void Reconcile_StrategyConversionRowOfAnotherRecording_IsNotFolded()
+        {
+            Ledger.ResetForTesting();
+            try
+            {
+                Ledger.AddAction(new GameAction
+                {
+                    UT = 150,
+                    Type = GameActionType.FundsEarning,
+                    FundsSource = FundsEarningSource.Strategy,
+                    FundsAwarded = 5000f,
+                    RecordingId = "rec-other"
+                });
+                var events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 150, eventType = GameStateEventType.FundsChanged,
+                        key = "Progression", valueBefore = 1000, valueAfter = 16000,
+                        recordingId = "rec-li2"
+                    }
+                };
+                var newActions = new List<GameAction>
+                {
+                    new GameAction
+                    {
+                        UT = 150, Type = GameActionType.MilestoneAchievement,
+                        MilestoneId = "FirstLaunch", RecordingId = "rec-li2",
+                        MilestoneFundsAwarded = 10000f
+                    }
+                };
+
+                LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                    startUT: 100, endUT: 200, recordingId: "rec-li2");
+
+                Assert.Contains(logLines, l =>
+                    l.Contains("Earnings reconciliation (funds)")
+                    && l.Contains("store delta=15000.0")
+                    && l.Contains("ledger emitted delta=10000.0"));
+            }
+            finally
+            {
+                Ledger.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void AppendInWindowStrategyConversionRows_ScopeWindowAndNoDoubleCount()
+        {
+            var inWindow = new GameAction
+            {
+                UT = 150, Type = GameActionType.ReputationEarning,
+                RepSource = ReputationSource.Strategy, NominalRep = 1f, RecordingId = "r"
+            };
+            var lateTagged = new GameAction
+            {
+                UT = 250, Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.StrategyConverter, FundsSpent = 3f,
+                RecordingId = "r"
+            };
+            var early = new GameAction
+            {
+                UT = 50, Type = GameActionType.FundsEarning,
+                FundsSource = FundsEarningSource.Strategy, FundsAwarded = 7f, RecordingId = "r"
+            };
+            var untagged = new GameAction
+            {
+                UT = 150, Type = GameActionType.FundsEarning,
+                FundsSource = FundsEarningSource.Strategy, FundsAwarded = 9f
+            };
+            var notConversion = new GameAction
+            {
+                UT = 150, Type = GameActionType.FundsEarning,
+                FundsSource = FundsEarningSource.Recovery, FundsAwarded = 11f, RecordingId = "r"
+            };
+            var alreadyNew = new GameAction
+            {
+                UT = 150, Type = GameActionType.StrategyScienceCredit,
+                ScienceAwarded = 2f, RecordingId = "r"
+            };
+            var ledger = new List<GameAction> { inWindow, lateTagged, early, untagged, notConversion, alreadyNew };
+            var newActions = new List<GameAction> { alreadyNew };
+
+            var walk = new List<GameAction>(newActions);
+            int folded = LedgerOrchestrator.AppendInWindowStrategyConversionRows(
+                walk, newActions, ledger, 100, 200, "r");
+            Assert.Equal(2, folded);
+            Assert.Contains(inWindow, walk);
+            Assert.Contains(lateTagged, walk);
+            Assert.DoesNotContain(early, walk);
+            Assert.DoesNotContain(untagged, walk);
+            Assert.DoesNotContain(notConversion, walk);
+            Assert.Single(walk, a => ReferenceEquals(a, alreadyNew));
+
+            // Unscoped: every conversion row in the window, untagged included; a tagged
+            // row past the window end is not owned by any scope.
+            var unscoped = new List<GameAction>();
+            int unscopedFolded = LedgerOrchestrator.AppendInWindowStrategyConversionRows(
+                unscoped, null, ledger, 100, 200, null);
+            Assert.Equal(3, unscopedFolded);
+            Assert.Contains(untagged, unscoped);
+            Assert.DoesNotContain(lateTagged, unscoped);
+        }
     }
 }
