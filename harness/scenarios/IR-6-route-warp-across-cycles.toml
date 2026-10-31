@@ -5,7 +5,8 @@ tier = "nightly"
 # IR-6 (roadmap "The logistics integration program", Phase B; test-gap audit 2026-10-31
 # item 5): a supply route under REAL time warp across several cycles, ticking in FLIGHT
 # and at the Space Center, with the destination tank read at every step. AUTHORED
-# 2026-10-31; first flight INVALID (spec faults, below), re-authored, NOT YET GREEN.
+# 2026-10-31; flight 1 INVALID (spec faults), flight 2 PARSEK-FAIL on the phase C target
+# alone (below), target raised, NOT YET GREEN.
 #
 # THE STORY. The player creates and activates the rover route, warps in flight past one
 # delivery, goes to the Space Center and warps past one more, reloads the save there, and
@@ -44,8 +45,12 @@ tier = "nightly"
 # cycle-1 at 1079.44, cycle-2 at 1128.74. The targets sit about 20 s clear of each:
 #   Phase A  FLIGHT       WarpToUT 1048  maxRate 10      -> cycle-0 (one delivery, loaded)
 #   Phase B  Space Center WarpToUT 1100  maxRate 10      -> cycle-1 (one delivery, unloaded)
-#   Phase C  Space Center WarpToUT 20000 maxRate 100000  -> ~377 periods from cycle-2 on,
+#   Phase C  Space Center WarpToUT 60000 maxRate 100000  -> ~1180 periods from cycle-2 on,
 #            every fire BLOCKED; frames of 200+ s collapse several periods into one fire.
+#            The target is sized by the ladder, not the route: the auto ladder takes a rung
+#            only while rate * 2.5 <= remaining seconds, so 10000x (frames of ~200 s, four
+#            periods) needs more than 25000 s left; from UT ~1100, 60000 holds 10000x for
+#            the first ~34000 s.
 # Tank: 200.0 -> 297.6 (A) -> 395.2 (B) -> 395.2 (C).
 #
 # SCENE ROUTES. ExitToSpaceCenter (the stock exit). Before phase C the lane saves and
@@ -63,9 +68,17 @@ tier = "nightly"
 #   - the old arithmetic assumed two items and cadence 45.04 (three deliveries); the
 #     third blocked `reason=stored-part:evaChute` at 1128.74. Measured and fixed above.
 #   - phase B asked maxRate 50 but the ladder capped at 10x for a 91 s delta; asked 10 now.
-#   What flew green inside it: two deliveries, each on its own tick, 0 `warp jump=`
+#   What flew green inside flight 1: two deliveries, each on its own tick, 0 `warp jump=`
 #   lines, the unloaded write's tankAfter equal to the proto read, the route carried
 #   unchanged across the same-instant reload.
+#
+# FLIGHT 2 (`2026-10-31_2343`, PARSEK-FAIL on one required row): everything held except
+# the collapse. Phase C (target 20000) peaked at 1000x (`warptout complete ... maxRate=1000`,
+# 18900 s remaining is under 10000x's 25000 s rung bar), so every frame advanced 36-63 s
+# against the 50 s cadence and all 380 crossings fired one by one: 2 FIRED, 378 BLOCKED
+# `reason=LiquidFuel`, read-back `completed=2 skipped=378 cursor=379`, tank 395.2, and 0
+# `warp jump=` lines. Measured otherwise as predicted: PhaseLock anchor 983.5 cadence 50,
+# cycle-0 FIRED at 1029.38 (loaded), cycle-1 at 1078.93 (unloaded), each tank read exact.
 #
 # PRE-REGISTERED READINGS (check these first if the next flight reds):
 #   - a delivery missing in A or B: the PhaseLock anchor moved (read `PhaseLock APPLIED`
@@ -128,7 +141,7 @@ steps = [
   { cmd = "RecordingState",                                                     expect = "OK" },
   { cmd = "MissionMark",  args = { label = "ir6-reloaded" },                    expect = "OK" },
   { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
-  { cmd = "WarpToUT",     args = { ut = "20000", maxRate = "100000" },          expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",     args = { ut = "60000", maxRate = "100000" },          expect = "OK", budget = 300 },
   { cmd = "MissionMark",  args = { label = "ir6-long-warped" },                 expect = "OK" },
   { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
   { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:395.2", tolerance = "0.01" }, expect = "OK" },

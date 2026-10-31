@@ -5,7 +5,15 @@ tier = "nightly"
 # IR-3 + IR-4 (roadmap "The logistics integration program", Phase B; test-gap audit
 # 2026-10-31 item 5): a supply route under a Re-Fly of ANOTHER tree, the Re-Fly first
 # discarded and then merged, with the destination tank read at every step. AUTHORED
-# 2026-10-31; first flight INVALID on a spec fault (below), fixed, NOT YET GREEN.
+# 2026-10-31; flight 1 INVALID on a spec fault (below), fixed; LIVE-PROVEN 2026-10-31
+# (`2026-10-31_2346` PASS attempt 1, 0 mismatches, wall 172 s, PR #2345 head 1c4865f,
+# automation DLL sha256 prefix ad12bea5): the rewind point rp at UT 982.42 with two
+# controllable slots, four cycle-0 deliveries (one per timeline: the future, Re-Fly 1, the
+# Space Center after the discard on the unloaded path, Re-Fly 2) each from 297.6 to 395.2,
+# every Re-Fly start and the discard read back `completed=0 cursor=-1` at 297.6, the merge
+# kept `completed=1 delivered=1` Active, and cycle-1 BLOCKED `reason=LiquidFuel` at
+# 1078.94 (`completed=1 skipped=1`). Nine recordings, one supersede row, no seal from a
+# delivery (the merge's auto-seal is the Landed terminal's own).
 #
 # THE STORY. The player activates the rover route, flies a short pad mission whose
 # decouple leaves two controllable vessels (a rewind point), commits it, and warps until
@@ -203,9 +211,9 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # The host's five plus G's flight (the pod's launch recording and the stand's child, VN-8
-# measured two legs for a pad decouple), plus the merged Re-Fly attempt; a window until
-# the first flight measures it.
-count = { min = 7, max = 9 }
+# measured two legs for a pad decouple), plus the Re-Fly attempts; MEASURED 9 on
+# `2026-10-31_2346` (three committed trees).
+count = { min = 9, max = 9 }
 
 [expectations.logContracts]
 required = [
