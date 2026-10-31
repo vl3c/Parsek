@@ -156,6 +156,14 @@ namespace Parsek
                 $"totalCost={total.ToString("R", IC)}");
         }
 
+        /// <summary>
+        /// Each destroyed building's funds share in the open scope, null outside one. Read by
+        /// the strategy conversion door inside the repair's single funds debit, so a strategy
+        /// discount on it is split per building row (<c>StrategyConversionCapture.SplitRepairLegs</c>).
+        /// </summary>
+        internal static IReadOnlyDictionary<string, float> ActiveCostShares =>
+            scopeActive ? scopeCostShares : null;
+
         /// <summary>The funds share of <paramref name="buildingId"/> in the open scope, 0 outside one.</summary>
         internal static float CostForBuilding(string buildingId)
         {

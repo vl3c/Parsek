@@ -8,7 +8,7 @@ namespace Parsek.Tests
     /// <summary>
     /// The pure half and dispatch rows of <c>PartAction button=undock|decouple|controlfrom|deploy|
     /// retract|startconverter|stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|
-    /// radiatoroff [part=]
+    /// radiatoroff|activate [part=]
     /// [converter=] [all=true] [pid=]</c>: one button of one part's stock right-click menu (vessel names,
     /// design 15.3; the ISRU / lab buttons).
     /// </summary>
@@ -75,6 +75,10 @@ namespace Parsek.Tests
         [InlineData("inspect", "Inspect")]
         [InlineData("radiatoron", "RadiatorOn")]
         [InlineData("radiatoroff", "RadiatorOff")]
+        [InlineData("activate", "EngineActivate")]
+        [InlineData("explode", "Explode")]
+        [InlineData("chute", "ChuteDeploy")]
+        [InlineData("runtest", "RunTest")]
         public void ParseButton_AcceptsTheClosedVocabulary(string raw, string expected)
         {
             Assert.Null(TestCommandPartAction.ParseButton(raw, out PartActionKind kind));
@@ -94,6 +98,9 @@ namespace Parsek.Tests
         [InlineData("RadiatorOn", "partaction-button-arg-invalid")]
         [InlineData("radiator", "partaction-button-arg-invalid")]
         [InlineData("radiator-on", "partaction-button-arg-invalid")]
+        [InlineData("Activate", "partaction-button-arg-invalid")]
+        [InlineData("activateengine", "partaction-button-arg-invalid")]
+        [InlineData("ignite", "partaction-button-arg-invalid")]
         public void ParseButton_RefusesAbsentAndUnknown(string raw, string reason)
         {
             Assert.Equal(reason, TestCommandPartAction.ParseButton(raw, out PartActionKind kind));
@@ -105,7 +112,7 @@ namespace Parsek.Tests
         {
             Assert.Equal(new[] { "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
                 "stopconverter", "experiment", "labprocess", "labtransmit", "inspect", "radiatoron",
-                "radiatoroff" },
+                "radiatoroff", "activate", "explode", "chute", "runtest" },
                 TestCommandPartAction.ButtonValues);
             foreach (string v in TestCommandPartAction.ButtonValues)
                 Assert.Null(TestCommandPartAction.ParseButton(v, out _));
@@ -139,6 +146,7 @@ namespace Parsek.Tests
         [InlineData("inspect", true)]
         [InlineData("radiatoron", true)]
         [InlineData("radiatoroff", true)]
+        [InlineData("activate", true)]
         [InlineData("undock", false)]
         public void RequiresPart_EveryButtonButUndock(string token, bool required)
         {
@@ -166,6 +174,7 @@ namespace Parsek.Tests
         [InlineData("labtransmit", "Research", "partaction-converter-arg-unexpected", null)]
         [InlineData("undock", "x", "partaction-converter-arg-unexpected", null)]
         [InlineData("radiatoron", "Lf+Ox", "partaction-converter-arg-unexpected", null)]
+        [InlineData("activate", "Lf+Ox", "partaction-converter-arg-unexpected", null)]
         public void ParseConverter_OnlyTheConverterButtonsTakeIt(
             string token, string raw, string reason, string expected)
         {
@@ -188,9 +197,12 @@ namespace Parsek.Tests
         [InlineData("radiatoron", "true", null, true)]
         [InlineData("radiatoroff", "true", null, true)]
         [InlineData("radiatoroff", "True", "partaction-all-arg-invalid", false)]
+        [InlineData("activate", "true", null, true)]
+        [InlineData("activate", "yes", "partaction-all-arg-invalid", false)]
         [InlineData("undock", "true", "partaction-all-arg-unexpected", false)]
         [InlineData("decouple", "true", "partaction-all-arg-unexpected", false)]
         [InlineData("controlfrom", "true", "partaction-all-arg-unexpected", false)]
+        [InlineData("explode", "true", "partaction-all-arg-unexpected", false)]
         [InlineData("undock", null, null, false)]
         [InlineData("deploy", "True", "partaction-all-arg-invalid", false)]
         [InlineData("deploy", "false", "partaction-all-arg-invalid", false)]
@@ -205,12 +217,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void AcceptsAll_EveryButtonButUndockDecoupleControlFrom()
+        public void AcceptsAll_EveryButtonButUndockDecoupleControlFromExplode()
         {
             foreach (string token in TestCommandPartAction.ButtonValues)
             {
                 Assert.Null(TestCommandPartAction.ParseButton(token, out PartActionKind kind));
-                Assert.Equal(token != "undock" && token != "decouple" && token != "controlfrom",
+                Assert.Equal(token != "undock" && token != "decouple" && token != "controlfrom"
+                    && token != "explode",
                     TestCommandPartAction.AcceptsAll(kind));
             }
             Assert.False(TestCommandPartAction.AcceptsAll(PartActionKind.Unknown));
@@ -269,6 +282,129 @@ namespace Parsek.Tests
                 PartActionKind.Deploy, "MiniDrill", 1, null, 0, 0, 0, 1, false));
             Assert.Equal("partaction-event-unavailable", TestCommandPartAction.DecideCandidates(
                 PartActionKind.RadiatorOn, "radPanelSm", 4, null, 0, 0, 0, true));
+        }
+
+        [Fact]
+        public void DecideCandidates_Engine_NoModuleIsNotFound_IgnitedIsUnavailable()
+        {
+            // The Flea's one ModuleEngines with its Activate live: one press.
+            Assert.Null(TestCommandPartAction.DecideCandidates(
+                PartActionKind.EngineActivate, "solidBooster.sm.v2", 1, null, 0, 0, 1, 1, false));
+            // Four boosters of one name: ambiguous without all=, every one pressed with it.
+            Assert.Equal("partaction-part-ambiguous", TestCommandPartAction.DecideCandidates(
+                PartActionKind.EngineActivate, "solidBooster.sm.v2", 4, null, 0, 0, 4, 4, false));
+            Assert.Null(TestCommandPartAction.DecideCandidates(
+                PartActionKind.EngineActivate, "solidBooster.sm.v2", 4, null, 0, 0, 4, 4, true));
+            // A named part that carries no engine module is a spec fault.
+            Assert.Equal("partaction-engine-not-found", TestCommandPartAction.DecideCandidates(
+                PartActionKind.EngineActivate, "mk1pod.v2", 1, null, 0, 0, 0, 0, false));
+            // An engine that is there but already ignited (stock hides Activate): unavailable.
+            Assert.Equal("partaction-event-unavailable", TestCommandPartAction.DecideCandidates(
+                PartActionKind.EngineActivate, "solidBooster.sm.v2", 1, null, 0, 0, 1, 0, false));
+            // A part the vessel does not carry is still part-not-found first.
+            Assert.Equal("partaction-part-not-found", TestCommandPartAction.DecideCandidates(
+                PartActionKind.EngineActivate, "solidBooster.sm.v2", 0, null, 0, 0, 0, 0, false));
+            // Each typed gate reads its own kind: a zero count on the radiator button names
+            // the radiator, and a negative count (the older overloads) is "not counted".
+            Assert.Equal("partaction-radiator-not-found", TestCommandPartAction.DecideCandidates(
+                PartActionKind.RadiatorOn, "solidBooster.sm.v2", 1, null, 0, 0, 0, 0, false));
+            Assert.Equal("partaction-event-unavailable", TestCommandPartAction.DecideCandidates(
+                PartActionKind.EngineActivate, "solidBooster.sm.v2", 1, null, 0, 0, 0, false));
+            Assert.Null(TestCommandPartAction.DecideCandidates(
+                PartActionKind.Deploy, "MiniDrill", 1, null, 0, 0, 0, 1, false));
+        }
+
+        [Fact]
+        public void IsEngineKind_IsTheActivateButtonAlone_AndTypedKindsAreRadiatorsPlusEngine()
+        {
+            foreach (string token in TestCommandPartAction.ButtonValues)
+            {
+                Assert.Null(TestCommandPartAction.ParseButton(token, out PartActionKind kind));
+                Assert.Equal(token == "activate", TestCommandPartAction.IsEngineKind(kind));
+                Assert.Equal(token == "activate" || token == "radiatoron" || token == "radiatoroff"
+                    || token == "chute", TestCommandPartAction.IsTypedModuleKind(kind));
+            }
+            Assert.False(TestCommandPartAction.IsEngineKind(PartActionKind.Unknown));
+            Assert.False(TestCommandPartAction.IsTypedModuleKind(PartActionKind.Unknown));
+            Assert.Equal("activate", TestCommandPartAction.Token(PartActionKind.EngineActivate));
+            Assert.Contains("partaction-engine-not-found", TestCommandPartAction.Reasons);
+            ParsedCommand cmd = Cmd("button=activate part=solidBooster.sm.v2");
+            Assert.True(cmd.ParseOk);
+            Assert.Equal("activate", cmd.Args["button"]);
+            Assert.Equal("solidBooster.sm.v2", cmd.Args["part"]);
+        }
+
+        [Fact]
+        public void Explode_NeedsOnePart_PressesNoEvent_AndRefusesUnknownPartAndNoVessel()
+        {
+            Assert.Null(TestCommandPartAction.ParseButton("explode", out PartActionKind kind));
+            Assert.Equal(PartActionKind.Explode, kind);
+            Assert.True(TestCommandPartAction.RequiresPart(kind));
+            Assert.Equal("partaction-part-arg-missing", TestCommandPartAction.ParsePart(null, kind, out _));
+            Assert.False(TestCommandPartAction.AcceptsAll(kind));
+            Assert.True(TestCommandPartAction.IsWholePartKind(kind));
+            Assert.True(TestCommandPartAction.IsWholePartKind(PartActionKind.Inspect));
+            Assert.False(TestCommandPartAction.IsWholePartKind(PartActionKind.Decouple));
+            Assert.False(TestCommandPartAction.IsTypedModuleKind(kind));
+            Assert.Empty(TestCommandPartAction.EventNamesFor(kind));
+            Assert.Equal("explode", TestCommandPartAction.ExplodeEventName);
+            // An unknown part and no active vessel refuse before anything is destroyed.
+            Assert.Equal("partaction-part-not-found", TestCommandPartAction.DecideCandidates(
+                kind, "mk1pod.v2", 0, null, 0, 0, -1, 0, false));
+            Assert.Equal("partaction-no-active-vessel",
+                TestCommandPartAction.DecideVessel(false, false, false, false));
+            Assert.Equal("partaction-part-ambiguous", TestCommandPartAction.DecideCandidates(
+                kind, "mk1pod.v2", 2, null, 0, 0, -1, 2, false));
+            Assert.Null(TestCommandPartAction.DecideCandidates(
+                kind, "mk1pod.v2", 1, null, 0, 0, -1, 1, false));
+            ParsedCommand cmd = Cmd("button=explode part=mk1pod.v2");
+            Assert.True(cmd.ParseOk);
+            Assert.Equal("explode", cmd.Args["button"]);
+        }
+
+        [Fact]
+        public void RunTest_PressesTheTestSubjectEvent_AndNeedsAPartName()
+        {
+            Assert.Null(TestCommandPartAction.ParseButton("runtest", out PartActionKind kind));
+            Assert.Equal(PartActionKind.RunTest, kind);
+            Assert.Equal("runtest", TestCommandPartAction.Token(kind));
+            Assert.Equal(new[] { "RunTestEvent" }, TestCommandPartAction.EventNamesFor(kind));
+            // A generic button, not a typed-module one: the event lookup finds it.
+            Assert.False(TestCommandPartAction.IsTypedModuleKind(kind));
+            Assert.False(TestCommandPartAction.IsWholePartKind(kind));
+        }
+
+        [Fact]
+        public void Chute_PressesTheParachuteDeployEvent_AndRefusesAPartWithNoParachute()
+        {
+            Assert.Null(TestCommandPartAction.ParseButton("chute", out PartActionKind kind));
+            Assert.Equal(PartActionKind.ChuteDeploy, kind);
+            Assert.Equal("chute", TestCommandPartAction.Token(kind));
+            Assert.True(TestCommandPartAction.RequiresPart(kind));
+            Assert.True(TestCommandPartAction.IsParachuteKind(kind));
+            Assert.True(TestCommandPartAction.IsTypedModuleKind(kind));
+            Assert.False(TestCommandPartAction.IsEngineKind(kind));
+            Assert.False(TestCommandPartAction.IsWholePartKind(kind));
+            Assert.Equal(new[] { "Deploy" }, TestCommandPartAction.EventNamesFor(kind));
+            foreach (string token in TestCommandPartAction.ButtonValues)
+            {
+                Assert.Null(TestCommandPartAction.ParseButton(token, out PartActionKind k));
+                Assert.Equal(token == "chute", TestCommandPartAction.IsParachuteKind(k));
+            }
+            // A named part with no ModuleParachute is a spec fault; a stowed chute already armed
+            // (stock hides Deploy) is a live state.
+            Assert.Equal("partaction-parachute-not-found", TestCommandPartAction.DecideCandidates(
+                kind, "mk1pod.v2", 1, null, 0, 0, 0, 0, false));
+            Assert.Equal("partaction-event-unavailable", TestCommandPartAction.DecideCandidates(
+                kind, "parachuteSingle", 1, null, 0, 0, 1, 0, false));
+            Assert.Equal("partaction-part-not-found", TestCommandPartAction.DecideCandidates(
+                kind, "parachuteSingle", 0, null, 0, 0, 0, 0, false));
+            Assert.Null(TestCommandPartAction.DecideCandidates(
+                kind, "parachuteSingle", 1, null, 0, 0, 1, 1, false));
+            Assert.Contains("partaction-parachute-not-found", TestCommandPartAction.Reasons);
+            ParsedCommand cmd = Cmd("button=chute part=parachuteSingle");
+            Assert.True(cmd.ParseOk);
+            Assert.Equal("chute", cmd.Args["button"]);
         }
 
         [Fact]
@@ -418,6 +554,9 @@ namespace Parsek.Tests
             Assert.Equal(new[] { "TransmitScience" }, TestCommandPartAction.EventNamesFor(PartActionKind.LabTransmit));
             Assert.Equal(new[] { "Activate" }, TestCommandPartAction.EventNamesFor(PartActionKind.RadiatorOn));
             Assert.Equal(new[] { "Shutdown" }, TestCommandPartAction.EventNamesFor(PartActionKind.RadiatorOff));
+            // ModuleEngines' [KSPEvent(guiActive = true, guiName = "#autoLOC_6001382")] Activate,
+            // "Activate Engine" (KSP 1.12.5 decompiled).
+            Assert.Equal(new[] { "Activate" }, TestCommandPartAction.EventNamesFor(PartActionKind.EngineActivate));
             // labprocess presses the results dialog page's callback; inspect presses nothing.
             Assert.Empty(TestCommandPartAction.EventNamesFor(PartActionKind.LabProcess));
             Assert.Empty(TestCommandPartAction.EventNamesFor(PartActionKind.Inspect));
@@ -449,6 +588,27 @@ namespace Parsek.Tests
                 PartActionModuleReading.Experiment(1),
                 PartActionModuleReading.AnimationGroup(false),
             }));
+        }
+
+        [Fact]
+        public void FormatState_EngineReadsItsIgnitedFlag()
+        {
+            Assert.Equal("engine:ignited=1", TestCommandPartAction.FormatState(new List<PartActionModuleReading>
+            {
+                PartActionModuleReading.Engine(true),
+            }));
+            Assert.Equal("engine:ignited=0;radiator:cooling=1", TestCommandPartAction.FormatState(
+                new List<PartActionModuleReading>
+                {
+                    PartActionModuleReading.Engine(false),
+                    PartActionModuleReading.Radiator(true),
+                }));
+            string line = TestCommandPartAction.FormatAppliedLine(PartActionKind.EngineActivate, 3615170000u,
+                "solidBooster.sm.v2", 42u, "Activate", 0u, null, 4, 4, 3615170000u, "CS Flea Probe",
+                null, "engine:ignited=1", 1, new PartActionWarpContext(false, 0, 1.0, 185787.5));
+            Assert.StartsWith("partaction applied button=activate pid=3615170000 part='solidBooster.sm.v2' " +
+                "partId=42 event=Activate newPid=0 newName='' vessels=4->4 activePid=3615170000 " +
+                "activeName='CS Flea Probe' converter='' state='engine:ignited=1' count=1 packed=0 ", line);
         }
 
         [Fact]
@@ -687,7 +847,7 @@ namespace Parsek.Tests
         [Fact]
         public void Reasons_AreTheGateOrder_AndDisjointFromTheErrors()
         {
-            Assert.Equal(27, TestCommandPartAction.Reasons.Length);
+            Assert.Equal(29, TestCommandPartAction.Reasons.Length);
             Assert.Equal("partaction-button-arg-missing", TestCommandPartAction.Reasons[0]);
             Assert.Equal("partaction-converter-arg-unexpected", TestCommandPartAction.Reasons[3]);
             Assert.Equal("partaction-all-arg-invalid", TestCommandPartAction.Reasons[4]);
@@ -701,6 +861,7 @@ namespace Parsek.Tests
             Assert.Equal("partaction-lab-not-active-vessel", TestCommandPartAction.Reasons[22]);
             Assert.Equal("partaction-lab-unavailable", TestCommandPartAction.Reasons[25]);
             Assert.Equal("partaction-radiator-not-found", TestCommandPartAction.Reasons[26]);
+            Assert.Equal("partaction-engine-not-found", TestCommandPartAction.Reasons[27]);
             Assert.DoesNotContain("partaction-lab-method-missing", TestCommandPartAction.Reasons);
             Assert.Equal(TestCommandPartAction.Reasons.Length, TestCommandPartAction.Reasons.Distinct().Count());
             foreach (string r in new[]
@@ -708,7 +869,7 @@ namespace Parsek.Tests
                 TestCommandPartAction.ConverterArgUnexpectedReason, TestCommandPartAction.ConverterNotFoundReason,
                 TestCommandPartAction.ExperimentNoDataReason,
                 TestCommandPartAction.AllArgInvalidReason, TestCommandPartAction.AllArgUnexpectedReason,
-                TestCommandPartAction.RadiatorNotFoundReason,
+                TestCommandPartAction.RadiatorNotFoundReason, TestCommandPartAction.EngineNotFoundReason,
                 TestCommandPartAction.ExpectSnapshotArgInvalidReason, TestCommandPartAction.SnapshotArgUnexpectedReason,
                 TestCommandPartAction.ExpectSnapshotNeedsRecReason, TestCommandPartAction.RecArgInvalidReason,
                 TestCommandPartAction.ToleranceArgInvalidReason, TestCommandPartAction.UnknownRecordingReason,

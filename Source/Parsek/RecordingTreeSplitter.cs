@@ -1060,9 +1060,12 @@ namespace Parsek
                 var toTip = SelectLedgerActionsForSecondHalf(
                     actions, origin.RecordingId, rewindUT,
                     out deathIntervalsRetaggedByEndUT, out deathPenaltiesByDeath);
+                int openCrewIntervalsByEndUT = 0;
                 for (int i = 0; i < toTip.Count; i++)
                 {
                     var a = toTip[i];
+                    if (TombstoneAttributionHelper.IsOpenEndedCrewInterval(a) && a.UT < rewindUT)
+                        openCrewIntervalsByEndUT++;
                     snapshot.Ledger.Add(SplitMutationLedger.LedgerAction(
                         a, origin.RecordingId, tip.RecordingId));
                     a.RecordingId = tip.RecordingId;
@@ -1070,6 +1073,15 @@ namespace Parsek
                 }
                 if (result.ActionsRetagged > 0)
                     Ledger.BumpStateVersion();
+                if (openCrewIntervalsByEndUT > 0)
+                {
+                    // REFLY-MERGED-DEATH-PERMANENT-VIA-SUPERSEDED-CO-ROW: the crew's
+                    // end-of-flight fate follows the terminal to TIP, where the merge's
+                    // tombstone pass retires it as a loss row.
+                    ParsekLog.Verbose(Tag,
+                        $"Step9: {openCrewIntervalsByEndUT.ToString(ic)} pre-rewind-boarded open-ended " +
+                        $"crew row(s) retagged to TIP by endUT (origin={origin.RecordingId} tip={tip.RecordingId})");
+                }
             }
             ParsekLog.Verbose(Tag,
                 $"Step9: ledger action retag — actionsRetagged={result.ActionsRetagged.ToString(ic)} " +

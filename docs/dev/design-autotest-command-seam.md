@@ -593,6 +593,37 @@ the updates below record how each verb arrived.
 > `-unknown-recording`, `-lab-not-active-vessel`, `-lab-page-missing`, `-lab-value-zero`,
 > `-lab-unavailable`. Contract below (`#### PartAction`).
 
+> Update (PartAction activate, 2026-10-28): no new verb. `PartAction` gains `button=activate`
+> (REQUIRES `part=`): an engine's "Activate Engine", the `Activate` `KSPEvent` of
+> `ModuleEngines` (KSP 1.12.5 decompiled: `[KSPEvent(guiActive = true, guiName =
+> "#autoLOC_6001382")] public virtual void Activate()`, the key reading "Activate Engine";
+> `ModuleEnginesFX` inherits it). It ignites the engine without staging, so a lane fires a solid
+> booster whose stage also holds a parachute without deploying it (RW-7). Candidates come from
+> `ModuleEngines` modules only (a radiator on the same part carries an `Activate` too); the
+> reading `engine:ignited=0|1` joins `state=`; new refusal `partaction-engine-not-found`.
+> Contract below (`#### PartAction`).
+
+> Update (PartAction chute, 2026-10-28): no new verb. `PartAction` gains `button=chute`
+> (REQUIRES `part=`): a parachute's "Deploy Chute", the `Deploy` `KSPEvent` of `ModuleParachute`
+> (KSP 1.12.5 decompiled `[KSPEvent(guiActive = true, guiName = "#autoLOC_6001348")]`). It arms the
+> chute without staging, so a lane lights a solid booster (`activate`) and lands under the chute
+> (RW-11). Candidates come from `ModuleParachute` modules only; a named part carrying none refuses
+> `partaction-parachute-not-found`. Contract below (`#### PartAction`).
+
+> Update (PartAction runtest, 2026-10-31): no new verb. `PartAction` gains `button=runtest`
+> (REQUIRES `part=`): a test subject's "Run Test", the `RunTestEvent` `KSPEvent` of
+> `ModuleTestSubject`, live only while an accepted part-test contract has the part under test.
+> It completes such a contract on the pad without lighting the engine (RW-17). A generic
+> button: the ordinary event lookup finds it, and no live button refuses `event-unavailable`.
+
+> Update (PartAction explode, 2026-10-28): no new verb. `PartAction` gains `button=explode`
+> (REQUIRES `part=`, no `all=true`: `partaction-all-arg-unexpected`): stock's `Part.explode()` on the
+> one part carrying the name (explosion FX, then `Die()`, so `onPartDie` and, for a crewed part,
+> `onCrewKilled` fire as on an impact). Not a part-menu button: it lets a lane end a part
+> deterministically when a physics impact may miss it (RW-7's pod). Candidates are the named
+> parts (as for `inspect`); an unknown part refuses `partaction-part-not-found` and no active vessel
+> `partaction-no-active-vessel`, both before anything is destroyed; `event=explode`, `state=` empty.
+
 > Update (CrewTransfer, 2026-10-17): one ADDITIVE verb, taking the table to **53 implemented / 4 reserved**,
 > for the crew-across-vessels coverage (crew moved between two pods of a docked pair):
 > `CrewTransfer kerbal= part=` runs stock's own crew transfer inside the active vessel. Full contract
@@ -4604,7 +4635,8 @@ after the split). The PAW buttons are `KSPEvent`s; the verb invokes the module's
 way a player clicks them, and read the part's module state back.
 
 **Grammar.** `cmd=PartAction button=<undock|decouple|controlfrom|deploy|retract|startconverter|
-stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff> [part=<part name>]
+stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|activate|explode|chute>
+[part=<part name>]
 [converter=<ConverterName>] [all=true] [pid=<persistentId>] [expectSnapshot=true|false
 rec=<recordingId> tolerance=<abs>]`, issued in FLIGHT. `button=` REQUIRED, closed,
 case-sensitive (`partaction-button-arg-missing` / `-arg-invalid`); `part=` is the part's runtime
@@ -4632,14 +4664,20 @@ named part (or on any part, for an undock without `part=`) whose event for the b
 `RetractModule` on `ModuleAnimationGroup`; `StartResourceConverter` / `StopResourceConverter` on
 any `BaseConverter`, i.e. a harvester, an ISRU converter or a lab's research;
 `DeployExperiment`; `TransmitScience` on `ModuleScienceLab`; `Activate` / `Shutdown` on
-`ModuleActiveRadiator` only) is `active` and `guiActive`, after the `converter=` filter. An undock folds the two ports of a docked pair into one candidate.
+`ModuleActiveRadiator` only; `Activate`, "Activate Engine", on `ModuleEngines` only, which
+`ModuleEnginesFX` inherits) is `active` and `guiActive`, after the `converter=` filter. Stock
+leaves an unignited engine's `Activate` inactive at a PRELAUNCH `OnStart` and sets it active
+again on every non-warped `FixedUpdate` (`ThrustUpdate`), so the button is live a frame after
+the vessel loads; `Activate()` sets `EngineIgnited` and touches no staging. An undock folds the two ports of a docked pair into one candidate.
 Exactly one candidate is pressed; none is `partaction-part-not-found` (a named part the vessel
 lacks), `partaction-converter-not-found` (a `converter=` no converter module on the named part
 carries, whatever its event state), `partaction-radiator-not-found` (a radiator button on named
-parts carrying no `ModuleActiveRadiator`, whatever its event state) or
+parts carrying no `ModuleActiveRadiator`, whatever its event state),
+`partaction-engine-not-found` (`activate` on named parts carrying no `ModuleEngines`) or
 `partaction-event-unavailable` (no live button: stock shows only the radiator button that changes
 `IsCooling`, so `radiatoron` on a cooling radiator lands here, and neither on a deployable
-radiator, which its own Extend / Retract drives), more than
+radiator, which its own Extend / Retract drives; likewise `activate` on an ignited engine),
+more than
 one `partaction-part-ambiguous` (a multi-converter part without `converter=` included, never a
 silent first pick). With `all=true` one or more candidates proceed and every one is pressed in
 vessel part order, each with the same press as alone; zero refuses exactly as without it. A
@@ -4717,7 +4755,8 @@ candidates were pressed (inspect: read), 1 without `all=true`; with it `part` / 
 filter (empty when none); `state` is the target part's relevant modules, in module order, read
 after the press and joined by `;` (invariant culture): a converter `<ConverterName>:active=0|1`,
 a science lab `lab:storedScience=<F2> dataStored=<F2>`, an experiment `exp:data=<count>`, an
-animation group `deployed=0|1`, an active radiator `radiator:cooling=0|1`. With `all=true`, `state` is every acted-on part in vessel part
+animation group `deployed=0|1`, an active radiator `radiator:cooling=0|1`, an engine
+`engine:ignited=0|1` (`ModuleEngines.EngineIgnited`). With `all=true`, `state` is every acted-on part in vessel part
 order as `<flightID>:<that part's segments>`, joined by ` | `
 (`123:Surface Harvester:active=1;deployed=1 | 456:...`). Names are read at once, so stock's one-Update rename after a
 staging split is NOT in them (VN-8 reads it from the save). A `labprocess` line appends

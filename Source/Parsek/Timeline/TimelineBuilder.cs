@@ -809,6 +809,14 @@ namespace Parsek
                         action.UT,
                         action.ScanBodyName);
 
+                // A dismissal's ledger row and its CrewDismissed event share the UT and the
+                // kerbal-name key (design 9.12.1).
+                case GameActionType.KerbalDismissal:
+                    return EncodeLegacyDuplicateKey(
+                        GameStateEventType.CrewDismissed,
+                        action.UT,
+                        action.KerbalName);
+
                 default:
                     return null;
             }

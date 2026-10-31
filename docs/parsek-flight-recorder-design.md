@@ -1023,8 +1023,8 @@ that had to stop).
 **Career results across a split** (`RecordingStore.RetagLedgerActionsAfterOptimizationSplit`):
 three things carry the recording id as their owner, and the split moves each one whose UT is
 at or after the cut to the second half, with the same `>=` sense as the parent links: the
-ledger rows (`Ledger.RetagActionsForSplitSecondHalf`, attribution UT: a death row by its
-`EndUT`, a KerbalDeath reputation penalty with its paired death), the captured game-state
+ledger rows (`Ledger.RetagActionsForSplitSecondHalf`, attribution UT: a death row and an
+Aboard / Unknown crew row by their `EndUT`, a KerbalDeath reputation penalty with its paired death), the captured game-state
 events not yet converted (`GameStateStore.RetagEventsForSplitSecondHalf`) and the pending
 science subjects by capture UT (`GameStateRecorder.RetagPendingScienceForSplitSecondHalf`,
 which also retags the cached pending-milestone copies the reward enrichment matches by tag).

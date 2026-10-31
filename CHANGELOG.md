@@ -25,6 +25,56 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A contract that ran out after a rewind stays in the Mission Control Archive.** When time
+  passed the moment a committed contract failed, completed or was cancelled, Parsek took it off
+  the active list but left it out of the Archive. It now lands in the Archive with that outcome,
+  paying nothing a second time. (CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE)
+- **A payment taken back after a rewind is taken back only once.** When stock paid a world-first
+  again after a rewind, Parsek rightly took that money back, but then took it back again after
+  every later scene change, so the career kept losing funds, science and reputation. It now
+  remembers what it took back across saves and loads. (TAKE-BACK-REFIRES-AFTER-EVERY-LOAD)
+- **A kerbal you fire stays fired after a rewind.** Rewinding to before a dismissal brings the
+  kerbal back on the roster marked "Dismissed on <date>": he cannot be seated in a crew or fired
+  again until then, and he leaves the roster on that date, once, with no funds moving.
+  (KERBAL-DISMISSAL-ON-THE-TIMELINE)
+- **The Space Center's refund for clearing away debris is now on the books.** When debris that
+  landed in the Space Center grounds is cleared away, stock refunds part of its cost; that money
+  now goes into Parsek's ledger like any other recovery instead of being kept as an unexplained
+  adjustment. (KSC-DEBRIS-CLEANUP-REFUND-UNLEDGERED)
+- **Space Center actions just before a launch survive a Rewind-to-Launch.** A strategy, purchase,
+  demolition or repair made in the 15 s before a launch is in the world the rewind loads and now
+  counts as done: paid once, not applied again by a warp, a repair already made stays refused. An
+  action taken in those 15 s after the rewind counts after them, so repairing a building demolished
+  there keeps it standing. (REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE)
+- **A kerbal killed in a Re-Fly comes back with stock crew respawn on.** Re-flying a crewed
+  stage that first ended with its kerbal aboard and losing him in the re-fly marked him lost for
+  good, as if the replaced flight still held him. The replaced flight now lets him go: he respawns
+  on stock's timer, and a re-fly that recovers him frees him.
+  (REFLY-MERGED-DEATH-PERMANENT-VIA-SUPERSEDED-CO-ROW)
+- **Recovering cheap debris during a Re-Fly keeps its funds.** A recovery worth under 100 funds
+  (cheap debris, a kerbal on EVA, a small probe) was never written down, so in a Re-Fly or after
+  a rewind its money vanished. Every recovery is now booked at its exact payout, and with Patents
+  Licensing active the science-to-funds share is no longer mistaken for the recovery payout.
+  (SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY)
+- **Discarding a Re-Fly after a rewind keeps the money still to come.** After a Rewind-to-Launch,
+  starting a Re-Fly and then choosing Discard Re-fly took away the funds, science or reputation
+  your committed future flights earn later, for good. Discard now returns the career to just before
+  the Re-Fly, and those earnings arrive when the timeline reaches them.
+  (REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE)
+- **A strategy discount on a part, a repair or a penalty is counted once.** With Aggressive
+  Negotiations or Leadership Initiative active, buying a part, repairing a building or failing a
+  contract was booked at full price and the discount filed later as a correction, so a rewind and
+  a second purchase paid the discount twice. It now follows its purchase, repair or penalty.
+  (STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED)
+- **A tech node an anomaly gives you stays yours after a rewind.** A node the game unlocks for
+  free (a monolith's tech gift, or the debug menu) was never written down, so after a
+  Rewind-to-Launch it was locked again for good, parts and all. It is now kept like a researched
+  node, costs no science, and unlocks again when the timeline reaches it.
+  (FREE-TECH-NODE-LOST-AFTER-REWIND)
+- **A revert after a rewind no longer pays the future early.** Reverting a flight to launch (or
+  to the VAB / SPH) after a Rewind-to-Launch briefly added money and contracts your timeline only
+  earns later, which you could spend before the next scene change. A revert now shows only what
+  the clock has reached, like every other load. (REVERT-AFTER-REWIND-WALKS-PAST-THE-CLOCK)
 - **Orbiting the Mun pays its milestone again.** Orbit, suborbit and flight milestones were filed
   without their body, so the first Kerbin orbit marked every other body's orbit done and the game
   never paid them. Each body's milestone is now its own. (MILESTONE-ORBIT-BODY-UNQUALIFIED)

@@ -278,6 +278,7 @@ namespace Parsek.Tests
             "Parsek.Patches.FacilityRepairScopePatch.Prefix",
             "Parsek.Patches.FacilityResetStructuresPatch.Prefix",
             "Parsek.Patches.FacilityUpgradePatch.Prefix",
+            "Parsek.Patches.FreeTechUnlockCapturePatch.Prefix",
             "Parsek.Patches.FacilityUpgradeSpendPatch.Prefix",
             "Parsek.Patches.HackGravityPatch.Postfix",
             "Parsek.Patches.GhostTrackingStationInitPatch.Prefix",

@@ -87,6 +87,10 @@ namespace Parsek
         /// committed future (rewind design 10.13), with the rewind save's copy of each, saved in
         /// the PARSEK node.</summary>
         RewindVesselHolds,
+        /// <summary><c>LedgerHeldWindow</c>: the ledger held-through UT, the UT up to which the
+        /// loaded world already holds the ledger rows after a Rewind-to-Launch lead window
+        /// (todo REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE), saved in the PARSEK node.</summary>
+        LedgerHeldWindow,
     }
 
     /// <summary>What a load does with one category today.</summary>
@@ -461,6 +465,7 @@ namespace Parsek
                 case LoadStateCategory.GroupHierarchy:
                 case LoadStateCategory.StockPoolReference:
                 case LoadStateCategory.RewindVesselHolds:
+                case LoadStateCategory.LedgerHeldWindow:
                     return true;
                 case LoadStateCategory.UntaggedLedgerRowsAfterCutoff:
                 case LoadStateCategory.PendingScience:
@@ -525,6 +530,7 @@ namespace Parsek
                 case LoadStateCategory.VesselNames: return DecideVesselNames(kind);
                 case LoadStateCategory.StockPoolReference: return DecideStockPoolReference(kind);
                 case LoadStateCategory.RewindVesselHolds: return DecideRewindVesselHolds(kind);
+                case LoadStateCategory.LedgerHeldWindow: return DecideLedgerHeldWindow(kind);
             }
             throw new ArgumentOutOfRangeException(nameof(category), category, "unknown LoadStateCategory");
         }
@@ -1034,9 +1040,12 @@ namespace Parsek
                         StockPoolReferenceFromSave + StockPoolReferenceAuthoritative);
                 case LoadKind.DiscardReFly:
                     return Today(LoadReconcileAction.Save,
-                        StockPoolReferenceFromSave + "; the node is persistent.sfs's own PARSEK node, kept by "
-                        + "RevertInterceptor.DiscardReFlyHandler around the rewind point's game, written before the "
-                        + "attempt added any row" + StockPoolReferenceAuthoritative);
+                        StockPoolReferenceFromSave + "; RevertInterceptor.DiscardReFlyHandler carries persistent.sfs's "
+                        + "own PARSEK node around the rewind point's game but keeps the rewind point's own "
+                        + "STOCK_POOL_REFERENCE (SpliceLiveParsekScenarioNode), because the file holds the rewind "
+                        + "point's pools and the session's copy describes the pools its Re-Fly start wrote after the "
+                        + "full-ledger walk (REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE); the load's first "
+                        + "walk passes reFlyDiscard" + StockPoolReferenceAuthoritative);
                 // Consumed in the prologue, before the revert detector: the three refined
                 // in-session kinds share one cell (a stock revert's flight rows were never
                 // committed, so the save's reference describes the reverted pool exactly).
@@ -1081,6 +1090,41 @@ namespace Parsek
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
                     return Today(LoadReconcileAction.Memory, RewindVesselHoldsMemory);
+            }
+            throw UnknownKind(kind);
+        }
+
+        private const string LedgerHeldWindowFromSave =
+            "ParsekScenario.LoadLedgerHeldWindow -> LedgerHeldWindow.InstallAfterLoad installs the loaded node's "
+            + "ledgerHeldThroughUT while the loaded save's clock is behind it (a save written inside a "
+            + "Rewind-to-Launch lead window holds the rows up to it), none otherwise: the held-through UT "
+            + "describes the world of the .sfs that carries it";
+
+        // Todo REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE: the held-through UT says which
+        // ledger rows a world already holds, so every load takes the loaded save's copy, except a
+        // plain rewind, whose OnLoad node is persistent.sfs carrying the session's node: it sets
+        // its own from the rewind save.
+        private static LoadReconcileDecision DecideLedgerHeldWindow(LoadKind kind)
+        {
+            switch (kind)
+            {
+                case LoadKind.Cold:
+                case LoadKind.ReFlyStart:
+                    return Today(LoadReconcileAction.Save, LedgerHeldWindowFromSave);
+                case LoadKind.PlainRewind:
+                    return Today(LoadReconcileAction.Clear,
+                        "cleared in the prologue; HandleRewindOnLoad -> LedgerHeldWindow.SetAtRewind then sets the "
+                        + "rewind save's own UT (before the lead-time windback, raised to the held-through UT that save "
+                        + "carries, read in RecordingStore.ExecuteRewindSaveLoad) when it lies ahead of the wound-back clock");
+                case LoadKind.DiscardReFly:
+                    return Today(LoadReconcileAction.Save,
+                        LedgerHeldWindowFromSave + "; RevertInterceptor.SpliceLiveParsekScenarioNode keeps the rewind "
+                        + "point's own value around the session's carried node, as it keeps its STOCK_POOL_REFERENCE");
+                // Consumed in the prologue, before the revert detector: one cell for all three.
+                case LoadKind.StockRevert:
+                case LoadKind.QuickloadFlight:
+                case LoadKind.InSessionOther:
+                    return Today(LoadReconcileAction.Save, LedgerHeldWindowFromSave);
             }
             throw UnknownKind(kind);
         }

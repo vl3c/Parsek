@@ -20,6 +20,11 @@ namespace Parsek
             public bool Quick;
             public VesselType VesselType;
             public RecoveryPayoutContext PayoutContext;
+            /// <summary>The persistentId of a debris vessel whose request was deferred only
+            /// because its callback fired inside stock's own recovery dispatch for it
+            /// (<see cref="RecoveryDispatchScope"/>), else 0. Such a request is dropped when
+            /// that dispatch closes unpaid (<see cref="DropUnpairedDispatchDebrisRequests"/>).</summary>
+            public uint DispatchPersistentId;
 
             public string VesselName => Identity.DisplayName;
         }
@@ -158,6 +163,7 @@ namespace Parsek
                 if (e.eventType != GameStateEventType.FundsChanged) continue;
                 if (e.key != LedgerOrchestrator.VesselRecoveryReasonKey) continue;
                 if (Math.Abs(e.ut - ut) > LedgerOrchestrator.VesselRecoveryEventEpsilonSeconds) continue;
+                if (RecoveryPayoutContextStore.IsNotPayoutFundsEventDetail(e.detail)) continue;
 
                 string candidateKey = BuildRecoveryEventDedupKey(e);
                 if (skipConsumed && consumedRecoveryEventKeys.Contains(candidateKey)) continue;
@@ -177,6 +183,13 @@ namespace Parsek
         {
             if (pendingRecoveryFunds.Count == 0)
                 return;
+            if (RecoveryPayoutContextStore.IsNotPayoutFundsEventDetail(evt.detail))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"OnRecoveryFundsEventRecorded: event at ut={evt.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    "is a strategy effect, not a recovery payout - no pending request pairs it");
+                return;
+            }
 
             RecoveredVesselIdentity eventIdentity =
                 RecoveryPayoutContextStore.ExtractIdentityFromFundsEventDetail(evt.detail);
@@ -384,18 +397,13 @@ namespace Parsek
 
             if (payoutContext != null && payoutContext.HasFundsEarned)
             {
+                // Only a zero payout is skipped: the recorder keeps stock's positive recovery
+                // payout of any size (GameStateRecorder.IsFundsDeltaBelowThreshold, inside
+                // RecoveryPayoutScope), so a payout under the recorder's funds threshold still
+                // has an event to pair with.
                 if (payoutContext.FundsEarned <= 0.0)
                 {
                     reason = "stock expected zero recovery funds";
-                    return true;
-                }
-
-                if (payoutContext.FundsEarned < GameStateRecorder.FundsThreshold)
-                {
-                    reason = "stock expected recovery funds " +
-                             payoutContext.FundsEarned.ToString("F1", CultureInfo.InvariantCulture) +
-                             " below recorder threshold " +
-                             GameStateRecorder.FundsThreshold.ToString("F1", CultureInfo.InvariantCulture);
                     return true;
                 }
 
@@ -407,12 +415,23 @@ namespace Parsek
             return false;
         }
 
-        private static bool ShouldSkipDeferredRecoveryFunds(
+        /// <summary>
+        /// Pure: whether a debris recovery with no pair yet is left unbooked. A debris callback
+        /// with no recovery-processing payout context is skipped, EXCEPT inside stock's
+        /// recovery dispatch for that same vessel (<see cref="RecoveryDispatchScope"/>):
+        /// stock's own <c>VesselRecovery</c> listener on the same <c>onVesselRecovered</c>
+        /// event runs after Parsek's and pays it there (KSP 1.12.5, decompiled: the Space
+        /// Center's debris clean-up, <c>ProtoVessel.Clean</c> on a vessel <c>FlightState</c>
+        /// marked "debris cluttering up KSC", fires the event with quick=true and Funding pays
+        /// in <c>onVesselRecoveryProcessing</c> inside the same call).
+        /// </summary>
+        internal static bool ShouldSkipDeferredRecoveryFunds(
             VesselType vesselType,
             RecoveryPayoutContext payoutContext,
+            bool insideDispatchForVessel,
             out string reason)
         {
-            if (vesselType == VesselType.Debris && payoutContext == null)
+            if (vesselType == VesselType.Debris && payoutContext == null && !insideDispatchForVessel)
             {
                 reason = "debris recovery without recovery-processing payout context";
                 return true;
@@ -420,6 +439,37 @@ namespace Parsek
 
             reason = null;
             return false;
+        }
+
+        /// <summary>Pure: a debris request deferred only because it is inside the dispatch.</summary>
+        internal static bool IsDebrisDeferredInsideDispatch(
+            VesselType vesselType, RecoveryPayoutContext payoutContext, bool insideDispatchForVessel)
+        {
+            return vesselType == VesselType.Debris && payoutContext == null && insideDispatchForVessel;
+        }
+
+        /// <summary>
+        /// Drops the debris requests deferred inside the dispatch for <paramref name="persistentId"/>
+        /// that the dispatch closed without paying (stock paid nothing for the debris), so no
+        /// stale request waits for a payout that will never come. Returns the count dropped.
+        /// </summary>
+        internal static int DropUnpairedDispatchDebrisRequests(uint persistentId)
+        {
+            if (persistentId == 0 || pendingRecoveryFunds.Count == 0)
+                return 0;
+            int dropped = 0;
+            for (int i = pendingRecoveryFunds.Count - 1; i >= 0; i--)
+            {
+                if (pendingRecoveryFunds[i].DispatchPersistentId != persistentId)
+                    continue;
+                ParsekLog.Verbose(Tag,
+                    $"Recovery dispatch closed with no payout for deferred debris request " +
+                    $"{pendingRecoveryFunds[i].Identity.FormatForLog()} " +
+                    $"pid={persistentId.ToString(CultureInfo.InvariantCulture)} - dropped (stock paid nothing)");
+                pendingRecoveryFunds.RemoveAt(i);
+                dropped++;
+            }
+            return dropped;
         }
 
         internal static void RepairMissingRecoveryDedupKeys(
@@ -485,6 +535,7 @@ namespace Parsek
                 var e = events[i];
                 if (e.eventType != GameStateEventType.FundsChanged) continue;
                 if (e.key != LedgerOrchestrator.VesselRecoveryReasonKey) continue;
+                if (RecoveryPayoutContextStore.IsNotPayoutFundsEventDetail(e.detail)) continue;
 
                 double utDistance = Math.Abs(e.ut - action.UT);
                 if (utDistance > LedgerOrchestrator.VesselRecoveryEventEpsilonSeconds) continue;
@@ -508,13 +559,18 @@ namespace Parsek
             return dedupKey != null;
         }
 
+        /// <param name="dispatchPersistentId">The recovered vessel's persistentId when the
+        /// callback fires inside stock's recovery dispatch for that same vessel (an open
+        /// <see cref="RecoveryDispatchScope"/> naming it), else 0.</param>
         internal static void OnVesselRecoveryFunds(
             double ut,
             RecoveredVesselIdentity identity,
             bool quick,
             VesselType vesselType,
             RecoveryPayoutContext payoutContext,
-            Func<double, RecoveredVesselIdentity, bool, bool> tryAddRecoveryFundsAction)
+            bool fundsPoolTracked,
+            Func<double, RecoveredVesselIdentity, bool, bool> tryAddRecoveryFundsAction,
+            uint dispatchPersistentId = 0)
         {
             if (!identity.HasName)
             {
@@ -535,7 +591,10 @@ namespace Parsek
             if (tryAddRecoveryFundsAction(ut, identity, quick))
                 return;
 
-            if (ShouldSkipDeferredRecoveryFunds(vesselType, payoutContext, out skipReason))
+            bool deferredInDispatch = IsDebrisDeferredInsideDispatch(
+                vesselType, payoutContext, dispatchPersistentId != 0);
+            if (ShouldSkipDeferredRecoveryFunds(
+                    vesselType, payoutContext, dispatchPersistentId != 0, out skipReason))
             {
                 ParsekLog.Verbose(Tag,
                     $"OnVesselRecoveryFunds: {identity.FormatForLog()} (VesselType.{vesselType}) " +
@@ -544,7 +603,27 @@ namespace Parsek
                 return;
             }
 
-            AddPendingRecoveryFundsRequest(ut, identity, quick, vesselType, payoutContext);
+            if (!fundsPoolTracked)
+            {
+                // Science and Sandbox careers have no Funding: stock pays no recovery funds,
+                // so no FundsChanged(VesselRecovery) can ever arrive to pair with and a
+                // queued request would only be evicted with a Warn at the next scene switch.
+                ParsekLog.Verbose(Tag,
+                    $"OnVesselRecoveryFunds: {identity.FormatForLog()} (VesselType.{vesselType}) " +
+                    $"at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} - " +
+                    "skipping deferred recovery-funds pairing (career has no funds pool)");
+                return;
+            }
+
+            AddPendingRecoveryFundsRequest(ut, identity, quick, vesselType, payoutContext,
+                deferredInDispatch ? dispatchPersistentId : 0u);
+            if (deferredInDispatch)
+                ParsekLog.Verbose(Tag,
+                    $"OnVesselRecoveryFunds: {identity.FormatForLog()} (VesselType.{vesselType}) " +
+                    $"pid={dispatchPersistentId.ToString(CultureInfo.InvariantCulture)} " +
+                    $"at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} - debris recovery " +
+                    "inside stock's recovery dispatch for this vessel: deferring, stock's " +
+                    "VesselRecovery listener pays it later in the same dispatch");
             ParsekLog.Verbose(Tag,
                 $"OnVesselRecoveryFunds: deferred pairing for {identity.FormatForLog()} " +
                 $"at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
@@ -559,10 +638,12 @@ namespace Parsek
             RecoveredVesselIdentity identity,
             bool quick,
             VesselType vesselType,
-            RecoveryPayoutContext payoutContext)
+            RecoveryPayoutContext payoutContext,
+            uint dispatchPersistentId = 0)
         {
             pendingRecoveryFunds.Add(new PendingRecoveryFundsRequest
             {
+                DispatchPersistentId = dispatchPersistentId,
                 Ut = ut,
                 Identity = identity,
                 Quick = quick,

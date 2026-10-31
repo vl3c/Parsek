@@ -91,12 +91,12 @@ namespace Parsek.Tests
         }
 
         private static void ConvertWhileRecording(string recordingId, double ut,
-            List<StrategyConversionLeg> legs, string reason)
+            List<StrategyConversionLeg> legs, string reason, string conversionCause = null)
         {
             GameStateRecorder.TagResolverForTesting = () => recordingId ?? "";
             try
             {
-                LedgerOrchestrator.OnStrategyCurrencyConversion(ut, legs, reason);
+                LedgerOrchestrator.OnStrategyCurrencyConversion(ut, legs, reason, conversionCause);
             }
             finally
             {
@@ -121,6 +121,22 @@ namespace Parsek.Tests
         // ============================================================
         // The capture door
         // ============================================================
+
+        // catches: a repair leg split per building losing its own cause to the query's.
+        [Fact]
+        public void Conversion_ALegsOwnCauseWinsOverTheQuerys()
+        {
+            var legs = new List<StrategyConversionLeg>
+            {
+                new StrategyConversionLeg { Currency = StrategyConversionCurrency.Funds, Delta = 3.0, Cause = "FacilityRepair|Funds|a" },
+                new StrategyConversionLeg { Currency = StrategyConversionCurrency.Funds, Delta = 2.0 },
+            };
+            ConvertWhileRecording(null, 100.0, legs, "StructureRepair", "FundsSpending|Funds|Part:x");
+            var rows = ConversionRows();
+            Assert.Equal(2, rows.Count);
+            Assert.Contains(rows, r => r.ConversionCause == "FacilityRepair|Funds|a" && r.FundsAwarded == 3f);
+            Assert.Contains(rows, r => r.ConversionCause == "FundsSpending|Funds|Part:x" && r.FundsAwarded == 2f);
+        }
 
         [Fact]
         public void Conversion_WhileARecordingIsLive_IsTaggedToThatRecording()

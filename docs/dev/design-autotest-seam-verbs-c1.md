@@ -843,7 +843,10 @@ harness:
 - `upgrade-facility`: `unknown-facility` (no live `SpaceCenterBuilding` for the id),
   `facility-at-max` (already top level), `insufficient-funds`.
 - `hire-kerbal`: `unknown-kerbal` / `kerbal-not-applicant` (not in the applicant pool),
-  `insufficient-funds` (hire cost exceeds funds).
+  `insufficient-funds` (hire cost exceeds funds). `kerbal=applicant-first` (2026-10-28, lane
+  RW-12) hires the first applicant in stock's live pool, whose names stock generates at run time;
+  the hired name comes back in the OK payload as `target` (logged `kscaction hire-kerbal resolved
+  applicant-first -> '<name>'`), and an empty pool refuses `no-applicant` before any gate runs.
 - `dismiss-kerbal`: `unknown-kerbal` / `kerbal-not-dismissable` (assigned / tourist /
   protected), and `kerbal-parsek-managed` when `LedgerOrchestrator.Kerbals.IsManaged(name)`
   is true - the `KerbalDismissalPatch` `IsManaged` block would refuse the stock `Remove`
@@ -950,6 +953,19 @@ accounted whatever DID happen.
 > unguarded by design (KSPCF's auto-expiry calls it), so no sub-action drives it for a
 > refusal. `UiAction op=dismiss` now runs with no Parsek UI host (the editor), so a blocked
 > dialog raised there can be dismissed. First flown on `KB-4-ksc-click-blocks-remaining`.
+
+> Update (2026-10-28, lane RW-8, todo FREE-TECH-NODE-LOST-AFTER-REWIND). `gift-tech
+> node=<techId>` unlocks one tech node for free the way stock's point-of-interest tech gift
+> (`ProgressNode.AwardProgressRandomTech`) does: `ResearchAndDevelopment.UnlockProtoTechNode`,
+> then `ResearchAndDevelopment.RefreshTechTreeUI`. The gift's third call,
+> `FinePrint.ContractDefs.TechResearched`, is internal to stock and only refreshes the
+> contract generator, so the seam skips it. Stock picks the gift's node at random; the seam
+> names it, so a lane is deterministic. No science is charged, so there is no affordability check. The
+> effect is confirmed by the node reading `Available`; otherwise the `not applied:` line and
+> `gift-not-applied` (gate class). Refusals after `missing-arg`: `unknown-tech-node` (arg
+> class), `node-already-unlocked` (career class). Dispatch: CAREER, any scene (the R&D
+> singleton must be live, the default `career-not-ready` defer). Manifest kind `tech-unlock`;
+> payload `scienceAfter`.
 
 **Payload.** `OK action=<action> target=<target> applied=true` plus an observed-after
 field for logging only (`scienceAfter` / `fundsAfter` / `level` / `crewCount`). The

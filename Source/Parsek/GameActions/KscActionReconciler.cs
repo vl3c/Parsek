@@ -40,9 +40,11 @@ namespace Parsek
         /// Two back-to-back KSC actions of the same kind (e.g. two part purchases) share
         /// one coalesced event with the summed delta. This reconciler handles that by
         /// summing both sides across a UT window: expected from ledger actions with the
-        /// same expectation classification within <see cref="KscReconcileEpsilonSeconds"/>
-        /// of <paramref name="ut"/>, observed from events with the matching key in the
-        /// same window. The current action is already in <paramref name="ledgerActions"/>
+        /// same expectation classification captured within <see cref="KscReconcileEpsilonSeconds"/>
+        /// of <paramref name="ut"/> (<see cref="LedgerHeldWindow.CaptureMomentUT"/>, so a row
+        /// dated at the ledger held-through UT still pairs at its raw clock), observed from
+        /// events with the matching key in the same window. <paramref name="ut"/> is the raw
+        /// capture clock (the event's UT), never the row's dated UT. The current action is already in <paramref name="ledgerActions"/>
         /// (the caller adds it before calling).
         /// </para>
         /// <para>
@@ -167,6 +169,12 @@ namespace Parsek
                 matchingLegs,
                 earliestObservedBefore,
                 tol);
+            // A strategy discount on a gross purchase / repair rides the same event net; its
+            // own leg rows carry the difference.
+            double strategyLegs = leg.EventType == GameStateEventType.FundsChanged
+                ? SumCausedStrategyFundsLegs(ledgerActions, ut, leg.ExpectedReasonKey)
+                : 0.0;
+            summedExpected += strategyLegs;
 
             if (Math.Abs(summedExpected - summedObserved) > tol)
             {
@@ -176,6 +184,46 @@ namespace Parsek
                     $"observed={summedObserved:F1} across {observedCount} event(s) keyed '{leg.ExpectedReasonKey}' " +
                     $"— delta mismatch at ut={ut:F1}");
             }
+        }
+
+        /// <summary>
+        /// Pure: the signed funds of the strategy conversion legs within
+        /// <see cref="KscReconcileEpsilonSeconds"/> of <paramref name="ut"/> whose named cause
+        /// is a row stock charges under <paramref name="reasonKey"/> through the KSC door: a
+        /// part or upgrade purchase (<c>RnDPartPurchase</c>) or a building repair
+        /// (<c>StructureRepair</c>). Stock applies such a discount inside the same
+        /// <c>FundsChanged</c> as the gross charge, so the expectation is gross plus these.
+        /// 0 for any other reason.
+        /// </summary>
+        internal static double SumCausedStrategyFundsLegs(
+            IReadOnlyList<GameAction> ledgerActions, double ut, string reasonKey)
+        {
+            GameActionType causeType;
+            if (string.Equals(reasonKey, "RnDPartPurchase", StringComparison.Ordinal))
+                causeType = GameActionType.FundsSpending;
+            else if (string.Equals(reasonKey, "StructureRepair", StringComparison.Ordinal))
+                causeType = GameActionType.FacilityRepair;
+            else
+                return 0.0;
+            if (ledgerActions == null)
+                return 0.0;
+            double sum = 0.0;
+            for (int i = 0; i < ledgerActions.Count; i++)
+            {
+                var row = ledgerActions[i];
+                if (row == null || Math.Abs(LedgerHeldWindow.CaptureMomentUT(row) - ut) > KscReconcileEpsilonSeconds)
+                    continue;
+                if (!ConversionLegBinding.IsCausedLeg(row))
+                    continue;
+                ConversionCause cause;
+                if (!ConversionCause.TryParse(row.ConversionCause, out cause) || cause.Type != causeType)
+                    continue;
+                StockPool pool;
+                float signed;
+                if (ConversionLegBinding.TryGetLegAmount(row, out pool, out signed) && pool == StockPool.Funds)
+                    sum += signed;
+            }
+            return sum;
         }
 
         private static List<KscExpectedLegMatch> CollectMatchingLegs(
@@ -191,7 +239,9 @@ namespace Parsek
                 {
                     var other = ledgerActions[i];
                     if (other == null) continue;
-                    if (Math.Abs(other.UT - ut) > KscReconcileEpsilonSeconds) continue;
+                    // Capture moment, not UT: a row dated at the ledger held-through UT
+                    // (LedgerHeldWindow.StampKscOriginRow) pairs with events at its raw clock.
+                    if (Math.Abs(LedgerHeldWindow.CaptureMomentUT(other) - ut) > KscReconcileEpsilonSeconds) continue;
                     var otherExpectation = KscActionExpectationClassifier.ClassifyAction(other);
                     if (otherExpectation.Class != KscReconcileClass.Untransformed) continue;
                     AddMatchingLeg(matches, other, otherExpectation.FundsLeg, targetLeg);

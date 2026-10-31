@@ -122,10 +122,14 @@ namespace Parsek
             LedgerOrchestrator.OnLiveOnlyIncome(ut, rows, reason.ToString());
         }
 
-        /// <summary>Pure: a row a time-travel load to <paramref name="loadedUT"/> drops.</summary>
+        /// <summary>
+        /// Pure: a row a time-travel load to <paramref name="loadedUT"/> drops: one captured
+        /// after the loaded clock (<see cref="LedgerHeldWindow.CaptureMomentUT"/>, so a row
+        /// dated at the ledger held-through UT is judged at the clock it was earned at).
+        /// </summary>
         internal static bool ShouldDrop(GameAction row, double loadedUT)
         {
-            return row != null && row.IsLiveOnlyIncome && row.UT > loadedUT;
+            return row != null && row.IsLiveOnlyIncome && LedgerHeldWindow.CaptureMomentUT(row) > loadedUT;
         }
 
         /// <summary>
@@ -145,11 +149,13 @@ namespace Parsek
         /// rule runs again on the restored ledger. The UT is the loaded quicksave's own clock
         /// (<paramref name="loadedSaveUT"/>, the in-session drop's UT), else
         /// <paramref name="fallbackUT"/> (the live clock just after the load, else the rewind
-        /// point's UT).
+        /// point's UT), raised to the ledger held-through UT the load installed.
         /// </summary>
         internal static int DropAfterReFlyBundleRestore(double loadedSaveUT, double fallbackUT)
         {
-            double ut = ResolveReFlyDropUT(loadedSaveUT, fallbackUT);
+            // The loaded world's UT: raised to the held-through UT the quicksave carried (one
+            // written inside a Rewind-to-Launch lead window holds everything up to it).
+            double ut = LedgerHeldWindow.ResolveLedgerNowUT(ResolveReFlyDropUT(loadedSaveUT, fallbackUT));
             ParsekLog.Verbose(Tag,
                 $"Re-Fly bundle restore: re-applying the live-only income drop at ut={ut.ToString("R", IC)} " +
                 $"(loadedSaveUT={loadedSaveUT.ToString("R", IC)} fallbackUT={fallbackUT.ToString("R", IC)})");

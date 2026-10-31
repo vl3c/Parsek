@@ -78,6 +78,15 @@ namespace Parsek.TestCommands
         /// entry cost), with the upgrade's tech node selected on the OPEN R&amp;D screen.</summary>
         PurchaseUpgrade,
 
+        /// <summary>Unlock one tech node for free the way stock's tech gifts do: the
+        /// point-of-interest anomaly's <c>ProgressNode.AwardProgressRandomTech</c> (and the
+        /// debug menu's <c>CheatTechnology</c>, per node) call
+        /// <c>ResearchAndDevelopment.UnlockProtoTechNode</c>, then <c>RefreshTechTreeUI</c>
+        /// (the gift's third call, the internal <c>ContractDefs.TechResearched</c>, is
+        /// skipped). No science is charged. The anomaly gift picks its node at random; this
+        /// names it.</summary>
+        GiftTech,
+
         /// <summary>An unrecognized <c>action</c> arg (REJECTED unknown-action).</summary>
         Unknown,
     }
@@ -209,6 +218,7 @@ namespace Parsek.TestCommands
                 case "assign-crew": return KscActionKind.AssignCrew;
                 case "define-upgrade": return KscActionKind.DefineUpgrade;
                 case "purchase-upgrade": return KscActionKind.PurchaseUpgrade;
+                case "gift-tech": return KscActionKind.GiftTech;
                 default: return KscActionKind.Unknown;
             }
         }
@@ -237,6 +247,7 @@ namespace Parsek.TestCommands
                 case KscActionKind.AssignCrew: return "crew-assign";
                 case KscActionKind.DefineUpgrade: return "part-upgrade-define";
                 case KscActionKind.PurchaseUpgrade: return "part-upgrade-purchase";
+                case KscActionKind.GiftTech: return "tech-unlock";
                 default: return string.Empty;
             }
         }
@@ -376,6 +387,11 @@ namespace Parsek.TestCommands
                     if (!inputs.PrerequisiteMet) { d.RejectReason = "upgrade-tech-not-researched"; return d; }
                     if (inputs.AlreadyApplied) { d.RejectReason = "upgrade-already-unlocked"; return d; }
                     break;
+
+                case KscActionKind.GiftTech:
+                    // A gift costs nothing, so there is no affordability boundary.
+                    if (inputs.AlreadyApplied) { d.RejectReason = "node-already-unlocked"; return d; }
+                    break;
             }
 
             d.Accepted = true;
@@ -404,6 +420,7 @@ namespace Parsek.TestCommands
                 case KscActionKind.PurchaseAllParts: return "unknown-tech-node";
                 case KscActionKind.DefineUpgrade: return "unknown-tech-node";
                 case KscActionKind.PurchaseUpgrade: return "unknown-upgrade";
+                case KscActionKind.GiftTech: return "unknown-tech-node";
                 default: return "unknown-target";
             }
         }
@@ -468,6 +485,7 @@ namespace Parsek.TestCommands
                 case KscActionKind.AssignCrew: return ExecuteAssignCrew(kerbal);
                 case KscActionKind.DefineUpgrade: return ExecuteDefineUpgrade(upgrade, node, cost, part);
                 case KscActionKind.PurchaseUpgrade: return ExecutePurchaseUpgrade(upgrade);
+                case KscActionKind.GiftTech: return ExecuteGiftTech(node);
                 default:
                     ParsekLog.Warn(Tag, "kscaction refused action=" + (action ?? string.Empty) + " reason=unknown-action target=");
                     return KscActionExecOutcome.Reject("unknown-action");
@@ -602,6 +620,60 @@ namespace Parsek.TestCommands
                 default:
                     return "blocked-committed";
             }
+        }
+
+        private static KscActionExecOutcome ExecuteGiftTech(string node)
+        {
+            const string action = "gift-tech";
+            bool argPresent = !string.IsNullOrEmpty(node);
+            ProtoTechNode proto = argPresent ? ResolveProtoTech(node) : null;
+            bool alreadyAvailable = argPresent
+                && ResearchAndDevelopment.GetTechnologyState(node) == RDTech.State.Available;
+
+            var inputs = new KscActionInputs
+            {
+                ArgPresent = argPresent,
+                TargetResolves = proto != null,
+                AlreadyApplied = alreadyAvailable,
+            };
+            KscActionDecision d = Decide(action, node, inputs);
+            if (!d.Accepted)
+                return Refuse(action, node, d.RejectReason);
+
+            ResearchAndDevelopment rnd = ResearchAndDevelopment.Instance;
+            string stateBefore = ResearchAndDevelopment.GetTechnologyState(node).ToString();
+            double fundsBefore = LiveFunds();
+            double scienceBefore = LiveScience();
+            if (rnd != null)
+            {
+                // The anomaly gift's first two calls, in its order. Its third,
+                // FinePrint.ContractDefs.TechResearched (a contract-generator refresh), is
+                // internal to stock and moves no career pool. Parsek's
+                // FreeTechUnlockCapturePatch observes UnlockProtoTechNode, as it does for stock.
+                try
+                {
+                    rnd.UnlockProtoTechNode(proto);
+                    ResearchAndDevelopment.RefreshTechTreeUI();
+                }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Warn(Tag, "kscaction gift-tech UnlockProtoTechNode threw: "
+                        + ex.GetType().Name + ": " + ex.Message);
+                }
+            }
+
+            bool unlockedNow = ResearchAndDevelopment.GetTechnologyState(node) == RDTech.State.Available;
+            if (!unlockedNow)
+            {
+                ParsekLog.Info(Tag, FormatNotAppliedLine(action, node, "state",
+                    stateBefore, ResearchAndDevelopment.GetTechnologyState(node).ToString(),
+                    fundsBefore, LiveFunds(), scienceBefore, LiveScience()));
+                return Refuse(action, node, "gift-not-applied");
+            }
+
+            string observed = LiveScience().ToString("R", CultureInfo.InvariantCulture);
+            LogApplied(action, node, d.ManifestKind, "science=" + observed);
+            return KscActionExecOutcome.Ok(OkPayload(action, node, "scienceAfter", observed));
         }
 
         private static ProtoTechNode ResolveProtoTech(string node)
@@ -955,6 +1027,39 @@ namespace Parsek.TestCommands
         /// accepted guid comes back in the OK payload as <c>contract</c>).</summary>
         internal const string FirstOfferedContractArg = "offered-first";
 
+        /// <summary>The <c>kerbal=</c> value of <c>hire-kerbal</c> that names the first applicant in
+        /// stock's live pool instead of a name, for a host whose applicants stock generates at run
+        /// time with random names (the hired name comes back in the OK payload as <c>target</c>).</summary>
+        internal const string FirstApplicantArg = "applicant-first";
+
+        /// <summary>The refusal of <c>kerbal=applicant-first</c> when the applicant pool is empty.</summary>
+        internal const string NoApplicantReason = "no-applicant";
+
+        /// <summary>Pure: resolves a <c>hire-kerbal</c> <c>kerbal=</c> arg against the live applicant
+        /// names, in roster order. A plain name passes through unchanged (the ordinary gates then
+        /// judge it); <c>applicant-first</c> (case-insensitive) becomes the first non-empty name, or
+        /// refuses <see cref="NoApplicantReason"/> when there is none. Returns null on success.</summary>
+        internal static string ResolveHireTarget(string kerbalArg, IList<string> applicantNames, out string resolved)
+        {
+            resolved = kerbalArg;
+            if (string.IsNullOrEmpty(kerbalArg)
+                || !string.Equals(kerbalArg.Trim(), FirstApplicantArg, System.StringComparison.OrdinalIgnoreCase))
+                return null;
+            resolved = null;
+            if (applicantNames != null)
+            {
+                for (int i = 0; i < applicantNames.Count; i++)
+                {
+                    if (!string.IsNullOrEmpty(applicantNames[i]))
+                    {
+                        resolved = applicantNames[i];
+                        return null;
+                    }
+                }
+            }
+            return NoApplicantReason;
+        }
+
         /// <summary>Pure: whether the arg asks for the first Offered contract.</summary>
         internal static bool IsFirstOfferedContractArg(string arg)
         {
@@ -1048,8 +1153,22 @@ namespace Parsek.TestCommands
         private static KscActionExecOutcome ExecuteHireKerbal(string kerbal)
         {
             const string action = "hire-kerbal";
-            bool argPresent = !string.IsNullOrEmpty(kerbal);
             KerbalRoster roster = HighLogic.CurrentGame != null ? HighLogic.CurrentGame.CrewRoster : null;
+            if (roster != null)
+            {
+                string requested = kerbal;
+                var applicantNames = new List<string>();
+                foreach (ProtoCrewMember a in roster.Applicants)
+                    applicantNames.Add(a != null ? a.name : null);
+                string resolveReason = ResolveHireTarget(kerbal, applicantNames, out string resolvedName);
+                if (resolveReason != null)
+                    return Refuse(action, kerbal, resolveReason);
+                kerbal = resolvedName;
+                if (!string.Equals(requested, kerbal, System.StringComparison.Ordinal))
+                    ParsekLog.Info(Tag, "kscaction hire-kerbal resolved " + requested + " -> '" + kerbal
+                        + "' applicants=" + applicantNames.Count.ToString(CultureInfo.InvariantCulture));
+            }
+            bool argPresent = !string.IsNullOrEmpty(kerbal);
 
             ProtoCrewMember applicant = null;
             bool existsAnywhere = false;

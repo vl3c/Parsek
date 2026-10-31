@@ -19016,8 +19016,8 @@ namespace Parsek.InGameTests
                     // carries a nonzero GetInput, and the old scoping rule excluded every
                     // such leg on the premise that "the ordinary channel already reports it
                     // NET". That premise is REASON-QUALIFIED: it holds where Parsek's funds
-                    // channel is event-derived (VesselRollout, RnDPartPurchase, the structure
-                    // reasons, StrategyOutput) and is FALSE under ContractReward, where the
+                    // channel is event-derived (VesselRollout, StructureConstruction,
+                    // StrategyOutput) and is FALSE under ContractReward, where the
                     // channel carries the contract's configured GROSS. So the diversion now
                     // lands as exactly one FundsSpending row sourced StrategyConverter, and
                     // NOT as a funds EARNING - the direction lives in the action type.
@@ -19090,8 +19090,8 @@ namespace Parsek.InGameTests
             // STRATEGY-FUNDS-DEBIT-CONVERTERS-UNCAPTURED in docs/dev/todo-and-known-bugs.md.
             //
             // WHERE THE NEGATIVE CONTROL WENT. The suppression that remains - a nonzero
-            // funds input under an EVENT-DERIVED reason (VesselRollout, RnDPartPurchase,
-            // StructureRepair, StructureConstruction, StrategyOutput), where the channel
+            // funds input under an EVENT-DERIVED reason (VesselRollout,
+            // StructureConstruction, StrategyOutput), where the channel
             // really does record the observed net - is pinned headlessly by
             // StrategyConversionCaptureTests
             // .NonZeroInputFunds_UnderAnEventDerivedReason_IsNotCaptured. NO in-game cell
@@ -20127,8 +20127,8 @@ namespace Parsek.InGameTests
             // nonzero-input funds leg, on the premise that "the ordinary event-driven channel
             // is already watching that transaction and reports the value NET of the
             // modifier". That premise is REASON-QUALIFIED and nobody had qualified it: it is
-            // TRUE under VesselRollout / RnDPartPurchase / StructureRepair /
-            // StructureConstruction / StrategyOutput, where Parsek's funds channel really is
+            // TRUE under VesselRollout / StructureConstruction / StrategyOutput, where
+            // Parsek's funds channel really is
             // derived from the observed FundsChanged delta - and FALSE under ContractReward /
             // ContractAdvance / Progression, where the channel records a CONFIGURED GROSS
             // nominal instead (contract.FundsCompletion via TransformedFundsReward,

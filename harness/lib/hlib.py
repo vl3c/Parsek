@@ -764,15 +764,16 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # ADDITIVE (48 -> 50 implemented, reserved unchanged at 4), the vessel-names proof pair
     # (design-vessel-and-mission-names.md 15.3).
     #   PartAction button=undock|decouple|controlfrom|deploy|retract|startconverter|
-    #     stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff
-    #     [part=<part name>]
+    #     stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|
+    #     activate|explode|chute|runtest [part=<part name>]
     #     [converter=<ConverterName>] [all=true] [pid=<pid>]
     #     [expectSnapshot=true|false rec=<recordingId> tolerance=<abs>] (inspect only), FLIGHT,
     #     SINGLE-PHASE, default 60 s: one
     #     button of one part's stock right-click menu (ModuleDockingNode.Undock,
     #     ModuleDecouplerBase.Decouple, ModuleCommand.MakeReference, ModuleAnimationGroup
     #     Deploy / Retract, BaseConverter Start / Stop, ModuleScienceExperiment.DeployExperiment,
-    #     ModuleScienceLab.TransmitScience, ModuleActiveRadiator Activate / Shutdown) pressed
+    #     ModuleScienceLab.TransmitScience, ModuleActiveRadiator Activate / Shutdown,
+    #     ModuleEngines Activate - "Activate Engine", no staging) pressed
     #     through its BaseEvent (a packed vessel included); labprocess is the
     #     results dialog's lab button, inspect presses nothing. OK `button= pid= part= partId=
     #     event= newPid= newName= vesselsBefore= vesselsAfter= activePid= activeName=
@@ -3958,7 +3959,7 @@ PARTACTION_BUTTONS_ACCEPTING_SNAPSHOT: Tuple[str, ...] = ("inspect",)
 PARTACTION_BUTTON_VALUES: Tuple[str, ...] = (
     "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
     "stopconverter", "experiment", "labprocess", "labtransmit", "inspect", "radiatoron",
-    "radiatoroff",
+    "radiatoroff", "activate", "explode", "chute", "runtest",
 )
 PARTACTION_BUTTONS_REQUIRING_PART: Tuple[str, ...] = tuple(
     b for b in PARTACTION_BUTTON_VALUES if b != "undock")
@@ -3966,7 +3967,7 @@ PARTACTION_BUTTONS_ACCEPTING_CONVERTER: Tuple[str, ...] = ("startconverter", "st
 PARTACTION_ALL_KEY = "all"
 PARTACTION_ALL_VALUES: Tuple[str, ...] = ("true",)
 PARTACTION_BUTTONS_ACCEPTING_ALL: Tuple[str, ...] = tuple(
-    b for b in PARTACTION_BUTTON_VALUES if b not in ("undock", "decouple", "controlfrom"))
+    b for b in PARTACTION_BUTTON_VALUES if b not in ("undock", "decouple", "controlfrom", "explode"))
 PARTACTION_REASONS: Tuple[str, ...] = (
     "partaction-button-arg-missing", "partaction-button-arg-invalid",
     "partaction-part-arg-missing", "partaction-converter-arg-unexpected",
@@ -3982,7 +3983,8 @@ PARTACTION_REASONS: Tuple[str, ...] = (
     "partaction-part-ambiguous", "partaction-event-unavailable",
     "partaction-experiment-no-data", "partaction-lab-not-active-vessel",
     "partaction-lab-page-missing", "partaction-lab-value-zero", "partaction-lab-unavailable",
-    "partaction-radiator-not-found",
+    "partaction-radiator-not-found", "partaction-engine-not-found",
+    "partaction-parachute-not-found",
 )
 
 
@@ -11946,6 +11948,8 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "facility-at-max": "driver-career",
     "node-already-unlocked": "driver-career",
     "kerbal-not-applicant": "driver-career",
+    # hire-kerbal kerbal=applicant-first with an empty applicant pool: a live career state.
+    "no-applicant": "driver-career",
     "kerbal-parsek-managed": "driver-career",
     "kerbal-not-dismissable": "driver-career",
     "blocked-committed": "driver-career",
@@ -12012,6 +12016,9 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "upgrade-already-unlocked": "driver-career",
     "upgrade-handler-missing": "driver-gate",
     "define-not-applied": "driver-gate",
+    # KscAction gift-tech (stock's free tech unlock, UnlockProtoTechNode): the node did not
+    # read Available after the call.
+    "gift-not-applied": "driver-gate",
     # R12 (design "> Update (R12)"). Both verbs ship a TYPED refusal taxonomy; without
     # these rows every one of them collapses to the coarse driver-verdict-mismatch and the
     # taxonomy is decorative on the harness side. Same retryability either way - these
@@ -12168,6 +12175,10 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # A radiator button on a part carrying no ModuleActiveRadiator: a spec typo, like a
     # converter name the part lacks.
     "partaction-radiator-not-found": "driver-arg",
+    # The engine button on a part carrying no ModuleEngines: the same spec typo.
+    "partaction-engine-not-found": "driver-arg",
+    # The chute button on a part carrying no ModuleParachute: the same spec typo.
+    "partaction-parachute-not-found": "driver-arg",
     # RevertToLaunch: a live Re-Fly marker and stock not offering the option are live states
     # (RevertToLaunchSourceSyncTests).
     "reverttolaunch-refly-session": "driver-gate",

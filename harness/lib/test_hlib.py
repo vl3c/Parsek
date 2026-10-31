@@ -4653,14 +4653,9 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # CS-6 LEFT on its first flight, run 2026-10-27_2202, which measured `passed=3 failed=0
     # skipped=0`; the spec pinned the line whole.
     #
-    # CS-6b-career-astronaut-complex and CS-7-career-mun-landing ENTERED on 2026-10-28
-    # (scripted campaign stage 6's KSC half and stage 7, both on `cs-career-mun2`, CS-6's
-    # produced save: the Astronaut Complex upgrade and Advanced Rocketry, then for CS-7 the
-    # Mun landing, EVA, flag, boarding, ascent and return; each closes with the
-    # LedgerGroundTruth category's three FLIGHT cells, `total=3` literal with the split
-    # regexed, predicted passed=3 skipped=0 from every CS stage's measured tally on the
-    # same career in the same scene). Not H-series ids; CommittedBatchTallySourceSyncTests
-    # gates their `total=`. Each leaves on its first flight.
+    # CS-6b-career-astronaut-complex ENTERED on 2026-10-28 (scripted campaign stage 6's KSC
+    # half on `cs-career-mun2`, CS-6's produced save: the Astronaut Complex upgrade and
+    # Advanced Rocketry, closed by the LedgerGroundTruth category's three FLIGHT cells).
     # CS-6b LEFT on its first flight, run 2026-10-27_2316 (passed=3 failed=0 skipped=0, pinned whole).
     #
     # CS-6c-career-mun-science ENTERED on 2026-10-28 (scripted campaign stage 6c: the
@@ -4670,10 +4665,166 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # CS stage's measured tally on the same career in the same scene). Not an H-series
     # id; CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first
     # flight.
-    # CS-6c LEFT on its first flight, run 2026-10-28_0028 (passed=3 failed=0 skipped=0).
-    # CS-7 STAYS: its first flight, run 2026-10-27_2326, was INVALID in MJ-ASCENT (the
-    # pod's charge ran out) before the batch; it is re-cut on `cs-career-mun4` (CS-6c's
-    # produced save) with the solar lander and still leaves on its first green flight.
+    # CS-6c LEFT on its first flight, run 2026-10-28_0028 (passed=3 failed=0 skipped=0, pinned whole).
+    #
+    # RW-1-ksc-economy ENTERED on 2026-10-28 (the rewind ledger campaign's Space Center
+    # economy lane on `cs-career-mun4`: a committed pad flight, a contract accept and the
+    # Runway upgrade, two Rewinds-to-Launch whose refused clicks and crossing it pins, then
+    # the LedgerGroundTruth category's three FLIGHT cells, `total=3` literal with the split
+    # regexed; L8 read passed=2 skipped=1 after a rewind with no KerbalExperience row at or
+    # before the clock, every CS stage on this career read passed=3). Not an H-series id;
+    # CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first flight.
+    # RW-1-ksc-economy LEFT on its first flight, run 2026-10-28_0743 (passed=3 failed=0
+    # skipped=0, pinned whole).
+    #
+    # RW-2-crewed-relaunch-revert ENTERED on 2026-10-28 (the rewind ledger campaign's plan
+    # rows 13 and 14 on `cs-career-mun4`: RW-1's committed pad flight and accept, a
+    # Rewind-to-Launch, a relaunch that seats the reserved Jeb's stand-in, a pad EVA and a
+    # stock Revert to Launch, the stand-in recovered, a flight warp across the committed
+    # rows, then the LedgerGroundTruth category's three FLIGHT cells, `total=3` literal with
+    # the split regexed; RW-1 read passed=3 skipped=0 on this host). Not an H-series id;
+    # CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first flight.
+    # RW-2-crewed-relaunch-revert LEFT after its first flight, run 2026-10-28_0837, which measured
+    # passed=3 failed=0 skipped=0 (pinned whole; that run reds only on the revert-cutoff defect).
+    # RW-3-save-reload-takeback ENTERED on 2026-10-28 (the rewind ledger campaign's plan
+    # row 15 on `cs-career-mun4`: RW-1's committed pad flight, an unrecorded Flea's pad EVA
+    # as the committed world-first, a Rewind-to-Launch, a SaveGame and its player load (a
+    # cold save-file load), a Space Center warp across the committed rows, the world-first
+    # repeated, then the LedgerGroundTruth category's three FLIGHT cells, `total=3` literal
+    # with the split regexed; RW-1 read passed=3 skipped=0 on this host). Not an H-series
+    # id; CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first
+    # flight.
+    # RW-3-save-reload-takeback LEFT on its first flight, run 2026-10-28_0916 (passed=3 failed=0
+    # skipped=0, pinned whole).
+    # RW-4-claimed-vessel-disposal ENTERED on 2026-10-28 (the rewind ledger campaign's plan
+    # row 6 on `cs-career-mun4`: a pad Flea left standing and a Runway Flea, both committed
+    # and recovered at the Space Center, a Rewind-to-Launch to the Runway launch that holds
+    # the pad Flea for its committed recovery, both stock recover presses refused, then the
+    # LedgerGroundTruth category's three FLIGHT cells, `total=3` literal with the split
+    # regexed; RW-1 read passed=3 skipped=0 on this host). Not an H-series id;
+    # CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first flight.
+    # RW-4-claimed-vessel-disposal LEFT on its first flight, run 2026-10-28_0942 (passed=3
+    # failed=0 skipped=0, pinned whole).
+    # RW-5-rewind-refly-discard ENTERED on 2026-10-28 (the rewind ledger campaign's plan
+    # row 8 on `cs-career-mun4`: RW-1's committed pad flight and accept, a Rewind-to-Launch, a
+    # pad-decoupled CS Flea Probe flight committed with a stashed slot, a Re-Fly of that slot
+    # that earns a world-first, Discard Re-fly, a Space Center warp across the committed rows,
+    # then the LedgerGroundTruth category's three FLIGHT cells, `total=3` literal with the
+    # split regexed; RW-1 and RW-3 read passed=3 skipped=0 on this host). Not an H-series
+    # id; CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first
+    # flight.
+    # RW-5-rewind-refly-discard LEFT on the Discard Re-fly fix, run 2026-10-28_1200 (passed=3
+    # failed=0 skipped=0, pinned whole).
+    # RW-6-refly-science-discard-merge ENTERED on 2026-10-28 (the rewind ledger campaign's plan
+    # row 7 on `cs-career-mun4`: RW-5's prefix, then two Re-Flys of the CS Flea Probe's pod
+    # slot that take the crew report, the first discarded and the second merged and recovered
+    # from the Tracking Station, a refused sealed-slot probe, a Space Center warp across the
+    # committed rows, then the LedgerGroundTruth category's three FLIGHT cells, `total=3`
+    # literal with the split regexed). Not an H-series id; CommittedBatchTallySourceSyncTests
+    # gates its `total=`. It leaves on its first flight.
+    # RW-6-refly-science-discard-merge LEFT on the Discard Re-fly fix, run 2026-10-28_1214
+    # (passed=3 failed=0 skipped=0, pinned whole).
+    # RW-9-strategy-repair-rebuy ENTERED on 2026-10-28 (the rewind ledger campaign's strategy
+    # discount lane on `cs-career-mun4`: Aggressive Negotiations active, a discounted repair
+    # inside a committed timeline, a Rewind-to-Launch, the refused second repair and the
+    # crossing, then the LedgerGroundTruth category's three FLIGHT cells, `total=3` literal
+    # with the split regexed). Not an H-series id; CommittedBatchTallySourceSyncTests gates
+    # its `total=`. It leaves on its first flight.
+    # RW-9-strategy-repair-rebuy LEFT on run 2026-10-28_1538 (passed=3 failed=0 skipped=0,
+    # pinned whole).
+    # RW-8-free-tech-gift-rewind ENTERED on 2026-10-28 (the rewind ledger campaign's free tech
+    # gift lane on `cs-career-mun4`: a committed pad flight, the Aviation node gifted for free
+    # through the new KscAction gift-tech, a Rewind-to-Launch to before the gift, the crossing
+    # and a cold reload, then the LedgerGroundTruth category's three FLIGHT cells, `total=3`
+    # literal with the split regexed). Not an H-series id; CommittedBatchTallySourceSyncTests
+    # gates its `total=`. It leaves on its first flight.
+    # RW-8-free-tech-gift-rewind LEFT on run 2026-10-28_1505 (passed=3 failed=0 skipped=0,
+    # pinned whole).
+    # RW-7-refly-kerbal-death ENTERED on 2026-10-28 (the rewind ledger campaign's plan row 5 on
+    # `cs-career-mun4`: RW-6's prefix, then two Re-Flys of the CS Flea Probe's pod slot whose
+    # SRB is lit without staging so the unchuted pod crashes with its stand-in, the first
+    # discarded and the second merged (loss swap variant B), a Space Center warp across the
+    # committed rows and past the kerbal's stock respawn, then the LedgerGroundTruth category's
+    # three FLIGHT cells, `total=3` literal with the split regexed). Not an H-series id;
+    # CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first flight.
+    # RW-7-refly-kerbal-death LEFT on run 2026-10-28_1810 (passed=3 failed=0 skipped=0, pinned
+    # whole).
+    # RW-10-lead-window-ksc-actions ENTERED on 2026-10-28 (the rewind ledger campaign's lead
+    # window lane on `cs-career-mun4`: a strategy activated and the R&D annex demolished in
+    # the 15 s before a committed pad launch, a discounted repair, a Rewind-to-Launch, the
+    # refused second repair, a contract accepted inside the window and the crossing, then the
+    # LedgerGroundTruth category's three FLIGHT cells, `total=3` literal with the split
+    # regexed). Not an H-series id; CommittedBatchTallySourceSyncTests gates its `total=`. It
+    # leaves on its first flight.
+    # RW-10-lead-window-ksc-actions LEFT on run 2026-10-28_1750 (passed=3 failed=0 skipped=0,
+    # pinned whole).
+    # RW-11-refly-cheap-debris-recovery ENTERED on 2026-10-28 (the rewind ledger campaign's
+    # cheap recovery lane on `cs-career-mun4`: a CS Flea Probe decoupled on the pad and
+    # committed, a Re-Fly of its pod slot that explodes the booster so the 25-funds fins fall
+    # free, the merge and the Space Center debris cleanup, a Rewind-to-Launch and the crossing,
+    # then the LedgerGroundTruth category's three FLIGHT cells, `total=3` literal with the split
+    # regexed). Not an H-series id; CommittedBatchTallySourceSyncTests gates its `total=`. It
+    # leaves on its first flight.
+    # RW-11-refly-cheap-debris-recovery LEFT on run 2026-10-28_1919 (passed=3 failed=0
+    # skipped=0, pinned whole).
+    # RW-12-hire-across-rewind ENTERED on 2026-10-28 (the rewind ledger campaign's hire lane on
+    # `cs-career-mun4`: a committed pad Flea, the first applicant hired at the Space Center, a
+    # Rewind-to-Launch, the refused second hire and the crossing, then the LedgerGroundTruth
+    # category's three FLIGHT cells, `total=3` literal with the split regexed). Not an H-series
+    # id; CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first flight.
+    # RW-12-hire-across-rewind LEFT on run 2026-10-28_2035 (passed=3 failed=0 skipped=0, pinned
+    # whole).
+    # RW-13-tech-research-across-rewind ENTERED on 2026-10-28 (the rewind ledger campaign's tech
+    # research lane on `cs-career-mun2`: a committed pad Flea, advRocketry researched with
+    # science at the Space Center, a Rewind-to-Launch, the refused second research and the
+    # crossing, then the LedgerGroundTruth category's three FLIGHT cells, `total=3` literal with
+    # the split regexed). Not an H-series id; CommittedBatchTallySourceSyncTests gates its
+    # `total=`. It leaves on its first flight.
+    # RW-13-tech-research-across-rewind LEFT on run 2026-10-28_2114 (passed=3 failed=0
+    # skipped=0, pinned whole).
+    # RW-21-earlier-science ENTERED on 2026-10-31 (the rewind ledger campaign: a committed Flea recovers its pad crew report, a Rewind-to-Launch onto it, and a second Flea recovers the same report first, then the LedgerGroundTruth
+    # category's three FLIGHT cells, `total=3` literal with the split regexed). Not an H-series
+    # id; CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first flight.
+    # RW-21-earlier-science LEFT on run 2026-10-31_0318 (passed=3 failed=0 skipped=0, pinned whole).
+    # RW-19-tight-funds-launch ENTERED on 2026-10-31 (the rewind ledger campaign: three accepts and a VAB upgrade above today's funds, a Rewind-to-Launch before them, the Mun Lander refused for its own cost and the cheaper Flea launched, then the LedgerGroundTruth
+    # category's three FLIGHT cells, `total=3` literal with the split regexed). Not an H-series
+    # id; CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first flight.
+    # RW-19-tight-funds-launch LEFT on run 2026-10-31_0248 (passed=3 failed=0 skipped=0, pinned whole).
+    # RW-18-ksc-warp-across-committed-future ENTERED on 2026-10-31 (the rewind ledger campaign: a committed pad Flea, a Runway upgrade and three contract accepts, a Rewind-to-Launch before them, and a warp in three stops reading the pools at each, then the LedgerGroundTruth
+    # category's three FLIGHT cells, `total=3` literal with the split regexed). Not an H-series
+    # id; CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first flight.
+    # RW-18-ksc-warp-across-committed-future LEFT on run 2026-10-31_0232 (passed=3 failed=0 skipped=0, pinned whole).
+    # RW-17-contract-completed-earlier ENTERED on 2026-10-31 (the rewind ledger campaign: a committed pad flight completes a part test contract, a Rewind-to-Launch onto it, and a second flight completes it before that row, then the LedgerGroundTruth
+    # category's three FLIGHT cells, `total=3` literal with the split regexed). Not an H-series
+    # id; CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first flight.
+    # RW-17-contract-completed-earlier LEFT on run 2026-10-31_0227 (passed=3 failed=0 skipped=0, pinned whole).
+    # RW-16-transmit-then-recover-earlier ENTERED on 2026-10-31 (the rewind ledger campaign: a committed Flea Antenna hop transmits its pad crew report, a Rewind-to-Launch onto it, and a second Flea recovers the same report before that transmission, then the LedgerGroundTruth
+    # category's three FLIGHT cells, `total=3` literal with the split regexed). Not an H-series
+    # id; CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first flight.
+    # RW-16-transmit-then-recover-earlier LEFT on run 2026-10-31_0217 (passed=3 failed=0 skipped=0, pinned whole).
+    # RW-15-earlier-milestone ENTERED on 2026-10-31 (the rewind ledger campaign: a committed Flea earns Kerbin/SurfaceEVA from the pad, a Rewind-to-Launch onto it, and a second committed Flea earns it before that row, then the LedgerGroundTruth
+    # category's three FLIGHT cells, `total=3` literal with the split regexed). Not an H-series
+    # id; CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first flight.
+    # RW-15-earlier-milestone LEFT on run 2026-10-31_0213 (passed=3 failed=0 skipped=0, pinned whole).
+    # RW-14-dismissal-across-rewind ENTERED on 2026-10-31 (the rewind ledger campaign's kerbal
+    # dismissal lane on `cs-career-mun4`: a committed pad Flea, Bob Kerman dismissed at T1, a
+    # Rewind-to-Launch, the refused second dismissal and seat, and the crossing, then the
+    # LedgerGroundTruth category's three FLIGHT cells, `total=3` literal with the split regexed).
+    # Not an H-series id; CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its
+    # first flight, which needs the KERBAL-DISMISSAL-ON-THE-TIMELINE build.
+    # RW-14-dismissal-across-rewind LEFT on run 2026-10-31_0251 (passed=3 failed=0 skipped=0, pinned whole).
+    # RW-22-patents-licensing-recovery ENTERED on 2026-10-31 (the rewind ledger campaign: a science-carrying lab recovered under Patents Licensing: stock's payout booked once as the recovery, the converter's yield once as its strategy leg, then the LedgerGroundTruth
+    # category's three FLIGHT cells, `total=3` literal with the split regexed). Not an H-series
+    # id; CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first flight.
+    # RW-22-patents-licensing-recovery LEFT on run 2026-10-31_0405 (passed=2 failed=0 skipped=1, pinned whole).
+    # RW-20-strategy-and-deadline-after-rewind ENTERED on 2026-10-31 (the rewind ledger campaign: a committed pad Flea, a strategy activated and a real contract deadline passed, a Rewind-to-Launch before both, the strategy refused and the committed fail applied once, then the LedgerGroundTruth
+    # category's three FLIGHT cells, `total=3` literal with the split regexed). Not an H-series
+    # id; CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first flight.
+    # RW-20-strategy-and-deadline-after-rewind LEFT on run 2026-10-31_0425_RW-20-strategy-and-deadline-after-rewind (passed=3 failed=0 skipped=0, pinned whole).
+    # CS-7-career-mun-landing ENTERED on 2026-10-28 and STAYS: scripted campaign stage 7 on
+    # `cs-career-mun4` (CS-6c's produced save), closed by the LedgerGroundTruth category's
+    # three FLIGHT cells, `total=3` literal with the split regexed. It leaves on its first
+    # green flight.
     INTERIM_PIN_IDS: set = {"CS-7-career-mun-landing"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -10474,8 +10625,30 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "CS-4b-career-tracking-station.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 4's KSC half on `cs-career-orbit` (CS-4's produced save, stock-tree, not in the nightly instance set): the Tracking Station and the Launch Pad upgraded to level 1, generalRocketry and stability researched, each ledgered, then a same-craft Flea relaunch inside the duplicate-rollout window whose rollout must be ledgered as a new launch, closed by LedgerGroundTruth. LIVE-PROVEN 2026-10-27 (`2026-10-27_1957`, after a first flight red on a spec cost error); owed: the ordinary promotion call",
         "CS-5-career-mun-flyby.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 5 on `cs-career-ts1` (CS-4b's produced save, stock-tree, not in the nightly instance set): the CS Mun Flyby launched from the VAB, B5's ascent / Mun transfer / flyby and a Kerbin return through B4's reentry tail in the composed mission `b5_mun_flyby_return`, the pod recovered and auto-committed, closed by LedgerGroundTruth. AUTHORED 2026-10-27, NEVER FLOWN; owed: the first flight (tag `pending-flight`), then the ordinary promotion call LIVE-PROVEN 2026-10-27 (`2026-10-27_2101`, first flight); owed: the ordinary promotion call",
         "CS-6-career-mun-orbit.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 6 on `cs-career-mun1` (CS-5's produced save, stock-tree, not in the nightly instance set): the CS Mun Flyby launched from the VAB, B5's ascent and Mun transfer, B11's capture and park, a MechJeb moon-return departure and CS-5's return tail in the composed mission `b11_mun_orbit_return`, the pod recovered and auto-committed, closed by LedgerGroundTruth. AUTHORED 2026-10-27, NEVER FLOWN; owed: the first flight (tag `pending-flight`), then the ordinary promotion call LIVE-PROVEN 2026-10-27 (`2026-10-27_2202`, first flight); owed: the ordinary promotion call",
-        "CS-6b-career-astronaut-complex.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 6's KSC half on `cs-career-mun2` (CS-6's produced save, stock-tree, not in the nightly instance set): the Astronaut Complex upgraded to level 1 (EVA off Kerbin and flags) and advRocketry researched (the Terrier), each ledgered, then a same-craft Flea relaunch inside the duplicate-rollout window whose rollout must be ledgered as a new launch, closed by LedgerGroundTruth. AUTHORED 2026-10-28, NEVER FLOWN; owed: the first flight (tag `pending-flight`), then the ordinary promotion call LIVE-PROVEN 2026-10-28 (`2026-10-27_2316`, first flight); owed: the ordinary promotion call",
-        "CS-6c-career-mun-science.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 6c on `cs-career-mun3` (CS-6b's produced save, stock-tree, not in the nightly instance set): the CS Mun Science launched from the VAB, CS-6's ascent, Mun transfer, capture and park, Goo / 2HOT / EVA-report readings in high Mun space, two lowering nodes under the Mun's 60 km threshold, crew report / Goo / 2HOT / EVA-report readings in low space, a MechJeb moon-return departure and CS-5's return tail in the composed mission `b11_mun_science_return`, the pod recovered and auto-committed, basicScience and electrics researched, closed by LedgerGroundTruth. AUTHORED 2026-10-28, NEVER FLOWN; owed: the first flight (tag `pending-flight`), then the ordinary promotion call LIVE-PROVEN 2026-10-28 (`2026-10-28_0028`, first flight); owed: the ordinary promotion call",
+        "CS-6b-career-astronaut-complex.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 6's KSC half on `cs-career-mun2` (CS-6's produced save, stock-tree, not in the nightly instance set): the Astronaut Complex upgraded to level 1 (EVA off Kerbin and flags) and advRocketry researched (the Terrier), each ledgered, then a same-craft Flea relaunch inside the duplicate-rollout window whose rollout must be ledgered as a new launch, closed by LedgerGroundTruth. LIVE-PROVEN 2026-10-28 (`2026-10-27_2316`, first flight); owed: the ordinary promotion call",
+        "RW-2-crewed-relaunch-revert.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's crewed relaunch and stock revert lane (plan rows 13 and 14) on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): RW-1's committed pad flight holding Jeb and its contract accept, a Rewind-to-Launch, a relaunch that seats Jeb's stand-in, the stand-in's pad EVA (Kerbin SurfaceEVA, an untagged row) and Revert to Launch pruning that row while keeping the committed accept, the stand-in recovered, a flight warp across the committed rows, then LedgerGroundTruth. Authored 2026-10-28, never flown; owed: the first flight, then the ordinary promotion call LIVE-PROVEN 2026-10-28 (`2026-10-28_0902`, on the revert-cutoff fix); owed: the ordinary promotion call",
+        "RW-3-save-reload-takeback.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's save-and-reload lane (plan row 15) on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): a Jumping Flea recorded on the pad and committed, an unrecorded Flea's pad EVA earning Kerbin's SurfaceEVA world-first, a Rewind-to-Launch, a SaveGame loaded back as the player's load (a cold save-file load that must restore the timeline break from the save's ledger and lift no pool), a Space Center warp across the committed rows, the world-first repeated from a relaunched Flea (paid once), then LedgerGroundTruth. Authored 2026-10-28, never flown; owed: the first flight, then the ordinary promotion call LIVE-PROVEN 2026-10-28 (`2026-10-28_0916`, first flight); owed: the ordinary promotion call",
+        "RW-5-rewind-refly-discard.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's Re-Fly discard lane (plan row 8) on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): RW-1's committed pad flight and its contract accept, a Rewind-to-Launch, a CS Flea Probe flight decoupled on the pad into two controllable vessels (a rewind point) and committed with its pod slot stashed, a Re-Fly of that slot whose stand-in earns Kerbin's SurfaceEVA world-first, Discard Re-fly restoring the pools and ledger rows held before the Re-Fly started, a Space Center warp across the committed rows, then LedgerGroundTruth. Authored 2026-10-28, never flown; owed: the first flight, then the ordinary promotion call",
+        "RW-6-refly-science-discard-merge.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's Re-Fly science lane (plan row 7) on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): RW-5's committed pad flight, contract accept, Rewind-to-Launch and pad-decoupled CS Flea Probe flight with its pod slot stashed, then two Re-Flys of that slot that take the Mk1 pod's crew report: the first discarded (the report never reaches the ledger, the pools and rows return to their pre-invoke values), the second merged and its pod recovered from the Tracking Station (the subject credited once at full value under the merged flight), the sealed slot refused by the value gate, a Space Center warp across the committed rows, then LedgerGroundTruth. Authored 2026-10-28, never flown; owed: the first flight, then the ordinary promotion call",
+        "RW-7-refly-kerbal-death.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's Re-Fly kerbal death lane (plan row 5) on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): RW-6's committed pad flight, contract accept, Rewind-to-Launch and pad-decoupled CS Flea Probe flight with its pod slot stashed, then two Re-Flys of that slot that light the SRB without staging (PartAction activate) so the unchuted pod crashes with its stand-in: the first discarded (no death row, no rep penalty, no tombstone, the pools and rows back to their pre-invoke values), the second merged (loss swap variant B tombstones the re-fly's own KerbalDeath rep penalty, the death stays under the merged flight with a stock respawn after 7200 s), a Space Center warp across the committed rows and past the respawn, then LedgerGroundTruth. LIVE-PROVEN 2026-10-28 (`2026-10-28_1810`, the pod destroyed by PartAction explode); owed: the ordinary promotion call",
+        "RW-1-ksc-economy.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's Space Center economy lane on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): a Jumping Flea recorded on the pad and committed, a survey contract accepted and the Runway upgraded at the Space Center, two Rewinds-to-Launch to the same launch whose accept and upgrade clicks the committed rows refuse, a Space Center warp across the rows (each applied once), then LedgerGroundTruth. Authored 2026-10-28, never flown; owed: the first flight, then the ordinary promotion call LIVE-PROVEN 2026-10-28 (`2026-10-28_0743`, first flight); owed: the ordinary promotion call",
+        "RW-4-claimed-vessel-disposal.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's plan row 6 (claimed vessel disposal) on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): a Jumping Flea recorded on the pad and left standing, a second Flea recorded on the Runway, both recovered at the Space Center, a Rewind-to-Launch to the Runway launch that holds the pad Flea out of the world for its committed recovery, its Space Center marker and Tracking Station Recover both refused vessel-not-found, the committed recovery rows crossed once, then LedgerGroundTruth. Authored 2026-10-28, never flown; owed: the first flight, then the ordinary promotion call LIVE-PROVEN 2026-10-28 (`2026-10-28_0942`, first flight); owed: the ordinary promotion call",
+        "RW-9-strategy-repair-rebuy.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's strategy discount lane on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): Aggressive Negotiations active, the R&D annex demolished, a Jumping Flea recorded on the pad, committed and recovered, the R&D facility repaired with the discount, a Rewind-to-Launch, the refused second repair and the crossing; LIVE-PROVEN 2026-10-28 (`2026-10-28_1538`); owed: the ordinary promotion call",
+        "RW-8-free-tech-gift-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's free tech gift lane on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): a Jumping Flea recorded on the pad, committed and recovered, the Aviation node gifted for free at the Space Center (KscAction gift-tech, stock's UnlockProtoTechNode), a Rewind-to-Launch to before the gift, the crossing and a cold reload; LIVE-PROVEN 2026-10-28 (`2026-10-28_1505`); owed: the ordinary promotion call",
+        "RW-10-lead-window-ksc-actions.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lead window lane on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): Aggressive Negotiations activated and the R&D annex demolished inside the 15 s before a committed pad Flea's launch, the annex repaired with the discount, a Rewind-to-Launch whose window holds those rows as reached, the refused second repair, a contract accepted inside the window and dated at the held-through UT, and the crossing past the rewind save's UT; LIVE-PROVEN 2026-10-28 (`2026-10-28_1750`); owed: the ordinary promotion call",
+        "RW-11-refly-cheap-debris-recovery.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's cheap recovery lane on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): a CS Flea Probe decoupled on the pad and committed with its pod slot stashed, a Re-Fly of that slot that explodes the booster so its 25-funds fins fall free as debris, the merge and the Space Center debris cleanup recovering each fin under 100 funds, a Rewind-to-Launch and the crossing; LIVE-PROVEN 2026-10-28 (`2026-10-28_1919`); owed: the ordinary promotion call",
+        "RW-12-hire-across-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's hire lane on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): a Jumping Flea recorded on the pad, committed and recovered, the first applicant hired at the Space Center (KscAction hire-kerbal kerbal=applicant-first), a Rewind-to-Launch to before the hire, the same applicant's second hire refused, and the crossing that promotes him to Crew with the cost charged once; LIVE-PROVEN 2026-10-28 (`2026-10-28_2035`); owed: the ordinary promotion call",
+        "RW-13-tech-research-across-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's tech research lane on `cs-career-mun2` (CS-5's produced save, stock-tree, not in the nightly instance set; mun4 cannot afford a node): a Jumping Flea recorded on the pad, committed and recovered, advRocketry researched with 45 science at the Space Center, a Rewind-to-Launch to before the research, the second research refused as committed future, and the crossing that unlocks it with the science spent once; LIVE-PROVEN 2026-10-28 (`2026-10-28_2114`); owed: the ordinary promotion call",
+        "RW-21-earlier-science.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea recovers its pad crew report, a Rewind-to-Launch onto it, a second Flea recovers the same report first, and the walk gives the earlier recovery the full value and the committed one the remainder. LIVE-PROVEN 2026-10-31 (`2026-10-31_0318`); owed: the ordinary promotion call",
+        "RW-19-tight-funds-launch.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea on the pad, three accepts and a VAB upgrade above the funds held, a Rewind-to-Launch before them, the Mun Lander's Launch button greyed for its own cost, the cheaper Flea launched, and the committed upgrade paid in full at the crossing. LIVE-PROVEN 2026-10-31 (`2026-10-31_0248`); owed: the ordinary promotion call",
+        "RW-18-ksc-warp-across-committed-future.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea on the pad, a Runway upgrade and three contract accepts at the Space Center, a Rewind-to-Launch before them, and a warp at the Space Center in three stops, each reading the pools the career held at that row. LIVE-PROVEN 2026-10-31 (`2026-10-31_0232`); owed: the ordinary promotion call",
+        "RW-17-contract-completed-earlier.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun1` (stock-tree, not in the nightly instance set): a committed pad flight completes a part test contract, a Rewind-to-Launch onto it, a second flight completes it before that row, and the walk pays the completion once at the earlier UT. LIVE-PROVEN 2026-10-31 (`2026-10-31_0227`); owed: the ordinary promotion call",
+        "RW-16-transmit-then-recover-earlier.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Flea Antenna hop transmits its pad crew report, a Rewind-to-Launch onto it, a second Flea recovers the same report before the transmission, and the walk gives the recovery the full value and the transmission the remainder. LIVE-PROVEN 2026-10-31 (`2026-10-31_0217`); owed: the ordinary promotion call",
+        "RW-15-earlier-milestone.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea recorded on the pad earns Kerbin/SurfaceEVA, a Rewind-to-Launch onto it, a second recorded Flea earns the same world-first before the first row, and the walk pays it once at the earlier UT. LIVE-PROVEN 2026-10-31 (`2026-10-31_0213`); owed: the ordinary promotion call",
+        "RW-14-dismissal-across-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's kerbal dismissal lane on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): a Jumping Flea recorded on the pad, committed and recovered, Bob Kerman dismissed at the Space Center, a Rewind-to-Launch to before the dismissal, the second dismissal and the VAB seat refused, and the crossing that turns him into an Applicant once. LIVE-PROVEN 2026-10-31 (`2026-10-31_0251`) on the KERBAL-DISMISSAL-ON-THE-TIMELINE build; owed: the ordinary promotion call",
+        "RW-22-patents-licensing-recovery.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `lab-pad-career` (stock-minimal): the pad lab recovered with its 12.5 science under Patents Licensing: stock's payout booked once as the recovery and the converter's yield once as its strategy leg. LIVE-PROVEN 2026-10-31 (`2026-10-31_0405`); owed: the ordinary promotion call",
+        "RW-20-strategy-and-deadline-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea on the pad, a strategy activated at the Space Center and a real contract deadline passed by warp, a Rewind-to-Launch before both, the same strategy refused, and the committed fail applied once when the deadline passes again. LIVE-PROVEN 2026-10-31 (`2026-10-31_0425_RW-20-strategy-and-deadline-after-rewind`); owed: the ordinary promotion call",
+        "CS-6c-career-mun-science.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 6c on `cs-career-mun3` (CS-6b's produced save, stock-tree, not in the nightly instance set): the CS Mun Science launched from the VAB, CS-6's ascent, Mun transfer, capture and park, Goo / 2HOT / EVA-report readings in high Mun space, two lowering nodes under the Mun's 60 km threshold, crew report / Goo / 2HOT / EVA-report readings in low space, a MechJeb moon-return departure and CS-5's return tail in the composed mission `b11_mun_science_return`, the pod recovered and auto-committed, basicScience and electrics researched, closed by LedgerGroundTruth. LIVE-PROVEN 2026-10-28 (`2026-10-28_0028`, first flight); owed: the ordinary promotion call",
         "CS-7-career-mun-landing.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 7 on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): the CS Mun Solar Lander launched from the VAB, B5's ascent and Mun transfer, B11's capture and park, B13's landing, the seam's EvaExit / PlantFlag / EvaBoard from inside the flight, a Mun ascent, a MechJeb moon-return departure and CS-5's return tail in the composed mission `b13_mun_landing_return`, the pod recovered and auto-committed, closed by LedgerGroundTruth. AUTHORED 2026-10-28; first flight 2026-10-27_2326 INVALID (the pod's charge ran out on the ascent coast), re-cut with three OX-STATs, a Z-100 and the ascent-coast wheel release, NEVER FLOWN in that shape; owed: the first flight (tag `pending-flight`), then the ordinary promotion call",
         "CS-4-career-orbit-return.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 4 on `cs-career-mc1` (CS-3b's produced save): research engineering101 + survivability, fly the CS Orbiter to LKO through MechJeb's classic ascent and a node-free native circularization (Tracking Station at level 0), deorbit, splash down, recover, completing REACHSPACE and ORBIT, then LedgerGroundTruth. LIVE-PROVEN 2026-10-26 (`2026-10-26_0521`); owed: the ordinary promotion call (stock-tree is not in the nightly set)",
         "CS-0-new-career-game.toml":"tier=operator as a FIXTURE BUILDER, NOT debt: CS-0-new-science-game's Career twin; its produced save is harvested once as `cs-career-new`, the host of the Career half of the campaign ladder. FLOWN PASS `2026-10-25_1744` and harvested; owed: nothing but the ordinary promotion call",
@@ -17405,7 +17578,8 @@ class PartActionSourceSyncTests(unittest.TestCase):
         consts = ("UndockToken", "DecoupleToken", "ControlFromToken", "DeployToken",
                   "RetractToken", "StartConverterToken", "StopConverterToken", "ExperimentToken",
                   "LabProcessToken", "LabTransmitToken", "InspectToken", "RadiatorOnToken",
-                  "RadiatorOffToken")
+                  "RadiatorOffToken", "ActivateToken", "ExplodeToken", "ChuteToken",
+                  "RunTestToken")
         self.assertEqual(len(consts), len(hlib.PARTACTION_BUTTON_VALUES))
         for token, const in zip(hlib.PARTACTION_BUTTON_VALUES, consts):
             self.assertIn('internal const string %s = "%s";' % (const, token), text)
@@ -17425,10 +17599,11 @@ class PartActionSourceSyncTests(unittest.TestCase):
         self.assertEqual(("true",), hlib.PARTACTION_ALL_VALUES)
         self.assertIn('internal const string AllTrueToken = "true";', text)
         self.assertIn("=> kind != PartActionKind.Unknown && kind != PartActionKind.Undock\n"
-                      "                && kind != PartActionKind.Decouple && kind != PartActionKind.ControlFrom;",
+                      "                && kind != PartActionKind.Decouple && kind != PartActionKind.ControlFrom\n"
+                      "                && kind != PartActionKind.Explode;",
                       text)
         self.assertEqual(tuple(b for b in hlib.PARTACTION_BUTTON_VALUES
-                               if b not in ("undock", "decouple", "controlfrom")),
+                               if b not in ("undock", "decouple", "controlfrom", "explode")),
                          hlib.PARTACTION_BUTTONS_ACCEPTING_ALL)
         self.assertEqual(list(hlib.PARTACTION_REASONS),
                          StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
@@ -17450,7 +17625,11 @@ class PartActionSourceSyncTests(unittest.TestCase):
         # pass the module count to the radiator-not-found gate; every press reports the
         # packed / warp context.
         self.assertIn("if (!(module is ModuleActiveRadiator)) continue;", applier)
-        self.assertIn("radiatorKind ? radiatorModules : -1", applier)
+        # The engine button presses ModuleEngines' own "Activate Engine" (ModuleEnginesFX
+        # inherits it) and nothing else on the part, and counts the engine modules for its
+        # engine-not-found gate.
+        self.assertIn("if (!(module is ModuleEngines)) continue;", applier)
+        self.assertIn("radiatorKind ? radiatorModules : engineKind ? engineModules : parachuteKind ? parachuteModules : -1", applier)
         self.assertIn("new PartActionWarpContext(v.packed,", applier)
         # labprocess: the experiment's own Review Data opens a missing page, the page's
         # labValue is written before the gates, and only then the page's lab callback runs.
@@ -17465,7 +17644,10 @@ class PartActionSourceSyncTests(unittest.TestCase):
         pure = self._source("TestCommands", "TestCommandPartAction.cs")
         self.assertIn('case PartActionKind.RadiatorOn: return new[] { "Activate" };', pure)
         self.assertIn('case PartActionKind.RadiatorOff: return new[] { "Shutdown" };', pure)
-        self.assertIn('if (IsRadiatorKind(kind) && radiatorModules == 0) return RadiatorNotFoundReason;',
+        self.assertIn('if (IsRadiatorKind(kind) && typedModules == 0) return RadiatorNotFoundReason;',
+                      pure)
+        self.assertIn('case PartActionKind.EngineActivate: return new[] { "Activate" };', pure)
+        self.assertIn('if (IsEngineKind(kind) && typedModules == 0) return EngineNotFoundReason;',
                       pure)
 
     def test_the_verb_is_registered_on_every_axis(self):
@@ -17489,6 +17671,7 @@ class PartActionSourceSyncTests(unittest.TestCase):
         for reason in ("partaction-vessel-not-found", "partaction-event-unavailable",
                        "partaction-no-active-vessel", "partaction-converter-not-found",
                        "partaction-experiment-no-data", "partaction-radiator-not-found",
+                       "partaction-engine-not-found",
                        "partaction-unknown-recording", "partaction-lab-not-active-vessel",
                        "partaction-lab-page-missing", "partaction-lab-value-zero",
                        "partaction-lab-unavailable"):
@@ -17547,7 +17730,8 @@ class PartActionSourceSyncTests(unittest.TestCase):
     def test_the_step_validator_isru_and_lab_buttons(self):
         v = hlib.validate_part_action_step
         for button in ("deploy", "retract", "startconverter", "stopconverter", "experiment",
-                       "labprocess", "labtransmit", "inspect", "radiatoron", "radiatoroff"):
+                       "labprocess", "labtransmit", "inspect", "radiatoron", "radiatoroff",
+                       "activate"):
             with self.subTest(button=button):
                 self.assertEqual([], v(0, {"button": button, "part": "MiniDrill"}))
                 self.assertIn("partaction-part-arg-missing", v(0, {"button": button})[0])
@@ -17557,7 +17741,7 @@ class PartActionSourceSyncTests(unittest.TestCase):
                                    "converter": "Surface Harvester", "pid": "7"}))
         self.assertEqual([], v(0, {"button": "startconverter", "part": "MiniISRU",
                                    "converter": ""}))
-        for button in ("deploy", "inspect", "labtransmit", "undock", "radiatoron"):
+        for button in ("deploy", "inspect", "labtransmit", "undock", "radiatoron", "activate"):
             with self.subTest(converter_on=button):
                 errs = v(0, {"button": button, "part": "MiniISRU", "converter": "Lf+Ox"})
                 self.assertEqual(1, len(errs), errs)

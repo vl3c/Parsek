@@ -76,7 +76,17 @@ namespace Parsek
         /// contract title). Explicitly numbered and append-only, like
         /// <see cref="ExperienceGained"/>.
         /// </summary>
-        ContractParameterCompleted = 26
+        ContractParameterCompleted = 26,
+
+        /// <summary>
+        /// The player dismissed a crew member at the Astronaut Complex: stock's
+        /// <c>KerbalRoster.SackAvailable</c> fired <c>OnCrewmemberSacked</c> (the kerbal becomes an
+        /// applicant). <c>key</c> is the kerbal name; <c>detail</c> carries <c>trait=</c>. Not
+        /// <see cref="CrewRemoved"/>, which is stock's <c>KerbalRoster.Remove</c> (applicant
+        /// expiry, the Lost list's dead removal). Explicitly numbered and append-only, like
+        /// <see cref="ExperienceGained"/>.
+        /// </summary>
+        CrewDismissed = 27
     }
 
     public struct GameStateEvent
@@ -356,6 +366,7 @@ namespace Parsek
                     return "Upgrade";
                 case GameStateEventType.CrewHired:
                 case GameStateEventType.CrewRemoved:
+                case GameStateEventType.CrewDismissed:
                 case GameStateEventType.CrewStatusChanged:
                 case GameStateEventType.KerbalRescued:
                     return "Crew";
@@ -412,6 +423,8 @@ namespace Parsek
                     return FormatContractDescription(key, detail, "declined");
                 case GameStateEventType.TechResearched:
                 {
+                    if (ExtractDetailField(detail, GameStateRecorder.FreeTechUnlockDetailKey) == "1")
+                        return $"\"{key}\" (free)";
                     string cost = ExtractDetailField(detail, "cost");
                     return cost != null ? $"\"{key}\" ({cost} sci)" : $"\"{key}\"";
                 }
@@ -434,6 +447,11 @@ namespace Parsek
                 {
                     string trait = ExtractDetailField(detail, "trait");
                     return trait != null ? $"Removed {key} ({trait})" : $"Removed {key}";
+                }
+                case GameStateEventType.CrewDismissed:
+                {
+                    string trait = ExtractDetailField(detail, "trait");
+                    return trait != null ? $"Dismissed {key} ({trait})" : $"Dismissed {key}";
                 }
                 case GameStateEventType.CrewStatusChanged:
                 {

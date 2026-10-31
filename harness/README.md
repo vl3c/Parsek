@@ -584,6 +584,88 @@ anchor-local coordinates. A `.prec` with no `.prec.txt` mirror, an unparseable
 mirror, no in-scope section, or (with a `phys*` window declared) a log with no
 `warpRuns=` token are DEFINED mismatches.
 
+## Ledger audit (one run's economy, offline)
+
+`tools/ledger_audit.py` reads ONE run folder (its `KSP.log`, or the archive's
+`KSP.log.gz`, at the top or one level down, plus any saved
+`Parsek/GameState/ledger.pgld` under it; a bare log path reads no ledger) and writes `audit.txt` into that folder
+(and prints it): the patched-recalc pool timeline, a table of identities credited
+twice within one ledger walk, and one PASS / FAIL / EXPECTED / SKIP / REPORT row
+per check. It only reads; it changes no verdict. Pure core `lib/ledgeraudit.py`,
+thin shell `tools/ledger_audit.py`, tests `lib/test_ledgeraudit.py`.
+
+```
+python tools/ledger_audit.py <run-folder-or-KSP.log> [--expect FILE] [--baseline PATH] [--out FILE] [--no-write]
+```
+
+Exit 0 when no check FAILs, 1 when one does, 2 on a usage error. The checks (ids
+as the report and the expectations file name them):
+
+| id | reads | status |
+|---|---|---|
+| `ledger-anomaly` | `[LedgerTrace] phase=Anomaly` | FAIL on any; SKIP when no `[LedgerTrace]` line (`ledgerTracing` off) |
+| `recalc-rate` | `phase=Structural` (one per PATCHED recalc) | REPORT: count, mean and peak-60 s rate, the pool timeline; FAIL only past `maxStructuralPerMinute` |
+| `paid-twice` | `[Milestones] Credited milestone '<id>'`, split at `[Milestones] Reset: cleared N credited milestones` | FAIL on an id credited twice in one walk |
+| `subject-over-cap` | `[ScienceModule] Earning:` / `Earning (cap hit):` | FAIL when `creditedTotal > maxValue + 1e-6` |
+| `take-back` | `[TakeBack] Took back`, `take-back shortfall` | FAIL unless EXPECTED |
+| `take-back-off` | `Timeline break not recorded for load kind=` | FAIL |
+| `stock-pool-adjustment` | `StockPoolAdjustment:` (Funds / ScienceModule / Reputation) | REPORT, one row per (pool, action) with its walk count |
+| `debt` | `Debt charge:`, `Spending charged into science debt` | FAIL unless EXPECTED |
+| `hard-stop` | `ABORTING rewind ledger patch`, `Failed to deserialize action`, `refusing to upgrade to amount=`; `NOT affordable` | FAIL; `NOT affordable` FAIL unless EXPECTED |
+| `deferred-patch` | `RecalculateAndPatch: deferred KSP state patch (` vs the next `drawdown-guard authoritativeReduction=` | REPORT (see below) |
+| `load-kind` | `[LoadPolicy] Load classified:` per `[Diagnostics] OnLoad: Nms (...)` | FAIL on two classifications in one OnLoad; REPORT when no OnLoad line delimits loads |
+| `refly-leftover` | `outcome=unbound-refly-provisional`, `retired-empty-provisional` | REPORT (by design: a Re-Fly provisional with no recorder bound is reachable from ordinary play, one line per InvokeRewind); EXPECTED when the lane lists it |
+| `merge-refused` | `Merge dominance check sess=... result=refuse` | REPORT; FAIL only with `mergeMustPass = true` |
+| `already-owned`, `same-craft`, `finalizer-oddity` | `is already owned at ut=`; `chain is pid-only`, `live-launch-guid-unknown`; `subsurface-destroyed-suppressed`, `recovered sub-surface live-orbit fallback` (with recording ids) | REPORT |
+| `ground-truth` | `[LedgerGroundTruth] result: hardFailures=` + the divergence report's `facet=` lines | FAIL on `hardFailures > 0`; lists facets, hard vs report-only |
+| `walk-past-clock` | the walk decision lines (`OnLoad: post-rewind current-UT cutoff decision`, `OnKspLoad recalc decision:`, `Commit ledger walk: full replay (cutoffUT=null), live clock not trusted`, `Current-timeline recalc: full replay (cutoffUT=null)`), `RecalculateAndPatch: actionsTotal=... cutoffUT=`, then the walk's `PatchFunds` / `PatchScience` / `PatchReputation: a -> b` | FAIL when the decision says `useCurrentUtCutoff=False` with rows ahead of a ready clock and a pool then rose (RW-2, L13); REPORT for a rising full replay whose line cannot say (untrusted commit clock, unready clock, no decision line) and for the Re-Fly start's `cutoffUT` 1e308 horizon walk (by design) |
+| `guarded-clamp` | `Patch<Pool>: GUARDED UPLIFT clamped` / `GUARDED DRAWDOWN clamped` (leak = `clampedTo - wouldBeTarget`) | PASS for an opposite pair on one resource within 10 s that nets to about 0 (an ordering transient); a one-sided line FAILs unless the lane lists `guarded-one-sided` |
+| `leak-shape` | `[StockPoolReference] Patch<Pool>: filed StockPoolAdjustment amount=X reason=leak`, the walk's `... skipped (not effective):` funds / science amounts, `Loaded (DiscardReFly)` | FAIL when a leak equals (within 0.01) the zeroed rows' sum or one of them in the same walk (stock paid the duplicate, the patch filed it again), or when a leak row lands in the first two patched walks after a `Loaded (DiscardReFly)` (RW-5) |
+| `warnings` | every `[Parsek][WARN]` / `[ERROR]` line by subsystem | REPORT; with `--baseline` lists the normalized keys only this run has |
+| `ledger-ut0` | saved `ledger.pgld` rows at UT 0 other than the three seed types | REPORT; SKIP with no saved ledger |
+
+Walks. Every visible recalc walk pass resets every module first, so the
+MilestonesModule reset line opens a walk (the conversion-leg re-walk included).
+Probe, projection and clone walks run inside `ParsekLog.SuppressScope` and log
+nothing, so nothing has to be excluded; `SourceSyncTests` pins that every
+module-clone walk in `RecalculationEngine` is one of those four suppressed methods.
+`deferred-patch` stays REPORT-only: a deferral normally stays open across a scene
+change (a live tree defers in FLIGHT and the commit's recalc after the scene change
+patches), so the report lists the scene changes crossed with a deferral open and
+whether one is open at log end, without judging them.
+`walk-past-clock` binds each walk to the decision line that started it (or its input
+summary; the cutoff-less summary is `VerboseOnChange`, so it can be missing) and its
+patch lines to the `drawdown-guard` line up to the next walk boundary. The revert
+follow-up walk (`ApplyBudgetDeduction: singletons ready after`, plus `Revert budget walk:`
+on a fixed build) has no rows-ahead reading of its own and often runs before the
+in-session decision line of the same load, so it takes that decision's reading when both
+sit in one `Load classified` window within 10 s. `guarded-clamp` reads each clamp's leak
+from the `filed StockPoolAdjustment amount=` line its patch filed just before it (older
+builds: `clampedTo - wouldBeTarget`, then `live - running`). The log does not
+say how much of a rise is the rows ahead, so a rise after a stated rows-ahead decision
+is the RW-2 signature rather than a measured amount. The audit writes stdout as UTF-8
+with replacement, so a log line with an arrow or a dash never crashes a cp1252 console.
+
+Expectations (TOML, or JSON for a `.json` file) say what a lane does on purpose. A
+key or name the audit does not know is a usage error, and only the expectable
+findings (`take-back`, `debt`, `not-affordable`, `refly-leftover`, `guarded-one-sided`)
+can read EXPECTED, so no expectation can mask an anomaly, a double credit, an abort, a
+walk past the clock or a leak that repeats a zeroed duplicate:
+
+```toml
+expected = ["not-affordable"]          # whole finding kinds
+expectedLines = ["Took back"]          # literals: matching expectable lines read EXPECTED
+maxStructuralPerMinute = 30            # arms recalc-rate
+mergeMustPass = true                   # arms merge-refused
+```
+
+An expectation that matched nothing is listed in the header (the lane did not show
+it); it does not fail. Every literal the checks key on is listed in
+`ledgeraudit.SOURCE_ANCHORS` with its C# file, and `test_ledgeraudit.SourceSyncTests`
+reads those files comment-stripped, so a rewording reds `harness/lib` instead of a
+check silently reading 0. Most of the input is `Verbose` (on by default);
+`ledgerTracing` (off by default) gates the two `[LedgerTrace]` checks.
+
 ## Contact sheets (V3): what a run leaves for the human eye
 
 Every attempt - PASS included - runs a light UNCONDITIONAL artifact step in

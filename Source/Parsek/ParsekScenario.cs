@@ -458,13 +458,18 @@ namespace Parsek
 
         internal static Func<double> CurrentTimelineUTProviderForTesting;
 
+        /// <summary>
+        /// The ledger's clock: the Planetarium reading (<c>double.MaxValue</c> without one),
+        /// raised to the ledger held-through UT while it is behind it (a Rewind-to-Launch lead
+        /// window, <see cref="LedgerHeldWindow"/>).
+        /// </summary>
         internal static double GetCurrentTimelineUTForLedgerRecalc()
         {
             if (CurrentTimelineUTProviderForTesting != null)
-                return CurrentTimelineUTProviderForTesting();
+                return LedgerHeldWindow.ResolveLedgerNowUT(CurrentTimelineUTProviderForTesting());
 
             return Planetarium.fetch != null
-                ? Planetarium.GetUniversalTime()
+                ? LedgerHeldWindow.ResolveLedgerNowUT(Planetarium.GetUniversalTime())
                 : double.MaxValue;
         }
 
@@ -723,8 +728,15 @@ namespace Parsek
                 "pending-tree-discard");
         }
 
+        /// <summary>
+        /// Pure: does the in-session load's ledger walk take the current-UT cutoff? A stock
+        /// revert takes it like any other in-session load (todo
+        /// REVERT-AFTER-REWIND-WALKS-PAST-THE-CLOCK): the revert prune has already removed the
+        /// reverted flight's own untagged rows, so any row still ahead of the loaded clock is
+        /// committed future, and a walk without the cutoff would patch its gains into the pools
+        /// before the clock reaches it.
+        /// </summary>
         internal static bool ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
-            bool isRevert,
             bool loadedSceneSupportsCurrentUtCutoff,
             bool planetariumReady,
             bool hasPendingTree,
@@ -733,8 +745,7 @@ namespace Parsek
             bool hasActiveUncommittedTree,
             bool hasFutureLedgerActions)
         {
-            return !isRevert
-                && loadedSceneSupportsCurrentUtCutoff
+            return loadedSceneSupportsCurrentUtCutoff
                 && planetariumReady
                 && !hasPendingTree
                 && restoreMode == ActiveTreeRestoreMode.None
@@ -822,7 +833,6 @@ namespace Parsek
             bool hasFutureLedgerActions = LedgerOrchestrator.HasActionsAfterUT(loadedUT);
             bool useCurrentUtCutoffForPostRewindFlightLoad =
                 ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
-                    isRevert,
                     loadedSceneSupportsCurrentUtCutoff,
                     planetariumReady,
                     hasPendingTree,
@@ -1488,6 +1498,12 @@ namespace Parsek
                 // saved in the same .sfs as the live pools it describes.
                 savePhase = "stock-pool-reference";
                 StockPoolReference.SaveTo(node);
+
+                // The ledger held-through UT, saved with the world whose rows it holds; dropped
+                // first when the clock has passed it (the clock is trusted outside OnLoad and a
+                // rewind's pending UT adjustment).
+                savePhase = "ledger-held-window";
+                SaveLedgerHeldWindow(node);
 
                 // The vessels the last plain rewind held back, with their rewind-time copies
                 // (rewind design 10.13).
@@ -3996,6 +4012,12 @@ namespace Parsek
                 loadPhase = "stock-pool-reference-load";
                 LoadStockPoolReference(node, earlyLoadKind);
 
+                // The ledger held-through UT says which ledger rows the loaded world already
+                // holds (a save written inside a Rewind-to-Launch lead window), before any walk
+                // or committed-future read of this load (LoadReconcilePolicy, LedgerHeldWindow).
+                loadPhase = "ledger-held-window-load";
+                LoadLedgerHeldWindow(node, earlyLoadKind);
+
                 // The vessels a plain rewind held back for their committed future describe the
                 // world of the save that holds them (LoadReconcilePolicy, RewindVesselHolds).
                 loadPhase = "rewind-vessel-holds-load";
@@ -4067,16 +4089,19 @@ namespace Parsek
                         // Timeline break (design 3.15 step 5): a plain rewind keeps the in-memory
                         // ledger and loads the rewind save's stock state. This branch returns
                         // before the refined classification below, so it records its own break.
+                        // Both read the rewind save's WORLD UT, not the wound-back clock: the
+                        // world holds everything up to the save's own UT (and the held-through
+                        // UT it carries), so income earned in the lead window is not forgotten
+                        // (todo REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE).
                         loadPhase = "timeline-break";
+                        double rewindWorldUT = ResolvePlainRewindWorldUT(
+                            KerbalsModule.ReadLoadedSaveUT(), RewindContext.RewindSaveOwnClockUT,
+                            RewindContext.RewindSaveLedgerHeldThroughUT);
                         StockShadowTakeBack.NoteLoad(
-                            LoadKind.PlainRewind,
-                            ResolvePlainRewindBreakUT(KerbalsModule.ReadLoadedSaveUT(), RewindContext.RewindSaveOwnClockUT),
-                            CaptureSequence.CurrentHighWater());
+                            LoadKind.PlainRewind, rewindWorldUT, CaptureSequence.CurrentHighWater());
                         // Live-only income (design 3.15 step 9): the rewind save's stock state
                         // forgets income no ledger channel converts that was earned after its UT.
-                        LiveOnlyIncome.DropAfterTimeTravelLoad(
-                            LoadKind.PlainRewind,
-                            ResolvePlainRewindBreakUT(KerbalsModule.ReadLoadedSaveUT(), RewindContext.RewindSaveOwnClockUT));
+                        LiveOnlyIncome.DropAfterTimeTravelLoad(LoadKind.PlainRewind, rewindWorldUT);
 
                         loadPhase = "rewind";
                         HandleRewindOnLoad(node, recordings);
@@ -4244,11 +4269,15 @@ namespace Parsek
                     // Timeline break (design 3.15 step 5): a load that keeps the in-memory
                     // ledger and loads an earlier stock state makes stock forget every credit
                     // after the loaded UT, so a later live repeat of one is a duplicate payment.
+                    // The loaded world's UT: the loaded clock raised to the held-through UT the
+                    // prologue installed from this save (a save written inside a Rewind-to-Launch
+                    // lead window holds everything up to it).
+                    double loadedWorldUT = LedgerHeldWindow.ResolveLedgerNowUT(KerbalsModule.ReadLoadedSaveUT());
                     StockShadowTakeBack.NoteLoad(
-                        refinedLoadKind, KerbalsModule.ReadLoadedSaveUT(), CaptureSequence.CurrentHighWater());
+                        refinedLoadKind, loadedWorldUT, CaptureSequence.CurrentHighWater());
                     // Live-only income (design 3.15 step 9): the same load forgets income no
                     // ledger channel converts that was earned after the loaded UT.
-                    LiveOnlyIncome.DropAfterTimeTravelLoad(refinedLoadKind, KerbalsModule.ReadLoadedSaveUT());
+                    LiveOnlyIncome.DropAfterTimeTravelLoad(refinedLoadKind, loadedWorldUT);
 
                     // Vessel names (design 7.6, ruling 5): a stock revert or Discard Re-fly cancels
                     // the current flight epoch, and with it the stock renames made inside it.
@@ -4745,10 +4774,17 @@ namespace Parsek
                     double ledgerClockUT = ResolveInSessionLoadLedgerClockUT(
                         loadedSaveUTForRoutes, planetariumReady, loadedUT);
                     double inSessionLedgerCutoffUT = double.IsNaN(ledgerClockUT) ? loadedUT : ledgerClockUT;
+                    // A Discard Re-fly load lands on the rewind point's pools after a session whose
+                    // Re-Fly start walked the whole ledger (committed future included), so its first
+                    // patch is a time-travel patch like the merge dialog's discard: it writes the
+                    // ledger at the loaded clock and re-baselines the stock pool reference instead of
+                    // measuring a leak (LoadReconcilePolicy, StockPoolReference category;
+                    // REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE).
                     bool inSessionLedgerUsedCutoff = RecalculateLedgerForInSessionLoad(
                         isRevert, HighLogic.LoadedScene, !double.IsNaN(ledgerClockUT),
                         inSessionLedgerCutoffUT,
-                        planetariumReady ? loadedUT : double.NaN);
+                        planetariumReady ? loadedUT : double.NaN,
+                        reFlyDiscard: refinedLoadKind == LoadKind.DiscardReFly);
                     // KSP loads the save's SCENARIO modules in file order, and R&D and
                     // Reputation usually come after this one: the patch above skipped
                     // their pools, and their own OnLoad then installs the save's values.
@@ -4765,7 +4801,8 @@ namespace Parsek
                             $"loaded={CurrencyScenarioReadiness.Format(loadedCurrency)}); " +
                             "scheduling a re-patch once they have");
                         StartCoroutine(RepatchAfterInSessionLoadWhenCurrenciesLoaded(
-                            inSessionLedgerUsedCutoff, inSessionLedgerCutoffUT));
+                            inSessionLedgerUsedCutoff, inSessionLedgerCutoffUT,
+                            refinedLoadKind == LoadKind.DiscardReFly));
                     }
                     if (KerbalLoadRepairDiagnostics.IsActive)
                         KerbalLoadRepairDiagnostics.EmitAndReset();
@@ -5320,6 +5357,22 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: the world UT a plain rewind's timeline break and live-only income drop read.
+        /// The loaded clock is the wound-back one (the lead window); the world is the rewind
+        /// save's own (<see cref="LedgerHeldWindow.ResolveAtRewind"/>: its own UT raised to the
+        /// held-through UT it carries) whenever that lies ahead of it, else
+        /// <see cref="ResolvePlainRewindBreakUT"/>.
+        /// </summary>
+        internal static double ResolvePlainRewindWorldUT(
+            double loadedSaveUT, double rewindSaveOwnClockUT, double carriedHeldThroughUT)
+        {
+            double held = LedgerHeldWindow.ResolveAtRewind(loadedSaveUT, rewindSaveOwnClockUT, carriedHeldThroughUT);
+            if (LedgerHeldWindow.IsUsableHeldUT(held))
+                return held;
+            return ResolvePlainRewindBreakUT(loadedSaveUT, rewindSaveOwnClockUT);
+        }
+
+        /// <summary>
         /// Pure: the UT a plain rewind's timeline break records - the loaded game's own clock
         /// (persistent.sfs is the rewind save by then), else the rewind save's clock the rewind
         /// parsed; NaN when neither is known (the break is then not recorded, with a Warn).
@@ -5452,6 +5505,15 @@ namespace Parsek
             // rewind (rewind design 10.13, flight recorder design 12.5 / 20.3), in every scene.
             ApplyRewindVesselHolds(RewindContext.RewindAdjustedUT);
 
+            // The rewind save's world holds every ledger row up to its own UT, which lies ahead of
+            // the wound-back clock by the lead time (todo REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE):
+            // until the clock passes it those rows count as reached for the walks below, the
+            // committed-future index, the clock crossings and the KSP state patches.
+            LedgerHeldWindow.SetAtRewind(
+                RewindContext.RewindAdjustedUT,
+                RewindContext.RewindSaveOwnClockUT,
+                RewindContext.RewindSaveLedgerHeldThroughUT);
+
             // Defense-in-depth: reconcile spawn state after all strips (#168).
             // ResetAllPlaybackState already zeroed spawn PIDs, so this should be a no-op,
             // but guards against any future code path that restores PIDs before the strip.
@@ -5518,7 +5580,8 @@ namespace Parsek
             // EndRewind() below clears it. The deferred coroutine captures the
             // same value into a local BEFORE its yield so its second call is
             // independent of RewindContext state.
-            GameStateStore.PruneBaselinesAfterUT(RewindContext.RewindAdjustedUT);
+            GameStateStore.PruneBaselinesAfterUT(
+                LedgerHeldWindow.ResolveLedgerNowUT(RewindContext.RewindAdjustedUT));
             LedgerOrchestrator.RecalculateAndPatch(
                 RewindContext.RewindAdjustedUT,
                 suppressSuspiciousDrawdownWarnings: true);
@@ -5889,6 +5952,43 @@ namespace Parsek
                 $"funds={StockPoolReference.Describe(StockPoolReference.Funds)} " +
                 $"science={StockPoolReference.Describe(StockPoolReference.Science)} " +
                 $"reputation={StockPoolReference.Describe(StockPoolReference.Reputation)}");
+        }
+
+        private static void SaveLedgerHeldWindow(ConfigNode node)
+        {
+            if (LedgerHeldWindow.IsSet && !IsOnLoadInProgress && !RecordingStore.RewindUTAdjustmentPending)
+            {
+                try
+                {
+                    if (Planetarium.fetch != null)
+                        LedgerHeldWindow.ExpireIfClockPassed(Planetarium.GetUniversalTime(), "OnSave");
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Verbose(LedgerHeldWindow.Tag,
+                        "OnSave: clock unreadable (" + ex.GetType().Name + "), held-through UT kept as is");
+                }
+            }
+            LedgerHeldWindow.SaveInto(node);
+        }
+
+        /// <summary>
+        /// Installs the ledger held-through UT the loaded node carries when the policy cell says
+        /// the save owns it, resolved against the loaded save's own clock
+        /// (<see cref="LedgerHeldWindow.InstallAfterLoad"/>); a plain rewind clears it here and
+        /// <see cref="HandleRewindOnLoad"/> sets its own.
+        /// </summary>
+        private static void LoadLedgerHeldWindow(ConfigNode node, EarlyLoadKind earlyLoadKind)
+        {
+            LoadReconcileDecision decision = LoadReconcilePolicy.DecideEarly(
+                earlyLoadKind, LoadStateCategory.LedgerHeldWindow);
+            if (decision.Action == LoadReconcileAction.Save)
+            {
+                LedgerHeldWindow.InstallAfterLoad(
+                    ReadLoadedFlightStateUTRaw(), LedgerHeldWindow.ReadSaved(node), "Load (" + earlyLoadKind + ")");
+                return;
+            }
+            LedgerHeldWindow.Clear("load " + earlyLoadKind + " (" + decision.Action + ")");
         }
 
         private static void LoadCrewAndGroupState(ConfigNode node)
@@ -7360,7 +7460,8 @@ namespace Parsek
         /// a quicksave load the science spent by a later committed action stays available.
         /// The coroutine dies with this module, so a later load never sees a stale one.
         /// </summary>
-        private IEnumerator RepatchAfterInSessionLoadWhenCurrenciesLoaded(bool useCutoff, double cutoffUT)
+        private IEnumerator RepatchAfterInSessionLoadWhenCurrenciesLoaded(
+            bool useCutoff, double cutoffUT, bool reFlyDiscard)
         {
             // OnLoad runs inside ScenarioRunner.LoadModules; the remaining modules are
             // constructed and loaded before the next frame.
@@ -7385,11 +7486,16 @@ namespace Parsek
                 $"OnLoad: in-session ledger re-patch after the currency modules loaded " +
                 $"(present={CurrencyScenarioReadiness.Format(CurrencyScenarioReadiness.PresentNow())} " +
                 $"loaded={CurrencyScenarioReadiness.Format(CurrencyScenarioReadiness.LoadedNow())} " +
-                $"useCutoff={useCutoff} cutoffUT={cutoffUT.ToString("R", ic)})");
-            if (useCutoff)
+                $"useCutoff={useCutoff} cutoffUT={cutoffUT.ToString("R", ic)} reFlyDiscard={reFlyDiscard})");
+            // A pool the first patch skipped gets its first patch here, so a Discard Re-fly load
+            // walks it as the same time-travel patch.
+            if (useCutoff && reFlyDiscard)
+                LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(
+                    cutoffUT, "post-rewind-load", reFlyDiscard: true);
+            else if (useCutoff)
                 RecalculateAndPatchForPostRewindFlightLoad(cutoffUT);
             else
-                LedgerOrchestrator.RecalculateAndPatch();
+                LedgerOrchestrator.RecalculateAndPatch(reFlyDiscard: reFlyDiscard);
         }
 
         /// <summary>
@@ -7516,8 +7622,36 @@ namespace Parsek
             // Audited for #527: this coroutine only runs on true revert follow-up
             // budget restoration. The rewind path marks this guard itself and
             // uses ApplyRewindResourceAdjustment(adjustedUT) instead.
-            LedgerOrchestrator.RecalculateAndPatch();
+            // This can run synchronously inside OnLoad (the singletons are often already
+            // there), where Planetarium may still read the pre-load clock, so the loaded save's
+            // own clock wins, as in the in-session load's walk.
+            double planetariumUT;
+            bool planetariumReady = TryReadReadyUniverseTime(out planetariumUT);
+            double revertUT = ResolveInSessionLoadLedgerClockUT(
+                KerbalsModule.ReadLoadedSaveUT(), planetariumReady, planetariumUT);
+            RecalculateAndPatchAfterRevert(HighLogic.LoadedScene, !double.IsNaN(revertUT), revertUT);
+        }
 
+        /// <summary>
+        /// The revert follow-up walk. A revert inside a rewound timeline still has committed
+        /// future rows ahead of the reverted clock, so in a cutoff scene it walks at that clock
+        /// (todo REVERT-AFTER-REWIND-WALKS-PAST-THE-CLOCK); with nothing ahead, or with no ready
+        /// clock, it is the plain full replay it always was.
+        /// </summary>
+        internal static void RecalculateAndPatchAfterRevert(
+            GameScenes loadedScene, bool clockReady, double revertUT)
+        {
+            bool cutoffScene = IsCurrentUtCutoffSupportedScene(loadedScene);
+            ParsekLog.Info("Scenario",
+                $"Revert budget walk: scene={loadedScene} cutoffScene={cutoffScene} clockReady={clockReady} " +
+                $"revertUT={revertUT.ToString("R", CultureInfo.InvariantCulture)}");
+            if (cutoffScene && clockReady)
+            {
+                LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
+                    revertUT, "revert-budget");
+                return;
+            }
+            LedgerOrchestrator.RecalculateAndPatch();
         }
 
         /// <summary>
@@ -8817,13 +8951,20 @@ namespace Parsek
             // recording end UT. Only patch immediately when no pending-tree recording
             // still owns this vessel; otherwise the commit-time path should emit the
             // recovery action exactly once.
+            // Inside stock's recovery dispatch for this very vessel (KSC-DEBRIS-CLEANUP-REFUND-
+            // UNLEDGERED), stock's VesselRecovery listener runs after this one and pays in the
+            // same call, so a debris recovery with no payout context yet is deferred, not skipped.
+            uint dispatchPid = RecoveryDispatchScope.IsOpen
+                && RecoveryDispatchScope.CurrentPersistentId == pv.persistentId
+                ? pv.persistentId : 0u;
             if (ShouldPatchRecoveryFundsOutsideFlight(HighLogic.LoadedScene, identity, pv.persistentId))
                 LedgerOrchestrator.OnVesselRecoveryFunds(
                     now,
                     identity,
                     quick,
                     pv.vesselType,
-                    payoutContext);
+                    payoutContext,
+                    dispatchPid);
 
             // KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL: the committed flight this
             // vessel continues may hold its crew open-ended (a Tracking Station recovery of an

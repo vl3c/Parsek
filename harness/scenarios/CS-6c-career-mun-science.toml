@@ -2,7 +2,7 @@ schema = 1
 id = "CS-6c-career-mun-science"
 # THE SCRIPTED CAMPAIGN, STAGE 6c (docs/dev/autotest-roadmap.md, "The scripted campaign
 # program"): a SCIENCE run to the Mun, then the research that gives CS-7 electric power.
-# CS-7's lander makes no power and nothing on the career's tech does: the pod's 50 EC
+# CS-7's planned lander makes no power and nothing on the career's tech does: the pod's 50 EC
 # drains at about 0.42 EC/s while MechJeb holds attitude on the reaction wheel. Basic
 # Science (45: the Z-100 battery) and Electrics (90: the OX-STAT panel) cost 135 science
 # and the host holds 5.5. This lane earns it at the Mun on CS-6's route, recovers it,
@@ -168,7 +168,7 @@ steps = [
 ]
 
 # CS-6's flown values for the orbit leg, the career launch, the departure and the return
-# tail, CS-7's EVA and electric-charge keys, and this mission's science and lowering keys
+# tail, the EVA and electric-charge keys, and this mission's science and lowering keys
 # (b11_mun_science_return.schema.toml). Thresholds and budgets only, never a golden
 # trajectory.
 [driver.missionParams]
@@ -240,7 +240,7 @@ sciLowerPlanTimeoutSeconds = 120
 # hold and the burn, with slack.
 sciLowerBurnTimeoutSeconds = 12000
 sciNodeLeadSeconds         = 120
-# --- the EVA cycles (CS-7's values) ---
+# --- the EVA cycles ---
 evaSettleSeconds           = 5
 evaSettleFrames            = 3
 evaPhaseTimeoutSeconds     = 900

@@ -248,7 +248,20 @@ namespace Parsek
         /// Explicitly numbered and append-only; an older build reads it as an unknown type
         /// (Warn) and loses the credit there.
         /// </summary>
-        ContractParameterComplete = 40
+        ContractParameterComplete = 40,
+
+        /// <summary>
+        /// The player dismissed a crew member at the Astronaut Complex (stock
+        /// <c>KerbalRoster.SackAvailable</c>: the kerbal becomes an applicant; owner ruling
+        /// 2026-10-28, design section 9.12.1, todo KERBAL-DISMISSAL-ON-THE-TIMELINE). Carries
+        /// <see cref="GameAction.KerbalName"/> and <see cref="GameAction.KerbalRole"/>. A Space
+        /// Center row (untagged). Moves no pool: once the clock reaches it the kerbal is put
+        /// back among the applicants once (<c>KerbalsModule.ApplyReachedCommittedDismissals</c>),
+        /// and before it he is refused every crew seat and a second dismissal. Never retired by
+        /// a Re-Fly (no recording owns it). Explicitly numbered and append-only; an older build
+        /// reads it as an unknown type (Warn) and loses only the roster change there.
+        /// </summary>
+        KerbalDismissal = 41
     }
 
     /// <summary>
@@ -336,9 +349,10 @@ namespace Parsek
         /// <c>CurrencyModifierQuery</c> in place.
         ///
         /// <para><b>ONLY EVER WRITTEN UNDER A NOMINAL-CHANNEL REASON</b>
-        /// (<c>ContractReward</c> / <c>ContractAdvance</c> / <c>Progression</c> - see
+        /// (<c>ContractReward</c> / <c>ContractAdvance</c> / <c>Progression</c> /
+        /// <c>RnDPartPurchase</c> / <c>StructureRepair</c> / <c>ContractPenalty</c> - see
         /// <c>StrategyConversionCapture.IsNominalChannelFundsReason</c>), where the
-        /// ordinary funds channel recorded the CONFIGURED GROSS amount and this row is
+        /// ordinary funds row recorded the CONFIGURED GROSS amount and this row is
         /// the missing second half. Under the event-derived reasons the channel already
         /// reports the value net and no leg is emitted at all.</para>
         ///
@@ -539,6 +553,18 @@ namespace Parsek
         /// committed cost lies ahead of a loss only when it was captured before the loss.
         /// </summary>
         public long CaptureSequence;
+
+        /// <summary>
+        /// The clock this row was captured at, set only when <see cref="LedgerHeldWindow.StampKscOriginRow"/>
+        /// dated the row later (a Space Center row made inside a Rewind-to-Launch lead window is
+        /// dated at the ledger held-through UT); NaN otherwise. A reader that pairs the row with
+        /// a game-state event or a loaded save's clock reads
+        /// <see cref="LedgerHeldWindow.CaptureMomentUT"/>, never this field directly.
+        /// </summary>
+        public double CapturedUT = double.NaN;
+
+        /// <summary>ConfigNode key for <see cref="CapturedUT"/>. Written only when set.</summary>
+        internal const string CapturedUTKey = "capturedUT";
 
         /// <summary>
         /// A strategy conversion leg's cause (design 3.15 step 7): the row whose stock payment
@@ -1287,6 +1313,8 @@ namespace Parsek
                 node.AddValue("seq", Sequence.ToString(IC));
             if (CaptureSequence != 0)
                 node.AddValue(Parsek.CaptureSequence.Key, CaptureSequence.ToString(IC));
+            if (!double.IsNaN(CapturedUT) && !double.IsInfinity(CapturedUT))
+                node.AddValue(CapturedUTKey, CapturedUT.ToString("R", IC));
 
             // TYPE-AGNOSTIC ON PURPOSE. The flag applies to every reputation-affecting row
             // (ReputationSeedMembership.IsReputationAffectingRow), not to one source of one
@@ -1355,6 +1383,9 @@ namespace Parsek
                     break;
                 case GameActionType.KerbalHire:
                     SerializeKerbalHire(node);
+                    break;
+                case GameActionType.KerbalDismissal:
+                    SerializeKerbalDismissal(node);
                     break;
                 case GameActionType.KerbalRescue:
                     SerializeKerbalRescue(node);
@@ -1438,6 +1469,11 @@ namespace Parsek
             if (seqStr != null)
                 int.TryParse(seqStr, NumberStyles.Integer, IC, out a.Sequence);
             a.CaptureSequence = Parsek.CaptureSequence.Parse(node.GetValue(Parsek.CaptureSequence.Key));
+            string capturedUtStr = node.GetValue(CapturedUTKey);
+            double capturedUt;
+            if (capturedUtStr != null && double.TryParse(capturedUtStr, NS, IC, out capturedUt)
+                && !double.IsNaN(capturedUt) && !double.IsInfinity(capturedUt))
+                a.CapturedUT = capturedUt;
 
             // Rewind-to-Staging (design section 5.6 + 9). Legacy actions without
             // `actionId` get a deterministic hash-based id so tombstones remain
@@ -1514,6 +1550,9 @@ namespace Parsek
                     break;
                 case GameActionType.KerbalHire:
                     DeserializeKerbalHire(node, a);
+                    break;
+                case GameActionType.KerbalDismissal:
+                    DeserializeKerbalDismissal(node, a);
                     break;
                 case GameActionType.KerbalRescue:
                     DeserializeKerbalRescue(node, a);
@@ -2027,6 +2066,18 @@ namespace Parsek
             a.KerbalName = n.GetValue("kerbalName");
             a.KerbalRole = n.GetValue("kerbalRole");
             TryParseFloat(n, "hireCost", out a.HireCost);
+        }
+
+        private void SerializeKerbalDismissal(ConfigNode n)
+        {
+            if (KerbalName != null) n.AddValue("kerbalName", KerbalName);
+            if (KerbalRole != null) n.AddValue("kerbalRole", KerbalRole);
+        }
+
+        private static void DeserializeKerbalDismissal(ConfigNode n, GameAction a)
+        {
+            a.KerbalName = n.GetValue("kerbalName");
+            a.KerbalRole = n.GetValue("kerbalRole");
         }
 
         private void SerializeKerbalRescue(ConfigNode n)

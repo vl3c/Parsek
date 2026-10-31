@@ -10,10 +10,8 @@
 #
 # THE FIRST BLOCKS ARE b11_mun_orbit_return.schema.toml's params VERBATIM (B11's
 # orbit leg, the career launch and the return tail, the departure); the EVA and
-# electric-charge keys after them are b13_mun_landing_return.schema.toml's
-# declarations VERBATIM (the same names and meanings); the science and lowering
-# block at the bottom is this mission's own. test_b11_mun_science_return pins all
-# three.
+# electric-charge keys after them and the science and lowering block at the bottom
+# are this mission's own. test_b11_mun_science_return pins both.
 
 [params.targetApoapsisMeters]
 required = true
@@ -580,7 +578,7 @@ min = 0.0
 max = 3600.0
 
 
-# --- The EVA cycles and the electric-charge watchdog (b13_mun_landing_return's keys). ---
+# --- The EVA cycles and the electric-charge watchdog. ---
 
 # The kerbal EvaExit sends out (a crew member's full name); "" = the seam's default
 # (the first crew member aboard).

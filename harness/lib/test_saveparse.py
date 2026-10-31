@@ -3863,7 +3863,8 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # snapshot with --keep-parsek --allow-no-vessel --expect-mode CAREER, no edit. CS-6b
         # recorded nothing, so the payload is cs-career-mun2's; the career gained the
         # Astronaut Complex at level 1 (75000, measured) and advRocketry (45 science): funds
-        # 141973.01, science 5.5, rep 111.0. CS-7's host.
+        # 141973.01, science 5.5, rep 111.0. Its Ships/VAB also carries `CS Mun Science.craft`
+        # (built by harness/tools/build_cs_orbiter_craft.py --variant munsci). CS-6c's host.
         "cs-career-mun3": {
             "trees": 4, "committedTrees": 4, "recordings": 21,
             "supersedes": 0, "tombstones": 0, "rewind_points": 0,

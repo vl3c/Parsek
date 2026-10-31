@@ -1,4 +1,4 @@
-# In-game test category inventory (all 133 categories)
+# In-game test category inventory (all 134 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -115,6 +115,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `Flight` | 2 | 2 | 0 | 0 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
 | `FlightIntegration` | 4 | 4 | 0 | 0 | 0 | 0 | H17 | A |
 | `ForwardRender` | 1 | 1 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at FLIGHT with zero skips) | A |
+| `FreeTechUnlock` | 1 | 0 | 1 | 0 | 0 | 1 | NOT DRIVEN (FREE-TECH-NODE-LOST-AFTER-REWIND, 2026-10-28, branch `fix-free-tech-row`). One SPACECENTER cell that calls stock `ResearchAndDevelopment.UnlockProtoTechNode` on a locked tree node with the free-unlock capture's subscribers swapped for a probe (nothing reaches the career's recorder or ledger), asserts one capture, asserts a repeat call on the now-Available node captures nothing, and restores the node's proto entry in a finally. Its own category so no pinned `BATCH_COMPLETE` tally moves. Self-skips without the R&D singleton, the tech tree, or a locked node. NEVER FLOWN. Bucket **B** until a lane drives it | B |
 | `GameActionsHealth` | 4 | 4 | 4 | 4 | 0 | 3 | B10 / L1 | B |
 | `GhostAudio` | 9 | 8 | 3 | 2 | 0 | 1 | H30 | A |
 | `GhostChains` | 4 | 4 | 4 | 4 | 0 | 4 | H50 (flown 2026-08-28, executes 4 of 4) | A |
@@ -227,8 +228,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **133 categories / 682 declarations**. Buckets **A 99 categories
-(384 declarations)**, **B 33 categories (294 declarations)**, **C 1 category (4
+Totals, re-derived: **134 categories / 683 declarations**. Buckets **A 99 categories
+(384 declarations)**, **B 34 categories (295 declarations)**, **C 1 category (4
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes).
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
@@ -355,10 +356,11 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **128 of 133 categories**, covering **673 of 682
+Driven by a committed spec: **128 of 134 categories**, covering **673 of 683
 declarations** (re-derived mechanically the same way: count the table rows whose
-Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 682 declarations in
-133 categories over `Source/Parsek`. The 2026-10-25 ground-station contract fix opened a 133rd row,
+Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 683 declarations in
+134 categories over `Source/Parsek`. The 2026-10-28 free tech unlock fix opened a 134th row,
+`FreeTechUnlock` (one SPACECENTER cell, bucket **B**), NOT DRIVEN. The 2026-10-25 ground-station contract fix opened a 133rd row,
 `ClockCauseScope` (one FLIGHT cell, bucket **A**), driven by CLK-1-ground-station-contract-untagged (authored
 2026-10-25, LIVE-PROVEN the same day). The 2026-10-24 promotion converter seed witness opened a 132nd row,
 `PromotionConverterSeed` (one FLIGHT cell, bucket **A**), driven by MINE-15-promotion-converter-seed (authored

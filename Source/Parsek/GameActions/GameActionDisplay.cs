@@ -143,6 +143,9 @@ namespace Parsek
                 case GameActionType.KerbalRescue:
                     return "Rescue: " + (action.KerbalName ?? "unknown");
 
+                case GameActionType.KerbalDismissal:
+                    return "Dismiss: " + (action.KerbalName ?? "unknown");
+
                 case GameActionType.KerbalRecovered:
                     return "Recovered: " + (action.KerbalName ?? "unknown");
 

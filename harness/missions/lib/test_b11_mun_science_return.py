@@ -9,8 +9,8 @@ tail verbatim". Each class pins one part:
      exactly what b5_decide emits until the PARK exit frame, where only the
      mid-mission CommitTree is replaced by the high run. The departure and the tail
      are mor's and mfr's own functions, run on MscState because it carries every
-     MorState field. mor_decide and mlr_decide are pinned frame for frame by trace
-     digests taken on the base commit (bdcf4bb07), before this machine existed.
+     MorState field. mor_decide is pinned frame for frame by a trace digest taken
+     on the base commit (bdcf4bb07), before this machine existed.
   2. THE PARAMS: the modes and windows the science cannot follow are refused.
   3. THE PURE RULES: the gates, the pod / kerbal reads, the lowering node arithmetic.
   4. THE READINGS: each run gated on the OBSERVED count, bounded re-runs, named
@@ -50,8 +50,6 @@ import test_b11_mun_orbit_return as t11  # noqa: E402
 from test_b11_mun_orbit_return import (CAREER_PARAMS, DEPART_PARAMS,  # noqa: E402
                                        PLAIN_PARAMS as MOR_PLAIN_PARAMS,
                                        _orbit_frames, _return_tail_frames)
-from test_b13_mun_landing_return import (PLAIN_PARAMS as MLR_PLAIN_PARAMS,  # noqa: E402
-                                         _whole_flight as _mlr_whole_flight)
 
 CS6C_SPEC = "CS-6c-career-mun-science"
 
@@ -79,17 +77,10 @@ SCIENCE_PARAMS = {
 PLAIN_PARAMS = dict(MOR_PLAIN_PARAMS, **SCIENCE_PARAMS)
 PARAMS = dict(PLAIN_PARAMS, **CAREER_PARAMS)
 
-# mor_decide / mlr_decide trace digests, taken on the base commit bdcf4bb07 (before
-# this machine) over the CS-6 and CS-7 full-flight fixtures and their rows. A change
-# to either machine moves it; re-pin only for a deliberate change to that machine.
-# MLR RE-PINNED 2026-10-28 for CS-7's ascent-coast wheel release (four MlrState fields
-# and three ascendedToTargetOrbit details; the flag is off in this fixture, and
-# test_b13_mun_landing_return pins mlr's action stream unchanged with it off).
+# mor_decide's trace digest, taken on the base commit bdcf4bb07 (before this machine)
+# over the CS-6 full-flight fixture and its rows. A change to the machine moves it;
+# re-pin only for a deliberate change to that machine.
 MOR_TRACE_DIGEST = "e3881eada1b717c44f211535cc307a348b7fe24fb7a0a63cfa47d213daef0cf7"
-# MLR RE-PINNED 2026-10-28 for CS-7's ragdoll recovery, its switch-back and the
-# EvaExit retry (MlrState / MlrParams fields only; both knobs are off in this fixture
-# and the action stream plus the phase sequence hash identically before and after).
-MLR_TRACE_DIGEST = "ec54367f335c1deb2b8564827cb690c3d9f8e89521228b4b2c8d1648e9e0dbf8"
 
 _PARK_EXIT_UT = 48_200.0
 _PARK = dict(body="Mun", situation="ORBITING", periapsis=989_990.0, apoapsis=1_010_010.0,
@@ -262,12 +253,6 @@ def _mor_trace_digest():
                          mlib.evaluate_mor_assertions)
 
 
-def _mlr_trace_digest():
-    st = mlib.mlr_initial_state(mlib.mlr_params_from_dict(MLR_PLAIN_PARAMS))
-    return _trace_digest(mlib.mlr_decide, st, _mlr_whole_flight(),
-                         mlib.evaluate_mlr_assertions)
-
-
 class DelegatesAreVerbatimTests(unittest.TestCase):
     def test_the_orbit_leg_is_b5_until_the_park_exit_frame(self):
         p = mlib.msc_params_from_dict(PLAIN_PARAMS)
@@ -296,15 +281,11 @@ class DelegatesAreVerbatimTests(unittest.TestCase):
         self.assertEqual(frames[-1].ut, st.science_entry_ut)
         self.assertEqual(989_990.0, st.high_gate_pe)
 
-    def test_mor_and_mlr_are_unchanged_frame_for_frame(self):
+    def test_mor_is_unchanged_frame_for_frame(self):
         digest, st = _mor_trace_digest()
         self.assertTrue(st.done)
         self.assertIsNone(st.verdict)
         self.assertEqual(MOR_TRACE_DIGEST, digest)
-        digest, st = _mlr_trace_digest()
-        self.assertTrue(st.done)
-        self.assertIsNone(st.verdict)
-        self.assertEqual(MLR_TRACE_DIGEST, digest)
 
     def test_the_departure_and_tail_blocks_run_on_msc_state(self):
         mor_state = {f.name for f in dataclasses.fields(mlib.MorState)}
@@ -491,7 +472,6 @@ class PureRuleTests(unittest.TestCase):
             self.assertEqual(("EvaBoard", leg.board_tag), (b.seam_verb, b.seam_tag))
             tags |= {leg.exit_tag, leg.board_tag}
         self.assertEqual(4, len(tags))
-        self.assertNotIn(mlib.MLR_TAG_EVA_EXIT, tags)
         self.assertEqual((), mlib.msc_eva_actions("EvaExit", mlib.MSC_LEG_HIGH,
                                                   _params())[0].seam_args)
         for tag in tags:
@@ -895,14 +875,13 @@ class SchemaAndSpecTests(unittest.TestCase):
                        "evaPhaseTimeoutSeconds", "electricChargeFloor",
                        "electricChargeDebounceFrames"}
 
-    def test_mor_and_mlr_keys_are_declared_identically(self):
+    def test_mor_keys_are_declared_identically(self):
         mine = _schema("b11_mun_science_return")["params"]
         mor = _schema("b11_mun_orbit_return")["params"]
-        mlr = _schema("b13_mun_landing_return")["params"]
         for key, decl in mor.items():
             self.assertEqual(decl, mine.get(key), key)
         for key in self.SHARED_EVA_KEYS:
-            self.assertEqual(mlr[key], mine.get(key), key)
+            self.assertIn(key, mine, key)
         self.assertEqual(self.OWN_KEYS, set(mine) - set(mor) - self.SHARED_EVA_KEYS)
 
     def test_the_cs6c_params_validate_and_build(self):

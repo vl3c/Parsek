@@ -9,7 +9,7 @@ id = "CS-6b-career-astronaut-complex"
 # THE HOST. `cs-career-mun2`: CS-6's produced save (run `2026-10-27_2202`, PASS attempt
 # 1, LedgerGroundTruth `hardFailures=0`), harvested with `harvest_bdock_station.py
 # --keep-parsek --allow-no-vessel --expect-mode CAREER`, no edit (its Ships/VAB adds the
-# builder's `CS Mun Lander.craft`, CS-7's craft). Career, Normal preset
+# builder's `CS Mun Lander.craft`, CS-7's craft, unused here). Career, Normal preset
 # (FundsLossMultiplier 1), funds 216973.01, science 50.5, rep 111.0 (110.996407); the
 # Tracking Station, the Launch Pad and Mission Control at level 1 (lvl 0.5), every other
 # facility at level 0, the Astronaut Complex included; start, basicRocketry,
@@ -53,15 +53,14 @@ id = "CS-6b-career-astronaut-complex"
 # the in-window unadopted row (never a duplicate skip, never a leak row), and the
 # ground truth closes with all of it in the pools.
 #
-# THE NEXT STAGE. This lane's produced save is CS-7's intended host. CS-7
-# (`CS-7-career-mun-landing`) replays these two KSC actions on `cs-career-mun2` until
-# this lane flies green and its save is harvested.
+# THE NEXT STAGE. This lane's produced save is CS-7's intended host (CS-7, the Mun
+# landing, EVA, flag, board, ascent and return, is pending a power redesign).
 #
 # STATUS: LIVE-PROVEN 2026-10-28 on its first flight, `2026-10-27_2316` PASS attempt 1 (80 s, DLL 92b715f7): the Astronaut Complex
 # upgrade debited 75000 (measured, as the scene asset said), advRocketry researched (science
 # 50.5 -> 5.5), the same-craft Flea relaunch ledgered as a new launch, batch `passed=3 failed=0
 # skipped=0` (pinned whole), LedgerGroundTruth hardFailures=0 reportOnly=2; funds 141973.01.
-# Its produced save is CS-7's host `cs-career-mun3`. Original note: Owed off the first flight: the Astronaut
+# Its produced save is CS-7's intended host. Original note: Owed off the first flight: the Astronaut
 # Complex debit (75000 read off the scene asset), the batch split (`total=3` pinned, the
 # rest regexed).
 tier = "operator"

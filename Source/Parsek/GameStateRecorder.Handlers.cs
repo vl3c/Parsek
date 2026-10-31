@@ -700,6 +700,81 @@ namespace Parsek
                 LedgerOrchestrator.OnKscSpending(evt);
         }
 
+        /// <summary>The detail flag a free tech unlock carries (<c>free=1</c>).</summary>
+        internal const string FreeTechUnlockDetailKey = "free";
+
+        /// <summary>
+        /// <see cref="Patches.FreeTechUnlockCapturePatch.FreeUnlockCaptured"/> handler: stock
+        /// unlocked a node for free (a point-of-interest tech gift or the debug menu), which
+        /// fires no OnTechnologyResearched.
+        /// </summary>
+        private void OnFreeTechUnlocked(Patches.FreeTechUnlock unlock)
+        {
+            double science = ResearchAndDevelopment.Instance != null
+                ? ResearchAndDevelopment.Instance.Science
+                : 0;
+            CaptureFreeTechUnlock(unlock.TechId, unlock.NodeCost, unlock.PartNames,
+                Planetarium.GetUniversalTime(), science);
+        }
+
+        /// <summary>
+        /// The detail of a free tech unlock's TechResearched event:
+        /// <c>cost=0;free=1;nodeCost=&lt;R&gt;;parts=a,b</c>. <c>cost=</c> is what stock charged
+        /// (the converter reads it as the row's Cost); <c>nodeCost=</c> is the node's own price,
+        /// kept for the log reader only. Invariant culture.
+        /// </summary>
+        internal static string BuildFreeTechUnlockDetail(float nodeCost, IList<string> partNames)
+        {
+            string parts = partNames != null && partNames.Count > 0
+                ? string.Join(",", new List<string>(partNames).ToArray())
+                : "";
+            return "cost=0;" + FreeTechUnlockDetailKey + "=1;nodeCost=" +
+                nodeCost.ToString("R", CultureInfo.InvariantCulture) + ";parts=" + parts;
+        }
+
+        /// <summary>
+        /// Headless core of the free tech unlock capture (todo FREE-TECH-NODE-LOST-AFTER-REWIND):
+        /// files the same TechResearched event a paid research files, with cost 0, so the
+        /// converter writes a ScienceSpending row that charges nothing and keeps the node in
+        /// every later tech patch target. Tagged to the live recording through
+        /// <see cref="Emit(ref GameStateEvent, string)"/> and forwarded to the ledger at once
+        /// under the same rule as a paid research.
+        /// </summary>
+        internal void CaptureFreeTechUnlock(
+            string techId, float nodeCost, IList<string> partNames, double ut, double science)
+        {
+            if (IsReplayingActions)
+            {
+                ParsekLog.Verbose("GameStateRecorder", "Suppressed free TechResearched event during action replay");
+                return;
+            }
+            if (string.IsNullOrEmpty(techId))
+            {
+                LogEventReject("TechResearched", "free-unlock-tech-id-missing");
+                return;
+            }
+
+            var evt = new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.TechResearched,
+                key = techId,
+                detail = BuildFreeTechUnlockDetail(nodeCost, partNames),
+                valueBefore = science,
+                valueAfter = science
+            };
+            Emit(ref evt, "TechResearchedFree");
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: TechResearched '{techId}' free unlock (cost=0, " +
+                $"nodeCost={nodeCost.ToString("R", CultureInfo.InvariantCulture)}, " +
+                $"ut={ut.ToString("R", CultureInfo.InvariantCulture)}, " +
+                $"parts={(partNames != null ? partNames.Count : 0).ToString(CultureInfo.InvariantCulture)}, " +
+                $"tag='{evt.recordingId ?? ""}', reason=stock UnlockProtoTechNode)");
+
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasClaimingLiveRecorder()))
+                LedgerOrchestrator.OnKscSpending(evt);
+        }
+
         private void OnPartPurchased(AvailablePart part)
         {
             if (IsReplayingActions)
@@ -885,6 +960,58 @@ namespace Parsek
             if (GameVariables.Instance == null || HighLogic.CurrentGame == null)
                 return 0f;
             return (float)GameVariables.Instance.GetRecruitHireCost(activeCrewCount);
+        }
+
+        /// <summary>
+        /// Fires from <c>KerbalRoster.SackAvailable</c> (the Astronaut Complex's dismiss
+        /// button) AFTER stock turned the kerbal into an applicant (decompiled: the
+        /// <c>type</c> set, then the event), so <paramref name="crew"/> is already an
+        /// Applicant here; his trait and name are unchanged (the <c>type</c> setter touches
+        /// neither) and the capture reads only those. Records a CrewDismissed
+        /// event and writes its KerbalDismissal row through the Space Center door, so the
+        /// dismissal stays on the timeline (design section 9.12.1). Parsek's own roster
+        /// writes never reach here (they set the type directly under crew suppression), and
+        /// nothing is captured during action replay.
+        /// </summary>
+        private void OnCrewmemberSacked(ProtoCrewMember crew, int activeCrewCount)
+        {
+            if (IsReplayingActions)
+            {
+                ParsekLog.Verbose("GameStateRecorder", "Suppressed CrewDismissed event during action replay");
+                return;
+            }
+            if (SuppressCrewEvents)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-crew-dismissed",
+                    "Suppressed CrewDismissed event while Parsek mutates crew state", 5.0);
+                return;
+            }
+            if (crew == null)
+            {
+                LogEventReject("CrewDismissed", "crew-null");
+                return;
+            }
+            GameStateEvent evt = BuildCrewDismissedEvent(
+                crew.name, crew.trait, Planetarium.GetUniversalTime());
+            Emit(ref evt, "CrewDismissed");
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: CrewDismissed '{evt.key}' ({crew.trait ?? "?"}) " +
+                $"activeCrewCount={activeCrewCount.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+
+            if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasClaimingLiveRecorder()))
+                LedgerOrchestrator.OnKscSpending(evt);
+        }
+
+        /// <summary>The CrewDismissed event for one dismissal. Pure.</summary>
+        internal static GameStateEvent BuildCrewDismissedEvent(string kerbalName, string trait, double ut)
+        {
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.CrewDismissed,
+                key = kerbalName ?? "",
+                detail = "trait=" + (trait ?? "")
+            };
         }
 
         private void OnKerbalRemoved(ProtoCrewMember crew)
@@ -1492,7 +1619,9 @@ namespace Parsek
                 {
                     var a = ledgerActions[i];
                     if (a.Type != GameActionType.MilestoneAchievement) continue;
-                    if (System.Math.Abs(a.UT - evt.ut) > 0.1) continue;
+                    // Capture moment: a row dated at the ledger held-through UT
+                    // (LedgerHeldWindow.StampKscOriginRow) still pairs at its event's clock.
+                    if (System.Math.Abs(LedgerHeldWindow.CaptureMomentUT(a) - evt.ut) > 0.1) continue;
                     if (a.MilestoneId != evt.key) continue;
 
                     a.MilestoneFundsAwarded = (float)funds;
@@ -1722,7 +1851,7 @@ namespace Parsek
                     if (a.Type != GameActionType.MilestoneAchievement) continue;
                     if (a.MilestoneId != milestoneId) continue;
                     if ((a.RecordingId ?? "") != recordingId) continue;
-                    if (Math.Abs(a.UT - seed.ut) > 0.1) continue;
+                    if (Math.Abs(LedgerHeldWindow.CaptureMomentUT(a) - seed.ut) > 0.1) continue;
                     a.MilestoneFundsAwarded += (float)funds;
                     a.MilestoneRepAwarded += rep;
                     a.MilestoneScienceAwarded += (float)sci;

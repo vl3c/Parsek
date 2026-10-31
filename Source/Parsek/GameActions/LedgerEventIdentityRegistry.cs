@@ -532,6 +532,7 @@ namespace Parsek
                     LedgerIdentityRule.PurchaseStateRule,
                     F + ".ProcessKerbalHire" + PurchaseStateBy + "; the captured price is kept"),
                 NoEffect(GameActionType.KerbalRescue, "kerbal name"),
+                NoEffect(GameActionType.KerbalDismissal, "kerbal name + UT"),
                 NoEffect(GameActionType.KerbalStandIn, "stand-in kerbal name"),
                 NoEffect(GameActionType.KerbalExperience, "kerbal name + career log entries"),
                 NoEffect(GameActionType.KerbalRecovered, "kerbal name + owner recording"),

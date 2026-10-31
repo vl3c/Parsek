@@ -2682,6 +2682,12 @@ namespace Parsek
             ParsekLog.Info(LedgerSwapTag,
                 $"PreRewindTombstoneGuard: {deathPenaltiesScreenedByDeath.ToString(CultureInfo.InvariantCulture)} " +
                 $"KerbalDeath rep penalty row(s) screened by their paired death");
+            if (scan.OpenCrewIntervalsInScopeByEndUT > 0)
+            {
+                ParsekLog.Info(LedgerSwapTag,
+                    $"PreRewindTombstoneGuard: {scan.OpenCrewIntervalsInScopeByEndUT.ToString(CultureInfo.InvariantCulture)} " +
+                    $"pre-rewind-boarded open-ended crew interval(s) kept in scope by endUT");
+            }
 
             ParsekLog.Info(Tag,
                 $"Supersede tombstone effects: tombstoned {tombstoned} recording-scoped career actions; " +
@@ -2778,6 +2784,7 @@ namespace Parsek
                     break;
                 case GameActionType.KerbalAssignment:
                 case GameActionType.KerbalHire:
+                case GameActionType.KerbalDismissal:
                 case GameActionType.KerbalRescue:
                 case GameActionType.KerbalStandIn:
                 case GameActionType.KerbalRecovered:

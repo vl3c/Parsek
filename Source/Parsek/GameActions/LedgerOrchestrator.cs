@@ -1790,6 +1790,9 @@ namespace Parsek
                 case GameActionType.ContractParameterComplete:
                     return (a.ContractId ?? "") + "|" + (a.ContractParameterId ?? "");
                 case GameActionType.KerbalHire: return a.KerbalName ?? "";
+                // A dismissal: the kerbal name, like the hire (the UT and the capture number
+                // tell two dismissals of one kerbal apart).
+                case GameActionType.KerbalDismissal: return a.KerbalName ?? "";
                 // KerbalExperience: the kerbal name, mirroring KerbalHire. Falling through
                 // to the default "" would make one recovery's crew collapse into a single
                 // row - every crew member's XP row shares the recovery's UT exactly (one
@@ -2458,6 +2461,7 @@ namespace Parsek
             // Station FF) moves the clock past committed-future rows the same way the clock
             // cursor does, so the reached rows get the same treatment; a backward jump
             // reaches none of them.
+            ExpireHeldThroughFloorAtTrustedClock(utCutoff, "time-jump");
             RunAsClockAdvance(() => RecalculateAndPatchForCurrentTimelineUT(utCutoff, "time-jump"));
         }
 
@@ -2633,7 +2637,22 @@ namespace Parsek
         /// </summary>
         internal static void RecalculateAndPatchForClockAdvance(double currentUT, string reason)
         {
+            ExpireHeldThroughFloorAtTrustedClock(currentUT, reason ?? "clock-advance");
             RunAsClockAdvance(() => RecalculateAndPatchForLiveTimelineEvent(currentUT, reason));
+        }
+
+        /// <summary>
+        /// Drops the ledger held-through UT once the clock that moves forward has reached it
+        /// (<see cref="LedgerHeldWindow.ExpireIfClockPassed"/>). Not inside OnLoad or while a
+        /// rewind's UT adjustment is pending: the Planetarium reads a stale clock there.
+        /// </summary>
+        private static void ExpireHeldThroughFloorAtTrustedClock(double clockUT, string site)
+        {
+            if (!LedgerHeldWindow.IsSet)
+                return;
+            if (ParsekScenario.IsOnLoadInProgress || RecordingStore.RewindUTAdjustmentPending)
+                return;
+            LedgerHeldWindow.ExpireIfClockPassed(clockUT, site);
         }
 
         private static void RunAsClockAdvance(Action recalc)
@@ -3440,7 +3459,9 @@ namespace Parsek
                 bool inLoad = ParsekScenario.IsOnLoadInProgress;
                 captureUT = ResolveSeedCaptureUT(
                     inLoad, inLoad ? ReadLoadedFlightStateUT() : double.NaN,
-                    inLoad ? double.NaN : GetNowUT());
+                    // The raw clock, not the ledger's held now: the capture UT is compared
+                    // with recording rows, which keep their trajectory UTs.
+                    inLoad ? double.NaN : GetRawClockUT());
             }
             catch (Exception ex)
             {
@@ -4104,6 +4125,15 @@ namespace Parsek
         {
             Initialize();
 
+            // The rewind lead window (todo REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE):
+            // rows the loaded world already holds count as reached until the clock passes the
+            // held-through UT, so a cutoff behind it rises to it. Every walk below (the pools,
+            // the KSP state patches, the committed-future snapshot the clock crossings read)
+            // then agrees with the loaded world. A full walk (null) is unaffected.
+            utCutoff = ApplyHeldThroughFloorToCutoff(utCutoff, "walk");
+            techPatchCutoff = ApplyHeldThroughFloorToCutoff(techPatchCutoff, "tech");
+            deadlineClockUT = ApplyHeldThroughFloorToCutoff(deadlineClockUT, "deadline");
+
             // A strategy patch still waiting for stock's strategy list belongs to an older
             // walk; this walk re-requests one if (and only if) it patches KSP state.
             StrategyStatePatcher.CancelPendingPatch("new-recalc");
@@ -4254,6 +4284,25 @@ namespace Parsek
                 $"RecalculateAndPatch complete: {actions.Count} actions walked");
 
             OnTimelineDataChanged?.Invoke();
+        }
+
+        /// <summary>
+        /// <see cref="LedgerHeldWindow.ResolveLedgerCutoffUT"/> for one of the walk's clocks,
+        /// logging a raise. Recalculations are event-driven (a spend, a commit, a crossed row,
+        /// a load), never per frame, so one Verbose line per raise is bounded.
+        /// </summary>
+        private static double? ApplyHeldThroughFloorToCutoff(double? cutoffUT, string which)
+        {
+            double? floored = LedgerHeldWindow.ResolveLedgerCutoffUT(cutoffUT);
+            if (cutoffUT.HasValue && floored.HasValue && floored.Value != cutoffUT.Value)
+            {
+                ParsekLog.Verbose(Tag,
+                    "RecalculateAndPatch: " + which + " cutoff " +
+                    cutoffUT.Value.ToString("R", CultureInfo.InvariantCulture) + " raised to the ledger held-through UT " +
+                    floored.Value.ToString("R", CultureInfo.InvariantCulture) +
+                    " (rows up to it are in the loaded world)");
+            }
+            return floored;
         }
 
         private static List<GameAction> BuildRecalculationActions()
@@ -4448,6 +4497,12 @@ namespace Parsek
                     HighLogic.CurrentGame?.CrewRoster, hiresToMake);
             }
 
+            // A dismissal the clock reached (design section 9.12.1): a load back in time put
+            // the kerbal back on the crew list; make him an applicant again, once. After the
+            // hires, so a hire and a later dismissal both reached in one pass end with him
+            // dismissed.
+            ApplyReachedCommittedDismissals(actions, kerbalsModule);
+
             // LedgerTrace Tier-A: emit ONE structural snapshot per recalc, here (after
             // PatchAll), never inside a Patch* (that would emit 7x). Built from data
             // already in hand: module getters for the three pools, the facilities
@@ -4463,6 +4518,125 @@ namespace Parsek
                 LedgerTrace.EmitStructural(BuildLedgerStructuralSnapshot(
                     targetTechIds, utCutoff, authoritativeReduction));
             }
+        }
+
+        /// <summary>Why <see cref="PlanReachedCommittedDismissals"/> planned nothing.</summary>
+        internal const string DismissalSkipRewindPending = "rewind-ut-adjustment-pending";
+        internal const string DismissalSkipClockNotReady = "clock-not-ready";
+
+        /// <summary>
+        /// The live half of the dismissal pass: plans against the kerbal walk's clock (raised to
+        /// the held-through UT) and puts each named kerbal back among the applicants.
+        /// </summary>
+        private static void ApplyReachedCommittedDismissals(
+            IReadOnlyList<GameAction> actions, KerbalsModule kerbals)
+        {
+            if (!HasDismissalRow(actions))
+                return;
+            double clockUT = kerbals != null ? kerbals.WalkClockUT : double.NaN;
+            string skipReason;
+            List<string> names = PlanReachedCommittedDismissals(
+                actions, IsCommittedRowRecording, clockUT, LedgerHeldWindow.HeldThroughUT,
+                RecordingStore.RewindUTAdjustmentPending, out skipReason);
+            if (names == null)
+            {
+                ParsekLog.VerboseOnChange(Tag, "dismissal-pass-skip", skipReason,
+                    "Committed dismissals not applied this pass: reason=" + skipReason +
+                    " walkClockUT=" + clockUT.ToString("R", CultureInfo.InvariantCulture));
+                return;
+            }
+            if (names.Count > 0)
+                KerbalsModule.ApplyReachedCommittedDismissals(HighLogic.CurrentGame?.CrewRoster, names);
+        }
+
+        private static bool HasDismissalRow(IReadOnlyList<GameAction> actions)
+        {
+            if (actions == null) return false;
+            for (int i = 0; i < actions.Count; i++)
+                if (actions[i] != null && actions[i].Type == GameActionType.KerbalDismissal)
+                    return true;
+            return false;
+        }
+
+        /// <summary>A row counts as committed when it has no recording (a Space Center row) or
+        /// its recording is in the effective recording set.</summary>
+        private static bool IsCommittedRowRecording(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return true;
+            var ers = EffectiveState.ComputeERS();
+            if (ers == null) return false;
+            for (int i = 0; i < ers.Count; i++)
+                if (ers[i] != null && string.Equals(ers[i].RecordingId, recordingId, StringComparison.Ordinal))
+                    return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Pure: the dismissal pass's plan, or null when it must not run (a rewind's UT
+        /// adjustment is pending, or the clock is not a usable UT; <paramref name="skipReason"/>
+        /// says which). The ledger's now is <paramref name="clockUT"/> raised to
+        /// <paramref name="heldThroughUT"/> (<see cref="LedgerHeldWindow.ApplyHeldFloor"/>).
+        /// </summary>
+        internal static List<string> PlanReachedCommittedDismissals(
+            IReadOnlyList<GameAction> actions, Func<string, bool> isCommittedRecording,
+            double clockUT, double heldThroughUT, bool rewindUtAdjustmentPending, out string skipReason)
+        {
+            if (rewindUtAdjustmentPending)
+            {
+                skipReason = DismissalSkipRewindPending;
+                return null;
+            }
+            if (double.IsNaN(clockUT) || double.IsInfinity(clockUT) || !IsCurrentUtReadyForCutoff(clockUT))
+            {
+                skipReason = DismissalSkipClockNotReady;
+                return null;
+            }
+            skipReason = null;
+            return ResolveCommittedDismissalsToMake(
+                actions, isCommittedRecording, LedgerHeldWindow.ApplyHeldFloor(clockUT, heldThroughUT));
+        }
+
+        /// <summary>
+        /// Pure: the kerbals the dismissal pass puts back among the applicants at
+        /// <paramref name="nowUT"/>. Per kerbal name, the latest committed roster row at or
+        /// before now (walk order) decides: a <see cref="GameActionType.KerbalDismissal"/>
+        /// names him; a row that puts a kerbal of that name on the roster
+        /// (<see cref="KerbalsModule.TryGetRosterCreatedKerbalName"/>: a hire, a rescue, a
+        /// stand-in) does not. Stock reuses names: a dismissed applicant can expire and the
+        /// name go to a later rescued kerbal or stand-in, who must not be demoted. A row tagged to a recording outside the committed set
+        /// (<paramref name="isCommittedRecording"/>; null treats every tagged row as not
+        /// committed) is not counted. Ordered by kerbal name, without repeats.
+        /// </summary>
+        internal static List<string> ResolveCommittedDismissalsToMake(
+            IReadOnlyList<GameAction> actions, Func<string, bool> isCommittedRecording, double nowUT)
+        {
+            var latest = new Dictionary<string, GameAction>(StringComparer.Ordinal);
+            if (actions != null)
+            {
+                for (int i = 0; i < actions.Count; i++)
+                {
+                    GameAction a = actions[i];
+                    if (a == null || string.IsNullOrEmpty(a.KerbalName)) continue;
+                    string joined;
+                    if (a.Type != GameActionType.KerbalDismissal
+                        && !KerbalsModule.TryGetRosterCreatedKerbalName(a, out joined))
+                        continue;
+                    if (a.UT > nowUT) continue;
+                    if (!string.IsNullOrEmpty(a.RecordingId)
+                        && (isCommittedRecording == null || !isCommittedRecording(a.RecordingId)))
+                        continue;
+                    GameAction held;
+                    if (!latest.TryGetValue(a.KerbalName, out held)
+                        || RecalculationEngine.CompareWalkOrder(a, held) > 0)
+                        latest[a.KerbalName] = a;
+                }
+            }
+            var names = new List<string>();
+            foreach (var kv in latest)
+                if (kv.Value.Type == GameActionType.KerbalDismissal)
+                    names.Add(kv.Key);
+            names.Sort(StringComparer.Ordinal);
+            return names;
         }
 
         /// <summary>
@@ -5098,6 +5272,20 @@ namespace Parsek
             // this falls back to the original scene-driven behavior.
             bool currentUtReady = IsCurrentUtReadyForCutoff(maxUT);
             bool preserveFutureRows = useCurrentUtCutoffForFutureActions || !currentUtReady;
+            // Rows up to the save's held-through UT are in the loaded world (a save written in
+            // a Rewind-to-Launch lead window): never pruned as future. Only a ready clock is
+            // raised; a clock that is not ready keeps every row anyway.
+            if (currentUtReady)
+            {
+                double heldMaxUT = LedgerHeldWindow.ResolveLedgerNowUT(maxUT);
+                if (heldMaxUT != maxUT)
+                {
+                    ParsekLog.Info(Tag,
+                        "OnKspLoad: reconcile clock " + maxUT.ToString("R", CultureInfo.InvariantCulture) +
+                        " raised to the ledger held-through UT " + heldMaxUT.ToString("R", CultureInfo.InvariantCulture));
+                    maxUT = heldMaxUT;
+                }
+            }
 
             // O3: a recording the save names but that did not load keeps its rows. Before the
             // reconcile, which prunes rows tagged to a recording missing from the loaded set.
@@ -6067,6 +6255,13 @@ namespace Parsek
             kscSequenceCounter++;
             action.Sequence = kscSequenceCounter;
 
+            // A Space Center row made while the clock is behind the ledger held-through UT
+            // (a Rewind-to-Launch lead window) is dated at it, after the held rows the loaded
+            // world already shows (todo REWIND-LEAD-WINDOW-NEW-ACTION-SORTS-BEFORE-HELD-ROW).
+            // A row tagged to a recording keeps its UT. The reconcile below pairs the row with
+            // its event by capture moment, so it still finds the event at the raw clock.
+            LedgerHeldWindow.StampKscOriginRow(action, "OnKscSpending");
+
             // THE DOOR STAMPS, IT DOES NOT SEED. Reviewed 2026-09-15 and corrected: an
             // earlier cut ensured the seed here, before the row reached the ledger. That
             // is unsafe for two of the four sources this door carries, because the live
@@ -6209,11 +6404,19 @@ namespace Parsek
         /// Parsek's. Inside the handler the live pool has not been charged and no
         /// FundsChanged(CrewRecruited) exists yet, so an inline recalc either clamps the
         /// drawdown or, with committed-future rows authorising it, patches the charge in
-        /// and stock then charges it a second time (HIRE-RECALC-BEFORE-STOCK-DEBIT).
+        /// and stock then charges it a second time (HIRE-RECALC-BEFORE-STOCK-DEBIT). Also the
+        /// KerbalDismissal row, for a different reason: decompiled
+        /// <c>KerbalRoster.SackAvailable</c> makes the kerbal an applicant FIRST and then
+        /// raises <c>OnCrewmemberSacked</c>, so the roster is already right when the handler
+        /// runs and an inline pass would only find him an applicant. The deferral keeps the
+        /// reconcile and the recalc (its roster pass and the stock-screen refresh it raises)
+        /// out of stock's <c>SackAvailable</c> call and its listener dispatch, after which the
+        /// Astronaut Complex rebuilds its lists, the same frame shape as the hire.
         /// </summary>
         internal static bool ShouldDeferKscReconcileOneFrame(GameActionType type, bool hasFrameHost)
         {
-            return type == GameActionType.KerbalHire && hasFrameHost;
+            return (type == GameActionType.KerbalHire || type == GameActionType.KerbalDismissal)
+                && hasFrameHost;
         }
 
         /// <summary>
@@ -6300,10 +6503,11 @@ namespace Parsek
         /// live.</para>
         ///
         /// <para>NEGATIVE funds legs land as a nominal <c>FundsSpending</c> row sourced
-        /// <see cref="FundsSpendingSource.StrategyConverter"/>, and they reach this
-        /// method only under a NOMINAL-channel reason (see
-        /// <c>StrategyConversionCapture.IsNominalChannelFundsReason</c>) - the three
-        /// reasons where Parsek's funds channel recorded a CONFIGURED GROSS amount and
+        /// <see cref="FundsSpendingSource.StrategyConverter"/>, and nonzero-input funds legs
+        /// of either sign reach this method only under a NOMINAL-channel reason (see
+        /// <c>StrategyConversionCapture.IsNominalChannelFundsReason</c>) - the reasons
+        /// where Parsek's funds row recorded a CONFIGURED GROSS amount (contract rewards,
+        /// advances and penalties, milestones, part and upgrade purchases, repairs) and
         /// this row is the missing diverted half. Funds carry no curve, so the row is
         /// exact in any walk order.</para>
         /// </summary>
@@ -6334,11 +6538,17 @@ namespace Parsek
                     skipped++;
                     continue;
                 }
-                // Design 3.15 step 7: the award this leg was converted from, when a scope named it.
-                action.ConversionCause = string.IsNullOrEmpty(conversionCause) ? null : conversionCause;
+                // Design 3.15 step 7: the award this leg was converted from, when a scope named it
+                // (a leg split between several cause rows names its own).
+                string legCause = !string.IsNullOrEmpty(leg.Cause) ? leg.Cause : conversionCause;
+                action.ConversionCause = string.IsNullOrEmpty(legCause) ? null : legCause;
 
                 kscSequenceCounter++;
                 action.Sequence = kscSequenceCounter;
+                // Dated like the KSC door's rows (an untagged leg inside a Rewind-to-Launch
+                // lead window moves to the held-through UT with the row that caused it, so
+                // the leg still binds to its cause).
+                LedgerHeldWindow.StampKscOriginRow(action, "OnStrategyCurrencyConversion");
                 // Same contract as the OnKscSpending door: stamp only, never seed. See
                 // StampLiveWriteRowAgainstSeed for the event-ordering reason.
                 StampLiveWriteRowAgainstSeed(action, "strategy conversion " + action.Type);
@@ -6409,6 +6619,7 @@ namespace Parsek
                     continue;
                 kscSequenceCounter++;
                 action.Sequence = kscSequenceCounter;
+                LedgerHeldWindow.StampKscOriginRow(action, "OnLiveOnlyIncome");
                 StampLiveWriteRowAgainstSeed(action, "live-only income " + action.Type);
                 Ledger.AddAction(action, LedgerRowWriter.StockApplied);
                 ParsekLog.Info(LiveOnlyIncome.Tag,
@@ -6482,14 +6693,14 @@ namespace Parsek
                         // all only because StrategyConversionCapture.EvaluateLegs either
                         // saw a zero funds input (no transaction of its own) or matched
                         // StrategyConversionCapture.IsNominalChannelFundsReason - and on
-                        // those three reasons the ordinary funds channel recorded the
-                        // CONFIGURED GROSS amount (contract.FundsCompletion /
-                        // FundsAdvance, the AwardProgress arguments), never an observed
-                        // delta. So this row is the missing second half of the pool move
-                        // rather than a second count of the first half; under the
-                        // event-derived reasons (VesselRollout, RnDPartPurchase,
-                        // StructureRepair, StructureConstruction, StrategyOutput) no leg
-                        // is emitted and no row is written.
+                        // those reasons the ordinary funds row recorded the CONFIGURED
+                        // GROSS amount (contract.FundsCompletion / FundsAdvance / the
+                        // penalties, the AwardProgress arguments, a part's entryCost, a
+                        // building's RepairCost), never an observed delta. So this row is
+                        // the missing second half of the pool move rather than a second
+                        // count of the first half; under the event-derived reasons
+                        // (VesselRollout, StructureConstruction, StrategyOutput) no leg is
+                        // emitted and no row is written.
                         //
                         // NO CURVE ANYWHERE, which is what makes this simpler than its
                         // reputation sibling: Funding.AddFunds moves the pool by the raw
@@ -6704,8 +6915,8 @@ namespace Parsek
 
         /// <summary>
         /// Key-aware form of <see cref="IsIrreversibleLiveGameplayEvent(GameStateEventType)"/>,
-        /// used by <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/>. Adds exactly
-        /// one event beyond the type-only set: a NEGATIVE
+        /// used by <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/>. Adds two
+        /// events beyond the type-only set. The first is a NEGATIVE
         /// <see cref="GameStateEventType.ScienceChanged"/> keyed
         /// <c>TransactionReasons.StrategyInput</c> - the science INPUT leg of a stock
         /// CurrencyExchanger (Patents Licensing; STRATEGY-SCIENCE-CONVERSION-LEAK).
@@ -6721,10 +6932,21 @@ namespace Parsek
         /// <para>Sign gate: only the debit direction is preserved. A non-negative
         /// StrategyInput delta is not something KSP took away, and
         /// <c>ConvertStrategyExchangeScience</c> returns null for it anyway.</para>
+        ///
+        /// <para>The second is a FREE <see cref="GameStateEventType.TechResearched"/> (detail field
+        /// <c>free=1</c>, read by exact key like the converter reads details; todo
+        /// FREE-TECH-NODE-LOST-AFTER-REWIND): stock's <c>UnlockProtoTechNode</c> (an anomaly's
+        /// tech gift) unlocks the node in flight and KSP keeps it after a non-rewind discard,
+        /// so the discard re-homes it as an untagged zero-cost ScienceSpending row; without
+        /// it the next tech patch re-locks the node. A PAID TechResearched stays out: research
+        /// happens at the Space Center, written untagged at once, never on a flight.</para>
         /// </summary>
         internal static bool IsIrreversibleLiveGameplayEvent(GameStateEvent e)
         {
             if (IsIrreversibleLiveGameplayEvent(e.eventType))
+                return true;
+
+            if (IsFreeTechUnlockEvent(e))
                 return true;
 
             return e.eventType == GameStateEventType.ScienceChanged
@@ -6736,6 +6958,21 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True for a TechResearched event the free-unlock capture filed: its detail carries
+        /// the field <c>free=1</c> (exact key match through
+        /// <see cref="GameStateEventDisplay.ExtractDetailField"/>, so <c>free=1</c> inside
+        /// another field's value does not count).
+        /// </summary>
+        internal static bool IsFreeTechUnlockEvent(GameStateEvent e)
+        {
+            return e.eventType == GameStateEventType.TechResearched
+                && string.Equals(
+                    GameStateEventDisplay.ExtractDetailField(e.detail, GameStateRecorder.FreeTechUnlockDetailKey),
+                    "1",
+                    StringComparison.Ordinal);
+        }
+
+        /// <summary>
         /// Preserves irreversible live-gameplay economy when a recording is DISCARDED on a
         /// NON-rewind path (which has no quicksave to roll KSP back). The player flew live,
         /// so KSP already applied these irreversibly; they must survive into the ledger or
@@ -6744,8 +6981,10 @@ namespace Parsek
         /// silent fund drop), or un-crediting collected science / achieved milestones.
         ///
         /// Re-homes the discarded recordings' tagged irreversible terminal events
-        /// (ContractCompleted/Failed/Cancelled, MilestoneAchieved, and a stock strategy
-        /// currency exchange's ScienceChanged(StrategyInput) debit) and their collected
+        /// (ContractCompleted/ParameterCompleted/Failed/Cancelled, MilestoneAchieved,
+        /// BuildingDestroyed, ScienceLabCredited, a stock strategy currency exchange's
+        /// ScienceChanged(StrategyInput) debit, and a free TechResearched unlock as a
+        /// zero-cost ScienceSpending row) and their collected
         /// science subjects into DIRECT ledger actions (recordingId cleared), so the ledger
         /// keeps what KSP applied while the discard still drops the ghost / trajectory. The
         /// contract / milestone reward (funds / rep / science) rides the re-homed action
@@ -6791,7 +7030,7 @@ namespace Parsek
             // 1. Tagged irreversible terminal events from the discarded recordings ->
             //    direct ledger actions (ConvertEvent with recordingId=null clears the tag).
             var rehomed = new List<GameAction>();
-            int contractEvents = 0, milestoneEvents = 0, strategyExchangeEvents = 0, buildingEvents = 0, labEvents = 0;
+            int contractEvents = 0, milestoneEvents = 0, strategyExchangeEvents = 0, buildingEvents = 0, labEvents = 0, freeTechEvents = 0;
             var storeEvents = GameStateStore.Events;
             for (int i = 0; i < storeEvents.Count; i++)
             {
@@ -6816,6 +7055,7 @@ namespace Parsek
                 else if (e.eventType == GameStateEventType.ScienceChanged) strategyExchangeEvents++;
                 else if (e.eventType == GameStateEventType.BuildingDestroyed) buildingEvents++;
                 else if (e.eventType == GameStateEventType.ScienceLabCredited) labEvents++;
+                else if (e.eventType == GameStateEventType.TechResearched) freeTechEvents++;
                 else contractEvents++;
             }
 
@@ -6881,6 +7121,7 @@ namespace Parsek
                 $"strategyExchange={strategyExchangeEvents.ToString(CultureInfo.InvariantCulture)}, " +
                 $"building={buildingEvents.ToString(CultureInfo.InvariantCulture)}, " +
                 $"lab={labEvents.ToString(CultureInfo.InvariantCulture)}, " +
+                $"freeTech={freeTechEvents.ToString(CultureInfo.InvariantCulture)}, " +
                 $"science={scienceSubjectCount.ToString(CultureInfo.InvariantCulture)}, " +
                 $"deduped={deduped.ToString(CultureInfo.InvariantCulture)}, " +
                 $"subjectsRemoved={subjectsRemoved.ToString(CultureInfo.InvariantCulture)}, " +
@@ -7901,7 +8142,8 @@ namespace Parsek
         /// <c>ProtoVessel.Clean</c>); a pass-through diagnostic for the log line.</param>
         /// <param name="vesselType">Recovered vessel type; debris without an immediate
         /// pair is not deferred because debris-only recoveries can lack a ledger-worthy
-        /// paired FundsChanged(VesselRecovery) event.</param>
+        /// paired FundsChanged(VesselRecovery) event, except inside stock's own recovery
+        /// dispatch for the vessel (the overload's <c>dispatchPersistentId</c>).</param>
         internal static void OnVesselRecoveryFunds(
             double ut,
             string vesselName,
@@ -7921,17 +8163,21 @@ namespace Parsek
             RecoveredVesselIdentity identity,
             bool quick,
             VesselType vesselType = VesselType.Unknown,
-            RecoveryPayoutContext payoutContext = null)
+            RecoveryPayoutContext payoutContext = null,
+            uint dispatchPersistentId = 0)
         {
             Initialize();
 
+            GetResourceTrackingAvailability(out bool fundsTracked, out _, out _);
             LedgerRecoveryFundsPairing.OnVesselRecoveryFunds(
                 ut,
                 identity,
                 quick,
                 vesselType,
                 payoutContext,
-                TryAddVesselRecoveryFundsAction);
+                fundsTracked,
+                TryAddVesselRecoveryFundsAction,
+                dispatchPersistentId);
         }
 
         private static bool TryAddVesselRecoveryFundsAction(
@@ -8936,11 +9182,22 @@ namespace Parsek
         internal static System.Func<double> NowUtProviderForTesting;
 
         /// <summary>
-        /// Returns the current universal time for affordability-helper UT cutoffs. Production
-        /// path reads <see cref="Planetarium.GetUniversalTime"/>; the test seam
-        /// <see cref="NowUtProviderForTesting"/> overrides when set.
+        /// Returns the current universal time for affordability-helper UT cutoffs: the
+        /// ledger's now (<see cref="LedgerHeldWindow.ResolveLedgerNowUT"/>) over
+        /// <see cref="GetRawClockUT"/>.
         /// </summary>
         private static double GetNowUT()
+        {
+            return LedgerHeldWindow.ResolveLedgerNowUT(GetRawClockUT());
+        }
+
+        /// <summary>
+        /// The raw game clock, for readers that pair it with game-state events captured at it
+        /// (the pending-recent-action helpers), never the ledger's held now. Production path
+        /// reads <see cref="Planetarium.GetUniversalTime"/>; the test seam
+        /// <see cref="NowUtProviderForTesting"/> overrides when set.
+        /// </summary>
+        private static double GetRawClockUT()
         {
             var provider = NowUtProviderForTesting;
             if (provider != null)
@@ -8994,7 +9251,7 @@ namespace Parsek
                         continue;
                     if (!string.IsNullOrEmpty(action.RecordingId))
                         continue;
-                    if (Math.Abs(action.UT - nowUt) > KscReconcileEpsilonSeconds)
+                    if (Math.Abs(LedgerHeldWindow.CaptureMomentUT(action) - nowUt) > KscReconcileEpsilonSeconds)
                         continue;
 
                     committedDebit += action.Cost;
@@ -9015,7 +9272,7 @@ namespace Parsek
             return ComputePendingRecentKscTechResearchScienceDebit(
                 GameStateStore.Events,
                 Ledger.Actions,
-                GetNowUT());
+                GetRawClockUT());
         }
 
         /// <summary>
@@ -9518,7 +9775,7 @@ namespace Parsek
                     var action = ledgerActions[i];
                     if (action == null)
                         continue;
-                    if (Math.Abs(action.UT - nowUt) > KscReconcileEpsilonSeconds)
+                    if (Math.Abs(LedgerHeldWindow.CaptureMomentUT(action) - nowUt) > KscReconcileEpsilonSeconds)
                         continue;
 
                     // Pool units: the observed side is a post-ScienceGainMultiplier
@@ -9566,7 +9823,7 @@ namespace Parsek
             return ComputePendingRecentKscScienceCredit(
                 GameStateStore.Events,
                 Ledger.Actions,
-                GetNowUT());
+                GetRawClockUT());
         }
 
         /// <summary>
@@ -9787,6 +10044,7 @@ namespace Parsek
             kerbalsModule = null;
             RecalculationEngine.ClearModules();
             Ledger.ResetForTesting();
+            LedgerHeldWindow.ResetForTesting();
             OnTimelineDataChanged = null;
             OnRecordingCommittedFaultInjector = null;
             OnRecordingCommittedPostSciencePersistFaultInjector = null;

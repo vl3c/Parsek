@@ -2,8 +2,8 @@
 low Mun space with an EVA report on each, then CS-6's departure and CS-5's return
 tail down to a splashdown.
 
-The scripted campaign's CS-6c ("a science run to the Mun"). CS-7's lander makes no
-power and nothing on the career's tech does, so this flight earns the science for
+The scripted campaign's CS-6c ("a science run to the Mun"). CS-7's planned lander
+needs power and nothing on the career's tech makes it, so this flight earns the science for
 Basic Science (the Z-100) and Electrics (the OX-STAT). It runs B5's pure machine
 VERBATIM with captureEnabled (B11's capture tail) to the end of its PARK dwell,
 drops the mid-mission CommitTree B11 would send there (the recovery commits the
@@ -18,8 +18,8 @@ every assertion is ``mlib.evaluate_msc_assertions``.
 
 WHY A NEW MISSION AND NOT A B11 PARAM: hlib.validate_spec allows one mission step
 per autopilot spec, and the science, the departure and the return half are not
-B5's machine. Composing leaves ``b5_decide``, ``mor_decide``, ``mlr_decide`` and
-``mfr_decide`` untouched, so every lane that flies them is byte-identical by
+B5's machine. Composing leaves ``b5_decide``, ``mor_decide`` and ``mfr_decide``
+untouched, so every lane that flies them is byte-identical by
 construction.
 
 THE CONTROL: CS-6's reads plus the science channels. read_docking=True is the PARK

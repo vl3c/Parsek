@@ -49,11 +49,14 @@ namespace Parsek
         }
 
         /// <summary>Pure: a row type a strategy leg can follow (a stock award with a
-        /// <see cref="ConversionCauseScope"/> around its payment).</summary>
+        /// <see cref="ConversionCauseScope"/> around its payment, or a gross purchase / repair
+        /// row whose discount the leg carries).</summary>
         internal static bool IsCauseType(GameActionType type)
         {
             switch (type)
             {
+                case GameActionType.FundsSpending:
+                case GameActionType.FacilityRepair:
                 case GameActionType.MilestoneAchievement:
                 case GameActionType.ContractComplete:
                 case GameActionType.ContractParameterComplete:
@@ -70,7 +73,10 @@ namespace Parsek
         /// <summary>
         /// Pure: the identity key of a cause row, the same text the capture scope names: the
         /// qualified milestone id, the contract guid (with the parameter path for a parameter),
-        /// the science subject id, or the surveyed body. Null for any other row.
+        /// the science subject id, the surveyed body, the purchased part or upgrade
+        /// (<see cref="PartPurchaseKey"/> / <see cref="PartUpgradeKey"/>) or the repaired
+        /// building. Null for any other row, a strategy leg's own <c>FundsSpending</c> among
+        /// them.
         /// </summary>
         internal static string KeyOf(GameAction row)
         {
@@ -78,6 +84,14 @@ namespace Parsek
                 return null;
             switch (row.Type)
             {
+                case GameActionType.FundsSpending:
+                    if (row.FundsSpendingSource == FundsSpendingSource.Other)
+                        return PartPurchaseKey(row.DedupKey);
+                    if (row.FundsSpendingSource == FundsSpendingSource.PartUpgrade)
+                        return PartUpgradeKey(row.DedupKey);
+                    return null;
+                case GameActionType.FacilityRepair:
+                    return Empty(row.FacilityId);
                 case GameActionType.MilestoneAchievement:
                     return Empty(row.MilestoneId);
                 case GameActionType.ContractComplete:
@@ -102,6 +116,21 @@ namespace Parsek
             if (string.IsNullOrEmpty(contractGuid) || string.IsNullOrEmpty(parameterId))
                 return null;
             return contractGuid + "/" + parameterId;
+        }
+
+        /// <summary>Pure: the cause key of the purchase of part <paramref name="partName"/>
+        /// (prefixed, so a part and an upgrade of one name never share a key); null when
+        /// empty.</summary>
+        internal static string PartPurchaseKey(string partName)
+        {
+            return string.IsNullOrEmpty(partName) ? null : "Part:" + partName;
+        }
+
+        /// <summary>Pure: the cause key of the purchase of part upgrade
+        /// <paramref name="upgradeName"/>; null when empty.</summary>
+        internal static string PartUpgradeKey(string upgradeName)
+        {
+            return string.IsNullOrEmpty(upgradeName) ? null : "PartUpgrade:" + upgradeName;
         }
 
         private static string Empty(string s)
@@ -337,6 +366,10 @@ namespace Parsek
                         : 0.0;
                 case GameActionType.ScienceLabEarning:
                     return pool == StockPool.Science ? cause.ScienceAwarded : 0.0;
+                case GameActionType.FundsSpending:
+                    return pool == StockPool.Funds ? cause.FundsSpent : 0.0;
+                case GameActionType.FacilityRepair:
+                    return pool == StockPool.Funds ? cause.FacilityCost : 0.0;
                 default:
                     return 0.0;
             }

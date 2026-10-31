@@ -64,8 +64,10 @@ namespace Parsek.Tests
                 "timeline-break gate: the rewind branch records its break before HandleRewindOnLoad "
                 + "and before it returns");
             string flat = Collapse(block);
-            Assert.Contains("StockShadowTakeBack.NoteLoad( LoadKind.PlainRewind, "
-                + "ResolvePlainRewindBreakUT(KerbalsModule.ReadLoadedSaveUT(), RewindContext.RewindSaveOwnClockUT), "
+            Assert.Contains("double rewindWorldUT = ResolvePlainRewindWorldUT( "
+                + "KerbalsModule.ReadLoadedSaveUT(), RewindContext.RewindSaveOwnClockUT, "
+                + "RewindContext.RewindSaveLedgerHeldThroughUT);", flat);
+            Assert.Contains("StockShadowTakeBack.NoteLoad( LoadKind.PlainRewind, rewindWorldUT, "
                 + "CaptureSequence.CurrentHighWater());", flat);
         }
 
@@ -83,8 +85,10 @@ namespace Parsek.Tests
             Assert.True(refined < inSession && inSession < quickloadDiscard,
                 "timeline-break gate: the in-session call follows ClassifyRefined and precedes "
                 + "the refined kind's consumers");
-            Assert.Contains("StockShadowTakeBack.NoteLoad( refinedLoadKind, KerbalsModule.ReadLoadedSaveUT(), "
+            Assert.Contains("StockShadowTakeBack.NoteLoad( refinedLoadKind, loadedWorldUT, "
                 + "CaptureSequence.CurrentHighWater());", Collapse(body.Substring(inSession)));
+            Assert.Contains("double loadedWorldUT = LedgerHeldWindow.ResolveLedgerNowUT(KerbalsModule.ReadLoadedSaveUT());",
+                Collapse(body.Substring(refined, inSession - refined)));
         }
 
         [Fact]
@@ -132,6 +136,18 @@ namespace Parsek.Tests
             Assert.Equal(50.0, ParsekScenario.ResolvePlainRewindBreakUT(50.0, 70.0));
             Assert.Equal(70.0, ParsekScenario.ResolvePlainRewindBreakUT(double.NaN, 70.0));
             Assert.True(double.IsNaN(ParsekScenario.ResolvePlainRewindBreakUT(double.NaN, double.NaN)));
+        }
+
+        [Fact]
+        public void ResolvePlainRewindWorldUT_IsTheRewindSavesWorld_WhenTheClockWasWoundBack()
+        {
+            // Wound back 15 s: the world is the save's own UT, raised to a carried floor.
+            Assert.Equal(115.0, ParsekScenario.ResolvePlainRewindWorldUT(100.0, 115.0, double.NaN));
+            Assert.Equal(120.0, ParsekScenario.ResolvePlainRewindWorldUT(100.0, 115.0, 120.0));
+            // No windback: the loaded clock, as before.
+            Assert.Equal(115.0, ParsekScenario.ResolvePlainRewindWorldUT(115.0, 115.0, double.NaN));
+            Assert.Equal(70.0, ParsekScenario.ResolvePlainRewindWorldUT(double.NaN, 70.0, double.NaN));
+            Assert.True(double.IsNaN(ParsekScenario.ResolvePlainRewindWorldUT(double.NaN, double.NaN, double.NaN)));
         }
 
         // ---- helpers ----

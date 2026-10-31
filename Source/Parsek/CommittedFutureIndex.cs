@@ -32,10 +32,10 @@ namespace Parsek
         ContractCancel,
         /// <summary><c>KerbalHire</c>. Key: kerbal name.</summary>
         KerbalHire,
-        /// <summary>A committed <c>CrewRemoved</c> milestone event. NOT a ledger row:
-        /// the converter drops <c>CrewRemoved</c>, so this kind comes from the narrow
-        /// milestone fallback in <see cref="CommittedFutureIndexCache"/>. Key: kerbal name.</summary>
-        KerbalRetire,
+        /// <summary><c>KerbalDismissal</c>: a Space Center firing on the timeline (design
+        /// section 9.12.1). Holds the kerbal's Dismiss button and his crew assignment until
+        /// its UT. Key: kerbal name.</summary>
+        KerbalDismissal,
         /// <summary><c>StrategyActivate</c>. Key: strategy id.</summary>
         StrategyActivate,
         /// <summary><c>StrategyDeactivate</c>. Key: strategy id.</summary>
@@ -72,8 +72,6 @@ namespace Parsek
         internal readonly float Amount;
         /// <summary>Contract rows: the recorded title, or null.</summary>
         internal readonly string Title;
-        /// <summary>True for a row read from the milestone fallback, not the ledger.</summary>
-        internal readonly bool FromMilestoneFallback;
         /// <summary>ContractAccept only: the accepted contract's absolute deadline UT, or NaN
         /// when the row carries none (open-ended).</summary>
         internal readonly double DeadlineUT;
@@ -126,7 +124,6 @@ namespace Parsek
             int facilityToLevel = 0,
             float amount = 0f,
             string title = null,
-            bool fromMilestoneFallback = false,
             double deadlineUT = double.NaN,
             bool autoAccept = false,
             string agentTitle = null,
@@ -146,7 +143,6 @@ namespace Parsek
             FacilityToLevel = facilityToLevel;
             Amount = amount;
             Title = string.IsNullOrEmpty(title) ? null : title;
-            FromMilestoneFallback = fromMilestoneFallback;
             DeadlineUT = deadlineUT;
             AutoAccept = autoAccept;
             AgentTitle = string.IsNullOrEmpty(agentTitle) ? null : agentTitle;
@@ -164,7 +160,7 @@ namespace Parsek
         {
             return new CommittedFutureEntry(
                 Kind, Key, UT, RecordingId, RecordingName, FacilityToLevel, Amount, Title,
-                FromMilestoneFallback, DeadlineUT, AutoAccept, agentTitle, DeadlineExpiry, FacilityDowngrade,
+                DeadlineUT, AutoAccept, agentTitle, DeadlineExpiry, FacilityDowngrade,
                 RequirementsLost, CaptureSequence, Sequence, StockContractId, GoalKey);
         }
     }
@@ -291,6 +287,10 @@ namespace Parsek
                     kind = CommittedFutureKind.KerbalHire;
                     key = action.KerbalName;
                     break;
+                case GameActionType.KerbalDismissal:
+                    kind = CommittedFutureKind.KerbalDismissal;
+                    key = action.KerbalName;
+                    break;
                 case GameActionType.StrategyActivate:
                     kind = CommittedFutureKind.StrategyActivate;
                     key = action.StrategyId;
@@ -330,8 +330,8 @@ namespace Parsek
         /// committed timeline (ERS membership in production). Null treats every tagged row
         /// as uncommitted.</param>
         /// <param name="recordingName">The display name of a recording, or null.</param>
-        /// <param name="fallbackEntries">Rows for kinds with no ledger representation
-        /// (<see cref="CommittedFutureKind.KerbalRetire"/>), already committed-filtered.</param>
+        /// <param name="fallbackEntries">Extra entries added as given (tests); production
+        /// passes null, every kind being ledger-backed.</param>
         /// <param name="isAutoAcceptContract">True when a contract guid is a stock
         /// auto-accept contract (production: its accept snapshot); null treats none as one.</param>
         /// <param name="contractAgentTitle">The agent title of a contract guid (production:
@@ -727,7 +727,7 @@ namespace Parsek
             var ic = CultureInfo.InvariantCulture;
             return string.Format(ic,
                 "tech={0} facility={1} accept={2} complete={3} fail={4} cancel={5} hire={6} " +
-                "retire={7} strategyOn={8} strategyOff={9} part={10} destroy={11} repair={12} " +
+                "dismiss={7} strategyOn={8} strategyOff={9} part={10} destroy={11} repair={12} " +
                 "rebuild={13} assignments={14} skippedUncommitted={15} upgrade={16}",
                 CountOf(CommittedFutureKind.TechResearch),
                 CountOf(CommittedFutureKind.FacilityUpgrade),
@@ -736,7 +736,7 @@ namespace Parsek
                 CountOf(CommittedFutureKind.ContractFail),
                 CountOf(CommittedFutureKind.ContractCancel),
                 CountOf(CommittedFutureKind.KerbalHire),
-                CountOf(CommittedFutureKind.KerbalRetire),
+                CountOf(CommittedFutureKind.KerbalDismissal),
                 CountOf(CommittedFutureKind.StrategyActivate),
                 CountOf(CommittedFutureKind.StrategyDeactivate),
                 CountOf(CommittedFutureKind.PartPurchase),
@@ -759,8 +759,7 @@ namespace Parsek
     /// and effective recording lists (<c>EffectiveState</c> replaces each list on every
     /// rebuild, which happens exactly when <c>Ledger.StateVersion</c>, the tombstone
     /// version, <c>RecordingStore.StateVersion</c>, the supersede version or the Re-Fly
-    /// marker change), plus a milestone fingerprint for the retire fallback,
-    /// <c>DisplayNames.Version</c> (entries bake a flight's display name, and a rename moves
+    /// marker change), plus <c>DisplayNames.Version</c> (entries bake a flight's display name, and a rename moves
     /// none of the other keys) and an explicit generation that <see cref="Invalidate"/> bumps. The stock overlay
     /// controller calls <see cref="Invalidate"/> from
     /// <c>LedgerOrchestrator.OnTimelineDataChanged</c>; the version keys make the cache
@@ -775,7 +774,6 @@ namespace Parsek
         private static CommittedFutureIndex cached;
         private static object cachedEls;
         private static object cachedErs;
-        private static long cachedMilestoneFingerprint = long.MinValue;
         private static int cachedGeneration = int.MinValue;
         private static int generation;
         // Entries bake a flight's display name (mission name, else vessel name).
@@ -795,14 +793,12 @@ namespace Parsek
             {
                 IReadOnlyList<GameAction> els = EffectiveState.ComputeELS();
                 IReadOnlyList<Recording> ers = EffectiveState.ComputeERS();
-                long fingerprint = MilestoneFingerprint();
                 int displayNamesVersion = DisplayNames.Version;
                 lock (syncRoot)
                 {
                     if (cached != null
                         && ReferenceEquals(cachedEls, els)
                         && ReferenceEquals(cachedErs, ers)
-                        && cachedMilestoneFingerprint == fingerprint
                         && cachedGeneration == generation
                         && cachedDisplayNamesVersion == displayNamesVersion)
                     {
@@ -820,14 +816,13 @@ namespace Parsek
                         els,
                         isCommitted,
                         ResolveRecordingDisplayName,
-                        CollectRetireFallbackEntries(isCommitted, ResolveRecordingDisplayName),
+                        null,
                         IsAutoAcceptContractSnapshot,
                         ContractAgentTitleFromSnapshot);
 
                     cached = index;
                     cachedEls = els;
                     cachedErs = ers;
-                    cachedMilestoneFingerprint = fingerprint;
                     cachedGeneration = generation;
                     cachedDisplayNamesVersion = displayNamesVersion;
                     RebuildCount++;
@@ -856,14 +851,18 @@ namespace Parsek
             ParsekLog.Verbose(Tag, "Invalidated committed-future index: reason=" + (reason ?? "(none)"));
         }
 
-        /// <summary>The UT every committed-future query compares against.</summary>
+        /// <summary>
+        /// The UT every committed-future query compares against: the clock, raised to the
+        /// ledger held-through UT while the clock is behind it (a Rewind-to-Launch lead window,
+        /// <see cref="LedgerHeldWindow"/>): rows the loaded world already holds are not future.
+        /// </summary>
         internal static double CurrentUT()
         {
             var provider = NowUtProviderForTesting;
-            if (provider != null) return provider();
+            if (provider != null) return LedgerHeldWindow.ResolveLedgerNowUT(provider());
             try
             {
-                return ReadPlanetariumUT();
+                return LedgerHeldWindow.ResolveLedgerNowUT(ReadPlanetariumUT());
             }
             catch (Exception ex)
             {
@@ -976,60 +975,6 @@ namespace Parsek
             return value != null && bool.TryParse(value.Trim(), out parsed) && parsed;
         }
 
-        /// <summary>
-        /// NARROW FALLBACK for <see cref="CommittedFutureKind.KerbalRetire"/> only.
-        /// A kerbal retirement (<c>CrewRemoved</c>) has no ledger representation: the event
-        /// converter drops it (<c>GameStateEventConverter.ConvertEvent</c>), so the only
-        /// committed record of it is the milestone event. This reads committed milestones'
-        /// <c>CrewRemoved</c> events whose recording is committed (or null) and returns them
-        /// as index entries. Unlike the old unreplayed slice it does NOT use
-        /// <c>LastReplayedEventIndex</c>: the index's UT comparison decides "future", so the
-        /// mark lifts as soon as the clock passes the retirement. Informational only; no
-        /// click-block reads this kind. Todo: STOCK-UI-RESERVATION-OVERLAYS-2026-09-25
-        /// (retirement has no ledger row).
-        /// </summary>
-        internal static List<CommittedFutureEntry> CollectRetireFallbackEntries(
-            Func<string, bool> isCommittedRecording, Func<string, string> recordingName)
-        {
-            var result = new List<CommittedFutureEntry>();
-            var milestones = MilestoneStore.Milestones;
-            for (int i = 0; i < milestones.Count; i++)
-            {
-                var m = milestones[i];
-                if (m == null || !m.Committed || m.Events == null) continue;
-                for (int j = 0; j < m.Events.Count; j++)
-                {
-                    GameStateEvent ev = m.Events[j];
-                    if (ev.eventType != GameStateEventType.CrewRemoved || string.IsNullOrEmpty(ev.key))
-                        continue;
-                    string rid = !string.IsNullOrEmpty(ev.recordingId) ? ev.recordingId : m.RecordingId;
-                    if (!string.IsNullOrEmpty(rid)
-                        && (isCommittedRecording == null || !isCommittedRecording(rid)))
-                        continue;
-                    string name = !string.IsNullOrEmpty(rid) && recordingName != null ? recordingName(rid) : null;
-                    result.Add(new CommittedFutureEntry(
-                        CommittedFutureKind.KerbalRetire, ev.key, ev.ut, rid, name,
-                        fromMilestoneFallback: true));
-                }
-            }
-            return result;
-        }
-
-        private static long MilestoneFingerprint()
-        {
-            var milestones = MilestoneStore.Milestones;
-            long events = 0;
-            long committed = 0;
-            for (int i = 0; i < milestones.Count; i++)
-            {
-                var m = milestones[i];
-                if (m == null) continue;
-                if (m.Committed) committed++;
-                if (m.Events != null) events += m.Events.Count;
-            }
-            return (milestones.Count * 1000003L) ^ (events * 7919L) ^ (committed * 31L);
-        }
-
         internal static void ResetForTesting()
         {
             lock (syncRoot)
@@ -1037,7 +982,6 @@ namespace Parsek
                 cached = null;
                 cachedEls = null;
                 cachedErs = null;
-                cachedMilestoneFingerprint = long.MinValue;
                 cachedGeneration = int.MinValue;
                 generation = 0;
                 RebuildCount = 0;

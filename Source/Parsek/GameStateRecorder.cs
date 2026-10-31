@@ -504,6 +504,8 @@ namespace Parsek
             IsReplayingActions = false;
             BypassEntryPurchaseAfterResearchProviderForTesting = null;
             ScienceGainMultiplierProviderForTesting = null;
+            FundsChangedUtProviderForTesting = null;
+            RecoveryPayoutScope.ResetForTesting();
         }
 
         /// <summary>
@@ -697,6 +699,8 @@ namespace Parsek
 
             // Tech
             GameEvents.OnTechnologyResearched.Add(OnTechResearched);
+            // A free unlock (anomaly tech gift, debug menu) fires no OnTechnologyResearched.
+            Patches.FreeTechUnlockCapturePatch.FreeUnlockCaptured += OnFreeTechUnlocked;
             GameEvents.OnPartPurchased.Add(OnPartPurchased);
             GameEvents.OnPartUpgradePurchased.Add(OnPartUpgradePurchased);
 
@@ -706,6 +710,10 @@ namespace Parsek
             // four starter kerbals at new-career creation, triggering spurious
             // KerbalHire debits that wiped starting funds.
             GameEvents.OnCrewmemberHired.Add(OnCrewmemberHired);
+            // A dismissal (KerbalRoster.SackAvailable, the Astronaut Complex's dismiss
+            // button) makes the kerbal an applicant and then fires OnCrewmemberSacked; it never
+            // reaches onKerbalRemoved (decompiled KSP 1.12.5, design section 9.12.1).
+            GameEvents.OnCrewmemberSacked.Add(OnCrewmemberSacked);
             GameEvents.onKerbalRemoved.Add(OnKerbalRemoved);
             GameEvents.onKerbalStatusChange.Add(OnKerbalStatusChange);
             GameEvents.onKerbalTypeChange.Add(OnKerbalTypeChange);
@@ -777,11 +785,13 @@ namespace Parsek
 
             // Tech
             GameEvents.OnTechnologyResearched.Remove(OnTechResearched);
+            Patches.FreeTechUnlockCapturePatch.FreeUnlockCaptured -= OnFreeTechUnlocked;
             GameEvents.OnPartPurchased.Remove(OnPartPurchased);
             GameEvents.OnPartUpgradePurchased.Remove(OnPartUpgradePurchased);
 
             // Crew
             GameEvents.OnCrewmemberHired.Remove(OnCrewmemberHired);
+            GameEvents.OnCrewmemberSacked.Remove(OnCrewmemberSacked);
             GameEvents.onKerbalRemoved.Remove(OnKerbalRemoved);
             GameEvents.onKerbalStatusChange.Remove(OnKerbalStatusChange);
             GameEvents.onKerbalTypeChange.Remove(OnKerbalTypeChange);
@@ -920,17 +930,37 @@ namespace Parsek
             }
             if (double.IsNaN(oldFunds)) return;
             double delta = newFunds - oldFunds;
-            if (Math.Abs(delta) < FundsThreshold)
+            RecoveryPayoutScope.FundsEventSource source = RecoveryPayoutScope.Current;
+            if (IsFundsDeltaBelowThreshold(delta, reason, source))
             {
                 ParsekLog.VerboseRateLimited("GameStateRecorder", "funds-threshold",
-                    $"Ignored FundsChanged delta={delta:+0.0;-0.0} below threshold={FundsThreshold:F1}", 5.0);
+                    $"Ignored FundsChanged delta={delta:+0.0;-0.0} below threshold={FundsThreshold:F1} ({reason}, {source})", 5.0);
                 return;
             }
+            if (Math.Abs(delta) < FundsThreshold)
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"FundsChanged delta={delta.ToString("+0.###;-0.###", CultureInfo.InvariantCulture)} ({reason}) " +
+                    $"below threshold={FundsThreshold.ToString("F1", CultureInfo.InvariantCulture)} recorded anyway: " +
+                    "stock's recovery payout is paired exactly");
 
-            double ut = Planetarium.GetUniversalTime();
+            double ut = ReadFundsChangedUT();
             string detail = null;
             if (reason == TransactionReasons.VesselRecovery)
-                detail = BuildVesselRecoveryFundsDetail(ut, delta);
+            {
+                if (source == RecoveryPayoutScope.FundsEventSource.StrategyEffect)
+                {
+                    // A strategy's yield under the recovery reason (its leg is the row): stamped
+                    // so no recovery pairing takes it, and it claims no payout context.
+                    detail = RecoveryPayoutContextStore.NotPayoutFundsEventDetail;
+                    ParsekLog.Verbose("GameStateRecorder",
+                        $"FundsChanged {delta.ToString("+0.###;-0.###", CultureInfo.InvariantCulture)} (VesselRecovery) " +
+                        "is a strategy effect, not the recovery payout - stamped so no recovery pairing takes it");
+                }
+                else
+                {
+                    detail = BuildVesselRecoveryFundsDetail(ut, delta);
+                }
+            }
 
             var fundsEvt = new GameStateEvent
             {
@@ -982,6 +1012,41 @@ namespace Parsek
             if (reason == TransactionReasons.StrategyOutput &&
                 ShouldForwardDirectLedgerEvent(fundsEvt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(fundsEvt);
+        }
+
+        /// <summary>
+        /// Pure threshold decision for <see cref="OnFundsChanged"/>: true when the change is
+        /// dropped as noise. Stock's own recovery payout (a positive <c>VesselRecovery</c>
+        /// change inside <c>Funding.onVesselRecoveryProcessing</c>,
+        /// <see cref="RecoveryPayoutScope.FundsEventSource.Payout"/>) is never dropped, whatever
+        /// its size (SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY): it is the only source the recovery
+        /// pairing builds its <c>FundsEarning(Recovery)</c> row from, and a gain with no row
+        /// survives only as an untagged pool adjustment on a measured patch, while an
+        /// authoritative patch (a Re-Fly session, a rewind, a merge) writes the pool back to
+        /// the ledger target and erases it. Everything else keeps the
+        /// <see cref="FundsThreshold"/> floor, including a strategy yield under the same reason
+        /// (its own leg is its row) and an unscoped change.
+        /// </summary>
+        internal static bool IsFundsDeltaBelowThreshold(
+            double delta, TransactionReasons reason, RecoveryPayoutScope.FundsEventSource source)
+        {
+            if (reason == TransactionReasons.VesselRecovery
+                && source == RecoveryPayoutScope.FundsEventSource.Payout
+                && delta > 0.0)
+                return false;
+            return Math.Abs(delta) < FundsThreshold;
+        }
+
+        /// <summary>
+        /// Test-only UT source for <see cref="OnFundsChanged"/> (Planetarium is absent in the
+        /// xUnit host). Null in production. Cleared by <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static Func<double> FundsChangedUtProviderForTesting;
+
+        private static double ReadFundsChangedUT()
+        {
+            var provider = FundsChangedUtProviderForTesting;
+            return provider != null ? provider() : Planetarium.GetUniversalTime();
         }
 
         internal static string BuildVesselRecoveryFundsDetail(double ut)
@@ -1096,7 +1161,10 @@ namespace Parsek
             // attribution (it stays credited, untagged). Recorded as a residual on the
             // STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md.
             // The far more common ZERO-delta echo no longer does this - see
-            // STRATEGY-ECHO-CAPTURE-WIPE and the reordered block above.
+            // STRATEGY-ECHO-CAPTURE-WIPE and the reordered block above. Inside an open
+            // recovery scope for the source vessel, CaptureScienceSubject takes the reason
+            // from the scope instead (ResolveRecoveryScopeScienceReasonKey), so the residual
+            // is left only for a recovery no scope covers.
             if (reason == TransactionReasons.StrategyInput &&
                 ShouldForwardDirectLedgerEvent(sciEvt.recordingId, HasClaimingLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(sciEvt);
@@ -1292,6 +1360,9 @@ namespace Parsek
             // right now, when a scope names one for this reason; otherwise no cause, and the
             // legs stay as captured.
             string conversionCause = ResolveConversionCause(snapshot);
+            // A facility repair pays for every destroyed building in one debit: each building's
+            // repair row is the cause of its share of the legs.
+            legs = StrategyConversionCapture.SplitRepairLegs(legs, snapshot, FacilityRepairCapture.ActiveCostShares);
             LedgerOrchestrator.OnStrategyCurrencyConversion(ut, legs, snapshot.Reason, conversionCause);
         }
 
@@ -1369,6 +1440,28 @@ namespace Parsek
             if (delta > 0.0)
                 return current;
             return default(RecentScienceChangeCapture);
+        }
+
+        /// <summary>
+        /// The reason key a science subject callback takes from an open
+        /// <see cref="RecoveryDispatchScope"/> when it matched no ScienceChanged capture, or
+        /// null to leave it empty (RECOVERY-RECONCILE-ERROR-ON-TWO-SCIENCE-CREDITS). Stock
+        /// submits a recovered vessel's science, its reverse-engineered <c>recovery@</c>
+        /// subjects included, inside that vessel's <c>onVesselRecovered</c> dispatch with the
+        /// vessel as the source, so a callback naming the scope's own vessel is a recovery
+        /// submission. A callback with no source vessel, or naming another vessel, decides
+        /// nothing. The key only says HOW stock paid: the credited amount and the subject cap
+        /// do not read it. Pure.
+        /// </summary>
+        internal static string ResolveRecoveryScopeScienceReasonKey(
+            bool scopeOpen,
+            uint scopePersistentId,
+            uint sourceVesselPersistentId)
+        {
+            if (!scopeOpen) return null;
+            if (scopePersistentId == 0u || sourceVesselPersistentId == 0u) return null;
+            if (scopePersistentId != sourceVesselPersistentId) return null;
+            return LedgerOrchestrator.VesselRecoveryReasonKey;
         }
 
         internal static bool ShouldUseRecentScienceChangeCapture(
@@ -1577,6 +1670,38 @@ namespace Parsek
                     ParsekLog.Verbose("GameStateRecorder",
                         $"OnScienceReceived: deployed-experiment subject '{subjectId}' had no ScienceChanged " +
                         $"capture left to match; reason taken from the open ground-station submission ('{reasonKey}')");
+                }
+            }
+
+            // RECOVERY-RECONCILE-ERROR-ON-TWO-SCIENCE-CREDITS: a query-family strategy
+            // (Patents Licensing) takes its share inside stock's AddScience, so the
+            // ScienceChanged(VesselRecovery) capture carries the NET credit while this
+            // callback reports the GROSS amount, and the amount match above fails. Inside
+            // the recovery dispatch of THIS vessel every OnScienceReceived is a recovery
+            // submission, so the reason is the recovery's, exactly as it is when the match
+            // succeeds. Without it the row read as a transmission.
+            if (!matchedScienceChange && !deployedScience && string.IsNullOrEmpty(reasonKey))
+            {
+                string scopedReason = ResolveRecoveryScopeScienceReasonKey(
+                    RecoveryDispatchScope.IsOpen,
+                    RecoveryDispatchScope.CurrentPersistentId,
+                    vesselPersistentId);
+                if (scopedReason != null)
+                {
+                    reasonKey = scopedReason;
+                    ParsekLog.Verbose("GameStateRecorder",
+                        $"OnScienceReceived: subject '{subjectId}' amount={amount.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"matched no ScienceChanged capture (latest key='{latestScienceChangeCapture.ReasonKey ?? ""}' " +
+                        $"delta={latestScienceChangeCapture.Delta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"valid={latestScienceChangeCapture.Valid}); reason '{reasonKey}' taken from the open " +
+                        $"recovery scope pid={vesselPersistentId.ToString(CultureInfo.InvariantCulture)}");
+                }
+                else if (RecoveryDispatchScope.IsOpen)
+                {
+                    ParsekLog.Verbose("GameStateRecorder",
+                        $"OnScienceReceived: subject '{subjectId}' matched no ScienceChanged capture inside a " +
+                        $"recovery scope of another vessel (scopePid={RecoveryDispatchScope.CurrentPersistentId.ToString(CultureInfo.InvariantCulture)} " +
+                        $"sourcePid={vesselPersistentId.ToString(CultureInfo.InvariantCulture)}) - reason left empty");
                 }
             }
 

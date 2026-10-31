@@ -41,6 +41,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveHireTarget_ApplicantFirst_PicksTheFirstName_OrRefusesAnEmptyPool()
+        {
+            string resolved;
+            // A plain name passes through for the ordinary gates.
+            Assert.Null(TestCommandKscAction.ResolveHireTarget("Verhat Kerman", new[] { "Bob Kerman" }, out resolved));
+            Assert.Equal("Verhat Kerman", resolved);
+            Assert.Null(TestCommandKscAction.ResolveHireTarget(null, new string[0], out resolved));
+            Assert.Null(resolved);
+
+            // applicant-first (any case) takes the first non-empty name in roster order.
+            Assert.Null(TestCommandKscAction.ResolveHireTarget("applicant-first",
+                new[] { null, "", "Lodbert Kerman", "Gerdun Kerman" }, out resolved));
+            Assert.Equal("Lodbert Kerman", resolved);
+            Assert.Null(TestCommandKscAction.ResolveHireTarget(" Applicant-First ",
+                new[] { "Gerdun Kerman" }, out resolved));
+            Assert.Equal("Gerdun Kerman", resolved);
+
+            // An empty pool refuses before any gate runs.
+            Assert.Equal("no-applicant", TestCommandKscAction.ResolveHireTarget("applicant-first",
+                new string[0], out resolved));
+            Assert.Null(resolved);
+            Assert.Equal("no-applicant", TestCommandKscAction.ResolveHireTarget("applicant-first",
+                null, out resolved));
+            Assert.Equal("applicant-first", TestCommandKscAction.FirstApplicantArg);
+        }
+
+        [Fact]
+        public void Decide_GiftTech_RefusalsAndAccept()
+        {
+            Assert.Equal(KscActionKind.GiftTech, TestCommandKscAction.ParseKind("gift-tech"));
+            Assert.Equal("missing-arg", TestCommandKscAction.Decide("gift-tech", null,
+                new KscActionInputs { ArgPresent = false }).RejectReason);
+            Assert.Equal("unknown-tech-node", TestCommandKscAction.Decide("gift-tech", "x",
+                new KscActionInputs { ArgPresent = true, TargetResolves = false }).RejectReason);
+            Assert.Equal("node-already-unlocked", TestCommandKscAction.Decide("gift-tech", "x",
+                new KscActionInputs { ArgPresent = true, TargetResolves = true, AlreadyApplied = true }).RejectReason);
+            // A gift is free: a node costing more science than the pool holds is still accepted.
+            var ok = TestCommandKscAction.Decide("gift-tech", "x",
+                new KscActionInputs { ArgPresent = true, TargetResolves = true, CostAmount = 90, AvailableAmount = 0 });
+            Assert.True(ok.Accepted);
+            Assert.Equal("tech-unlock", ok.ManifestKind);
+        }
+
+        [Fact]
         public void Decide_Demolish_RefusalsAndAccept()
         {
             Assert.Equal("unknown-building", TestCommandKscAction.Decide("demolish-building", "x",
