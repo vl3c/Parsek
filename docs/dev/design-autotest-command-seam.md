@@ -4810,7 +4810,9 @@ state-mutating for the FlushAndQuit save. Pure half `TestCommandPartAction`, app
 outside a Re-Fly, and the only other caller of `FlightDriver.RevertToLaunch` is the isolated
 in-game `RevertFlow` cell, which restores its batch baseline afterwards.
 
-**Grammar.** `cmd=RevertToLaunch`, no args, issued in FLIGHT.
+**Grammar.** `cmd=RevertToLaunch [target=launch|prelaunch]`, issued in FLIGHT. `target` is
+optional and defaults to `launch`; any other value refuses `reverttolaunch-target-arg-invalid`
+(deterministic, arg-class).
 
 **Behavior.** Refuses a live Re-Fly marker (`reverttolaunch-refly-session`: the prefix would
 answer with Parsek's Re-Fly dialog, which is `ReFlyRevert`'s job) and a flight stock offers no
@@ -4831,6 +4833,21 @@ ERRORs: `reverttolaunch-threw`, `revert-failed-returned-to-menu`, `revert-timeou
 reasons are gate-class. World-mutating tail role, `recording` post-mission role. Pure half
 `TestCommandRevertToLaunch`, applier `ParsekTestCommandAddon.RevertToLaunch.cs`, mirrored by
 `RevertToLaunchSourceSyncTests`. Lane: `VN-5-stock-revert-cancels-rename`.
+
+**`target=prelaunch` (Revert to VAB / SPH).** Added 2026-10-31 for the test-gap audit's B5.
+Calls `FlightDriver.RevertToPrelaunch(ShipConstruction.ShipType)`, the Esc menu option's
+callback: stock writes its `PreLaunchState` to persistent.sfs, fires
+`OnRevertToPrelaunchFlightState` and starts the editor, whose `EditorDriver.Start` reloads that
+file. Gate, in order: a live Re-Fly marker (`reverttolaunch-refly-session`), then the four
+conditions `PauseMenu.drawStockRevertOptions` offers the option under, `CanLeaveToEditor`,
+`FlightDriver.CanRevertToPrelaunch`, a ship config and a VAB / SPH ship type
+(`reverttolaunch-prelaunch-unavailable`, gate-class: only a flight launched from the editor has
+it). Start line `reverttolaunch start target=prelaunch pid= ... facility=<VAB|SPH>`. It
+completes in EDITOR once the editor is up and settled for `TestCommandEditorRoute.MinSettleFrames`
+frames and the revert's OnLoad consumed `RevertDetector.PendingKind` (so the revert branch ran):
+line `reverttolaunch complete target=prelaunch facility= ship='..' elapsed=`, payload `scene
+facility ship`. MAINMENU and the budget end it with the same ERRORs as the launch target. Lane:
+`REV-1-revert-to-vab-in-rewound-timeline`.
 
 #### DriveVessel (additive; D4 `hysteresis`, a rover that moves on the surface)
 
@@ -5065,8 +5082,21 @@ of `SCIENCE_SANDBOX`, `CAREER`, `SANDBOX` and `preset` one of `Easy`, `Normal`, 
 the other modes are refused). `save` is required and must equal the loaded save folder, so the verb
 can only replace the run's own save; the pre-launch validator accepts `${runSave}` or the literal
 run save name and nothing else, and rejects any other key. NewGame's `mode` shares a key name with
-`UiAction`'s closed `mode` row; hlib's closed-args loop exempts NewGame's own three keys and
+`UiAction`'s closed `mode` row; hlib's closed-args loop exempts NewGame's own keys and
 `validate_new_game_step` owns them.
+
+**`as=` (the main-menu save switch, added 2026-10-31 for the test-gap audit's B4).** Optional
+`as=<folder>`: the new game is created in that folder instead, after the same quit to the main
+menu, so the loaded save (`save=`, still required and still the loaded folder) is persisted by the
+quit and left as it is: stock's New Game under a different name. The folder is overwritten the way
+stock's New Game overwrite does (the same delete, `Ships/` kept). The executor refuses
+`newgame-as-arg-invalid` (arg-class) for an unsafe name or the loaded save's own name; the
+validator holds `as` to `<runSaveName>-<suffix>` with a `[A-Za-z0-9_]` suffix, so a lane can only
+ever overwrite a folder named after its own run save, and run.py's staging reaps that folder's
+pre-Parsek backup sibling, should one be written, with the run save's own
+(`hlib.is_run_save_backup_entry`). The start line gains ` as=<folder>` before ` scene=`; the
+create, completion and payload name the new folder. The way back is `LoadGame save=${runSave}`.
+Lane: `SWS-1-save-switch-through-main-menu`.
 
 **Behavior.** Dispatch is `RequiresGameLoaded` and rejects `load-in-flight`. The executor refuses
 (REJECTED, no side effect) in this order: the arg reasons `newgame-mode-arg-missing`,

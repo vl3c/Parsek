@@ -325,6 +325,54 @@ namespace Parsek.Tests
                 TestCommandNewGame.FormatCreateLine(NewGameMode.Career, NewGamePreset.Hard, "camp", "f", 0, 1, false));
         }
 
+        // ----- as= (the main-menu save switch) -----
+
+        [Fact]
+        public void ParseAs_AbsentCreatesInTheLoadedSave()
+        {
+            Assert.Null(TestCommandNewGame.ParseAs(null, "camp", out string target));
+            Assert.Equal("camp", target);
+        }
+
+        [Fact]
+        public void ParseAs_AnotherFolderIsTheTarget()
+        {
+            Assert.Null(TestCommandNewGame.ParseAs("camp-b", "camp", out string target));
+            Assert.Equal("camp-b", target);
+        }
+
+        [Theory]
+        [InlineData("camp")]
+        [InlineData("CAMP")]
+        [InlineData("")]
+        [InlineData(" ")]
+        [InlineData("../other")]
+        [InlineData("a/b")]
+        [InlineData("#autoLOC_1")]
+        public void ParseAs_TheLoadedSaveOrAnUnsafeNameRefuses(string raw)
+        {
+            Assert.Equal("newgame-as-arg-invalid", TestCommandNewGame.ParseAs(raw, "camp", out string target));
+            Assert.Equal("camp", target);
+        }
+
+        [Fact]
+        public void StartLine_NamesTheOtherFolderOnlyForASaveSwitch()
+        {
+            Assert.StartsWith("newgame start mode=SANDBOX preset=Normal save=camp as=camp-b scene=SPACECENTER",
+                TestCommandNewGame.FormatStartLine(NewGameMode.Sandbox, NewGamePreset.Normal, "camp",
+                    "SPACECENTER", "camp-b"));
+            Assert.DoesNotContain(" as=",
+                TestCommandNewGame.FormatStartLine(NewGameMode.Sandbox, NewGamePreset.Normal, "camp",
+                    "SPACECENTER"));
+        }
+
+        [Fact]
+        public void AsRefusalIsInTheRejectedVocabulary()
+        {
+            Assert.Contains(TestCommandNewGame.AsArgInvalidReason, TestCommandNewGame.Reasons);
+            Assert.Equal("as", TestCommandNewGame.AsArg);
+        }
+
         // ----- Dispatch -----
 
         [Fact]
