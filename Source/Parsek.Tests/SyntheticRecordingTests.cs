@@ -7448,6 +7448,88 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Injects ONLY <see cref="StandaloneLoopMapFixture"/> (the <c>standalone-loop-map</c>
+        /// preset behind <c>SLM-1-standalone-loop-map-position</c>): one committed
+        /// single-recording tree whose orbital recording loops on its OWN toggle with a period
+        /// longer than its duration, no RewindPoint sidecar. Same env contract and guarded
+        /// purge as every sibling injector. The recording is timed off <c>pad-runway-pair</c>'s
+        /// clock, so a target save at any other UT is refused rather than injected with a loop
+        /// whose cycles land where the lane never looks.
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [InjectTargetFact("standalone-loop-map-fixture")]
+        public void InjectStandaloneLoopMap()
+        {
+            string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
+                ?? "standalone-loop-map-fixture";
+            string targetSave = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_TARGET_SAVE")
+                ?? "1.sfs";
+            string kspRoot = ResolveKspRoot();
+            string cleanEnv = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_CLEAN_START");
+            bool cleanStart = cleanEnv == null || IsTruthy(cleanEnv);
+
+            string saveDir = Path.Combine(kspRoot, "saves", saveName);
+            string[] targets = { "persistent.sfs", targetSave };
+
+            string targetPath = Path.Combine(saveDir, targetSave);
+            Assert.True(File.Exists(targetPath),
+                "target save vanished after discovery: " + targetPath);
+
+            double saveUT = ReadUTFromSave(targetPath);
+            Assert.True(Math.Abs(saveUT - StandaloneLoopMapFixture.HostSaveUT) < 1e-3,
+                "standalone-loop-map is authored against pad-runway-pair (UT="
+                + StandaloneLoopMapFixture.HostSaveUT.ToString("R", CultureInfo.InvariantCulture)
+                + "); target save UT is "
+                + saveUT.ToString("R", CultureInfo.InvariantCulture));
+
+            var purgeWriter = new ScenarioWriter();
+            if (!purgeWriter.TryPurgeRecordingSidecarsForInject(
+                    cleanStart ? saveDir : null,
+                    Path.Combine(kspRoot, "KSP.log"),
+                    out string refusalMessage))
+                throw new Xunit.Sdk.SkipException(refusalMessage);
+
+            if (cleanStart)
+            {
+                foreach (string file in targets)
+                {
+                    string sp = Path.Combine(saveDir, file);
+                    if (File.Exists(sp))
+                        CleanSaveStart(sp);
+                }
+            }
+
+            var writer = new ScenarioWriter().WithV3Format();
+            StandaloneLoopMapFixture.PopulateWriter(writer, saveUT);
+
+            foreach (string file in targets)
+            {
+                string savePath = Path.Combine(saveDir, file);
+                if (!File.Exists(savePath))
+                    continue;
+
+                string tempPath = savePath + ".tmp";
+                try
+                {
+                    writer.InjectIntoSaveFile(savePath, tempPath);
+
+                    string content = File.ReadAllText(tempPath);
+                    Assert.Contains("name = ParsekScenario", content);
+                    Assert.Contains("vesselName = " + StandaloneLoopMapFixture.VesselName, content);
+                    Assert.Contains(StandaloneLoopMapFixture.RecordingId, content);
+                    Assert.Contains("loopPlayback = True", content);
+
+                    File.Copy(tempPath, savePath, overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
+            }
+        }
+
+        /// <summary>
         /// Injects the REWIND-READBACK fixture (<see cref="RewindReadbackFixture"/>, the
         /// <c>rewind-readback</c> preset behind <c>RB-1-rewind-readback-divergence</c> and
         /// <c>RB-2-rewind-readback-within-range</c>): a crewless two-slot rewindable tree

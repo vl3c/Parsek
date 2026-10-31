@@ -29,16 +29,23 @@ namespace Parsek
         /// ruling 2026-09-24). Logs once per change of the published view (an anchor crossing, a
         /// rewind back before one, or a rebuild), never per frame: the view is memoized, so an
         /// unchanged frame returns the same reference as <paramref name="previousLive"/>.
+        /// <paramref name="standaloneLoopSource"/> (the committed list; null = off) makes the published
+        /// set's map / Tracking Station sample seam also replay the scene's Recordings-tab loops on their
+        /// own loop clock (<see cref="GhostPlaybackLogic.LoopUnitSet.WithStandaloneLoopSource"/>); the
+        /// flight and Tracking Station drivers pass it, KSC (no map) does not.
         /// </summary>
         internal static GhostPlaybackLogic.LoopUnitSet ResolveLiveUnits(
             string scene,
             GhostPlaybackLogic.LoopUnitSet built,
             GhostPlaybackLogic.LoopUnitSet previousLive,
-            double currentUT)
+            double currentUT,
+            IReadOnlyList<IPlaybackTrajectory> standaloneLoopSource = null)
         {
             if (built == null)
                 built = GhostPlaybackLogic.LoopUnitSet.Empty;
             GhostPlaybackLogic.LoopUnitSet live = built.LiveAt(currentUT);
+            if (standaloneLoopSource != null)
+                live = live.WithStandaloneLoopSource(standaloneLoopSource);
             if (ReferenceEquals(live, previousLive) || built.Count == 0)
                 return live;
 

@@ -314,6 +314,17 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # No RP. Consumer:
                                         # OC-1-overlap-cap-per-recording.
                                         "overlap-cap",
+                                        # standalone-loop-map: ONE committed
+                                        # single-recording tree on
+                                        # pad-runway-pair, a 1500 s ghost-only
+                                        # circular Kerbin orbit at 100 km
+                                        # looping on its OWN toggle every
+                                        # 4000 s (never overlapping itself).
+                                        # `--filter InjectStandaloneLoopMap`;
+                                        # the injector refuses a target save
+                                        # at another UT. No RP. Consumer:
+                                        # SLM-1-standalone-loop-map-position.
+                                        "standalone-loop-map",
                                         # rewind-readback: a crewless two-slot
                                         # rewindable tree (both slots
                                         # Destroyed, slot 1 an open Unfinished
@@ -4108,20 +4119,34 @@ def _validate_part_action_snapshot_args(index: int, step_args: Dict, act) -> Lis
 
 
 # RevertToLaunch: mirrored from TestCommands/TestCommandRevertToLaunch.cs
-# (RevertToLaunchSourceSyncTests). No args.
+# (RevertToLaunchSourceSyncTests). One optional closed arg: `target=launch|prelaunch`
+# (absent = launch; prelaunch = Esc > Revert to VAB / SPH, landing in EDITOR).
 REVERTTOLAUNCH_VERB = "RevertToLaunch"
+REVERTTOLAUNCH_TARGET_KEY = "target"
+REVERTTOLAUNCH_TARGET_VALUES: Tuple[str, ...] = ("launch", "prelaunch")
 REVERTTOLAUNCH_REASONS: Tuple[str, ...] = (
-    "reverttolaunch-refly-session", "reverttolaunch-unavailable",
+    "reverttolaunch-target-arg-invalid", "reverttolaunch-refly-session",
+    "reverttolaunch-unavailable", "reverttolaunch-prelaunch-unavailable",
 )
 
 
 def validate_revert_to_launch_step(index: int, step_args: Dict) -> List[str]:
-    """Pre-launch shape check for one ``RevertToLaunch`` step: the verb takes no args, so
-    any arg would be sent and silently ignored."""
-    if not step_args:
-        return []
-    return ["driver.steps[%d].args: %s takes no args, so %s would be silently ignored"
-            % (index, REVERTTOLAUNCH_VERB, ", ".join(sorted(str(k) for k in step_args)))]
+    """Pre-launch shape check for one ``RevertToLaunch`` step: the verb takes only the
+    optional ``target=launch|prelaunch``; any other arg would be sent and silently ignored,
+    and another target value is refused ``reverttolaunch-target-arg-invalid``."""
+    errors: List[str] = []
+    extra = sorted(str(k) for k in (step_args or {}) if k != REVERTTOLAUNCH_TARGET_KEY)
+    if extra:
+        errors.append("driver.steps[%d].args: %s takes only %s=, so %s would be silently ignored"
+                      % (index, REVERTTOLAUNCH_VERB, REVERTTOLAUNCH_TARGET_KEY, ", ".join(extra)))
+    if step_args and REVERTTOLAUNCH_TARGET_KEY in step_args:
+        value = step_args[REVERTTOLAUNCH_TARGET_KEY]
+        if value not in REVERTTOLAUNCH_TARGET_VALUES:
+            errors.append("driver.steps[%d].args.%s: %r is not one of %s; the seam answers "
+                          "REJECTED reverttolaunch-target-arg-invalid"
+                          % (index, REVERTTOLAUNCH_TARGET_KEY, value,
+                             "|".join(REVERTTOLAUNCH_TARGET_VALUES)))
+    return errors
 
 
 # DriveVessel: mirrored from TestCommands/TestCommandDriveVessel.cs
@@ -4394,7 +4419,14 @@ NEWGAME_VERB = "NewGame"
 NEWGAME_MODE_KEY = "mode"
 NEWGAME_PRESET_KEY = "preset"
 NEWGAME_SAVE_KEY = "save"
-NEWGAME_ARG_KEYS: Tuple[str, ...] = (NEWGAME_MODE_KEY, NEWGAME_PRESET_KEY, NEWGAME_SAVE_KEY)
+# Optional `as=`: the game is created in ANOTHER folder and the loaded save is left as it is
+# (the main-menu save switch, test-gap audit B4). The verb overwrites that folder the way
+# stock's New Game overwrite does, so the validator holds it to `<runSaveName>-<suffix>`: a
+# lane can only ever overwrite a folder named after its own run save.
+NEWGAME_AS_KEY = "as"
+NEWGAME_AS_SUFFIX_RE = re.compile(r"^[A-Za-z0-9_]+$")
+NEWGAME_ARG_KEYS: Tuple[str, ...] = (NEWGAME_MODE_KEY, NEWGAME_PRESET_KEY, NEWGAME_SAVE_KEY,
+                                     NEWGAME_AS_KEY)
 NEWGAME_MODE_VALUES: Tuple[str, ...] = ("SCIENCE_SANDBOX", "CAREER", "SANDBOX")
 NEWGAME_PRESET_VALUES: Tuple[str, ...] = ("Easy", "Normal", "Moderate", "Hard")
 # The save sub-folder the verb's delete keeps (the craft a later GoToEditor craft= loads).
@@ -4406,7 +4438,7 @@ NEWGAME_REASONS: Tuple[str, ...] = (
     "newgame-wrong-scene", "newgame-save-mismatch", "newgame-main-menu-locked",
     "newgame-recorder-live", "newgame-active-tree", "newgame-pending-tree",
     "newgame-merge-dialog-pending", "newgame-refly-session",
-    "newgame-switch-segment-session", "newgame-merge-journal",
+    "newgame-switch-segment-session", "newgame-merge-journal", "newgame-as-arg-invalid",
 )
 # Post-exit terminals (ERROR): the verb left the Space Center and the new game did not land.
 # NOT mapped to a refusal subkind (nothing was refused).
@@ -4414,6 +4446,24 @@ NEWGAME_ERROR_REASONS: Tuple[str, ...] = (
     "newgame-exit-timeout", "newgame-delete-failed", "newgame-create-failed",
     "newgame-returned-to-menu", "newgame-mismatch", "newgame-start-timeout",
 )
+
+
+def is_run_save_backup_entry(entry: str, run_save_name: str) -> bool:
+    """True for a saves-root entry that is a PreParsekBackup sibling of the run save, or of a
+    NewGame ``as=<runSave>-<suffix>`` save: ``<runSave> (pre-Parsek <ts>)`` or
+    ``<runSave>-<suffix> (pre-Parsek <ts>)``. Never the run save, a second save, or another
+    fixture's backup whose name merely starts with the run save's (``<runSave>x (pre-Parsek``)."""
+    if not run_save_name:
+        return False
+    marker = " (pre-Parsek"
+    i = entry.find(marker)
+    if i < 0:
+        return False
+    owner = entry[:i]
+    if owner == run_save_name:
+        return True
+    prefix = run_save_name + "-"
+    return owner.startswith(prefix) and bool(NEWGAME_AS_SUFFIX_RE.match(owner[len(prefix):]))
 
 
 def validate_new_game_step(index: int, step_args: Dict, run_save_name: Optional[str]) -> List[str]:
@@ -4447,6 +4497,17 @@ def validate_new_game_step(index: int, step_args: Dict, run_save_name: Optional[
             "the save the boot LoadGame loaded (the seam answers REJECTED newgame-save-mismatch "
             "for any other) and the produced-save harvest reads saves/<runSave>"
             % (index, NEWGAME_SAVE_KEY, save, RUN_SAVE_TOKEN, run_save_name))
+    as_target = step_args.get(NEWGAME_AS_KEY)
+    if as_target is not None:
+        prefix = (run_save_name or "") + "-"
+        suffix = str(as_target)[len(prefix):] if str(as_target).startswith(prefix) else ""
+        if not run_save_name or not NEWGAME_AS_SUFFIX_RE.match(suffix):
+            errors.append(
+                "driver.steps[%d].args.%s: %r must be runSaveName plus '-' and a [A-Za-z0-9_] "
+                "suffix (%r): the verb overwrites that folder like stock's New Game, so a lane may "
+                "only name a folder of its own (the seam answers REJECTED newgame-as-arg-invalid "
+                "for the loaded save or an unsafe name)"
+                % (index, NEWGAME_AS_KEY, as_target, prefix + "b"))
     extra = sorted(str(k) for k in step_args if k not in NEWGAME_ARG_KEYS)
     if extra:
         errors.append("driver.steps[%d].args: NewGame reads only %s, so %s would be silently "
@@ -12255,8 +12316,10 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "partaction-parachute-not-found": "driver-arg",
     # RevertToLaunch: a live Re-Fly marker and stock not offering the option are live states
     # (RevertToLaunchSourceSyncTests).
+    "reverttolaunch-target-arg-invalid": "driver-arg",
     "reverttolaunch-refly-session": "driver-gate",
     "reverttolaunch-unavailable": "driver-gate",
+    "reverttolaunch-prelaunch-unavailable": "driver-gate",
     # DriveVessel: a missing / out-of-range arg is the SPEC's fault; no active vessel, a packed
     # vessel, a vessel off the surface and one with no wheel motor are live states the drive
     # would not act in (DriveVesselSourceSyncTests).
@@ -12336,6 +12399,7 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "newgame-refly-session": "driver-gate",
     "newgame-switch-segment-session": "driver-gate",
     "newgame-merge-journal": "driver-gate",
+    "newgame-as-arg-invalid": "driver-arg",
     # AlarmJump: an arg the spec misspelled or a target it misnamed is the SPEC's fault; no
     # running Alarm Clock scenario is a live state the verb would not act in
     # (AlarmJumpSourceSyncTests).
@@ -13057,6 +13121,7 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "rect-arg-missing", "reflyrevert-choice-arg-invalid",
     "reflyrevert-choice-arg-missing", "reflyrevert-target-arg-invalid",
     "reflyrevert-target-arg-missing", "renamevessel-name-arg-invalid",
+    "reverttolaunch-target-arg-invalid",
     "renamevessel-name-arg-missing", "renamevessel-pid-arg-invalid",
     "renamevessel-priority-arg-invalid", "renamevessel-priority-arg-missing",
     "renamevessel-priority-without-part",

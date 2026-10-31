@@ -87,6 +87,16 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            string asReject = TestCommandNewGame.ParseAs(
+                ArgOrNull(cmd, TestCommandNewGame.AsArg), save, out string target);
+            if (asReject != null)
+            {
+                ParsekLog.Warn(Tag, $"newgame rejected reason={asReject} as={ArgOrNull(cmd, TestCommandNewGame.AsArg)} save={save}");
+                SetExecResult("REJECTED", null, asReject + " as=" + ArgOrNull(cmd, TestCommandNewGame.AsArg));
+                return;
+            }
+            bool switchesSave = !string.Equals(target, save, StringComparison.Ordinal);
+
             ParsekScenario scenario = ParsekScenario.Instance;
             ParsekFlight flight = ParsekFlight.Instance;
             string sceneName = HighLogic.LoadedScene.ToString();
@@ -118,7 +128,8 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            ParsekLog.Info(Tag, TestCommandNewGame.FormatStartLine(mode, preset, save, sceneName));
+            ParsekLog.Info(Tag, TestCommandNewGame.FormatStartLine(mode, preset, save, sceneName,
+                switchesSave ? target : null));
 
             // Stock's Space Center "Quit to Main Menu" (KSCPauseMenu): save persistent, the
             // analytics close call (internal to Assembly-CSharp, so not callable here; it has
@@ -141,7 +152,9 @@ namespace Parsek.TestCommands
             {
                 Mode = mode,
                 Preset = preset,
-                Save = save,
+                // as=: the game is created (and its folder overwritten) in the other folder;
+                // the loaded save was persisted above and is left as it is.
+                Save = target,
                 Phase = NewGamePhase.Exiting,
             };
             HighLogic.LoadScene(GameScenes.MAINMENU);

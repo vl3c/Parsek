@@ -21041,7 +21041,7 @@ namespace Parsek
             // Publish the LIVE view: a unit before its first loop instance is left out, so its
             // members play their first run as ordinary recordings (operator ruling 2026-09-24).
             cachedLoopUnits = MissionLoopUnitBuilder.ResolveLiveUnits(
-                "Flight", builtLoopUnits, cachedLoopUnits, routeSelectUT);
+                "Flight", builtLoopUnits, cachedLoopUnits, routeSelectUT, committed);
             engine.SetLoopUnits(cachedLoopUnits);
 
             // If the player is WATCHING a member of a mission loop and the new selection just
