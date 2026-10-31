@@ -6911,6 +6911,7 @@ namespace Parsek
             ResetDrawdownGuardSessionLatches();
             // A contract patch deferred for the previous save must not run against this one.
             ResetDeferredContractPatch();
+            FacilityStatePatcher.ResetForSaveLoad();
         }
 
         internal static void ResetForTesting()
