@@ -411,32 +411,12 @@ namespace Parsek.Tests
         [Fact]
         public void ResurrectionEligibility_Disassembled_IsNotARecoveryAnchor()
         {
-            // The resurrection / retirement walk is the second place a terminal state
-            // can be mistaken for a recovery. It accepts a post-commit recovery row only
-            // on a terminal that left the vessel in the world, which Disassembled is not.
-            var rec = new Recording
-            {
-                RecordingId = "rec-disassembled-resurrect",
-                TerminalStateValue = TerminalState.Disassembled,
-                VesselPersistentId = 4211u,
-            };
-
-            var result = ResurrectionRetirementEligibility.Classify(
-                new List<(uint pid, string guid)> { (4211u, null) },
-                new List<Recording> { rec },
-                new List<GameAction>
-                {
-                    new GameAction
-                    {
-                        Type = GameActionType.FundsEarning,
-                        FundsSource = FundsEarningSource.Recovery,
-                        RecordingId = "rec-disassembled-resurrect",
-                        UT = 300.0,
-                    },
-                },
-                retireCutoffUT: 200.0);
-
-            Assert.Empty(result);
+            // The recovery-evidence reads (ReFlyInvokeHold, RecoveredRecordingEvidence) are
+            // the second place a terminal state can be mistaken for a recovery. They accept
+            // a post-commit recovery row only on a terminal that left the vessel in the
+            // world, which Disassembled is not.
+            Assert.False(ResurrectionRetirementEligibility.VesselOutlivedTerminal(
+                TerminalState.Disassembled));
         }
 
         // ---------------------------------------------------------------

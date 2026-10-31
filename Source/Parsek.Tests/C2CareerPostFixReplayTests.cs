@@ -214,7 +214,7 @@ namespace Parsek.Tests
         {
             // The row the second re-harvest exists for, and the ONE property that makes
             // it useful rather than decorative: it shares the recovery `FundsEarning`
-            // row's `RecordingId`. `ResurrectionRetirementEligibility` retires a
+            // row's `RecordingId`. A Re-Fly merge's supersede tombstones retire a
             // recovery's funds / science / crew-assignment / crew-experience rows as one
             // same-recording bundle, so a differently-scoped XP row would be a row no
             // re-fly could take back. Asserted here rather than only in the producer's

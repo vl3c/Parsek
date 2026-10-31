@@ -640,13 +640,27 @@ Tests (`EarningsReconciliationTests`): `Reconcile_RecordBonusInsideReputationSee
 `AppendInWindowStrategyConversionRows_ScopeWindowAndNoDoubleCount`. The archived-run count (48
 lines in 36 runs) needs a re-mine on a build carrying this to confirm what is left is real.
 
-## REFLY-RETIREMENT-LEFTOVERS: an unused classifier and a stale guard comment [FILED 2026-10-28 from the gap sweep claim 2; cleanup, NOT FIXED; trivial]
+## ~~REFLY-RETIREMENT-LEFTOVERS: an unused classifier and a stale guard comment~~ [FILED 2026-10-28 from the gap sweep claim 2; cleanup. FIXED 2026-10-31, branch `fix-eva-subsurface-and-cleanups`; trivial]
 
 `ResurrectionRetirementEligibility.Classify` has no production caller (only
 `InGameTests/ReFlyRecoveryBundleRuntimeTest.cs`); `ReFlyInvokeHold` replaced the invoke-time
 retirement it served. `RewindReadbackGuard.cs` (~90) still describes that retirement ("Step 3b
 RetireResurrectedVesselRecoveryRows"). Its science `Method` label (a full-value transmission read
 as recovered) therefore changes nothing. Delete `Classify` and its test, and fix the comment.
+
+Fix. Grep confirmed no production caller of `Classify` (only the in-game
+`ReFlyRecoveryBundleRuntimeTest`, `ResurrectionRetirementEligibilityTests` and one
+`DisassembledTerminalStateTests` cell). Deleted both `Classify` overloads, `ResurrectedRecovery`
+and the two evidence constants; `ResurrectionRetirementEligibility` keeps the two predicates with
+production callers (`VesselOutlivedTerminal`: `ReFlyInvokeHold`, `RecoveredRecordingEvidence`;
+`IsPositivelySameLaunch`). The in-game test keeps its merge-path proof and loses only its
+classifier section (no `[InGameTest]` removed, so no batch tally moves);
+`ResurrectionRetirementEligibilityTests` keeps the identity and terminal truth-table cells; the
+Disassembled cell now asserts `VesselOutlivedTerminal` directly. `RewindReadbackGuard.cs` no
+longer cites Step 3b, and four test comments that credited the classifier with the
+same-recording bundle now name the merge's supersede tombstones. Left as history: the RB-1 /
+RB-2 spec headers and `RewindReadbackFixture` / `RewindReadbackGuardTests` narratives still
+describe the Step 3b flag those lanes were built on.
 
 ## ~~SUB-100-ROLLOUT-AND-BAILOUT-NOT-LEDGERED: a rollout or a Bail-Out Grant under 100 funds gets no row~~ [FILED 2026-10-28 from the small-recovery fix; FIXED 2026-10-31, branch `fix-low-ledger-bugs`; xUnit only; low]
 

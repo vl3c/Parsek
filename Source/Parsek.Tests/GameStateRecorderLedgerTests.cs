@@ -2024,7 +2024,7 @@ namespace Parsek.Tests
         [Fact]
         public void PickRecoveryRecordingId_BracketTie_MovesAllThreeRecoveryLegsTogether()
         {
-            // ResurrectionRetirementEligibility bundles a recovery's funds / science /
+            // A Re-Fly merge's supersede retires a recovery's funds / science /
             // kerbal-XP rows by SHARED RecordingId, so the tie-break has to sit in the
             // ONE correlator all three legs resolve through, not in any single leg.
             //
