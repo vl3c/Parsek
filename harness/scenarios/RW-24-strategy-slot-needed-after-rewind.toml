@@ -24,8 +24,8 @@ id = "RW-24-strategy-slot-needed-after-rewind"
 # "Slot needed from <date> for '<Aggressive Negotiations>', blocked by timeline."
 #
 # PLAN (UTs are the plan):
-#   boot       LoadGame persistent onto the pad Flea (L8's boot), record 60..100, commit,
-#              Recover (L8's pad recovery).
+#   boot       LoadGame persistent onto the pad Flea (L8's boot), record 60..100, commit, exit
+#              to the Space Center, marker Recover (RW-18's shape).
 #   strategy   warp to 200 at the Space Center (T1): activate AgressiveNegotiations.
 #   rewind     InvokeRewindToLaunch tree=latest: clock ~45, no strategy active, the activation
 #              committed future.
@@ -54,8 +54,10 @@ id = "RW-24-strategy-slot-needed-after-rewind"
 #   - `activation refused strategy=AppreciationCampaignCfg - reserved for later costs`: the
 #     committed-row decision did not fire and the click reservation answered instead.
 #
-# STATUS: AUTHORED 2026-10-31 (branch `lanes-strategy-purchase-and-refly-recovery`), NEVER
-# FLOWN. The batch split and the recordings count are interim until measured.
+# STATUS: AUTHORED 2026-10-31 (branch `lanes-strategy-purchase-and-refly-recovery`).
+# LIVE-PROVEN 2026-10-31 `2026-10-31_1808` PASS attempt 1 (129 s, DLL 0f3473d4), no product
+# defect. `2026-10-31_1806` was red on one spec anchor only: the refusal line is rate-limited
+# per strategy and prints ahead of the refused-1 mark.
 # =====================================================================================
 tier = "operator"
 description = "Rewind ledger campaign, the Administration's SlotNeeded refusal (todo KB-STRATEGY-SLOT-NEEDED-NO-LIVE-LANE): on career-pad-craft-purchase (one strategy slot, reputation 120) a pad Flea is recorded, committed and recovered, Aggressive Negotiations is activated at UT 200, a Rewind-to-Launch puts that activation in the committed future, and Appreciation Campaign is refused through the Administration Accept and the activation primitive because the committed activation needs the slot; the crossing applies the activation once, the pools end where the rewind began, and LedgerGroundTruth closes the career."
@@ -73,8 +75,8 @@ craft = []
 kind = "seam"
 
 # Budget arithmetic: 300 LoadGame + 3 x 120 warps + 180 StartRecording + 120 warp + 120
-# CommitTree + 120 Recover + 5 x 60 KscAction + 300 rewind + 120 GoToEditor + 180
-# LaunchFromEditor + 120 check warp + 4 x 120 SaveGame + 540 RunTests = 3260; runtime 4000 adds
+# CommitTree + 120 exit + 60 marker Recover + 5 x 60 KscAction + 300 rewind + 120 GoToEditor + 180
+# LaunchFromEditor + 120 check warp + 4 x 120 SaveGame + 540 RunTests = 3320; runtime 4000 adds
 # the inert steps and FlushAndQuit.
 steps = [
   { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
@@ -88,7 +90,11 @@ steps = [
   { cmd = "StopRecording",                                                                 expect = "OK" },
   { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
   { cmd = "StopRecording",                                                                 expect = "OK" },
-  { cmd = "Recover",        args = { pid = "2905720181" },                                 expect = "OK", budget = 120 },
+  # The Space Center exit and the marker Recover (RW-18's shape), not the in-flight press: the
+  # press's MissionSummaryDialog holds the TIMEWARP lock and refuses the warp to T1
+  # (`warp-locked holders=MissionSummaryDialog`, first flight 2026-10-31).
+  { cmd = "ExitToSpaceCenter",                                                            expect = "OK", budget = 120 },
+  { cmd = "KscMarkerRecover", args = { pid = "2905720181" },                              expect = "OK", budget = 60 },
   { cmd = "MissionMark",    args = { label = "rw24-v-recovered" },                         expect = "OK" },
   # ---- the committed activation at T1 = 200 ----
   { cmd = "WarpToUT",       args = { ut = "200", maxRate = "100" },                        expect = "OK", budget = 120 },
@@ -136,7 +142,7 @@ D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# V only; the check launch is unrecorded. INTERIM.
+# V only; the check launch is unrecorded (measured 1).
 count = { min = 1, max = 1 }
 
 [expectations.logContracts]
@@ -149,7 +155,9 @@ required = [
   "MISSIONMARK label=rw24-rewound ut=(?:(?!MISSIONMARK label=rw24-future-refused )[\\s\\S])*?kscaction refused action=activate-strategy reason=strategy-cannot-activate Activated on [^\\r\\n]+, blocked by timeline until then\\. target=AgressiveNegotiations",
 
   # ---- refused 2: SlotNeeded, read by the predicate, shown on the button, the click blocked ----
-  "MISSIONMARK label=rw24-future-refused ut=(?:(?!MISSIONMARK label=rw24-slot-refused )[\\s\\S])*?\\[StrategyReservation\\] activation refused strategy=AppreciationCampaignCfg kind=SlotNeeded committedKey=AgressiveNegotiations committedUT=(?:19[0-9]|20[0-9]) count=2 limit=1 nowUT=",
+  # Rate-limited per strategy: it prints at stock's first CanBeActivated read after the rewind,
+  # ahead of the refused-1 mark, so it anchors on the rewind (first flight 2026-10-31).
+  "MISSIONMARK label=rw24-rewound ut=(?:(?!MISSIONMARK label=rw24-slot-refused )[\\s\\S])*?\\[StrategyReservation\\] activation refused strategy=AppreciationCampaignCfg kind=SlotNeeded committedKey=AgressiveNegotiations committedUT=(?:19[0-9]|20[0-9]) count=2 limit=1 nowUT=",
   "MISSIONMARK label=rw24-future-refused ut=(?:(?!MISSIONMARK label=rw24-slot-refused )[\\s\\S])*?\\[Parsek\\]\\[VERBOSE\\]\\[StockUiOverlay\\] Administration accept: reason shown on the disabled button's stock tooltip: (Slot needed from [^\\r\\n]+)\\r?\\n",
   "MISSIONMARK label=rw24-future-refused ut=(?:(?!MISSIONMARK label=rw24-slot-refused )[\\s\\S])*?\\[Parsek\\]\\[INFO\\]\\[StrategyReservation\\] blocking activation click for strategy=AppreciationCampaignCfg",
   "MISSIONMARK label=rw24-future-refused ut=(?:(?!MISSIONMARK label=rw24-slot-refused )[\\s\\S])*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot activate \"[^\\r\\n]*?\" - Slot needed from [^\\r\\n]+ for '[^'\\r\\n]+', blocked by timeline\\.",
@@ -162,8 +170,8 @@ required = [
   "MISSIONMARK label=rw24-slot-refused ut=(?:(?!MISSIONMARK label=rw24-crossed )[\\s\\S])*?PatchStrategies: activated=1 [^\\r\\n]*activatedIds=\\[AgressiveNegotiations\\]",
   "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw24-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw24-crossed ut=",
 
-  # ---- the ground truth (interim split until the first flight measures it) ----
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  # ---- the ground truth ----
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
   "result: hardFailures=0 ",
 ]
 forbidden = [
