@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~REVERT-EDITOR-SAVE-SWITCH-GAPS: Revert to VAB / SPH could be undone by a scene-exit save or leave a stale cleanup armed, and three statics survived a save switch~~ [FILED AND FIXED 2026-10-31 from the test-gap audit (`test-gap-audit-2026-10-31.md` B4 / B5 / B6 / C9), branch `claude/project-thread-ib5y5e`; unit-tested, lanes owed; product, medium (R1, R2), low (S1-S3)]
+## ~~REVERT-EDITOR-SAVE-SWITCH-GAPS: Revert to VAB / SPH could be undone by a scene-exit save or leave a stale cleanup armed, and three statics survived a save switch~~ [FILED AND FIXED 2026-10-31 from the test-gap audit (`test-gap-audit-2026-10-31.md` B4 / B5 / B6 / C9), branch `claude/project-thread-ib5y5e`; unit-tested, lanes authored, not flown; product, medium (R1, R2), low (S1-S3)]
 
 Code read plus a decompile of `FlightDriver.RevertToPrelaunch` (KSP 1.12.5): stock writes
 `PreLaunchState` to persistent.sfs, fires `OnRevertToPrelaunchFlightState`, then
@@ -51,8 +51,10 @@ Code read plus a decompile of `FlightDriver.RevertToPrelaunch` (KSP 1.12.5): sto
   load rebuilds the manager and eligibility is re-derived each tick); the registration passes
   moved into the pure `GhostCommNetMath.ResolveRegistrations` with cells
   (GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST first bullet).
-- Owed: lanes for Revert to VAB / SPH (needs `RevertToLaunch target=editor`), a save switch
-  through the main menu, and a CommNet relay across a Rewind-to-Launch.
+- Lanes AUTHORED 2026-10-31, NEVER FLOWN (owed: their first flights):
+  `REV-1-revert-to-vab-in-rewound-timeline` (new `RevertToLaunch target=prelaunch`),
+  `SWS-1-save-switch-through-main-menu` (new `NewGame ... as=<runSave>-<suffix>`) and
+  `CN-4-ghost-commnet-relay-across-rewind`.
 
 ## ~~CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE: a contract the clock carries past its committed outcome leaves stock's active list and goes nowhere, so it vanishes from the Mission Control Archive~~ [FILED 2026-10-31 from RW-20 run `2026-10-31_0256`; FIXED 2026-10-31, branch `contract-crossed-archive`; LIVE-PROVEN by RW-20 `2026-10-31_0425`; product, low (stock history only: funds, reputation, ledger and ground truth were right, nothing paid twice)]
 
@@ -4594,7 +4596,9 @@ toggled during rails warp on the landed rover is recorded at the toggle UT (ever
 
 - `Quickload` (or `LoadGame allowLiveRecorder=quickload`): LoadGame refuses a live recorder today
   except for Re-Fly (`TestCommandDispatcher.cs:619-643`).
-- `Revert target=launch|vab`: no stock-revert verb exists.
+- ~~`Revert target=launch|vab`: no stock-revert verb exists.~~ DONE: `RevertToLaunch` (VN-5)
+  drives Revert to Launch, and since 2026-10-31 `RevertToLaunch target=prelaunch` drives Revert to
+  VAB / SPH (lane `REV-1-revert-to-vab-in-rewound-timeline`, todo REVERT-EDITOR-SAVE-SWITCH-GAPS).
 - ~~`ReFlyRevert choice=... target=launch|prelaunch`: the Esc > Revert dialog during a Re-Fly.~~
   DONE 2026-10-07 (branch `refly-revert-verb`): `ReFlyRevert choice=discard|retry|cancel
   target=launch|prelaunch` presses the stock pause menu's Revert Flight and revert option, then

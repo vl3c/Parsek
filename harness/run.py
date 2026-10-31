@@ -1385,10 +1385,14 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
     # run-save leaf -- unbounded Load-menu clutter without this reap. Never
     # pre-seed the backup marker instead: that would create the very Parsek
     # footprint the fresh-contact scenarios exclude.
+    # A NewGame `as=<runSave>-<suffix>` step (the main-menu save switch) creates a second
+    # Parsek-less save; should a backup be written for it, it lands as
+    # "<runSave>-<suffix> (pre-Parsek <ts>)" and is reaped
+    # by the same rule (hlib.is_run_save_backup_entry). The second save itself is left for
+    # the next run's NewGame to overwrite, like stock's New Game.
     if os.path.isdir(saves_dir):
-        backup_prefix = run_save_name + " (pre-Parsek"
         for entry in os.listdir(saves_dir):
-            if entry.startswith(backup_prefix):
+            if hlib.is_run_save_backup_entry(entry, run_save_name):
                 backup_dir = os.path.join(saves_dir, entry)
                 if os.path.isdir(backup_dir) and _is_strictly_inside(backup_dir, saves_dir):
                     shutil.rmtree(backup_dir, ignore_errors=True)
