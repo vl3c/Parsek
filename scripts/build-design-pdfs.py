@@ -22,6 +22,7 @@ Requires pandoc on PATH.
 """
 
 import argparse
+import glob
 import os
 import shutil
 import subprocess
@@ -57,6 +58,9 @@ BROWSER_PATHS = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/opt/pw-browsers/chromium",
 ]
+# The full cloud-container Chromium hangs printing a large doc; its headless shell does not.
+HEADLESS_SHELL_GLOB = "/opt/pw-browsers/chromium_headless_shell-*/*/chrome-headless-shell"
+PRINT_TIMEOUT_S = 300
 
 
 def find_browser(explicit):
@@ -67,7 +71,7 @@ def find_browser(explicit):
         hit = shutil.which(name)
         if hit:
             return hit
-    for path in BROWSER_PATHS:
+    for path in sorted(glob.glob(HEADLESS_SHELL_GLOB), reverse=True) + BROWSER_PATHS:
         if os.path.isfile(path):
             return path
     return None
@@ -95,7 +99,8 @@ def build_one(name, md_rel, browser, html_dir):
         subprocess.run([browser, "--headless", "--disable-gpu", "--no-sandbox",
                         "--user-data-dir=" + profile, "--no-pdf-header-footer",
                         "--print-to-pdf=" + str(pdf), html.as_uri()],
-                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=PRINT_TIMEOUT_S)
     finally:
         shutil.rmtree(profile, ignore_errors=True)
     if not pdf.is_file():
