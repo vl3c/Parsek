@@ -424,7 +424,7 @@ The ground-truth comparator compared every key of the facilities module as an up
 
 Fix: `LedgerGroundTruthDiff.CompareFacilities` skips building ids the same way (`buildingsSkipped=` on its summary line). Test: `LedgerGroundTruthDiffTests.Diff_DestructibleBuildingIdInRecon_IsNotAFacilityLevelPhantom`. Destroyed-state ground truth (the save's `ScenarioDestructibles` against the module's `Destroyed`) is still not compared.
 
-## REWIND-PRUNE-AND-WALK-AT-UT-ZERO: a Rewind-to-Launch prunes baselines and walks the ledger at UT 0, not at the rewind save's own UT [FILED 2026-10-28 from the rewind campaign's log mining; code-read, NOT FIXED; product, low-medium]
+## ~~REWIND-PRUNE-AND-WALK-AT-UT-ZERO: a Rewind-to-Launch prunes baselines and walks the ledger at UT 0, not at the rewind save's own UT~~ [FILED 2026-10-28 from the rewind campaign's log mining; FIXED 2026-10-31, branch `fix-load-commit-and-rewind-cutoff`; product, low-medium]
 
 The rewind branch of `ParsekScenario.OnLoad` (~5534) runs
 `GameStateStore.PruneBaselinesAfterUT(RewindContext.RewindAdjustedUT)` and then
@@ -436,6 +436,23 @@ baseline is deleted, and rows from the first 1 to 12 s of the career count as af
 `RewindAdjustedUT` at 0 (`RewindContext.cs` ~139 / ~189) and cut at the rewind save's own UT, the
 one the route reconcile uses. Test: a launch rewind's prune and walk use the save UT, and a row at
 UT 5 stays inside the cutoff.
+
+Fix. Root cause: `PreProcessRewindSave` winds the clock to `Math.Max(0, saveUT - 15)`, so a launch in
+the first 15 s of a career sets `RewindAdjustedUT` to exactly 0 (the field is right: it is the clock the
+Planetarium is set to). `HandleRewindOnLoad` does set the ledger held-through UT to the save's own UT
+(`LedgerHeldWindow.SetAtRewind`), but the prune went through `ResolveLedgerNowUT` and the walks through
+`RecalculateAndPatchCore`'s `ResolveLedgerCutoffUT`, and `ApplyHeldFloor` leaves a reading of 0 alone (it
+reads 0 as a cold-load clock that is not ready). A later launch (clock > 0) was already raised. The
+field keeps its meaning; the three rewind call sites (the OnLoad prune and walk, the deferred
+`ApplyRewindResourceAdjustment` walk) now resolve one career cutoff with the new pure
+`LedgerHeldWindow.ResolveRewindCutoffUT`, which raises a known wound-back clock of 0 too and is the
+live floor's answer for every clock above 0. The Planetarium is still set to the wound-back clock, the
+vessel holds still read it, and Warp-to-game-start (no floor) stays at 0. Tests:
+`LedgerHeldWindowTests.ResolveRewindCutoffUT_RaisesAZeroClock_UnlikeTheLiveFloor`,
+`EarlyLaunchRewind_WalkAtTheSaveUT_KeepsARowAtUT5Reached_TheLaterRowStaysFuture`,
+`EarlyLaunchRewind_PruneAtTheSaveUT_KeepsTheLaunchBaseline_DropsTheLaterOne`,
+`RewindResourceAdjustment_WalksAtTheResolvedCutoff_SetsThePlanetariumAtTheClock`, and the updated
+wiring pin `RouteRewindLoopPositionTests.HandleRewindOnLoad_RunsTheGoBackRouteReconcileBeforeTheCareerRestore`.
 
 ## COMMIT-DURING-LOAD-WALKS-WITH-NO-CUTOFF: a tree commit inside OnLoad replays the whole ledger [FILED 2026-10-28 from log mining; to check, NOT FIXED; product if reachable, medium]
 

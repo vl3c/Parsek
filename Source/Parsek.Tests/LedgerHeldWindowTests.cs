@@ -703,5 +703,87 @@ namespace Parsek.Tests
             Assert.Equal(0, LiveOnlyIncome.DropAfterReFlyBundleRestore(SaveUT - 8.0, SaveUT - 8.0));
             Assert.Contains(window, Ledger.Actions);
         }
+
+        // ================================================================
+        // A launch within the lead time of career start winds the clock to exactly 0
+        // (REWIND-PRUNE-AND-WALK-AT-UT-ZERO)
+        // ================================================================
+
+        private const double EarlyLaunchSaveUT = 12.0;
+
+        [Fact]
+        public void ResolveRewindCutoffUT_RaisesAZeroClock_UnlikeTheLiveFloor()
+        {
+            // The launch at UT 12: PreProcessRewindSave clamps 12 - 15 to 0.
+            Assert.Equal(EarlyLaunchSaveUT, LedgerHeldWindow.ResolveRewindCutoffUT(0.0, EarlyLaunchSaveUT));
+            // The live-clock floor does not raise 0 (a cold load's clock that is not ready).
+            Assert.Equal(0.0, LedgerHeldWindow.ApplyHeldFloor(0.0, EarlyLaunchSaveUT));
+            // A later launch: the same answer as the live floor.
+            Assert.Equal(SaveUT, LedgerHeldWindow.ResolveRewindCutoffUT(WoundBackUT, SaveUT));
+            Assert.Equal(LedgerHeldWindow.ApplyHeldFloor(WoundBackUT, SaveUT),
+                LedgerHeldWindow.ResolveRewindCutoffUT(WoundBackUT, SaveUT));
+            // Warp-to-game-start (no windback, no floor) stays at the career-start clock.
+            Assert.Equal(0.0, LedgerHeldWindow.ResolveRewindCutoffUT(0.0, double.NaN));
+            Assert.True(double.IsNaN(LedgerHeldWindow.ResolveAtRewind(0.0, 0.0, double.NaN)));
+            // A clock already past the floor, or an unknown clock, stays as it is.
+            Assert.Equal(RepairUT, LedgerHeldWindow.ResolveRewindCutoffUT(RepairUT, SaveUT));
+            Assert.True(double.IsNaN(LedgerHeldWindow.ResolveRewindCutoffUT(double.NaN, SaveUT)));
+            Assert.Equal(-1.0, LedgerHeldWindow.ResolveRewindCutoffUT(-1.0, SaveUT));
+        }
+
+        [Fact]
+        public void EarlyLaunchRewind_WalkAtTheSaveUT_KeepsARowAtUT5Reached_TheLaterRowStaysFuture()
+        {
+            AddAll(FundsSeed(10000f), Spend(5.0, 600f, "early-part"), Spend(40.0, 900f, "later-part"));
+            LedgerHeldWindow.SetAtRewind(0.0, EarlyLaunchSaveUT, double.NaN);
+            Assert.Equal(EarlyLaunchSaveUT, LedgerHeldWindow.HeldThroughUT);
+
+            // The defect: the walk at the raw wound-back clock 0 is not raised, so the purchase
+            // the loaded world already holds reads as committed future.
+            LedgerOrchestrator.RecalculateAndPatch(0.0, suppressSuspiciousDrawdownWarnings: true);
+            Assert.Equal(10000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+
+            // The fix: the rewind walks at the resolved career cutoff, the rewind save's own UT.
+            double cutoff = LedgerHeldWindow.ResolveRewindCutoffUT(0.0);
+            Assert.Equal(EarlyLaunchSaveUT, cutoff);
+            LedgerOrchestrator.RecalculateAndPatch(cutoff, suppressSuspiciousDrawdownWarnings: true);
+            Assert.Equal(9400.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+        }
+
+        [Fact]
+        public void EarlyLaunchRewind_PruneAtTheSaveUT_KeepsTheLaunchBaseline_DropsTheLaterOne()
+        {
+            GameStateStore.AddBaseline(new GameStateBaseline { ut = 0.0, funds = 25000 });
+            GameStateStore.AddBaseline(new GameStateBaseline { ut = EarlyLaunchSaveUT, funds = 24400 });
+            GameStateStore.AddBaseline(new GameStateBaseline { ut = 186.5, funds = 49366 });
+            LedgerHeldWindow.SetAtRewind(0.0, EarlyLaunchSaveUT, double.NaN);
+
+            int removed = GameStateStore.PruneBaselinesAfterUT(
+                LedgerHeldWindow.ResolveRewindCutoffUT(0.0), preserveEarliest: true, deleteFiles: false);
+
+            Assert.Equal(1, removed);
+            Assert.Contains(GameStateStore.Baselines, b => b.ut == 0.0);
+            Assert.Contains(GameStateStore.Baselines, b => b.ut == EarlyLaunchSaveUT);
+            Assert.DoesNotContain(GameStateStore.Baselines, b => b.ut == 186.5);
+        }
+
+        [Fact]
+        public void RewindResourceAdjustment_WalksAtTheResolvedCutoff_SetsThePlanetariumAtTheClock()
+        {
+            string path = System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..",
+                "Source", "Parsek", "ParsekScenario.cs"));
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(
+                System.IO.File.ReadAllText(path).Replace("\r\n", "\n"));
+            const string decl = "private IEnumerator ApplyRewindResourceAdjustment()";
+            int declAt = prepared.IndexOf(decl, StringComparison.Ordinal);
+            Assert.True(declAt >= 0, "ApplyRewindResourceAdjustment declaration not found");
+            string body = System.Text.RegularExpressions.Regex.Replace(
+                SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', declAt + decl.Length)),
+                @"\s+", " ");
+            Assert.Contains("Planetarium.SetUniversalTime(adjustedUT);", body);
+            Assert.Contains("LedgerOrchestrator.RecalculateAndPatch( LedgerHeldWindow.ResolveRewindCutoffUT(adjustedUT),", body);
+            Assert.DoesNotContain("LedgerOrchestrator.RecalculateAndPatch( adjustedUT,", body);
+        }
     }
 }
