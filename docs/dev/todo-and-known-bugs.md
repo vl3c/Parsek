@@ -922,14 +922,43 @@ drivable: `Recover` gains the optional `mergeDialog=refly` (`TestCommandRecover.
 Re-Fly marker and the active tree's `ReFlyAttempt` modal as the only wedge, the verb presses and answers OK
 `mergeDialog=open` once the modal is up; every other wedge still refuses `dialog-required`; refusal
 `recover-mergedialog-arg-invalid`; tests in `TestCommandRealSpawnRecoverTests`, hlib
-`VERB_SCOPED_CLOSED_ARGS`). Lane `RW-25-refly-recover-pressed` on `cs-career-mun4`, AUTHORED, NEVER FLOWN:
+`VERB_SCOPED_CLOSED_ARGS`). Lane `RW-25-refly-recover-pressed` on `cs-career-mun4`, LIVE-PROVEN on its first
+flight `2026-10-31_1811` PASS attempt 1 (348 s, DLL 0f3473d4): `recover wedge accepted
+variant=ReFlyAttempt`, the modal up 0.33 s after the press, `VesselRecovery funds patched:
+vessel='CS Flea Probe' amount=2791 ut=186000.3` tagged to the attempt, 156355.22 funds before the
+rewind and after the crossing, LedgerGroundTruth `hardFailures=0 reportOnly=2`, one payout row:
 RW-11's G and hop, the press on KSC grass, AnswerMergeDialog merge, stock's recovery of the pod at the Space
 Center booked once, a Rewind-to-Launch and the crossing with the pools back, LedgerGroundTruth. NOT
 COVERABLE: a pressed recovery under 100 funds. The stock button recovers only the active vessel, and no
 controllable vessel on these hosts is worth under 100 (the Mk1 pod alone is 600); under 100 inside a Re-Fly
 stays RW-11's clean-up path.
 
-## ~~STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED: a strategy discount on a part purchase, a repair or a contract penalty has no ledger leg, so a rewind and a repeat pays it twice~~ [FILED AND FIXED 2026-10-28 from code reading plus the stock `Strategies.cfg`, branch `fix-strategy-gross-legs`; unit-tested only, NOT FLOWN, lane owed; product, medium (a discount credited twice, breaking "nothing is paid twice")]
+## ~~LEGACY-PART-PURCHASE-REPAIR-NETS-A-DISCOUNTED-PURCHASE: a cold load rewrites a discounted part purchase to its net price while its strategy leg stays, so the discount counts twice~~ [FILED AND FIXED 2026-10-31 from RW-23's first flight (`2026-10-31_1802`, PARSEK-FAIL on two forbidden lines), branch `fix-legacy-purchase-repair`; unit-tested; product, low (ledger row only, the live pool stayed right)]
+
+RW-23 bought the RT-10 under Aggressive Negotiations: the gross 1200 `PartPurchased` row
+(`cost=1200;entryCost=1200`), its +18 funds leg and -1.25 reputation leg (both `RnDPartPurchase`,
+scoped `Part:solidBooster.v2`), and stock's net `FundsChanged(RnDPartPurchase)` of -1182. Every
+required line of the lane passed. The first cold load in the batch then logged `OnLoad: repaired
+legacy R&D part-purchase rows (events=1, actions=1)`: `GameStateStore.TryRewriteLegacyPartPurchaseEvent`
+re-read the cost from the paired funds event (1182) and `LedgerLoadMigration.RepairLegacyPartPurchaseActionsOnLoad`
+wrote it into the row, while the +18 leg (STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED, #2313) stayed.
+The walk then expected 18 more than stock held and filed `StockPoolAdjustment amount=-18
+reason=leak` plus a `GUARDED UPLIFT clamped`. The repair predates the leg binding: it was written
+for pre-#451 rows whose `cost=` was wrong, when the funds event was the only truth.
+
+Fix. A row carrying `entryCost=` (written only by the current recorder, whose `cost=` is the
+gross price by contract) is never re-read from a funds event: `GameStateStore.IsCurrentRecorderPartPurchaseDetail`
+gates `TryRewriteLegacyPartPurchaseEvent`, and through it the action repair; the event pass logs one
+Verbose summary of the rows it kept. A `cost=`-only row is repaired as before. Tests
+(`LegacyPartPurchaseLoadCompatibilityTests`): `LoadRepair_CurrentRecorderRowUnderAStrategyDiscount_KeepsTheGrossCost`
+(the RW-23 shape: 0 events and 0 actions repaired, the row stays 1200),
+`IsCurrentRecorderPartPurchaseDetail_Cases`; mutation-checked (dropping both gates reds the headline).
+LIVE-PROVEN by RW-23's re-flight `2026-10-31_1836` (PASS attempt 1, DLL e9e5b38e, main a56d8284e): no
+`repaired legacy R&D part-purchase` line, `RepairLegacyPartPurchaseEvents: kept 1 current-recorder
+PartPurchased row(s) as recorded ... repaired=0` on every cold load of the batch, no adjustment, no
+guard clamp, LedgerGroundTruth `hardFailures=0 reportOnly=0`.
+
+## ~~STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED: a strategy discount on a part purchase, a repair or a contract penalty has no ledger leg, so a rewind and a repeat pays it twice~~ [FILED AND FIXED 2026-10-28 from code reading plus the stock `Strategies.cfg`, branch `fix-strategy-gross-legs`; repair LIVE-PROVEN by RW-9, purchase LIVE-PROVEN by RW-23 (`2026-10-31_1836`); product, medium (a discount credited twice, breaking "nothing is paid twice")]
 
 Stock `AgressiveNegotiations` multiplies funds under `VesselRollout` / `RnDPartPurchase` (0.70 at
 full commitment) and `StructureRepair` / `StructureConstruction` (0.99) and adds -1..-6
@@ -999,7 +1028,13 @@ the original repair (155591.16 funds / 97.96 rep), no StockPoolAdjustment, no GU
 PASS. Its first flights found REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE.
 
 **Lane, part-purchase path (2026-10-31, branch `lanes-strategy-purchase-and-refly-recovery`).**
-`RW-23-strategy-part-purchase-rebuy`, AUTHORED, NEVER FLOWN. The host gap RW-9 named is closed by a
+`RW-23-strategy-part-purchase-rebuy`, LIVE-PROVEN `2026-10-31_1836` PASS attempt 1 (138 s, DLL e9e5b38e): the
+purchase (gross 1200, legs +18 and -1.25, no reconcile), the refused re-buy, the crossing (`added=1`,
+pools 503000 / 95 / 104.22 before the rewind and after it) and LedgerGroundTruth 3/3 `hardFailures=0
+reportOnly=0`. `2026-10-31_1802` was PARSEK-FAIL on the two forbidden lines only, the cold load in its
+check, filed and fixed as LEGACY-PART-PURCHASE-REPAIR-NETS-A-DISCOUNTED-PURCHASE. The first run was INVALID twice on
+`warp-locked holders=MissionSummaryDialog`, so V leaves through ExitToSpaceCenter and KscMarkerRecover
+(RW-18's shape). The host gap RW-9 named is closed by a
 new derived fixture, `career-pad-craft-purchase` (`harness/tools/build_career_pad_craft_purchase.py`:
 `career-pad-craft` with BypassEntryPurchaseAfterResearch False and reputation 120, above the 115 at
 which `cs-career-mun4` activated Aggressive Negotiations; drift-gated by
@@ -2700,7 +2735,7 @@ Not covered: a `stock-minimal` that is itself stale. Cells: `ReferenceDllAdmissi
 flies, the reference is never compared with itself; mutation-checked by dropping the diff from the
 admit call).
 
-## KB-STRATEGY-SLOT-NEEDED-NO-LIVE-LANE: the Administration Accept refusal for a strategy that would take the slot a committed activation needs has never been pressed in game [FILED 2026-10-10 from the branch cleanup. OPEN, harness, low]
+## ~~KB-STRATEGY-SLOT-NEEDED-NO-LIVE-LANE: the Administration Accept refusal for a strategy that would take the slot a committed activation needs has never been pressed in game~~ [FILED 2026-10-10 from the branch cleanup. CLOSED 2026-10-31: LIVE-PROVEN by RW-24 (`2026-10-31_1808`); harness, low]
 
 `StrategyReservationPredicates.EvaluateActivation` refuses an activation two ways when the
 committed timeline activates a strategy later: the strategy itself (`FutureActivation`) and any
@@ -2730,7 +2765,12 @@ block-after-rewind` on a new host `stock-screen-census-strategy`. To rebuild it:
   `test_saveparse.test_fixture_set_is_exactly_the_committed_set` and the saves README need it too.
 
 **Lane (2026-10-31, branch `lanes-strategy-purchase-and-refly-recovery`).** `RW-24-strategy-slot-needed-
-after-rewind`, AUTHORED, NEVER FLOWN; this entry stays OPEN until it flies green. A cheaper shape than the
+after-rewind`, LIVE-PROVEN `2026-10-31_1808` PASS attempt 1 (129 s, DLL 0f3473d4), no product defect: the
+refusal read `kind=SlotNeeded committedKey=AgressiveNegotiations committedUT=200 count=2 limit=1`, the
+button tooltip and the blocked dialog read "Slot needed from Y1, D01, 00:03 for 'Aggressive
+Negotiations', blocked by timeline.", the pools came back at 504182 / 105.49. `2026-10-31_1806` was red
+on one anchor (the refusal line is rate-limited per strategy and prints ahead of the refused-1 mark),
+spec fixed. A cheaper shape than the
 draft above: no census host, the committed activation comes from a Rewind-to-Launch instead. On
 `career-pad-craft-purchase` (RW-23's host, reputation 120, Administration level 1 so one slot) a pad Flea is
 recorded, committed and recovered; at T1 Aggressive Negotiations is activated; a Rewind-to-Launch puts that
