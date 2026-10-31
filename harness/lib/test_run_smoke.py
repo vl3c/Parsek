@@ -4945,8 +4945,12 @@ class MachineLockScopeTests(unittest.TestCase):
         compared against in the window between the check and the launch. With the
         lock held by run() for the whole invocation, ADMIT is inside it."""
         called = _calls(run.run_attempt)
-        self.assertIn("admit_instance", called)
+        self.assertIn("admit_instance_dir", called)
         self.assertNotIn("acquire_run_lock", called)
+        # The shared ADMIT step (also behind --admit-only) is the decision itself.
+        helper = _calls(run.admit_instance_dir)
+        self.assertIn("admit_instance", helper)
+        self.assertNotIn("acquire_run_lock", helper)
 
 
 class LeaseCoversWorstCaseScenarioTests(unittest.TestCase):
