@@ -3718,6 +3718,7 @@ timeline, re-locked by a Rewind-to-Launch, a second research refused `insufficie
 row reserves its 45 in the live pool; the committed-row click-block behind it is not reached), and the
 crossing unlocking it with the science spent once. No defect.
 
+Progress 2026-10-31 (branch `rw17-two-part-contract`): lane `RW-17-contract-completed-earlier` LIVE-PROVEN (`2026-10-31_0227`): a multi-parameter contract completed earlier after a rewind pays once at the earlier UT, the later completion zeroed, nothing taken back. Seam added: PartAction button=runtest. Plan row 16's paid part is not flown: no cheap host contract has one (the only offer needs orbit, rendezvous and a crew transfer); it stays held by the unit tests. No defect.
 Progress 2026-10-31 (branch `rw16-transmit-then-recover`): lane `RW-16-transmit-then-recover-earlier` LIVE-PROVEN (`2026-10-31_0217`): a transmitted subject recovered earlier after a rewind: the recovery takes the full value, the transmission only the remainder (0), the science pool unchanged. No defect.
 Progress 2026-10-31 (branch `rw15-earlier-milestone`): lane `RW-15-earlier-milestone` LIVE-PROVEN (`2026-10-31_0213`): a world-first earned earlier after a rewind is paid once at the earlier UT, the later committed row zeroed, nothing taken back. No defect.
 Progress 2026-10-31 (branch `rw14-dismiss`): lane `RW-14-dismissal-across-rewind` LIVE-PROVEN (`2026-10-31_0251`) on feature 9231e59
