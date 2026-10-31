@@ -8512,6 +8512,71 @@ def select_scenarios(specs: Sequence[Dict], expr: str) -> List[Dict]:
     return [s for s in specs if _matches(s)]
 
 
+# An explicit ordered id list (`run.py --ids-file`): the selection a planned run
+# hands run.py, e.g. `tools/tier_runner.py --tier full`. Unlike select_scenarios it
+# keeps the LIST's order, since the planner decided it, and reports the ids no
+# loaded spec carries instead of dropping them silently (a spec deleted between a
+# plan and its resume must show up in the log, not shrink the run unseen).
+def parse_ids_file_text(text: str) -> List[str]:
+    """The ids an ids file names, in file order: one per line, surrounding blanks
+    stripped, blank lines and ``#`` comment lines skipped, a repeated id kept once
+    (its first position)."""
+    out: List[str] = []
+    seen = set()
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line in seen:
+            continue
+        seen.add(line)
+        out.append(line)
+    return out
+
+
+def select_scenarios_by_ids(specs: Sequence[Dict],
+                            ids: Sequence[str]) -> Tuple[List[Dict], List[str]]:
+    """``(selected, unknown)``: the specs named by ``ids`` in ``ids`` order, and the
+    ids no spec carries (in ``ids`` order). A repeated id selects once."""
+    by_id: Dict[str, Dict] = {}
+    for spec in specs:
+        sid = spec.get("id")
+        if isinstance(sid, str) and sid not in by_id:
+            by_id[sid] = spec
+    selected: List[Dict] = []
+    unknown: List[str] = []
+    seen = set()
+    for sid in ids:
+        if sid in seen:
+            continue
+        seen.add(sid)
+        spec = by_id.get(sid)
+        if spec is None:
+            unknown.append(sid)
+        else:
+            selected.append(spec)
+    return selected, unknown
+
+
+# A stop request: a file in results/ that asks a running selection to stop at the
+# next lane boundary (`tools/tier_runner.py --stop` writes it). The lane in flight,
+# its post-quit verification and a queued attempt-2 retry of a lane that already
+# flew all finish; only lanes that have not started are dropped, and they get NO
+# result row (a planned full run resumes them with `--resume`). run.py deletes the
+# file when it honours it and at selection start (a request left over from a run
+# that already ended must not stop the next one).
+STOP_REQUEST_FILENAME = "stop-request"
+STOP_HONOURED_MARKER = "stop request honoured"
+
+
+def format_stop_honoured_line(ran_count: int, dropped: int) -> str:
+    """The one harness line a honoured stop request writes. tier_runner keys on
+    ``STOP_HONOURED_MARKER``; the counts follow it as ``key=value`` tokens."""
+    return "%s: stopping after %d scenario(s); dropped=%d unstarted scenario(s) " \
+           "(no result rows; resume a planned full run with tier_runner --resume)" \
+           % (STOP_HONOURED_MARKER, ran_count, dropped)
+
+
 # ---------------------------------------------------------------------------
 # Instance admission (design Instance admission, reusing the M-A6 provlib pure
 # functions so the harness and the provisioner diff the SAME projection).

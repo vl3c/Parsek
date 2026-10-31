@@ -25,6 +25,9 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A part bought under a strategy discount is no longer discounted twice after a load.** Loading
+  a save rewrote the purchase to its discounted price while the discount stayed booked on its own,
+  leaving a stray correction row in the books. (LEGACY-PART-PURCHASE-REPAIR-NETS-A-DISCOUNTED-PURCHASE)
 - **A kerbal on the ground when a recording ends now ends Landed.** A kerbal standing, lying or
   hopping on the surface (on the Mun especially) could read as falling, so his recording could
   end Destroyed or Sub-orbital instead of putting him back where he stood.
@@ -263,6 +266,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Harness: one command runs every automated test lane.** `tier_runner.py --tier full` flies all
+  four tiers in order, the cheap ones first, on every test install. It checks each install before
+  anything flies, can provision them on request, and a long run can be paused at the next lane
+  with `--stop` and picked up again with `--resume`. (HARNESS-FULL-RUN-MODE)
 - **The ledger ground-truth check works after a rewind or a Re-Fly.** It compares the career at the
   current time instead of the end of the committed timeline, and so do the other checks in its
   batch. (LEDGER-GROUND-TRUTH-WALKS-PAST-THE-CLOCK)
