@@ -25,6 +25,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A rewind to a launch made in a career's first seconds keeps those seconds in the past.**
+  Rewinding to a launch made less than 15 seconds after the career began treated everything the
+  career had done before it as future, and deleted the career's starting record. It now cuts at
+  the launch's own time, like any other rewind. (REWIND-PRUNE-AND-WALK-AT-UT-ZERO)
 - **A contract that ran out after a rewind stays in the Mission Control Archive.** When time
   passed the moment a committed contract failed, completed or was cancelled, Parsek took it off
   the active list but left it out of the Archive. It now lands in the Archive with that outcome,
