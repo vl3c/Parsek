@@ -27338,3 +27338,31 @@ class DeterministicSeamErrorSourceSyncTests(unittest.TestCase):
             with self.subTest(literal=lit):
                 self.assertIn(lit, self.literals)
         self.assertNotIn("deterministic-seam-error", self.literals)
+
+
+class IdsFileSelectionTests(unittest.TestCase):
+    """`run.py --ids-file`: the planned full run's selection keeps the list's
+    order and names ids no spec carries."""
+
+    SPECS = [{"id": "A"}, {"id": "B"}, {"id": "C"}]
+
+    def test_the_file_parse_skips_blanks_comments_and_repeats(self):
+        text = "# plan\n\n  C \nA\n# A\nC\nB\r\n"
+        self.assertEqual(hlib.parse_ids_file_text(text), ["C", "A", "B"])
+        self.assertEqual(hlib.parse_ids_file_text(""), [])
+
+    def test_selection_follows_the_list_order(self):
+        selected, unknown = hlib.select_scenarios_by_ids(self.SPECS, ["C", "A"])
+        self.assertEqual([s["id"] for s in selected], ["C", "A"])
+        self.assertEqual(unknown, [])
+
+    def test_unknown_ids_are_reported_not_dropped_silently(self):
+        selected, unknown = hlib.select_scenarios_by_ids(self.SPECS, ["X", "B", "X", "Y"])
+        self.assertEqual([s["id"] for s in selected], ["B"])
+        self.assertEqual(unknown, ["X", "Y"])
+
+    def test_the_stop_line_carries_the_marker_and_counts(self):
+        line = hlib.format_stop_honoured_line(3, 9)
+        self.assertTrue(line.startswith(hlib.STOP_HONOURED_MARKER))
+        self.assertIn("after 3 scenario(s)", line)
+        self.assertIn("dropped=9", line)

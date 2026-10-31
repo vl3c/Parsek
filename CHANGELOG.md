@@ -263,6 +263,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Dev
 
+- **Harness: one command runs every automated test lane.** `tier_runner.py --tier full` flies all
+  four tiers in order, the cheap ones first, on every test install. It checks each install before
+  anything flies, can provision them on request, and a long run can be paused at the next lane
+  with `--stop` and picked up again with `--resume`. (HARNESS-FULL-RUN-MODE)
 - **The ledger ground-truth check works after a rewind or a Re-Fly.** It compares the career at the
   current time instead of the end of the committed timeline, and so do the other checks in its
   batch. (LEDGER-GROUND-TRUTH-WALKS-PAST-THE-CLOCK)
