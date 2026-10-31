@@ -3677,6 +3677,8 @@ timeline, re-locked by a Rewind-to-Launch, a second research refused `insufficie
 row reserves its 45 in the live pool; the committed-row click-block behind it is not reached), and the
 crossing unlocking it with the science spent once. No defect.
 
+Progress 2026-10-31 (branch `rw19-tight-funds`): lane `RW-19-tight-funds-launch` LIVE-PROVEN (`2026-10-31_0248`): a launch with committed costs above today's funds is refused only for its own cost: the 13742 lander greyed at 11951 free, the 2932 Flea flew, the upgrade paid in full. `NOT affordable` stays L9's: no click can reach it. Low note: on editor entry the first check read the pool without the open penalty for 0.5 s (allowed, then refused) before the button greyed; no click can land in that window in practice. No defect.
+
 ## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
 
 While Jeb stood (or lay ragdolled) on the Mun's surface as a BACKGROUND vessel during the CS-7
