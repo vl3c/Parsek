@@ -3727,6 +3727,8 @@ namespace Parsek.InGameTests
             public double Longitude => vessel.longitude;
             public double Altitude => vessel.altitude;
             public double HeightFromTerrain => vessel.heightFromTerrain;
+            // Forced ballistic: never read as an EVA on the ground.
+            public bool IsEva => false;
             public Quaternion SurfaceRelativeRotation => vessel.srfRelRotation;
             public Vessel RawVessel => vessel;
 

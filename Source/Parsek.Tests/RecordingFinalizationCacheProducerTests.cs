@@ -1255,6 +1255,234 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryBuildFromLiveVessel_LandedEvaReportingSubOrbital_TakesSurfaceCacheNotFinalizer()
+        {
+            // CS-7: a background EVA kerbal lying ragdolled on the Mun reports SUB_ORBITAL
+            // (stock ground contact has no hysteresis); its live orbit is sub-surface.
+            bool finalizerCalled = false;
+            RecordingFinalizationCacheProducer.TryBuildDefaultFinalizationResultOverrideForTesting =
+                (Recording recording, Vessel vessel, double refreshUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    finalizerCalled = true;
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        terminalState = TerminalState.Destroyed,
+                        terminalUT = refreshUT,
+                        extrapolationFailureReason = ExtrapolationFailureReason.NoSolverStart
+                    };
+                    return false;
+                };
+
+            var vessel = MakeMunEvaView(
+                409u, Vessel.Situations.SUB_ORBITAL, isEva: true, heightFromTerrain: 0.04);
+            var recording = new Recording
+            {
+                RecordingId = "rec-mun-eva-ragdoll",
+                VesselPersistentId = 409u,
+                ExplicitEndUT = 100.0
+            };
+
+            bool built = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                120.0,
+                FinalizationCacheOwner.BackgroundLoaded,
+                "background_periodic",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache cache);
+
+            Assert.True(built);
+            Assert.False(finalizerCalled);
+            Assert.Equal(FinalizationCacheStatus.Fresh, cache.Status);
+            Assert.Equal(TerminalState.Landed, cache.TerminalState);
+            Assert.Equal(120.0, cache.TerminalUT);
+            Assert.NotNull(cache.TerminalPosition);
+            Assert.Equal(SurfaceSituation.Landed, cache.TerminalPosition.Value.situation);
+            Assert.Equal("Mun", cache.TerminalPosition.Value.body);
+            Assert.Contains(logLines, line =>
+                line.Contains("[RecordingTree]")
+                && line.Contains("EVA surface jitter: reading pid=409 as LANDED")
+                && line.Contains("context=FinalizerCache")
+                && line.Contains("situation=SUB_ORBITAL"));
+        }
+
+        [Fact]
+        public void TryBuildFromLiveVessel_EvaWellAboveTerrain_StillReachesFinalizer()
+        {
+            bool finalizerCalled = false;
+            RecordingFinalizationCacheProducer.TryBuildDefaultFinalizationResultOverrideForTesting =
+                (Recording recording, Vessel vessel, double refreshUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    finalizerCalled = true;
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        terminalState = TerminalState.Destroyed,
+                        terminalUT = refreshUT,
+                        extrapolationFailureReason = ExtrapolationFailureReason.SubSurfaceStart,
+                        subSurfaceDestroyedBodyName = "Mun",
+                        subSurfaceDestroyedAltitude = -199000.0,
+                        subSurfaceDestroyedThreshold = BallisticExtrapolator.SubSurfaceDestroyedAltitude
+                    };
+                    return false;
+                };
+
+            // A jetpack hop 40 m up is real flight, so the destroyed-vessel decline keeps it.
+            var vessel = MakeMunEvaView(
+                410u, Vessel.Situations.SUB_ORBITAL, isEva: true, heightFromTerrain: 40.0);
+            var recording = new Recording
+            {
+                RecordingId = "rec-mun-eva-hop",
+                VesselPersistentId = 410u,
+                ExplicitEndUT = 100.0
+            };
+
+            bool built = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                120.0,
+                FinalizationCacheOwner.BackgroundLoaded,
+                "background_periodic",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache cache);
+
+            Assert.False(built);
+            Assert.True(finalizerCalled);
+            Assert.Equal("subsurface-destroyed-suppressed", cache.DeclineReason);
+        }
+
+        [Fact]
+        public void TryBuildFromLiveVessel_NonEvaNearTerrainSubSurface_KeepsDestroyedDecline()
+        {
+            bool finalizerCalled = false;
+            RecordingFinalizationCacheProducer.TryBuildDefaultFinalizationResultOverrideForTesting =
+                (Recording recording, Vessel vessel, double refreshUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    finalizerCalled = true;
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        terminalState = TerminalState.Destroyed,
+                        terminalUT = refreshUT,
+                        extrapolationFailureReason = ExtrapolationFailureReason.SubSurfaceStart,
+                        subSurfaceDestroyedBodyName = "Mun",
+                        subSurfaceDestroyedAltitude = -199000.0,
+                        subSurfaceDestroyedThreshold = BallisticExtrapolator.SubSurfaceDestroyedAltitude
+                    };
+                    return false;
+                };
+
+            // Debris a metre above the ground is not a kerbal: the genuine sub-surface
+            // destroyed path stays exactly as it was.
+            var vessel = MakeMunEvaView(
+                411u, Vessel.Situations.SUB_ORBITAL, isEva: false, heightFromTerrain: 1.0);
+            var recording = new Recording
+            {
+                RecordingId = "rec-mun-debris",
+                VesselPersistentId = 411u,
+                ExplicitEndUT = 100.0
+            };
+
+            bool built = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                120.0,
+                FinalizationCacheOwner.BackgroundLoaded,
+                "background_periodic",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache cache);
+
+            Assert.False(built);
+            Assert.True(finalizerCalled);
+            Assert.Equal(FinalizationCacheStatus.Failed, cache.Status);
+            Assert.Equal("subsurface-destroyed-suppressed", cache.DeclineReason);
+            Assert.DoesNotContain(logLines, line => line.Contains("EVA surface jitter"));
+        }
+
+        [Theory]
+        [InlineData(true, 16, 0.04, 1)]   // EVA, SUB_ORBITAL, on the ground -> LANDED
+        [InlineData(true, 8, 4.9, 1)]     // EVA, FLYING, within the band -> LANDED
+        [InlineData(true, 8, 5.0, 1)]     // band edge is inclusive
+        [InlineData(true, 16, 5.1, 16)]   // above the band: real flight
+        [InlineData(true, 16, -1.0, 16)]  // stock -1: no terrain height (packed)
+        [InlineData(true, 16, double.NaN, 16)]
+        [InlineData(true, 32, 0.0, 32)]   // ORBITING untouched
+        [InlineData(true, 64, 0.0, 64)]   // ESCAPING untouched
+        [InlineData(true, 2, 0.0, 2)]     // SPLASHED untouched
+        [InlineData(true, 1, 0.0, 1)]     // LANDED untouched
+        [InlineData(false, 16, 0.04, 16)] // not a kerbal
+        [InlineData(false, 8, 0.04, 8)]
+        public void ResolveEvaSurfaceJitterSituation_Table(
+            bool isEva, int situation, double heightFromTerrain, int expected)
+        {
+            Assert.Equal(
+                expected,
+                RecordingTree.ResolveEvaSurfaceJitterSituation(isEva, situation, heightFromTerrain));
+        }
+
+        [Fact]
+        public void DetermineTerminalState_LiveEvaOnTheGroundReportingSubOrbital_ReadsLanded()
+        {
+            // The non-EVA and above-the-band halves are pinned by the pure table above
+            // (a Vessel stub cannot reach the orbit-evidence read headless).
+            Vessel kerbal = MakeVesselStub(412u, VesselType.EVA, Vessel.Situations.SUB_ORBITAL, 0.1f);
+
+            Assert.Equal(
+                TerminalState.Landed,
+                RecordingTree.DetermineTerminalState((int)kerbal.situation, kerbal));
+            Assert.Contains(logLines, line =>
+                line.Contains("EVA surface jitter: reading pid=412 as LANDED")
+                && line.Contains("context=DetermineTerminalState"));
+        }
+
+        private static Vessel MakeVesselStub(
+            uint pid, VesselType type, Vessel.Situations situation, float heightFromTerrain)
+        {
+            var vessel = (Vessel)System.Runtime.Serialization.FormatterServices
+                .GetUninitializedObject(typeof(Vessel));
+            vessel.persistentId = pid;
+            vessel.vesselType = type;
+            vessel.situation = situation;
+            vessel.heightFromTerrain = heightFromTerrain;
+            return vessel;
+        }
+
+        private static FakeVesselView MakeMunEvaView(
+            uint vesselPid,
+            Vessel.Situations situation,
+            bool isEva,
+            double heightFromTerrain)
+        {
+            return new FakeVesselView
+            {
+                PersistentIdValue = vesselPid,
+                SituationValue = situation,
+                BodyNameValue = "Mun",
+                IsPackedValue = false,
+                IsLoadedValue = true,
+                IsInAtmosphereValue = false,
+                IsEvaValue = isEva,
+                LatitudeValue = 0.7,
+                LongitudeValue = 22.4,
+                AltitudeValue = 1834.2,
+                HeightFromTerrainValue = heightFromTerrain,
+                SurfaceRelativeRotationValue = Quaternion.identity,
+                OrbitValue = new RecordingFinalizationOrbitView
+                {
+                    ReferenceBodyName = "Mun",
+                    ReferenceBodyHasAtmosphere = false,
+                    ReferenceBodyAtmosphereDepth = 0.0,
+                    Inclination = 0.0,
+                    Eccentricity = 0.99,
+                    SemiMajorAxis = 101000.0,
+                    LongitudeOfAscendingNode = 0.0,
+                    ArgumentOfPeriapsis = 0.0,
+                    MeanAnomalyAtEpoch = 3.1,
+                    Epoch = 100.0,
+                    PeriapsisAltitude = -199000.0
+                }
+            };
+        }
+
+        [Fact]
         public void TryBuildFromLiveVessel_SuppressedSubSurfacePackedAtmospheric_DoesNotCacheDestroyedFallback()
         {
             RecordingFinalizationCacheProducer.TryBuildDefaultFinalizationResultOverrideForTesting =
@@ -1641,6 +1869,7 @@ namespace Parsek.Tests
             public double LongitudeValue;
             public double AltitudeValue;
             public double HeightFromTerrainValue;
+            public bool IsEvaValue;
             public Quaternion SurfaceRelativeRotationValue;
             public RecordingFinalizationOrbitView? OrbitValue;
 
@@ -1654,6 +1883,7 @@ namespace Parsek.Tests
             public double Longitude => LongitudeValue;
             public double Altitude => AltitudeValue;
             public double HeightFromTerrain => HeightFromTerrainValue;
+            public bool IsEva => IsEvaValue;
             public Quaternion SurfaceRelativeRotation => SurfaceRelativeRotationValue;
             public Vessel RawVessel => null;
 

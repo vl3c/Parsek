@@ -4131,7 +4131,7 @@ Progress 2026-10-31 (branch `rw22-patents-recovery`): lane `RW-22-patents-licens
 
 Progress 2026-10-31 (branch `rw20-strategy-deadline`): lane `RW-20-strategy-and-deadline-after-rewind` LIVE-PROVEN (`2026-10-31_0425_RW-20-strategy-and-deadline-after-rewind`): LIVE-PROVEN `2026-10-31_0425` on DLL ccdaad30 (head d70bbab of PR #2334): the strategy refused, the fail applied once and filed in stock's finished list, the duplicate `Sun/Flyby` taken back once per pool across every later load, pools back where the rewind began.
 
-## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
+## ~~LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback~~ [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. FIXED 2026-10-31, branch `fix-eva-subsurface-and-cleanups`; code-traced, the CS-7 logs were not available]
 
 While Jeb stood (or lay ragdolled) on the Mun's surface as a BACKGROUND vessel during the CS-7
 EVA-RECOVER step, the Parsek log repeated `TryFinalizeRecording: recovered sub-surface live-orbit
@@ -4145,6 +4145,42 @@ terrain) as landed. Next: read the two lines' context in the collected `KSP.log`
 (operator PC `harness/results/`), find which predicate sends a Landed vessel into
 `IsSuppressedSubSurfaceDestroyedDecline` (`RecordingFinalizationCacheProducer.cs`), and add a
 unit cell for a landed EVA kerbal.
+
+**Trace (verdict: a real defect, rare).** Stock sets `Vessel.Landed` every physics frame from
+part ground contact alone (decompiled `Vessel.checkLanded`: any part `GroundContact`, no
+hysteresis); a ragdolled kerbal's bone colliders do not reach the part and a walking kerbal on the
+Mun leaves the ground between steps, so the kerbal reads SUB_ORBITAL (FLYING with an atmosphere)
+while on the ground (the same jitter `EnvironmentDetector.Classify` already absorbs for segments,
+#246). The producer's surface branch (`TryBuildSurfaceTerminalCache`) admitted only
+LANDED / SPLASHED / PRELAUNCH, so those frames fell to `BallisticExtrapolator.ShouldExtrapolate`
+(true for SUB_ORBITAL) and the default finalizer. A background EVA has no patched-conic solver
+(`NullSolver`), so the live-orbit fallback classifies it `NoSolverStart` Destroyed; the
+recorded-point suppression then either declined (a still kerbal: `velocity-zero`, giving
+`subsurface-destroyed-suppressed`, and `Refresh failed; preserving previous cache ...
+terminal=Landed` names the PREVIOUS refresh's Landed cache) or reseeded an orbit from the recorded
+point (a tumbling kerbal: `recovered sub-surface live-orbit fallback`), whose fall from rest hits
+the terrain at once and was ACCEPTED as a Fresh Destroyed cache. So the cache flipped between
+Landed and Destroyed, and the scene-exit twin (`TryFinalizeRecording`, same situation gate) could
+stamp Destroyed, or leave the live fallback `DetermineTerminalState` to stamp SubOrbital (which a
+Destroyed cache can then "repair" to Destroyed), on a kerbal who was standing on the Mun when the
+recording ended: no end-of-flight spawn of him. CS-7 never showed it because Jeb was recovered.
+
+Fix. One pure rule, `RecordingTree.ResolveEvaSurfaceJitterSituation` (EVA, FLYING / SUB_ORBITAL,
+valid `heightFromTerrain` <= `EvaSurfaceJitterMaxHeightMeters` = 5 m, the
+`EnvironmentDetector` EVA band; stock's -1 for a packed vessel fails closed), read through
+`ResolveTerminalSituation` (logs `EVA surface jitter: reading pid=... as LANDED`) by every
+live-vessel terminal read: the producer's surface branch (new `IsEva` on the vessel view), the
+scene-exit `TryFinalizeRecording` situation gate, `DetermineTerminalState(int, Vessel)` and
+`CaptureTerminalPosition` / `CaptureTerminalOrbit`. A non-EVA vessel and an EVA more than 5 m up
+keep the existing path. Tests (`RecordingFinalizationCacheProducerTests`):
+`TryBuildFromLiveVessel_LandedEvaReportingSubOrbital_TakesSurfaceCacheNotFinalizer`,
+`TryBuildFromLiveVessel_EvaWellAboveTerrain_StillReachesFinalizer`,
+`TryBuildFromLiveVessel_NonEvaNearTerrainSubSurface_KeepsDestroyedDecline`,
+`ResolveEvaSurfaceJitterSituation_Table`,
+`DetermineTerminalState_LiveEvaOnTheGroundReportingSubOrbital_ReadsLanded`. Not covered: a
+swimming kerbal that drops out of SPLASHED (its `heightFromTerrain` measures the sea floor) and a
+PACKED kerbal frozen at a non-surface situation. A live lane leaving a kerbal on the Mun at
+scene exit would prove it end to end.
 
 ---
 
