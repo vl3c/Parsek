@@ -5713,6 +5713,10 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
     parser.add_argument("--umbrella-root", help="override the umbrella root (default: parent of the worktree)")
     parser.add_argument("--instance-dir", help="override the resolved instance dir (single-profile runs / tests)")
     parser.add_argument("--no-coverage", action="store_true", help="skip the coverage/flake refresh")
+    parser.add_argument("--keep-stop-request", action="store_true",
+                        help="do NOT drop a stop request found at selection start: the caller "
+                             "(tools/tier_runner.py) already cleared stale ones at its own start, "
+                             "so one present now was sent during this invocation")
     parser.add_argument("--admit-only", action="store_true",
                         help="run the ADMIT step once per instance profile the selection "
                              "touches (plus the mission venv when it holds an autopilot "
@@ -5894,7 +5898,8 @@ def consume_stop_request(logger) -> bool:
 def _run_selection(selected, specs, registry, umbrella_root, args, runtime, logger,
                    lock_path, expr) -> int:
     """The selection loop, running under an already-held machine lock."""
-    clear_stale_stop_request(logger)
+    if getattr(args, "keep_stop_request", False) is not True:
+        clear_stale_stop_request(logger)
     # Build Parsek.Tests ONCE, before the first lane, so every verifier subprocess
     # (seed analyzer, analyzer, log validation) runs -NoBuild behind it. A failed
     # build refuses the WHOLE selection pre-boot with one INVALID(tooling-build) row

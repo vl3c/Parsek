@@ -563,6 +563,19 @@ def plan_profiles(lanes: Sequence[FullRunLane]) -> List[str]:
     return sorted({lane.profile for lane in lanes}, key=_profile_rank)
 
 
+def provision_profiles(flown_profiles: Sequence[str]) -> List[str]:
+    """What ``--provision`` provisions: every profile still to fly, in
+    provisioning order, and ALWAYS the reference profile first when anything
+    flies. The other installs admit against the reference install's DLL, so
+    provisioning only them (a resume with no stock-minimal lane left) would
+    leave them refused against the old reference build."""
+    import hlib as _h
+    wanted = set(flown_profiles)
+    if wanted:
+        wanted.add(_h.REFERENCE_DLL_PROFILE)
+    return sorted(wanted, key=_profile_rank)
+
+
 def format_plan_summary(lanes: Sequence[FullRunLane],
                         skipped: Sequence[Tuple[str, str]] = ()) -> List[str]:
     """Human lines for a plan: one per (tier, profile) segment in flight order
@@ -653,6 +666,31 @@ def full_run_tally(plan_ids: Sequence[str], summary_lines: Sequence[str],
         counts[entry[0]] = counts.get(entry[0], 0) + 1
     text = format_tally(counts)
     return "%s pending=%d of %d" % (text, pending, len(plan_ids))
+
+
+def full_run_pending_count(plan_ids: Sequence[str], summary_lines: Sequence[str],
+                           since_iso: str) -> int:
+    """How many plan lanes have no settled line in the window yet."""
+    latest = full_run_latest_verdicts(summary_lines, since_iso)
+    return sum(1 for sid in plan_ids
+               if sid not in latest or not full_run_done(*latest[sid]))
+
+
+def settle_full_run_outcome(outcome: TierRunOutcome, pending: int,
+                            unknown_ids: Sequence[str]) -> TierRunOutcome:
+    """A full-run invocation that exited GREEN while plan lanes are still
+    unsettled did not fly the plan (a lane whose spec was renamed or deleted
+    since the plan was made never gets a line, and every later resume would
+    repeat it). That must read RED, naming the lanes. STOPPED and every red
+    outcome already say the run is incomplete."""
+    if outcome.outcome != OUTCOME_GREEN or pending <= 0:
+        return outcome
+    names = ""
+    if unknown_ids:
+        names = "; no spec carries %s (renamed or deleted since the plan)" % ", ".join(
+            list(unknown_ids)[:10])
+    return TierRunOutcome(OUTCOME_RED, "%s; %d plan lane(s) still unsettled after a green "
+                                       "invocation%s" % (outcome.detail, pending, names))
 
 
 def classify_admit_preflight(exit_code: int,
@@ -953,6 +991,10 @@ def build_run_argv(tier: str, ids_file: Optional[str] = None) -> List[str]:
         argv = [sys.executable, RUN_PY, "--ids-file", ids_file]
     else:
         argv = [sys.executable, RUN_PY, "--tier", tier]
+    # The runner clears a stale stop request at ITS start (clear_stale_stop_request),
+    # so one present when run.py starts was sent during this invocation (during a
+    # long --provision, say) and must be honoured, not dropped as stale.
+    argv.append("--keep-stop-request")
     extra = os.environ.get("PARSEK_TIER_RUNPY_ARGS", "").strip()
     if extra:
         argv.extend(shlex.split(extra))
@@ -1052,6 +1094,7 @@ def run(tier: str, log: TeeLog, log_name: str) -> int:
         skip = preflight_machine(log)
         if skip is not None:
             return _finish(log, tier, skip, log_name)
+        clear_stale_stop_request(log)
         outcome, _ = invoke_and_classify(log, build_run_argv(tier))
         return _finish(log, tier, outcome, log_name)
     finally:
@@ -1194,6 +1237,7 @@ def run_full(log: TeeLog, log_name: str, stamp: str, resume: Optional[str],
             skip = preflight_machine(log)
             if skip is not None:
                 return _finish(log, FULL_RUN, skip, log_name)
+            clear_stale_stop_request(log)
 
         if resume:
             plan, plan_name = load_full_plan(resume)
@@ -1234,9 +1278,12 @@ def run_full(log: TeeLog, log_name: str, stamp: str, resume: Optional[str],
 
         if provision and not plan_only:
             needs_venv = _plan_needs_venv(ids)
-            failed = provision_stack(log, profiles, needs_venv)
+            failed = provision_stack(log, provision_profiles(profiles), needs_venv)
             if failed is not None:
                 return _finish(log, FULL_RUN, failed, log_name)
+            stopped = consume_stop_request(log, "after provisioning")
+            if stopped is not None:
+                return _finish(log, FULL_RUN, stopped, log_name)
 
         code, evidence = spawn_run(build_admit_only_argv(ids_path), log,
                                    keep=lambda l: "admit" in l)
@@ -1248,10 +1295,22 @@ def run_full(log: TeeLog, log_name: str, stamp: str, resume: Optional[str],
         if unfit is not None:
             log.warn("Preflight", unfit.detail)
             return _finish(log, FULL_RUN, unfit, log_name)
+        stopped = consume_stop_request(log, "after the admission preflight")
+        if stopped is not None:
+            return _finish(log, FULL_RUN, stopped, log_name)
 
+        known = {s.get("id") for s in load_specs()}
+        unknown_ids = [sid for sid in ids if sid not in known]
+        if unknown_ids:
+            log.warn("Plan", "%d plan lane(s) name no loaded spec (renamed or deleted since "
+                             "the plan was made); they cannot fly: %s"
+                     % (len(unknown_ids), unknown_ids))
         outcome, _ = invoke_and_classify(log, build_run_argv(FULL_RUN, ids_file=ids_path))
-        tally = full_run_tally(plan_ids, read_summary_lines(), since)
+        lines_after = read_summary_lines()
+        tally = full_run_tally(plan_ids, lines_after, since)
         log.info("Plan", "full run %s standing: %s" % (plan_name, tally))
+        outcome = settle_full_run_outcome(
+            outcome, full_run_pending_count(plan_ids, lines_after, since), unknown_ids)
         outcome = TierRunOutcome(outcome.outcome, "%s; plan=%s whole-run=[%s]"
                                  % (outcome.detail, plan_name, tally))
         return _finish(log, FULL_RUN, outcome, log_name)
@@ -1264,6 +1323,33 @@ def _plan_needs_venv(ids: Sequence[str]) -> bool:
     return any(spec.get("id") in wanted
                and (spec.get("driver", {}) or {}).get("kind") == "autopilot"
                for spec in load_specs())
+
+
+def clear_stale_stop_request(log: TeeLog) -> None:
+    """A stop request present when the runner starts belongs to a run that already
+    ended; drop it so a request made from now on is unambiguous."""
+    if os.path.exists(STOP_REQUEST_PATH):
+        try:
+            os.remove(STOP_REQUEST_PATH)
+            log.info("Stop", "removed a stale stop request left by an earlier run: %s"
+                     % STOP_REQUEST_PATH)
+        except OSError as exc:
+            log.warn("Stop", "could not remove a stale stop request %s: %s"
+                     % (STOP_REQUEST_PATH, exc))
+
+
+def consume_stop_request(log: TeeLog, phase: str) -> Optional[TierRunOutcome]:
+    """Honour a stop request between the runner's own phases (before run.py ever
+    starts): STOPPED, with the request consumed. None when none is pending."""
+    if not os.path.exists(STOP_REQUEST_PATH):
+        return None
+    try:
+        os.remove(STOP_REQUEST_PATH)
+    except OSError as exc:
+        log.warn("Stop", "stop request %s could not be removed (%s); honouring it anyway"
+                 % (STOP_REQUEST_PATH, exc))
+    log.warn("Stop", "%s %s; no lane flew" % (hlib.STOP_HONOURED_MARKER, phase))
+    return TierRunOutcome(OUTCOME_STOPPED, "stopped by request %s; nothing flew" % phase)
 
 
 def request_stop() -> int:

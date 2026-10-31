@@ -7537,7 +7537,8 @@ class PipelinedEdgeSmokeTests(unittest.TestCase):
         shutil.rmtree(self.box, ignore_errors=True)
 
     def _select(self, ids, plan, heartbeats=None, copy_fails=(), budgets=None,
-                serial=False, runtime_cls=None, interrupt_at_stage=None, patches=()):
+                serial=False, runtime_cls=None, interrupt_at_stage=None, patches=(),
+                args_extra=None):
         rt = (runtime_cls or _SelectionRuntime)(plan, os.path.join(self.box, "Player.log"))
         orig_stage = self._orig_stage
         self.results_at_stage = {}
@@ -7569,7 +7570,10 @@ class PipelinedEdgeSmokeTests(unittest.TestCase):
                if k not in (hlib.SERIAL_VERIFY_ENV, hlib.RESULTS_ARCHIVE_OPT_OUT_ENV)}
         if serial:
             env[hlib.SERIAL_VERIFY_ENV] = "1"
-        args = mock.Mock(instance_dir=self.instance, no_coverage=True, serial_verify=False)
+        arg_values = dict(instance_dir=self.instance, no_coverage=True, serial_verify=False,
+                          keep_stop_request=False)
+        arg_values.update(args_extra or {})
+        args = mock.Mock(**arg_values)
         self.interrupted = False
         with contextlib.ExitStack() as stack:
             stack.enter_context(mock.patch.dict(os.environ, env, clear=True))
@@ -7637,6 +7641,18 @@ class PipelinedEdgeSmokeTests(unittest.TestCase):
         self.assertEqual(["PE-A#1", "PE-A#2"], rt.launch_order)
         self.assertNotIn("PE-B", results)
         self.assertIn("dropped=1", log)
+
+    def test_a_request_sent_before_the_loop_is_kept_when_the_caller_says_so(self):
+        # tier_runner clears stale requests itself and passes --keep-stop-request,
+        # so a request made during its own phases stops the run before lane one.
+        os.makedirs(run.RESULTS_DIR, exist_ok=True)
+        with open(os.path.join(run.RESULTS_DIR, hlib.STOP_REQUEST_FILENAME), "w") as fh:
+            fh.write("during provisioning\n")
+        code, results, rt, log = self._select(
+            ["PE-A", "PE-B"], {}, args_extra={"keep_stop_request": True})
+        self.assertEqual([], rt.launch_order)
+        self.assertEqual({}, results)
+        self.assertIn("dropped=2", log)
 
     def test_a_stale_stop_request_is_dropped_at_selection_start(self):
         os.makedirs(run.RESULTS_DIR, exist_ok=True)

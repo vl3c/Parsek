@@ -1653,7 +1653,9 @@ invocation: one machine lock, one Parsek.Tests build, one coverage refresh.
   drifted install (reference first, since the others admit against its DLL),
   `missions/bootstrap_venv.py` for the venv. Every lane still admits itself at
   launch; the preflight only saves flying 300 lanes into a wall.
-- **`--provision`** provisions every install the plan flies, reference first,
+- **`--provision`** provisions every install the plan flies, and always the
+  reference install first (the others admit against its DLL, even on a resume
+  with no `stock-minimal` lane left),
   from THIS worktree's `bin/Debug/Parsek.dll`, bootstraps the mission venv, then
   runs the preflight. It is the explicit opt-in to "never auto-provision": build
   the commit you mean to test in a sibling worktree, then invoke from there.
@@ -1662,9 +1664,13 @@ invocation: one machine lock, one Parsek.Tests build, one coverage refresh.
   attempt-2 retry it already owes all finish; unstarted lanes are dropped with
   NO result row, and the log says `stop request honoured ... dropped=N`. The
   invocation then reads `STOPPED` (exit 3), unless something already went red,
-  which keeps its RED. `run.py` deletes the file when it honours it and at
-  selection start, so a leftover request never stops the next run. `--stop`
-  works on any tier's run, not only a full one.
+  which keeps its RED. The runner drops a leftover request at its own start and
+  passes `run.py --keep-stop-request`, so a request sent during its own phases
+  (a long `--provision`, the preflight) is honoured: between phases it stops the
+  run before `run.py` starts, and `run.py` honours one it finds before lane one.
+  A bare `run.py` (no `--keep-stop-request`) drops a request it finds at
+  selection start as stale. `--stop` works on any tier's run, not only a full
+  one.
 - **`--resume [PLAN]`** continues the newest `full_*.plan.json` (or the named
   one): a plan lane whose latest `summary.txt` line since the plan started is
   settled is skipped, everything else flies, in plan order. Only an attempt-1
@@ -1673,7 +1679,10 @@ invocation: one machine lock, one Parsek.Tests build, one coverage refresh.
   Resume as often as needed; the window stays the plan's start. A resume warns
   when the worktree's HEAD differs from the plan's: the remaining lanes fly
   whatever the installs carry now. A Ctrl-C or a crash mid-lane leaves that lane
-  without a settled line, so a resume flies it again.
+  without a settled line, so a resume flies it again. A plan lane whose spec was
+  renamed or deleted since can never settle: the runner warns before flying, and
+  an invocation that would otherwise read GREEN with plan lanes still unsettled
+  reads RED, naming them.
 - **History.** One `history.txt` line per invocation (`tier=full`), whose detail
   ends with `plan=<file> whole-run=[...]`: the latest verdict per plan lane
   across every invocation of that plan, plus `pending=N of M`. That last field

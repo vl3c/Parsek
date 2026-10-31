@@ -604,16 +604,16 @@ class BuildRunArgvTests(unittest.TestCase):
         argv = cr.build_run_argv("nightly")
         self.assertEqual(argv[0], sys.executable)
         self.assertTrue(argv[1].endswith("run.py"))
-        self.assertEqual(argv[2:], ["--tier", "nightly"])
+        self.assertEqual(argv[2:], ["--tier", "nightly", "--keep-stop-request"])
 
     def test_the_test_seam_appends_and_never_removes_the_tier(self):
         os.environ["PARSEK_TIER_RUNPY_ARGS"] = "--dry-run --no-coverage"
         argv = cr.build_run_argv("daily")
-        self.assertEqual(argv[2:], ["--tier", "daily", "--dry-run", "--no-coverage"])
+        self.assertEqual(argv[2:], ["--tier", "daily", "--keep-stop-request", "--dry-run", "--no-coverage"])
 
     def test_a_blank_seam_value_changes_nothing(self):
         os.environ["PARSEK_TIER_RUNPY_ARGS"] = "   "
-        self.assertEqual(cr.build_run_argv("operator")[2:], ["--tier", "operator"])
+        self.assertEqual(cr.build_run_argv("operator")[2:], ["--tier", "operator", "--keep-stop-request"])
 
 
 # ---------------------------------------------------------------------------
@@ -662,7 +662,7 @@ class FullRunVocabularyTests(unittest.TestCase):
         finally:
             if old is not None:
                 os.environ["PARSEK_TIER_RUNPY_ARGS"] = old
-        self.assertEqual(argv[2:], ["--ids-file", "/x/full.ids"])
+        self.assertEqual(argv[2:], ["--ids-file", "/x/full.ids", "--keep-stop-request"])
         self.assertEqual(cr.build_admit_only_argv("/x/full.ids")[2:],
                          ["--ids-file", "/x/full.ids", "--admit-only"])
 
@@ -784,6 +784,70 @@ class FullRunResumeTests(unittest.TestCase):
                  "full_garbage.plan.json", "history.txt"]
         self.assertEqual(cr.select_latest_plan(names), "full_2026-10-31_090000.plan.json")
         self.assertIsNone(cr.select_latest_plan(["history.txt"]))
+
+
+class FullRunReviewFixTests(unittest.TestCase):
+    def test_a_green_invocation_with_unsettled_plan_lanes_reads_red(self):
+        green = cr.TierRunOutcome(cr.OUTCOME_GREEN, "PASS=5")
+        out = cr.settle_full_run_outcome(green, 1, ["GONE-1"])
+        self.assertEqual(out.outcome, cr.OUTCOME_RED)
+        self.assertIn("1 plan lane(s) still unsettled", out.detail)
+        self.assertIn("GONE-1", out.detail)
+
+    def test_a_settled_plan_or_a_non_green_outcome_is_left_alone(self):
+        green = cr.TierRunOutcome(cr.OUTCOME_GREEN, "PASS=5")
+        self.assertIs(cr.settle_full_run_outcome(green, 0, []), green)
+        stopped = cr.TierRunOutcome(cr.OUTCOME_STOPPED, "x")
+        self.assertIs(cr.settle_full_run_outcome(stopped, 7, []), stopped)
+
+    def test_pending_count_matches_the_tally(self):
+        lines = FullRunResumeTests.LINES
+        plan = ["old", "a", "b", "c", "d", "e", "f"]
+        self.assertEqual(cr.full_run_pending_count(plan, lines, FullRunResumeTests.SINCE), 3)
+
+    def test_provisioning_always_starts_with_the_reference_install(self):
+        self.assertEqual(cr.provision_profiles(["modded-compat", "stock-tree"]),
+                         ["stock-minimal", "stock-tree", "modded-compat"])
+        self.assertEqual(cr.provision_profiles(["stock-minimal"]), ["stock-minimal"])
+        self.assertEqual(cr.provision_profiles([]), [])
+
+
+class RunnerStopRequestIoTests(unittest.TestCase):
+    """The runner's own stop handling: a stale request is dropped at its start,
+    one sent during its own phases (a long --provision) stops it before run.py."""
+
+    def setUp(self):
+        self.box = tempfile.mkdtemp(prefix="tier-stop-")
+        self._saved = cr.STOP_REQUEST_PATH
+        cr.STOP_REQUEST_PATH = os.path.join(self.box, "stop-request")
+        self.log = cr.TeeLog(os.path.join(self.box, "r.log"), console_write=lambda t: None)
+
+    def tearDown(self):
+        self.log.close()
+        cr.STOP_REQUEST_PATH = self._saved
+        shutil.rmtree(self.box, ignore_errors=True)
+
+    def _touch(self):
+        with open(cr.STOP_REQUEST_PATH, "w") as fh:
+            fh.write("x")
+
+    def test_a_request_sent_mid_phase_stops_the_run_and_is_consumed(self):
+        self.assertIsNone(cr.consume_stop_request(self.log, "after provisioning"))
+        self._touch()
+        out = cr.consume_stop_request(self.log, "after provisioning")
+        self.assertEqual(out.outcome, cr.OUTCOME_STOPPED)
+        self.assertIn("after provisioning", out.detail)
+        self.assertFalse(os.path.exists(cr.STOP_REQUEST_PATH))
+
+    def test_a_stale_request_is_dropped_at_the_runner_start(self):
+        self._touch()
+        cr.clear_stale_stop_request(self.log)
+        self.assertFalse(os.path.exists(cr.STOP_REQUEST_PATH))
+
+    def test_request_stop_writes_the_file_run_py_polls(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(cr.main(["--stop"]), cr.EXIT_GREEN)
+        self.assertTrue(os.path.exists(cr.STOP_REQUEST_PATH))
 
 
 class FullRunAdmitPreflightTests(unittest.TestCase):
