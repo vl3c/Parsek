@@ -280,9 +280,10 @@ namespace Parsek.Tests.SaveRoundTrip
                 Type def = t.GetGenericTypeDefinition();
                 Type[] args = t.GetGenericArguments();
                 if (def == typeof(List<>) || def == typeof(HashSet<>) || def == typeof(IList<>)
-                    || def == typeof(IReadOnlyList<>) || def == typeof(ICollection<>) || def == typeof(IEnumerable<>))
+                    || def == typeof(IReadOnlyList<>) || def == typeof(ICollection<>) || def == typeof(IEnumerable<>)
+                    || def == typeof(IReadOnlyCollection<>) || def == typeof(ISet<>))
                 {
-                    Type concrete = def == typeof(HashSet<>)
+                    Type concrete = def == typeof(HashSet<>) || def == typeof(ISet<>)
                         ? typeof(HashSet<>).MakeGenericType(args)
                         : typeof(List<>).MakeGenericType(args);
                     object coll = Activator.CreateInstance(concrete);
