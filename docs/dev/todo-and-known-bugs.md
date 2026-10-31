@@ -2049,7 +2049,7 @@ children is not re-evaluated. xUnit:
 FIRSTLAUNCH). Live proof owed: CS-3's re-flight (`hardFailures=0`, a `ContractParameterCompleted`
 line before each `'Achieve goal' complete!`).
 
-## CONTRACT-EVENT-OF-A-BACKGROUND-VESSEL-TAGGED-TO-THE-ACTIVE-RECORDING [FILED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`. OPEN; low]
+## CONTRACT-EVENT-OF-A-BACKGROUND-VESSEL-TAGGED-TO-THE-ACTIVE-RECORDING [FILED 2026-10-24 from a code read, branch `claude/project-thread-dkcvpn`. OPEN, BLOCKED 2026-10-31 (branch `fix-low-ledger-bugs`): the stock event names no vessel; low]
 
 A contract completed or failed by a background vessel (a booster under canopy while the upper stage
 is active) is converted with the active recording's id, so a Re-Fly of that booster cannot retire
@@ -2057,6 +2057,23 @@ it and a Re-Fly of the active stage would. Rule 1 seals both slots anyway (a con
 row), so nothing is wrongly retired today; it matters once a contract row can be re-flown. Fix
 direction: resolve the cause vessel through the event's vessel pid, as the strategy conversion door
 does (`GameStateRecorder.ResolveStrategyConversionRecordingTag`).
+
+**Not fixed: there is no cause vessel to resolve (2026-10-31).** Reflection over the reference
+`Assembly-CSharp.dll` (KSP 1.12.5): `GameEvents.Contract.onCompleted` and `onFailed` are
+`EventData<Contracts.Contract>`, and neither `Contracts.Contract` nor `Contracts.ContractParameter`
+declares any `Vessel`-typed field or property. Parsek's handlers (`GameStateRecorder.OnContractCompleted`
+/ `OnContractFailed`, `GameStateRecorder.Handlers.cs`) and the parameter reward capture
+(`ContractParameterRewardPaid`: guid, parameter id, title, rewards) receive only that. The strategy
+door's "pid" is not an event pid either: `ResolveStrategyConversionRecordingTag` reads the open
+`RecoveryDispatchScope.CurrentPersistentId`, the same scope `Emit` already offers a contract event
+(Re-Fly cause tag, and the recovery owner when no live tag exists; the owner only takes progress
+events). A completion caused by a background vessel outside a recovery therefore has no vessel
+Parsek can see, and guessing one (the nearest, the last loaded) would mis-file a contract the
+active stage completed. A fix needs a per-parameter-type probe of the vessel a parameter checked
+(stock parameters mostly read `FlightGlobals.ActiveVessel`, so the case is mainly mod parameters),
+or a Harmony scope around a vessel-bound parameter's completion; neither is warranted while Rule 1
+seals both slots. If one is built, a vessel match must go through `VesselLaunchIdentity`
+(persistentId is craft-baked).
 
 ---
 
