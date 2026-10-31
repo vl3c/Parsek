@@ -1,0 +1,229 @@
+schema = 1
+id = "RW-23-strategy-part-purchase-rebuy"
+# =====================================================================================
+# RW-23: A STRATEGY-DISCOUNTED PART PURCHASE INSIDE A COMMITTED TIMELINE, ACROSS A
+# REWIND-TO-LAUNCH (the rewind ledger campaign; the part-purchase half of #2313, todo
+# STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED; RW-9 took the repair half).
+#
+# THE RULE UNDER TEST (game-actions design 3.15 item 7): a strategy's discount on a part
+# purchase belongs to that purchase. Aggressive Negotiations multiplies the funds of an
+# `RnDPartPurchase` (1.00..0.70) and adds -1..-6 reputation; the purchase row is gross (the
+# part's entry cost), so the strategy's two legs are written as conversion rows that name the
+# purchase (`ConversionCauseScope`, key `Part:<name>`, opened around stock's own
+# `Funding.onPartPurchased`). After a rewind they apply once, with the row they belong to, and
+# never as an untagged pool adjustment.
+#
+# THE HOST. `career-pad-craft-purchase` (new, built by construction by
+# `tools/build_career_pad_craft_purchase.py`): L2's `career-pad-craft` with entry purchases on
+# (BypassEntryPurchaseAfterResearch = False) and reputation 120, nothing else. No committed
+# host had both: the entry-purchase hosts hold reputation 0 or 2, below the activation gate of
+# Aggressive Negotiations, and every reputation-rich host bypasses entry purchases. Funds
+# 500000, science 100, the Jumping Flea on the pad (pid 2905720181), x1 multipliers.
+#
+# THE PART. The RT-10 Hammer (`solidBooster.v2`) on `basicRocketry` (5 science), the part L11
+# buys on the Hard host (entry cost 1200, measured there).
+#
+# WHY NO SECOND PURCHASE. With the purchase committed ahead of the clock, buying the same part
+# again after the rewind is refused (the part-purchase backstop, `StockUiPartPurchase`; the
+# seam reads `blocked-committed`, KB-4's shape), so the todo's "re-buy" cannot reach stock: the
+# lane pins that refusal and then the crossing, where the committed purchase and its legs must
+# apply once (RW-9's shape for the repair).
+#
+# PLAN (UTs are the plan):
+#   boot       LoadGame persistent at the Space Center (UT 9.06).
+#   strategy   activate-strategy AgressiveNegotiations (default factor 0.05).
+#   research   basicRocketry (-5 science). Both before V's launch, so in its rewind save, and
+#              more than 15 s before it (the Rewind-to-Launch lead window, RW-9's finding).
+#   V          warp to 60 at the Space Center, save, load that save onto the pad Flea (RW-22's
+#              shape), record 60..100, commit, Recover (L8's pad recovery).
+#   purchase   warp to 200 (T1), R&D open on basicRocketry: buy the Hammer, discounted, its two
+#              legs naming the purchase.
+#   rewind     InvokeRewindToLaunch tree=latest: clock ~45, the Hammer unbought again, the
+#              purchase committed future.
+#   refused    buy it again -> REJECTED blocked-committed; the blocked dialog dismissed.
+#   crossing   warp to 260: the committed purchase marks the part purchased and applies its
+#              legs once; the pools after the crossing equal the pools after the purchase.
+#   check      the Settings Probe onto the pad (L8's launch), the default save, LedgerGroundTruth.
+#
+# STEP SAVES (temporary analysis artifacts, copied with the run under logs/):
+#   rw23-setup, rw23-01-after-v-commit, rw23-02-after-purchase, rw23-03-after-rtl,
+#   rw23-04-after-crossing.
+#
+# PINNED LITERALS (read 2026-10-31 on main b36af9b):
+#   Game state: PartPurchased '<n>' (chargedCost=        GameStateRecorder.Handlers.cs:825
+#   Scope opened: FundsSpending key='Part:<n>'           GameActions/ConversionLegBinding.cs:176
+#   Strategy conversion recorded: type=                  GameActions/LedgerOrchestrator.cs:6559
+#   Blocking part purchase: '<n>' ... committed future   StockUiPartPurchase.cs:135
+#   kscaction purchase-part not applied: / refused       TestCommands/TestCommandKscAction.cs
+#   PatchPurchasedParts: targets=N, added=N              GameActions/KspStatePatcher.cs:1582
+#   filed StockPoolAdjustment amount=                    GameActions/KspStatePatcher.cs:6427
+#
+# PRE-REGISTERED READINGS (what to check first if the first flight reds):
+#   - `kscaction refused action=activate-strategy reason=strategy-cannot-activate`: stock's
+#     reason is in the line; a reputation gate above 120 means the seed is too low (the host
+#     builder's MEASURED_AN_ACTIVATION_REP), not a product defect.
+#   - no `Strategy conversion recorded ... reason=RnDPartPurchase`: the funds leg was not
+#     admitted (`StrategyConversionCapture.IsNominalChannelFundsReason`), the #2313 defect.
+#   - `filed StockPoolAdjustment amount=` at the purchase or the crossing: the discount kept
+#     as an untagged adjustment, the #2313 defect's shape.
+#   - the pools after the crossing differ by the leg's size (about 18 funds or 1.25 rep): the
+#     leg paid twice or not at all at the crossing.
+#
+# STATUS: AUTHORED 2026-10-31 (branch `lanes-strategy-purchase-and-refly-recovery`), NEVER
+# FLOWN. The batch split, the leg sizes and the recordings count are interim until measured.
+# =====================================================================================
+tier = "operator"
+description = "Rewind ledger campaign, strategy discount on a part purchase (#2313): on career-pad-craft-purchase (entry purchases on, reputation 120) Aggressive Negotiations is activated and basicRocketry researched, a pad Flea V is recorded, committed and recovered, the RT-10 Hammer is bought at UT 200 with the strategy's discount, a Rewind-to-Launch to V's launch refuses a second purchase as committed, and the warp past the purchase applies it and its conversion legs once: the pools after the crossing equal the pools after the original purchase, with no pool adjustment and no guard clamp; LedgerGroundTruth closes the career."
+instanceProfile = "stock-minimal"
+tags = ["RW-23", "career", "ledger", "rewind", "rewind-to-launch", "strategy",
+        "strategy-conversion", "part-purchase", "stock-ui", "editor", "recovery",
+        "ground-truth", "ingame-batch", "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-pad-craft-purchase"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 2 x 300 LoadGame + 2 x 60 KscAction + 4 x 120 warps + 180 StartRecording
+# + 120 warp + 120 CommitTree + 120 Recover + 2 x 60 purchase-part + 300 rewind + 120 GoToEditor
+# + 180 LaunchFromEditor + 120 check warp + 6 x 120 SaveGame + 540 RunTests = 3960; runtime 4800
+# adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  # ---- the strategy and the node, both well before V's launch (so in its rewind save) ----
+  { cmd = "KscAction",      args = { action = "activate-strategy", strategy = "AgressiveNegotiations" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw23-an-active" },                           expect = "OK" },
+  { cmd = "KscAction",      args = { action = "research-node", node = "basicRocketry" },   expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw23-researched" },                          expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "60", maxRate = "100" },                         expect = "OK", budget = 120 },
+  { cmd = "SaveGame",       args = { name = "rw23-setup" },                                expect = "OK", budget = 120 },
+  # ---- V: the pad Flea, recorded 60..100, committed, recovered ----
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "rw23-setup", focusPid = "2905720181" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "DiscardTree",                                                                   expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "100" },                                         expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "2905720181" },                                 expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw23-v-recovered" },                         expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw23-01-after-v-commit" },                   expect = "OK", budget = 120 },
+  # ---- the discounted purchase at T1 = 200 ----
+  { cmd = "WarpToUT",       args = { ut = "200", maxRate = "100" },                        expect = "OK", budget = 120 },
+  { cmd = "StockScreen",    args = { screen = "rnd", act = "open" },                       expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "rnd", act = "select", item = "basicRocketry" }, expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw23-before-purchase" },                     expect = "OK" },
+  { cmd = "KscAction",      args = { action = "purchase-part", part = "solidBooster.v2" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rw23-purchased" },                           expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "rnd", act = "close" },                      expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw23-02-after-purchase" },                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw23-before-rewind" },                       expect = "OK" },
+  # ---- the rewind to V's launch: the Hammer unbought, the purchase committed future ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rw23-rewound" },                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw23-03-after-rtl" },                        expect = "OK", budget = 120 },
+  # ---- a second purchase is refused as committed (the part-purchase backstop) ----
+  { cmd = "StockScreen",    args = { screen = "rnd", act = "open" },                       expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "rnd", act = "select", item = "basicRocketry" }, expect = "OK" },
+  { cmd = "KscAction",      args = { action = "purchase-part", part = "solidBooster.v2" }, expect = "REJECTED", budget = 60 },
+  { cmd = "UiAction",       args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+  { cmd = "StockScreen",    args = { screen = "rnd", act = "close" },                      expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw23-refused" },                             expect = "OK" },
+  # ---- the crossing: the committed purchase and its legs apply once ----
+  { cmd = "WarpToUT",       args = { ut = "260", maxRate = "100" },                        expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw23-crossed" },                             expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw23-04-after-crossing" },                   expect = "OK", budget = 120 },
+  # ---- the check: an unrecorded launch onto the (clear) pad, the save, the ground truth ----
+  # The one-part Settings Probe (L8's): no crew, so nothing a committed flight holds can stall
+  # the rollout.
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Settings Probe" },         expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "290" },                                         expect = "OK", budget = 120 },
+  # The DEFAULT slot (persistent): the one a harvest reads; the named slots above are side files.
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "reputation", "science", "recalc-engine", "ksp-state-patcher", "ground-truth-harness"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# V only; the check launch is unrecorded (L11 measured one recording for this shape). INTERIM.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=",
+
+  # ---- the strategy and the node ----
+  "kscaction action=activate-strategy target=AgressiveNegotiations applied=true manifestKind=strategy-activate [\\s\\S]*?MISSIONMARK label=rw23-an-active ut=",
+  "MISSIONMARK label=rw23-an-active ut=[\\s\\S]*?kscaction action=research-node target=basicRocketry applied=true[\\s\\S]*?MISSIONMARK label=rw23-researched ut=",
+
+  # ---- the discounted purchase: applied, gross row, both legs naming the purchase ----
+  "MISSIONMARK label=rw23-before-purchase ut=(?:(?!MISSIONMARK label=rw23-purchased )[\\s\\S])*?kscaction action=purchase-part target=solidBooster\\.v2 applied=true",
+  "MISSIONMARK label=rw23-before-purchase ut=(?:(?!MISSIONMARK label=rw23-before-rewind )[\\s\\S])*?Game state: PartPurchased 'solidBooster\\.v2' \\(chargedCost=[1-9][0-9]*, entryCost=[1-9][0-9]*, costsFunds=True\\)",
+  # The cause scope stock's charge runs inside (rate-limited per type: the first one prints).
+  "MISSIONMARK label=rw23-before-purchase ut=(?:(?!MISSIONMARK label=rw23-before-rewind )[\\s\\S])*?Scope opened: FundsSpending key='Part:solidBooster\\.v2' reasons=\\[RnDPartPurchase\\]",
+  # The discount: a positive funds leg, and the strategy's reputation leg, both under the
+  # purchase's reason (RW-9 measured -1.25 at the default factor for the repair's leg).
+  "MISSIONMARK label=rw23-before-purchase ut=(?:(?!MISSIONMARK label=rw23-before-rewind )[\\s\\S])*?Strategy conversion recorded: type=FundsEarning, currency=Funds, delta=[0-9][0-9.E+-]*, UT=(?:19[0-9]|20[0-9])\\.[0-9], reason=RnDPartPurchase",
+  "MISSIONMARK label=rw23-before-purchase ut=(?:(?!MISSIONMARK label=rw23-before-rewind )[\\s\\S])*?Strategy conversion recorded: type=ReputationPenalty, currency=Reputation, delta=-[0-9][0-9.E+-]*, UT=(?:19[0-9]|20[0-9])\\.[0-9], reason=RnDPartPurchase",
+  # Stock charges a part after Parsek's listener, so the reconcile and the recalc defer a frame.
+  "MISSIONMARK label=rw23-before-purchase ut=(?:(?!MISSIONMARK label=rw23-before-rewind )[\\s\\S])*?OnKscSpending: deferring the reconcile and recalc one frame for FundsSpending",
+
+  # ---- after the rewind: a second purchase is refused as committed, nothing charged ----
+  "MISSIONMARK label=rw23-before-rewind ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=rw23-rewound ut=",
+  "MISSIONMARK label=rw23-rewound ut=(?:(?!MISSIONMARK label=rw23-refused )[\\s\\S])*?\\[PartPurchasePatch\\] Blocking part purchase: 'solidBooster\\.v2' \\([^)]*\\) source=RDTech\\.PurchasePart - committed future purchase ut=(?:19[0-9]|20[0-9]) nowUT=[0-9]+",
+  "MISSIONMARK label=rw23-rewound ut=(?:(?!MISSIONMARK label=rw23-refused )[\\s\\S])*?kscaction purchase-part not applied: target=solidBooster\\.v2 purchasedBefore=False purchasedAfter=False fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 ",
+  "MISSIONMARK label=rw23-rewound ut=(?:(?!MISSIONMARK label=rw23-refused )[\\s\\S])*?kscaction refused action=purchase-part reason=blocked-committed target=solidBooster\\.v2",
+  "MISSIONMARK label=rw23-rewound ut=(?:(?!MISSIONMARK label=rw23-refused )[\\s\\S])*?\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false",
+
+  # ---- the crossing: the part marked purchased once, the pools equal the pools after the
+  # original purchase ----
+  "MISSIONMARK label=rw23-refused ut=(?:(?!MISSIONMARK label=rw23-crossed )[\\s\\S])*?PatchPurchasedParts: targets=[0-9]+, added=1, [^\\r\\n]*addedParts=\\[solidBooster\\.v2\\]",
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw23-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw23-crossed ut=",
+
+  # ---- the ground truth (interim split until the first flight measures it) ----
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  # The discount is never kept as an untagged pool adjustment (the #2313 defect's shape).
+  "filed StockPoolAdjustment amount=",
+  # No guard clamp anywhere in the lane.
+  "GUARDED (?:UPLIFT|DRAWDOWN) clamped",
+  # The discounted purchase reconciles against its legs (no expected-versus-observed mismatch).
+  "MISSIONMARK label=rw23-before-purchase ut=(?:(?!MISSIONMARK label=rw23-before-rewind )[\\s\\S])*?KSC reconciliation \\(funds\\): action FundsSpending",
+  # The part is bought once: no second applied purchase after the rewind.
+  "MISSIONMARK label=rw23-rewound ut=[\\s\\S]*kscaction action=purchase-part target=solidBooster\\.v2 applied=true",
+  # The crossing marks it purchased once, never again on a later patch.
+  "PatchPurchasedParts: targets=[0-9]+, added=1, [\\s\\S]*PatchPurchasedParts: targets=[0-9]+, added=1, ",
+]
+
+[runtime]
+budgetSeconds = 4800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

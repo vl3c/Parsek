@@ -931,6 +931,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # ParsekScenario node career-science-pad and career-pad-craft do.
         "career-science-pad-hard": True,
         "career-pad-craft-zero-funds": True,
+        # career-pad-craft-purchase (harness/tools/build_career_pad_craft_purchase.py)
+        # changes one DIFFICULTY flag and the reputation pool of career-pad-craft, so it
+        # carries the same ParsekScenario node.
+        "career-pad-craft-purchase": True,
         "gs1-two-stage-pad": True,
         # coalescer-pad is gs1-two-stage-pad byte for byte except two parts' stage
         # assignments (harness/tools/build_coalescer_pad.py), so it carries the same

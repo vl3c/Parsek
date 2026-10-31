@@ -1,0 +1,212 @@
+schema = 1
+id = "RW-25-refly-recover-pressed"
+# =====================================================================================
+# RW-25: STOCK'S RECOVER BUTTON PRESSED INSIDE A RE-FLY ATTEMPT, CONCLUDED THROUGH THE RE-FLY
+# MERGE DIALOG, CARRIED ACROSS A REWIND-TO-LAUNCH (the rewind ledger campaign; the residue of
+# todo SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY, "Recover pressed inside a Re-Fly", which RW-11 left
+# as option B because the seam's Recover refused inside a Re-Fly).
+#
+# THE RULE UNDER TEST: a recovery made inside a Re-Fly attempt is the player's earned value.
+# Every funds patch of a Re-Fly session is authoritative (it writes the pool back to the ledger
+# target and measures nothing), so the payout survives only as its own FundsEarning(Recovery)
+# row, booked once at stock's amount; after a Rewind-to-Launch that row is committed future and
+# crosses once, and the pools after the crossing equal the pools before the rewind.
+#
+# THE SEAM ADDITION (this branch): `Recover mergeDialog=refly`. Inside a Re-Fly the press's
+# Space Center load is intercepted by the Re-Fly merge modal (autoMerge does not suppress it),
+# so the wedge guard refused `dialog-required`. With the opt-in the verb presses when that modal
+# is the only wedge and the Re-Fly marker is live (`TestCommandRecover.DecideWedge`), answers OK
+# with `mergeDialog=open` once the modal is up, and the next step's AnswerMergeDialog concludes
+# it; the dialog's post-choice loads the Space Center and stock's `VesselRetrieval` recovers the
+# pod 8 frames later, exactly as for a player who pressed Recover and then Merge.
+#
+# WHY NOT UNDER 100 FUNDS. The stock button recovers the ACTIVE vessel only, and every
+# controllable vessel on these hosts is worth more than 100 (the Flea's Mk1 pod alone is 600).
+# The under-100 case inside a Re-Fly is RW-11's (stock's clean-up recovering 25-funds fins,
+# LIVE-PROVEN `2026-10-28_1919`); this lane is the pressed path, whatever the amount.
+#
+# PLAN (cs-career-mun4 = CS-6c's produced save, UT ~185734; RW-11's G and hop, verbatim):
+#   boot       LoadGame persistent at the Space Center; warp to 185800.
+#   G          CS Flea Probe on the pad, recorded, its stand decoupled there (a rewind point),
+#              committed in flight with the pod's Landed slot stashed.
+#   refly      Re-Fly slot 0: the SRB lit, the Mk16 armed in the descent, a soft landing on
+#              KSC grass by 186000 (RW-11 measured it).
+#   recover    `Recover pid=${landed.activePid} mergeDialog=refly`: the press, the Re-Fly modal,
+#              OK `mergeDialog=open`; AnswerMergeDialog choice=merge; at the Space Center stock
+#              recovers the pod and its payout is booked once.
+#   rewind     Rewind-to-Launch onto G's tree: the recovery row is committed future.
+#   crossing   warp to 186100: it crosses once and the pools come back.
+#   check      an unrecorded CS Flea Probe onto the pad, the default save, LedgerGroundTruth.
+#
+# STEP SAVES (temporary analysis artifacts): rw25-01-after-g-commit, rw25-02-landed,
+# rw25-03-after-merge, rw25-04-after-rtl, rw25-05-after-crossing.
+#
+# PINNED LITERALS (read 2026-10-31 on main b36af9b plus this branch):
+#   recover wedge accepted variant= gate= pid=           TestCommands/ParsekTestCommandAddon.Recover.cs
+#   recover pressed into re-fly merge dialog pid=        TestCommands/TestCommandRecover.cs
+#   recover pressed pid= vessel= situation= ut=          TestCommands/TestCommandRecover.cs
+#   VesselRecovery funds patched: vessel= amount= ut=   GameActions/LedgerRecoveryFundsPairing.cs:724
+#   Clock-crossing reached committed-future rows:       GameActions/LedgerOrchestrator.cs
+#   filed StockPoolAdjustment amount=                    GameActions/KspStatePatcher.cs:6427
+#
+# STATUS: AUTHORED 2026-10-31, NEVER FLOWN. Interim until measured: the recordings window, the
+# recovery's amount and UT, the batch split (pinned `passed=[1-9]`, INTERIM_PIN_IDS), whether
+# the recovery row is tagged to the attempt's recording (pinned loosely: `recordingId=`).
+# Open question the first flight answers: whether the modal spawns inside the click (the
+# immediate OK) or a frame later (the poll's OK); both paths answer the same line.
+# =====================================================================================
+tier = "operator"
+description = "Rewind ledger campaign, stock's Recover pressed inside a Re-Fly attempt (todo SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY residue): on cs-career-mun4 a CS Flea Probe decoupled on the pad is committed with its pod slot stashed, a Re-Fly of that slot hops and lands on KSC grass under its chute, Recover mergeDialog=refly presses the stock button into the Re-Fly merge modal, AnswerMergeDialog merges, stock recovers the pod at the Space Center and its payout is booked once; after a Rewind-to-Launch the warp crosses the recovery once and the pools come back; LedgerGroundTruth closes the career."
+instanceProfile = "stock-tree"
+tags = ["RW-25", "career", "ledger", "rewind", "rewind-to-launch", "refly", "recovery",
+        "recover-in-refly", "stock-recover-button", "editor", "ground-truth",
+        "ingame-batch", "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 300 LoadGame + 120 warp + 2 x (120 GoToEditor + 180 LaunchFromEditor)
+# + 180 StartRecording + 120 warp + 120 CommitTree + 300 InvokeRewind + 120 + 240 warps
+# + 120 Recover + 240 merge + 300 rewind + 120 crossing warp + 120 check warp + 6 x 120 SaveGame
+# + 540 RunTests = 4440; runtime 5400 adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+
+  # ---- G: the CS Flea Probe decoupled on the pad (a rewind point), committed in flight ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "CS Flea Probe" },          expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "g",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "PartAction",     args = { button = "decouple", part = "radialDecoupler" }, label = "dec", expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185812", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c1",                   expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "handles",           expect = "OK" },
+  { cmd = "StashSlot",      args = { rp = "${handles.rp0}", slot = "0" },                  expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw25-g-committed" },                         expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw25-01-after-g-commit" },                   expect = "OK", budget = 120 },
+
+  # ---- the Re-Fly: the hop and the chute landing on KSC grass (RW-11's measured profile) ----
+  { cmd = "InvokeRewind",   args = { rp = "${handles.rp0}", slot = "0" },                  expect = "OK", budget = 300 },
+  { cmd = "ListHandles",    args = { kind = "chains" },                                    expect = "OK" },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                        expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rw25-refly-started" },                       expect = "OK" },
+  { cmd = "PartAction",     args = { button = "activate", part = "solidBooster.sm.v2" },   expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185860", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "PartAction",     args = { button = "chute", part = "parachuteSingle" },         expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "186000", maxRate = "1" },                       expect = "OK", budget = 240 },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  # The active vessel's pid, read on the ground: the handle the press names.
+  { cmd = "PartAction",     args = { button = "inspect", part = "mk1pod.v2" }, label = "landed", expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw25-02-landed" },                           expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw25-before-recover" },                      expect = "OK" },
+
+  # ---- the press: stock's Recover into the Re-Fly modal, then Merge; stock recovers at the KSC ----
+  { cmd = "Recover",        args = { pid = "${landed.activePid}", mergeDialog = "refly" }, expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw25-modal-up" },                            expect = "OK" },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                                expect = "OK", budget = 240 },
+  { cmd = "MissionMark",    args = { label = "rw25-merged" },                              expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c2",                   expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw25-03-after-merge" },                      expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw25-before-rewind" },                       expect = "OK" },
+
+  # ---- the rewind onto G's tree: the recovery row is committed future ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rw25-rewound" },                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw25-04-after-rtl" },                        expect = "OK", budget = 120 },
+
+  # ---- the crossing ----
+  { cmd = "WarpToUT",       args = { ut = "186100", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rw25-crossed" },                             expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rw25-05-after-crossing" },                   expect = "OK", budget = 120 },
+
+  # ---- the check: RW-11's unrecorded probe launch (the Stayputnik keeps "No Control" away) ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "CS Flea Probe" },          expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "186130" },                                      expect = "OK", budget = 120 },
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D5  = ["controlled-decoupled-child"]
+D8  = ["funds", "recalc-engine", "ksp-state-patcher", "ground-truth-harness"]
+D9  = ["rewind-to-launch", "rewind-to-separation", "unfinished-flights-stash", "supersede-relation"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 34, G's launch recording and its stand, the TIP the merge's split cuts and the
+# merged attempt's recording (RW-11 measured 39 with its fin debris; no booster is exploded
+# here). INTERIM window until measured.
+count = { min = 37, max = 39 }
+
+[expectations.logContracts]
+required = [
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=",
+
+  # ---- G: launched, decoupled on the pad into a second controllable vessel ----
+  "launchfromeditor complete scene=FLIGHT vessel=CS Flea Probe pid=([0-9]+) [\\s\\S]*?partaction applied button=decouple pid=\\1 part='radialDecoupler' partId=[0-9]+ event=Decouple newPid=[1-9][0-9]* ",
+  "RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 focusSlot=0 ut=1858[0-9]{2}\\.[0-9]{2}[\\s\\S]*?RewindPoint slot capture: rp=\\1 populated=2/2 disabled=0",
+
+  # ---- the Re-Fly hop ----
+  "MISSIONMARK label=rw25-refly-started ut=(?:(?!MISSIONMARK label=rw25-before-recover )[\\s\\S])*?partaction applied button=activate pid=[0-9]+ part='solidBooster\\.sm\\.v2' [^\\r\\n]*state='engine:ignited=1'",
+  "MISSIONMARK label=rw25-refly-started ut=(?:(?!MISSIONMARK label=rw25-before-recover )[\\s\\S])*?partaction applied button=chute pid=[0-9]+ part='parachuteSingle' partId=[0-9]+ event=Deploy ",
+
+  # ---- the press into the Re-Fly modal (this branch's seam addition) ----
+  "MISSIONMARK label=rw25-before-recover ut=(?:(?!MISSIONMARK label=rw25-modal-up )[\\s\\S])*?recover wedge accepted variant=ReFlyAttempt gate=RefusedActiveTreeDialog pid=([0-9]+) [\\s\\S]*?recover pressed pid=\\1 vessel=CS Flea Probe situation=LANDED ut=[\\s\\S]*?recover pressed into re-fly merge dialog pid=\\1 vessel=CS Flea Probe ut=",
+  "MISSIONMARK label=rw25-modal-up ut=[\\s\\S]*?MISSIONMARK label=rw25-merged ut=",
+
+  # ---- the recovery: stock's payout for the pod, booked once ----
+  "MISSIONMARK label=rw25-modal-up ut=(?:(?!MISSIONMARK label=rw25-before-rewind )[\\s\\S])*?Game state: FundsChanged \\+[1-9][0-9]{2,}(?:\\.[0-9]+)? \\(VesselRecovery\\)",
+  "MISSIONMARK label=rw25-modal-up ut=(?:(?!MISSIONMARK label=rw25-before-rewind )[\\s\\S])*?VesselRecovery funds patched: vessel='CS Flea Probe' amount=[1-9][0-9]{2,} ut=18[0-9]{4}\\.[0-9] recordingId=",
+
+  # ---- the rewind and the crossing: the recovery crosses, the pools come back ----
+  "MISSIONMARK label=rw25-before-rewind ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=rw25-rewound ut=",
+  "MISSIONMARK label=rw25-rewound ut=(?:(?!MISSIONMARK label=rw25-crossed )[\\s\\S])*?Clock-crossing reached committed-future rows: [^\\r\\n]*FundsEarning@",
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw25-before-rewind ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=rw25-crossed ut=",
+
+  # ---- the ground truth (INTERIM split: never flown) ----
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=0 ",
+]
+forbidden = [
+  "result: hardFailures=[1-9]",
+  # The default wedge refusal: the opt-in did not take.
+  "recover rejected reason=dialog-required",
+  # A recovery change dropped, or its pairing skipped.
+  "skipping deferred recovery-funds pairing",
+  # One payout row for the pod.
+  "VesselRecovery funds patched: vessel='CS Flea Probe' [\\s\\S]*VesselRecovery funds patched: vessel='CS Flea Probe' ",
+  # No pool adjustment, no guard clamp.
+  "filed StockPoolAdjustment amount=",
+  "GUARDED (?:UPLIFT|DRAWDOWN) clamped",
+]
+
+[runtime]
+budgetSeconds = 5400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
