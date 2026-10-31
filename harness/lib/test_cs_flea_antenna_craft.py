@@ -15,8 +15,7 @@ import unittest
 HARNESS_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUILDER = os.path.join(HARNESS_ROOT, "tools", "build_cs_flea_antenna_craft.py")
 BASE = os.path.join(HARNESS_ROOT, "fixtures", "ships", "Jumping Flea.craft")
-CRAFT = os.path.join(HARNESS_ROOT, "fixtures", "saves", "cs-science-flea",
-                     "Ships", "VAB", "Flea Antenna.craft")
+CRAFT = os.path.join(HARNESS_ROOT, "fixtures", "ships", "Flea Antenna.craft")
 SCENARIOS = os.path.join(HARNESS_ROOT, "scenarios")
 HOSTED_SPECS = ("CS-2-science-engineering101.toml",)
 

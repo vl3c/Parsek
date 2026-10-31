@@ -3718,6 +3718,7 @@ timeline, re-locked by a Rewind-to-Launch, a second research refused `insufficie
 row reserves its 45 in the live pool; the committed-row click-block behind it is not reached), and the
 crossing unlocking it with the science spent once. No defect.
 
+Progress 2026-10-31 (branch `rw16-transmit-then-recover`): lane `RW-16-transmit-then-recover-earlier` LIVE-PROVEN (`2026-10-31_0217`): a transmitted subject recovered earlier after a rewind: the recovery takes the full value, the transmission only the remainder (0), the science pool unchanged. No defect.
 Progress 2026-10-31 (branch `rw15-earlier-milestone`): lane `RW-15-earlier-milestone` LIVE-PROVEN (`2026-10-31_0213`): a world-first earned earlier after a rewind is paid once at the earlier UT, the later committed row zeroed, nothing taken back. No defect.
 Progress 2026-10-31 (branch `rw14-dismiss`): lane `RW-14-dismissal-across-rewind` LIVE-PROVEN (`2026-10-31_0251`) on feature 9231e59
 (KERBAL-DISMISSAL-ON-THE-TIMELINE, owner option A): after a rewind the dismissed kerbal is Crew but held, a second
