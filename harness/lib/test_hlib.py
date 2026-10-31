@@ -17530,7 +17530,8 @@ class PartActionSourceSyncTests(unittest.TestCase):
         consts = ("UndockToken", "DecoupleToken", "ControlFromToken", "DeployToken",
                   "RetractToken", "StartConverterToken", "StopConverterToken", "ExperimentToken",
                   "LabProcessToken", "LabTransmitToken", "InspectToken", "RadiatorOnToken",
-                  "RadiatorOffToken", "ActivateToken", "ExplodeToken", "ChuteToken")
+                  "RadiatorOffToken", "ActivateToken", "ExplodeToken", "ChuteToken",
+                  "RunTestToken")
         self.assertEqual(len(consts), len(hlib.PARTACTION_BUTTON_VALUES))
         for token, const in zip(hlib.PARTACTION_BUTTON_VALUES, consts):
             self.assertIn('internal const string %s = "%s";' % (const, token), text)
