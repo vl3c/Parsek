@@ -26,6 +26,8 @@ namespace Parsek.Tests.SaveRoundTrip
     [SaveRoundTripCovers(typeof(LedgerHeldWindow))]
     [SaveRoundTripCovers(typeof(StockShadowTakeBack))]
     [SaveRoundTripCovers(typeof(StockPoolReference))]
+    [SaveRoundTripCovers(typeof(GameStateStore))]
+    [SaveRoundTripCovers(typeof(MilestoneStore))]
     public class StoreSaveRoundTripTests : IDisposable
     {
         public StoreSaveRoundTripTests()
@@ -50,6 +52,8 @@ namespace Parsek.Tests.SaveRoundTrip
             LedgerHeldWindow.ResetForTesting();
             StockShadowTakeBack.ResetForTesting();
             StockPoolReference.ResetForTesting();
+            GameStateStore.ResetForTesting();
+            MilestoneStore.ResetForTesting();
         }
 
         /// <summary>One static store: its save, its reset, its load, and its field contract.</summary>
