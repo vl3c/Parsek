@@ -3843,7 +3843,7 @@ Progress 2026-10-31 (branch `rw14-dismiss`): lane `RW-14-dismissal-across-rewind
 (KERBAL-DISMISSAL-ON-THE-TIMELINE, owner option A): after a rewind the dismissed kerbal is Crew but held, a second
 dismissal and a seat are refused, and the clock turns him into an Applicant once with nothing booked twice. No defect.
 
-Progress 2026-10-31 (branch `rw22-patents-recovery`): lane `RW-22-patents-licensing-recovery` AUTHORED on `lab-pad-career`: a science-carrying lab recovered under Patents Licensing: stock's payout booked once as the recovery, the converter's yield once as its strategy leg. Never flown.
+Progress 2026-10-31 (branch `rw22-patents-recovery`): lane `RW-22-patents-licensing-recovery` LIVE-PROVEN (`2026-10-31_0405`): a science-carrying lab recovered under Patents Licensing books one payout row and its yields as strategy legs only, with no reconcile error. Flown on PR #2334's head 4c52034. No defect left.
 
 ## LANDED-EVA-KERBAL-READ-AS-SUBSURFACE-BY-THE-FINALIZER: a background-recorded EVA kerbal landed on the Mun takes the sub-surface fallback [FILED 2026-10-28 from CS-7 runs `2026-10-28_0357` / `_0432_a2`. OPEN; report-only, needs triage]
 

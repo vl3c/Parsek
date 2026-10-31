@@ -27,8 +27,12 @@ id = "RW-22-patents-licensing-recovery"
 #   recover    Recover the lab: the payout, the lab's science, the strategy's cut.
 #   check      an unrecorded Flea onto the pad (the shared overlay), the save, LedgerGroundTruth.
 #
-# STATUS: AUTHORED 2026-10-31 (branch `rw22-patents-recovery`). Its first flight `2026-10-31_0321` found
-# RECOVERY-RECONCILE-ERROR-ON-TWO-SCIENCE-CREDITS (fixed on PR #2334); the rule under test held there.
+# STATUS: LIVE-PROVEN 2026-10-31, `2026-10-31_0405` PASS attempt 1 (DLL c9dcc4c4, head 4c52034 of PR #2334). Patents Licensing active, the pad lab
+# recovered at UT 358.2: stock's `recovery@KerbinOrbited` (10, `reason='VesselRecovery'` from the open recovery scope,
+# `method=Recovered`) and the lab's 12.5, one `VesselRecovery funds patched ... amount=204881`, the yields 42.03 and 52.54
+# booked only as strategy `FundsEarning` legs; no reconcile dump, no `[Parsek][ERROR]`, no pool adjustment, no guard
+# clamp; LedgerGroundTruth 2 passed 1 skipped hardFailures=0; ledger_audit PASS. Its first flight `2026-10-31_0321`
+# found RECOVERY-RECONCILE-ERROR-ON-TWO-SCIENCE-CREDITS, fixed on the same PR.
 # =====================================================================================
 tier = "operator"
 description = "Rewind ledger campaign, a science-carrying vessel recovered under Patents Licensing: on lab-pad-career the strategy is activated at the Space Center and the pad lab is recovered with its 12.5 science: stock's payout is booked once as the recovery, the converter's yield once as its strategy leg, nothing twice, and LedgerGroundTruth closes the career."
@@ -82,7 +86,7 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # Nothing records: auto-record is off and the pad lab's load discards its tree.
-count = { min = 0, max = 0 }
+count = 0
 
 [expectations.logContracts]
 required = [
@@ -102,7 +106,7 @@ required = [
   "MISSIONMARK label=rw22-before-recover ut=(?:(?!MISSIONMARK label=rw22-recovered )[\\s\\S])*?VesselRecovery funds patched: vessel='[^'\\r\\n]+' amount=[0-9]+ ",
 
   # ---- the ground truth ----
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT",
   "result: hardFailures=0 ",
 ]
 forbidden = [
