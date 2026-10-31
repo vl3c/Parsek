@@ -46,9 +46,15 @@ namespace Parsek.Logistics
             /// is null; null on success.</summary>
             internal string RejectReason;
 
-            /// <summary>How many manual loops the mutual-exclusion guard turned off.
-            /// The caller decides whether to surface that (the window toasts).</summary>
+            /// <summary>How many manual loops the mutual-exclusion guard turned off on the
+            /// route's OWN tree(s). The caller decides whether to surface that (the window
+            /// toasts).</summary>
             internal int ManualLoopsCleared;
+
+            /// <summary>The names of partner missions (on another tree, reaching the route's
+            /// tree through an included partner journey) whose loop the guard turned off.
+            /// Never null on success; the window toasts each by its own name.</summary>
+            internal List<string> PartnerMissionsCleared;
 
             /// <summary>The interval that was handed to the builder (echoed so a
             /// caller can report it without recomputing).</summary>
@@ -130,11 +136,16 @@ namespace Parsek.Logistics
             RouteStore.AddRoute(outcome.Route);
             // Mutual exclusion (design §0.6): a tree is EITHER a supply route OR a
             // manually looped recording/mission. Route looping wins.
-            int cleared = RouteTreeGuard.ForceClearManualLoopForRoute(outcome.Route, currentUT);
+            var clearedMissions = new List<Mission>();
+            int clearedTotal = RouteTreeGuard.ForceClearManualLoopForRoute(
+                outcome.Route, currentUT, clearedMissions);
+            List<string> partnerCleared = RouteTreeGuard.PartnerMissionNames(outcome.Route, clearedMissions);
+            int cleared = clearedTotal - partnerCleared.Count;
 
             ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
                 "CreatePausedFromCandidate created tree={0} route={1} name='{2}' " +
-                "status={3} interval={4}s transit={5}s cadence={6} manualLoopsCleared={7}",
+                "status={3} interval={4}s transit={5}s cadence={6} manualLoopsCleared={7} " +
+                "partnerMissionLoopsCleared={8}",
                 RouteIds.Short(candidate.Tree.Id),
                 RouteIds.Short(outcome.Route.Id),
                 outcome.Route.Name ?? string.Empty,
@@ -142,12 +153,14 @@ namespace Parsek.Logistics
                 outcome.Route.DispatchInterval.ToString("R", CultureInfo.InvariantCulture),
                 outcome.Route.TransitDuration.ToString("R", CultureInfo.InvariantCulture),
                 outcome.Route.CadenceMultiplier.ToString(CultureInfo.InvariantCulture),
-                cleared.ToString(CultureInfo.InvariantCulture)));
+                cleared.ToString(CultureInfo.InvariantCulture),
+                partnerCleared.Count.ToString(CultureInfo.InvariantCulture)));
 
             return new RouteCreateOutcome
             {
                 Route = outcome.Route,
                 ManualLoopsCleared = cleared,
+                PartnerMissionsCleared = partnerCleared,
                 IntervalSeconds = intervalSeconds
             };
         }

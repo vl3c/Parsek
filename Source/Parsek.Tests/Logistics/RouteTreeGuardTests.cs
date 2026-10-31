@@ -619,6 +619,53 @@ namespace Parsek.Tests.Logistics
             Assert.Contains("RouteTreeGuard.IsTreeBoundToActiveRoute(link.ForeignTreeId)", src);
         }
 
+        [Fact]
+        public void ForceClearForRoute_CollectsTheClearedMissions_AndNamesOnlyThePartner()
+        {
+            SeedPartnerTrees();
+            Mission b = LoadPartnerMission(includeLink: true, loop: true);
+            Route route = RouteOnTree("route-T", "ta");
+            var cleared = new List<Mission>();
+
+            int total = RouteTreeGuard.ForceClearManualLoopForRoute(route, 200.0, cleared);
+
+            Assert.Equal(1, total);
+            Assert.Single(cleared);
+            Assert.Same(b, cleared[0]);
+            Assert.Equal(new List<string> { "B mission" },
+                RouteTreeGuard.PartnerMissionNames(route, cleared));
+        }
+
+        [Fact]
+        public void PartnerMissionNames_LeavesTheRoutesOwnTreeOut()
+        {
+            Route route = RouteOnTree("route-T", "ta");
+            var cleared = new List<Mission>
+            {
+                new Mission("ma", "ta", "A mission"),
+                new Mission("mb", "tb", "B mission"),
+                null
+            };
+
+            Assert.Equal(new List<string> { "B mission" },
+                RouteTreeGuard.PartnerMissionNames(route, cleared));
+            Assert.Empty(RouteTreeGuard.PartnerMissionNames(null, cleared));
+            Assert.Empty(RouteTreeGuard.PartnerMissionNames(route, null));
+        }
+
+        [Fact]
+        public void LogisticsCreate_ToastsEachPartnerMissionByItsOwnName()
+        {
+            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
+                RepoRoot(), "Source", "Parsek", "UI", "LogisticsWindowUI.cs"));
+            int loop = src.IndexOf("outcome.PartnerMissionsCleared[pi]", System.StringComparison.Ordinal);
+            Assert.True(loop >= 0, "the create path must read the partner missions it cleared");
+            int toast = src.IndexOf("FormatMissionNowRepeatsOnRouteToast(partnerName)", loop,
+                System.StringComparison.Ordinal);
+            Assert.True(toast > loop && toast - loop < 400,
+                "each partner mission is toasted by its own name");
+        }
+
         private static string RepoRoot()
         {
             string dir = System.AppDomain.CurrentDomain.BaseDirectory;

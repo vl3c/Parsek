@@ -3579,6 +3579,19 @@ namespace Parsek
                     ParsekLog.Info("UI",
                         $"Logistics: manual loop turned off by create route={ShortId(outcome.Route.Id)} tree={ShortId(sourceTreeId)} mission='{missionName}' cleared={outcome.ManualLoopsCleared.ToString(CultureInfo.InvariantCulture)} (toast posted)");
                 }
+                // A partner mission whose included partner journey reached the route's tree lost
+                // its loop too; name it, not the route's own mission (that one did not change).
+                if (outcome.PartnerMissionsCleared != null)
+                {
+                    for (int pi = 0; pi < outcome.PartnerMissionsCleared.Count; pi++)
+                    {
+                        string partnerName = outcome.PartnerMissionsCleared[pi];
+                        ParsekLog.ScreenMessage(
+                            LogisticsCreatePresentation.FormatMissionNowRepeatsOnRouteToast(partnerName), 5f);
+                        ParsekLog.Info("UI",
+                            $"Logistics: partner mission loop turned off by create route={ShortId(outcome.Route.Id)} mission='{partnerName}' (toast posted)");
+                    }
+                }
                 ParsekLog.Info("UI",
                     $"Logistics: Create Route from candidate tree={ShortId(candidate.Tree.Id)} -> route={ShortId(outcome.Route.Id)} name='{outcome.Route.Name}' (Paused, interval={interval.ToString("R", CultureInfo.InvariantCulture)}s)");
                 return outcome.Route;

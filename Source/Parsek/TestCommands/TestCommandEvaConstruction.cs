@@ -94,6 +94,21 @@ namespace Parsek.TestCommands
         public int ParameterCount;
     }
 
+    /// <summary>What the detach does with the part it now holds.</summary>
+    internal enum DetachFollowUp
+    {
+        Stow,
+        Drop
+    }
+
+    /// <summary>A loaded vessel that appeared after the drop was requested.</summary>
+    internal struct DroppedVesselCandidate
+    {
+        internal uint VesselPid;
+        internal int PartCount;
+        internal string FirstPartName;
+    }
+
     /// <summary>
     /// Pure decision core for the two EVA construction actions of the <c>EvaGroundScience</c>
     /// seam verb, <c>action=attach</c> and <c>action=detach</c> (the live proof of
@@ -121,21 +136,6 @@ namespace Parsek.TestCommands
     /// Every other guard - the weight check, <c>CanPartBeEdited</c>, the range tests, the
     /// collider veto - stays stock's, and stock fires the GameEvents.</para>
     /// </summary>
-    /// <summary>What the detach does with the part it now holds.</summary>
-    internal enum DetachFollowUp
-    {
-        Stow,
-        Drop
-    }
-
-    /// <summary>A loaded vessel that appeared after the drop was requested.</summary>
-    internal struct DroppedVesselCandidate
-    {
-        internal uint VesselPid;
-        internal int PartCount;
-        internal string FirstPartName;
-    }
-
     internal static class TestCommandEvaConstruction
     {
         /// <summary>Attach: the part name to attach to; detach: the part name to take off.</summary>

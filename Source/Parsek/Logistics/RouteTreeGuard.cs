@@ -202,8 +202,11 @@ namespace Parsek.Logistics
         /// enable; on disable the value is ignored).</param>
         /// <returns>The total number of manual loops actually turned off (mission
         /// loops + per-recording loops). 0 when the tree had no manual loop, so the
-        /// caller can fire a "loop turned off" toast ONLY on a real clear (M5).</returns>
-        internal static int ForceClearManualLoopForRouteTree(string treeId, double currentUT)
+        /// caller can fire a "loop turned off" toast ONLY on a real clear (M5). Every
+        /// mission whose loop was turned off is added to <paramref name="clearedMissions"/>
+        /// when it is given.</returns>
+        internal static int ForceClearManualLoopForRouteTree(string treeId, double currentUT,
+            List<Mission> clearedMissions = null)
         {
             if (string.IsNullOrEmpty(treeId))
             {
@@ -241,6 +244,8 @@ namespace Parsek.Logistics
                     {
                         MissionStore.SetLoopEnabled(toClear[i], false, currentUT);
                         missionsCleared++;
+                        if (clearedMissions != null)
+                            clearedMissions.Add(toClear[i]);
                     }
                 }
             }
@@ -278,8 +283,12 @@ namespace Parsek.Logistics
         /// </summary>
         /// <returns>The total number of manual loops actually turned off across the
         /// distinct source trees (0 when nothing was cleared), so the create path can
-        /// fire a "loop turned off" toast ONLY on a real clear (M5).</returns>
-        internal static int ForceClearManualLoopForRoute(Route route, double currentUT)
+        /// fire a "loop turned off" toast ONLY on a real clear (M5). When
+        /// <paramref name="clearedMissions"/> is given, every mission whose loop was turned
+        /// off is added to it, so a caller can name a partner mission rather than the
+        /// route's own tree.</returns>
+        internal static int ForceClearManualLoopForRoute(Route route, double currentUT,
+            List<Mission> clearedMissions = null)
         {
             if (route == null)
             {
@@ -300,13 +309,13 @@ namespace Parsek.Logistics
                     if (sref == null || string.IsNullOrEmpty(sref.TreeId))
                         continue;
                     if (seen.Add(sref.TreeId))
-                        totalCleared += ForceClearManualLoopForRouteTree(sref.TreeId, currentUT);
+                        totalCleared += ForceClearManualLoopForRouteTree(sref.TreeId, currentUT, clearedMissions);
                 }
             }
             if (!string.IsNullOrEmpty(route.BackingMissionTreeId)
                 && seen.Add(route.BackingMissionTreeId))
             {
-                totalCleared += ForceClearManualLoopForRouteTree(route.BackingMissionTreeId, currentUT);
+                totalCleared += ForceClearManualLoopForRouteTree(route.BackingMissionTreeId, currentUT, clearedMissions);
             }
 
             if (seen.Count == 0)
@@ -316,6 +325,29 @@ namespace Parsek.Logistics
             }
 
             return totalCleared;
+        }
+
+        /// <summary>
+        /// Splits the missions a route clear turned off into the route's own trees and the
+        /// partner missions that reached a route tree through an included partner journey.
+        /// Returns the partner missions' names, in clear order; null-safe.
+        /// </summary>
+        internal static List<string> PartnerMissionNames(Route route, IReadOnlyList<Mission> cleared)
+        {
+            var names = new List<string>();
+            if (route == null || cleared == null)
+                return names;
+            for (int i = 0; i < cleared.Count; i++)
+            {
+                Mission m = cleared[i];
+                if (m == null)
+                    continue;
+                bool ownTree = string.Equals(m.TreeId, route.BackingMissionTreeId, StringComparison.Ordinal)
+                    || RouteBindsTreeId(route, m.TreeId);
+                if (!ownTree)
+                    names.Add(string.IsNullOrEmpty(m.Name) ? m.TreeId : m.Name);
+            }
+            return names;
         }
 
         // True when any of the route's SourceRefs carries the given tree id.

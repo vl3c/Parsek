@@ -5414,13 +5414,14 @@ Each item needs a trace (or a lane) before it is a defect or a non-issue; see
   looped those recordings itself, so the docked stretch played twice on two clocks
   (`MissionLoopUnitBuilder` kept the first claimant and warned). A route now owns every mission
   that spans its tree, not only the mission on the tree itself (`RouteTreeGuard.MissionSpansTree`):
-  Create Route and the load reconcile clear such a mission's loop (`ForceClearManualLoopForRouteTree`),
+  Create Route and the load reconcile clear such a mission's loop (`ForceClearManualLoopForRouteTree`;
+  Create Route's toast names that partner mission, `RouteCreateOutcome.PartnerMissionsCleared`),
   the Missions window reads the binding at mission level (`RouteBindingForMission`, both the loop
   cell and the warp-to-window gate) so the loop toggle is greyed with the existing "looped by
   route" label, and including a partner journey into a route-bound tree on a looping mission turns
   that mission's loop off with the existing "now repeats only on this route's schedule" toast.
   Cells in `RouteTreeGuardTests` (span predicate, force-clear through the link, no clear without
-  it, mission-level binding, own-tree route wins, the two UI call sites).
+  it, the partner-name split, mission-level binding, own-tree route wins, the UI call sites).
 - [x] ~~A ghost CommNet relay serving a station drops out during Re-Fly suppression or when its
   spawn is abandoned (`GhostCommNet.cs` around 741-770).~~ By design (GC-14 trace 2026-10-24): the
   re-flown vessel carries its own node, and an abandoned spawn means the vessel never exists.
