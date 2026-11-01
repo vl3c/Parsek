@@ -1560,7 +1560,7 @@ namespace Parsek.Tests
             string root = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
             string source = File.ReadAllText(Path.Combine(
-                root, "Source", "Parsek", "Display", "GhostTrajectoryPolylineRenderer.cs"));
+                root, "Source", "Parsek", "Display", GhostTrajectoryPolylineRendererSourceFiles.Anchoring));
 
             int method = source.IndexOf(
                 "private static bool TryAnchorLegToConicSeam(", StringComparison.Ordinal);

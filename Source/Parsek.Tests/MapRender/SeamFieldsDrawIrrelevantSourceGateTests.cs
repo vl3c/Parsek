@@ -58,7 +58,9 @@ namespace Parsek.Tests
         [InlineData("Display/GhostTrajectoryPolylineRenderer.cs")]
         public void LiveDrawPath_ReadsNoRenderSegmentSeamOrGeneratedField(string relPath)
         {
-            string src = CollapseWhitespace(StripLineComments(ReadParsekSource(relPath)));
+            // GhostTrajectoryPolylineRenderer is a partial class split across files: the draw path
+            // is the class, so read every file of it (the other path is one whole file).
+            string src = CollapseWhitespace(StripLineComments(ReadDrawPathSource(relPath)));
 
             foreach (string token in ForbiddenSeamReads)
             {
@@ -96,6 +98,19 @@ namespace Parsek.Tests
                 path = Path.Combine(root, "Parsek", relPath.Replace('/', Path.DirectorySeparatorChar));
             Assert.True(File.Exists(path), "Source file not found at " + path);
             return File.ReadAllText(path);
+        }
+
+        private static string ReadDrawPathSource(string relPath)
+        {
+            if (relPath != "Display/GhostTrajectoryPolylineRenderer.cs")
+                return ReadParsekSource(relPath);
+            ReadParsekSource(relPath); // asserts the main file exists, as before
+            string root = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string dir = Path.Combine(root, "Source", "Parsek", "Display");
+            if (!Directory.Exists(dir))
+                dir = Path.Combine(root, "Parsek", "Display");
+            return GhostTrajectoryPolylineRendererSourceFiles.ReadAll(dir);
         }
 
         private static string StripLineComments(string source)

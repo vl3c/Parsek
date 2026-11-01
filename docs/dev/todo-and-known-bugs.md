@@ -9117,6 +9117,13 @@ columns whose blanks are visible, where the old outline simply said nothing.
   lines, `.TableRows` 1,125, `.GroupTree` 900, `.RewindColumns` 765, `.UnfinishedFlights` 625,
   `.Window` 592, `.LoopPeriod` 572, `.SortAndStatus` 533, `.GroupAggregates` 498,
   `.WatchButton` 250.
+- `Display/GhostTrajectoryPolylineRenderer.cs` (6,938 lines) is now a partial class over 7
+  files (S3, pure move by `scripts/refactor/split_ghosttrajectorypolylinerenderer.py`; every
+  field, constant and property stays in the main file): `GhostTrajectoryPolylineRenderer.cs`
+  4,166 lines, `.Builder` 621, `.Anchoring` 575, `.LegDraw` 531, `.SeamBridges` 459,
+  `.Diagnostics` 387, `.ForwardArcs` 265. The main file stays large on purpose: the nested
+  `Driver` (2,764 lines, the fenced single draw host of design-map-ts-render-architecture.md
+  Appendix A) and the ownership / paint publication stay whole in the file the contract names.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
