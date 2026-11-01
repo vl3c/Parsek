@@ -17,6 +17,41 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## TEST-GAP-AUDIT-2026-10-31-RESIDUE: what the 2026-10-31 test gap audit still leaves open [FILED 2026-11-01 from a read-only re-check of the audit (`roadmap/test-gap-audit-2026-10-31.md` in the project files) against main 2622fd5. OPEN; test program, no known defect]
+
+Closed since the audit (each with its own entry or PR): A1 RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP
+(#2342, SLM-1 / SLM-2 / SLM-1T read the map ghost by POSITION), A2 ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER
+(xUnit only), C2 the Re-Fly value fuzzer (#2347), C3 SAVE-ROUND-TRIP-GATE (#2349), the route
+Re-Fly / multi-cycle warp lanes IR-3 and IR-6 plus `RouteTimelineFuzzerTests` (#2345, part of C1),
+and REV-1 / SWS-1 / CN-4 / CN-5 for Revert to VAB, save switching and CommNet ghosts across a rewind
+and a load (#2348, #2352, #2354). Still open, each found by grep on main 2622fd5:
+
+- [ ] C4: `BackgroundRecorder.OnBackgroundVesselSOIChanged` and `OnBackgroundVesselGoOffRails` are
+  named by no xUnit file (only the SOI seam producer wiring is gated).
+- [ ] C8: no test runs `RunOptimizationPass` over a store holding a committed route, so a load-time
+  rewrite that flips a route to SourceChanged would go unseen.
+- [ ] C9: `GhostCommNetManager` is named by no xUnit file (see GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST).
+- [ ] C6: `RouteHarvestAnalysis.ComputeHarvestedTotals`, `ComputeFullRunGains` and
+  `FindGainAnchorIndex` have no test; `HarvestCapture_CatchUpOnLoad` still skips on every host.
+- [ ] C5: `EffectiveState.ResolveRewindPointSlotIndexForRecording` still takes the first match
+  silently when two slots resolve to one recording.
+- [ ] C1 remainder: no per-resource conservation check (origin debit = delivered + by-design loss)
+  in an in-game category or the harness (HARNESS-RESOURCE-ORACLE-AND-INVARIANT-RULES).
+- [ ] B3 / item 3: route render lanes still pin counts and log lines, not where the route ghost or
+  its line is (only the SLM lanes read a loop ghost's position).
+- [ ] B7: loops never meet a Re-Fly, a career save or a scene change in watch mode.
+- [ ] B8: ghost FX across a Re-Fly or a revert has no lane.
+- [ ] B11: in-game categories no lane runs (ChainTipBlockedGhost, DeployedScienceGhost and the rest
+  of the audit's list).
+- [ ] Fixes proven by xUnit only, never seen in game: ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER,
+  ROUTE-LOAD-MID-CYCLE-MULTISTOP-REDISPATCH, ROUTE-WINDOW-SAVE-LOAD-KEEPS-WINDOW-ACTIONS,
+  CONTRACT-TWIN-GUID-SEEDED-TYPES, the three 2026-10-31 low ledger fixes
+  (STOCK-POOL-REFERENCE-CARRIED-ROWS-COUNTED-TWICE, OPTIMIZER-MERGE-RETAGS-LEDGER-ROWS-ONLY,
+  SUB-100-ROLLOUT-AND-BAILOUT-NOT-LEDGERED), RESCUE-PLACED-MARKER-SESSION-ONLY, the drop path of
+  TRIMMED-CHECKPOINT-SECTION-ENDS-BEFORE-IT-STARTS (B13 passed without reaching it), the RW-9R reading
+  variant owed by REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE, and the 2026-10-06 / 10-07
+  chain-walk, optimizer, facility and route-cargo fixes whose headers say "not flown".
+
 ## ~~REVERT-RESUMES-COMMITTED-RECORDING-BEHIND-ITS-END: after Revert to Launch the pad craft records over its own committed recording~~ [FILED 2026-11-01 from the overnight regression run (VN-5 `2026-11-01_1322`, PARSEK-FAIL analyzer INV2-NO-DOUBLE-COVER on main 9a1ed8d); FIXED 2026-11-01, branch `claude/project-thread-1ey0b9`; xUnit, LIVE-PROVEN VN-5 `2026-11-01_1613` PASS attempt 1; product, medium (a committed recording gains a second, overlapping track that plays back twice)]
 
 **Symptom.** VN-5 commits a short pad recording (UT 26.80 to 26.88), then Revert to Launch puts
@@ -218,7 +253,7 @@ owner re-resolved after a commit and is not needed for the ruling. The other mer
 two open questions to V are in the analysis doc https://claude.ai/artifact/XJtw36F8Xm8xnn7LMyvSaj
 (thread "Stop wheel jitter counting as a change").
 
-## ~~REPLAY-SCOPE-LOST-ON-SAVE-LOAD: a save written while a ghost replays loses that ghost when loaded~~ [FILED 2026-11-01 from lane CN-4's reading (thread "Cover Revert, save switching, CommNet ghosts"), owner ruling 2026-11-01; FIXED 2026-11-01, branch `claude/project-thread-beqac8`; unit-tested, lane CN-5 owed; product, high (every mid-replay ghost gone after a load: no flight / map / Tracking Station ghost, no CommNet relay, no terminal spawn)]
+## ~~REPLAY-SCOPE-LOST-ON-SAVE-LOAD: a save written while a ghost replays loses that ghost when loaded~~ [FILED 2026-11-01 from lane CN-4's reading (thread "Cover Revert, save switching, CommNet ghosts"), owner ruling 2026-11-01; FIXED 2026-11-01, branch `claude/project-thread-beqac8`; unit-tested, LIVE-PROVEN by CN-5 `2026-11-01_1443` PASS on main 461380a; the nightly reds it fixes (CN-2, CN-3, LT-5) not yet re-flown; product, high (every mid-replay ghost gone after a load: no flight / map / Tracking Station ghost, no CommNet relay, no terminal spawn)]
 
 A committed recording replays only while `PlaybackScopeTracker` holds it in replay scope (the
 BUG-B gate that keeps forward play from replaying history); a recording enters scope the first
@@ -558,7 +593,7 @@ payment`, zero `filed StockPoolAdjustment ... reason=leak` after the take-back's
 `STOCK_POOL_REFERENCE` in the save holding a `takenBack` line for the repeat row, the pools ending
 at the never-rewound values (186546 / 22.17 / 100.48 plus whatever the lane earns after), and
 `ledger_audit` green.
-## ~~KERBAL-DISMISSAL-ON-THE-TIMELINE: a kerbal fired at the Space Center was hired back by a Rewind-to-Launch, with nothing to stop him flying or being fired a second time~~ [RULED 2026-10-28 by the owner (option A: a dismissal stays on the timeline like a hire); BUILT 2026-10-28 on branch `kerbal-dismissal-timeline`, unit-tested only, NOT FLOWN, lane RW-14 owed; product, medium (a committed roster change undone by a rewind)]
+## ~~KERBAL-DISMISSAL-ON-THE-TIMELINE: a kerbal fired at the Space Center was hired back by a Rewind-to-Launch, with nothing to stop him flying or being fired a second time~~ [RULED 2026-10-28 by the owner (option A: a dismissal stays on the timeline like a hire); BUILT 2026-10-28 on branch `kerbal-dismissal-timeline`, unit-tested; LIVE-PROVEN by RW-14 `2026-10-31_0251` PASS attempt 1; product, medium (a committed roster change undone by a rewind)]
 
 A Space Center dismissal had no ledger row. Stock's dismiss button (`AstronautComplex.Xbutton_AvailableCrew`
 -> `KerbalRoster.SackAvailable`, decompiled KSP 1.12.5) turns the kerbal into an applicant and then
@@ -599,7 +634,7 @@ own `SackAvailable`), Rewind-to-Launch before T1, check he is back on the roster
 past T1 and check one `Committed dismissal applied:` line and his type Applicant, with no second
 `KerbalDismissal` row and no funds or reputation move.
 
-## ~~KSC-DEBRIS-CLEANUP-REFUND-UNLEDGERED: stock's refund for debris cluttering the Space Center is never booked, so it lands as a leak row and a guard clamp~~ [FILED AND FIXED 2026-10-28 from RW-7 run `2026-10-28_1637`, branch `ksc-debris-refund`; unit-tested, RW-7 re-flight owed; product, medium (an unledgered funds change; LedgerGroundTruth hard-fails)]
+## ~~KSC-DEBRIS-CLEANUP-REFUND-UNLEDGERED: stock's refund for debris cluttering the Space Center is never booked, so it lands as a leak row and a guard clamp~~ [FILED AND FIXED 2026-10-28 from RW-7 run `2026-10-28_1637`, branch `ksc-debris-refund`; unit-tested; LIVE-PROVEN by RW-7 `2026-10-28_1810` PASS attempt 1 (its branch carried this fix); product, medium (an unledgered funds change; LedgerGroundTruth hard-fails)]
 
 When the scene enters the Space Center, stock recovers landed debris near the KSC through
 `ProtoVessel.Clean` and pays a refund (`[WRN] Vessel CS Flea Probe Debris was recovered for a refund of
@@ -649,7 +684,7 @@ Tests: `KscDebrisCleanupRefundTests` (the skip rule's truth table; the RW-7 orde
 dispatch that pays nothing drops the request with no stale-flush Warn; outside any dispatch the
 debris callback is still skipped; a close drops only its own vessel's debris request).
 
-## ~~REFLY-MERGED-DEATH-PERMANENT-VIA-SUPERSEDED-CO-ROW: a kerbal killed in a merged Re-Fly with stock crew respawn on is lost for good, because the replaced flight's Aboard row was never retired~~ [FILED AND FIXED 2026-10-28 from lane RW-7, run `2026-10-28_1318`, branch `fix-refly-death-co-row`; unit-tested only, NOT FLOWN, RW-7 re-flight owed; product, high (a kerbal lost for good, and a kerbal held forever after any crewed-slot Re-Fly)]
+## ~~REFLY-MERGED-DEATH-PERMANENT-VIA-SUPERSEDED-CO-ROW: a kerbal killed in a merged Re-Fly with stock crew respawn on is lost for good, because the replaced flight's Aboard row was never retired~~ [FILED AND FIXED 2026-10-28 from lane RW-7, run `2026-10-28_1318`, branch `fix-refly-death-co-row`; unit-tested; LIVE-PROVEN by RW-7 `2026-10-28_1810` PASS attempt 1; product, high (a kerbal lost for good, and a kerbal held forever after any crewed-slot Re-Fly)]
 
 EVIDENCE (RW-7, host career with `MissingCrewsRespawn=True`, `RespawnTimer=7200`). Flight G launched
 at UT 185785.91 and decoupled on the pad, authoring a rewind point at 185786.49. G's pod recording
@@ -4926,7 +4961,7 @@ never hold history past the cutoff.
 
 ---
 
-## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. OPEN, harness / fixture]
+## MINING-ISRU-UNTESTED-END-TO-END: no fixture or lane mines ore or runs an ISRU [FILED 2026-10-06 from the coverage-extension research, branch `ccr-77f23eb2-dbqh6i`. MOSTLY COVERED since 2026-10-17 by the `miner-rover-*` fixtures and 11 committed MINE lanes (see Progress below); still OPEN: MINE-0, MINE-4 and MINE-5 (no spec), GS-6 revision 3, the lab lane XS-5, and `HarvestCapture_CatchUpOnLoad` on a host with a drill on ore; harness / fixture]
 
 Converters are exercised only through a FuelCell (H38, GS-6); drill and ISRU ghosts are built
 from prefabs (H37) and rendered without a running loop (S1.9); harvest-route analysis runs on a
