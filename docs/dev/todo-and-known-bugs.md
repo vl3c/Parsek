@@ -9105,6 +9105,12 @@ columns whose blanks are visible, where the old outline simply said nothing.
   516, `.GameEventHandlers` 310, `.SplitDetection` 1,388, `.Finalization` 885,
   `.StateInitialization` 862, `.Sampling` 809, `.RelativeAnchors` 1,118, `.TrackSections` 932,
   beside the existing `.PartEventPolling` / `.State` / `.Testing` / `.TimeJump`.
+- `GhostVisualBuilder.cs` (7,754 lines) split further into partial-class files (S3, pure move
+  by `scripts/refactor/split_ghostvisualbuilder.py`; every field, constant and property stays
+  in the main file): `GhostVisualBuilder.cs` 1,841 lines, `.FxSetup` 763, `.AnimationSampling`
+  842, `.HeatAndReentryFx` 984, `.AudioFx` 209, `.RcsFx` 357, `.Fairings` 272,
+  `.SynthesizedMotion` 793, `.PartInfoBuilders` 1,058, `.TransientFx` 742, beside the existing
+  `.Parsing` / `.SnapshotBaseline` / `.Variants`.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
