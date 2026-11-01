@@ -17,6 +17,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~ISOLATED-BATCH-LEAVES-RECORDING-SIDECARS: an isolated in-game batch leaves the recording files it created on disk after its restore~~ [FILED 2026-11-01 from the overnight regression run (H62-coalescer-isolated `_0802`, H68-autorecord-orbiting `_0807`, H70-autorecord-pad-crew `_0810`: `recordings.count` counts `.prec` files while saveParse reads 0 recordings); owner ruling 2026-11-01 "if unused, delete"; FIXED 2026-11-01, branch `claude/project-thread-axuakt`; unit-tested, the three lanes owe a re-flight; test harness, low]
+
+`InGameTestRunner.RestoreBatchBaselineWithRecovery` swaps `Parsek/` back to the batch-start
+snapshot and reloads the baseline, but a test's pending tree can flush its sidecars after the
+swap, and the restore's Cold load drops the tree from memory only (the save-scoped reset keeps
+files). `ParsekFileCollector` refuses to reap when the save names zero recordings (the guard
+stays), so the files outlived the batch.
+
+**Fix.** `CleanupBatchFlightBaselineSave` (InMemoryAndDisk teardown) first runs
+`RemoveBatchCreatedRecordingSidecars`: top-level files of `Parsek/Recordings` absent from the
+batch-start snapshot, parsed as a recording sidecar, and not named by memory
+(`ParsekFileCollector.BuildMemoryReferences`) are deleted; one Info summary line
+(`Batch baseline: removed batch-created recording sidecars deleted=N ...`). The pure selection is
+`SelectBatchCreatedRecordingSidecars`. Tests: `BatchCreatedSidecarCleanupTests`. The collector
+guard is unchanged.
+
 ## ~~STRATEGY-SAME-UT-DEACTIVATE-UNDONE: a strategy deactivated at the same UT it was activated is switched back on by the next recalculation~~ [FILED 2026-11-01 from the overnight regression run (L3-strategy-currency-conversion and L3-strategy-exchanger-floor, run `2026-11-01_0855`, deterministic); FIXED 2026-11-01, branch `claude/project-thread-axuakt`; unit-tested, both L3 lanes owe a re-flight; product, low (both rows at one exact UT)]
 
 `StrategyCommittedRows` (the committed-rows lookup behind the state patch, the `Strategy.Update()`
