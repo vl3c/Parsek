@@ -4497,7 +4497,8 @@ namespace Parsek
                     "committed-spawned-restore-suppressed-" + activeVesselPid,
                     $"TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel " +
                     $"'{activeVessel.vesselName}' pid={activeVesselPid} - committed-tree " +
-                    "restore suppressed after a test-command DiscardTree");
+                    "restore suppressed (a test-command DiscardTree, or its committed recording " +
+                    "runs past the live clock)");
                 return false;
             }
 
@@ -4533,6 +4534,13 @@ namespace Parsek
                 // leave the vessel idle for this scene, as a DiscardTree does, so the 1 Hz
                 // retry does not resume it the moment the clock passes the recording's end.
                 if (!double.IsNaN(liveUT)
+                    && !TryFindCommittedTreeForSpawnedVessel(
+                        RecordingStore.CommittedTrees,
+                        activeVesselPid,
+                        out _,
+                        out _,
+                        activeVesselGuid,
+                        liveUT)
                     && TryFindCommittedTreeForSpawnedVessel(
                         RecordingStore.CommittedTrees,
                         activeVesselPid,
