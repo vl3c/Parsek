@@ -167,18 +167,21 @@ namespace Parsek.Tests
             string relPath, float windowWidthPx, int minTooltips, int stripLines)
         {
             int budget = BudgetChars(windowWidthPx, stripLines);
-            string src = ReadParsekSource(relPath);
+            string src = ReadStripWindowSource(relPath);
 
             int found = 0;
             foreach (var tip in ExtractLiteralGuiContentTooltips(src))
             {
                 found++;
+                string tipFile;
+                int tipLine;
+                LocateStripWindowLine(relPath, tip.Line, out tipFile, out tipLine);
                 Assert.False(tip.Text.Contains("\n"),
                     string.Format(
                         "{0} line {1}: tooltip contains a hard newline. The help strip is "
                         + "{2} wrapped line(s) tall - a \\n spends one of them on whatever "
                         + "sits before it and clips the rest. Tooltip: \"{3}\"",
-                        relPath, tip.Line, stripLines, tip.Text));
+                        tipFile, tipLine, stripLines, tip.Text));
                 Assert.True(tip.Text.Length <= budget,
                     string.Format(
                         "{0} line {1}: tooltip is {2} chars but the {3}px-wide window holds "
@@ -186,7 +189,7 @@ namespace Parsek.Tests
                         + "via the marquee instead of reading at a glance. Shorten it "
                         + "(keep what the control does plus the key consequence). "
                         + "Tooltip: \"{6}\"",
-                        relPath, tip.Line, tip.Text.Length, windowWidthPx, budget,
+                        tipFile, tipLine, tip.Text.Length, windowWidthPx, budget,
                         stripLines, tip.Text));
             }
 
@@ -528,7 +531,7 @@ namespace Parsek.Tests
             // Comments blanked (length-preserving, literals untouched, so both the decoded
             // tooltip text and the reported line numbers stay exact): a commented-out
             // DrawSortableHeader call must not count toward the anti-vacuity floor below.
-            string src = SourceScanText.StripCSharpComments(ReadParsekSource(RelPath));
+            string src = SourceScanText.StripCSharpComments(ReadStripWindowSource(RelPath));
 
             const string Needle = "DrawSortableHeader(";
             int found = 0;
@@ -555,21 +558,23 @@ namespace Parsek.Tests
                     continue;
 
                 found++;
-                int line = CountLines(src, start);
+                string lineFile;
+                int line;
+                LocateStripWindowLine(RelPath, CountLines(src, start), out lineFile, out line);
                 Assert.False(tip.Contains("\n"),
                     string.Format(
                         "{0} line {1}: sort-header tooltip contains a hard newline. The "
                         + "Recordings help strip is one wrapped line tall and its overflow "
                         + "marquee scrolls horizontally only - the tail after a \\n can never "
                         + "be read. Tooltip: \"{2}\"",
-                        RelPath, line, tip));
+                        lineFile, line, tip));
                 Assert.True(tip.Length <= budget,
                     string.Format(
                         "{0} line {1}: sort-header tooltip is {2} chars but the 1355px-wide "
                         + "Recordings window holds about {3} in its single-line help strip - "
                         + "the tail would scroll in via the marquee instead of reading at a "
                         + "glance. Tooltip: \"{4}\"",
-                        RelPath, line, tip.Length, budget, tip));
+                        lineFile, line, tip.Length, budget, tip));
             }
 
             Assert.True(found >= 6,
@@ -591,7 +596,7 @@ namespace Parsek.Tests
         public void StripHeightColumn_MatchesTheWindowConstructor(
             string relPath, float windowWidthPx, int minTooltips, int stripLines)
         {
-            string src = ReadParsekSource(relPath);
+            string src = ReadStripWindowSource(relPath);
             List<int> constructed = ExtractTooltipEchoBoxLineArgs(src);
 
             if (relPath == "UI/MissionsWindowUI.cs")
@@ -1004,6 +1009,11 @@ namespace Parsek.Tests
         /// five-segment walk to the repo root.</summary>
         internal static string ReadParsekSource(string relPath)
         {
+            return File.ReadAllText(ParsekSourcePath(relPath));
+        }
+
+        private static string ParsekSourcePath(string relPath)
+        {
             string root = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
             string path = Path.Combine(
@@ -1011,7 +1021,45 @@ namespace Parsek.Tests
             if (!File.Exists(path))
                 path = Path.Combine(root, "Parsek", relPath.Replace('/', Path.DirectorySeparatorChar));
             Assert.True(File.Exists(path), "Source file not found at " + path);
-            return File.ReadAllText(path);
+            return path;
+        }
+
+        // RecordingsTableUI is one partial class split over RecordingsTableUI.cs and its
+        // RecordingsTableUI.<Area>.cs files. Its row reads the whole class as one text
+        // (RecordingsTableUISourceFiles.ReadAll), so the scans count exactly what the
+        // single file held and a const declared in the main file still resolves for a
+        // GUIContent in an area file. Every other row reads its one file.
+        private const string RecordingsTableRelPath = "UI/RecordingsTableUI.cs";
+
+        private static string ReadStripWindowSource(string relPath)
+        {
+            if (relPath != RecordingsTableRelPath)
+                return ReadParsekSource(relPath);
+            return RecordingsTableUISourceFiles.ReadAll(
+                Path.GetDirectoryName(ParsekSourcePath(relPath)));
+        }
+
+        /// <summary>Maps a 1-based line of <see cref="ReadStripWindowSource"/>'s text back
+        /// to the file and line it came from, for the failure messages.</summary>
+        private static void LocateStripWindowLine(string relPath, int line, out string file, out int fileLine)
+        {
+            file = relPath;
+            fileLine = line;
+            if (relPath != RecordingsTableRelPath)
+                return;
+            int start = 1;
+            foreach (string path in RecordingsTableUISourceFiles.Paths(
+                         Path.GetDirectoryName(ParsekSourcePath(relPath))))
+            {
+                int lines = File.ReadAllText(path).Split('\n').Length;
+                if (line < start + lines)
+                {
+                    file = "UI/" + Path.GetFileName(path);
+                    fileLine = line - start + 1;
+                    return;
+                }
+                start += lines;
+            }
         }
     }
 }

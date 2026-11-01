@@ -53,6 +53,12 @@ namespace Parsek.Tests
             /// helper call's text mapped to the width constant that helper draws, so the
             /// scan counts the column where the row calls it. Null for every other table.</summary>
             public Dictionary<string, string> CallWidths;
+            /// <summary>True for the Recordings tab, whose class is split over
+            /// <c>RecordingsTableUI.cs</c> and its <c>RecordingsTableUI.&lt;Area&gt;.cs</c>
+            /// partial files: <see cref="File"/> names the file holding its header and row
+            /// methods, and a whole-class scan reads every file of the class
+            /// (<see cref="RecordingsTableUISourceFiles"/>).</summary>
+            public bool RecordingsTablePartialClass;
         }
 
         /// <summary>The Recordings tab's column helpers: each draws exactly one fixed
@@ -121,11 +127,12 @@ namespace Parsek.Tests
             // it against all four row kinds, with the Info / flight-only columns' guards.
             new TableSite
             {
-                File = Path.Combine("UI", "RecordingsTableUI.cs"),
+                File = Path.Combine("UI", RecordingsTableUISourceFiles.TableRows),
                 HeaderMethod = "DrawRecordingsTableHeader",
                 RowMethod = "DrawRecordingRow",
                 HeaderPinnedOutsideScrollView = true,
                 CallWidths = RecordingsCallWidths,
+                RecordingsTablePartialClass = true,
             },
         };
 
@@ -208,7 +215,10 @@ namespace Parsek.Tests
                          Path.Combine("UI", "RecordingsTableUI.cs"),
                      })
             {
-                string prepared = ReadPreparedSource(file);
+                // RecordingsTableUI is a partial class: the scan reads the whole class.
+                string prepared = file == Path.Combine("UI", "RecordingsTableUI.cs")
+                    ? ReadPreparedRecordingsTableClass()
+                    : ReadPreparedSource(file);
                 Assert.DoesNotContain("GUILayout.BeginVertical(GUI.skin.box)", prepared);
                 // Prefix match: a box that also takes layout options is still this box.
                 Assert.Contains("GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle()", prepared);
@@ -439,7 +449,9 @@ namespace Parsek.Tests
         {
             foreach (TableSite t in Tables.Where(x => x.HeaderPinnedOutsideScrollView))
             {
-                string prepared = ReadPreparedSource(t.File);
+                string prepared = t.RecordingsTablePartialClass
+                    ? ReadPreparedRecordingsTableClass()
+                    : ReadPreparedSource(t.File);
                 var forced = new Regex(
                     @"BeginScrollView\(\s*[A-Za-z0-9_.]+\s*,\s*false\s*,\s*true\s*,",
                     RegexOptions.Compiled);
@@ -551,9 +563,10 @@ namespace Parsek.Tests
         [Fact]
         public void TheRecordingsTabGutterRoutesThroughTheSharedDerivation()
         {
-            string recordings = ReadPreparedSource(Path.Combine("UI", "RecordingsTableUI.cs"));
-            string header = MethodBody(recordings, "DrawRecordingsTableHeader",
-                "RecordingsTableUI.cs");
+            string recordings = ReadPreparedRecordingsTableClass();
+            string header = MethodBody(
+                ReadPreparedSource(Path.Combine("UI", RecordingsTableUISourceFiles.TableRows)),
+                "DrawRecordingsTableHeader", RecordingsTableUISourceFiles.TableRows);
             Assert.Contains("GUILayout.BeginHorizontal(parentUI.GetTableHeaderRowStyle())", header);
             // ... and reserves it exactly once: no trailing Space on top of the padding, and
             // no Space sized from a locally read fixedWidth.
@@ -925,7 +938,7 @@ namespace Parsek.Tests
         {
             foreach (var site in new[]
                      {
-                         Tuple.Create(Path.Combine("UI", "RecordingsTableUI.cs"),
+                         Tuple.Create(Path.Combine("UI", RecordingsTableUISourceFiles.Window),
                              "DrawRecordingsWindow", "DrawRecordingsTableHeader("),
                          Tuple.Create(Path.Combine("UI", "MissionsWindowUI.cs"),
                              "DrawMissionsTabContent", "DrawColumnHeader("),
@@ -977,7 +990,9 @@ namespace Parsek.Tests
         [Fact]
         public void RecordingsTabEveryRowKindDrawsTheHeaderColumnSequence()
         {
-            string file = Path.Combine("UI", "RecordingsTableUI.cs");
+            // RecordingsTableUI is a partial class: each method is read from the file that
+            // holds it.
+            string file = Path.Combine("UI", RecordingsTableUISourceFiles.TableRows);
             string prepared = ReadPreparedSource(file);
 
             string header = RowSpan(MethodBody(prepared, "DrawRecordingsTableHeader", file),
@@ -994,12 +1009,18 @@ namespace Parsek.Tests
             Assert.True(expected.Count >= 15,
                 "header column sequence is implausibly short: " + string.Join(", ", expected));
 
-            foreach (string method in new[]
+            foreach (var site in new[]
                      {
-                         "DrawRecordingRow", "DrawGroupTree", "DrawRecordingBlock",
-                         "DrawVirtualUnfinishedFlightsGroup",
+                         Tuple.Create("DrawRecordingRow", RecordingsTableUISourceFiles.TableRows),
+                         Tuple.Create("DrawGroupTree", RecordingsTableUISourceFiles.GroupTree),
+                         Tuple.Create("DrawRecordingBlock", RecordingsTableUISourceFiles.TableRows),
+                         Tuple.Create("DrawVirtualUnfinishedFlightsGroup",
+                             RecordingsTableUISourceFiles.UnfinishedFlights),
                      })
             {
+                string method = site.Item1;
+                file = Path.Combine("UI", site.Item2);
+                prepared = ReadPreparedSource(file);
                 // From the method's signature rather than MethodBody: DrawGroupTree's Watch
                 // log lines nest quotes inside interpolation holes, which the literal masker
                 // does not model, so its brace walk ends that body early. The row span only
@@ -1229,6 +1250,14 @@ namespace Parsek.Tests
             Assert.True(File.Exists(path),
                 "source file moved, this gate is vacuous: " + path);
             return SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+        }
+
+        /// <summary>The whole RecordingsTableUI partial class, prepared: the main file and its
+        /// <c>RecordingsTableUI.&lt;Area&gt;.cs</c> files (<see cref="RecordingsTableUISourceFiles"/>).</summary>
+        private static string ReadPreparedRecordingsTableClass()
+        {
+            string uiDir = Path.Combine(ResolveRepoRoot(), "Source", "Parsek", "UI");
+            return SourceScanText.StripCommentsAndMaskLiterals(RecordingsTableUISourceFiles.ReadAll(uiDir));
         }
 
         private static string ResolveRepoRoot()

@@ -100,6 +100,12 @@ Source/Parsek/ParsekKSC.cs
 Source/Parsek/ParsekKSC.Playback.cs
 Source/Parsek/ParsekUI.cs
 Source/Parsek/UI/RecordingsTableUI.cs
+# RecordingsTableUI's partial-class split (scripts/refactor/split_recordingstableui.py):
+# the raw reads RecordingsTableUI.cs held now also sit in these three partials, same
+# rationale as the main file (the window draw, the loop-period commit, the rewind-retirement check).
+Source/Parsek/UI/RecordingsTableUI.LoopPeriod.cs
+Source/Parsek/UI/RecordingsTableUI.RewindColumns.cs
+Source/Parsek/UI/RecordingsTableUI.Window.cs
 Source/Parsek/UI/GroupPickerUI.cs
 
 # TimelineWindowUI builds a `committedIndexById` lookup off the raw

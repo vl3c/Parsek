@@ -324,7 +324,7 @@ namespace Parsek.Tests
         /// <see cref="ParsekUI.WindowContentTopGapPx"/>, which is what DrawTitleGap draws.
         /// </summary>
         [Theory]
-        [InlineData("RecordingsTableUI.cs", "DrawRecordingsWindow")]
+        [InlineData("RecordingsTableUI.Window.cs", "DrawRecordingsWindow")]
         [InlineData("LogisticsWindowUI.cs", "DrawWindow")]
         [InlineData("KerbalsWindowUI.cs", "DrawKerbalsWindow")]
         [InlineData("SettingsWindowUI.cs", "DrawSettingsWindow")]
@@ -377,7 +377,10 @@ namespace Parsek.Tests
                          "TryOpenGroupPickerForGroupForTesting", "TryOpenGroupPickerForRecordingForTesting",
                      })
                 Assert.Contains("PickerWindowLayout.NoClickPoint", MethodBody(recordings, opener));
-            Assert.Contains("groupPicker.Draw(recordingsWindowRect)", recordings);
+            // RecordingsTableUI is a partial class: the whole-file needle reads every file of it.
+            Assert.Contains("groupPicker.Draw(recordingsWindowRect)",
+                SourceScanText.StripCommentsAndMaskLiterals(RecordingsTableUISourceFiles.ReadAll(
+                    Path.Combine(RepoRoot(), "Source", "Parsek", "UI"))));
 
             string logistics = Prepared("UI", "LogisticsWindowUI.cs");
             Assert.Contains("PickerWindowLayout.NoClickPoint",

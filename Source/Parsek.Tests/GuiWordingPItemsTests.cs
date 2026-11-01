@@ -49,8 +49,9 @@ namespace Parsek.Tests
             Assert.Contains("= { }", MissionsWindowUI.MissionHeaderRenameHoverOriginal);
             Assert.Contains("Double-click to rename", MissionsWindowUI.MissionHeaderRenameHoverClone);
 
-            string tableSource = File.ReadAllText(
-                Path.Combine(RepoRoot(), "Source", "Parsek", "UI", "RecordingsTableUI.cs"));
+            // RecordingsTableUI is a partial class: the whole-file needle reads every file of it.
+            string tableSource = RecordingsTableUISourceFiles.ReadAll(
+                Path.Combine(RepoRoot(), "Source", "Parsek", "UI"));
             Assert.Contains("double-click to rename (a name in use, or one with = { }, is refused)", tableSource);
         }
 
