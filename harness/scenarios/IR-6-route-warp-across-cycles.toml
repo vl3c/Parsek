@@ -6,7 +6,12 @@ tier = "nightly"
 # item 5): a supply route under REAL time warp across several cycles, ticking in FLIGHT
 # and at the Space Center, with the destination tank read at every step. AUTHORED
 # 2026-10-31; flight 1 INVALID (spec faults), flight 2 PARSEK-FAIL on the phase C target
-# alone (below), target raised, NOT YET GREEN.
+# alone (below), target raised; LIVE-PROVEN 2026-11-01 (`2026-11-01_0029` PASS attempt 1,
+# 0 mismatches, wall 144 s, PR #2345 head 55492f8, automation DLL sha256 prefix ad9642c4):
+# cycle-0 FIRED at 1029.51 (loaded, 200 -> 297.6), cycle-1 at 1078.89 (unloaded, 297.6 ->
+# 395.2), then phase C reached the 10000x rung and logged 176 `warp jump=` lines (jump=2
+# x13, 3 x12, 4 x151) over 690 fires, every one BLOCKED `reason=LiquidFuel`; read-back
+# `completed=2 skipped=688 cursor=1179 delivered=2`, tank 395.2 at every read.
 #
 # THE STORY. The player creates and activates the rover route, warps in flight past one
 # delivery, goes to the Space Center and warps past one more, reloads the save there, and
