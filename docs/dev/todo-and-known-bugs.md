@@ -9045,8 +9045,9 @@ columns whose blanks are visible, where the old outline simply said nothing.
 - Boundaries: `Missions -> Logistics` was a name collision (a nested `VesselIdentity` struct in
   `RouteEndpointTransfer.cs`), not a crossing. `Ghost -> GameActions` is crossed by one real
   call (`GhostPlaybackLogic` -> `RecoveredRecordingEvidence.IsRecoveredByLedgerRowLive`).
-- Atlas findings and opportunities re-read (`atlas.toml`, `reviewed = "2026-11-01"`); the
-  published atlas link above carries the regenerated page.
+- Atlas findings and opportunities re-read (`atlas.toml`, `reviewed = "2026-11-01"`). The
+  regenerated page is published at https://claude.ai/artifact/6uSBEKzHEtBHaK5t7bFxjm; the
+  link above keeps the 2026-09-22 page. Without graphviz `dot` on PATH the page has no map.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
