@@ -749,7 +749,7 @@ synthesized cannot produce garbage: it produces the un-aligned (Bug-2) faithful 
 for that window, which MUST surface as a distinct state (see the fail-closed contract).
 
 Note on `IsSeamResidualTooLarge` (do not conflate): that guard (> 50 km / 5 percent
-radial) lives in `Display/GhostTrajectoryPolylineRenderer.cs` and bounds the
+radial) lives in `Display/GhostTrajectoryPolylineRenderer.Anchoring.cs` and bounds the
 conic-anchor of the body-fixed escape / arrival BURN polylines, NOT the heliocentric
 capture. `ReplaceHeliocentricLeg` does not call it. It is a separate, orthogonal guard
 and is unaffected by the window choice `k`.

@@ -882,8 +882,9 @@ or `TracedPathTreatment`.
 
 ### `Display/GhostTrajectoryPolylineRenderer.cs`
 
-- Map-view non-orbital ghost trajectory polyline: data structs + pure builder + cache + DDOL
-  Driver MonoBehaviour walking `RecordingStore.CommittedRecordings` for atmospheric /
+- Map-view non-orbital ghost trajectory polyline: data structs + cache + DDOL Driver
+  MonoBehaviour (this file; the pure builder and the leg draw / anchoring helpers are in its
+  `GhostTrajectoryPolylineRenderer.<Area>.cs` partial files) walking `RecordingStore.CommittedRecordings` for atmospheric /
   non-orbital phases (`[ERS-exempt]`, always on).
 - Current contract after the Director cutover: the Director pipeline renders unconditionally
   (no setting; grep gates `grep-audit-map-render-director-drive.ps1` /

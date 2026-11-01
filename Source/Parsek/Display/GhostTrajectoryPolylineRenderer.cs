@@ -32,9 +32,10 @@ namespace Parsek.Display
     /// per-leg cap (§1.3) keeps the per-frame GetWorldSurfacePosition cost
     /// well within budget.
     ///
-    /// Data structures + pure builder + cache lifecycle helpers, the
-    /// Vectrosity Driver MonoBehaviour, and the per-frame walk over
-    /// CommittedRecordings are all in this file. Each leg owns its own
+    /// Data structures, cache lifecycle helpers, the Vectrosity Driver
+    /// MonoBehaviour and the per-frame walk over CommittedRecordings are in
+    /// this file; the pure builder, anchoring, leg draw, seam bridges,
+    /// forward arcs and diagnostics are in the partial files beside it. Each leg owns its own
     /// VectorLine (drawn full-range); a single shared line per recording
     /// does NOT work because <c>VectorLine.Draw3D()</c> zeroes every vertex
     /// outside the current <c>drawStart</c>/<c>drawEnd</c> window on each
