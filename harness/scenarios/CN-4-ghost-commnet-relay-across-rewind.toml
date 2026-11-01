@@ -60,13 +60,15 @@ id = "CN-4-ghost-commnet-relay-across-rewind"
 #     destroyed` before the rewind mark: a mid-flight removal.
 #   - `launchfromeditor-site-obstructed`: the runway is blocked; read `first=`.
 #
-# STATUS: FLOWN 2026-10-31 (run 2026-10-31_2359): PARSEK-FAIL on a spec mistake only, the
+# STATUS: LIVE-PROVEN 2026-11-01 on the scoped spec (run 2026-11-01_0010, PASS on attempt 1,
+# 129 s, 0 mismatches, the same rulings again). The first flight 2026-10-31_2359 was
+# PARSEK-FAIL on a spec mistake only, the
 # unscoped forbidden `No ghost node` line matching after the batch's own final-restore Cold
 # load (see PRE-REGISTERED READINGS). Every required line matched: A and B removed with the
 # old scene, registered again in the rewound flight with CN-1's exact rulings, the batch
 # passed=4 failed=0 skipped=5, CN-1's split (the 4 TRACKSTATION cells scene-skip and the
 # pad-geometry control-path cell skips at run time; now pinned). The forbidden line was scoped
-# and the split pinned for the re-fly.
+# and the split pinned; the new spec also evaluates PASS offline against that first log.
 #
 # FAST-LANE CHECKLIST: (1) reuse: CN-1's host, preset and category, VN-3's commit order,
 # WF-1's runway relaunch; (2) explicit-UT warps only; (3)-(5) no dwell, burn or coast;
