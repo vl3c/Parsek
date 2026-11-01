@@ -25,6 +25,14 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A part dropped in EVA construction comes back after a rewind.** A part an engineer sets down
+  on the ground in construction mode, whether taken from an inventory or off another vessel, is now
+  recorded as its own vessel, so a rewind replays it and it reappears where it was dropped instead
+  of vanishing. (EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED)
+- **A supply route and a looping mission no longer replay the same docking twice.** A mission
+  that includes a partner's docking into a route's flight now repeats on the route's schedule only:
+  its own loop turns off with the usual message, and its Loop toggle shows it is looped by the route.
+  (ROUTE-INTERACTION-SEAMS-TO-VERIFY)
 - **A rescued kerbal no longer gets a spare stand-in after a reload.** Parsek remembered that a
   rescue had already put the kerbal back on a vessel only until the next scene change or load;
   after that the next update could hire their stand-in again. The rescue is now saved.
