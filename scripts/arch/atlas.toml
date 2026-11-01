@@ -251,11 +251,11 @@ reviewed = "2026-11-01"
 
 [[findings.items]]
 title = "The knot nearly doubled in five weeks."
-body = "On 2026-11-01 the largest cycle held 584 types, against 301 on 2026-09-25. Part of the jump is 50 root files the map had been skipping as unplaced (placed in the 2026-11-01 refresh); the rest is about 975 commits of feature work. The twelve greedy cuts no longer halve it. Live size and cut sequence: <em>The knot</em>."
+body = "On 2026-11-01 the largest cycle held 584 types, against 301 on 2026-09-25. Part of the jump is 50 root files the map had been skipping as unplaced (placed in the 2026-11-01 refresh); the rest is about 975 commits of feature work. The greedy cuts no longer halve it: a core of about 320 types survives them. Live size and cut sequence: <em>The knot</em>."
 
 [[findings.items]]
-title = "Recording stopped being plain data."
-body = "PR #1684 made the recording data type a leaf. On 2026-11-01 it calls two helpers again (<code>LaunchSiteOnlyGhost.IsHidden</code> from its ghost-visibility property, <code>SidecarVersions.CopyHashes</code> from its clone), and those two references tie 50 types to the knot: the first and cheapest row of the cut sequence."
+title = "Recording had stopped being plain data; it is again."
+body = "PR #1684 made the recording data type a leaf. By 2026-11-01 it called two helpers again (the launch-site ghost hide and the sidecar hash copy), tying 50 types to the knot (584). The 2026-11-01 refactor branch re-cut both (an installed hide rule, an inline hash copy); the knot is 535. The first cut is now the game-action row, whose four remaining references are scanner false positives: fields named like types and an enum member named like a class."
 
 [[findings.items]]
 title = "The checker drifted because nothing runs it."
@@ -320,7 +320,7 @@ rank = 3
 item = "Recording as plain data"
 evidence = "Two references held 54 more on 2026-09-14; a top hotspot. On 2026-11-01 two new references (launch-site ghost hide, sidecar hash copy) hold 50 types again: the first row of the cut sequence."
 size = "afternoon"
-status = "Done in PR #1684, regressed by 2026-11-01; re-cut is slice 1 of the refactor branch."
+status = "Done in PR #1684, regressed by 2026-11-01, re-cut on the refactor branch 2026-11-01."
 types = ["Recording"]
 
 [[opportunities]]
@@ -395,14 +395,14 @@ rank = 13
 item = "Make the architecture checker a gate"
 evidence = "On 2026-11-01 the placement contract and six real-tree canaries were red on main and nobody saw it (<em>Main findings</em>)."
 size = "small"
-status = "Open; first slice of the refactor branch, before any code moves. Todo ARCH-TOOLING-ROSLYN-AND-CI step 2."
+status = "Done on the refactor branch 2026-11-01: CI runs the suite, and a real-tree cell fails on an unplaced file."
 
 [[opportunities]]
 rank = 14
 item = "GameAction as a sink"
-evidence = "The second row of the cut sequence: five references, the ledger among them (<em>The knot</em>)."
-size = "afternoon to a day"
-status = "Open."
+evidence = "On 2026-11-01 its two real knot calls (the ledger's load tallies, the capture-sequence key) moved out on the refactor branch; the four references left are scanner false positives (<em>The knot</em>)."
+size = "scanner fix"
+status = "Code half done 2026-11-01; needs the scanner to skip member names (ARCH-TOOLING-ROSLYN-AND-CI)."
 types = ["GameAction"]
 
 [[opportunities]]

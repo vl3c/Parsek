@@ -223,7 +223,7 @@ attribute itself.
 A **knot** is a strongly connected component of the type graph with more than
 one member: a group of types that reach one another in a cycle, directly or
 through other members. Longest-path levelling condenses a cycle to one level,
-so the kernel's 584-type knot collapses into level 10 and only the types above
+so the kernel's 535-type knot collapses into level 10 and only the types above
 it (levels 11 to 13 here, mostly patches and entry points) rise above. A knot
 is why that level is flat: the levelling cannot order types that depend on each
 other.
@@ -231,9 +231,10 @@ other.
 `types.json` records this per type: `knot` is the 1-based index of the type's
 component in largest-first order, or null outside a knot, and `sublevel` is
 the type's level inside its knot after the cut edges are removed (again null
-outside). On the current tree the knots are one of 584, then of 4 and 2
-(re-derived 2026-11-01, after 50 root files the map had skipped as unplaced
-were placed; the 7-type stock-screen decoration knot merged into the kernel).
+outside). On the current tree the knots are one of 535, then of 4 and 2
+(re-derived 2026-11-01: placing 50 root files the map had skipped took the
+kernel to 584 and merged the 7-type stock-screen decoration knot into it;
+making `Recording` plain data again cut it to 535).
 It was 301, 7, 4, 2 and 2 on 2026-09-25; 286, 4, 2 and 2 on 2026-09-22; and
 391, 4 and 2 before the 2026-09-14 pass made `ParsekLog` and `Recording` leaves.
 
@@ -242,12 +243,13 @@ their size and module breakdown, then for the largest knot it shows the hubs
 (the members other members reference most, with their in-knot references) and a
 **greedy cut sequence**: each step picks, among the highest-fan-in members, the
 sink whose outgoing references, when removed, break the knot the most, and
-reports the references that were dropped. `584 -> cut Recording -> 534` means
-removing `Recording`'s two references inside the knot (`LaunchSiteOnlyGhost`,
-`SidecarVersions`) splits off 50 members. Some cuts are cheap inversions like
-that one - one or two references between hubs holding a whole region together,
-and those are the references a refactor should look at first - while the rest
-touch many small references at once (the `RecordingStore` cut drops 47), and the named
+reports the references that were dropped. `584 -> cut Recording -> 534` (the
+2026-11-01 reading before the re-cut) meant removing `Recording`'s two
+references inside the knot (`LaunchSiteOnlyGhost`, `SidecarVersions`) split off
+50 members. Some cuts are cheap inversions like that one - one or two
+references between hubs holding a whole region together, and those are the
+references a refactor should look at first - while the rest touch many small
+references at once (the `RecordingStore` cut drops 48), and the named
 sink there often needs a new abstraction (an interface, a data boundary) rather
 than moved edges. The table is a research list, not a verdict - the tool never says a
 reference is wrong, only that it holds a cycle together. Nothing in this phase
