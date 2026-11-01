@@ -38,6 +38,9 @@ namespace Parsek.Tests
     public class RouteLinePaintArbitrationSourceGateTests
     {
         private const string PolylinePath = "Display/GhostTrajectoryPolylineRenderer.cs";
+        // TryDrawLeg lives in this partial-class file (the Driver's sweep stays in PolylinePath).
+        private const string PolylineLegDrawPath =
+            "Display/" + GhostTrajectoryPolylineRendererSourceFiles.LegDraw;
         private const string RoutePath = "Display/RouteTrajectoryLineRenderer.cs";
 
         [Fact]
@@ -54,7 +57,7 @@ namespace Parsek.Tests
         {
             // Re-review F2. Scoped to the mode-flip rebuild block rather than to TryDrawLeg as a
             // whole, so a clear moved elsewhere in the method does not satisfy the pin.
-            string body = MethodBody(PolylinePath, "internal static bool TryDrawLeg(");
+            string body = MethodBody(PolylineLegDrawPath, "internal static bool TryDrawLeg(");
             int flip = body.IndexOf("leg.lineMode != legWantMode", StringComparison.Ordinal);
             Assert.True(flip >= 0, "TryDrawLeg no longer carries the map-line mode-flip rebuild "
                                    + "guard - re-anchor this gate on whatever replaced it.");

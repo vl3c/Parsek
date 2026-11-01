@@ -36,8 +36,9 @@ namespace Parsek.Tests
         {
             // The walk must consume the deorbit clock through the stitcher absorb only. A direct
             // DescentTrigger / span-clock read re-couples the draw host to the clock the stitcher owns
-            // (the Phase-3<->Phase-6 coupling the source gates forbid).
-            string src = StripComments(ReadParsekSource(RendererPath));
+            // (the Phase-3<->Phase-6 coupling the source gates forbid). The class is split into
+            // partial files; the forbidden names stay forbidden in every one of them.
+            string src = StripComments(ReadRendererClassSource());
             Assert.False(src.Contains("ResolveTransferLegHeadUT"),
                 "Phase-5b gate: GhostTrajectoryPolylineRenderer.cs must not name "
                 + "DescentTrigger.ResolveTransferLegHeadUT directly - route through "
@@ -86,6 +87,20 @@ namespace Parsek.Tests
         }
 
         // ---- helpers (mirror GhostOrbitLineCascadeDeleteGateTests) ----
+
+        // The whole GhostTrajectoryPolylineRenderer partial class (the main file, which holds the
+        // Driver walk the positive pins read, plus every area file) as one text.
+        private static string ReadRendererClassSource()
+        {
+            string root = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string mainPath = Path.Combine(
+                root, "Source", "Parsek", RendererPath.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(mainPath))
+                mainPath = Path.Combine(root, "Parsek", RendererPath.Replace('/', Path.DirectorySeparatorChar));
+            Assert.True(File.Exists(mainPath), "Source file not found at " + mainPath);
+            return GhostTrajectoryPolylineRendererSourceFiles.ReadAll(Path.GetDirectoryName(mainPath));
+        }
 
         private static string ReadParsekSource(string relPath)
         {
