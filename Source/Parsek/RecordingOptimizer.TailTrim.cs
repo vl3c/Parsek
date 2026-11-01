@@ -1014,7 +1014,17 @@ namespace Parsek
                     context ?? "RecordingOptimizer", rec.RecordingId ?? "<none>", startUT, endUT));
         }
 
-        private static bool TryTrimTrackSectionPayload(ref TrackSection sec, double trimUT)
+        /// <summary>
+        /// Cuts one section's payload at <paramref name="trimUT"/> and re-derives its end;
+        /// false when nothing of the section is left to keep. A section opened by a
+        /// serialization checkpoint (<c>FlightRecorder.CheckpointOpenTrackSectionForSerialization</c>)
+        /// starts at the save UT but is seeded with the previous sample, which can be up to
+        /// one sampling gap EARLIER. A cut that leaves only that seed would re-derive an end
+        /// before the start (an inverted section, analyzer INV1-UT-MONOTONIC), so a section
+        /// whose kept frames all precede its own start is dropped: the seed is the previous
+        /// section's last sample and loses nothing.
+        /// </summary>
+        internal static bool TryTrimTrackSectionPayload(ref TrackSection sec, double trimUT)
         {
             switch (sec.referenceFrame)
             {
@@ -1070,7 +1080,18 @@ namespace Parsek
                     if (sec.frames.Count == 0)
                         return false;
 
-                    sec.endUT = sec.frames[sec.frames.Count - 1].ut;
+                    double keptEndUT = sec.frames[sec.frames.Count - 1].ut;
+                    if (keptEndUT < sec.startUT)
+                    {
+                        ParsekLog.Verbose("Optimizer",
+                            string.Format(CultureInfo.InvariantCulture,
+                                "TrimTrackSection: dropped a section with only pre-start seed frames left " +
+                                "(would invert): startUT={0:F2} keptEndUT={1:F2} trimUT={2:F2} keptFrames={3} ref={4}",
+                                sec.startUT, keptEndUT, trimUT, sec.frames.Count, sec.referenceFrame));
+                        return false;
+                    }
+
+                    sec.endUT = keptEndUT;
                     return true;
             }
         }

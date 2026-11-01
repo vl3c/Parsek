@@ -67,7 +67,7 @@ namespace Parsek.Tests
         // Builders
         // ================================================================
 
-        private static GameAction On(double ut, string id, string recordingId = null)
+        private static GameAction On(double ut, string id, string recordingId = null, long cseq = 0)
         {
             return new GameAction
             {
@@ -76,18 +76,20 @@ namespace Parsek.Tests
                 StrategyId = id,
                 RecordingId = recordingId,
                 Commitment = 0.25f,
-                SetupCost = 1000f
+                SetupCost = 1000f,
+                CaptureSequence = cseq
             };
         }
 
-        private static GameAction Off(double ut, string id, string recordingId = null)
+        private static GameAction Off(double ut, string id, string recordingId = null, long cseq = 0)
         {
             return new GameAction
             {
                 UT = ut,
                 Type = GameActionType.StrategyDeactivate,
                 StrategyId = id,
-                RecordingId = recordingId
+                RecordingId = recordingId,
+                CaptureSequence = cseq
             };
         }
 
@@ -314,6 +316,72 @@ namespace Parsek.Tests
             Assert.Equal(0, rows.FirstAfter(49.0));
             Assert.Equal(-1, rows.FirstAfter(50.0));
             Assert.True(rows.NextRowIsDeactivation(49.0));
+        }
+
+        // catches: the L3 regression (overnight 2026-11-01): a stock Deactivate captured
+        // after its Activate at the same UT sorted before it, so "the last row at or before
+        // now" was the Activate and the state patch switched the strategy back on.
+        [Fact]
+        public void Rows_SameUt_ActivateThenDeactivateInCaptureOrder_StateAfterTheTieIsOff()
+        {
+            var rows = Rows("A", Off(0.3, "A", cseq: 8), On(0.3, "A", cseq: 7));
+            Assert.True(rows.IsActivation(0));
+            Assert.False(rows.IsActivation(1));
+            Assert.Equal(1, rows.LastAtOrBefore(1.0));
+            Assert.False(rows.IsActivation(rows.LastAtOrBefore(1.0)));
+            Assert.False(rows.NextRowIsDeactivation(0.2));
+        }
+
+        // Mirror: a Deactivate then a re-Activate at one UT stays on after the tie.
+        [Fact]
+        public void Rows_SameUt_DeactivateThenActivateInCaptureOrder_StateAfterTheTieIsOn()
+        {
+            var rows = Rows("A", On(10.0, "A", cseq: 1), On(50.0, "A", cseq: 6), Off(50.0, "A", cseq: 5));
+            Assert.Equal(new[] { true, false, true },
+                new[] { rows.IsActivation(0), rows.IsActivation(1), rows.IsActivation(2) });
+            Assert.True(rows.IsActivation(rows.LastAtOrBefore(60.0)));
+            Assert.Equal(50.0, rows.UTAt(rows.LastAtOrBefore(60.0)));
+        }
+
+        // An older (unsequenced) row sorts before a sequenced one at its UT, as in the walk.
+        [Fact]
+        public void Rows_SameUt_UnsequencedRowSortsBeforeASequencedOne()
+        {
+            var rows = Rows("A", Off(50.0, "A", cseq: 3), On(50.0, "A"));
+            Assert.True(rows.IsActivation(0));
+            Assert.False(rows.IsActivation(1));
+        }
+
+        // catches: the state patch reading the tie differently from the walk. The patch's
+        // resolve over the index rows must leave the strategy off after the same-UT pair.
+        [Fact]
+        public void ResolveLedgerActiveAtNow_SameUtActivateThenDeactivate_Off()
+        {
+            var index = Index(On(0.3, "A", cseq: 7), Off(0.3, "A", cseq: 8));
+            var walk = new Dictionary<string, double>();
+            var atNow = StrategyStatePatcher.ResolveLedgerActiveAtNow(
+                walk, null, new[] { "A" }, index.StrategyRows, (id, ut) => float.NaN, 5.0);
+            Assert.False(atNow.ActivateUT.ContainsKey("A"));
+            Assert.Contains("A", atNow.Managed);
+
+            // Mirror: deactivate then re-activate at one UT keeps it on from that UT.
+            var mirror = Index(On(0.1, "A", cseq: 1), Off(0.3, "A", cseq: 2), On(0.3, "A", cseq: 3));
+            var on = StrategyStatePatcher.ResolveLedgerActiveAtNow(
+                walk, null, new[] { "A" }, mirror.StrategyRows, (id, ut) => float.NaN, 5.0);
+            Assert.Equal(0.3, on.ActivateUT["A"]);
+        }
+
+        // The stock-update prefix agrees: after the same-UT pair stock is off, and a
+        // replayed stock activation at that UT is not the committed timeline's state.
+        [Fact]
+        public void FirstFutureRow_SameUt_FollowsCaptureOrder()
+        {
+            var index = Index(On(50.0, "A", cseq: 7), Off(50.0, "A", cseq: 8));
+            Assert.Equal(CommittedFutureKind.StrategyActivate,
+                StrategyReservationPredicates.FirstFutureRow(index, "A", 10.0).Kind);
+            var unsequenced = Index(On(50.0, "A"), Off(50.0, "A"));
+            Assert.Equal(CommittedFutureKind.StrategyDeactivate,
+                StrategyReservationPredicates.FirstFutureRow(unsequenced, "A", 10.0).Kind);
         }
 
         /// <summary>

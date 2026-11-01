@@ -25,6 +25,13 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **A strategy you cancel right after starting it stays cancelled.** Deactivating a strategy at
+  the same moment it was activated was undone by the next recalculation, which turned it back on.
+  The two now keep the order you made them in. (STRATEGY-SAME-UT-DEACTIVATE-UNDONE)
+- **A recording saved between two samples no longer gets a piece that runs backwards.** A save
+  that fell between two position samples could leave a committed recording with a section ending
+  before it began after the commit trimmed its idle tail. That leftover piece is now dropped.
+  (TRIMMED-CHECKPOINT-SECTION-ENDS-BEFORE-IT-STARTS)
 - **Ghosts keep playing after you load a save made mid-replay.** After a rewind, a save made while
   a committed flight was replaying as a ghost lost that ghost when loaded: no map icon, no relay
   for CommNet, no vessel at its end. The save now remembers which flights are replaying, so every

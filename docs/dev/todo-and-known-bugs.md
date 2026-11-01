@@ -17,6 +17,38 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~STRATEGY-SAME-UT-DEACTIVATE-UNDONE: a strategy deactivated at the same UT it was activated is switched back on by the next recalculation~~ [FILED 2026-11-01 from the overnight regression run (L3-strategy-currency-conversion and L3-strategy-exchanger-floor, run `2026-11-01_0855`, deterministic); FIXED 2026-11-01, branch `claude/project-thread-axuakt`; unit-tested, both L3 lanes owe a re-flight; product, low (both rows at one exact UT)]
+
+`StrategyCommittedRows` (the committed-rows lookup behind the state patch, the `Strategy.Update()`
+prefix and the activation gate) ordered a same-UT pair deactivation first by design, so the state
+after the tie read on. Since the 2026-10-24 patcher change (921c4b05e / 0d4959b68)
+`StrategyStatePatcher.ResolveLedgerActiveAtNow` reads "the latest row at or before now" from it
+instead of the walk's state, so a stock Deactivate made at the same UT as its Activate (L3's cell:
+`Deactivate: strategyId='AppreciationCampaignCfg' ut=0.3`, then `PatchStrategies: activated=1`)
+was undone; on 2026-10-22 the patcher used the walk, which orders the pair by capture sequence.
+
+**Fix.** The rows sort in the walk's order: UT, then `RecalculationEngine.CompareSameUtTie`
+(capture sequence, then the per-writer sequence; an unsequenced row first), and only a pair the tie
+key cannot order falls back to deactivation first (the ambiguous case still leaves the strategy
+on). `CommittedFutureIndex.StrategyRows` passes each entry's tie key, and
+`StrategyReservationPredicates.FirstFutureRow` uses the same order, so the hover and the patch
+agree. Deactivate-then-Activate at one UT stays on. Tests: `StrategyExpiryReplayTests`
+(`Rows_SameUt_*`, `ResolveLedgerActiveAtNow_SameUtActivateThenDeactivate_Off`,
+`FirstFutureRow_SameUt_FollowsCaptureOrder`).
+
+## ~~TRIMMED-CHECKPOINT-SECTION-ENDS-BEFORE-IT-STARTS: a commit-time trim can leave a recording section whose end is before its start~~ [FILED 2026-11-01 from the overnight regression run (B13-mun-landing, run `2026-11-01_0234`, analyzer INV1-UT-MONOTONIC, 2 FAILs; timing-dependent, the last green had the same shape); FIXED 2026-11-01, branch `claude/project-thread-axuakt`; unit-tested, B13 owes a re-flight; product, low (an inverted section in a committed recording; playback clamps it)]
+
+A save (`FlightRecorder.CheckpointOpenTrackSectionForSerialization`) closes the open section at
+the save UT and opens a continuation seeded with the previous sample, up to one sampling gap
+earlier (23132.69 seeding a section opened at 23135.27). When the commit-time tail trim (or an
+optimizer split) cut between the save UT and the next sample, `TryTrimTrackSectionPayload` kept
+only that seed and re-derived the section's end from it: endUT 23132.69 before startUT 23135.27.
+
+**Fix.** A section whose kept frames all precede its own start is dropped (the seed is the
+previous section's last sample, so nothing is lost), with a Verbose `[Optimizer] TrimTrackSection:
+dropped a section with only pre-start seed frames left` line. A seam frame stamped at the start
+still keeps a zero-length section. Tests: `TrackSectionTrimSeedTests`.
+
 ## ~~REPLAY-SCOPE-LOST-ON-SAVE-LOAD: a save written while a ghost replays loses that ghost when loaded~~ [FILED 2026-11-01 from lane CN-4's reading (thread "Cover Revert, save switching, CommNet ghosts"), owner ruling 2026-11-01; FIXED 2026-11-01, branch `claude/project-thread-beqac8`; unit-tested, lane CN-5 owed; product, high (every mid-replay ghost gone after a load: no flight / map / Tracking Station ghost, no CommNet relay, no terminal spawn)]
 
 A committed recording replays only while `PlaybackScopeTracker` holds it in replay scope (the
