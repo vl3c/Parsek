@@ -90,6 +90,15 @@ jobs:
           python3 -m unittest discover -s missions/lib -q
           python3 -m unittest discover -s provision -q
 
+      # The architecture map's own suite. Its real-tree cells are the placement
+      # contract (every production file matched by a rule in
+      # scripts/arch/modules.toml) and the knot / first-cut canaries; before
+      # 2026-11-01 nothing ran them, and 50 unplaced files plus six stale
+      # canaries sat on main unseen. Uses the full-history checkout above for
+      # the co-change cells. Gate on the exit code.
+      - name: Architecture map tests
+        run: python3 -m unittest discover -s scripts/arch -q
+
       # Ubuntu's apt-built .NET SDK ships no net472 testhost, so the suite
       # runs under mono + the xunit console runner via scripts/cloud-test.sh
       # (same path cloud agent sessions use). dotnet SDK is preinstalled;

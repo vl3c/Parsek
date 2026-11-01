@@ -9150,7 +9150,10 @@ Update `modules.toml` in the same commits so the placement report stays true.
    `edges.json` / `types.json` shape, so every view and every number stays comparable.
 2. An xUnit test that fails on the placement contract only (unplaced root file, missing atlas
    summary) while dependency findings stay report-only; add the regeneration command to the
-   per-commit docs checklist in `.claude/CLAUDE.md`.
+   per-commit docs checklist in `.claude/CLAUDE.md`. **DONE 2026-11-01 (refactor branch) in a
+   different shape:** CI's `tests` job now runs `scripts/arch`'s own suite, whose real-tree
+   cells include the new `test_every_production_file_is_placed` (placement contract), the
+   atlas-summary cells and the knot canaries; `.claude/CLAUDE.md`'s CI paragraph names it.
 3. Then the mechanical namespace rename to match `modules.toml`, and arm the three forbidden
    edges as failing tests.
 

@@ -3086,6 +3086,13 @@ class RealTreeSmokeTests(unittest.TestCase):
         )
         cls.size_types = {row["name"]: row for row in cls.sizes["types"]}
 
+    def test_every_production_file_is_placed(self):
+        # The placement contract, gated: a file no rule in modules.toml matches
+        # is skipped from every figure, so a new root file without a rule makes
+        # the map silently wrong. 50 such files accumulated unseen between
+        # 2026-09-25 and 2026-11-01 while nothing ran this suite in CI.
+        self.assertEqual(self.model["unclassified"], [])
+
     def test_logio_is_a_pure_sink(self):
         self.assertIn("LogIO", self.by_name)
         self.assertLess(self.by_name["LogIO"]["instability"], 0.1)
