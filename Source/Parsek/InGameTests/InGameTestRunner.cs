@@ -3079,6 +3079,8 @@ namespace Parsek.InGameTests
             bool persistentRestoreConsumable =
                 RestoreCampaignPersistentSave(batchFlightBaseline.PersistentSaveBackupPath);
 
+            RemoveBatchCreatedRecordingSidecars(batchFlightBaseline.ParsekSaveSnapshotDirectory);
+
             Helpers.QuickloadResumeHelpers.TryDeleteSaveSlot(batchFlightBaseline.SlotName);
             TryDeleteDirectoryRecursive(batchFlightBaseline.ParsekSaveSnapshotDirectory);
             if (persistentRestoreConsumable)
@@ -3087,6 +3089,110 @@ namespace Parsek.InGameTests
                 ParsekLog.Warn(Tag,
                     $"Batch baseline: keeping persistent.sfs backup '{batchFlightBaseline.PersistentSaveBackupPath}' "
                     + "after a failed restore so the campaign save can be recovered manually");
+        }
+
+        /// <summary>
+        /// Pure: the recording sidecar file names under <c>Parsek/Recordings</c> that the
+        /// batch itself created and nothing still uses. A file qualifies when it was absent
+        /// from the batch-start snapshot, its name parses as a recording sidecar
+        /// (<see cref="RecordingStore.ExtractRecordingIdFromFileName"/>), and the running
+        /// game does not name its recording (<paramref name="memoryRecordingIds"/>). An
+        /// unrecognised name is never selected. Sorted, ordinal.
+        /// </summary>
+        internal static List<string> SelectBatchCreatedRecordingSidecars(
+            IEnumerable<string> currentFileNames,
+            IEnumerable<string> baselineFileNames,
+            ICollection<string> memoryRecordingIds,
+            out int keptReferenced,
+            out int keptUnrecognized)
+        {
+            keptReferenced = 0;
+            keptUnrecognized = 0;
+            var result = new List<string>();
+            if (currentFileNames == null) return result;
+            // Windows file names are case-insensitive: a baseline file is the same file
+            // whatever case the scan returns.
+            var baseline = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (baselineFileNames != null)
+                foreach (string name in baselineFileNames)
+                    if (!string.IsNullOrEmpty(name)) baseline.Add(name);
+            foreach (string name in currentFileNames)
+            {
+                if (string.IsNullOrEmpty(name) || baseline.Contains(name)) continue;
+                string id = RecordingStore.ExtractRecordingIdFromFileName(name);
+                if (string.IsNullOrEmpty(id)) { keptUnrecognized++; continue; }
+                if (memoryRecordingIds != null && memoryRecordingIds.Contains(id)) { keptReferenced++; continue; }
+                result.Add(name);
+            }
+            result.Sort(StringComparer.Ordinal);
+            return result;
+        }
+
+        /// <summary>
+        /// Teardown of an InMemoryAndDisk batch: deletes the recording sidecars the batch
+        /// created that survived the restore. The restore swaps <c>Parsek/</c> back to the
+        /// batch-start snapshot, but a test's pending tree can still flush its sidecars
+        /// after that (a scene change's save), and the Cold load that follows drops the tree
+        /// from memory only. <c>ParsekFileCollector</c> rightly refuses to reap when the save
+        /// names no recording at all, so without this the batch's files outlive it (overnight
+        /// 2026-11-01: H62 / H68 / H70 read leftover <c>.prec</c> files on a save naming none;
+        /// owner ruling: unused, delete). Only top-level files of <c>Parsek/Recordings</c>
+        /// absent from the snapshot and unnamed by memory go. Never throws.
+        /// </summary>
+        private static void RemoveBatchCreatedRecordingSidecars(string snapshotDirectory)
+        {
+            if (string.IsNullOrEmpty(snapshotDirectory) || !Directory.Exists(snapshotDirectory))
+                return;
+            try
+            {
+                string currentParsek = RecordingPaths.ResolveSaveScopedPath("Parsek");
+                if (string.IsNullOrEmpty(currentParsek)) return;
+                string currentRecordings = Path.Combine(currentParsek, "Recordings");
+                if (!Directory.Exists(currentRecordings)) return;
+                string baselineRecordings = Path.Combine(snapshotDirectory, "Recordings");
+
+                var current = new List<string>();
+                foreach (string f in Directory.GetFiles(currentRecordings))
+                    current.Add(Path.GetFileName(f));
+                var baseline = new List<string>();
+                if (Directory.Exists(baselineRecordings))
+                    foreach (string f in Directory.GetFiles(baselineRecordings))
+                        baseline.Add(Path.GetFileName(f));
+
+                var scenario = UnityEngine.Object.FindObjectOfType<ParsekScenario>();
+                var memory = ParsekFileCollector.BuildMemoryReferences(scenario);
+
+                int keptReferenced, keptUnrecognized;
+                List<string> doomed = SelectBatchCreatedRecordingSidecars(
+                    current, baseline, memory.RecordingIds, out keptReferenced, out keptUnrecognized);
+                int deleted = 0, failed = 0;
+                for (int i = 0; i < doomed.Count; i++)
+                {
+                    try
+                    {
+                        File.Delete(Path.Combine(currentRecordings, doomed[i]));
+                        deleted++;
+                    }
+                    catch (Exception ex)
+                    {
+                        failed++;
+                        ParsekLog.Warn(Tag,
+                            $"Batch baseline: could not delete batch-created sidecar '{doomed[i]}': {ex.Message}");
+                    }
+                }
+                string sample = doomed.Count == 0 ? "" :
+                    " files=[" + string.Join(",", doomed.GetRange(0, Math.Min(doomed.Count, 12)).ToArray())
+                    + (doomed.Count > 12 ? ",..." : "") + "]";
+                ParsekLog.Info(Tag,
+                    $"Batch baseline: removed batch-created recording sidecars deleted={deleted} failed={failed} "
+                    + $"keptReferenced={keptReferenced} keptUnrecognized={keptUnrecognized} "
+                    + $"baselineFiles={baseline.Count} currentFiles={current.Count}{sample}");
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Batch baseline: batch-created sidecar cleanup skipped: {ex.Message}");
+            }
         }
 
         private static StagedBatchFlightParsekSaveSnapshot CreateBatchFlightParsekSaveSnapshotStaging(

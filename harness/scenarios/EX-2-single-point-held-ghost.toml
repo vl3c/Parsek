@@ -124,8 +124,12 @@ required  = [
   # The spawn takes the terminal-orbit route, not the last point (read off `2026-09-23_2110`
   # and `_2113`).
   "Spawn #[0-9]+ \\(Single Point Holder\\): using recorded terminal orbit propagated to current UT",
-  # The single-point branch of CheckSpawnCollisions, blocked by the probe.
-  "Spawn blocked for #[0-9]+ \\(Single Point Holder\\): overlaps 'Kerbal X Probe' at [0-9]+m \\(single-point trajectory\\)",
+  # The single-point branch of CheckSpawnCollisions, blocked by the probe. Since 11b6e3d9f
+  # the active vessel blocks every end-of-flight spawn too, and the active Kerbal X is the
+  # nearer overlap, so the block names either (overnight 2026-11-01_0647: 'Kerbal X' at 43m;
+  # the probe's own overlap still logs at 69.7m, pinned on the SpawnCollision line).
+  "Spawn blocked for #[0-9]+ \\(Single Point Holder\\): overlaps 'Kerbal X( Probe)?' at [0-9]+m \\(single-point trajectory\\)",
+  "\\[SpawnCollision\\] Spawn overlaps with Kerbal X Probe \\(pid=[0-9]+\\) via part '[^']+' at [0-9.]+m",
   "Ghost held pending spawn retry: #[0-9]+ \"Single Point Holder\" id=single-point-hold-rec - spawn blocked, ghost stays visible",
   "Stale past-end cleanup after completion delivery: ghost #[0-9]+ \"Single Point Holder\" kept \\(held by the policy\\)",
   "Held ghost timed out: #[0-9]+ \"Single Point Holder\" id=single-point-hold-rec held=5\\.[0-9]s",

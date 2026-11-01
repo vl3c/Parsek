@@ -335,8 +335,12 @@ namespace Parsek
             var off = index.FirstFuture(CommittedFutureKind.StrategyDeactivate, strategyId, currentUT);
             if (on == null) return off;
             if (off == null) return on;
-            // Same UT: the deactivation reads first ("stays active until").
-            return off.UT <= on.UT ? off : on;
+            // Same UT: the walk's order (StrategyCommittedRows), so the two readers agree;
+            // a pair with no capture order reads the deactivation first ("stays active until").
+            int c = StrategyCommittedRows.CompareWalkOrder(
+                new StrategyCommittedRows.Row(off.UT, false, off.CaptureSequence, off.Sequence),
+                new StrategyCommittedRows.Row(on.UT, true, on.CaptureSequence, on.Sequence));
+            return c <= 0 ? off : on;
         }
 
         /// <summary>The player-path deactivation refusal: a committed row for the strategy
@@ -443,10 +447,11 @@ namespace Parsek
         /// not end), or a committed timeline that keeps it on with no committed deactivation
         /// next (a genuine expiry in the new timeline, captured as before).</item>
         /// </list>
-        /// A committed activation and deactivation at the same UT read deactivation first
-        /// (as <see cref="FirstFutureRow"/> does), so the state after the tie is on, and a
-        /// stock activation dated at the deactivation's UT is never switched off: an
-        /// ambiguous case leaves the strategy on.
+        /// A committed activation and deactivation at the same UT read in the walk's order
+        /// (capture order; <see cref="StrategyCommittedRows"/>), so the later row decides the
+        /// state after the tie; a pair with no capture order reads deactivation first and the
+        /// strategy stays on. A stock activation dated at the deactivation's UT is never
+        /// switched off: an ambiguous case leaves the strategy on.
         /// </summary>
         internal static StrategyStockUpdateDecision DecideStockUpdate(
             StrategyCommittedRows rows,
@@ -528,12 +533,16 @@ namespace Parsek
     }
 
     /// <summary>
-    /// One strategy's committed StrategyActivate / StrategyDeactivate UTs, ascending, a
-    /// deactivation before an activation at the same UT (the order
-    /// <c>StrategyReservationPredicates.FirstFutureRow</c> reads). Built once per strategy
-    /// per committed-future index instance (<c>CommittedFutureIndex.StrategyRows</c>), so a
-    /// new index (a ledger change) brings new rows; the per-frame reads are binary searches.
-    /// Deliberately references no ledger or index type: it is plain data.
+    /// One strategy's committed StrategyActivate / StrategyDeactivate UTs in the walk's
+    /// order: UT ascending, then the walk's same-UT tie
+    /// (<see cref="RecalculationEngine.CompareSameUtTie(long, int, long, int)"/>, the real
+    /// capture order), so a Deactivate made after its Activate at one UT reads last and the
+    /// state after the tie is off, exactly as the walk and stock left it. Two rows the tie
+    /// key cannot order (no capture order on either) read deactivation first, so that
+    /// ambiguous case leaves the strategy on. Built once per strategy per committed-future
+    /// index instance (<c>CommittedFutureIndex.StrategyRows</c>), so a new index (a ledger
+    /// change) brings new rows; the per-frame reads are binary searches. Deliberately
+    /// references no ledger or index type: it is plain data.
     /// </summary>
     internal sealed class StrategyCommittedRows
     {
@@ -545,29 +554,66 @@ namespace Parsek
         internal bool HasActivation { get; }
         internal int Count => uts.Length;
 
-        internal StrategyCommittedRows(IEnumerable<double> activationUTs, IEnumerable<double> deactivationUTs)
+        /// <summary>One committed row: its UT, kind and the walk's same-UT tie key.</summary>
+        internal struct Row
         {
-            var rows = new List<KeyValuePair<double, bool>>();
-            if (activationUTs != null)
-                foreach (double ut in activationUTs) rows.Add(new KeyValuePair<double, bool>(ut, true));
-            if (deactivationUTs != null)
-                foreach (double ut in deactivationUTs) rows.Add(new KeyValuePair<double, bool>(ut, false));
-            // UT ascending, deactivation (false) before activation (true) at a tie.
-            rows.Sort((a, b) =>
+            internal double UT;
+            internal bool IsActivation;
+            internal long CaptureSequence;
+            internal int Sequence;
+
+            internal Row(double ut, bool isActivation, long captureSequence = 0, int sequence = 0)
             {
-                int c = a.Key.CompareTo(b.Key);
-                return c != 0 ? c : a.Value.CompareTo(b.Value);
-            });
-            uts = new double[rows.Count];
-            activation = new bool[rows.Count];
+                UT = ut;
+                IsActivation = isActivation;
+                CaptureSequence = captureSequence;
+                Sequence = sequence;
+            }
+        }
+
+        /// <summary>Rows with no tie key (a same-UT pair reads deactivation first).</summary>
+        internal StrategyCommittedRows(IEnumerable<double> activationUTs, IEnumerable<double> deactivationUTs)
+            : this(ToRows(activationUTs, deactivationUTs))
+        {
+        }
+
+        internal StrategyCommittedRows(IEnumerable<Row> rows)
+        {
+            var list = new List<Row>();
+            if (rows != null) list.AddRange(rows);
+            list.Sort(CompareWalkOrder);
+            uts = new double[list.Count];
+            activation = new bool[list.Count];
             bool any = false;
-            for (int i = 0; i < rows.Count; i++)
+            for (int i = 0; i < list.Count; i++)
             {
-                uts[i] = rows[i].Key;
-                activation[i] = rows[i].Value;
-                any |= rows[i].Value;
+                uts[i] = list[i].UT;
+                activation[i] = list[i].IsActivation;
+                any |= list[i].IsActivation;
             }
             HasActivation = any;
+        }
+
+        /// <summary>The order of two rows of one strategy: UT, then the walk's same-UT tie
+        /// (both kinds are non-earning rows, so the walk's earnings level never separates
+        /// them), then deactivation before activation when the tie key is equal.</summary>
+        internal static int CompareWalkOrder(Row a, Row b)
+        {
+            int c = a.UT.CompareTo(b.UT);
+            if (c != 0) return c;
+            c = RecalculationEngine.CompareSameUtTie(a.CaptureSequence, a.Sequence, b.CaptureSequence, b.Sequence);
+            if (c != 0) return c;
+            return a.IsActivation.CompareTo(b.IsActivation);
+        }
+
+        private static List<Row> ToRows(IEnumerable<double> activationUTs, IEnumerable<double> deactivationUTs)
+        {
+            var rows = new List<Row>();
+            if (activationUTs != null)
+                foreach (double ut in activationUTs) rows.Add(new Row(ut, true));
+            if (deactivationUTs != null)
+                foreach (double ut in deactivationUTs) rows.Add(new Row(ut, false));
+            return rows;
         }
 
         internal double UTAt(int i) => uts[i];

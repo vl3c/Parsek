@@ -39,6 +39,13 @@ _(unreleased - entries accumulate here per commit)_
   vessel no longer gets a map orbit stock rejects as invalid. (MAP-ORBIT-FROM-PARKED-RELATIVE-GHOST)
 - **Ghost orbit lines stay lit across a time jump.** After a jump at normal speed the map updates
   every ghost orbit at once instead of hiding a line for a moment. (MAP-LINE-BLINKS-ACROSS-A-1X-TIME-JUMP)
+- **A strategy you cancel right after starting it stays cancelled.** Deactivating a strategy at
+  the same moment it was activated was undone by the next recalculation, which turned it back on.
+  The two now keep the order you made them in. (STRATEGY-SAME-UT-DEACTIVATE-UNDONE)
+- **A recording saved between two samples no longer gets a piece that runs backwards.** A save
+  that fell between two position samples could leave a committed recording with a section ending
+  before it began after the commit trimmed its idle tail. That leftover piece is now dropped.
+  (TRIMMED-CHECKPOINT-SECTION-ENDS-BEFORE-IT-STARTS)
 - **A parked rover no longer counts as changed.** Revisiting a vessel and leaving it untouched
   now drops the extra recording even when the rover's wheels wiggled on their suspension, it
   settled a few centimetres after loading, or a drill stopped by itself. Before, such a wiggle

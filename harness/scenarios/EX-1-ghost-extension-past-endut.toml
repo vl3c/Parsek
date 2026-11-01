@@ -50,8 +50,8 @@ id = "EX-1-ghost-extension-past-endut"
 #      Space Center would retire it too, now; the flight scene is the one whose ghost used
 #      to be held). A Space Center save carries `activeVessel = 0` (measured), so the load
 #      lands in FLIGHT on the runway rover about 12 s before StartUT.
-#   3. 1x time runs (WarpToUT maxRate=1): the Rig's ghost goes live on the pad ~1.8 km away,
-#      EndUT passes, the spawn call RETIRES the recording, no hold, no vessel.
+#   3. 1x time runs (WarpToUT maxRate=1): the Rig never left the pad, so its replay draws no
+#      ghost (21d45f293, launch-site-only flights are hidden); EndUT passes, the spawn call RETIRES the recording, no hold, no vessel.
 #
 # MEASURED: reading `2026-09-23_1810` PASS attempt 1 (DLL sha256 `3970c939...`, commit
 # `0fea2d1df`) logged exactly one `Spawn RETIRED for #0 (Logi Cargo Rig): flight ended
@@ -151,11 +151,15 @@ required  = [
   "MISSIONMARK label=ex1-commit-count-1-pid-[1-9][0-9]*-spawned-true ",
   "invokerewindtolaunch complete rec=",
   "MISSIONMARK label=ex1-reloaded-count-1-pid-0-spawned-false ",
-  "PlaybackCompleted index=[0-9]+ vessel=Logi Cargo Rig ghostWasActive=True pastEffectiveEnd=True needsSpawn=True",
+  # Since 21d45f293 a flight that never left the launch site replays with no ghost
+  # (`[LaunchSiteGhost] Ghost hidden`), so the completion reads ghostWasActive=False and no
+  # ghost is torn down. Two completions log (needsSpawn=False first, then True); the spawn
+  # call that retires is behind the second (re-pinned from overnight 2026-11-01_0646,
+  # lines 10998 / 11008 / 12047).
+  "\\[LaunchSiteGhost\\] Ghost hidden: vessel 'Logi Cargo Rig' pid=[0-9]+ never left the launch site \\(KSC pad\\)",
+  "PlaybackCompleted index=[0-9]+ vessel=Logi Cargo Rig ghostWasActive=False pastEffectiveEnd=True needsSpawn=True",
   # The retirement, one Info line, pad circle (`_1810`).
   "\\[Spawner\\] Spawn RETIRED for #[0-9]+ \\(Logi Cargo Rig\\): flight ended within KSC exclusion zone \\(pad\\) - no vessel lat=-0\\.097[0-9] lon=-74\\.557[0-9] body=Kerbin terminal=Landed rec=",
-  # The ghost is torn down by the completion itself, not held (`_1810`).
-  "Ghost #[0-9]+ \"Logi Cargo Rig\" destroyed \\(playback completed\\)",
   # Settled with no vessel in the session, the retirement's state (`_1810`).
   "MISSIONMARK label=ex1-after-end-count-1-pid-0-spawned-true ",
 ]
@@ -172,6 +176,8 @@ forbidden = [
   "Vessel spawned for #[0-9]+ \"Logi Cargo Rig\"",
   "Vessel respawned",
   "SpawnAtPosition: vessel spawned",
+  # The hidden launch-site ghost is never built, so never torn down.
+  "Ghost #[0-9]+ \"Logi Cargo Rig\" destroyed \\(playback completed\\)",
   # Exactly one retirement: a settled recording is never re-retired in the session.
   "Spawn RETIRED for #[0-9]+ \\(Logi Cargo Rig\\)[\\s\\S]*Spawn RETIRED for #[0-9]+ \\(Logi Cargo Rig\\)",
 ]
