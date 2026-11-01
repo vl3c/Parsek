@@ -23,6 +23,23 @@ namespace Parsek
     }
 
     /// <summary>
+    /// Which stock path created the placed single-part vessel. Both run
+    /// <c>Game.AddVessel</c> (which fires <c>onNewVesselCreated</c>) and then announce the
+    /// placement in the same call, so both share one gate and one member shape.
+    /// </summary>
+    internal enum GroundPartPlacementSource
+    {
+        /// <summary><c>ModuleInventoryPart.DeployGroundPart</c>, announced by
+        /// <c>onDeployGroundPart(partName)</c>.</summary>
+        InventoryDeploy,
+        /// <summary><c>EVAConstructionModeEditor.DropAttachablePart</c>: a part held in EVA
+        /// construction (taken from an inventory, or detached from any vessel) set down as its
+        /// own <c>DroppedPart</c> vessel, announced by
+        /// <c>onEditorPartEvent(ConstructionEventType.PartDropped, heldPart)</c>.</summary>
+        ConstructionDrop
+    }
+
+    /// <summary>
     /// Pure decisions behind the EVA ground-part placement tree member (design:
     /// docs/parsek-flight-recorder-design.md section 4.11). A ground part a kerbal places
     /// on EVA is its OWN new vessel (stock <c>ModuleInventoryPart.DeployGroundPart</c> ->
@@ -239,7 +256,8 @@ namespace Parsek
         /// </summary>
         internal static void AttachMember(
             RecordingTree tree, Recording parentRec, BranchPoint bp, Recording member,
-            uint partPid, string partName, double placementUT)
+            uint partPid, string partName, double placementUT,
+            GroundPartPlacementSource source = GroundPartPlacementSource.InventoryDeploy)
         {
             AppendPartEventSorted(member, BuildInventoryEvent(
                 PartEventType.InventoryPartPlaced, placementUT, partPid, partName));
@@ -251,8 +269,48 @@ namespace Parsek
                 partName, member.VesselPersistentId, partPid, member.RecordingId,
                 parentRec?.RecordingId, bp.Id, placementUT, member.VesselSnapshot != null));
             ParsekLog.Info("Flight", string.Format(CultureInfo.InvariantCulture,
-                "Part event captured: InventoryPartPlaced '{0}' pid={1} via onDeployGroundPart rec={2}",
-                partName, partPid, member.RecordingId));
+                "Part event captured: InventoryPartPlaced '{0}' pid={1} via {2} rec={3}",
+                partName, partPid, SignalName(source), member.RecordingId));
+        }
+
+        /// <summary>The stock signal that announced the placement, as the logs name it.</summary>
+        internal static string SignalName(GroundPartPlacementSource source)
+        {
+            return source == GroundPartPlacementSource.ConstructionDrop
+                ? "onEditorPartEvent(PartDropped)"
+                : "onDeployGroundPart";
+        }
+
+        /// <summary>The short source token the detected / skip lines carry.</summary>
+        internal static string SourceToken(GroundPartPlacementSource source)
+        {
+            return source == GroundPartPlacementSource.ConstructionDrop
+                ? "construction-drop"
+                : "inventory-deploy";
+        }
+
+        /// <summary>
+        /// Is this <c>onEditorPartEvent</c> a construction drop? Stock fires
+        /// <c>PartDropped</c> only from <c>EVAConstructionModeEditor.DropAttachablePart</c>
+        /// (decompiled KSP 1.12.5), after <c>Game.AddVessel</c> built the dropped part's own
+        /// vessel, with the HELD part (not the new vessel's part) as the argument; every other
+        /// construction event type (picked, attached, detached, dragging, rotating) creates no
+        /// vessel.
+        /// </summary>
+        internal static bool IsConstructionDropSignal(ConstructionEventType evt)
+        {
+            return evt == ConstructionEventType.PartDropped;
+        }
+
+        internal static string FormatPlacementDetectedLog(
+            GroundPartPlacementSource source, string partName, uint vesselPid,
+            string kerbalRecId, double placementUT)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Ground part placement detected: part='{0}' vesselPid={1} kerbalRec={2} ut={3:F2} " +
+                "source={4}; creating tree member next frame",
+                string.IsNullOrEmpty(partName) ? "(null)" : partName,
+                vesselPid, kerbalRecId ?? "(null)", placementUT, SourceToken(source));
         }
 
         internal enum RemovedSignalOutcome { NotAMember, Recorded, Deduplicated }
@@ -314,18 +372,20 @@ namespace Parsek
         internal static string FormatPlacementSkipLog(
             GroundPartPlacementVerdict verdict, string placedPartName,
             uint createdVesselPid, uint activeVesselPid,
-            int createdPartCount = 0, string createdPartName = null)
+            int createdPartCount = 0, string createdPartName = null,
+            GroundPartPlacementSource source = GroundPartPlacementSource.InventoryDeploy)
         {
             return string.Format(
                 CultureInfo.InvariantCulture,
                 "Ground part placement not recorded: reason={0} part='{1}' createdVesselPid={2} activePid={3} " +
-                "createdParts={4} createdPart='{5}'",
+                "createdParts={4} createdPart='{5}' source={6}",
                 verdict,
                 string.IsNullOrEmpty(placedPartName) ? "(null)" : placedPartName,
                 createdVesselPid,
                 activeVesselPid,
                 createdPartCount,
-                string.IsNullOrEmpty(createdPartName) ? "(null)" : createdPartName);
+                string.IsNullOrEmpty(createdPartName) ? "(null)" : createdPartName,
+                SourceToken(source));
         }
     }
 }

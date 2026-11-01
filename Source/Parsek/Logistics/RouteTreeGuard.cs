@@ -100,6 +100,50 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// TRUE when <paramref name="m"/>'s loop unit spans <paramref name="treeId"/>: its own
+        /// tree, or the foreign tree of an included partner journey (a dock / board link,
+        /// <see cref="MissionStore.ComputeSpannedTreeIds"/>). The loop-unit builder merges
+        /// those foreign recordings into the mission's unit, so a mission spanning a
+        /// route-bound tree claims recordings the route also replays (todo
+        /// ROUTE-LOOP-AND-PARTNER-JOURNEY-CLAIM-THE-SAME-RECORDINGS).
+        /// </summary>
+        internal static bool MissionSpansTree(Mission m, string treeId, IReadOnlyList<RecordingTree> trees)
+        {
+            if (m == null || string.IsNullOrEmpty(treeId))
+                return false;
+            if (string.Equals(m.TreeId, treeId, StringComparison.Ordinal))
+                return true;
+            if (m.IncludedForeignDockLinkIds == null || m.IncludedForeignDockLinkIds.Count == 0)
+                return false;
+            return MissionStore.ComputeSpannedTreeIds(m, trees).Contains(treeId);
+        }
+
+        /// <summary>
+        /// The mission-level binding the Missions window reads: the route binding the
+        /// mission's own tree, else the route binding the foreign tree of one of its included
+        /// partner journeys. FALSE (route null) when no spanned tree is bound.
+        /// </summary>
+        internal static bool RouteBindingForMission(Mission m, IReadOnlyList<RecordingTree> trees, out Route route)
+        {
+            route = null;
+            if (m == null)
+                return false;
+            if (RouteBindingFor(m.TreeId, out route))
+                return true;
+            if (m.IncludedForeignDockLinkIds == null || m.IncludedForeignDockLinkIds.Count == 0)
+                return false;
+            foreach (string spanned in MissionStore.ComputeSpannedTreeIds(m, trees))
+            {
+                if (string.Equals(spanned, m.TreeId, StringComparison.Ordinal))
+                    continue;
+                if (RouteBindingFor(spanned, out route))
+                    return true;
+            }
+            route = null;
+            return false;
+        }
+
+        /// <summary>
         /// All distinct tree ids currently bound by a committed route in a
         /// <see cref="RouteStatusPolicy.BindsTree"/> status. Used by the
         /// load-time reconcile pass and tests. Order is route-list /
@@ -158,8 +202,11 @@ namespace Parsek.Logistics
         /// enable; on disable the value is ignored).</param>
         /// <returns>The total number of manual loops actually turned off (mission
         /// loops + per-recording loops). 0 when the tree had no manual loop, so the
-        /// caller can fire a "loop turned off" toast ONLY on a real clear (M5).</returns>
-        internal static int ForceClearManualLoopForRouteTree(string treeId, double currentUT)
+        /// caller can fire a "loop turned off" toast ONLY on a real clear (M5). Every
+        /// mission whose loop was turned off is added to <paramref name="clearedMissions"/>
+        /// when it is given.</returns>
+        internal static int ForceClearManualLoopForRouteTree(string treeId, double currentUT,
+            List<Mission> clearedMissions = null)
         {
             if (string.IsNullOrEmpty(treeId))
             {
@@ -184,7 +231,10 @@ namespace Parsek.Logistics
                     Mission m = missions[i];
                     if (m == null || !m.LoopPlayback)
                         continue;
-                    if (!string.Equals(m.TreeId, treeId, StringComparison.Ordinal))
+                    // A mission spans its own tree plus the foreign tree of every included
+                    // partner journey; a loop on any spanned tree plays the route's
+                    // recordings on a second clock, so it is cleared too.
+                    if (!MissionSpansTree(m, treeId, RecordingStore.CommittedTrees))
                         continue;
                     (toClear ?? (toClear = new List<Mission>())).Add(m);
                 }
@@ -194,6 +244,8 @@ namespace Parsek.Logistics
                     {
                         MissionStore.SetLoopEnabled(toClear[i], false, currentUT);
                         missionsCleared++;
+                        if (clearedMissions != null)
+                            clearedMissions.Add(toClear[i]);
                     }
                 }
             }
@@ -231,8 +283,12 @@ namespace Parsek.Logistics
         /// </summary>
         /// <returns>The total number of manual loops actually turned off across the
         /// distinct source trees (0 when nothing was cleared), so the create path can
-        /// fire a "loop turned off" toast ONLY on a real clear (M5).</returns>
-        internal static int ForceClearManualLoopForRoute(Route route, double currentUT)
+        /// fire a "loop turned off" toast ONLY on a real clear (M5). When
+        /// <paramref name="clearedMissions"/> is given, every mission whose loop was turned
+        /// off is added to it, so a caller can name a partner mission rather than the
+        /// route's own tree.</returns>
+        internal static int ForceClearManualLoopForRoute(Route route, double currentUT,
+            List<Mission> clearedMissions = null)
         {
             if (route == null)
             {
@@ -253,13 +309,13 @@ namespace Parsek.Logistics
                     if (sref == null || string.IsNullOrEmpty(sref.TreeId))
                         continue;
                     if (seen.Add(sref.TreeId))
-                        totalCleared += ForceClearManualLoopForRouteTree(sref.TreeId, currentUT);
+                        totalCleared += ForceClearManualLoopForRouteTree(sref.TreeId, currentUT, clearedMissions);
                 }
             }
             if (!string.IsNullOrEmpty(route.BackingMissionTreeId)
                 && seen.Add(route.BackingMissionTreeId))
             {
-                totalCleared += ForceClearManualLoopForRouteTree(route.BackingMissionTreeId, currentUT);
+                totalCleared += ForceClearManualLoopForRouteTree(route.BackingMissionTreeId, currentUT, clearedMissions);
             }
 
             if (seen.Count == 0)
@@ -269,6 +325,29 @@ namespace Parsek.Logistics
             }
 
             return totalCleared;
+        }
+
+        /// <summary>
+        /// Splits the missions a route clear turned off into the route's own trees and the
+        /// partner missions that reached a route tree through an included partner journey.
+        /// Returns the partner missions' names, in clear order; null-safe.
+        /// </summary>
+        internal static List<string> PartnerMissionNames(Route route, IReadOnlyList<Mission> cleared)
+        {
+            var names = new List<string>();
+            if (route == null || cleared == null)
+                return names;
+            for (int i = 0; i < cleared.Count; i++)
+            {
+                Mission m = cleared[i];
+                if (m == null)
+                    continue;
+                bool ownTree = string.Equals(m.TreeId, route.BackingMissionTreeId, StringComparison.Ordinal)
+                    || RouteBindsTreeId(route, m.TreeId);
+                if (!ownTree)
+                    names.Add(string.IsNullOrEmpty(m.Name) ? m.TreeId : m.Name);
+            }
+            return names;
         }
 
         // True when any of the route's SourceRefs carries the given tree id.
