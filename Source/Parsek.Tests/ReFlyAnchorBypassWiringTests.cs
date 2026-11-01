@@ -54,19 +54,19 @@ namespace Parsek.Tests
         [Fact]
         public void BackgroundRecorder_WiresNarrowedGateFilter_BeforeNearestSearch()
         {
-            string source = ReadSource("BackgroundRecorder.cs");
+            string source = ReadSource("BackgroundRecorder.RelativeAnchors.cs");
 
             int filterIdx = source.IndexOf(
                 "ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional(",
                 StringComparison.Ordinal);
             Assert.True(filterIdx >= 0,
-                "Narrowed-gate filter call missing from BackgroundRecorder.cs");
+                "Narrowed-gate filter call missing from BackgroundRecorder.RelativeAnchors.cs");
 
             int findNearestIdx = source.IndexOf(
                 "AnchorDetector.FindNearestRecordingAnchor(",
                 StringComparison.Ordinal);
             Assert.True(findNearestIdx >= 0,
-                "FindNearestRecordingAnchor call missing from BackgroundRecorder.cs");
+                "FindNearestRecordingAnchor call missing from BackgroundRecorder.RelativeAnchors.cs");
 
             Assert.True(filterIdx < findNearestIdx,
                 "Narrowed-gate filter must execute BEFORE FindNearestRecordingAnchor " +

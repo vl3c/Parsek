@@ -872,7 +872,7 @@ namespace Parsek.Tests
             string append = MethodBody("ParsekFlight.cs",
                 "internal static void AppendCapturedDataToRecording(Recording target, Recording source, double endUT)");
             Assert.DoesNotContain("VesselNameLiveSync.", append);
-            string close = MethodBody("BackgroundRecorder.cs", "private void CloseParentRecording(");
+            string close = MethodBody("BackgroundRecorder.SplitDetection.cs", "private void CloseParentRecording(");
             Assert.DoesNotContain("VesselNameLiveSync.", close);
         }
 

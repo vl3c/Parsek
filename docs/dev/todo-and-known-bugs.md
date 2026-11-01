@@ -9099,6 +9099,12 @@ columns whose blanks are visible, where the old outline simply said nothing.
   1494 lines, `.InRangeRender.cs` 748, `.LoopUnits.cs` 1357, `.LoopPlayback.cs` 1603,
   `.Completion.cs` 611, `.SectionPositioning.cs` 700, `.ReentryFx.cs` 481, `.GhostVisuals.cs`
   635, `.SpawnDestroy.cs` 933, `.Diagnostics.cs` 882.
+- `BackgroundRecorder.cs` (8,231 lines) split further into partial-class files (S3, pure move
+  by `scripts/refactor/split_backgroundrecorder.py`; every field, constant, property and the
+  constructor stay in the main file): `BackgroundRecorder.cs` 1,507 lines, `.MemberReconcile`
+  516, `.GameEventHandlers` 310, `.SplitDetection` 1,388, `.Finalization` 885,
+  `.StateInitialization` 862, `.Sampling` 809, `.RelativeAnchors` 1,118, `.TrackSections` 932,
+  beside the existing `.PartEventPolling` / `.State` / `.Testing` / `.TimeJump`.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,

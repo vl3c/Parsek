@@ -85,8 +85,8 @@ namespace Parsek.Tests
             string srcRoot = System.IO.Path.GetFullPath(
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
-            string raw = System.IO.File.ReadAllText(
-                System.IO.Path.Combine(srcRoot, "BackgroundRecorder.cs")).Replace("\r\n", "\n");
+            // The whole former BackgroundRecorder.cs, now the main file plus its split partials.
+            string raw = BackgroundRecorderSourceFiles.ReadAll(srcRoot).Replace("\r\n", "\n");
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(raw);
             string code = SourceScanText.StripCSharpComments(raw);
 
@@ -269,8 +269,9 @@ namespace Parsek.Tests
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
 
+            // EndDebrisRecording lives in the split-detection partial.
             string bgRecSrc = System.IO.File.ReadAllText(
-                System.IO.Path.Combine(srcRoot, "BackgroundRecorder.cs"));
+                System.IO.Path.Combine(srcRoot, "BackgroundRecorder.SplitDetection.cs"));
 
             // The exact call site format. Must match the string asserted by
             // EndDebrisRecording_PersistContextString_AppearsInFailureLog.
@@ -285,7 +286,7 @@ namespace Parsek.Tests
             // includes the TrackSection flush.
             int methodStart = bgRecSrc.IndexOf("private void EndDebrisRecording(");
             Assert.True(methodStart > 0,
-                "EndDebrisRecording method signature not found in BackgroundRecorder.cs");
+                "EndDebrisRecording method signature not found in BackgroundRecorder.SplitDetection.cs");
 
             int flushIdx = bgRecSrc.IndexOf("OnVesselRemovedFromBackground(vesselPid", methodStart);
             int persistIdx = bgRecSrc.IndexOf(
