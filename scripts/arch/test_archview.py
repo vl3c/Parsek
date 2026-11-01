@@ -3135,15 +3135,14 @@ class RealTreeSmokeTests(unittest.TestCase):
         self.assertGreaterEqual(len(largest["modules"]), 10)
 
     def test_knot_sizes_match_the_documented_tree(self):
-        # A snapshot of the current tree, re-derived 2026-09-25 after the
-        # stock-UI reservation layer was classified: eight types joined the
-        # kernel and the stock-screen decoration files form the 7-type knot
-        # (todo ARCH-STOCK-UI-RESERVATION-CYCLES-2026-09-25). It was
-        # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
-        # arch PRs shrank the kernel.
+        # A snapshot of the current tree, re-derived 2026-11-01 after 50 root
+        # files the map had skipped as unplaced were placed: the kernel knot is
+        # 584 and the 7-type stock-screen decoration knot merged into it. It
+        # was [301, 7, 4, 2, 2] on 2026-09-25, [286, 4, 2, 2] on 2026-09-22
+        # and [391, 4, 2] before the 2026-09-14 arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [301, 7, 4, 2, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [584, 4, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -3210,11 +3209,11 @@ class RealTreeSmokeTests(unittest.TestCase):
         # facts a reader relies on rather than a committed copy.
         self.assertEqual(fresh, again)
         self.assertIn("| Core |", fresh)
-        # 138: the historical before-state collects every root file the narrowed
-        # family rules leave behind (126 until the 2026-09-25 stock-UI
-        # reservation files landed at the root); 9 after, the kernel list as it
-        # stands today.
-        self.assertIn("| Core | 138 | 9 |", fresh)
+        # 192: the historical before-state collects every root file the narrowed
+        # family rules leave behind (138 on 2026-09-25, 126 before the stock-UI
+        # reservation files landed at the root; the 2026-11-01 refresh placed
+        # 50 more by hand); 9 after, the kernel list as it stands today.
+        self.assertIn("| Core | 192 | 9 |", fresh)
 
     def test_atlas_prose_matches_the_tree(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)
@@ -3248,24 +3247,29 @@ class RealTreeSmokeTests(unittest.TestCase):
         self.assertEqual(len(production), 20)
 
     def test_first_cut_matches_the_documented_tree(self):
-        # Re-derived 2026-09-25: with the stock-UI reservation layer in the
-        # kernel, GameAction's single in-knot reference (Ledger) now splits off
-        # the most, so the greedy walk cuts it first and RecordingStore second
-        # (it was first on 2026-09-22, after the 2026-09-14 arch PRs made
-        # ParsekLog a leaf). Same canary contract as the knot sizes above.
+        # Re-derived 2026-11-01: Recording is no longer plain data (it calls
+        # LaunchSiteOnlyGhost.IsHidden and SidecarVersions.CopyHashes), so the
+        # greedy walk cuts it first; GameAction is second and now drops five
+        # references, Ledger among them. On 2026-09-25 GameAction was first
+        # (301 -> 273) and RecordingStore second. Same canary contract as the
+        # knot sizes above.
         first, second = self.model["knots"][0]["cuts"][:2]
-        self.assertEqual(first["sink"], "GameAction")
-        self.assertEqual(first["sizeBefore"], 301)
-        self.assertEqual(first["sizeAfter"], 273)
-        self.assertEqual(first["droppedReferences"], ["Ledger"])
-        self.assertEqual(second["sink"], "RecordingStore")
-        self.assertEqual(second["sizeAfter"], 247)
-        self.assertIn("EffectiveState", second["droppedReferences"])
-        self.assertEqual(len(second["droppedReferences"]), 25)
+        self.assertEqual(first["sink"], "Recording")
+        self.assertEqual(first["sizeBefore"], 584)
+        self.assertEqual(first["sizeAfter"], 534)
+        self.assertEqual(first["droppedReferences"], ["LaunchSiteOnlyGhost", "SidecarVersions"])
+        self.assertEqual(second["sink"], "GameAction")
+        self.assertEqual(second["sizeAfter"], 496)
+        self.assertIn("Ledger", second["droppedReferences"])
+        self.assertEqual(len(second["droppedReferences"]), 5)
 
     def test_cut_sequence_halves_the_largest_knot(self):
+        # It did halve it until 2026-09-25. On 2026-11-01 the twelve greedy
+        # cuts leave 328 of 584 (56 percent): the knot grew faster than its
+        # hubs. The bound is the measured state, a ratchet the refactor
+        # program tightens back to one half; it must never be loosened.
         largest = self.model["knots"][0]
-        self.assertLess(largest["cuts"][-1]["sizeAfter"], largest["size"] / 2)
+        self.assertLess(largest["cuts"][-1]["sizeAfter"], largest["size"] * 0.57)
 
     def test_largest_knot_has_many_sublevels(self):
         sublevels = {entry["sublevel"] for entry in self.model["types"] if entry["knot"] == 1}

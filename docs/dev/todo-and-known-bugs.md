@@ -7329,6 +7329,9 @@ as drawn until the next of those.
 - The greedy cut sequence now starts with `GameAction` (its one in-knot reference, `Ledger`,
   splits off 28 types), then `RecordingStore`.
 
+**2026-11-01:** the 7-type knot no longer exists on its own: once the 50 unplaced root files
+were placed, it merged into the kernel knot (584). The fix direction below is unchanged.
+
 **Why it happened (likely, to confirm with `--check`'s hub list).** The index and the
 explanation builder read `LedgerOrchestrator` / `EffectiveState` / `KerbalsModule`, and
 `LedgerOrchestrator` references the index cache and the strategy state patcher back (cache
@@ -9023,6 +9026,28 @@ columns whose blanks are visible, where the old outline simply said nothing.
 - Landed so far (2026-09-14): #1682 tooling, #1683 ParsekLog leaf, #1684 Recording data-only,
   #1685 Missions -> Logistics boundary, #1686 VesselSpawner step 1. Cycle 391 -> 282.
 
+**Refreshed 2026-11-01** (main 2622fd5e6, full history; `archview.py --check --place`, `count-code.py`):
+- The checker had drifted with nothing to notice it: 50 production root files were unplaced
+  (skipped from every figure) and six real-tree cells in `scripts/arch/test_archview.py` were
+  red on main. The 50 now have `R0` rules in `scripts/arch/modules.toml` (one fix:
+  `GravityHackDetector.cs` holds a `FlightRecorder` partial, so it is Recording) and the
+  canaries are re-pinned.
+- The kernel knot is 584 types (301 on 2026-09-25); the stock-UI 7-type knot merged into it.
+  The greedy cuts leave 328 (no longer half). The first cut is `Recording` again: the data
+  type calls `LaunchSiteOnlyGhost.IsHidden` and `SidecarVersions.CopyHashes`, which ties 50
+  types to the knot (a regression of #1684). Second is `GameAction` (five references).
+- 109 production files at or above 1,000 lines, 16 at or above 5,000 (83 / 14 on 2026-09-22).
+  Largest types: `ParsekFlight` 35,099 lines over 14 files, `GhostMapPresence` 15,314,
+  `FlightRecorder` 14,935, `GhostPlaybackLogic` 14,653, `ParsekScenario` 12,959,
+  `LedgerOrchestrator` 11,222 (one file), `RecordingStore` 10,142.
+- Top file pairs: `FlightRecorder.cs` / `ParsekFlight.cs` and `ParsekScenario.cs` /
+  `RecordingStore.cs`, 160 commits each.
+- Boundaries: `Missions -> Logistics` was a name collision (a nested `VesselIdentity` struct in
+  `RouteEndpointTransfer.cs`), not a crossing. `Ghost -> GameActions` is crossed by one real
+  call (`GhostPlaybackLogic` -> `RecoveredRecordingEvidence.IsRecoveredByLedgerRowLive`).
+- Atlas findings and opportunities re-read (`atlas.toml`, `reviewed = "2026-11-01"`); the
+  published atlas link above carries the regenerated page.
+
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
 split rules; the later break-up pass of large files and classes into smaller ones works
@@ -9051,7 +9076,7 @@ name set is false, and a null or empty set is false with a live transform. Addin
 category a committed harness spec pins moves that spec's `BATCH_COMPLETE total=` tally
 (`CommittedBatchTallySourceSyncTests`), so pick the category with that in mind.
 
-## ARCH-PARSEKFLIGHT-CHANGE-HUB: ParsekFlight.cs is 27,591 lines and on one side of every top cross-module co-change pair [FILED 2026-09-14 off the architecture program (`docs/dev/research/architecture-opportunities-2026-09-14.md` item 1). A STRUCTURAL debt, not a defect. OPEN; the largest item on the list and the last to start. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
+## ARCH-PARSEKFLIGHT-CHANGE-HUB: ParsekFlight.cs is 27,591 lines (30,126 on 2026-11-01; the type is 35,099 over 14 files) and on one side of every top cross-module co-change pair [FILED 2026-09-14 off the architecture program (`docs/dev/research/architecture-opportunities-2026-09-14.md` item 1). A STRUCTURAL debt, not a defect. OPEN; the largest item on the list and the last to start. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
 **What is true.**
 - Touched in 1,125 of the 5,127 commits since 2025-03-01 (22 percent of every commit to
@@ -9073,7 +9098,9 @@ make the types it touches easier to reason about.
 
 **What is true.**
 - 6,970 lines plus partials, fan-in 91 files, touched in 408 commits (third most churned file);
-  co-changes with `ParsekScenario.cs` 131 times and `ParsekFlight.cs` 128.
+  co-changes with `ParsekScenario.cs` 131 times and `ParsekFlight.cs` 128. On 2026-11-01:
+  10,142 lines over 13 files, fan-in 101, 497 commits, 42 reassignable statics; co-changes
+  with `ParsekScenario.cs` 160 times and `ParsekFlight.cs` 150.
 - Inside the knot it references 37 other members: stores, codecs, the scenario, the flight
   controller, the ledger orchestrator, the crew manager. It is the third greedy cut and the
   first that names a design problem rather than a stray reference.
@@ -9095,7 +9122,9 @@ calls directly. One service per PR; the co-change with `ParsekScenario.cs` is th
   the incomplete-ballistic scene-exit finalizer, so the one module the docs call pure math is
   not.
 - `MissionRouteStructureList.cs` references `Logistics.Route` and `RouteStop`: the one declared
-  boundary (`[forbidden]` in `scripts/arch/modules.toml`) the checker finds crossed.
+  boundary (`[forbidden]` in `scripts/arch/modules.toml`) the checker finds crossed. (Closed
+  in #1685. On 2026-11-01 the crossed boundary is `Ghost -> GameActions`: one call,
+  `GhostPlaybackLogic` -> `RecoveredRecordingEvidence.IsRecoveredByLedgerRowLive`.)
 
 **Fix.** Split `VesselSpawner` into the snapshot/manifest half (kernel) and the live spawn and
 recover half (Controllers); move the Recording-aware half of the extrapolator into Recording;

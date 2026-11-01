@@ -25,7 +25,7 @@ vocabulary_note = "Learn these names before reading any file. Each is ranked by 
 knot_note = "Every one of them can reach every other through references."
 knot_consequence = "This is why the module map is one big cycle underneath the layering, and it is the single fact that most constrains refactoring: nothing inside the knot can be tested, extracted or reasoned about in isolation."
 knot_cuts_note = "The knot is not held together by popularity. It is held by a few outgoing references from the hub types. Making a hub a pure sink (removing its own references to other knot members) shrinks the knot by this much:"
-knot_callout = "<strong>How to read it.</strong> Two of the early rows are afternoon-sized: the game-action type reaches into the ledger, and the loop unit into the relaunch schedule. One reference each, and each splits a run of types off the knot. The rest of the sequence names god objects - the store, the route orchestrator, the playback logic, the scene controllers - whose cuts drop a long list of references at once, and what is left when the sequence ends is still a cluster of types. Those are design work, not moved edges, and they are where the opportunity list spends its argument."
+knot_callout = "<strong>How to read it.</strong> The first two rows are afternoon-sized: the recording data type reaches into two helpers (the launch-site ghost hide and the sidecar hash copy), and the game-action type into the ledger and four other types. Each splits a run of types off the knot. The rest of the sequence names god objects - the store, the route orchestrator, the playback logic, the scene controllers - whose cuts drop a long list of references at once, and what is left when the sequence ends is still a cluster of types. Those are design work, not moved edges, and they are where the opportunity list spends its argument."
 layering_note = "69 module edges run upward. Most are light. These are the ones that carry weight, with the types that cause them; the pairs at the end reference each other in both directions, which is the module-level signature of the knot."
 reading_note = "If you were new to this codebase, or coming back to it after months, this is the order in which the abstractions build on each other. Each step depends only on the ones before it."
 views_note = "This page is a snapshot with prose. The live views regenerate from source in a few seconds and stay honest as the code moves; they are written under <code>docs/dev/arch/</code> and are not committed."
@@ -163,6 +163,15 @@ meaning = "Where and why a tree branched: decouple, dock, undock, EVA, switch."
 [glossary.Kind]
 meaning = "What a rewind split mutated: a branch point, a debris parent, a track-section anchor, a ledger row or a milestone row."
 
+[glossary.ParsekGameModeGate]
+meaning = "Whether Parsek runs in this save's game mode; every Harmony patch asks it first."
+
+[glossary.VesselLaunchIdentity]
+meaning = "Launch identity by KSP's per-launch vessel guid, because a persistentId is baked into the craft and repeats on every launch."
+
+[glossary.GhostMapPresence]
+meaning = "The ghost's map and tracking-station presence: its ProtoVessel, orbit line, icon and targeting."
+
 [glossary.GameActionType]
 meaning = "The kind of ledger row: which economy, roster or facility effect it records (science, funds, milestones, contracts, reputation, crew, facilities, strategies and route cycles)."
 
@@ -238,11 +247,31 @@ text = "Plus the UI windows and the Harmony patches. Read last: they are where e
 # opportunities below were last re-read against a fresh page; `--check` says
 # when it is more than 30 days old.
 [findings]
-reviewed = "2026-09-22"
+reviewed = "2026-11-01"
 
 [[findings.items]]
-title = "Size is the missing axis."
-body = "The edges never said how much code sits behind a name. On 2026-09-22, 83 production files were at or above 1,000 lines and 14 at or above 5,000; the live list, the tiers and the split candidates are in <em>Largest files and types</em>. <span class=\"id\">GhostMapPresence</span>, one of the largest types, was barely named by the 2026-09-14 reading; its extraction study is <code>docs/dev/research/ghostmappresence-extraction-research-2026-09-22.md</code>."
+title = "The knot nearly doubled in five weeks."
+body = "On 2026-11-01 the largest cycle held 584 types, against 301 on 2026-09-25. Part of the jump is 50 root files the map had been skipping as unplaced (placed in the 2026-11-01 refresh); the rest is about 975 commits of feature work. The twelve greedy cuts no longer halve it. Live size and cut sequence: <em>The knot</em>."
+
+[[findings.items]]
+title = "Recording stopped being plain data."
+body = "PR #1684 made the recording data type a leaf. On 2026-11-01 it calls two helpers again (<code>LaunchSiteOnlyGhost.IsHidden</code> from its ghost-visibility property, <code>SidecarVersions.CopyHashes</code> from its clone), and those two references tie 50 types to the knot: the first and cheapest row of the cut sequence."
+
+[[findings.items]]
+title = "The checker drifted because nothing runs it."
+body = "On 2026-11-01, 50 production root files were unplaced (skipped from every figure) and six real-tree canaries in <code>scripts/arch/test_archview.py</code> were red on main, unnoticed: CI runs the harness suites and the xUnit suite, not <code>scripts/arch</code>. Todo ARCH-TOOLING-ROSLYN-AND-CI."
+
+[[findings.items]]
+title = "The giants keep growing."
+body = "On 2026-11-01, 109 production files were at or above 1,000 lines and 16 at or above 5,000 (83 and 14 on 2026-09-22). <span class=\"id\">ParsekFlight</span> is the largest type by more than twice the next. Live list, tiers and split candidates: <em>Largest files and types</em>. The <span class=\"id\">GhostMapPresence</span> extraction study is <code>docs/dev/research/ghostmappresence-extraction-research-2026-09-22.md</code>."
+
+[[findings.items]]
+title = "The pain is still a handful of controller and store files."
+body = "<span class=\"id\">ParsekFlight</span>, <span class=\"id\">RecordingStore</span>, <span class=\"id\">ParsekScenario</span> and <span class=\"id\">Recording</span> head the hotspot table, and the two most frequent cross-module file pairs are the flight recorder with the flight controller and the scenario module with the recording store (<em>What changes together</em>). <span class=\"id\">LedgerOrchestrator</span> is now a top-ten hotspot and one of the largest single-file types."
+
+[[findings.items]]
+title = "One declared boundary is crossed for real."
+body = "On 2026-11-01 the Ghost &rarr; GameActions boundary is crossed by one call, ghost playback logic asking the ledger whether a recording was recovered (<code>RecoveredRecordingEvidence</code>); the scan's other hits on that edge are a field named like a ledger type. The Missions &rarr; Logistics hit is a name collision (a nested <code>VesselIdentity</code> struct in Logistics), now excluded by the scan. Live list: <em>Where the layering breaks</em>."
 
 [[findings.items]]
 title = "The 2026-09-14 hotspot list was wrong for partial classes."
@@ -253,20 +282,12 @@ title = "The modules are real."
 body = "Even the most entangled pair of modules co-changes in a minority of its commits (the co-change tile above, and <em>What changes together</em>). The folder and name boundaries match how the code is edited."
 
 [[findings.items]]
-title = "The pain is a handful of controller and store files."
-body = "<span class=\"id\">ParsekFlight</span>, <span class=\"id\">RecordingStore</span>, <span class=\"id\">ParsekScenario</span> and <span class=\"id\">Recording</span> head the hotspot table, and <code>ParsekFlight.cs</code> sits on one side of most of the top cross-module file pairs (<em>What changes together</em>)."
-
-[[findings.items]]
-title = "One cycle spanned every module."
-body = "It held 391 types on 2026-09-14, kept together by four references: the logger reading settings, and the recording data type calling its store and the crew ledger. PRs #1683 and #1684 cut those. The live size and the remaining cut sequence are in <em>The knot</em>; what is left after the cheap cuts is design work."
-
-[[findings.items]]
 title = "Parsek is data plus functions, not objects."
 body = "On 2026-09-14 there were 26 interfaces and 6 abstract bases in 1,335 types, against 497 data types and 343 static helper classes. The abstractions are the names in <em>The vocabulary</em>, not a class hierarchy."
 
 [[findings.items]]
 title = "The old Core was a filing error."
-body = "On 2026-09-14, 115 of the 123 root-level files had an obvious owner and were moved in PR #1682. The real kernel is the small Core module in the <em>Module directory</em>, the files every module uses."
+body = "On 2026-09-14, 115 of the 123 root-level files had an obvious owner and were moved in PR #1682. The real kernel is the small Core module in the <em>Module directory</em>, the files every module uses. New root files still need a placement rule, or the checker skips them."
 
 [[findings.items]]
 title = "Trajectory is the pure module the docs claim."
@@ -297,9 +318,9 @@ types = ["ParsekLog"]
 [[opportunities]]
 rank = 3
 item = "Recording as plain data"
-evidence = "Two references held 54 more on 2026-09-14; a top hotspot."
+evidence = "Two references held 54 more on 2026-09-14; a top hotspot. On 2026-11-01 two new references (launch-site ghost hide, sidecar hash copy) hold 50 types again: the first row of the cut sequence."
 size = "afternoon"
-status = "Done, PR #1684."
+status = "Done in PR #1684, regressed by 2026-11-01; re-cut is slice 1 of the refactor branch."
 types = ["Recording"]
 
 [[opportunities]]
@@ -307,7 +328,7 @@ rank = 4
 item = "RecordingStore: the list plus services"
 evidence = "The first cut in the sequence under <em>The knot</em>, a top hotspot, and <code>ParsekScenario.cs</code> with <code>RecordingStore.cs</code> is one of the most frequent cross-module file pairs (<em>What changes together</em>)."
 size = "medium-high"
-status = "Design, next."
+status = "Design, next after the cheap cuts."
 types = ["RecordingStore"]
 
 [[opportunities]]
@@ -368,3 +389,26 @@ evidence = "The long-method column in <em>Largest files and types</em>; <code>Pa
 size = "per file"
 status = "Open."
 types = ["ParsekScenario"]
+
+[[opportunities]]
+rank = 13
+item = "Make the architecture checker a gate"
+evidence = "On 2026-11-01 the placement contract and six real-tree canaries were red on main and nobody saw it (<em>Main findings</em>)."
+size = "small"
+status = "Open; first slice of the refactor branch, before any code moves. Todo ARCH-TOOLING-ROSLYN-AND-CI step 2."
+
+[[opportunities]]
+rank = 14
+item = "GameAction as a sink"
+evidence = "The second row of the cut sequence: five references, the ledger among them (<em>The knot</em>)."
+size = "afternoon to a day"
+status = "Open."
+types = ["GameAction"]
+
+[[opportunities]]
+rank = 15
+item = "LedgerOrchestrator: partial-file split, then services"
+evidence = "One file of 11,222 lines on 2026-11-01, a top-ten hotspot, 34 reassignable statics (<em>Largest files and types</em>)."
+size = "3 to 5 PRs"
+status = "Open; ledger-sensitive, S3 partial files first (no call-site change)."
+types = ["LedgerOrchestrator"]

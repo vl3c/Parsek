@@ -143,6 +143,71 @@ placement = "R0"
 name = "Harness"
 prefix = "^LedgerGroundTruth[.]cs$|^LedgerGroundTruthDiff[.]cs$|^CareerSaveParser[.]cs$|^TestBatchMarker[.]cs$|^CareerStartSnapshot[.]cs$"
 placement = "R0"
+# --- R0 operator placements (2026-11-01 refresh) ---------------------------
+# Root files added since 2026-09-25 that no family rule matched (the checker
+# reported 50 unplaced and skipped them). Placed by hand from what each file
+# does, with the --place evidence (docs/dev/arch/core-placement.md) as a tiebreak.
+
+# Re-Fly / supersede bookkeeping
+[[module]]
+name = "Rewind"
+prefix = "^DiscardReFlyLoadIntent[.]cs$|^InertRecordingTrees[.]cs$|^SlotVesselWalk[.]cs$|^SplitParentLinks[.]cs$"
+placement = "R0"
+
+# load and scene lifecycle driven by ParsekScenario
+[[module]]
+name = "Controllers"
+prefix = "^LoadReconcilePolicy[.]cs$|^SaveFileLoadIntent[.]cs$|^InSessionStagedStateHandoff[.]cs$|^NoSaveSceneExit[.]cs$|^StartupNotices[.]cs$"
+placement = "R0"
+
+# spawn, claim, time-jump and in-flight commit policy the scene controllers run
+[[module]]
+name = "Controllers"
+prefix = "^ClaimedVesselHoldGhost[.]cs$|^ClaimedVesselRemoval[.]cs$|^CoexistingTreeSiblingSpawn[.]cs$|^ConstructionGhostShape[.]cs$|^ConverterJumpPolicy[.]cs$|^GroundPartPlacement[.]cs$|^InFlightCommitOptimization[.]cs$|^InFlightRecoveryRequest[.]cs$|^PostPhysicsPose[.]cs$|^ResumedSpawnPartCoverage[.]cs$|^SpawnWarpOutcome[.]cs$|^SpawnedHarvesterRestore[.]cs$|^TimeJumpManager[.]Placement[.]cs$|^TimeJumpPlacement[.]cs$|^LaunchSiteExclusionZones[.]cs$|^ForeignInventoryTransfer[.]cs$"
+placement = "R0"
+
+# ghost-side launch-site policy
+[[module]]
+name = "Ghost"
+prefix = "^LaunchSiteOnlyGhost[.]cs$"
+placement = "R0"
+
+# gates and observers the Harmony patches read
+[[module]]
+name = "Patches"
+prefix = "^ClaimedVesselDisposalGate[.]cs$|^ParsekGameModeGate[.]cs$|^PostFlightDialogLog[.]cs$|^StandInSeatCount[.]cs$"
+placement = "R0"
+
+# ledger capture scopes
+[[module]]
+name = "GameActions"
+prefix = "^CurrencyScenarioReadiness[.]cs$|^FacilityUpgradeCapture[.]cs$|^RecoveryDispatchScope[.]cs$|^RecoveryPayoutScope[.]cs$"
+placement = "R0"
+
+# recording files, sidecars and recorder classification
+[[module]]
+name = "Recording"
+prefix = "^GravityHackDetector[.]cs$|^SidecarVersions[.]cs$|^SectionWarpRuns[.]cs$|^SaveReferenceScanner[.]cs$|^ParsekFileCollector[.]cs$|^DockingPortSeparation[.]cs$"
+placement = "R0"
+
+# pure tail-velocity math
+[[module]]
+name = "Trajectory"
+prefix = "^RecordedTailVelocityResolver[.]cs$"
+placement = "R0"
+
+# window presentation
+[[module]]
+name = "UI"
+prefix = "^CareerSlotSummary[.]cs$"
+placement = "R0"
+
+# vessel and mission names (docs/dev/design-vessel-and-mission-names.md); MissionVesselNaming unions on VesselIdentity
+[[module]]
+name = "Missions"
+prefix = "^VesselIdentity[.]cs$|^VesselNameStore[.]cs$|^VesselNameStore[.]Links[.]cs$|^VesselNameStore[.]RevertUndo[.]cs$|^VesselNameLiveSync[.]cs$|^VesselNameSpawn[.]cs$|^VesselRenameWriter[.]cs$|^DisplayNames[.]cs$"
+placement = "R0"
+
 [[module]]
 name = "Missions"
 prefix = "^Mission"

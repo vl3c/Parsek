@@ -21,6 +21,13 @@ counting for the "which giants remain, and how big are they now" part of a pass
 (see `docs/dev/arch/README.md`, "Size view"). It ranks; this document still
 decides, because it knows which of those are deliberately deferred.
 
+**Refresh (2026-11-01):** the numbers were regenerated on main 2622fd5e6; the
+summary is in the todo entry ARCH-FINDINGS-REPORT and on the atlas. The knot is
+584 types and the cheapest cut is `Recording` again (two helper calls); the
+largest single-file types are `LedgerOrchestrator` (11,222 lines),
+`VesselSpawner`, `RecordingsTableUI`, `KspStatePatcher` and
+`GhostTrajectoryPolylineRenderer` (about 6,900 to 7,300 each).
+
 **New-file audit (2026-06-14):** the production code more than doubled since
 refactor-4 (176 → 380 files). The files created since that pass — the new
 `Logistics/`, `Rendering/`, `MapRender/`, `Reaim/`, `Display/` subsystems plus
