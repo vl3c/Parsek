@@ -1534,6 +1534,11 @@ namespace Parsek
                 savePhase = "rewind-vessel-holds";
                 RewindVesselHold.SaveInto(node);
 
+                // The replay-scope latch (BUG-B), so a load of this save draws and relays every
+                // ghost that replays at its UT (todo REPLAY-SCOPE-LOST-ON-SAVE-LOAD).
+                savePhase = "playback-replay-scope";
+                PlaybackScopeTracker.SaveInto(node);
+
                 // Strip ghost map ProtoVessels — they are transient and reconstructed on load
                 savePhase = "ghost-map-strip";
                 if (GhostMapPresence.ghostMapVesselPids.Count > 0)
@@ -4047,6 +4052,12 @@ namespace Parsek
                 loadPhase = "rewind-vessel-holds-load";
                 LoadRewindVesselHolds(node, earlyLoadKind);
 
+                // The replay-scope latch describes the timeline of the save that carries it
+                // (LoadReconcilePolicy, PlaybackReplayScope): a cold load takes the save's, so a
+                // save written mid-replay keeps its ghosts drawn and relaying.
+                loadPhase = "playback-replay-scope-load";
+                LoadPlaybackReplayScope(node, earlyLoadKind);
+
                 // A rewind point always survives a plain rewind (operator ruling
                 // 2026-09-23). The node above is persistent.sfs as last written, not the
                 // rewind save (SpaceCenterMain.Start reloads persistent), so its RP list is
@@ -6006,6 +6017,33 @@ namespace Parsek
                 }
             }
             LedgerHeldWindow.SaveInto(node);
+        }
+
+        /// <summary>
+        /// Takes the position <see cref="LoadReconcilePolicy"/> holds on the replay-scope latch
+        /// (<see cref="LoadStateCategory.PlaybackReplayScope"/>): a cold load installs the save's
+        /// copy (the reset cleared memory's), a Re-Fly start adds the RP quicksave's copy, and
+        /// every other load keeps memory's (a plain rewind adds its rewind save's copy in
+        /// <c>RecordingStore.ExecuteRewindSaveLoad</c>, its OnLoad node being persistent.sfs).
+        /// </summary>
+        private static void LoadPlaybackReplayScope(ConfigNode node, EarlyLoadKind earlyLoadKind)
+        {
+            LoadReconcileDecision decision = LoadReconcilePolicy.DecideEarly(
+                earlyLoadKind, LoadStateCategory.PlaybackReplayScope);
+            if (decision.Action == LoadReconcileAction.Save)
+            {
+                PlaybackScopeTracker.InstallFromSave(node, "load " + earlyLoadKind);
+                return;
+            }
+            if (earlyLoadKind == EarlyLoadKind.ReFlyStart)
+            {
+                PlaybackScopeTracker.UnionFromSave(node, "load " + earlyLoadKind);
+                return;
+            }
+            ParsekLog.Verbose("PlaybackScope", string.Format(CultureInfo.InvariantCulture,
+                "Load ({0}): replay scope kept from memory ({1}): inScope={2} seenBeforeActivation={3}",
+                earlyLoadKind, decision.Action, PlaybackScopeTracker.InReplayScopeCount,
+                PlaybackScopeTracker.SeenBeforeActivationCount));
         }
 
         /// <summary>

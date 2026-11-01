@@ -25,6 +25,10 @@ _(unreleased - entries accumulate here per commit)_
 
 ### Fixed
 
+- **Ghosts keep playing after you load a save made mid-replay.** After a rewind, a save made while
+  a committed flight was replaying as a ghost lost that ghost when loaded: no map icon, no relay
+  for CommNet, no vessel at its end. The save now remembers which flights are replaying, so every
+  current ghost is drawn and relays again after any load. (REPLAY-SCOPE-LOST-ON-SAVE-LOAD)
 - **A part dropped in EVA construction comes back after a rewind.** A part an engineer sets down
   on the ground in construction mode, whether taken from an inventory or off another vessel, is now
   recorded as its own vessel, so a rewind replays it and it reappears where it was dropped instead

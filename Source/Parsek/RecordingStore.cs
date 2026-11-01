@@ -5778,6 +5778,13 @@ namespace Parsek
                 RewindContext.SetRewindSaveLedgerHeldThroughUT(
                     LedgerHeldWindow.ReadSavedFromScenarios(game.scenarios));
 
+                // The replay-scope latch the rewind save carries: a recording that replayed when
+                // that save was written replays again from its UT, even after a load since
+                // reset memory's latch (todo REPLAY-SCOPE-LOST-ON-SAVE-LOAD). Memory's is kept.
+                // PreProcessRewindSave already merged it before its strip; this covers the
+                // un-preprocessed path and is a no-op otherwise.
+                PlaybackScopeTracker.UnionFromScenarios(game.scenarios, messageLabel);
+
                 // The Space Center start reloads persistent.sfs, not CurrentGame: put the rewind
                 // game there so the rewind lands in the rewind save's own world.
                 WriteRewindGameAsPersistent(game, messageLabel);
@@ -6415,6 +6422,13 @@ namespace Parsek
                 return double.NaN;
 
             ConfigNode gameNode = root.HasNode("GAME") ? root.GetNode("GAME") : root;
+
+            // The rewind save's replay-scope latch joins memory's BEFORE the strip resolvers run:
+            // they decide which recordings replay after the rewind (WillReplayAfterRewind), and a
+            // recording replaying when this save was written replays again from its UT (todo
+            // REPLAY-SCOPE-LOST-ON-SAVE-LOAD).
+            PlaybackScopeTracker.UnionFromGameNode(gameNode, "rewind save pre-process");
+
             ConfigNode flightState = gameNode.GetNode("FLIGHTSTATE");
             if (flightState == null)
             {

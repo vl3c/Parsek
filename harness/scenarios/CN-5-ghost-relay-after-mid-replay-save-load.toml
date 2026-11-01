@@ -1,0 +1,151 @@
+schema = 1
+id = "CN-5-ghost-relay-after-mid-replay-save-load"
+# =====================================================================================
+# CN-5: THE GHOSTS AFTER A SAVE WRITTEN MID-REPLAY IS LOADED (owner ruling 2026-11-01: "when
+# loading at any time, all current ghosts should be rendered, even if mid-flight; same applies
+# to relay function of ghosts"; todo REPLAY-SCOPE-LOST-ON-SAVE-LOAD).
+#
+# WHY. A committed recording replays (ghost, map icon, CommNet relay, terminal spawn) only while
+# PlaybackScopeTracker holds it in replay scope, which it latches the first time a scene sees
+# the playhead at or before the recording's start. The latch was memory only and every Cold
+# load reset it, and a save-file load (F9, the pause-menu Load, the main-menu Load) is a Cold
+# load (design-load-restores-the-save.md 4.1). So a save written while a ghost replayed, loaded
+# at a playhead past that ghost's start, read the ghost as historical-never-replayed: no relay
+# node, no map ghost, no flight ghost, no terminal spawn. The fix saves the latch in the PARSEK
+# node (PLAYBACK_REPLAY_SCOPE) and the Cold load installs the save's copy. This lane is the live
+# proof: flown on a DLL before the fix it reds on the A / B registrations after the load.
+#
+# THE HOST. CN-1's: gloops-airshow plus the `ghost-commnet-relay` preset (relays A and B in
+# window [save + 1 s, save + 100001 s], C looped with its real run over before the save; read
+# CN-1's header for the preset and the cells).
+#
+# THE TIMELINE:
+#   ~21      LoadGame boots FLIGHT on the pad pod; A and B latch into replay scope on the first
+#            frames (their start is 1 s ahead of the save's clock).
+#   1000     WarpToUT (rails, nothing recording): A and B are ~978 s into their window, far
+#            outside the 2 s latch tolerance.
+#   save     SaveGame quicksave, which now carries A and B in PLAYBACK_REPLAY_SCOPE.
+#   load     LoadGame quicksave playerLoad=true: the player's load of a save file, a Cold load
+#            (`Load classified: early=Cold refined=Cold scene=FLIGHT ... coldReason=save-file`), the save-scoped reset, then the save's latch
+#            (`Replay scope installed from the save (load Cold): inScope=2`).
+#   batch    GhostCommNet in the loaded FLIGHT: CN-1's four executing cells and rulings (A a
+#            control source, B relaying hidden, C unregistered as historical-never-replayed:
+#            BUG-B still holds across the load, C's start was behind the playhead all along).
+#
+# WHAT "DRAWN" MEANS HERE. The relays orbit 2,863 km up, so the flight-view mesh is out of
+# range; the drawn surfaces read are the map ghost (`[GhostMap] Created ghost vessel 'Ghost: CN
+# Relay A'` after the load, A only: B is playback-disabled) and the flight engine's skip state
+# (`Ghost playback skip state ... "CN Relay A" skip=True reason=historical-not-replayed` is
+# forbidden after the load mark). The Tracking Station and Space Center read the same latch.
+#
+# THE BATCH'S OWN FINAL RESTORE is a Cold load too (CN-4's PRE-REGISTERED READINGS); its
+# baseline save now carries the latch, so the `No ghost node for key=cn-relay-[ab]` forbidden
+# line is unscoped here (CN-4 keeps its scoped one, written before this fix).
+#
+# ANCHORS. The post-load lines are anchored after the load's own `Replay scope installed` line and
+# before the batch's final-restore marker, so the restore's own reload cannot satisfy them.
+# `seenBeforeActivation=` is regexed: it needs a frame strictly before UT 22.2 at boot.
+#
+# PRE-REGISTERED READINGS:
+#   - On a DLL without the fix: no `Replay scope installed` line, `Registered ghost node:
+#     key=cn-relay-a` missing after `cn5-loaded`, `No ghost node for key=cn-relay-a ...:
+#     historical-never-replayed` and the rulings cell's `relayA=unregistered`. That is the bug.
+#   - `inScope=` other than 2 on the install line: the latch held something else at the save;
+#     read the `Replay scope` lines.
+#   - `early=` other than Cold on the load's classification line: the seam's playerLoad path
+#     did not announce a save-file load; the lane proves nothing about the bug then.
+#
+# STATUS: LIVE-PROVEN 2026-11-01. On main's DLL (no fix) `2026-11-01_0103` PARSEK-FAIL, the bug
+# itself: after the load the relays read historical-never-replayed (batch passed=1 failed=1
+# skipped=7). On the fix (PR #2354 at da66eb1) `2026-11-01_0124` PASS attempt 1, 97 s, batch
+# passed=4 failed=0 skipped=5 (CN-1's split, now pinned).
+#
+# FAST-LANE CHECKLIST: (1) reuse: CN-1's host, preset and category, QL lanes' save / player
+# load pair; (2) explicit-UT warp only; (3)-(5) no dwell, burn or coast; (6) retry `once`;
+# (7) recordings exactly the preset's 3 (nothing records); (8) operator until measured (CN-1 is
+# nightly); (9) flight_efficiency.py after the first green flight.
+tier = "operator"
+description = "The ghosts after a save written mid-replay is loaded: on gloops-airshow plus the ghost-commnet-relay preset, the clock is warped ~978 s into relays A and B's window, a quicksave written and loaded back as the player's load (a Cold load); after it the relays must be in replay scope again: A's map ghost created, A and B registered as CommNet nodes with CN-1's rulings (A a multi-hop control source, B relaying hidden), and C still unregistered as historical-never-replayed."
+instanceProfile = "stock-minimal"
+tags = ["CN-5", "ghost-commnet", "commnet-relay", "injected-recordings", "quickload",
+        "save-load", "replay-scope", "ingame-batch", "D6", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "ghost-commnet-relay"
+craft = []
+
+[driver]
+kind = "seam"
+# Budget arithmetic: 300 LoadGame + 180 warp + 120 SaveGame + 300 LoadGame + 540 RunTests =
+# 1440; runtime 1800 adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",    args = { save = "${runSave}", name = "persistent" },                      expect = "OK", budget = 300 },
+  { cmd = "SetSetting",  args = { name = "autoRecordOnLaunch", value = "false" },                  expect = "OK" },
+  { cmd = "SetSetting",  args = { name = "verboseLogging", value = "true" },                       expect = "OK" },
+
+  # ---- mid-replay: ~978 s into A and B's window, then the save ----
+  { cmd = "WarpToUT",    args = { ut = "1000", maxRate = "50" },                                   expect = "OK", budget = 180 },
+  { cmd = "MissionMark", args = { label = "cn5-mid-replay" },                                      expect = "OK" },
+  { cmd = "SaveGame",    args = { name = "quicksave" },                                            expect = "OK", budget = 120 },
+
+  # ---- the player's load of that save: a Cold load ----
+  { cmd = "LoadGame",    args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",  args = { name = "autoRecordOnLaunch", value = "false" },                  expect = "OK" },
+  { cmd = "SetSetting",  args = { name = "verboseLogging", value = "true" },                       expect = "OK" },
+  { cmd = "MissionMark", args = { label = "cn5-loaded" },                                          expect = "OK" },
+  { cmd = "RunTests",    args = { category = "GhostCommNet" },                                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                          expect = "OK" },
+]
+
+[dimensionsCovered]
+D6  = ["commnet-relay"]   # asserted after a mid-replay save is loaded: A and B registered, the route and its cut
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 3, max = 3 }
+
+[expectations.logContracts]
+required = [
+  # ---- before the save: CN-1's registration ----
+  "\\[GhostCommNet\\] Registered ghost node: key=cn-relay-a node=ParsekGhost:cn-relay-a vessel=\"CN Relay A\" scene=FLIGHT reason=in-window [\\s\\S]*?MISSIONMARK label=cn5-mid-replay ut=",
+
+  # ---- the save carries the latch, the load is Cold and installs it ----
+  "MISSIONMARK label=cn5-mid-replay ut=[\\s\\S]*?loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "MISSIONMARK label=cn5-mid-replay ut=[\\s\\S]*?Save-scoped session state reset: reason=",
+  "MISSIONMARK label=cn5-mid-replay ut=[\\s\\S]*?\\[PlaybackScope\\] Replay scope installed from the save \\(load Cold\\): inScope=2 seenBeforeActivation=[0-9]+ [^\\n]*node=present[\\s\\S]*?MISSIONMARK label=cn5-loaded ut=",
+
+  # ---- after the load: the ghosts are back ----
+  "MISSIONMARK label=cn5-mid-replay ut=[\\s\\S]*?\\[PlaybackScope\\] Replay scope installed from the save \\(load Cold\\)(?:(?!Preparing save-scoped state for isolated FLIGHT batch baseline restore)[\\s\\S])*?\\[GhostMap\\] Created ghost vessel 'Ghost: CN Relay A' ghostPid=[0-9]+ type=Relay ",
+  "MISSIONMARK label=cn5-mid-replay ut=[\\s\\S]*?\\[PlaybackScope\\] Replay scope installed from the save \\(load Cold\\)(?:(?!Preparing save-scoped state for isolated FLIGHT batch baseline restore)[\\s\\S])*?\\[GhostCommNet\\] Registered ghost node: key=cn-relay-a node=ParsekGhost:cn-relay-a vessel=\"CN Relay A\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,[0-9.]+\\] hold=False dark=False relay=2000000000 transmit=5000 relayCombined=False transmitCombined=False control=True multiHop=True antennas=3",
+  "MISSIONMARK label=cn5-mid-replay ut=[\\s\\S]*?\\[PlaybackScope\\] Replay scope installed from the save \\(load Cold\\)(?:(?!Preparing save-scoped state for isolated FLIGHT batch baseline restore)[\\s\\S])*?\\[GhostCommNet\\] Registered ghost node: key=cn-relay-b node=ParsekGhost:cn-relay-b vessel=\"CN Relay B\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,[0-9.]+\\] hold=False dark=False relay=2000000000 transmit=5000 relayCombined=False transmitCombined=False control=False multiHop=True antennas=2",
+  "MISSIONMARK label=cn5-loaded ut=[\\s\\S]*?\\[TestRunner\\] GhostCommNet routing probe \\(FLIGHT\\): home=\"[^\"]+\" homePower=40000 hops=2 viaGhost=True negativeControl=cut",
+  "MISSIONMARK label=cn5-loaded ut=[\\s\\S]*?\\[TestRunner\\] GhostCommNet registered nodes \\(FLIGHT\\): checked=2 dark=0",
+  "MISSIONMARK label=cn5-loaded ut=[\\s\\S]*?\\[TestRunner\\] GhostCommNet registered relay route \\(FLIGHT\\): probed=2 viaGhost=2 negativeControlCut=2 controlSourceAtGhost=1 noRelay=0 homes=9 keys=cn-relay-a,cn-relay-b\\s",
+  "MISSIONMARK label=cn5-loaded ut=[\\s\\S]*?\\[TestRunner\\] GhostCommNet preset rulings \\(FLIGHT\\): relayA=registered control=True multiHop=True relay=2000000000 relayB=registered playbackEnabled=False control=False relay=2000000000 relayC=unregistered loop=True reason=historical-never-replayed",
+  # Pinned off the first green flight (run 2026-11-01_0124), CN-1's split.
+  "BATCH_COMPLETE v1 total=9 passed=4 failed=0 skipped=5 category=GhostCommNet scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "Ghost node pre-update threw",
+  "DriveGhostCommNet threw",
+  "Registered ghost node: key=cn-relay-c ",
+  "Ghost node dark this rebuild: key=cn-relay-[ab] vessel=\"[^\"]*\" reason=(position-unresolved|exception)",
+  "No ghost node for key=cn-relay-[ab] vessel=\"[^\"]*\": (?!before-window)",
+  "Removed ghost node: key=cn-relay-[ab] .* reason=(?!ParsekFlight destroyed)",
+  "MISSIONMARK label=cn5-mid-replay ut=[\\s\\S]*?Ghost playback skip state: #[0-9]+ id=\\S+ vessel=\"CN Relay A\" skip=True reason=historical-not-replayed",
+  "loadgame rejected",
+]
+
+[runtime]
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
