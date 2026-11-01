@@ -6186,8 +6186,10 @@ namespace Parsek
                 if (string.IsNullOrEmpty(path))
                 {
                     ParsekLog.Warn(Tag, "OnLoad: could not resolve ledger path — starting with empty ledger");
-                    // The take-back era and timeline breaks belong to the save the ledger came
-                    // from; none was read, so the previous save's must not carry over.
+                    // The rows, the progress seed, the take-back era and the timeline breaks
+                    // belong to the save they came from; none was read, so the previous
+                    // save's must not carry over (a cold load is a save switch).
+                    Ledger.ClearForFailedLoad();
                     StockShadowTakeBack.LoadFrom(null, "unresolved-ledger-path");
                     return;
                 }

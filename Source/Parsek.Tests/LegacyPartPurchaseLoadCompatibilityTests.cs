@@ -110,6 +110,65 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LoadRepair_CurrentRecorderRowUnderAStrategyDiscount_KeepsTheGrossCost()
+        {
+            // RW-23 (2026-10-31_1802): an RT-10 bought under Aggressive Negotiations records the
+            // gross 1200 row (cost= plus entryCost=) and a +18 conversion leg; stock's
+            // FundsChanged(RnDPartPurchase) reads the net 1182. The cold-load repair rewrote the
+            // row to 1182 while the leg stayed, so the walk expected +18 twice.
+            var partEvt = new GameStateEvent
+            {
+                ut = 200.0,
+                eventType = GameStateEventType.PartPurchased,
+                key = "solidBooster.v2",
+                detail = "cost=1200;entryCost=1200",
+                valueBefore = 11200.0,
+                valueAfter = 10000.0
+            };
+            GameStateStore.AddEvent(ref partEvt);
+            var fundsEvt = new GameStateEvent
+            {
+                ut = 200.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = "RnDPartPurchase",
+                valueBefore = 11182.0,
+                valueAfter = 10000.0
+            };
+            GameStateStore.AddEvent(ref fundsEvt);
+            Ledger.AddAction(new GameAction
+            {
+                UT = 200.0,
+                Type = GameActionType.FundsSpending,
+                FundsSpendingSource = FundsSpendingSource.Other,
+                FundsSpent = 1200f,
+                DedupKey = "solidBooster.v2"
+            });
+
+            int repairedEvents = GameStateStore.RepairLegacyPartPurchaseEventsForCurrentSemantics();
+            int repairedActions = LedgerOrchestrator.RepairLegacyPartPurchaseActionsOnLoad(
+                GameStateStore.Events, Ledger.Actions);
+
+            Assert.Equal(0, repairedEvents);
+            Assert.Equal(0, repairedActions);
+            var kept = Assert.Single(GameStateStore.Events
+                .Where(evt => evt.eventType == GameStateEventType.PartPurchased));
+            Assert.Equal("cost=1200;entryCost=1200", kept.detail);
+            Assert.Equal(11200.0, kept.valueBefore);
+            Assert.Equal(1200f, Ledger.Actions.Single().FundsSpent);
+        }
+
+        [Theory]
+        [InlineData("cost=1200;entryCost=1200", true)]
+        [InlineData("cost=0;entryCost=450", true)]
+        [InlineData("cost=450", false)]
+        [InlineData("", false)]
+        [InlineData(null, false)]
+        public void IsCurrentRecorderPartPurchaseDetail_Cases(string detail, bool expected)
+        {
+            Assert.Equal(expected, GameStateStore.IsCurrentRecorderPartPurchaseDetail(detail));
+        }
+
+        [Fact]
         public void TryRecoverBrokenLedgerOnLoad_LegacyBypassShapeWithoutFundsEvent_RewritesToZeroCost()
         {
             GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = () => true;

@@ -1121,5 +1121,189 @@ namespace Parsek.Tests
                 && l.Contains("pilots=1 unknownCrew=2 partsMissingPrefab=1")
                 && l.Contains("capable=True"));
         }
+
+        // ---------------------------------------------------------------- registration resolve
+
+        private static GhostCommNetRegistrationRow Row(string key, string reason, uint pid, string guid,
+            bool chain = false, bool eligible = true)
+            => new GhostCommNetRegistrationRow
+            {
+                Key = key, IsChain = chain, Eligible = eligible, Reason = reason, Pid = pid, Guid = guid,
+            };
+
+        private static GhostCommNetCapabilityProbe AllCapable()
+            => (int i, out string type) => { type = "Relay"; return GhostCommNetCapability.Capable; };
+
+        private static (HashSet<string> desired, Dictionary<string, string> excluded, GhostCommNetRegistrationCounts counts)
+            Resolve(List<GhostCommNetRegistrationRow> rows, GhostCommNetCapabilityProbe probe = null)
+        {
+            var desired = new HashSet<string>(StringComparer.Ordinal);
+            var excluded = new Dictionary<string, string>(StringComparer.Ordinal);
+            GhostCommNetRegistrationCounts counts = GhostCommNetMath.ResolveRegistrations(
+                rows, probe ?? AllCapable(), desired, (i, reason) => excluded[rows[i].Key] = reason);
+            return (desired, excluded, counts);
+        }
+
+        [Fact]
+        public void ResolveRegistrations_ContinuationHoldYieldsToRecordingNodeOfSameLaunch()
+        {
+            // The hold is listed FIRST: pass order, not list order, decides precedence.
+            var rows = new List<GhostCommNetRegistrationRow>
+            {
+                Row("hold", GhostCommNetMath.ReasonContinuationGapHold, 42, GuidA),
+                Row("rec", GhostCommNetMath.ReasonInWindow, 42, GuidA),
+            };
+            var r = Resolve(rows);
+            Assert.Equal(new[] { "rec" }, r.desired);
+            Assert.Equal(GhostCommNetMath.ReasonCoveredByRecordingNode, r.excluded["hold"]);
+            Assert.Equal(1, r.counts.Covered);
+            Assert.Equal(1, r.counts.Eligible);
+        }
+
+        [Fact]
+        public void ResolveRegistrations_ContinuationHoldYieldsToChainPreClaimNode()
+        {
+            var rows = new List<GhostCommNetRegistrationRow>
+            {
+                Row("hold", GhostCommNetMath.ReasonContinuationGapHold, 42, null),
+                Row("chain:42", "chain-pre-claim", 42, GuidA, chain: true),
+            };
+            var r = Resolve(rows);
+            Assert.Equal(new[] { "chain:42" }, r.desired);
+            Assert.Equal(GhostCommNetMath.ReasonCoveredByRecordingNode, r.excluded["hold"]);
+        }
+
+        [Fact]
+        public void ResolveRegistrations_ChainYieldsToRecordingNode()
+        {
+            var rows = new List<GhostCommNetRegistrationRow>
+            {
+                Row("chain:42", "chain-pre-claim", 42, GuidA, chain: true),
+                Row("rec", GhostCommNetMath.ReasonInWindow, 42, null),
+            };
+            var r = Resolve(rows);
+            Assert.Equal(new[] { "rec" }, r.desired);
+            Assert.Equal(GhostCommNetMath.ReasonCoveredByRecordingNode, r.excluded["chain:42"]);
+        }
+
+        [Fact]
+        public void ResolveRegistrations_ConclusivelyDifferentLaunchesBothRegister()
+        {
+            // Same craft file (baked pid), different launches: two vessels, two nodes.
+            var rows = new List<GhostCommNetRegistrationRow>
+            {
+                Row("rec", GhostCommNetMath.ReasonInWindow, 42, GuidA),
+                Row("chain:42", "chain-pre-claim", 42, GuidB, chain: true),
+                Row("hold", GhostCommNetMath.ReasonContinuationGapHold, 42, "bbbbbbbb-0000-0000-0000-00000000000c"),
+            };
+            var r = Resolve(rows);
+            Assert.Equal(3, r.desired.Count);
+            Assert.Empty(r.excluded);
+            Assert.Equal(0, r.counts.Covered);
+        }
+
+        [Fact]
+        public void ResolveRegistrations_TwoHoldsOfOneLaunchRegisterOnce()
+        {
+            var rows = new List<GhostCommNetRegistrationRow>
+            {
+                Row("holdA", GhostCommNetMath.ReasonContinuationGapHold, 42, GuidA),
+                Row("holdB", GhostCommNetMath.ReasonContinuationGapHold, 42, GuidA),
+            };
+            var r = Resolve(rows);
+            Assert.Equal(new[] { "holdA" }, r.desired);
+            Assert.Equal(GhostCommNetMath.ReasonCoveredByRecordingNode, r.excluded["holdB"]);
+        }
+
+        [Fact]
+        public void ResolveRegistrations_PidZeroHoldIsNeverDeduped()
+        {
+            var rows = new List<GhostCommNetRegistrationRow>
+            {
+                Row("rec", GhostCommNetMath.ReasonInWindow, 0, null),
+                Row("hold", GhostCommNetMath.ReasonContinuationGapHold, 0, null),
+            };
+            var r = Resolve(rows);
+            Assert.Equal(2, r.desired.Count);
+        }
+
+        [Fact]
+        public void ResolveRegistrations_ExcludedOrIncapableNodeDoesNotCoverItsLaunch()
+        {
+            // A recording excluded (or incapable) relays nothing, so the hold of the same
+            // launch keeps the vessel on the network.
+            var rows = new List<GhostCommNetRegistrationRow>
+            {
+                Row("recOut", "superseded", 42, GuidA, eligible: false),
+                Row("recDumb", GhostCommNetMath.ReasonInWindow, 7, GuidB),
+                Row("hold42", GhostCommNetMath.ReasonContinuationGapHold, 42, GuidA),
+                Row("hold7", GhostCommNetMath.ReasonContinuationGapHold, 7, GuidB),
+            };
+            GhostCommNetCapabilityProbe probe = (int i, out string type) =>
+            {
+                type = rows[i].Key == "recDumb" ? "Debris" : "Relay";
+                return rows[i].Key == "recDumb" ? GhostCommNetCapability.TypeIgnored : GhostCommNetCapability.Capable;
+            };
+            var r = Resolve(rows, probe);
+            Assert.Equal(new HashSet<string> { "hold42", "hold7" }, r.desired);
+            Assert.Equal("superseded", r.excluded["recOut"]);
+            Assert.Equal("stock-ignored-vessel-type:Debris", r.excluded["recDumb"]);
+            Assert.Equal(1, r.counts.TypeIgnored);
+        }
+
+        [Fact]
+        public void ResolveRegistrations_CountsAndReasons()
+        {
+            var rows = new List<GhostCommNetRegistrationRow>
+            {
+                Row("a", GhostCommNetMath.ReasonInWindow, 1, null),
+                Row("b", GhostCommNetMath.ReasonInWindow, 2, null),
+                Row("c", "before-window", 3, null, eligible: false),
+                Row(null, GhostCommNetMath.ReasonInWindow, 4, null),
+            };
+            GhostCommNetCapabilityProbe probe = (int i, out string type) =>
+            {
+                type = "Probe";
+                return rows[i].Key == "b" ? GhostCommNetCapability.Incapable : GhostCommNetCapability.Capable;
+            };
+            var r = Resolve(rows, probe);
+            Assert.Equal(new[] { "a" }, r.desired);
+            Assert.Equal(GhostCommNetMath.ReasonNoCapability, r.excluded["b"]);
+            Assert.Equal("before-window", r.excluded["c"]);
+            Assert.Equal(2, r.counts.Eligible);
+            Assert.Equal(1, r.counts.Incapable);
+            Assert.Equal(0, r.counts.TypeIgnored);
+            Assert.Equal(0, r.counts.Covered);
+        }
+
+        [Fact]
+        public void ResolveRegistrations_ReusedScratchStartsEmpty()
+        {
+            // The manager passes one identity list every frame; a stale identity from the last
+            // tick must not cover this tick's hold.
+            var scratch = new List<KeyValuePair<uint, string>> { new KeyValuePair<uint, string>(42, GuidA) };
+            var rows = new List<GhostCommNetRegistrationRow>
+            {
+                Row("hold", GhostCommNetMath.ReasonContinuationGapHold, 42, GuidA),
+            };
+            var desired = new HashSet<string>(StringComparer.Ordinal);
+            GhostCommNetMath.ResolveRegistrations(rows, AllCapable(), desired, null, scratch);
+            Assert.Equal(new[] { "hold" }, desired);
+            Assert.Single(scratch);
+        }
+
+        [Fact]
+        public void ResolveRegistrations_RewindBeforeRelayLaunchRegistersNothing()
+        {
+            // Design 15.6 scenario 1 after a Rewind-to-Launch: the relay's window has not
+            // opened yet, so no node stands until the clock reaches it again.
+            var rows = new List<GhostCommNetRegistrationRow>
+            {
+                Row("relay", "before-window", 42, GuidA, eligible: false),
+            };
+            var r = Resolve(rows);
+            Assert.Empty(r.desired);
+            Assert.Equal("before-window", r.excluded["relay"]);
+        }
     }
 }

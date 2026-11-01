@@ -34,6 +34,9 @@ namespace Parsek.Tests
             typeof(RewindContext),
             typeof(RewindInvokeContext),
             typeof(Parsek.Logistics.RouteRunPrompt),
+            // Leftovers found by the save-switch audit (2026-10-31).
+            typeof(FacilityStatePatcher),
+            typeof(RecordingGroupStore),
         };
 
         private readonly List<string> logLines = new List<string>();
@@ -70,6 +73,8 @@ namespace Parsek.Tests
             RewindContext.ResetForTesting();
             RewindInvokeContext.ResetForTesting();
             Parsek.Logistics.RouteRunPrompt.ResetForTesting();
+            FacilityStatePatcher.ResetForTesting();
+            RecordingGroupStore.ResetForTesting();
         }
 
         // ---- the allowlist ----

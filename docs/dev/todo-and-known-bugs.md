@@ -17,6 +17,191 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~SAVE-ROUND-TRIP-GATE: no test checks that every saved field survives a save and load~~ [DONE 2026-10-31; xUnit only; test gap C3 of roadmap/test-gap-audit-2026-10-31.md]
+
+`Source/Parsek.Tests/SaveRoundTrip/` now round-trips every persisted surface field by field under a
+comma-decimal culture: `FieldRoundTrip` fills every instance field of a type (and, for a static
+store, every static field) with a distinct non-default value, saves, loads and diffs, reporting
+each field path that changed. A field may only differ when the type's `FieldSpec` classifies it
+`NotPersisted` (asserted NOT to survive, so a stale entry reds too) or `Derived`, each with a
+reason. Covered: every GameAction row type (per-type persisted payload table), the ledger node,
+kerbal slots, Recording metadata and the recording tree, the trajectory and snapshot sidecars,
+supply routes / route events / retired cargo / the route store, the rewind and Re-Fly records,
+game-state events, baselines and milestones, and the mission, vessel-name, group, crew, hold,
+held-window, take-back, pool-reference and settings stores (the game-state store carries events,
+snapshots, science subjects and baselines; the milestone store both its node and the
+MILESTONE_STATE replay indexes). `SaveRoundTripCoverageGateTests` reds when a Parsek type gains a
+Save*/Load*/Serialize*/Deserialize* method over a ConfigNode (or a binary sidecar reader / writer)
+with no `[SaveRoundTripCovers]` test and no Exempt row; the store and record test classes each
+assert that every type their attributes name has a case, so an attribute alone cannot pass the
+gate. Mutation-checked: dropping one key in any covered codec reds a round-trip case.
+
+Known limits, not covered by this gate: discovery goes by method name, so a codec spelled
+Build*/Parse*/Write*/Read* is not found (the pending-science node, `GameStateRecorder.
+BuildPendingScienceNode` / `ParsePendingScienceNode`, is covered only by the older
+`GameStateSaveNodeTests`); and a field filled with one enum value (`Recording.MergeState`) is
+round-tripped for that value only.
+
+Found and fixed: RECORDING-VESSEL-SITUATION-NOT-SAVED and RESCUE-PLACED-MARKER-SESSION-ONLY
+(below). Classified by design and left as is: the legacy `GameStateEvent.epoch` /
+`Milestone.Epoch` stamps (read from old saves, never assigned or written), the vessel-name
+revert-undo epoch, and the runtime caches each spec names.
+
+## ~~RESCUE-PLACED-MARKER-SESSION-ONLY: the #615 rescue-completion marker did not survive a save and load~~ [FIXED 2026-10-31; xUnit only; low]
+
+`CrewReservationManager.rescuePlacedKerbals` (kerbal -> pid of the Parsek-spawned vessel the rescue
+path placed him on) was cleared by `LoadCrewReplacements` and never saved. The
+`KerbalsModule.ApplyToRoster` guard must fire on every walk for the lifetime of the rescue (the
+multi-walk regression in `RescueCompletionGuardTests` is the bug it prevents: without the marker
+the walk regenerates the rescued kerbal's stand-in), and a save and load is one more walk
+trigger. Found while classifying the field for SAVE-ROUND-TRIP-GATE.
+
+Before the fix the marker was also dropped by every in-session load, so it lasted only until the
+next scene change.
+
+**Fix.** `SaveCrewReplacements` writes a `RESCUE_PLACED_KERBALS` node (name + vessel pid) and
+`LoadCrewReplacements` replaces memory's set with the save's (a stale pid never matches a live
+vessel, so nothing is pruned). A plain rewind keeps memory's set as before; a Re-Fly start
+(`RestoreReplacements`) still clears it. `ScenarioWriter.AddRescuePlacedKerbal` authors the node.
+Tests: `RescueCompletionGuardTests.RescuePlacedMarker_SurvivesSaveAndLoad` /
+`_LoadsFromAScenarioWriterSave`, `StoreSaveRoundTripTests`. Not flown: the rescue-then-reload
+sequence has no harness lane. Follow-up: RESCUE-PLACED-MARKER-NEVER-RETIRES.
+
+## RESCUE-PLACED-MARKER-NEVER-RETIRES: a saved rescue marker stays in the save for good [OPEN 2026-10-31; low]
+
+Since RESCUE-PLACED-MARKER-SESSION-ONLY the #615 marker lives for the life of the save instead of
+until the next scene change. Two consequences: stale entries (vessel long gone) pile up in the
+save, harmless because a stale pid never matches a live vessel; and the marker's documented
+limit (a later, unrelated fresh reservation for a kerbal still aboard the same rescue vessel pid
+gets no stand-in, see the comment on `CrewReservationManager.rescuePlacedKerbals`) can now last
+past a scene change. Candidate fix: retire a kerbal's marker when a new reservation for that
+kerbal is created, and prune entries whose pid matches no vessel on save.
+
+## ~~RECORDING-VESSEL-SITUATION-NOT-SAVED: a recording's stop-time situation text is lost on every save and load~~ [FILED AND FIXED 2026-10-31 by the field-level save round-trip suite (SAVE-ROUND-TRIP-GATE); xUnit only; product, low (Timeline wording only)]
+
+`Recording.VesselSituation` ("Landed Mun", "EVA Kerbin") is set at stop time by
+`VesselSpawner.SnapshotVessel` and carried onto the recording by
+`ParsekFlight.ApplyCapturedSplitStateToStandaloneRecording` and `ApplyPersistenceArtifactsFrom`,
+and `TimelineBuilder.TryAddVesselSpawnEntry` reads it for the spawn row text. The RECORDING node
+never wrote it, so after any save and load the row fell back to the terminal-state wording
+(`TimelineEntryDisplay.GetVesselSpawnText`). Found by `RecordingSaveRoundTripTests`
+(`Recording.VesselSituation: wrote "...", read null`).
+
+**Fix.** `RecordingTreeRecordCodec` writes a sparse `vesselSituation` key next to `vesselDestroyed`
+and reads it back (absent reads null, the old fallback). Additive key, no schema generation bump.
+Tests: `Parsek.Tests.SaveRoundTrip.RecordingSaveRoundTripTests`, `RecordingTreeSaveRoundTripTests`.
+
+## ~~RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP: a flight looped from the Recordings tab replays in flight and at the Space Center but not on the map or in the Tracking Station~~ [FILED 2026-10-31 from the test gap audit (`roadmap/test-gap-audit-2026-10-31.md` A1, code read); FIXED 2026-10-31, branch `claude/project-thread-c5l296`; xUnit only, lane owed; product, medium (a looped flight's map icon is missing or sits on its final orbit)]
+
+Every map consumer (flight map ProtoVessels, the Tracking Station create / refresh / startup
+passes, the map and TS markers, the polyline head, the MapRender chain sampler) resolves its sample
+UT through `GhostPlaybackLogic.ResolveTrackingStationSampleUT`, which returned the live UT for any
+index that is not a Missions-loop unit member. Only an OVERLAPPING per-recording loop had its own
+map path (the per-instance sweep). So a non-overlapping Recordings-tab loop past its first run
+sampled the live UT, past the recording's end: no icon, or the terminal orbit, while the flight
+engine and KSC replayed the mesh on `TryComputeLoopPlaybackUT`.
+
+**Fix.** `LoopUnitSet` carries an optional standalone-loop source (the committed list,
+`WithStandaloneLoopSource`, memoized, kept by `LiveAt`); `MissionLoopUnitBuilder.ResolveLiveUnits`
+attaches it for the Flight and TrackingStation hosts (KSC has no map and keeps its own loop path)
+and the TS startup set (`BuildStartupTrackingStationLoopUnits`) carries it too. For a non-member
+index the seam now calls `GhostPlaybackLogic.TryResolveStandaloneLoopSampleUT`
+(`GhostPlaybackLogic.StandaloneLoopClock.cs`): the schedule is the engine's
+(`TryResolveStandaloneLoopSchedule`: effective loop range, `ResolveLoopInterval`, the auto-launch
+queue slot, built without the live loop-unit members exactly as the engine and KSC queue builds
+leave them out; `TryResolveAutoLoopLaunchSchedule` takes them as `excludedIndices`) and the sample
+UT is `playbackStart + phase` of `TryComputeLoopPlaybackPhase`, hidden
+before the schedule start and in the pause between cycles, where the engine shows no mesh. Overlap
+loops stay with the per-instance sweep; a unit member keeps the mission clock. Not mirrored: the
+flight-only watch-mode loop phase reset (`loopPhaseOffsets`), so while the player watches a reset
+loop the map icon runs on the unreset schedule. Still open, older than this fix: the OVERLAP map
+path (`GhostMapPresence.OverlapSchedule.cs`, `TryResolveOverlapScheduleAnchor`) builds the Auto
+queue without that exclusion, so an overlapping Auto loop beside a unit member that also carries
+its own Auto loop gets a different slot on the map than in flight (rare: a unit member with its own
+Auto toggle). Tests: `StandaloneLoopMapSampleTests` (including a sweep against the engine's own
+`TryComputeLoopPlaybackUT` and the unit-member queue exclusion).
+
+Lanes SLM-1 / SLM-2 / SLM-1T: the first flights (`2026-10-31_2335`, `_2337`, `_2339`, main 58a4136)
+were all PARSEK-FAIL on a FIXTURE defect, not this fix: the `standalone-loop-map` preset had one
+trajectory point, and `GhostPlaybackEngine.ShouldLoopPlayback` loops nothing below two, so neither
+the mesh nor the seam looped it and every read was the live UT. The preset now carries an end point
+on the orbit (`StandaloneLoopMapFixtureTests.TheEngineLoopsIt_TwoPointsOnTheOrbit`, red with the
+point removed), and the in-game cell asserts the engine loops the recording before it checks the map.
+
+## ~~ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER: on a re-aim route whose last leg lands or docks, cargo is delivered on the raw loop clock while the ghost's descent is re-timed~~ [FILED 2026-10-31 from the test gap audit (A2, code read); FIXED 2026-10-31, branch `claude/project-thread-c5l296`; xUnit only, not flown; product, medium (cargo arrives days away from the rendered touchdown)]
+
+The renderer detaches a descent-trigger unit's post-parking clip (deorbit, reentry, landing, or the
+rendezvous approach) from the span clock and replays it from the first rotation-aligned moment
+after the icon reaches the deorbit point (`DescentTrigger`). The delivery side compared the raw
+span-clock `loopUT` against `RecordedDockUT` (`RouteLoopClock.TryGetRouteLoopState`), so the dock
+crossing fired when the raw clock passed the dock, not when the ghost docked. With a capture
+shift longer than a destination day (any interplanetary arrival) the raw clock is LATE by
+`|captureShift| - (|captureShift| mod Trot)`, i.e. whole destination days.
+
+**Fix.** `TryGetRouteLoopState` maps a descent-trigger unit's loop UT through
+`RouteLoopClock.ResolveDescentDeliveryLoopUT`: the raw clock until the descent phase engages, then
+the renderer's own head `recordedDeorbitUT + (now - triggerUT)` (same `ComputeDescentTiming` and
+site-align offset), floored at `min(raw, conicEnd)` so it never steps back, capped at
+`SpanEndUT`; the inter-cycle tail flag follows the capped head. Every delivery reader (single-stop,
+multi-stop, the window-basis transition, the cadence rebase) takes its loop UT from that call. The
+uniform countdown (`TryComputeSecondsToNextDockCrossing`) now refuses a descent unit, as it already
+refuses loiter cuts and schedules. Tests: `RouteDescentDeliveryClockTests`.
+
+## OVERLAP-MAP-GHOSTS-CHURN-AT-HIGH-WARP: overlap map icons are destroyed and recreated every frame when the cadence is shorter than one frame's game time [FILED 2026-10-31 from the test gap audit (A3), code read; OPEN; product, low (icon strobing and vessel-list churn only at very high warp)]
+
+`GhostMapPresence.EnsureOverlapInstances` (run every frame from `RunOverlapPerInstanceSweep`) has
+no warp gate. When one frame's game time exceeds the launch cadence, the active cycle window moves
+past every live instance each frame, so up to `MaxSpawnsPerFrame` map ProtoVessels are created and
+the same number destroyed per frame, and the Tracking Station list refreshes after each mutation.
+The flight engine culls overlap clones above 50x (`WarpThresholds.GhostHide`). Bounded by the
+per-frame spawn cap and the 20-copy cap, cosmetic, and only reached when a frame spans more than one
+cadence (a 120 s / 20-copy loop needs well above 1000x). Candidate fix: above the hide threshold keep
+only the newest cycle's instance and re-seed it across cycles instead of recreating it. Not taken
+in the A1 / A2 fix because no lane flies an overlap loop at that warp to prove the change.
+
+## ~~REVERT-EDITOR-SAVE-SWITCH-GAPS: Revert to VAB / SPH could be undone by a scene-exit save or leave a stale cleanup armed, and three statics survived a save switch~~ [FILED AND FIXED 2026-10-31 from the test-gap audit (`test-gap-audit-2026-10-31.md` B4 / B5 / B6 / C9), branch `claude/project-thread-ib5y5e`; unit-tested; REV-1, SWS-1 and CN-4 LIVE-PROVEN; product, medium (R1, R2), low (S1-S3)]
+
+Code read plus a decompile of `FlightDriver.RevertToPrelaunch` (KSP 1.12.5): stock writes
+`PreLaunchState` to persistent.sfs, fires `OnRevertToPrelaunchFlightState`, then
+`EditorDriver.StartEditor` -> `LoadScene(EDITOR)`, and `EditorDriver.Start` reloads that file.
+
+- ~~**R1.** `SceneExitInterceptor.SafeWritePersistent` saved `HighLogic.CurrentGame` (still the
+  flight game) over that file when the LoadScene prefix took a scene-exit write on the way to
+  EDITOR: the no-op switch-segment and no-session committed-resume fast paths (3.5 / 3.6), and the
+  merge dialog's post-choice when autoMerge is off. The editor then loaded the flight state (the
+  launch vessel still flying, the rollout not refunded).~~ Fix: `ShouldSkipPersistentWriteForPendingRevert`
+  skips the write while `RevertDetector.PendingKind` is set (not for MAINMENU, which never follows
+  a revert). Revert to Launch goes FLIGHT to FLIGHT and never reaches it.
+- ~~**R2.** The revert branch of `ParsekScenario.OnLoad` armed the OnFlightReady orphaned-vessel
+  recovery (`PendingCleanupPids` / `PendingRevertPreExistingPids`) for an editor revert too, where
+  nothing consumes it; the next launch then ran it with the stale prelaunch whitelist and recovered
+  a vessel Parsek had Real Spawned at the Space Center in between.~~ Fix:
+  `ReleaseRevertCleanupOutsideFlight` releases it when the revert does not land in FLIGHT (the
+  protoVessel strip already covered every vessel), the same release the rewind path does.
+- ~~**S1.** `FacilityStatePatcher`'s patch history and pending default targets survived a
+  main-menu return to a save of the same folder name (its folder latch cannot see it), so a
+  facility the old session patched could be forced to its default level.~~ Fix:
+  `FacilityStatePatcher.ResetForSaveLoad` from `KspStatePatcher.ResetForSaveLoad` (every cold load).
+- ~~**S2.** `RecordingGroupStore`'s auto-group mirror was never cleared outside tests, so a save
+  sharing recording ids (a copied folder) could re-adopt a recording into the other save's
+  group.~~ Fix: cleared in `RecordingStore.ResetSaveScopedStateForLoad`; each recording carries
+  its own `autoAssignedStandaloneGroup` key.
+- ~~**S3.** `LedgerOrchestrator.OnLoad` kept the previous save's rows when the ledger path could
+  not be resolved.~~ Fix: `Ledger.ClearForFailedLoad` there too.
+- Both statics classes joined the `SaveScopedSessionResetTests` inventory gate (mutation-checked:
+  dropping either reset reds it). CommNet ghosts across a rewind: no defect found (every scene
+  load rebuilds the manager and eligibility is re-derived each tick); the registration passes
+  moved into the pure `GhostCommNetMath.ResolveRegistrations` with cells
+  (GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST first bullet).
+- Lanes: `REV-1-revert-to-vab-in-rewound-timeline` (new `RevertToLaunch target=prelaunch`)
+  LIVE-PROVEN `2026-10-31_2355` (R1 and R2 held live, `pruned 1`), and
+  `SWS-1-save-switch-through-main-menu` (new `NewGame ... as=<runSave>-<suffix>`) LIVE-PROVEN
+  `2026-10-31_2358` (committed 34 / 0 / 34). `CN-4-ghost-commnet-relay-across-rewind` flew
+  `2026-10-31_2359` with every required line matched (the relays re-register after the rewind
+  with CN-1's rulings) and red only on its forbidden `No ghost node` line, which matched after the
+  batch's own final-restore Cold load resets the replay scope by design; scoped, and LIVE-PROVEN
+  on the re-fly `2026-11-01_0010`.
+
 ## ~~CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE: a contract the clock carries past its committed outcome leaves stock's active list and goes nowhere, so it vanishes from the Mission Control Archive~~ [FILED 2026-10-31 from RW-20 run `2026-10-31_0256`; FIXED 2026-10-31, branch `contract-crossed-archive`; LIVE-PROVEN by RW-20 `2026-10-31_0425`; product, low (stock history only: funds, reputation, ledger and ground truth were right, nothing paid twice)]
 
 In RW-20 contract `1a9762e8` reached its real deadline and stock saved it `DeadlineExpired`. A
@@ -885,14 +1070,43 @@ drivable: `Recover` gains the optional `mergeDialog=refly` (`TestCommandRecover.
 Re-Fly marker and the active tree's `ReFlyAttempt` modal as the only wedge, the verb presses and answers OK
 `mergeDialog=open` once the modal is up; every other wedge still refuses `dialog-required`; refusal
 `recover-mergedialog-arg-invalid`; tests in `TestCommandRealSpawnRecoverTests`, hlib
-`VERB_SCOPED_CLOSED_ARGS`). Lane `RW-25-refly-recover-pressed` on `cs-career-mun4`, AUTHORED, NEVER FLOWN:
+`VERB_SCOPED_CLOSED_ARGS`). Lane `RW-25-refly-recover-pressed` on `cs-career-mun4`, LIVE-PROVEN on its first
+flight `2026-10-31_1811` PASS attempt 1 (348 s, DLL 0f3473d4): `recover wedge accepted
+variant=ReFlyAttempt`, the modal up 0.33 s after the press, `VesselRecovery funds patched:
+vessel='CS Flea Probe' amount=2791 ut=186000.3` tagged to the attempt, 156355.22 funds before the
+rewind and after the crossing, LedgerGroundTruth `hardFailures=0 reportOnly=2`, one payout row:
 RW-11's G and hop, the press on KSC grass, AnswerMergeDialog merge, stock's recovery of the pod at the Space
 Center booked once, a Rewind-to-Launch and the crossing with the pools back, LedgerGroundTruth. NOT
 COVERABLE: a pressed recovery under 100 funds. The stock button recovers only the active vessel, and no
 controllable vessel on these hosts is worth under 100 (the Mk1 pod alone is 600); under 100 inside a Re-Fly
 stays RW-11's clean-up path.
 
-## ~~STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED: a strategy discount on a part purchase, a repair or a contract penalty has no ledger leg, so a rewind and a repeat pays it twice~~ [FILED AND FIXED 2026-10-28 from code reading plus the stock `Strategies.cfg`, branch `fix-strategy-gross-legs`; unit-tested only, NOT FLOWN, lane owed; product, medium (a discount credited twice, breaking "nothing is paid twice")]
+## ~~LEGACY-PART-PURCHASE-REPAIR-NETS-A-DISCOUNTED-PURCHASE: a cold load rewrites a discounted part purchase to its net price while its strategy leg stays, so the discount counts twice~~ [FILED AND FIXED 2026-10-31 from RW-23's first flight (`2026-10-31_1802`, PARSEK-FAIL on two forbidden lines), branch `fix-legacy-purchase-repair`; unit-tested; product, low (ledger row only, the live pool stayed right)]
+
+RW-23 bought the RT-10 under Aggressive Negotiations: the gross 1200 `PartPurchased` row
+(`cost=1200;entryCost=1200`), its +18 funds leg and -1.25 reputation leg (both `RnDPartPurchase`,
+scoped `Part:solidBooster.v2`), and stock's net `FundsChanged(RnDPartPurchase)` of -1182. Every
+required line of the lane passed. The first cold load in the batch then logged `OnLoad: repaired
+legacy R&D part-purchase rows (events=1, actions=1)`: `GameStateStore.TryRewriteLegacyPartPurchaseEvent`
+re-read the cost from the paired funds event (1182) and `LedgerLoadMigration.RepairLegacyPartPurchaseActionsOnLoad`
+wrote it into the row, while the +18 leg (STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED, #2313) stayed.
+The walk then expected 18 more than stock held and filed `StockPoolAdjustment amount=-18
+reason=leak` plus a `GUARDED UPLIFT clamped`. The repair predates the leg binding: it was written
+for pre-#451 rows whose `cost=` was wrong, when the funds event was the only truth.
+
+Fix. A row carrying `entryCost=` (written only by the current recorder, whose `cost=` is the
+gross price by contract) is never re-read from a funds event: `GameStateStore.IsCurrentRecorderPartPurchaseDetail`
+gates `TryRewriteLegacyPartPurchaseEvent`, and through it the action repair; the event pass logs one
+Verbose summary of the rows it kept. A `cost=`-only row is repaired as before. Tests
+(`LegacyPartPurchaseLoadCompatibilityTests`): `LoadRepair_CurrentRecorderRowUnderAStrategyDiscount_KeepsTheGrossCost`
+(the RW-23 shape: 0 events and 0 actions repaired, the row stays 1200),
+`IsCurrentRecorderPartPurchaseDetail_Cases`; mutation-checked (dropping both gates reds the headline).
+LIVE-PROVEN by RW-23's re-flight `2026-10-31_1836` (PASS attempt 1, DLL e9e5b38e, main a56d8284e): no
+`repaired legacy R&D part-purchase` line, `RepairLegacyPartPurchaseEvents: kept 1 current-recorder
+PartPurchased row(s) as recorded ... repaired=0` on every cold load of the batch, no adjustment, no
+guard clamp, LedgerGroundTruth `hardFailures=0 reportOnly=0`.
+
+## ~~STRATEGY-DISCOUNT-ON-GROSS-ROWS-UNLEDGERED: a strategy discount on a part purchase, a repair or a contract penalty has no ledger leg, so a rewind and a repeat pays it twice~~ [FILED AND FIXED 2026-10-28 from code reading plus the stock `Strategies.cfg`, branch `fix-strategy-gross-legs`; repair LIVE-PROVEN by RW-9, purchase LIVE-PROVEN by RW-23 (`2026-10-31_1836`); product, medium (a discount credited twice, breaking "nothing is paid twice")]
 
 Stock `AgressiveNegotiations` multiplies funds under `VesselRollout` / `RnDPartPurchase` (0.70 at
 full commitment) and `StructureRepair` / `StructureConstruction` (0.99) and adds -1..-6
@@ -962,7 +1176,13 @@ the original repair (155591.16 funds / 97.96 rep), no StockPoolAdjustment, no GU
 PASS. Its first flights found REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE.
 
 **Lane, part-purchase path (2026-10-31, branch `lanes-strategy-purchase-and-refly-recovery`).**
-`RW-23-strategy-part-purchase-rebuy`, AUTHORED, NEVER FLOWN. The host gap RW-9 named is closed by a
+`RW-23-strategy-part-purchase-rebuy`, LIVE-PROVEN `2026-10-31_1836` PASS attempt 1 (138 s, DLL e9e5b38e): the
+purchase (gross 1200, legs +18 and -1.25, no reconcile), the refused re-buy, the crossing (`added=1`,
+pools 503000 / 95 / 104.22 before the rewind and after it) and LedgerGroundTruth 3/3 `hardFailures=0
+reportOnly=0`. `2026-10-31_1802` was PARSEK-FAIL on the two forbidden lines only, the cold load in its
+check, filed and fixed as LEGACY-PART-PURCHASE-REPAIR-NETS-A-DISCOUNTED-PURCHASE. The first run was INVALID twice on
+`warp-locked holders=MissionSummaryDialog`, so V leaves through ExitToSpaceCenter and KscMarkerRecover
+(RW-18's shape). The host gap RW-9 named is closed by a
 new derived fixture, `career-pad-craft-purchase` (`harness/tools/build_career_pad_craft_purchase.py`:
 `career-pad-craft` with BypassEntryPurchaseAfterResearch False and reputation 120, above the 115 at
 which `cs-career-mun4` activated Aggressive Negotiations; drift-gated by
@@ -2663,7 +2883,7 @@ Not covered: a `stock-minimal` that is itself stale. Cells: `ReferenceDllAdmissi
 flies, the reference is never compared with itself; mutation-checked by dropping the diff from the
 admit call).
 
-## KB-STRATEGY-SLOT-NEEDED-NO-LIVE-LANE: the Administration Accept refusal for a strategy that would take the slot a committed activation needs has never been pressed in game [FILED 2026-10-10 from the branch cleanup. OPEN, harness, low]
+## ~~KB-STRATEGY-SLOT-NEEDED-NO-LIVE-LANE: the Administration Accept refusal for a strategy that would take the slot a committed activation needs has never been pressed in game~~ [FILED 2026-10-10 from the branch cleanup. CLOSED 2026-10-31: LIVE-PROVEN by RW-24 (`2026-10-31_1808`); harness, low]
 
 `StrategyReservationPredicates.EvaluateActivation` refuses an activation two ways when the
 committed timeline activates a strategy later: the strategy itself (`FutureActivation`) and any
@@ -2693,7 +2913,12 @@ block-after-rewind` on a new host `stock-screen-census-strategy`. To rebuild it:
   `test_saveparse.test_fixture_set_is_exactly_the_committed_set` and the saves README need it too.
 
 **Lane (2026-10-31, branch `lanes-strategy-purchase-and-refly-recovery`).** `RW-24-strategy-slot-needed-
-after-rewind`, AUTHORED, NEVER FLOWN; this entry stays OPEN until it flies green. A cheaper shape than the
+after-rewind`, LIVE-PROVEN `2026-10-31_1808` PASS attempt 1 (129 s, DLL 0f3473d4), no product defect: the
+refusal read `kind=SlotNeeded committedKey=AgressiveNegotiations committedUT=200 count=2 limit=1`, the
+button tooltip and the blocked dialog read "Slot needed from Y1, D01, 00:03 for 'Aggressive
+Negotiations', blocked by timeline.", the pools came back at 504182 / 105.49. `2026-10-31_1806` was red
+on one anchor (the refusal line is rate-limited per strategy and prints ahead of the refused-1 mark),
+spec fixed. A cheaper shape than the
 draft above: no census host, the committed activation comes from a Rewind-to-Launch instead. On
 `career-pad-craft-purchase` (RW-23's host, reputation 120, Administration level 1 so one slot) a pad Flea is
 recorded, committed and recovered; at T1 Aggressive Negotiations is activated; a Rewind-to-Launch puts that
@@ -4517,7 +4742,9 @@ toggled during rails warp on the landed rover is recorded at the toggle UT (ever
 
 - `Quickload` (or `LoadGame allowLiveRecorder=quickload`): LoadGame refuses a live recorder today
   except for Re-Fly (`TestCommandDispatcher.cs:619-643`).
-- `Revert target=launch|vab`: no stock-revert verb exists.
+- ~~`Revert target=launch|vab`: no stock-revert verb exists.~~ DONE: `RevertToLaunch` (VN-5)
+  drives Revert to Launch, and since 2026-10-31 `RevertToLaunch target=prelaunch` drives Revert to
+  VAB / SPH (lane `REV-1-revert-to-vab-in-rewound-timeline`, todo REVERT-EDITOR-SAVE-SWITCH-GAPS).
 - ~~`ReFlyRevert choice=... target=launch|prelaunch`: the Esc > Revert dialog during a Re-Fly.~~
   DONE 2026-10-07 (branch `refly-revert-verb`): `ReFlyRevert choice=discard|retry|cancel
   target=launch|prelaunch` presses the stock pause menu's Revert Flight and revert option, then
@@ -4582,6 +4809,23 @@ delivered row, no cycle id twice; reds all 12 seeds when the rewind loop-positio
 removed; the ledger half stays open); (3) the
 FZ-1 lane: a seeded generator of declarative step lists over the operation alphabet, invariants
 after each step, oracles at the end, seed and step index printed for exact replay.
+
+Item 2, ledger half: DONE 2026-10-31 (branch `claude/project-thread-3mnti5`, test-gap audit
+2026-10-31 C2). `ReFlyValueFuzzerTests` builds seeded random careers one operation at a time
+(forward and rewound flights, contracts with and without deadlines, purchases at a rewound clock,
+repairs, strategies, records, Re-Fly with gate, live session, Discard or Merge through
+`ReFlyMergeDominance.Evaluate` and the real `CommitTombstones`, chained re-flies) and checks the
+rewind design section 2.12 rules after every step: an open slot holds no counted non-loss row
+and retiring it lowers nothing; a passed merge lowers no balance at any UT, keeps every
+affordable purchase affordable, retires only losses or not-counted rows and keeps every credit
+(milestone, contract, record threshold, science subject) at the same or an earlier UT; Discard
+restores the ledger exactly; the earliest milestone / contract outcome wins; a forward flight
+takes no credit back. It also checks that the live cached gate and the merge's retire set agree
+with the pure parts, and that the isolated walk ends where the live recalculation does. A
+5,000-career sweep (6,661 merges, 2,527 discards, 161 refusals) found no violation; planted bugs
+(a milestone that does not seal, a dominance check that always passes, Variant B written as A,
+a milestone credited to its latest row) each red it. Still open: the effective-state alphabet,
+route conservation, and the FZ-1 lane.
 
 ---
 
@@ -8743,12 +8987,13 @@ drives the DESIGNED flag through a real career.
 
 ## GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST: the continuation-hold pass has no manager-level dedupe test, and FLIGHT scans for it every frame [FILED 2026-09-26 by the commnet-followups review. OPEN, low; test and performance hygiene, no live defect]
 
-- The pass-3 identity dedupe in `GhostCommNetManager.Tick` (`ChainVesselCoveredByRecording` before a
+- ~~The pass-3 identity dedupe in `GhostCommNetManager.Tick` (`ChainVesselCoveredByRecording` before a
   continuation-hold entry) can be removed with no test going red; only the pure pieces are pinned. The
   duplicate it guards (a chain-intermediate recording's hold beside the pre-claim snapshot node of the
-  same vessel) needs a recording in replay scope while its vessel is real, which should be unreachable.
-  Fix: move the pass ordering and dedupe into a pure function and pin it, or give the manager a
-  headless seam for the CommNet types.
+  same vessel) needs a recording in replay scope while its vessel is real, which should be unreachable.~~
+  DONE 2026-10-31 (branch `claude/project-thread-ib5y5e`): the three passes are the pure
+  `GhostCommNetMath.ResolveRegistrations` (capability probe and exclusions by row index), pinned by
+  the `ResolveRegistrations_*` cells in `GhostCommNetTests`.
 - FLIGHT evaluates `ApplyContinuationHold` every frame for every in-scope unspawned recording with
   `TerminalSpawnSupersededByRecordingId` set, scanning the committed list even far from EndUT (O(K*n)
   per frame). Fine at today's scales. Fix: gate it to near or past EndUT as the Tracking Station does.

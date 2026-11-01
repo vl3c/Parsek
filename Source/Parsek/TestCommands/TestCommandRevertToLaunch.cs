@@ -17,7 +17,17 @@ namespace Parsek.TestCommands
     /// <c>OnRevertToLaunchFlightState</c> and reloads the post-init flight state exactly as
     /// for a player, and Parsek's revert detection and undo run unchanged.</para>
     ///
-    /// <para><b>Grammar.</b> <c>cmd=RevertToLaunch</c>, no args, issued in FLIGHT. TWO-PHASE,
+    /// <para><b>Target.</b> Optional <c>target=launch|prelaunch</c> (default <c>launch</c>, the
+    /// <c>ReFlyRevert</c> spelling): <c>prelaunch</c> is the Esc menu's Revert to VAB / SPH,
+    /// <c>FlightDriver.RevertToPrelaunch(ShipConstruction.ShipType)</c>. Stock offers it under
+    /// <c>CanLeaveToEditor</c>, <c>FlightDriver.CanRevertToPrelaunch</c>, a ship config and a
+    /// VAB / SPH ship type (<c>PauseMenu.drawStockRevertOptions</c>), so only a flight launched
+    /// from the editor has it (<c>reverttolaunch-prelaunch-unavailable</c> otherwise). It lands
+    /// in EDITOR: OK once the editor is up and settled and the revert's OnLoad consumed the
+    /// revert kind, payload <c>scene= facility= ship=</c>, line
+    /// <c>reverttolaunch complete target=prelaunch facility= ship='..' elapsed=</c>.</para>
+    ///
+    /// <para><b>Grammar.</b> <c>cmd=RevertToLaunch [target=launch|prelaunch]</c>, issued in FLIGHT. TWO-PHASE,
     /// <c>RequiresFlight</c>, 180 s (a FLIGHT bootstrap, the <c>LaunchFromEditor</c> size).
     /// Refusals (REJECTED, before anything is pressed): a live Re-Fly marker
     /// (<c>reverttolaunch-refly-session</c>: the prefix would answer with its own dialog, which
@@ -38,15 +48,31 @@ namespace Parsek.TestCommands
     {
         internal const string Verb = "RevertToLaunch";
 
+        internal const string TargetKey = "target";
+        internal const string LaunchToken = "launch";
+        internal const string PrelaunchToken = "prelaunch";
+
+        /// <summary>The closed <c>target=</c> vocabulary. hlib.REVERTTOLAUNCH_TARGET_VALUES
+        /// mirrors it.</summary>
+        internal static readonly string[] TargetValues = { "launch", "prelaunch" };
+
+        internal const string TargetArgInvalidReason = "reverttolaunch-target-arg-invalid";
         internal const string ReFlySessionReason = "reverttolaunch-refly-session";
         internal const string UnavailableReason = "reverttolaunch-unavailable";
+        internal const string PrelaunchUnavailableReason = "reverttolaunch-prelaunch-unavailable";
+
+        /// <summary>Frames the editor must be up before the revert to the editor answers OK,
+        /// the <c>GoToEditor</c> settle (its OnLoad and first frames have run).</summary>
+        internal const int EditorSettleFrames = TestCommandEditorRoute.MinSettleFrames;
 
         /// <summary>The REJECTED vocabulary, in gate order. hlib.REVERTTOLAUNCH_REASONS
         /// mirrors it (RevertToLaunchSourceSyncTests).</summary>
         internal static readonly string[] Reasons =
         {
+            "reverttolaunch-target-arg-invalid",
             "reverttolaunch-refly-session",
             "reverttolaunch-unavailable",
+            "reverttolaunch-prelaunch-unavailable",
         };
 
         internal const string ThrewReason = "reverttolaunch-threw";
@@ -60,6 +86,63 @@ namespace Parsek.TestCommands
             "revert-failed-returned-to-menu",
             "revert-timeout",
         };
+
+        /// <summary>Parses the optional <c>target=</c>: absent is Revert to Launch. Returns
+        /// null or the refusal reason.</summary>
+        internal static string ParseTarget(string raw, out bool prelaunch)
+        {
+            prelaunch = false;
+            if (raw == null || raw == LaunchToken) return null;
+            if (raw == PrelaunchToken) { prelaunch = true; return null; }
+            return TargetArgInvalidReason;
+        }
+
+        /// <summary>The Revert to VAB / SPH gate: no live Re-Fly marker, then the four
+        /// conditions stock's revert menu offers the option under. Null to proceed.</summary>
+        internal static string DecidePrelaunchGate(bool reFlyMarkerLive, bool canLeaveToEditor,
+            bool canRevertToPrelaunch, bool hasShipConfig, bool shipTypeIsEditor)
+        {
+            if (reFlyMarkerLive) return ReFlySessionReason;
+            if (!canLeaveToEditor || !canRevertToPrelaunch || !hasShipConfig || !shipTypeIsEditor)
+                return PrelaunchUnavailableReason;
+            return null;
+        }
+
+        /// <summary>
+        /// The Revert to VAB / SPH completion: MAINMENU fails fast; OK once the scene is
+        /// EDITOR with a game, the editor up for <see cref="EditorSettleFrames"/> frames and the
+        /// revert kind consumed by the editor's OnLoad (so the revert branch ran); the budget
+        /// ends everything else.
+        /// </summary>
+        internal static LoadCompletionDecision DecidePrelaunchCompletion(
+            double elapsedSeconds, TestCommandScene scene, bool gameLoaded, bool editorUp,
+            int editorUpFrames, bool revertConsumed, double budgetSeconds)
+        {
+            if (scene == TestCommandScene.MainMenu)
+                return LoadCompletionDecision.LoadFailedMenu;
+            if (scene == TestCommandScene.Editor && gameLoaded && editorUp
+                && editorUpFrames >= EditorSettleFrames && revertConsumed)
+                return LoadCompletionDecision.CompleteOk;
+            return elapsedSeconds >= budgetSeconds
+                ? LoadCompletionDecision.LoadTimeout
+                : LoadCompletionDecision.StillWaiting;
+        }
+
+        /// <summary>The grep-stable Revert to VAB / SPH completion line.</summary>
+        internal static string FormatPrelaunchCompleteLine(string facility, string ship, double elapsedSeconds)
+            => "reverttolaunch complete target=prelaunch facility=" + (facility ?? string.Empty)
+               + " ship='" + (ship ?? string.Empty) + "'"
+               + " elapsed=" + elapsedSeconds.ToString("F1", CultureInfo.InvariantCulture) + "s";
+
+        /// <summary>The Revert to VAB / SPH OK payload, in wire order.</summary>
+        internal static List<KeyValuePair<string, string>> BuildPrelaunchCompletePayload(
+            string scene, string facility, string ship)
+            => new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("scene", scene ?? string.Empty),
+                new KeyValuePair<string, string>("facility", facility ?? string.Empty),
+                new KeyValuePair<string, string>("ship", ship ?? string.Empty),
+            };
 
         /// <summary>The pre-press gate, in order: no live Re-Fly marker, then the three
         /// conditions stock's Esc menu offers Revert to Launch under. Null to proceed.</summary>
@@ -95,8 +178,9 @@ namespace Parsek.TestCommands
 
         /// <summary>The start line (before the stock call).</summary>
         internal static string FormatStartLine(uint pid, string name, string situation,
-            bool recording, bool hasActiveTree)
-            => "reverttolaunch start pid=" + pid.ToString(CultureInfo.InvariantCulture)
+            bool recording, bool hasActiveTree, bool prelaunch = false)
+            => "reverttolaunch start " + (prelaunch ? "target=" + PrelaunchToken + " " : string.Empty)
+               + "pid=" + pid.ToString(CultureInfo.InvariantCulture)
                + " name='" + (name ?? string.Empty) + "'"
                + " situation=" + (situation ?? string.Empty)
                + " recording=" + (recording ? "true" : "false")

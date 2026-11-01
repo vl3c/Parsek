@@ -650,7 +650,7 @@ namespace Parsek
             Parsek.MapRender.RenderCompositionRecorder.NotePlan(
                 "TrackingStation", signature, builtLoopUnits, committed, unioned);
             cachedLoopUnits = MissionLoopUnitBuilder.ResolveLiveUnits(
-                "TrackingStation", builtLoopUnits, cachedLoopUnits, routeSelectUT);
+                "TrackingStation", builtLoopUnits, cachedLoopUnits, routeSelectUT, committed);
         }
 
         void OnGUI()

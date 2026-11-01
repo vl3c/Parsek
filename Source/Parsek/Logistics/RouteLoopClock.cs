@@ -291,7 +291,7 @@ namespace Parsek.Logistics
             // below kept their defaults and made this a second clock on any unit that
             // carried one. All eleven now come from the unit, so this is the same call
             // the render side makes. Consumed read-only.
-            return GhostPlaybackLogic.TryComputeSpanLoopUT(
+            bool ok = GhostPlaybackLogic.TryComputeSpanLoopUT(
                 currentUT,
                 unit.PhaseAnchorUT,
                 unit.SpanStartUT,
@@ -311,6 +311,75 @@ namespace Parsek.Logistics
                 arrivalJointSecondaryPeriod: unit.ArrivalJointSecondaryPeriodSeconds,
                 arrivalJointSecondaryTolerance: unit.ArrivalJointSecondaryToleranceSeconds,
                 arrivalJointMaxWholeHoldPeriods: unit.ArrivalJointMaxWholeHoldPeriods);
+            if (!ok || !unit.HasDescentTrigger)
+                return ok;
+
+            // A descent-trigger unit renders its descent / docking-approach clip off a
+            // re-anchored head, not the span clock (GhostPlaybackLogic.ResolveTrackingStationSampleUT's
+            // descent branch). The delivery clock follows that head, so cargo lands when the
+            // ghost lands or docks, not when the raw clock passes the recorded dock UT.
+            double siteAlignOffset = GhostPlaybackLogic.ResolveDescentSiteAlignOffsetSeconds(unit, cycleIndex);
+            double rawLoopUT = loopUT;
+            loopUT = ResolveDescentDeliveryLoopUT(unit, currentUT, rawLoopUT, cycleIndex, siteAlignOffset);
+            if (isInInterCycleTail && loopUT < unit.SpanEndUT)
+                isInInterCycleTail = false;
+            return true;
+        }
+
+        /// <summary>
+        /// The delivery-side loop UT of a descent-trigger unit (re-aim looped arrival whose
+        /// post-parking descent or docking approach is re-anchored to a rotation-aligned trigger,
+        /// docs/dev/plans/reaim-descent-trigger.md). Mirrors the head the renderer plays:
+        /// <list type="bullet">
+        ///   <item>before the icon reaches the parking-orbit deorbit point (the descent phase is
+        ///     Inert) the raw span-clock <paramref name="rawLoopUT"/> is returned unchanged;</item>
+        ///   <item>from then on the head is <c>recordedDeorbitUT + (currentUT - triggerUT)</c>, the
+        ///     same forward re-anchor the descent members and the transfer member's deorbit tail
+        ///     render at, floored at the raw clock capped to the shifted conic end (so the value
+        ///     never drops below what the loiter already showed) and capped at
+        ///     <c>SpanEndUT</c>.</item>
+        /// </list>
+        /// A recorded dock UT inside the descent clip is therefore reached exactly when the
+        /// rendered ghost reaches it, and a dock UT before the deorbit point is unaffected. The
+        /// raw clock can run up to |captureShift| ahead of the rendered descent or up to one
+        /// destination day behind it, which is how far cargo used to drift from the ghost.
+        /// Returns <paramref name="rawLoopUT"/> for every non-descent unit, a negative cycle, or
+        /// degenerate descent inputs (the renderer's own Inert collapse). Pure: no logging.
+        /// </summary>
+        internal static double ResolveDescentDeliveryLoopUT(
+            GhostPlaybackLogic.LoopUnit unit,
+            double currentUT,
+            double rawLoopUT,
+            long cycleIndex,
+            double siteAlignOffsetSeconds = 0.0)
+        {
+            if (!unit.HasDescentTrigger || cycleIndex < 0)
+                return rawLoopUT;
+
+            Parsek.Reaim.DescentTrigger.DescentHeadPhase phase =
+                Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead(
+                    currentUT, cycleIndex, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
+                    unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
+                    unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts,
+                    out _, siteAlignOffsetSeconds);
+            if (phase == Parsek.Reaim.DescentTrigger.DescentHeadPhase.Inert)
+                return rawLoopUT;
+
+            Parsek.Reaim.DescentTrigger.ComputeDescentTiming(
+                cycleIndex, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
+                unit.RecordedDeorbitUT, unit.DestinationBodyRotationPeriodSeconds,
+                unit.CaptureShiftSeconds, unit.LoiterCuts,
+                out double conicEnd, out _, out double triggerUT, siteAlignOffsetSeconds);
+            if (double.IsNaN(triggerUT) || double.IsNaN(conicEnd))
+                return rawLoopUT;
+
+            double head = unit.RecordedDeorbitUT + (currentUT - triggerUT);
+            double floor = Math.Min(rawLoopUT, conicEnd);
+            if (head < floor)
+                head = floor;
+            if (head > unit.SpanEndUT)
+                head = unit.SpanEndUT;
+            return head;
         }
 
         /// <summary>
@@ -562,6 +631,10 @@ namespace Parsek.Logistics
             if (DeriveCycleIndexKind(unit) == CycleIndexKind.Scheduled)
                 return false;
             if (unit.LoiterCuts != null && unit.LoiterCuts.Count > 0)
+                return false;
+            // A descent-trigger unit delivers off the re-anchored descent head, whose
+            // trigger waits up to one destination day; the uniform formula cannot see it.
+            if (unit.HasDescentTrigger)
                 return false;
 
             // A dock outside the span never produces a crossing (same gate the

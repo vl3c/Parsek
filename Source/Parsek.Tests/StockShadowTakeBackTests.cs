@@ -1216,6 +1216,28 @@ namespace Parsek.Tests
             }
         }
 
+        [Fact]
+        public void LedgerLoadWithAnUnresolvedPath_DropsThePreviousSavesRows()
+        {
+            // A cold load is a save switch: rows of the save played before must not stay in
+            // the ledger of the save being loaded when its ledger cannot be read.
+            string savedRoot = RecordingPaths.SaveRootOverrideForTesting;
+            RecordingPaths.SaveRootOverrideForTesting = null;
+            try
+            {
+                Ledger.AddAction(new GameAction
+                    { ActionId = "saveA-row", UT = 100, Type = GameActionType.FundsEarning, RecordingId = "recA" });
+                Assert.NotEmpty(Ledger.Actions);
+                LedgerOrchestrator.OnLoad();
+                Assert.DoesNotContain(Ledger.Actions, a => a.ActionId == "saveA-row");
+            }
+            finally
+            {
+                RecordingPaths.SaveRootOverrideForTesting = savedRoot;
+                LedgerOrchestrator.ResetForTesting();
+            }
+        }
+
         // ------------------------------------------------------------------
         // Shortfall
         // ------------------------------------------------------------------

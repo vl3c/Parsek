@@ -1059,7 +1059,10 @@ pre-boot, with a `Warn` "admit refused: ..." line and a result `note` naming
 provision/provision.py --profile <profile>`), so `tier_runner` reads it as
 NEEDS-PROVISION. Skipped, with one `Info` line, for the reference instance itself
 and when either DLL is absent. It does not catch a reference instance that is
-itself stale.
+itself stale. A full run (`tools/tier_runner.py --tier full`, 2026-10-31) runs the
+same admission for every install it will fly before the first lane
+(`run.py --admit-only`), and with an explicit `--provision` provisions all of
+them from one build, reference first (`harness/README.md` -> "The full run").
 
 ### Run lock (two-harness-race decision)
 

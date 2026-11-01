@@ -604,16 +604,323 @@ class BuildRunArgvTests(unittest.TestCase):
         argv = cr.build_run_argv("nightly")
         self.assertEqual(argv[0], sys.executable)
         self.assertTrue(argv[1].endswith("run.py"))
-        self.assertEqual(argv[2:], ["--tier", "nightly"])
+        self.assertEqual(argv[2:], ["--tier", "nightly", "--keep-stop-request"])
 
     def test_the_test_seam_appends_and_never_removes_the_tier(self):
         os.environ["PARSEK_TIER_RUNPY_ARGS"] = "--dry-run --no-coverage"
         argv = cr.build_run_argv("daily")
-        self.assertEqual(argv[2:], ["--tier", "daily", "--dry-run", "--no-coverage"])
+        self.assertEqual(argv[2:], ["--tier", "daily", "--keep-stop-request", "--dry-run", "--no-coverage"])
 
     def test_a_blank_seam_value_changes_nothing(self):
         os.environ["PARSEK_TIER_RUNPY_ARGS"] = "   "
-        self.assertEqual(cr.build_run_argv("operator")[2:], ["--tier", "operator"])
+        self.assertEqual(cr.build_run_argv("operator")[2:], ["--tier", "operator", "--keep-stop-request"])
+
+
+# ---------------------------------------------------------------------------
+# The full run (--tier full)
+# ---------------------------------------------------------------------------
+
+
+def _spec(sid, tier="nightly", profile="stock-minimal", template="fixtures/saves/x"):
+    return {"id": sid, "tier": tier, "instanceProfile": profile,
+            "fixture": {"saveTemplate": template}}
+
+
+class FullRunVocabularyTests(unittest.TestCase):
+    def test_full_is_offered_beside_the_tiers_but_is_not_a_tier(self):
+        import hlib
+        self.assertIn(cr.FULL_RUN, cr.RUN_CHOICES)
+        self.assertNotIn(cr.FULL_RUN, cr.TIER_CHOICES)
+        self.assertNotIn(cr.FULL_RUN, hlib.TIERS)
+
+    def test_every_harness_tier_is_flown_or_named_as_excluded(self):
+        # A new tier must not silently fall out of "every lane".
+        import hlib
+        order, excluded = set(cr.FULL_RUN_TIER_ORDER), set(cr.FULL_RUN_EXCLUDED_TIERS)
+        self.assertEqual(set(hlib.TIERS), order | excluded)
+        self.assertFalse(order & excluded)
+        self.assertEqual(len(cr.FULL_RUN_TIER_ORDER), len(order))
+
+    def test_the_cheap_tiers_lead_and_longhaul_closes(self):
+        self.assertEqual(cr.FULL_RUN_TIER_ORDER[0], "daily")
+        self.assertEqual(cr.FULL_RUN_TIER_ORDER[-1], "longhaul")
+        self.assertLess(cr.FULL_RUN_TIER_ORDER.index("nightly"),
+                        cr.FULL_RUN_TIER_ORDER.index("operator"))
+
+    def test_profile_order_is_every_profile_reference_first(self):
+        import hlib
+        self.assertEqual(set(cr.FULL_RUN_PROFILE_ORDER), set(hlib.INSTANCE_PROFILES))
+        self.assertEqual(cr.FULL_RUN_PROFILE_ORDER[0], hlib.REFERENCE_DLL_PROFILE)
+
+    def test_a_full_log_name_is_rotatable(self):
+        self.assertIsNotNone(cr.parse_tier_run_log_stamp("full_2026-10-31_120000.log"))
+
+    def test_a_full_run_hands_run_py_the_ids_file(self):
+        old = os.environ.pop("PARSEK_TIER_RUNPY_ARGS", None)
+        try:
+            argv = cr.build_run_argv(cr.FULL_RUN, ids_file="/x/full.ids")
+        finally:
+            if old is not None:
+                os.environ["PARSEK_TIER_RUNPY_ARGS"] = old
+        self.assertEqual(argv[2:], ["--ids-file", "/x/full.ids", "--keep-stop-request"])
+        self.assertEqual(cr.build_admit_only_argv("/x/full.ids")[2:],
+                         ["--ids-file", "/x/full.ids", "--admit-only"])
+
+
+class FullRunPlanTests(unittest.TestCase):
+    def _plan(self, specs, durations=None, staged=lambda t: False):
+        return cr.plan_full_run(specs, durations or {}, staged)
+
+    def test_tiers_fly_in_order_then_reference_profile_then_file_order(self):
+        specs = [
+            _spec("op-a", "operator"),
+            _spec("ni-tree", "nightly", "stock-tree"),
+            _spec("lh", "longhaul"),
+            _spec("ni-mc", "nightly", "modded-compat"),
+            _spec("da", "daily"),
+            _spec("ni-b", "nightly"),
+            _spec("ni-a", "nightly"),
+        ]
+        plan = self._plan(specs)
+        self.assertEqual(plan.ids, ["da", "ni-b", "ni-a", "ni-tree", "ni-mc", "op-a", "lh"])
+        self.assertEqual(plan.skipped, ())
+
+    def test_pending_fixture_and_an_unknown_tier_are_skipped_with_a_reason(self):
+        plan = self._plan([_spec("pf", "pending-fixture"), _spec("odd", "hourly"),
+                           _spec("ok", "daily")])
+        self.assertEqual(plan.ids, ["ok"])
+        reasons = dict(plan.skipped)
+        self.assertIn("pending-fixture", reasons["pf"])
+        self.assertIn("unknown tier", reasons["odd"])
+
+    def test_an_unstaged_local_fixture_lane_is_skipped_naming_the_staging_tool(self):
+        local = "fixtures/local-saves/c1-gui"
+        specs = [_spec("gui", "operator", template=local), _spec("ok", "operator")]
+        plan = self._plan(specs, staged=lambda t: False)
+        self.assertEqual(plan.ids, ["ok"])
+        self.assertIn("stage_local_fixture.py", dict(plan.skipped)["gui"])
+        staged = self._plan(specs, staged=lambda t: t == local)
+        self.assertEqual(staged.ids, ["gui", "ok"])
+
+    def test_p50_is_read_and_a_missing_one_stays_unknown(self):
+        plan = self._plan([_spec("a", "daily"), _spec("b", "daily")],
+                          durations={"a": {"p50": 90.0}, "b": {"p50": True}})
+        self.assertEqual([l.p50_seconds for l in plan.lanes], [90.0, None])
+
+    def test_the_summary_counts_segments_and_never_guesses_an_unmeasured_wall(self):
+        plan = self._plan([_spec("a", "daily"), _spec("b", "daily"),
+                           _spec("c", "operator", "stock-tree"), _spec("p", "pending-fixture")],
+                          durations={"a": {"p50": 3600.0}})
+        lines = cr.format_plan_summary(plan.lanes, plan.skipped)
+        self.assertEqual(lines[0], "segment tier=daily profile=stock-minimal lanes=2 "
+                                   "p50=1.0h unmeasured=1")
+        self.assertEqual(lines[1], "segment tier=operator profile=stock-tree lanes=1 "
+                                   "p50=0.0h unmeasured=1")
+        self.assertIn("total lanes=3 p50=1.0h", lines[2])
+        self.assertIn("unmeasured=2 skipped=1", lines[2])
+        self.assertTrue(lines[3].startswith("skipped p: "))
+
+    def test_plan_profiles_puts_the_reference_first(self):
+        plan = self._plan([_spec("x", "daily", "modded-compat"), _spec("y", "daily", "stock-tree"),
+                           _spec("z", "nightly")])
+        self.assertEqual(cr.plan_profiles(plan.lanes),
+                         ["stock-minimal", "stock-tree", "modded-compat"])
+
+
+class FullRunPlanOverCommittedSpecsTests(unittest.TestCase):
+    """The committed spec set: every spec is either planned or skipped with a
+    reason, so "full" really is every lane."""
+
+    def test_every_committed_spec_is_planned_or_named(self):
+        specs = cr.load_specs()
+        self.assertGreater(len(specs), 0)
+        plan = cr.plan_full_run(specs, {}, lambda t: False)
+        planned, skipped = plan.ids, [sid for sid, _ in plan.skipped]
+        self.assertEqual(len(planned) + len(skipped), len(specs))
+        self.assertEqual(len(set(planned)), len(planned))
+        self.assertEqual(sorted(planned + skipped), sorted(s["id"] for s in specs))
+        for sid, reason in plan.skipped:
+            with self.subTest(skipped=sid):
+                self.assertIn("operator-local fixture", reason)
+
+
+class FullRunResumeTests(unittest.TestCase):
+    SINCE = "2026-10-31T10:00:00Z"
+    LINES = [
+        "2026-10-30T23:00:00Z PASS old attempt=1 wall=10s",          # before the plan
+        "2026-10-31T10:05:00Z PASS a attempt=1 wall=10s",
+        "2026-10-31T10:06:00Z PARSEK-FAIL b attempt=1 wall=10s",
+        "2026-10-31T10:07:00Z INVALID c attempt=1 wall=10s",         # retry owed / refusal
+        "2026-10-31T10:08:00Z INVALID d attempt=1 wall=10s",
+        "2026-10-31T10:09:00Z INVALID d attempt=2 wall=10s",         # settled INVALID
+        "2026-10-31T10:10:00Z INVALID e attempt=1 wall=10s",
+        "2026-10-31T10:11:00Z PASS e attempt=2 wall=10s note=flakedThenPassed",
+        "garbage line",
+    ]
+
+    def test_the_window_starts_at_the_plan(self):
+        latest = cr.full_run_latest_verdicts(self.LINES, self.SINCE)
+        self.assertNotIn("old", latest)
+        self.assertEqual(latest["e"], ("PASS", 2))
+
+    def test_only_an_attempt_one_invalid_is_flown_again(self):
+        self.assertTrue(cr.full_run_done("PASS", 1))
+        self.assertTrue(cr.full_run_done("PARSEK-FAIL", 1))
+        self.assertTrue(cr.full_run_done("INVALID", 2))
+        self.assertFalse(cr.full_run_done("INVALID", 1))
+
+    def test_remaining_keeps_plan_order(self):
+        plan = ["old", "a", "b", "c", "d", "e", "f"]
+        self.assertEqual(cr.full_run_remaining(plan, self.LINES, self.SINCE), ["old", "c", "f"])
+
+    def test_the_whole_run_tally_counts_latest_verdicts_and_pending(self):
+        plan = ["old", "a", "b", "c", "d", "e", "f"]
+        self.assertEqual(cr.full_run_tally(plan, self.LINES, self.SINCE),
+                         "PASS=2 PARSEK-FAIL=1 INVALID=1 pending=3 of 7")
+
+    def test_select_latest_plan_ignores_previews_and_foreign_names(self):
+        names = ["full_2026-10-30_100000.plan.json", "full_2026-10-31_090000.plan.json",
+                 "full_2026-10-31_120000.preview.json", "nightly_2026-10-31_130000.log",
+                 "full_garbage.plan.json", "history.txt"]
+        self.assertEqual(cr.select_latest_plan(names), "full_2026-10-31_090000.plan.json")
+        self.assertIsNone(cr.select_latest_plan(["history.txt"]))
+
+
+class FullRunReviewFixTests(unittest.TestCase):
+    def test_a_green_invocation_with_unsettled_plan_lanes_reads_red(self):
+        green = cr.TierRunOutcome(cr.OUTCOME_GREEN, "PASS=5")
+        out = cr.settle_full_run_outcome(green, 1, ["GONE-1"])
+        self.assertEqual(out.outcome, cr.OUTCOME_RED)
+        self.assertIn("1 plan lane(s) still unsettled", out.detail)
+        self.assertIn("GONE-1", out.detail)
+
+    def test_a_settled_plan_or_a_non_green_outcome_is_left_alone(self):
+        green = cr.TierRunOutcome(cr.OUTCOME_GREEN, "PASS=5")
+        self.assertIs(cr.settle_full_run_outcome(green, 0, []), green)
+        stopped = cr.TierRunOutcome(cr.OUTCOME_STOPPED, "x")
+        self.assertIs(cr.settle_full_run_outcome(stopped, 7, []), stopped)
+
+    def test_pending_count_matches_the_tally(self):
+        lines = FullRunResumeTests.LINES
+        plan = ["old", "a", "b", "c", "d", "e", "f"]
+        self.assertEqual(cr.full_run_pending_count(plan, lines, FullRunResumeTests.SINCE), 3)
+
+    def test_provisioning_always_starts_with_the_reference_install(self):
+        self.assertEqual(cr.provision_profiles(["modded-compat", "stock-tree"]),
+                         ["stock-minimal", "stock-tree", "modded-compat"])
+        self.assertEqual(cr.provision_profiles(["stock-minimal"]), ["stock-minimal"])
+        self.assertEqual(cr.provision_profiles([]), [])
+
+
+class RunnerStopRequestIoTests(unittest.TestCase):
+    """The runner's own stop handling: a stale request is dropped at its start,
+    one sent during its own phases (a long --provision) stops it before run.py."""
+
+    def setUp(self):
+        self.box = tempfile.mkdtemp(prefix="tier-stop-")
+        self._saved = cr.STOP_REQUEST_PATH
+        cr.STOP_REQUEST_PATH = os.path.join(self.box, "stop-request")
+        self.log = cr.TeeLog(os.path.join(self.box, "r.log"), console_write=lambda t: None)
+
+    def tearDown(self):
+        self.log.close()
+        cr.STOP_REQUEST_PATH = self._saved
+        shutil.rmtree(self.box, ignore_errors=True)
+
+    def _touch(self):
+        with open(cr.STOP_REQUEST_PATH, "w") as fh:
+            fh.write("x")
+
+    def test_a_request_sent_mid_phase_stops_the_run_and_is_consumed(self):
+        self.assertIsNone(cr.consume_stop_request(self.log, "after provisioning"))
+        self._touch()
+        out = cr.consume_stop_request(self.log, "after provisioning")
+        self.assertEqual(out.outcome, cr.OUTCOME_STOPPED)
+        self.assertIn("after provisioning", out.detail)
+        self.assertFalse(os.path.exists(cr.STOP_REQUEST_PATH))
+
+    def test_a_stale_request_is_dropped_at_the_runner_start(self):
+        self._touch()
+        cr.clear_stale_stop_request(self.log)
+        self.assertFalse(os.path.exists(cr.STOP_REQUEST_PATH))
+
+    def test_request_stop_writes_the_file_run_py_polls(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(cr.main(["--stop"]), cr.EXIT_GREEN)
+        self.assertTrue(os.path.exists(cr.STOP_REQUEST_PATH))
+
+
+class FullRunAdmitPreflightTests(unittest.TestCase):
+    def test_a_fit_stack_proceeds(self):
+        self.assertIsNone(cr.classify_admit_preflight(0, []))
+
+    def test_each_unfit_piece_gets_its_own_command_reference_first(self):
+        lines = [
+            "[Harness][Info][Admit] admit instance=modded-compat manifest=present result=DRIFT",
+            "[Harness][Info][Admit] admit instance=stock-minimal manifest=missing result=DRIFT",
+            "[Harness][Info][Admit] admit instance=stock-tree manifest=present result=OK",
+            "[Harness][Info][Mission] mission venv-admit stamp=x result=MISSING",
+        ]
+        out = cr.classify_admit_preflight(1, lines)
+        self.assertEqual(out.outcome, cr.OUTCOME_NEEDS_PROVISION)
+        self.assertEqual(out.exit_code, cr.EXIT_NEEDS_PROVISION)
+        detail = out.detail
+        self.assertLess(detail.index("--profile stock-minimal"),
+                        detail.index("--profile modded-compat"))
+        self.assertNotIn("--profile stock-tree", detail)
+        self.assertIn("bootstrap_venv.py", detail)
+        self.assertIn("--provision", detail)
+
+    def test_an_unexplained_failure_still_stops_the_run(self):
+        out = cr.classify_admit_preflight(1, ["something else"])
+        self.assertEqual(out.outcome, cr.OUTCOME_NEEDS_PROVISION)
+        self.assertIn("read the log", out.detail)
+
+
+class StopRequestClassificationTests(unittest.TestCase):
+    STOP = ["[Harness][Warn][Select] stop request honoured: stopping after 3 scenario(s); "
+            "dropped=9 unstarted scenario(s)"]
+
+    def test_a_stopped_green_run_reads_stopped_not_green(self):
+        out = cr.apply_stop_request(cr.TierRunOutcome(cr.OUTCOME_GREEN, "PASS=3"), self.STOP)
+        self.assertEqual(out.outcome, cr.OUTCOME_STOPPED)
+        self.assertEqual(out.exit_code, cr.EXIT_SKIPPED)
+        self.assertIn("PASS=3", out.detail)
+
+    def test_a_stop_before_the_first_lane_reads_stopped(self):
+        out = cr.apply_stop_request(
+            cr.TierRunOutcome(cr.OUTCOME_NO_SELECTION, "nothing flew"), self.STOP)
+        self.assertEqual(out.outcome, cr.OUTCOME_STOPPED)
+
+    def test_red_keeps_its_label_with_the_note(self):
+        out = cr.apply_stop_request(cr.TierRunOutcome(cr.OUTCOME_RED, "PARSEK-FAIL=1"), self.STOP)
+        self.assertEqual(out.outcome, cr.OUTCOME_RED)
+        self.assertIn("stopped by request", out.detail)
+
+    def test_no_stop_line_leaves_the_outcome_alone(self):
+        green = cr.TierRunOutcome(cr.OUTCOME_GREEN, "PASS=3")
+        self.assertIs(cr.apply_stop_request(green, ["x"]), green)
+
+    def test_the_stop_line_is_kept_as_evidence(self):
+        self.assertTrue(cr.is_evidence_line(self.STOP[0]))
+
+
+class FullRunArgumentTests(unittest.TestCase):
+    def _rejects(self, argv):
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                cr.main(argv)
+
+    def test_full_run_options_need_tier_full(self):
+        for opt in ("--resume", "--provision", "--plan-only"):
+            with self.subTest(opt=opt):
+                self._rejects(["--tier", "nightly", opt])
+
+    def test_stop_takes_no_other_option(self):
+        self._rejects(["--stop", "--tier", "full"])
+
+    def test_plan_only_does_not_provision(self):
+        self._rejects(["--tier", "full", "--plan-only", "--provision"])
 
 
 if __name__ == "__main__":

@@ -445,6 +445,30 @@ namespace Parsek
                 $"{spawnedPids?.Count ?? 0} pid(s), {spawnedNames?.Count ?? 0} name(s)");
         }
 
+        /// <summary>
+        /// The OnFlightReady orphaned-vessel recovery is the belt for a revert that lands in
+        /// FLIGHT, whose LOADED vessels the protoVessel strip cannot see. A revert to the
+        /// editor (Revert to VAB / SPH) lands in EDITOR: every vessel is still a protoVessel,
+        /// so the strip above already did the whole job, and an armed set would instead fire
+        /// on the NEXT launch with this revert's stale whitelist, recovering a vessel Parsek
+        /// legitimately spawned in between (a Space Center Real Spawn). Same release the
+        /// rewind path does after its own strip.
+        /// </summary>
+        internal static bool ReleaseRevertCleanupOutsideFlight(GameScenes loadedScene)
+        {
+            if (loadedScene == GameScenes.FLIGHT)
+                return false;
+            bool wasArmed = RecordingStore.ShouldRunPendingCleanupOnFlightReady()
+                || RecordingStore.PendingRevertPreExistingPids != null;
+            RecordingStore.PendingCleanupPids = null;
+            RecordingStore.PendingCleanupNames = null;
+            RecordingStore.PendingRevertPreExistingPids = null;
+            ParsekLog.Info("Scenario",
+                $"Revert cleanup released: scene={loadedScene} wasArmed={wasArmed} - the protoVessel " +
+                "strip covered every vessel; no OnFlightReady recovery is left armed for a later launch");
+            return true;
+        }
+
         internal static FreshLaunchUtAction DecideFreshLaunchUtAction(
             GameScenes loadedScene, bool isRevert, bool isVesselSwitch, bool isFreshLaunchStartup)
         {
@@ -4457,6 +4481,7 @@ namespace Parsek
                                 matchSource: false, skipPrelaunch: true,
                                 requireWhitelist: true, preExistingWhitelist: revertTargetPids);
                         }
+                        ReleaseRevertCleanupOutsideFlight(HighLogic.LoadedScene);
                     }
 
                     // Rescue crew orphaned by vessel stripping (#116)

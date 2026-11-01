@@ -763,6 +763,27 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// A cold load (a save switch, a main-menu return, a save-file load) rebuilds the
+        /// facility levels from the loaded save and ledger, so the previous session's patch
+        /// history and pending default targets go with it. The folder latch above cannot see a
+        /// main-menu return to a save of the same folder name (a New Game overwrite), where a
+        /// facility the old session patched would otherwise be forced to its default level.
+        /// </summary>
+        internal static void ResetForSaveLoad()
+        {
+            int patched = lastPatchedFacilityIds.Count;
+            int defaults = defaultFacilityIdsOnNextPatch.Count;
+            lastPatchedFacilityIds.Clear();
+            defaultFacilityIdsOnNextPatch.Clear();
+            defaultFacilityIdsSaveFolder = null;
+            patchHistorySaveFolder = null;
+            if (patched > 0 || defaults > 0)
+                ParsekLog.Verbose(Tag,
+                    $"PatchFacilities: cleared facility patch history on cold load " +
+                    $"(previous={patched.ToString(IC)}, pendingDefaults={defaults.ToString(IC)})");
+        }
+
         internal static void ResetForTesting()
         {
             lastPatchedFacilityIds.Clear();

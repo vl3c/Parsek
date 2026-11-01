@@ -108,6 +108,11 @@ namespace Parsek.TestCommands
         internal const string PresetArg = "preset";
         internal const string SaveArg = "save";
 
+        /// <summary>Optional: create the new game in ANOTHER save folder, leaving the loaded
+        /// save untouched (stock's New Game under a different name, the main-menu save switch).
+        /// Absent means the loaded save is replaced.</summary>
+        internal const string AsArg = "as";
+
         /// <summary>Mode tokens, in <see cref="NewGameMode"/> order (stock <c>Game.Modes</c>
         /// names).</summary>
         internal static readonly string[] ModeTokens = { "SCIENCE_SANDBOX", "CAREER", "SANDBOX" };
@@ -148,6 +153,7 @@ namespace Parsek.TestCommands
         internal const string ReFlySessionReason = "newgame-refly-session";
         internal const string SwitchSegmentSessionReason = "newgame-switch-segment-session";
         internal const string MergeJournalReason = "newgame-merge-journal";
+        internal const string AsArgInvalidReason = "newgame-as-arg-invalid";
 
         // ---- ERROR reasons (the verb acted) ----
         internal const string ExitTimeoutReason = "newgame-exit-timeout";
@@ -177,6 +183,7 @@ namespace Parsek.TestCommands
             "newgame-refly-session",
             "newgame-switch-segment-session",
             "newgame-merge-journal",
+            "newgame-as-arg-invalid",
         };
 
         /// <summary>The ERROR vocabulary: the verb left the Space Center and the new game did
@@ -282,6 +289,21 @@ namespace Parsek.TestCommands
             preset = (NewGamePreset)(p + 1);
             save = rawSave;
             return true;
+        }
+
+        /// <summary>Parses the optional <c>as=</c>: absent creates the new game in
+        /// <paramref name="save"/> (the loaded save, replaced). Present, it must be a safe bare
+        /// folder name other than <paramref name="save"/> (that is the plain form, and spelling
+        /// it twice would read as a save switch that is not one). Returns null or the refusal
+        /// reason; <paramref name="target"/> is the folder the game is created in.</summary>
+        internal static string ParseAs(string rawAs, string save, out string target)
+        {
+            target = save;
+            if (rawAs == null) return null;
+            if (!IsSafeSaveName(rawAs) || string.Equals(rawAs, save, StringComparison.OrdinalIgnoreCase))
+                return AsArgInvalidReason;
+            target = rawAs;
+            return null;
         }
 
         /// <summary>True for a non-blank bare folder name: no directory part, no <c>..</c>, no
@@ -451,9 +473,11 @@ namespace Parsek.TestCommands
 
         /// <summary>The start line, written once the gate passed and before the exit.</summary>
         internal static string FormatStartLine(NewGameMode mode, NewGamePreset preset, string save,
-            string scene)
+            string scene, string asTarget = null)
             => "newgame start mode=" + ModeToken(mode) + " preset=" + PresetToken(preset)
-               + " save=" + (save ?? string.Empty) + " scene=" + (scene ?? string.Empty)
+               + " save=" + (save ?? string.Empty)
+               + (string.IsNullOrEmpty(asTarget) ? string.Empty : " as=" + asTarget)
+               + " scene=" + (scene ?? string.Empty)
                + " - quitting to the main menu the way the Space Center's pause menu does";
 
         /// <summary>The create line, written at the main menu just before the four stock

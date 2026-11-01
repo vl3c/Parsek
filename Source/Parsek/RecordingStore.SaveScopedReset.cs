@@ -77,6 +77,8 @@ namespace Parsek
             suppressNextActiveTreeRestoreReason = null;
             // The cold branch reloads committed trees from the save; inert ones come with them.
             InertRecordingTrees.ResetForLoad("save-scoped-reset");
+            // Each recording carries its own auto-group key, which the cold load restores.
+            RecordingGroupStore.ResetForSaveLoad();
             return pendingDropped;
         }
     }

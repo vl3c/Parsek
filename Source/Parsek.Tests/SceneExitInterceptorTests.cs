@@ -486,6 +486,57 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SafeWritePersistent_RevertToEditorPending_DoesNotOverwriteStockRevertState()
+        {
+            // Stock FlightDriver.RevertToPrelaunch writes PreLaunchState to persistent.sfs, then
+            // calls LoadScene(EDITOR), and EditorDriver.Start reloads that file. A scene-exit
+            // write here (the no-op switch-segment fast path, or the merge dialog's post-choice)
+            // would save the flight game over it and undo the revert.
+            int saves = 0;
+            SceneExitInterceptor.PersistentSaveStepForTesting = _ => saves++;
+            try
+            {
+                RevertDetector.SetPendingForTesting(RevertKind.Prelaunch);
+
+                bool result = SceneExitInterceptor.SafeWritePersistent(GameScenes.EDITOR);
+
+                Assert.True(result);
+                Assert.Equal(0, saves);
+                Assert.Contains(logLines, l => l.Contains("[SceneExit]")
+                    && l.Contains("SafeWritePersistent: skipped dest=EDITOR")
+                    && l.Contains("stock revert (Prelaunch)"));
+                Assert.DoesNotContain(logLines, l => l.Contains("persistent.sfs written"));
+            }
+            finally
+            {
+                RevertDetector.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void SafeWritePersistent_NoRevertPending_StillWritesForEditor()
+        {
+            int saves = 0;
+            SceneExitInterceptor.PersistentSaveStepForTesting = _ => saves++;
+            RevertDetector.ResetForTesting();
+
+            Assert.True(SceneExitInterceptor.SafeWritePersistent(GameScenes.EDITOR));
+            Assert.Equal(1, saves);
+        }
+
+        [Theory]
+        [InlineData(0, GameScenes.EDITOR, false)]
+        [InlineData(2, GameScenes.EDITOR, true)]
+        [InlineData(1, GameScenes.SPACECENTER, true)]
+        [InlineData(2, GameScenes.MAINMENU, false)]
+        public void ShouldSkipPersistentWriteForPendingRevert_Table(
+            int kind, GameScenes dest, bool expected)
+        {
+            // kind: 0 None, 1 Launch, 2 Prelaunch (RevertKind is internal).
+            Assert.Equal(expected, SceneExitInterceptor.ShouldSkipPersistentWriteForPendingRevert((RevertKind)kind, dest));
+        }
+
+        [Fact]
         public void SafeWritePersistent_SaveThrowsOnMainMenu_HardBlocksTransition()
         {
             // Drive the REAL body (not the whole-method seam) with the save step

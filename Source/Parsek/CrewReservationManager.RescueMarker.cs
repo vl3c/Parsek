@@ -35,9 +35,11 @@ namespace Parsek
         //     the very next trigger because the slot re-presents the kerbal
         //     as needing a stand-in and IsRescuePlaced=false routes the
         //     guard to the legitimate-recreate path.
-        //   - Bulk-cleared by LoadCrewReplacements / RestoreReplacements /
-        //     ClearReplacements / ResetReplacementsForTesting on session /
-        //     rewind / wipe-all boundaries.
+        //   - Saved with the crew replacements (RESCUE_PLACED_KERBALS) and
+        //     replaced by the save's own set in LoadCrewReplacements, so a
+        //     save and load keeps the guard firing. Bulk-cleared by
+        //     RestoreReplacements / ClearReplacements /
+        //     ResetReplacementsForTesting on rewind / wipe-all boundaries.
         //   - Pid-scoped (P1 review fourth pass): the previous design keyed
         //     the marker by name only and combined it with a generic
         //     IsKerbalOnLiveVessel check. That regressed when a stale marker

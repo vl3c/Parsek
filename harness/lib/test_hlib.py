@@ -4858,10 +4858,34 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # each then the LedgerGroundTruth category's three FLIGHT cells, `total=3` literal with the
     # split regexed). Not H-series ids; CommittedBatchTallySourceSyncTests gates their
     # `total=`. Each leaves on its first flight.
+    # RW-23-strategy-part-purchase-rebuy LEFT on run 2026-10-31_1836 (passed=3 failed=0 skipped=0, pinned whole).
+    # RW-24-strategy-slot-needed-after-rewind LEFT on run 2026-10-31_1808 (passed=3 failed=0 skipped=0, pinned whole).
+    # RW-25-refly-recover-pressed LEFT on run 2026-10-31_1811 (passed=3 failed=0 skipped=0, pinned whole).
+    # REV-1-revert-to-vab-in-rewound-timeline ENTERED on 2026-10-31 (test-gap audit B5: a
+    # recorded relaunch inside a rewound timeline reverted to the VAB with RevertToLaunch
+    # target=prelaunch on `cs-career-mun4`, then the LedgerGroundTruth category's three FLIGHT
+    # cells, `total=3` literal with the split regexed). Not an H-series id;
+    # CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first flight.
+    # CN-4-ghost-commnet-relay-across-rewind and SWS-1-save-switch-through-main-menu ENTERED
+    # on 2026-10-31 (test-gap audit B6 and B4: CN-1's GhostCommNet category after a
+    # Rewind-to-Launch, `total=9`; a save switch through the main menu and back, then the
+    # LedgerGroundTruth category, `total=3`; each split regexed). They leave on their first
+    # flight.
+    # REV-1-revert-to-vab-in-rewound-timeline LEFT on run 2026-10-31_2355 (passed=3 failed=0 skipped=0, pinned whole).
+    # SWS-1-save-switch-through-main-menu LEFT on run 2026-10-31_2358 (passed=3 failed=0 skipped=0, pinned whole).
+    # CN-4-ghost-commnet-relay-across-rewind LEFT on run 2026-10-31_2359 (passed=4 failed=0 skipped=5, CN-1's split, pinned;
+    # that run red only on a forbidden line the batch's own final-restore Cold load matched, since scoped; green re-fly
+    # 2026-11-01_0010).
+    # SLM-1-standalone-loop-map-position, SLM-2-standalone-loop-map-pause and
+    # SLM-1T-standalone-loop-ts-position ENTERED on 2026-10-31 (a Recordings-tab loop's map
+    # ghost read by position in FLIGHT map view, absent in the pause between runs, and read in
+    # the Tracking Station, each the StandaloneLoopMap category's one cell, `total=1` literal
+    # with the split regexed). Not H-series ids; CommittedBatchTallySourceSyncTests gates their
+    # `total=`. Each leaves on its first flight.
     INTERIM_PIN_IDS: set = {
-        "RW-23-strategy-part-purchase-rebuy",
-        "RW-24-strategy-slot-needed-after-rewind",
-        "RW-25-refly-recover-pressed",
+        "SLM-1-standalone-loop-map-position",
+        "SLM-1T-standalone-loop-ts-position",
+        "SLM-2-standalone-loop-map-pause",
     }
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -10684,9 +10708,15 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "RW-15-earlier-milestone.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea recorded on the pad earns Kerbin/SurfaceEVA, a Rewind-to-Launch onto it, a second recorded Flea earns the same world-first before the first row, and the walk pays it once at the earlier UT. LIVE-PROVEN 2026-10-31 (`2026-10-31_0213`); owed: the ordinary promotion call",
         "RW-14-dismissal-across-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's kerbal dismissal lane on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): a Jumping Flea recorded on the pad, committed and recovered, Bob Kerman dismissed at the Space Center, a Rewind-to-Launch to before the dismissal, the second dismissal and the VAB seat refused, and the crossing that turns him into an Applicant once. LIVE-PROVEN 2026-10-31 (`2026-10-31_0251`) on the KERBAL-DISMISSAL-ON-THE-TIMELINE build; owed: the ordinary promotion call",
         "RW-22-patents-licensing-recovery.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `lab-pad-career` (stock-minimal): the pad lab recovered with its 12.5 science under Patents Licensing: stock's payout booked once as the recovery and the converter's yield once as its strategy leg. LIVE-PROVEN 2026-10-31 (`2026-10-31_0405`); owed: the ordinary promotion call",
-        "RW-23-strategy-part-purchase-rebuy.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `career-pad-craft-purchase` (stock-minimal, new: L2's pad host with entry purchases on and reputation 120): Aggressive Negotiations active, the RT-10 Hammer bought at its discounted entry cost with both strategy legs naming the purchase, a Rewind-to-Launch, the second purchase refused, and the crossing applying the purchase and its legs once. NEVER FLOWN at authoring time (2026-10-31); owed: the first flight, then the ordinary promotion call",
-        "RW-24-strategy-slot-needed-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `career-pad-craft-purchase` (stock-minimal): Aggressive Negotiations activated at T1, a Rewind-to-Launch before it, and a second strategy refused SlotNeeded on the Administration button and through the seam, then the crossing activating the committed one once. NEVER FLOWN at authoring time (2026-10-31); owed: the first flight, then the ordinary promotion call",
-        "RW-25-refly-recover-pressed.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Re-Fly of a committed CS Flea Probe lands on KSC grass, stock's Recover is pressed into the Re-Fly merge modal (Recover mergeDialog=refly), the merge lands at the Space Center where stock recovers the pod and its payout is booked once, and after a Rewind-to-Launch the recovery crosses once. NEVER FLOWN at authoring time (2026-10-31); owed: the first flight, then the ordinary promotion call",
+        "RW-23-strategy-part-purchase-rebuy.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `career-pad-craft-purchase` (stock-minimal, new: L2's pad host with entry purchases on and reputation 120): Aggressive Negotiations active, the RT-10 Hammer bought at its discounted entry cost with both strategy legs naming the purchase, a Rewind-to-Launch, the second purchase refused, and the crossing applying the purchase and its legs once. LIVE-PROVEN 2026-10-31 (`2026-10-31_1836`, 138 s); owed: the ordinary promotion call",
+        "RW-24-strategy-slot-needed-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `career-pad-craft-purchase` (stock-minimal): Aggressive Negotiations activated at T1, a Rewind-to-Launch before it, and a second strategy refused SlotNeeded on the Administration button and through the seam, then the crossing activating the committed one once. LIVE-PROVEN 2026-10-31 (`2026-10-31_1808`, 129 s); owed: the ordinary promotion call",
+        "CN-4-ghost-commnet-relay-across-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the test-gap audit's CommNet-across-a-rewind lane on CN-1's host (gloops-airshow plus the ghost-commnet-relay preset): a pad recording committed at UT 1000 and rewound to, the pod relaunched from the SPH, and CN-1's GhostCommNet rulings read again in the rewound flight with every old node removed with the old scene. first flight 2026-10-31_2359 matched every required line (relays re-registered with CN-1's rulings, batch passed=4 skipped=5) and red only on a forbidden line the batch's own final-restore Cold load matched, since scoped; LIVE-PROVEN on the re-fly 2026-11-01_0010 (PASS attempt 1, 129 s); owed: the tier call (CN-1 is nightly)",
+        "SWS-1-save-switch-through-main-menu.toml": "tier=operator by the calibration discipline, NOT debt: the test-gap audit's save-switch lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): NewGame as= quits to the main menu into a new sandbox in another folder that must hold no recordings, LoadGame brings the career back whole, and a VAB launch passes LedgerGroundTruth. LIVE-PROVEN 2026-10-31 (run 2026-10-31_2358, PASS attempt 1, 96 s, committed 34 / 0 / 34); stays operator because stock-tree is not in the nightly instance set",
+        "REV-1-revert-to-vab-in-rewound-timeline.toml": "tier=operator by the calibration discipline, NOT debt: the test-gap audit's Revert to VAB / SPH lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a committed pad Flea and a Rewind-to-Launch to it, a recorded relaunch while the committed ghost plays, Esc > Revert to VAB (RevertToLaunch target=prelaunch) landing in the editor with the relaunch dropped, no scene-exit write over stock's revert state and no orphan recovery left armed, then a launch from that editor and LedgerGroundTruth. LIVE-PROVEN 2026-10-31 (run 2026-10-31_2355, PASS attempt 1, 173 s, pruned 1); stays operator because stock-tree is not in the nightly instance set",
+        "RW-25-refly-recover-pressed.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Re-Fly of a committed CS Flea Probe lands on KSC grass, stock's Recover is pressed into the Re-Fly merge modal (Recover mergeDialog=refly), the merge lands at the Space Center where stock recovers the pod and its payout is booked once, and after a Rewind-to-Launch the recovery crosses once. LIVE-PROVEN 2026-10-31 (`2026-10-31_1811`, 348 s); owed: the ordinary promotion call",
+        "SLM-1-standalone-loop-map-position.toml": "tier=operator by the calibration discipline, NOT debt: a Recordings-tab loop on `pad-runway-pair` (stock-minimal, the `standalone-loop-map` preset: a 1500 s orbital run looping every 4000 s) whose map ghost is read by position against the recorded orbit in FLIGHT map view 300 s into its second run. NEVER FLOWN at authoring time (2026-10-31); owed: the first flight, then the ordinary promotion call",
+        "SLM-1T-standalone-loop-ts-position.toml": "tier=operator by the calibration discipline, NOT debt: the same `standalone-loop-map` preset on `pad-runway-pair` (stock-minimal), saved 400 s into its third run and reloaded into the Tracking Station, where its map ghost is read by position against the recorded orbit. NEVER FLOWN at authoring time (2026-10-31); owed: the first flight, then the ordinary promotion call",
+        "SLM-2-standalone-loop-map-pause.toml": "tier=operator by the calibration discipline, NOT debt: the same `standalone-loop-map` preset on `pad-runway-pair` (stock-minimal), read in FLIGHT map view in the pause after its second run, where no map ghost may exist. NEVER FLOWN at authoring time (2026-10-31); owed: the first flight, then the ordinary promotion call",
         "RW-20-strategy-and-deadline-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea on the pad, a strategy activated at the Space Center and a real contract deadline passed by warp, a Rewind-to-Launch before both, the same strategy refused, and the committed fail applied once when the deadline passes again. LIVE-PROVEN 2026-10-31 (`2026-10-31_0425_RW-20-strategy-and-deadline-after-rewind`); owed: the ordinary promotion call",
         "CS-6c-career-mun-science.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 6c on `cs-career-mun3` (CS-6b's produced save, stock-tree, not in the nightly instance set): the CS Mun Science launched from the VAB, CS-6's ascent, Mun transfer, capture and park, Goo / 2HOT / EVA-report readings in high Mun space, two lowering nodes under the Mun's 60 km threshold, crew report / Goo / 2HOT / EVA-report readings in low space, a MechJeb moon-return departure and CS-5's return tail in the composed mission `b11_mun_science_return`, the pod recovered and auto-committed, basicScience and electrics researched, closed by LedgerGroundTruth. LIVE-PROVEN 2026-10-28 (`2026-10-28_0028`, first flight); owed: the ordinary promotion call",
         "CS-7-career-mun-landing.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 7 on `cs-career-mun4` (CS-6c's produced save, stock-tree, not in the nightly instance set): the CS Mun Solar Lander launched from the VAB, B5's ascent and Mun transfer, B11's capture and park, B13's landing, the seam's EvaExit / PlantFlag / EvaBoard from inside the flight, a Mun ascent, a MechJeb moon-return departure and CS-5's return tail in the composed mission `b13_mun_landing_return`, the pod recovered and auto-committed, closed by LedgerGroundTruth. AUTHORED 2026-10-28; first flight 2026-10-27_2326 INVALID (the pod's charge ran out on the ascent coast), re-cut with OX-STATs, a Z-100, four legs and the ascent-coast wheel release, LIVE-PROVEN 2026-10-31 (`2026-10-31_0654_CS-7-career-mun-landing_a2`, PASS on attempt 2); owed: the ordinary promotion call",
@@ -17978,12 +18008,17 @@ class RevertToLaunchSourceSyncTests(unittest.TestCase):
         self.assertIn('internal const string Verb = "%s";' % hlib.REVERTTOLAUNCH_VERB, text)
         self.assertEqual(list(hlib.REVERTTOLAUNCH_REASONS),
                          StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        self.assertEqual(list(hlib.REVERTTOLAUNCH_TARGET_VALUES),
+                         StockScreenSourceSyncTests._cs_string_array(text, "TargetValues"))
+        self.assertIn('internal const string TargetKey = "%s";' % hlib.REVERTTOLAUNCH_TARGET_KEY, text)
         for reason in hlib.REVERTTOLAUNCH_REASONS:
-            self.assertEqual("driver-gate", hlib._SEAM_REFUSAL_SUBKINDS.get(reason), reason)
+            expected = "driver-arg" if reason.endswith("-arg-invalid") else "driver-gate"
+            self.assertEqual(expected, hlib._SEAM_REFUSAL_SUBKINDS.get(reason), reason)
 
     def test_the_applier_calls_the_stock_option_and_the_budget_matches(self):
         applier = self._source("TestCommands", "ParsekTestCommandAddon.RevertToLaunch.cs")
         self.assertIn("FlightDriver.RevertToLaunch();", applier)
+        self.assertIn("FlightDriver.RevertToPrelaunch(shipType);", applier)
         self.assertIn("TestCommandLoadGame.IsFlightReadyForThisLoad(", applier)
         dispatcher = self._source("TestCommands", "TestCommandDispatcher.cs")
         self.assertIn("internal const double RevertToLaunchSeconds = %.1f;"
@@ -17998,13 +18033,19 @@ class RevertToLaunchSourceSyncTests(unittest.TestCase):
         self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
         self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
         for reason in hlib.REVERTTOLAUNCH_REASONS:
-            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+            self.assertEqual(reason.endswith("-arg-invalid"),
+                             reason in hlib.DETERMINISTIC_SEAM_ERROR_REASONS, reason)
 
     def test_the_step_validator(self):
         self.assertEqual([], hlib.validate_revert_to_launch_step(0, {}))
-        errs = hlib.validate_revert_to_launch_step(3, {"target": "launch"})
+        self.assertEqual([], hlib.validate_revert_to_launch_step(0, {"target": "launch"}))
+        self.assertEqual([], hlib.validate_revert_to_launch_step(0, {"target": "prelaunch"}))
+        errs = hlib.validate_revert_to_launch_step(3, {"target": "vab"})
         self.assertEqual(1, len(errs))
-        self.assertIn("takes no args", errs[0])
+        self.assertIn("reverttolaunch-target-arg-invalid", errs[0])
+        errs = hlib.validate_revert_to_launch_step(3, {"focus": "1"})
+        self.assertEqual(1, len(errs))
+        self.assertIn("takes only target=", errs[0])
 
     def test_validate_spec_runs_both_validators_on_one_step(self):
         # The focusPid= check sits AFTER the per-verb elif chain, so a RevertToLaunch step
@@ -18014,7 +18055,7 @@ class RevertToLaunchSourceSyncTests(unittest.TestCase):
             if step.get("cmd") == hlib.REVERTTOLAUNCH_VERB:
                 step["args"] = {"focusPid": "7"}
         errs = hlib.validate_spec(spec, load_registry()).errors
-        self.assertTrue(any("takes no args" in e for e in errs), errs)
+        self.assertTrue(any("takes only target=" in e for e in errs), errs)
         self.assertTrue(any("only the LoadGame verb reads it" in e for e in errs), errs)
 
 
@@ -18313,6 +18354,7 @@ class NewGameSourceSyncTests(unittest.TestCase):
         self.assertIn('internal const string ModeArg = "%s";' % hlib.NEWGAME_MODE_KEY, text)
         self.assertIn('internal const string PresetArg = "%s";' % hlib.NEWGAME_PRESET_KEY, text)
         self.assertIn('internal const string SaveArg = "%s";' % hlib.NEWGAME_SAVE_KEY, text)
+        self.assertIn('internal const string AsArg = "%s";' % hlib.NEWGAME_AS_KEY, text)
         self.assertIn('internal const string PreservedSaveEntry = "%s";'
                       % hlib.NEWGAME_PRESERVED_SAVE_ENTRY, text)
         sync = StockScreenSourceSyncTests._cs_string_array
@@ -18364,6 +18406,8 @@ class NewGameSourceSyncTests(unittest.TestCase):
         ok = {"mode": "SCIENCE_SANDBOX", "preset": "Normal", "save": "${runSave}"}
         self.assertEqual([], v(1, ok, "camp"))
         self.assertEqual([], v(1, dict(ok, save="camp"), "camp"))
+        self.assertEqual([], v(1, dict(ok, **{"as": "camp-b"}), "camp"))
+        self.assertEqual([], v(1, dict(ok, **{"as": "camp-sws_2"}), "camp"))
         for mode in hlib.NEWGAME_MODE_VALUES:
             for preset in hlib.NEWGAME_PRESET_VALUES:
                 self.assertEqual([], v(1, dict(ok, mode=mode, preset=preset), "camp"))
@@ -18376,6 +18420,11 @@ class NewGameSourceSyncTests(unittest.TestCase):
             ({"mode": "CAREER", "preset": "Normal"}, "newgame-save-arg-missing"),
             (dict(ok, save="other"), "newgame-save-mismatch"),
             (dict(ok, scene="spacecenter"), "silently ignored"),
+            (dict(ok, **{"as": "camp"}), "newgame-as-arg-invalid"),
+            (dict(ok, **{"as": "other-b"}), "newgame-as-arg-invalid"),
+            (dict(ok, **{"as": "camp-"}), "newgame-as-arg-invalid"),
+            (dict(ok, **{"as": "camp-../x"}), "newgame-as-arg-invalid"),
+            (dict(ok, **{"as": "${runSave}"}), "newgame-as-arg-invalid"),
         )
         for args, needle in cases:
             with self.subTest(args=args):
@@ -18383,6 +18432,16 @@ class NewGameSourceSyncTests(unittest.TestCase):
                 self.assertEqual(1, len(errs), errs)
                 self.assertIn("driver.steps[4]", errs[0])
                 self.assertIn(needle, errs[0])
+
+    def test_the_run_save_backup_reap_rule(self):
+        f = hlib.is_run_save_backup_entry
+        self.assertTrue(f("camp (pre-Parsek 2026-10-31_1200)", "camp"))
+        self.assertTrue(f("camp-b (pre-Parsek 2026-10-31_1200)", "camp"))
+        for entry in ("camp", "camp-b", "campx (pre-Parsek 1)", "camp-../x (pre-Parsek 1)",
+                      "other (pre-Parsek 1)", "camp- (pre-Parsek 1)"):
+            with self.subTest(entry=entry):
+                self.assertFalse(f(entry, "camp"))
+        self.assertFalse(f("camp (pre-Parsek 1)", ""))
 
     def test_validate_spec_admits_a_new_game_step_and_mode_is_not_uiactions(self):
         # `mode` is UiAction's VERB_SCOPED_CLOSED_ARGS row; a NewGame step must not be told
@@ -27338,3 +27397,31 @@ class DeterministicSeamErrorSourceSyncTests(unittest.TestCase):
             with self.subTest(literal=lit):
                 self.assertIn(lit, self.literals)
         self.assertNotIn("deterministic-seam-error", self.literals)
+
+
+class IdsFileSelectionTests(unittest.TestCase):
+    """`run.py --ids-file`: the planned full run's selection keeps the list's
+    order and names ids no spec carries."""
+
+    SPECS = [{"id": "A"}, {"id": "B"}, {"id": "C"}]
+
+    def test_the_file_parse_skips_blanks_comments_and_repeats(self):
+        text = "# plan\n\n  C \nA\n# A\nC\nB\r\n"
+        self.assertEqual(hlib.parse_ids_file_text(text), ["C", "A", "B"])
+        self.assertEqual(hlib.parse_ids_file_text(""), [])
+
+    def test_selection_follows_the_list_order(self):
+        selected, unknown = hlib.select_scenarios_by_ids(self.SPECS, ["C", "A"])
+        self.assertEqual([s["id"] for s in selected], ["C", "A"])
+        self.assertEqual(unknown, [])
+
+    def test_unknown_ids_are_reported_not_dropped_silently(self):
+        selected, unknown = hlib.select_scenarios_by_ids(self.SPECS, ["X", "B", "X", "Y"])
+        self.assertEqual([s["id"] for s in selected], ["B"])
+        self.assertEqual(unknown, ["X", "Y"])
+
+    def test_the_stop_line_carries_the_marker_and_counts(self):
+        line = hlib.format_stop_honoured_line(3, 9)
+        self.assertTrue(line.startswith(hlib.STOP_HONOURED_MARKER))
+        self.assertIn("after 3 scenario(s)", line)
+        self.assertIn("dropped=9", line)

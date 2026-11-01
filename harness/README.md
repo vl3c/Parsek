@@ -1537,6 +1537,7 @@ and never provisions.
 | `nightly` | 203 | the full cadence set; hours |
 | `operator` | 148 | explicit-invocation-only specs (see below) |
 | `longhaul` | 6 | the operator-class interplanetary lanes of 30 min or more each (see below) |
+| `full` | all | every lane of every tier on every install, planned by the runner (see "The full run" below) |
 
 Spec counts are as of 2026-10-14 and DRIFT as specs land; recount with
 `python run.py --dry-run --tier <t>` (launches nothing, takes no lock).
@@ -1599,13 +1600,93 @@ product is images somebody is about to look at.
   (exit 2) and stops. Provisioning DEPLOYs whatever
   `Source/Parsek/bin/Debug/Parsek.dll` the invoking worktree holds, which is as
   likely to be a half-finished build as a release candidate; which worktree's
-  DLL the automation instance carries is a human call, always.
+  DLL the automation instance carries is a human call, always. The one
+  exception is a full run invoked with `--provision`, where the requester named
+  that choice on the command line.
 - **Never re-run a finding.** `run.py` owns retry policy; a PARSEK-FAIL that
   reaches the history line already survived it.
 
 Runner exit codes: `0` GREEN, `1` RED (a finding, a KILLED, an XPASS, or the
-"flew nothing" shape), `2` NEEDS-PROVISION, `3` SKIPPED, `4` runner internal
-error.
+"flew nothing" shape), `2` NEEDS-PROVISION, `3` SKIPPED (or STOPPED, below), `4`
+runner internal error.
+
+### The full run (`--tier full`)
+
+Every lane, on demand. `daily` + `nightly` alone leave out the whole `operator`
+tier (the RW / CS / STR campaigns, most render and loop lanes, the stock-tree
+lanes) and `longhaul`; a full run flies all of them in one request:
+
+```
+cd harness && python tools/tier_runner.py --tier full --plan-only   # look first: plan + admission, flies nothing
+cd harness && python tools/tier_runner.py --tier full --provision   # provision every install from THIS build, then fly
+cd harness && python tools/tier_runner.py --tier full               # fly against the installs as they are
+cd harness && python tools/tier_runner.py --stop                    # (from another shell) pause at the next lane
+cd harness && python tools/tier_runner.py --tier full --resume      # continue the newest plan
+```
+
+`full` is not a harness tier. The runner PLANS the run and hands `run.py` the
+ordered id list through `run.py --ids-file`, so it is still one `run.py`
+invocation: one machine lock, one Parsek.Tests build, one coverage refresh.
+
+- **Order.** Tier by tier: `daily`, `nightly`, `weekly`, `perpr`, `operator`,
+  `longhaul` (`tier_runner.FULL_RUN_TIER_ORDER`): a broken build shows inside the
+  first half hour, and the five-hour long-haul set comes last. Inside a tier the
+  reference install `stock-minimal` first, then `stock-tree`, then
+  `modded-compat`; inside that, spec file order. A test pins that every
+  `hlib.TIERS` member is either flown or named in `FULL_RUN_EXCLUDED_TIERS`
+  (today only `pending-fixture`, whose fixture does not exist yet).
+- **Skipped lanes are named, never dropped.** A lane on an operator-local
+  fixture that is not staged here (the GUI censuses) would only refuse pre-boot
+  `INVALID(staging)`, so the plan skips it and prints its staging command.
+- **Plan files.** `results/tier-runs/full_<stamp>.plan.json` holds the ordered
+  ids, the skipped lanes, the start time and the git HEAD; `full_<stamp>.ids` is
+  what `run.py` reads. The plan prints one line per (tier, install) segment with
+  its lane count and measured p50 wall; lanes with no measured wall are counted,
+  never guessed. On 2026-10-31: 523 lanes, about 21.5 h of measured p50 plus 169
+  lanes never timed (most of the 37 stock-tree lanes among them), so plan on a
+  day and a half.
+- **Admission preflight.** Before anything flies, `run.py --ids-file <plan>
+  --admit-only` admits every install the plan touches, plus the mission venv
+  when the plan holds an autopilot lane. It reads files only (no lock, no build,
+  no launch, no result row). An unfit piece stops the run `NEEDS-PROVISION`
+  (exit 2) with the exact command for each: `provision.py --profile <p>` per
+  drifted install (reference first, since the others admit against its DLL),
+  `missions/bootstrap_venv.py` for the venv. Every lane still admits itself at
+  launch; the preflight only saves flying 300 lanes into a wall.
+- **`--provision`** provisions every install the plan flies, and always the
+  reference install first (the others admit against its DLL, even on a resume
+  with no `stock-minimal` lane left),
+  from THIS worktree's `bin/Debug/Parsek.dll`, bootstraps the mission venv, then
+  runs the preflight. It is the explicit opt-in to "never auto-provision": build
+  the commit you mean to test in a sibling worktree, then invoke from there.
+- **`--stop`** writes `results/stop-request`. `run.py` checks it at every lane
+  boundary (serial and pipelined): the lane in flight, its verification and an
+  attempt-2 retry it already owes all finish; unstarted lanes are dropped with
+  NO result row, and the log says `stop request honoured ... dropped=N`. The
+  invocation then reads `STOPPED` (exit 3), unless something already went red,
+  which keeps its RED. The runner drops a leftover request at its own start and
+  passes `run.py --keep-stop-request`, so a request sent during its own phases
+  (a long `--provision`, the preflight) is honoured: between phases it stops the
+  run before `run.py` starts, and `run.py` honours one it finds before lane one.
+  A bare `run.py` (no `--keep-stop-request`) drops a request it finds at
+  selection start as stale. `--stop` works on any tier's run, not only a full
+  one.
+- **`--resume [PLAN]`** continues the newest `full_*.plan.json` (or the named
+  one): a plan lane whose latest `summary.txt` line since the plan started is
+  settled is skipped, everything else flies, in plan order. Only an attempt-1
+  `INVALID` is unsettled (it may be a retry the interrupted run never flew, or a
+  refusal the resume is meant to cure, such as an install provisioned since).
+  Resume as often as needed; the window stays the plan's start. A resume warns
+  when the worktree's HEAD differs from the plan's: the remaining lanes fly
+  whatever the installs carry now. A Ctrl-C or a crash mid-lane leaves that lane
+  without a settled line, so a resume flies it again. A plan lane whose spec was
+  renamed or deleted since can never settle: the runner warns before flying, and
+  an invocation that would otherwise read GREEN with plan lanes still unsettled
+  reads RED, naming them.
+- **History.** One `history.txt` line per invocation (`tier=full`), whose detail
+  ends with `plan=<file> whole-run=[...]`: the latest verdict per plan lane
+  across every invocation of that plan, plus `pending=N of M`. That last field
+  is the one to read after a resume.
 
 ### Reviewing a run
 

@@ -1,6 +1,6 @@
 ---
 name: run-tier
-description: Fly one harness tier (daily|nightly|operator|longhaul) on request and report the outcome
+description: Fly one harness tier (daily|nightly|operator|longhaul), or every lane (full), on request and report the outcome
 ---
 
 # Run a harness tier
@@ -64,11 +64,30 @@ Any console you capture yourself (a provision run, a single `run.py --id`) goes 
 `<umbrella>/logs/console/<YYYY-MM-DD>/<label>.log` (`../../logs/console/...` from
 `harness/`), never the umbrella root.
 
+## 3b. The full run (`--tier full`)
+
+When the operator asks for "all the tests" / a full run: every lane of every
+tier on every install (`harness/README.md` -> "The full run"). It runs about a
+day and a half, so:
+
+1. Build the commit to test in a sibling worktree (step 2), then look first:
+   `python tools/tier_runner.py --tier full --plan-only` (plan + admission of
+   every install, flies nothing, takes no lock).
+2. If an install is unfit, the operator's "run everything" request covers
+   provisioning ONLY when they said which build to test; otherwise ask. Then
+   `python tools/tier_runner.py --tier full --provision` provisions every
+   install from this worktree (reference first) and flies.
+3. To free the PC mid-run: `python tools/tier_runner.py --stop` (the lane in
+   flight finishes; nothing else starts; exit 3 STOPPED). Later:
+   `python tools/tier_runner.py --tier full --resume` flies only what is left.
+4. Report the history line's `whole-run=[...]` tally (latest verdict per lane
+   across every invocation, plus `pending=N`).
+
 ## 4. Report
 
 Give the operator: the `history.txt` line, the verdict tally, and
 `harness/results/index.html` for the detail. Exit codes: 0 GREEN, 1 RED,
-2 NEEDS-PROVISION, 3 SKIPPED, 4 runner error.
+2 NEEDS-PROVISION, 3 SKIPPED or STOPPED, 4 runner error.
 
 - **PARSEK-FAIL** — a finding. File it in `docs/dev/todo-and-known-bugs.md`.
   NEVER re-run it away; run.py already applied its retry policy.

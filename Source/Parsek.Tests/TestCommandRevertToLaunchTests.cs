@@ -119,9 +119,81 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Target_DefaultsToLaunch_PrelaunchIsTheEditorRevert_OthersRefused()
+        {
+            Assert.Null(TestCommandRevertToLaunch.ParseTarget(null, out bool p));
+            Assert.False(p);
+            Assert.Null(TestCommandRevertToLaunch.ParseTarget("launch", out p));
+            Assert.False(p);
+            Assert.Null(TestCommandRevertToLaunch.ParseTarget("prelaunch", out p));
+            Assert.True(p);
+            Assert.Equal("reverttolaunch-target-arg-invalid", TestCommandRevertToLaunch.ParseTarget("vab", out p));
+            Assert.Equal("reverttolaunch-target-arg-invalid", TestCommandRevertToLaunch.ParseTarget("", out p));
+            Assert.Equal(new[] { "launch", "prelaunch" }, TestCommandRevertToLaunch.TargetValues);
+        }
+
+        [Fact]
+        public void Dispatch_ExecutesWithTheTargetArg()
+        {
+            var cmd = TestCommandParser.ParseLine("id=1 cmd=" + Verb + " target=prelaunch", 1);
+            Assert.Equal(DispatchDecision.Execute,
+                TestCommandDispatcher.DecideDispatch(cmd, At(TestCommandScene.Flight)).Decision);
+        }
+
+        [Fact]
+        public void PrelaunchGate_ReFlyFirst_ThenTheFourStockConditions()
+        {
+            Assert.Equal("reverttolaunch-refly-session",
+                TestCommandRevertToLaunch.DecidePrelaunchGate(true, true, true, true, true));
+            Assert.Equal("reverttolaunch-prelaunch-unavailable",
+                TestCommandRevertToLaunch.DecidePrelaunchGate(false, false, true, true, true));
+            Assert.Equal("reverttolaunch-prelaunch-unavailable",
+                TestCommandRevertToLaunch.DecidePrelaunchGate(false, true, false, true, true));
+            Assert.Equal("reverttolaunch-prelaunch-unavailable",
+                TestCommandRevertToLaunch.DecidePrelaunchGate(false, true, true, false, true));
+            Assert.Equal("reverttolaunch-prelaunch-unavailable",
+                TestCommandRevertToLaunch.DecidePrelaunchGate(false, true, true, true, false));
+            Assert.Null(TestCommandRevertToLaunch.DecidePrelaunchGate(false, true, true, true, true));
+        }
+
+        [Fact]
+        public void PrelaunchCompletion_WaitsForASettledEditorWhoseOnLoadConsumedTheRevert()
+        {
+            int settle = TestCommandRevertToLaunch.EditorSettleFrames;
+            // The starting FLIGHT scene, and the loading screen, keep waiting.
+            Assert.Equal(LoadCompletionDecision.StillWaiting, TestCommandRevertToLaunch.DecidePrelaunchCompletion(
+                1.0, TestCommandScene.Flight, true, false, 0, false, 180.0));
+            // Editor up but the revert kind not consumed yet: the revert branch has not run.
+            Assert.Equal(LoadCompletionDecision.StillWaiting, TestCommandRevertToLaunch.DecidePrelaunchCompletion(
+                2.0, TestCommandScene.Editor, true, true, settle, false, 180.0));
+            // Not settled long enough.
+            Assert.Equal(LoadCompletionDecision.StillWaiting, TestCommandRevertToLaunch.DecidePrelaunchCompletion(
+                2.0, TestCommandScene.Editor, true, true, settle - 1, true, 180.0));
+            Assert.Equal(LoadCompletionDecision.CompleteOk, TestCommandRevertToLaunch.DecidePrelaunchCompletion(
+                3.0, TestCommandScene.Editor, true, true, settle, true, 180.0));
+            Assert.Equal(LoadCompletionDecision.LoadFailedMenu, TestCommandRevertToLaunch.DecidePrelaunchCompletion(
+                3.0, TestCommandScene.MainMenu, false, false, 0, true, 180.0));
+            Assert.Equal(LoadCompletionDecision.LoadTimeout, TestCommandRevertToLaunch.DecidePrelaunchCompletion(
+                181.0, TestCommandScene.Editor, true, true, settle, false, 180.0));
+        }
+
+        [Fact]
+        public void PrelaunchLines_AndPayload_AreGrepStable()
+        {
+            Assert.Equal("reverttolaunch start target=prelaunch pid=7 name='X' situation=FLYING " +
+                "recording=true hasActiveTree=true",
+                TestCommandRevertToLaunch.FormatStartLine(7, "X", "FLYING", true, true, prelaunch: true));
+            Assert.Equal("reverttolaunch complete target=prelaunch facility=VAB ship='Kerbal X Sweep' elapsed=4.5s",
+                TestCommandRevertToLaunch.FormatPrelaunchCompleteLine("VAB", "Kerbal X Sweep", 4.5));
+            var payload = TestCommandRevertToLaunch.BuildPrelaunchCompletePayload("EDITOR", "VAB", "S");
+            Assert.Equal(new[] { "scene", "facility", "ship" }, payload.Select(kv => kv.Key));
+        }
+
+        [Fact]
         public void Reasons_AreDisjointFromTheErrors()
         {
-            Assert.Equal(new[] { "reverttolaunch-refly-session", "reverttolaunch-unavailable" },
+            Assert.Equal(new[] { "reverttolaunch-target-arg-invalid", "reverttolaunch-refly-session",
+                    "reverttolaunch-unavailable", "reverttolaunch-prelaunch-unavailable" },
                 TestCommandRevertToLaunch.Reasons);
             Assert.Empty(TestCommandRevertToLaunch.Reasons.Intersect(TestCommandRevertToLaunch.ErrorReasons));
         }
