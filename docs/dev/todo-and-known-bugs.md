@@ -9084,6 +9084,14 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `.ProtoVesselLifecycle` 2,106, `.StateVectors` 2,093, `.SourceResolution` 1,961,
   `.TrackingStationLifecycle` 1,656, `.FlightMapLifecycle` 1,274, `.TargetingAndSelection`
   1,022, `.OverlapInstances` 975, `.ReFlySuppression` 791, `.OrbitLines` 791.
+- `GhostPlaybackLogic.cs` (9,489 lines) is split further (S3, pure move by
+  `scripts/refactor/split_ghostplaybacklogic.py`, same line-multiset check; region pairs move
+  whole): the main file (907: every field, the resets, the external-vessel ghost policy and
+  the zone / soft-cap fidelity / auto loop range policy) plus `.GhostInfo` (698),
+  `.Visibility` (679), `.PartEvents` (1,404), `.EngineRcsFx` (1,036), `.Audio` (926),
+  `.Robotics` (641), `.SynthesizedMotion` (1,243), `.HeatDeployablesLights` (977) and
+  `.SpawnDecision` (1,077), beside the existing `.SpanClock` / `.StandaloneLoopClock` /
+  `.WarpLoopPolicy` / `.WatchMode`.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
