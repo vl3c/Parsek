@@ -9111,6 +9111,12 @@ columns whose blanks are visible, where the old outline simply said nothing.
   842, `.HeatAndReentryFx` 984, `.AudioFx` 209, `.RcsFx` 357, `.Fairings` 272,
   `.SynthesizedMotion` 793, `.PartInfoBuilders` 1,058, `.TransientFx` 742, beside the existing
   `.Parsing` / `.SnapshotBaseline` / `.Variants`.
+- `UI/RecordingsTableUI.cs` (6,965 lines, an instance class) is now a partial class over 10
+  files (S3, pure move by `scripts/refactor/split_recordingstableui.py`; every field, event,
+  property, constant and the constructor stay in the main file): `RecordingsTableUI.cs` 1,231
+  lines, `.TableRows` 1,125, `.GroupTree` 900, `.RewindColumns` 765, `.UnfinishedFlights` 625,
+  `.Window` 592, `.LoopPeriod` 572, `.SortAndStatus` 533, `.GroupAggregates` 498,
+  `.WatchButton` 250.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
