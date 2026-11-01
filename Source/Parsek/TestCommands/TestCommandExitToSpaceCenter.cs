@@ -14,9 +14,9 @@ namespace Parsek.TestCommands
         /// <summary>The interceptor would pass the exit through silently: drive it.</summary>
         Proceed,
 
-        /// <summary>An armed <c>SwitchSegmentSession</c> with no live active tree. The
-        /// prefix's Bug-C branch shows a dialog on the SESSION'S tree UNCONDITIONALLY -
-        /// autoMerge does not suppress it - so this is a wedge even under autoMerge.</summary>
+        /// <summary>An armed <c>SwitchSegmentSession</c> with no live active tree, on an exit
+        /// where the prefix's Bug-C branch still asks about the SESSION'S tree (autoMerge off,
+        /// or a live Re-Fly; under autoMerge the branch follows it, owner ruling 2026-11-01).</summary>
         RefusedSwitchSegmentSession,
 
         /// <summary>The live-state decision matrix (active tree) would spawn a modal.</summary>
@@ -38,8 +38,8 @@ namespace Parsek.TestCommands
     ///
     /// <para>It is deliberately NOT a generic <c>LoadScene</c> verb. The narrow contract is
     /// the FLIGHT exit WITH its finalize / stash / auto-commit side effects; a generic
-    /// scene loader would over-promise EDITOR / MAINMENU (MAINMENU always shows the merge
-    /// dialog under an active tree, by design) and under-specify this gauntlet.</para>
+    /// scene loader would over-promise EDITOR / MAINMENU (a MAINMENU exit commits and
+    /// writes the save inside the prefix) and under-specify this gauntlet.</para>
     ///
     /// <para>Every decision the Unity applier makes is factored here so the whole gate is
     /// xUnit-covered without a live KSP scene; the applier only samples live state, calls
@@ -86,19 +86,24 @@ namespace Parsek.TestCommands
         /// <param name="pendingTreeVariant">
         /// <c>SceneExitInterceptor.ShouldShowPendingTreeDialogBeforeSceneChangeLive(SPACECENTER)</c>
         /// - the prefix's no-active-tree pending branch.</param>
+        /// <param name="sessionFollowsAutoMerge">
+        /// <c>SceneExitInterceptor.ShouldSessionExitFollowAutoMerge</c> for this exit: the
+        /// Bug-C branch lets the exit through (or hands it to the pending branch) instead of
+        /// asking.</param>
         internal static ExitGateDecision DecideExitGate(
             bool hasActiveTree,
             bool switchSegmentSessionArmed,
             SceneExitInterceptor.DialogVariant activeTreeVariant,
-            SceneExitInterceptor.DialogVariant pendingTreeVariant)
+            SceneExitInterceptor.DialogVariant pendingTreeVariant,
+            bool sessionFollowsAutoMerge = false)
         {
             if (!hasActiveTree)
             {
-                // Prefix Bug-C branch: an armed session routes the dialog to the SESSION'S
-                // tree with no autoMerge escape hatch, so refuse on the session alone. (If
-                // the session's tree fails to resolve the prefix falls back to the pending
+                // Prefix Bug-C branch: unless it follows autoMerge, an armed session routes
+                // the dialog to the SESSION'S tree, so refuse on the session alone. (If the
+                // session's tree fails to resolve the prefix falls back to the pending
                 // branch - also a dialog - so refusing here is right on both sub-paths.)
-                if (switchSegmentSessionArmed)
+                if (switchSegmentSessionArmed && !sessionFollowsAutoMerge)
                     return ExitGateDecision.RefusedSwitchSegmentSession;
                 if (pendingTreeVariant != SceneExitInterceptor.DialogVariant.None)
                     return ExitGateDecision.RefusedPendingTreeDialog;

@@ -230,7 +230,7 @@ namespace Parsek.Tests
             int raw = interceptor.IndexOf("ParsekScenario.IsAutoMerge", StringComparison.Ordinal);
             Assert.True(helper >= 0 && raw > helper,
                 "the one raw auto-merge read in SceneExitInterceptor is inside IsAutoMergeForSceneExitLive");
-            Assert.Equal(2, Regex.Matches(interceptor, @"=\s*IsAutoMergeForSceneExitLive\(").Count);
+            Assert.Equal(3, Regex.Matches(interceptor, @"=\s*IsAutoMergeForSceneExitLive\(").Count);
             Assert.Contains("else if (!SceneExitInterceptor.IsAutoMergeForSceneExitLive(", flight);
         }
     }

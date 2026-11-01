@@ -86,15 +86,34 @@ namespace Parsek.Tests
         [Fact]
         public void Gate_SwitchSegmentSessionNoActiveTree_RefusesEvenWithBothVariantsNone()
         {
-            // The prefix's Bug-C branch routes the dialog to the SESSION'S tree without
-            // consulting the decision matrix at all - autoMerge does NOT suppress it. A
-            // guard built only on ShouldShowDialogBeforeSceneChangeLive would read None
-            // here and wedge, which is exactly why the session is an input of its own.
+            // With autoMerge off (or a live Re-Fly) the prefix's Bug-C branch routes the
+            // dialog to the SESSION'S tree without consulting the decision matrix. A guard
+            // built only on ShouldShowDialogBeforeSceneChangeLive would read None here and
+            // wedge, which is exactly why the session is an input of its own.
             Assert.Equal(ExitGateDecision.RefusedSwitchSegmentSession,
                 TestCommandExitToSpaceCenter.DecideExitGate(
                     hasActiveTree: false, switchSegmentSessionArmed: true,
                     activeTreeVariant: DialogVariant.None,
                     pendingTreeVariant: DialogVariant.None));
+        }
+
+        [Fact]
+        public void Gate_SwitchSegmentSession_ThatFollowsAutoMerge_FallsThroughToThePendingBranch()
+        {
+            // Under autoMerge the Bug-C branch no longer asks (owner ruling 2026-11-01):
+            // the gate reads the pending branch instead, exactly as the prefix does.
+            Assert.Equal(ExitGateDecision.Proceed,
+                TestCommandExitToSpaceCenter.DecideExitGate(
+                    hasActiveTree: false, switchSegmentSessionArmed: true,
+                    activeTreeVariant: DialogVariant.None,
+                    pendingTreeVariant: DialogVariant.None,
+                    sessionFollowsAutoMerge: true));
+            Assert.Equal(ExitGateDecision.RefusedPendingTreeDialog,
+                TestCommandExitToSpaceCenter.DecideExitGate(
+                    hasActiveTree: false, switchSegmentSessionArmed: true,
+                    activeTreeVariant: DialogVariant.None,
+                    pendingTreeVariant: DialogVariant.RegularMerge,
+                    sessionFollowsAutoMerge: true));
         }
 
         [Fact]
