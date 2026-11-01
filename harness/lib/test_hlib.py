@@ -17196,6 +17196,35 @@ class SafeWriteCrashSourceSyncTests(unittest.TestCase):
         self.assertIn("only phase=arm", v(0, {"phase": "probe", "recording": "abc"})[0])
 
 
+class ExitQuitWithoutSavingSourceSyncTests(unittest.TestCase):
+    """`ExitToSpaceCenter quitWithoutSaving=true`. Reads OUTSIDE harness/: the arg key, its
+    one value and its arg-invalid reason in the comment-stripped
+    TestCommands/TestCommandExitToSpaceCenter.cs."""
+
+    def _source(self):
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandExitToSpaceCenter.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# ExitToSpaceCenter tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_key_value_and_reason_mirror_the_c_sharp(self):
+        text = self._source()
+        self.assertIn('internal const string QuitWithoutSavingKey = "%s";'
+                      % hlib.EXIT_QUIT_WITHOUT_SAVING_KEY, text)
+        self.assertEqual(("true",), hlib.EXIT_QUIT_WITHOUT_SAVING_VALUES)
+        self.assertIn('internal const string QuitWithoutSavingTrueValue = "%s";'
+                      % hlib.EXIT_QUIT_WITHOUT_SAVING_VALUES[0], text)
+        self.assertIn('internal const string QuitWithoutSavingArgInvalidReason = "%s";'
+                      % hlib.EXIT_QUIT_WITHOUT_SAVING_INVALID_REASON, text)
+        self.assertEqual((hlib.EXIT_QUIT_WITHOUT_SAVING_VERB, hlib.EXIT_QUIT_WITHOUT_SAVING_VALUES),
+                         hlib.VERB_SCOPED_CLOSED_ARGS[hlib.EXIT_QUIT_WITHOUT_SAVING_KEY])
+        self.assertIn(hlib.EXIT_QUIT_WITHOUT_SAVING_INVALID_REASON,
+                      hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        self.assertEqual("driver-arg", hlib._SEAM_REFUSAL_SUBKINDS.get(
+            hlib.EXIT_QUIT_WITHOUT_SAVING_INVALID_REASON))
+
+
 class RealSpawnRecoverSourceSyncTests(unittest.TestCase):
     """The D18 player-action pair (`RealSpawn` / `Recover`). Reads OUTSIDE harness/: the
     arg key and the refusal reasons (the `Reasons` array, IN ORDER) of the

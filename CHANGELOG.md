@@ -25,6 +25,10 @@ _(unreleased - entries accumulate here per commit)_
 - **Quitting to the main menu no longer asks.** Leaving a flight for the main menu now commits the
   mission to the timeline on its own, the same as leaving for the Space Center, instead of opening
   the Merge dialog. Ending a Re-Fly still asks. (EXIT-TO-MAIN-MENU-ASKS)
+- **Quit without saving drops the flight.** When KSP can't save and you pick Quit without saving
+  (to the Space Center, the Tracking Station or the main menu), the recording now goes back to the
+  last save along with the world, so the flight since that save is gone from the timeline too. It
+  is a quick way to throw a flight away on purpose. (EXIT-TO-MAIN-MENU-ASKS)
 
 ### Fixed
 

@@ -51,6 +51,15 @@ namespace Parsek.TestCommands
             ParsekFlight flight = ParsekFlight.Instance;
             ParsekScenario scenario = ParsekScenario.Instance;
 
+            string quitArgReason = TestCommandExitToSpaceCenter.ParseQuitWithoutSaving(
+                ArgOrNull(cmd, TestCommandExitToSpaceCenter.QuitWithoutSavingKey), out bool quitWithoutSaving);
+            if (quitArgReason != null)
+            {
+                ParsekLog.Warn(Tag, $"exittospacecenter refused reason={quitArgReason}");
+                SetExecResult("REJECTED", null, quitArgReason);
+                return;
+            }
+
             bool hasActiveTree = flight != null && flight.HasActiveTree;
             bool sessionArmed = scenario != null && scenario.ActiveSwitchSegmentSession != null;
 
@@ -74,6 +83,17 @@ namespace Parsek.TestCommands
             ExitGateDecision gate = TestCommandExitToSpaceCenter.DecideExitGate(
                 hasActiveTree, sessionArmed, activeTreeVariant, pendingTreeVariant,
                 sessionFollowsAutoMerge);
+            if (quitWithoutSaving)
+            {
+                bool followsTheSave = NoSaveSceneExit.ShouldFollowTheSave(
+                    GameScenes.SPACECENTER, noSaveExit: true,
+                    rewinding: RecordingStore.IsRewinding,
+                    reFlyActive: scenario != null && scenario.ActiveReFlySessionMarker != null,
+                    mergeJournalActive: scenario != null && scenario.ActiveMergeJournal != null);
+                gate = TestCommandExitToSpaceCenter.DecideQuitWithoutSavingGate(followsTheSave, gate);
+                ParsekLog.Info(Tag,
+                    $"exittospacecenter quit-without-saving followsTheSave={Bool(followsTheSave)} gate={gate}");
+            }
 
             if (gate != ExitGateDecision.Proceed)
             {
@@ -85,6 +105,19 @@ namespace Parsek.TestCommands
                     $"variant={variant} gate={gate} - a merge modal would block the exit and no seam verb can answer it " +
                     "(set autoMerge=true, or commit/discard the tree, before exiting)");
                 SetExecResult("REJECTED", null, msg);
+                return;
+            }
+
+            if (quitWithoutSaving)
+            {
+                // Mirror stock's Quit without saving button (PauseMenu.drawExitWithoutSaveOptions,
+                // decompiled KSP 1.12.5): onSceneConfirmExit, then LoadScene, and no save.
+                GameEvents.onSceneConfirmExit.Fire(HighLogic.CurrentGame.startScene);
+                ParsekLog.Info(Tag,
+                    "exittospacecenter driving quit-without-saving dest=SPACECENTER " +
+                    "(stock no-save button: confirm-exit, no save)");
+                HighLogic.LoadScene(GameScenes.SPACECENTER);
+                SetExecResult(PendingVerdict, null, null);
                 return;
             }
 

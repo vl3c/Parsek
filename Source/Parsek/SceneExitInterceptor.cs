@@ -120,6 +120,9 @@ namespace Parsek
             SafeWritePersistentForTesting = null;
             PersistentSaveStepForTesting = null;
             CommitWithoutDialogForTesting = null;
+            SaveFileLoadIntentRealtimeForTesting = null;
+            SaveFileLoadIntentFrameForTesting = null;
+            NoSaveSceneExit.ResetForTesting();
         }
 
         /// <summary>
@@ -369,6 +372,64 @@ namespace Parsek
                 $"outcome={outcome} - falling back to the merge dialog");
             return null;
         }
+
+        /// <summary>
+        /// Live: when this load is stock's quit without saving (<see cref="NoSaveSceneExit"/>)
+        /// and <see cref="NoSaveSceneExit.ShouldFollowTheSave"/> holds, the flight since the
+        /// last save is dropped with the world: no merge dialog, no commit, no persistent.sfs
+        /// write. The scene-exit finalize stashes the live tree instead of committing it, and
+        /// for the Space Center and the Tracking Station the save-file load intent makes the
+        /// destination's reload of persistent.sfs a Cold load, so Parsek rebuilds from the save
+        /// as stock does (the main menu unloads the game; the next game's load is cold anyway).
+        /// Returns true when it handled the exit (the prefix lets the load through).
+        /// </summary>
+        internal static bool TryFollowTheSaveOnNoSaveExit(GameScenes destination)
+        {
+            if (!NoSaveSceneExit.ConsumeAtLoadScene(destination))
+                return false;
+
+            var scenario = ParsekScenario.Instance;
+            bool hasScenario = !object.ReferenceEquals(null, scenario);
+            bool reFlyActive = hasScenario && scenario.ActiveReFlySessionMarker != null;
+            bool journalActive = hasScenario && scenario.ActiveMergeJournal != null;
+            bool rewinding = RecordingStore.IsRewinding;
+            if (!NoSaveSceneExit.ShouldFollowTheSave(
+                    destination, noSaveExit: true, rewinding, reFlyActive, journalActive))
+            {
+                ParsekLog.Info("SceneExit",
+                    $"LoadScene prefix: quit without saving dest={destination} keeps the usual exit " +
+                    $"handling (rewinding={rewinding} reFlyActive={reFlyActive} mergeJournalActive={journalActive})");
+                return false;
+            }
+
+            NoSaveSceneExit.Arm(destination);
+            if (destination != GameScenes.MAINMENU)
+            {
+                SaveFileLoadIntent.Arm(double.NaN, "FLIGHT (quit without saving)",
+                    SaveFileLoadIntentRealtime(), SaveFileLoadIntentFrame());
+            }
+            var flight = ParsekFlight.Instance;
+            bool liveTree = flight != null && flight.HasActiveTree;
+            ParsekLog.Info("SceneExit",
+                $"LoadScene prefix: quit without saving dest={destination} - following the save: the " +
+                $"flight since the last save is dropped with the world (liveTree={liveTree} " +
+                $"pendingTree={RecordingStore.HasPendingTree}); no merge dialog, no commit, no persistent write");
+            return true;
+        }
+
+        /// <summary>Test seams for the clock the save-file load intent is armed with.</summary>
+        internal static Func<double> SaveFileLoadIntentRealtimeForTesting;
+        internal static Func<int> SaveFileLoadIntentFrameForTesting;
+
+        private static double SaveFileLoadIntentRealtime()
+            => SaveFileLoadIntentRealtimeForTesting != null
+                ? SaveFileLoadIntentRealtimeForTesting()
+                : UnityEngine.Time.realtimeSinceStartup;
+
+        private static int SaveFileLoadIntentFrame()
+            => SaveFileLoadIntentFrameForTesting != null
+                ? SaveFileLoadIntentFrameForTesting()
+                : UnityEngine.Time.frameCount;
 
         /// <summary>
         /// Bug C helper: resolve the in-memory <see cref="RecordingTree"/>
@@ -904,6 +965,12 @@ namespace Parsek
                     $"suppression armed (Discard Re-Fly path) dest={scene}");
                 return true;
             }
+
+            // (3.2) stock quit without saving: the recording follows the save (owner ruling
+            //     2026-11-01). Runs before every path below that persists, so nothing writes
+            //     the world stock chose not to save.
+            if (SceneExitInterceptor.TryFollowTheSaveOnNoSaveExit(scene))
+                return true;
 
             var flight = ParsekFlight.Instance;
 

@@ -3375,16 +3375,24 @@ namespace Parsek
                 }
             }
             else if (ShouldStashLiveTreeForSaveFileLoad(
-                scene, SaveFileLoadIntent.IsArmed, RevertDetector.PendingKind != RevertKind.None))
+                scene,
+                SaveFileLoadIntent.IsArmed || NoSaveSceneExit.IsArmedFor(scene),
+                RevertDetector.PendingKind != RevertKind.None))
             {
+                // Also stock's quit without saving (NoSaveSceneExit, owner ruling 2026-11-01):
+                // the destination reloads the older persistent.sfs, so the flight since that
+                // save is dropped with the world, as for a save-file load.
                 // A save-file load out of flight into a non-flight save (F9 or the load dialog
                 // into a Space Center quicksave): the next OnLoad is Cold and rebuilds Parsek from
                 // that save (design-load-restores-the-save.md 4.1), so the live flight is the
                 // abandoned future, not a finished one. Stash it as Limbo, as an F9 into a flight
                 // save does; the cold load's session reset drops it from memory only. Committing
                 // it here would run a commit for a flight the load is about to forget.
+                string stashCause = NoSaveSceneExit.IsArmedFor(scene)
+                    ? "quit without saving"
+                    : "save-file load";
                 ParsekLog.Info("Flight",
-                    $"FinalizeTreeOnSceneChange: save-file load out of flight (dest={scene}) - stashing the "
+                    $"FinalizeTreeOnSceneChange: {stashCause} out of flight (dest={scene}) - stashing the "
                     + $"live tree '{activeTree.TreeName}' as pending Limbo instead of committing it; the "
                     + "cold load replaces it from the save");
                 StashActiveTreeAsPendingLimbo(commitUT);
