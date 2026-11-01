@@ -3802,6 +3802,15 @@ RECOVER_REASONS: Tuple[str, ...] = (
 RECOVER_MERGE_DIALOG_KEY = "mergeDialog"
 RECOVER_MERGE_DIALOG_VALUES: Tuple[str, ...] = ("refly",)
 
+# `ExitToSpaceCenter quitWithoutSaving=true`: drive stock's Esc-menu "Quit without saving"
+# (onSceneConfirmExit, then LoadScene, no save) instead of the saving Space Center exit.
+# Closed, one value; a VERB_SCOPED_CLOSED_ARGS row (ExitQuitWithoutSavingSourceSyncTests
+# keeps the key, value and reason byte-equal to TestCommandExitToSpaceCenter).
+EXIT_QUIT_WITHOUT_SAVING_VERB = "ExitToSpaceCenter"
+EXIT_QUIT_WITHOUT_SAVING_KEY = "quitWithoutSaving"
+EXIT_QUIT_WITHOUT_SAVING_VALUES: Tuple[str, ...] = ("true",)
+EXIT_QUIT_WITHOUT_SAVING_INVALID_REASON = "exittospacecenter-quitwithoutsaving-arg-invalid"
+
 
 # TrackingStationRecover: mirrored from TestCommands/TestCommandTrackingStationRecover.cs
 # (TrackingStationRecoverSourceSyncTests keeps them byte-equal). One required pid= arg,
@@ -5570,6 +5579,7 @@ VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     STOCKSCREEN_PANE_KEY: (STOCKSCREEN_VERB, STOCKSCREEN_PANE_VALUES),
     SAFEWRITECRASH_PHASE_KEY: (SAFEWRITECRASH_VERB, SAFEWRITECRASH_PHASE_VALUES),
     RECOVER_MERGE_DIALOG_KEY: (RECOVER_VERB, RECOVER_MERGE_DIALOG_VALUES),
+    EXIT_QUIT_WITHOUT_SAVING_KEY: (EXIT_QUIT_WITHOUT_SAVING_VERB, EXIT_QUIT_WITHOUT_SAVING_VALUES),
 }
 
 
@@ -12181,6 +12191,7 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # ExitToSpaceCenter: the wedge guard declined because a merge modal would spawn. A
     # GATE decline, not a bad arg - the spec must set autoMerge (v1 supported shape).
     "dialog-required": "driver-gate",
+    "exittospacecenter-quitwithoutsaving-arg-invalid": "driver-arg",
     # The D18 player-action pair (RealSpawn / Recover). The missing / malformed arg and the
     # unknown recording are the SPEC's fault (arg-class); every other refusal is a live
     # state the click would not act in - no row, a greyed or departure button, a vessel
@@ -13091,6 +13102,7 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "cyclevessel-forceghost-arg-invalid",
     "edit-commit-arg-invalid",
     "edit-field-arg-missing", "edit-key-arg-missing", "expand-key-arg-missing",
+    "exittospacecenter-quitwithoutsaving-arg-invalid",
     "factor-arg-invalid", "find-ctrl-arg-invalid", "find-index-arg-invalid",
     "find-text-arg-missing", "focus-pid-arg-invalid", "focus-pid-scene-conflict",
     "goeditor-craft-arg-invalid",

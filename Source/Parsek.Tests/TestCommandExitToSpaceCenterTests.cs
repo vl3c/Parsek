@@ -116,6 +116,33 @@ namespace Parsek.Tests
                     sessionFollowsAutoMerge: true));
         }
 
+        [Theory]
+        [InlineData(null, null, false)]
+        [InlineData("true", null, true)]
+        [InlineData("false", TestCommandExitToSpaceCenter.QuitWithoutSavingArgInvalidReason, false)]
+        [InlineData("True", TestCommandExitToSpaceCenter.QuitWithoutSavingArgInvalidReason, false)]
+        [InlineData("", TestCommandExitToSpaceCenter.QuitWithoutSavingArgInvalidReason, false)]
+        public void QuitWithoutSavingArg_OnlyTrueIsAccepted(string raw, string expectedReason, bool expectedQuit)
+        {
+            Assert.Equal(expectedReason,
+                TestCommandExitToSpaceCenter.ParseQuitWithoutSaving(raw, out bool quit));
+            Assert.Equal(expectedQuit, quit);
+        }
+
+        [Fact]
+        public void QuitWithoutSavingGate_ProceedsWhenThePrefixFollowsTheSave_ElseTheSavingGate()
+        {
+            Assert.Equal(ExitGateDecision.Proceed,
+                TestCommandExitToSpaceCenter.DecideQuitWithoutSavingGate(
+                    prefixFollowsTheSave: true, ExitGateDecision.RefusedActiveTreeDialog));
+            Assert.Equal(ExitGateDecision.RefusedActiveTreeDialog,
+                TestCommandExitToSpaceCenter.DecideQuitWithoutSavingGate(
+                    prefixFollowsTheSave: false, ExitGateDecision.RefusedActiveTreeDialog));
+            Assert.Equal(ExitGateDecision.Proceed,
+                TestCommandExitToSpaceCenter.DecideQuitWithoutSavingGate(
+                    prefixFollowsTheSave: false, ExitGateDecision.Proceed));
+        }
+
         [Fact]
         public void Gate_SwitchSegmentSession_OutranksThePendingTreeBranch()
         {
