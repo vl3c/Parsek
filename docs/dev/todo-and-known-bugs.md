@@ -45,7 +45,7 @@ Space Center and Tracking Station no-save exits differ: `SpaceCenterMain.Start` 
 unsaved flight stays committed (code reading, not flown). Recommended: the recording follows the
 save on all three exits (write nothing, drop the flight since the last save).
 
-## ~~REVERT-RESUMES-COMMITTED-RECORDING-BEHIND-ITS-END: after Revert to Launch the pad craft records over its own committed recording~~ [FILED 2026-11-01 from the overnight regression run (VN-5 `2026-11-01_1322`, PARSEK-FAIL analyzer INV2-NO-DOUBLE-COVER on main 9a1ed8d); FIXED 2026-11-01, branch `claude/project-thread-1ey0b9`; xUnit, VN-5 re-flight owed; product, medium (a committed recording gains a second, overlapping track that plays back twice)]
+## ~~REVERT-RESUMES-COMMITTED-RECORDING-BEHIND-ITS-END: after Revert to Launch the pad craft records over its own committed recording~~ [FILED 2026-11-01 from the overnight regression run (VN-5 `2026-11-01_1322`, PARSEK-FAIL analyzer INV2-NO-DOUBLE-COVER on main 9a1ed8d); FIXED 2026-11-01, branch `claude/project-thread-1ey0b9`; xUnit, LIVE-PROVEN VN-5 `2026-11-01_1613` PASS attempt 1; product, medium (a committed recording gains a second, overlapping track that plays back twice)]
 
 **Symptom.** VN-5 commits a short pad recording (UT 26.80 to 26.88), then Revert to Launch puts
 the pad craft back at UT 25.64. The reverted craft keeps its pid and launch guid, so the 1 Hz
@@ -62,7 +62,7 @@ restore wrapper then arms the existing per-vessel restore suppression
 (`committed-recording-ahead-of-clock`), so the 1 Hz retry does not resume the recording the moment
 the clock passes its end; it lifts on a vessel switch or when a recorder starts, as for DiscardTree.
 
-## ~~MAP-ORBIT-FROM-PARKED-RELATIVE-GHOST: a loop ghost parked beside a landed anchor gets a NaN map orbit~~ [FILED 2026-11-01 from the overnight regression run (RL-1 `2026-11-01_1141`, PARSEK-FAIL forbidden `[Parsek][ERROR]` on main 9a1ed8d); FIXED 2026-11-01, branch `claude/project-thread-1ey0b9`; xUnit, RL-1 re-flight owed; product, low (one ERROR line per map update and a stock "NaN Orbit" removal; no visible ghost lost)]
+## ~~MAP-ORBIT-FROM-PARKED-RELATIVE-GHOST: a loop ghost parked beside a landed anchor gets a NaN map orbit~~ [FILED 2026-11-01 from the overnight regression run (RL-1 `2026-11-01_1141`, PARSEK-FAIL forbidden `[Parsek][ERROR]` on main 9a1ed8d); FIXED 2026-11-01, branch `claude/project-thread-1ey0b9`; xUnit, LIVE-PROVEN RL-1 `2026-11-01_1613` PASS attempt 1; product, low (one ERROR line per map update and a stock "NaN Orbit" removal; no visible ghost lost)]
 
 **Symptom.** Since loops replay on the map (RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP, #2342), the
 map samples RL-1's loop-anchored Relative recording inside its loop. Its Relative branch of
@@ -78,7 +78,7 @@ recorded velocity. `ShouldCreateStateVectorOrbitForFrame` keeps the speed floor 
 hysteresis as Absolute points, so a docking approach does not churn and a parked ghost gets no
 map orbit (the same as an Absolute landed ghost).
 
-## ~~MAP-LINE-BLINKS-ACROSS-A-1X-TIME-JUMP: a ghost orbit line goes dark for a few frames after a TimeJump at 1x~~ [FILED 2026-11-01 from the overnight regression run (V18T `2026-11-01_1239`, PARSEK-FAIL anomaly line-blink=1 on main 9a1ed8d); FIXED 2026-11-01, branch `claude/project-thread-1ey0b9`; xUnit, V18T re-flight owed; product, low (a 5-frame flicker of one orbit line after a time jump)]
+## ~~MAP-LINE-BLINKS-ACROSS-A-1X-TIME-JUMP: a ghost orbit line goes dark for a few frames after a TimeJump at 1x~~ [FILED 2026-11-01 from the overnight regression run (V18T `2026-11-01_1239`, PARSEK-FAIL anomaly line-blink=1 on main 9a1ed8d); FIXED 2026-11-01, branch `claude/project-thread-1ey0b9`; xUnit, LIVE-PROVEN V18T `2026-11-01_1617` PASS attempt 1; product, low (a 5-frame flicker of one orbit line after a time jump)]
 
 **Symptom.** V18T's first TimeJump (UT 36139 to 38600, at 1x) moved every loop head in one frame.
 The applied orbit segments still covered the old clock, so `GhostOrbitLinePatch`'s stale-segment
