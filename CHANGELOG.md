@@ -30,6 +30,10 @@ _(unreleased - entries accumulate here per commit)_
   settled a few centimetres after loading, or a drill stopped by itself. Before, such a wiggle
   could keep the recording, and under a manual merge a rewind then waited on a merge dialog.
   (NOOP-CHECK-COUNTS-PHYSICS-MOTION)
+- **A rewind never stops on a merge dialog.** Rewinding from flight while a recording is still
+  live now settles it on its own: it is dropped if nothing changed and merged otherwise. Before,
+  in some cases a merge dialog appeared halfway through the rewind and held it there.
+  (REWIND-WAITS-ON-MERGE-DIALOG)
 - **Ghosts keep playing after you load a save made mid-replay.** After a rewind, a save made while
   a committed flight was replaying as a ghost lost that ghost when loaded: no map icon, no relay
   for CommNet, no vessel at its end. The save now remembers which flights are replaying, so every

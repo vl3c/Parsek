@@ -53,6 +53,34 @@ With auto-merge on (every player build) the rewind's scene load auto-commits a c
 tree; the dialog is reachable with auto-merge off (harness only) and through the switch-segment
 branch of `HighLogic_LoadScene_Patch` that ignores auto-merge. Analysis of every remaining merge
 dialog is a follow-up in the same thread.
+## ~~REWIND-WAITS-ON-MERGE-DIALOG: a rewind from flight with a live recording can stop on a merge dialog after the rewind save is already written~~ [FILED 2026-11-01 from EVA-16 `2026-11-01_0616` (overnight regression run), owner ruling 2026-11-01 ("rewind should not stop at a merge dialog, we're doing auto merges anyway"); FIXED 2026-11-01, branch `claude/project-thread-1ma84a`; xUnit, EVA-16 re-flight owed; product, low in player builds (auto-merge is forced on there; the one player path was a switch-segment session with no live recording), high for auto-merge-off lanes]
+
+**Symptom.** `RecordingStore.ExecuteRewindSaveLoad` arms the rewind flags, writes the rewind save
+over persistent.sfs, swaps `HighLogic.CurrentGame`, then calls `HighLogic.LoadScene(SPACECENTER)`.
+That load goes through the ordinary flight-exit gate (`HighLogic_LoadScene_Patch`). With a live
+recording and auto-merge off (about 40 harness fixtures pin it off), or with a switch-segment
+session armed and no live tree (that branch ignored auto-merge, in player builds too, and could
+ask about an already committed tree), the gate opened the pre-transition merge dialog and blocked
+the load: the game sat half rewound behind a modal. EVA-16 hit it when NOOP-CHECK-COUNTS-PHYSICS-MOTION
+kept its resumed clone; nobody answered, `rewind-timeout` 300 s later.
+
+**Fix.** A rewind's own Space Center load (`SceneExitInterceptor.IsRewindSceneExit`: rewinding and
+the destination is SPACECENTER) resolves as auto-merge whatever the setting
+(`ResolveSceneExitAutoMerge`, read by both live dialog wrappers and by
+`ParsekFlight.FinalizeTreeOnSceneChange`, so the scene exit takes `CommitTreeSceneExit` exactly as
+a player build does: it stashes a Finalized pending tree, which the rewind's post-load save commits
+through the safety-net auto-commit; the no-op fast paths still drop a recording that changed nothing).
+`RewindSceneExitNeverAsksTests` drives the pending-tree and session branches and pins by source that
+every scene-exit auto-merge read goes through `IsAutoMergeForSceneExitLive` (the live-tree path needs
+a live `ParsekFlight`).
+A switch-segment session with no live tree is cleared (`rewind-scene-exit`) instead of asking:
+its segment lies in the future the rewind leaves. Each forced resolution logs a `[SceneExit]` line.
+
+**Not changed.** The live recording is still settled at the rewind's scene load, after the save is
+written, as player builds already did; settling it before the save write would need the rewind
+owner re-resolved after a commit and is not needed for the ruling. The other merge dialogs and
+two open questions to V are in the analysis doc https://claude.ai/artifact/XJtw36F8Xm8xnn7LMyvSaj
+(thread "Stop wheel jitter counting as a change").
 
 ## ~~REPLAY-SCOPE-LOST-ON-SAVE-LOAD: a save written while a ghost replays loses that ghost when loaded~~ [FILED 2026-11-01 from lane CN-4's reading (thread "Cover Revert, save switching, CommNet ghosts"), owner ruling 2026-11-01; FIXED 2026-11-01, branch `claude/project-thread-beqac8`; unit-tested, lane CN-5 owed; product, high (every mid-replay ghost gone after a load: no flight / map / Tracking Station ghost, no CommNet relay, no terminal spawn)]
 
