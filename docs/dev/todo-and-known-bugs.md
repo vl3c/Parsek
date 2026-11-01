@@ -9056,6 +9056,13 @@ columns whose blanks are visible, where the old outline simply said nothing.
   deadline tallies from `Ledger` to the nested `GameAction.LoadTally`. Its remaining knot
   edges (`CaptureSequence`, `ConversionCause`, `FundsEarningSource`, `ReputationSource`) are
   scanner false positives: same-named fields, and the enum member `Milestone` read as a type.
+- `KspStatePatcher` (6,939 lines, one file) is now a partial class over 11 files (S3, pure
+  move by `scripts/refactor/split_kspstatepatcher.py`, which checks the line multiset): the
+  main `KspStatePatcher.cs` (330: `PatchAll`, `PatchPools`, the resets and EVERY static field,
+  since partial-file field initializers run in an undefined order) plus `.Science` (721),
+  `.Tech` (955), `.Unlocks` (788), `.FundsReputation` (324), `.PoolGuards` (622),
+  `.RewindReadback` (252), `.Milestones` (895), `.Contracts` (783), `.ContractParameters`
+  (609) and `.ContractRemoval` (790).
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,

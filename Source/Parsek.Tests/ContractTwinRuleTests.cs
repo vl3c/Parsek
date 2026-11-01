@@ -267,6 +267,15 @@ namespace Parsek.Tests
                 SourceScanText.StripCSharpComments(ReadSource(relative)), @"\s+", " ");
         }
 
+        /// <summary><see cref="Code"/> over every KspStatePatcher partial file, read as one text.</summary>
+        private static string PatcherCode()
+        {
+            string dir = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                "..", "..", "..", "..", "..", "Source", "Parsek", "GameActions"));
+            return System.Text.RegularExpressions.Regex.Replace(
+                SourceScanText.StripCSharpComments(KspStatePatcherSourceFiles.ReadAll(dir)), @"\s+", " ");
+        }
+
         private static string ReadSource(string relative)
         {
             string path = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
@@ -297,7 +306,7 @@ namespace Parsek.Tests
                 + "CommittedFutureIndexCache.CurrentUT(), \"Auto-accept\");", accept);
             Assert.Contains("if (!contract.AutoAccept || contract.ContractState != Contracts.Contract.State.Offered)", accept);
 
-            string patcher = Code(Path.Combine("GameActions", "KspStatePatcher.cs"));
+            string patcher = PatcherCode();
             int core = patcher.IndexOf("private static void PatchContractsCore(", StringComparison.Ordinal);
             int call = patcher.IndexOf("WithdrawOfferedContractTwins(currentContracts, parameterClockUT);", core, StringComparison.Ordinal);
             Assert.True(core >= 0 && call > core, "PatchContractsCore no longer withdraws twin offers at its real clock");

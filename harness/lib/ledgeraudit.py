@@ -92,6 +92,8 @@ SRC_SCIENCE = "Source/Parsek/GameActions/ScienceModule.cs"
 SRC_FUNDS = "Source/Parsek/GameActions/FundsModule.cs"
 SRC_REPUTATION = "Source/Parsek/GameActions/ReputationModule.cs"
 SRC_TAKE_BACK = "Source/Parsek/GameActions/StockShadowTakeBack.cs"
+# A partial class: the SourceSyncTests read this main file together with its
+# KspStatePatcher.<Family>.cs files.
 SRC_PATCHER = "Source/Parsek/GameActions/KspStatePatcher.cs"
 SRC_LEDGER = "Source/Parsek/GameActions/Ledger.cs"
 SRC_ORCHESTRATOR = "Source/Parsek/GameActions/LedgerOrchestrator.cs"
