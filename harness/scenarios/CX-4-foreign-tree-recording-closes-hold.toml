@@ -247,7 +247,9 @@ forbidden = [
   # literal root id alone went blind: the second row forbids a close owned by whichever
   # tree-A recording the bound line names as holding Jeb's Aboard row.
   "Crew reservation closed by recovery: 'Jebediah Kerman' [^\\r\\n]*recordingId=28b6e543d67c4d1c9e4763b451c01df5",
-  "(?s)Reservation bounded by foreign recording of the vessel: 'Jebediah Kerman' recording '([0-9a-f]{32})' \\(Aboard\\).*?Crew reservation closed by recovery: 'Jebediah Kerman' [^\\r\\n]*recordingId=\\1(?![0-9a-f])",
+  # Anchored on the one-time boot mark and stopped at the FIRST bound line (a tempered
+  # token), so a green run costs one scan however many walks print the bound line.
+  "(?s)MISSIONMARK label=cx4-boot-clean (?:(?!Reservation bounded by foreign recording of the vessel: 'Jebediah Kerman' recording ').)*Reservation bounded by foreign recording of the vessel: 'Jebediah Kerman' recording '([0-9a-f]{32})' \\(Aboard\\).*?Crew reservation closed by recovery: 'Jebediah Kerman' [^\\r\\n]*recordingId=\\1(?![0-9a-f])",
 ]
 
 [runtime]
