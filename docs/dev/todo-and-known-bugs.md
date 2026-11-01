@@ -65,7 +65,7 @@ previous section's last sample, so nothing is lost), with a Verbose `[Optimizer]
 dropped a section with only pre-start seed frames left` line. A seam frame stamped at the start
 still keeps a zero-length section. Tests: `TrackSectionTrimSeedTests`.
 
-## EXIT-TO-MAIN-MENU-ASKS: leaving flight for the main menu still opens the merge dialog under auto-merge [FILED 2026-11-01 from the merge-dialog analysis (thread "Remove merge dialogs when leaving flight", doc https://claude.ai/artifact/XJtw36F8Xm8xnn7LMyvSaj), owner rulings 2026-11-01 ("leave flight - commit, yes; but it depends on the situation"; the Re-Fly exit dialog stays, "that one has to be a manual decision"); main-menu commit FIXED 2026-11-01, branch `claude/project-thread-1ma84a`; xUnit, lane owed; no-save rule OPEN pending the owner's pick; product, low (one dialog click)]
+## ~~EXIT-TO-MAIN-MENU-ASKS: leaving flight for the main menu still opens the merge dialog under auto-merge~~ [FILED 2026-11-01 from the merge-dialog analysis (thread "Remove merge dialogs when leaving flight", doc https://claude.ai/artifact/XJtw36F8Xm8xnn7LMyvSaj), owner rulings 2026-11-01 ("leave flight - commit, yes; but it depends on the situation"; the Re-Fly exit dialog stays, "that one has to be a manual decision"); main-menu commit FIXED 2026-11-01 (PR #2358); no-save rule FIXED 2026-11-01 (owner pick "Follow the save"), branch `claude/project-thread-1ma84a`; xUnit, lane owed; product, low (one dialog click)]
 
 **Symptom.** Every exit from flight commits silently under auto-merge except two: the main menu
 (`ShouldShowDialogBeforeSceneChange` returned `RegularMerge` for MAINMENU, because the game unloads
@@ -84,14 +84,28 @@ session branch follows auto-merge unless a Re-Fly is live (`ShouldSessionExitFol
 session whose tree is the pending tree leaves it to the pending-tree path (`MergeCommit` clears the
 session), any other session is cleared (`scene-exit-auto-merge`). Tests: `MainMenuExitCommitsTests`.
 
-**Open (owner's pick).** Stock reaches the main menu without saving on "Quit without saving" (in
-atmosphere, under thrust, about to crash, moving on the ground, on a ladder, throttle up, with
-`CanRestart` on) and from the flight results screen (decompiled `PauseMenu.drawExitWithoutSaveOptions`,
-`FlightResultsDialog`). Today, as before this fix, the commit writes the save stock refused. The
-Space Center and Tracking Station no-save exits differ: `SpaceCenterMain.Start` reloads
-`persistent.sfs`, so the world goes back to the last save while the in-memory recording of the
-unsaved flight stays committed (code reading, not flown). Recommended: the recording follows the
-save on all three exits (write nothing, drop the flight since the last save).
+**Quit without saving (owner pick 2026-11-01: the recording follows the save).** Stock leaves
+flight without saving on one path only: the Esc menu's Quit without saving
+(`PauseMenu.drawExitWithoutSaveOptions`, offered when `FlightGlobals.ClearToSave` refused - in
+atmosphere, under thrust, about to crash, moving on the ground, on a ladder, throttle up - and the
+game allows a restart), which fires `onSceneConfirmExit` and calls `LoadScene` with no save.
+Every other flight exit saves (`saveAndExit`; `FlightLogger` writes the save before the flight
+results screen). Before this fix the main-menu commit wrote the save stock refused, and on a Space
+Center / Tracking Station exit (`SpaceCenterMain.Start` / `SpaceTracking` reload `persistent.sfs`,
+an in-session load) the world went back to the last save while the unsaved flight stayed committed.
+
+**Fix (quit without saving).** `NoSaveSceneExit` notes `onSceneConfirmExit` and `onGameStateSaved`
+per frame; the LoadScene prefix's step 3.2 (`TryFollowTheSaveOnNoSaveExit`, before every path that
+persists) reads a confirm-exit with no save after it in the same frame as a quit without saving.
+For SPACECENTER / TRACKSTATION / MAINMENU, with no rewind, Re-Fly or merge journal live
+(`ShouldFollowTheSave`), it shows no dialog, commits nothing and writes nothing; it arms the
+frame-exact `NoSaveSceneExit` note, which makes `FinalizeTreeOnSceneChange` stash the live tree as
+Limbo (the save-file-load branch), and for the Space Center and Tracking Station arms
+`SaveFileLoadIntent` so the destination's reload is a Cold load that rebuilds Parsek from the save
+(the main menu unloads the game; the next game's load is cold anyway). Tests:
+`NoSaveSceneExitTests`. Lane owed: a quit without saving from a moving vessel, to the Space Center
+and to the main menu, then a load showing the flight gone (needs a seam verb that drives the stock
+no-save button).
 
 ## ~~NOOP-CHECK-COUNTS-PHYSICS-MOTION: a parked rover's wheel jitter counts as a change, so a do-nothing resume is kept~~ [FILED 2026-11-01 from the overnight regression run (EVA-16 `2026-11-01_0616` and `_0623_a2`, INVALID driver-verdict-mismatch on main 9a1ed8d, same code as the 00:25 PASS), owner ruling 2026-11-01 ("the player has to actually move the vehicle for it to count as a change, not just the wheels"); FIXED 2026-11-01, branch `claude/project-thread-1ma84a`; xUnit, EVA-16 re-flight owed; product, medium (a do-nothing revisit is merged instead of dropped; with auto-merge off a rewind sat behind a merge dialog)]
 

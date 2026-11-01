@@ -55,7 +55,7 @@ When Parsek needs you to decide what happens to a recorded flight (see below for
 
 Auto-merge is always on, so the merge normally happens silently without this dialog:
 leaving the flight for the Space Center, the Tracking Station or the main menu commits the
-mission. One exit always asks regardless: concluding a Rewind to Separation attempt (whose
+mission (a Quit without saving drops it instead, see Scene Transitions). One exit always asks regardless: concluding a Rewind to Separation attempt (whose
 dialog can also offer "Merge & Seal" and "Commit (don't seal)"). A map Switch To onto another vessel never asks (outside a Re-Fly): the
 flight you are leaving is merged, or dropped when it changed nothing. A Revert never shows it: the reverted flight is thrown away. (There is no setting for this. The
 2026-08-27 settings simplification hardwired auto-merge on; the toggle earlier versions
@@ -426,5 +426,6 @@ are drawn nowhere and cannot be turned off.
 ### Scene Transitions
 
 - **Leaving Flight** - If you leave Flight without reverting (Esc > Space Center, Tracking Station or Quit to Main Menu), the mission is committed to the timeline automatically, with the same result as Merge to Timeline: a vessel that survived still appears as a real vessel when its ghost finishes. A flight that never left the pad is discarded instead. Ending a Re-Fly asks with the Merge dialog.
+- **Quit without saving** - When KSP can't save (in the atmosphere, under thrust, moving on the ground, on a ladder) the Esc menu offers to quit without saving, and the game goes back to the last save. The recording follows it: the flight since that save is dropped from the timeline as it is from the world, with no Merge dialog. This makes it a deliberate way to throw away a flight you don't want to keep. Ending a Re-Fly this way still asks with the Merge dialog.
 - **Revert to Launch / VAB / SPH** - KSP's stock flight-results dialog (with its Revert buttons) shows first on a crash; Parsek no longer pre-empts it. Picking Revert unstashes the in-progress recording without deleting it - sidecar files and career events captured during the reverted flight stay on disk, so a quicksave you took during the flight can still be F9'd back into. The reverted flight's career events are hidden from the current career's ledger because its recording was never committed. To keep the flight instead, pick **Space Center** (or any non-revert exit).
 - **Missed EndUT** - If a recording's EndUT passes while you're in the Space Center or Tracking Station, reserved crew are automatically freed so they don't stay stuck as Assigned forever.
