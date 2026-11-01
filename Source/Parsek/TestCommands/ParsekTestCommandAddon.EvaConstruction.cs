@@ -485,6 +485,8 @@ namespace Parsek.TestCommands
             Weld,
             Stow,
             WaitStored,
+            Drop,
+            WaitDropped,
             Settle,
         }
 
@@ -505,6 +507,9 @@ namespace Parsek.TestCommands
         private Part constructionResultPart;
         private int constructionKerbalSlot;
         private bool constructionWeldCapped;
+        private DetachFollowUp constructionFollowUp;
+        private HashSet<uint> constructionVesselsBeforeDrop;
+        private uint constructionDroppedVesselPid;
 
         private void ResetConstructionState()
         {
@@ -524,6 +529,9 @@ namespace Parsek.TestCommands
             constructionResultPart = null;
             constructionKerbalSlot = -1;
             constructionWeldCapped = false;
+            constructionFollowUp = DetachFollowUp.Stow;
+            constructionVesselsBeforeDrop = null;
+            constructionDroppedVesselPid = 0u;
             EvaConstructionInputInjection.Remove();
         }
 
@@ -677,6 +685,14 @@ namespace Parsek.TestCommands
                 SetExecResult("REJECTED", null, argError);
                 return;
             }
+            if (!TestCommandEvaConstruction.TryParseDetachFollowUp(
+                    ArgOrNull(cmd, TestCommandEvaConstruction.ThenArg), out DetachFollowUp followUp, out argError))
+            {
+                ParsekLog.Warn(Tag, $"evagroundscience refused reason={argError} "
+                    + $"then={ArgOrNull(cmd, TestCommandEvaConstruction.ThenArg)}");
+                SetExecResult("REJECTED", null, argError);
+                return;
+            }
             groundSciPart = target;
             if (!ConstructionPreconditions(kerbal, false)) return;
 
@@ -714,8 +730,9 @@ namespace Parsek.TestCommands
                 SetExecResult("REJECTED", null, reason);
                 return;
             }
+            // A drop needs no slot: the part goes on the ground, not into the inventory.
             int kerbalSlot = inv.FirstEmptySlot();
-            if (kerbalSlot < 0)
+            if (kerbalSlot < 0 && followUp == DetachFollowUp.Stow)
             {
                 ParsekLog.Warn(Tag, $"evagroundscience refused reason=inventory-full inventory={DescribeInventory(inv)}");
                 SetExecResult("REJECTED", null, "inventory-full");
@@ -727,6 +744,7 @@ namespace Parsek.TestCommands
             constructionTargetVessel = chosen.vessel;
             constructionTargetVesselPid = chosen.vessel != null ? chosen.vessel.persistentId : 0u;
             constructionKerbalSlot = kerbalSlot;
+            constructionFollowUp = followUp;
             groundSciTargetPartPid = chosen.persistentId;
             groundSciDistance = choice.Candidate.DistanceMeters;
             ParsekLog.Info(Tag, $"evagroundscience detach start kerbal={kerbal.vesselName} target={target} "
@@ -734,7 +752,8 @@ namespace Parsek.TestCommands
                 + $"vesselPid={constructionTargetVesselPid} "
                 + $"vesselParts={(chosen.vessel != null ? chosen.vessel.parts.Count : 0).ToString(CultureInfo.InvariantCulture)} "
                 + $"distance={Fmt2(choice.Candidate.DistanceMeters)} range={Fmt2(GameSettings.EVA_CONSTRUCTION_RANGE)} "
-                + $"kerbalSlot={kerbalSlot.ToString(CultureInfo.InvariantCulture)} inventory={DescribeInventory(inv)}");
+                + $"kerbalSlot={kerbalSlot.ToString(CultureInfo.InvariantCulture)} inventory={DescribeInventory(inv)} "
+                + $"then={(followUp == DetachFollowUp.Drop ? "drop" : "stow")}");
             OpenConstructionPanelOrFail(kerbal);
         }
 
@@ -1018,7 +1037,8 @@ namespace Parsek.TestCommands
                             + $"vesselPid={constructionTargetVesselPid} "
                             + $"vesselParts={(v != null && v.parts != null ? v.parts.Count : 0).ToString(CultureInfo.InvariantCulture)} "
                             + $"presses={constructionPresses.ToString(CultureInfo.InvariantCulture)}");
-                        EnterConstructionPhase(ConstructionPhase.Stow);
+                        EnterConstructionPhase(constructionFollowUp == DetachFollowUp.Drop
+                            ? ConstructionPhase.Drop : ConstructionPhase.Stow);
                         return;
                     }
                     if (held != null)
@@ -1084,9 +1104,81 @@ namespace Parsek.TestCommands
                             + $"massCapacityReached={Bool(inv.massCapacityReached)} " + ConstructionDiag());
                     return;
                 }
+                case ConstructionPhase.Drop:
+                {
+                    // The player's road: close the panel with the part held. Stock's ClosePanel
+                    // runs ForceDrop, which (Place mode, part set as part) drops the held part
+                    // where it stands through DropAttachablePart. The held part is posed beside
+                    // the kerbal (on the side away from the vessel it came off) first, in the same
+                    // call, so the drop does not land wherever the mouse ray put it.
+                    Part held = editor.SelectedPart;
+                    if (held == null)
+                    {
+                        FinishConstruction("ERROR", null, "drop-not-held", elapsed, ConstructionDiag());
+                        return;
+                    }
+                    constructionVesselsBeforeDrop = new HashSet<uint>();
+                    foreach (Vessel v in FlightGlobals.Vessels)
+                        if (v != null) constructionVesselsBeforeDrop.Add(v.persistentId);
+                    Vector3 from = kerbal.GetWorldPos3D();
+                    Vector3 up = kerbal.mainBody != null
+                        ? (Vector3)(kerbal.GetWorldPos3D() - kerbal.mainBody.position).normalized
+                        : kerbal.transform.up;
+                    // Away from the vessel the part came off, so the drop never lands inside it.
+                    Vector3 side = constructionTargetVessel != null
+                        ? Vector3.ProjectOnPlane(from - (Vector3)constructionTargetVessel.GetWorldPos3D(), up)
+                        : Vector3.zero;
+                    if (side.sqrMagnitude < 1e-6f) side = Vector3.ProjectOnPlane(kerbal.transform.forward, up);
+                    if (side.sqrMagnitude < 1e-6f) side = Vector3.ProjectOnPlane(kerbal.transform.right, up);
+                    held.transform.position = from + side.normalized * (float)TestCommandEvaConstruction.DropOffsetMeters;
+                    ParsekLog.Info(Tag, $"evagroundscience detach drop posed part={groundSciPart} heldPid={held.persistentId} "
+                        + $"offset={Fmt2(Vector3.Distance(held.transform.position, from))} "
+                        + $"mode={editor.EVAConstructionMode}");
+                    controller.ClosePanel();
+                    ParsekLog.Info(Tag, $"evagroundscience detach drop requested panelOpen={Bool(controller.IsOpen)} "
+                        + $"held={PartName(editor.SelectedPart)}");
+                    EnterConstructionPhase(ConstructionPhase.WaitDropped);
+                    return;
+                }
+                case ConstructionPhase.WaitDropped:
+                {
+                    var fresh = new List<DroppedVesselCandidate>();
+                    foreach (Vessel v in FlightGlobals.Vessels)
+                    {
+                        if (v == null || (constructionVesselsBeforeDrop != null
+                            && constructionVesselsBeforeDrop.Contains(v.persistentId)))
+                            continue;
+                        var protoParts = v.protoVessel != null ? v.protoVessel.protoPartSnapshots : null;
+                        GroundPartPlacement.ResolveCreatedPartShape(
+                            protoParts != null ? protoParts.Count : 0,
+                            protoParts != null && protoParts.Count > 0 ? protoParts[0].partName : null,
+                            v.parts != null ? v.parts.Count : 0,
+                            v.parts != null && v.parts.Count > 0 ? PartName(v.parts[0]) : null,
+                            out int count, out string first);
+                        fresh.Add(new DroppedVesselCandidate { VesselPid = v.persistentId, PartCount = count, FirstPartName = first });
+                    }
+                    if (TestCommandEvaConstruction.IsDropSettled(editor.SelectedPart != null, fresh, groundSciPart,
+                            out uint droppedPid))
+                    {
+                        constructionDroppedVesselPid = droppedPid;
+                        Vessel dropped = FlightRecorder.FindVesselByPid(droppedPid);
+                        ParsekLog.Info(Tag, $"evagroundscience detach dropped part={groundSciPart} droppedVesselPid={droppedPid} "
+                            + $"type={(dropped != null ? dropped.vesselType.ToString() : "?")} "
+                            + $"distance={(dropped != null ? Fmt2(Vector3.Distance(dropped.GetWorldPos3D(), kerbal.GetWorldPos3D())) : "?")} "
+                            + $"panelOpen={Bool(controller.IsOpen)}");
+                        EnterConstructionPhase(ConstructionPhase.Settle);
+                        return;
+                    }
+                    if (FramesInConstructionPhase() >= TestCommandEvaConstruction.UiWaitFrames)
+                        FinishConstruction("ERROR", null, "drop-failed", elapsed,
+                            $"newVessels={fresh.Count.ToString(CultureInfo.InvariantCulture)} " + ConstructionDiag());
+                    return;
+                }
                 case ConstructionPhase.Settle:
                     SettleConstruction(controller, editor, elapsed, budget,
-                        TestCommandEvaGroundScience.FindSlotHolding(InventorySlotNames(inv), groundSciPart) >= 0);
+                        constructionFollowUp == DetachFollowUp.Drop
+                            ? constructionDroppedVesselPid != 0u
+                            : TestCommandEvaGroundScience.FindSlotHolding(InventorySlotNames(inv), groundSciPart) >= 0);
                     return;
             }
         }
@@ -1127,10 +1219,16 @@ namespace Parsek.TestCommands
             ParsekLog.Info(Tag, $"evagroundscience {(attach ? "attach" : "detach")} complete part={groundSciPart} "
                 + $"partPid={partPid} vesselPid={constructionTargetVesselPid} vesselParts={parts.ToString(CultureInfo.InvariantCulture)} "
                 + $"presses={constructionPresses.ToString(CultureInfo.InvariantCulture)} slot={groundSciSlot.ToString(CultureInfo.InvariantCulture)} "
-                + $"weldCapped={Bool(constructionWeldCapped)} inventory={DescribeInventory(groundSciInventory)}");
-            FinishConstruction("OK", TestCommandEvaConstruction.BuildCompletePayload(groundSciAction, groundSciPart,
-                partPid, constructionTargetVesselPid, groundSciSlot, constructionPresses, groundSciDistance, parts),
-                null, elapsed);
+                + $"weldCapped={Bool(constructionWeldCapped)} inventory={DescribeInventory(groundSciInventory)}"
+                + (constructionFollowUp == DetachFollowUp.Drop && !attach
+                    ? $" then=drop droppedVesselPid={constructionDroppedVesselPid}" : ""));
+            List<KeyValuePair<string, string>> payload = TestCommandEvaConstruction.BuildCompletePayload(groundSciAction,
+                groundSciPart, partPid, constructionTargetVesselPid, groundSciSlot, constructionPresses, groundSciDistance,
+                parts);
+            if (constructionFollowUp == DetachFollowUp.Drop && !attach)
+                payload.Add(new KeyValuePair<string, string>("droppedVesselPid",
+                    constructionDroppedVesselPid.ToString(CultureInfo.InvariantCulture)));
+            FinishConstruction("OK", payload, null, elapsed);
         }
 
         private void FinishConstruction(string verdict, List<KeyValuePair<string, string>> payload, string msg,

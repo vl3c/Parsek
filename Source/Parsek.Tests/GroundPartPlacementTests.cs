@@ -99,10 +99,81 @@ namespace Parsek.Tests
                 GroundPartPlacementVerdict.ActiveVesselNotEva, PartName, PlacedVesselPid, KerbalPid);
             Assert.Equal(
                 "Ground part placement not recorded: reason=ActiveVesselNotEva part='DeployedSeismicSensor' " +
-                "createdVesselPid=880280830 activePid=111 createdParts=0 createdPart='(null)'",
+                "createdVesselPid=880280830 activePid=111 createdParts=0 createdPart='(null)' " +
+                "source=inventory-deploy",
                 line);
-            Assert.EndsWith("createdParts=2 createdPart='evaChute'", GroundPartPlacement.FormatPlacementSkipLog(
-                GroundPartPlacementVerdict.CreatedVesselNotSinglePart, PartName, 1u, 2u, 2, "evaChute"));
+            Assert.EndsWith("createdParts=2 createdPart='evaChute' source=inventory-deploy",
+                GroundPartPlacement.FormatPlacementSkipLog(
+                    GroundPartPlacementVerdict.CreatedVesselNotSinglePart, PartName, 1u, 2u, 2, "evaChute"));
+            Assert.EndsWith("createdParts=1 createdPart='solarPanels5' source=construction-drop",
+                GroundPartPlacement.FormatPlacementSkipLog(
+                    GroundPartPlacementVerdict.AlreadyTreeMember, "solarPanels5", 1u, 2u, 1, "solarPanels5",
+                    GroundPartPlacementSource.ConstructionDrop));
+        }
+
+        // ---- the EVA construction drop (todo EVA-CONSTRUCTION-ON-FOREIGN-VESSEL-UNCLAIMED,
+        //      the detach-then-drop half) ----
+
+        [Fact]
+        public void IsConstructionDropSignal_OnlyPartDroppedCreatesAVessel()
+        {
+            // Decompiled KSP 1.12.5: only DropAttachablePart fires PartDropped, and it fires it
+            // after Game.AddVessel built the dropped part's own vessel. Every other construction
+            // event changes an existing vessel or the held part and creates none.
+            foreach (ConstructionEventType evt in Enum.GetValues(typeof(ConstructionEventType)))
+            {
+                Assert.Equal(evt == ConstructionEventType.PartDropped,
+                    GroundPartPlacement.IsConstructionDropSignal(evt));
+            }
+        }
+
+        [Fact]
+        public void EvaluatePlacement_ConstructionDropOfAPartDetachedFromAForeignVessel_Records()
+        {
+            // The held part names the part stock built into the dropped vessel's single PART
+            // node (CreatePartNode uses part.partInfo.name), so the shared gate records it.
+            Assert.Equal(GroundPartPlacementVerdict.Record,
+                Evaluate(createdPartName: "solarPanels5", placedPartName: "solarPanels5"));
+            // A vessel created this frame by something else is never adopted by a drop.
+            Assert.Equal(GroundPartPlacementVerdict.PartNameMismatch,
+                Evaluate(createdPartName: "batteryBankMini", placedPartName: "solarPanels5"));
+            // A drop by a kerbal the tree is not recording is not this flight's.
+            Assert.Equal(GroundPartPlacementVerdict.ActiveVesselNotRecorded,
+                Evaluate(activeVesselPid: 42u, createdPartName: "solarPanels5", placedPartName: "solarPanels5"));
+        }
+
+        [Fact]
+        public void ParsekFlight_SubscribesTheConstructionDrop_AndUnsubscribesIt()
+        {
+            string dir = AppDomain.CurrentDomain.BaseDirectory;
+            string path = null;
+            for (int i = 0; i < 10 && !string.IsNullOrEmpty(dir); i++)
+            {
+                string candidate = System.IO.Path.Combine(dir, "Source", "Parsek", "ParsekFlight.cs");
+                if (System.IO.File.Exists(candidate)) { path = candidate; break; }
+                dir = System.IO.Path.GetDirectoryName(dir);
+            }
+            Assert.True(path != null, "ParsekFlight.cs not found above " + AppDomain.CurrentDomain.BaseDirectory);
+            string src = System.IO.File.ReadAllText(path);
+            Assert.Contains("GameEvents.onEditorPartEvent.Add(OnEditorPartEventForConstructionDrop);", src);
+            Assert.Contains("GameEvents.onEditorPartEvent.Remove(OnEditorPartEventForConstructionDrop);", src);
+        }
+
+        [Fact]
+        public void FormatPlacementDetectedLog_NamesTheSource_AndKeepsThePinnedPrefix()
+        {
+            string inventory = GroundPartPlacement.FormatPlacementDetectedLog(
+                GroundPartPlacementSource.InventoryDeploy, PartName, PlacedVesselPid, "abc123", 100.0);
+            Assert.Equal(
+                "Ground part placement detected: part='DeployedSeismicSensor' vesselPid=880280830 " +
+                "kerbalRec=abc123 ut=100.00 source=inventory-deploy; creating tree member next frame",
+                inventory);
+            // The EVA-5 / EVA-6 / EVA-8 / EVA-9 / EVA-10 contracts pin this prefix.
+            Assert.Matches(
+                "Ground part placement detected: part='DeployedSeismicSensor' vesselPid=[0-9]+ kerbalRec=[0-9a-f]+ ",
+                inventory);
+            Assert.Contains("source=construction-drop;", GroundPartPlacement.FormatPlacementDetectedLog(
+                GroundPartPlacementSource.ConstructionDrop, "solarPanels5", 7u, "def", 1.5));
         }
 
         [Fact]
@@ -204,6 +275,50 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[Flight]")
                 && l.Contains("Part event captured: InventoryPartPlaced 'DeployedSeismicSensor' " +
                               "pid=4140861083 via onDeployGroundPart rec=" + member.RecordingId));
+        }
+
+        [Fact]
+        public void AttachMember_ConstructionDrop_NamesItsSignal_AndBothKerbalBranchesStayLeaves()
+        {
+            // The EVA-11 host's shape: Bill detached a panel from the foreign rover (the rover
+            // joined as an InventoryTransfer member) and dropped it on the ground; the dropped
+            // DroppedPart vessel is a second kerbal-side member, so after a rewind it spawns
+            // at its own end instead of vanishing with the rover's detach.
+            var (tree, kerbal) = BuildTreeWithKerbal();
+            var rover = new Recording
+            {
+                RecordingId = "roverRec", TreeId = tree.Id, VesselPersistentId = 1871615455u,
+                ParentBranchPointId = "xferBp", Generation = 2
+            };
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "xferBp", UT = 90.0, Type = BranchPointType.InventoryTransfer,
+                ParentRecordingIds = new List<string> { kerbal.RecordingId },
+                ChildRecordingIds = new List<string> { rover.RecordingId }
+            });
+            tree.AddOrReplaceRecording(rover);
+            tree.BackgroundMap[rover.VesselPersistentId] = rover.RecordingId;
+
+            var (bp, member) = GroundPartPlacement.BuildPlacementBranchData(
+                kerbal.RecordingId, tree.Id, 95.0, 2222u, "OX-STAT Photovoltaic Panels", kerbal.Generation);
+            member.VesselSnapshot = new ConfigNode("VESSEL");
+            GroundPartPlacement.AttachMember(tree, kerbal, bp, member, 3333u, "solarPanels5", 95.0,
+                GroundPartPlacementSource.ConstructionDrop);
+
+            Assert.True(GroundPartPlacement.IsPlacedPartMember(tree, member));
+            Assert.Equal(member.RecordingId, tree.BackgroundMap[2222u]);
+            Assert.Equal(rover.RecordingId, tree.BackgroundMap[1871615455u]);
+            Assert.All(tree.BranchPoints, b => Assert.True(RecordingTree.IsKerbalSideBranch(b.Type)));
+            // The kerbal still spawns as himself, the dropped part at its own end.
+            Assert.Null(kerbal.ChildBranchPointId);
+            Assert.False(GhostPlaybackLogic.IsNonLeafInTree(kerbal, tree));
+            Assert.False(GhostPlaybackLogic.IsNonLeafInTree(member, tree));
+            PartEvent placed = Assert.Single(member.PartEvents);
+            Assert.Equal(PartEventType.InventoryPartPlaced, placed.eventType);
+            Assert.Equal(3333u, placed.partPersistentId);
+            Assert.Contains(logLines, l => l.Contains("[Flight]")
+                && l.Contains("Part event captured: InventoryPartPlaced 'solarPanels5' pid=3333 " +
+                              "via onEditorPartEvent(PartDropped) rec=" + member.RecordingId));
         }
 
         [Fact]
