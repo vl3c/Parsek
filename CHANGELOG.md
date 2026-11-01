@@ -22,6 +22,9 @@ _(unreleased - entries accumulate here per commit)_
 - **The VAB and SPH explain the funds number too.** Hovering the funds number in the editor now
   shows the same Total / Reserved breakdown as at the Space Center and in flight, so money held
   back for committed flights is no longer a mystery where you spend it. (RESERVATION-OVERLAY-GAPS)
+- **Quitting to the main menu no longer asks.** Leaving a flight for the main menu now commits the
+  mission to the timeline on its own, the same as leaving for the Space Center, instead of opening
+  the Merge dialog. Ending a Re-Fly still asks. (EXIT-TO-MAIN-MENU-ASKS)
 
 ### Fixed
 
@@ -32,6 +35,15 @@ _(unreleased - entries accumulate here per commit)_
   that fell between two position samples could leave a committed recording with a section ending
   before it began after the commit trimmed its idle tail. That leftover piece is now dropped.
   (TRIMMED-CHECKPOINT-SECTION-ENDS-BEFORE-IT-STARTS)
+- **A parked rover no longer counts as changed.** Revisiting a vessel and leaving it untouched
+  now drops the extra recording even when the rover's wheels wiggled on their suspension, it
+  settled a few centimetres after loading, or a drill stopped by itself. Before, such a wiggle
+  could keep the recording, and under a manual merge a rewind then waited on a merge dialog.
+  (NOOP-CHECK-COUNTS-PHYSICS-MOTION)
+- **A rewind never stops on a merge dialog.** Rewinding from flight while a recording is still
+  live now settles it on its own: it is dropped if nothing changed and merged otherwise. Before,
+  in some cases a merge dialog appeared halfway through the rewind and held it there.
+  (REWIND-WAITS-ON-MERGE-DIALOG)
 - **Ghosts keep playing after you load a save made mid-replay.** After a rewind, a save made while
   a committed flight was replaying as a ghost lost that ghost when loaded: no map icon, no relay
   for CommNet, no vessel at its end. The save now remembers which flights are replaying, so every

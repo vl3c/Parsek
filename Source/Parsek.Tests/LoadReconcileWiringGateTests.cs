@@ -317,7 +317,7 @@ namespace Parsek.Tests
                 + "RevertDetector.PendingKind != RevertKind.None))", flat);
             int flight = IndexOrFail(core, "if (scene == GameScenes.FLIGHT)");
             int saveFile = IndexOrFail(core, "ShouldStashLiveTreeForSaveFileLoad(");
-            int autoMergeOff = IndexOrFail(core, "else if (!ParsekScenario.IsAutoMerge)");
+            int autoMergeOff = IndexOrFail(core, "else if (!SceneExitInterceptor.IsAutoMergeForSceneExitLive(");
             int commit = IndexOrFail(core, "CommitTreeSceneExit(commitUT, scene);");
             Assert.True(flight < saveFile && saveFile < autoMergeOff && autoMergeOff < commit,
                 "scene-exit gate: a save-file load out of flight is decided before either commit branch");

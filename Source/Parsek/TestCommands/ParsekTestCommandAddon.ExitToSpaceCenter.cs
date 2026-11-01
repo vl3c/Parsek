@@ -68,8 +68,12 @@ namespace Parsek.TestCommands
                 $"hasActiveTree={Bool(hasActiveTree)} hasPendingTree={Bool(RecordingStore.HasPendingTree)} " +
                 $"switchSegmentSession={Bool(sessionArmed)} activeTreeVariant={activeTreeVariant} pendingTreeVariant={pendingTreeVariant}");
 
+            bool sessionFollowsAutoMerge = SceneExitInterceptor.ShouldSessionExitFollowAutoMerge(
+                SceneExitInterceptor.IsAutoMergeForSceneExitLive(GameScenes.SPACECENTER, "exittospacecenter"),
+                scenario != null && scenario.ActiveReFlySessionMarker != null);
             ExitGateDecision gate = TestCommandExitToSpaceCenter.DecideExitGate(
-                hasActiveTree, sessionArmed, activeTreeVariant, pendingTreeVariant);
+                hasActiveTree, sessionArmed, activeTreeVariant, pendingTreeVariant,
+                sessionFollowsAutoMerge);
 
             if (gate != ExitGateDecision.Proceed)
             {

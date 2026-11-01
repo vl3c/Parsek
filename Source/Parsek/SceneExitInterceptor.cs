@@ -119,6 +119,7 @@ namespace Parsek
             AutoDiscardNoOpSwitchSegmentForTesting = null;
             SafeWritePersistentForTesting = null;
             PersistentSaveStepForTesting = null;
+            CommitWithoutDialogForTesting = null;
         }
 
         /// <summary>
@@ -229,7 +230,8 @@ namespace Parsek
             bool switchSegmentActive =
                 !object.ReferenceEquals(null, scenario)
                 && scenario.ActiveSwitchSegmentSession != null;
-            bool isAutoMerge = ParsekScenario.IsAutoMerge;
+            bool isAutoMerge = IsAutoMergeForSceneExitLive(
+                destination, "ShouldShowDialogBeforeSceneChangeLive");
 
             return ShouldShowDialogBeforeSceneChange(
                 destination,
@@ -256,13 +258,116 @@ namespace Parsek
             bool reFlyActive =
                 !object.ReferenceEquals(null, scenario)
                 && scenario.ActiveReFlySessionMarker != null;
-            bool isAutoMerge = ParsekScenario.IsAutoMerge;
+            bool isAutoMerge = IsAutoMergeForSceneExitLive(
+                destination, "ShouldShowPendingTreeDialogBeforeSceneChangeLive");
 
             return ShouldShowDialogBeforeSceneChangeForPendingTree(
                 destination,
                 hasFinalizedPendingTree: hasFinalizedPendingTree,
                 reFlyActive: reFlyActive,
                 isAutoMerge: isAutoMerge);
+        }
+
+        /// <summary>
+        /// Pure: whether a scene load out of flight is a rewind's own load
+        /// (<c>RecordingStore.ExecuteRewindSaveLoad</c> arms the rewind flags, writes the
+        /// rewind save over persistent.sfs, then loads the Space Center). Such a load
+        /// never waits on a merge dialog (owner ruling 2026-11-01): the rewind is already
+        /// half done when it reaches this gate, so a dialog there strands it.
+        /// </summary>
+        internal static bool IsRewindSceneExit(GameScenes destination, bool isRewinding)
+            => isRewinding && destination == GameScenes.SPACECENTER;
+
+        /// <summary>
+        /// Pure: the auto-merge value a scene exit acts on. A rewind's own load resolves
+        /// the live recording the auto-merge way (drop a no-op, else commit silently)
+        /// whatever the setting says; every other exit reads the setting.
+        /// </summary>
+        internal static bool ResolveSceneExitAutoMerge(bool isAutoMerge, bool rewindSceneExit)
+            => isAutoMerge || rewindSceneExit;
+
+        /// <summary>
+        /// Live wrapper of <see cref="ResolveSceneExitAutoMerge"/>, read by the
+        /// LoadScene prefix and by <c>ParsekFlight.FinalizeTreeOnSceneChange</c> for
+        /// the same exit. Logs when the rewind forces auto-merge over the setting.
+        /// </summary>
+        internal static bool IsAutoMergeForSceneExitLive(GameScenes destination, string site)
+        {
+            bool isAutoMerge = ParsekScenario.IsAutoMerge;
+            bool rewindSceneExit = IsRewindSceneExit(destination, RecordingStore.IsRewinding);
+            if (rewindSceneExit && !isAutoMerge)
+            {
+                ParsekLog.Info("SceneExit",
+                    $"{site}: rewind scene load dest={destination} - resolving the live " +
+                    "recording as auto-merge (setting is off); a rewind never waits on a merge dialog");
+            }
+            return ResolveSceneExitAutoMerge(isAutoMerge, rewindSceneExit);
+        }
+
+        /// <summary>
+        /// Pure: a main-menu exit that would show the plain merge dialog commits without it
+        /// under auto-merge (owner ruling 2026-11-01: leaving flight commits). The game unloads
+        /// on that load, so there is no destination scene to commit in; the prefix runs the
+        /// dialog's Merge itself and persists before letting the load through. A Re-Fly
+        /// (<see cref="DialogVariant.ReFlyAttempt"/>) keeps its dialog, and so does a merge
+        /// journal still finishing (its dialog offers Merge only).
+        /// </summary>
+        internal static bool ShouldCommitMainMenuExitWithoutDialog(
+            GameScenes destination, DialogVariant variant, bool isAutoMerge, bool mergeJournalActive)
+        {
+            return destination == GameScenes.MAINMENU
+                && variant == DialogVariant.RegularMerge
+                && isAutoMerge
+                && !mergeJournalActive;
+        }
+
+        /// <summary>
+        /// Pure: the switch-segment session branch (an armed session with no live tree)
+        /// follows auto-merge like every other exit instead of always asking. A live Re-Fly
+        /// keeps the dialog.
+        /// </summary>
+        internal static bool ShouldSessionExitFollowAutoMerge(bool isAutoMerge, bool reFlyActive)
+            => isAutoMerge && !reFlyActive;
+
+        /// <summary>Test seam for the commit the main-menu exit runs in place of the dialog.</summary>
+        internal static Func<Action, string, MergeDialog.PreTransitionOutcome> CommitWithoutDialogForTesting;
+
+        /// <summary>
+        /// Live: commit a main-menu exit without the dialog when
+        /// <see cref="ShouldCommitMainMenuExitWithoutDialog"/> holds. Returns the prefix's
+        /// return value when it handled the exit (true: committed and persisted, let the
+        /// load through; false: the save failed, the load is blocked), or null when the
+        /// caller must show the dialog (not applicable, or the commit refused / threw).
+        /// </summary>
+        internal static bool? TryCommitMainMenuExitWithoutDialog(
+            GameScenes destination, DialogVariant variant, Action preCommitFinalize, string branch)
+        {
+            var scenario = ParsekScenario.Instance;
+            bool journalActive = !object.ReferenceEquals(null, scenario)
+                && scenario.ActiveMergeJournal != null;
+            bool isAutoMerge = IsAutoMergeForSceneExitLive(destination, "TryCommitMainMenuExitWithoutDialog");
+            if (!ShouldCommitMainMenuExitWithoutDialog(destination, variant, isAutoMerge, journalActive))
+                return null;
+
+            ParsekLog.Info("SceneExit",
+                $"LoadScene prefix: main-menu exit under auto-merge branch={branch} - committing " +
+                "without the merge dialog (leaving flight commits)");
+            MergeDialog.PreTransitionOutcome outcome = CommitWithoutDialogForTesting != null
+                ? CommitWithoutDialogForTesting(preCommitFinalize, branch)
+                : MergeDialog.CommitPreTransitionWithoutDialog(preCommitFinalize, "MainMenuExit:" + branch);
+            if (outcome == MergeDialog.PreTransitionOutcome.Completed
+                || outcome == MergeDialog.PreTransitionOutcome.NoPendingTree)
+            {
+                ParsekLog.Info("SceneExit",
+                    $"LoadScene prefix: main-menu exit committed without the dialog branch={branch} " +
+                    $"outcome={outcome}");
+                return SafeWritePersistent(destination);
+            }
+
+            ParsekLog.Warn("SceneExit",
+                $"LoadScene prefix: main-menu exit commit did not complete branch={branch} " +
+                $"outcome={outcome} - falling back to the merge dialog");
+            return null;
         }
 
         /// <summary>
@@ -850,6 +955,49 @@ namespace Parsek
                 // (this was the wrong-tree symptom that surfaced as Bug A).
                 var scenarioForSession = ParsekScenario.Instance;
                 var session = scenarioForSession?.ActiveSwitchSegmentSession;
+                if (session != null
+                    && SceneExitInterceptor.IsRewindSceneExit(scene, RecordingStore.IsRewinding))
+                {
+                    // A rewind's own load never asks (owner ruling 2026-11-01). The
+                    // session's segment lies in the future the rewind leaves, so the
+                    // session is cleared; a tree it pointed at stays where it is (a
+                    // committed tree stays committed; a pending tree, which CanRewind
+                    // refuses anyway, takes the pending-tree path below as auto-merge).
+                    ParsekLog.Info("SceneExit",
+                        $"LoadScene prefix: rewind scene load with switch-segment session " +
+                        $"sessionId={session.SessionId:D} tree={session.TreeId ?? "<null>"} and no " +
+                        $"live tree - clearing the session, no dialog dest={scene}");
+                    scenarioForSession.ClearSwitchSegmentSession("rewind-scene-exit");
+                    session = null;
+                }
+                if (session != null
+                    && SceneExitInterceptor.ShouldSessionExitFollowAutoMerge(
+                        SceneExitInterceptor.IsAutoMergeForSceneExitLive(scene, "LoadScene prefix session branch"),
+                        scenarioForSession.ActiveReFlySessionMarker != null))
+                {
+                    // Leaving flight commits (owner ruling 2026-11-01). A pending session tree
+                    // takes the pending-tree path below (committed at the destination, or here
+                    // for the main menu; MergeCommit clears the session). A tree already
+                    // committed has nothing left to decide, so the session is cleared.
+                    bool sessionTreeIsPending = RecordingStore.HasPendingTree
+                        && string.Equals(RecordingStore.PendingTree?.Id, session.TreeId, StringComparison.Ordinal);
+                    if (sessionTreeIsPending)
+                    {
+                        ParsekLog.Info("SceneExit",
+                            $"LoadScene prefix: switch-segment session sessionId={session.SessionId:D} " +
+                            $"tree={session.TreeId ?? "<null>"} is the pending tree - following auto-merge, " +
+                            $"no dialog dest={scene}");
+                    }
+                    else
+                    {
+                        ParsekLog.Info("SceneExit",
+                            $"LoadScene prefix: switch-segment session sessionId={session.SessionId:D} " +
+                            $"tree={session.TreeId ?? "<null>"} has no pending tree - following auto-merge, " +
+                            $"clearing the session, no dialog dest={scene}");
+                        scenarioForSession.ClearSwitchSegmentSession("scene-exit-auto-merge");
+                    }
+                    session = null;
+                }
                 if (session != null)
                 {
                     RecordingTree sessionTree =
@@ -886,6 +1034,11 @@ namespace Parsek
                     SceneExitInterceptor.ShouldShowPendingTreeDialogBeforeSceneChangeLive(scene);
                 if (pendingVariant == SceneExitInterceptor.DialogVariant.None)
                     return true;
+
+                bool? pendingCommitted = SceneExitInterceptor.TryCommitMainMenuExitWithoutDialog(
+                    scene, pendingVariant, preCommitFinalize: null, branch: "pending-tree");
+                if (pendingCommitted.HasValue)
+                    return pendingCommitted.Value;
 
                 if (SceneExitInterceptor.ShowDialogForTesting != null)
                 {
@@ -933,6 +1086,37 @@ namespace Parsek
                 if (!SceneExitInterceptor.SafeWritePersistent(scene))
                     return false;   // MAINMENU save failed: hard-block
                 return true;
+            }
+
+            // (5.5) main-menu exit under auto-merge: run the dialog's Merge without the
+            //     dialog, persist, and let the load through. The game unloads on this load,
+            //     so the commit cannot wait for a destination scene.
+            bool? liveCommitted = SceneExitInterceptor.TryCommitMainMenuExitWithoutDialog(
+                scene, variant, () => flight.FinalizeTreeOnSceneChangeForCallback(scene), branch: "live-tree");
+            if (liveCommitted.HasValue)
+                return liveCommitted.Value;
+            if (!flight.HasActiveTree)
+            {
+                // The attempt above finalized the live tree and then refused or threw: ask
+                // about what it left in the pending slot, or persist and go when nothing is left.
+                if (!RecordingStore.HasPendingTree)
+                {
+                    ParsekLog.Warn("SceneExit",
+                        $"LoadScene prefix: main-menu exit left no live or pending tree dest={scene} - " +
+                        "persisting and letting the load through");
+                    return SceneExitInterceptor.SafeWritePersistent(scene);
+                }
+                if (SceneExitInterceptor.ShowDialogForTesting != null)
+                {
+                    SceneExitInterceptor.ShowDialogForTesting(scene, variant);
+                    return false;
+                }
+                MergeDialog.ShowTreeDialog(
+                    RecordingStore.PendingTree,
+                    labels: MergeDialog.MergeDialogButtonLabels.Default,
+                    preCommitFinalize: () => { },
+                    postChoice: SceneExitInterceptor.BuildPostChoice(scene));
+                return false;
             }
 
             // (6) show dialog on the live activeTree. ShowTreeDialog's

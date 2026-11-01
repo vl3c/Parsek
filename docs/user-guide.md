@@ -54,10 +54,9 @@ When Parsek needs you to decide what happens to a recorded flight (see below for
 - **Discard** - Recording is thrown away. Every career effect captured during the discarded flight — contracts accepted or completed, tech researched, crew changes, milestones achieved, funds/science/reputation deltas — is rolled back as if the flight never happened. (Career actions unrelated to a recording, e.g. unlocking a tech node at KSC, stay.)
 
 Auto-merge is always on, so the merge normally happens silently without this dialog:
-leaving the flight for the Space Center or the Tracking Station commits the mission. Two
-exits always ask regardless: concluding a Rewind to Separation attempt (whose dialog can
-also offer "Merge & Seal" and "Commit (don't seal)"), and quitting to the main menu with an
-uncommitted mission. A map Switch To onto another vessel never asks (outside a Re-Fly): the
+leaving the flight for the Space Center, the Tracking Station or the main menu commits the
+mission. One exit always asks regardless: concluding a Rewind to Separation attempt (whose
+dialog can also offer "Merge & Seal" and "Commit (don't seal)"). A map Switch To onto another vessel never asks (outside a Re-Fly): the
 flight you are leaving is merged, or dropped when it changed nothing. A Revert never shows it: the reverted flight is thrown away. (There is no setting for this. The
 2026-08-27 settings simplification hardwired auto-merge on; the toggle earlier versions
 of this guide described no longer exists.)
@@ -426,6 +425,6 @@ are drawn nowhere and cannot be turned off.
 
 ### Scene Transitions
 
-- **Leaving Flight** - If you leave Flight without reverting (Esc > Space Center or Tracking Station), the mission is committed to the timeline automatically, with the same result as Merge to Timeline: a vessel that survived still appears as a real vessel when its ghost finishes. A flight that never left the pad is discarded instead. Quitting to the main menu, or ending a Re-Fly, asks with the Merge dialog.
+- **Leaving Flight** - If you leave Flight without reverting (Esc > Space Center, Tracking Station or Quit to Main Menu), the mission is committed to the timeline automatically, with the same result as Merge to Timeline: a vessel that survived still appears as a real vessel when its ghost finishes. A flight that never left the pad is discarded instead. Ending a Re-Fly asks with the Merge dialog.
 - **Revert to Launch / VAB / SPH** - KSP's stock flight-results dialog (with its Revert buttons) shows first on a crash; Parsek no longer pre-empts it. Picking Revert unstashes the in-progress recording without deleting it - sidecar files and career events captured during the reverted flight stay on disk, so a quicksave you took during the flight can still be F9'd back into. The reverted flight's career events are hidden from the current career's ledger because its recording was never committed. To keep the flight instead, pick **Space Center** (or any non-revert exit).
 - **Missed EndUT** - If a recording's EndUT passes while you're in the Space Center or Tracking Station, reserved crew are automatically freed so they don't stay stuck as Assigned forever.

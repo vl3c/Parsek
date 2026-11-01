@@ -880,6 +880,19 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>What the pre-transition core did with the scene exit's tree.</summary>
+        internal enum PreTransitionOutcome
+        {
+            /// <summary>preCommitFinalize threw; nothing was committed or discarded.</summary>
+            FinalizeThrew,
+            /// <summary>Finalize left no pending tree, so there was nothing to decide.</summary>
+            NoPendingTree,
+            /// <summary>The merge or discard ran to completion.</summary>
+            Completed,
+            /// <summary>The merge or discard refused (journal guard, Re-Fly refusal); the pending tree stays.</summary>
+            Refused,
+        }
+
         /// <summary>
         /// Pre-transition button-handler core: run preCommitFinalize, then
         /// build decisions on the just-stashed pending tree, then run
@@ -892,6 +905,54 @@ namespace Parsek
             System.Action postChoice,
             bool playerRequestedSeal = false)
         {
+            PreTransitionOutcome outcome = RunPreTransitionCore(
+                isMerge, preCommitFinalize, playerRequestedSeal,
+                reShowDialogOnRefusal: true, site: "RunPreTransitionAction");
+            if (outcome == PreTransitionOutcome.FinalizeThrew)
+                return;
+            if (outcome == PreTransitionOutcome.Refused)
+            {
+                ParsekLog.Warn("MergeDialog",
+                    "RunPreTransitionAction: action refused (likely merge-journal-active " +
+                    "guard). Skipping postChoice; player remains in flight.");
+                return;
+            }
+
+            try
+            {
+                postChoice?.Invoke();
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Error("MergeDialog",
+                    $"RunPreTransitionAction: postChoice threw " +
+                    $"{ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// The Merge button of the pre-transition dialog, run without the dialog: the same
+        /// finalize, default vessel decisions and <see cref="MergeCommit"/>. Used for a
+        /// main-menu exit under auto-merge (owner ruling 2026-11-01: leaving flight commits).
+        /// The caller persists and lets the scene load through; on
+        /// <see cref="PreTransitionOutcome.Refused"/> or
+        /// <see cref="PreTransitionOutcome.FinalizeThrew"/> it falls back to the dialog.
+        /// </summary>
+        internal static PreTransitionOutcome CommitPreTransitionWithoutDialog(
+            System.Action preCommitFinalize, string site)
+        {
+            return RunPreTransitionCore(
+                isMerge: true, preCommitFinalize: preCommitFinalize, playerRequestedSeal: false,
+                reShowDialogOnRefusal: false, site: site ?? "CommitPreTransitionWithoutDialog");
+        }
+
+        private static PreTransitionOutcome RunPreTransitionCore(
+            bool isMerge,
+            System.Action preCommitFinalize,
+            bool playerRequestedSeal,
+            bool reShowDialogOnRefusal,
+            string site)
+        {
             try
             {
                 preCommitFinalize?.Invoke();
@@ -899,19 +960,18 @@ namespace Parsek
             catch (System.Exception ex)
             {
                 ParsekLog.Error("MergeDialog",
-                    $"RunPreTransitionAction: preCommitFinalize threw " +
+                    $"{site}: preCommitFinalize threw " +
                     $"{ex.GetType().Name}: {ex.Message}");
-                return;
+                return PreTransitionOutcome.FinalizeThrew;
             }
 
             var pending = RecordingStore.PendingTree;
             if (pending == null)
             {
                 ParsekLog.Warn("MergeDialog",
-                    "RunPreTransitionAction: preCommitFinalize produced no pending tree, " +
+                    $"{site}: preCommitFinalize produced no pending tree, " +
                     "skipping commit/discard but proceeding with postChoice");
-                postChoice?.Invoke();
-                return;
+                return PreTransitionOutcome.NoPendingTree;
             }
 
             // Re-derive Re-Fly suppressed-subtree closure on the pending tree,
@@ -935,7 +995,7 @@ namespace Parsek
                 catch (System.Exception ex)
                 {
                     ParsekLog.Warn("MergeDialog",
-                        $"RunPreTransitionAction: ComputeSessionSuppressedSubtree threw " +
+                        $"{site}: ComputeSessionSuppressedSubtree threw " +
                         $"{ex.GetType().Name}: {ex.Message} - falling back to leaf-only " +
                         "ghost-only decisions");
                 }
@@ -950,7 +1010,7 @@ namespace Parsek
             if (isMerge)
             {
                 MergeCommit(pending, decisions, spawnCount, playerRequestedSeal,
-                    reShowDialogOnRefusal: true);
+                    reShowDialogOnRefusal: reShowDialogOnRefusal);
                 // CommitPendingTree nulls RecordingStore.PendingTree on success.
                 actionCompleted = (RecordingStore.PendingTree == null);
             }
@@ -959,24 +1019,7 @@ namespace Parsek
                 actionCompleted = MergeDiscardRanToCompletion(pending);
             }
 
-            if (!actionCompleted)
-            {
-                ParsekLog.Warn("MergeDialog",
-                    "RunPreTransitionAction: action refused (likely merge-journal-active " +
-                    "guard). Skipping postChoice; player remains in flight.");
-                return;
-            }
-
-            try
-            {
-                postChoice?.Invoke();
-            }
-            catch (System.Exception ex)
-            {
-                ParsekLog.Error("MergeDialog",
-                    $"RunPreTransitionAction: postChoice threw " +
-                    $"{ex.GetType().Name}: {ex.Message}");
-            }
+            return actionCompleted ? PreTransitionOutcome.Completed : PreTransitionOutcome.Refused;
         }
 
     }
