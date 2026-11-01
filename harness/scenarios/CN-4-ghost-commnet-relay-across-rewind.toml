@@ -45,15 +45,30 @@ id = "CN-4-ghost-commnet-relay-across-rewind"
 #   invokerewindtolaunch target resolved / Rewind-to-Launch initiated to UT   VN-3's set
 #
 # PRE-REGISTERED READINGS:
-#   - relayA / relayB `unregistered` after the rewind with `reason=historical-never-replayed`:
-#     the rewind dropped the replay-scope latch (PlaybackScopeTracker keeps it in-session; a
-#     main-menu return is the only reset). That would be a product defect: file it.
+#   - relayA / relayB `unregistered` in the batch with `reason=historical-never-replayed`:
+#     the rewind dropped the replay-scope latch. A Rewind-to-Launch is not a Cold load, so
+#     PlaybackScopeTracker keeps the latch across it; that would be a product defect: file it.
+#   - THE BATCH'S OWN FINAL RESTORE IS A COLD LOAD. PlaybackScopeTracker.Reset runs on every
+#     Cold load (ParsekScenario.SessionReset.cs ResetSaveScopedSessionState) and on the
+#     main-menu transition. The batch's teardown restore (`Preparing save-scoped state for
+#     isolated FLIGHT batch baseline restore`, ParsekScenario.cs) is one, at a playhead ~970 s
+#     past both relays' window starts, so after it A and B read `No ghost node ...:
+#     historical-never-replayed` by design. The forbidden `No ghost node` line is therefore
+#     scoped to the log BEFORE that marker (the first flight, 2026-10-31_2359, red on exactly
+#     this and on nothing else).
 #   - `Removed ghost node: key=cn-relay-[ab] ... reason=` anything but `ParsekFlight
 #     destroyed` before the rewind mark: a mid-flight removal.
 #   - `launchfromeditor-site-obstructed`: the runway is blocked; read `first=`.
 #
-# STATUS: AUTHORED 2026-10-31, NEVER FLOWN. The batch split is INTERIM (total=9 from the
-# source, the split regexed; IngameBatchWiringGroupTests.INTERIM_PIN_IDS).
+# STATUS: LIVE-PROVEN 2026-11-01 on the scoped spec (run 2026-11-01_0010, PASS on attempt 1,
+# 129 s, 0 mismatches, the same rulings again). The first flight 2026-10-31_2359 was
+# PARSEK-FAIL on a spec mistake only, the
+# unscoped forbidden `No ghost node` line matching after the batch's own final-restore Cold
+# load (see PRE-REGISTERED READINGS). Every required line matched: A and B removed with the
+# old scene, registered again in the rewound flight with CN-1's exact rulings, the batch
+# passed=4 failed=0 skipped=5, CN-1's split (the 4 TRACKSTATION cells scene-skip and the
+# pad-geometry control-path cell skips at run time; now pinned). The forbidden line was scoped
+# and the split pinned; the new spec also evaluates PASS offline against that first log.
 #
 # FAST-LANE CHECKLIST: (1) reuse: CN-1's host, preset and category, VN-3's commit order,
 # WF-1's runway relaunch; (2) explicit-UT warps only; (3)-(5) no dwell, burn or coast;
@@ -135,9 +150,8 @@ required = [
   "MISSIONMARK label=cn4-relaunched ut=[\\s\\S]*?\\[TestRunner\\] GhostCommNet registered nodes \\(FLIGHT\\): checked=2 dark=0",
   "MISSIONMARK label=cn4-relaunched ut=[\\s\\S]*?\\[TestRunner\\] GhostCommNet registered relay route \\(FLIGHT\\): probed=2 viaGhost=2 negativeControlCut=2 controlSourceAtGhost=1 noRelay=0 homes=9 keys=cn-relay-a,cn-relay-b\\s",
   "MISSIONMARK label=cn4-relaunched ut=[\\s\\S]*?\\[TestRunner\\] GhostCommNet preset rulings \\(FLIGHT\\): relayA=registered control=True multiHop=True relay=2000000000 relayB=registered playbackEnabled=False control=False relay=2000000000 relayC=unregistered loop=True reason=historical-never-replayed",
-  # INTERIM: total=9 from the source (CN-1's category), the split regexed until the first
-  # flight (IngameBatchWiringGroupTests.INTERIM_PIN_IDS).
-  "BATCH_COMPLETE v1 total=9 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GhostCommNet scene=FLIGHT",
+  # Pinned off the first flight (run 2026-10-31_2359).
+  "BATCH_COMPLETE v1 total=9 passed=4 failed=0 skipped=5 category=GhostCommNet scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -145,7 +159,9 @@ forbidden = [
   "DriveGhostCommNet threw",
   "Registered ghost node: key=cn-relay-c ",
   "Ghost node dark this rebuild: key=cn-relay-[ab] vessel=\"[^\"]*\" reason=(position-unresolved|exception)",
-  "No ghost node for key=cn-relay-[ab] vessel=\"[^\"]*\": (?!before-window)",
+  # Scoped to the log before the batch's final-restore Cold load, which resets the replay
+  # scope by design (PRE-REGISTERED READINGS).
+  "\\A(?:(?!Preparing save-scoped state for isolated FLIGHT batch baseline restore)[\\s\\S])*?No ghost node for key=cn-relay-[ab] vessel=\"[^\"]*\": (?!before-window)",
   "Removed ghost node: key=cn-relay-[ab] .* reason=(?!ParsekFlight destroyed)",
   "invokerewindtolaunch refused",
   "launchfromeditor refused ",

@@ -51,8 +51,9 @@ id = "SWS-1-save-switch-through-main-menu"
 #     A's state. A product defect.
 #   - `newgame rejected reason=newgame-as-arg-invalid`: the spec's `as=`; read the value.
 #
-# STATUS: AUTHORED 2026-10-31, NEVER FLOWN. The batch split is INTERIM (total=3 from the
-# source, the split regexed; IngameBatchWiringGroupTests.INTERIM_PIN_IDS).
+# STATUS: LIVE-PROVEN 2026-10-31 on its first flight (run 2026-10-31_2358, PASS on attempt 1,
+# 96 s): committed 34 in A, 0 in B, 34 again in A, hardFailures=0, and the batch passed whole
+# (passed=3 failed=0 skipped=0, now pinned).
 #
 # FAST-LANE CHECKLIST: (1) reuse: RW-1's host, REV-1's check launch; (2) no warps;
 # (3)-(5) no dwell, burn or coast; (6) retry `once`; (7) recordings window 34..34;
@@ -135,9 +136,8 @@ required = [
   # ---- the ground truth ----
   "MISSIONMARK label=sws1-launched ut=[\\s\\S]*?ground-truth game mode=CAREER pools=funds,science,reputation",
   "result: hardFailures=0 ",
-  # INTERIM: total=3 from the source (the LedgerGroundTruth category's FLIGHT cells), the split
-  # regexed until the first flight (IngameBatchWiringGroupTests.INTERIM_PIN_IDS).
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  # Pinned whole off the first flight (run 2026-10-31_2358).
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
