@@ -56,7 +56,7 @@ namespace Parsek.Tests
             // returned a constant) would leave ModuleControlSurface unprobed on every stock craft
             // with no cell to notice.
             string body = ExtractMethodBody(
-                ReadStrippedProductionSource("FlightRecorder.cs"),
+                ReadStrippedProductionSource("FlightRecorder.PartModuleStates.cs"),
                 "internal static bool TryClassifyControlSurfaceState(");
 
             Assert.True(SourceScanText.ContainsIdentifier(body, "TryClassifyAeroSurfaceState"),

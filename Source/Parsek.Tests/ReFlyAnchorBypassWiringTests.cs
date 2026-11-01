@@ -109,7 +109,7 @@ namespace Parsek.Tests
         [Fact]
         public void FlightRecorder_WiresNarrowedGateFilter_BeforeNearestSearch()
         {
-            string source = ReadSource("FlightRecorder.cs");
+            string source = ReadSource("FlightRecorder.RelativeAnchors.cs");
 
             int updateAnchorIdx = source.IndexOf(
                 "private void UpdateAnchorDetection(Vessel v)",
@@ -142,7 +142,7 @@ namespace Parsek.Tests
             // Symmetric counterpart to
             // BackgroundRecorder_NoLongerCallsSupersedeTargetBypass: the
             // bypass call is gone from UpdateAnchorDetection.
-            string source = ReadSource("FlightRecorder.cs");
+            string source = ReadSource("FlightRecorder.RelativeAnchors.cs");
 
             int updateAnchorIdx = source.IndexOf(
                 "private void UpdateAnchorDetection(Vessel v)",
@@ -181,7 +181,7 @@ namespace Parsek.Tests
             // frame, even ones where the filter drops every same-tree
             // candidate. The filter also consumes the candidate list, so the
             // ordering is doubly load-bearing.
-            string source = ReadSource("FlightRecorder.cs");
+            string source = ReadSource("FlightRecorder.RelativeAnchors.cs");
 
             int updateAnchorIdx = source.IndexOf(
                 "private void UpdateAnchorDetection(Vessel v)",
