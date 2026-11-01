@@ -355,7 +355,8 @@ namespace Parsek.Tests
             string path = LocateEngineSource();
             Assert.True(System.IO.File.Exists(path), $"GhostPlaybackEngine.cs not found at {path}");
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(
-                System.IO.File.ReadAllText(path).Replace("\r\n", "\n"));
+                GhostPlaybackEngineSourceFiles.ReadAll(System.IO.Path.GetDirectoryName(path))
+                    .Replace("\r\n", "\n"));
 
             const string decl = "internal void DestroyGhost(int index, IPlaybackTrajectory traj = null,";
             int declIdx = prepared.IndexOf(decl, StringComparison.Ordinal);

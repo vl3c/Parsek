@@ -9092,6 +9092,12 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `.Robotics` (641), `.SynthesizedMotion` (1,243), `.HeatDeployablesLights` (977) and
   `.SpawnDecision` (1,077), beside the existing `.SpanClock` / `.StandaloneLoopClock` /
   `.WarpLoopPolicy` / `.WatchMode`.
+- `GhostPlaybackEngine` (9,327-line main file) split further into partial-class files (rule
+  S3, pure move by `scripts/refactor/split_ghostplaybackengine.py`; every field, event,
+  property, constant and the constructor stay in the main file): `GhostPlaybackEngine.cs`
+  1494 lines, `.InRangeRender.cs` 748, `.LoopUnits.cs` 1357, `.LoopPlayback.cs` 1603,
+  `.Completion.cs` 611, `.SectionPositioning.cs` 700, `.ReentryFx.cs` 481, `.GhostVisuals.cs`
+  635, `.SpawnDestroy.cs` 933, `.Diagnostics.cs` 882.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,

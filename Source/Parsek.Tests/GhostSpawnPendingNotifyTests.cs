@@ -30,7 +30,7 @@ namespace Parsek.Tests
         [Fact]
         public void Engine_DeclaresSpawnPendingEvent_AndDeferredList()
         {
-            string src = StripComments(ReadParsekSource(EnginePath));
+            string src = StripComments(ReadEngineSource());
             Assert.Contains("internal event Action<GhostLifecycleEvent> OnGhostSpawnPending;", src);
             Assert.Contains("deferredSpawnPendingEvents", src);
         }
@@ -41,7 +41,7 @@ namespace Parsek.Tests
             // 4 call sites + 1 method definition = 5 occurrences. A 5th call site appearing
             // means a new registration path was added: decide deliberately whether it must
             // notify (primary) or must not (demoted secondary) and update this count.
-            string src = StripComments(ReadParsekSource(EnginePath));
+            string src = StripComments(ReadEngineSource());
             int occurrences = Regex.Matches(src, @"QueueOrEmitGhostSpawnPending\(").Count;
             Assert.Equal(5, occurrences);
 
@@ -72,7 +72,7 @@ namespace Parsek.Tests
             // call is the NEAREST one preceding it with no other notify call in between. A
             // neighbouring site's check therefore cannot stand in: hoisting one call above its
             // own check leaves the sibling's notify between that sibling's check and this call.
-            string prepared = SourceScanText.StripCommentsAndMaskLiterals(ReadParsekSource(EnginePath));
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(ReadEngineSource());
             var calls = Regex.Matches(prepared, @"QueueOrEmitGhostSpawnPending\(");
             int checkedSites = 0;
             foreach (Match m in calls)
@@ -108,7 +108,7 @@ namespace Parsek.Tests
         public void Engine_FrameTail_FiresPendingBeforeCreated()
         {
             // Pending precedes finalize semantically, even for a same-frame immediate build.
-            string src = StripComments(ReadParsekSource(EnginePath));
+            string src = StripComments(ReadEngineSource());
             int pendingFire = src.IndexOf(
                 "OnGhostSpawnPending?.Invoke(deferredSpawnPendingEvents[i])", StringComparison.Ordinal);
             int createdFire = src.IndexOf(
@@ -153,6 +153,19 @@ namespace Parsek.Tests
                 path = Path.Combine(root, "Parsek", relPath.Replace('/', Path.DirectorySeparatorChar));
             Assert.True(File.Exists(path), "Source file not found at " + path);
             return File.ReadAllText(path);
+        }
+
+        // The engine is a partial class over GhostPlaybackEngine.cs and its
+        // GhostPlaybackEngine.<Area>.cs files; the gates read all of them as one text.
+        private static string ReadEngineSource()
+        {
+            string root = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string path = Path.Combine(root, "Source", "Parsek", EnginePath);
+            if (!File.Exists(path))
+                path = Path.Combine(root, "Parsek", EnginePath);
+            Assert.True(File.Exists(path), "Source file not found at " + path);
+            return GhostPlaybackEngineSourceFiles.ReadAll(Path.GetDirectoryName(path));
         }
 
         private static string StripComments(string source)
