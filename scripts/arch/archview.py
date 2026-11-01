@@ -692,9 +692,18 @@ def declared_member_names(text):
     """Field and property names a type body declares (capitalised ones only)."""
     names = set()
     for match in MEMBER_DECL_RE.finditer(text):
-        if match.group(1) in MEMBER_SCAN_NOT_A_TYPE:
+        declared_type, name = match.group(1), match.group(2)
+        if declared_type in MEMBER_SCAN_NOT_A_TYPE:
             continue
-        names.add(match.group(2))
+        # A comma outside a generic argument list is not a type: it is the end of
+        # an object-initializer line (`X = y,` then `Recording = rec,`).
+        if "," in declared_type and "<" not in declared_type:
+            continue
+        # `Treatment Treatment { get; }`: the declared type is a real reference,
+        # so its name must stay visible to the scan.
+        if re.sub(r"[<\[?].*$", "", declared_type).split(".")[-1] == name:
+            continue
+        names.add(name)
     return names
 
 

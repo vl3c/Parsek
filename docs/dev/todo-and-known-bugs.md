@@ -9056,10 +9056,11 @@ columns whose blanks are visible, where the old outline simply said nothing.
   deadline tallies from `Ledger` to the nested `GameAction.LoadTally`. Its remaining knot
   edges (`CaptureSequence`, `ConversionCause`, `FundsEarningSource`, `ReputationSource`) are
   scanner false positives: same-named fields, and the enum member `Milestone` read as a type.
-- The scanner now skips member names (ARCH-TOOLING-ROSLYN-AND-CI): the knots are 449, 4 and 3,
-  `GameAction` and `Recording` are outside the big one, and the first greedy cut is
-  `RecordingStore` (449 -> 432, 49 references), then `ParsekFlight` (414); the cut residue is
-  245. The new 3-type knot is the stock-UI grey trio `ButtonEntry` / `GreyLedger` /
+- The scanner now skips member names (ARCH-TOOLING-ROSLYN-AND-CI): the knots are 454, 4 and 3,
+  `GameAction` and `Recording` are outside the big one, and the first greedy cuts are
+  `Route` (454 -> 436, 5 references), then `RecordingStore` (419); the cut residue is 273. The
+  member rule leaves object-initializer lines and a property named like its own type
+  (`Treatment Treatment { get; }`) as references (review fix). The new 3-type knot is the stock-UI grey trio `ButtonEntry` / `GreyLedger` /
   `StockUiGreyedButton`.
 - `KspStatePatcher` (6,939 lines, one file) is now a partial class over 11 files (S3, pure
   move by `scripts/refactor/split_kspstatepatcher.py`, which checks the line multiset): the
@@ -9198,7 +9199,7 @@ Update `modules.toml` in the same commits so the placement report stays true.
   enum member spelled like a type (`public long CaptureSequence;`, the enum member `Milestone`)
   is not read as a reference to that type, unless it is type-qualified (`Ledger.X`,
   `Parsek.CaptureSequence.Key`). That removed the false positives that held `GameAction` in the
-  knot (535 -> 449). Still missed: object-initializer members of another type (`Held = ...`
+  knot (535 -> 454). Still missed: object-initializer members of another type (`Held = ...`
   on `Ghost -> GameActions`), which only the Roslyn extractor below can tell apart.
 
 **Fix.**
