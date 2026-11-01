@@ -60,7 +60,7 @@ namespace Parsek.Tests
                 // what KSP already paid".
                 ["GameActions/LedgerOrchestrator.cs::FileRetiredReFlyProvisionalRows"] = new[] { Stock },
                 // The measured stock pool leak: a change stock already made to the pool.
-                ["GameActions/KspStatePatcher.cs::FileStockPoolAdjustment"] = new[] { Stock },
+                ["GameActions/KspStatePatcher.PoolGuards.cs::FileStockPoolAdjustment"] = new[] { Stock },
                 // The rollout charge stock made at launch.
                 ["GameActions/LedgerRolloutAdoption.cs::RecordVesselRolloutSpending"] = new[] { Stock },
                 // The recovery funds stock paid, paired to its recording.

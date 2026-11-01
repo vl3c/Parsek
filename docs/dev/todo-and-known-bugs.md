@@ -9061,6 +9061,13 @@ columns whose blanks are visible, where the old outline simply said nothing.
   `RecordingStore` (449 -> 432, 49 references), then `ParsekFlight` (414); the cut residue is
   245. The new 3-type knot is the stock-UI grey trio `ButtonEntry` / `GreyLedger` /
   `StockUiGreyedButton`.
+- `KspStatePatcher` (6,939 lines, one file) is now a partial class over 11 files (S3, pure
+  move by `scripts/refactor/split_kspstatepatcher.py`, which checks the line multiset): the
+  main `KspStatePatcher.cs` (330: `PatchAll`, `PatchPools`, the resets and EVERY static field,
+  since partial-file field initializers run in an undefined order) plus `.Science` (721),
+  `.Tech` (955), `.Unlocks` (788), `.FundsReputation` (324), `.PoolGuards` (622),
+  `.RewindReadback` (252), `.Milestones` (895), `.Contracts` (783), `.ContractParameters`
+  (609) and `.ContractRemoval` (790).
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,

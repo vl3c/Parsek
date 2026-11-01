@@ -950,10 +950,10 @@ namespace Parsek.Tests
         private static string ReadPatchScienceStrategyRegionWithoutComments()
         {
             string root = SyntheticRecordingTests.ResolveProjectRoot();
-            string path = Path.Combine(
-                root, "Source", "Parsek", "GameActions", "KspStatePatcher.cs");
-            Assert.True(File.Exists(path), $"KspStatePatcher.cs not found at '{path}'");
-            string src = File.ReadAllText(path);
+            string dir = Path.Combine(root, "Source", "Parsek", "GameActions");
+            Assert.True(File.Exists(Path.Combine(dir, "KspStatePatcher.cs")),
+                $"KspStatePatcher.cs not found under '{dir}'");
+            string src = KspStatePatcherSourceFiles.ReadAll(dir);
 
             const string startMarker = "float currentScience = ResearchAndDevelopment.Instance.Science;";
             const string endMarker = "SciencePoolPatchDecision decision = ResolveSciencePoolPatch(";
