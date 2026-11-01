@@ -339,6 +339,10 @@ namespace Parsek
             }
             if (rec.VesselDestroyed)
                 recNode.AddValue("vesselDestroyed", rec.VesselDestroyed.ToString());
+            // Stop-time situation text ("Landed Mun"); the Timeline spawn row reads it, so it
+            // must outlive a reload. Sparse: absent reads back null, the terminal-state fallback.
+            if (!string.IsNullOrEmpty(rec.VesselSituation))
+                recNode.AddValue("vesselSituation", rec.VesselSituation);
             // #573/#589: persist scoped rewind suppression metadata. New saves only
             // write this for the active/source recording; unscoped legacy markers are
             // recognized at load/spawn time and cleared instead of blocking future
@@ -795,6 +799,7 @@ namespace Parsek
                 }
             }
             rec.VesselDestroyed = ParseBoolOr(recNode, "vesselDestroyed", rec.VesselDestroyed);
+            rec.VesselSituation = recNode.GetValue("vesselSituation");
             rec.TerminalSpawnSupersededByRecordingId = recNode.GetValue("terminalSpawnSupersededBy");
             // BUG-C: restore the durable terminal-orbit cannot-spawn-safely abandon
             // so VesselSpawner.SpawnOrRecoverIfTooClose's pre-spawn guard keeps a

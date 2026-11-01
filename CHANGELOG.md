@@ -33,6 +33,22 @@ _(unreleased - entries accumulate here per commit)_
   that includes a partner's docking into a route's flight now repeats on the route's schedule only:
   its own loop turns off with the usual message, and its Loop toggle shows it is looped by the route.
   (ROUTE-INTERACTION-SEAMS-TO-VERIFY)
+- **A rescued kerbal no longer gets a spare stand-in after a reload.** Parsek remembered that a
+  rescue had already put the kerbal back on a vessel only until the next scene change or load;
+  after that the next update could hire their stand-in again. The rescue is now saved.
+  (RESCUE-PLACED-MARKER-SESSION-ONLY)
+- **A recording's end situation is kept across a reload.** The Timeline's spawn line for a
+  recording (for example "Landed Mun") lost that wording after a save and load and fell back to
+  the terminal state alone; the situation is now saved with the recording.
+  (RECORDING-VESSEL-SITUATION-NOT-SAVED)
+- **A looped flight now replays on the map and in the Tracking Station too.** A flight looped from
+  the Recordings tab replayed in flight and at the Space Center, but after its first run the map
+  and Tracking Station showed no icon, or only its final orbit. The icon, orbit line and marker now
+  follow the replayed ghost. (RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP)
+- **Route cargo now arrives when the ghost lands or docks.** On a looped route to another planet
+  whose last leg lands or docks, cargo was delivered on the plain loop clock while the ghost waited
+  in orbit for the right spot, so it could arrive days after the ghost touched down.
+  (ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER)
 - **Revert to VAB / SPH reverts again after a Switch-To.** Reverting to the editor after switching
   to another vessel and changing nothing could bring the flight back instead, with the launched
   vessel still flying and the rollout not refunded. (REVERT-EDITOR-SAVE-SWITCH-GAPS)

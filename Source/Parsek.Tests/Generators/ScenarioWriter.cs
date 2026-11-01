@@ -10,6 +10,8 @@ namespace Parsek.Tests.Generators
     {
         private readonly List<RecordingBuilder> v3Builders = new List<RecordingBuilder>();
         private readonly List<ConfigNode> trees = new List<ConfigNode>();
+        private readonly List<(string name, ulong vesselPid)> rescuePlacedKerbals
+            = new List<(string name, ulong vesselPid)>();
         private readonly List<(string original, string replacement)> crewReplacements
             = new List<(string, string)>();
         private readonly List<Milestone> milestones = new List<Milestone>();
@@ -367,6 +369,13 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        /// <summary>A #615 rescue-completion marker: the kerbal the rescue path placed on vessel <paramref name="vesselPid"/>.</summary>
+        public ScenarioWriter AddRescuePlacedKerbal(string name, ulong vesselPid)
+        {
+            rescuePlacedKerbals.Add((name, vesselPid));
+            return this;
+        }
+
         public ScenarioWriter WithMilestoneEpoch(uint epoch)
         {
             milestoneEpoch = epoch;
@@ -459,6 +468,17 @@ namespace Parsek.Tests.Generators
                     var entry = crNode.AddNode("ENTRY");
                     entry.AddValue("original", original);
                     entry.AddValue("replacement", replacement);
+                }
+            }
+
+            if (rescuePlacedKerbals.Count > 0)
+            {
+                var rpNode = node.AddNode(CrewReservationManager.RescuePlacedNodeName);
+                foreach (var (name, vesselPid) in rescuePlacedKerbals)
+                {
+                    var entry = rpNode.AddNode("ENTRY");
+                    entry.AddValue("name", name);
+                    entry.AddValue("vesselPid", vesselPid.ToString(CultureInfo.InvariantCulture));
                 }
             }
 

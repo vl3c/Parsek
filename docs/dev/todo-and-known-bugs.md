@@ -17,6 +17,148 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~SAVE-ROUND-TRIP-GATE: no test checks that every saved field survives a save and load~~ [DONE 2026-10-31; xUnit only; test gap C3 of roadmap/test-gap-audit-2026-10-31.md]
+
+`Source/Parsek.Tests/SaveRoundTrip/` now round-trips every persisted surface field by field under a
+comma-decimal culture: `FieldRoundTrip` fills every instance field of a type (and, for a static
+store, every static field) with a distinct non-default value, saves, loads and diffs, reporting
+each field path that changed. A field may only differ when the type's `FieldSpec` classifies it
+`NotPersisted` (asserted NOT to survive, so a stale entry reds too) or `Derived`, each with a
+reason. Covered: every GameAction row type (per-type persisted payload table), the ledger node,
+kerbal slots, Recording metadata and the recording tree, the trajectory and snapshot sidecars,
+supply routes / route events / retired cargo / the route store, the rewind and Re-Fly records,
+game-state events, baselines and milestones, and the mission, vessel-name, group, crew, hold,
+held-window, take-back, pool-reference and settings stores (the game-state store carries events,
+snapshots, science subjects and baselines; the milestone store both its node and the
+MILESTONE_STATE replay indexes). `SaveRoundTripCoverageGateTests` reds when a Parsek type gains a
+Save*/Load*/Serialize*/Deserialize* method over a ConfigNode (or a binary sidecar reader / writer)
+with no `[SaveRoundTripCovers]` test and no Exempt row; the store and record test classes each
+assert that every type their attributes name has a case, so an attribute alone cannot pass the
+gate. Mutation-checked: dropping one key in any covered codec reds a round-trip case.
+
+Known limits, not covered by this gate: discovery goes by method name, so a codec spelled
+Build*/Parse*/Write*/Read* is not found (the pending-science node, `GameStateRecorder.
+BuildPendingScienceNode` / `ParsePendingScienceNode`, is covered only by the older
+`GameStateSaveNodeTests`); and a field filled with one enum value (`Recording.MergeState`) is
+round-tripped for that value only.
+
+Found and fixed: RECORDING-VESSEL-SITUATION-NOT-SAVED and RESCUE-PLACED-MARKER-SESSION-ONLY
+(below). Classified by design and left as is: the legacy `GameStateEvent.epoch` /
+`Milestone.Epoch` stamps (read from old saves, never assigned or written), the vessel-name
+revert-undo epoch, and the runtime caches each spec names.
+
+## ~~RESCUE-PLACED-MARKER-SESSION-ONLY: the #615 rescue-completion marker did not survive a save and load~~ [FIXED 2026-10-31; xUnit only; low]
+
+`CrewReservationManager.rescuePlacedKerbals` (kerbal -> pid of the Parsek-spawned vessel the rescue
+path placed him on) was cleared by `LoadCrewReplacements` and never saved. The
+`KerbalsModule.ApplyToRoster` guard must fire on every walk for the lifetime of the rescue (the
+multi-walk regression in `RescueCompletionGuardTests` is the bug it prevents: without the marker
+the walk regenerates the rescued kerbal's stand-in), and a save and load is one more walk
+trigger. Found while classifying the field for SAVE-ROUND-TRIP-GATE.
+
+Before the fix the marker was also dropped by every in-session load, so it lasted only until the
+next scene change.
+
+**Fix.** `SaveCrewReplacements` writes a `RESCUE_PLACED_KERBALS` node (name + vessel pid) and
+`LoadCrewReplacements` replaces memory's set with the save's (a stale pid never matches a live
+vessel, so nothing is pruned). A plain rewind keeps memory's set as before; a Re-Fly start
+(`RestoreReplacements`) still clears it. `ScenarioWriter.AddRescuePlacedKerbal` authors the node.
+Tests: `RescueCompletionGuardTests.RescuePlacedMarker_SurvivesSaveAndLoad` /
+`_LoadsFromAScenarioWriterSave`, `StoreSaveRoundTripTests`. Not flown: the rescue-then-reload
+sequence has no harness lane. Follow-up: RESCUE-PLACED-MARKER-NEVER-RETIRES.
+
+## RESCUE-PLACED-MARKER-NEVER-RETIRES: a saved rescue marker stays in the save for good [OPEN 2026-10-31; low]
+
+Since RESCUE-PLACED-MARKER-SESSION-ONLY the #615 marker lives for the life of the save instead of
+until the next scene change. Two consequences: stale entries (vessel long gone) pile up in the
+save, harmless because a stale pid never matches a live vessel; and the marker's documented
+limit (a later, unrelated fresh reservation for a kerbal still aboard the same rescue vessel pid
+gets no stand-in, see the comment on `CrewReservationManager.rescuePlacedKerbals`) can now last
+past a scene change. Candidate fix: retire a kerbal's marker when a new reservation for that
+kerbal is created, and prune entries whose pid matches no vessel on save.
+
+## ~~RECORDING-VESSEL-SITUATION-NOT-SAVED: a recording's stop-time situation text is lost on every save and load~~ [FILED AND FIXED 2026-10-31 by the field-level save round-trip suite (SAVE-ROUND-TRIP-GATE); xUnit only; product, low (Timeline wording only)]
+
+`Recording.VesselSituation` ("Landed Mun", "EVA Kerbin") is set at stop time by
+`VesselSpawner.SnapshotVessel` and carried onto the recording by
+`ParsekFlight.ApplyCapturedSplitStateToStandaloneRecording` and `ApplyPersistenceArtifactsFrom`,
+and `TimelineBuilder.TryAddVesselSpawnEntry` reads it for the spawn row text. The RECORDING node
+never wrote it, so after any save and load the row fell back to the terminal-state wording
+(`TimelineEntryDisplay.GetVesselSpawnText`). Found by `RecordingSaveRoundTripTests`
+(`Recording.VesselSituation: wrote "...", read null`).
+
+**Fix.** `RecordingTreeRecordCodec` writes a sparse `vesselSituation` key next to `vesselDestroyed`
+and reads it back (absent reads null, the old fallback). Additive key, no schema generation bump.
+Tests: `Parsek.Tests.SaveRoundTrip.RecordingSaveRoundTripTests`, `RecordingTreeSaveRoundTripTests`.
+
+## ~~RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP: a flight looped from the Recordings tab replays in flight and at the Space Center but not on the map or in the Tracking Station~~ [FILED 2026-10-31 from the test gap audit (`roadmap/test-gap-audit-2026-10-31.md` A1, code read); FIXED 2026-10-31, branch `claude/project-thread-c5l296`; xUnit only, lane owed; product, medium (a looped flight's map icon is missing or sits on its final orbit)]
+
+Every map consumer (flight map ProtoVessels, the Tracking Station create / refresh / startup
+passes, the map and TS markers, the polyline head, the MapRender chain sampler) resolves its sample
+UT through `GhostPlaybackLogic.ResolveTrackingStationSampleUT`, which returned the live UT for any
+index that is not a Missions-loop unit member. Only an OVERLAPPING per-recording loop had its own
+map path (the per-instance sweep). So a non-overlapping Recordings-tab loop past its first run
+sampled the live UT, past the recording's end: no icon, or the terminal orbit, while the flight
+engine and KSC replayed the mesh on `TryComputeLoopPlaybackUT`.
+
+**Fix.** `LoopUnitSet` carries an optional standalone-loop source (the committed list,
+`WithStandaloneLoopSource`, memoized, kept by `LiveAt`); `MissionLoopUnitBuilder.ResolveLiveUnits`
+attaches it for the Flight and TrackingStation hosts (KSC has no map and keeps its own loop path)
+and the TS startup set (`BuildStartupTrackingStationLoopUnits`) carries it too. For a non-member
+index the seam now calls `GhostPlaybackLogic.TryResolveStandaloneLoopSampleUT`
+(`GhostPlaybackLogic.StandaloneLoopClock.cs`): the schedule is the engine's
+(`TryResolveStandaloneLoopSchedule`: effective loop range, `ResolveLoopInterval`, the auto-launch
+queue slot, built without the live loop-unit members exactly as the engine and KSC queue builds
+leave them out; `TryResolveAutoLoopLaunchSchedule` takes them as `excludedIndices`) and the sample
+UT is `playbackStart + phase` of `TryComputeLoopPlaybackPhase`, hidden
+before the schedule start and in the pause between cycles, where the engine shows no mesh. Overlap
+loops stay with the per-instance sweep; a unit member keeps the mission clock. Not mirrored: the
+flight-only watch-mode loop phase reset (`loopPhaseOffsets`), so while the player watches a reset
+loop the map icon runs on the unreset schedule. Still open, older than this fix: the OVERLAP map
+path (`GhostMapPresence.OverlapSchedule.cs`, `TryResolveOverlapScheduleAnchor`) builds the Auto
+queue without that exclusion, so an overlapping Auto loop beside a unit member that also carries
+its own Auto loop gets a different slot on the map than in flight (rare: a unit member with its own
+Auto toggle). Tests: `StandaloneLoopMapSampleTests` (including a sweep against the engine's own
+`TryComputeLoopPlaybackUT` and the unit-member queue exclusion).
+
+Lanes SLM-1 / SLM-2 / SLM-1T: the first flights (`2026-10-31_2335`, `_2337`, `_2339`, main 58a4136)
+were all PARSEK-FAIL on a FIXTURE defect, not this fix: the `standalone-loop-map` preset had one
+trajectory point, and `GhostPlaybackEngine.ShouldLoopPlayback` loops nothing below two, so neither
+the mesh nor the seam looped it and every read was the live UT. The preset now carries an end point
+on the orbit (`StandaloneLoopMapFixtureTests.TheEngineLoopsIt_TwoPointsOnTheOrbit`, red with the
+point removed), and the in-game cell asserts the engine loops the recording before it checks the map.
+
+## ~~ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER: on a re-aim route whose last leg lands or docks, cargo is delivered on the raw loop clock while the ghost's descent is re-timed~~ [FILED 2026-10-31 from the test gap audit (A2, code read); FIXED 2026-10-31, branch `claude/project-thread-c5l296`; xUnit only, not flown; product, medium (cargo arrives days away from the rendered touchdown)]
+
+The renderer detaches a descent-trigger unit's post-parking clip (deorbit, reentry, landing, or the
+rendezvous approach) from the span clock and replays it from the first rotation-aligned moment
+after the icon reaches the deorbit point (`DescentTrigger`). The delivery side compared the raw
+span-clock `loopUT` against `RecordedDockUT` (`RouteLoopClock.TryGetRouteLoopState`), so the dock
+crossing fired when the raw clock passed the dock, not when the ghost docked. With a capture
+shift longer than a destination day (any interplanetary arrival) the raw clock is LATE by
+`|captureShift| - (|captureShift| mod Trot)`, i.e. whole destination days.
+
+**Fix.** `TryGetRouteLoopState` maps a descent-trigger unit's loop UT through
+`RouteLoopClock.ResolveDescentDeliveryLoopUT`: the raw clock until the descent phase engages, then
+the renderer's own head `recordedDeorbitUT + (now - triggerUT)` (same `ComputeDescentTiming` and
+site-align offset), floored at `min(raw, conicEnd)` so it never steps back, capped at
+`SpanEndUT`; the inter-cycle tail flag follows the capped head. Every delivery reader (single-stop,
+multi-stop, the window-basis transition, the cadence rebase) takes its loop UT from that call. The
+uniform countdown (`TryComputeSecondsToNextDockCrossing`) now refuses a descent unit, as it already
+refuses loiter cuts and schedules. Tests: `RouteDescentDeliveryClockTests`.
+
+## OVERLAP-MAP-GHOSTS-CHURN-AT-HIGH-WARP: overlap map icons are destroyed and recreated every frame when the cadence is shorter than one frame's game time [FILED 2026-10-31 from the test gap audit (A3), code read; OPEN; product, low (icon strobing and vessel-list churn only at very high warp)]
+
+`GhostMapPresence.EnsureOverlapInstances` (run every frame from `RunOverlapPerInstanceSweep`) has
+no warp gate. When one frame's game time exceeds the launch cadence, the active cycle window moves
+past every live instance each frame, so up to `MaxSpawnsPerFrame` map ProtoVessels are created and
+the same number destroyed per frame, and the Tracking Station list refreshes after each mutation.
+The flight engine culls overlap clones above 50x (`WarpThresholds.GhostHide`). Bounded by the
+per-frame spawn cap and the 20-copy cap, cosmetic, and only reached when a frame spans more than one
+cadence (a 120 s / 20-copy loop needs well above 1000x). Candidate fix: above the hide threshold keep
+only the newest cycle's instance and re-seed it across cycles instead of recreating it. Not taken
+in the A1 / A2 fix because no lane flies an overlap loop at that warp to prove the change.
+
 ## ~~REVERT-EDITOR-SAVE-SWITCH-GAPS: Revert to VAB / SPH could be undone by a scene-exit save or leave a stale cleanup armed, and three statics survived a save switch~~ [FILED AND FIXED 2026-10-31 from the test-gap audit (`test-gap-audit-2026-10-31.md` B4 / B5 / B6 / C9), branch `claude/project-thread-ib5y5e`; unit-tested, lanes authored, not flown; product, medium (R1, R2), low (S1-S3)]
 
 Code read plus a decompile of `FlightDriver.RevertToPrelaunch` (KSP 1.12.5): stock writes

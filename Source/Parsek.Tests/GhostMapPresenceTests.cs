@@ -1724,8 +1724,9 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// No missions => the startup loop-unit helper short-circuits to Empty (byte-identical to the
-        /// pre-loop-aware startup create), without touching settings / the live-body seam.
+        /// No missions => the startup loop-unit helper short-circuits to an empty unit set, without
+        /// touching settings / the live-body seam. The set still carries the committed list as its
+        /// standalone-loop source so a Recordings-tab loop replays on its own clock from the first tick.
         /// </summary>
         [Fact]
         public void BuildStartupTrackingStationLoopUnits_NoMissions_ReturnsEmpty()
@@ -1738,8 +1739,11 @@ namespace Parsek.Tests
                 var set = GhostMapPresence.BuildStartupTrackingStationLoopUnits(
                     RecordingStore.CommittedRecordings);
 
-                Assert.Same(GhostPlaybackLogic.LoopUnitSet.Empty, set);
+                Assert.Same(
+                    GhostPlaybackLogic.LoopUnitSet.Empty.WithStandaloneLoopSource(RecordingStore.CommittedRecordings),
+                    set);
                 Assert.Equal(0, set.Count);
+                Assert.Same(RecordingStore.CommittedRecordings, set.StandaloneLoopSource);
             }
             finally
             {

@@ -578,17 +578,23 @@ namespace Parsek
             return a.RecordingIndex.CompareTo(b.RecordingIndex);
         }
 
+        /// <param name="excludedIndices">Indices left out of the queue (keys only): the live
+        /// Mission loop-unit members, which the flight engine and the Space Center exclude from
+        /// their own queue builds because a unit's span clock schedules them. Null excludes
+        /// nothing.</param>
         internal static bool TryResolveAutoLoopLaunchSchedule(
             IReadOnlyList<IPlaybackTrajectory> trajectories,
             int recordingIndex,
             double launchGapSeconds,
-            out AutoLoopLaunchSchedule schedule)
+            out AutoLoopLaunchSchedule schedule,
+            IReadOnlyDictionary<int, int> excludedIndices = null)
         {
             schedule = default(AutoLoopLaunchSchedule);
             if (trajectories == null
                 || recordingIndex < 0
                 || recordingIndex >= trajectories.Count
-                || !ShouldUseGlobalAutoLaunchQueue(trajectories[recordingIndex]))
+                || !ShouldUseGlobalAutoLaunchQueue(trajectories[recordingIndex])
+                || (excludedIndices != null && excludedIndices.ContainsKey(recordingIndex)))
             {
                 return false;
             }
@@ -598,6 +604,8 @@ namespace Parsek
             {
                 var candidate = trajectories[i];
                 if (!ShouldUseGlobalAutoLaunchQueue(candidate))
+                    continue;
+                if (excludedIndices != null && excludedIndices.ContainsKey(i))
                     continue;
 
                 queue.Add(new AutoLoopQueueEntry(

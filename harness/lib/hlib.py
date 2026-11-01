@@ -314,6 +314,17 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # No RP. Consumer:
                                         # OC-1-overlap-cap-per-recording.
                                         "overlap-cap",
+                                        # standalone-loop-map: ONE committed
+                                        # single-recording tree on
+                                        # pad-runway-pair, a 1500 s ghost-only
+                                        # circular Kerbin orbit at 100 km
+                                        # looping on its OWN toggle every
+                                        # 4000 s (never overlapping itself).
+                                        # `--filter InjectStandaloneLoopMap`;
+                                        # the injector refuses a target save
+                                        # at another UT. No RP. Consumer:
+                                        # SLM-1-standalone-loop-map-position.
+                                        "standalone-loop-map",
                                         # rewind-readback: a crewless two-slot
                                         # rewindable tree (both slots
                                         # Destroyed, slot 1 an open Unfinished
