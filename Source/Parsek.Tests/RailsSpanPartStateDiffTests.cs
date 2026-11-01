@@ -685,7 +685,8 @@ namespace Parsek.Tests
         [Fact]
         public void EveryLoadedStateTeardownAlsoDropsTheRailsSpanSnapshot()
         {
-            string src = ReadParsekSource("BackgroundRecorder.cs");
+            // The whole former BackgroundRecorder.cs, now the main file plus its split partials.
+            string src = BackgroundRecorderSourceFiles.ReadAll(ParsekSourceDir());
             var methods = SplitIntoMethods(src);
 
             var sawTeardown = new List<string>();
@@ -761,16 +762,16 @@ namespace Parsek.Tests
             return result;
         }
 
-        private static string ReadParsekSource(string relPath)
+        private static string ParsekSourceDir()
         {
             string root = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
-            string path = Path.Combine(
-                root, "Source", "Parsek", relPath.Replace('/', Path.DirectorySeparatorChar));
-            if (!File.Exists(path))
-                path = Path.Combine(root, "Parsek", relPath.Replace('/', Path.DirectorySeparatorChar));
-            Assert.True(File.Exists(path), "Source file not found at " + path);
-            return File.ReadAllText(path);
+            string dir = Path.Combine(root, "Source", "Parsek");
+            if (!File.Exists(Path.Combine(dir, "BackgroundRecorder.cs")))
+                dir = Path.Combine(root, "Parsek");
+            Assert.True(File.Exists(Path.Combine(dir, "BackgroundRecorder.cs")),
+                "Source file not found at " + Path.Combine(dir, "BackgroundRecorder.cs"));
+            return dir;
         }
     }
 }

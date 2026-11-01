@@ -23816,6 +23816,25 @@ class DebrisPopulationGateTests(unittest.TestCase):
         with open(os.path.join(PARSEK_SOURCE_DIR, name), encoding="utf-8-sig") as fh:
             return fh.read()
 
+    # The text that was BackgroundRecorder.cs before scripts/refactor/
+    # split_backgroundrecorder.py split it: the main file plus the eight partials
+    # that script writes (NOT the older PartEventPolling / State / Testing /
+    # TimeJump siblings, which were never part of it), each file whole.
+    BG_RECORDER_SPLIT_FILES = (
+        "BackgroundRecorder.cs",
+        "BackgroundRecorder.Finalization.cs",
+        "BackgroundRecorder.GameEventHandlers.cs",
+        "BackgroundRecorder.MemberReconcile.cs",
+        "BackgroundRecorder.RelativeAnchors.cs",
+        "BackgroundRecorder.Sampling.cs",
+        "BackgroundRecorder.SplitDetection.cs",
+        "BackgroundRecorder.StateInitialization.cs",
+        "BackgroundRecorder.TrackSections.cs",
+    )
+
+    def _bg_recorder_source(self):
+        return "\n".join(self._source(n) for n in self.BG_RECORDER_SPLIT_FILES)
+
     def test_each_gated_spec_requires_the_debris_token(self):
         for name in self.GATED:
             with self.subTest(spec=name):
@@ -23867,7 +23886,7 @@ class DebrisPopulationGateTests(unittest.TestCase):
         self.assertRegex(
             fg, r'ParsekLog\.Info\(\s*"Coalescer",\s*\$"ProcessBreakupEvent: '
                 r'debris child created: pid=')
-        bg = self._source("BackgroundRecorder.cs")
+        bg = self._bg_recorder_source()
         self.assertRegex(
             bg, r'ParsekLog\.Info\(\s*"BgRecorder",\s*\n?\s*\$"Child recording '
                 r'created \(debris, TTL=\{DebrisTTLSeconds:F0\}s\)')
@@ -23929,7 +23948,7 @@ class DebrisPopulationGateTests(unittest.TestCase):
                       "exclusion is why the background debris token cannot fire "
                       "on a foreground booster drop")
         joint_break = self._member_body(
-            self._source("BackgroundRecorder.cs"),
+            self._source("BackgroundRecorder.GameEventHandlers.cs"),
             "internal void OnBackgroundPartJointBreak(PartJoint joint, float breakForce)")
         self.assertIn("if (!tree.BackgroundMap.TryGetValue(vesselPid, out recordingId)) return;",
                       joint_break,
