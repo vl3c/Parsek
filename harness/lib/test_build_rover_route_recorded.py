@@ -300,6 +300,11 @@ class RoverRouteSpecFixtureSyncTests(unittest.TestCase):
              # stock revert.
              "IR-1-route-f9-across-a-dispatch.toml",
              "IR-2-route-stock-revert-mid-cycle.toml",
+             # IR-3 / IR-6 (2026-10-31, test-gap audit item 5): the same route under a
+             # Re-Fly of another tree (discard, then merge) and under real warp across
+             # several cycles in three scenes, reading the endpoint tank at every step.
+             "IR-3-route-refly-discard-merge.toml",
+             "IR-6-route-warp-across-cycles.toml",
              "RVR-1-rover-route-proof.toml",
              "RVR-2-rover-route-create.toml",
              "RVR-3-route-lifecycle.toml",
