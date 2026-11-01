@@ -1039,7 +1039,7 @@ its side effects: all four pending-tree auto-commit routes are gated on
 a destroyed active recorded vessel stashes its tree as PENDING and nulls `activeTree`, so
 `CommitTree` fails its `HasActiveTree` guard and `FlushAndQuit` saves and quits from inside
 FLIGHT (hence that run's final `saving 0 committed tree(s)`). A generic scene loader would
-over-promise EDITOR / MAINMENU (MAINMENU always shows the merge dialog under an active
+over-promise EDITOR / MAINMENU (MAINMENU asked with the merge dialog under an active
 tree, by design) and under-specify this gauntlet.
 
 **WEDGE GUARD (the load-bearing part).** Parsek's own `HighLogic.LoadScene` prefix BLOCKS a
@@ -1058,9 +1058,11 @@ a typed `REJECTED msg=dialog-required variant=<token>`. Three refusal shapes:
   autoMerge.
 - `variant=SwitchSegmentSession` - an armed `SwitchSegmentSession` with NO live active
   tree. This one has no `DialogVariant` of its own: the prefix's Bug-C branch routes the
-  dialog to the SESSION'S tree without consulting the decision matrix at all, so autoMerge
-  does not suppress it. A guard built only on `ShouldShowDialogBeforeSceneChangeLive` would
-  read `None` here and wedge.
+  dialog to the SESSION'S tree without consulting the decision matrix at all. Since
+  2026-11-01 it follows autoMerge unless a re-fly is live (`ShouldSessionExitFollowAutoMerge`,
+  passed to the gate as `sessionFollowsAutoMerge`), so this refusal is autoMerge OFF or a live
+  re-fly. A guard built only on `ShouldShowDialogBeforeSceneChangeLive` would read `None`
+  here and wedge.
 
 Plus two dispatch-level rejects mirroring `InvokeRewind`: `load-in-flight` and
 `merge-journal-in-flight` (a driven transition must not race the

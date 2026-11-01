@@ -17,6 +17,34 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## EXIT-TO-MAIN-MENU-ASKS: leaving flight for the main menu still opens the merge dialog under auto-merge [FILED 2026-11-01 from the merge-dialog analysis (thread "Remove merge dialogs when leaving flight", doc https://claude.ai/artifact/XJtw36F8Xm8xnn7LMyvSaj), owner rulings 2026-11-01 ("leave flight - commit, yes; but it depends on the situation"; the Re-Fly exit dialog stays, "that one has to be a manual decision"); main-menu commit FIXED 2026-11-01, branch `claude/project-thread-1ma84a`; xUnit, lane owed; no-save rule OPEN pending the owner's pick; product, low (one dialog click)]
+
+**Symptom.** Every exit from flight commits silently under auto-merge except two: the main menu
+(`ShouldShowDialogBeforeSceneChange` returned `RegularMerge` for MAINMENU, because the game unloads
+and no destination scene can commit) and the switch-segment session branch (an armed session with no
+live tree), which ignored auto-merge and asked on every exit, including about a tree already
+committed, where both buttons did nothing.
+
+**Fix (main-menu commit).** Under auto-merge the LoadScene prefix runs the dialog's Merge itself:
+`MergeDialog.CommitPreTransitionWithoutDialog` (the button core, now shared as `RunPreTransitionCore`:
+finalize, default vessel decisions, `MergeCommit`), then `SafeWritePersistent`, then lets the load
+through (`SceneExitInterceptor.TryCommitMainMenuExitWithoutDialog`, live and pending-tree branches).
+It applies only to the plain `RegularMerge` dialog with no merge journal active
+(`ShouldCommitMainMenuExitWithoutDialog`); the idle-on-pad and no-op drops run first; a commit that
+refuses or throws falls back to the dialog (on the pending tree when finalize already ran). The
+session branch follows auto-merge unless a Re-Fly is live (`ShouldSessionExitFollowAutoMerge`): a
+session whose tree is the pending tree leaves it to the pending-tree path (`MergeCommit` clears the
+session), any other session is cleared (`scene-exit-auto-merge`). Tests: `MainMenuExitCommitsTests`.
+
+**Open (owner's pick).** Stock reaches the main menu without saving on "Quit without saving" (in
+atmosphere, under thrust, about to crash, moving on the ground, on a ladder, throttle up, with
+`CanRestart` on) and from the flight results screen (decompiled `PauseMenu.drawExitWithoutSaveOptions`,
+`FlightResultsDialog`). Today, as before this fix, the commit writes the save stock refused. The
+Space Center and Tracking Station no-save exits differ: `SpaceCenterMain.Start` reloads
+`persistent.sfs`, so the world goes back to the last save while the in-memory recording of the
+unsaved flight stays committed (code reading, not flown). Recommended: the recording follows the
+save on all three exits (write nothing, drop the flight since the last save).
+
 ## ~~NOOP-CHECK-COUNTS-PHYSICS-MOTION: a parked rover's wheel jitter counts as a change, so a do-nothing resume is kept~~ [FILED 2026-11-01 from the overnight regression run (EVA-16 `2026-11-01_0616` and `_0623_a2`, INVALID driver-verdict-mismatch on main 9a1ed8d, same code as the 00:25 PASS), owner ruling 2026-11-01 ("the player has to actually move the vehicle for it to count as a change, not just the wheels"); FIXED 2026-11-01, branch `claude/project-thread-1ma84a`; xUnit, EVA-16 re-flight owed; product, medium (a do-nothing revisit is merged instead of dropped; with auto-merge off a rewind sat behind a merge dialog)]
 
 **Symptom.** EVA-16 commits Bill's tree with a parked rover in it and then rewinds. The parked

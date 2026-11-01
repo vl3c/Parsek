@@ -22,6 +22,9 @@ _(unreleased - entries accumulate here per commit)_
 - **The VAB and SPH explain the funds number too.** Hovering the funds number in the editor now
   shows the same Total / Reserved breakdown as at the Space Center and in flight, so money held
   back for committed flights is no longer a mystery where you spend it. (RESERVATION-OVERLAY-GAPS)
+- **Quitting to the main menu no longer asks.** Leaving a flight for the main menu now commits the
+  mission to the timeline on its own, the same as leaving for the Space Center, instead of opening
+  the Merge dialog. Ending a Re-Fly still asks. (EXIT-TO-MAIN-MENU-ASKS)
 
 ### Fixed
 

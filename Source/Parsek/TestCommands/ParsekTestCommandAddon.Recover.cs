@@ -151,9 +151,13 @@ namespace Parsek.TestCommands
                 SceneExitInterceptor.ShouldShowDialogBeforeSceneChangeLive(GameScenes.SPACECENTER, flight);
             SceneExitInterceptor.DialogVariant pendingTreeVariant =
                 SceneExitInterceptor.ShouldShowPendingTreeDialogBeforeSceneChangeLive(GameScenes.SPACECENTER);
-            ExitGateDecision exitGate = TestCommandExitToSpaceCenter.DecideExitGate(
-                hasActiveTree, sessionArmed, activeTreeVariant, pendingTreeVariant);
             bool markerLive = scenario != null && scenario.ActiveReFlySessionMarker != null;
+            bool sessionFollowsAutoMerge = SceneExitInterceptor.ShouldSessionExitFollowAutoMerge(
+                SceneExitInterceptor.IsAutoMergeForSceneExitLive(GameScenes.SPACECENTER, "recover"),
+                markerLive);
+            ExitGateDecision exitGate = TestCommandExitToSpaceCenter.DecideExitGate(
+                hasActiveTree, sessionArmed, activeTreeVariant, pendingTreeVariant,
+                sessionFollowsAutoMerge);
             RecoverWedgeDecision wedge = TestCommandRecover.DecideWedge(
                 exitGate, activeTreeVariant, markerLive, recoverAcceptReFlyDialog);
             if (wedge == RecoverWedgeDecision.Refuse)
