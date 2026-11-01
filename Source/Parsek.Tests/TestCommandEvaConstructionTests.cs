@@ -64,6 +64,48 @@ namespace Parsek.Tests
             Assert.Equal("detach-target-missing", e);
         }
 
+        [Fact]
+        public void TryParseDetachFollowUp_DefaultsToStow_AcceptsDrop_RefusesTheRest()
+        {
+            Assert.True(TestCommandEvaConstruction.TryParseDetachFollowUp(null, out DetachFollowUp f, out string e));
+            Assert.Equal(DetachFollowUp.Stow, f);
+            Assert.Null(e);
+            Assert.True(TestCommandEvaConstruction.TryParseDetachFollowUp("", out f, out e));
+            Assert.Equal(DetachFollowUp.Stow, f);
+            Assert.True(TestCommandEvaConstruction.TryParseDetachFollowUp("stow", out f, out e));
+            Assert.Equal(DetachFollowUp.Stow, f);
+            Assert.True(TestCommandEvaConstruction.TryParseDetachFollowUp("Drop", out f, out e));
+            Assert.Equal(DetachFollowUp.Drop, f);
+            Assert.False(TestCommandEvaConstruction.TryParseDetachFollowUp("throw", out f, out e));
+            Assert.Equal("detach-then-unknown", e);
+            Assert.Equal(DetachFollowUp.Stow, f);
+        }
+
+        [Fact]
+        public void IsDropSettled_NeedsTheHandEmptyAndOneNewSinglePartVesselOfThatPart()
+        {
+            var dropped = new DroppedVesselCandidate { VesselPid = 77u, PartCount = 1, FirstPartName = "solarPanels5" };
+            var other = new DroppedVesselCandidate { VesselPid = 88u, PartCount = 1, FirstPartName = "batteryBankMini" };
+            var wreck = new DroppedVesselCandidate { VesselPid = 99u, PartCount = 3, FirstPartName = "solarPanels5" };
+
+            Assert.True(TestCommandEvaConstruction.IsDropSettled(false,
+                new List<DroppedVesselCandidate> { other, wreck, dropped }, "solarPanels5", out uint pid));
+            Assert.Equal(77u, pid);
+
+            // Still held: stock has not dropped it yet.
+            Assert.False(TestCommandEvaConstruction.IsDropSettled(true,
+                new List<DroppedVesselCandidate> { dropped }, "solarPanels5", out pid));
+            Assert.Equal(0u, pid);
+            // No new vessel of that part (another part, or a multi-part vessel).
+            Assert.False(TestCommandEvaConstruction.IsDropSettled(false,
+                new List<DroppedVesselCandidate> { other, wreck }, "solarPanels5", out pid));
+            Assert.False(TestCommandEvaConstruction.IsDropSettled(false,
+                new List<DroppedVesselCandidate>(), "solarPanels5", out pid));
+            Assert.False(TestCommandEvaConstruction.IsDropSettled(false, null, "solarPanels5", out pid));
+            Assert.False(TestCommandEvaConstruction.IsDropSettled(false,
+                new List<DroppedVesselCandidate> { dropped }, null, out pid));
+        }
+
         // ---------------------------------------------------------------- held node
 
         [Fact]

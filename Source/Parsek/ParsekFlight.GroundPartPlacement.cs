@@ -29,6 +29,27 @@ namespace Parsek
 
         void OnDeployGroundPart(string partName)
         {
+            RecordGroundPartPlacement(partName, GroundPartPlacementSource.InventoryDeploy);
+        }
+
+        /// <summary>
+        /// Stock fires <c>onEditorPartEvent(PartDropped, heldPart)</c> from
+        /// <c>EVAConstructionModeEditor.DropAttachablePart</c> right after
+        /// <c>Game.AddVessel</c> built the dropped part's own <c>DroppedPart</c> vessel (which
+        /// fired <c>onNewVesselCreated</c>), in the same call (decompiled KSP 1.12.5). The held
+        /// part may have come from any inventory or been detached from any vessel, a foreign
+        /// one included; either way the dropped vessel is new and becomes the kerbal's member,
+        /// exactly like an inventory ground placement.
+        /// </summary>
+        void OnEditorPartEventForConstructionDrop(ConstructionEventType evt, Part part)
+        {
+            if (!GroundPartPlacement.IsConstructionDropSignal(evt)) return;
+            string partName = part != null && part.partInfo != null ? part.partInfo.name : null;
+            RecordGroundPartPlacement(partName, GroundPartPlacementSource.ConstructionDrop);
+        }
+
+        void RecordGroundPartPlacement(string partName, GroundPartPlacementSource source)
+        {
             Vessel active = FlightGlobals.ActiveVessel;
             Vessel created = lastCreatedVesselForGroundPart;
             bool createdThisFrame = created != null && lastCreatedVesselFrame == Time.frameCount;
@@ -71,17 +92,15 @@ namespace Parsek
             {
                 ParsekLog.Info("Flight", GroundPartPlacement.FormatPlacementSkipLog(
                     verdict, partName, createdPid, active != null ? active.persistentId : 0u,
-                    createdPartCount, createdPartName));
+                    createdPartCount, createdPartName, source));
                 return;
             }
 
             double placementUT = Planetarium.GetUniversalTime();
-            ParsekLog.Info("Flight", string.Format(CultureInfo.InvariantCulture,
-                "Ground part placement detected: part='{0}' vesselPid={1} kerbalRec={2} ut={3:F2}; " +
-                "creating tree member next frame",
-                partName, createdPid, activeRec.RecordingId, placementUT));
+            ParsekLog.Info("Flight", GroundPartPlacement.FormatPlacementDetectedLog(
+                source, partName, createdPid, activeRec.RecordingId, placementUT));
             StartCoroutine(DeferredGroundPartPlacement(
-                activeTree.Id, activeRec.RecordingId, createdPid, placementUT));
+                activeTree.Id, activeRec.RecordingId, createdPid, placementUT, source));
         }
 
         /// <summary>
@@ -90,7 +109,8 @@ namespace Parsek
         /// first pose are taken from the settled vessel.
         /// </summary>
         IEnumerator DeferredGroundPartPlacement(
-            string treeId, string parentRecId, uint vesselPid, double placementUT)
+            string treeId, string parentRecId, uint vesselPid, double placementUT,
+            GroundPartPlacementSource source)
         {
             yield return null;
 
@@ -123,10 +143,11 @@ namespace Parsek
                 yield break;
             }
 
-            CreateGroundPartMember(parentRec, v, placementUT);
+            CreateGroundPartMember(parentRec, v, placementUT, source);
         }
 
-        void CreateGroundPartMember(Recording parentRec, Vessel v, double placementUT)
+        void CreateGroundPartMember(Recording parentRec, Vessel v, double placementUT,
+            GroundPartPlacementSource source)
         {
             Part part = v.rootPart;
             string partName = part.partInfo?.name ?? "unknown";
@@ -153,7 +174,7 @@ namespace Parsek
             member.AdoptRecordedVesselGuidIfEmpty(VesselLaunchIdentity.TryReadVesselGuid(snapshot));
 
             GroundPartPlacement.AttachMember(
-                activeTree, parentRec, bp, member, partPid, partName, placementUT);
+                activeTree, parentRec, bp, member, partPid, partName, placementUT, source);
 
             if (backgroundRecorder != null)
             {

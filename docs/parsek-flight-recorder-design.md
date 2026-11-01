@@ -643,8 +643,21 @@ snapshot carries him as the kerbalEVA part's crew, so the cargo flight writes hi
 from the transfer on, and the cross-tree claim hand-off (game-actions design 9.3) ends an earlier
 mission's open-ended hold on him at the transfer, as a dock or a boarding does.
 
-**Not covered.** A part detached from a foreign vessel and then dropped on the ground becomes a new
-vessel that no recording carries.
+**A part dropped on the ground in construction mode (2026-10-31).** A held part the kerbal sets
+down, whether he took it from an inventory or detached it from any vessel (a foreign one included),
+becomes its own new vessel: `EVAConstructionModeEditor.DropAttachablePart` builds a single-part
+`DroppedPart` ProtoVessel, `Game.AddVessel` loads it and fires `onNewVesselCreated`, and the same call
+then fires `onEditorPartEvent(PartDropped, heldPart)` with the HELD part (decompiled KSP 1.12.5; the
+panel's close and the exit from construction mode drop a held part the same way, through
+`ForceDrop`). `PartDropped` fires from nowhere else. Parsek reads it as a ground placement (Section
+4.11): the same gate (`GroundPartPlacement.EvaluatePlacement`, the held part's name against the
+created vessel's one PART node), the same `GroundPartPlaced` member one frame later, and the same
+`InventoryPartPlaced` event, with the source named on the lines (`Ground part placement detected:
+... source=construction-drop`, `via onEditorPartEvent(PartDropped)`). So a part detached from a
+foreign vessel and dropped leaves the foreign vessel's member with its `PartRemoved` and the dropped
+part with a member of its own, and after a rewind both come back. A member picked up again in
+construction mode ends `Disassembled` through the existing pocket seam (its vessel is a
+`DroppedPart`, the last part goes into the kerbal's hand).
 
 ---
 
@@ -1298,6 +1311,8 @@ function IsIntermediateChainLink(chains, recording):
 **Supply-route cargo in any end-of-recording snapshot** (todo END-SPAWN-SNAPSHOT-CARRIES-UNPAID-ROUTE-CARGO, owner ruling 2026-10-07). The same holds for an ordinary leaf whose own recorded vessel is a route endpoint (the route-fed vessel's own recording, for example a station flown on from the Tracking Station while a route delivers into it): its snapshot holds the crossings made while it recorded, and after a rewind it spawns from that snapshot. Each retire therefore also tags the rows to every committed final spawn segment (`GhostPlaybackLogic.IsFinalSpawnSegment`, not debris, spawnable or no terminal) whose vessel is POSITIVELY a stop or non-KSC origin of a committed or dormant route: pid equal, then the launch guids decide when both are known, else both root part flightIDs must be known and equal, never a bare pid (`ChainTipRouteCargo.IsPositiveEndpointMatch`; the row carries the endpoint's root part flightID). A recording that is already a chain tip keeps its one chain identity, and a spawn builds exactly one identity (`BuildSpawnIdentity`: the chain tip's, else the leaf's), so it is adjusted once. Tags, watermarks, fingerprints and the replay rule are the chain tip's. The capture UT of a snapshot is the recording's end before any tail trim: `RecordingOptimizer.TrimBoringTail` moves the end and the spawn earlier and keeps the snapshot, so the trim pass notes the pre-trim end against the snapshot's tree and fingerprint (`ChainTipRouteCargo.NoteTrimmedSnapshotCapture`, `CAPTURE` entries beside the stashed rows, only while a route exists) and every capture bound reads the later of the end and that note (`SnapshotCaptureUT`). A crossing in the trimmed tail is thus taken out of the early spawn copy and replayed live by the route after the spawn, paid once; a spawn that comes after such a replay leaves it in. The three copy sites above already carry every end-of-recording spawn (flight leaf, Tracking Station hand-off, deferred spawn queue, Real Spawn Control's warp, Space Center); `ChainTipRouteCargoTests.EveryVesselMaterializer_IsAKnownSpawnCopyOrRestoreSite` pins each production `RespawnVessel` / `SpawnAtPosition` caller so a new spawn path must choose.
 
 **Fuel moved inside the vessel during a trimmed tail** (todo TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES, owner ruling 2026-10-25: accepted). A transfer that leaves the vessel's totals unchanged (crossfeed, the stock transfer menu, a docked pair's fuel transfer) is no witness for `TrimBoringTail`, so when it happens in a quiet tail the vessel spawns at the trimmed end with the commit-time per-part split: the totals are exact and only which tank holds what arrives early. No ledger value moves. Parsek records no per-part fuel layout to catch it, by choice: the cost would fall on every recording for a split no player tracks.
+
+**A converter on a background vessel recorded only on rails** (todo TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES, closed 2026-10-31 by decompile, no defect). Such a recording carries no converter event (the on-rails init reads no part module), so its tail can trim with a drill or ISRU switched on. That delivers nothing early: an unloaded vessel runs no converter, and stock's `BaseConverter` catches up `now - lastUpdateTime` in slices once it loads, from the `lastUpdateTime` its module snapshot persists (decompiled KSP 1.12.5, the same fact `ConverterJumpPolicy` relies on). The end snapshot of a vessel unloaded through the whole recording therefore holds the resources of its last loaded frame and that frame's `lastUpdateTime`, wherever the trim puts the spawn, and the production of the tail arrives through the catch-up at the moment the spawned vessel next loads, exactly as without the trim. Only a loaded converter's snapshot holds production up to the snapshot UT, and that case keeps its tail through the `ConverterActivated` witness.
 
 ### 12.6 Ghosting Trigger Taxonomy
 
