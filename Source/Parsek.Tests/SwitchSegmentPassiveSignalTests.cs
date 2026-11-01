@@ -213,10 +213,14 @@ namespace Parsek.Tests
 
         private static TrackSection SurfaceMobile(double startUT, double endUT,
             params (double ut, double lat, double lon)[] frames)
+            => SurfaceSection(SegmentEnvironment.SurfaceMobile, startUT, endUT, frames);
+
+        private static TrackSection SurfaceSection(SegmentEnvironment env, double startUT, double endUT,
+            params (double ut, double lat, double lon)[] frames)
         {
             var sec = new TrackSection
             {
-                environment = SegmentEnvironment.SurfaceMobile,
+                environment = env,
                 referenceFrame = ReferenceFrame.Absolute,
                 startUT = startUT,
                 endUT = endUT,
@@ -243,7 +247,7 @@ namespace Parsek.Tests
 
             Assert.True(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out string reason));
             Assert.Null(reason);
-            Assert.Contains(logLines, l => l.Contains("settleSections=1") && l.Contains("maxSettleM=0.40"));
+            Assert.Contains(logLines, l => l.Contains("settleSections=1") && l.Contains("surfaceMoveM=0.40"));
         }
 
         [Fact]
@@ -255,6 +259,39 @@ namespace Parsek.Tests
 
             Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out string reason));
             Assert.Equal("non-boring-section:SurfaceMobile", reason);
+        }
+
+        [Fact]
+        public void ShortDrive_SplitByTheDebounce_IsKept()
+        {
+            // The recorder opens SurfaceMobile only after a 3 s debounce, so the first
+            // 3 m of this 3.8 m drive sit in the SurfaceStationary section before it,
+            // and the suspension samples the drive produced are ignored as wheel motion.
+            var rec = new Recording { RecordingId = "short-drive", VesselSnapshot = RoverSnapshot() };
+            rec.TrackSections.Add(SurfaceSection(SegmentEnvironment.SurfaceStationary, 0, 3,
+                (0, 0, 0), (1.5, 1.5 * DegPerMeter, 0), (3, 3 * DegPerMeter, 0)));
+            rec.TrackSections.Add(SurfaceMobile(3, 7,
+                (3, 3 * DegPerMeter, 0), (5, 3.6 * DegPerMeter, 0), (7, 3.8 * DegPerMeter, 0)));
+            rec.PartEvents.Add(Robotic(PartEventType.RoboticPositionSample, WheelPid, "roverWheel1", 2, 2));
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out string reason));
+            Assert.Equal("non-boring-section:SurfaceMobile", reason);
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpResumeTail(rec, 0.0, out reason));
+            Assert.Equal("non-boring-section:SurfaceMobile", reason);
+        }
+
+        [Fact]
+        public void VerticalMove_CountsTowardsDisplacement()
+        {
+            // A ladder climb or a straight-up hop moves the vessel with no horizontal change.
+            var rec = new Recording();
+            var sec = SurfaceMobile(0, 10, (0, 0, 0), (10, 0, 0));
+            var top = sec.frames[1];
+            top.altitude += 4.0;
+            sec.frames[1] = top;
+            rec.TrackSections.Add(sec);
+
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(rec, false, out _));
         }
 
         [Fact]

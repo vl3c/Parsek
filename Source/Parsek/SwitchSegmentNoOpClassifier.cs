@@ -227,7 +227,7 @@ namespace Parsek
                 for (int i = 0; i < segment.TrackSections.Count; i++)
                 {
                     TrackSection sec = segment.TrackSections[i];
-                    if (!IsBoringSection(sec, double.NaN, ref passive))
+                    if (!IsBoringSection(sec, segment, double.NaN, ref passive))
                     {
                         keepReason = "non-boring-section:" + sec.environment;
                         return false;
@@ -356,7 +356,7 @@ namespace Parsek
                 {
                     TrackSection sec = segment.TrackSections[i];
                     if (sec.endUT > sinceUT
-                        && !IsBoringSection(sec, sinceUT, ref passive))
+                        && !IsBoringSection(sec, segment, sinceUT, ref passive))
                     {
                         keepReason = "non-boring-section:" + sec.environment;
                         return false;
@@ -721,7 +721,7 @@ namespace Parsek
         }
 
         /// <summary>A surface section counts as surface MOTION only when the vessel
-        /// moved at least this far (horizontally) across the window. Below it the
+        /// got at least this far (3D) from where the window started. Below it the
         /// SurfaceMobile label came from physics settling: a rover bouncing on its
         /// suspension after a load, a kerbal shuffling in place.</summary>
         internal const double SurfaceMotionMinDisplacementMeters = 1.0;
@@ -729,78 +729,101 @@ namespace Parsek
         /// <summary>
         /// Whether a track section shows the vessel doing nothing. ExoBallistic and
         /// SurfaceStationary are boring (<see cref="GhostPlaybackLogic.IsBoringEnvironment"/>);
-        /// a SurfaceMobile section is boring too when its frames show the vessel never
-        /// got <see cref="SurfaceMotionMinDisplacementMeters"/> from where the window
-        /// started (<paramref name="sinceUT"/> NaN = the whole section). Every other
-        /// environment, and a SurfaceMobile section whose displacement cannot be
-        /// measured, is not boring (conservative).
+        /// a SurfaceMobile section is boring too when the vessel never got
+        /// <see cref="SurfaceMotionMinDisplacementMeters"/> from where the window
+        /// started, measured across EVERY surface section of <paramref name="owner"/>
+        /// in the window (<see cref="TryMeasureSurfaceDisplacement"/>): the recorder
+        /// opens a SurfaceMobile section only after a 3 s debounce, so the start of a
+        /// short drive sits in the SurfaceStationary section before it. Every other
+        /// environment, a non-Absolute SurfaceMobile section, and a displacement that
+        /// cannot be measured are not boring (conservative).
         /// </summary>
         internal static bool IsBoringSection(
-            TrackSection sec, double sinceUT, ref PassiveSignalTally passive)
+            TrackSection sec, Recording owner, double sinceUT, ref PassiveSignalTally passive)
         {
             if (GhostPlaybackLogic.IsBoringEnvironment(sec.environment))
                 return true;
-            if (sec.environment != SegmentEnvironment.SurfaceMobile)
+            if (sec.environment != SegmentEnvironment.SurfaceMobile
+                || sec.referenceFrame != ReferenceFrame.Absolute)
                 return false;
-            if (!TryMeasureSurfaceDisplacement(sec, sinceUT, out double meters))
-                return false;
-            if (meters >= SurfaceMotionMinDisplacementMeters)
+            if (!passive.DisplacementMeasured)
+            {
+                passive.DisplacementMeasured = true;
+                passive.DisplacementKnown =
+                    TryMeasureSurfaceDisplacement(owner, sinceUT, out passive.DisplacementMeters);
+            }
+            if (!passive.DisplacementKnown
+                || passive.DisplacementMeters >= SurfaceMotionMinDisplacementMeters)
                 return false;
             passive.SurfaceSettleSections++;
-            if (meters > passive.MaxSettleMeters)
-                passive.MaxSettleMeters = meters;
             return true;
         }
 
         /// <summary>
-        /// Pure over the section's Absolute frames: the largest horizontal distance
-        /// any frame in the window reaches from the window's reference position (the
-        /// last frame at or before <paramref name="sinceUT"/>, else the first frame
-        /// in the window). False when the section is not Absolute, has fewer than two
-        /// usable frames, or a body radius does not resolve.
+        /// Pure over the Absolute frames of every surface section (SurfaceStationary
+        /// and SurfaceMobile) of <paramref name="rec"/>, in UT order: the largest 3D
+        /// distance (horizontal plus altitude) any frame in the window reaches from the
+        /// window's reference position (the last surface frame at or before
+        /// <paramref name="sinceUT"/>, else the first surface frame in the window;
+        /// <paramref name="sinceUT"/> NaN = the whole recording). False when fewer than
+        /// two frames are usable, the frames change body, or the body radius does not
+        /// resolve.
         /// </summary>
         internal static bool TryMeasureSurfaceDisplacement(
-            TrackSection sec, double sinceUT, out double maxMeters)
+            Recording rec, double sinceUT, out double maxMeters)
         {
             maxMeters = 0.0;
-            if (sec.referenceFrame != ReferenceFrame.Absolute || sec.frames == null)
+            if (rec?.TrackSections == null)
                 return false;
             bool filtered = !double.IsNaN(sinceUT);
 
+            var frames = new List<TrajectoryPoint>();
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                TrackSection sec = rec.TrackSections[i];
+                if (!EnvironmentDetector.IsSurfaceEnvironment(sec.environment)
+                    || sec.referenceFrame != ReferenceFrame.Absolute
+                    || sec.frames == null)
+                    continue;
+                frames.AddRange(sec.frames);
+            }
+            frames.Sort((a, b) => a.ut.CompareTo(b.ut));
+
             int refIndex = -1;
             int firstInWindow = -1;
-            for (int i = 0; i < sec.frames.Count; i++)
+            for (int i = 0; i < frames.Count; i++)
             {
-                double ut = sec.frames[i].ut;
-                if (filtered && ut <= sinceUT)
+                if (filtered && frames[i].ut <= sinceUT)
                     refIndex = i;
-                else if (firstInWindow < 0 && (!filtered || ut >= sinceUT))
+                else if (firstInWindow < 0)
                     firstInWindow = i;
             }
             if (firstInWindow < 0)
                 return false;
             if (refIndex < 0)
                 refIndex = firstInWindow;
+            if (frames.Count - refIndex < 2)
+                return false;
 
-            TrajectoryPoint reference = sec.frames[refIndex];
+            TrajectoryPoint reference = frames[refIndex];
             Func<string, double> radiusLookup = BodyRadiusForTesting ?? LiveBodyRadius;
             double radius = radiusLookup(reference.bodyName);
             if (double.IsNaN(radius) || radius <= 0.0)
                 return false;
 
-            int measured = refIndex == firstInWindow ? 1 : 2;
-            for (int i = firstInWindow; i < sec.frames.Count; i++)
+            for (int i = firstInWindow; i < frames.Count; i++)
             {
-                TrajectoryPoint p = sec.frames[i];
+                TrajectoryPoint p = frames[i];
                 if (!string.Equals(p.bodyName, reference.bodyName, StringComparison.Ordinal))
                     return false;
-                if (i != firstInWindow) measured++;
-                double d = SpawnCollisionDetector.SurfaceDistance(
+                double horizontal = SpawnCollisionDetector.SurfaceDistance(
                     reference.latitude, reference.longitude, p.latitude, p.longitude, radius);
+                double vertical = p.altitude - reference.altitude;
+                double d = Math.Sqrt(horizontal * horizontal + vertical * vertical);
                 if (d > maxMeters)
                     maxMeters = d;
             }
-            return measured >= 2;
+            return true;
         }
 
         /// <summary>Test seam: replaces the live body-radius lookup.</summary>
@@ -837,7 +860,9 @@ namespace Parsek
             public int StopTransitions;
             public int Ragdoll;
             public int SurfaceSettleSections;
-            public double MaxSettleMeters;
+            public bool DisplacementMeasured;
+            public bool DisplacementKnown;
+            public double DisplacementMeters;
 
             public bool Any => WheelRobotic > 0 || StopTransitions > 0 || Ragdoll > 0
                 || SurfaceSettleSections > 0;
@@ -853,7 +878,7 @@ namespace Parsek
                 $"sinceUT={(double.IsNaN(sinceUT) ? "none" : sinceUT.ToString("R", CultureInfo.InvariantCulture))} " +
                 $"wheelRobotic={passive.WheelRobotic} stopTransitions={passive.StopTransitions} " +
                 $"ragdoll={passive.Ragdoll} settleSections={passive.SurfaceSettleSections} " +
-                $"maxSettleM={passive.MaxSettleMeters.ToString("F2", CultureInfo.InvariantCulture)}");
+                $"surfaceMoveM={(passive.DisplacementKnown ? passive.DisplacementMeters.ToString("F2", CultureInfo.InvariantCulture) : "n/a")}");
         }
 
         /// <summary>Smallest absolute difference between two angles (degrees),

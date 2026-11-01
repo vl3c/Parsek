@@ -35,8 +35,11 @@ ignores motion the physics makes on its own: robotic events whose module is a wh
 ordinal, by part pid then part name, then from the part prefab; unresolved still counts),
 `RoboticMotionStopped` and `ConverterDeactivated` ("off" transitions, like `EngineShutdown`; the
 recorder also writes a synthetic robotic stop when it closes a recording), `EvaRagdollStarted` /
-`Ended`, and a `SurfaceMobile` section whose Absolute frames never get 1 m (horizontal, max
-distance from the frame at or before the anchor) from where the window started. A no-op that
+`Ended`, and a `SurfaceMobile` section when the vessel never got 1 m (3D, the max distance of
+any window frame from the frame at or before the anchor) from where the window started, measured
+across the Absolute frames of EVERY surface section: the recorder opens SurfaceMobile only after
+its 3 s debounce, so the start of a short drive sits in the SurfaceStationary section before it
+(review finding; a per-section measure discarded a 3.8 m drive). A no-op that
 ignored any of these logs one `[SwitchSegment] ...: no-op despite passive signals` line with the counts.
 
 **Audited, not changed.** SAS-held RCS (`RCSActivated` at positive power) still counts: a real
