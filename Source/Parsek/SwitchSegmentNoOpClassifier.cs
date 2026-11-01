@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Runtime.CompilerServices;
 
 namespace Parsek
 {
@@ -59,7 +61,12 @@ namespace Parsek
     /// the plan's Known Limitation.</para>
     ///
     /// <para>EC drain, light / thermal-animation toggles, and pure time-warp
-    /// coasting are deliberately NOT meaningful.</para>
+    /// coasting are deliberately NOT meaningful. Neither is motion the physics
+    /// makes on its own (owner ruling 2026-11-01: the player has to actually move
+    /// the vehicle): wheel suspension / steering / motor robotic events, robotic
+    /// and converter "off" transitions, EVA ragdoll events, and a SurfaceMobile
+    /// section in which the vessel never got
+    /// <see cref="SurfaceMotionMinDisplacementMeters"/> from where it started.</para>
     /// </summary>
     internal static class SwitchSegmentNoOpClassifier
     {
@@ -126,16 +133,19 @@ namespace Parsek
             // Meaningful part events (see IsMeaningfulPartEvent): structural /
             // geometry events always count; engine / RCS events count only when
             // actively firing (positive throttle). Cosmetic light / thermal
-            // events and engine/RCS "off" transitions (shutdown / stop / zero
-            // throttle, including the zero-throttle resume seeds the recorder
-            // emits) do NOT count — a real burn is independently caught by the
-            // ExoPropulsive track section + the positive-throttle event.
+            // events, "off" transitions (shutdown / stop / zero throttle,
+            // including the zero-throttle resume seeds the recorder emits) and
+            // physics-made motion (wheel robotic events, ragdoll) do NOT count;
+            // a real burn is independently caught by the ExoPropulsive track
+            // section + the positive-throttle event, a real drive by the
+            // surface-motion gate below.
+            var passive = new PassiveSignalTally();
             if (segment.PartEvents != null)
             {
                 for (int i = 0; i < segment.PartEvents.Count; i++)
                 {
                     PartEvent evt = segment.PartEvents[i];
-                    if (IsMeaningfulPartEvent(evt))
+                    if (IsMeaningfulPartEvent(evt, segment, ref passive))
                     {
                         keepReason = "part-event:" + evt.eventType;
                         return false;
@@ -206,19 +216,20 @@ namespace Parsek
             }
 
             // Every track section must be "boring": ExoBallistic (coasting in
-            // space) or SurfaceStationary (sitting still). Any Atmospheric,
-            // ExoPropulsive (thrust), SurfaceMobile (rover driving), or Approach
-            // (airless-body descent) section means the vessel actually did
-            // something. (An empty section list is vacuously boring; the orbit
+            // space), SurfaceStationary (sitting still), or a SurfaceMobile
+            // section whose frames show no real displacement (settling). Any
+            // Atmospheric, ExoPropulsive (thrust), real SurfaceMobile (rover
+            // driving), or Approach (airless-body descent) section means the
+            // vessel actually did something. (An empty section list is vacuously boring; the orbit
             // gate below and the no-event gates above carry the decision then.)
             if (segment.TrackSections != null)
             {
                 for (int i = 0; i < segment.TrackSections.Count; i++)
                 {
-                    SegmentEnvironment env = segment.TrackSections[i].environment;
-                    if (!GhostPlaybackLogic.IsBoringEnvironment(env))
+                    TrackSection sec = segment.TrackSections[i];
+                    if (!IsBoringSection(sec, segment, double.NaN, ref passive))
                     {
-                        keepReason = "non-boring-section:" + env;
+                        keepReason = "non-boring-section:" + sec.environment;
                         return false;
                     }
                 }
@@ -233,6 +244,7 @@ namespace Parsek
                 return false;
             }
 
+            LogPassiveSignalsIgnored("IsNoOpSegment", segment, double.NaN, passive);
             return true;
         }
 
@@ -298,12 +310,13 @@ namespace Parsek
                 }
             }
 
+            var passive = new PassiveSignalTally();
             if (segment.PartEvents != null)
             {
                 for (int i = 0; i < segment.PartEvents.Count; i++)
                 {
                     PartEvent evt = segment.PartEvents[i];
-                    if (evt.ut >= sinceUT && IsMeaningfulPartEvent(evt))
+                    if (evt.ut >= sinceUT && IsMeaningfulPartEvent(evt, segment, ref passive))
                     {
                         keepReason = "part-event:" + evt.eventType;
                         return false;
@@ -343,7 +356,7 @@ namespace Parsek
                 {
                     TrackSection sec = segment.TrackSections[i];
                     if (sec.endUT > sinceUT
-                        && !GhostPlaybackLogic.IsBoringEnvironment(sec.environment))
+                        && !IsBoringSection(sec, segment, sinceUT, ref passive))
                     {
                         keepReason = "non-boring-section:" + sec.environment;
                         return false;
@@ -358,6 +371,7 @@ namespace Parsek
                 return false;
             }
 
+            LogPassiveSignalsIgnored("IsNoOpResumeTail", segment, sinceUT, passive);
             return true;
         }
 
@@ -478,23 +492,50 @@ namespace Parsek
         /// the vessel (so the segment must be KEPT). Distinct from
         /// <see cref="RecordingOptimizer.IsInertPartEventForTailTrim"/>, which
         /// treats <see cref="PartEventType.EngineShutdown"/> as non-inert (a
-        /// shutdown marks end-of-burn for tail-trim) — wrong here: a coasting
+        /// shutdown marks end-of-burn for tail-trim) - wrong here: a coasting
         /// resumed segment carries zero-throttle / shutdown engine seeds at its
         /// start UT and those must NOT block a no-op discard.
         ///
-        /// <para>Structural / geometry events (decouple, destroy, dock, undock,
-        /// parachute, deployables, gear, cargo, fairing, inventory, robotics)
-        /// always count. Engine / RCS events count only when actively firing
-        /// (positive throttle); their "off" transitions (shutdown / stop / zero
-        /// throttle) do not — a genuine burn is independently caught by the
-        /// ExoPropulsive (or Atmospheric) track section plus the positive-throttle
-        /// event. Cosmetic light / thermal-animation events never count.</para>
+        /// <para>The rule (owner ruling 2026-11-01): only the player acting on the
+        /// vessel counts; motion the physics produces on its own does not. So:</para>
+        /// <list type="bullet">
+        /// <item>Structural / geometry events (decouple, destroy, dock, undock,
+        /// parachute, deployables, gear, cargo, fairing, inventory) always count.</item>
+        /// <item>Engine / RCS events count only when actively firing (positive
+        /// throttle); their "off" transitions do not.</item>
+        /// <item>Robotic motion counts for servos, hinges, pistons and rotors, but
+        /// NOT for a wheel module (suspension compression, steering, motor): a
+        /// parked rover's suspension wiggles by a millimetre with nobody driving,
+        /// and a real drive is caught by the surface-motion gate instead
+        /// (<see cref="IsBoringSection"/>). An event whose module cannot be
+        /// resolved still counts (conservative).</item>
+        /// <item>"Off" transitions never count on their own: RoboticMotionStopped
+        /// (the recorder also writes a synthetic one when it closes a recording),
+        /// ConverterDeactivated (a drill or ISRU stops by itself when a tank fills
+        /// or power runs out).</item>
+        /// <item>An EVA ragdoll start / end is a physics outcome; a kerbal that
+        /// actually moved is caught by the surface-motion or environment gates.</item>
+        /// <item>Cosmetic light / thermal-animation events never count.</item>
+        /// </list>
         /// </summary>
         internal static bool IsMeaningfulPartEvent(PartEvent evt)
         {
+            var ignored = new PassiveSignalTally();
+            return IsMeaningfulPartEvent(evt, null, ref ignored);
+        }
+
+        /// <summary>
+        /// As <see cref="IsMeaningfulPartEvent(PartEvent)"/>, resolving a robotic
+        /// event's module against <paramref name="owner"/>'s vessel snapshots first
+        /// (part prefab second), and counting what it ignores into
+        /// <paramref name="passive"/> for the caller's summary line.
+        /// </summary>
+        internal static bool IsMeaningfulPartEvent(
+            PartEvent evt, Recording owner, ref PassiveSignalTally passive)
+        {
             switch (evt.eventType)
             {
-                // Cosmetic only — never meaningful.
+                // Cosmetic only - never meaningful.
                 case PartEventType.LightOn:
                 case PartEventType.LightOff:
                 case PartEventType.LightBlinkEnabled:
@@ -505,22 +546,339 @@ namespace Parsek
                 case PartEventType.ThermalAnimationMedium:
                     return false;
 
-                // Engine / RCS "off" transitions — not activity on their own.
+                // "Off" transitions - not activity on their own.
                 case PartEventType.EngineShutdown:
                 case PartEventType.RCSStopped:
                     return false;
+                case PartEventType.RoboticMotionStopped:
+                case PartEventType.ConverterDeactivated:
+                    passive.StopTransitions++;
+                    return false;
 
-                // Engine / RCS firing — meaningful only at positive throttle.
+                // Physics outcomes on an EVA kerbal, not input.
+                case PartEventType.EvaRagdollStarted:
+                case PartEventType.EvaRagdollEnded:
+                    passive.Ragdoll++;
+                    return false;
+
+                // Engine / RCS firing - meaningful only at positive throttle.
                 case PartEventType.EngineIgnited:
                 case PartEventType.EngineThrottle:
                 case PartEventType.RCSActivated:
                 case PartEventType.RCSThrottle:
                     return evt.value > 0f;
 
-                // Everything structural / geometry — meaningful.
+                // Robotic motion - meaningful unless the module is a wheel.
+                case PartEventType.RoboticMotionStarted:
+                case PartEventType.RoboticPositionSample:
+                    if (IsWheelRoboticEvent(evt, owner))
+                    {
+                        passive.WheelRobotic++;
+                        return false;
+                    }
+                    return true;
+
+                // Everything structural / geometry - meaningful.
                 default:
                     return true;
             }
+        }
+
+        /// <summary>
+        /// True when a robotic event's module resolves to a wheel module
+        /// (<see cref="FlightRecorder.IsWheelRoboticModuleName"/>). The event
+        /// carries the part's ROBOTIC ordinal (only robotic-classified modules
+        /// counted, <see cref="FlightRecorder.CacheRoboticModules"/>), not the
+        /// module name, so the name is looked up in the owner recording's vessel
+        /// snapshots (by part pid, then by part name), then on the part prefab.
+        /// Unresolved returns false, which keeps the event meaningful.
+        /// </summary>
+        internal static bool IsWheelRoboticEvent(PartEvent evt, Recording owner)
+        {
+            string moduleName = ResolveRoboticModuleName(evt, owner);
+            return moduleName != null && FlightRecorder.IsWheelRoboticModuleName(moduleName);
+        }
+
+        internal static string ResolveRoboticModuleName(PartEvent evt, Recording owner)
+        {
+            if (owner != null)
+            {
+                if (TryResolveRoboticModuleNameFromSnapshot(owner.VesselSnapshot,
+                        evt.partPersistentId, evt.partName, evt.moduleIndex, out string name)
+                    || TryResolveRoboticModuleNameFromSnapshot(owner.GhostVisualSnapshot,
+                        evt.partPersistentId, evt.partName, evt.moduleIndex, out name))
+                    return name;
+            }
+
+            Func<string, IList<string>> prefabLookup =
+                PrefabModuleNamesForTesting ?? LivePrefabModuleNames;
+            IList<string> modules = prefabLookup(evt.partName);
+            return RoboticModuleNameAtOrdinal(modules, evt.moduleIndex);
+        }
+
+        /// <summary>Test seam: replaces the live part-prefab module-name lookup.</summary>
+        internal static Func<string, IList<string>> PrefabModuleNamesForTesting;
+
+        /// <summary>
+        /// Pure: the module name at robotic ordinal <paramref name="roboticOrdinal"/>
+        /// of the PART in <paramref name="vesselSnapshot"/> whose persistentId is
+        /// <paramref name="partPid"/>, else of the first PART named
+        /// <paramref name="partName"/> (every instance of a part carries the same
+        /// module list). False when neither resolves.
+        /// </summary>
+        internal static bool TryResolveRoboticModuleNameFromSnapshot(
+            ConfigNode vesselSnapshot, uint partPid, string partName, int roboticOrdinal,
+            out string moduleName)
+        {
+            moduleName = null;
+            if (vesselSnapshot == null)
+                return false;
+            ConfigNode[] parts = vesselSnapshot.GetNodes("PART");
+            if (parts == null || parts.Length == 0)
+                return false;
+
+            ConfigNode byName = null;
+            for (int i = 0; i < parts.Length; i++)
+            {
+                ConfigNode part = parts[i];
+                if (part == null) continue;
+                if (partPid != 0
+                    && uint.TryParse(part.GetValue("persistentId"), NumberStyles.Integer,
+                        CultureInfo.InvariantCulture, out uint pid)
+                    && pid == partPid)
+                {
+                    moduleName = RoboticModuleNameAtOrdinal(ModuleNames(part), roboticOrdinal);
+                    if (moduleName != null)
+                        return true;
+                }
+                if (byName == null && !string.IsNullOrEmpty(partName)
+                    && string.Equals(part.GetValue("name"), partName, StringComparison.Ordinal))
+                    byName = part;
+            }
+
+            if (byName != null)
+                moduleName = RoboticModuleNameAtOrdinal(ModuleNames(byName), roboticOrdinal);
+            return moduleName != null;
+        }
+
+        private static List<string> ModuleNames(ConfigNode part)
+        {
+            var names = new List<string>();
+            ConfigNode[] modules = part.GetNodes("MODULE");
+            if (modules == null) return names;
+            for (int i = 0; i < modules.Length; i++)
+                names.Add(modules[i]?.GetValue("name"));
+            return names;
+        }
+
+        /// <summary>Pure: the <paramref name="roboticOrdinal"/>-th robotic-classified
+        /// name in <paramref name="moduleNames"/> (the recorder's own numbering), or
+        /// null.</summary>
+        internal static string RoboticModuleNameAtOrdinal(IList<string> moduleNames, int roboticOrdinal)
+        {
+            if (moduleNames == null || roboticOrdinal < 0)
+                return null;
+            int ordinal = 0;
+            for (int i = 0; i < moduleNames.Count; i++)
+            {
+                string name = moduleNames[i];
+                if (!FlightRecorder.IsRoboticModuleName(name)) continue;
+                if (ordinal == roboticOrdinal)
+                    return name;
+                ordinal++;
+            }
+            return null;
+        }
+
+        private static IList<string> LivePrefabModuleNames(string partName)
+        {
+            if (string.IsNullOrEmpty(partName))
+                return null;
+            try
+            {
+                return LivePrefabModuleNamesCore(partName);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseRateLimited("SwitchSegment", "noop-prefab-lookup-failed-" + partName,
+                    $"No-op check: prefab module lookup for '{partName}' threw " +
+                    $"{ex.GetType().Name}: {ex.Message}; robotic event kept as meaningful", 30.0);
+                return null;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static IList<string> LivePrefabModuleNamesCore(string partName)
+        {
+            AvailablePart info = PartLoader.getPartInfoByName(partName);
+            Part prefab = info?.partPrefab;
+            if (prefab == null || prefab.Modules == null)
+                return null;
+            var names = new List<string>(prefab.Modules.Count);
+            for (int i = 0; i < prefab.Modules.Count; i++)
+                names.Add(prefab.Modules[i]?.moduleName);
+            return names;
+        }
+
+        /// <summary>A surface section counts as surface MOTION only when the vessel
+        /// got at least this far (3D) from where the window started. Below it the
+        /// SurfaceMobile label came from physics settling: a rover bouncing on its
+        /// suspension after a load, a kerbal shuffling in place.</summary>
+        internal const double SurfaceMotionMinDisplacementMeters = 1.0;
+
+        /// <summary>
+        /// Whether a track section shows the vessel doing nothing. ExoBallistic and
+        /// SurfaceStationary are boring (<see cref="GhostPlaybackLogic.IsBoringEnvironment"/>);
+        /// a SurfaceMobile section is boring too when the vessel never got
+        /// <see cref="SurfaceMotionMinDisplacementMeters"/> from where the window
+        /// started, measured across EVERY surface section of <paramref name="owner"/>
+        /// in the window (<see cref="TryMeasureSurfaceDisplacement"/>): the recorder
+        /// opens a SurfaceMobile section only after a 3 s debounce, so the start of a
+        /// short drive sits in the SurfaceStationary section before it. Every other
+        /// environment, a non-Absolute SurfaceMobile section, and a displacement that
+        /// cannot be measured are not boring (conservative).
+        /// </summary>
+        internal static bool IsBoringSection(
+            TrackSection sec, Recording owner, double sinceUT, ref PassiveSignalTally passive)
+        {
+            if (GhostPlaybackLogic.IsBoringEnvironment(sec.environment))
+                return true;
+            if (sec.environment != SegmentEnvironment.SurfaceMobile
+                || sec.referenceFrame != ReferenceFrame.Absolute)
+                return false;
+            if (!passive.DisplacementMeasured)
+            {
+                passive.DisplacementMeasured = true;
+                passive.DisplacementKnown =
+                    TryMeasureSurfaceDisplacement(owner, sinceUT, out passive.DisplacementMeters);
+            }
+            if (!passive.DisplacementKnown
+                || passive.DisplacementMeters >= SurfaceMotionMinDisplacementMeters)
+                return false;
+            passive.SurfaceSettleSections++;
+            return true;
+        }
+
+        /// <summary>
+        /// Pure over the Absolute frames of every surface section (SurfaceStationary
+        /// and SurfaceMobile) of <paramref name="rec"/>, in UT order: the largest 3D
+        /// distance (horizontal plus altitude) any frame in the window reaches from the
+        /// window's reference position (the last surface frame at or before
+        /// <paramref name="sinceUT"/>, else the first surface frame in the window;
+        /// <paramref name="sinceUT"/> NaN = the whole recording). False when fewer than
+        /// two frames are usable, the frames change body, or the body radius does not
+        /// resolve.
+        /// </summary>
+        internal static bool TryMeasureSurfaceDisplacement(
+            Recording rec, double sinceUT, out double maxMeters)
+        {
+            maxMeters = 0.0;
+            if (rec?.TrackSections == null)
+                return false;
+            bool filtered = !double.IsNaN(sinceUT);
+
+            var frames = new List<TrajectoryPoint>();
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                TrackSection sec = rec.TrackSections[i];
+                if (!EnvironmentDetector.IsSurfaceEnvironment(sec.environment)
+                    || sec.referenceFrame != ReferenceFrame.Absolute
+                    || sec.frames == null)
+                    continue;
+                frames.AddRange(sec.frames);
+            }
+            frames.Sort((a, b) => a.ut.CompareTo(b.ut));
+
+            int refIndex = -1;
+            int firstInWindow = -1;
+            for (int i = 0; i < frames.Count; i++)
+            {
+                if (filtered && frames[i].ut <= sinceUT)
+                    refIndex = i;
+                else if (firstInWindow < 0)
+                    firstInWindow = i;
+            }
+            if (firstInWindow < 0)
+                return false;
+            if (refIndex < 0)
+                refIndex = firstInWindow;
+            if (frames.Count - refIndex < 2)
+                return false;
+
+            TrajectoryPoint reference = frames[refIndex];
+            Func<string, double> radiusLookup = BodyRadiusForTesting ?? LiveBodyRadius;
+            double radius = radiusLookup(reference.bodyName);
+            if (double.IsNaN(radius) || radius <= 0.0)
+                return false;
+
+            for (int i = firstInWindow; i < frames.Count; i++)
+            {
+                TrajectoryPoint p = frames[i];
+                if (!string.Equals(p.bodyName, reference.bodyName, StringComparison.Ordinal))
+                    return false;
+                double horizontal = SpawnCollisionDetector.SurfaceDistance(
+                    reference.latitude, reference.longitude, p.latitude, p.longitude, radius);
+                double vertical = p.altitude - reference.altitude;
+                double d = Math.Sqrt(horizontal * horizontal + vertical * vertical);
+                if (d > maxMeters)
+                    maxMeters = d;
+            }
+            return true;
+        }
+
+        /// <summary>Test seam: replaces the live body-radius lookup.</summary>
+        internal static Func<string, double> BodyRadiusForTesting;
+
+        private static double LiveBodyRadius(string bodyName)
+        {
+            if (string.IsNullOrEmpty(bodyName))
+                return double.NaN;
+            try
+            {
+                return LiveBodyRadiusCore(bodyName);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseRateLimited("SwitchSegment", "noop-body-radius-failed-" + bodyName,
+                    $"No-op check: body radius lookup for '{bodyName}' threw " +
+                    $"{ex.GetType().Name}: {ex.Message}; surface section kept as motion", 30.0);
+                return double.NaN;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static double LiveBodyRadiusCore(string bodyName)
+        {
+            CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
+            return body != null ? body.Radius : double.NaN;
+        }
+
+        /// <summary>What a no-op check ignored as physics, not player input.</summary>
+        internal struct PassiveSignalTally
+        {
+            public int WheelRobotic;
+            public int StopTransitions;
+            public int Ragdoll;
+            public int SurfaceSettleSections;
+            public bool DisplacementMeasured;
+            public bool DisplacementKnown;
+            public double DisplacementMeters;
+
+            public bool Any => WheelRobotic > 0 || StopTransitions > 0 || Ragdoll > 0
+                || SurfaceSettleSections > 0;
+        }
+
+        private static void LogPassiveSignalsIgnored(
+            string check, Recording rec, double sinceUT, PassiveSignalTally passive)
+        {
+            if (!passive.Any)
+                return;
+            ParsekLog.Verbose("SwitchSegment",
+                $"{check}: no-op despite passive signals rec={rec?.RecordingId ?? "<null>"} " +
+                $"sinceUT={(double.IsNaN(sinceUT) ? "none" : sinceUT.ToString("R", CultureInfo.InvariantCulture))} " +
+                $"wheelRobotic={passive.WheelRobotic} stopTransitions={passive.StopTransitions} " +
+                $"ragdoll={passive.Ragdoll} settleSections={passive.SurfaceSettleSections} " +
+                $"surfaceMoveM={(passive.DisplacementKnown ? passive.DisplacementMeters.ToString("F2", CultureInfo.InvariantCulture) : "n/a")}");
         }
 
         /// <summary>Smallest absolute difference between two angles (degrees),

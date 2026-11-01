@@ -17,6 +17,43 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~NOOP-CHECK-COUNTS-PHYSICS-MOTION: a parked rover's wheel jitter counts as a change, so a do-nothing resume is kept~~ [FILED 2026-11-01 from the overnight regression run (EVA-16 `2026-11-01_0616` and `_0623_a2`, INVALID driver-verdict-mismatch on main 9a1ed8d, same code as the 00:25 PASS), owner ruling 2026-11-01 ("the player has to actually move the vehicle for it to count as a change, not just the wheels"); FIXED 2026-11-01, branch `claude/project-thread-1ma84a`; xUnit, EVA-16 re-flight owed; product, medium (a do-nothing revisit is merged instead of dropped; with auto-merge off a rewind sat behind a merge dialog)]
+
+**Symptom.** EVA-16 commits Bill's tree with a parked rover in it and then rewinds. The parked
+rover's wheel suspension wiggles by a millimetre (0.327 -> 0.328) and the recorder stores each
+wiggle as `RoboticMotionStarted` / `Stopped` part events: 25 in one flight, all on `roverWheel1`,
+nobody driving. When one lands in the commit frame, `IsNoOpResumeTail` (inclusive `>=` at the
+resume anchor) read it as player activity, kept the resumed clone, and the rewind's own
+`LoadScene(SPACECENTER)` went through the scene-exit gate with a live tree; under the lane's
+auto-merge off that opened the pre-transition merge dialog, nobody answered, `rewind-timeout`
+300 s later. The 00:25 PASS had 24 such events, none in the commit frame: timing luck a player can hit.
+
+**Fix.** `SwitchSegmentNoOpClassifier` (both `IsNoOpSegment` and `IsNoOpResumeTail`, so the
+session check, the no-session committed-resume check and the committed-clone member check)
+ignores motion the physics makes on its own: robotic events whose module is a wheel module
+(resolved from the recording's `VesselSnapshot` / `GhostVisualSnapshot` by the event's robotic
+ordinal, by part pid then part name, then from the part prefab; unresolved still counts),
+`RoboticMotionStopped` and `ConverterDeactivated` ("off" transitions, like `EngineShutdown`; the
+recorder also writes a synthetic robotic stop when it closes a recording), `EvaRagdollStarted` /
+`Ended`, and a `SurfaceMobile` section when the vessel never got 1 m (3D, the max distance of
+any window frame from the frame at or before the anchor) from where the window started, measured
+across the Absolute frames of EVERY surface section: the recorder opens SurfaceMobile only after
+its 3 s debounce, so the start of a short drive sits in the SurfaceStationary section before it
+(review finding; a per-section measure discarded a 3.8 m drive). A no-op that
+ignored any of these logs one `[SwitchSegment] ...: no-op despite passive signals` line with the counts.
+
+**Audited, not changed.** SAS-held RCS (`RCSActivated` at positive power) still counts: a real
+RCS nudge for a rendezvous looks the same in the recording and can sit under the 0.1% orbit
+tolerance, so dropping it would lose a real change; an extra auto-merge is the cheaper error.
+Every other default-meaningful event (decouple, destroy, deployable broken, converter start,
+jetpack, inventory, gear, cargo, fairing) needs the player or is a real change to the vessel.
+
+**Still open (separate).** A rewind must never wait on a merge dialog (owner ruling 2026-11-01).
+With auto-merge on (every player build) the rewind's scene load auto-commits a changed live
+tree; the dialog is reachable with auto-merge off (harness only) and through the switch-segment
+branch of `HighLogic_LoadScene_Patch` that ignores auto-merge. Analysis of every remaining merge
+dialog is a follow-up in the same thread.
+
 ## ~~REPLAY-SCOPE-LOST-ON-SAVE-LOAD: a save written while a ghost replays loses that ghost when loaded~~ [FILED 2026-11-01 from lane CN-4's reading (thread "Cover Revert, save switching, CommNet ghosts"), owner ruling 2026-11-01; FIXED 2026-11-01, branch `claude/project-thread-beqac8`; unit-tested, lane CN-5 owed; product, high (every mid-replay ghost gone after a load: no flight / map / Tracking Station ghost, no CommNet relay, no terminal spawn)]
 
 A committed recording replays only while `PlaybackScopeTracker` holds it in replay scope (the
