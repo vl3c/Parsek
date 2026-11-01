@@ -9048,6 +9048,9 @@ columns whose blanks are visible, where the old outline simply said nothing.
 - Atlas findings and opportunities re-read (`atlas.toml`, `reviewed = "2026-11-01"`). The
   regenerated page is published at https://claude.ai/artifact/6uSBEKzHEtBHaK5t7bFxjm; the
   link above keeps the 2026-09-22 page. Without graphviz `dot` on PATH the page has no map.
+- `Recording` is plain data again (knot 584 -> 535, no longer a cut): `GhostVisible` reads
+  `Recording.GhostHiddenRule`, installed by `LaunchSiteOnlyGhost` (and the `RecordingStore`
+  type initialiser), and `DeepClone` copies the three sidecar hashes inline.
 
 **Fix.** None; this entry is where the next refactoring session starts. Before ranking
 again, regenerate and read the SIZE section (largest files and types, Tier 1 / Tier 2,
