@@ -3389,9 +3389,12 @@ namespace Parsek
                     + "cold load replaces it from the save");
                 StashActiveTreeAsPendingLimbo(commitUT);
             }
-            else if (!ParsekScenario.IsAutoMerge)
+            else if (!SceneExitInterceptor.IsAutoMergeForSceneExitLive(
+                scene, "FinalizeTreeOnSceneChange"))
             {
                 // autoMerge OFF: safe finalization but preserve snapshots for dialog in KSC/TS.
+                // A rewind's own Space Center load never takes this branch: it commits like
+                // auto-merge on (SceneExitInterceptor.ResolveSceneExitAutoMerge).
                 // Uses isSceneExit: true; FinalizeIndividualRecording's #289 re-snapshot path
                 // updates VesselSnapshot for stable-terminal recordings (Landed/Splashed/Orbiting)
                 // so the dialog and spawn-at-end safety check see the correct sit field.

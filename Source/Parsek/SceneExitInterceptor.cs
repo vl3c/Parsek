@@ -229,7 +229,8 @@ namespace Parsek
             bool switchSegmentActive =
                 !object.ReferenceEquals(null, scenario)
                 && scenario.ActiveSwitchSegmentSession != null;
-            bool isAutoMerge = ParsekScenario.IsAutoMerge;
+            bool isAutoMerge = IsAutoMergeForSceneExitLive(
+                destination, "ShouldShowDialogBeforeSceneChangeLive");
 
             return ShouldShowDialogBeforeSceneChange(
                 destination,
@@ -256,13 +257,50 @@ namespace Parsek
             bool reFlyActive =
                 !object.ReferenceEquals(null, scenario)
                 && scenario.ActiveReFlySessionMarker != null;
-            bool isAutoMerge = ParsekScenario.IsAutoMerge;
+            bool isAutoMerge = IsAutoMergeForSceneExitLive(
+                destination, "ShouldShowPendingTreeDialogBeforeSceneChangeLive");
 
             return ShouldShowDialogBeforeSceneChangeForPendingTree(
                 destination,
                 hasFinalizedPendingTree: hasFinalizedPendingTree,
                 reFlyActive: reFlyActive,
                 isAutoMerge: isAutoMerge);
+        }
+
+        /// <summary>
+        /// Pure: whether a scene load out of flight is a rewind's own load
+        /// (<c>RecordingStore.ExecuteRewindSaveLoad</c> arms the rewind flags, writes the
+        /// rewind save over persistent.sfs, then loads the Space Center). Such a load
+        /// never waits on a merge dialog (owner ruling 2026-11-01): the rewind is already
+        /// half done when it reaches this gate, so a dialog there strands it.
+        /// </summary>
+        internal static bool IsRewindSceneExit(GameScenes destination, bool isRewinding)
+            => isRewinding && destination == GameScenes.SPACECENTER;
+
+        /// <summary>
+        /// Pure: the auto-merge value a scene exit acts on. A rewind's own load resolves
+        /// the live recording the auto-merge way (drop a no-op, else commit silently)
+        /// whatever the setting says; every other exit reads the setting.
+        /// </summary>
+        internal static bool ResolveSceneExitAutoMerge(bool isAutoMerge, bool rewindSceneExit)
+            => isAutoMerge || rewindSceneExit;
+
+        /// <summary>
+        /// Live wrapper of <see cref="ResolveSceneExitAutoMerge"/>, read by the
+        /// LoadScene prefix and by <c>ParsekFlight.FinalizeTreeOnSceneChange</c> for
+        /// the same exit. Logs when the rewind forces auto-merge over the setting.
+        /// </summary>
+        internal static bool IsAutoMergeForSceneExitLive(GameScenes destination, string site)
+        {
+            bool isAutoMerge = ParsekScenario.IsAutoMerge;
+            bool rewindSceneExit = IsRewindSceneExit(destination, RecordingStore.IsRewinding);
+            if (rewindSceneExit && !isAutoMerge)
+            {
+                ParsekLog.Info("SceneExit",
+                    $"{site}: rewind scene load dest={destination} - resolving the live " +
+                    "recording as auto-merge (setting is off); a rewind never waits on a merge dialog");
+            }
+            return ResolveSceneExitAutoMerge(isAutoMerge, rewindSceneExit);
         }
 
         /// <summary>
@@ -850,6 +888,21 @@ namespace Parsek
                 // (this was the wrong-tree symptom that surfaced as Bug A).
                 var scenarioForSession = ParsekScenario.Instance;
                 var session = scenarioForSession?.ActiveSwitchSegmentSession;
+                if (session != null
+                    && SceneExitInterceptor.IsRewindSceneExit(scene, RecordingStore.IsRewinding))
+                {
+                    // A rewind's own load never asks (owner ruling 2026-11-01). The
+                    // session's segment lies in the future the rewind leaves, so the
+                    // session is cleared; a tree it pointed at stays where it is (a
+                    // committed tree stays committed; a pending tree, which CanRewind
+                    // refuses anyway, takes the pending-tree path below as auto-merge).
+                    ParsekLog.Info("SceneExit",
+                        $"LoadScene prefix: rewind scene load with switch-segment session " +
+                        $"sessionId={session.SessionId:D} tree={session.TreeId ?? "<null>"} and no " +
+                        $"live tree - clearing the session, no dialog dest={scene}");
+                    scenarioForSession.ClearSwitchSegmentSession("rewind-scene-exit");
+                    session = null;
+                }
                 if (session != null)
                 {
                     RecordingTree sessionTree =
