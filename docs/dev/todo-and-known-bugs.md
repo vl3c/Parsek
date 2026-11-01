@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~ISOLATED-BATCH-LEAVES-RECORDING-SIDECARS: an isolated in-game batch leaves the recording files it created on disk after its restore~~ [FILED 2026-11-01 from the overnight regression run (H62-coalescer-isolated `_0802`, H68-autorecord-orbiting `_0807`, H70-autorecord-pad-crew `_0810`: `recordings.count` counts `.prec` files while saveParse reads 0 recordings); owner ruling 2026-11-01 "if unused, delete"; FIXED 2026-11-01, branch `claude/project-thread-axuakt`; unit-tested, the three lanes owe a re-flight; test harness, low]
+## ~~ISOLATED-BATCH-LEAVES-RECORDING-SIDECARS: an isolated in-game batch leaves the recording files it created on disk after its restore~~ [FILED 2026-11-01 from the overnight regression run (H62-coalescer-isolated `_0802`, H68-autorecord-orbiting `_0807`, H70-autorecord-pad-crew `_0810`: `recordings.count` counts `.prec` files while saveParse reads 0 recordings); owner ruling 2026-11-01 "if unused, delete"; FIXED 2026-11-01, branch `claude/project-thread-axuakt`; LIVE-PROVEN 2026-11-01 on the branch head: H62 / H68 / H70 PASS, each logging `removed batch-created recording sidecars` (deleted=7 / 10 / 10, failed=0); test harness, low]
 
 `InGameTestRunner.RestoreBatchBaselineWithRecovery` swaps `Parsek/` back to the batch-start
 snapshot and reloads the baseline, but a test's pending tree can flush its sidecars after the
@@ -33,7 +33,7 @@ batch-start snapshot, parsed as a recording sidecar, and not named by memory
 `SelectBatchCreatedRecordingSidecars`. Tests: `BatchCreatedSidecarCleanupTests`. The collector
 guard is unchanged.
 
-## ~~STRATEGY-SAME-UT-DEACTIVATE-UNDONE: a strategy deactivated at the same UT it was activated is switched back on by the next recalculation~~ [FILED 2026-11-01 from the overnight regression run (L3-strategy-currency-conversion and L3-strategy-exchanger-floor, run `2026-11-01_0855`, deterministic); FIXED 2026-11-01, branch `claude/project-thread-axuakt`; unit-tested, both L3 lanes owe a re-flight; product, low (both rows at one exact UT)]
+## ~~STRATEGY-SAME-UT-DEACTIVATE-UNDONE: a strategy deactivated at the same UT it was activated is switched back on by the next recalculation~~ [FILED 2026-11-01 from the overnight regression run (L3-strategy-currency-conversion and L3-strategy-exchanger-floor, run `2026-11-01_0855`, deterministic); FIXED 2026-11-01, branch `claude/project-thread-axuakt`; LIVE-PROVEN 2026-11-01 on the branch head: both L3 lanes PASS, every `PatchStrategies` summary `no change activated=0 deactivated=0`; product, low (both rows at one exact UT)]
 
 `StrategyCommittedRows` (the committed-rows lookup behind the state patch, the `Strategy.Update()`
 prefix and the activation gate) ordered a same-UT pair deactivation first by design, so the state
@@ -52,7 +52,7 @@ agree. Deactivate-then-Activate at one UT stays on. Tests: `StrategyExpiryReplay
 (`Rows_SameUt_*`, `ResolveLedgerActiveAtNow_SameUtActivateThenDeactivate_Off`,
 `FirstFutureRow_SameUt_FollowsCaptureOrder`).
 
-## ~~TRIMMED-CHECKPOINT-SECTION-ENDS-BEFORE-IT-STARTS: a commit-time trim can leave a recording section whose end is before its start~~ [FILED 2026-11-01 from the overnight regression run (B13-mun-landing, run `2026-11-01_0234`, analyzer INV1-UT-MONOTONIC, 2 FAILs; timing-dependent, the last green had the same shape); FIXED 2026-11-01, branch `claude/project-thread-axuakt`; unit-tested, B13 owes a re-flight; product, low (an inverted section in a committed recording; playback clamps it)]
+## ~~TRIMMED-CHECKPOINT-SECTION-ENDS-BEFORE-IT-STARTS: a commit-time trim can leave a recording section whose end is before its start~~ [FILED 2026-11-01 from the overnight regression run (B13-mun-landing, run `2026-11-01_0234`, analyzer INV1-UT-MONOTONIC, 2 FAILs; timing-dependent, the last green had the same shape); FIXED 2026-11-01, branch `claude/project-thread-axuakt`; unit-tested; B13 re-flown 2026-11-01 PASS with no INV1 finding, but that flight never reached the drop path (0 `pre-start seed frames` lines), so the fix itself is proven by unit tests only; product, low (an inverted section in a committed recording; playback clamps it)]
 
 A save (`FlightRecorder.CheckpointOpenTrackSectionForSerialization`) closes the open section at
 the save UT and opens a continuation seeded with the previous sample, up to one sampling gap
